@@ -52,6 +52,25 @@ def _binary() -> str:
     return str(out)
 
 
+# A developer often runs this suite from inside an AgentDeck session, whose
+# environment names the real memory provider, carries its token, and says which
+# live session and recovery checkpoint it belongs to. Inherited, every project a
+# test created was provisioned a real note in the developer's own vault — eighteen
+# of them in one run, in a vault that syncs to a phone. A fixture server talks to
+# nothing outside itself unless a test says so.
+OUTSIDE_WORLD = {"AGENTDECK_GRIMOIRE_URL": "", "AGENTDECK_GRIMOIRE_TOKEN": "",
+                 "AGENTDECK_CHECKPOINT": "", "AGENTDECK_API": "",
+                 "AGENTDECK_SESSION_ID": "", "GRIMOIRE_SESSION": "",
+                 "AGENTDECK_MEDIA_DIR": "", "AGENTDECK_SCRATCH_TRASH": "", "AGENTDECK_LIVE": ""}
+
+# Not every server in this suite starts through a fixture: the local-runtime
+# tests launch their own from whatever environment the process has. So the
+# process itself forgets the outside world, once, before anything is spawned.
+for _name in [*OUTSIDE_WORLD, "AGENTDECK_BASE_URL", "AGENTDECK_DB",
+              "AGENTDECK_GRIMOIRE_CONTEXT_MODE", "AGENTDECK_GRIMOIRE_CONTEXT_PROJECTS"]:
+    os.environ.pop(_name, None)
+
+
 def _start(port: int, extra_env: dict):
     tmp = tempfile.mkdtemp(prefix="adk-e2e-")
     # Do not pass a caller's tmux client/server identity into fixture
@@ -69,6 +88,7 @@ def _start(port: int, extra_env: dict):
            "HOME": str(private_home),
            "TMUX": "",
            "TMUX_TMPDIR": str(private_tmux),
+           **OUTSIDE_WORLD,
            **extra_env}
     proc = subprocess.Popen([_binary()], cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

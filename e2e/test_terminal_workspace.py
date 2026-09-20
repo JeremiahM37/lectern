@@ -14,7 +14,7 @@ import urllib.request
 
 import pytest
 from playwright.sync_api import expect
-from conftest import _binary, _unused_port
+from conftest import _binary, _unused_port, OUTSIDE_WORLD
 
 @pytest.fixture()
 def real_terminal(tmp_path, request):
@@ -23,7 +23,7 @@ def real_terminal(tmp_path, request):
     tmux_dir = tempfile.TemporaryDirectory(prefix='adkt-', dir='/tmp')
     fixture_tmux_dir = os.environ.get('ADK_TEST_TMUX_ROOT', tmux_dir.name)
     Path(fixture_tmux_dir).mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, 'TMUX_TMPDIR': fixture_tmux_dir, 'TMUX': '', 'AGENTDECK_MOCK': '0',
+    env = {**os.environ, **OUTSIDE_WORLD, 'TMUX_TMPDIR': fixture_tmux_dir, 'TMUX': '', 'AGENTDECK_MOCK': '0',
            'AGENTDECK_DB': str(tmp_path/'test.db'), 'AGENTDECK_HOST': '127.0.0.1',
            'AGENTDECK_GRIMOIRE_URL': '', 'AGENTDECK_AUTH_TOKEN': '', 'AGENTDECK_SESSION_POLL': '3600',
            'XDG_STATE_HOME': str(tmp_path/'state')}
