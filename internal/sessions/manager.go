@@ -180,7 +180,12 @@ func (m *Manager) LaunchShell(ctx context.Context, targetID int64) (*store.Sessi
 	m.lifecycleMu.Unlock()
 	// Pass the target user's configured shell explicitly. Without the command,
 	// a target's tmux default-command could start an agent or another program.
-	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- \"${SHELL:-/bin/sh}\" -i"
+	// A shell carries its identity too: `agentdeck post` from it, or an agent
+	// someone starts in it by hand, belongs to this session like anything else.
+	shellEnv := map[string]string{}
+	identityEnv(shellEnv, sess.ID)
+	identity, _ := EnvPrefix(shellEnv)
+	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + "\"${SHELL:-/bin/sh}\" -i"
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		m.end(sess.ID, StatusDead)
@@ -390,6 +395,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	for k, v := range o.Env {
 		env[k] = v
 	}
+	identityEnv(env, sess.ID)
 	envPrefix, err := EnvPrefix(env)
 	if err != nil {
 		m.end(sess.ID, "dead")

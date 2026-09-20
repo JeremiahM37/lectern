@@ -1,3 +1,4 @@
+import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
@@ -186,6 +187,7 @@ export function SessionCard({
         {s.group_path && <span className="chip">{s.group_path}</span>}
       </div>
       <div className="spane">{preview}</div>
+      <SessionMemory api={api} sessionId={s.id} projectId={s.project_id ?? null} />
       {workspace && (
         <details className="session-worktree">
           <summary>

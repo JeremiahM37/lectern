@@ -185,7 +185,9 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 			}
 		}
 		if err := m.Memory.Remember(ctx, memory.Entry{
-			Project: projectName, Topic: topic, Session: sess.Name, Agent: sess.Agent,
+			// The same key the agent's own writes carry, not the display name:
+			// names repeat and can be edited, and a key that does either is a label.
+			Project: projectName, Topic: topic, Session: MemorySessionKey(sess.ID), Agent: sess.Agent,
 			Category: "handoff", Text: wrap,
 		}); err != nil {
 			m.Log.Warn("memory provider rejected the wrap", "err", err)

@@ -230,6 +230,7 @@ func liveCommand(c *console.Client, command string, args []string) ([]byte, erro
 		}
 		body["target_id"] = chosen.ID
 	} else if body["session_id"] == nil {
+		body["hint_session_id"] = mediapost.SessionID()
 		body["tmux_session"] = mediapost.TmuxSession()
 	}
 	if command == "expose" {

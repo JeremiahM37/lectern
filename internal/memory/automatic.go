@@ -88,15 +88,37 @@ func (g *Grimoire) Automatic(ctx context.Context, project, query string, exclude
 	return g.AutomaticProject(ctx, project, "", query, excluded)
 }
 
-func (g *Grimoire) AutomaticProject(ctx context.Context, project, topic, query string, excluded []string) (ContextResult, error) {
+// projectScope is where a project's memory is read from, and how that was
+// decided. It is one function so that what is reported to the operator is what
+// retrieval actually uses, not a description of it kept beside it.
+//
+//	managed    — the project has its own provisioned note; the link is exact
+//	configured — the operator named the paths
+//	guessed    — derived from the project's name; right only if a note happens
+//	             to be filed under that name
+func (g *Grimoire) projectScope(project, topic string) (ContextScope, string) {
 	scope := g.ContextScope(project)
+	_, configured := g.ContextProjects[project]
+	basis := "guessed"
+	if configured {
+		basis = "configured"
+	}
 	if topic != "" && scope.Mode == "scoped" {
-		if _, configured := g.ContextProjects[project]; !configured {
+		if !configured {
 			scope.Paths = []string{"memory/" + topic + ".md"}
+			basis = "managed"
 		} else {
 			scope.Paths = append(append([]string(nil), scope.Paths...), "memory/"+topic+".md")
 		}
 	}
+	if scope.Mode != "scoped" {
+		basis = scope.Mode
+	}
+	return scope, basis
+}
+
+func (g *Grimoire) AutomaticProject(ctx context.Context, project, topic, query string, excluded []string) (ContextResult, error) {
+	scope, _ := g.projectScope(project, topic)
 	if scope.Mode == "manual" || scope.Mode == "off" {
 		return ContextResult{}, nil
 	}

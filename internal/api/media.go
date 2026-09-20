@@ -25,19 +25,29 @@ type mediaLinkIn struct {
 	Title       string `json:"title"`
 	Note        string `json:"note"`
 	SessionID   int64  `json:"session_id"`
+	HintSession int64  `json:"hint_session_id"`
 	TmuxSession string `json:"tmux_session"`
 	Source      string `json:"source"`
 }
 
-// mediaSession resolves who is posting. An explicit id must exist; a tmux name
-// is a hint from the poster's environment, and an unknown one still posts —
-// unattributed — because losing the evidence is worse than losing its label.
-func (s *Server) mediaSession(id int64, tmux string) (*int64, error) {
+// mediaSession resolves who is posting. An explicit id must exist. A hint — the
+// id or tmux name the poster inherited from its environment — is only evidence:
+// it may have been inherited from a session of some other AgentDeck, and an
+// unknown one still posts, unattributed, because losing the evidence is worse
+// than losing its label.
+func (s *Server) mediaSession(id int64, tmux string, hints ...int64) (*int64, error) {
 	if id > 0 {
 		if _, err := s.DB.Session(id); err != nil {
 			return nil, invalid("no session %d", id)
 		}
 		return &id, nil
+	}
+	for _, hint := range hints {
+		if hint > 0 {
+			if _, err := s.DB.Session(hint); err == nil {
+				return &hint, nil
+			}
+		}
 	}
 	if tmux = strings.TrimSpace(tmux); tmux != "" {
 		if found, err := s.DB.LiveSessionByTmux(tmux); err == nil {
@@ -80,7 +90,8 @@ func (s *Server) postMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	explicit, _ := strconv.ParseInt(q.Get("session_id"), 10, 64)
-	sessionID, err := s.mediaSession(explicit, q.Get("tmux_session"))
+	hint, _ := strconv.ParseInt(q.Get("hint_session_id"), 10, 64)
+	sessionID, err := s.mediaSession(explicit, q.Get("tmux_session"), hint)
 	if err != nil {
 		respondErr(w, err)
 		return
@@ -148,7 +159,7 @@ func (s *Server) postMediaLink(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "url must be an http(s) address")
 		return
 	}
-	sessionID, err := s.mediaSession(in.SessionID, in.TmuxSession)
+	sessionID, err := s.mediaSession(in.SessionID, in.TmuxSession, in.HintSession)
 	if err != nil {
 		respondErr(w, err)
 		return

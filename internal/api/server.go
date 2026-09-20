@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projects/import", s.importProjects)
 	mux.HandleFunc("GET /api/projects/{id}/capability", s.projectCapability)
 	mux.HandleFunc("GET /api/projects/{id}/notes", s.projectNotes)
+	mux.HandleFunc("GET /api/projects/{id}/memory", s.projectMemoryLink)
 	mux.HandleFunc("DELETE /api/projects/{id}/notes/{noteID}", s.deleteNote)
 
 	// ---- tasks ----
@@ -197,6 +198,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/restore", s.restoreSession)
 	mux.HandleFunc("POST /api/sessions/{id}/send", s.sendToSession)
 	mux.HandleFunc("POST /api/sessions/{id}/attachments", s.uploadSessionAttachment)
+	mux.HandleFunc("GET /api/sessions/{id}/memory", s.sessionMemory)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", s.attachSession)
 	mux.HandleFunc("POST /api/sessions/{id}/handoff", s.handoffSession)
 	mux.HandleFunc("GET /api/sessions/{id}/wraps", s.sessionWraps)

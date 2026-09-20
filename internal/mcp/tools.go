@@ -99,6 +99,7 @@ var tools = []tool{
 			body := map[string]any{"title": argStr(args, "title"), "url": argStr(args, "url"),
 				"session_id": argInt(args, "session_id")}
 			if argInt(args, "session_id") == 0 {
+				body["hint_session_id"] = mediapost.SessionID()
 				body["tmux_session"] = mediapost.TmuxSession()
 			}
 			raw, err := s.api("POST", "/live/desktops", body)

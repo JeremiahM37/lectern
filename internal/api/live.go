@@ -105,6 +105,7 @@ func (s *Server) liveAllowed(w http.ResponseWriter) bool {
 
 type liveIn struct {
 	SessionID   int64  `json:"session_id"`
+	HintSession int64  `json:"hint_session_id"`
 	TmuxSession string `json:"tmux_session"`
 	TargetID    int64  `json:"target_id"`
 	Title       string `json:"title"`
@@ -119,7 +120,7 @@ type liveIn struct {
 // the default one. It returns the executor as a dialer, or the reason it cannot
 // be one.
 func (s *Server) liveTarget(in liveIn) (*store.Target, *int64, executor.Executor, executor.Dialer, error) {
-	sessionID, err := s.mediaSession(in.SessionID, in.TmuxSession)
+	sessionID, err := s.mediaSession(in.SessionID, in.TmuxSession, in.HintSession)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

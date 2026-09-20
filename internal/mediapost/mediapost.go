@@ -29,6 +29,18 @@ type Post struct {
 	Source    string // mcp | cli
 }
 
+// SessionID is the AgentDeck session this process was started in, when the
+// launcher said so. It is exact where TmuxSession is an inference, and it
+// survives what tmux does not: an agent that starts its tools with a scrubbed
+// environment forwards a named variable far more readily than TMUX.
+func SessionID() int64 {
+	id, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("AGENTDECK_SESSION_ID")), 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
 // TmuxSession names the tmux session this process runs inside, which is how a
 // post finds its AgentDeck session without the agent knowing its own id: the
 // poster is a child of the agent, and the agent lives in the session's pane.
@@ -56,14 +68,17 @@ func Send(base, token string, p Post) ([]byte, error) {
 		return nil, fmt.Errorf("give exactly one of a file path or a url")
 	}
 	endpoint := strings.TrimRight(base, "/") + "/api/media"
-	tmux := ""
+	// What the environment says is sent as a hint, apart from an id someone
+	// typed: inherited from another AgentDeck's session it names nothing here,
+	// and that must not turn a post into an error.
+	tmux, hint := "", int64(0)
 	if p.SessionID == 0 {
-		tmux = TmuxSession()
+		hint, tmux = SessionID(), TmuxSession()
 	}
 	var req *http.Request
 	if p.URL != "" {
 		raw, err := json.Marshal(map[string]any{"url": p.URL, "title": p.Title, "note": p.Note,
-			"session_id": p.SessionID, "tmux_session": tmux, "source": p.Source})
+			"session_id": p.SessionID, "hint_session_id": hint, "tmux_session": tmux, "source": p.Source})
 		if err != nil {
 			return nil, err
 		}
@@ -88,6 +103,9 @@ func Send(base, token string, p Post) ([]byte, error) {
 			"tmux_session": {tmux}, "source": {p.Source}}
 		if p.SessionID > 0 {
 			q.Set("session_id", strconv.FormatInt(p.SessionID, 10))
+		}
+		if hint > 0 {
+			q.Set("hint_session_id", strconv.FormatInt(hint, 10))
 		}
 		if req, err = http.NewRequest("POST", endpoint+"?"+q.Encode(), f); err != nil {
 			return nil, err

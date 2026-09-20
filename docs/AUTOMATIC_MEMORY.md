@@ -85,3 +85,63 @@ This integration is not a guarantee of semantic recall or agent compliance.
 The conservative lexical pass can miss paraphrases. Explicit MCP lookup remains
 appropriate when context is missing, stale, or insufficient. Operational facts
 still require live verification.
+
+## One key for a session, on both sides
+
+AgentDeck knows a session by its row. The memory store used to know the same
+session, at best, by its display name — which repeats and can be edited — for
+the one write AgentDeck made itself at a handoff, and by nothing at all for what
+the agent remembered on its own. So neither side could answer "what did this
+session learn".
+
+Every session now starts with its identity in its environment:
+
+| Variable | Read by | Value |
+|---|---|---|
+| `AGENTDECK_SESSION_ID` | `agentdeck post`, `live`, `expose`, and the AgentDeck MCP tools | the session id |
+| `GRIMOIRE_SESSION` | Grimoire's MCP server, which stamps it on every `remember` | `agentdeck-s<id>` |
+
+AgentDeck's own handoff write uses the same `agentdeck-s<id>`, and
+`GET /api/sessions/{id}/memory` reads back what the store recorded under it —
+learned, changed (with what was replaced), retracted. **Sessions → Memory** on a
+card shows it. The status is explicit, because an empty list has three causes:
+`empty` (nothing written under this key), `unavailable` (the store did not
+answer), `disabled` (no provider).
+
+Two limits worth knowing. A session launched before this existed carries no
+key, so its writes are under no session. And the variable has to reach the
+memory server: Claude Code passes its environment to the MCP servers it starts,
+but **Codex gives them a fixed short list**, so it must be told to forward
+these. In `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.grimoire]
+env_vars = ["GRIMOIRE_SESSION"]
+
+[mcp_servers.agentdeck]
+env_vars = ["AGENTDECK_SESSION_ID", "AGENTDECK_BASE_URL", "AGENTDECK_API", "TMUX", "TMUX_PANE"]
+```
+
+Without the second block a Codex agent's AgentDeck tools cannot tell which
+server launched them and fall back to a private local runtime.
+
+An id taken from the environment is a hint: inherited from a session of some
+other AgentDeck it names nothing here, and the post or view is simply left
+unattributed. An id someone typed (`--session`, `session_id`) is a claim, and an
+unknown one is an error.
+
+## Where a project's memory actually is
+
+`GET /api/projects/{id}/memory` reports the paths retrieval reads for a project,
+how they were chosen, and whether anything is there:
+
+- `managed` — the project has its own provisioned note (`memory/<topic>.md`). Exact.
+- `configured` — the operator named the paths in `AGENTDECK_GRIMOIRE_CONTEXT_PROJECTS`.
+- `guessed` — derived from the project's name: `memory/<slug>.md`, `memory/<slug>/`
+  and `Agent Memory/project_<slug>.md`.
+
+A guessed link whose paths are all missing is `unlinked`. Retrieval still runs,
+finds nothing, and the project looks as though it simply has no memory — the
+report is what makes that visible. File a note under one of the listed paths, or
+name the real ones in the configuration, to link it.
+
