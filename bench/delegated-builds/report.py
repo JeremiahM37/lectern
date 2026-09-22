@@ -5,8 +5,8 @@ from collections import defaultdict
 
 rows = [json.loads(open(f).read()) for f in sorted(glob.glob("results/*.json"))]
 rows = [r for r in rows if str(r["rep"]) != "0"]  # rep 0 was the pipeline trial
-ARMS = ["astra", "theirs", "lectern"]
-LABEL = {"astra": "All-Astra", "theirs": "astra-flash-orchestrator", "lectern": "Lectern delegated build"}
+ARMS = ["astra", "theirs", "native", "lectern"]
+LABEL = {"astra": "All-Astra", "theirs": "astra-flash-orchestrator (process worker)", "native": "astra-flash-orchestrator (native subagent)", "lectern": "Lectern delegated build"}
 by = defaultdict(list)
 for r in rows:
     by[(r["task"], r["arm"])].append(r)
@@ -39,9 +39,19 @@ for a in ARMS:
     if not cnt[a]: continue
     n = cnt[a]; T = tot[a]
     print(f"| {LABEL[a]} | {n} | {T['acc']/n:.0%} | {T['su']/n:.0%} | {T['wall']/n:.0f} | {fmt_k(T['ain']/n)} ({fmt_k(T['ac']/n)}) | {T['aout']/n:,.0f} | {fmt_k(T['fin']/n)} / {fmt_k(T['fout']/n)} | {T['usd']/n:.2f} |")
-base = tot["astra"]; th = tot["theirs"]; le = tot["lectern"]
-if cnt["theirs"] and cnt["lectern"] and cnt["astra"]:
+base = tot["astra"]; na = tot["native"]; le = tot["lectern"]
+if cnt["native"] and cnt["lectern"] and cnt["astra"]:
     n = cnt["astra"]
     print()
-    print(f"Lectern vs upstream workflow (per-task means over {n} tasks): Astra input {le['ain']/th['ain']-1:+.0%}, Astra output {le['aout']/th['aout']-1:+.0%}, Flash input {le['fin']/th['fin']-1:+.0%}, wall {le['wall']/th['wall']-1:+.0%}, est. $ {le['usd']/th['usd']-1:+.0%}.")
+    print(f"Lectern vs upstream native workflow (per-task means over {n} tasks): Astra input {le['ain']/na['ain']-1:+.0%}, Astra output {le['aout']/na['aout']-1:+.0%}, Flash input {le['fin']/na['fin']-1:+.0%}, wall {le['wall']/na['wall']-1:+.0%}, est. $ {le['usd']/na['usd']-1:+.0%}.")
+    print(f"Upstream native vs all-Astra: Astra input {na['ain']/base['ain']-1:+.0%}, Astra output {na['aout']/base['aout']-1:+.0%}, wall {na['wall']/base['wall']-1:+.0%}, est. $ {na['usd']/base['usd']-1:+.0%}.")
     print(f"Lectern vs all-Astra: Astra input {le['ain']/base['ain']-1:+.0%} (uncached {(le['ain']-le['ac'])/(base['ain']-base['ac'])-1:+.0%}), Astra output {le['aout']/base['aout']-1:+.0%}, wall {le['wall']/base['wall']-1:+.0%}.")
+# their own metric: Astra input per 1,000 inserted lines
+def lines(d): return int(d.split('insertion')[0].split(',')[-1]) if 'insertion' in d else 0
+per = {}
+for a in ARMS:
+    rs = [r for r in rows if r['arm'] == a]
+    if rs: per[a] = sum(r['root_usage'].get('input_tokens', 0) for r in rs) / max(1, sum(lines(r['diff']) for r in rs)) * 1000
+if per:
+    print()
+    print("Astra input per 1,000 inserted lines (the upstream README's metric): " + ", ".join(f"{LABEL[a]} {per[a]/1e6:.2f}M" for a in ARMS if a in per) + f". Upstream's own baseline was 8.56M and its thin phase 0.096M.")

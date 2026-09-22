@@ -388,20 +388,22 @@ hidden acceptance tests and the repositories' own suites
 | Arm | Accept | Suite | Mean wall | Mean Astra input (cached) | Mean Astra output | Mean Flash in / out | Est. $ / task |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Lead alone (Astra) | 8/8 | 8/8 | 181 s | 338k (301k) | 4,568 | – | 0.91 |
-| astra-flash-orchestrator, process worker | 8/8 | 8/8 | 305 s | 698k (660k) | 3,115 | 2.2M / 32k | 1.26 |
-| **Lectern delegated build** | 8/8 | 8/8 | 379 s | 685k (628k) | 2,463 | 3.2M / 41k | 1.41 |
+| astra-flash-orchestrator, native subagent via codex-router | 8/8 | 8/8 | 337 s | 493k (451k) | 2,365 | 4.5M / 28k | 1.06 |
+| **Lectern delegated build** | 8/8 | 8/8 | 329 s | 591k (551k) | 2,385 | 2.9M / 41k | 1.15 |
 
-Quality was equal across the board. Against the upstream workflow, Lectern's
-transport used 2% less lead input and 21% less lead output at a cost inside
-the run-to-run noise (one Lectern run went through a correction cycle the
-review caught). Against the lead working alone, *neither* delegating workflow
-was cheaper or faster at this task size (120–190-line diffs): delegation
-halves the lead's output tokens but roughly doubles its input, because the
-lead still reads the repository to write the brief and reads the diff to
-review it. The upstream project's headline savings were measured on builds
-of tens of thousands of lines; expect the arithmetic to change with size,
-and read the write-up before turning this on to save money rather than to
-save the lead's attention.
+Quality was equal across the board. Against the upstream workflow run as
+designed, Lectern ties on the lead's output and on wall time, uses 36% fewer
+worker tokens, and uses 20% more lead input (an MCP round trip is a full
+sample of the lead's context; a native child shares the parent's cached
+prefix), for an estimated 8% more per task. Against the lead working alone,
+*neither* delegating workflow was cheaper or faster at this size (120–190-line
+diffs): delegation halves the lead's output but adds to its input, because the
+lead still reads the repository to write the brief and the diff to review it.
+On the upstream README's own metric the native workflow cut Astra input per
+1,000 lines by 18% here, not 98.9%; that figure comes from a 48,000-line build
+and a baseline that included non-code work. What delegation buys at any size
+is the lead's attention and a reviewable unit of work; read the write-up
+before turning this on to save money.
 
 ## Tests
 

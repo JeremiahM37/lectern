@@ -16,6 +16,10 @@ ARMS = {
     "astra":   {"home": B/"home-astra",   "prefix": ""},
     "theirs":  {"home": B/"home-theirs",  "prefix": "$astra-flash-orchestrator "},
     "lectern": {"home": B/"home-lectern", "prefix": "$lectern-delegate "},
+    # the upstream package installed by its own installer, native spawn_agent
+    # through codex-router (signed in; route unhidden + selected), HOME carries
+    # ~/.agents/skills as its installer lays it out
+    "native":  {"home": B/"home",         "prefix": "$astra-flash-orchestrator ", "user_home": B/"userhome-native"},
 }
 ROOT_MODEL = "gpt-6-astra"
 PRICE = {  # their estimator, per 1M tokens; Flash at DeepSeek's peak rates
@@ -33,7 +37,7 @@ def sessions_since(home, t0, cwd, prefix=False):
     for f in glob.glob(str(home/"sessions"/"**"/"*.jsonl"), recursive=True):
         if os.path.getmtime(f) < t0 - 5:
             continue
-        meta = None; model = None; last = None
+        meta = None; model = None; last = None; models = set()
         with open(f) as fh:
             for line in fh:
                 try: o = json.loads(line)
@@ -41,13 +45,13 @@ def sessions_since(home, t0, cwd, prefix=False):
                 p = o.get("payload", {})
                 t = p.get("type") or o.get("type")
                 if t == "session_meta": meta = p
-                if t == "turn_context" and p.get("model"): model = p["model"]
+                if t == "turn_context" and p.get("model"): model = p["model"]; models.add(p["model"])
                 if t == "token_count" and p.get("info"): last = p["info"].get("total_token_usage")
         got = os.path.realpath(meta.get("cwd", "")) if meta else ""
         want = os.path.realpath(cwd)
         if not meta or not (got == want or (prefix and got.startswith(want + "/"))):
             continue
-        out.append({"file": f, "id": meta.get("id"), "model": model, "usage": last or {}})
+        out.append({"file": f, "id": meta.get("id"), "model": model, "models": models, "usage": last or {}})
     return out
 
 def cost(model, u):
@@ -79,6 +83,16 @@ def run(task, arm, rep):
     env = {k: v for k, v in os.environ.items() if not (k.startswith("LECTERN_") or k.startswith("AGENTDECK_") or k == "GRIMOIRE_SESSION")}
     env.update({"CODEX_HOME": str(a["home"]), "PATH": "/usr/local/go/bin:" + env["PATH"],
                 "BENCH_RUN_DIR": str(rd)})
+    if a.get("user_home"):
+        # HOME moves for the skill layout only; the Go caches stay where they
+        # are so a build does not re-download the world and skew wall time
+        env["HOME"] = str(a["user_home"])
+        env.update({"GOPATH": "/home/admin/go", "GOMODCACHE": "/home/admin/go/pkg/mod", "GOCACHE": "/home/admin/.cache/go-build"})
+    if arm == "native":
+        import socket
+        with socket.socket() as sk:
+            if sk.connect_ex(("127.0.0.1", 4202)) != 0:
+                raise SystemExit("codex-router is not listening on 4202; start it (tmux codex-router-bench) first")
     if arm == "lectern":
         env.update(json.loads((B/"home-lectern"/"bench-env.json").read_text()))
     t0 = time.time()
@@ -100,6 +114,11 @@ def run(task, arm, rep):
     untracked = subprocess.run(["git", "-C", str(ws), "ls-files", "--others", "--exclude-standard"], capture_output=True, text=True).stdout.split()
     root = sessions_since(a["home"], t0, ws)
     workers = sessions_since(B/"worker-home", t0, ws) + sessions_since(B/"worker-home-lectern", t0, rd, prefix=True)
+    if arm == "native":
+        # a native child is a thread in the same home; it is the one whose
+        # turns ran on the routed model
+        workers = [s for s in root if any("deepseek" in m for m in s["models"])]
+        root = [s for s in root if not any("deepseek" in m for m in s["models"])]
     def total(ss, model):
         agg = {}
         for s in ss:
@@ -107,6 +126,8 @@ def run(task, arm, rep):
             for k, v in s["usage"].items(): agg[k] = agg.get(k, 0) + v
         return agg
     ru = total(root, ROOT_MODEL); wu = total(workers, None)
+    if arm == "native":
+        wu = total(workers, None)
     # a root session that itself ran on a non-root model would be a routing failure: record it
     stray = [s["model"] for s in root if s["model"] != ROOT_MODEL]
     res = {"task": task, "arm": arm, "rep": rep, "exit": p.returncode, "wall_s": round(wall, 1),
