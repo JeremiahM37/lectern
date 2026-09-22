@@ -58,7 +58,7 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 			return fmt.Errorf("session changed before stop; refresh before retrying")
 		}
 	}
-	command := "tmux if-shell -F -t " + shellq.Quote("="+row.TmuxSession+":") + " " + shellq.Quote("#{==:#{"+trackingOption+"},"+identity+"}") + " " + shellq.Quote("kill-session -t "+shellq.Quote("="+row.TmuxSession))
+	command := "tmux if-shell -F -t " + shellq.Quote("="+row.TmuxSession+":") + " " + shellq.Quote(trackingCondition(identity)) + " " + shellq.Quote("kill-session -t "+shellq.Quote("="+row.TmuxSession))
 	r, err = ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("terminal stop failed; the session remains tracked")

@@ -43,3 +43,15 @@ func TestCheckpointAcceptsSessionsNamedBeforeTheRename(t *testing.T) {
 		}
 	}
 }
+
+func TestStopConditionAcceptsTheIdentityUnderEitherOptionName(t *testing.T) {
+	// A session started before the rename carries only the old option; the
+	// stop and archive conditions must still recognise its identity, or every
+	// such session becomes unstoppable after an upgrade.
+	c := trackingCondition("0123456789abcdef0123456789abcdef")
+	for _, want := range []string{trackingOption, legacyTrackingOption, "#{==:", ",0123456789abcdef0123456789abcdef}"} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("condition lacks %q: %s", want, c)
+		}
+	}
+}

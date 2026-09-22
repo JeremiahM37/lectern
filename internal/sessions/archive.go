@@ -91,7 +91,7 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 		}
 		// tmux checks its session-local identity before ending the exact session.
 		// A replaced session with the same name must never inherit this action.
-		command := "tmux if-shell -F -t " + shellq.Quote("="+s.TmuxSession+":") + " " + shellq.Quote("#{==:#{"+trackingOption+"},"+identity+"}") + " " + shellq.Quote("kill-session -t "+shellq.Quote("="+s.TmuxSession))
+		command := "tmux if-shell -F -t " + shellq.Quote("="+s.TmuxSession+":") + " " + shellq.Quote(trackingCondition(identity)) + " " + shellq.Quote("kill-session -t "+shellq.Quote("="+s.TmuxSession))
 		_, err = ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return nil, err

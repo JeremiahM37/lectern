@@ -24,6 +24,12 @@ const legacyTrackingOption = "@agentdeck-tracking-identity"
 // trackingFormat is a tmux format that yields the identity under either name.
 const trackingFormat = "#{?#{" + trackingOption + "},#{" + trackingOption + "},#{" + legacyTrackingOption + "}}"
 
+// trackingCondition is the tmux `if-shell -F` condition that the session's
+// identity, under either option name, equals the one on record.
+func trackingCondition(identity string) string {
+	return "#{==:" + trackingFormat + "," + identity + "}"
+}
+
 func trackingIdentityCommand(name, seed string) string {
 	target := shellq.Quote("=" + name + ":")
 	show := func(option string) string { return "tmux show-options -qv -t " + target + " " + option }
