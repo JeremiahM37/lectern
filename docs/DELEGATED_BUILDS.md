@@ -22,10 +22,13 @@ router; here it is a **task**, which is what Lectern already knew how to run:
 - accepting brings the branch into the lead's checkout as uncommitted changes
   (`accept_build` with `mode: apply`, the default) or as a merge commit.
 
-Why a task and not a native subagent: on a ChatGPT login, Codex refuses to run
-a non-OpenAI model as a subagent at all, and the router that works around it
-does so by signing Codex out, which loses the native model for the lead. A
-Lectern task has neither problem, and it works the same for a Claude Code lead.
+Why a task and not a native subagent: a native Codex subagent on a
+non-OpenAI model needs codex-router in front of Codex with the route
+selected as a subagent (it does work, signed in; see the benchmark
+write-up), which ties the workflow to Codex and to the router. A Lectern task
+runs on any target, with any agent that has a task definition, and works the
+same for a Claude Code lead; the diff and the report are reviewable on their
+own, and the correction cycle resumes the same worker in the same tree.
 
 ## Turning it on
 

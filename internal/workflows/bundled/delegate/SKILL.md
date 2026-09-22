@@ -35,8 +35,8 @@ repository cannot answer.
 
 ## 2. Confirm the worker is on
 
-Call `delegate_build` only after `list_projects` tells you the project name.
-If Delegated builds is off or the worker is not runnable, the tool says so:
+`delegate_build` finds the project from your checkout path; `list_projects`
+is only needed when the checkout is not registered. If Delegated builds is off or the worker is not runnable, the tool says so:
 finish the plan, report that, and stop; do not implement the bundle yourself
 in that case unless the user asks.
 
@@ -61,11 +61,12 @@ dependency or independent-acceptance boundary, never for visibility.
 
 ## 5. Dispatch and wait
 
-Call `delegate_build` with the project name, a short title and the brief.
-It creates the task, starts the worker and waits. It returns when the worker
-is finished, with the worker's completion report, the branch, and diff
-stats; or with `done:false` at its timeout, in which case call `wait_build`
-with the task id. That is one wait, not polling: do not call `task_status`
+Call `delegate_build` with `workdir` (your checkout's absolute path; or a
+project name), a short title and the brief. It creates the task, starts the
+worker and waits. It returns when the worker is finished, with the worker's
+completion report, the branch, diff stats and, when the patch is small, the
+patch itself under `diff`; or with `done:false` at its timeout, in which case
+call `wait_build` with the task id. That is one wait, not polling: do not call `task_status`
 for progress, do not work in the repository while the worker owns the
 bundle, and do not treat a timeout as the worker being stuck.
 
@@ -75,8 +76,8 @@ named as such.
 ## 6. Review the actual result
 
 Read `upstream/source/skill/references/review.md`. Worker completion means
-ready for review, not accepted. Call `task_diff` and read the patch and the
-report against the brief, in one pass with two lenses: specification
+ready for review, not accepted. Read the patch (`diff` in the result, or `task_diff` when it was too large
+to inline) and the report against the brief, in one pass with two lenses: specification
 compliance, then code quality and security. Spot-check where evidence is
 missing or a failure is plausible; do not routinely rerun the worker's whole
 suite. If corrections are needed, send all findings in one

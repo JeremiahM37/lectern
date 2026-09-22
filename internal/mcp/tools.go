@@ -319,11 +319,12 @@ var tools = []tool{
 			"report, branch and diff stats once the worker finishes, or done:false at the timeout " +
 			"(then call wait_build).",
 		Schema: obj(map[string]any{
-			"project":   str("project name (see list_projects)"),
+			"project":   str("project name (see list_projects); may be omitted when `workdir` is given"),
+			"workdir":   str("absolute path of your checkout; the project registered at that path is used"),
 			"title":     str("short card title"),
 			"brief":     str("the full brief for the worker"),
 			"timeout_s": num("seconds to wait before returning done:false (default 1500, max 3300)"),
-		}, "project", "title", "brief"),
+		}, "title", "brief"),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			cfg, err := s.object("/delegation")
 			if err != nil {
@@ -337,18 +338,32 @@ var tools = []tool{
 				return nil, fmt.Errorf("Delegated builds is on but the worker is not runnable: %v", cfg["worker_problem"])
 			}
 			name := argStr(args, "project")
+			workdir := strings.TrimRight(argStr(args, "workdir"), "/")
+			if name == "" && workdir == "" {
+				return nil, fmt.Errorf("give `project` (a name) or `workdir` (your checkout's absolute path)")
+			}
 			projects, err := s.list("/projects")
 			if err != nil {
 				return nil, err
 			}
 			var match map[string]any
+			var names []string
 			for _, p := range projects {
-				if pn, _ := p["name"].(string); pn == name {
+				pn, _ := p["name"].(string)
+				pr, _ := p["repo"].(string)
+				if pr == "" {
+					pr, _ = p["repo_path"].(string)
+				}
+				names = append(names, pn)
+				if (name != "" && pn == name) || (name == "" && workdir != "" && strings.TrimRight(pr, "/") == workdir) {
 					match = p
 				}
 			}
 			if match == nil {
-				return nil, fmt.Errorf("no project named %q", name)
+				if name != "" {
+					return nil, fmt.Errorf("no project named %q — have: %s", name, strings.Join(names, ", "))
+				}
+				return nil, fmt.Errorf("no project is registered at %s — have: %s", workdir, strings.Join(names, ", "))
 			}
 			agent, _ := settings["worker_agent"].(string)
 			model, _ := settings["worker_model"].(string)
@@ -440,6 +455,25 @@ func (s *Server) waitBuild(id, timeout int64) (any, error) {
 	}
 	for _, k := range []string{"report", "branch", "worktree_path", "diff_stat", "verify", "exit_code", "attempt"} {
 		out[k] = report[k]
+	}
+	// The patch itself, when it is small enough to read here: one result to
+	// review instead of a second round trip, which is one fewer sample of the
+	// lead's whole context.
+	if diff, err := s.object(fmt.Sprintf("/tasks/%d/diff", id)); err == nil {
+		if files, ok := diff["files"].([]any); ok {
+			size := 0
+			for _, f := range files {
+				if m, ok := f.(map[string]any); ok {
+					p, _ := m["patch"].(string)
+					size += len(p)
+				}
+			}
+			if size > 0 && size <= 48*1024 {
+				out["diff"] = files
+				out["next"] = "review `diff` and `report`, then accept_build (with workdir) or request_changes for one correction cycle"
+				return out, nil
+			}
+		}
 	}
 	out["next"] = "read task_diff, then accept_build (with workdir to merge) or request_changes for one correction cycle"
 	return out, nil
