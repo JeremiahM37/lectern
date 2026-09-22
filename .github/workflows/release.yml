@@ -65,7 +65,9 @@ jobs:
           test "$(curl -s localhost:19110/api/delegation | grep -o '"enabled":false')" = '"enabled":false'
           kill %1
           # the deb installs where the docs say
-          dpkg-deb -c "$(ls "$GITHUB_WORKSPACE"/dist/lectern_*_linux_amd64.deb)" | grep -q './usr/local/bin/lectern'
+          # no grep -q on a pipe under pipefail: an early exit turns tar's SIGPIPE into a failure
+          listing=$(dpkg-deb -c "$(ls "$GITHUB_WORKSPACE"/dist/lectern_*_linux_amd64.deb)")
+          echo "$listing" | grep -q './usr/local/bin/lectern'
       - name: Publish
         uses: goreleaser/goreleaser-action@v6
         with:
