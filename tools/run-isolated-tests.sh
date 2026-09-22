@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run AgentDeck tests in a copied, unprivileged bubblewrap namespace.
+# Run Lectern tests in a copied, unprivileged bubblewrap namespace.
 #
 # This is intentionally fail-closed.  The operator must review this runner
 # and set ADK_ISOLATION_REVIEWED=1 before any test process can start.
@@ -12,7 +12,7 @@ fi
 
 source_dir=$(readlink -f "${1:-$(dirname "${BASH_SOURCE[0]}")/..}")
 [[ -d "$source_dir" && -f "$source_dir/go.mod" ]] || {
-  echo "source must be an AgentDeck checkout: $source_dir" >&2
+  echo "source must be a Lectern checkout: $source_dir" >&2
   exit 2
 }
 
@@ -49,7 +49,7 @@ fi
 # Stage only the checkout under test.  The private copy is the only writable
 # source mount below, so a faulty test cannot edit the canonical checkout or
 # any live service files.
-stage=$(mktemp -d /tmp/adk-isolated-stage.XXXXXX)
+stage=$(mktemp -d /tmp/lec-isolated-stage.XXXXXX)
 cleanup_stage() { find "$stage" -depth -delete 2>/dev/null || true; }
 trap cleanup_stage EXIT
 mkdir -p "$stage/src"
@@ -60,7 +60,7 @@ if [[ $mode == frontend || $mode == all || $mode == e2e ]]; then
   # fallback for local verification. Both package manifests must match so a
   # stale dependency tree cannot silently satisfy a different candidate.
   candidate_deps="$source_dir/frontend/node_modules"
-  canonical_deps=${ADK_FRONTEND_DEPS:-/home/admin/projects/agentdeck/frontend/node_modules}
+  canonical_deps=${ADK_FRONTEND_DEPS:-/home/admin/projects/lectern/frontend/node_modules}
   if [[ -d "$candidate_deps" && -f "$candidate_deps/react/package.json" ]]; then
     frontend_deps=$(readlink -f "$candidate_deps")
   elif [[ -d "$canonical_deps" && -f "$canonical_deps/react/package.json" ]]; then
@@ -90,15 +90,15 @@ chmod -R a+rwX "$stage/src"
 mkdir -p "$stage/bin" "$stage/home" "$stage/go" "$stage/cache" "$stage/state"
 mkdir -p "$stage/vite-cache" "$stage/vite-temp"
 
-tmux_root=/tmp/adk-test-tmux
+tmux_root=/tmp/lec-test-tmux
 host_tmux_socket=${TMUX-}
 host_tmux_socket=${host_tmux_socket%%,*}
 [[ -n "$host_tmux_socket" ]] || host_tmux_socket="/tmp/tmux-$(id -u)/default"
 
 gomodcache=$(go env GOMODCACHE)
 goroot=$(go env GOROOT)
-venv=${ADK_PYTHON_VENV:-/home/admin/projects/agentdeck/.venv}
-python_base=${ADK_PYTHON_BASE:-}
+venv=${ADK_PYTHON_VENV:-/home/admin/projects/lectern/.venv}
+python_base=${LEC_PYTHON_BASE:-}
 playwright=${ADK_PLAYWRIGHT_CACHE:-/home/admin/.cache/ms-playwright}
 [[ -d "$venv" ]] || venv=
 [[ -d "$playwright" ]] || playwright=
@@ -232,22 +232,22 @@ case "$mode" in
        test "${HOME}" = /tmp/home
        test ! -e "${ADK_HOST_TMUX_SOCKET}"
        mkdir -p "$ADK_TEST_TMUX_ROOT"
-       tmux -f /dev/null new-session -d -s adk-isolation-smoke -- sleep 30
-       tmux has-session -t =adk-isolation-smoke
+       tmux -f /dev/null new-session -d -s lec-isolation-smoke -- sleep 30
+       tmux has-session -t =lec-isolation-smoke
        mkdir -p /tmp/fixture-root
        tmux -f /dev/null new-session -d -s terminal-test -c /tmp/fixture-root bash --norc
        tmux has-session -t =terminal-test
        tmux kill-session -t =terminal-test
-       tmux kill-session -t =adk-isolation-smoke
-       ! tmux has-session -t =adk-isolation-smoke 2>/dev/null
-       tmux -L adk-label-a -f /dev/null new-session -d -s label-a -- sleep 30
-       tmux -L adk-label-b -f /dev/null new-session -d -s label-b -- sleep 30
-       tmux -L adk-label-a has-session -t =label-a
-       tmux -L adk-label-b has-session -t =label-b
-       tmux -L adk-label-a kill-session -t =label-a
-       tmux -L adk-label-b kill-session -t =label-b
-       ! tmux -L adk-label-a has-session -t =label-a 2>/dev/null
-       ! tmux -L adk-label-b has-session -t =label-b 2>/dev/null
+       tmux kill-session -t =lec-isolation-smoke
+       ! tmux has-session -t =lec-isolation-smoke 2>/dev/null
+       tmux -L lec-label-a -f /dev/null new-session -d -s label-a -- sleep 30
+       tmux -L lec-label-b -f /dev/null new-session -d -s label-b -- sleep 30
+       tmux -L lec-label-a has-session -t =label-a
+       tmux -L lec-label-b has-session -t =label-b
+       tmux -L lec-label-a kill-session -t =label-a
+       tmux -L lec-label-b kill-session -t =label-b
+       ! tmux -L lec-label-a has-session -t =label-a 2>/dev/null
+       ! tmux -L lec-label-b has-session -t =label-b 2>/dev/null
        echo "PASS: isolated tmux smoke"'
     )
     ;;

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 func TestMultiWorkspaceTargetPreflightPreservesRepositories(t *testing.T) {
@@ -173,7 +173,7 @@ func TestMultiWorkspaceIgnoresReusedProcessReceipt(t *testing.T) {
 			_ = unrelated.Wait()
 		}
 	})
-	receiptPath := filepath.Join(plan.Path, ".agentdeck-process.json")
+	receiptPath := filepath.Join(plan.Path, ".lectern-process.json")
 	receipt := map[string]any{"pgid": unrelated.Process.Pid, "starttime": "0", "boot_id": "test-boot"}
 	raw, _ := json.Marshal(receipt)
 	if err := os.WriteFile(receiptPath, raw, 0600); err != nil {
@@ -220,7 +220,7 @@ func TestMultiWorkspaceLegacyReceiptGuardsLiveProcessGroups(t *testing.T) {
 	if err := RunInteractive(context.Background(), executor.NewLocal(), "create", plan); err != nil {
 		t.Fatal(err)
 	}
-	receiptPath := filepath.Join(plan.Path, ".agentdeck-process.json")
+	receiptPath := filepath.Join(plan.Path, ".lectern-process.json")
 	writeReceipt := func(pgid int) {
 		t.Helper()
 		raw, _ := json.Marshal(map[string]any{"pgid": pgid})
@@ -311,7 +311,7 @@ func TestMultiWorkspaceLockProbeOverlapRetriesWithoutOverlapping(t *testing.T) {
 	}
 	removeWhileHolding := func(plan *Interactive, hold time.Duration) (error, time.Duration) {
 		t.Helper()
-		file, err := os.OpenFile(filepath.Join(plan.Path, ".agentdeck-lock"), os.O_RDWR, 0600)
+		file, err := os.OpenFile(filepath.Join(plan.Path, ".lectern-lock"), os.O_RDWR, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,7 +343,7 @@ func TestMultiWorkspaceLockProbeOverlapRetriesWithoutOverlapping(t *testing.T) {
 	}
 
 	long := makePlan(94)
-	lockPath := filepath.Join(long.Path, ".agentdeck-lock")
+	lockPath := filepath.Join(long.Path, ".lectern-lock")
 	file, err := os.OpenFile(lockPath, os.O_RDWR, 0600)
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +424,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 			t.Skip(bin + " unavailable")
 		}
 	}
-	socket, err := os.MkdirTemp("", "adk-group-")
+	socket, err := os.MkdirTemp("", "lec-group-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 			if err := os.WriteFile(outside, []byte("preserve outside bytes"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			replacement := filepath.Join(plan.Path, ".agentdeck-state.next")
+			replacement := filepath.Join(plan.Path, ".lectern-state.next")
 			if err := os.Symlink(outside, replacement); err != nil {
 				t.Fatal(err)
 			}
@@ -503,7 +503,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 				t.Fatal("workspace metadata write followed an outside symlink")
 			}
 			os.Remove(replacement)
-			for _, name := range []string{".agentdeck-lock", ".agentdeck-state.json", ".agentdeck-process.json"} {
+			for _, name := range []string{".lectern-lock", ".lectern-state.json", ".lectern-process.json"} {
 				original := filepath.Join(plan.Path, name)
 				backup := filepath.Join(root, "saved-"+name)
 				if err := os.Rename(original, backup); err != nil {
@@ -523,7 +523,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			lockPath := filepath.Join(plan.Path, ".agentdeck-lock")
+			lockPath := filepath.Join(plan.Path, ".lectern-lock")
 			savedLock := filepath.Join(root, "original-lock")
 			if err := os.Rename(lockPath, savedLock); err != nil {
 				t.Fatal(err)
@@ -534,7 +534,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 			}
 			os.Remove(lockPath)
 			os.Rename(savedLock, lockPath)
-			processReceipt := filepath.Join(plan.Path, ".agentdeck-process.json")
+			processReceipt := filepath.Join(plan.Path, ".lectern-process.json")
 			receiptBefore, err := os.ReadFile(processReceipt)
 			if err != nil {
 				t.Fatal(err)
@@ -582,7 +582,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 				if content, _ := os.ReadFile(laterArtifact); string(content) != "keep" {
 					t.Fatal("later edit was removed")
 				}
-				data, err := os.ReadFile(filepath.Join(plan.Path, ".agentdeck-state.json"))
+				data, err := os.ReadFile(filepath.Join(plan.Path, ".lectern-state.json"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -605,7 +605,7 @@ func TestMultiWorkspaceCreationFailureAndCleanup(t *testing.T) {
 				}
 				git(r.Worktree.Repo, "rev-parse", r.Worktree.Branch)
 			}
-			if _, err := os.Stat(filepath.Join(plan.Path, ".agentdeck-state.json")); err != nil {
+			if _, err := os.Stat(filepath.Join(plan.Path, ".lectern-state.json")); err != nil {
 				t.Fatal("durable removal receipt lost")
 			}
 		})
@@ -624,7 +624,7 @@ func testMultiWorkspaceSupervisorDeath(t *testing.T, cancel bool) {
 			t.Skip(bin + " unavailable")
 		}
 	}
-	socket, err := os.MkdirTemp("", "adk-orphan-")
+	socket, err := os.MkdirTemp("", "lec-orphan-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +670,7 @@ func testMultiWorkspaceSupervisorDeath(t *testing.T, cancel bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	concurrentExecutor := executor.NewLocal()
-	receiptPath := filepath.Join(plan.Path, ".agentdeck-state.json")
+	receiptPath := filepath.Join(plan.Path, ".lectern-state.json")
 	beforeStatus, err := os.ReadFile(receiptPath)
 	if err != nil {
 		t.Fatal(err)

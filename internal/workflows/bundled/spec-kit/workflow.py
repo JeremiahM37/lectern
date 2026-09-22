@@ -45,7 +45,7 @@ def prepare(root):
             relative = ".specify/" + source.relative_to(UPSTREAM).as_posix()
             created += install_missing(root, relative, source.read_bytes(), 0o755 if executable else 0o644)
     for filename in ("LICENSE", "PROVENANCE.json"):
-        created += install_missing(root, ".specify/agentdeck-spec-kit/" + filename, (UPSTREAM / filename).read_bytes())
+        created += install_missing(root, ".specify/lectern-spec-kit/" + filename, (UPSTREAM / filename).read_bytes())
     return created
 
 
@@ -57,7 +57,7 @@ def render(mode):
         if not command:
             raise ValueError("upstream command has no bash script mapping")
         body = body.replace("{SCRIPT}", "bash .specify/" + command.group(1).strip())
-    body = re.sub(r"__SPECKIT_COMMAND_([A-Z]+)__", lambda m: "agentdeck-spec-kit " + m.group(1).lower(), body)
+    body = re.sub(r"__SPECKIT_COMMAND_([A-Z]+)__", lambda m: "lectern-spec-kit " + m.group(1).lower(), body)
     body = body.replace("$ARGUMENTS", "the user's request following the selected mode in this conversation")
     body = body.replace("{ARGS}", "the user's request following the selected mode in this conversation")
     body = re.sub(r"(?<![\w./])/memory/constitution\.md", ".specify/memory/constitution.md", body)
@@ -65,8 +65,8 @@ def render(mode):
     body = body.replace("`specify preset resolve spec-template`", "`bash .specify/scripts/bash/resolve-template.sh spec-template --json`")
     preface = ("Adapter rules: follow the parent SKILL.md. Existing user/project instructions take precedence. "
                "Extension hooks are not installed or executed by this adapter; report configured hooks instead. "
-               "Preserve the active AgentDeck worktree and branch, project instructions and shared memory.\n\n")
-    return "# AgentDeck Spec Kit: " + mode + "\n\n" + preface + body.strip() + "\n"
+               "Preserve the active Lectern worktree and branch, project instructions and shared memory.\n\n")
+    return "# Lectern Spec Kit: " + mode + "\n\n" + preface + body.strip() + "\n"
 
 
 def main():

@@ -8,7 +8,7 @@ import (
 )
 
 func TestPctWrapQuoting(t *testing.T) {
-	cmd := Wrap("101", "git -C '/root/adk demo' diff", "/root")
+	cmd := Wrap("101", "git -C '/root/lec demo' diff", "/root")
 	if !strings.HasPrefix(cmd, "sudo pct exec 101 -- bash -c ") {
 		t.Fatalf("prefix: %s", cmd)
 	}
@@ -16,7 +16,7 @@ func TestPctWrapQuoting(t *testing.T) {
 		t.Errorf("cwd missing: %s", cmd)
 	}
 	// the single-quoted payload survives the shell quoting round trip
-	if !strings.Contains(cmd, "adk demo") {
+	if !strings.Contains(cmd, "lec demo") {
 		t.Errorf("payload lost: %s", cmd)
 	}
 }

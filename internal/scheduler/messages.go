@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/state"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/state"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // DeliverMessages runs on the scheduler's own goroutine. Interrupts cannot race
@@ -76,11 +76,11 @@ func (s *Scheduler) deliverTaskMessages(ctx context.Context, id int64) error {
 		if err != nil {
 			return err
 		}
-		_, err = ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =adk-%d 2>/dev/null || true", active[0].ID), executor.RunOpts{Timeout: 20})
+		_, err = ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", active[0].ID), executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
 		}
-		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =adk-%d 2>/dev/null", active[0].ID), executor.RunOpts{Timeout: 20})
+		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =lec-%d 2>/dev/null", active[0].ID), executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
 		}

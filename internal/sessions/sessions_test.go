@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func launcher() specLauncher { return specLauncher{} }
@@ -30,8 +30,8 @@ func (specLauncher) LaunchCommand(agent, workdir, tmuxName, model string,
 }
 
 func TestLaunchCommandIsInteractiveNotHeadless(t *testing.T) {
-	cmd := launcher().LaunchCommand("claude", "/srv/repo", "adk-s7", "opus", false, "")
-	if !strings.HasPrefix(cmd, "tmux new-session -d -s adk-s7 ") {
+	cmd := launcher().LaunchCommand("claude", "/srv/repo", "lec-s7", "opus", false, "")
+	if !strings.HasPrefix(cmd, "tmux new-session -d -s lec-s7 ") {
 		t.Fatalf("prefix: %s", cmd)
 	}
 	// the whole point of a session is that a human is at the keyboard: no -p,
@@ -97,9 +97,9 @@ func TestInteractiveMCPArgsReachSyntheticProcess(t *testing.T) {
 		start Start
 		want  []string
 	}{
-		{"fresh", Start{Workdir: dir, TmuxName: "adk-mcp-fresh", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`}},
-		{"resume", Start{Workdir: dir, TmuxName: "adk-mcp-resume", ResumeID: "s1", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`, "resume", "s1"}},
-		{"fork", Start{Workdir: dir, TmuxName: "adk-mcp-fork", ForkID: "s1", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`, "fork", "s1"}},
+		{"fresh", Start{Workdir: dir, TmuxName: "lec-mcp-fresh", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`}},
+		{"resume", Start{Workdir: dir, TmuxName: "lec-mcp-resume", ResumeID: "s1", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`, "resume", "s1"}},
+		{"fork", Start{Workdir: dir, TmuxName: "lec-mcp-fork", ForkID: "s1", ToolArgs: args}, []string{"-c", `mcp_servers.ops_tools.command="python3"`, "fork", "s1"}},
 	} {
 		_ = exec.Command("tmux", "kill-session", "-t", tc.start.TmuxName).Run()
 		_ = os.Remove(log)
@@ -141,11 +141,11 @@ func TestLaunchCommandQuotesHostileWorkdirs(t *testing.T) {
 func TestPollBatchesEverySessionIntoOneCommand(t *testing.T) {
 	// one exec per target per tick, not one per session — over SSH the round
 	// trip is what costs, not the capture
-	cmd := PollCommand([]string{"adk-s1", "adk-s2", "adk-s3"})
+	cmd := PollCommand([]string{"lec-s1", "lec-s2", "lec-s3"})
 	if n := strings.Count(cmd, "capture-pane"); n != 3 {
 		t.Fatalf("expected 3 captures in one command, got %d", n)
 	}
-	for _, name := range []string{"adk-s1", "adk-s2", "adk-s3"} {
+	for _, name := range []string{"lec-s1", "lec-s2", "lec-s3"} {
 		if !strings.Contains(cmd, name) {
 			t.Errorf("missing %s", name)
 		}
@@ -153,13 +153,13 @@ func TestPollBatchesEverySessionIntoOneCommand(t *testing.T) {
 }
 
 func TestParsePollSplitsPanesBackApart(t *testing.T) {
-	raw := PollDelimiter + "adk-s1\nhello\nworld" + PollDelimiter + "adk-s2\nother"
+	raw := PollDelimiter + "lec-s1\nhello\nworld" + PollDelimiter + "lec-s2\nother"
 	panes := ParsePoll(raw)
-	if panes["adk-s1"] != "hello\nworld" {
-		t.Errorf("first pane: %q", panes["adk-s1"])
+	if panes["lec-s1"] != "hello\nworld" {
+		t.Errorf("first pane: %q", panes["lec-s1"])
 	}
-	if panes["adk-s2"] != "other" {
-		t.Errorf("second pane: %q", panes["adk-s2"])
+	if panes["lec-s2"] != "other" {
+		t.Errorf("second pane: %q", panes["lec-s2"])
 	}
 }
 
@@ -228,8 +228,8 @@ func TestPreviewKeepsTheTail(t *testing.T) {
 func TestSendTextGoesThroughABufferNotSendKeys(t *testing.T) {
 	// send-keys -l would re-interpret newlines as submissions and quotes as
 	// shell syntax; a buffer paste delivers the text exactly as written
-	cmd := SendTextCommand("adk-s2", "/tmp/stage")
-	for _, want := range []string{"load-buffer", "paste-buffer", "send-keys -t =adk-s2: Enter", "rm -f"} {
+	cmd := SendTextCommand("lec-s2", "/tmp/stage")
+	for _, want := range []string{"load-buffer", "paste-buffer", "send-keys -t =lec-s2: Enter", "rm -f"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("missing %q: %s", want, cmd)
 		}
@@ -298,8 +298,8 @@ func TestMatchProjectPrefersTheLongestRepo(t *testing.T) {
 }
 
 func TestHandoffPromptAsksForAFileNotAChatReply(t *testing.T) {
-	p := HandoffPrompt("/tmp/agentdeck-handoff-4.md")
-	if !strings.Contains(p, "/tmp/agentdeck-handoff-4.md") {
+	p := HandoffPrompt("/tmp/lectern-handoff-4.md")
+	if !strings.Contains(p, "/tmp/lectern-handoff-4.md") {
 		t.Error("the path must be explicit")
 	}
 	if !strings.Contains(p, "do not print it here") {
@@ -396,7 +396,7 @@ func TestParseTimesReadsTmuxsOwnClock(t *testing.T) {
 // a race against whatever the CLI shows first, and codex once answered its own
 // self-update prompt with it.
 func TestLaunchCommandCarriesTheOpeningPrompt(t *testing.T) {
-	cmd := launcher().LaunchCommand("codex", "/srv/repo", "adk-s9", "", false,
+	cmd := launcher().LaunchCommand("codex", "/srv/repo", "lec-s9", "", false,
 		"read HANDOFF.md and tell me where we are")
 	if !strings.Contains(cmd, "read HANDOFF.md and tell me where we are") {
 		t.Fatalf("prompt missing: %s", cmd)
@@ -459,7 +459,7 @@ func TestCustomAgentLaunches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := spec.LaunchCommand(Start{Workdir: "/srv/repo", TmuxName: "adk-s3",
+	cmd := spec.LaunchCommand(Start{Workdir: "/srv/repo", TmuxName: "lec-s3",
 		Model: "qwen3.6:35b-a3b", Prompt: "where are we?", EnvPrefix: env})
 	for _, want := range []string{
 		"aider --no-auto-commits", "--model qwen3.6:35b-a3b", "where are we?",

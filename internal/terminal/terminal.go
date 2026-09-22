@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 	"net"
 	"os/exec"
 	"strconv"
@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Port range handed out to attached terminals.
@@ -45,7 +45,7 @@ func TTYDArgs(port int, basePath string, argv []string) []string {
 
 // BasePath is where a terminal is mounted on the control plane's own origin.
 //
-// Same-origin matters: the browser may have reached agentdeck through nginx, a
+// Same-origin matters: the browser may have reached lectern through nginx, a
 // tailnet name or an IP, and only the control plane knows where ttyd actually
 // runs. Building the URL from the browser's hostname pointed the terminal at
 // whichever machine served the page — the reverse proxy, usually, which runs no

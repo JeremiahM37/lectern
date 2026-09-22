@@ -14,7 +14,7 @@ import argparse
 parser=argparse.ArgumentParser();parser.add_argument('--mode',choices=('fork','resume'),default='fork');mode=parser.parse_args().mode
 
 for agent in ('codex','claude'):
- with tempfile.TemporaryDirectory(prefix='adk-native-api-') as tmp:
+ with tempfile.TemporaryDirectory(prefix='lec-native-api-') as tmp:
   generator=real_terminal.__wrapped__(pathlib.Path(tmp),object());t=next(generator)
   try:
    root=t['root'];home=pathlib.Path(tmp)/'native-profile';home.mkdir(mode=0o700)
@@ -82,8 +82,8 @@ for agent in ('codex','claude'):
     screen=subprocess.check_output(['tmux','capture-pane','-p','-J','-S','-100','-t','='+child['tmux_session']+':'],env=t['env'],text=True)
     if current['state']=='identified' and ((agent=='codex' and current['saved']) or (agent=='claude' and 'Saved assistant API proof.' in screen)):break
     time.sleep(.15)
-   pathlib.Path(f'/tmp/agentdeck-grouped-native-path-integrated-{agent}-screen.txt').write_text(screen)
-   diagnostic=pathlib.Path('/tmp/agentdeck-grouped-native-path-integrated-diagnostic');diagnostic.mkdir(exist_ok=True,mode=0o700)
+   pathlib.Path(f'/tmp/lectern-grouped-native-path-integrated-{agent}-screen.txt').write_text(screen)
+   diagnostic=pathlib.Path('/tmp/lectern-grouped-native-path-integrated-diagnostic');diagnostic.mkdir(exist_ok=True,mode=0o700)
    (diagnostic/(agent+'-response.json')).write_text(json.dumps(data))
    for native in home.glob('sessions/**/*.jsonl'):
     shutil.copy2(native,diagnostic/native.name)
@@ -97,7 +97,7 @@ for agent in ('codex','claude'):
     assert any('Saved assistant API proof.' in m['text'] for m in history['messages'])
    assert file.read_bytes().startswith(original) if mode=='resume' else file.read_bytes()==original
    receipt={'agent':agent,'current':current,'workdir':child['workdir'],'original_history_preserved':True,'mode':mode,'copied_history_readable':True}
-   pathlib.Path(f'/tmp/agentdeck-grouped-native-path-integrated-{agent}-receipt.json').write_text(json.dumps(receipt))
+   pathlib.Path(f'/tmp/lectern-grouped-native-path-integrated-{agent}-receipt.json').write_text(json.dumps(receipt))
    print('PASS:',agent,mode,'via grouped workspace + named profile + real API + installed CLI; exact identity, correct cwd, saved history readable, original history preserved; no model turn',flush=True)
   finally:
    try:next(generator)

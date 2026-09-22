@@ -88,8 +88,8 @@ while True: time.sleep(.05)
         # Exercise a preexisting legacy shell whose durable row and tmux pane
         # have no marker; promotion must validate first, then establish one.
         subprocess.run(["tmux", "set-option", "-u", "-t", "=" + row["tmux_session"] + ":",
-                        "@agentdeck-tracking-identity"], env=t["env"], check=True)
-        with sqlite3.connect(t["env"]["AGENTDECK_DB"]) as db:
+                        "@lectern-tracking-identity"], env=t["env"], check=True)
+        with sqlite3.connect(t["env"]["LECTERN_DB"]) as db:
             db.execute("UPDATE sessions SET tracking_identity='' WHERE id=?", (t["id"],))
             db.commit()
     # Start the native CLI as a child of the existing tracked blank shell.
@@ -120,7 +120,7 @@ while True: time.sleep(.05)
 
 
 def _promote(t, session_id, input_text):
-    env = {**t["env"], "AGENTDECK_API": t["url"], "TMUX": ""}
+    env = {**t["env"], "LECTERN_API": t["url"], "TMUX": ""}
     master, child = _pty(_binary(), env, "promote", str(session_id))
     try:
         output = _read(master, b"Detected session", output=b"")
@@ -173,7 +173,7 @@ def test_cli_promotes_live_native_conversation_in_place(real_terminal, marked):
     record.write_text(json.dumps(native_record))
     deadline = time.monotonic() + 12
     while time.monotonic() < deadline:
-        with sqlite3.connect(t["env"]["AGENTDECK_DB"]) as db:
+        with sqlite3.connect(t["env"]["LECTERN_DB"]) as db:
             found = db.execute("SELECT native_recovery_cid FROM sessions WHERE id=?", (source["id"],)).fetchone()[0]
         if found == next_cid:
             break
@@ -190,7 +190,7 @@ def test_cli_refuses_missing_native_process_without_partial_project(real_termina
     before_projects = {p["id"] for p in t["api"]("/projects")}
     subprocess.run(["tmux", "kill-session", "-t", "=" + source["tmux_session"]],
                    env=t["env"], check=True)
-    env = {**t["env"], "AGENTDECK_API": t["url"], "TMUX": ""}
+    env = {**t["env"], "LECTERN_API": t["url"], "TMUX": ""}
     master, child = _pty(_binary(), env, "promote", str(source["id"]))
     try:
         out = _read(master, b"conversation", 20).decode(errors="replace")
@@ -207,7 +207,7 @@ def test_cli_cancellation_leaves_running_conversation_unmodified(real_terminal):
     t = real_terminal
     source = _native_agent(t)
     before_projects = {p["id"] for p in t["api"]("/projects")}
-    env = {**t["env"], "AGENTDECK_API": t["url"], "TMUX": ""}
+    env = {**t["env"], "LECTERN_API": t["url"], "TMUX": ""}
     master, child = _pty(_binary(), env, "promote", str(source["id"]))
     try:
         _read(master, b"Project", 20)

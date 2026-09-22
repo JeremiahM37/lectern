@@ -36,7 +36,7 @@ def _run(binary, env, *args, input=None, check=True, timeout=30):
 
 @pytest.fixture(scope="module")
 def local_binary(tmp_path_factory):
-    supplied = os.environ.get("AGENTDECK_LOCAL_TEST_BINARY") or os.environ.get("AGENTDECK_BIN")
+    supplied = os.environ.get("LECTERN_LOCAL_TEST_BINARY") or os.environ.get("LECTERN_BIN")
     candidate = Path(supplied) if supplied else Path(_binary())
     probe = subprocess.run([candidate, "local", "--help"], text=True, capture_output=True)
     assert probe.returncode == 0, f"selected binary has no local runtime: {probe.stderr}"
@@ -64,7 +64,7 @@ def local_binary(tmp_path_factory):
         timeout=120,
     )
     assert source_install.returncode == 0, source_install.stderr
-    source_binary = source_prefix / "agentdeck"
+    source_binary = source_prefix / "lectern"
     binary_install = subprocess.run(
         ["bash", str(ROOT / "tools/install-local.sh"), "--binary", str(source_binary), "--prefix", str(binary_prefix)],
         cwd=root,
@@ -75,7 +75,7 @@ def local_binary(tmp_path_factory):
         timeout=30,
     )
     assert binary_install.returncode == 0, binary_install.stderr
-    installed = binary_prefix / "agentdeck"
+    installed = binary_prefix / "lectern"
     assert installed.is_file() and os.access(installed, os.X_OK)
     return installed, root
 
@@ -90,14 +90,14 @@ def _local_env(root, fake_agent):
         "XDG_CONFIG_HOME": str(root / "config"),
         "XDG_CACHE_HOME": str(root / "cache"),
         "TMUX_TMPDIR": str(tmux_tmp),
-        "AGENTDECK_CLAUDE_BIN": str(fake_agent),
-        "AGENTDECK_MOCK": "0",
-        "AGENTDECK_SESSION_POLL": "3600",
+        "LECTERN_CLAUDE_BIN": str(fake_agent),
+        "LECTERN_MOCK": "0",
+        "LECTERN_SESSION_POLL": "3600",
     }
-    env.pop("AGENTDECK_API", None)
-    env.pop("AGENTDECK_ATTACH_HOST", None)
+    env.pop("LECTERN_API", None)
+    env.pop("LECTERN_ATTACH_HOST", None)
     # Local-runtime PTY assertions own their terminal.  If pytest itself is
-    # running inside AgentDeck's tmux session, inheriting TMUX makes the CLI
+    # running inside Lectern's tmux session, inheriting TMUX makes the CLI
     # deliberately open a display-popup instead of attaching to the fixture's
     # private socket; a raw PTY is not a tmux client and display-popup exits 1.
     # The popup behavior remains covered by attachmentInWorkspace unit tests.
@@ -139,10 +139,10 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
     fake_task.write_text(
         "#!/bin/sh\n"
         "cat >/dev/null\n"
-        "mkdir -p .agentdeck\n"
+        "mkdir -p .lectern\n"
         f"printf 'LOCAL_TASK_READY\\n' > {shlex.quote(str(task_ready))}\n"
         f"while [ ! -f {shlex.quote(str(task_release))} ]; do sleep 0.05; done\n"
-        "printf 'LOCAL_TASK_SENTINEL\\n' > .agentdeck/local-task-sentinel\n"
+        "printf 'LOCAL_TASK_SENTINEL\\n' > .lectern/local-task-sentinel\n"
     )
     fake_task.chmod(0o755)
     env = _local_env(root, fake_agent)
@@ -152,8 +152,8 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
     (workdir / "README.md").write_text("local runtime fixture\n")
     subprocess.run(["git", "-C", str(workdir), "add", "README.md"], check=True)
     subprocess.run(
-        ["git", "-C", str(workdir), "-c", "user.name=AgentDeck Test", "-c",
-         "user.email=agentdeck-test@example.invalid", "commit", "-qm", "initial"],
+        ["git", "-C", str(workdir), "-c", "user.name=Lectern Test", "-c",
+         "user.email=lectern-test@example.invalid", "commit", "-qm", "initial"],
         check=True,
     )
 
@@ -162,7 +162,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
     # test catches accidental attachment to the user's/default tmux namespace.
     collision_env = {**env, "TMUX": ""}
     collision_socket = None
-    collision_name = "adk-s1"
+    collision_name = "lec-s1"
     session_id = 0
     task_id = 0
     private_tmux = None
@@ -254,7 +254,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
         json.dumps({"name": "Persistent local session", "project_id": project["id"], "agent": "local-fake"}),
     )
     session_id = session["id"]
-    endpoint_file = root / "state" / "agentdeck" / "local" / "endpoint.json"
+    endpoint_file = root / "state" / "lectern" / "local" / "endpoint.json"
     endpoint = json.loads(endpoint_file.read_text())
     private_candidates = list(Path(endpoint["tmux_dir"]).glob("tmux-*/default"))
     assert private_candidates, endpoint
@@ -342,7 +342,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
         time.sleep(0.2)
     assert task_view and task_view["status"] in {"done", "review"}, task_view
     attempt = task_view.get("attempt") or {}
-    marker = Path(attempt["worktree_path"]) / ".agentdeck" / "local-task-sentinel"
+    marker = Path(attempt["worktree_path"]) / ".lectern" / "local-task-sentinel"
     assert marker.is_relative_to(root / "state"), attempt
     assert private_task_seen, "local task did not run in the private tmux namespace"
     assert marker.read_text() == "LOCAL_TASK_SENTINEL\n"
@@ -405,7 +405,7 @@ def test_explicit_api_stays_remote(local_binary, tmp_path):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    env = {**os.environ, "AGENTDECK_API": f"http://127.0.0.1:{server.server_port}", "HOME": str(root / "remote-home")}
+    env = {**os.environ, "LECTERN_API": f"http://127.0.0.1:{server.server_port}", "HOME": str(root / "remote-home")}
     try:
         result = subprocess.run([str(binary), "api", "GET", "/sessions"], env=env, text=True, capture_output=True, check=True)
         assert json.loads(result.stdout) == []

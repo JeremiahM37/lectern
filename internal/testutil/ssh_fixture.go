@@ -36,7 +36,7 @@ func NewSSHFixture(t *testing.T) *SSHFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := ssh.MarshalPrivateKey(private, "agentdeck-test")
+	key, err := ssh.MarshalPrivateKey(private, "lectern-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func NewSSHFixture(t *testing.T) *SSHFixture {
 	}
 	config := &ssh.ServerConfig{PublicKeyCallback: func(_ ssh.ConnMetadata, got ssh.PublicKey) (*ssh.Permissions, error) {
 		if ssh.FingerprintSHA256(got) != ssh.FingerprintSHA256(public) {
-			return nil, fmt.Errorf("unauthorized AgentDeck SSH fixture key")
+			return nil, fmt.Errorf("unauthorized Lectern SSH fixture key")
 		}
 		return nil, nil
 	}}

@@ -39,35 +39,35 @@ func lacks(t *testing.T, cmd string, unwanted ...string) {
 
 func TestClaudeLaunchShape(t *testing.T) {
 	cmd := mustCommand(t, LaunchSpec{Agent: "claude", Worktree: "/wt/task1-a1",
-		TmuxSession: "adk-1", PermissionMode: "acceptEdits", Model: "opus"})
-	if !strings.HasPrefix(cmd, "tmux new-session -d -s adk-1 ") {
+		TmuxSession: "lec-1", PermissionMode: "acceptEdits", Model: "opus"})
+	if !strings.HasPrefix(cmd, "tmux new-session -d -s lec-1 ") {
 		t.Fatalf("prefix: %s", cmd)
 	}
 	hasAll(t, cmd, "claude -p", "--permission-mode acceptEdits", "--model opus",
 		"stream-json", "exit_code",
 		// settings.json ships in EVERY mode: it is the only way to grant a
 		// headless run a tool, since there is no prompt to fall back on
-		"--settings .agentdeck/settings.json")
+		"--settings .lectern/settings.json")
 
 	gated := mustCommand(t, LaunchSpec{Agent: "claude", Worktree: "/wt/x",
-		TmuxSession: "adk-2", PermissionMode: "default", ResumeSession: "s-9"})
-	hasAll(t, gated, "--settings .agentdeck/settings.json", "--resume s-9")
+		TmuxSession: "lec-2", PermissionMode: "default", ResumeSession: "s-9"})
+	hasAll(t, gated, "--settings .lectern/settings.json", "--resume s-9")
 }
 
 func TestClaudeMCPFlags(t *testing.T) {
 	plain := mustCommand(t, LaunchSpec{Agent: "claude", Worktree: "/wt/x",
-		TmuxSession: "adk-3", PermissionMode: "acceptEdits"})
+		TmuxSession: "lec-3", PermissionMode: "acceptEdits"})
 	lacks(t, plain, "--mcp-config", "--strict-mcp-config")
 
 	withMCP := mustCommand(t, LaunchSpec{Agent: "claude", Worktree: "/wt/x",
-		TmuxSession: "adk-4", PermissionMode: "acceptEdits",
-		MCPConfig: ".agentdeck/mcp.json", StrictMCP: true})
-	hasAll(t, withMCP, "--mcp-config .agentdeck/mcp.json", "--strict-mcp-config")
+		TmuxSession: "lec-4", PermissionMode: "acceptEdits",
+		MCPConfig: ".lectern/mcp.json", StrictMCP: true})
+	hasAll(t, withMCP, "--mcp-config .lectern/mcp.json", "--strict-mcp-config")
 
 	// strict is opt-in: it hides the host's own servers
 	loose := mustCommand(t, LaunchSpec{Agent: "claude", Worktree: "/wt/x",
-		TmuxSession: "adk-5", PermissionMode: "acceptEdits",
-		MCPConfig: ".agentdeck/mcp.json"})
+		TmuxSession: "lec-5", PermissionMode: "acceptEdits",
+		MCPConfig: ".lectern/mcp.json"})
 	lacks(t, loose, "--strict-mcp-config")
 }
 
@@ -84,7 +84,7 @@ func TestCodexMCPOverridesPrecedeSubcommand(t *testing.T) {
 
 func TestCodexLaunchFlags(t *testing.T) {
 	cmd := mustCommand(t, LaunchSpec{Agent: "codex", Worktree: "/wt",
-		TmuxSession: "adk-2", PermissionMode: "acceptEdits", Model: "o4-mini"})
+		TmuxSession: "lec-2", PermissionMode: "acceptEdits", Model: "o4-mini"})
 	hasAll(t, cmd, "codex exec --json", "-m o4-mini", "exit_code",
 		// --full-auto was removed upstream; workspace-write is the sandbox that
 		// lets codex edit the worktree without the dangerous escape hatch
@@ -120,7 +120,7 @@ func TestAgentBinariesAreOverridable(t *testing.T) {
 
 func TestGeminiLaunchFlags(t *testing.T) {
 	cmd := mustCommand(t, LaunchSpec{Agent: "gemini", Worktree: "/wt",
-		TmuxSession: "adk-3", PermissionMode: "acceptEdits"})
+		TmuxSession: "lec-3", PermissionMode: "acceptEdits"})
 	hasAll(t, cmd, "gemini -p", "--yolo")
 	lacks(t, mustCommand(t, LaunchSpec{Agent: "gemini", Worktree: "/wt",
 		TmuxSession: "s", PermissionMode: "plan"}), "--yolo")
@@ -181,7 +181,7 @@ func TestHookSettingsCarryURLAndToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := parsed.Hooks.PreToolUse[0].Hooks[0].Command
-	hasAll(t, cmd, "AGENTDECK_URL=http://cp:9110", "AGENTDECK_TOKEN=tok123")
+	hasAll(t, cmd, "LECTERN_URL=http://cp:9110", "LECTERN_TOKEN=tok123")
 	// '*' — anything the matcher misses is silently DENIED in headless mode
 	if parsed.Hooks.PreToolUse[0].Matcher != "*" {
 		t.Errorf("default matcher: %q", parsed.Hooks.PreToolUse[0].Matcher)
@@ -195,13 +195,13 @@ func TestHookSettingsCarryURLAndToken(t *testing.T) {
 }
 
 func TestCodexFollowupResumesWithTheOriginalPermissions(t *testing.T) {
-	cmd := mustCommand(t, LaunchSpec{Agent: "codex", Worktree: "/wt/task1-a1", TmuxSession: "adk-2", PermissionMode: "acceptEdits", ResumeSession: "thread-123"})
+	cmd := mustCommand(t, LaunchSpec{Agent: "codex", Worktree: "/wt/task1-a1", TmuxSession: "lec-2", PermissionMode: "acceptEdits", ResumeSession: "thread-123"})
 	hasAll(t, cmd, "codex exec --json --sandbox workspace-write resume thread-123", "prompt.md")
 }
 
 func TestGenericTaskUsesIndependentCommandAndPromptTemplate(t *testing.T) {
 	cmd := mustCommand(t, LaunchSpec{Agent: "opencode", Worktree: "/tmp/work dir",
-		TmuxSession: "adk-99", PermissionMode: "acceptEdits", Model: "local/qwen",
+		TmuxSession: "lec-99", PermissionMode: "acceptEdits", Model: "local/qwen",
 		Env: map[string]string{"OPENAI_BASE_URL": "http://127.0.0.1:11434/v1"},
 		Definition: &TaskDefinition{Name: "opencode", Command: "opencode",
 			Args: []string{"run", "--format", "json"}, ModelFlag: "--model",
@@ -218,7 +218,7 @@ func TestGenericTaskCanDeliverPromptOnStdin(t *testing.T) {
 	cmd := mustCommand(t, LaunchSpec{Agent: "aider", Worktree: "/wt", TmuxSession: "s",
 		PermissionMode: "acceptEdits", Definition: &TaskDefinition{Name: "aider",
 			Command: "aider", PromptTemplate: "stdin"}})
-	hasAll(t, cmd, "cat .agentdeck/prompt.md | aider")
+	hasAll(t, cmd, "cat .lectern/prompt.md | aider")
 	if strings.Contains(cmd, "< /dev/null") {
 		t.Fatalf("stdin prompt must remain attached to the command: %s", cmd)
 	}
@@ -229,14 +229,14 @@ func TestGenericPromptTemplateQuotesLiteralTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(rendered, " "), `--message "$(cat .agentdeck/prompt.md)" --name 'two words'`; got != want {
+	if got, want := strings.Join(rendered, " "), `--message "$(cat .lectern/prompt.md)" --name 'two words'`; got != want {
 		t.Fatalf("rendered template: %q, want %q", got, want)
 	}
 	cmd := mustCommand(t, LaunchSpec{Agent: "custom", Worktree: "/wt/with space", TmuxSession: "s",
 		PermissionMode: "acceptEdits", Definition: &TaskDefinition{Name: "custom", Command: "runner",
 			Args:           []string{"--label", "snow ☃", "--literal", "$(echo p)"},
 			PromptTemplate: `--message '{prompt}' --name "two words"`}})
-	hasAll(t, cmd, `--literal`, `--name`, `"$(cat .agentdeck/prompt.md)"`)
+	hasAll(t, cmd, `--literal`, `--name`, `"$(cat .lectern/prompt.md)"`)
 }
 
 func TestGenericTaskRejectsUnsupportedPermissionMode(t *testing.T) {

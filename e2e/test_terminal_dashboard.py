@@ -33,14 +33,14 @@ class Dashboard:
         command=[_binary(),*args]
         if outer_tmux:
             # The fixture's tmux server is created before this dashboard
-            # process and therefore cannot inherit AGENTDECK_API from its
+            # process and therefore cannot inherit LECTERN_API from its
             # environment. Put the explicit hosted route in the command run
             # inside the outer tmux session so the new local-by-default CLI
             # cannot accidentally open a separate local database.
             command=["tmux","new-session","-s","dashboard-outer","env",
-                     f"AGENTDECK_API={t['url']}",*command]
+                     f"LECTERN_API={t['url']}",*command]
         self.proc=subprocess.Popen(command,stdin=self.slave,stdout=self.slave,stderr=self.slave,
-          env={**t['env'],**({'XDG_CONFIG_HOME':str(t['root']/'.console-config')} if 'root' in t else {}),'AGENTDECK_API':t['url'],'TERM':'xterm-256color','AGENTDECK_ATTACH_HOST':''},
+          env={**t['env'],**({'XDG_CONFIG_HOME':str(t['root']/'.console-config')} if 'root' in t else {}),'LECTERN_API':t['url'],'TERM':'xterm-256color','LECTERN_ATTACH_HOST':''},
           preexec_fn=controlling_terminal)
     def pump(self,duration=.1):
         end=time.monotonic()+duration
@@ -87,7 +87,7 @@ def test_dashboard_search_rename_live_refresh_and_resize(real_terminal):
         t['api']('/sessions/adopt',{'target_id':t['target_id'],'tmux_session':'second-dashboard-agent','name':'Arrived while open','agent':'claude','workdir':str(t['root'])})
         d.wait('Arrived while open',timeout=8)
         for cols,rows in [(80,24),(45,16),(140,40)]:
-            d.resize(cols,rows);d.wait('AgentDeck');d.wait('q quit')
+            d.resize(cols,rows);d.wait('Lectern');d.wait('q quit')
         d.send('?');d.wait('Keyboard shortcuts');d.send('?')
         d.quit()
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
@@ -108,7 +108,7 @@ def test_dashboard_details_are_readable_at_wide_and_narrow_widths_and_api_stays_
             assert '{' not in d.text and '"' not in d.text
             d.send('\x1b')
         raw = subprocess.run([_binary(), 'api', 'GET', '/projects'],
-                             env={**t['env'], 'AGENTDECK_API': t['url'], 'TERM': 'dumb'},
+                             env={**t['env'], 'LECTERN_API': t['url'], 'TERM': 'dumb'},
                              text=True, capture_output=True, check=True)
         decoded = json.loads(raw.stdout)
         decoded = next(row for row in decoded if row['id'] == project['id'])

@@ -1,4 +1,4 @@
-# Verify agentdeck is actually in a working state. Run: verify run .verify.yaml
+# Verify lectern is actually in a working state. Run: verify run .verify.yaml
 # (the service is systemd-managed and already running; we verify the live instance)
 backend: web
 
@@ -38,7 +38,7 @@ steps:
 
   - name: systemd service healthy
     actions:
-      - shell: systemctl is-active agentdeck
+      - shell: systemctl is-active lectern
       - shell: curl -sf http://127.0.0.1:9110/api/health | grep -q '"ok":true'
 
   - name: board renders live
@@ -47,7 +47,7 @@ steps:
       - wait: 2.5
     expect:
       vision: >
-        a dark kanban board titled agentdeck, showing six
+        a dark kanban board titled lectern, showing six
         columns (backlog, queued, running, review, done, failed), a quick-dispatch
         input bar at the top, and a LIVE connection indicator; no error text, no
         blank white screen

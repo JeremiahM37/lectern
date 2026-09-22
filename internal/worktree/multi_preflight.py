@@ -60,7 +60,7 @@ def preflight(plan, existing=0):
                 raise ValueError('An existing checkout repository changed')
             if git(dest,'symbolic-ref','--quiet','--short','HEAD') != child['branch']:
                 raise ValueError('An existing checkout branch changed')
-            owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'agentdeck-owner'
+            owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'lectern-owner'
             fd=os.open(owner,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
             with os.fdopen(fd) as file:
                 if not stat.S_ISREG(os.fstat(file.fileno()).st_mode) or file.read()!=child['token']:

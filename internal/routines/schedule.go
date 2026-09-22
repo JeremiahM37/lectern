@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ParseSchedule reads the small set of schedule forms agentdeck understands and
+// ParseSchedule reads the small set of schedule forms lectern understands and
 // returns the next time a routine should run after `from`.
 //
 // Deliberately not cron. Cron's five fields are famously easy to get subtly
@@ -81,7 +81,7 @@ func ParseSchedule(spec string, from time.Time) (time.Time, error) {
 		`"every 6h", "hourly", "daily at 09:00", or "weekly on mon at 08:30"`, spec)
 }
 
-// Valid reports whether a schedule string is one agentdeck can act on. An empty
+// Valid reports whether a schedule string is one lectern can act on. An empty
 // schedule is valid and means the routine only runs when you press the button.
 func Valid(spec string) error {
 	if strings.TrimSpace(spec) == "" {

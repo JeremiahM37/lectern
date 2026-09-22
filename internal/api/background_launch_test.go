@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 func TestBackgroundWorkspaceSurvivesResponseAndRetainsFailures(t *testing.T) {
@@ -50,7 +50,7 @@ func TestBackgroundWorkspaceSurvivesResponseAndRetainsFailures(t *testing.T) {
 	t.Cleanup(func() { os.WriteFile(release, []byte("release"), 0600) })
 	var row obj
 	input := obj{"agent": "background-fixture", "target_id": target.ID, "workdir": repo, "worktree": obj{}, "background": true, "yolo": false}
-	if os.Getenv("AGENTDECK_GROUPED_SETUP_PROOF") == "1" {
+	if os.Getenv("LECTERN_GROUPED_SETUP_PROOF") == "1" {
 		extra := filepath.Join(root, "extra")
 		git("clone", "-q", repo, extra)
 		var primaryProject, extraProject obj
@@ -114,7 +114,7 @@ func TestBackgroundWorkspaceSurvivesResponseAndRetainsFailures(t *testing.T) {
 	}
 	// Opt-in wall-clock proof crosses the former Git (90s), child (105s),
 	// and outer executor (120s) deadlines without slowing every unit run.
-	if os.Getenv("AGENTDECK_SLOW_SETUP_PROOF") == "1" {
+	if os.Getenv("LECTERN_SLOW_SETUP_PROOF") == "1" {
 		until := time.Now().Add(125 * time.Second)
 		for time.Now().Before(until) {
 			current, _ = h.App.DB.Session(id)

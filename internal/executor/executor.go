@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // Result is the outcome of one command.
@@ -31,7 +31,7 @@ func Errf(format string, args ...any) *Error {
 	return &Error{Msg: fmt.Sprintf(format, args...)}
 }
 
-// Executor is one machine agentdeck can drive. One instance per target.
+// Executor is one machine lectern can drive. One instance per target.
 type Executor interface {
 	// Run executes a shell command, optionally in cwd, bounded by timeout.
 	Run(ctx context.Context, cmd string, opts RunOpts) (Result, error)

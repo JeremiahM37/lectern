@@ -1,6 +1,6 @@
 // Package workflows describes the optional, bundled project workflows.
 //
-// The source files are compiled into AgentDeck and copied to the target only
+// The source files are compiled into Lectern and copied to the target only
 // when an operator enables a workflow. The target copy is versioned and
 // immutable: a later enable verifies existing bytes instead of replacing them.
 package workflows
@@ -18,8 +18,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // bundled contains the pinned wrapper and upstream support files. The all:
@@ -54,15 +54,15 @@ var definitions = map[string]Definition{
 		Version:     "d848fb4e18f44640ad6b42e60a280551ee90cdce",
 		UpstreamURL: "https://github.com/github/spec-kit",
 		Commands: []string{
-			"agentdeck-spec-kit constitution",
-			"agentdeck-spec-kit specify",
-			"agentdeck-spec-kit clarify",
-			"agentdeck-spec-kit plan",
-			"agentdeck-spec-kit tasks",
-			"agentdeck-spec-kit analyze",
-			"agentdeck-spec-kit checklist",
-			"agentdeck-spec-kit implement",
-			"agentdeck-spec-kit converge",
+			"lectern-spec-kit constitution",
+			"lectern-spec-kit specify",
+			"lectern-spec-kit clarify",
+			"lectern-spec-kit plan",
+			"lectern-spec-kit tasks",
+			"lectern-spec-kit analyze",
+			"lectern-spec-kit checklist",
+			"lectern-spec-kit implement",
+			"lectern-spec-kit converge",
 		},
 	},
 	"maestro": {
@@ -72,12 +72,12 @@ var definitions = map[string]Definition{
 		Version:     "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
 		UpstreamURL: "https://github.com/sharpdeveye/maestro",
 		Commands: []string{
-			"agentdeck-maestro diagnose",
-			"agentdeck-maestro fortify",
-			"agentdeck-maestro refine",
-			"agentdeck-maestro reflect",
-			"agentdeck-maestro agent-workflow",
-			"agentdeck-maestro teach-maestro",
+			"lectern-maestro diagnose",
+			"lectern-maestro fortify",
+			"lectern-maestro refine",
+			"lectern-maestro reflect",
+			"lectern-maestro agent-workflow",
+			"lectern-maestro teach-maestro",
 		},
 	},
 }
@@ -171,7 +171,7 @@ func SourceDigest(files []File) string {
 
 // Stage copies a bundled source to a target-local immutable version path. It
 // uses only Executor.Run, so SSH targets execute the same checks remotely and
-// bytes never land in the AgentDeck control-plane filesystem.
+// bytes never land in the Lectern control-plane filesystem.
 func Stage(ctx context.Context, ex executor.Executor, id string) (string, string, error) {
 	d, ok := DefinitionFor(id)
 	if !ok {
@@ -193,7 +193,7 @@ func Stage(ctx context.Context, ex executor.Executor, id string) (string, string
 		return "", "", fmt.Errorf("target returned an unsafe home path")
 	}
 	digest := SourceDigest(files)
-	root := filepath.Join(home, ".agentdeck", "workflows", id, d.Version+"-"+digest[:16])
+	root := filepath.Join(home, ".lectern", "workflows", id, d.Version+"-"+digest[:16])
 	for _, f := range files {
 		if err := stageFile(ctx, ex, root, f.Path, f.Data, f.Mode); err != nil {
 			return "", "", fmt.Errorf("stage workflow %s/%s: %w", id, strings.Join(f.Path, "/"), err)
@@ -239,7 +239,7 @@ def main(a):
     if st:
         same_existing()
         return {'existing':True}
-    tmp='.agentdeck-stage-'+next(tempfile._get_candidate_names())
+    tmp='.lectern-stage-'+next(tempfile._get_candidate_names())
     fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode,dir_fd=parent)
     try:
         view=memoryview(data)

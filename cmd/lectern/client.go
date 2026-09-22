@@ -14,14 +14,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/console"
-	"github.com/JeremiahM37/agentdeck/internal/mediapost"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/console"
+	"github.com/JeremiahM37/lectern/internal/mediapost"
 )
 
 func promoteCommand(c *console.Client, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: agentdeck promote SESSION-ID")
+		return fmt.Errorf("usage: lectern promote SESSION-ID")
 	}
 	sessionID := args[0]
 	if _, err := strconv.ParseInt(sessionID, 10, 64); err != nil {
@@ -37,7 +37,7 @@ func promoteCommand(c *console.Client, args []string) error {
 	}
 	previewData, err := c.JSON("GET", "/sessions/"+url.PathEscape(sessionID)+"/promote/preview", nil)
 	if he, ok := err.(*console.HTTPError); ok && he.Status == 404 {
-		return fmt.Errorf("conversation promotion is unavailable on the running server; restart or update AgentDeck, then try again")
+		return fmt.Errorf("conversation promotion is unavailable on the running server; restart or update Lectern, then try again")
 	}
 	if err != nil {
 		return err
@@ -112,67 +112,67 @@ func promoteCommand(c *console.Client, args []string) error {
 
 func promoteError(err error) error {
 	if he, ok := err.(*console.HTTPError); ok && he.Status == 404 {
-		return fmt.Errorf("conversation promotion is unavailable on the running server; restart or update AgentDeck, then try again")
+		return fmt.Errorf("conversation promotion is unavailable on the running server; restart or update Lectern, then try again")
 	}
 	return fmt.Errorf("conversation promotion failed: %w", err)
 }
 
-const clientHelp = `AgentDeck — web and terminal control
+const clientHelp = `Lectern — web and terminal control
 
-  agentdeck                         Open the dashboard in an interactive terminal
-  agentdeck local                   Start/use a private local runtime, then open the dashboard
-  agentdeck local status            Show local runtime status without starting it
-  agentdeck local stop              Stop the local runtime (active tasks are refused)
-  agentdeck serve                   Start the control-plane server
-  agentdeck console                 Live terminal dashboard (also: tui)
-  agentdeck console --plain         Line-oriented menu for pipes / accessibility
-  agentdeck shell [MACHINE]         Enter a blank persistent shell on a machine
-  agentdeck attach KIND ID          Join tmux (Ctrl-b d returns to console)
-  agentdeck promote SESSION-ID      Bind a running conversation to a project
-  agentdeck api METHOD /path [JSON|@file|-]
-  agentdeck upload KIND ID FILE     Add a local file as agent context
-  agentdeck files KIND ID [PATH]    Browse files on the agent's machine
-  agentdeck download KIND ID REMOTE LOCAL
-  agentdeck post FILE|URL [--title T] [--note N] [--session ID]
+  lectern                         Open the dashboard in an interactive terminal
+  lectern local                   Start/use a private local runtime, then open the dashboard
+  lectern local status            Show local runtime status without starting it
+  lectern local stop              Stop the local runtime (active tasks are refused)
+  lectern serve                   Start the control-plane server
+  lectern console                 Live terminal dashboard (also: tui)
+  lectern console --plain         Line-oriented menu for pipes / accessibility
+  lectern shell [MACHINE]         Enter a blank persistent shell on a machine
+  lectern attach KIND ID          Join tmux (Ctrl-b d returns to console)
+  lectern promote SESSION-ID      Bind a running conversation to a project
+  lectern api METHOD /path [JSON|@file|-]
+  lectern upload KIND ID FILE     Add a local file as agent context
+  lectern files KIND ID [PATH]    Browse files on the agent's machine
+  lectern download KIND ID REMOTE LOCAL
+  lectern post FILE|URL [--title T] [--note N] [--session ID]
                                     Show a recording, file or link in the Media feed
-  agentdeck live [URL] [--title T] [--machine NAME] [--session ID]
+  lectern live [URL] [--title T] [--machine NAME] [--session ID]
                                     Start a desktop you can watch in Media; prints its DISPLAY
-  agentdeck expose PORT [--title T] [--machine NAME] [--session ID]
+  lectern expose PORT [--title T] [--machine NAME] [--session ID]
                                     Reach a machine's localhost:PORT from your own browser
-  agentdeck live list | agentdeck live stop ID
-  agentdeck agent list
-  agentdeck agent save JSON|@file|-
-  agentdeck skill list PROJECT [--agent claude|codex]
-  agentdeck skill attached PROJECT [--agent claude|codex]
-  agentdeck skill attach PROJECT SKILL_ID [--agent claude|codex]
-  agentdeck skill detach PROJECT ATTACHMENT_ID
-  agentdeck mcp                     MCP on standard input/output
-  agentdeck version
+  lectern live list | lectern live stop ID
+  lectern agent list
+  lectern agent save JSON|@file|-
+  lectern skill list PROJECT [--agent claude|codex]
+  lectern skill attached PROJECT [--agent claude|codex]
+  lectern skill attach PROJECT SKILL_ID [--agent claude|codex]
+  lectern skill detach PROJECT ATTACHMENT_ID
+  lectern mcp                     MCP on standard input/output
+  lectern version
 
 KIND: session, attempt, project (upload also accepts task).
 API paths can omit /api. JSON goes to stdout; errors go to stderr.
 Examples:
-  agentdeck api GET /sessions
-  agentdeck api POST /tasks/12/takeover '{}'
-  agentdeck api PATCH /routines/3 '{"enabled":false}'
-  agentdeck api POST /sessions/4/send '{"text":"Run the tests"}'
-  agentdeck upload session 4 ./requirements.pdf
-  agentdeck post ./demo.mp4 --title "Checkout flow passing"
-  agentdeck post http://127.0.0.1:5173 --title "Dev server"
-  agentdeck expose 5173 --title "Dev server"
-  agentdeck live http://127.0.0.1:18080 --title "Watching the replay"
-  agentdeck agent list
-  agentdeck agent save @agents.json
+  lectern api GET /sessions
+  lectern api POST /tasks/12/takeover '{}'
+  lectern api PATCH /routines/3 '{"enabled":false}'
+  lectern api POST /sessions/4/send '{"text":"Run the tests"}'
+  lectern upload session 4 ./requirements.pdf
+  lectern post ./demo.mp4 --title "Checkout flow passing"
+  lectern post http://127.0.0.1:5173 --title "Dev server"
+  lectern expose 5173 --title "Dev server"
+  lectern live http://127.0.0.1:18080 --title "Watching the replay"
+  lectern agent list
+  lectern agent save @agents.json
 
-AGENTDECK_API selects an explicit hosted server URL.
-AGENTDECK_AUTH_TOKEN supplies bearer authentication.
-AGENTDECK_ATTACH_HOST sets an SSH alias for native attachment to a remote server.
+LECTERN_API selects an explicit hosted server URL.
+LECTERN_AUTH_TOKEN supplies bearer authentication.
+LECTERN_ATTACH_HOST sets an SSH alias for native attachment to a remote server.
 All web operations use this same API. See docs/terminal-client.md for the catalog.
-With no AGENTDECK_API, client commands use the private local runtime automatically.
-agentdeck local [COMMAND ...] forces those existing AgentDeck commands to use this machine.
+With no LECTERN_API, client commands use the private local runtime automatically.
+lectern local [COMMAND ...] forces those existing Lectern commands to use this machine.
 `
 
-// liveCommand opens a desktop or forwards a port. Inside an AgentDeck session it
+// liveCommand opens a desktop or forwards a port. Inside a Lectern session it
 // uses that session's machine; --machine names another, and outside both it
 // falls to the server's default.
 func liveCommand(c *console.Client, command string, args []string) ([]byte, error) {
@@ -181,7 +181,7 @@ func liveCommand(c *console.Client, command string, args []string) ([]byte, erro
 	}
 	if command == "live" && len(args) == 2 && args[0] == "stop" {
 		if _, err := strconv.ParseInt(args[1], 10, 64); err != nil {
-			return nil, fmt.Errorf("usage: agentdeck live stop ID")
+			return nil, fmt.Errorf("usage: lectern live stop ID")
 		}
 		return c.JSON("DELETE", "/live/"+args[1], nil)
 	}
@@ -236,7 +236,7 @@ func liveCommand(c *console.Client, command string, args []string) ([]byte, erro
 	if command == "expose" {
 		port, err := strconv.Atoi(subject)
 		if err != nil || port < 1 || port > 65535 {
-			return nil, fmt.Errorf("usage: agentdeck expose PORT [--title T] [--machine NAME] [--session ID]")
+			return nil, fmt.Errorf("usage: lectern expose PORT [--title T] [--machine NAME] [--session ID]")
 		}
 		body["port"] = port
 		return c.JSON("POST", "/live/ports", body)
@@ -247,7 +247,7 @@ func liveCommand(c *console.Client, command string, args []string) ([]byte, erro
 	return c.JSON("POST", "/live/desktops", body)
 }
 
-// postCommand shows a file or link in the Media feed. Inside an AgentDeck
+// postCommand shows a file or link in the Media feed. Inside a Lectern
 // session the post attributes itself; --session is for scripts outside one.
 func postCommand(base, token string, args []string) ([]byte, error) {
 	post := mediapost.Post{Source: "cli"}
@@ -281,7 +281,7 @@ func postCommand(base, token string, args []string) ([]byte, error) {
 		}
 	}
 	if subject == "" {
-		return nil, fmt.Errorf("usage: agentdeck post FILE|URL [--title T] [--note N] [--session ID]")
+		return nil, fmt.Errorf("usage: lectern post FILE|URL [--title T] [--note N] [--session ID]")
 	}
 	if lower := strings.ToLower(subject); strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		post.URL = subject
@@ -295,7 +295,7 @@ func postCommand(base, token string, args []string) ([]byte, error) {
 }
 
 func clientCommand(cfg *config.Config, command string, args []string) error {
-	return clientCommandAt(cfg, command, args, env("AGENTDECK_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), cfg.AuthToken, false)
+	return clientCommandAt(cfg, command, args, env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), cfg.AuthToken, false)
 }
 
 func clientCommandAt(cfg *config.Config, command string, args []string, base, token string, local bool) error {
@@ -333,7 +333,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 			return cmd.Run()
 		}
 		if len(args) > 0 && (len(args) != 1 || args[0] != "--plain") {
-			return fmt.Errorf("usage: agentdeck console [--plain]")
+			return fmt.Errorf("usage: lectern console [--plain]")
 		}
 		if len(args) == 0 && interactiveTerminal() {
 			return console.RunDashboard(c, os.Stdin, os.Stdout, attachClient)
@@ -341,7 +341,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return console.NewUI(c, os.Stdin, os.Stdout, attachClient).Run()
 	case "api":
 		if len(args) < 2 || len(args) > 3 {
-			return fmt.Errorf("usage: agentdeck api METHOD /path [JSON|@file|-]")
+			return fmt.Errorf("usage: lectern api METHOD /path [JSON|@file|-]")
 		}
 		var body io.Reader
 		if len(args) == 3 {
@@ -370,7 +370,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		data, err = liveCommand(c, command, args)
 	case "upload":
 		if len(args) != 3 {
-			return fmt.Errorf("usage: agentdeck upload KIND ID FILE")
+			return fmt.Errorf("usage: lectern upload KIND ID FILE")
 		}
 		if err = validateTerminal(args[:2], true); err != nil {
 			return err
@@ -378,7 +378,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		data, err = c.Upload(args[0], args[1], args[2])
 	case "files", "download":
 		if command == "files" && (len(args) < 2 || len(args) > 3) || command == "download" && len(args) != 4 {
-			return fmt.Errorf("usage: agentdeck files KIND ID [PATH] | download KIND ID REMOTE LOCAL")
+			return fmt.Errorf("usage: lectern files KIND ID [PATH] | download KIND ID REMOTE LOCAL")
 		}
 		if err = validateTerminal(args[:2], false); err != nil {
 			return err
@@ -415,17 +415,17 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 // as the Settings → Agents editor does; JSON can be read from a file or stdin.
 func agentCommand(c *console.Client, args []string) ([]byte, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return nil, fmt.Errorf("usage: agentdeck agent list | save JSON|@file|-")
+		return nil, fmt.Errorf("usage: lectern agent list | save JSON|@file|-")
 	}
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
-			return nil, fmt.Errorf("usage: agentdeck agent list")
+			return nil, fmt.Errorf("usage: lectern agent list")
 		}
 		return c.Request("GET", "/agents", nil, "application/json")
 	case "save":
 		if len(args) != 2 {
-			return nil, fmt.Errorf("usage: agentdeck agent save JSON|@file|-")
+			return nil, fmt.Errorf("usage: lectern agent save JSON|@file|-")
 		}
 		b := []byte(args[1])
 		var err error
@@ -448,7 +448,7 @@ func agentCommand(c *console.Client, args []string) ([]byte, error) {
 
 func skillCommand(c *console.Client, args []string) ([]byte, error) {
 	if len(args) < 2 {
-		return nil, fmt.Errorf("usage: agentdeck skill list|attached|attach|detach PROJECT ...")
+		return nil, fmt.Errorf("usage: lectern skill list|attached|attach|detach PROJECT ...")
 	}
 	op, project := args[0], args[1]
 	agent := ""
@@ -477,7 +477,7 @@ func skillCommand(c *console.Client, args []string) ([]byte, error) {
 		}
 	case "attach":
 		if len(args) < 3 {
-			return nil, fmt.Errorf("usage: agentdeck skill attach PROJECT SKILL_ID [--agent claude|codex]")
+			return nil, fmt.Errorf("usage: lectern skill attach PROJECT SKILL_ID [--agent claude|codex]")
 		}
 		method = "POST"
 		path = "/api/projects/" + url.PathEscape(project) + "/skills"
@@ -485,7 +485,7 @@ func skillCommand(c *console.Client, args []string) ([]byte, error) {
 		body = bytes.NewReader(b)
 	case "detach":
 		if len(args) < 3 {
-			return nil, fmt.Errorf("usage: agentdeck skill detach PROJECT ATTACHMENT_ID")
+			return nil, fmt.Errorf("usage: lectern skill detach PROJECT ATTACHMENT_ID")
 		}
 		method = "DELETE"
 		path = "/api/projects/" + url.PathEscape(project) + "/skills/" + url.PathEscape(args[2])
@@ -496,7 +496,7 @@ func skillCommand(c *console.Client, args []string) ([]byte, error) {
 }
 func validateTerminal(args []string, task bool) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: agentdeck attach KIND ID")
+		return fmt.Errorf("usage: lectern attach KIND ID")
 	}
 	switch args[0] {
 	case "session", "attempt", "project", "session-shell", "attempt-shell":

@@ -34,7 +34,7 @@ def test_project_mcp_editor_adds_edits_removes_without_secret_leak(page, server)
         expect(card).to_be_visible()
         expect(card.locator(".project-mcp-status")).to_contain_text("loaded", timeout=10000)
         expect(card.locator(".mcp-command")).to_have_value("fixture-mcp")
-        assert "__agentdeck_retained" in card.locator(".mcp-extra").input_value()
+        assert "__lectern_retained" in card.locator(".mcp-extra").input_value()
         assert "browser-secret" not in card.inner_text()
 
         card.locator(".project-mcp-add").click()
@@ -67,7 +67,7 @@ def test_project_mcp_editor_adds_edits_removes_without_secret_leak(page, server)
         assert saved["mcp"]["tokenizer"]["command"] == "fixture-mcp-v2"
         assert "browser-secret" not in json.dumps(saved)
         assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
-        page.screenshot(path=f"/tmp/agentdeck-mcp-{page.viewport_size['width']}.png", full_page=True)
+        page.screenshot(path=f"/tmp/lectern-mcp-{page.viewport_size['width']}.png", full_page=True)
     finally:
         page.request.delete(f"{server}/api/projects/{project['id']}")
 
@@ -162,7 +162,7 @@ def test_project_mcp_plain_client_crud_over_controlling_pty(real_terminal):
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
         proc = subprocess.Popen([_binary(), "console", "--plain"], stdin=slave, stdout=slave,
-                                stderr=slave, env={**os.environ, "AGENTDECK_API": t["url"]},
+                                stderr=slave, env={**os.environ, "LECTERN_API": t["url"]},
                                 preexec_fn=controlling_terminal)
         os.close(slave)
         output = b""

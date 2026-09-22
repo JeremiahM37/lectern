@@ -100,7 +100,7 @@ def test_terminal_tabs_restore_and_fit_on_mobile(page,real_terminal):
     expect(one.locator('#preview-body')).to_contain_text('A useful artifact')
     one.locator('#preview-dialog [data-close]').click()
     one.locator('#files-dialog [data-close]').click()
-    page.screenshot(path='/tmp/agentdeck-in-app-terminal-mobile.png')
+    page.screenshot(path='/tmp/lectern-in-app-terminal-mobile.png')
 
 
 def test_terminal_tabs_restore_in_a_fresh_browser_context(browser, real_terminal):
@@ -111,8 +111,8 @@ def test_terminal_tabs_restore_in_a_fresh_browser_context(browser, real_terminal
     with browser.new_context(viewport={"width": 1440, "height": 900}) as context:
         value = json.dumps(json.dumps(seed))
         context.add_init_script(
-            f"localStorage.setItem('adk-terminal-tabs-durable-v1', {value});"
-            "localStorage.setItem('adk-last-view', 'terminals');")
+            f"localStorage.setItem('lec-terminal-tabs-durable-v1', {value});"
+            "localStorage.setItem('lec-last-view', 'terminals');")
         page = context.new_page()
         page.goto(t['url'])
         expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')

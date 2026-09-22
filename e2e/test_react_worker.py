@@ -10,7 +10,7 @@ def test_react_worker_precaches_shell_and_leaves_api_and_posts_live(browser, ser
     page.goto(server)
     page.wait_for_function('navigator.serviceWorker.controller !== null')
     keys = page.evaluate('caches.keys()')
-    assert len(keys) == 1 and keys[0].startswith('agentdeck-react-'), keys
+    assert len(keys) == 1 and keys[0].startswith('lectern-react-'), keys
     urls = page.evaluate('''async () => {
       const cache = await caches.open((await caches.keys())[0]);
       return (await cache.keys()).map(request => new URL(request.url).pathname);

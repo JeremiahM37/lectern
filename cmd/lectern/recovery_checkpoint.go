@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func recoveryCheckpoint(cfg *config.Config, args []string) error {
 	if len(args) != 2 || (args[0] != "export" && args[0] != "import") {
-		return errors.New("usage: agentdeck recovery-checkpoint export|import PATH")
+		return errors.New("usage: lectern recovery-checkpoint export|import PATH")
 	}
 	path, err := filepath.Abs(args[1])
 	if err != nil {

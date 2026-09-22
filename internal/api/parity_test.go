@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func allowList(settings obj) []string {
@@ -56,17 +56,17 @@ func TestTargetContextIsStagedAndAnnounced(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	if got := string(h.staged("/.agentdeck/context/CLAUDE.md")); got != "never hardcode IPs" {
+	if got := string(h.staged("/.lectern/context/CLAUDE.md")); got != "never hardcode IPs" {
 		t.Fatalf("staged file: %q", got)
 	}
-	prompt := string(h.staged("/.agentdeck/prompt.md"))
-	if !strings.Contains(prompt, ".agentdeck/context/CLAUDE.md") {
+	prompt := string(h.staged("/.lectern/prompt.md"))
+	if !strings.Contains(prompt, ".lectern/context/CLAUDE.md") {
 		t.Error("the prompt must point at the bundle")
 	}
 	if strings.Index(prompt, "## Context") > strings.Index(prompt, "do the thing") {
 		t.Error("context has to come before the task, or it is read too late")
 	}
-	if !strings.Contains(string(h.staged("/.agentdeck/context/INDEX.md")), "CLAUDE.md") {
+	if !strings.Contains(string(h.staged("/.lectern/context/INDEX.md")), "CLAUDE.md") {
 		t.Error("the index must list what was staged")
 	}
 }
@@ -100,7 +100,7 @@ func TestMissingContextIsReportedToTheAgent(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	prompt := string(h.staged("/.agentdeck/prompt.md"))
+	prompt := string(h.staged("/.lectern/prompt.md"))
 	if !strings.Contains(prompt, "could NOT be staged") || !strings.Contains(prompt, "absent.md") {
 		t.Fatalf("a missing file must be named, not swallowed:\n%s", prompt)
 	}
@@ -109,11 +109,11 @@ func TestMissingContextIsReportedToTheAgent(t *testing.T) {
 func TestNoContextConfiguredLeavesPromptClean(t *testing.T) {
 	h := newHarness(t)
 	h.run(h.seededProjectID(), "parity", "do the thing", nil)
-	if strings.Contains(string(h.staged("/.agentdeck/prompt.md")), "## Context") {
+	if strings.Contains(string(h.staged("/.lectern/prompt.md")), "## Context") {
 		t.Error("an unconfigured bundle must add nothing to the prompt")
 	}
 	for path := range h.mock().Files() {
-		if strings.Contains(path, "/.agentdeck/context/") {
+		if strings.Contains(path, "/.lectern/context/") {
 			t.Errorf("nothing should have been staged: %s", path)
 		}
 	}
@@ -130,8 +130,8 @@ func TestProjectMCPReachesTheAgent(t *testing.T) {
 	h.run(p.id(), "parity", "do the thing", nil)
 
 	cmd := h.launchCmd()
-	if strings.Contains(cmd, "--mcp-config .agentdeck/mcp.json") ||
-		!strings.Contains(cmd, "--mcp-config /tmp/agentdeck-mcp-state/agentdeck/mcp/") ||
+	if strings.Contains(cmd, "--mcp-config .lectern/mcp.json") ||
+		!strings.Contains(cmd, "--mcp-config /tmp/lectern-mcp-state/lectern/mcp/") ||
 		!strings.Contains(cmd, "--strict-mcp-config") {
 		t.Fatalf("launch: %s", cmd)
 	}
@@ -145,8 +145,8 @@ func TestMCPAcceptsAFullMCPServersDocument(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	if strings.Contains(h.launchCmd(), "--mcp-config .agentdeck/mcp.json") ||
-		!strings.Contains(h.launchCmd(), "/tmp/agentdeck-mcp-state/agentdeck/mcp/") {
+	if strings.Contains(h.launchCmd(), "--mcp-config .lectern/mcp.json") ||
+		!strings.Contains(h.launchCmd(), "/tmp/lectern-mcp-state/lectern/mcp/") {
 		t.Fatalf("MCP config must stay outside the worktree: %s", h.launchCmd())
 	}
 	if strings.Contains(h.launchCmd(), "--strict-mcp-config") {
@@ -167,8 +167,8 @@ func TestStrictMCPEmptyClaudeStillUsesPrivateEmptyDocument(t *testing.T) {
 	p := h.project("strict-empty", obj{"strict_mcp": true, "mcp": obj{}})
 	h.run(p.id(), "strict empty", "do the thing", nil)
 	cmd := h.launchCmd()
-	if strings.Contains(cmd, "--mcp-config .agentdeck/mcp.json") ||
-		!strings.Contains(cmd, "--mcp-config /tmp/agentdeck-mcp-state/agentdeck/mcp/") ||
+	if strings.Contains(cmd, "--mcp-config .lectern/mcp.json") ||
+		!strings.Contains(cmd, "--mcp-config /tmp/lectern-mcp-state/lectern/mcp/") ||
 		!strings.Contains(cmd, "--strict-mcp-config") {
 		t.Fatalf("strict empty Claude launch: %s", cmd)
 	}
@@ -185,7 +185,7 @@ func TestPermissionRulesShipInUngatedMode(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", obj{"permission_mode": "acceptEdits"})
 
-	settings := h.stagedJSON("/.agentdeck/settings.json")
+	settings := h.stagedJSON("/.lectern/settings.json")
 	if got := allowList(settings); len(got) != 1 || got[0] != "Bash(pytest*)" {
 		t.Fatalf("allow: %v", got)
 	}
@@ -193,7 +193,7 @@ func TestPermissionRulesShipInUngatedMode(t *testing.T) {
 	if _, ok := settings["hooks"]; ok {
 		t.Error("an ungated run must not get the hook")
 	}
-	if !strings.Contains(h.launchCmd(), "--settings .agentdeck/settings.json") {
+	if !strings.Contains(h.launchCmd(), "--settings .lectern/settings.json") {
 		t.Errorf("launch: %s", h.launchCmd())
 	}
 }
@@ -205,7 +205,7 @@ func TestGatedModeInterceptsEveryToolByDefault(t *testing.T) {
 	h.post(fmt.Sprintf("/api/tasks/%d/dispatch", task.id()), obj{}, 200)
 	h.waitStatus(task.id(), "review")
 
-	settings := h.stagedJSON("/.agentdeck/settings.json")
+	settings := h.stagedJSON("/.lectern/settings.json")
 	hooks := settings.sub("hooks")
 	pre, _ := hooks["PreToolUse"].([]any)
 	first, _ := pre[0].(map[string]any)
@@ -223,7 +223,7 @@ func TestGateMatcherIsNarrowablePerProject(t *testing.T) {
 	h.post(fmt.Sprintf("/api/tasks/%d/dispatch", task.id()), obj{}, 200)
 	h.waitStatus(task.id(), "review")
 
-	settings := h.stagedJSON("/.agentdeck/settings.json")
+	settings := h.stagedJSON("/.lectern/settings.json")
 	pre, _ := settings.sub("hooks")["PreToolUse"].([]any)
 	first, _ := pre[0].(map[string]any)
 	if first["matcher"] != "Bash|Edit" {
@@ -302,13 +302,13 @@ func TestSandboxDispatchGetsTheSameContextAndMemory(t *testing.T) {
 	h.waitStatus(task.id(), "review")
 
 	// the sandbox path used to skip project memory entirely
-	if !strings.Contains(string(h.staged("/.agentdeck/prompt.md")), "remember the sandbox") {
+	if !strings.Contains(string(h.staged("/.lectern/prompt.md")), "remember the sandbox") {
 		t.Error("project memory never reached the sandbox")
 	}
-	if got := string(h.staged("/.agentdeck/context/CLAUDE.md")); got != "sandbox needs this too" {
+	if got := string(h.staged("/.lectern/context/CLAUDE.md")); got != "sandbox needs this too" {
 		t.Errorf("staged context: %q", got)
 	}
-	settings := h.stagedJSON("/.agentdeck/settings.json")
+	settings := h.stagedJSON("/.lectern/settings.json")
 	if got := allowList(settings); len(got) != 1 || got[0] != "Bash(ls*)" {
 		t.Errorf("allow: %v", got)
 	}
@@ -328,7 +328,7 @@ func TestMemoryDirIsReachableNotJustLinked(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	dirs := permsList(h.stagedJSON("/.agentdeck/settings.json"), "additionalDirectories")
+	dirs := permsList(h.stagedJSON("/.lectern/settings.json"), "additionalDirectories")
 	if !hasStr(dirs, "/store/memory") {
 		t.Fatalf("a store outside the worktree is unreadable unless the sandbox allows it: %v", dirs)
 	}
@@ -352,7 +352,7 @@ func TestParityProfileGrantsBashAndHostMCPServers(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	allow := allowList(h.stagedJSON("/.agentdeck/settings.json"))
+	allow := allowList(h.stagedJSON("/.lectern/settings.json"))
 	// bare Bash, not Bash(...): a prefix rule makes the CLI split compound
 	// commands and refuse the parts it cannot match
 	if !hasStr(allow, "Bash") {
@@ -371,7 +371,7 @@ func TestRestrictedProfileStaysEmpty(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	if got := h.stagedJSON("/.agentdeck/settings.json"); len(got) != 0 {
+	if got := h.stagedJSON("/.lectern/settings.json"); len(got) != 0 {
 		t.Fatalf("restricted must grant nothing implicitly: %v", got)
 	}
 }
@@ -384,7 +384,7 @@ func TestExplicitDenyBeatsTheProfile(t *testing.T) {
 
 	h.run(p.id(), "parity", "do the thing", nil)
 
-	settings := h.stagedJSON("/.agentdeck/settings.json")
+	settings := h.stagedJSON("/.lectern/settings.json")
 	if hasStr(allowList(settings), "Bash") {
 		t.Error("the profile re-granted something the operator denied")
 	}

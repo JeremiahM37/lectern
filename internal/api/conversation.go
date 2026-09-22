@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func (s *Server) sessionReader(w http.ResponseWriter, r *http.Request) {

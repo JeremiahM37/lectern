@@ -1,6 +1,6 @@
-// Package mediapost is the one way a file or link reaches AgentDeck's media
+// Package mediapost is the one way a file or link reaches Lectern's media
 // feed. The MCP tool and the CLI both post through it, so an agent calling a
-// tool and a script calling `agentdeck post` cannot drift apart.
+// tool and a script calling `lectern post` cannot drift apart.
 package mediapost
 
 import (
@@ -29,12 +29,12 @@ type Post struct {
 	Source    string // mcp | cli
 }
 
-// SessionID is the AgentDeck session this process was started in, when the
+// SessionID is the Lectern session this process was started in, when the
 // launcher said so. It is exact where TmuxSession is an inference, and it
 // survives what tmux does not: an agent that starts its tools with a scrubbed
 // environment forwards a named variable far more readily than TMUX.
 func SessionID() int64 {
-	id, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("AGENTDECK_SESSION_ID")), 10, 64)
+	id, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("LECTERN_SESSION_ID")), 10, 64)
 	if err != nil || id <= 0 {
 		return 0
 	}
@@ -42,7 +42,7 @@ func SessionID() int64 {
 }
 
 // TmuxSession names the tmux session this process runs inside, which is how a
-// post finds its AgentDeck session without the agent knowing its own id: the
+// post finds its Lectern session without the agent knowing its own id: the
 // poster is a child of the agent, and the agent lives in the session's pane.
 func TmuxSession() string {
 	if os.Getenv("TMUX") == "" {
@@ -61,7 +61,7 @@ func TmuxSession() string {
 	return strings.TrimSpace(string(out))
 }
 
-// Send posts to the AgentDeck API at base and returns the created row as JSON.
+// Send posts to the Lectern API at base and returns the created row as JSON.
 func Send(base, token string, p Post) ([]byte, error) {
 	p.Path, p.URL = strings.TrimSpace(p.Path), strings.TrimSpace(p.URL)
 	if (p.Path == "") == (p.URL == "") {
@@ -69,7 +69,7 @@ func Send(base, token string, p Post) ([]byte, error) {
 	}
 	endpoint := strings.TrimRight(base, "/") + "/api/media"
 	// What the environment says is sent as a hint, apart from an id someone
-	// typed: inherited from another AgentDeck's session it names nothing here,
+	// typed: inherited from another Lectern's session it names nothing here,
 	// and that must not turn a post into an error.
 	tmux, hint := "", int64(0)
 	if p.SessionID == 0 {
@@ -120,7 +120,7 @@ func Send(base, token string, p Post) ([]byte, error) {
 	// one-minute budget is for JSON calls, not for this.
 	resp, err := (&http.Client{Timeout: time.Hour}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("agentdeck unreachable at %s: %w", base, err)
+		return nil, fmt.Errorf("lectern unreachable at %s: %w", base, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/JeremiahM37/agentdeck/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/memory"
 )
 
 // projectMemoryLink reports where a project's memory is read from, how that was

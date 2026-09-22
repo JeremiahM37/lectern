@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""agentdeck agent-side kit — lets a running agent file follow-up task cards.
+"""lectern agent-side kit — lets a running agent file follow-up task cards.
 Usage (from inside the worktree):
-    python3 .agentdeck/adk.py add-task "title" "detailed prompt" [--dispatch]
-    python3 .agentdeck/adk.py add-note "durable fact future agents should know"
-Auth comes from .agentdeck/env (per-attempt token). Stdlib only.
+    python3 .lectern/lec.py add-task "title" "detailed prompt" [--dispatch]
+    python3 .lectern/lec.py add-note "durable fact future agents should know"
+Auth comes from .lectern/env (per-attempt token). Stdlib only.
 """
 import json
 import os
@@ -34,7 +34,7 @@ def main() -> int:
     env = load_env()
     url, token = env.get("ADK_URL", "").rstrip("/"), env.get("ADK_TOKEN", "")
     if not url or not token:
-        print("adk: missing .agentdeck/env", file=sys.stderr)
+        print("lec: missing .lectern/env", file=sys.stderr)
         return 2
     if args[0] == "add-note":
         path, payload = "/api/hook/notes", {"token": token, "note": args[1]}
@@ -51,12 +51,12 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=15) as resp:
             out = json.load(resp)
     except Exception as e:  # noqa: BLE001
-        print(f"adk: request failed: {e}", file=sys.stderr)
+        print(f"lec: request failed: {e}", file=sys.stderr)
         return 1
     if args[0] == "add-note":
-        print(f"adk: noted (#{out['note_id']})")
+        print(f"lec: noted (#{out['note_id']})")
     else:
-        print(f"adk: filed task #{out['task_id']}"
+        print(f"lec: filed task #{out['task_id']}"
               f" ({'dispatched' if dispatch else 'backlog'})")
     return 0
 

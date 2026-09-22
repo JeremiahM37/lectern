@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func (m *Manager) setupActive(id int64) bool {

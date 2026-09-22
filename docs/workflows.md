@@ -1,6 +1,6 @@
 # Project workflows
 
-AgentDeck can optionally bootstrap two bundled workflow skills for an individual
+Lectern can optionally bootstrap two bundled workflow skills for an individual
 project. Open Settings → Projects, choose a project, and use **Project workflows**
 to select Claude Code or Codex. Each provider has its own independent enablement;
 turning a workflow on for one provider does not enable it for the other.
@@ -17,8 +17,8 @@ The catalog shows the pinned bundled version and links to the upstream project:
 - [Maestro](https://github.com/sharpdeveye/maestro) supports diagnosing an existing
   workflow.
 
-AgentDeck vendors pinned upstream files under each workflow bundle; both upstream
-projects are MIT licensed. AgentDeck provides project skill wrappers and selected
+Lectern vendors pinned upstream files under each workflow bundle; both upstream
+projects are MIT licensed. Lectern provides project skill wrappers and selected
 command guidance. Maestro's full MCP integration, editor extension, and other
 upstream tooling are outside this integration.
 
@@ -32,13 +32,13 @@ the settings card remain the source of truth for the installed pinned version.
 
 ```text
 # Claude Code
-/agentdeck-spec-kit specify <request>
-/agentdeck-spec-kit converge <request>
-/agentdeck-maestro diagnose <request>
+/lectern-spec-kit specify <request>
+/lectern-spec-kit converge <request>
+/lectern-maestro diagnose <request>
 
 # Codex
-$agentdeck-spec-kit specify <request>
-$agentdeck-maestro diagnose <request>
+$lectern-spec-kit specify <request>
+$lectern-maestro diagnose <request>
 ```
 
 The wrapper bootstraps workflow support only after one of these explicit

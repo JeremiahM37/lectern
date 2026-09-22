@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/nativeidentity"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/nativeidentity"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // NativeEvidence is the read-only proof that a native conversation belongs to

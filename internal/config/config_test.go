@@ -12,13 +12,13 @@ import (
 // configured entirely through it — a misread variable is a silent
 // misconfiguration rather than a crash.
 
-// isolate clears every AGENTDECK_* variable so a default test measures the
+// isolate clears every LECTERN_* variable so a default test measures the
 // defaults and not whatever the developer's shell happens to export. Setting a
 // variable empty is exactly how the loader sees "unset".
 func isolate(t *testing.T) {
 	t.Helper()
 	for _, kv := range os.Environ() {
-		if k, _, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "AGENTDECK_") {
+		if k, _, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "LECTERN_") {
 			t.Setenv(k, "")
 		}
 	}
@@ -53,11 +53,11 @@ func TestLoadDefaultsAreTheDocumentedOnes(t *testing.T) {
 func TestLoadReadsTheEnvironment(t *testing.T) {
 	isolate(t)
 	for k, v := range map[string]string{
-		"AGENTDECK_PORT": "9999", "AGENTDECK_HOST": "127.0.0.1",
-		"AGENTDECK_DB": "/tmp/x.db", "AGENTDECK_MOCK": "1",
-		"AGENTDECK_AUTH_TOKEN": "sekret", "AGENTDECK_TICK": "0.5",
-		"AGENTDECK_JANITOR_DAYS": "1.5", "AGENTDECK_GRIMOIRE_URL": "http://g:9111",
-		"AGENTDECK_CODEX_BIN": "/home/admin/.local/bin/codex",
+		"LECTERN_PORT": "9999", "LECTERN_HOST": "127.0.0.1",
+		"LECTERN_DB": "/tmp/x.db", "LECTERN_MOCK": "1",
+		"LECTERN_AUTH_TOKEN": "sekret", "LECTERN_TICK": "0.5",
+		"LECTERN_JANITOR_DAYS": "1.5", "LECTERN_GRIMOIRE_URL": "http://g:9111",
+		"LECTERN_CODEX_BIN": "/home/admin/.local/bin/codex",
 	} {
 		t.Setenv(k, v)
 	}
@@ -84,11 +84,11 @@ func TestLoadReadsTheEnvironment(t *testing.T) {
 // overriding the URL must not leave hooks calling back to the wrong place.
 func TestBaseURLFollowsThePort(t *testing.T) {
 	isolate(t)
-	t.Setenv("AGENTDECK_PORT", "9123")
+	t.Setenv("LECTERN_PORT", "9123")
 	if got := Load().BaseURL; got != "http://127.0.0.1:9123" {
 		t.Errorf("base url did not follow the port: %q", got)
 	}
-	t.Setenv("AGENTDECK_BASE_URL", "https://deck.homelab.internal")
+	t.Setenv("LECTERN_BASE_URL", "https://deck.homelab.internal")
 	if got := Load().BaseURL; got != "https://deck.homelab.internal" {
 		t.Errorf("an explicit base url must win: %q", got)
 	}
@@ -98,8 +98,8 @@ func TestBaseURLFollowsThePort(t *testing.T) {
 // not override a default with the empty string.
 func TestEmptyVariablesFallBackToDefaults(t *testing.T) {
 	isolate(t)
-	t.Setenv("AGENTDECK_HOST", "")
-	t.Setenv("AGENTDECK_CLAUDE_BIN", "")
+	t.Setenv("LECTERN_HOST", "")
+	t.Setenv("LECTERN_CLAUDE_BIN", "")
 	c := Load()
 	if c.Host != "0.0.0.0" || c.ClaudeBin != "claude" {
 		t.Errorf("empty env overrode a default: host=%q claude=%q", c.Host, c.ClaudeBin)
@@ -110,8 +110,8 @@ func TestEmptyVariablesFallBackToDefaults(t *testing.T) {
 // deliberate — but it is silent, so the fallback value is worth pinning.
 func TestUnparseableNumbersFallBack(t *testing.T) {
 	isolate(t)
-	t.Setenv("AGENTDECK_PORT", "not-a-port")
-	t.Setenv("AGENTDECK_TICK", "soon")
+	t.Setenv("LECTERN_PORT", "not-a-port")
+	t.Setenv("LECTERN_TICK", "soon")
 	c := Load()
 	if c.Port != 9110 || c.TickInterval != 2*time.Second {
 		t.Errorf("port=%d tick=%v", c.Port, c.TickInterval)
@@ -123,26 +123,26 @@ func TestUnparseableNumbersFallBack(t *testing.T) {
 func TestMockRequiresExactlyOne(t *testing.T) {
 	isolate(t)
 	for _, v := range []string{"", "0", "true", "yes", "TRUE"} {
-		t.Setenv("AGENTDECK_MOCK", v)
+		t.Setenv("LECTERN_MOCK", v)
 		if Load().Mock {
-			t.Errorf("AGENTDECK_MOCK=%q must not enable mock mode", v)
+			t.Errorf("LECTERN_MOCK=%q must not enable mock mode", v)
 		}
 	}
-	t.Setenv("AGENTDECK_MOCK", "1")
+	t.Setenv("LECTERN_MOCK", "1")
 	if !Load().Mock {
-		t.Error("AGENTDECK_MOCK=1 should enable mock mode")
+		t.Error("LECTERN_MOCK=1 should enable mock mode")
 	}
 }
 
 // Attempt ids collide across databases, so the diff store has to be per-database
 // or a test run can overwrite a production patch.
 func TestDiffDirIsScopedToItsDatabase(t *testing.T) {
-	a := (&Config{DBPath: "/home/admin/projects/agentdeck/agentdeck.db"}).DiffDir()
-	b := (&Config{DBPath: "/tmp/TestX123/agentdeck.db"}).DiffDir()
+	a := (&Config{DBPath: "/home/admin/projects/lectern/lectern.db"}).DiffDir()
+	b := (&Config{DBPath: "/tmp/TestX123/lectern.db"}).DiffDir()
 	if a == b {
 		t.Fatal("two databases share a diff directory")
 	}
-	if want := "/home/admin/projects/agentdeck/agentdeck-diffs"; a != want {
+	if want := "/home/admin/projects/lectern/lectern-diffs"; a != want {
 		t.Errorf("got %q want %q", a, want)
 	}
 	if filepath.Dir(b) != "/tmp/TestX123" {
@@ -155,9 +155,9 @@ func TestDiffDirIsScopedToItsDatabase(t *testing.T) {
 // tokens to a target.
 func TestCredentialPathsAreOverridable(t *testing.T) {
 	isolate(t)
-	t.Setenv("AGENTDECK_CREDS", "/tmp/fake/.credentials.json")
-	t.Setenv("AGENTDECK_CODEX_CREDS", "/tmp/fake/auth.json")
-	t.Setenv("AGENTDECK_HOST_CLAUDE_CONFIG", "/tmp/fake/.claude.json")
+	t.Setenv("LECTERN_CREDS", "/tmp/fake/.credentials.json")
+	t.Setenv("LECTERN_CODEX_CREDS", "/tmp/fake/auth.json")
+	t.Setenv("LECTERN_HOST_CLAUDE_CONFIG", "/tmp/fake/.claude.json")
 	c := Load()
 	for _, p := range []string{c.ClaudeCredsPath, c.CodexCredsPath, c.HostClaudeConfig} {
 		if !strings.HasPrefix(p, "/tmp/fake/") {

@@ -42,7 +42,7 @@ def test_browser_background_setup_survives_reload(page,real_terminal,width):
         expect(card.locator('.spane')).to_contain_text('Isolated project: ready',timeout=15000)
         expect(card.locator('.spane')).to_contain_text('Second repository: creating')
         assert card.get_by_role('button',name='⌨ Attach',exact=True).count()==0
-        page.screenshot(path=f'/tmp/agentdeck-background-setup-{width}.png',full_page=True)
+        page.screenshot(path=f'/tmp/lectern-background-setup-{width}.png',full_page=True)
         page.reload()
         expect(card.locator('.spane')).to_contain_text('Isolated project: ready',timeout=15000)
         assert t['api'](f"/sessions/{session['id']}")['setup_state']=='creating'

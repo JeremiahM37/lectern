@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS projects(
   context_json TEXT DEFAULT '[]',              -- extra staged context, on top of the target's
   mcp_json TEXT DEFAULT '{}',                  -- MCP servers handed to the agent
   strict_mcp INTEGER DEFAULT 0,                -- ignore host MCP config entirely
-  permissions_json TEXT DEFAULT '{}',          -- permissions block for .agentdeck/settings.json
+  permissions_json TEXT DEFAULT '{}',          -- permissions block for .lectern/settings.json
   gate_matcher TEXT DEFAULT '',                -- PreToolUse matcher in gated mode ('' = all tools)
   default_agent TEXT DEFAULT 'claude',         -- agent used by tasks that don't pick one
   capability_profile TEXT DEFAULT 'restricted',
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS sessions(
   name TEXT NOT NULL, agent TEXT NOT NULL DEFAULT 'claude', model TEXT DEFAULT '',
   workdir TEXT NOT NULL, tmux_session TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'starting',  -- starting|running|waiting|idle|dead
-  origin TEXT NOT NULL DEFAULT 'agentdeck', -- agentdeck | discovered
+  origin TEXT NOT NULL DEFAULT 'lectern', -- lectern | discovered
   pane_hash TEXT DEFAULT '', pane_tail TEXT DEFAULT '',
   context_pct INTEGER,                      -- parsed from the agent's own footer
   last_activity_at REAL, created_at REAL, updated_at REAL, ended_at REAL,

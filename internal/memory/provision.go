@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-var managedTopic = regexp.MustCompile(`^agentdeck-[a-f0-9]{32}$`)
+var managedTopic = regexp.MustCompile(`^lectern-[a-f0-9]{32}$`)
 
 func (g *Grimoire) Provision(ctx context.Context, project, topic string) (string, error) {
 	mode := g.ContextScope(project).Mode
@@ -26,7 +26,7 @@ func (g *Grimoire) Provision(ctx context.Context, project, topic string) (string
 	body, _ := json.Marshal(map[string]any{
 		"path": "memory/" + topic + ".md", "title": "Memory: " + project,
 		"body":        "# Project memory\n",
-		"frontmatter": map[string]any{"agentdeck_memory_topic": topic},
+		"frontmatter": map[string]any{"lectern_memory_topic": topic},
 	})
 	request, err := http.NewRequestWithContext(ctx, "POST", g.BaseURL+"/api/notes", bytes.NewReader(body))
 	if err != nil {
@@ -56,7 +56,7 @@ func (g *Grimoire) Provision(ctx context.Context, project, topic string) (string
 		var note struct {
 			Frontmatter map[string]any `json:"frontmatter"`
 		}
-		if existing.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(existing.Body, 64000)).Decode(&note) == nil && note.Frontmatter["agentdeck_memory_topic"] == topic {
+		if existing.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(existing.Body, 64000)).Decode(&note) == nil && note.Frontmatter["lectern_memory_topic"] == topic {
 			return "ready", nil
 		}
 		return "unavailable", fmt.Errorf("existing memory location could not be verified")

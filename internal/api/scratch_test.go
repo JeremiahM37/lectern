@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestAScratchSessionGetsItsOwnDirectory(t *testing.T) {
@@ -32,7 +32,7 @@ func TestAScratchSessionGetsItsOwnDirectory(t *testing.T) {
 	if sess.Workdir == "" {
 		t.Fatal("a scratch session still needs somewhere to work")
 	}
-	if !strings.Contains(sess.Workdir, "agentdeck-scratch") {
+	if !strings.Contains(sess.Workdir, "lectern-scratch") {
 		t.Errorf("scratch work belongs under the scratch root, got %q", sess.Workdir)
 	}
 	if !strings.Contains(sess.Workdir, "thinking") {
@@ -595,11 +595,11 @@ func TestDeletingAnEmptyProjectIsSimple(t *testing.T) {
 	}
 }
 
-// An imported project has no tasks and no sessions, so agentdeck's own record
+// An imported project has no tasks and no sessions, so lectern's own record
 // says only "I learned about this at import time" — the same instant for all of
 // them. The repository's last commit is what actually distinguishes a project
 // abandoned two years ago from one touched last week.
-func TestRepoCommitTimeIsUsedWhenAgentdeckHasNoHistory(t *testing.T) {
+func TestRepoCommitTimeIsUsedWhenLecternHasNoHistory(t *testing.T) {
 	requireRealTools(t)
 	r := newRealRig(t)
 

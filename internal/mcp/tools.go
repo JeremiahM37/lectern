@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/mediapost"
+	"github.com/JeremiahM37/lectern/internal/mediapost"
 )
 
 // tool is one MCP tool: its schema, and what it does.
@@ -55,7 +55,7 @@ func argBool(args map[string]any, key string, def bool) bool {
 var tools = []tool{
 	{
 		Name: "post_media",
-		Description: "Show the operator something in AgentDeck's Media feed: a screen recording or demo video, " +
+		Description: "Show the operator something in Lectern's Media feed: a screen recording or demo video, " +
 			"a screenshot, a generated file or report (HTML renders in place), or a link to a site or dev server " +
 			"you are running. Use it to prove work with evidence instead of describing it. Give exactly one of " +
 			"path (a local file; it is copied, so it outlives your worktree) or url. The post is attached to " +
@@ -65,7 +65,7 @@ var tools = []tool{
 			"url":        str("http(s) address to post instead of a file, e.g. the dev server you started"),
 			"title":      str("short headline, e.g. 'Split view working end to end'"),
 			"note":       str("what this shows and what to look for"),
-			"session_id": num("AgentDeck session to attach to; omit to use the session you are running in"),
+			"session_id": num("Lectern session to attach to; omit to use the session you are running in"),
 		}, "title"),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			raw, err := mediapost.Send(s.API, s.Token, mediapost.Post{Path: argStr(args, "path"),
@@ -84,7 +84,7 @@ var tools = []tool{
 	{
 		Name: "open_live_view",
 		Description: "Give the operator a live view of a real desktop on the machine you are running on, shown in " +
-			"AgentDeck's Media view. Use it when they want to WATCH something happen rather than read about it: a " +
+			"Lectern's Media view. Use it when they want to WATCH something happen rather than read about it: a " +
 			"browser automation in headed mode, a GUI app, a visual test. It starts a private virtual display and " +
 			"returns its DISPLAY value; run your tool with that in its environment (for example " +
 			"`DISPLAY=:91 your-tool --headed`) and it draws where the operator is watching. Pass url to also open a " +
@@ -93,7 +93,7 @@ var tools = []tool{
 		Schema: obj(map[string]any{
 			"title":      str("what the operator is about to watch, e.g. 'Quotation replay in headed mode'"),
 			"url":        str("optional http(s) address to open in a browser on the desktop, e.g. http://127.0.0.1:18080"),
-			"session_id": num("AgentDeck session to attach to; omit to use the session you are running in"),
+			"session_id": num("Lectern session to attach to; omit to use the session you are running in"),
 		}, "title"),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			body := map[string]any{"title": argStr(args, "title"), "url": argStr(args, "url"),
@@ -110,7 +110,7 @@ var tools = []tool{
 			detail, _ := view["detail"].(map[string]any)
 			display, _ := detail["display"].(string)
 			view["how_to_use"] = "Run anything that opens a window with DISPLAY=" + display +
-				" in its environment. The operator is watching that display in AgentDeck → Media."
+				" in its environment. The operator is watching that display in Lectern → Media."
 			return view, nil
 		},
 	},

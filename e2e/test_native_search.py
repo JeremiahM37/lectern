@@ -20,7 +20,7 @@ def prepare(t):
     for text,channel in [('old résumé needle <script>window.injected=true</script>','final'),('PRIVATE_SENTINEL','analysis')]+[('ordinary filler '*1000,'final')]*200+[('Latest saved message sentinel','final')]:
         rows.append({'type':'response_item','payload':{'type':'message','role':'assistant','channel':channel,'content':[{'type':'output_text','text':text}]}})
     path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
-    req=urllib.request.Request(t['url']+'/api/agents',method='PUT',data=json.dumps([{'name':'codex','command':'codex','env':{'CODEX_HOME':str(home),'AGENTDECK_NATIVE_SEARCH_CACHE':str(t['root']/'cache')}}]).encode(),headers={'Content-Type':'application/json'})
+    req=urllib.request.Request(t['url']+'/api/agents',method='PUT',data=json.dumps([{'name':'codex','command':'codex','env':{'CODEX_HOME':str(home),'LECTERN_NATIVE_SEARCH_CACHE':str(t['root']/'cache')}}]).encode(),headers={'Content-Type':'application/json'})
     urllib.request.urlopen(req).close()
     return path
 
@@ -37,7 +37,7 @@ def test_native_search_reads_old_match_and_retains_terminal(page,real_terminal,w
     d.get_by_label('Conversation text').fill('résumé needle');d.get_by_role('button',name='Search',exact=True).click()
     expect(d.locator('.ns-result')).to_have_count(1,timeout=20000)
     expect(d.locator('.ns-status')).to_contain_text('1 conversation found')
-    page.screenshot(path=f'/tmp/agentdeck-native-search-results-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-native-search-results-{width}.png')
     assert d.evaluate('(el)=>el.scrollWidth<=el.clientWidth')
     d.get_by_label('Conversation text').focus();page.keyboard.press('ArrowDown');expect(d.locator('.ns-result')).to_be_focused();page.keyboard.press('Enter')
     expect(d.locator('.ns-match')).to_contain_text('old résumé needle')
@@ -59,7 +59,7 @@ def test_native_search_reads_old_match_and_retains_terminal(page,real_terminal,w
         expect(d).to_have_css('height','400px')
         assert d.get_by_role('button',name='Back to results').is_visible()
         page.set_viewport_size({'width':390,'height':844})
-    page.screenshot(path=f'/tmp/agentdeck-native-search-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-native-search-{width}.png')
     d.get_by_role('button',name='Back to results').click()
     assert original==hashlib.sha256(path.read_bytes()).hexdigest()
     path.write_text(path.read_text().replace('old r','new r'))

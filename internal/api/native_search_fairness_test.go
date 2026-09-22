@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestNativeSearchGivesEveryProfileAPassBeforeRepeating(t *testing.T) {

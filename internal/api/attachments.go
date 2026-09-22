@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 const maxAttachmentSize = 25 << 20
@@ -124,7 +124,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request, target
 		respondErr(w, err)
 		return
 	}
-	dir := path.Join(workdir, ".agentdeck", "context", hex.EncodeToString(nonce[:]))
+	dir := path.Join(workdir, ".lectern", "context", hex.EncodeToString(nonce[:]))
 	dest := path.Join(dir, name)
 	stage := path.Join(dir, ".upload")
 	if stage == dest {
@@ -164,9 +164,9 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request, target
 		httpError(w, 502, "upload could not be verified: %s", err)
 		return
 	}
-	// AgentDeck worktrees already exclude .agentdeck; adopted repositories may
+	// Lectern worktrees already exclude .lectern; adopted repositories may
 	// not. Use the local exclude file, preserving the project's .gitignore.
-	ignore := fmt.Sprintf("if git -C %s rev-parse --git-dir >/dev/null 2>&1; then ex_file=$(git -C %s rev-parse --path-format=absolute --git-path info/exclude) && { grep -qxF '.agentdeck/' \"$ex_file\" 2>/dev/null || printf '\\n.agentdeck/\\n' >> \"$ex_file\"; }; fi", shellq.Quote(workdir), shellq.Quote(workdir))
+	ignore := fmt.Sprintf("if git -C %s rev-parse --git-dir >/dev/null 2>&1; then ex_file=$(git -C %s rev-parse --path-format=absolute --git-path info/exclude) && { grep -qxF '.lectern/' \"$ex_file\" 2>/dev/null || printf '\\n.lectern/\\n' >> \"$ex_file\"; }; fi", shellq.Quote(workdir), shellq.Quote(workdir))
 	if err := run(ignore); err != nil {
 		httpError(w, 502, "could not exclude context files from git: %s", err)
 		return

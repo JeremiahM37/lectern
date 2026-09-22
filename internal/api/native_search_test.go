@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func waitNativeSearch(t *testing.T, h *harness, id string) obj {
@@ -55,14 +55,14 @@ func TestNativeSearchAcrossSavedProfilesAndUntrackedWorkspaces(t *testing.T) {
 	target, _ := h.App.DB.InsertTarget(&store.Target{Name: "search local", Kind: "local"})
 	home, old, cache := t.TempDir(), t.TempDir(), t.TempDir()
 	cwd := t.TempDir()
-	env := obj{"CODEX_HOME": home, "AGENTDECK_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}
+	env := obj{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}
 	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
 	first := "11111111-1111-4111-8111-111111111111"
 	second := "22222222-2222-4222-8222-222222222222"
 	file := writeSearchFixture(t, home, cwd, first, "--needle résumé current profile")
 	writeSearchFixture(t, old, t.TempDir(), second, "--needle résumé historical profile")
 	original, _ := os.ReadFile(file)
-	snapshot, _ := json.Marshal(sessions.LaunchConfiguration{Version: 1, Spec: sessions.Spec{Name: "codex", Command: "codex", Env: map[string]string{"CODEX_HOME": old, "AGENTDECK_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}}})
+	snapshot, _ := json.Marshal(sessions.LaunchConfiguration{Version: 1, Spec: sessions.Spec{Name: "codex", Command: "codex", Env: map[string]string{"CODEX_HOME": old, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}}})
 	ended := float64(1)
 	for i := 0; i < 2; i++ {
 		row, err := h.App.DB.InsertSession(&store.Session{TargetID: target.ID, Name: fmt.Sprintf("historical%d", i), Agent: "codex", Workdir: t.TempDir(), TmuxSession: fmt.Sprintf("not-running%d", i), EndedAt: &ended, LaunchConfigJSON: string(snapshot)})
@@ -114,7 +114,7 @@ func TestNativeSearchAcrossSavedProfilesAndUntrackedWorkspaces(t *testing.T) {
 		t.Fatal(page)
 	}
 	// Current settings may change while the result remains bound to its captured profile.
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "AGENTDECK_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
+	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "LECTERN_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
 	h.decode("GET", base, nil, 200, &page)
 	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
 	after, _ := os.ReadFile(file)
@@ -139,7 +139,7 @@ func TestNativeSearchDefaultsWithoutTrackedSessionsAndPartialTargetFailure(t *te
 	_, _ = h.App.DB.InsertTarget(&store.Target{Name: "unsupported", Kind: "sandbox"})
 	home := t.TempDir()
 	writeSearchFixture(t, home, t.TempDir(), "11111111-1111-4111-8111-111111111111", "available needle")
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": home, "AGENTDECK_NATIVE_SEARCH_CACHE": t.TempDir()}}}, 200, nil)
+	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": t.TempDir()}}}, 200, nil)
 	var start obj
 	h.decode("POST", "/api/conversation-search", obj{"query": "needle", "agent": "codex"}, 202, &start)
 	result := waitNativeSearch(t, h, start["id"].(string))
@@ -165,7 +165,7 @@ func TestNativeSearchProjectProfileAliasesAndChangedTarget(t *testing.T) {
 	target, _ := h.App.DB.InsertTarget(&store.Target{Name: "aliases", Kind: "local"})
 	home, cache := t.TempDir(), t.TempDir()
 	writeSearchFixture(t, home, t.TempDir(), "11111111-1111-4111-8111-111111111111", "alias needle")
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": home, "AGENTDECK_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
+	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
 	environment, _ := json.Marshal(obj{"CODEX_HOME": home + "/."})
 	if _, err := h.App.DB.InsertProject(&store.Project{Name: "alias", TargetID: target.ID, RepoPath: t.TempDir(), EnvJSON: string(environment)}); err != nil {
 		t.Fatal(err)

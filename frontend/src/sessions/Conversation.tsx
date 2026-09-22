@@ -105,7 +105,7 @@ export function Conversation({
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
-  const key = `adk-draft-${kind}-${id}`;
+  const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
     [rows, setRows] = useState<Row[]>([]),
     [sessionText, setSessionText] = useState(""),
@@ -123,7 +123,7 @@ export function Conversation({
     [font, setFont] = useState(() =>
       Math.max(
         16,
-        Math.min(24, Number(localStorage.getItem("adk-reader-font")) || 17),
+        Math.min(24, Number(localStorage.getItem("lec-reader-font")) || 17),
       ),
     ),
     [viewport, setViewport] = useState({
@@ -151,7 +151,7 @@ export function Conversation({
     } catch {}
   }
   useEffect(() => {
-    localStorage.setItem("adk-reader-font", String(font));
+    localStorage.setItem("lec-reader-font", String(font));
   }, [font]);
   useEffect(() => {
     const fit = () =>

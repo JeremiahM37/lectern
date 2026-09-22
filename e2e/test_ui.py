@@ -76,7 +76,7 @@ def test_full_flow_dispatch_review_diff_done(page, server):
     # diff viewer
     page.click("#actions button:has-text('Diff')")
     expect(page.locator(".dfile summary", has_text="app.py")).to_be_visible()
-    expect(page.locator(".dl-add", has_text="hello, agentdeck").first).to_be_visible()
+    expect(page.locator(".dl-add", has_text="hello, lectern").first).to_be_visible()
 
     # mark done → the card moves to the done column
     page.click("#actions button:has-text('Mark done')")
@@ -238,13 +238,13 @@ def test_settings_ui_saves_sinks(page, server):
     _tab(page, "targets")
     page.locator('[data-settings="notifications"]').click()
     page.fill("#s-ntfy-server", "https://ntfy.sh")
-    page.fill("#s-ntfy-topic", "adk-e2e")
+    page.fill("#s-ntfy-topic", "lec-e2e")
     page.click("#s-save")
     expect(page.locator(".toast", has_text="Sinks saved")).to_be_visible()
     page.reload()
     _tab(page, "targets")
     page.locator('[data-settings="notifications"]').click()
-    expect(page.locator("#s-ntfy-topic")).to_have_value("adk-e2e", timeout=5000)
+    expect(page.locator("#s-ntfy-topic")).to_have_value("lec-e2e", timeout=5000)
 
 
 def test_multi_attempt_badge_not_mislabeled_ab(page, server):
@@ -295,7 +295,7 @@ def test_token_auth_ui_works(browser, auth_server):
         pg.goto(auth_server)
         status = pg.evaluate("async () => (await fetch('/api/tasks')).status")
         assert status == 401, f"expected 401 without a token, got {status}"
-        pg.evaluate("localStorage.setItem('adk-token','secret123')")
+        pg.evaluate("localStorage.setItem('lec-token','secret123')")
         pg.reload()
         expect(pg.locator(".col-head")).to_have_count(6, timeout=10000)
         # SSE authenticates through the query token, the only way EventSource can
@@ -353,7 +353,7 @@ def test_deck_persists_streams_across_updates(page, server):
     page.evaluate(f"""() => {{
       const p = [...document.querySelectorAll('.pane')]
         .find(e => e.textContent.includes('{marker}'));
-      p.dataset.adkMark = 'orig';
+      p.dataset.lecMark = 'orig';
     }}""")
     page.evaluate(f"""async () => {{
       const t = await (await fetch('/api/tasks', {{method:'POST',
@@ -366,7 +366,7 @@ def test_deck_persists_streams_across_updates(page, server):
     still = page.evaluate(f"""() => {{
       const p = [...document.querySelectorAll('.pane')]
         .find(e => e.textContent.includes('{marker}'));
-      return p ? p.dataset.adkMark : 'PANE-GONE';
+      return p ? p.dataset.lecMark : 'PANE-GONE';
     }}""")
     assert still == "orig", f"deck pane A was recreated on another task's update: {still}"
 
@@ -1089,7 +1089,7 @@ def test_mobile_task_conversation_keeps_drafts_and_continues(page, server):
     expect(page.locator("#conversation-log")).to_contain_text("Result · turn 2", timeout=20000)
     page.click("#reader-larger")
     assert page.locator(".reader-text").first.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 18
-    page.screenshot(path="/tmp/agentdeck-mobile-conversation.png")
+    page.screenshot(path="/tmp/lectern-mobile-conversation.png")
     page.click("#conversation-close")
     expect(page.locator("#sheet")).to_be_visible()
 
@@ -1162,12 +1162,12 @@ def test_mobile_context_attachments_keep_drafts_and_send(page, server):
     with page.expect_request("**/api/sessions/*/send") as sent:
         page.click("#conversation-send")
     assert "Résumé draft.pdf" in sent.value.post_data_json["text"]
-    assert ".agentdeck/context/" in sent.value.post_data_json["text"]
+    assert ".lectern/context/" in sent.value.post_data_json["text"]
     assert "notes.txt" not in sent.value.post_data_json["text"]
     expect(page.locator("#conversation-log")).to_contain_text("Please explain the attached PDF", timeout=15000)
     expect(page.locator("#conversation-attachments")).to_be_empty()
     expect(page.locator("#conversation-input")).to_have_value("")
-    page.screenshot(path="/tmp/agentdeck-attachments-mobile.png")
+    page.screenshot(path="/tmp/lectern-attachments-mobile.png")
     page.click("#conversation-close")
 
 

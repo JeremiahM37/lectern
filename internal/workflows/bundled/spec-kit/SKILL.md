@@ -1,16 +1,16 @@
 ---
-name: agentdeck-spec-kit
+name: lectern-spec-kit
 description: "Use when the user explicitly chooses a Spec Kit workflow: constitution, specify, clarify, plan, tasks, analyze, checklist, implement, or converge."
 disable-model-invocation: true
 ---
 
-# Spec Kit for AgentDeck
+# Spec Kit for Lectern
 
 This optional integration adapts GitHub Spec Kit's pinned MIT-licensed command
 templates. Attribution, revision and original files are in `upstream/`.
 
-Invoke `/agentdeck-spec-kit <mode> <request>` in Claude Code or
-`$agentdeck-spec-kit <mode> <request>` in Codex. Supported modes:
+Invoke `/lectern-spec-kit <mode> <request>` in Claude Code or
+`$lectern-spec-kit <mode> <request>` in Codex. Supported modes:
 `constitution`, `specify`, `clarify`, `plan`, `tasks`, `analyze`, `checklist`,
 `implement`, `converge`. If no mode was supplied, show this menu; do not begin a
 workflow automatically.
@@ -36,7 +36,7 @@ Adaptation rules take precedence over the bundled templates:
   AGENTS.md, CLAUDE.md and configured shared memory normally; never replace or
   append to them as part of integration setup. `.specify/memory/constitution.md`
   is a project design artifact, not an alternate agent memory vault.
-- Names such as `agentdeck-spec-kit plan` mean invoke this skill with that mode,
+- Names such as `lectern-spec-kit plan` mean invoke this skill with that mode,
   using the current agent's `/` or `$` prefix. Only follow a handoff when it is
   part of the user's requested scope. No `specify` CLI is needed: use the bundled
   bash template resolver when the upstream workflow mentions preset resolution.
@@ -46,10 +46,10 @@ Adaptation rules take precedence over the bundled templates:
 - Spec Kit extension hooks and GitHub issue publishing are not installed by
   this integration. Do not execute hook commands merely because a project YAML
   file lists them. Report any configured hooks as outside this adapter's scope.
-- Preserve AgentDeck's active worktree/branch. Feature directories are separate
+- Preserve Lectern's active worktree/branch. Feature directories are separate
   from Git branches; the selected `specify` mode records `.specify/feature.json`.
 - Verify implementation using the project's existing checks. `analyze` and
-  `converge` inspect artifacts; they do not replace tests or AgentDeck review.
+  `converge` inspect artifacts; they do not replace tests or Lectern review.
 
 Disabling this integration removes its owned skill attachment. Generated specs,
 plans, tasks, constitution and `.specify` support files remain in the project.

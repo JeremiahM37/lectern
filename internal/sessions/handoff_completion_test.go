@@ -6,9 +6,9 @@ import (
 )
 
 func TestHandoffRequiresCurrentFinalMarker(t *testing.T) {
-	path := "/tmp/agentdeck-handoff-1-current.md"
+	path := "/tmp/lectern-handoff-1-current.md"
 	body := strings.Repeat("a partial write ", 20)
-	for _, raw := range []string{body, body + "\n<!-- agentdeck:complete /tmp/agentdeck-handoff-1-old.md -->", body + "\n" + handoffMarker(path) + "\nmore work", handoffMarker(path)} {
+	for _, raw := range []string{body, body + "\n<!-- lectern:complete /tmp/lectern-handoff-1-old.md -->", body + "\n" + handoffMarker(path) + "\nmore work", handoffMarker(path)} {
 		if _, ok := completedHandoff([]byte(raw), path); ok {
 			t.Fatalf("accepted incomplete/stale wrap: %s", raw)
 		}

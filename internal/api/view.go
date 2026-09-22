@@ -1,6 +1,6 @@
 package api
 
-import "github.com/JeremiahM37/agentdeck/internal/store"
+import "github.com/JeremiahM37/lectern/internal/store"
 
 // attemptView is the latest attempt as the board renders it.
 type attemptView struct {

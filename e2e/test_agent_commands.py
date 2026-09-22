@@ -27,7 +27,7 @@ def test_target_command_lookup_retry_and_keyboard(page, real_terminal, width):
     page.unroute('**/api/targets/*/agents')
     dialog.get_by_role('button', name='Check again').click()
     expect(dialog.locator('.ac-status')).to_contain_text('lookup complete')
-    page.screenshot(path=f'/tmp/agentdeck-command-check-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-command-check-{width}.png')
     page.keyboard.press('Escape')
     expect(dialog).to_have_count(0)
     expect(button).to_be_focused()

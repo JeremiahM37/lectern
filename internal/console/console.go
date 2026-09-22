@@ -270,7 +270,7 @@ func (u *UI) confirm(label string) bool {
 }
 func (u *UI) Run() error {
 	for {
-		u.say("\nAGENTDECK  /  Terminal workspace\n%s\n", u.Client.Base)
+		u.say("\nLECTERN  /  Terminal workspace\n%s\n", u.Client.Base)
 		u.say("1  Sessions       2  Tasks          3  Routines\n4  Projects       5  Targets        6  Approvals\n7  Notifications  8  Usage & build  9  Full API\nq  Quit")
 		pick, e := u.ask("Open", "")
 		if e != nil {

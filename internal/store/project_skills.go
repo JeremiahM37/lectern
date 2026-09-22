@@ -29,7 +29,7 @@ type SkillMaterialization struct {
 	SourcePath   string `json:"source_path"`
 	TargetRel    string `json:"target_rel"`
 	// State records the filesystem fact separately from desired attachment
-	// intent. pending means the link has not been proven; owned means AgentDeck
+	// intent. pending means the link has not been proven; owned means Lectern
 	// created it; preexisting means the destination was native and must never
 	// be removed during detach.
 	State     string  `json:"state"`

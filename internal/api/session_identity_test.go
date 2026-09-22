@@ -1,8 +1,8 @@
 package api_test
 
-// A session and the memory store used to have no key in common: AgentDeck knew
+// A session and the memory store used to have no key in common: Lectern knew
 // a session by its row, the store knew the agent's writes by no run at all, and
-// AgentDeck's own writes went in under a display name. These tests follow the
+// Lectern's own writes went in under a display name. These tests follow the
 // one key through every place it has to agree.
 
 import (
@@ -14,10 +14,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
-// fakeGrimoire records what AgentDeck writes and answers what it reads.
+// fakeGrimoire records what Lectern writes and answers what it reads.
 type fakeGrimoire struct {
 	mu      sync.Mutex
 	writes  []map[string]any
@@ -70,7 +70,7 @@ func TestASessionAndTheMemoryStoreShareOneKey(t *testing.T) {
 	sess := h.session(obj{"project_id": pid, "name": "Same name"})
 	twin := h.session(obj{"project_id": pid, "name": "Same name"})
 	h.waitSessionStatus(sess.id(), "waiting", "idle", "running")
-	key := fmt.Sprintf("agentdeck-s%d", sess.id())
+	key := fmt.Sprintf("lectern-s%d", sess.id())
 
 	// 1. The agent is launched knowing which session it is, under the name each
 	// reader looks for. The memory server stamps the second on every write.
@@ -80,13 +80,13 @@ func TestASessionAndTheMemoryStoreShareOneKey(t *testing.T) {
 			launched = cmd
 		}
 	}
-	for _, want := range []string{fmt.Sprintf("AGENTDECK_SESSION_ID=%d ", sess.id()), "GRIMOIRE_SESSION=" + key + " "} {
+	for _, want := range []string{fmt.Sprintf("LECTERN_SESSION_ID=%d ", sess.id()), "GRIMOIRE_SESSION=" + key + " "} {
 		if !strings.Contains(launched, want) {
 			t.Errorf("launch is missing %s:\n%s", want, launched)
 		}
 	}
 
-	// 2. AgentDeck's own write at a handoff goes in under that same key. It used
+	// 2. Lectern's own write at a handoff goes in under that same key. It used
 	// the display name, which these two sessions share.
 	h.post(fmt.Sprintf("/api/sessions/%d/handoff", sess.id()), obj{}, 202)
 	h.waitUntil("the handoff to reach the memory store", func() bool {
@@ -100,11 +100,11 @@ func TestASessionAndTheMemoryStoreShareOneKey(t *testing.T) {
 	if written["session"] != key {
 		t.Errorf("handoff session = %v, want %s", written["session"], key)
 	}
-	if written["session"] == fmt.Sprintf("agentdeck-s%d", twin.id()) || written["session"] == "Same name" {
+	if written["session"] == fmt.Sprintf("lectern-s%d", twin.id()) || written["session"] == "Same name" {
 		t.Errorf("the key must tell two sessions with one name apart: %v", written["session"])
 	}
 
-	// 3. And AgentDeck can read back what the agent wrote on its own, by it.
+	// 3. And Lectern can read back what the agent wrote on its own, by it.
 	got := h.get(fmt.Sprintf("/api/sessions/%d/memory", sess.id()))
 	if got.str("status") != "ready" || got.str("session") != key || len(got.list("changes")) != 2 {
 		t.Fatalf("read-back: %v", got)
@@ -155,7 +155,7 @@ func TestAnInheritedSessionIdIsAHintAndATypedOneIsAClaim(t *testing.T) {
 	if int64(hit.num("session_id")) != sess.id() {
 		t.Errorf("a valid hint must attribute the post: %v", hit)
 	}
-	// Inherited from a session of some other AgentDeck: the post still lands.
+	// Inherited from a session of some other Lectern: the post still lands.
 	stray := h.post("/api/media", obj{"url": "https://example.com", "title": "b", "hint_session_id": 99999}, 201)
 	if stray["session_id"] != nil {
 		t.Errorf("an unknown hint must post unattributed: %v", stray)
@@ -179,7 +179,7 @@ func TestAProjectsMemoryLinkIsReportedAsItIsNotAsItIsAssumed(t *testing.T) {
 		t.Fatalf("managed but unprovisioned: %v", link)
 	}
 	if paths := detail.list("paths"); len(paths) != 1 || paths[0]["exists"] != false ||
-		!strings.HasPrefix(paths[0].str("path"), "memory/agentdeck-") {
+		!strings.HasPrefix(paths[0].str("path"), "memory/lectern-") {
 		t.Fatalf("paths: %v", detail)
 	}
 	// Without a topic the paths are guessed from the name. One of the guesses

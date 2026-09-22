@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
-	"github.com/JeremiahM37/agentdeck/web"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/web"
 )
 
 func (s *Server) terminalPage(w http.ResponseWriter, r *http.Request) {
@@ -81,10 +81,10 @@ func (s *Server) terminalInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"kind": kind, "id": id, "tmux_session": att.TmuxSession, "target": target.Name,
 		"workdir": dir, "terminal_url": att.BasePath(), "shell_url": shellURL, "attach_argv": argv,
 		"files_available": path.IsAbs(dir) && target.Kind != "sandbox",
-		"desktop_uri":     "agentdeck://attach/" + kind + "/" + id,
+		"desktop_uri":     "lectern://attach/" + kind + "/" + id,
 		// The remote peer is a hosted control plane. Mark the command so a
 		// newer CLI's no-API local default cannot start a second local database.
-		"desktop_command": "ssh -t agentdeck /usr/local/bin/agentdeck --hosted-attach attach " + kind + " " + id})
+		"desktop_command": "ssh -t lectern /usr/local/bin/lectern --hosted-attach attach " + kind + " " + id})
 }
 
 func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ def inside(p): return os.path.commonpath([root,p])==root
 def bookkeeping(p):
  if len(sys.argv)<5 or sys.argv[4]!='grouped': return False
  name=os.path.relpath(p,root)
- return name in ('.agentdeck-lock','.agentdeck-state.json','.agentdeck-process.json','.agentdeck-state.next') or (os.sep not in name and name.startswith('.agentdeck-write-'))
+ return name in ('.lectern-lock','.lectern-state.json','.lectern-process.json','.lectern-state.next','.agentdeck-lock','.agentdeck-state.json','.agentdeck-process.json','.agentdeck-state.next') or (os.sep not in name and (name.startswith('.lectern-write-') or name.startswith('.agentdeck-write-')))
 try:
  p=os.path.realpath(os.path.join(root,rel))
  if not inside(p): raise ValueError('path is outside this workspace')

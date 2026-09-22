@@ -48,7 +48,7 @@ const order: Record<string, number> = {
 };
 function savedGrouping(): GroupMode {
   try {
-    const value = sessionStorage.getItem("adk-session-grouping");
+    const value = sessionStorage.getItem("lec-session-grouping");
     if (value && ["none", "group", "project", "target"].includes(value))
       return value as GroupMode;
   } catch {}
@@ -57,7 +57,7 @@ function savedGrouping(): GroupMode {
 function savedCollapsed() {
   try {
     const value: unknown = JSON.parse(
-      sessionStorage.getItem("adk-collapsed-session-groups") || "[]",
+      sessionStorage.getItem("lec-collapsed-session-groups") || "[]",
     );
     return new Set(
       Array.isArray(value)
@@ -411,7 +411,7 @@ export function Sessions({
           onChange={(event) => {
             const value = event.target.value as GroupMode;
             setGroup(value);
-            sessionStorage.setItem("adk-session-grouping", value);
+            sessionStorage.setItem("lec-session-grouping", value);
           }}
         >
           <option value="none">None</option>
@@ -457,7 +457,7 @@ export function Sessions({
                 if (open) next.delete(key);
                 else next.add(key);
                 sessionStorage.setItem(
-                  "adk-collapsed-session-groups",
+                  "lec-collapsed-session-groups",
                   JSON.stringify([...next]),
                 );
                 return next;

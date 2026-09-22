@@ -1,0 +1,13 @@
+[Unit]
+Description=lectern nightly smoke test
+After=lectern.service
+
+[Service]
+Type=oneshot
+User=admin
+# Discord bot token + channel live here (mode 600, NOT in the repo):
+#   LECTERN_DISCORD_BOT_TOKEN=...
+#   LECTERN_DISCORD_CHANNEL_ID=...
+EnvironmentFile=-/etc/lectern-smoke.env
+ExecStart=/usr/bin/python3 /home/admin/projects/lectern/deploy/lectern-smoke.py
+TimeoutStartSec=1200

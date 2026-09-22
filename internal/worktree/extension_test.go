@@ -3,8 +3,8 @@ package worktree
 import (
 	"context"
 	"encoding/json"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,11 +88,11 @@ func TestExtensionPreflightRejectsAliasWithoutMutatingRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(filepath.Join(plan.Path, ".agentdeck-state.json"))
+	before, _ := os.ReadFile(filepath.Join(plan.Path, ".lectern-state.json"))
 	if err := RunInteractive(context.Background(), executor.NewLocal(), "extend", next); err == nil || !strings.Contains(err.Error(), "same Git repository") {
 		t.Fatalf("alias accepted: %v", err)
 	}
-	after, _ := os.ReadFile(filepath.Join(plan.Path, ".agentdeck-state.json"))
+	after, _ := os.ReadFile(filepath.Join(plan.Path, ".lectern-state.json"))
 	if string(before) != string(after) {
 		t.Fatal("failed preflight changed root receipt")
 	}
@@ -128,7 +128,7 @@ func TestExtensionFailureRemainsDiscoverableFromOldRecord(t *testing.T) {
 
 func TestExtensionCancellationDoesNotStopExistingTerminal(t *testing.T) {
 	testutil.RequireIsolated(t)
-	socketRoot, err := os.MkdirTemp("", "adk-ext-")
+	socketRoot, err := os.MkdirTemp("", "lec-ext-")
 	if err != nil {
 		t.Fatal(err)
 	}

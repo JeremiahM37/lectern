@@ -40,7 +40,7 @@ func (e *MissingError) Error() string {
 	return "this machine cannot host a live desktop; install: " + strings.Join(e.Tools, ", ")
 }
 
-var stateDir = regexp.MustCompile(`^/tmp/agentdeck-live-[A-Za-z0-9]{6}$`)
+var stateDir = regexp.MustCompile(`^/tmp/lectern-live-[A-Za-z0-9]{6}$`)
 
 // reapScript stops desktops a previous server left running. Forwards live in
 // memory, so after a restart nothing can reach those desktops and nothing would
@@ -75,9 +75,9 @@ func Start(ctx context.Context, run Runner, owner string, width, height int) (*D
 	if !regexp.MustCompile(`^[A-Za-z0-9]{8,64}$`).MatchString(owner) {
 		return nil, fmt.Errorf("invalid owner id")
 	}
-	script := "# agentdeck-desktop-start\n" + reapScript + fmt.Sprintf(`
+	script := "# lectern-desktop-start\n" + reapScript + fmt.Sprintf(`
 W=%d; H=%d; OWNER=%s
-for old in /tmp/agentdeck-live-??????; do
+for old in /tmp/lectern-live-??????; do
   [ -d "$old" ] && [ ! -L "$old" ] || continue
   [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] || reap "$old"
 done
@@ -89,7 +89,7 @@ for d in /usr/share/novnc /usr/share/webapps/novnc /usr/share/noVNC /opt/novnc; 
 done
 [ -n "$novnc" ] || missing="$missing novnc"
 if [ -n "$missing" ]; then echo "MISSING$missing"; exit 0; fi
-dir=$(mktemp -d /tmp/agentdeck-live-XXXXXX) || { echo "ERROR could not create state directory"; exit 0; }
+dir=$(mktemp -d /tmp/lectern-live-XXXXXX) || { echo "ERROR could not create state directory"; exit 0; }
 chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"
 n=""
 for c in $(seq 90 139); do
@@ -153,7 +153,7 @@ func Stop(ctx context.Context, run Runner, dir string) error {
 	if !stateDir.MatchString(dir) {
 		return fmt.Errorf("not a desktop state directory")
 	}
-	_, err := run(ctx, "# agentdeck-desktop-stop\n"+reapScript+
+	_, err := run(ctx, "# lectern-desktop-stop\n"+reapScript+
 		fmt.Sprintf(`d=%s; [ -d "$d" ] && [ ! -L "$d" ] && reap "$d"; true`+"\n", shellQuote(dir)))
 	return err
 }
@@ -169,7 +169,7 @@ func OpenBrowser(ctx context.Context, run Runner, d *Desktop, address string) (s
 	if !stateDir.MatchString(d.Dir) {
 		return "", fmt.Errorf("not a desktop state directory")
 	}
-	script := fmt.Sprintf(`# agentdeck-desktop-browser
+	script := fmt.Sprintf(`# lectern-desktop-browser
 dir=%s; url=%s; n=%d; W=%d; H=%d
 [ -d "$dir" ] || { echo "ERROR the desktop is gone"; exit 0; }
 bin=""

@@ -33,10 +33,10 @@ def api(base, path, body=None, method=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--grimoire-root", type=Path, required=True)
-    parser.add_argument("--agentdeck-bin", type=Path, required=True)
+    parser.add_argument("--lectern-bin", type=Path, required=True)
     args = parser.parse_args()
     grimoire = args.grimoire_root.resolve()
-    binary = args.agentdeck_bin.resolve()
+    binary = args.lectern_bin.resolve()
     deck_output = ROOT / "docs/screenshots"
     memory_output = grimoire / "docs/screenshots"
     with tempfile.TemporaryDirectory(prefix="memory-showcase-") as directory:
@@ -46,7 +46,7 @@ def main():
         tmux_root = temporary / "tmux"
         tmux_root.mkdir()
         environment = {key: value for key, value in os.environ.items()
-            if not key.startswith(("AGENTDECK_", "GRIMOIRE_", "ANTHROPIC_", "OPENAI_"))}
+            if not key.startswith(("LECTERN_", "GRIMOIRE_", "ANTHROPIC_", "OPENAI_"))}
         environment.update(HOME=str(home), TMUX="", TMUX_TMPDIR=str(tmux_root),
             XDG_CONFIG_HOME=str(home / ".config"), XDG_STATE_HOME=str(home / ".state"))
         processes = []
@@ -84,10 +84,10 @@ def main():
             for path, frontmatter, body in demo.NOTES:
                 api(memory_base, "/notes", {"path": path, "frontmatter": frontmatter, "body": body})
             start([str(binary), "serve"], {
-                "AGENTDECK_MOCK": "1", "AGENTDECK_PORT": str(deck_port), "AGENTDECK_HOST": "127.0.0.1",
-                "AGENTDECK_DB": str(temporary / "deck.db"), "AGENTDECK_GRIMOIRE_URL": memory_base,
-                "AGENTDECK_BASE_URL": deck_base, "AGENTDECK_TICK": "0.1",
-                "AGENTDECK_MOCK_DELAY": "0.15", "AGENTDECK_SESSION_POLL": "0.2",
+                "LECTERN_MOCK": "1", "LECTERN_PORT": str(deck_port), "LECTERN_HOST": "127.0.0.1",
+                "LECTERN_DB": str(temporary / "deck.db"), "LECTERN_GRIMOIRE_URL": memory_base,
+                "LECTERN_BASE_URL": deck_base, "LECTERN_TICK": "0.1",
+                "LECTERN_MOCK_DELAY": "0.15", "LECTERN_SESSION_POLL": "0.2",
             }, "deck")
             ready(deck_base)
             target = api(deck_base, "/targets")[0]
@@ -121,15 +121,15 @@ def main():
             subprocess.run(["tmux", "-f", "/dev/null", "new-session", "-d", "-s", "showcase", "-c", str(workspace),
                 "bash", "--noprofile", "--norc"], check=True, env=environment)
             subprocess.run(["tmux", "send-keys", "-t", "=showcase:", "printf '\\nKestrel development workspace\\nProject files remain on your own machine.\\n\\n'; ls", "Enter"], check=True, env=environment)
-            start([str(binary), "serve"], {"AGENTDECK_MOCK": "0", "AGENTDECK_HOST": "127.0.0.1",
-                "AGENTDECK_PORT": str(terminal_port), "AGENTDECK_DB": str(temporary / "terminal.db"),
-                "AGENTDECK_BASE_URL": terminal_base, "AGENTDECK_SESSION_POLL": "3600"}, "terminal")
+            start([str(binary), "serve"], {"LECTERN_MOCK": "0", "LECTERN_HOST": "127.0.0.1",
+                "LECTERN_PORT": str(terminal_port), "LECTERN_DB": str(temporary / "terminal.db"),
+                "LECTERN_BASE_URL": terminal_base, "LECTERN_SESSION_POLL": "3600"}, "terminal")
             ready(terminal_base)
             local = api(terminal_base, "/targets", {"name": "local-demo", "kind": "local"})
             session = api(terminal_base, "/sessions/adopt", {"target_id": local["id"],
                 "tmux_session": "showcase", "workdir": str(workspace), "name": "Kestrel workspace", "agent": "claude"})
             start(["ttyd", "-i", "127.0.0.1", "-p", str(console_port), "-t", "fontSize=18", "-W", str(binary)],
-                {"AGENTDECK_API": deck_base, "TERM": "xterm-256color"}, "console")
+                {"LECTERN_API": deck_base, "TERM": "xterm-256color"}, "console")
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
                 page = browser.new_page(viewport={"width": 1440, "height": 960})
@@ -165,10 +165,10 @@ def main():
                 page.on("websocket", lambda connection: connection.on("framereceived", lambda frame: frames.append(frame.decode(errors="replace") if isinstance(frame, bytes) else frame)))
                 page.goto(f"http://127.0.0.1:{console_port}")
                 for _ in range(100):
-                    if "AgentDeck" in "".join(frames) and "LIVE" in "".join(frames):
+                    if "Lectern" in "".join(frames) and "LIVE" in "".join(frames):
                         break
                     page.wait_for_timeout(100)
-                assert "AgentDeck" in "".join(frames) and "LIVE" in "".join(frames)
+                assert "Lectern" in "".join(frames) and "LIVE" in "".join(frames)
                 shot(deck_output / "terminal-console-current.png")
                 page.set_viewport_size({"width": 1440, "height": 960})
                 page.goto(memory_base + "/#engineering/deployment-runbook.md")
@@ -187,7 +187,7 @@ def main():
             report = {"sample_data": True, "real_terminal": True,
                 "checks": ["Project creation provisioned a note in real Grimoire", "Recall excluded another project",
                            "Rename retained memory", "Real tmux/ttyd workspace connected", "Native terminal dashboard rendered"],
-                "agentdeck_build": api(deck_base, "/health")["build"],
+                "lectern_build": api(deck_base, "/health")["build"],
                 "grimoire_build": api(memory_base, "/health")["build"]}
             (deck_output / "memory-showcase-report.json").write_text(json.dumps(report, indent=2) + "\n")
             print("PASS: real project-memory integration and eight current UI captures")

@@ -37,7 +37,7 @@ def loopback_app(tmp_path):
 
 
 def cli(t,*args):
-    out=subprocess.run([_binary(),*args],env={**t['env'],'AGENTDECK_API':t['url'],'TMUX':''},capture_output=True,text=True,timeout=90)
+    out=subprocess.run([_binary(),*args],env={**t['env'],'LECTERN_API':t['url'],'TMUX':''},capture_output=True,text=True,timeout=90)
     assert out.returncode==0,out.stderr
     return json.loads(out.stdout) if out.stdout.strip() else None
 
@@ -146,5 +146,5 @@ def test_live_views_are_not_offered_until_the_operator_turns_them_on(page,real_t
     # No bar to start one, and no button on the link that could not work.
     expect(page.locator('#live')).to_have_count(0)
     expect(card.get_by_role('button',name=re.compile('Expose'))).to_have_count(0)
-    out=subprocess.run([_binary(),'expose',str(loopback_app)],env={**t['env'],'AGENTDECK_API':t['url'],'TMUX':''},capture_output=True,text=True,timeout=60)
-    assert out.returncode!=0 and 'AGENTDECK_LIVE=1' in out.stderr,out.stderr
+    out=subprocess.run([_binary(),'expose',str(loopback_app)],env={**t['env'],'LECTERN_API':t['url'],'TMUX':''},capture_output=True,text=True,timeout=60)
+    assert out.returncode!=0 and 'LECTERN_LIVE=1' in out.stderr,out.stderr

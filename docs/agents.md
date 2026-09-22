@@ -1,6 +1,6 @@
 # Agents
 
-AgentDeck drives more than one coding CLI. Everything CLI-specific lives in
+Lectern drives more than one coding CLI. Everything CLI-specific lives in
 `internal/agents/` (`launch.go` and `parse.go`, plus `claude.go` for Claude
 Code's settings and permission rules), so the run
 protocol — worktree, tmux, events file, exit code — is identical whichever agent
@@ -37,8 +37,8 @@ curl -X PATCH .../api/projects/3 -d '{"default_agent":"codex"}'
 In the PWA, the **Agent** toggle in the new-task sheet picks per task, starting
 from the project default. A task's explicit `agent` always wins.
 
-For scripts, `agentdeck agent list` shows the registry and
-`agentdeck agent save @agents.json` updates it. The JSON form is useful for
+For scripts, `lectern agent list` shows the registry and
+`lectern agent save @agents.json` updates it. The JSON form is useful for
 repeatable deployments; Settings and the TUI expose the required command fields
 without requiring JSON for ordinary setup.
 
@@ -56,7 +56,7 @@ probe didn't find the binary, the toggle says so instead of failing at dispatch.
 
 ## Permission modes
 
-AgentDeck's modes map onto each CLI's own sandboxing:
+Lectern's modes map onto each CLI's own sandboxing:
 
 | Mode | claude | codex |
 |---|---|---|
@@ -90,22 +90,22 @@ See [context-parity.md](context-parity.md).
 
 Claude and Codex support exact-ID resume and fork in the interactive web and
 terminal clients. Gemini and custom agents expose those actions only when their
-definition provides the corresponding argument templates; AgentDeck never falls
+definition provides the corresponding argument templates; Lectern never falls
 back to an unrelated last conversation.
 
 ## Binary not found
 
 Agents installed under `~/.local/bin` are invisible to a systemd unit, whose
 `PATH` doesn't include it — the probe then reports the agent as missing. Point
-AgentDeck at the real path:
+Lectern at the real path:
 
 ```ini
-# /etc/systemd/system/agentdeck.service.d/override.conf
+# /etc/systemd/system/lectern.service.d/override.conf
 [Service]
-Environment=AGENTDECK_CODEX_BIN=/home/you/.local/bin/codex
+Environment=LECTERN_CODEX_BIN=/home/you/.local/bin/codex
 ```
 
-`AGENTDECK_CLAUDE_BIN` and `AGENTDECK_GEMINI_BIN` work the same way.
+`LECTERN_CLAUDE_BIN` and `LECTERN_GEMINI_BIN` work the same way.
 
 ## Any CLI, for sessions and tasks
 
@@ -130,7 +130,7 @@ curl -X PUT .../api/agents -d '[{
 
 `prompt_arg` says the CLI accepts an opening message as a positional argument.
 When it does, the project briefing rides on the command line; otherwise
-agentdeck types it after the pane settles. A definition sharing a built-in's
+lectern types it after the pane settles. A definition sharing a built-in's
 name overrides it, which is how a CLI whose flags have drifted gets fixed
 without a release.
 

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 func extensionAPI(t *testing.T, command string) (*harness, *store.Session, int64) {

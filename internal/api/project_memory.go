@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func (s *Server) provisionProjectMemory(ctx context.Context, project *store.Project) {

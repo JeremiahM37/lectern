@@ -2,9 +2,9 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +23,7 @@ func TestKillDoesNotCloseRecordWhenTmuxRefusesStop(t *testing.T) {
 	}
 	for _, code := range []string{"0", "1", "124"} {
 		t.Run("exit-"+code, func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "adk-kill-proof-")
+			dir, err := os.MkdirTemp("/tmp", "lec-kill-proof-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -140,7 +140,7 @@ func stopRig(t *testing.T) (*Manager, *store.Session, string, string) {
 	if err != nil {
 		t.Skip("tmux unavailable")
 	}
-	dir, err := os.MkdirTemp("/tmp", "adk-stop-")
+	dir, err := os.MkdirTemp("/tmp", "lec-stop-")
 	if err != nil {
 		t.Fatal(err)
 	}

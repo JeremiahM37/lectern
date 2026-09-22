@@ -2,8 +2,8 @@ package api_test
 
 import (
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -127,10 +127,10 @@ func TestMultiRepositorySessionLifecycle(t *testing.T) {
 	filesURL := fmt.Sprintf("/api/term/session/%d", int64(row.num("id")))
 	var listing obj
 	h.decode("GET", filesURL+"/files", nil, 200, &listing)
-	if strings.Contains(fmt.Sprint(listing), ".agentdeck-") {
+	if strings.Contains(fmt.Sprint(listing), ".lectern-") {
 		t.Fatal("workspace bookkeeping leaked into file browser")
 	}
-	for _, name := range []string{".agentdeck-lock", ".agentdeck-state.json", ".agentdeck-process.json"} {
+	for _, name := range []string{".lectern-lock", ".lectern-state.json", ".lectern-process.json"} {
 		h.decode("GET", filesURL+"/file?path="+name, nil, 400, nil)
 	}
 	for _, r := range repositories {
@@ -180,7 +180,7 @@ func TestMultiRepositorySessionLifecycle(t *testing.T) {
 	if isolatedSecond["repo"] != projects[1].RepoPath {
 		t.Fatal("fork cleanup depends on temporary parent directory")
 	}
-	if strings.Contains(fmt.Sprint(listing), ".agentdeck-") {
+	if strings.Contains(fmt.Sprint(listing), ".lectern-") {
 		t.Fatal("shared session exposed bookkeeping")
 	}
 	if changes.num("selected_repository") != 1 || !strings.Contains(changes.str("patch"), "second repository change") {

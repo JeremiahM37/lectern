@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Names are the agents agentdeck knows how to launch.
+// Names are the agents lectern knows how to launch.
 var Names = []string{"claude", "codex", "gemini"}
 
 // GatedCapable are the agents that support the hook-gated 'default' permission
@@ -14,7 +14,7 @@ var Names = []string{"claude", "codex", "gemini"}
 // is rejected before dispatch rather than silently running ungated.
 var GatedCapable = map[string]bool{"claude": true}
 
-// codexSandbox maps agentdeck's permission modes onto codex sandbox policies
+// codexSandbox maps lectern's permission modes onto codex sandbox policies
 // (codex >= 0.140; the older --full-auto was removed upstream).
 var codexSandbox = map[string][]string{
 	"plan":              {"--sandbox", "read-only"},
@@ -41,7 +41,7 @@ type TaskDefinition struct {
 	PromptArg      bool     `json:"prompt_arg,omitempty"`
 	PromptTemplate string   `json:"prompt_template,omitempty"`
 	OutputMode     string   `json:"output_mode,omitempty"`
-	// PermissionArgs explicitly maps AgentDeck modes to this CLI's flags.
+	// PermissionArgs explicitly maps Lectern modes to this CLI's flags.
 	// acceptEdits may be omitted when the CLI's native default is acceptable;
 	// plan and bypassPermissions require an explicit mapping.
 	PermissionArgs map[string][]string `json:"permission_args,omitempty"`
@@ -165,9 +165,9 @@ func (l Launcher) Command(s LaunchSpec) (string, error) {
 		if s.ResumeSession != "" {
 			parts = append(parts, "resume", shellQuote(s.ResumeSession))
 		}
-		parts = append(parts, `"$(cat .agentdeck/prompt.md)"`)
+		parts = append(parts, `"$(cat .lectern/prompt.md)"`)
 	case "gemini":
-		parts = []string{l.bin(l.GeminiBin, "gemini"), "-p", `"$(cat .agentdeck/prompt.md)"`}
+		parts = []string{l.bin(l.GeminiBin, "gemini"), "-p", `"$(cat .lectern/prompt.md)"`}
 		if s.Model != "" {
 			parts = append(parts, "-m", s.Model)
 		}
@@ -225,7 +225,7 @@ func genericTaskCommand(s LaunchSpec, prefix string, d TaskDefinition) (string, 
 		promptMode = "{prompt}"
 	}
 	if promptMode == "stdin" {
-		invocation = `cat .agentdeck/prompt.md | ` + prefix + invocation
+		invocation = `cat .lectern/prompt.md | ` + prefix + invocation
 	} else {
 		if promptMode == "" {
 			return "", fmt.Errorf("agent %q task prompt_template is required", d.Name)
@@ -274,9 +274,9 @@ func renderPromptTemplate(template string) ([]string, error) {
 	for _, token := range tokens {
 		switch token {
 		case "{prompt}":
-			out = append(out, `"$(cat .agentdeck/prompt.md)"`)
+			out = append(out, `"$(cat .lectern/prompt.md)"`)
 		case "{prompt_file}":
-			out = append(out, shellQuote(".agentdeck/prompt.md"))
+			out = append(out, shellQuote(".lectern/prompt.md"))
 		default:
 			if strings.Contains(token, "{prompt}") || strings.Contains(token, "{prompt_file}") {
 				return nil, fmt.Errorf("prompt placeholders must be whole argument tokens")
@@ -346,7 +346,7 @@ func (l Launcher) claudeCommand(s LaunchSpec, prefix string) string {
 	if settings == "" {
 		settings = SettingsRel
 	}
-	parts := []string{l.bin(l.ClaudeBin, "claude"), "-p", `"$(cat .agentdeck/prompt.md)"`,
+	parts := []string{l.bin(l.ClaudeBin, "claude"), "-p", `"$(cat .lectern/prompt.md)"`,
 		"--output-format", "stream-json", "--verbose",
 		"--permission-mode", s.PermissionMode}
 	parts = append(parts, "--settings", shellQuote(settings))

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/bus"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/bus"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 func pollRig(t *testing.T) (*Manager, *store.Session) {
@@ -80,7 +80,7 @@ func TestUnknownBootDoesNotEndOwnedMissingPane(t *testing.T) {
 	}
 	row, err := db.InsertSession(&store.Session{
 		TargetID: target.ID, Name: "reboot candidate", Agent: "codex", Workdir: "/mock/work",
-		TmuxSession: "missing-owned", Status: StatusIdle, Origin: "agentdeck",
+		TmuxSession: "missing-owned", Status: StatusIdle, Origin: "lectern",
 		BootID: "11111111-2222-3333-4444-555555555555", TrackingIdentity: "0123456789abcdef0123456789abcdef",
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRealTmuxBlankPaneIsLiveAndAbsentSessionIsDead(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	dir, err := os.MkdirTemp("/tmp", "adk-poll-")
+	dir, err := os.MkdirTemp("/tmp", "lec-poll-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,7 +82,7 @@ def test_browser_extension_reopens_keeps_terminal_and_retries(page, real_termina
     assert dialog.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
     assert dirty.read_text() == 'Existing uncommitted work'
     assert len(same_terminal(t,row)['workspace']['repositories']) == 3
-    page.screenshot(path=f'/tmp/agentdeck-extension-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-extension-{width}.png')
     page.keyboard.press('Escape'); expect(dialog).to_have_count(0)
     _tab(page, 'terminals')
     expect(terminal.locator('#connection')).to_have_text('Connected',timeout=15000)

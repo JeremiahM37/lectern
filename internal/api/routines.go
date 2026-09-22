@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/routines"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/routines"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // A routine is a job you keep asking for, saved so it is one button — and, if

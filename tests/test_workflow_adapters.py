@@ -22,7 +22,7 @@ class WorkflowAdapterTests(unittest.TestCase):
                 text = adapter.render(mode)
                 for token in ("{SCRIPT}", "{ARGS}", "$ARGUMENTS", "__SPECKIT_COMMAND_"):
                     self.assertNotIn(token, text)
-                self.assertTrue(text.startswith("# AgentDeck Spec Kit: " + mode))
+                self.assertTrue(text.startswith("# Lectern Spec Kit: " + mode))
                 self.assertNotIn("Read /memory/constitution.md", text)
                 self.assertNotIn(".specify.specify", text)
 

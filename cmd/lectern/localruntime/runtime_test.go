@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/version"
+	"github.com/JeremiahM37/lectern/internal/version"
 )
 
 func TestLocalHandlerRequiresIdentityAndReportsStopConflict(t *testing.T) {
@@ -65,7 +65,7 @@ func TestHealthyEndpointRejectsWrongAuthenticatedInstance(t *testing.T) {
 func TestLocalEnvUsesPrivateTmuxNamespace(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/outer,1,0")
 	t.Setenv("TMUX_TMPDIR", "/tmp/shared")
-	got := localEnv("/private/agentdeck/tmux")
+	got := localEnv("/private/lectern/tmux")
 	values := map[string]string{}
 	for _, item := range got {
 		key, value, ok := strings.Cut(item, "=")
@@ -73,7 +73,7 @@ func TestLocalEnvUsesPrivateTmuxNamespace(t *testing.T) {
 			values[key] = value
 		}
 	}
-	if values["TMUX_TMPDIR"] != "/private/agentdeck/tmux" || values["TMUX"] != "" {
+	if values["TMUX_TMPDIR"] != "/private/lectern/tmux" || values["TMUX"] != "" {
 		t.Fatalf("local tmux environment not isolated: %v", values)
 	}
 }

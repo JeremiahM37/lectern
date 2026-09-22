@@ -22,7 +22,7 @@ def workspace(root,name,files=(),old=True):
 @pytest.mark.parametrize('real_terminal',[{'isolated_scratch':True}],indirect=True)
 def test_sweep_removes_idle_empties_and_asks_about_work(page,real_terminal):
     t=real_terminal;errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-    root=t['root'].parent/'scratch';assert t['env']['AGENTDECK_SCRATCH_ROOT']==str(root)
+    root=t['root'].parent/'scratch';assert t['env']['LECTERN_SCRATCH_ROOT']==str(root)
     workspace(root,'shell-empty-old')
     workspace(root,'shell-empty-new',old=False)
     workspace(root,'codex-with-files',files=['notes.md'])
@@ -46,16 +46,16 @@ def test_sweep_removes_idle_empties_and_asks_about_work(page,real_terminal):
     assert left==['.trash','codex-with-files','shell-empty-new','shell-talked-in'],left
     # Removed means recoverable: the directory is whole inside the trash.
     trashed=list((root/'.trash').iterdir())
-    assert len(trashed)==1 and trashed[0].name.startswith('shell-empty-old.adk-trashed-') and (trashed[0]/'.git').is_dir(),trashed
+    assert len(trashed)==1 and trashed[0].name.startswith('shell-empty-old.lec-trashed-') and (trashed[0]/'.git').is_dir(),trashed
     # A person settles the rest: keep one for good, discard the other.
     review.locator('[data-scratch="shell-talked-in"]').get_by_role('button',name='Keep').click()
     expect(review.locator('.scratch-row')).to_have_count(1,timeout=15000)
-    assert (talked/'.agentdeck-keep').exists()
+    assert (talked/'.lectern-keep').exists()
     page.once('dialog',lambda d:d.accept())
     review.locator('[data-scratch="codex-with-files"]').get_by_role('button',name='Discard').click()
     expect(review.locator('.scratch-row')).to_have_count(0,timeout=15000)
     assert (root/'codex-with-files').exists() is False
-    assert any(p.name.startswith('codex-with-files.adk-trashed-') and (p/'notes.md').read_text()=='work' for p in (root/'.trash').iterdir())
+    assert any(p.name.startswith('codex-with-files.lec-trashed-') and (p/'notes.md').read_text()=='work' for p in (root/'.trash').iterdir())
     assert not errors,errors
 
 

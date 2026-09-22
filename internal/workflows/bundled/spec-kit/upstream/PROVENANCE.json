@@ -2,7 +2,7 @@
   "repository": "https://github.com/github/spec-kit",
   "revision": "d848fb4e18f44640ad6b42e60a280551ee90cdce",
   "license": "MIT",
-  "description": "Unmodified upstream files. AgentDeck adaptations are outside this upstream directory.",
+  "description": "Unmodified upstream files. Lectern adaptations are outside this upstream directory.",
   "files": [
     {
       "path": "LICENSE",

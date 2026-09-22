@@ -1,4 +1,4 @@
-// Package sessions is agentdeck's second execution mode: an INTERACTIVE agent
+// Package sessions is lectern's second execution mode: an INTERACTIVE agent
 // you work with, rather than a task you hand off.
 //
 // A task is "go do this, show me the diff". A session is "I am working on this
@@ -23,12 +23,12 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // Statuses a session can be in. These are derived from what the pane is
-// actually doing, never from what agentdeck asked it to do.
+// actually doing, never from what lectern asked it to do.
 const (
 	StatusStarting = "starting" // launched, nothing on the pane yet
 	StatusRunning  = "running"  // the agent is working
@@ -97,7 +97,7 @@ const PaneLines = 40
 // a shell command line, and exec() truncates argv at the first NUL byte — a NUL
 // delimiter silently cut the command in half on a real target while every mock
 // test passed.
-const PollDelimiter = "\x1e---AGENTDECK-PANE---\x1e"
+const PollDelimiter = "\x1e---LECTERN-PANE---\x1e"
 
 // PollCommand captures every named session's pane in ONE command.
 //
@@ -237,8 +237,8 @@ func lastLines(s string, n int) string {
 // instead of being re-interpreted as shell syntax or as separate submissions.
 func SendTextCommand(tmuxName, stagePath string) string {
 	q, p := shellq.Quote("="+tmuxName+":"), shellq.Quote(stagePath)
-	return fmt.Sprintf("tmux load-buffer -b agentdeck %s && "+
-		"tmux paste-buffer -b agentdeck -t %s -d -p && "+
+	return fmt.Sprintf("tmux load-buffer -b lectern %s && "+
+		"tmux paste-buffer -b lectern -t %s -d -p && "+
 		"tmux send-keys -t %s Enter && rm -f %s", p, q, q, p)
 }
 
@@ -278,7 +278,7 @@ func HasSessionCommand(tmuxName string) string {
 //
 // Adoption needs both: an agent you started three days ago should say "up 3d",
 // not "up 4s", and its idle clock should start from tmux's own activity stamp
-// rather than from the moment agentdeck happened to notice it. It doubles as the
+// rather than from the moment lectern happened to notice it. It doubles as the
 // existence check, since it fails on a session that is not there.
 func TimesCommand(tmuxName string) string {
 	return fmt.Sprintf("tmux display-message -p -t %s '#{session_created} #{session_activity}'",

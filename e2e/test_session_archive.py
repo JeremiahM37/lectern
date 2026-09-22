@@ -100,7 +100,7 @@ def test_web_archive_output_and_unarchive(page,real_terminal,width):
     dialog=page.get_by_role('dialog',name='Archived terminal output');expect(dialog.locator('pre')).to_contain_text('ARCHIVE HISTORY PROOF')
     assert dialog.locator('script').count()==0
     assert dialog.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
-    page.screenshot(path=f'/tmp/agentdeck-archive-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-archive-{width}.png')
     dialog.get_by_role('button',name='Close archived output').click()
     card.locator('summary').first.click()
     card.get_by_role('button',name='Unarchive record',exact=True).click()

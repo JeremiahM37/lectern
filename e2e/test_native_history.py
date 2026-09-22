@@ -53,7 +53,7 @@ def test_saved_conversation_reader_and_native_fork(page,real_terminal,agent):
     dialog.locator('.nh-select').select_option(cid)
     expect(dialog.locator('.nh-messages')).to_contain_text('History proof 229')
     assert dialog.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
-    page.screenshot(path=f'/tmp/agentdeck-native-history-{agent}.png')
+    page.screenshot(path=f'/tmp/lectern-native-history-{agent}.png')
     dialog.get_by_role('button',name='Fork conversation',exact=True).click()
     dialog.locator('.nh-fork-name').fill('Forked history proof')
     dialog.get_by_role('button',name='Create fork',exact=True).click()

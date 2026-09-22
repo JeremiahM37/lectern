@@ -32,7 +32,7 @@ def with_store():
     Store.asked=[]
     store=HTTPServer(('127.0.0.1',0),Store);threading.Thread(target=store.serve_forever,daemon=True).start()
     port=_unused_port()
-    proc=_start(port,{'AGENTDECK_GRIMOIRE_URL':f'http://127.0.0.1:{store.server_port}'})
+    proc=_start(port,{'LECTERN_GRIMOIRE_URL':f'http://127.0.0.1:{store.server_port}'})
     try:yield f'http://127.0.0.1:{port}'
     finally:
         proc.terminate();proc.wait(timeout=15);store.shutdown()
@@ -52,8 +52,8 @@ def test_a_session_card_shows_what_its_agent_remembered(page,with_store):
     expect(memory).to_contain_text('Staging listens on 5433',timeout=10000)
     # A correction shows what it replaced, not only what stands.
     expect(memory).to_contain_text('was: Deploys are manual')
-    expect(memory).to_contain_text(f'agentdeck-s{created}')
-    assert f'session=agentdeck-s{created}' in Store.asked[-1],Store.asked
+    expect(memory).to_contain_text(f'lectern-s{created}')
+    assert f'session=lectern-s{created}' in Store.asked[-1],Store.asked
     # The seeded project's managed note is not in the store, and that is said
     # rather than left to look like a project with no memory.
     expect(memory.locator('.session-memory-link')).to_contain_text('Project memory unlinked')

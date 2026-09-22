@@ -66,7 +66,7 @@ def test_web_selects_live_conversation_over_newer_neighbor(page,real_terminal,ag
     expect(dialog.locator('.nh-status')).to_contain_text(decoy.stem)
     expect(dialog.locator('.nh-select')).to_have_value(decoy.stem)
     assert dialog.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-    page.screenshot(path=f'/tmp/agentdeck-native-identity-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-native-identity-{width}.png')
 
 
 @pytest.mark.parametrize('agent',['claude','codex'])
@@ -105,7 +105,7 @@ def test_codex_rejects_multiple_live_conversations_and_subagents(real_terminal):
     decoy.write_text(''.join(json.dumps(r)+'\n' for r in records))
     assert t['api'](f"/sessions/{t['id']}/conversations")['current']=={'state':'identified','id':cid,'saved':True}
     source=t['api'](f"/sessions/{t['id']}")
-    subprocess.run(['tmux','set-option','-t','='+source['tmux_session']+':','@agentdeck-tracking-identity','a'*32],env=t['env'],check=True)
+    subprocess.run(['tmux','set-option','-t','='+source['tmux_session']+':','@lectern-tracking-identity','a'*32],env=t['env'],check=True)
     assert t['api'](f"/sessions/{t['id']}/conversations")['current']['state']=='changed'
 
 
@@ -115,10 +115,10 @@ def test_unmarked_legacy_terminal_is_identified_without_writes(real_terminal,age
     source=t['api'](f"/sessions/{t['id']}")
     with sqlite3.connect(t['root'].parent/'test.db') as db:
         db.execute("update sessions set tracking_identity='' where id=?",(t['id'],))
-    subprocess.run(['tmux','set-option','-u','-t','='+source['tmux_session']+':','@agentdeck-tracking-identity'],env=t['env'],check=True)
+    subprocess.run(['tmux','set-option','-u','-t','='+source['tmux_session']+':','@lectern-tracking-identity'],env=t['env'],check=True)
     current=t['api'](f"/sessions/{t['id']}/conversations")['current']
     assert current=={'state':'identified','id':cid,'saved':True}
     with sqlite3.connect(t['root'].parent/'test.db') as db:
         assert db.execute('select tracking_identity from sessions where id=?',(t['id'],)).fetchone()[0]==''
-    marker=subprocess.check_output(['tmux','show-options','-qv','-t','='+source['tmux_session']+':','@agentdeck-tracking-identity'],env=t['env'],text=True)
+    marker=subprocess.check_output(['tmux','show-options','-qv','-t','='+source['tmux_session']+':','@lectern-tracking-identity'],env=t['env'],text=True)
     assert not marker.strip()

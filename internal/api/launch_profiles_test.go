@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestLaunchProfilesCRUDAndCapturedSessionSettings(t *testing.T) {
@@ -69,8 +69,8 @@ func TestLaunchProfileSearchBeforeFirstSession(t *testing.T) {
 	home, cache := t.TempDir(), t.TempDir()
 	cid := "11111111-2222-4333-8444-555555555555"
 	writeSearchFixture(t, home, t.TempDir(), cid, "named profile sentinel")
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "AGENTDECK_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
-	h.decode("POST", "/api/launch-profiles", obj{"name": "Imported account", "agent": "codex", "env_json": store.J(map[string]string{"CODEX_HOME": home, "AGENTDECK_NATIVE_SEARCH_CACHE": cache})}, 201, nil)
+	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "LECTERN_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
+	h.decode("POST", "/api/launch-profiles", obj{"name": "Imported account", "agent": "codex", "env_json": store.J(map[string]string{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache})}, 201, nil)
 	var job obj
 	h.decode("POST", "/api/conversation-search", obj{"query": "named profile sentinel", "target_id": target.ID, "agent": "codex"}, 202, &job)
 	result := waitNativeSearch(t, h, job["id"].(string))

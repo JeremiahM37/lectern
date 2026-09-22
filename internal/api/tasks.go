@@ -10,13 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/state"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/state"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 type taskIn struct {
@@ -547,7 +547,7 @@ func (s *Server) commitTask(w http.ResponseWriter, r *http.Request) {
 	if body.PR {
 		title := strings.ReplaceAll(task.Title, `"`, "'")
 		res, err := ex.Run(ctx, fmt.Sprintf(
-			`gh pr create --head %s --title "%s" --body "Created by agentdeck task #%d."`,
+			`gh pr create --head %s --title "%s" --body "Created by lectern task #%d."`,
 			att.Branch, title, task.ID),
 			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 120})
 		if err != nil {

@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$source = Join-Path $PSScriptRoot '../web/static/desktop/install-agentdeck-cli.ps1'
+$source = Join-Path $PSScriptRoot '../web/static/desktop/install-lectern-cli.ps1'
 $tokens = $null; $errors = $null
 [System.Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors) | Out-Null
 if ($errors.Count) { throw ($errors | Out-String) }
@@ -18,17 +18,17 @@ foreach ($value in @('simple', 'space and $dollar', "apostrophe's", '{"text":"sa
 
 # Exercise the generated remote-console path with a fake ssh command. The
 # launcher must pin the hosted API even when the local default is enabled.
-$cliSource = Join-Path $PSScriptRoot '../web/static/desktop/install-agentdeck-cli.ps1'
+$cliSource = Join-Path $PSScriptRoot '../web/static/desktop/install-lectern-cli.ps1'
 $cliText = Get-Content -Raw $cliSource
 $cliLauncher = ($cliText -split "(?m)^\`$launcher = @'\r?\n",2)[1] -split "(?m)^'@",2 | Select-Object -First 1
 $cliLauncher = $cliLauncher.Replace('__SERVER__','test-server').Replace('__API__',"http://127.0.0.1:9110")
 $sshCalls = @()
 function ssh { param([Parameter(ValueFromRemainingArguments=$true)][object[]]$Parts) $script:sshCalls += ,$Parts; 0 }
 & ([scriptblock]::Create($cliLauncher))
-if (($sshCalls[0] -join '|') -ne '-tt|test-server|AGENTDECK_API=''http://127.0.0.1:9110'' /usr/local/bin/agentdeck ''console''') { throw 'Remote console did not pin hosted API' }
+if (($sshCalls[0] -join '|') -ne '-tt|test-server|LECTERN_API=''http://127.0.0.1:9110'' /usr/local/bin/lectern ''console''') { throw 'Remote console did not pin hosted API' }
 
 # Exercise the desktop URI handler without launching a Windows console here.
-$desktopSource = Join-Path $PSScriptRoot '../web/static/desktop/setup-agentdeck.ps1'
+$desktopSource = Join-Path $PSScriptRoot '../web/static/desktop/setup-lectern.ps1'
 [System.Management.Automation.Language.Parser]::ParseFile($desktopSource,[ref]$tokens,[ref]$errors) | Out-Null
 if ($errors.Count) { throw ($errors | Out-String) }
 $text = Get-Content -Raw $desktopSource
@@ -36,10 +36,10 @@ $desktopHandler = ($text -split "(?m)^\`$launcher = @'\r?\n",2)[1] -split "(?m)^
 $handler = [scriptblock]::Create($desktopHandler)
 function Get-Command { param($Name) if ($Name -ne 'ssh.exe') { throw 'Must use the default console host' }; [pscustomobject]@{Source='ssh.exe'} }
 function Start-Process { param($FilePath,$ArgumentList) $script:started=@{FilePath=$FilePath;Arguments=$ArgumentList} }
-& $handler -Uri 'agentdeck://attach/session/42'
-if ($started.FilePath -ne 'ssh.exe' -or ($started.Arguments -join '|') -ne '-t|agentdeck|/usr/local/bin/agentdeck|--hosted-attach|attach|session|42') { throw 'Wrong default-terminal launch' }
+& $handler -Uri 'lectern://attach/session/42'
+if ($started.FilePath -ne 'ssh.exe' -or ($started.Arguments -join '|') -ne '-t|lectern|/usr/local/bin/lectern|--hosted-attach|attach|session|42') { throw 'Wrong default-terminal launch' }
 $script:started=$null
 $rejected=$false
-try { & $handler -Uri 'agentdeck://attach/session/42?command=bad' } catch { $rejected=$true }
+try { & $handler -Uri 'lectern://attach/session/42?command=bad' } catch { $rejected=$true }
 if (-not $rejected -or $started) { throw 'Unsafe desktop link was launched' }
 'PASS: Windows URI handler launches SSH in the default terminal and rejects invalid links'

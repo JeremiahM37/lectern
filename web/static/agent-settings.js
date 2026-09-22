@@ -87,9 +87,9 @@ export function renderAgentSettings(container, {api, onChange = () => {}}) {
       <div class="agent-two"><label>Model flag<input class="agent-model-flag" maxlength="80" placeholder="--model"></label>
         <label>Provider endpoint URL (optional)<input class="agent-provider-url" type="url" maxlength="2048" placeholder="http://127.0.0.1:11434/v1"></label></div>
       <div class="agent-provider-fields"><label>Provider URL environment variable<input class="agent-provider-env" maxlength="80" placeholder="OPENAI_API_BASE"></label>
-      <p class="sub agent-provider-help">AgentDeck passes this endpoint to the runner through the named environment variable.</p></div>
+      <p class="sub agent-provider-help">Lectern passes this endpoint to the runner through the named environment variable.</p></div>
       <label class="check"><input type="checkbox" class="agent-prompt-arg"> Opening prompt is a positional argument</label>
-      <p class="sub agent-prompt-help">Leave off when the CLI prompts inside its terminal; AgentDeck will type the opening message after the pane is ready.</p>
+      <p class="sub agent-prompt-help">Leave off when the CLI prompts inside its terminal; Lectern will type the opening message after the pane is ready.</p>
       <div class="agent-two"><label>Resume arguments (one per line; JSON accepted)<textarea class="agent-resume" rows="2" spellcheck="false" placeholder="--continue"></textarea></label>
         <label>Yolo arguments (one per line; JSON accepted)<textarea class="agent-yolo" rows="2" spellcheck="false" placeholder="--yolo"></textarea></label></div>
       <label>Environment (KEY=value lines; existing values are masked and retained)<textarea class="agent-env" rows="4" spellcheck="false" placeholder="OPENAI_BASE_URL=http://127.0.0.1:11434/v1\nOPENAI_API_KEY=…"></textarea></label>
@@ -116,7 +116,7 @@ export function renderAgentSettings(container, {api, onChange = () => {}}) {
     $('.agent-prompt-arg').checked = !!source?.prompt_arg;
     const applyPreset = value => {
       if (value === 'opencode') { set('.agent-name', 'opencode'); set('.agent-command', 'opencode'); set('.agent-args', '[]'); set('.agent-model-flag', '--model'); set('.agent-provider-url', ''); set('.agent-provider-env', ''); $('.agent-provider-help').textContent = 'OpenCode uses its configured provider settings. Add OPENCODE_CONFIG_CONTENT in Environment for a custom provider.'; $('.agent-prompt-arg').checked = false; enableTask(true); set('.agent-task-command', 'opencode'); set('.agent-task-args', '[]'); set('.agent-task-prompt', 'run {prompt}'); }
-      if (value === 'aider') { set('.agent-name', 'aider'); set('.agent-command', 'aider'); set('.agent-args', '[]'); set('.agent-model-flag', '--model'); set('.agent-provider-env', 'OPENAI_API_BASE'); $('.agent-provider-help').textContent = 'AgentDeck passes this endpoint to Aider as OPENAI_API_BASE.'; $('.agent-prompt-arg').checked = false; enableTask(true); set('.agent-task-command', 'aider'); set('.agent-task-args', '[]'); set('.agent-task-prompt', '--message {prompt}'); }
+      if (value === 'aider') { set('.agent-name', 'aider'); set('.agent-command', 'aider'); set('.agent-args', '[]'); set('.agent-model-flag', '--model'); set('.agent-provider-env', 'OPENAI_API_BASE'); $('.agent-provider-help').textContent = 'Lectern passes this endpoint to Aider as OPENAI_API_BASE.'; $('.agent-prompt-arg').checked = false; enableTask(true); set('.agent-task-command', 'aider'); set('.agent-task-args', '[]'); set('.agent-task-prompt', '--message {prompt}'); }
     };
     const enableTask = value => { $('.agent-task-enabled').checked = value; $('.agent-task-fields').hidden = !value; };
     const syncProviderFields = preset => {

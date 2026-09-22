@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // fakeTTYD stands in for the real binary: it records the port it was handed and
@@ -58,7 +58,7 @@ func TestConcurrentAttachesGetDistinctPorts(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			got[i], errs[i] = m.Attach(context.Background(),
-				Attachment{Key: fmt.Sprintf("attempt:%d", i), TmuxSession: "adk-1"}, target("local"))
+				Attachment{Key: fmt.Sprintf("attempt:%d", i), TmuxSession: "lec-1"}, target("local"))
 		}(i)
 	}
 	wg.Wait()
@@ -83,7 +83,7 @@ func TestConcurrentAttachesGetDistinctPorts(t *testing.T) {
 // burning another port from a range of twenty.
 func TestAttachingTwiceReusesTheSameTerminal(t *testing.T) {
 	m, spawned := fakeManager(t)
-	a := Attachment{Key: "session:3", TmuxSession: "adk-sess-3"}
+	a := Attachment{Key: "session:3", TmuxSession: "lec-sess-3"}
 	first, err := m.Attach(context.Background(), a, target("local"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,11 +104,11 @@ func TestAttachingTwiceReusesTheSameTerminal(t *testing.T) {
 // precisely so id 3 in one kind cannot collide with id 3 in the other.
 func TestAttemptAndSessionKeysDoNotCollide(t *testing.T) {
 	m, _ := fakeManager(t)
-	x, err := m.Attach(context.Background(), Attachment{Key: "attempt:3", TmuxSession: "adk-3"}, target("local"))
+	x, err := m.Attach(context.Background(), Attachment{Key: "attempt:3", TmuxSession: "lec-3"}, target("local"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	y, err := m.Attach(context.Background(), Attachment{Key: "session:3", TmuxSession: "adk-sess-3"}, target("local"))
+	y, err := m.Attach(context.Background(), Attachment{Key: "session:3", TmuxSession: "lec-sess-3"}, target("local"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,30 +196,30 @@ func TestAttachArgvPerTargetKind(t *testing.T) {
 		want   []string
 	}{
 		"local": {
-			Attachment{TmuxSession: "adk-7"},
+			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "local"},
-			[]string{"tmux", "attach", "-t", "adk-7", ";", "set-option", "-w", "-t", "=adk-7:", "window-size", "smallest"},
+			[]string{"tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
 		},
 		"pct container": {
-			Attachment{TmuxSession: "adk-7"},
+			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "pct", Host: "104"},
-			[]string{"sudo", "pct", "exec", "104", "--", "tmux", "attach", "-t", "adk-7", ";", "set-option", "-w", "-t", "=adk-7:", "window-size", "smallest"},
+			[]string{"sudo", "pct", "exec", "104", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
 		},
 		"ephemeral sandbox beats the target kind": {
-			Attachment{TmuxSession: "adk-7", SandboxVMID: "9001"},
+			Attachment{TmuxSession: "lec-7", SandboxVMID: "9001"},
 			&store.Target{Kind: "sandbox", Host: "irrelevant"},
-			[]string{"sudo", "pct", "exec", "9001", "--", "tmux", "attach", "-t", "adk-7", ";", "set-option", "-w", "-t", "=adk-7:", "window-size", "smallest"},
+			[]string{"sudo", "pct", "exec", "9001", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
 		},
 		"ssh with a key": {
-			Attachment{TmuxSession: "adk-7"},
+			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude", KeyPath: "/home/admin/.ssh/id_ed25519"},
 			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new",
-				"-i", "/home/admin/.ssh/id_ed25519", "claude@192.0.2.14", "tmux", "attach", "-t", "adk-7", "';'", "set-option", "-w", "-t", "=adk-7:", "window-size", "smallest"},
+				"-i", "/home/admin/.ssh/id_ed25519", "claude@192.0.2.14", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
 		},
 		"ssh defaults to root": {
-			Attachment{TmuxSession: "adk-7"},
+			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "h"},
-			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "root@h", "tmux", "attach", "-t", "adk-7", "';'", "set-option", "-w", "-t", "=adk-7:", "window-size", "smallest"},
+			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "root@h", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
 		},
 	} {
 		got, err := AttachArgv(tc.a, tc.target)
@@ -236,11 +236,11 @@ func TestAttachArgvPerTargetKind(t *testing.T) {
 // A sandbox attach that lost its vmid must not silently fall through to running
 // tmux on the control plane itself.
 func TestSandboxWithoutAVMIDDoesNotAttachToTheHost(t *testing.T) {
-	got, err := AttachArgv(Attachment{TmuxSession: "adk-7"}, &store.Target{Kind: "sandbox"})
+	got, err := AttachArgv(Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "sandbox"})
 	if err == nil {
 		t.Fatalf("a sandbox attach with no vmid must fail, got %v", got)
 	}
-	if strings.Join(got, " ") == "tmux attach -t adk-7" {
+	if strings.Join(got, " ") == "tmux attach -t lec-7" {
 		t.Error("it fell through to the control plane's own tmux")
 	}
 	// and the failure must reach the caller rather than spawning anything
@@ -267,18 +267,18 @@ func TestAttachFailsClearlyWithoutTTYD(t *testing.T) {
 // has to be a tmux session too, or closing the tab loses whatever you were
 // halfway through.
 func TestShellAttachOpensAPersistentSessionInTheRepo(t *testing.T) {
-	att := Attachment{Key: "project:12", TmuxSession: "adk-sh12", Workdir: "/srv/code"}
+	att := Attachment{Key: "project:12", TmuxSession: "lec-sh12", Workdir: "/srv/code"}
 	for name, tc := range map[string]struct {
 		target *store.Target
 		want   string
 	}{
 		"local": {&store.Target{Kind: "local"},
-			"tmux new-session -A -s adk-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =adk-sh12: window-size smallest"},
+			"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size smallest"},
 		"pct": {&store.Target{Kind: "pct", Host: "104"},
-			"sudo pct exec 104 -- tmux new-session -A -s adk-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =adk-sh12: window-size smallest"},
+			"sudo pct exec 104 -- tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size smallest"},
 		"ssh": {&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude"},
 			"ssh -tt -o StrictHostKeyChecking=accept-new claude@192.0.2.14 " +
-				"tmux new-session -A -s adk-sh12 -c /srv/code -- /bin/sh -c 'exec \"${SHELL:-/bin/sh}\" -i' ';' set-option -w -t =adk-sh12: window-size smallest"},
+				"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c 'exec \"${SHELL:-/bin/sh}\" -i' ';' set-option -w -t =lec-sh12: window-size smallest"},
 	} {
 		got, err := AttachArgv(att, tc.target)
 		if err != nil {
@@ -299,12 +299,12 @@ func TestShellAttachOpensAPersistentSessionInTheRepo(t *testing.T) {
 // An agent attach must not accidentally become a shell, or reopening a session
 // would create a new tmux session beside the agent instead of joining it.
 func TestAnAgentAttachIsStillAnAttach(t *testing.T) {
-	att := Attachment{Key: "session:3", TmuxSession: "adk-s3"}
+	att := Attachment{Key: "session:3", TmuxSession: "lec-s3"}
 	if att.IsShell() {
 		t.Fatal("an attachment with no workdir is not a shell")
 	}
 	got, _ := AttachArgv(att, &store.Target{Kind: "local"})
-	if strings.Join(got, " ") != "tmux attach -t adk-s3 ; set-option -w -t =adk-s3: window-size smallest" {
+	if strings.Join(got, " ") != "tmux attach -t lec-s3 ; set-option -w -t =lec-s3: window-size smallest" {
 		t.Errorf("got %v", got)
 	}
 }

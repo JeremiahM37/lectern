@@ -7,7 +7,7 @@ export interface Snippet {
   enter: boolean;
 }
 
-const KEY = "adk-terminal-snippets";
+const KEY = "lec-terminal-snippets";
 
 export const defaultSnippets: Snippet[] = [
   { text: "y", enter: true },

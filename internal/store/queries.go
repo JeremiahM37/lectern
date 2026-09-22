@@ -151,7 +151,7 @@ func (db *DB) InsertProject(p *Project) (*Project, error) {
 		if _, err := rand.Read(identity); err != nil {
 			return nil, err
 		}
-		p.MemoryTopic = fmt.Sprintf("agentdeck-%x", identity)
+		p.MemoryTopic = fmt.Sprintf("lectern-%x", identity)
 		p.MemoryStatus = "pending"
 	}
 	res, err := db.Exec(`INSERT INTO projects(name, target_id, repo_path,

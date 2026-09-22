@@ -17,7 +17,7 @@ func TestPromoteNewProjectAndBindIsAtomicAndBootSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess, err := db.InsertSession(&Session{TargetID: target.ID, Name: "shell", Agent: "shell", Workdir: "/old", TmuxSession: "adk-shell", BootID: "", TrackingIdentity: "track"})
+	sess, err := db.InsertSession(&Session{TargetID: target.ID, Name: "shell", Agent: "shell", Workdir: "/old", TmuxSession: "lec-shell", BootID: "", TrackingIdentity: "track"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestPromoteNewProjectAndBindIsAtomicAndBootSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess, _ = db.Session(sess.ID)
-	p, err := db.PromoteNewProjectAndBind(context.Background(), &Project{Name: "p", TargetID: target.ID, RepoPath: "/new", DefaultAgent: "claude"}, sess.ID, "adk-shell", sess.BootID, "boot-new", "track", "track-new", "cid", "cfg")
+	p, err := db.PromoteNewProjectAndBind(context.Background(), &Project{Name: "p", TargetID: target.ID, RepoPath: "/new", DefaultAgent: "claude"}, sess.ID, "lec-shell", sess.BootID, "boot-new", "track", "track-new", "cid", "cfg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestPromoteNewProjectAndBindIsAtomicAndBootSafe(t *testing.T) {
 	if row.ProjectID == nil || *row.ProjectID != p.ID || row.BootID != "boot-new" {
 		t.Fatalf("binding=%+v", row)
 	}
-	if _, err := db.PromoteNewProjectAndBind(context.Background(), &Project{Name: "stale", TargetID: target.ID, RepoPath: "/x", DefaultAgent: "codex"}, sess.ID, "adk-shell", "boot-new", "other", "track-new", "track-new2", "cid2", "cfg"); err == nil {
+	if _, err := db.PromoteNewProjectAndBind(context.Background(), &Project{Name: "stale", TargetID: target.ID, RepoPath: "/x", DefaultAgent: "codex"}, sess.ID, "lec-shell", "boot-new", "other", "track-new", "track-new2", "cid2", "cfg"); err == nil {
 		t.Fatal("stale promotion succeeded")
 	}
 	projects, _ := db.Projects()

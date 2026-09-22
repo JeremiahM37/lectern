@@ -19,7 +19,7 @@ def test_project_enter_opens_shell_without_starting_agent(real_terminal):
                     f'touch {shlex.quote(str(sentinel))}; sleep 60'],
                    env=t['env'], check=True)
     d = Dashboard(t)
-    tmux_name = f"adk-sh{project['id']}"
+    tmux_name = f"lec-sh{project['id']}"
     try:
         d.wait('Real terminal')
         d.send('4')

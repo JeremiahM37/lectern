@@ -1,6 +1,6 @@
 # build output
-/agentdeck
-/agentdeck-*
+/lectern
+/lectern-*
 *.test
 
 # python (the e2e suite + the agent-side scripts) caches
@@ -10,10 +10,10 @@ __pycache__/
 .pytest_cache/
 
 # runtime state (never commit)
-agentdeck.db*
-agentdeck-diffs/
+lectern.db*
+lectern-diffs/
 smoke-repo/
-.agentdeck-worktrees/
+.lectern-worktrees/
 .playwright-mcp/
 
 # local backups / scratch

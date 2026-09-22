@@ -3,7 +3,7 @@
   "scope": "bounded local fake-agent comparison; no model/provider/paid-auth calls",
   "rubric": "docs/parity/rubric.md",
   "release_candidate": {
-    "app": "AgentDeck",
+    "app": "Lectern",
     "revision": "178bc00d406a893da8b7d4c76d5c5533021ea568",
     "full_verify": "PASS: 6/6 steps passed (backend=web)",
     "mobile_focused_tests": "4 passed",
@@ -49,11 +49,11 @@
       "exit": 0,
       "exec_handle": "49422",
       "pid": "739182",
-      "log": "/tmp/agentdeck-postdeploy-178bc00.log"
+      "log": "/tmp/lectern-postdeploy-178bc00.log"
     }
   },
   "browser_cells": {
-    "AgentDeck_e84_feature_run": {
+    "Lectern_e84_feature_run": {
       "C1": {
         "status": "PASS",
         "records": 4,
@@ -128,7 +128,7 @@
     }
   },
   "c3_terminal": {
-    "AgentDeck": {
+    "Lectern": {
       "status": "PASS",
       "pid": "669016",
       "markers": [
@@ -178,7 +178,7 @@
   "c4_workspace": {
     "status": "PASS",
     "products": [
-      "AgentDeck web",
+      "Lectern web",
       "upstream Agent Deck CLI session send",
       "AoE web"
     ],

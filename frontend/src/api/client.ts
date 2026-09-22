@@ -18,7 +18,7 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 }
 
 // Keep the same storage key so an installed app retains its authentication.
-export const authToken = (): string => localStorage.getItem('adk-token') ?? '';
+export const authToken = (): string => localStorage.getItem('lec-token') ?? '';
 
 export function withToken(url: string, token = authToken()): string {
   if (!token) return url;

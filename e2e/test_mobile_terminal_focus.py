@@ -28,7 +28,7 @@ def test_mobile_focus_gains_space_preserves_connection_and_allows_navigation(pag
         one.locator('body').evaluate('()=>window.focusIdentity="same"')
         focused=one.locator('#agent-terminal').bounding_box()['height']
         assert focused >= 730,focused
-        phone.screenshot(path='/tmp/agentdeck-mobile-focused.png')
+        phone.screenshot(path='/tmp/lectern-mobile-focused.png')
         phone.get_by_role('button',name='Show navigation').tap()
         expect(phone.locator('#tabbar')).to_be_visible()
         expect(one.locator('body')).not_to_have_class(re.compile('.*compact-terminal.*'))
@@ -49,7 +49,7 @@ def test_mobile_focus_gains_space_preserves_connection_and_allows_navigation(pag
         assert one.locator('#compact-desktop').get_attribute('href')==one.locator('#desktop').get_attribute('href')
         one.locator('#terminal-tools-summary').tap()
         phone.get_by_role('button',name='Search sessions and actions').tap()
-        dialog=phone.get_by_role('dialog',name='Search AgentDeck');dialog.get_by_role('combobox').fill('task board');dialog.get_by_role('option').tap()
+        dialog=phone.get_by_role('dialog',name='Search Lectern');dialog.get_by_role('combobox').fill('task board');dialog.get_by_role('option').tap()
         expect(phone.locator('#tabbar')).to_be_visible()
         phone.locator('.tab[data-tab="terminals"]').tap();expect(phone.locator('#tabbar')).not_to_be_visible()
         assert one.locator('body').evaluate('()=>window.focusIdentity')=='same'

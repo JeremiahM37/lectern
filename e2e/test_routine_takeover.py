@@ -20,7 +20,7 @@ while IFS= read -r line; do printf 'typed:%s\\n' "$line" >> takeover-log.txt; do
 def test_take_over_started_routine_in_browser(page, real_terminal):
     t = real_terminal
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-    for args in [['config','user.name','AgentDeck test'],['config','user.email','test@example.com'],['add','.'],['commit','-qm','initial']]:
+    for args in [['config','user.name','Lectern test'],['config','user.email','test@example.com'],['add','.'],['commit','-qm','initial']]:
         subprocess.run(['git','-C',str(t['root']),*args],check=True)
     branch=subprocess.check_output(['git','-C',str(t['root']),'branch','--show-current'],text=True).strip()
     p=t['api']('/projects',{'name':'Routine project','target_id':t['target_id'],'repo_path':str(t['root']),'default_base_branch':branch})
@@ -52,5 +52,5 @@ def test_take_over_started_routine_in_browser(page, real_terminal):
     assert '--resume routine-thread-456' in log
     assert 'typed:Continue with my changes' in log
     assert (wd/'existing-work.txt').read_text()=='prior edit\n'
-    page.screenshot(path='/tmp/agentdeck-routine-takeover.png')
+    page.screenshot(path='/tmp/lectern-routine-takeover.png')
     assert not errors

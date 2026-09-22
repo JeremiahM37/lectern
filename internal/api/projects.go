@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 var (
@@ -584,10 +584,10 @@ func (s *Server) projectsUsage(w http.ResponseWriter, r *http.Request) {
 		u.LastActive = p.CreatedAt
 	}
 	// An imported project has no tasks and no sessions, so its created_at is
-	// when agentdeck learned about it — which for a bulk import is the same
+	// when lectern learned about it — which for a bulk import is the same
 	// instant for all of them, and tells you nothing about which are dead. The
 	// repository's own last commit is the honest answer, so it wins when it is
-	// older or newer than anything agentdeck knows.
+	// older or newer than anything lectern knows.
 	for id, when := range s.repoActivity(r.Context(), projects) {
 		u := at(id)
 		if when > 0 && u.Tasks == 0 && u.Sessions == 0 {

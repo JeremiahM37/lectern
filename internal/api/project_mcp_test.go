@@ -37,7 +37,7 @@ func TestProjectMCPEndpointRedactsAndRetainsSecrets(t *testing.T) {
 	}
 	env := config["env"].(map[string]any)
 	marker, ok := env["TOKEN"].(map[string]any)
-	if !ok || marker["__agentdeck_retained"] == nil || strings.Contains(string(mustJSON(marker)), "real-secret") {
+	if !ok || marker["__lectern_retained"] == nil || strings.Contains(string(mustJSON(marker)), "real-secret") {
 		t.Fatalf("token was not safely redacted: %#v", env["TOKEN"])
 	}
 	// A typed reference is bound to its field path; copying it to COOKIE cannot
@@ -64,7 +64,7 @@ func TestProjectMCPEndpointRedactsAndRetainsSecrets(t *testing.T) {
 	if !strings.Contains(stored, "real-secret") || !strings.Contains(stored, "cookie-secret") || !strings.Contains(stored, "header-secret") {
 		t.Fatalf("retained values did not round-trip: %s", stored)
 	}
-	if strings.Contains(stored, "__agentdeck_retained") {
+	if strings.Contains(stored, "__lectern_retained") {
 		t.Fatalf("opaque marker was persisted instead of retained value: %s", stored)
 	}
 	var second obj

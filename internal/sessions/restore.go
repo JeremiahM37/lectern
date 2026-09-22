@@ -7,22 +7,34 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // A local tmux option survives detachment but disappears with the session.
 // Names, working directories and recent timestamps cannot prove this identity.
-const trackingOption = "@agentdeck-tracking-identity"
+const trackingOption = "@lectern-tracking-identity"
+
+// legacyTrackingOption is the name the previous binary set. A session that has
+// been running since before the rename carries only this one, and it is the
+// only proof of that session's identity; so it is read, never set.
+const legacyTrackingOption = "@agentdeck-tracking-identity"
+
+// trackingFormat is a tmux format that yields the identity under either name.
+const trackingFormat = "#{?#{" + trackingOption + "},#{" + trackingOption + "},#{" + legacyTrackingOption + "}}"
 
 func trackingIdentityCommand(name, seed string) string {
 	target := shellq.Quote("=" + name + ":")
-	read := "tmux show-options -qv -t " + target + " " + trackingOption
+	show := func(option string) string { return "tmux show-options -qv -t " + target + " " + option }
 	if seed == "" {
-		return read
+		return `v=$(` + show(trackingOption) + `); [ -n "$v" ] || v=$(` + show(legacyTrackingOption) + `); printf '%s\n' "$v"`
 	}
-	return "tmux set-option -o -t " + target + " " + trackingOption + " " + shellq.Quote(seed) + " && " + read
+	// A session from before the rename already has an identity under the old
+	// name; seeding a second one under the new name would make it look like a
+	// different session. Only a session with neither is given one.
+	return `v=$(` + show(legacyTrackingOption) + `); if [ -n "$v" ]; then printf '%s\n' "$v"; else ` +
+		"tmux set-option -o -t " + target + " " + trackingOption + " " + shellq.Quote(seed) + " && " + show(trackingOption) + `; fi`
 }
 
 func validTrackingIdentity(value string) bool {

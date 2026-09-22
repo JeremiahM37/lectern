@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 func (m *Manager) claimWorkspaceOperation(id int64) bool {

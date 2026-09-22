@@ -1,6 +1,6 @@
 package api_test
 
-// agentdeck is a systemd unit. It gets restarted — by a deploy, by a package
+// lectern is a systemd unit. It gets restarted — by a deploy, by a package
 // upgrade, by the box rebooting — while real work is in flight, and the whole
 // design rests on the claim that every piece of state lives in SQLite rather
 // than in memory. That claim had never been tested. These tests run two full
@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/app"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/app"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // deployment is one database plus a fixed address, which successive Apps take
@@ -46,7 +46,7 @@ func newDeployment(t *testing.T) *deployment {
 	addr := probe.Addr().String()
 	probe.Close()
 	d := &deployment{t: t, dir: dir, addr: addr, cfg: &config.Config{
-		DBPath:           filepath.Join(dir, "agentdeck.db"),
+		DBPath:           filepath.Join(dir, "lectern.db"),
 		Mock:             true,
 		TickInterval:     40 * time.Millisecond,
 		MockAgentDelay:   40 * time.Millisecond,

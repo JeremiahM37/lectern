@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
 )
 
 // withCreds gives a harness fabricated control-plane OAuth credentials. The
@@ -135,7 +135,7 @@ func TestSandboxDestroyedOnUnexpectedLaunchError(t *testing.T) {
 
 func TestTemplatePathRepoSkipsClone(t *testing.T) {
 	h := newHarness(t, withCreds(t))
-	p := h.sandboxProject("sbbaked", "/root/adk-demo")
+	p := h.sandboxProject("sbbaked", "/root/lec-demo")
 	task := h.run(p.id(), "baked repo", "y", nil)
 	if h.cmdLogHas("git clone") {
 		t.Error("a repo baked into the template must not be re-cloned")
@@ -144,7 +144,7 @@ func TestTemplatePathRepoSkipsClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(att.Branch, "adk/task") {
+	if !strings.HasPrefix(att.Branch, "lec/task") {
 		t.Errorf("branch: %q", att.Branch)
 	}
 }

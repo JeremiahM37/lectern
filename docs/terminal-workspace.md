@@ -35,11 +35,11 @@ binary; clients do not contact a CDN.
   The tmux session and agent keep running. Resizing returns the live viewport to
   the current screen; Pause view remains a fixed snapshot.
 - Appearance preferences (font size, spacing, theme) persist per device.
-- Desktop offers an `agentdeck://attach/<kind>/<id>` link, a manual command,
-  and the Windows setup script. `agentdeck attach <kind> <id>` on the control
+- Desktop offers an `lectern://attach/<kind>/<id>` link, a manual command,
+  and the Windows setup script. `lectern attach <kind> <id>` on the control
   plane resolves the same target and invokes the same terminal command.
 
-The desktop launcher uses the user's `agentdeck` SSH alias to the control plane.
+The desktop launcher uses the user's `lectern` SSH alias to the control plane.
 It accepts only known attachment kinds and a positive numeric ID. It neither
 accepts arbitrary commands/hosts in URLs nor copies control-plane SSH keys to
 clients. Installation instructions are served at `/desktop/README.txt`.
@@ -51,12 +51,12 @@ base64 pipe fails with `not a terminal`; redirecting to `/dev/tty` alone fails
 with `can't use /dev/tty`. `script` is provided by util-linux on these targets.
 
 Token mode gates terminal tokens/WebSockets as well as workspace APIs. The
-terminal reads the same `adk-token` local storage value as the board. Terminal
+terminal reads the same `lec-token` local storage value as the board. Terminal
 pages and live terminal traffic bypass the PWA cache.
 
 ## Verification
 
-`e2e/test_terminal_workspace.py` starts a real, isolated AgentDeck, ttyd, tmux
+`e2e/test_terminal_workspace.py` starts a real, isolated Lectern, ttyd, tmux
 server and filesystem. It covers drop/paste without submission, exact upload and
 download bytes, shell persistence, history search, appearance persistence,
 phone layout, frozen views, simultaneous clients, the desktop CLI over a real
@@ -94,7 +94,7 @@ remain in the suite; do not mistake a stopped WSL instance for a ttyd failure.
 ## Shared native and browser terminals
 
 Opening Kitty or WezTerm keeps the browser attached to the same tmux session.
-AgentDeck sets `window-size smallest` on the attached window (never globally).
+Lectern sets `window-size smallest` on the attached window (never globally).
 The shared screen fits the smallest connected client and expands when that
 client disconnects. This prevents tmux's `latest` policy from cropping a small
 browser around the cursor of a larger desktop, which could make it look blank.
@@ -112,13 +112,13 @@ output. Pause is an explicit action.
 
 Scrolling follows the negotiated mouse protocol, not the alternate-screen flag:
 tmux uses the alternate screen even for a plain shell. Without mouse reporting,
-AgentDeck can retrieve retained tmux history. End-to-end tests run with an empty
+Lectern can retrieve retained tmux history. End-to-end tests run with an empty
 tmux config and cover both its default alternate screen and a normal-screen
 configuration, so host customizations cannot hide this behavior.
 
 ## Default terminal
 
-Open in terminal follows the agentdeck:// link directly. The installed desktop
+Open in terminal follows the lectern:// link directly. The installed desktop
 handler asks Linux's default-terminal helper or Windows's default console host
 to launch SSH. It does not choose a brand from the browser's OS, or change fonts
 or themes. Minimal Linux environments without a default helper use TERMINAL or

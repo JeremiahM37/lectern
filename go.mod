@@ -1,4 +1,4 @@
-module github.com/JeremiahM37/agentdeck
+module github.com/JeremiahM37/lectern
 
 go 1.25.0
 

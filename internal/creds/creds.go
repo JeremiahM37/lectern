@@ -2,7 +2,7 @@
 //
 // Two supported auth models, in precedence order:
 //
-//  1. API key (AGENTDECK_ANTHROPIC_API_KEY) — rotation-proof. Injected as
+//  1. API key (LECTERN_ANTHROPIC_API_KEY) — rotation-proof. Injected as
 //     ANTHROPIC_API_KEY into every agent launch; nothing is pushed to targets.
 //
 //  2. OAuth / subscription (the default) — the control plane holds
@@ -20,7 +20,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 )
 
 // Spec says where the control plane keeps an agent's credentials and where the

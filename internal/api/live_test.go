@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func TestLiveViewsRefuseATargetWhoseLoopbackCannotBeReached(t *testing.T) {
@@ -36,7 +36,7 @@ func TestLiveViewsStayShutOnATokenProtectedServer(t *testing.T) {
 	// Even a caller holding the token is refused: the port it would open could
 	// not ask the next caller for one.
 	code, body := h.request("POST", "/api/live/ports", obj{"port": 8080}, auth)
-	if code != 409 || !strings.Contains(string(body), "AGENTDECK_LIVE_UNAUTHENTICATED") {
+	if code != 409 || !strings.Contains(string(body), "LECTERN_LIVE_UNAUTHENTICATED") {
 		t.Fatalf("got %d %s", code, body)
 	}
 	if code, _ := h.request("POST", "/api/live/ports", obj{"port": 8080}, nil); code != 401 {
@@ -52,14 +52,14 @@ func TestLiveViewsAreOffUntilTheOperatorAsksForThem(t *testing.T) {
 	}
 	for _, path := range []string{"/api/live/ports", "/api/live/desktops"} {
 		code, body := h.request("POST", path, obj{"port": 8080, "title": "x"}, nil)
-		if code != 409 || !strings.Contains(string(body), "AGENTDECK_LIVE=1") {
+		if code != 409 || !strings.Contains(string(body), "LECTERN_LIVE=1") {
 			t.Errorf("%s: %d %s — the refusal must say how to turn it on", path, code, body)
 		}
 	}
 	// An agent's tool call gets the same answer, in words it can relay.
 	args := `{"title":"watch me"}`
 	frames := mcpCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"open_live_view","arguments":`+args+`}}`)
-	if text := toolText(t, frames[0]); !strings.Contains(text, "AGENTDECK_LIVE=1") {
+	if text := toolText(t, frames[0]); !strings.Contains(text, "LECTERN_LIVE=1") {
 		t.Errorf("tool result: %s", text)
 	}
 }

@@ -14,7 +14,7 @@ window.addEventListener("message", (event) => {
     !data ||
     typeof data !== "object" ||
     !("type" in data) ||
-    data.type !== "adk-terminal-visible"
+    data.type !== "lec-terminal-visible"
   )
     return;
   const compact = "compact" in data && data.compact === true;

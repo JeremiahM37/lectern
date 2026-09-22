@@ -25,4 +25,8 @@ func TestRestoreReadsIdentityWithoutCreatingIt(t *testing.T) {
 	if !strings.Contains(seeded, "set-option -o") || !strings.Contains(seeded, "&& tmux show-options") {
 		t.Fatal(seeded)
 	}
+	// A session that predates the rename must keep the identity it has.
+	if strings.Index(seeded, legacyTrackingOption) > strings.Index(seeded, "set-option") {
+		t.Fatalf("seeds before reading the legacy option: %s", seeded)
+	}
 }

@@ -28,7 +28,7 @@ def test_group_tree_editor_search_and_failure_preserve_attachment(page,real_term
     expect(page.locator('#sg-error')).to_contain_text('nonempty');expect(page.locator('#sg-path')).to_have_value('Work//Bad')
     page.locator('#sg-path').fill('Personal/研究');page.locator('#sg-save').click();expect(page.locator('#sheet')).not_to_be_visible()
     page.locator('#sess-search').fill('Personal/研究');expect(page.locator('#sesslist').get_by_text('Real terminal',exact=True)).to_be_visible()
-    page.screenshot(path=f'/tmp/agentdeck-session-groups-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-session-groups-{width}.png')
     assert t['api'](f"/sessions/{t['id']}")['tmux_session']=='terminal-test'
     open_terminal(page,t);expect(page.locator('#connection')).to_have_text('Connected')
 

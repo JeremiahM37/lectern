@@ -48,7 +48,7 @@ def test_web_resumes_exact_stopped_conversation(page,real_terminal,agent,width):
     rows=t['api']('/sessions');resumed=next(r for r in rows if r['name']=='Continued exact history')
     assert resumed['resume_id']==cid
     assert resumed['workdir']==str(t['root'])
-    # The resumed terminal opens within AgentDeck and paints real process output.
+    # The resumed terminal opens within Lectern and paints real process output.
     expect(page.locator('#terminal-workspace')).to_be_visible()
     frame=page.frame_locator('#terminal-workspace .terminal-tabpanel:not([hidden]) iframe')
     expect(frame.locator('#connection')).to_have_text('Connected',timeout=15000)

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/policy"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/policy"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // AgentTaskCap and NoteCap bound what one attempt can file, so a looping agent

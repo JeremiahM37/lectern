@@ -16,7 +16,7 @@ send further instructions to the session. Deleting or clearing the task preserve
 the session's worktree, including after the session has ended.
 
 Requests persist before interruption. Repeated clicks reuse one session, and
-AgentDeck resumes an unfinished handoff after a restart. A failed handoff shows
+Lectern resumes an unfinished handoff after a restart. A failed handoff shows
 its error and offers **Retry takeover**. Preflight failures leave the original
 process alive. Claude's permissions, MCP configuration and project environment
 carry over; approval hooks tied to the cancelled attempt are removed.

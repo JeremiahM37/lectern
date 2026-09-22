@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func TestMemoryOutageIsVisibleAndDoesNotBlockLaunch(t *testing.T) {

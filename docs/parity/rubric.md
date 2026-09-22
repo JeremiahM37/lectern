@@ -1,4 +1,4 @@
-# Bounded AgentDeck comparison rubric
+# Bounded Lectern comparison rubric
 
 This rubric records observable workflow evidence, rather than feature counts or
 performance claims. Every cell is `PASS`, `FAIL`, or `UNVERIFIED`; a partial

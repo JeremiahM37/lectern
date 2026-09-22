@@ -95,7 +95,7 @@ func newWorld(t *testing.T) *world {
 
 func (w *world) run(ctx context.Context, script string) (string, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", script)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + w.tmp, "AGENTDECK_SCRATCH_ROOT=" + w.root,
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + w.tmp, "LECTERN_SCRATCH_ROOT=" + w.root,
 		"CLAUDE_CONFIG_DIR=" + w.claude, "CODEX_HOME=" + w.codex,
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
 	out, err := cmd.Output()

@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/ctxbundle"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/hooks"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/ctxbundle"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/hooks"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // taskLaunchConfig resolves the configured task adapter once, or returns the
@@ -162,7 +162,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		return kw, err
 	}
 	// task-filing kit: lets the agent put follow-up cards on the board
-	if err := ex.WriteFile(ctx, rt+"/adk.py", hooks.ADK); err != nil {
+	if err := ex.WriteFile(ctx, rt+"/lec.py", hooks.ADK); err != nil {
 		return kw, err
 	}
 	if err := ex.WriteFile(ctx, rt+"/env", []byte(fmt.Sprintf(

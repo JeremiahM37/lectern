@@ -5,21 +5,21 @@ test("MCP conflict merge preserves draft and refreshes retained secrets", () => 
   const draft = {
     remote: {
       url: "https://new",
-      headers: { Authorization: { __agentdeck_retained: "old" } },
+      headers: { Authorization: { __lectern_retained: "old" } },
       custom: "mine",
     },
   };
   const latest = {
     remote: {
       url: "https://other",
-      headers: { Authorization: { __agentdeck_retained: "fresh" } },
+      headers: { Authorization: { __lectern_retained: "fresh" } },
       custom: "theirs",
     },
   };
   assert.deepEqual(syncRetained(draft, latest), {
     remote: {
       url: "https://new",
-      headers: { Authorization: { __agentdeck_retained: "fresh" } },
+      headers: { Authorization: { __lectern_retained: "fresh" } },
       custom: "mine",
     },
   });

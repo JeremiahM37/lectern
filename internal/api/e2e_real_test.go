@@ -9,7 +9,7 @@ package api_test
 // process on this machine, the real local executor, the real poller, the real
 // diff capture. The only stand-in is the agent binary itself — a shell script
 // that speaks the same stream-json protocol Claude Code does, because the point
-// is to exercise agentdeck's plumbing rather than an LLM.
+// is to exercise lectern's plumbing rather than an LLM.
 
 import (
 	"encoding/json"
@@ -26,13 +26,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/app"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/app"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
-// tmux names come from database ids (adk-<attempt>, adk-s<session>), and every
+// tmux names come from database ids (lec-<attempt>, lec-s<session>), and every
 // rig gets a fresh database whose ids start at 1 — so without this every test in
 // this file would compete for the same global tmux name on the one tmux server
 // this machine runs. Each rig takes a disjoint id range instead.
@@ -42,7 +42,7 @@ var rigSeq atomic.Int64
 // server so test cleanup cannot kill a live session with a matching name.
 func isolateTmux(t *testing.T) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "adk-tmux-")
+	dir, err := os.MkdirTemp("", "lec-tmux-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func newRealRig(t *testing.T) *realRig {
 		t.Fatal(err)
 	}
 	mustRun(t, repo, "git", "config", "user.email", "test@example.com")
-	mustRun(t, repo, "git", "config", "user.name", "agentdeck test")
+	mustRun(t, repo, "git", "config", "user.name", "lectern test")
 	mustRun(t, repo, "git", "add", "-A")
 	mustRun(t, repo, "git", "commit", "-q", "-m", "initial")
 
@@ -120,7 +120,7 @@ func newRealRig(t *testing.T) *realRig {
 	// default; a test must not litter the developer's home, so point the root
 	// at this test's own temp dir. The local executor inherits this process's
 	// environment, which is what makes the override reach the target.
-	t.Setenv("AGENTDECK_SCRATCH_ROOT", filepath.Join(dir, "scratch"))
+	t.Setenv("LECTERN_SCRATCH_ROOT", filepath.Join(dir, "scratch"))
 
 	agentPath := filepath.Join(dir, "fake-claude")
 	if err := os.WriteFile(agentPath, []byte(fakeAgent), 0o755); err != nil {
@@ -132,7 +132,7 @@ func newRealRig(t *testing.T) *realRig {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		DBPath:           filepath.Join(dir, "agentdeck.db"),
+		DBPath:           filepath.Join(dir, "lectern.db"),
 		Mock:             false, // the whole point
 		TickInterval:     60 * time.Millisecond,
 		SessionPoll:      3600 * time.Second, // no session polling in this test
@@ -171,7 +171,7 @@ func newRealRig(t *testing.T) *realRig {
 	base := 1000 + rigSeq.Add(1)*100
 	if _, err := a.DB.Exec(`INSERT INTO sessions
 		(id, target_id, name, agent, workdir, tmux_session, status, origin, ended_at)
-		VALUES (?, ?, 'id-range-marker', 'none', '/', 'never-launched', 'dead', 'agentdeck', 1)`,
+		VALUES (?, ?, 'id-range-marker', 'none', '/', 'never-launched', 'dead', 'lectern', 1)`,
 		base, target.ID); err != nil {
 		t.Fatalf("reserving the session id range: %v", err)
 	}
@@ -264,7 +264,7 @@ func (r *realRig) waitStatus(id int64, want ...string) *store.Task {
 	// dump what the agent actually did — this is the failure worth debugging
 	if att, err := r.app.DB.LatestAttempt(id); err == nil && att.WorktreePath != "" {
 		for _, f := range []string{"stderr.log", "events.jsonl", "exit_code"} {
-			raw, _ := os.ReadFile(filepath.Join(att.WorktreePath, ".agentdeck", f))
+			raw, _ := os.ReadFile(filepath.Join(att.WorktreePath, ".lectern", f))
 			r.t.Logf("--- %s ---\n%s", f, raw)
 		}
 	}
@@ -448,8 +448,8 @@ exit 0
 	}
 	if !sawOutput {
 		attempt, _ := r.app.DB.LatestAttempt(okID)
-		eventsRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".agentdeck", "events.jsonl"))
-		stderrRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".agentdeck", "stderr.log"))
+		eventsRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "events.jsonl"))
+		stderrRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "stderr.log"))
 		t.Fatalf("unterminated custom output was lost: events=%q stderr=%q db=%#v", eventsRaw, stderrRaw, okEvents)
 	}
 	failID := customTask("plain-failing")
@@ -502,7 +502,7 @@ func truncate(s string, n int) string {
 
 // fakeInteractiveAgent stays alive and records both its argv and everything
 // typed at it, so a test can prove a prime or a message truly arrived rather
-// than merely that agentdeck thought it sent one.
+// than merely that lectern thought it sent one.
 const fakeInteractiveAgent = `#!/bin/bash
 log="$PWD/session-log.txt"
 printf 'argv:%s\n' "$*" >> "$log"
@@ -571,7 +571,7 @@ func TestARealInteractiveSessionStartsAndIsPrimed(t *testing.T) {
 		"project_id": r.project, "agent": "claude",
 		"prime": "CONTEXT-MARKER: you are resuming the inference project"})
 
-	if !strings.HasPrefix(sess.TmuxSession, "adk-s") {
+	if !strings.HasPrefix(sess.TmuxSession, "lec-s") {
 		t.Errorf("an interactive session must not collide with an attempt's naming: %q", sess.TmuxSession)
 	}
 	deadline := time.Now().Add(10 * time.Second)
@@ -624,7 +624,7 @@ func TestARealInteractiveMCPWorktreeStaysCleanAndRemovable(t *testing.T) {
 	if stateRoot == "" {
 		stateRoot = filepath.Join(home, ".local", "state")
 	}
-	privateMCPRoot := filepath.Join(stateRoot, "agentdeck", "mcp") + string(filepath.Separator)
+	privateMCPRoot := filepath.Join(stateRoot, "lectern", "mcp") + string(filepath.Separator)
 	if !strings.Contains(log, "--mcp-config "+privateMCPRoot) || !strings.Contains(log, "--strict-mcp-config") {
 		t.Fatalf("private MCP config was not passed as an absolute state path: %s", log)
 	}
@@ -671,7 +671,7 @@ func TestReleasingAnAdoptedSessionLeavesItRunning(t *testing.T) {
 	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
 	r.waitForLog(r.repo, "argv:", 10*time.Second)
 
-	// make it look adopted: agentdeck found it, it did not start it
+	// make it look adopted: lectern found it, it did not start it
 	if err := r.app.DB.Update("sessions", sess.ID, map[string]any{"origin": "discovered"}); err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +714,7 @@ func TestKillingAnAdoptedSessionRequiresAskingForIt(t *testing.T) {
 	}
 }
 
-// A session agentdeck launched itself is its own to clean up.
+// A session lectern launched itself is its own to clean up.
 func TestDeletingAnOwnedSessionKillsIt(t *testing.T) {
 	r := newInteractiveRig(t)
 	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
@@ -728,7 +728,7 @@ func TestDeletingAnOwnedSessionKillsIt(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if tmuxAlive(sess.TmuxSession) {
-		t.Error("agentdeck did not clean up a session it started itself")
+		t.Error("lectern did not clean up a session it started itself")
 	}
 }
 
@@ -739,7 +739,7 @@ func TestDiscoveryFindsARealTmuxSession(t *testing.T) {
 	r := newInteractiveRig(t)
 	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
 	r.waitForLog(r.repo, "argv:", 10*time.Second)
-	// agentdeck must not offer to adopt what it already tracks
+	// lectern must not offer to adopt what it already tracks
 	code, body := r.do("GET", "/api/sessions/discover", nil)
 	if code != 200 {
 		t.Fatalf("discover: %d %s", code, body)
@@ -752,7 +752,7 @@ func TestDiscoveryFindsARealTmuxSession(t *testing.T) {
 	}
 	for _, c := range candidates {
 		if c.TmuxSession == sess.TmuxSession {
-			t.Errorf("discovery offered to adopt a session agentdeck already owns: %s", c.TmuxSession)
+			t.Errorf("discovery offered to adopt a session lectern already owns: %s", c.TmuxSession)
 		}
 	}
 }
@@ -769,7 +769,7 @@ func TestRealHandoffWaitsForCompletedPublication(t *testing.T) {
 		t.Fatalf("%d %s", code, raw)
 	}
 	log := r.waitForLog(r.repo, "completion marker", 5*time.Second)
-	start := strings.Index(log, "/tmp/agentdeck-handoff-")
+	start := strings.Index(log, "/tmp/lectern-handoff-")
 	if start < 0 {
 		t.Fatal(log)
 	}
@@ -789,7 +789,7 @@ func TestRealHandoffWaitsForCompletedPublication(t *testing.T) {
 	if err != nil || len(wraps) != 0 || !tmuxAlive(sess.TmuxSession) {
 		t.Fatalf("partial publication finalized: wraps=%v err=%v", wraps, err)
 	}
-	final := body + "<!-- agentdeck:complete " + path + " -->\n"
+	final := body + "<!-- lectern:complete " + path + " -->\n"
 	if err := os.WriteFile(path+".partial", []byte(final), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +818,7 @@ func TestRealHandoffWaitsForCompletedPublication(t *testing.T) {
 	if next.GroupPath != "Work/Handoffs" {
 		t.Fatal("successor lost its group")
 	}
-	if strings.Contains(wraps[0].Summary, "agentdeck:complete") {
+	if strings.Contains(wraps[0].Summary, "lectern:complete") {
 		t.Fatal("protocol marker leaked into saved memory")
 	}
 }

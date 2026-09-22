@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Poll refreshes every live session's status from its target.
@@ -143,15 +143,15 @@ func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
 			}
 			// A successful missing-pane result cannot distinguish a reboot from
 			// a dead process while the target's boot identity is unavailable.
-			// Keep an AgentDeck-owned row recoverable until a known boot probe
+			// Keep a Lectern-owned row recoverable until a known boot probe
 			// establishes that decision.
-			if !known && pane.Missing && s.Origin == "agentdeck" && s.BootID != "" {
+			if !known && pane.Missing && s.Origin == "lectern" && s.BootID != "" {
 				continue
 			}
-			// Older AgentDeck rows may predate boot checkpoints. Bind one only
+			// Older Lectern rows may predate boot checkpoints. Bind one only
 			// after a known boot and a live, identity-bound pane are observed;
 			// a missing pane must remain unresolved until a later probe.
-			if known && s.BootID == "" && !pane.Missing && s.Origin == "agentdeck" && validTrackingIdentity(s.TrackingIdentity) {
+			if known && s.BootID == "" && !pane.Missing && s.Origin == "lectern" && validTrackingIdentity(s.TrackingIdentity) {
 				identity, identityErr := ProbeTrackingIdentity(ctx, ex, s.TmuxSession)
 				if identityErr == nil && identity == s.TrackingIdentity {
 					if err := m.DB.Update("sessions", s.ID, map[string]any{"boot_id": boot, "updated_at": store.Now()}); err == nil {
@@ -206,7 +206,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 			// The FIRST time we see a pane we cannot know it just changed — an
 			// adopted session may have been sitting there for days. Moving the
 			// activity clock here would reset every adopted session to "quiet
-			// 0s" the moment agentdeck noticed it.
+			// 0s" the moment lectern noticed it.
 			if s.PaneHash != "" {
 				fields["last_activity_at"] = now
 			}

@@ -8,7 +8,7 @@ from test_terminal_workspace import real_terminal
 
 
 def command(t, *args, input=None, check=True):
-    return subprocess.run([_binary(), *args], env={**t['env'], 'AGENTDECK_API':t['url']},
+    return subprocess.run([_binary(), *args], env={**t['env'], 'LECTERN_API':t['url']},
         input=input, text=True, capture_output=True, timeout=30, check=check)
 
 
@@ -56,17 +56,17 @@ def test_linux_installer_and_default_console(real_terminal, tmp_path):
     home = tmp_path/'client-home';home.mkdir()
     tools = tmp_path/'fake-ssh';tools.mkdir()
     ssh = tools/'ssh';ssh.write_text('#!/bin/sh\nuname -s\nuname -m\n');ssh.chmod(0o755)
-    scp = tools/'scp';scp.write_text('#!/bin/sh\ncp "$TEST_AGENTDECK_BINARY" "$3"\n');scp.chmod(0o755)
+    scp = tools/'scp';scp.write_text('#!/bin/sh\ncp "$TEST_LECTERN_BINARY" "$3"\n');scp.chmod(0o755)
     env = {**os.environ,'HOME':str(home),'PATH':str(tools)+':'+os.environ['PATH'],
-        'TEST_AGENTDECK_BINARY':_binary()}
+        'TEST_LECTERN_BINARY':_binary()}
     from conftest import ROOT
-    installer = ROOT/'web/static/desktop/install-agentdeck-cli.sh'
+    installer = ROOT/'web/static/desktop/install-lectern-cli.sh'
     for _ in range(2):
         subprocess.run(['bash',str(installer),'--server','test-server','--api',t['url']],env=env,check=True,capture_output=True)
-    client = home/'.local/bin/agentdeck'
+    client = home/'.local/bin/lectern'
     result = subprocess.run([str(client)],env=env,input='1\nb\nq\n',text=True,capture_output=True,check=True,timeout=10)
     assert 'Real terminal' in result.stdout and 'Error:' not in result.stdout
-    assert list((home/'.local/state/agentdeck').glob('cli-*/client'))
+    assert list((home/'.local/state/lectern').glob('cli-*/client'))
     result = subprocess.run([str(client),'api','GET','/sessions'],env=env,capture_output=True,text=True,check=True)
     assert json.loads(result.stdout)[0]['id']==t['id']
 
@@ -80,7 +80,7 @@ def test_menu_and_direct_attach_use_portable_term(real_terminal,tmp_path):
     ssh.write_text('#!/bin/sh\nprintf "%s" "$TERM" > "$TERM_RECEIPT"\nexec tmux attach -t =terminal-test\n')
     ssh.chmod(0o755)
     receipt=tmp_path/'term.txt'
-    env={**t['env'],'AGENTDECK_API':t['url'],'AGENTDECK_ATTACH_HOST':'test-peer',
+    env={**t['env'],'LECTERN_API':t['url'],'LECTERN_ATTACH_HOST':'test-peer',
       'PATH':str(tools)+':'+os.environ['PATH'],'TERM':'xterm-kitty','TERM_RECEIPT':str(receipt)}
     for menu in [False,True]:
         master,slave=pty.openpty()

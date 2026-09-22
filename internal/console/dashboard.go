@@ -469,7 +469,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		if v.err != nil {
 			if he, ok := v.err.(*HTTPError); ok && he.Status == 404 {
-				m.notice = "Conversation promotion is unavailable on the running server; restart or update AgentDeck, then try again."
+				m.notice = "Conversation promotion is unavailable on the running server; restart or update Lectern, then try again."
 			} else {
 				m.notice = clean(v.err.Error())
 			}
@@ -557,13 +557,13 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.err != nil {
 			if v.label == "Create blank shell" {
 				if he, ok := v.err.(*HTTPError); ok && he.Status == 404 {
-					m.notice = "Quick shell is unavailable on the running server; restart or update AgentDeck, then try again."
+					m.notice = "Quick shell is unavailable on the running server; restart or update Lectern, then try again."
 					return m, nil
 				}
 			}
 			if v.label == "Promote conversation" {
 				if he, ok := v.err.(*HTTPError); ok && he.Status == 404 {
-					m.notice = "Conversation promotion is unavailable on the running server; restart or update AgentDeck, then try again."
+					m.notice = "Conversation promotion is unavailable on the running server; restart or update Lectern, then try again."
 					return m, nil
 				}
 			}
@@ -994,11 +994,11 @@ func (m *dashboard) View() string {
 		return m.reviewView()
 	}
 	if m.width < 35 || m.height < 12 {
-		return "AgentDeck\nResize to at least 35 × 12.\nq to quit"
+		return "Lectern\nResize to at least 35 × 12.\nq to quit"
 	}
-	title := accent.Bold(true).Render(" ◆ AgentDeck") + muted.Render("  Terminal workspace")
+	title := accent.Bold(true).Render(" ◆ Lectern") + muted.Render("  Terminal workspace")
 	if m.width < 65 {
-		title = accent.Bold(true).Render(" ◆ AgentDeck")
+		title = accent.Bold(true).Render(" ◆ Lectern")
 	}
 	connection := "Connecting…"
 	if !m.updated.IsZero() {

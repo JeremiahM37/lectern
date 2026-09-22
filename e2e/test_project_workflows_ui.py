@@ -49,7 +49,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
                     "version": "d848fb4e18f44640ad6b42e60a280551ee90cdce",
                     "upstream_url": "https://github.com/github/spec-kit",
                     "enabled": state["enabled"][agent]["spec-kit"],
-                    "commands": ["agentdeck-spec-kit constitution", "agentdeck-spec-kit specify"],
+                    "commands": ["lectern-spec-kit constitution", "lectern-spec-kit specify"],
                 },
                 {
                     "id": "maestro",
@@ -58,7 +58,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
                     "version": "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
                     "upstream_url": "https://github.com/sharpdeveye/maestro",
                     "enabled": state["enabled"][agent]["maestro"],
-                    "commands": ["agentdeck-maestro diagnose", "agentdeck-maestro teach-maestro"],
+                    "commands": ["lectern-maestro diagnose", "lectern-maestro teach-maestro"],
                 },
             ]
             return route.fulfill(status=200, content_type="application/json", body=json.dumps({"workflows": rows, "reload_required": True}))
@@ -87,7 +87,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
         card.get_by_role("button", name="Enable Spec Kit").click()
         expect(card.locator(".workflows-status")).to_contain_text("Spec Kit enabled", timeout=10000)
         expect(card.locator(".workflow-card").first.locator(".workflow-commands code")).to_have_count(2)
-        expect(card.locator(".workflow-card").first.locator(".workflow-commands code").first).to_have_text("/agentdeck-spec-kit constitution")
+        expect(card.locator(".workflow-card").first.locator(".workflow-commands code").first).to_have_text("/lectern-spec-kit constitution")
         expect(card.locator(".workflow-reload-note")).to_contain_text("new Claude Code session")
         assert state["puts"][-1][1] == {"agent": "claude", "enabled": True}
 
@@ -97,7 +97,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
         expect(card.get_by_role("button", name="Enable Spec Kit")).to_be_visible()
         card.locator(".workflow-card").nth(1).get_by_role("button", name="Enable Maestro").click()
         expect(card.locator(".workflows-status")).to_contain_text("Maestro enabled", timeout=10000)
-        expect(card.locator(".workflow-card").nth(1).locator(".workflow-commands code").first).to_have_text("$agentdeck-maestro diagnose")
+        expect(card.locator(".workflow-card").nth(1).locator(".workflow-commands code").first).to_have_text("$lectern-maestro diagnose")
 
         # Disabling hides future command guidance while retaining the workflow card.
         card.locator(".workflow-card").nth(1).get_by_role("button", name="Disable Maestro").click()
@@ -126,7 +126,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
                         "version": "d848fb4e18f44640ad6b42e60a280551ee90cdce",
                         "upstream_url": "https://github.com/github/spec-kit",
                         "enabled": False,
-                        "commands": ["agentdeck-spec-kit constitution", "agentdeck-spec-kit specify"],
+                        "commands": ["lectern-spec-kit constitution", "lectern-spec-kit specify"],
                     },
                     {
                         "id": "maestro",
@@ -135,7 +135,7 @@ def test_project_workflows_provider_toggles_commands_retry_and_attribution(page,
                         "version": "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
                         "upstream_url": "https://github.com/sharpdeveye/maestro",
                         "enabled": False,
-                        "commands": ["agentdeck-maestro diagnose", "agentdeck-maestro teach-maestro"],
+                        "commands": ["lectern-maestro diagnose", "lectern-maestro teach-maestro"],
                     },
                 ],
                 "reload_required": True,

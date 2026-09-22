@@ -335,7 +335,7 @@ func validAgentEnv(env map[string]any) bool {
 		if !ok || len(marker) != 1 {
 			return false
 		}
-		if token, ok := marker["__agentdeck_retained"].(string); !ok || token == "" {
+		if token, ok := marker["__lectern_retained"].(string); !ok || token == "" {
 			return false
 		}
 	}

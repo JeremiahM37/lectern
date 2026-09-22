@@ -192,7 +192,7 @@ class SearchTests(unittest.TestCase):
     def test_json_worker_uses_selected_profile_and_cache(self):
         path,cid=self.write(['worker phrase'])
         script=Path(__file__).with_name('native_search.py')
-        env={**os.environ,'CODEX_HOME':str(self.home),'AGENTDECK_NATIVE_SEARCH_CACHE':str(self.cache)}
+        env={**os.environ,'CODEX_HOME':str(self.home),'LECTERN_NATIVE_SEARCH_CACHE':str(self.cache)}
         reply=json.loads(subprocess.check_output([sys.executable,str(script),'codex','worker phrase'],env=env))
         self.assertTrue(reply['progress']['complete']);self.assertEqual(reply['matches'][0]['cid'],cid)
         reply=json.loads(subprocess.check_output([sys.executable,str(script),'--reset','codex','--','worker phrase'],env=env))
@@ -203,7 +203,7 @@ class SearchTests(unittest.TestCase):
         path,cid=self.write(['worker exact phrase']);self.index.sync();hit=self.matches('exact')[0]
         folder=Path(__file__).parent
         script='NATIVE_SEARCH_LIBRARY=True\n'+'\n'.join((folder/name).read_text() for name in ('native_records.py','native_search.py','native_search_read.py'))
-        env={**os.environ,'CODEX_HOME':str(self.home),'AGENTDECK_NATIVE_SEARCH_CACHE':str(self.cache)}
+        env={**os.environ,'CODEX_HOME':str(self.home),'LECTERN_NATIVE_SEARCH_CACHE':str(self.cache)}
         args=[sys.executable,'-c',script,'codex',str(hit['document']),cid,hit['cwd'],str(hit['offset']),hit['fingerprint'],self.index.path.stem,'exact']
         reply=json.loads(subprocess.check_output(args,env=env,cwd=self.root))
         self.assertEqual(reply['messages'][0]['text'],'worker exact phrase')

@@ -1,6 +1,6 @@
 {
-  "name": "agentdeck",
-  "short_name": "agentdeck",
+  "name": "lectern",
+  "short_name": "lectern",
   "description": "Mission control for AI coding agents on your own infrastructure.",
   "start_url": "/",
   "scope": "/",

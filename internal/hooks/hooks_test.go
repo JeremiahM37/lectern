@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/hooks"
+	"github.com/JeremiahM37/lectern/internal/hooks"
 )
 
 func stage(t *testing.T, name string, body []byte) string {
@@ -41,8 +41,8 @@ func runHook(t *testing.T, script, url, token string, payload any) (int, string)
 	cmd := exec.Command("python3", script)
 	cmd.Stdin = strings.NewReader(string(raw))
 	cmd.Env = append(os.Environ(),
-		"AGENTDECK_URL="+url, "AGENTDECK_TOKEN="+token,
-		"AGENTDECK_APPROVAL_TIMEOUT=8")
+		"LECTERN_URL="+url, "LECTERN_TOKEN="+token,
+		"LECTERN_APPROVAL_TIMEOUT=8")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -136,7 +136,7 @@ func TestHookBlocksWhenTheControlPlaneIsUnreachable(t *testing.T) {
 	}
 }
 
-// Unconfigured means "not running under agentdeck" — a developer running the CLI
+// Unconfigured means "not running under lectern" — a developer running the CLI
 // by hand must not be blocked by a hook that has nothing to ask.
 func TestHookIsInertWhenUnconfigured(t *testing.T) {
 	script := stage(t, "hook.py", hooks.Hook)
@@ -151,7 +151,7 @@ func TestHookToleratesGarbageOnStdin(t *testing.T) {
 	defer srv.Close()
 	cmd := exec.Command("python3", script)
 	cmd.Stdin = strings.NewReader("not json at all")
-	cmd.Env = append(os.Environ(), "AGENTDECK_URL="+srv.URL, "AGENTDECK_TOKEN=tok")
+	cmd.Env = append(os.Environ(), "LECTERN_URL="+srv.URL, "LECTERN_TOKEN=tok")
 	err := cmd.Run()
 	if err != nil {
 		t.Fatalf("malformed input must not block the agent: %v", err)
@@ -174,9 +174,9 @@ func TestHookKeepsPollingWhilePending(t *testing.T) {
 	}
 }
 
-// adk.py is how an agent files follow-up work and leaves durable notes.
+// lec.py is how an agent files follow-up work and leaves durable notes.
 func TestAgentKitFilesTasksAndNotes(t *testing.T) {
-	script := stage(t, "adk.py", hooks.ADK)
+	script := stage(t, "lec.py", hooks.ADK)
 	var got []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -221,7 +221,7 @@ func TestAgentKitFilesTasksAndNotes(t *testing.T) {
 }
 
 func TestAgentKitRefusesWithoutCredentials(t *testing.T) {
-	script := stage(t, "adk.py", hooks.ADK)
+	script := stage(t, "lec.py", hooks.ADK)
 	cmd := exec.Command("python3", script, "add-note", "x")
 	err := cmd.Run()
 	ee, ok := err.(*exec.ExitError)

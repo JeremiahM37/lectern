@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func (h *harness) raw(method, path string, body io.Reader, headers map[string]string) (*http.Response, []byte) {
@@ -69,7 +69,7 @@ func TestPostMediaToolCopiesTheFileAndAttributesTheSession(t *testing.T) {
 		t.Fatalf("content: %d, %d bytes", resp.StatusCode, len(body))
 	}
 	if got := resp.Header.Get("Content-Security-Policy"); !strings.HasPrefix(got, "sandbox") {
-		t.Errorf("posted content must be sandboxed away from the AgentDeck origin, got %q", got)
+		t.Errorf("posted content must be sandboxed away from the Lectern origin, got %q", got)
 	}
 	// Seeking inside a recording is a range request; without it a browser has to
 	// download the whole video before the scrubber works.
@@ -102,7 +102,7 @@ func TestMediaFindsItsSessionFromTheTmuxName(t *testing.T) {
 	// An unknown tmux name still posts: losing the evidence is worse than
 	// losing its label.
 	stray := h.post("/api/media", obj{"url": "https://example.com", "title": "stray",
-		"tmux_session": "not-an-agentdeck-session"}, 201)
+		"tmux_session": "not-an-lectern-session"}, 201)
 	if stray["session_id"] != nil {
 		t.Errorf("stray post must be unattributed: %v", stray)
 	}

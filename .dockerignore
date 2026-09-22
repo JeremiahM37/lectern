@@ -4,9 +4,9 @@
 .verify-artifacts
 frontend/node_modules
 frontend/dist
-agentdeck.db*
-agentdeck-diffs
-.agentdeck-worktrees
+lectern.db*
+lectern-diffs
+.lectern-worktrees
 smoke-repo
 **/__pycache__
 *.env

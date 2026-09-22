@@ -64,13 +64,13 @@ def main():
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     captures, checks = [], []
-    with tempfile.TemporaryDirectory(prefix="agentdeck-demo-") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="lectern-demo-") as tmp_name:
         tmp = Path(tmp_name)
-        binary = tmp / "agentdeck"
-        subprocess.run(["go", "build", "-o", str(binary), "./cmd/agentdeck"], cwd=ROOT, check=True)
+        binary = tmp / "lectern"
+        subprocess.run(["go", "build", "-o", str(binary), "./cmd/lectern"], cwd=ROOT, check=True)
         # Explicitly discard ambient app settings, especially outbound sinks,
         # provider URLs, credentials, and production database/vault paths.
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTDECK_", "GRIMOIRE_"))}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("LECTERN_", "GRIMOIRE_"))}
         processes, logs = [], []
         try:
             memory_base = ""
@@ -99,14 +99,14 @@ Next: verify the HTTP contract and document the handoff protocol.
                     "agent": "demo", "human": True})
             port = free_port()
             base = f"http://127.0.0.1:{port}"
-            adk_env = {**env, "AGENTDECK_MOCK": "1", "AGENTDECK_PORT": str(port), "AGENTDECK_HOST": "127.0.0.1",
-                "AGENTDECK_DB": str(tmp / "demo.db"), "AGENTDECK_TICK": "0.1", "AGENTDECK_MOCK_DELAY": "0.2",
-                "AGENTDECK_SESSION_POLL": "0.2", "AGENTDECK_BASE_URL": base, "AGENTDECK_GRIMOIRE_URL": memory_base,
-                "AGENTDECK_HOST_CLAUDE_CONFIG": str(tmp / "no-host-config.json"),
-                "AGENTDECK_CREDS": str(tmp / "no-credentials"), "AGENTDECK_CODEX_CREDS": str(tmp / "no-codex-credentials")}
-            log = open(tmp / "agentdeck.log", "w")
+            lec_env = {**env, "LECTERN_MOCK": "1", "LECTERN_PORT": str(port), "LECTERN_HOST": "127.0.0.1",
+                "LECTERN_DB": str(tmp / "demo.db"), "LECTERN_TICK": "0.1", "LECTERN_MOCK_DELAY": "0.2",
+                "LECTERN_SESSION_POLL": "0.2", "LECTERN_BASE_URL": base, "LECTERN_GRIMOIRE_URL": memory_base,
+                "LECTERN_HOST_CLAUDE_CONFIG": str(tmp / "no-host-config.json"),
+                "LECTERN_CREDS": str(tmp / "no-credentials"), "LECTERN_CODEX_CREDS": str(tmp / "no-codex-credentials")}
+            log = open(tmp / "lectern.log", "w")
             logs.append(log)
-            proc = subprocess.Popen([str(binary)], env=adk_env, cwd=ROOT, stdout=log, stderr=log)
+            proc = subprocess.Popen([str(binary)], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
             processes.append(proc)
             wait_for(lambda: api(base, "/health"))
             request = lambda path, body=None, method=None: api(base, path, body, method)
@@ -252,7 +252,7 @@ Next: verify the HTTP contract and document the handoff protocol.
                 page.click("#ho-go")
                 wait_for(lambda: len(request("/sessions")) == 4)
                 wraps = request(f"/sessions/{sessions[1]['id']}/wraps")
-                assert wraps and "agentdeck:complete" not in wraps[0]["summary"]
+                assert wraps and "lectern:complete" not in wraps[0]["summary"]
                 assert request(f"/sessions/{sessions[1]['id']}")["status"] != "dead"
                 checks.append("Cross-agent handoff saved a complete wrap and preserved the predecessor when requested")
                 # Prime a new session against the optional real, isolated Grimoire.
@@ -327,7 +327,7 @@ Next: verify the HTTP contract and document the handoff protocol.
             snapshot = {kind: [r["id"] for r in request('/' + kind)] for kind in ["projects", "routines", "tasks"]}
             stop(proc)
             processes.remove(proc)
-            proc = subprocess.Popen([str(binary)], env=adk_env, cwd=ROOT, stdout=log, stderr=log)
+            proc = subprocess.Popen([str(binary)], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
             processes.append(proc)
             wait_for(lambda: api(base, "/health"))
             for kind, ids in snapshot.items():
@@ -339,7 +339,7 @@ Next: verify the HTTP contract and document the handoff protocol.
         except Exception:
             # Preserve diagnostics outside the temp directory without ever copying
             # production logs or credentials into documentation assets.
-            diagnostics = Path(tempfile.mkdtemp(prefix="agentdeck-demo-failure-"))
+            diagnostics = Path(tempfile.mkdtemp(prefix="lectern-demo-failure-"))
             for file in tmp.glob("*.log"):
                 shutil.copyfile(file, diagnostics / file.name)
             print(f"Demo logs: {diagnostics}")

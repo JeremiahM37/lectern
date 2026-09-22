@@ -67,7 +67,7 @@ def claim_created_worktree(repo,dest,common,commit):
  if git(dest,'rev-parse','--path-format=absolute','--git-common-dir',cancel_check=False)!=common:raise ValueError('Created worktree belongs to another repository')
  if git(dest,'symbolic-ref','--quiet','--short','HEAD',cancel_check=False)!=p['branch']:raise ValueError('Created worktree branch does not match')
  if git(dest,'rev-parse','HEAD',cancel_check=False)!=commit:raise ValueError('Created worktree revision does not match')
- owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir',cancel_check=False))/'agentdeck-owner'
+ owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir',cancel_check=False))/'lectern-owner'
  with owner.open('x') as file:file.write(p['token'])
 try:
  if operation=='create':
@@ -96,7 +96,7 @@ try:
      # proven stays unclaimed and must not be removed automatically.
      pass
    raise
-  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'agentdeck-owner'
+  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'lectern-owner'
   with owner.open('x') as file:file.write(p['token'])
   p.update(repo=repo,path=dest,commit=commit,state='creating')
   try:run_setup(dest)
@@ -130,7 +130,7 @@ try:
   panes=subprocess.run(['tmux','list-panes','-a','-F','#{pane_current_path}'],capture_output=True,text=True,timeout=10)
   if panes.returncode and not any(x in panes.stderr.lower() for x in ['no server running','no such file or directory']):raise ValueError('Could not check active terminals before recovery')
   if any(within(cwd,dest) for cwd in panes.stdout.splitlines() if cwd):raise ValueError('A terminal is using this allocation; leave it before recovery')
-  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'agentdeck-owner'
+  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'lectern-owner'
   if os.path.lexists(owner):
    fd=os.open(owner,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
    with os.fdopen(fd) as file:
@@ -147,7 +147,7 @@ try:
    p['state']='removed';print(json.dumps({'workspace':p}));sys.exit(0)
   if git(dest,'rev-parse','--show-toplevel')!=dest:raise ValueError('Directory is not the recorded worktree root')
   if git(dest,'rev-parse','--path-format=absolute','--git-common-dir')!=common:raise ValueError('Worktree belongs to another repository')
-  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'agentdeck-owner'
+  owner=pathlib.Path(git(dest,'rev-parse','--absolute-git-dir'))/'lectern-owner'
   if not owner.is_file() or owner.read_text()!=p['token']:raise ValueError('Worktree ownership does not match; nothing was removed')
   if git(dest,'symbolic-ref','--quiet','--short','HEAD')!=p['branch']:raise ValueError('Worktree branch changed; nothing was removed')
   panes=subprocess.run(['tmux','list-panes','-a','-F','#{pane_current_path}'],capture_output=True,text=True,timeout=10)

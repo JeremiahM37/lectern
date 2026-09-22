@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/desktop"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/forward"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/desktop"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/forward"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Live is how the operator reaches what a target keeps on its own localhost: a
@@ -41,7 +41,7 @@ func (s *Server) liveInit() *liveState {
 	l := &s.live
 	l.once.Do(func() {
 		lo, hi := 19200, 19299
-		if a, b, ok := strings.Cut(os.Getenv("AGENTDECK_LIVE_PORTS"), "-"); ok {
+		if a, b, ok := strings.Cut(os.Getenv("LECTERN_LIVE_PORTS"), "-"); ok {
 			if x, err1 := strconv.Atoi(a); err1 == nil {
 				if y, err2 := strconv.Atoi(b); err2 == nil && x > 1023 && y >= x && y < 65536 {
 					lo, hi = x, y
@@ -92,12 +92,12 @@ func (s *Server) liveShutdown() {
 func (s *Server) liveAllowed(w http.ResponseWriter) bool {
 	if !s.Cfg.Live {
 		httpError(w, 409, "live views are off on this server. They open extra listening ports and let an agent "+
-			"start a desktop that can be driven from the network, so they are opt-in: set AGENTDECK_LIVE=1 and restart")
+			"start a desktop that can be driven from the network, so they are opt-in: set LECTERN_LIVE=1 and restart")
 		return false
 	}
-	if s.Cfg.AuthToken != "" && os.Getenv("AGENTDECK_LIVE_UNAUTHENTICATED") != "1" {
+	if s.Cfg.AuthToken != "" && os.Getenv("LECTERN_LIVE_UNAUTHENTICATED") != "1" {
 		httpError(w, 409, "this server requires a token, and a forwarded port cannot check one; "+
-			"set AGENTDECK_LIVE_UNAUTHENTICATED=1 to allow forwards anyone who can reach the server may use")
+			"set LECTERN_LIVE_UNAUTHENTICATED=1 to allow forwards anyone who can reach the server may use")
 		return false
 	}
 	return true

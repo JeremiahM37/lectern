@@ -17,13 +17,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // Paths of the runtime files every attempt gets, relative to its worktree.
 const (
-	SettingsRel = ".agentdeck/settings.json"
-	MCPRel      = ".agentdeck/mcp.json"
+	SettingsRel = ".lectern/settings.json"
+	MCPRel      = ".lectern/mcp.json"
 )
 
 // DefaultGateMatcher is which tools the approval hook intercepts in gated mode.
@@ -62,11 +62,11 @@ type Permissions struct {
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
 }
 
-// PrivateMCPRel is private to one attempt/session and lives in AgentDeck's
+// PrivateMCPRel is private to one attempt/session and lives in Lectern's
 // per-user state directory rather than the Git checkout. The nonce prevents
 // collisions across restarts and across multiple control-plane instances.
 func PrivateMCPRel(id int64, nonce string) string {
-	return fmt.Sprintf("agentdeck/mcp/%d-%s/mcp.json", id, nonce)
+	return fmt.Sprintf("lectern/mcp/%d-%s/mcp.json", id, nonce)
 }
 
 // InteractiveMCPRel is private to one interactive session.
@@ -239,7 +239,7 @@ func HookSettings(baseURL, token, matcher string, expireSeconds int) map[string]
 	if expireSeconds <= 0 {
 		expireSeconds = 900
 	}
-	cmd := fmt.Sprintf("AGENTDECK_URL=%s AGENTDECK_TOKEN=%s python3 .agentdeck/hook.py",
+	cmd := fmt.Sprintf("LECTERN_URL=%s LECTERN_TOKEN=%s python3 .lectern/hook.py",
 		baseURL, token)
 	return map[string]any{"hooks": map[string]any{
 		"PreToolUse": []any{map[string]any{
@@ -279,7 +279,7 @@ func HostMCPServers(configPath string) []string {
 }
 
 // RuntimeDir is where every attempt's staged files live inside its worktree.
-func RuntimeDir(worktree string) string { return worktree + "/.agentdeck" }
+func RuntimeDir(worktree string) string { return worktree + "/.lectern" }
 
 var nonSlug = regexp.MustCompile(`[^A-Za-z0-9-]`)
 

@@ -16,7 +16,7 @@ def native_identity(agent, workspace, home, name, expected, discovery=False):
 
     def pane():
         return subprocess.check_output(['tmux', 'display-message', '-p', '-t', '=' + name + ':',
-            '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{@agentdeck-tracking-identity}'],
+            '#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{?#{@lectern-tracking-identity},#{@lectern-tracking-identity},#{@agentdeck-tracking-identity}}'],
             timeout=2, stderr=subprocess.DEVNULL, text=True).rstrip('\n').split('\t')
 
     def process(pid):

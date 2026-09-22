@@ -4,7 +4,7 @@ import { Board, type BoardApi } from "./Board";
 import type { Project, TaskView } from "../types";
 const project = {
   id: 1,
-  name: "AgentDeck",
+  name: "Lectern",
   target_id: 1,
   target_name: "local",
   target_kind: "local",
@@ -46,7 +46,7 @@ function task(id: number, status: string, title: string): TaskView {
     created_by_attempt: null,
     created_at: 1,
     updated_at: 1,
-    project_name: "AgentDeck",
+    project_name: "Lectern",
     target_name: "local",
     target_host: "localhost",
     target_user: "admin",
@@ -57,7 +57,7 @@ function task(id: number, status: string, title: string): TaskView {
             id: 9,
             n: 2,
             status: "done",
-            branch: "adk/2",
+            branch: "lec/2",
             worktree_path: "/tmp/w",
             tmux_session: "",
             started_at: 1,

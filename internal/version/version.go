@@ -2,4 +2,4 @@
 package version
 
 // Version is stamped into the API's /api/health payload and the UI footer.
-const Version = "2.2.0"
+const Version = "2.3.0"

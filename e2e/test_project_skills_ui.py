@@ -179,7 +179,7 @@ def test_project_skills_browser_catalog_search_retry_and_provider_race(page, ser
         expect(card.locator(".skills-source-status")).to_have_text("Directories saved. Reload the provider to discover them.")
         assert state["sources"] == []
         assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
-        page.screenshot(path=f"/tmp/agentdeck-skills-{page.viewport_size['width']}.png", full_page=True)
+        page.screenshot(path=f"/tmp/lectern-skills-{page.viewport_size['width']}.png", full_page=True)
     finally:
         page.request.delete(f"{server}/api/projects/{project_id}")
 
@@ -190,7 +190,7 @@ def _pty_console(base, project_id=7):
         os.setsid(); import fcntl, termios
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
     proc = subprocess.Popen([_binary(), "console", "--plain"], stdin=slave, stdout=slave, stderr=slave,
-                            env={**os.environ, "AGENTDECK_API": base}, preexec_fn=controlling_terminal)
+                            env={**os.environ, "LECTERN_API": base}, preexec_fn=controlling_terminal)
     os.close(slave); output = b""
     def wait(token, timeout=12):
         nonlocal output
@@ -234,11 +234,11 @@ def test_project_skills_plain_console_real_pty_crud_and_conflict(skill_api):
 
 def test_project_skills_dashboard_real_pty_has_native_controls(skill_api, tmp_path):
     base, state = skill_api
-    env = {**os.environ, "AGENTDECK_API": base, "AGENTDECK_ATTACH_HOST": ""}
+    env = {**os.environ, "LECTERN_API": base, "LECTERN_ATTACH_HOST": ""}
     t = {"url": base, "env": env, "root": Path(tmp_path)}
     d = Dashboard(t)
     try:
-        d.wait("AgentDeck"); d.send("4"); d.wait("Skills fixture"); d.send("m")
+        d.wait("Lectern"); d.send("4"); d.wait("Skills fixture"); d.send("m")
         for _ in range(9): d.send("j")
         d.send("\r"); d.wait("Project skills"); d.wait("Attach discovered skill")
         d.send("\x13"); d.wait("skill is already attached")
@@ -262,8 +262,8 @@ def real_skill_server(tmp_path):
     agent.chmod(0o755)
     port = _unused_port()
     proc = _start(port, {
-        "AGENTDECK_MOCK": "0", "AGENTDECK_DB": str(tmp_path / "skills.db"),
-        "AGENTDECK_CLAUDE_BIN": str(agent), "AGENTDECK_SESSION_POLL": "0.1",
+        "LECTERN_MOCK": "0", "LECTERN_DB": str(tmp_path / "skills.db"),
+        "LECTERN_CLAUDE_BIN": str(agent), "LECTERN_SESSION_POLL": "0.1",
     })
     try:
         yield f"http://127.0.0.1:{port}", repo, source_root, source
@@ -343,7 +343,7 @@ def test_project_skills_real_server_plain_console_pty_lifecycle(real_skill_serve
         os.setsid(); import fcntl, termios
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
     proc = subprocess.Popen([_binary(), "console", "--plain"], stdin=slave, stdout=slave, stderr=slave,
-                            env={**os.environ, "AGENTDECK_API": base}, preexec_fn=controlling_terminal)
+                            env={**os.environ, "LECTERN_API": base}, preexec_fn=controlling_terminal)
     os.close(slave); output = b""
     def wait(token, timeout=15):
         nonlocal output

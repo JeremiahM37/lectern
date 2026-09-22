@@ -15,13 +15,13 @@ conversation identity even when a fork copies its parent's header afterward.
 supplies the cache root and resolved native configuration directory. Separate
 agent/configuration directories get separate hashed cache files. The directory
 is mode 0700 and database mode 0600. No full transcript needs to be copied to the
-AgentDeck server. The caller must choose an appropriate target cache location;
+Lectern server. The caller must choose an appropriate target cache location;
 the development API supplies the target executor and captured environment.
 
 The JSON worker is executable as `python3 native_search.py AGENT -- QUERY`.
 It honors CODEX_HOME or CLAUDE_CONFIG_DIR and writes its private cache under
-AGENTDECK_NATIVE_SEARCH_CACHE, otherwise XDG_CACHE_HOME/agentdeck or
-~/.cache/agentdeck. Each invocation advances a bounded indexing pass and returns
+LECTERN_NATIVE_SEARCH_CACHE, otherwise XDG_CACHE_HOME/lectern or
+~/.cache/lectern. Each invocation advances a bounded indexing pass and returns
 progress plus current matches. Repeat while progress is incomplete; pass --reset
 only on the first invocation of an explicit rebuild. The Go service embeds and invokes this worker through its target executor.
 

@@ -395,7 +395,7 @@ body.dragging #workspace::after {
   background: white;
 }
 
-/* The containing AgentDeck page already supplies navigation and identity. */
+/* The containing Lectern page already supplies navigation and identity. */
 body.embedded #root > header {
   display: none;
 }

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 func TestCaptureNativeIDUsesInteractiveVSCodeTranscriptFD(t *testing.T) {
@@ -21,7 +21,7 @@ func TestCaptureNativeIDUsesInteractiveVSCodeTranscriptFD(t *testing.T) {
 		t.Skip("tmux unavailable")
 	}
 	root := t.TempDir()
-	// Go tests are sometimes launched from an AgentDeck tmux pane.  An
+	// Go tests are sometimes launched from a Lectern tmux pane.  An
 	// inherited TMUX value makes tmux address the caller's client/server before
 	// TMUX_TMPDIR is considered, so clear it before creating the fixture.
 	t.Setenv("TMUX", "")
@@ -53,7 +53,7 @@ func main(){ cid:="11111111-1111-4111-8111-111111111111"; cwd:=os.Getenv("FAKE_C
 	if out, err := exec.Command("go", "build", "-o", bin, src).CombinedOutput(); err != nil {
 		t.Fatalf("build fake codex: %v: %s", err, out)
 	}
-	name := "adk-native-fixture"
+	name := "lec-native-fixture"
 	ex := executor.NewLocal()
 	t.Cleanup(func() { _ = exec.Command("tmux", "kill-session", "-t", "="+name).Run() })
 	cmd := "FAKE_CWD=" + shellQuoteForTest(work) + " CODEX_HOME=" + shellQuoteForTest(home) + " " + shellQuoteForTest(bin)

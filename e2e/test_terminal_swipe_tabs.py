@@ -62,7 +62,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     panel = page.locator(".terminal-tabpanel:not([hidden]) iframe")
     box = panel.bounding_box()
     assert box and box["width"] > 250 and box["height"] > 300
-    page.screenshot(path="/tmp/agentdeck-mobile-tabs-before.png", full_page=False)
+    page.screenshot(path="/tmp/lectern-mobile-tabs-before.png", full_page=False)
 
     # A real CDP touch flick anywhere in the active terminal selects the
     # adjacent tab.  The tab identity and its attached iframe remain mounted.
@@ -71,7 +71,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     expect(page.locator(".terminal-tab", has_text="Real terminal")).to_have_attribute(
         "aria-selected", "true", timeout=3000
     )
-    page.screenshot(path="/tmp/agentdeck-mobile-tabs-after-right.png", full_page=False)
+    page.screenshot(path="/tmp/lectern-mobile-tabs-after-right.png", full_page=False)
     real_frame = _session_frame(page, t["id"])
     real_input = real_frame.locator('textarea[aria-label="Terminal input"]')
     real_input.focus()
@@ -82,10 +82,10 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     expect(page.locator(".terminal-tab", has_text="Second terminal")).to_have_attribute(
         "aria-selected", "true", timeout=3000
     )
-    page.screenshot(path="/tmp/agentdeck-mobile-tabs-after-left.png", full_page=False)
+    page.screenshot(path="/tmp/lectern-mobile-tabs-after-left.png", full_page=False)
 
     frame = _session_frame(page, second["id"])
-    state = frame.evaluate("window.__adkTerminalState?.()")
+    state = frame.evaluate("window.__lecTerminalState?.()")
     assert state and state["mouseTrackingMode"] == "none"
     second_input = frame.locator('textarea[aria-label="Terminal input"]')
     second_input.focus()
@@ -97,7 +97,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     page.mouse.down()
     page.mouse.move(screen["x"] + min(240, screen["width"] - 8), screen["y"] + 12, steps=8)
     page.mouse.up()
-    assert frame.evaluate("window.__adkTerminalState?.().hasSelection")
+    assert frame.evaluate("window.__lecTerminalState?.().hasSelection")
     active_before = page.locator('.terminal-tab[aria-selected="true"]').inner_text()
     # A horizontal text selection is owned by xterm and must not navigate.
     _touch_swipe(page, box["x"] + box["width"] * .25, box["y"] + box["height"] * .5,
@@ -114,7 +114,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     page.locator('.terminal-tab', has_text="Second terminal").click()
 
     frame.locator(".xterm-screen").click(position={"x": screen["width"] * .8, "y": screen["height"] * .8})
-    assert not frame.evaluate("window.__adkTerminalState?.().hasSelection")
+    assert not frame.evaluate("window.__lecTerminalState?.().hasSelection")
     # Vertical reading gestures that briefly backtrack into a diagonal path
     # also stay in the terminal; endpoint-only checks would misclassify this.
     _touch_path(page, [(box["x"] + box["width"] * .25, box["y"] + box["height"] * .7),
@@ -127,9 +127,9 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     second_input.focus()
     page.keyboard.type("printf '\\033[?1000h'", delay=1); page.keyboard.press("Enter")
     for _ in range(50):
-        if frame.evaluate("window.__adkTerminalState?.().mouseTrackingMode") != "none": break
+        if frame.evaluate("window.__lecTerminalState?.().mouseTrackingMode") != "none": break
         page.wait_for_timeout(100)
-    assert frame.evaluate("window.__adkTerminalState?.().mouseTrackingMode") != "none"
+    assert frame.evaluate("window.__lecTerminalState?.().mouseTrackingMode") != "none"
     _touch_swipe(page, box["x"] + box["width"] * .25, box["y"] + box["height"] * .5,
                  box["x"] + box["width"] * .65, box["y"] + box["height"] * .5)
     expect(page.locator('.terminal-tab[aria-selected="true"]')).to_have_text(active_before)

@@ -82,8 +82,8 @@ past the poller's grace period, releases the hook, and verifies both success and
 retained failure. Opt-in elapsed-time proofs cross the old nested timeouts:
 
 ```sh
-AGENTDECK_SLOW_SETUP_PROOF=1 go test ./internal/api -run TestBackgroundWorkspace -count=1
-AGENTDECK_SLOW_SETUP_PROOF=1 AGENTDECK_GROUPED_SETUP_PROOF=1 go test ./internal/api -run TestBackgroundWorkspace -count=1
+LECTERN_SLOW_SETUP_PROOF=1 go test ./internal/api -run TestBackgroundWorkspace -count=1
+LECTERN_SLOW_SETUP_PROOF=1 LECTERN_GROUPED_SETUP_PROOF=1 go test ./internal/api -run TestBackgroundWorkspace -count=1
 ```
 
 ## Review and continuation
@@ -111,7 +111,7 @@ or hashed storage names. Custom fork templates remain unchanged. Future launches
 retain the original argument template rather than a frozen source path.
 
 The experimental snapshot helper was removed in favor of this native path.
-AgentDeck does not publish duplicate transcripts or manage copied sidecars.
+Lectern does not publish duplicate transcripts or manage copied sidecars.
 
 ## Evidence and remaining work
 

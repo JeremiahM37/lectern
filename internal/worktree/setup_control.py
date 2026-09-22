@@ -13,7 +13,7 @@ class SetupControl:
                        'repo':os.path.realpath(plan['repo']) if plan['repo'] else ''}
         parent=pathlib.Path(self.identity['path']).parent
         if create:parent.mkdir(parents=True,exist_ok=True)
-        self.path=parent/('.agentdeck-setup-'+token+'.json')
+        self.path=parent/('.lectern-setup-'+token+'.json')
         self.create=create
         self.lease_file=None
         self.file_identity=None

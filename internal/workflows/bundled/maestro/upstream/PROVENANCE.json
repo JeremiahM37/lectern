@@ -2,7 +2,7 @@
   "repository": "https://github.com/sharpdeveye/maestro",
   "revision": "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
   "license": "MIT",
-  "description": "Unmodified upstream files. AgentDeck adaptations are outside this upstream directory.",
+  "description": "Unmodified upstream files. Lectern adaptations are outside this upstream directory.",
   "files": [
     {
       "path": "LICENSE",

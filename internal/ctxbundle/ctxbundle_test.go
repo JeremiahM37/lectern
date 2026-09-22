@@ -97,7 +97,7 @@ func TestOversizedFileTruncatesLoudly(t *testing.T) {
 	defer func() { MaxFileBytes = old }()
 	write(t, filepath.Join(dir, "big.md"), strings.Repeat("x", 500))
 	files, notes := Collect([]string{filepath.Join(dir, "big.md")})
-	if !strings.Contains(string(files[0].Data), "truncated by agentdeck") {
+	if !strings.Contains(string(files[0].Data), "truncated by lectern") {
 		t.Error("truncation must be visible in the staged file")
 	}
 	if !anyContains(notes, "truncated") {

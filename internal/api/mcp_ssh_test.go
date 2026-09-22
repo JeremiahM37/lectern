@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 var lifecycleRigSeq atomic.Int64
@@ -48,7 +48,7 @@ func TestInteractiveMCPManagerLaunchLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				writeMode(t, filepath.Join(skillDir, "SKILL.md"), []byte("name: lifecycle\ndescription: real launch fixture\n"), 0600)
-				if err := os.MkdirAll(filepath.Join(repo, ".agentdeck"), 0700); err != nil {
+				if err := os.MkdirAll(filepath.Join(repo, ".lectern"), 0700); err != nil {
 					t.Fatal(err)
 				}
 				if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
@@ -60,11 +60,11 @@ func TestInteractiveMCPManagerLaunchLifecycle(t *testing.T) {
 				if err := exec.Command("git", "-C", repo, "add", "seed.txt").Run(); err != nil {
 					t.Fatal(err)
 				}
-				if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck lifecycle", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "seed").CombinedOutput(); err != nil {
+				if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern lifecycle", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "seed").CombinedOutput(); err != nil {
 					t.Fatalf("commit: %v %s", err, out)
 				}
 				foreign := []byte(`{"foreign":true,"keep":"exact"}`)
-				foreignPath := filepath.Join(repo, ".agentdeck", "mcp.json")
+				foreignPath := filepath.Join(repo, ".lectern", "mcp.json")
 				writeMode(t, foreignPath, foreign, 0600)
 				instructionPath := filepath.Join(repo, "AGENTS.md")
 				if agent == "claude" {
@@ -89,7 +89,7 @@ func TestInteractiveMCPManagerLaunchLifecycle(t *testing.T) {
 				var remoteTmuxDir string
 				if targetKind == "ssh" {
 					var err error
-					remoteTmuxDir, err = os.MkdirTemp("/tmp", "agentdeck-ssh-tmux-")
+					remoteTmuxDir, err = os.MkdirTemp("/tmp", "lectern-ssh-tmux-")
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -102,7 +102,7 @@ func TestInteractiveMCPManagerLaunchLifecycle(t *testing.T) {
 				base := 10000 + lifecycleRigSeq.Add(1)*100
 				if _, err := h.App.DB.Exec(`INSERT INTO sessions
 					(id, target_id, name, agent, workdir, tmux_session, status, origin, created_at, updated_at, ended_at)
-					VALUES (?, ?, 'lifecycle-id-range', 'none', '/', 'never-launched', 'dead', 'agentdeck', ?, ?, ?)`,
+					VALUES (?, ?, 'lifecycle-id-range', 'none', '/', 'never-launched', 'dead', 'lectern', ?, ?, ?)`,
 					base, target.ID, store.Now(), store.Now(), store.Now()); err != nil {
 					t.Fatal(err)
 				}
@@ -120,13 +120,13 @@ func TestInteractiveMCPManagerLaunchLifecycle(t *testing.T) {
 					t.Cleanup(func() {
 						ex, err := h.App.Reg.For(target)
 						if err == nil {
-							_, _ = ex.Run(context.Background(), "rm -rf -- "+shellQuoteForTest(filepath.Join(repo, ".agentdeck", "interactive"))+" "+shellQuoteForTest(filepath.Join(home, ".local"))+"; chmod -R a+rwx -- "+shellQuoteForTest(filepath.Join(repo, ".claude"))+" "+shellQuoteForTest(filepath.Join(repo, ".agents"))+" "+shellQuoteForTest(filepath.Join(filepath.Dir(repo), ".agentdeck-worktrees"))+" 2>/dev/null || true; git config --global --unset-all safe.directory "+shellQuoteForTest(repo)+" 2>/dev/null || true", executor.RunOpts{Timeout: 20})
+							_, _ = ex.Run(context.Background(), "rm -rf -- "+shellQuoteForTest(filepath.Join(repo, ".lectern", "interactive"))+" "+shellQuoteForTest(filepath.Join(home, ".local"))+"; chmod -R a+rwx -- "+shellQuoteForTest(filepath.Join(repo, ".claude"))+" "+shellQuoteForTest(filepath.Join(repo, ".agents"))+" "+shellQuoteForTest(filepath.Join(filepath.Dir(repo), ".lectern-worktrees"))+" 2>/dev/null || true; git config --global --unset-all safe.directory "+shellQuoteForTest(repo)+" 2>/dev/null || true", executor.RunOpts{Timeout: 20})
 						}
 					})
 				}
 				t.Cleanup(func() {
 					for id := base + 1; id <= base+10; id++ {
-						name := fmt.Sprintf("adk-s%d", id)
+						name := fmt.Sprintf("lec-s%d", id)
 						check, checkErr := targetExecutor.Run(context.Background(), "tmux has-session -t "+shellQuoteForTest(name), executor.RunOpts{Timeout: 20})
 						if checkErr == nil && check.OK() {
 							_, _ = targetExecutor.Run(context.Background(), "tmux kill-session -t "+shellQuoteForTest(name), executor.RunOpts{Timeout: 20})
@@ -401,7 +401,7 @@ func assertSkillLaunch(t *testing.T, got lifecycleCapture, workdir, source strin
 func assertFreshArgs(t *testing.T, agent string, args []string) {
 	t.Helper()
 	if agent == "claude" {
-		if len(args) < 2 || args[0] != "--mcp-config" || !strings.Contains(args[1], "/agentdeck/mcp/") {
+		if len(args) < 2 || args[0] != "--mcp-config" || !strings.Contains(args[1], "/lectern/mcp/") {
 			t.Fatalf("fresh Claude MCP argv: %q", args)
 		}
 		for _, arg := range args {
@@ -418,7 +418,7 @@ func assertFreshArgs(t *testing.T, agent string, args []string) {
 func assertContinuationArgs(t *testing.T, agent string, args []string, cid string, fork bool) {
 	t.Helper()
 	if agent == "claude" {
-		if len(args) < 4 || args[0] != "--mcp-config" || !strings.Contains(args[1], "/agentdeck/mcp/") {
+		if len(args) < 4 || args[0] != "--mcp-config" || !strings.Contains(args[1], "/lectern/mcp/") {
 			t.Fatalf("Claude MCP argv: %q", args)
 		}
 		start := 0
@@ -498,7 +498,7 @@ func snapshotFiles(t *testing.T, paths []string) []fileSnapshot {
 
 func assertProjectFiles(t *testing.T, agent, repo, home string, before []fileSnapshot, foreign, instruction []byte, ex executor.Executor, mcpPath string) {
 	t.Helper()
-	if got, err := os.ReadFile(filepath.Join(repo, ".agentdeck", "mcp.json")); err != nil || string(got) != string(foreign) {
+	if got, err := os.ReadFile(filepath.Join(repo, ".lectern", "mcp.json")); err != nil || string(got) != string(foreign) {
 		t.Fatalf("foreign MCP config changed: %q %v", got, err)
 	}
 	name := "AGENTS.md"

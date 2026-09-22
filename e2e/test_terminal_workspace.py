@@ -23,33 +23,33 @@ def real_terminal(tmp_path, request):
     tmux_dir = tempfile.TemporaryDirectory(prefix='adkt-', dir='/tmp')
     fixture_tmux_dir = os.environ.get('ADK_TEST_TMUX_ROOT', tmux_dir.name)
     Path(fixture_tmux_dir).mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, **OUTSIDE_WORLD, 'TMUX_TMPDIR': fixture_tmux_dir, 'TMUX': '', 'AGENTDECK_MOCK': '0',
-           'AGENTDECK_DB': str(tmp_path/'test.db'), 'AGENTDECK_HOST': '127.0.0.1',
-           'AGENTDECK_GRIMOIRE_URL': '', 'AGENTDECK_AUTH_TOKEN': '', 'AGENTDECK_SESSION_POLL': '3600',
+    env = {**os.environ, **OUTSIDE_WORLD, 'TMUX_TMPDIR': fixture_tmux_dir, 'TMUX': '', 'LECTERN_MOCK': '0',
+           'LECTERN_DB': str(tmp_path/'test.db'), 'LECTERN_HOST': '127.0.0.1',
+           'LECTERN_GRIMOIRE_URL': '', 'LECTERN_AUTH_TOKEN': '', 'LECTERN_SESSION_POLL': '3600',
            'XDG_STATE_HOME': str(tmp_path/'state')}
-    port = _unused_port(); env['AGENTDECK_PORT'] = str(port)
+    port = _unused_port(); env['LECTERN_PORT'] = str(port)
     url = f'http://127.0.0.1:{port}'
     # Native attachment is a client command. Keep it pointed at this fixture's
     # server after the CLI's no-API default became the private local runtime.
-    env['AGENTDECK_API'] = url
+    env['LECTERN_API'] = url
     root = tmp_path/'workspace'; root.mkdir()
     (root/'hello.txt').write_text('A useful artifact\n<script>window.bad=true</script>\n')
     subprocess.run(['git','init','-q',str(root)], check=True)
     subprocess.run(['tmux','-f','/dev/null','new-session','-d','-s','terminal-test','-c',str(root),'bash','--norc'],env=env,check=True, capture_output=True, text=True)
     options = getattr(request, 'param', {})
     if options.get('live'):
-        env['AGENTDECK_LIVE'] = '1'
+        env['LECTERN_LIVE'] = '1'
     if options.get('isolated_scratch'):
         # The scratch sweep inspects and removes directories under the target's
         # home. Give it a home of its own, so nothing it does can reach the real
         # one on the machine running the suite.
-        for key, name in (('AGENTDECK_SCRATCH_ROOT','scratch'),('CLAUDE_CONFIG_DIR','claude-home'),('CODEX_HOME','codex-home')):
+        for key, name in (('LECTERN_SCRATCH_ROOT','scratch'),('CLAUDE_CONFIG_DIR','claude-home'),('CODEX_HOME','codex-home')):
             (tmp_path/name).mkdir(); env[key] = str(tmp_path/name)
     if options.get('no_alternate_screen'):
         subprocess.run(['tmux','set-option','-g','terminal-overrides',',*:smcup@:rmcup@'],env=env,check=True)
     if options.get('agent_script'):
         agent = tmp_path/'test-agent'; agent.write_text(options['agent_script']); agent.chmod(0o755)
-        env['AGENTDECK_CLAUDE_BIN'] = str(agent); env['AGENTDECK_TICK'] = '0.1'
+        env['LECTERN_CLAUDE_BIN'] = str(agent); env['LECTERN_TICK'] = '0.1'
     if options.get('controllable_stop'):
         tools = tmp_path/'tools'; tools.mkdir()
         wrapper = tools/'tmux'
@@ -58,10 +58,10 @@ def real_terminal(tmp_path, request):
     if options.get('hold_setup_launch'):
         tools=tmp_path/'launch-tools';tools.mkdir()
         wrapper=tools/'tmux'
-        wrapper.write_text('#!/bin/sh\nadk_hold_setup=0\nfor arg do case "$arg" in AGENTDECK_SETUP_TOKEN=*) adk_hold_setup=1;; esac; done\n'
-                           +shlex.quote(real_tmux)+' "$@"\nadk_launch_rc=$?\n'
-                           +'if [ "$1" = new-session ] && [ "$adk_hold_setup" = 1 ] && [ "$adk_launch_rc" = 0 ]; then\n'
-                           +'touch '+shlex.quote(str(root/'launch-held'))+'\nwhile [ ! -f '+shlex.quote(str(root/'release-launch'))+' ]; do sleep .05; done\nfi\nexit "$adk_launch_rc"\n')
+        wrapper.write_text('#!/bin/sh\nlec_hold_setup=0\nfor arg do case "$arg" in LECTERN_SETUP_TOKEN=*) lec_hold_setup=1;; esac; done\n'
+                           +shlex.quote(real_tmux)+' "$@"\nlec_launch_rc=$?\n'
+                           +'if [ "$1" = new-session ] && [ "$lec_hold_setup" = 1 ] && [ "$lec_launch_rc" = 0 ]; then\n'
+                           +'touch '+shlex.quote(str(root/'launch-held'))+'\nwhile [ ! -f '+shlex.quote(str(root/'release-launch'))+' ]; do sleep .05; done\nfi\nexit "$lec_launch_rc"\n')
         wrapper.chmod(0o755);env['PATH']=str(tools)+os.pathsep+env['PATH']
     log = (tmp_path/'server.log').open('w')
     proc = subprocess.Popen([_binary()],cwd=root,env=env,stdout=log,stderr=log)
@@ -154,10 +154,10 @@ def test_real_terminal_drop_paste_files_and_shell(page,real_terminal):
     assert (t['root']/'companion.txt').read_text()=='companion-proof'
     assert 'companion-proof' not in capture(t)
     terminal_tool(page,'#shell')
-    subprocess.run(['tmux','has-session','-t',f"=adk-companion-session-{t['id']}"],env=t['env'],check=True)
+    subprocess.run(['tmux','has-session','-t',f"=lec-companion-session-{t['id']}"],env=t['env'],check=True)
     terminal_tool(page,'#shell')
     expect(page.locator('#workspace .pane').nth(1).locator('.pane-status')).to_have_text('Connected',timeout=20000)
-    page.screenshot(path='/tmp/agentdeck-terminal-workspace-desktop.png')
+    page.screenshot(path='/tmp/lectern-terminal-workspace-desktop.png')
     assert errors==[]
 
 def test_real_terminal_history_preferences_pause_and_two_clients(page,browser,real_terminal):
@@ -182,7 +182,7 @@ def test_real_terminal_history_preferences_pause_and_two_clients(page,browser,re
     expect(page.locator('#agent-terminal')).to_be_visible()
     assert page.locator('#agent-terminal').bounding_box()['height']>150
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-    page.screenshot(path='/tmp/agentdeck-terminal-workspace-mobile.png')
+    page.screenshot(path='/tmp/lectern-terminal-workspace-mobile.png')
     # The desktop launcher CLI joins the same session over a real PTY.
     import pty,select
     master,slave=pty.openpty()
@@ -223,7 +223,7 @@ def test_real_terminal_previews_failure_recovery_and_reconnect(page,real_termina
     page.get_by_role('button',name='proof.pdf',exact=True).click()
     expect(page.locator('#pdf-page')).to_have_text('Page 1 of 1',timeout=20000)
     assert page.locator('#preview-body canvas').evaluate('(c)=>c.width>250 && c.getContext("2d").getImageData(0,0,c.width,c.height).data.some((v,i)=>i%4!==3 && v<100)')
-    page.screenshot(path='/tmp/agentdeck-terminal-pdf.png')
+    page.screenshot(path='/tmp/lectern-terminal-pdf.png')
     page.locator('#preview-dialog [data-close]').click();page.locator('#files-dialog [data-close]').click()
     # A rejected upload is visible, does not type, and permits a successful retry.
     page.route('**/attachments',lambda route:route.fulfill(status=502,content_type='application/json',body='{"detail":"Target unavailable"}'))
@@ -290,7 +290,7 @@ while True:
               return lines.every(line=>rows.includes(line));
             }''', arg=expected, timeout=5000)
         except Exception:
-            page.screenshot(path='/tmp/agentdeck-grid-failure.png')
+            page.screenshot(path='/tmp/lectern-grid-failure.png')
             print('Viewport',width,height,'expected',expected)
             print('DOM',page.locator('#agent-terminal .xterm-screen').inner_html()[:3000])
             raise
@@ -356,7 +356,7 @@ while True:
     expect(page.locator('#agent-terminal .xterm-screen')).not_to_contain_text('STALE-STREAM-CORRUPTION')
     expected = subprocess.check_output(['tmux','capture-pane','-p','-t','=terminal-test:'],env=t['env']).decode().splitlines()[0].rstrip()
     expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text(expected)
-    page.screenshot(path='/tmp/agentdeck-terminal-redraw.png')
+    page.screenshot(path='/tmp/lectern-terminal-redraw.png')
     # Native and web input both reach the existing process; no replacement
     # session or browser reopening is involved.
     page.locator('#agent-terminal').click()

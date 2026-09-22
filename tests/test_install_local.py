@@ -38,10 +38,10 @@ def fake_binary(path):
 
 
 def test_binary_install_does_not_clobber_remote_client(tmp_path):
-    binary = tmp_path / "agentdeck"
+    binary = tmp_path / "lectern"
     fake_binary(binary)
     prefix = tmp_path / "bin"
-    remote = prefix / "agentdeck"
+    remote = prefix / "lectern"
     prefix.mkdir()
     remote.write_text("#!/bin/sh\n# remote launcher\n")
     remote.chmod(0o755)
@@ -49,15 +49,15 @@ def test_binary_install_does_not_clobber_remote_client(tmp_path):
     result, home = run_installer(tmp_path, "--binary", binary, "--prefix", prefix)
 
     assert result.returncode == 0, result.stderr
-    assert (prefix / "agentdeck-local").is_file()
+    assert (prefix / "lectern-local").is_file()
     assert remote.read_text() == "#!/bin/sh\n# remote launcher\n"
-    assert "agentdeck-local local" in result.stdout
+    assert "lectern-local local" in result.stdout
     assert home.exists()
 
 
 def test_reinstall_updates_an_existing_local_command(tmp_path):
-    first = tmp_path / "first-agentdeck"
-    second = tmp_path / "second-agentdeck"
+    first = tmp_path / "first-lectern"
+    second = tmp_path / "second-lectern"
     fake_binary(first)
     second.write_text("#!/bin/sh\ncase \"$1\" in version) echo local-test-2;; local) exit 0;; esac\n")
     second.chmod(0o755)
@@ -68,27 +68,27 @@ def test_reinstall_updates_an_existing_local_command(tmp_path):
     result, home = run_installer(tmp_path, "--binary", second, "--prefix", prefix)
 
     assert result.returncode == 0, result.stderr
-    assert (prefix / "agentdeck").is_file()
-    assert not (prefix / "agentdeck-local").exists()
-    assert subprocess.run([prefix / "agentdeck", "version"], text=True, capture_output=True, check=True).stdout.strip() == "local-test-2"
-    assert list((home / ".state/agentdeck/local/backups").rglob("agentdeck"))
+    assert (prefix / "lectern").is_file()
+    assert not (prefix / "lectern-local").exists()
+    assert subprocess.run([prefix / "lectern", "version"], text=True, capture_output=True, check=True).stdout.strip() == "local-test-2"
+    assert list((home / ".state/lectern/local/backups").rglob("lectern"))
 
 
 def test_external_replacement_invalidates_managed_marker(tmp_path):
-    binary = tmp_path / "agentdeck"
+    binary = tmp_path / "lectern"
     fake_binary(binary)
     prefix = tmp_path / "bin"
 
     result, _ = run_installer(tmp_path, "--binary", binary, "--prefix", prefix)
     assert result.returncode == 0, result.stderr
-    remote = prefix / "agentdeck"
+    remote = prefix / "lectern"
     remote.write_text("#!/bin/sh\necho external remote\n")
     remote.chmod(0o755)
 
     result, _ = run_installer(tmp_path, "--binary", binary, "--prefix", prefix)
 
     assert result.returncode == 0, result.stderr
-    assert (prefix / "agentdeck-local").is_file()
+    assert (prefix / "lectern-local").is_file()
     assert remote.read_text() == "#!/bin/sh\necho external remote\n"
 
 
@@ -107,7 +107,7 @@ def test_source_build_works_when_called_outside_checkout(tmp_path):
     result, _ = run_installer(tmp_path, "--source", source, "--prefix", prefix, extra_path=(tmp_path,))
 
     assert result.returncode == 0, result.stderr
-    installed = prefix / "agentdeck"
+    installed = prefix / "lectern"
     assert installed.is_file() and os.access(installed, os.X_OK)
     assert subprocess.run([installed, "version"], text=True, capture_output=True, check=True).stdout.strip() == "source-test-1"
 

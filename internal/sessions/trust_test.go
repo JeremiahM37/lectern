@@ -79,7 +79,7 @@ func TestClaudeTrustAddsTheKeyWithoutLosingTheConfig(t *testing.T) {
 	raw, _ := json.Marshal(original)
 	os.WriteFile(path, raw, 0o600)
 
-	dir := "/home/admin/agentdeck-scratch/a room-20260907-abc123"
+	dir := "/home/admin/lectern-scratch/a room-20260907-abc123"
 	runProbe(t, specFor(t, "claude").TrustProbe(dir), home)
 
 	var got map[string]any
@@ -142,7 +142,7 @@ func TestClaudeTrustCopesWithNoConfigAtAll(t *testing.T) {
 }
 
 // The codex side appends TOML rather than round-tripping through a parser
-// agentdeck does not own — that file holds the operator's MCP servers.
+// lectern does not own — that file holds the operator's MCP servers.
 func TestCodexTrustAppendsWithoutRewritingTheConfig(t *testing.T) {
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 type remoteAcceptanceRig struct {
@@ -73,7 +73,7 @@ func newRemoteAcceptanceRig(t *testing.T, h *harness) *remoteAcceptanceRig {
 		}
 		r.ex.Close()
 	})
-	r.run("mkdir -p %s %s && git init -q -b main %s", r.root, filepath.Join(r.root, ".agentdeck"), r.root)
+	r.run("mkdir -p %s %s && git init -q -b main %s", r.root, filepath.Join(r.root, ".lectern"), r.root)
 	r.run("git -C %s config user.email acceptance@example.invalid && git -C %s config user.name acceptance && touch %s/README.md && git -C %s add -A && git -C %s commit -qm initial", r.root, r.root, r.root, r.root, r.root)
 	r.run("tmux -f /dev/null new-session -d -s %s -c %s bash --norc", r.tmuxName, r.root)
 	return r
@@ -130,7 +130,7 @@ func TestRealLoopbackSSHAttachmentContextAndDelivery(t *testing.T) {
 		t.Fatalf("upload: %d %+v", code, attached)
 	}
 	path := attached.str("path")
-	if !strings.HasPrefix(path, filepath.Join(r.root, ".agentdeck", "context")+"/") {
+	if !strings.HasPrefix(path, filepath.Join(r.root, ".lectern", "context")+"/") {
 		t.Fatalf("attachment escaped remote context: %s", path)
 	}
 	if got := r.read(path); !bytes.Equal(got, data) {
@@ -200,7 +200,7 @@ func TestRealLoopbackSSHRoutineTakeoverPreservesIdentityAndMCP(t *testing.T) {
 	}
 	if len(r.read(filepath.Join(att.WorktreePath, "background-pid"))) == 0 {
 		for _, name := range []string{"stderr.log", "events.jsonl", "exit_code", "prompt.md"} {
-			t.Logf("remote %s: %s", name, string(r.read(filepath.Join(att.WorktreePath, ".agentdeck", name))))
+			t.Logf("remote %s: %s", name, string(r.read(filepath.Join(att.WorktreePath, ".lectern", name))))
 		}
 		listing, _ := r.ex.Run(context.Background(), "tmux -f /dev/null list-sessions || true", executor.RunOpts{Timeout: 5})
 		t.Logf("remote tmux: %s", listing.Stdout)

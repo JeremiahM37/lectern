@@ -9,20 +9,20 @@ import (
 	"os"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/api"
-	"github.com/JeremiahM37/agentdeck/internal/broker"
-	"github.com/JeremiahM37/agentdeck/internal/bus"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/creds"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/push"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/sinks"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/api"
+	"github.com/JeremiahM37/lectern/internal/broker"
+	"github.com/JeremiahM37/lectern/internal/bus"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/creds"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/push"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/sinks"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
 )
 
 // App owns every long-lived component.
@@ -122,7 +122,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// The upgrade preparer leaves a private manifest in the systemd environment.
 	// Import it after store.Open has applied normal migrations, but before the
 	// startup checkpoint workers or the first recovery poll can observe rows.
-	if checkpoint := strings.TrimSpace(os.Getenv("AGENTDECK_CHECKPOINT")); checkpoint != "" {
+	if checkpoint := strings.TrimSpace(os.Getenv("LECTERN_CHECKPOINT")); checkpoint != "" {
 		report, importErr := sessions.ImportCheckpoint(checkpoint, cfg.DBPath)
 		if importErr != nil {
 			log.Warn("session checkpoint import incomplete", "path", checkpoint, "err", importErr)

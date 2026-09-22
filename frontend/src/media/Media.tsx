@@ -27,7 +27,7 @@ function bytes(size: number) {
 
 // An agent posts the address it sees — usually loopback on the server. From the
 // operator's laptop that address means the laptop, so it is rewritten to the
-// host AgentDeck itself was reached on, which is the same machine.
+// host Lectern itself was reached on, which is the same machine.
 export function reachable(url: string, here: Location = location) {
   try {
     const parsed = new URL(url);
@@ -237,7 +237,7 @@ export function Media({
             Agents post here with the <code>post_media</code> tool — ask one to “record a demo and
             post it”. From a shell, inside a session or not:
           </p>
-          <pre>agentdeck post ./demo.mp4 --title "Checkout flow passing"{"\n"}agentdeck post http://127.0.0.1:5173 --title "Dev server"</pre>
+          <pre>lectern post ./demo.mp4 --title "Checkout flow passing"{"\n"}lectern post http://127.0.0.1:5173 --title "Dev server"</pre>
         </div>
       )}
       <div className="media-feed">
@@ -290,7 +290,7 @@ export function Media({
                 className="b danger"
                 aria-label={"Delete " + (row.title || row.name)}
                 onClick={() => {
-                  if (!confirm("Delete this post? The file is removed from AgentDeck.")) return;
+                  if (!confirm("Delete this post? The file is removed from Lectern.")) return;
                   void api
                     .request<null>(`/media/${row.id}`, { method: "DELETE" })
                     .then(onChanged)

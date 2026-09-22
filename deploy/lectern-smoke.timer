@@ -1,5 +1,5 @@
 [Unit]
-Description=agentdeck nightly smoke at 04:30
+Description=lectern nightly smoke at 04:30
 
 [Timer]
 OnCalendar=*-*-* 04:30:00

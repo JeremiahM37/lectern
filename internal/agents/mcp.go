@@ -76,7 +76,7 @@ import base64, os, stat, sys
 
 rel, encoded = sys.argv[2:]
 parts = rel.split('/')
-if len(parts) != 4 or parts[0] != 'agentdeck' or parts[1] != 'mcp' or parts[3] != 'mcp.json' or not parts[2] or any(p in ('', '.', '..') for p in parts):
+if len(parts) != 4 or parts[0] != 'lectern' or parts[1] != 'mcp' or parts[3] != 'mcp.json' or not parts[2] or any(p in ('', '.', '..') for p in parts):
     raise RuntimeError('invalid interactive MCP path')
 
 state = os.environ.get('XDG_STATE_HOME', '')
@@ -115,13 +115,13 @@ def open_or_make_dir(parent, name, mode):
     return os.open(name, O_DIR, dir_fd=parent)
 
 root = open_or_make_path(state)
-adk = None
+lec = None
 interactive = None
 leaf = None
 tmp = None
 try:
-    adk = open_or_make_dir(root, 'agentdeck', 0o700)
-    interactive = open_or_make_dir(adk, 'mcp', 0o700)
+    lec = open_or_make_dir(root, 'lectern', 0o700)
+    interactive = open_or_make_dir(lec, 'mcp', 0o700)
     try:
         os.mkdir(parts[2], 0o700, dir_fd=interactive)
     except FileExistsError:
@@ -148,7 +148,7 @@ try:
     os.unlink('.mcp.tmp', dir_fd=leaf)
     print(state + '/' + '/'.join(parts), flush=True)
 finally:
-    for fd in (tmp, leaf, interactive, adk, root):
+    for fd in (tmp, leaf, interactive, lec, root):
         if fd is not None:
             try: os.close(fd)
             except OSError: pass

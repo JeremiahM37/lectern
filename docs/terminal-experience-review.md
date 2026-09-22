@@ -38,7 +38,7 @@ useful, but breadth alone does not make a terminal interface pleasant.
 These changes target daily agent-management workflow quality. They do not imply
 feature-for-feature replacement of every tool: tmuxp-compatible declarative layouts, and Zellij's pane/plugin system remain
 separate capabilities. Existing tmux/Zellij workspaces can host the client;
-AgentDeck continues using tmux for the underlying agent sessions.
+Lectern continues using tmux for the underlying agent sessions.
 
 ## Full parity goal: evidence ledger
 
@@ -70,8 +70,8 @@ current implementation sufficient.
 
 The console remembers grouping separately for Sessions, Tasks and other sections,
 and remembers folded named session groups. Preferences live under the operating
-system user config directory at `agentdeck/console/<server-hash>.json` (on Linux,
-`$XDG_CONFIG_HOME/agentdeck/console`, or `~/.config/agentdeck/console`). Each server
+system user config directory at `lectern/console/<server-hash>.json` (on Linux,
+`$XDG_CONFIG_HOME/lectern/console`, or `~/.config/lectern/console`). Each server
 has a separate file. Remove its file while the dashboard is closed to reset the
 layout. Queries, selected sessions, attention filters and credentials are not
 saved. Invalid or newer-version files are preserved; the dashboard displays a
@@ -82,7 +82,7 @@ notice and remains usable without saving over them.
 After stopping tracking, enable **Include ended and untracked sessions** in the
 Sessions view and choose **Track again**. In the console press `z`, select the
 record, and press Enter (or `m`) to choose **Track again**. For scripts use
-`agentdeck api POST /sessions/ID/restore '{}'`.
+`lectern api POST /sessions/ID/restore '{}'`.
 
 Restoration retains the session ID, name, project, group, workdir and handoff
 links. It does not start, restart or interrupt an agent. A random tmux session
@@ -116,10 +116,10 @@ unrelated target with a stalled SSH handshake.
 
 In Sessions, include ended/untracked records, open **Saved conversations**, select
 an exact history, and choose **Resume conversation**. The web interface opens the
-new terminal inside AgentDeck. In the terminal dashboard use `z`, select the old
+new terminal inside Lectern. In the terminal dashboard use `z`, select the old
 record, press `H`, choose the conversation and Resume action, then confirm.
 Scripts can POST `/api/sessions/ID/resume` with `conversation_id` and optional
-`name` (or `agentdeck api POST /sessions/ID/resume '{...}'`).
+`name` (or `lectern api POST /sessions/ID/resume '{...}'`).
 
 This continues the selected Claude/Codex history in its original workspace;
 **Fork** creates an independent conversation. The old record is retained. The
@@ -131,7 +131,7 @@ requests for the same target/agent/conversation are serialized by rejection.
 There is no fallback to `--last`, `--continue`, or fresh history on an error.
 
 Selection is explicit because a workspace can contain multiple conversations.
-This does not automatically infer IDs for agents launched outside AgentDeck,
+This does not automatically infer IDs for agents launched outside Lectern,
 or detect a writer on an unrelated machine. Automatic authoritative identity
 capture, profiles and broader comparison workflows remain.
 
@@ -151,7 +151,7 @@ Unarchiving restores the ended record without starting a process. Use Saved
 conversations afterward to continue an exact history when supported.
 
 Already-stopped records use **Archive stopped record**. An untracked terminal
-that is still running must be tracked again before AgentDeck can stop/archive it.
+that is still running must be tracked again before Lectern can stop/archive it.
 Archive is separate from Stop tracking, which continues to leave processes alone.
 Snapshots contain up to 10,000 scrollback lines plus the visible screen, capped
 at 2 MiB; if the terminal had already stopped, its last recorded preview is
@@ -264,7 +264,7 @@ remains readable from its worktree without appearing as the parent conversation.
 
 ## Global saved-conversation search and forks
 
-AgentDeck now searches native conversation content through private,
+Lectern now searches native conversation content through private,
 incremental indexes on local/SSH targets. Web and TUI expose progress, target/agent
 filters, cancellation, retry/rebuild, exact match reading, context paging and
 explicit whole-conversation forks. Forks offer captured launch settings and shared
@@ -278,7 +278,7 @@ and comparative workflow testing remain part of the full goal.
 
 ## Recover a failed Git checkout hook
 
-A failed Git post-checkout hook can leave a real worktree behind. AgentDeck now
+A failed Git post-checkout hook can leave a real worktree behind. Lectern now
 records ownership only after verifying that new allocation's repository, path,
 branch and revision. The session retains its failed state, setup error and base
 commit. The error appears in web worktree details and the terminal preview.
@@ -287,20 +287,20 @@ Failed setup files remain in place; removal still refuses changed, untracked or
 ignored files and retains the branch. Ended and archived sessions now expose
 worktree removal in terminal actions as well as the web interface. Real Git,
 desktop/phone browser and PTY tests cover the failed-hook recovery path. This
-repairs existing Git-hook behavior; reusable AgentDeck setup-hook configuration
+repairs existing Git-hook behavior; reusable Lectern setup-hook configuration
 and multi-repository workspaces remain separate work.
 
 
 ## Browser entry workflow check — 2026-09-10
 
-Rendered the locally built AoE revision `5687bbd` and AgentDeck `3021a70` at
+Rendered the locally built AoE revision `5687bbd` and Lectern `3021a70` at
 390×900 and 1440×900 in isolated profiles. Neither entry page had JavaScript
 errors or page-level horizontal overflow. AoE presents session creation and
-repository cloning as its initial actions. AgentDeck initially shows its task
-board. AgentDeck used its mock backend here; these are entry-page observations,
+repository cloning as its initial actions. Lectern initially shows its task
+board. Lectern used its mock backend here; these are entry-page observations,
 not evidence of complete workflow parity or performance superiority.
 
-AgentDeck now remembers the last explicitly selected view on this browser and
+Lectern now remembers the last explicitly selected view on this browser and
 origin. Opening the root URL returns there. Explicit task/session/tab links take
 priority without replacing that preference. Terminal frames remain per browser
 tab; opening a fresh tab with no retained frames falls back to Sessions. Invalid
@@ -310,7 +310,7 @@ This change is separate from the staged workspace release.
 
 
 A follow-up creation-form inspection at both viewport sizes found unassociated
-labels in AgentDeck. Project, Name, Agent, Model, Start from and First message
+labels in Lectern. Project, Name, Agent, Model, Start from and First message
 now name their controls; related status/help text is associated with the relevant
 fields, and the close button has an explicit accessible name. The real Git/tmux
 phone and desktop launch-and-cleanup tests now select a project and enter a name
@@ -358,7 +358,7 @@ a strip of scrolling content beneath the first footer layout.
 Settings → Targets → **Agent commands**, or the terminal dashboard’s target
 **Check agent commands** action, performs an on-demand lookup through the target’s
 local/SSH executor. The same read-only endpoint is available with
-`agentdeck api GET /targets/<id>/agents`.
+`lectern api GET /targets/<id>/agents`.
 
 This checks default command resolution, including configured builtin binary
 paths; it does not run agents, version commands, trust hooks, authentication or
@@ -397,24 +397,24 @@ comparison: [comparison-2026-09-10.md](comparison-2026-09-10.md). It supersedes
 older wording in this review that described generic-agent proof or the full
 comparison as pending without the current cell breakdown.
 
-The AgentDeck `178bc00d406a893da8b7d4c76d5c5533021ea568` mobile candidate passed
+The Lectern `178bc00d406a893da8b7d4c76d5c5533021ea568` mobile candidate passed
 the full web release verification (`6/6`). Current browser evidence covers
-AgentDeck and AoE C1/C2/C5/C6 through actual UI-created sessions, with
+Lectern and AoE C1/C2/C5/C6 through actual UI-created sessions, with
 request-boundary evidence for multiline values and a clear statement that the
 deterministic fake agents did not make model/provider calls. C2 now includes
 an active palette capture before selection, exactly one matching result, and
 its session/project/target/repository context.
 
-C3 is accepted for AgentDeck and upstream Agent Deck's actual ttyd evidence at
+C3 is accepted for Lectern and upstream Agent Deck's actual ttyd evidence at
 the paths recorded in the comparison ledger. The final AoE C3 worker receipt is
 retained as `UNVERIFIED` because it did not expose every strict criterion. C4 is
-complete for AgentDeck web, AoE web, and upstream Agent Deck's
+complete for Lectern web, AoE web, and upstream Agent Deck's
 CLI send-plus-capture workflow. Upstream `session send` returned a confirmation
 warning; the captured terminal output still displayed the exact diff, so no
 integrated upstream diff viewer is claimed.
 
 The browser harness retained all failed and recovery attempts, including the
-AgentDeck xterm-focus and long tmux-socket-path attempts and AoE's first-session
+Lectern xterm-focus and long tmux-socket-path attempts and AoE's first-session
 keyboard-focus and mobile-viewport attempts. These are disclosed in the ledger
 and are not converted into product failure counts. The comparison remains
 bounded and does not establish overall web superiority.

@@ -10,7 +10,7 @@ import (
 )
 
 // readable is the presentation layer for interactive terminal views. The API
-// and `agentdeck api` keep their machine-readable JSON contract unchanged.
+// and `lectern api` keep their machine-readable JSON contract unchanged.
 // Unknown fields are retained, and maps are sorted so redraws stay stable.
 func readable(v any) string {
 	var b strings.Builder

@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 // sessionView is a session plus the two things a card always needs: how long it
@@ -546,9 +546,9 @@ func (s *Server) attachSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteSession stops tracking a session, and kills its process ONLY when
-// agentdeck owns that process.
+// lectern owns that process.
 //
-// The asymmetry is the whole point. A session agentdeck launched is ours to end.
+// The asymmetry is the whole point. A session lectern launched is ours to end.
 // A session the operator started themselves — the long-running conversation they
 // have had open for a week — is not: adopting it was supposed to be
 // non-destructive, so un-adopting it must be too. Killing one requires saying so
@@ -1098,7 +1098,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := out["claude"]; ok {
 		// Claude Code takes shorthands rather than a catalog, and offers no way
-		// to ask, so these are the one list agentdeck does carry.
+		// to ask, so these are the one list lectern does carry.
 		out["claude"] = append([]string{}, ClaudeModels...)
 	}
 	// ask each agent that can be asked; a stale hardcoded list is exactly the

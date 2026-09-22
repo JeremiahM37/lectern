@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
 func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("local runtime currently uses POSIX process locks")
 	}
-	bin := filepath.Join(t.TempDir(), "agentdeck")
+	bin := filepath.Join(t.TempDir(), "lectern")
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
@@ -32,17 +32,17 @@ func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 	fixtureDir := t.TempDir()
 	fixtureSocket := filepath.Join(fixtureDir, "fixture")
 	if _, err := exec.LookPath("tmux"); err == nil {
-		fixture := exec.Command("tmux", "-S", fixtureSocket, "new-session", "-d", "-s", "adk-s1", "sleep", "60")
+		fixture := exec.Command("tmux", "-S", fixtureSocket, "new-session", "-d", "-s", "lec-s1", "sleep", "60")
 		if out, err := fixture.CombinedOutput(); err != nil {
 			t.Fatalf("create isolated fixture tmux session: %v (%s)", err, out)
 		}
 		t.Cleanup(func() { testutil.CleanupTmuxSocket(t, fixtureSocket) })
 	}
 
-	if out, err := runLocalCLI(bin, env, "local", "--help"); err != nil || !bytes.Contains(out, []byte("agentdeck local status")) || !bytes.Contains(out, []byte("agentdeck local [COMMAND ...]")) {
+	if out, err := runLocalCLI(bin, env, "local", "--help"); err != nil || !bytes.Contains(out, []byte("lectern local status")) || !bytes.Contains(out, []byte("lectern local [COMMAND ...]")) {
 		t.Fatalf("local help: err=%v output=%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(state, "agentdeck", "local")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(state, "lectern", "local")); !os.IsNotExist(err) {
 		t.Fatalf("local help touched runtime state: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 			t.Fatalf("concurrent local API %d: err=%v output=%s", i, errs[i], outs[i])
 		}
 	}
-	endpointPath := filepath.Join(state, "agentdeck", "local", "endpoint.json")
+	endpointPath := filepath.Join(state, "lectern", "local", "endpoint.json")
 	var endpoint struct {
 		URL   string `json:"url"`
 		Token string `json:"token"`
@@ -105,11 +105,11 @@ func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 	firstURL := endpoint.URL
 
 	targets, err := runLocalCLI(bin, env, "api", "GET", "/targets")
-	if err != nil || !bytes.Contains(targets, []byte(`"name":"local"`)) || !bytes.Contains(targets, []byte(filepath.ToSlash(filepath.Join(state, "agentdeck", "local", "worktrees")))) {
+	if err != nil || !bytes.Contains(targets, []byte(`"name":"local"`)) || !bytes.Contains(targets, []byte(filepath.ToSlash(filepath.Join(state, "lectern", "local", "worktrees")))) {
 		t.Fatalf("local target seed: err=%v output=%s", err, targets)
 	}
 	if _, err := exec.LookPath("tmux"); err == nil {
-		if err := exec.Command("tmux", "-S", fixtureSocket, "has-session", "-t", "=adk-s1").Run(); err != nil {
+		if err := exec.Command("tmux", "-S", fixtureSocket, "has-session", "-t", "=lec-s1").Run(); err != nil {
 			t.Fatalf("local runtime affected unrelated tmux namespace: %v", err)
 		}
 	}
@@ -144,17 +144,17 @@ func TestExplicitRemoteFailureDoesNotFallbackToLocal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("local runtime currently uses POSIX process locks")
 	}
-	bin := filepath.Join(t.TempDir(), "agentdeck")
+	bin := filepath.Join(t.TempDir(), "lectern")
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	env := append(localTestEnv(state), "AGENTDECK_API=http://127.0.0.1:1")
+	env := append(localTestEnv(state), "LECTERN_API=http://127.0.0.1:1")
 	if _, err := runLocalCLI(bin, env, "api", "GET", "/health"); err == nil {
 		t.Fatal("explicit remote unexpectedly succeeded")
 	}
-	if _, err := os.Stat(filepath.Join(state, "agentdeck", "local")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(state, "lectern", "local")); !os.IsNotExist(err) {
 		t.Fatalf("explicit remote failure started local runtime: %v", err)
 	}
 }
@@ -163,14 +163,14 @@ func TestHostedAttachMarkerReachesHostedLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("hosted attachment uses POSIX terminal launch")
 	}
-	bin := filepath.Join(t.TempDir(), "agentdeck")
+	bin := filepath.Join(t.TempDir(), "lectern")
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
 	env := localTestEnv(state)
-	env = append(env, "AGENTDECK_PORT=1")
+	env = append(env, "LECTERN_PORT=1")
 	out, err := runLocalCLI(bin, env, "--hosted-attach", "attach", "session", "17")
 	if err == nil {
 		t.Fatal("hosted attachment unexpectedly connected")
@@ -178,14 +178,14 @@ func TestHostedAttachMarkerReachesHostedLookup(t *testing.T) {
 	if bytes.Contains(out, []byte("usage: --hosted-attach")) {
 		t.Fatalf("hosted marker was parsed at the wrong argv offset: %s", out)
 	}
-	if _, statErr := os.Stat(filepath.Join(state, "agentdeck", "local")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(state, "lectern", "local")); !os.IsNotExist(statErr) {
 		t.Fatalf("hosted attachment started local runtime: %v", statErr)
 	}
 }
 
 func localTestEnv(state string) []string {
 	blocked := map[string]bool{}
-	for _, key := range []string{"AGENTDECK_API", "AGENTDECK_ATTACH_HOST", "AGENTDECK_DB", "AGENTDECK_HOST", "AGENTDECK_PORT", "AGENTDECK_BASE_URL", "AGENTDECK_AUTH_TOKEN", "AGENTDECK_MOCK", "AGENTDECK_GRIMOIRE_URL", "AGENTDECK_GRIMOIRE_TOKEN", "AGENTDECK_HOST_CLAUDE_CONFIG", "AGENTDECK_CREDS", "AGENTDECK_CODEX_CREDS", "AGENTDECK_ANTHROPIC_API_KEY", "XDG_STATE_HOME"} {
+	for _, key := range []string{"LECTERN_API", "LECTERN_ATTACH_HOST", "LECTERN_DB", "LECTERN_HOST", "LECTERN_PORT", "LECTERN_BASE_URL", "LECTERN_AUTH_TOKEN", "LECTERN_MOCK", "LECTERN_GRIMOIRE_URL", "LECTERN_GRIMOIRE_TOKEN", "LECTERN_HOST_CLAUDE_CONFIG", "LECTERN_CREDS", "LECTERN_CODEX_CREDS", "LECTERN_ANTHROPIC_API_KEY", "XDG_STATE_HOME"} {
 		blocked[key] = true
 	}
 	base := make([]string, 0, len(os.Environ())+2)
@@ -195,7 +195,7 @@ func localTestEnv(state string) []string {
 			base = append(base, item)
 		}
 	}
-	return append(base, "XDG_STATE_HOME="+state, "AGENTDECK_MOCK=1")
+	return append(base, "XDG_STATE_HOME="+state, "LECTERN_MOCK=1")
 }
 
 func runLocalCLI(bin string, env []string, args ...string) ([]byte, error) {

@@ -3,7 +3,7 @@
 This process is started by the test inside the reviewed test namespace.  It
 only accepts the fixture's generated public key and executes commands as the
 same unprivileged test user.  The PTY path is intentionally implemented here:
-AgentDeck's SSH terminal attachment uses ``ssh -tt`` and therefore exercises
+Lectern's SSH terminal attachment uses ``ssh -tt`` and therefore exercises
 the same interactive transport as a real remote target.
 """
 

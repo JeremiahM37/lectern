@@ -10,7 +10,7 @@ export function openReview({kind, id, name, api}) {
   const $ = s => dialog.querySelector(s);
   $('.review-name').textContent = name || `${kind} ${id}`;
   let data = null, scope = 'working', selected = '', repository = '0', generation = 0, closed = false;
-  let wrap = localStorage.getItem('adk-review-wrap') !== '0';
+  let wrap = localStorage.getItem('lec-review-wrap') !== '0';
   function paintWrap() {
     dialog.classList.toggle('review-wrapped', wrap);
     $('.review-wrap').setAttribute('aria-pressed', String(wrap));
@@ -78,7 +78,7 @@ export function openReview({kind, id, name, api}) {
   $('.review-scope').onchange = e => { scope = e.target.value; load(); };
   $('.review-filter').oninput = drawFiles;
   $('.review-refresh').onclick = () => load(selected);
-  $('.review-wrap').onclick = () => { wrap = !wrap; localStorage.setItem('adk-review-wrap', wrap ? '1':'0'); paintWrap(); };
+  $('.review-wrap').onclick = () => { wrap = !wrap; localStorage.setItem('lec-review-wrap', wrap ? '1':'0'); paintWrap(); };
   $('.review-close').onclick = () => dialog.close();
   dialog.addEventListener('close', () => { closed = true; generation++; dialog.remove(); previousFocus?.focus(); });
   dialog.addEventListener('keydown', e => { e.stopPropagation(); });

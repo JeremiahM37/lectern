@@ -6,16 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/workflows"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/workflows"
 )
 
 const workflowReloadRequired = true
 
-func workflowSkillID(id string) string  { return "agentdeck-workflow/" + id }
-func workflowSourceID(id string) string { return "agentdeck-bundled/" + id }
+func workflowSkillID(id string) string  { return "lectern-workflow/" + id }
+func workflowSourceID(id string) string { return "lectern-bundled/" + id }
 
 func workflowAgent(r *http.Request, p *store.Project) (string, error) {
 	agent := r.URL.Query().Get("agent")
@@ -253,9 +253,9 @@ func (s *Server) enableProjectWorkflow(r *http.Request, p *store.Project, ex exe
 
 func workflowEntryName(id string) string {
 	if id == "spec-kit" {
-		return "agentdeck-spec-kit"
+		return "lectern-spec-kit"
 	}
-	return "agentdeck-maestro"
+	return "lectern-maestro"
 }
 
 func (s *Server) disableProjectWorkflow(r *http.Request, p *store.Project, ex executor.Executor, x *store.ProjectSkill) error {

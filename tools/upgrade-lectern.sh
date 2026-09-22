@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare an AgentDeck upgrade. Dry-run is the default; --apply never restarts
+# Prepare a Lectern upgrade. Dry-run is the default; --apply never restarts
 # the service. The old database is exported before it can be migrated by the
 # candidate, and the operator performs the first manual restart separately.
 set -euo pipefail
@@ -17,11 +17,11 @@ while (($#)); do
 done
 [[ -n "$binary" && -f "$binary" && -x "$binary" ]] || { echo "binary must be an executable file" >&2; exit 2; }
 
-unit=agentdeck
+unit=lectern
 live=$(systemctl show "$unit" -p ExecStart --value | sed -n 's/.*path=\([^ ;]*\).*/\1/p')
-[[ -n "$live" ]] || live=/usr/local/bin/agentdeck
-db=$(systemctl show "$unit" -p Environment --value | tr ' ' '\n' | sed -n 's/^AGENTDECK_DB=//p' | head -1)
-[[ -n "$db" ]] || { echo "AGENTDECK_DB is not present in the unit environment" >&2; exit 1; }
+[[ -n "$live" ]] || live=/usr/local/bin/lectern
+db=$(systemctl show "$unit" -p Environment --value | tr ' ' '\n' | sed -n 's/^LECTERN_DB=//p' | head -1)
+[[ -n "$db" ]] || { echo "LECTERN_DB is not present in the unit environment" >&2; exit 1; }
 service_user=$(systemctl show "$unit" -p User --value)
 [[ -n "$service_user" ]] || service_user=root
 service_home=$(getent passwd "$service_user" | cut -d: -f6)
@@ -54,7 +54,7 @@ run_service() {
 main=$(systemctl show "$unit" -p MainPID --value)
 cg=$(systemctl show "$unit" -p ControlGroup --value)
 dropin=/etc/systemd/system/${unit}.service.d/10-session-persistence.conf
-backup=/home/admin/backups/agentdeck-pre-upgrade-$(date +%Y%m%d-%H%M%S)
+backup=/home/admin/backups/lectern-pre-upgrade-$(date +%Y%m%d-%H%M%S)
 checkpoint="$backup/session-checkpoint.json"
 
 echo "unit=$unit"
@@ -88,7 +88,7 @@ fi
 install -d -m 700 -o "$service_user" -g "$service_group" "$backup"
 # SQLite's online backup API gives us a consistent source copy while the live
 # service is still running. A byte copy of a WAL database is not a backup.
-python3 - "$db" "$backup/agentdeck.db" <<'PY'
+python3 - "$db" "$backup/lectern.db" <<'PY'
 import sqlite3, sys
 src, dst = sys.argv[1:]
 source = sqlite3.connect("file:" + src + "?mode=ro", uri=True)
@@ -99,9 +99,9 @@ finally:
     target.close()
     source.close()
 PY
-chmod 600 "$backup/agentdeck.db"
-chown "$service_user:$service_group" "$backup/agentdeck.db"
-cp -a "$live" "$backup/old-agentdeck"
+chmod 600 "$backup/lectern.db"
+chown "$service_user:$service_group" "$backup/lectern.db"
+cp -a "$live" "$backup/old-lectern"
 if [[ -f "$dropin" ]]; then
   cp -a "$dropin" "$backup/old-session-persistence.conf"
 else
@@ -118,7 +118,7 @@ if [[ "$baseline_main_pid" =~ ^[0-9]+$ && -r "/proc/$baseline_main_pid/stat" ]];
   baseline_main_starttime=$(awk '{print $22}' "/proc/$baseline_main_pid/stat")
 fi
 [[ -n "$baseline_main_starttime" ]] || {
-  echo "cannot establish agentdeck MainPID starttime; refusing upgrade" >&2
+  echo "cannot establish lectern MainPID starttime; refusing upgrade" >&2
   exit 1
 }
 
@@ -149,7 +149,7 @@ PY
   )
 fi
 
-run_service env -u TMUX -u TMUX_TMPDIR HOME="$service_home" AGENTDECK_DB="$db" "$binary" recovery-checkpoint export "$checkpoint"
+run_service env -u TMUX -u TMUX_TMPDIR HOME="$service_home" LECTERN_DB="$db" "$binary" recovery-checkpoint export "$checkpoint"
 
 current_main_pid=$(systemctl show "$unit" -p MainPID --value)
 current_main_starttime=""
@@ -157,7 +157,7 @@ if [[ "$current_main_pid" =~ ^[0-9]+$ && -r "/proc/$current_main_pid/stat" ]]; t
   current_main_starttime=$(awk '{print $22}' "/proc/$current_main_pid/stat")
 fi
 if [[ "$current_main_pid" != "$baseline_main_pid" || "$current_main_starttime" != "$baseline_main_starttime" ]]; then
-  echo "agentdeck service process changed during checkpoint export; refusing upgrade" >&2
+  echo "lectern service process changed during checkpoint export; refusing upgrade" >&2
   exit 1
 fi
 for pane_pid in "${!baseline_panes[@]}"; do
@@ -166,7 +166,7 @@ for pane_pid in "${!baseline_panes[@]}"; do
     current_pane_starttime=$(awk '{print $22}' "/proc/$pane_pid/stat")
   fi
   if [[ "$current_pane_starttime" != "${baseline_panes[$pane_pid]}" ]]; then
-    echo "AgentDeck pane process $pane_pid changed during checkpoint export; refusing upgrade" >&2
+    echo "Lectern pane process $pane_pid changed during checkpoint export; refusing upgrade" >&2
     exit 1
   fi
 done
@@ -204,7 +204,7 @@ print("checkpoint coverage: " + str(len(ids)) + " live sessions")
 PY
 
 dir=$(dirname "$live")
-tmp=$(mktemp "$dir/.agentdeck.new.XXXXXX")
+tmp=$(mktemp "$dir/.lectern.new.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 install -m 755 "$binary" "$tmp"
 mv -fT "$tmp" "$live"
@@ -212,7 +212,7 @@ install -d -m 755 "$(dirname "$dropin")"
 install -m 644 /dev/stdin "$dropin" <<EOF
 [Service]
 KillMode=process
-Environment=AGENTDECK_CHECKPOINT=$checkpoint
+Environment=LECTERN_CHECKPOINT=$checkpoint
 EOF
 systemctl daemon-reload
 post_main_pid=$(systemctl show "$unit" -p MainPID --value)
@@ -221,7 +221,7 @@ if [[ "$post_main_pid" =~ ^[0-9]+$ && -r "/proc/$post_main_pid/stat" ]]; then
   post_main_starttime=$(awk '{print $22}' "/proc/$post_main_pid/stat")
 fi
 if [[ "$post_main_pid" != "$baseline_main_pid" || "$post_main_starttime" != "$baseline_main_starttime" ]]; then
-  echo "agentdeck service process changed during installation; review $backup before restarting" >&2
+  echo "lectern service process changed during installation; review $backup before restarting" >&2
   exit 1
 fi
 for pane_pid in "${!baseline_panes[@]}"; do
@@ -230,9 +230,9 @@ for pane_pid in "${!baseline_panes[@]}"; do
     post_pane_starttime=$(awk '{print $22}' "/proc/$pane_pid/stat")
   fi
   if [[ "$post_pane_starttime" != "${baseline_panes[$pane_pid]}" ]]; then
-    echo "AgentDeck pane process $pane_pid changed during installation; review $backup before restarting" >&2
+    echo "Lectern pane process $pane_pid changed during installation; review $backup before restarting" >&2
     exit 1
   fi
 done
 echo "prepared; checkpoint captured and binary installed; service was not restarted"
-echo "refresh checkpoint before the first manual restart if sessions changed: $service_runner_text env -u TMUX -u TMUX_TMPDIR HOME=$service_home AGENTDECK_DB=$db $live recovery-checkpoint export $checkpoint"
+echo "refresh checkpoint before the first manual restart if sessions changed: $service_runner_text env -u TMUX -u TMUX_TMPDIR HOME=$service_home LECTERN_DB=$db $live recovery-checkpoint export $checkpoint"

@@ -64,7 +64,7 @@ def test_web_project_setup_save_retry_and_launch(routed_page,real_terminal,width
     expect(card.locator('.workspace-setup-output')).to_contain_text('SETUP_FINISHED')
     assert card.locator('.session-worktree').evaluate('(e)=>e.scrollWidth<=e.clientWidth')
     card.scroll_into_view_if_needed()
-    page.screenshot(path=f'/tmp/agentdeck-project-setup-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-project-setup-{width}.png')
     assert errors==[]
 
 

@@ -7,14 +7,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // Spec describes how to start one interactive coding CLI.
 //
 // Three agents ship built in, but the set is deliberately open: the terminal
 // does not care which binary is in it, and neither should the board. A spec is
-// the smallest description that lets agentdeck launch, resume and prime an
+// the smallest description that lets lectern launch, resume and prime an
 // arbitrary CLI — anything beyond that is the CLI's business.
 type Spec struct {
 	Name string `json:"name"`
@@ -34,7 +34,7 @@ type Spec struct {
 	ResumeIDArgs []string `json:"resume_id_args,omitempty"`
 	ForkArgs     []string `json:"fork_args,omitempty"`
 	// PromptArg says the opening message can be a positional argument. When it
-	// cannot, agentdeck falls back to typing the message once the pane settles.
+	// cannot, lectern falls back to typing the message once the pane settles.
 	PromptArg bool `json:"prompt_arg,omitempty"`
 	// Env is agent-wide environment, layered under the project's own. This is
 	// the local-model door for a CLI that wants its endpoint in the environment.
@@ -45,7 +45,7 @@ type Spec struct {
 	//
 	// Every coding CLI asks "do you trust this folder?" the first time it opens
 	// one, and answers it in its own config. Launching an agent there IS the
-	// answer — agentdeck was told to start it, in that directory, on purpose —
+	// answer — lectern was told to start it, in that directory, on purpose —
 	// so being asked again in a terminal you then have to go and find is pure
 	// friction. It bites hardest on scratch sessions, where the directory is new
 	// every single time and the prompt is therefore guaranteed.
@@ -55,7 +55,7 @@ type Spec struct {
 	// means this agent has no such mode and the toggle is not offered for it.
 	YoloArgs []string `json:"yolo_args,omitempty"`
 	// ModelsCommand asks the CLI what models it has. `{bin}` is replaced with the
-	// resolved binary. Model line-ups change faster than agentdeck ships, and a
+	// resolved binary. Model line-ups change faster than lectern ships, and a
 	// list of names written down here is wrong the moment a vendor renames one —
 	// so the tool is asked rather than remembered. Empty means no catalog, and
 	// the UI falls back to whatever you have already run.
@@ -63,7 +63,7 @@ type Spec struct {
 	// Task is optional because a configured CLI may be interactive-only. Its
 	// command/args are independent from the interactive invocation above.
 	Task *TaskSpec `json:"task,omitempty"`
-	// Builtin marks the three that ship with agentdeck, so the UI can show which
+	// Builtin marks the three that ship with lectern, so the UI can show which
 	// are yours.
 	Builtin bool `json:"builtin,omitempty"`
 }
@@ -79,7 +79,7 @@ type TaskSpec struct {
 	PermissionArgs map[string][]string `json:"permission_args,omitempty"`
 }
 
-// Builtins are the agents agentdeck knows without being told.
+// Builtins are the agents lectern knows without being told.
 func Builtins() []Spec {
 	return []Spec{
 		{Name: "claude", Command: "claude", ModelFlag: "--model",
@@ -384,7 +384,7 @@ func (s Spec) LaunchCommand(o Start) string {
 		shellq.Quote(o.Workdir), o.EnvPrefix, strings.Join(parts, " "))
 	setupEnv := ""
 	if o.SetupToken != "" {
-		setupEnv = " -e " + shellq.Quote("AGENTDECK_SETUP_TOKEN="+o.SetupToken)
+		setupEnv = " -e " + shellq.Quote("LECTERN_SETUP_TOKEN="+o.SetupToken)
 	}
 	// Spell out the shell invocation so tmux cannot reinterpret the generated
 	// command string differently across versions or target configurations.
@@ -503,7 +503,7 @@ ADKTRUST`
 // codexTrust records a trusted project in ~/.codex/config.toml.
 //
 // Appended rather than rewritten: the file is the operator's, holding their MCP
-// servers and model settings, and a TOML round-trip through a parser agentdeck
+// servers and model settings, and a TOML round-trip through a parser lectern
 // does not own is a good way to lose a comment or reorder someone's config.
 const codexTrust = `python3 - {dir} <<'ADKTRUST'
 import fcntl, json, os, sys

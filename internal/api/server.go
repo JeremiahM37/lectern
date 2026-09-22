@@ -1,4 +1,4 @@
-// Package api is agentdeck's HTTP surface: the REST control plane, the
+// Package api is lectern's HTTP surface: the REST control plane, the
 // agent-facing hook endpoints, the SSE streams and the embedded PWA.
 package api
 
@@ -16,18 +16,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/broker"
-	"github.com/JeremiahM37/agentdeck/internal/bus"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/push"
-	"github.com/JeremiahM37/agentdeck/internal/scheduler"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/sinks"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
-	"github.com/JeremiahM37/agentdeck/web"
+	"github.com/JeremiahM37/lectern/internal/broker"
+	"github.com/JeremiahM37/lectern/internal/bus"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/push"
+	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/sinks"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/web"
 )
 
 // Server wires every dependency the handlers need.

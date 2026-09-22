@@ -31,7 +31,7 @@ type projectMCPRequest struct {
 	StrictMCP *bool          `json:"strict_mcp"`
 }
 
-const mcpRetentionKey = "__agentdeck_retained"
+const mcpRetentionKey = "__lectern_retained"
 
 func (s *Server) mcpRevision(root any, strict bool) string {
 	if len(s.mcpKey) == 0 {
@@ -286,7 +286,7 @@ func (s *Server) putProjectMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	currentRevision := s.mcpRevision(root, p.StrictMCP != 0)
 	if in.Revision != currentRevision {
-		w.Header().Set("X-AgentDeck-MCP-Revision", currentRevision)
+		w.Header().Set("X-Lectern-MCP-Revision", currentRevision)
 		writeJSON(w, 409, map[string]any{"detail": "MCP settings changed on the server; reload before saving", "current_revision": currentRevision})
 		return
 	}
@@ -345,7 +345,7 @@ func (s *Server) putProjectMCP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		latestRevision := s.mcpRevision(latestRoot, latest.StrictMCP != 0)
-		w.Header().Set("X-AgentDeck-MCP-Revision", latestRevision)
+		w.Header().Set("X-Lectern-MCP-Revision", latestRevision)
 		writeJSON(w, 409, map[string]any{"detail": "MCP settings changed on the server; reload before saving", "current_revision": latestRevision})
 		return
 	}

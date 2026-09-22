@@ -1,6 +1,6 @@
 // Package shellq renders values as shell words.
 //
-// Commands agentdeck builds are executed by a real shell on the target, so every
+// Commands lectern builds are executed by a real shell on the target, so every
 // interpolated value has to survive as ONE argument no matter what is in it.
 // Quoting only what needs quoting also keeps the generated commands readable in
 // the timeline and in `tmux list-panes`.

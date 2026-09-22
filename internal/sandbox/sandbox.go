@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 )
 
 // Provision clones the template, starts it, and waits for it to answer.
@@ -27,7 +27,7 @@ func Provision(ctx context.Context, host executor.Executor, templateVMID string,
 	if !r.OK() || vmid == "" {
 		return "", executor.Errf("could not allocate vmid: %s", strings.TrimSpace(r.Stderr))
 	}
-	cloneCmd := fmt.Sprintf("sudo pct clone %s %s --hostname adk-sb-%d",
+	cloneCmd := fmt.Sprintf("sudo pct clone %s %s --hostname lec-sb-%d",
 		templateVMID, vmid, attemptID)
 	if r, err := host.Run(ctx, cloneCmd, executor.RunOpts{Timeout: 300}); err != nil {
 		return "", err

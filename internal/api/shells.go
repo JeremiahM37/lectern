@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 type shellIn struct {

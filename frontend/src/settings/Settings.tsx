@@ -37,7 +37,7 @@ export function syncRetained(
     typeof latest === "object" &&
     !Array.isArray(latest) &&
     Object.keys(latest).length === 1 &&
-    "__agentdeck_retained" in latest
+    "__lectern_retained" in latest
   )
     return structuredClone(latest);
   if (Array.isArray(draft) && Array.isArray(latest))

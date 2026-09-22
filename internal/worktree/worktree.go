@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 )
 
 // FileStat is one file's line churn in a captured diff.
@@ -28,7 +28,7 @@ type FilePatch struct {
 
 // BranchName is the branch one attempt works on.
 func BranchName(taskID int64, attemptN int) string {
-	return fmt.Sprintf("adk/task%d-a%d", taskID, attemptN)
+	return fmt.Sprintf("lec/task%d-a%d", taskID, attemptN)
 }
 
 // Path is where one attempt's worktree lives under a workroot.
@@ -52,7 +52,7 @@ func NamespacedBranch(branch, namespace string) string {
 	if namespace == "" || branch == "" {
 		return branch
 	}
-	return "adk/" + namespace + "/" + strings.TrimPrefix(branch, "adk/")
+	return "lec/" + namespace + "/" + strings.TrimPrefix(branch, "lec/")
 }
 
 func namespaceSlug(value string) string {
@@ -77,7 +77,7 @@ func DefaultWorkroot(repoPath string) string {
 	if i := strings.LastIndex(trimmed, "/"); i >= 0 {
 		parent = trimmed[:i]
 	}
-	return parent + "/.agentdeck-worktrees"
+	return parent + "/.lectern-worktrees"
 }
 
 // Ensure creates the attempt's worktree, tolerating one that already exists —
@@ -108,7 +108,9 @@ func Ensure(ctx context.Context, ex executor.Executor, repo, baseBranch, branch,
 // found only on a live dispatch.
 func AddExcludes(ctx context.Context, ex executor.Executor, repoDir string) error {
 	q := executor.ShellQuote
-	for _, pattern := range []string{".agentdeck/", "__pycache__/", "*.pyc"} {
+	// ".agentdeck/" is what a project launched before the rename still has on
+	// disk; without the pattern it would surface as untracked in every one.
+	for _, pattern := range []string{".lectern/", ".agentdeck/", "__pycache__/", "*.pyc"} {
 		cmd := fmt.Sprintf(
 			`ex_file=$(git -C %s rev-parse --git-common-dir)/info/exclude; `+
 				`grep -qx %s "$ex_file" 2>/dev/null || echo %s >> "$ex_file"`,

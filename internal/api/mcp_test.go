@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/mcp"
+	"github.com/JeremiahM37/lectern/internal/mcp"
 )
 
 // mcpCall drives one JSON-RPC exchange over the stdio transport.
@@ -62,7 +62,7 @@ func TestMCPHandshakeAndToolList(t *testing.T) {
 		t.Fatalf("expected 2 frames, got %d: %v", len(frames), frames)
 	}
 	info := frames[0]["result"].(map[string]any)["serverInfo"].(map[string]any)
-	if info["name"] != "agentdeck" {
+	if info["name"] != "lectern" {
 		t.Errorf("serverInfo: %v", info)
 	}
 	toolList, _ := frames[1]["result"].(map[string]any)["tools"].([]any)

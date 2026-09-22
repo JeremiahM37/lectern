@@ -16,7 +16,7 @@ def prepare_fork(t):
     subprocess.run(['git','-C',str(cwd),'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','fixture'],check=True)
     proof=t['root']/'global-fork.json';stub=t['root']/'fork-agent'
     stub.write_text('#!/usr/bin/env python3\nimport os,sys,json,time\nfrom pathlib import Path\nPath(os.environ["FORK_PROOF"]).write_text(json.dumps({"argv":sys.argv[1:],"cwd":os.getcwd()}))\nprint("GLOBAL FORK READY",flush=True)\nwhile True:time.sleep(1)\n');stub.chmod(0o755)
-    req=urllib.request.Request(t['url']+'/api/agents',method='PUT',data=json.dumps([{'name':'codex','command':str(stub),'env':{'CODEX_HOME':str(t['root']/'search-home'),'AGENTDECK_NATIVE_SEARCH_CACHE':str(t['root']/'cache'),'FORK_PROOF':str(proof)},'fork_args':['fork','{id}']}]).encode(),headers={'Content-Type':'application/json'})
+    req=urllib.request.Request(t['url']+'/api/agents',method='PUT',data=json.dumps([{'name':'codex','command':str(stub),'env':{'CODEX_HOME':str(t['root']/'search-home'),'LECTERN_NATIVE_SEARCH_CACHE':str(t['root']/'cache'),'FORK_PROOF':str(proof)},'fork_args':['fork','{id}']}]).encode(),headers={'Content-Type':'application/json'})
     urllib.request.urlopen(req).close()
     return source,cwd,proof
 
@@ -35,7 +35,7 @@ def test_web_forks_global_search_and_retains_original_terminal(page,real_termina
         d.get_by_label('Fork workspace').select_option('isolated');d.get_by_label('Branch (blank = automatic)').fill('web-global-fork')
     expect(d.locator('.ns-fork-warning')).to_contain_text('including messages after the match')
     assert d.evaluate('(el)=>el.scrollWidth<=el.clientWidth')
-    page.screenshot(path=f'/tmp/agentdeck-global-fork-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-global-fork-{width}.png')
     page.evaluate('''()=>{const original=window.fetch;window.fetch=(url,opts)=>String(url).endsWith('/fork')?new Promise(resolve=>setTimeout(()=>resolve(original(url,opts)),500)):original(url,opts);}''')
     with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/fork')) as response:
         d.get_by_role('button',name='Create fork',exact=True).click()

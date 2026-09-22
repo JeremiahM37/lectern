@@ -1,7 +1,7 @@
 {
   "app": "Agent of Empires",
   "revision": "5687bbd",
-  "fixture_root": "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-one-final-gptvbddr",
+  "fixture_root": "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-one-final-gptvbddr",
   "method": "real ttyd 1.7.7 + Chromium/xterm.js Playwright; one-session isolated fixture",
   "launch": "aoe add <repo> --title Alpha C3 one-final --tool codex --cmd-override <fixture-agent> --trust-hooks --launch --yolo",
   "path": "Walkthrough Escape; Tab enters only Alpha live view; Ctrl+Q exits live mode per docs; Tab re-enters same Alpha; shell input gated on tmux pane_in_mode=0",
@@ -32,8 +32,8 @@
     "native_tmux_scroll_marker": "C3_NATIVE_SCROLL_01..33"
   },
   "artifacts": [
-    "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-one-final-proof2",
-    "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-one-final-pidpair"
+    "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-one-final-proof2",
+    "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-one-final-pidpair"
   ],
   "strict_c3_verdict": "PASS",
   "notes": [
@@ -42,6 +42,6 @@
     "LIVE preview Shift+PageUp did not change visible markers in this run; native tmux attach supplies the scroll proof. This is a composite across documented modes, not one continuous view.",
     "No real Codex/model was invoked."
   ],
-  "native_scroll_artifacts": "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-native-scroll-proof",
+  "native_scroll_artifacts": "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-native-scroll-proof",
   "native_scroll_receipt": "docs/parity/receipts/aoe-c3-native-scroll-receipt.json"
 }

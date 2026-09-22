@@ -124,12 +124,12 @@ func TestStopAndBrowserRefuseAnythingThatIsNotADesktop(t *testing.T) {
 		t.Fatal("a script ran for an invalid request")
 		return "", nil
 	}
-	for _, dir := range []string{"", "/", "/tmp", "/tmp/agentdeck-live-abc", "/tmp/agentdeck-live-abcdef/../..", "/home/admin", "/tmp/agentdeck-live-abcde$"} {
+	for _, dir := range []string{"", "/", "/tmp", "/tmp/lectern-live-abc", "/tmp/lectern-live-abcdef/../..", "/home/admin", "/tmp/lectern-live-abcde$"} {
 		if err := Stop(context.Background(), never, dir); err == nil {
 			t.Errorf("Stop(%q) must be refused", dir)
 		}
 	}
-	d := &Desktop{Dir: "/tmp/agentdeck-live-abcdef", Display: 99}
+	d := &Desktop{Dir: "/tmp/lectern-live-abcdef", Display: 99}
 	for _, address := range []string{"", "file:///etc/passwd", "javascript:alert(1)", "localhost:3000", "http://"} {
 		if _, err := OpenBrowser(context.Background(), never, d, address); err == nil {
 			t.Errorf("OpenBrowser(%q) must be refused", address)

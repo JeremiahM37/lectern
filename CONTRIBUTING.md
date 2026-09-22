@@ -1,4 +1,4 @@
-# Contributing to agentdeck
+# Contributing to lectern
 
 ## Dev setup
 
@@ -13,8 +13,8 @@ pip install pytest playwright pyte==0.8.2 && playwright install chromium   # for
 ## Running
 
 ```bash
-AGENTDECK_MOCK=1 go run ./cmd/agentdeck serve    # fake agents, no infra needed
-go run ./cmd/agentdeck serve               # real: needs ssh/git/tmux/claude on targets
+LECTERN_MOCK=1 go run ./cmd/lectern serve    # fake agents, no infra needed
+go run ./cmd/lectern serve               # real: needs ssh/git/tmux/claude on targets
 ```
 
 ## Tests

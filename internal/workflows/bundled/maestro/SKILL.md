@@ -1,18 +1,18 @@
 ---
-name: agentdeck-maestro
+name: lectern-maestro
 description: "Use when the user explicitly chooses a Maestro workflow audit or improvement: diagnose, fortify, refine, reflect, agent-workflow, or teach-maestro."
 disable-model-invocation: true
 ---
 
-# Maestro for AgentDeck
+# Maestro for Lectern
 
 Optional workflow guidance adapted from sharpdeveye/maestro. Original skill
 files, references, MIT license, notice and pinned revision are in `upstream/`.
 This adapter supplies skills; it does not install Maestro's editor extension or
 MCP server, and does not create automatic audit or cost telemetry.
 
-Invoke `/agentdeck-maestro <mode> <request>` in Claude Code or
-`$agentdeck-maestro <mode> <request>` in Codex. Main modes:
+Invoke `/lectern-maestro <mode> <request>` in Claude Code or
+`$lectern-maestro <mode> <request>` in Codex. Main modes:
 
 | Mode | Outcome |
 | --- | --- |
@@ -50,7 +50,7 @@ Adaptation rules take precedence over the upstream instructions:
   findings against this project's evidence and configurable tools. Preserve
   existing agent permissions, shared memory and verification requirements.
 - Enabling this feature makes guidance available. It does not run an audit,
-  change application behavior or replace AgentDeck's execution/review system.
+  change application behavior or replace Lectern's execution/review system.
 
 Disabling removes only the owned skill attachment. Project documents and any
 existing Maestro records remain intact. Start a new agent session after toggling.

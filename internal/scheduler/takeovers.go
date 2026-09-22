@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // ProcessTakeovers runs before normal polling. Pending requests survive a
@@ -99,7 +99,7 @@ func (s *Scheduler) takeover(ctx context.Context, id int64) error {
 		defer tx.Rollback()
 		now := store.Now()
 		res, err := tx.Exec(`INSERT INTO sessions(project_id,target_id,name,agent,model,workdir,tmux_session,status,origin,last_activity_at,created_at,updated_at)
-   VALUES(?,?,?,?,?,?,'','starting','agentdeck',?,?,?)`, c.Project.ID, c.Target.ID, c.Task.Title, c.Task.Agent, firstNonEmpty(att.Model, c.Task.Model), att.WorktreePath, now, now, now)
+   VALUES(?,?,?,?,?,?,'','starting','lectern',?,?,?)`, c.Project.ID, c.Target.ID, c.Task.Title, c.Task.Agent, firstNonEmpty(att.Model, c.Task.Model), att.WorktreePath, now, now, now)
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ func (s *Scheduler) takeover(ctx context.Context, id int64) error {
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec("UPDATE sessions SET tmux_session=? WHERE id=?", fmt.Sprintf("adk-s%d", sid), sid); err != nil {
+		if _, err = tx.Exec("UPDATE sessions SET tmux_session=? WHERE id=?", fmt.Sprintf("lec-s%d", sid), sid); err != nil {
 			return err
 		}
 		if _, err = tx.Exec("UPDATE task_takeovers SET session_id=? WHERE task_id=?", sid, id); err != nil {
@@ -124,7 +124,7 @@ func (s *Scheduler) takeover(ctx context.Context, id int64) error {
 	}
 	// tmux kill-session is synchronous. Check on the target before permitting
 	// another writer, including after an interrupted control-plane request.
-	old := fmt.Sprintf("=adk-%d", att.ID)
+	old := fmt.Sprintf("=lec-%d", att.ID)
 	if _, err = ex.Run(ctx, "tmux kill-session -t "+shellq.Quote(old)+" 2>/dev/null || true", executor.RunOpts{Timeout: 20}); err != nil {
 		return err
 	}

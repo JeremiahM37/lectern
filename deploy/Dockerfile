@@ -18,7 +18,7 @@ COPY --from=frontend /src/frontend/dist/index.html /src/web/index.html
 COPY --from=frontend /src/frontend/dist/terminal.html /src/web/static/terminal.html
 COPY --from=frontend /src/frontend/dist/sw.js /src/web/static/sw.js
 # CGO off: modernc.org/sqlite is pure Go, so the result runs on any base image
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/agentdeck ./cmd/agentdeck
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/lectern ./cmd/lectern
 
 FROM debian:bookworm-slim
 # git and tmux drive the LOCAL target; openssh-client reaches remote ones
@@ -31,16 +31,16 @@ RUN curl -fsSL -o /usr/local/bin/ttyd \
     https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
     && chmod +x /usr/local/bin/ttyd || true
 
-COPY --from=build /out/agentdeck /usr/local/bin/agentdeck
+COPY --from=build /out/lectern /usr/local/bin/lectern
 
 # NOTE: runs as root deliberately — the container drives targets over SSH with
 # keys bind-mounted from the host (see deploy/docker-compose.yml) and manages
 # tmux sessions for the `local` target. Harden by scoping the mounted key.
-ENV AGENTDECK_DB=/data/agentdeck.db
+ENV LECTERN_DB=/data/lectern.db
 VOLUME /data
 EXPOSE 9110
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
-  CMD curl -fsS "http://127.0.0.1:${AGENTDECK_PORT:-9110}/api/health" || exit 1
+  CMD curl -fsS "http://127.0.0.1:${LECTERN_PORT:-9110}/api/health" || exit 1
 
-CMD ["agentdeck"]
+CMD ["lectern"]

@@ -1,4 +1,4 @@
-"""Playwright end-to-end: a real browser against a real agentdeck binary.
+"""Playwright end-to-end: a real browser against a real lectern binary.
 
 The server runs in mock mode, so every flow here is the genuine one — real HTTP,
 real SSE, real approval round trips — with only the target scripted.
@@ -29,7 +29,7 @@ while AUTH_PORT == PORT:
     AUTH_PORT = _unused_port()
 BASE = f"http://127.0.0.1:{PORT}"
 AUTH_BASE = f"http://127.0.0.1:{AUTH_PORT}"
-_BUILD_DIR = tempfile.TemporaryDirectory(prefix="adk-e2e-build-")
+_BUILD_DIR = tempfile.TemporaryDirectory(prefix="lec-e2e-build-")
 
 PHONE = {"width": 390, "height": 844}
 DESKTOP = {"width": 1440, "height": 900}
@@ -42,37 +42,37 @@ def _port_open(port: int) -> bool:
 
 @cache
 def _binary() -> str:
-    """The agentdeck binary under test — prebuilt via AGENTDECK_BIN, or built now."""
-    if env := os.environ.get("AGENTDECK_BIN"):
+    """The lectern binary under test — prebuilt via LECTERN_BIN, or built now."""
+    if env := os.environ.get("LECTERN_BIN"):
         return env
-    out = Path(_BUILD_DIR.name) / "agentdeck"
+    out = Path(_BUILD_DIR.name) / "lectern"
     go = shutil.which("go") or "/usr/local/go/bin/go"
-    subprocess.run([go, "build", "-o", str(out), "./cmd/agentdeck"],
+    subprocess.run([go, "build", "-o", str(out), "./cmd/lectern"],
                    cwd=ROOT, check=True)
     return str(out)
 
 
-# A developer often runs this suite from inside an AgentDeck session, whose
+# A developer often runs this suite from inside a Lectern session, whose
 # environment names the real memory provider, carries its token, and says which
 # live session and recovery checkpoint it belongs to. Inherited, every project a
 # test created was provisioned a real note in the developer's own vault — eighteen
 # of them in one run, in a vault that syncs to a phone. A fixture server talks to
 # nothing outside itself unless a test says so.
-OUTSIDE_WORLD = {"AGENTDECK_GRIMOIRE_URL": "", "AGENTDECK_GRIMOIRE_TOKEN": "",
-                 "AGENTDECK_CHECKPOINT": "", "AGENTDECK_API": "",
-                 "AGENTDECK_SESSION_ID": "", "GRIMOIRE_SESSION": "",
-                 "AGENTDECK_MEDIA_DIR": "", "AGENTDECK_SCRATCH_TRASH": "", "AGENTDECK_LIVE": ""}
+OUTSIDE_WORLD = {"LECTERN_GRIMOIRE_URL": "", "LECTERN_GRIMOIRE_TOKEN": "",
+                 "LECTERN_CHECKPOINT": "", "LECTERN_API": "",
+                 "LECTERN_SESSION_ID": "", "GRIMOIRE_SESSION": "",
+                 "LECTERN_MEDIA_DIR": "", "LECTERN_SCRATCH_TRASH": "", "LECTERN_LIVE": ""}
 
 # Not every server in this suite starts through a fixture: the local-runtime
 # tests launch their own from whatever environment the process has. So the
 # process itself forgets the outside world, once, before anything is spawned.
-for _name in [*OUTSIDE_WORLD, "AGENTDECK_BASE_URL", "AGENTDECK_DB",
-              "AGENTDECK_GRIMOIRE_CONTEXT_MODE", "AGENTDECK_GRIMOIRE_CONTEXT_PROJECTS"]:
+for _name in [*OUTSIDE_WORLD, "LECTERN_BASE_URL", "LECTERN_DB",
+              "LECTERN_GRIMOIRE_CONTEXT_MODE", "LECTERN_GRIMOIRE_CONTEXT_PROJECTS"]:
     os.environ.pop(_name, None)
 
 
 def _start(port: int, extra_env: dict):
-    tmp = tempfile.mkdtemp(prefix="adk-e2e-")
+    tmp = tempfile.mkdtemp(prefix="lec-e2e-")
     # Do not pass a caller's tmux client/server identity into fixture
     # subprocesses.  Each run gets private HOME and tmux state; the isolated
     # runner adds a mount/PID namespace around this as a second guard.
@@ -81,10 +81,10 @@ def _start(port: int, extra_env: dict):
     private_tmux = Path(tmp) / "tmux"
     private_tmux.mkdir()
     env = {**os.environ,
-           "AGENTDECK_MOCK": "1", "AGENTDECK_TICK": "0.1",
-           "AGENTDECK_MOCK_DELAY": "0.25", "AGENTDECK_PORT": str(port),
-           "AGENTDECK_DB": str(Path(tmp) / "e2e.db"),
-           "AGENTDECK_BASE_URL": f"http://127.0.0.1:{port}",
+           "LECTERN_MOCK": "1", "LECTERN_TICK": "0.1",
+           "LECTERN_MOCK_DELAY": "0.25", "LECTERN_PORT": str(port),
+           "LECTERN_DB": str(Path(tmp) / "e2e.db"),
+           "LECTERN_BASE_URL": f"http://127.0.0.1:{port}",
            "HOME": str(private_home),
            "TMUX": "",
            "TMUX_TMPDIR": str(private_tmux),
@@ -127,7 +127,7 @@ def server():
 def auth_server():
     """A second server with a bearer token set, to prove the PWA works in token
     mode — fetch AND EventSource both have to thread the token through."""
-    proc = _start(AUTH_PORT, {"AGENTDECK_AUTH_TOKEN": "secret123"})
+    proc = _start(AUTH_PORT, {"LECTERN_AUTH_TOKEN": "secret123"})
     try:
         yield AUTH_BASE
     finally:

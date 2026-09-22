@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func realLocal(c *config.Config) { c.Mock = false }
@@ -49,8 +49,8 @@ func TestGhostRunningAttemptReconciled(t *testing.T) {
 	// forge a running attempt pointing at nothing (a crash, or a manual rm)
 	att, err := h.App.DB.InsertAttempt(&store.Attempt{
 		TaskID: task.id(), N: 1, Status: "running", Token: "tok-ghost",
-		WorktreePath: "/nonexistent/wt", Branch: "adk/ghost",
-		TmuxSession: "adk-ghost-none"})
+		WorktreePath: "/nonexistent/wt", Branch: "lec/ghost",
+		TmuxSession: "lec-ghost-none"})
 	if err != nil {
 		t.Fatal(err)
 	}

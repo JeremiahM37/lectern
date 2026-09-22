@@ -63,7 +63,7 @@ export const themes: Record<string, ITheme> = {
 export function loadPrefs(): Prefs {
   try {
     const value: Partial<Prefs> = JSON.parse(
-      localStorage.getItem("adk-terminal-prefs") || "{}",
+      localStorage.getItem("lec-terminal-prefs") || "{}",
     );
     return {
       fontSize: Math.max(10, Math.min(FONT_MAX, Number(value.fontSize) || 15)),

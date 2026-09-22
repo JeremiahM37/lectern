@@ -5,7 +5,7 @@ import type { LiveView, Target } from "../types";
 type Api = ReturnType<typeof createDeckApi>;
 
 // A forward is plain TCP on its own port, so it is always http on the host
-// AgentDeck itself was reached at. A secure page may link to that but may not
+// Lectern itself was reached at. A secure page may link to that but may not
 // frame it, which is the one case where the view opens in its own tab instead.
 export function liveAddress(view: LiveView, here: Location = location) {
   const host = here.hostname.includes(":") ? `[${here.hostname}]` : here.hostname;
@@ -43,7 +43,7 @@ function LiveCard({
       <header>
         <h3>{view.title}</h3>
         <div className="media-meta">
-          <span className="chip live-chip" title="Anyone who can reach AgentDeck can open this until it is stopped">
+          <span className="chip live-chip" title="Anyone who can reach Lectern can open this until it is stopped">
             ● exposed
           </span>
           <span className="chip">{view.target_name}</span>

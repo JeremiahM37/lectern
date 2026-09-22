@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/push"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/push"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Keys are the settings rows this package owns. Anything else is rejected by the
@@ -74,7 +74,7 @@ func BuildPayloads(cfg map[string]string, baseURL, title, body, urlPath string, 
 	}
 	if server, topic := cfg["ntfy_server"], cfg["ntfy_topic"]; server != "" && topic != "" {
 		msg := map[string]any{
-			"topic": topic, "title": "agentdeck: " + title,
+			"topic": topic, "title": "lectern: " + title,
 			"message": clip(body, 800), "click": click,
 		}
 		if extra != nil && extra.Kind == "approval" {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 func gitEnv() []string {
@@ -62,10 +62,10 @@ func TestWorktreeLifecycleRealGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the runtime dir is excluded from git status
-	if err := os.MkdirAll(filepath.Join(wt, ".agentdeck"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(wt, ".lectern"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(wt, ".agentdeck", "junk.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(wt, ".lectern", "junk.txt"), []byte("x"), 0o644)
 	// verify-run artifacts must never leak into diffs or commits (found live)
 	os.MkdirAll(filepath.Join(wt, "__pycache__"), 0o755)
 	os.WriteFile(filepath.Join(wt, "__pycache__", "app.cpython-311.pyc"), []byte{0}, 0o644)
@@ -118,7 +118,7 @@ func TestWorktreeBadBaseBranchFails(t *testing.T) {
 	dir := t.TempDir()
 	repo := mkRepo(t, filepath.Join(dir, "repo2"))
 	err := worktree.Ensure(context.Background(), executor.NewLocal(), repo,
-		"no-such-branch", "adk/task9-a1", filepath.Join(dir, "wt9"))
+		"no-such-branch", "lec/task9-a1", filepath.Join(dir, "wt9"))
 	if err == nil {
 		t.Fatal("a nonexistent base branch must fail loudly, not hang")
 	}

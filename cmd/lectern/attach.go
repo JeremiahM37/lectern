@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/shellq"
 )
 
 // Desktop launchers send an ID, never a shell command or a destination host.
@@ -39,15 +39,15 @@ func hostedAttach(cfg *config.Config, args []string) error {
 	if len(args) < 1 || args[0] != "attach" {
 		return fmt.Errorf("usage: --hosted-attach attach KIND ID")
 	}
-	oldAPI, oldHost := os.Getenv("AGENTDECK_API"), os.Getenv("AGENTDECK_ATTACH_HOST")
-	_ = os.Unsetenv("AGENTDECK_API")
-	_ = os.Unsetenv("AGENTDECK_ATTACH_HOST")
+	oldAPI, oldHost := os.Getenv("LECTERN_API"), os.Getenv("LECTERN_ATTACH_HOST")
+	_ = os.Unsetenv("LECTERN_API")
+	_ = os.Unsetenv("LECTERN_ATTACH_HOST")
 	defer func() {
 		if oldAPI != "" {
-			_ = os.Setenv("AGENTDECK_API", oldAPI)
+			_ = os.Setenv("LECTERN_API", oldAPI)
 		}
 		if oldHost != "" {
-			_ = os.Setenv("AGENTDECK_ATTACH_HOST", oldHost)
+			_ = os.Setenv("LECTERN_ATTACH_HOST", oldHost)
 		}
 	}()
 	return attachAt(cfg, args[1:], "http://127.0.0.1:"+strconv.Itoa(cfg.Port), "")
@@ -70,7 +70,7 @@ func runAttachment(argv []string) error {
 	return syscall.Exec(binary, argv, os.Environ())
 }
 func attachmentCommand(cfg *config.Config, args []string) ([]string, error) {
-	return attachmentCommandAt(cfg, args, env("AGENTDECK_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), os.Getenv("AGENTDECK_ATTACH_HOST"))
+	return attachmentCommandAt(cfg, args, env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), os.Getenv("LECTERN_ATTACH_HOST"))
 }
 
 func attachmentCommandAt(cfg *config.Config, args []string, base, attachHost string) ([]string, error) {
@@ -86,7 +86,7 @@ func attachmentCommandAt(cfg *config.Config, args []string, base, attachHost str
 		// The hosted peer must bypass the no-API local auto-start rule. This
 		// marker is handled only by the server-side binary and never comes from
 		// user input.
-		return []string{"env", "TERM=xterm-256color", "ssh", "-tt", host, "/usr/local/bin/agentdeck", "--hosted-attach", "attach", args[0], args[1]}, nil
+		return []string{"env", "TERM=xterm-256color", "ssh", "-tt", host, "/usr/local/bin/lectern", "--hosted-attach", "attach", args[0], args[1]}, nil
 	}
 	// attach_argv contains paths on the control-plane host. Never execute it on
 	// a remote client where those paths name a different machine.
@@ -95,7 +95,7 @@ func attachmentCommandAt(cfg *config.Config, args []string, base, attachHost str
 		return nil, err
 	}
 	if parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" && parsed.Hostname() != "::1" {
-		return nil, fmt.Errorf("set AGENTDECK_ATTACH_HOST to the server's SSH alias for native attachment")
+		return nil, fmt.Errorf("set LECTERN_ATTACH_HOST to the server's SSH alias for native attachment")
 	}
 	id, _ := strconv.ParseInt(args[1], 10, 64)
 	endpoint := fmt.Sprintf("%s/api/term/%s/%d/info", strings.TrimRight(base, "/"), url.PathEscape(args[0]), id)
@@ -135,5 +135,5 @@ func attachmentInWorkspace(argv []string, workspace string) []string {
 	for i, word := range argv {
 		words[i] = shellq.Quote(word)
 	}
-	return []string{"tmux", "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", "AgentDeck · Ctrl-b d returns", "env -u TMUX " + strings.Join(words, " ")}
+	return []string{"tmux", "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", "Lectern · Ctrl-b d returns", "env -u TMUX " + strings.Join(words, " ")}
 }

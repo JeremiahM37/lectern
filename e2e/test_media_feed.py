@@ -12,7 +12,7 @@ from test_terminal_workspace import real_terminal
 
 
 def post(t, *args, **kw):
-    env={**t['env'],'AGENTDECK_API':t['url'],'TMUX':''}
+    env={**t['env'],'LECTERN_API':t['url'],'TMUX':''}
     out=subprocess.run([_binary(),'post',*args],env=env,capture_output=True,text=True,timeout=60,**kw)
     assert out.returncode==0,out.stderr
     return json.loads(out.stdout)
@@ -63,7 +63,7 @@ def test_a_post_from_inside_a_session_knows_which_session_it_is(page,real_termin
     report=tmp_path/'report.html';report.write_text('<h1 id="proof">All 42 checks passed</h1><script>document.title=String(window.parent===window)</script>')
     # Typed into the agent's own pane, with no --session: the poster has to work
     # out where it is from tmux, exactly as an agent's tool call does.
-    command=' '.join(['AGENTDECK_API='+shlex.quote(t['url']),shlex.quote(_binary()),'post',shlex.quote(str(report)),'--title',shlex.quote('Test report')])
+    command=' '.join(['LECTERN_API='+shlex.quote(t['url']),shlex.quote(_binary()),'post',shlex.quote(str(report)),'--title',shlex.quote('Test report')])
     subprocess.run(['tmux','send-keys','-t','=terminal-test:',command,'Enter'],env=t['env'],check=True)
     for _ in range(100):
         rows=t['api']('/media')
@@ -76,7 +76,7 @@ def test_a_post_from_inside_a_session_knows_which_session_it_is(page,real_termin
     shown=page.locator(f'.media-card[data-media-id="{rows[0]["id"]}"]')
     frame=shown.frame_locator('iframe')
     expect(frame.locator('#proof')).to_have_text('All 42 checks passed',timeout=10000)
-    # An agent's HTML renders, but never as the AgentDeck origin it is served from.
+    # An agent's HTML renders, but never as the Lectern origin it is served from.
     assert shown.locator('iframe').get_attribute('sandbox')=='allow-scripts'
     origin=page.evaluate('''async (id)=>{const r=await fetch(`/api/media/${id}/content`);return r.headers.get('content-security-policy');}''',rows[0]['id'])
     assert origin.startswith('sandbox'),origin

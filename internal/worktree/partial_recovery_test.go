@@ -3,7 +3,7 @@ package worktree
 import (
 	"context"
 	"encoding/json"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +39,7 @@ func TestPartialRecoveryValidatesWithoutDiscardingChanges(t *testing.T) {
 			if err := RunInteractive(context.Background(), ex, "create", plan); err != nil {
 				t.Fatal(err)
 			}
-			owner := filepath.Join(git(plan.Path, "rev-parse", "--absolute-git-dir"), "agentdeck-owner")
+			owner := filepath.Join(git(plan.Path, "rev-parse", "--absolute-git-dir"), "lectern-owner")
 			os.Remove(owner)
 			switch mode {
 			case "dirty":

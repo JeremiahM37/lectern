@@ -31,7 +31,7 @@ type Activity struct {
 
 // ActivityProvider is a memory provider that can say what a given run wrote.
 // It is what turns "the agent has a memory tool" into something the control
-// plane can actually see: without it AgentDeck knew what it wrote itself at a
+// plane can actually see: without it Lectern knew what it wrote itself at a
 // handoff and nothing of what the agent wrote on its own.
 type ActivityProvider interface {
 	SessionActivity(ctx context.Context, session string, since time.Time) (Activity, error)

@@ -35,7 +35,7 @@ let prefs = { fontSize: 15, lineHeight: 1.15, theme: "slate" };
 try {
   Object.assign(
     prefs,
-    JSON.parse(localStorage.getItem("adk-terminal-prefs") || "{}"),
+    JSON.parse(localStorage.getItem("lec-terminal-prefs") || "{}"),
   );
 } catch {}
 prefs.fontSize = Math.max(10, Math.min(30, Number(prefs.fontSize) || 15));
@@ -55,7 +55,7 @@ const themes = {
   },
 };
 function token() {
-  return localStorage.getItem("adk-token") || "";
+  return localStorage.getItem("lec-token") || "";
 }
 function authURL(url) {
   return (
@@ -139,7 +139,7 @@ function select(p) {
 // The containing tab strip uses this small read-only bridge to respect xterm's
 // own canvas selection and negotiated application mouse mode. DOM selection is
 // not reliable with xterm's renderer.
-window.__adkTerminalState = () => ({
+window.__lecTerminalState = () => ({
   hasSelection: !!active?.term?.hasSelection(),
   mouseTrackingMode: active?.term?.modes?.mouseTrackingMode || 'none',
 });
@@ -452,7 +452,7 @@ document.fonts?.ready.then(fitPanes);
 window.addEventListener("focus", fitPanes);
 window.addEventListener("pageshow", fitPanes);
 window.addEventListener("message", (e) => {
-  if (embedded && e.source === parent && e.origin === location.origin && e.data?.type === "adk-terminal-visible") {
+  if (embedded && e.source === parent && e.origin === location.origin && e.data?.type === "lec-terminal-visible") {
     document.body.classList.toggle('compact-terminal', e.data.compact === true);
     document.body.classList.toggle('mobile-terminal', e.data.mobile === true || (e.data.mobile === undefined && e.data.compact === true));
     applyTerminalChrome();
@@ -609,7 +609,7 @@ function savePrefs() {
     lineHeight: Number($("#line-height").value),
     theme: $("#theme").value,
   };
-  localStorage.setItem("adk-terminal-prefs", JSON.stringify(prefs));
+  localStorage.setItem("lec-terminal-prefs", JSON.stringify(prefs));
   for (const p of panes) {
     p.term.options.fontSize = prefs.fontSize;
     p.term.options.lineHeight = prefs.lineHeight;
@@ -809,9 +809,9 @@ $("#desktop-setup").onclick = () => {
   $("#desktop-command").value = info.desktop_command;
   $("#desktop-dialog").showModal();
 };
-$('#cli-install-command').textContent = 'bash install-agentdeck-cli.sh --server agentdeck --api ' + quote(location.origin);
+$('#cli-install-command').textContent = 'bash install-lectern-cli.sh --server lectern --api ' + quote(location.origin);
 if (/Win/i.test(navigator.userAgentData?.platform || navigator.platform)) {
-  $('#cli-install-command').textContent = 'powershell -ExecutionPolicy Bypass -File .\\install-agentdeck-cli.ps1 -Server agentdeck';
+  $('#cli-install-command').textContent = 'powershell -ExecutionPolicy Bypass -File .\\install-lectern-cli.ps1 -Server lectern';
 }
 $('#terminal-tools .action-menu-panel').addEventListener('click', e => {
   if (e.target.closest('button,a')) $('#terminal-tools').open = false;
@@ -860,7 +860,7 @@ act(async () => {
   $('#compact-desktop').href = info.desktop_uri;
   $('#compact-workspace').textContent = info.workdir;
   $("#identity").textContent = info.tmux_session + " · " + info.target;
-  document.title = info.tmux_session + " · AgentDeck";
+  document.title = info.tmux_session + " · Lectern";
   $("#workspace-path").textContent = info.workdir;
   $("#upload").disabled = !info.files_available;
   $("#files").disabled = !info.files_available;

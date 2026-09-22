@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 const StatusInterrupted = "interrupted"
@@ -18,7 +18,7 @@ func (m *Manager) recoverAfterBoot(ctx context.Context, target *store.Target, ex
 		// setup_state=ready is a completed, durable workspace setup and must be
 		// recoverable. Only an in-flight setup is excluded; it has its own
 		// recovery path and launching here could duplicate its worktree.
-		if row.EndedAt != nil || row.ArchivedAt != nil || row.Origin != "agentdeck" || row.SetupState == "creating" || row.BootID == "" || row.BootID == boot || row.Status == StatusInterrupted {
+		if row.EndedAt != nil || row.ArchivedAt != nil || row.Origin != "lectern" || row.SetupState == "creating" || row.BootID == "" || row.BootID == boot || row.Status == StatusInterrupted {
 			continue
 		}
 		r, err := ex.Run(ctx, PollCommand([]string{row.TmuxSession}), executor.RunOpts{Timeout: 10})

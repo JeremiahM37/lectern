@@ -1,5 +1,5 @@
 import shutil,re,tempfile,pathlib,json,uuid,os,pty,termios,fcntl,struct,subprocess,time,select,signal,hashlib
-with tempfile.TemporaryDirectory(prefix='adk-native-codex-') as tmp:
+with tempfile.TemporaryDirectory(prefix='lec-native-codex-') as tmp:
  home=pathlib.Path(tmp);work=home/'workspace';work.mkdir();saved=home/'sessions';saved.mkdir()
  source=str(uuid.uuid4());stamp='2026-09-10T04:00:00.000Z'
  file=saved/f'rollout-2026-09-10T04-00-00-{source}.jsonl'

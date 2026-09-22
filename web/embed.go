@@ -1,4 +1,4 @@
-// Package web embeds the agentdeck PWA so the binary is fully self-contained:
+// Package web embeds the lectern PWA so the binary is fully self-contained:
 // one file to deploy, and the UI works with no internet access.
 package web
 

@@ -111,7 +111,7 @@ export default function App() {
       setView(kind);
       if (kind === "media") setMediaSession(mediaSessionOf(hash));
       try {
-        localStorage.setItem("adk-last-view", kind);
+        localStorage.setItem("lec-last-view", kind);
       } catch {}
       history.replaceState(null, "", hash);
     }
@@ -246,7 +246,7 @@ export default function App() {
       }
       let saved = "board";
       try {
-        saved = localStorage.getItem("adk-last-view") || "board";
+        saved = localStorage.getItem("lec-last-view") || "board";
       } catch {}
       setView(
         isTab(saved)
@@ -401,7 +401,7 @@ export default function App() {
   }
   async function saveToken() {
     setAuthError("");
-    localStorage.setItem("adk-token", token);
+    localStorage.setItem("lec-token", token);
     try {
       await api.projects();
       setUnauthorized(false);
@@ -808,7 +808,7 @@ export default function App() {
           onCancel={(event) => event.preventDefault()}
         >
           <h2>Access token</h2>
-          <p>This AgentDeck requires an access token.</p>
+          <p>This Lectern requires an access token.</p>
           <form
             onSubmit={(event) => {
               event.preventDefault();

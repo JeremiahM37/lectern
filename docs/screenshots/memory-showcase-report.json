@@ -8,7 +8,7 @@
     "Real tmux/ttyd workspace connected",
     "Native terminal dashboard rendered"
   ],
-  "agentdeck_build": {
+  "lectern_build": {
     "version": "2.2.0",
     "revision": "",
     "modified": null

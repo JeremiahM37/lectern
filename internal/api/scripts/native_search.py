@@ -147,7 +147,7 @@ class NativeSearchIndex:
         if not terms or len(query)>500:raise ValueError('Enter between 1 and 500 characters')
         match=' AND '.join('"'+term.replace('"','""')+'"' for term in terms)
         limit=min(max(int(limit),1),100)
-        marker='adk-'+secrets.token_hex(12)
+        marker='lec-'+secrets.token_hex(12)
         opening,closing='['+marker+']','[/'+marker+']'
         rows=self.db.execute("""WITH hits AS (
             SELECT min(m.id) AS id FROM message_search
@@ -184,7 +184,7 @@ def main():
     parser.add_argument('--reset',action='store_true',help='Rebuild this derived index; source histories are unchanged')
     args=parser.parse_args()
     home=os.path.expanduser(os.environ.get('CODEX_HOME','~/.codex') if args.agent=='codex' else os.environ.get('CLAUDE_CONFIG_DIR','~/.claude'))
-    cache=os.environ.get('AGENTDECK_NATIVE_SEARCH_CACHE') or str(Path(os.environ.get('XDG_CACHE_HOME',str(Path.home()/'.cache')))/'agentdeck')
+    cache=os.environ.get('LECTERN_NATIVE_SEARCH_CACHE') or str(Path(os.environ.get('XDG_CACHE_HOME',str(Path.home()/'.cache')))/'lectern')
     index=None
     try:
         if not args.query.strip() or len(args.query)>500:raise ValueError('Enter between 1 and 500 characters')

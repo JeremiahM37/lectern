@@ -20,8 +20,8 @@ func workflowServer(t *testing.T) (*httptest.Server, *[]string) {
 			}
 			agent := r.URL.Query().Get("agent")
 			_ = json.NewEncoder(w).Encode(map[string]any{"workflows": []workflowOption{
-				{ID: "spec-kit", Name: "Spec Kit", Enabled: enabled[agent+"/spec-kit"], Commands: []string{"agentdeck-spec-kit specify"}},
-				{ID: "maestro", Name: "Maestro", Enabled: enabled[agent+"/maestro"], Commands: []string{"agentdeck-maestro diagnose"}},
+				{ID: "spec-kit", Name: "Spec Kit", Enabled: enabled[agent+"/spec-kit"], Commands: []string{"lectern-spec-kit specify"}},
+				{ID: "maestro", Name: "Maestro", Enabled: enabled[agent+"/maestro"], Commands: []string{"lectern-maestro diagnose"}},
 			}})
 			return
 		}
@@ -92,7 +92,7 @@ func TestPlainWorkflowMenuTogglesWithoutTouchingOtherPacks(t *testing.T) {
 	if got := strings.Join(*writes, "\n"); got != want {
 		t.Fatal(got)
 	}
-	for _, expected := range []string{"Spec Kit: on", "Maestro: on", "generated documents are preserved", "agentdeck-maestro diagnose"} {
+	for _, expected := range []string{"Spec Kit: on", "Maestro: on", "generated documents are preserved", "lectern-maestro diagnose"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %s", expected)
 		}

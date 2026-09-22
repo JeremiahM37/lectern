@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/version"
-	"github.com/JeremiahM37/agentdeck/web"
+	"github.com/JeremiahM37/lectern/internal/version"
+	"github.com/JeremiahM37/lectern/web"
 )
 
 func repoFile(t *testing.T, rel string) string {
@@ -26,7 +26,7 @@ func repoFile(t *testing.T, rel string) string {
 // evidence it ships a working one.
 func TestDockerfileBuildsAndShipsTheBinary(t *testing.T) {
 	df := repoFile(t, "deploy/Dockerfile")
-	for _, want := range []string{"go build", "./cmd/agentdeck", "COPY --from=build"} {
+	for _, want := range []string{"go build", "./cmd/lectern", "COPY --from=build"} {
 		if !strings.Contains(df, want) {
 			t.Errorf("Dockerfile is missing %q", want)
 		}
@@ -56,8 +56,8 @@ func TestDockerfileHasHealthcheck(t *testing.T) {
 
 // The systemd unit runs the compiled binary, not a source tree.
 func TestSystemdUnitRunsTheBinary(t *testing.T) {
-	unit := repoFile(t, "deploy/agentdeck.service")
-	if !strings.Contains(unit, "ExecStart=/usr/local/bin/agentdeck") {
+	unit := repoFile(t, "deploy/lectern.service")
+	if !strings.Contains(unit, "ExecStart=/usr/local/bin/lectern") {
 		t.Error("the unit should exec the installed binary")
 	}
 	// agent binaries in ~/.local/bin are why a probe reports a missing codex
@@ -110,7 +110,7 @@ func TestReactShellAssetsAreEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(sw), "agentdeck-react-") {
+	if !strings.Contains(string(sw), "lectern-react-") {
 		t.Fatal("embedded worker is not the content-versioned React build")
 	}
 }
@@ -119,10 +119,10 @@ func TestReactShellAssetsAreEmbedded(t *testing.T) {
 func TestAgentHooksAreEmbedded(t *testing.T) {
 	h := newHarness(t)
 	h.run(h.seededProjectID(), "hooks", "x", nil)
-	if !strings.Contains(string(h.staged("/.agentdeck/adk.py")), "add-task") {
+	if !strings.Contains(string(h.staged("/.lectern/lec.py")), "add-task") {
 		t.Error("the task-filing kit was not staged")
 	}
-	if !strings.Contains(string(h.staged("/.agentdeck/env")), "ADK_TOKEN=") {
+	if !strings.Contains(string(h.staged("/.lectern/env")), "ADK_TOKEN=") {
 		t.Error("the per-attempt token was not staged")
 	}
 }

@@ -100,7 +100,7 @@ func TestAgentProviderSecretsUseTypedRetentionMarkers(t *testing.T) {
 		t.Fatalf("agent env view has type %T", saved["env"])
 	}
 	marker, ok := env["OPENAI_API_KEY"].(map[string]any)
-	if !ok || marker["__agentdeck_retained"] == nil {
+	if !ok || marker["__lectern_retained"] == nil {
 		t.Fatalf("provider key was not returned as a typed retention marker: %#v", env["OPENAI_API_KEY"])
 	}
 	if strings.Contains(fmt.Sprint(saved), "test-only-secret") {

@@ -30,9 +30,9 @@ def test_restart_recovers_agent_created_before_setup_publication(page,real_termi
         original_id=subprocess.check_output(['tmux','display-message','-p','-t','='+before['tmux_session']+':','#{session_id}'],env=t['env']).decode().strip()
         t['proc'].kill();t['proc'].wait(timeout=10)
         # Verify the crash window on disk, independent of the old process.
-        with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+        with sqlite3.connect(t['env']['LECTERN_DB']) as db:
             assert db.execute('select setup_state,tracking_identity from sessions where id=?',(row['id'],)).fetchone()==('creating','')
-        restarted=subprocess.Popen([_binary()],cwd=t['root'],env={**t['env'],'AGENTDECK_SESSION_POLL':'0.2'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        restarted=subprocess.Popen([_binary()],cwd=t['root'],env={**t['env'],'LECTERN_SESSION_POLL':'0.2'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         deadline=time.monotonic()+15
         while time.monotonic()<deadline:
             try:
@@ -41,7 +41,7 @@ def test_restart_recovers_agent_created_before_setup_publication(page,real_termi
             except Exception:pass
             time.sleep(.1)
         assert recovered['setup_state']=='ready' and recovered['ended_at'] is None,recovered
-        with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+        with sqlite3.connect(t['env']['LECTERN_DB']) as db:
             identity=db.execute('select tracking_identity from sessions where id=?',(row['id'],)).fetchone()[0]
             assert len(identity)==32
         assert 'tracking_identity' not in recovered

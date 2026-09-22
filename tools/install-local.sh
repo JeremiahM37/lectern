@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Install the standalone local AgentDeck command.
+# Install the standalone local Lectern command.
 #
-# This uses a separate name only when the SSH client already owns `agentdeck`.
+# This uses a separate name only when the SSH client already owns `lectern`.
 set -euo pipefail
 
 source_dir=""
@@ -13,15 +13,15 @@ usage() {
   cat <<'EOF'
 Usage: bash tools/install-local.sh [options]
 
-Install the standalone local AgentDeck command from a checkout or binary.
-The default command is `agentdeck`; if that name is already installed, the
-installer uses `agentdeck-local` so the remote client keeps working.
+Install the standalone local Lectern command from a checkout or binary.
+The default command is `lectern`; if that name is already installed, the
+installer uses `lectern-local` so the remote client keeps working.
 
 Options:
-  --source DIR    Build from this AgentDeck checkout
-  --binary FILE   Install this already-built AgentDeck binary
+  --source DIR    Build from this Lectern checkout
+  --binary FILE   Install this already-built Lectern binary
   --prefix DIR    Install directory (default: ~/.local/bin)
-  --name NAME     Command name (default: agentdeck, or agentdeck-local if busy)
+  --name NAME     Command name (default: lectern, or lectern-local if busy)
   -h, --help      Show this help
 EOF
 }
@@ -63,7 +63,7 @@ file_hash() {
 
 for prerequisite in git tmux python3; do
   command -v "$prerequisite" >/dev/null || {
-    echo "Missing prerequisite: $prerequisite (install it before local AgentDeck)." >&2
+    echo "Missing prerequisite: $prerequisite (install it before local Lectern)." >&2
     exit 1
   }
 done
@@ -74,7 +74,7 @@ if [[ -z $source_dir && -z $binary && -f "$script_dir/../go.mod" ]]; then
 fi
 if [[ -n $source_dir ]]; then
   source_dir=$(cd -- "$source_dir" && pwd)
-  [[ -f "$source_dir/go.mod" ]] || { echo "Not an AgentDeck checkout: $source_dir" >&2; exit 2; }
+  [[ -f "$source_dir/go.mod" ]] || { echo "Not a Lectern checkout: $source_dir" >&2; exit 2; }
 fi
 if [[ -n $binary ]]; then
   [[ -f $binary ]] || { echo "Binary not found: $binary" >&2; exit 2; }
@@ -85,9 +85,9 @@ if [[ -n $source_dir && -n $binary ]]; then
   exit 2
 fi
 
-stage=$(mktemp -d "${TMPDIR:-/tmp}/agentdeck-local.XXXXXX")
+stage=$(mktemp -d "${TMPDIR:-/tmp}/lectern-local.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
-candidate="$stage/agentdeck"
+candidate="$stage/lectern"
 
 if [[ -n $binary ]]; then
   install -m 755 "$binary" "$candidate"
@@ -96,8 +96,8 @@ elif [[ -n $source_dir ]]; then
     echo 'Source build needs Go 1.25 or newer; install Go or pass --binary.' >&2
     exit 1
   }
-  echo "Building AgentDeck from $source_dir"
-  (cd -- "$source_dir" && go build -trimpath -o "$candidate" ./cmd/agentdeck)
+  echo "Building Lectern from $source_dir"
+  (cd -- "$source_dir" && go build -trimpath -o "$candidate" ./cmd/lectern)
 else
   echo 'Provide --source PATH or --binary FILE; no release assets are configured.' >&2
   exit 1
@@ -105,18 +105,18 @@ fi
 
 [[ -x $candidate ]] || { echo 'The candidate is not executable.' >&2; exit 1; }
 if ! "$candidate" version >/dev/null 2>&1; then
-  echo 'The candidate did not answer `agentdeck version`; refusing to install it.' >&2
+  echo 'The candidate did not answer `lectern version`; refusing to install it.' >&2
   exit 1
 fi
 if ! "$candidate" local --help >/dev/null 2>&1; then
-  echo 'The candidate must also support `agentdeck local --help`.' >&2
+  echo 'The candidate must also support `lectern local --help`.' >&2
   exit 1
 fi
 
 mkdir -p -- "$prefix"
 if [[ -z $name ]]; then
-  name=agentdeck
-  managed_marker="${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/agentdeck/local/installed/$name"
+  name=lectern
+  managed_marker="${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/lectern/local/installed/$name"
   managed=0
   if [[ -f "$prefix/$name" && -f "$managed_marker" ]]; then
     marker_path=$(sed -n '1p' "$managed_marker")
@@ -124,12 +124,12 @@ if [[ -z $name ]]; then
     [[ $marker_path == "$prefix/$name" && $marker_hash == "$(file_hash "$prefix/$name")" ]] && managed=1
   fi
   if [[ -e "$prefix/$name" || -L "$prefix/$name" ]] && (( ! managed )); then
-    name=agentdeck-local
+    name=lectern-local
   fi
 fi
 [[ $name =~ ^[a-zA-Z0-9._+-]+$ ]] || { echo 'Invalid command name' >&2; exit 2; }
 destination="$prefix/$name"
-state_root="${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/agentdeck/local"
+state_root="${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/lectern/local"
 if [[ -e $destination || -L $destination ]]; then
   backup_dir="$state_root/backups/$(date +%Y%m%d-%H%M%S)"
   mkdir -p -- "$backup_dir"

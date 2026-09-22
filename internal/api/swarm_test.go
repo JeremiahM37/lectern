@@ -6,7 +6,7 @@ import (
 )
 
 // attemptToken reads the per-attempt hook token straight from the database, the
-// way a staged .agentdeck/env would hand it to a running agent.
+// way a staged .lectern/env would hand it to a running agent.
 func (h *harness) attemptToken(taskID int64) string {
 	h.t.Helper()
 	att, err := h.App.DB.LatestAttempt(taskID)

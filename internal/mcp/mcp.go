@@ -1,8 +1,8 @@
-// Package mcp exposes agentdeck over the Model Context Protocol on stdio, so any
+// Package mcp exposes lectern over the Model Context Protocol on stdio, so any
 // MCP client — Claude Code, an mcpo bridge, a chat bot — can file and steer
 // tasks.
 //
-// It is a client of agentdeck's own HTTP API rather than of the database, so it
+// It is a client of lectern's own HTTP API rather than of the database, so it
 // works against a control plane running anywhere and can never bypass a
 // validation the API enforces.
 package mcp
@@ -17,20 +17,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/version"
+	"github.com/JeremiahM37/lectern/internal/version"
 )
 
 // protocolVersion is the MCP revision this server implements.
 const protocolVersion = "2024-11-05"
 
-// Server speaks JSON-RPC over stdio and forwards to an agentdeck API.
+// Server speaks JSON-RPC over stdio and forwards to an lectern API.
 type Server struct {
 	API   string
 	Token string
 	HTTP  *http.Client
 }
 
-// New builds a server pointed at an agentdeck instance.
+// New builds a server pointed at an lectern instance.
 func New(api, token string) *Server {
 	return &Server{
 		API:   strings.TrimRight(api, "/"),
@@ -92,7 +92,7 @@ func (s *Server) handle(req request) (response, bool) {
 		resp.Result = map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "agentdeck", "version": version.Version},
+			"serverInfo":      map[string]any{"name": "lectern", "version": version.Version},
 		}
 	case "tools/list":
 		resp.Result = map[string]any{"tools": toolSchemas()}
@@ -151,7 +151,7 @@ func (s *Server) api(method, path string, body any) (any, error) {
 	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("agentdeck unreachable at %s: %w", s.API, err)
+		return nil, fmt.Errorf("lectern unreachable at %s: %w", s.API, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)

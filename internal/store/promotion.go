@@ -14,7 +14,7 @@ func (db *DB) PromoteNewProjectAndBind(ctx context.Context, p *Project, sessionI
 		if _, err := rand.Read(b); err != nil {
 			return nil, err
 		}
-		p.MemoryTopic, p.MemoryStatus = fmt.Sprintf("agentdeck-%x", b), "pending"
+		p.MemoryTopic, p.MemoryStatus = fmt.Sprintf("lectern-%x", b), "pending"
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

@@ -24,7 +24,7 @@ func sampleDashboard() *dashboard {
 func TestSessionActionsExposeConversationPromotionForUnassignedNativeCandidate(t *testing.T) {
 	m := newDashboard(New("http://unused", ""), nil)
 	m.section = 0
-	m.rows = []row{{"id": float64(42), "name": "Shell", "agent": "shell", "status": "running", "workdir": "/tmp/work", "tmux_session": "adk-shell"}}
+	m.rows = []row{{"id": float64(42), "name": "Shell", "agent": "shell", "status": "running", "workdir": "/tmp/work", "tmux_session": "lec-shell"}}
 	m.filter()
 	found := false
 	for _, action := range m.rowActions() {
@@ -42,7 +42,7 @@ func TestPromotionPreviewPreservesProofAndSessionBinding(t *testing.T) {
 	m.section = 0
 	m.rows = []row{{"id": float64(42), "name": "first", "agent": "shell", "status": "running"}}
 	m.filter()
-	m.promotionPreviewForm([]byte(`{"session_id":42,"identity":{"agent":"claude","cid":"cid-1","pid":17,"proc_start":"start-1","workdir":"/srv/exact","tmux_session":"adk-42","tracking_identity":"track-1","future_proof":"retain-me"},"existing_projects":[{"id":7,"name":"Exact","repo_path":"/srv/exact"}]}`))
+	m.promotionPreviewForm([]byte(`{"session_id":42,"identity":{"agent":"claude","cid":"cid-1","pid":17,"proc_start":"start-1","workdir":"/srv/exact","tmux_session":"lec-42","tracking_identity":"track-1","future_proof":"retain-me"},"existing_projects":[{"id":7,"name":"Exact","repo_path":"/srv/exact"}]}`))
 	if m.form == nil {
 		t.Fatal("valid promotion preview did not open form")
 	}

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // HandoffPrompt is what we ask a session to write before it is retired.
@@ -132,7 +132,7 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
-	path := fmt.Sprintf("/tmp/agentdeck-handoff-%d-%s.md", sess.ID, hex.EncodeToString(nonce))
+	path := fmt.Sprintf("/tmp/lectern-handoff-%d-%s.md", sess.ID, hex.EncodeToString(nonce))
 	// clear any wrap left by an earlier handoff on this session, or we would
 	// happily "capture" the previous one and call it current
 	if _, err := ex.Run(ctx, "rm -f "+path, executor.RunOpts{Timeout: 20}); err != nil {
@@ -260,7 +260,7 @@ func clipRunes(s string, n int) string {
 
 // The final marker is bound to a unique request path, so neither a partial file
 // nor a late writer from a previous attempt can complete this handoff.
-func handoffMarker(path string) string { return "<!-- agentdeck:complete " + path + " -->" }
+func handoffMarker(path string) string { return "<!-- lectern:complete " + path + " -->" }
 
 func completedHandoff(raw []byte, path string) (string, bool) {
 	text := strings.TrimSpace(string(raw))

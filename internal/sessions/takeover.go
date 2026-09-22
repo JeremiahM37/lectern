@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // ExactResumeID never falls back to the last conversation in a directory.
@@ -35,7 +35,7 @@ func (m *Manager) PrepareTakeover(ctx context.Context, ex executor.Executor, tas
 	prime := ""
 	if resumeID == "" {
 		prompt := firstNonEmpty(att.Prompt, task.Prompt)
-		handoff := "# Interactive takeover\n\nThe operator took over this existing run. Preserve its work and wait for their next instruction.\n\n## Original request\n" + prompt + "\n\n## Last result\n" + att.ResultJSON + "\n\nThe complete event log is in .agentdeck/events.jsonl.\n"
+		handoff := "# Interactive takeover\n\nThe operator took over this existing run. Preserve its work and wait for their next instruction.\n\n## Original request\n" + prompt + "\n\n## Last result\n" + att.ResultJSON + "\n\nThe complete event log is in .lectern/events.jsonl.\n"
 		path := agents.RuntimeDir(att.WorktreePath) + "/takeover.md"
 		if err := ex.WriteFile(ctx, path, []byte(handoff)); err != nil {
 			return LaunchOpts{}, err

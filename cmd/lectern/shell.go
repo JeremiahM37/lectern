@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/console"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/console"
 )
 
 type shellTarget struct {
@@ -25,7 +25,7 @@ type shellTarget struct {
 // operator never has to choose a project, agent, model, or launch profile.
 func shellCommandAt(cfg *config.Config, args []string, base, token string, local bool) error {
 	if len(args) > 1 {
-		return fmt.Errorf("usage: agentdeck shell [machine]")
+		return fmt.Errorf("usage: lectern shell [machine]")
 	}
 	c := console.New(base, token)
 	targets, err := listShellTargets(c)
@@ -42,7 +42,7 @@ func shellCommandAt(cfg *config.Config, args []string, base, token string, local
 	}
 	attachHost := ""
 	if !local {
-		attachHost = os.Getenv("AGENTDECK_ATTACH_HOST")
+		attachHost = os.Getenv("LECTERN_ATTACH_HOST")
 		if attachHost == "" {
 			parsed, parseErr := url.Parse(base)
 			if parseErr != nil {
@@ -50,7 +50,7 @@ func shellCommandAt(cfg *config.Config, args []string, base, token string, local
 			}
 			host := parsed.Hostname()
 			if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-				return fmt.Errorf("set AGENTDECK_ATTACH_HOST to the server's SSH alias before opening a remote shell")
+				return fmt.Errorf("set LECTERN_ATTACH_HOST to the server's SSH alias before opening a remote shell")
 			}
 		}
 	}
@@ -78,7 +78,7 @@ func shellCommandAt(cfg *config.Config, args []string, base, token string, local
 
 func shellEndpointError(err error) error {
 	if he, ok := err.(*console.HTTPError); ok && he.Status == 404 {
-		return fmt.Errorf("quick shell is unavailable on the running server; restart or update AgentDeck, then try again")
+		return fmt.Errorf("quick shell is unavailable on the running server; restart or update Lectern, then try again")
 	}
 	return err
 }

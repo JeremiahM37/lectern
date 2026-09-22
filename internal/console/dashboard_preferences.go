@@ -38,7 +38,7 @@ func dashboardPreferencePath(base string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "agentdeck", "console", hex.EncodeToString(digest[:])+".json"), nil
+	return filepath.Join(dir, "lectern", "console", hex.EncodeToString(digest[:])+".json"), nil
 }
 
 func readDashboardPreferences(path string) (dashboardPreferences, error) {

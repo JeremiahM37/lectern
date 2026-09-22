@@ -11,7 +11,7 @@ from test_terminal_tabs import frame, ready
 def search(page, text):
     page.get_by_role('button',name='Search sessions and actions',exact=True).click()
     page.get_by_role('combobox',name='Search sessions, tasks, and actions').fill(text)
-    return page.get_by_role('dialog',name='Search AgentDeck')
+    return page.get_by_role('dialog',name='Search Lectern')
 
 
 def test_command_ranking_handles_multiple_terms_unicode_and_title_priority():
@@ -39,7 +39,7 @@ def test_command_search_attaches_and_keeps_terminal_alive(page,real_terminal,wid
         page.set_viewport_size({'width':390,'height':400})
         assert dialog.bounding_box()['y']+dialog.bounding_box()['height'] <= 400
         page.set_viewport_size({'width':390,'height':900})
-    page.screenshot(path=f'/tmp/agentdeck-command-search-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-command-search-{width}.png')
     dialog.get_by_role('option').click();one=frame(page,t['id']);ready(one)
     one.locator('body').evaluate('()=>window.paletteTerminalIdentity="same-terminal"')
     search(page,'task board').get_by_role('option').click()
@@ -62,7 +62,7 @@ def test_command_search_keyboard_drafts_empty_results_and_refresh_error(page,rea
     field=page.get_by_role('dialog',name='New task',exact=True).locator('input').first;field.fill('Keep this draft');field.focus()
     page.keyboard.press('Control+k');expect(box).to_be_focused()
     box.fill('nothing-matches-92836');expect(page.locator('#command-results').get_by_role('option')).to_have_count(0)
-    page.keyboard.press('Enter');expect(page.get_by_role('dialog',name='Search AgentDeck')).to_be_visible()
+    page.keyboard.press('Enter');expect(page.get_by_role('dialog',name='Search Lectern')).to_be_visible()
     page.keyboard.press('Escape');expect(field).to_have_value('Keep this draft');expect(field).to_be_focused()
     expect(page.get_by_role('dialog',name='New task',exact=True)).to_be_visible()
     page.keyboard.press('Escape')
@@ -81,8 +81,8 @@ def test_command_search_touch_navigation_and_small_viewport(page,real_terminal):
     with page.context.browser.new_context(viewport={'width':390,'height':844},is_mobile=True,has_touch=True) as context:
         phone=context.new_page();phone.goto(real_terminal['url'])
         phone.get_by_role('button',name='Search sessions and actions').tap()
-        dialog=phone.get_by_role('dialog',name='Search AgentDeck')
+        dialog=phone.get_by_role('dialog',name='Search Lectern')
         dialog.get_by_role('combobox').fill('notifications')
         dialog.get_by_role('option').tap()
         expect(phone.get_by_role('tab',name='Notifications',exact=True)).to_have_attribute('aria-selected','true')
-        phone.screenshot(path='/tmp/agentdeck-command-touch-navigation.png')
+        phone.screenshot(path='/tmp/lectern-command-touch-navigation.png')

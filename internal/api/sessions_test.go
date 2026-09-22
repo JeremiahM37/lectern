@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func (h *harness) session(body obj) obj {
@@ -45,7 +45,7 @@ func TestSessionLaunchesAndReportsItsOwnState(t *testing.T) {
 	pid := h.seededProjectID()
 	sess := h.session(obj{"project_id": pid, "name": "sglang", "agent": "claude",
 		"model": "opus"})
-	if sess.str("name") != "sglang" || sess.str("origin") != "agentdeck" {
+	if sess.str("name") != "sglang" || sess.str("origin") != "lectern" {
 		t.Fatalf("session: %v", sess)
 	}
 	if sess.str("tmux_session") == "" {
@@ -215,7 +215,7 @@ func TestSessionPollNoticesAProcessThatVanished(t *testing.T) {
 	h := newHarness(t)
 	sess := h.session(obj{"project_id": h.seededProjectID()})
 	h.waitSessionStatus(sess.id(), "waiting", "idle", "running")
-	// kill the tmux session behind agentdeck's back, the way a reboot or a
+	// kill the tmux session behind lectern's back, the way a reboot or a
 	// stray `tmux kill-server` would
 	mock := h.mock()
 	if _, err := mock.Run(context.Background(), "tmux kill-session -t "+sess.str("tmux_session"),
@@ -226,7 +226,7 @@ func TestSessionPollNoticesAProcessThatVanished(t *testing.T) {
 }
 
 // Discovery is the half a task board misses entirely.
-func TestDiscoverFindsAgentsAgentdeckDidNotStart(t *testing.T) {
+func TestDiscoverFindsAgentsLecternDidNotStart(t *testing.T) {
 	h := newHarness(t)
 	found := h.getList("/api/sessions/discover")
 	var legacy obj
@@ -399,7 +399,7 @@ func TestSessionValidation(t *testing.T) {
 
 // An agent you started three days ago should say "up 3d", not "up 4s". tmux
 // knows when its own session began; adoption asks rather than assuming the
-// moment agentdeck noticed is the moment work started.
+// moment lectern noticed is the moment work started.
 func TestAdoptTakesTmuxsUptimeNotTheMomentWeNoticed(t *testing.T) {
 	h := newHarness(t)
 	sess := h.post("/api/sessions/adopt", obj{
@@ -464,14 +464,14 @@ func TestDeleteKillsAnAdoptedSessionOnlyWhenAsked(t *testing.T) {
 	}
 }
 
-// A session agentdeck launched is its own to end — no extra ceremony.
-func TestDeleteKillsASessionAgentdeckStarted(t *testing.T) {
+// A session lectern launched is its own to end — no extra ceremony.
+func TestDeleteKillsASessionLecternStarted(t *testing.T) {
 	h := newHarness(t)
 	sess := h.session(obj{"project_id": h.seededProjectID()})
 	h.waitSessionStatus(sess.id(), "waiting", "idle", "running")
 	got := h.request2("DELETE", fmt.Sprintf("/api/sessions/%d", sess.id()), nil, 200)
 	if got["killed"] != true {
-		t.Fatalf("an agentdeck-launched session should end on delete: %v", got)
+		t.Fatalf("an lectern-launched session should end on delete: %v", got)
 	}
 	if h.sessionByID(sess.id()).str("status") != "dead" {
 		t.Error("status after delete")

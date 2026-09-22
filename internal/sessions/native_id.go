@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/nativeidentity"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/nativeidentity"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // CaptureNativeID invokes the shared identity implementation with the
@@ -99,7 +99,7 @@ func (m *Manager) stopNativeCheckpoint(sessionID int64) {
 	m.checkpointMu.Unlock()
 }
 
-// RestartNativeCheckpoint changes only AgentDeck's read-only observer after a
+// RestartNativeCheckpoint changes only Lectern's read-only observer after a
 // promotion; the user's existing process and tmux terminal remain untouched.
 func (m *Manager) RestartNativeCheckpoint(sessionID int64, agent, workdir, home, tmux string) {
 	m.stopNativeCheckpoint(sessionID)
@@ -119,7 +119,7 @@ func (m *Manager) runNativeCheckpoint(ctx context.Context, sessionID int64, agen
 			return false
 		}
 		// A pre-recovery row without a persisted tmux marker cannot prove that
-		// the current process is the one AgentDeck launched. Leave its native
+		// the current process is the one Lectern launched. Leave its native
 		// checkpoint unknown; boot recovery will keep it visible for inspection.
 		if row.TrackingIdentity == "" {
 			return false
@@ -182,7 +182,7 @@ func (m *Manager) runNativeCheckpoint(ctx context.Context, sessionID int64, agen
 // it also covers a process that was alive before the new manager existed.
 func (m *Manager) startCheckpointsForLiveRows(rows []*store.Session) {
 	for _, row := range rows {
-		if row.EndedAt != nil || row.ArchivedAt != nil || row.SetupState == "creating" || row.Status == StatusInterrupted || row.Origin != "agentdeck" {
+		if row.EndedAt != nil || row.ArchivedAt != nil || row.SetupState == "creating" || row.Status == StatusInterrupted || row.Origin != "lectern" {
 			continue
 		}
 		var spec Spec

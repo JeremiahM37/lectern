@@ -21,7 +21,7 @@ def open_recent(page, t, width=1440):
 
 def seed_closed_rows(t, count=9):
     now = time.time()
-    with sqlite3.connect(t["env"]["AGENTDECK_DB"]) as db:
+    with sqlite3.connect(t["env"]["LECTERN_DB"]) as db:
         for i in range(count):
             ended = now - (i + 2) * 60
             db.execute(
@@ -36,7 +36,7 @@ def seed_closed_rows(t, count=9):
                     str(t["root"]),
                     f"closed-fixture-{i + 1}",
                     "dead",
-                    "agentdeck",
+                    "lectern",
                     ended - 60,
                     ended,
                     ended,
@@ -46,15 +46,15 @@ def seed_closed_rows(t, count=9):
 
 
 def mark_as_durable_dead(t):
-    """Make the fixture represent a closed AgentDeck-owned terminal.
+    """Make the fixture represent a closed Lectern-owned terminal.
 
     DELETE preserves a discovered terminal as a released row so the safe
     action is Restore tracking.  The Resume/Choose history branches need the
     separate durable dead state.
     """
-    with sqlite3.connect(t["env"]["AGENTDECK_DB"]) as db:
+    with sqlite3.connect(t["env"]["LECTERN_DB"]) as db:
         db.execute(
-            "UPDATE sessions SET origin='agentdeck', status='dead' WHERE id=?",
+            "UPDATE sessions SET origin='lectern', status='dead' WHERE id=?",
             (t["id"],),
         )
         db.commit()
@@ -88,7 +88,7 @@ def test_recent_closed_empty_live_list_last_ten_restore_and_narrow(page, real_te
 def test_recent_closed_exact_binding_resumes_and_attaches(page, real_terminal):
     t = real_terminal
     cid, _, _ = prepare(t, "claude")
-    with sqlite3.connect(t["env"]["AGENTDECK_DB"]) as db:
+    with sqlite3.connect(t["env"]["LECTERN_DB"]) as db:
         db.execute("UPDATE sessions SET resume_id=? WHERE id=?", (cid, t["id"]))
         db.commit()
     stopped(t)

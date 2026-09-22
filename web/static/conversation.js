@@ -9,7 +9,7 @@ export function openConversation({kind, id, name, api, attachMic, onClose}) {
   const root = document.createElement('section');
   root.id = 'conversation'; root.className = 'conversation';
   root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-labelledby','conversation-title');
-  const draftKey = `adk-draft-${kind}-${id}`;
+  const draftKey = `lec-draft-${kind}-${id}`;
   let draft = {};
   try { draft = JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch {}
   root.innerHTML = `<header class="conversation-head"><div><h2 id="conversation-title">${esc(name)}</h2><p id="conversation-status" role="status">Connecting…</p></div><button class="b" id="conversation-close" aria-label="Close conversation">✕</button></header>
@@ -37,8 +37,8 @@ export function openConversation({kind, id, name, api, attachMic, onClose}) {
   const uploadAbort = new AbortController();
   let attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
   let closed = false, busy = false, sending = false, follow = true, lastSignature = '', latestTask;
-  let font = Math.max(16,Math.min(24,Number(localStorage.getItem('adk-reader-font')) || 17));
-  const applyFont = () => { root.style.setProperty('--reader-font', `${font}px`); localStorage.setItem('adk-reader-font', font); };
+  let font = Math.max(16,Math.min(24,Number(localStorage.getItem('lec-reader-font')) || 17));
+  const applyFont = () => { root.style.setProperty('--reader-font', `${font}px`); localStorage.setItem('lec-reader-font', font); };
   applyFont();
   $('#reader-smaller').onclick = () => { font=Math.max(16,font-1); applyFont(); };
   $('#reader-larger').onclick = () => { font=Math.min(24,font+1); applyFont(); };

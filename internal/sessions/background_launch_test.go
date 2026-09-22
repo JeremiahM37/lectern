@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestSetupPollDistinguishesActiveCompletedAndInterrupted(t *testing.T) {

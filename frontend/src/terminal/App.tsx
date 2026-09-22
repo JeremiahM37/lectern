@@ -162,7 +162,7 @@ function Pane({
 }
 declare global {
   interface Window {
-    __adkTerminalState?: () => {
+    __lecTerminalState?: () => {
       hasSelection: boolean;
       mouseTrackingMode: string;
     };
@@ -267,7 +267,7 @@ export function TerminalApp({
   const savePrefs = useCallback((next: Prefs) => {
     setPrefs(next);
     try {
-      localStorage.setItem("adk-terminal-prefs", JSON.stringify(next));
+      localStorage.setItem("lec-terminal-prefs", JSON.stringify(next));
     } catch {}
   }, []);
   const setShownFont = useCallback(
@@ -363,7 +363,7 @@ export function TerminalApp({
     void json<TerminalInfo>(base + "/info", { signal: abort.signal })
       .then((data) => {
         setInfo(data);
-        document.title = data.tmux_session + " · AgentDeck";
+        document.title = data.tmux_session + " · Lectern";
       })
       .catch((error) => {
         if (!abort.signal.aborted) setNotice(errorMessage(error));
@@ -421,12 +421,12 @@ export function TerminalApp({
     };
   }, []);
   useEffect(() => {
-    window.__adkTerminalState = () => ({
+    window.__lecTerminalState = () => ({
       hasSelection: !!current()?.term.hasSelection(),
       mouseTrackingMode: current()?.term.modes.mouseTrackingMode || "none",
     });
     return () => {
-      delete window.__adkTerminalState;
+      delete window.__lecTerminalState;
     };
   }, []);
   useEffect(() => {
@@ -667,8 +667,8 @@ export function TerminalApp({
   return (
     <>
       <header>
-        <a href="/" title="Back to AgentDeck">
-          ◈ agentdeck
+        <a href="/" title="Back to Lectern">
+          ◈ lectern
         </a>
         <span id="identity">
           {info ? info.tmux_session + " · " + info.target : "Connecting…"}

@@ -2,7 +2,7 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 	"os"
 	"path/filepath"
 	"testing"

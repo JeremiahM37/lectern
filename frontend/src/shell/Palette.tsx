@@ -104,7 +104,7 @@ export function Palette({
     <dialog
       ref={root}
       className="command-palette"
-      aria-label="Search AgentDeck"
+      aria-label="Search Lectern"
       onCancel={(event) => {
         event.preventDefault();
         onClose();

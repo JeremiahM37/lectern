@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func (s *Server) listLaunchProfiles(w http.ResponseWriter, r *http.Request) {

@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/terminal"
 )
 
 // The URL handed to the browser must be same-origin, so it survives every way
-// of reaching agentdeck: directly, through nginx, over the tailnet, on a phone.
+// of reaching lectern: directly, through nginx, over the tailnet, on a phone.
 func TestAttachReturnsASameOriginURL(t *testing.T) {
 	h := newHarness(t)
 	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
@@ -72,7 +72,7 @@ func TestTerminalProxyOnlyServesPortsItOwns(t *testing.T) {
 	h := newHarness(t)
 	for _, path := range []string{
 		"/term/7710/",     // in range, but nothing attached
-		"/term/9110/",     // agentdeck itself
+		"/term/9110/",     // lectern itself
 		"/term/22/",       // ssh
 		"/term/0/",        // nonsense
 		"/term/notaport/", // nonsense
@@ -92,15 +92,15 @@ func TestTerminalProxyOnlyServesPortsItOwns(t *testing.T) {
 // the base path it is mounted under or the page loads blank — and a ttyd with
 // no credential must never listen on the network.
 func TestTTYDArgsMountUnderTheBasePathOnLoopback(t *testing.T) {
-	att := terminal.Attachment{Key: "session:7", TmuxSession: "adk-s7"}
+	att := terminal.Attachment{Key: "session:7", TmuxSession: "lec-s7"}
 	got := strings.Join(terminal.TTYDArgs(7712, att.BasePath(),
-		[]string{"tmux", "attach", "-t", "adk-1"}), " ")
+		[]string{"tmux", "attach", "-t", "lec-1"}), " ")
 	for _, want := range []string{
 		"-p 7712",            // the port it was given
 		"-i lo",              // an unauthenticated shell stays off the network
 		"-b /term/session/7", // the attachment, not the port
 		"-W",                 // the operator can type
-		"tmux attach -t adk-1",
+		"tmux attach -t lec-1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("ttyd args missing %q:\n  %s", want, got)
@@ -367,7 +367,7 @@ func TestAProjectShellIsARealShellInTheRepo(t *testing.T) {
 	r := newRealRig(t)
 	t.Cleanup(func() {
 		r.app.Terminals.Shutdown()
-		exec.Command("tmux", "kill-session", "-t", fmt.Sprintf("adk-sh%d", r.project)).Run()
+		exec.Command("tmux", "kill-session", "-t", fmt.Sprintf("lec-sh%d", r.project)).Run()
 	})
 
 	code, body := r.do("POST", fmt.Sprintf("/api/projects/%d/terminal", r.project), map[string]any{})

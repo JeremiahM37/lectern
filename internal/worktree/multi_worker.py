@@ -46,6 +46,16 @@ def acquire_lock():
             time.sleep(.01)
 
 
+def record_name(kind):
+    # A workspace made before the rename keeps its files under the old prefix;
+    # they hold its lock identity, so they cannot be renamed underneath a
+    # running operation. A workspace with neither gets the current name.
+    current, legacy = '.lectern-' + kind, '.agentdeck-' + kind
+    if (root / current).exists() or not (root / legacy).exists():
+        return current
+    return legacy
+
+
 def read_record(name):
     with regular_file(name, os.O_RDONLY) as file:
         return json.load(file)
@@ -54,7 +64,7 @@ def read_record(name):
 def write_record(name, value):
     # Never truncate an existing path: it may have been replaced by a symlink
     # or hard link. A new private inode is atomically installed under the lock.
-    fd, temp = tempfile.mkstemp(prefix='.agentdeck-write-', dir=root)
+    fd, temp = tempfile.mkstemp(prefix='.lectern-write-', dir=root)
     try:
         with os.fdopen(fd, 'w') as file:
             json.dump(value, file)
@@ -72,7 +82,7 @@ def write_record(name, value):
 
 
 def save():
-    write_record('.agentdeck-state.json', p)
+    write_record(record_name('state.json'), p)
 
 
 def identity(plan):
@@ -106,9 +116,9 @@ def boot_id():
 
 
 def busy():
-    receipt = root / '.agentdeck-process.json'
+    receipt = root / record_name('process.json')
     if os.path.lexists(receipt):
-        record = read_record('.agentdeck-process.json')
+        record = read_record(record_name('process.json'))
         pgid = record['pgid']
         if type(pgid) is not int or pgid <= 1:
             raise ValueError('Workspace process receipt is invalid; inspect it before cleanup')
@@ -180,7 +190,7 @@ def run_child(entry, operation):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             start_new_session=True, pass_fds=(read_fd, lock.fileno()),
         )
-        write_record('.agentdeck-process.json', {
+        write_record(record_name('process.json'), {
             'pgid': child.pid,
             'starttime': process_starttime(child.pid),
             'boot_id': boot_id(),
@@ -218,8 +228,8 @@ try:
         # progress while a checkout holds the operation lock. Never save here.
         if root.is_symlink() or not root.is_dir():
             raise ValueError('Workspace root is missing or replaced')
-        lock = regular_file('.agentdeck-lock', os.O_RDONLY)
-        saved = read_record('.agentdeck-state.json')
+        lock = regular_file(record_name('lock'), os.O_RDONLY)
+        saved = read_record(record_name('state.json'))
         if not (prefix_identity(saved,p) or prefix_identity(p,saved)):
             raise ValueError('Workspace ownership or repository allocation does not match')
         lock_stat = os.fstat(lock.fileno())
@@ -242,7 +252,7 @@ try:
         root = pathlib.Path(p['path'])
         root.parent.mkdir(parents=True, exist_ok=True)
         root.mkdir(mode=0o700)
-        lock = regular_file('.agentdeck-lock', os.O_RDWR | os.O_CREAT | os.O_EXCL)
+        lock = regular_file('.lectern-lock', os.O_RDWR | os.O_CREAT | os.O_EXCL)
         acquire_lock()
         lock_stat = os.fstat(lock.fileno())
         p['operation_lock'] = [lock_stat.st_dev, lock_stat.st_ino]
@@ -259,9 +269,9 @@ try:
     else:
         if root.is_symlink() or not root.is_dir():
             raise ValueError('Workspace root is missing or replaced; inspect it before cleanup')
-        lock = regular_file('.agentdeck-lock', os.O_RDWR)
+        lock = regular_file(record_name('lock'), os.O_RDWR)
         acquire_lock()
-        saved = read_record('.agentdeck-state.json')
+        saved = read_record(record_name('state.json'))
         if action == 'extend':
             if not prefix_identity(saved,p) or len(p['repositories']) != len(saved['repositories'])+1:
                 raise ValueError('Extension must preserve every existing repository and add exactly one')
@@ -298,7 +308,8 @@ try:
             save()
             print(json.dumps({'workspace':p}))
             sys.exit(0)
-        allowed = {'.agentdeck-lock', '.agentdeck-state.json', '.agentdeck-process.json'}
+        allowed = {'.lectern-lock', '.lectern-state.json', '.lectern-process.json',
+                   '.agentdeck-lock', '.agentdeck-state.json', '.agentdeck-process.json'}
         allowed.update(pathlib.Path(r['worktree']['path']).name for r in p['repositories'])
         if set(os.listdir(root)) - allowed:
             raise ValueError('Workspace root contains additional files; move them before removal')

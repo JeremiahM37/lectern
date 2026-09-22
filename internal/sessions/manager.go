@@ -11,14 +11,15 @@ import (
 	"sync"
 	"time"
 
-	agentcfg "github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/bus"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	agentcfg "github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/bus"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/scratch"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 // Manager owns the lifecycle of every interactive session.
@@ -165,13 +166,13 @@ func (m *Manager) LaunchShell(ctx context.Context, targetID int64) (*store.Sessi
 	m.lifecycleMu.Lock()
 	sess, err := m.DB.InsertSession(&store.Session{
 		TargetID: targetID, Name: "Shell · " + target.Name, Agent: "shell",
-		Workdir: workdir, Status: StatusStarting, Origin: "agentdeck", BootID: bootID,
+		Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID,
 	})
 	if err != nil {
 		m.lifecycleMu.Unlock()
 		return nil, err
 	}
-	tmuxName := fmt.Sprintf("adk-s%d", sess.ID)
+	tmuxName := fmt.Sprintf("lec-s%d", sess.ID)
 	if err := m.DB.Update("sessions", sess.ID, map[string]any{"tmux_session": tmuxName}); err != nil {
 		m.lifecycleMu.Unlock()
 		return nil, err
@@ -180,7 +181,7 @@ func (m *Manager) LaunchShell(ctx context.Context, targetID int64) (*store.Sessi
 	m.lifecycleMu.Unlock()
 	// Pass the target user's configured shell explicitly. Without the command,
 	// a target's tmux default-command could start an agent or another program.
-	// A shell carries its identity too: `agentdeck post` from it, or an agent
+	// A shell carries its identity too: `lectern post` from it, or an agent
 	// someone starts in it by hand, belongs to this session like anything else.
 	shellEnv := map[string]string{}
 	identityEnv(shellEnv, sess.ID)
@@ -330,16 +331,16 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	} else {
 		sess, err = m.DB.InsertSession(&store.Session{
 			ResumeID: o.ResumeID, GroupPath: group, ProjectID: o.ProjectID, TargetID: o.TargetID, Name: name, Agent: agent,
-			Model: o.Model, Workdir: workdir, Status: StatusStarting, Origin: "agentdeck", BootID: bootID,
+			Model: o.Model, Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID,
 		})
 	}
 	if err != nil {
 		return nil, err
 	}
 	// the id is only known after the insert, so the tmux name is set here — and
-	// the `adk-s` prefix keeps interactive sessions clearly apart from the
-	// `adk-<attempt>` sessions a dispatched task owns
-	tmuxName := fmt.Sprintf("adk-s%d", sess.ID)
+	// the `lec-s` prefix keeps interactive sessions clearly apart from the
+	// `lec-<attempt>` sessions a dispatched task owns
+	tmuxName := fmt.Sprintf("lec-s%d", sess.ID)
 	if err := m.DB.Update("sessions", sess.ID, map[string]any{
 		"tmux_session": tmuxName, "resume_id": o.ResumeID}); err != nil {
 		return nil, err
@@ -551,7 +552,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		}
 	}
 	// Project MCP declarations must reach interactive sessions as well as tasks.
-	// Materialize only AgentDeck-owned runtime files; Codex receives additive
+	// Materialize only Lectern-owned runtime files; Codex receives additive
 	// -c overrides so its normal CODEX_HOME remains intact.
 	var toolArgs []string
 	if project != nil {
@@ -676,7 +677,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 }
 
 // ScratchRootEnv names the variable a target can set to move its scratch area.
-const ScratchRootEnv = "AGENTDECK_SCRATCH_ROOT"
+const ScratchRootEnv = "LECTERN_SCRATCH_ROOT"
 
 // makeScratch creates a throwaway working directory ON THE TARGET and returns
 // its absolute path.
@@ -691,10 +692,10 @@ func (m *Manager) makeScratch(ctx context.Context, ex executor.Executor, label s
 	// other's work. The target's own mkdir is the only atomic claim available.
 	slug := scratchSlug(label)
 	cmd := fmt.Sprintf(
-		`root="${%s:-$HOME/agentdeck-scratch}"; mkdir -p "$root" && `+
+		scratch.RootExpr+`; mkdir -p "$root" && `+
 			`d=$(mktemp -d "$root/%s-XXXXXX") && cd "$d" && `+
 			`{ git rev-parse --git-dir >/dev/null 2>&1 || git init -q >/dev/null 2>&1; }; pwd`,
-		ScratchRootEnv, slug)
+		slug)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return "", err
@@ -853,7 +854,7 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 			text = recalled.Context + "\n" + text
 		}
 	}
-	stage := fmt.Sprintf("/tmp/agentdeck-send-%d-%d", sess.ID, time.Now().UnixNano())
+	stage := fmt.Sprintf("/tmp/lectern-send-%d-%d", sess.ID, time.Now().UnixNano())
 	if err := ex.WriteFile(ctx, stage, []byte(text)); err != nil {
 		return err
 	}

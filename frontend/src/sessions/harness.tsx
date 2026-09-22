@@ -52,7 +52,7 @@ const session = {
   agent: "claude",
   model: "sonnet",
   workdir: "/repo",
-  tmux_session: "adk",
+  tmux_session: "lec",
   status: "running",
   origin: "managed",
   pane_tail: "Working output",

@@ -1,5 +1,5 @@
 {
-  "fixture_root": "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-one-final-gptvbddr",
+  "fixture_root": "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-one-final-gptvbddr",
   "app": "Agent of Empires",
   "revision": "5687bbd",
   "method": "real ttyd 1.7.7 + Chromium/xterm.js; native tmux attach scroll path",
@@ -13,6 +13,6 @@
     "visible_changed": true,
     "copy_mode_exit": true
   },
-  "artifacts": "/tmp/agentdeck-parity-proof-v3/aoe-web/c3-aoe-native-scroll-proof",
+  "artifacts": "/tmp/lectern-parity-proof-v3/aoe-web/c3-aoe-native-scroll-proof",
   "scroll_verdict": "PASS"
 }

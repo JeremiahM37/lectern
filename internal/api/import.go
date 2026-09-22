@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // scanScript lists the directories under a root that look like projects.
@@ -153,7 +153,7 @@ type importResult struct {
 
 // importProjects registers directories as projects in bulk.
 //
-// This is what turns agentdeck from an empty board into a view of the work you
+// This is what turns lectern from an empty board into a view of the work you
 // already have: point it at where your code lives and everything becomes
 // dispatchable and, more importantly, session-able.
 func (s *Server) importProjects(w http.ResponseWriter, r *http.Request) {

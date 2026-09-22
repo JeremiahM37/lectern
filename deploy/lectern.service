@@ -1,16 +1,16 @@
 # systemd unit for bare-metal installs (recommended on the homelab).
-#   go build -o /usr/local/bin/agentdeck ./cmd/agentdeck
-#   sudo cp deploy/agentdeck.service /etc/systemd/system/
-#   sudo systemctl enable --now agentdeck
+#   go build -o /usr/local/bin/lectern ./cmd/lectern
+#   sudo cp deploy/lectern.service /etc/systemd/system/
+#   sudo systemctl enable --now lectern
 [Unit]
-Description=agentdeck — mission control for AI coding agents
+Description=lectern — mission control for AI coding agents
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=admin
-WorkingDirectory=/home/admin/projects/agentdeck
+WorkingDirectory=/home/admin/projects/lectern
 # Agent processes and their tmux sessions are durable work, not service
 # plumbing. Keep descendants alive across a control-plane upgrade; graceful
 # shutdown closes terminal proxies and stops scheduling before the main process
@@ -18,11 +18,11 @@ WorkingDirectory=/home/admin/projects/agentdeck
 # not govern SSH, PCT, or sandbox targets, whose processes live on the target.
 KillMode=process
 # URL that TARGETS use to reach this server for approval callbacks
-Environment=AGENTDECK_BASE_URL=http://YOUR-SERVER-IP:9110
+Environment=LECTERN_BASE_URL=http://YOUR-SERVER-IP:9110
 # Agent binaries often live in ~/.local/bin, which is NOT on a unit's default
 # PATH — a probe reporting "codex: null" for an installed codex means this.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/admin/.local/bin
-ExecStart=/usr/local/bin/agentdeck
+ExecStart=/usr/local/bin/lectern
 Restart=on-failure
 RestartSec=5
 

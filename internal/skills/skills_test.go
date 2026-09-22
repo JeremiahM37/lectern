@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -83,13 +83,13 @@ func TestLocalSkillLifecycleAndForeignCollision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(exclude), "# agentdeck-owned-skill:7:") || !strings.Contains(string(exclude), "/.agents/skills/lint\n") {
+	if !strings.Contains(string(exclude), "# lectern-owned-skill:7:") || !strings.Contains(string(exclude), "/.agents/skills/lint\n") {
 		t.Fatalf("exclude=%q", exclude)
 	}
 	if err := os.WriteFile(filepath.Join(work, "foreign.txt"), []byte("keep"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	ax := &store.ProjectSkill{SourcePath: source, TargetRel: ".agents/skills/lint", ExcludeMarker: "# agentdeck-owned-skill:7"}
+	ax := &store.ProjectSkill{SourcePath: source, TargetRel: ".agents/skills/lint", ExcludeMarker: "# lectern-owned-skill:7"}
 	if err := Remove(ctx, ex, p, ax, work); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestReassertPendingForeignSameTargetLinkNeverBecomesOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This is a user's link to the same source. Its target alone must never be
-	// treated as proof that AgentDeck created it.
+	// treated as proof that Lectern created it.
 	if err := os.Symlink(source, dst); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestNativeSkillStaysInRepositoryAndLinksIntoChild(t *testing.T) {
 			if err := exec.Command("git", "-C", repo, "add", "-f", map[string]string{"claude": ".claude/skills/native", "codex": ".agents/skills/native"}[agent]).Run(); err != nil {
 				t.Fatal(err)
 			}
-			if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck native", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "native skill").CombinedOutput(); err != nil {
+			if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern native", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "native skill").CombinedOutput(); err != nil {
 				t.Fatalf("native commit: %v %s", err, out)
 			}
 			db, err := store.Open(filepath.Join(root, "state.db"))
@@ -352,7 +352,7 @@ func TestNativeSkillForeignUntrackedDestinationIsPreserved(t *testing.T) {
 	if err := exec.Command("git", "-C", repo, "add", ".").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck native", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "native").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern native", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "native").CombinedOutput(); err != nil {
 		t.Fatalf("native commit: %v %s", err, out)
 	}
 	db, err := store.Open(filepath.Join(root, "state.db"))
@@ -421,7 +421,7 @@ func TestNativeSkillNestedDestinationCannotBorrowTrackedSource(t *testing.T) {
 	if err := exec.Command("git", "-C", repo, "add", "-f", ".agents/skills/native/SKILL.md").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck nested", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "native").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern nested", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "native").CombinedOutput(); err != nil {
 		t.Fatalf("commit: %v %s", err, out)
 	}
 	db, err := store.Open(filepath.Join(root, "state.db"))
@@ -518,7 +518,7 @@ func TestSiblingWorktreesRetainIndependentExcludeMarkers(t *testing.T) {
 	if err := exec.Command("git", "-C", repo, "add", "seed").Run(); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck siblings", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "seed").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern siblings", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "seed").CombinedOutput(); err != nil {
 		t.Fatalf("commit: %v %s", err, out)
 	}
 	db, err := store.Open(filepath.Join(root, "state.db"))

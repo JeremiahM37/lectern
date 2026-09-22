@@ -5,17 +5,17 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Discover finds agents running on every registered target, whether or not
-// agentdeck started them.
+// lectern started them.
 //
 // This closes the gap that makes a pure task board useless for long projects:
 // the sessions you care about most are the ones you started by hand, in a
 // terminal, weeks ago. Adopting one is non-destructive — the tmux session is
-// left exactly as it is and agentdeck simply starts watching it.
+// left exactly as it is and lectern simply starts watching it.
 func (m *Manager) Discover(ctx context.Context) ([]Candidate, error) {
 	targets, err := m.DB.Targets()
 	if err != nil {
@@ -72,7 +72,7 @@ type AdoptOpts struct {
 	Workdir     string
 }
 
-// ErrAlreadyAdopted means agentdeck is already watching this tmux session.
+// ErrAlreadyAdopted means lectern is already watching this tmux session.
 var ErrAlreadyAdopted = errors.New("this tmux session is already tracked")
 
 // Adopt starts tracking an externally-started agent.

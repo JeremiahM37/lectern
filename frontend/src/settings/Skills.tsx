@@ -54,10 +54,10 @@ export function Skills({
       setCatalog(a.skills || []);
       setAttached(b.attachments || []);
       const ordinarySkills = (a.skills || []).filter(
-        (skill) => !skill.id.startsWith("agentdeck-workflow/") && skill.source !== "agentdeck-bundled",
+        (skill) => !skill.id.startsWith("lectern-workflow/") && skill.source !== "lectern-bundled",
       );
       const ordinaryAttachments = (b.attachments || []).filter(
-        (attachment) => !attachment.source_id?.startsWith("agentdeck-bundled/"),
+        (attachment) => !attachment.source_id?.startsWith("lectern-bundled/"),
       );
       setStatus(`${ordinarySkills.length} available · ${ordinaryAttachments.length} attached`);
     } catch (e) {
@@ -101,7 +101,7 @@ export function Skills({
     }
   }
   const ordinaryAttached = attached.filter(
-    (attachment) => !attachment.source_id?.startsWith("agentdeck-bundled/"),
+    (attachment) => !attachment.source_id?.startsWith("lectern-bundled/"),
   );
   const ids = new Set(ordinaryAttached.map((a) => a.skill_id));
   return (

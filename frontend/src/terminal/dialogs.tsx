@@ -599,8 +599,8 @@ export function Desktop({
           <span className="platform-label">Linux</span>
           <h3>Your default terminal</h3>
           <p>Download the launcher, then run:</p>
-          <code>bash setup-agentdeck-terminal.sh</code>
-          <a href="/desktop/setup-agentdeck-terminal.sh" download>
+          <code>bash setup-lectern-terminal.sh</code>
+          <a href="/desktop/setup-lectern-terminal.sh" download>
             Download Linux setup
           </a>
         </section>
@@ -609,40 +609,40 @@ export function Desktop({
           <h3>Your default terminal</h3>
           <p>Download the launcher, then run in PowerShell:</p>
           <code>
-            powershell -ExecutionPolicy Bypass -File .\setup-agentdeck.ps1
+            powershell -ExecutionPolicy Bypass -File .\setup-lectern.ps1
           </code>
-          <a href="/desktop/setup-agentdeck.ps1" download>
+          <a href="/desktop/setup-lectern.ps1" download>
             Download Windows setup
           </a>
         </section>
       </div>
       <p>
-        Both use your <code>agentdeck</code> SSH alias. Your terminal theme and
+        Both use your <code>lectern</code> SSH alias. Your terminal theme and
         existing sessions stay intact.
       </p>
       <a href="/desktop/README.txt" target="_blank" rel="noopener">
         Connection and setup instructions ↗
       </a>
       <details className="manual-connection">
-        <summary>Manage AgentDeck entirely from a terminal</summary>
+        <summary>Manage Lectern entirely from a terminal</summary>
         <p>
-          Install the terminal client, then run <code>agentdeck</code>.
+          Install the terminal client, then run <code>lectern</code>.
           Sessions, tasks, routines, settings and context uploads are available
           without the web UI.
         </p>
         <p>
-          <a href="/desktop/install-agentdeck-cli.sh" download>
+          <a href="/desktop/install-lectern-cli.sh" download>
             Linux client installer
           </a>{" "}
           ·{" "}
-          <a href="/desktop/install-agentdeck-cli.ps1" download>
+          <a href="/desktop/install-lectern-cli.ps1" download>
             Windows client installer
           </a>
         </p>
         <code id="cli-install-command">
           {/Win/i.test(navigator.platform)
-            ? "powershell -ExecutionPolicy Bypass -File .\\install-agentdeck-cli.ps1 -Server agentdeck"
-            : "bash install-agentdeck-cli.sh --server agentdeck --api " +
+            ? "powershell -ExecutionPolicy Bypass -File .\\install-lectern-cli.ps1 -Server lectern"
+            : "bash install-lectern-cli.sh --server lectern --api " +
               quote(location.origin)}
         </code>
       </details>

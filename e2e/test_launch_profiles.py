@@ -45,7 +45,7 @@ def test_web_profiles_keep_drafts_launch_and_preserve_continuation(page,real_ter
         d.get_by_role('button',name='Save profile',exact=True).click();expect(d.get_by_role('button',name='Close',exact=True)).to_be_disabled();page.keyboard.press('Escape');expect(d).to_be_visible()
     profile=response.value.json();expect(d.locator('.lp-status')).to_contain_text('Profile saved')
     assert d.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-    page.screenshot(path=f'/tmp/agentdeck-launch-profiles-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-launch-profiles-{width}.png')
     d.get_by_role('button',name='Close',exact=True).click()
     expect(page.locator('#ns-name')).to_have_value('Profile web session');expect(page.locator('#ns-profile')).to_have_value(str(profile['id']))
     expect(page.locator('#ns-agent')).to_have_value('codex');expect(page.locator('#ns-agent')).to_be_disabled()

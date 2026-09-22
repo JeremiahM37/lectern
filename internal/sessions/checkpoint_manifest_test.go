@@ -2,7 +2,7 @@ package sessions
 
 // These tests are deliberately written against a hand-built pre-migration
 // database and a scripted real-executor boundary. They do not start tmux or
-// an AgentDeck process; the root runner may execute them only after the
+// a Lectern process; the root runner may execute them only after the
 // isolation barrier has been approved.
 
 import (
@@ -16,8 +16,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 type checkpointFixtureExecutor struct {
@@ -31,13 +31,13 @@ func (e *checkpointFixtureExecutor) Run(_ context.Context, cmd string, _ executo
 	case strings.Contains(cmd, "tmux has-session"):
 		return executor.Result{}, nil
 	case strings.Contains(cmd, "#{session_name}"):
-		return executor.Result{Stdout: "adk-s1\n"}, nil
+		return executor.Result{Stdout: "lec-s1\n"}, nil
 	case strings.Contains(cmd, "native_identity") && strings.Contains(cmd, "json.dumps"):
 		if e.native {
 			return executor.Result{Stdout: `{"state":"identified","id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}`}, nil
 		}
 		return executor.Result{RC: 1}, nil
-	case strings.Contains(cmd, "@agentdeck-tracking-identity"):
+	case strings.Contains(cmd, "@lectern-tracking-identity"):
 		return executor.Result{Stdout: "0123456789abcdef0123456789abcdef\n"}, nil
 	case strings.Contains(cmd, "python3 -c"):
 		return executor.Result{Stdout: "/home/test/.codex\n"}, nil
@@ -66,7 +66,7 @@ CREATE TABLE sessions(id INTEGER PRIMARY KEY, project_id INTEGER, target_id INTE
 	launch := `{"version":1,"spec":{"name":"codex","command":"codex"}}`
 	_, err = db.Exec(`INSERT INTO targets VALUES(1,'local','local','',22,'root','','',2,0,'[]','','','ready','{}',1)`)
 	if err == nil {
-		_, err = db.Exec(`INSERT INTO sessions(project_id,target_id,name,agent,model,workdir,tmux_session,status,origin,pane_hash,pane_tail,created_at,updated_at,worktree_json,group_path,tracking_identity,resume_id,launch_config_json) VALUES(NULL,1,'s1','codex','', '/tmp/work','adk-s1','idle','agentdeck','','',1,1,'{}','', '0123456789abcdef0123456789abcdef',?,?)`, func() string {
+		_, err = db.Exec(`INSERT INTO sessions(project_id,target_id,name,agent,model,workdir,tmux_session,status,origin,pane_hash,pane_tail,created_at,updated_at,worktree_json,group_path,tracking_identity,resume_id,launch_config_json) VALUES(NULL,1,'s1','codex','', '/tmp/work','lec-s1','idle','lectern','','',1,1,'{}','', '0123456789abcdef0123456789abcdef',?,?)`, func() string {
 			if native {
 				return ""
 			}
@@ -269,7 +269,7 @@ func TestExportSkipsABlankShellInsteadOfRefusingTheUpgrade(t *testing.T) {
 	// What the New terminal button creates: no agent, so no launch
 	// configuration, no tracking identity and no conversation to resume.
 	_, err = db.Exec(`INSERT INTO sessions(target_id,name,agent,workdir,tmux_session,status,origin,created_at,updated_at)
- VALUES(1,'Shell · local','shell','/scratch/shell-1','adk-s99','idle','agentdeck',1,1)`)
+ VALUES(1,'Shell · local','shell','/scratch/shell-1','lec-s99','idle','lectern',1,1)`)
 	db.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestExportSkipsABlankShellInsteadOfRefusingTheUpgrade(t *testing.T) {
 	// A real agent row that cannot be described is still a hard stop.
 	db, _ = store.Open(dbPath)
 	_, err = db.Exec(`INSERT INTO sessions(target_id,name,agent,workdir,tmux_session,status,origin,created_at,updated_at)
- VALUES(1,'broken','claude','/w','adk-s98','idle','agentdeck',1,1)`)
+ VALUES(1,'broken','claude','/w','lec-s98','idle','lectern',1,1)`)
 	db.Close()
 	if err != nil {
 		t.Fatal(err)

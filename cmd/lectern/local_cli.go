@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/cmd/agentdeck/localruntime"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/mcp"
+	"github.com/JeremiahM37/lectern/cmd/lectern/localruntime"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/mcp"
 )
 
 var localClientCommands = map[string]bool{
@@ -32,7 +32,7 @@ func localCommand(cfg *config.Config, args []string) error {
 	}
 	if args[0] == "status" || args[0] == "stop" {
 		if len(args) != 1 {
-			return fmt.Errorf("usage: agentdeck local %s", args[0])
+			return fmt.Errorf("usage: lectern local %s", args[0])
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
@@ -48,7 +48,7 @@ func localCommand(cfg *config.Config, args []string) error {
 		return enc.Encode(status)
 	}
 	if !localClientCommands[args[0]] {
-		return errors.New("usage: agentdeck local [console|tui|shell|api|agent|files|upload|download|skill|attach|promote|mcp|status|stop]")
+		return errors.New("usage: lectern local [console|tui|shell|api|agent|files|upload|download|skill|attach|promote|mcp|status|stop]")
 	}
 	return localClientCommand(cfg, args[0], args[1:])
 }

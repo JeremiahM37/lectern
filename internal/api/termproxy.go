@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
 )
 
-// termProxy serves an attached terminal on agentdeck's own origin.
+// termProxy serves an attached terminal on lectern's own origin.
 //
 // The URL names the attachment ("/term/session/24"), never the port. ttyd runs
 // on the control plane, on loopback, on a port from a small range — and that
@@ -76,7 +76,7 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 			return att, target, err
 		}
 		att.Key = kind + ":" + rawID
-		att.TmuxSession = "adk-companion-" + base + "-" + rawID
+		att.TmuxSession = "lec-companion-" + base + "-" + rawID
 		att.Workdir = dir
 		return att, target, nil
 	}
@@ -117,7 +117,7 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 		}
 		return terminal.Attachment{
 			Key:         fmt.Sprintf("project:%d", proj.ID),
-			TmuxSession: fmt.Sprintf("adk-sh%d", proj.ID),
+			TmuxSession: fmt.Sprintf("lec-sh%d", proj.ID),
 			Workdir:     proj.RepoPath,
 		}, target, nil
 	case "attempt":

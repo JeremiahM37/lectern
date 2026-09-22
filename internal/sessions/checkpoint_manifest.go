@@ -1,6 +1,6 @@
 package sessions
 
-// The checkpoint manifest bridges an old AgentDeck database and the first
+// The checkpoint manifest bridges an old Lectern database and the first
 // process which opens it after an upgrade. Export is independent of store.Open:
 // store.Open creates the current schema and runs migrations, which would erase
 // the evidence that this exporter is meant to capture.
@@ -22,15 +22,15 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 const checkpointVersion = 2
 
 var (
-	checkpointTmuxName = regexp.MustCompile(`^adk-s[0-9]+$`)
+	checkpointTmuxName = regexp.MustCompile(`^lec-s[0-9]+$`)
 	checkpointUUID     = regexp.MustCompile(`^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$`)
 	checkpointTracking = regexp.MustCompile(`^[a-f0-9]{32}$`)
 	checkpointHash     = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -333,7 +333,7 @@ func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, tmuxName s
 	if !checkpointTmuxName.MatchString(tmuxName) {
 		return "", errors.New("invalid tmux session name")
 	}
-	q := "tmux display-message -p -t " + shellq.Quote("="+tmuxName+":") + " '#{@agentdeck-tracking-identity}'"
+	q := "tmux display-message -p -t " + shellq.Quote("="+tmuxName+":") + " " + shellq.Quote(trackingFormat)
 	r, err := ex.Run(ctx, q, executor.RunOpts{Timeout: 10})
 	identity := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !checkpointTracking.MatchString(identity) {
@@ -455,7 +455,7 @@ func WriteCheckpoint(path string, m CheckpointManifest) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".agentdeck-checkpoint-*.partial")
+	f, err := os.CreateTemp(filepath.Dir(path), ".lectern-checkpoint-*.partial")
 	if err != nil {
 		return err
 	}

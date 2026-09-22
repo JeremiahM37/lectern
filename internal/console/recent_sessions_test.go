@@ -18,7 +18,7 @@ func TestRecentSessionsLoadsAndRendersHumanLabels(t *testing.T) {
 			t.Fatalf("recent request: %s", r.URL.String())
 		}
 		json.NewEncoder(w).Encode([]row{{
-			"id": float64(9), "name": "Closed UI", "project_name": "AgentDeck",
+			"id": float64(9), "name": "Closed UI", "project_name": "Lectern",
 			"agent": "codex", "ended_at": float64(time.Now().Add(-2 * time.Hour).Unix()),
 			"can_resume_recent": true,
 		}})
@@ -36,7 +36,7 @@ func TestRecentSessionsLoadsAndRendersHumanLabels(t *testing.T) {
 	}
 	m = model.(*dashboard)
 	view := m.View()
-	if !strings.Contains(view, "Closed UI") || !strings.Contains(view, "AgentDeck") || !strings.Contains(view, "codex") || !strings.Contains(view, "closed 2h") {
+	if !strings.Contains(view, "Closed UI") || !strings.Contains(view, "Lectern") || !strings.Contains(view, "codex") || !strings.Contains(view, "closed 2h") {
 		t.Fatalf("recent view omitted human labels:\n%s", view)
 	}
 	if strings.Contains(view, "can_resume_recent") || strings.Contains(view, "ended_at") {

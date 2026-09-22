@@ -53,7 +53,7 @@ func TestBlankShellResultReturnsToLiveSessionsForAttachment(t *testing.T) {
 func TestBlankShell404ExplainsStaleRunningServer(t *testing.T) {
 	m := sampleDashboard()
 	m.Update(resultMsg{label: "Create blank shell", err: &HTTPError{Status: 404, Detail: "404 page not found"}})
-	if !strings.Contains(m.notice, "restart or update AgentDeck") {
+	if !strings.Contains(m.notice, "restart or update Lectern") {
 		t.Fatalf("unhelpful stale-server notice: %q", m.notice)
 	}
 }

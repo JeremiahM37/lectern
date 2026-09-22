@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 const worker = self;
-const CACHE = "agentdeck-react-34c70da55a67";
-worker.addEventListener('install', event => event.waitUntil((async () => { await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/Review-DR5PCwew.css","/react/assets/Review-DvaE5qQo.js","/react/assets/app-Bx1_pLQO.js","/react/assets/app-D4IMCFRY.css","/react/assets/terminal-D1lajMty.css","/react/assets/terminal-XsjSY7Vj.js"]); await worker.skipWaiting(); })()));
-worker.addEventListener('activate', event => event.waitUntil((async () => { await Promise.all((await caches.keys()).filter(key => key.startsWith('agentdeck-') && key !== CACHE).map(key => caches.delete(key))); await worker.clients.claim(); })()));
+const CACHE = "lectern-react-f21a25355068";
+worker.addEventListener('install', event => event.waitUntil((async () => { await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/Review-CBLNiV_U.js","/react/assets/Review-DR5PCwew.css","/react/assets/app-BpdTcVHW.js","/react/assets/app-D4IMCFRY.css","/react/assets/terminal-CfIRu0lm.js","/react/assets/terminal-D1lajMty.css"]); await worker.skipWaiting(); })()));
+worker.addEventListener('activate', event => event.waitUntil((async () => { await Promise.all((await caches.keys()).filter(key => key.startsWith('lectern-') && key !== CACHE).map(key => caches.delete(key))); await worker.clients.claim(); })()));
 worker.addEventListener('fetch', event => {
     const request = event.request, url = new URL(request.url);
     if (request.method !== 'GET' || url.origin !== worker.location.origin || /^\/(api|term|terminal)\//.test(url.pathname))
@@ -22,7 +22,7 @@ worker.addEventListener('fetch', event => {
             return response;
         }
         catch {
-            return await cache.match(request) || (request.mode === 'navigate' ? await cache.match('/') : undefined) || new Response('AgentDeck is offline', { status: 503 });
+            return await cache.match(request) || (request.mode === 'navigate' ? await cache.match('/') : undefined) || new Response('Lectern is offline', { status: 503 });
         }
     })());
 });
@@ -33,7 +33,7 @@ worker.addEventListener('push', event => {
     }
     catch { }
     const options = { body: data.body || '', icon: '/icon.svg', badge: '/icon.svg', data: { url: data.url || '/' }, actions: data.kind === 'approval' ? [{ action: 'open', title: 'Review' }] : [] };
-    event.waitUntil(worker.registration.showNotification(data.title || 'agentdeck', options));
+    event.waitUntil(worker.registration.showNotification(data.title || 'lectern', options));
 });
 worker.addEventListener('notificationclick', event => {
     event.notification.close();

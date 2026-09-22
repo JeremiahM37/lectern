@@ -49,7 +49,7 @@ def test_live_review_keeps_terminal_attached_and_handles_mobile(page,real_termin
     expect(dialog.locator('.review-patch')).to_contain_text('+updated proof')
     assert dialog.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
     assert dialog.locator('.review-detail').evaluate('(el)=>el.getBoundingClientRect().height')>200
-    page.screenshot(path=f'/tmp/agentdeck-live-review-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-live-review-{width}.png')
     dialog.get_by_role('button',name='Close review').click()
     expect(page.locator('#connection')).to_have_text('Connected')
     page.locator('#agent-terminal').click();type_command(page,'echo still-attached')

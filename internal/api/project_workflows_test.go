@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestProjectWorkflowAPIListsDisabledAndValidatesToggles(t *testing.T) {
@@ -85,7 +85,7 @@ func TestProjectWorkflowEnableRejectsSandboxBeforeStaging(t *testing.T) {
 	if rows, err := h.App.DB.ProjectSkills(project.id(), "claude"); err != nil || len(rows) != 0 {
 		t.Fatalf("sandbox enable left attachment: %+v err=%v", rows, err)
 	}
-	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".agentdeck")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".lectern")); !os.IsNotExist(err) {
 		t.Fatalf("sandbox enable staged target source: %v", err)
 	}
 	if rows, err := h.App.DB.MaterializationsAt(target.ID, repo); err != nil || len(rows) != 0 {
@@ -110,10 +110,10 @@ func TestProjectWorkflowLifecycleReassertsAndPreservesProjectFiles(t *testing.T)
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("workflow fixture\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck", "-c", "user.email=agentdeck@example.invalid", "add", ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern", "-c", "user.email=lectern@example.invalid", "add", ".").CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v %s", err, out)
 	}
-	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=AgentDeck", "-c", "user.email=agentdeck@example.invalid", "commit", "-qm", "fixture").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=Lectern", "-c", "user.email=lectern@example.invalid", "commit", "-qm", "fixture").CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v %s", err, out)
 	}
 	target, err := h.App.DB.InsertTarget(&store.Target{Name: "workflow-lifecycle", Kind: "local"})
@@ -131,13 +131,13 @@ func TestProjectWorkflowLifecycleReassertsAndPreservesProjectFiles(t *testing.T)
 		t.Fatalf("spec-kit attachments=%+v err=%v", rows, err)
 	}
 	spec := rows[0]
-	if !strings.HasPrefix(spec.SourcePath, filepath.Join(os.Getenv("HOME"), ".agentdeck", "workflows", "spec-kit")) {
+	if !strings.HasPrefix(spec.SourcePath, filepath.Join(os.Getenv("HOME"), ".lectern", "workflows", "spec-kit")) {
 		t.Fatalf("source was not target-local: %q", spec.SourcePath)
 	}
 	if _, err := os.Stat(filepath.Join(spec.SourcePath, "upstream", "LICENSE")); err != nil {
 		t.Fatalf("upstream support missing: %v", err)
 	}
-	link := filepath.Join(repo, ".claude", "skills", "agentdeck-spec-kit")
+	link := filepath.Join(repo, ".claude", "skills", "lectern-spec-kit")
 	if targetPath, err := os.Readlink(link); err != nil || targetPath != spec.SourcePath {
 		t.Fatalf("spec-kit link=%q err=%v", targetPath, err)
 	}
@@ -155,7 +155,7 @@ func TestProjectWorkflowLifecycleReassertsAndPreservesProjectFiles(t *testing.T)
 	if err := skills.Reassert(context.Background(), executor.NewLocal(), h.App.DB, mustProject(t, h, project.id()), "claude", child); err != nil {
 		t.Fatalf("reassert child: %v", err)
 	}
-	childLink := filepath.Join(child, ".claude", "skills", "agentdeck-spec-kit")
+	childLink := filepath.Join(child, ".claude", "skills", "lectern-spec-kit")
 	if _, err := os.Lstat(childLink); err != nil {
 		t.Fatalf("child workflow link missing: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestProjectWorkflowLifecycleReassertsAndPreservesProjectFiles(t *testing.T)
 	if err != nil || len(maestroRows) != 1 {
 		t.Fatalf("maestro attachments=%+v err=%v", maestroRows, err)
 	}
-	maestroSkill := filepath.Join(repo, ".agents", "skills", "agentdeck-maestro")
+	maestroSkill := filepath.Join(repo, ".agents", "skills", "lectern-maestro")
 	if _, err := os.Lstat(maestroSkill); err != nil {
 		t.Fatalf("maestro link missing: %v", err)
 	}

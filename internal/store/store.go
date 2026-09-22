@@ -1,4 +1,4 @@
-// Package store is agentdeck's SQLite persistence layer: schema, typed row
+// Package store is lectern's SQLite persistence layer: schema, typed row
 // accessors, and the small JSON helpers the rest of the service shares.
 package store
 

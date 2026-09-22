@@ -1,5 +1,5 @@
 import tempfile,pathlib,json,uuid,os,pty,termios,fcntl,struct,subprocess,time,select,signal,hashlib,shutil,re
-with tempfile.TemporaryDirectory(prefix='adk-native-claude-') as tmp:
+with tempfile.TemporaryDirectory(prefix='lec-native-claude-') as tmp:
  home=pathlib.Path(tmp);work=home/'workspace';work.mkdir();config=home/'config';config.mkdir()
  source=str(uuid.uuid4());first=str(uuid.uuid4());second=str(uuid.uuid4());stamp='2026-09-10T04:00:00.000Z'
  folder=config/'projects'/re.sub(r'[^a-zA-Z0-9]','-',str(work));folder.mkdir(parents=True)

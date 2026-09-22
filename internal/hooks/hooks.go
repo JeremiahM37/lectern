@@ -17,5 +17,5 @@ var Hook []byte
 // ADK is the agent-side kit that lets a running agent file follow-up cards and
 // leave durable project notes.
 //
-//go:embed adk.py
+//go:embed lec.py
 var ADK []byte

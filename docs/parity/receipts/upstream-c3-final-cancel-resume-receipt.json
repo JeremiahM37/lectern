@@ -1,13 +1,13 @@
 {
   "product": "agent-deck-61cc4d6 upstream",
-  "fixture": "/tmp/agentdeck-parity-proof-v3/c3/upstream-c3-final-1vn_6rw1",
+  "fixture": "/tmp/lectern-parity-proof-v3/c3/upstream-c3-final-1vn_6rw1",
   "method": "real ttyd 1.7.7 + Chromium xterm.js through Playwright",
   "launch_command": "agent-deck launch <repo> -c <fixture-agent> -t <title> -g Work/Backend --no-wait --quiet (Alpha/Beta/Gamma/Delta)",
   "telemetry": "[telemetry] disabled = true; DO_NOT_TRACK=1",
   "real_codex_invoked": false,
   "copy_cancel": {
     "binding": "Escape -> send-keys -X cancel (copy-mode and copy-mode-vi q/C-c also cancel)",
-    "proof": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/tmux-keybindings.txt",
+    "proof": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/tmux-keybindings.txt",
     "browser_before_pane_in_mode": 1,
     "browser_after_escape_pane_in_mode": 0
   },
@@ -16,13 +16,13 @@
     "attach_fixture_output": true,
     "known_scroll": {
       "observed": true,
-      "artifact": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-wheel-final2/03-wheel-scroll.txt",
+      "artifact": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-wheel-final2/03-wheel-scroll.txt",
       "screen_marker": "C3_KNOWN_39..C3_KNOWN_67",
       "note": "Real xterm viewport screenshot/text; wheel initially entered tmux copy mode and that state was then canceled via Escape."
     },
     "resize": {
       "observed": true,
-      "artifact": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/02-resize-size.txt",
+      "artifact": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/02-resize-size.txt",
       "xterm": "110 columns x 31 rows",
       "stty": "C3_RESUMED_SIZE:30:110",
       "pane_in_mode": 0,
@@ -30,19 +30,19 @@
     },
     "detach": {
       "observed": true,
-      "artifact": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/03-detached.txt",
+      "artifact": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/03-detached.txt",
       "screen": "Agent Deck dashboard"
     },
     "reattach": {
       "observed": true,
-      "artifact": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/04-reattached.txt",
+      "artifact": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/04-reattached.txt",
       "pane_in_mode": 0,
       "same_tmux_pane": "%0",
       "same_pane_pid": 689540
     },
     "fresh_sentinel": {
       "observed": true,
-      "artifact": "/tmp/agentdeck-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/05-reattached-sentinel.txt",
+      "artifact": "/tmp/lectern-parity-proof-v3/c3/real-ttyd/upstream-cancel-resume/05-reattached-sentinel.txt",
       "marker": "C3_REATTACHED_UNIQUE_cancel_9f4c2a",
       "shell_pid": 689557
     }

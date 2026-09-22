@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestNativeSearchForkUsesChosenSettingsAndVerifiedUntrackedWorkspace(t *testing.T) {
@@ -34,7 +34,7 @@ func TestNativeSearchForkUsesChosenSettingsAndVerifiedUntrackedWorkspace(t *test
 	target, _ := h.App.DB.InsertTarget(&store.Target{Name: "fork search", Kind: "local", Workroot: t.TempDir()})
 	stub := filepath.Join(t.TempDir(), "agent")
 	os.WriteFile(stub, []byte("#!/usr/bin/env python3\nimport os,sys,json,time\nfrom pathlib import Path\nPath(os.environ['FORK_PROOF']).write_text(json.dumps({'argv':sys.argv[1:],'cwd':os.getcwd(),'home':os.environ['CODEX_HOME']}))\nwhile True:time.sleep(1)\n"), 0700)
-	env := map[string]string{"CODEX_HOME": home, "AGENTDECK_NATIVE_SEARCH_CACHE": cache, "FORK_PROOF": proof, "PRIVATE_TEST": "never-public"}
+	env := map[string]string{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache, "FORK_PROOF": proof, "PRIVATE_TEST": "never-public"}
 	saved := sessions.LaunchConfiguration{Version: 1, Spec: sessions.Spec{Name: "codex", Command: shellq.Quote(stub), Env: env, ForkArgs: []string{"saved-fork", "{id}"}}}
 	raw, _ := json.Marshal(saved)
 	source, _ := h.App.DB.InsertSession(&store.Session{TargetID: target.ID, Agent: "codex", Name: "Saved configuration", Workdir: t.TempDir(), TmuxSession: "not-running"})
@@ -134,7 +134,7 @@ func TestNativeSearchForkRejectsChangedProfileAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSearchFixture(t, home, t.TempDir(), "11111111-1111-4111-8111-111111111111", "alias needle")
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "false", "env": obj{"CODEX_HOME": alias, "AGENTDECK_NATIVE_SEARCH_CACHE": t.TempDir()}, "fork_args": []string{"fork", "{id}"}}}, 200, nil)
+	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "false", "env": obj{"CODEX_HOME": alias, "LECTERN_NATIVE_SEARCH_CACHE": t.TempDir()}, "fork_args": []string{"fork", "{id}"}}}, 200, nil)
 	var start obj
 	h.decode("POST", "/api/conversation-search", obj{"query": "needle", "target_id": target.ID, "agent": "codex"}, 202, &start)
 	result := waitNativeSearch(t, h, start["id"].(string))

@@ -16,8 +16,8 @@ import (
 // asserts they have not drifted.
 const (
 	MockPollEnd           = "ADK-POLL-END-v2"
-	MockPaneDelimiter     = "\x1e---AGENTDECK-PANE---\x1e"
-	MockDiscoverDelimiter = "\x1e---AGENTDECK-PS---\x1e"
+	MockPaneDelimiter     = "\x1e---LECTERN-PANE---\x1e"
+	MockDiscoverDelimiter = "\x1e---LECTERN-PS---\x1e"
 )
 
 // mockPane is a scripted interactive agent: a pane of text that responds to what
@@ -35,10 +35,10 @@ type mockPane struct {
 
 var (
 	capturePaneRe = regexp.MustCompile(`capture-pane -p -t '?([^' ]+)'? -S`)
-	loadBufferRe  = regexp.MustCompile(`tmux load-buffer -b agentdeck '?([^' ]+)'?`)
-	pasteTargetRe = regexp.MustCompile(`paste-buffer -b agentdeck -t '?([^' ]+)'?`)
+	loadBufferRe  = regexp.MustCompile(`tmux load-buffer -b lectern '?([^' ]+)'?`)
+	pasteTargetRe = regexp.MustCompile(`paste-buffer -b lectern -t '?([^' ]+)'?`)
 	sendKeysRe    = regexp.MustCompile(`^tmux send-keys -t '?([^' ]+)'? (\S+)$`)
-	handoffPathRe = regexp.MustCompile(`(/tmp/agentdeck-handoff-\d+(?:-[a-f0-9]+)?\.md)`)
+	handoffPathRe = regexp.MustCompile(`(/tmp/lectern-handoff-\d+(?:-[a-f0-9]+)?\.md)`)
 )
 
 // interactiveSession decides whether a `tmux new-session` is starting an
@@ -126,7 +126,7 @@ func (m *Mock) handleSendText(cmd string) Result {
 		time.Sleep(m.Delay)
 		if path := handoffPathRe.FindStringSubmatch(text); path != nil {
 			m.mu.Lock()
-			m.fs[path[1]] = []byte(mockHandoff + "\n<!-- agentdeck:complete " + path[1] + " -->\n")
+			m.fs[path[1]] = []byte(mockHandoff + "\n<!-- lectern:complete " + path[1] + " -->\n")
 			m.mu.Unlock()
 		}
 		m.mu.Lock()
@@ -201,8 +201,8 @@ func firstLine(s string) string {
 	return line
 }
 
-var mockIdentitySeed = regexp.MustCompile(`@agentdeck-tracking-identity '?([a-f0-9]{32})'?`)
-var mockIdentityCondition = regexp.MustCompile(`@agentdeck-tracking-identity\},([a-f0-9]{32})\}`)
+var mockIdentitySeed = regexp.MustCompile(`@lectern-tracking-identity '?([a-f0-9]{32})'?`)
+var mockIdentityCondition = regexp.MustCompile(`@lectern-tracking-identity\},([a-f0-9]{32})\}`)
 
 // handleTracking simulates the session-local option and atomic conditional stop.
 // Real tmux regression tests own refused stops and changed-identity coverage.
@@ -214,7 +214,9 @@ func (m *Mock) handleTracking(cmd string) Result {
 	if !ok {
 		return Result{1, "", "can't find session"}
 	}
-	if strings.HasPrefix(cmd, "tmux set-option") {
+	// The seed command reads the legacy option first, so set-option is no
+	// longer at the front of the line.
+	if strings.Contains(cmd, "tmux set-option") {
 		match := mockIdentitySeed.FindStringSubmatch(cmd)
 		if len(match) != 2 || pane.trackingIdentity != "" {
 			return Result{1, "", "option already set or missing value"}

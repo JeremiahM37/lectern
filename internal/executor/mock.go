@@ -21,7 +21,7 @@ index 83db48f..bf2f3f4 100644
 @@ -1,4 +1,7 @@
  def main():
 -    print("hello")
-+    print("hello, agentdeck")
++    print("hello, lectern")
 +
 +def health():
 +    return {"ok": True}
@@ -31,7 +31,7 @@ index 83db48f..bf2f3f4 100644
 const MockNumstat = "4\t1\tapp.py\n"
 
 // Mock is a scripted fake target. It powers the whole hermetic test suite and
-// AGENTDECK_MOCK=1 demo mode, and emits REAL claude stream-json shapes so the
+// LECTERN_MOCK=1 demo mode, and emits REAL claude stream-json shapes so the
 // parser is exercised end to end rather than stubbed out.
 //
 // Scenario markers in the prompt:
@@ -71,7 +71,7 @@ func NewMock(delay time.Duration) *Mock {
 	return &Mock{
 		fs:     map[string][]byte{},
 		agents: map[string]*mockAgent{},
-		// an agent the operator started themselves, weeks ago, that agentdeck
+		// an agent the operator started themselves, weeks ago, that lectern
 		// knows nothing about — the case session discovery exists for
 		panes: map[string]*mockPane{"legacy-claude": {
 			workdir: "/mock/demo-app",
@@ -115,8 +115,8 @@ var (
 	sessionRe = regexp.MustCompile(`-s (\S+)`)
 	targetRe  = regexp.MustCompile(`-t (\S+)`)
 	cdRe      = regexp.MustCompile(`cd (\S+) &&`)
-	urlRe     = regexp.MustCompile(`AGENTDECK_URL=(\S+)`)
-	tokenRe   = regexp.MustCompile(`AGENTDECK_TOKEN=(\S+)`)
+	urlRe     = regexp.MustCompile(`LECTERN_URL=(\S+)`)
+	tokenRe   = regexp.MustCompile(`LECTERN_TOKEN=(\S+)`)
 )
 
 // Run interprets the command against the scripted target.
@@ -130,7 +130,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		// MCP runtime publication is a target-side helper in real executors. The
 		// mock only needs to return the absolute private-state path that the
 		// launcher would receive; it must not pretend the Git worktree owns it.
-		return Result{0, "/tmp/agentdeck-mcp-state/agentdeck/mcp/mock/mcp.json\n", ""}, nil
+		return Result{0, "/tmp/lectern-mcp-state/lectern/mcp/mock/mcp.json\n", ""}, nil
 	case strings.HasPrefix(cmd, "test \"$(wc -c < ") && strings.Contains(cmd, " && mv -- "):
 		return m.publishUpload(cmd), nil
 	case strings.HasPrefix(cmd, "sudo pvesh get /cluster/nextid"):
@@ -140,7 +140,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{0, "", ""}, nil
 	case strings.HasPrefix(cmd, "git clone"):
 		return Result{0, "", ""}, nil
-	case strings.Contains(cmd, "agentdeck-scratch") && strings.Contains(cmd, "mktemp -d"):
+	case strings.Contains(cmd, "lectern-scratch") && strings.Contains(cmd, "mktemp -d"):
 		// a scratch directory is created by the target's own shell and its path
 		// read back from `pwd`; mktemp's uniqueness is modelled by a counter, so
 		// a test sees the same "never the same directory twice" guarantee
@@ -148,7 +148,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		m.scratchN++
 		n := m.scratchN
 		m.mu.Unlock()
-		return Result{0, fmt.Sprintf("/mock/home/agentdeck-scratch/%s-%06d\n",
+		return Result{0, fmt.Sprintf("/mock/home/lectern-scratch/%s-%06d\n",
 			scratchDirName(cmd), n), ""}, nil
 	case strings.Contains(cmd, "symbolic-ref --short HEAD"):
 		return Result{0, "main\n", ""}, nil
@@ -171,7 +171,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 			m.startAgent(sess, wt)
 		}
 		return Result{0, "", ""}, nil
-	case strings.Contains(cmd, "@agentdeck-tracking-identity"):
+	case strings.Contains(cmd, "@lectern-tracking-identity"):
 		return m.handleTracking(cmd), nil
 	case strings.Contains(cmd, "capture-pane"):
 		return m.handlePoll(cmd), nil
@@ -231,7 +231,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	case strings.Contains(cmd, "mockverify-pass"):
 		return Result{0, "5 passed in 0.1s", ""}, nil
 	case strings.Contains(cmd, "git add -A && git commit"):
-		return Result{0, "[adk 1a2b3c4] mock commit", ""}, nil
+		return Result{0, "[lec 1a2b3c4] mock commit", ""}, nil
 	case strings.HasPrefix(cmd, "git") && strings.Contains(cmd, " push "):
 		return Result{0, "branch pushed (mock)", ""}, nil
 	case strings.HasPrefix(cmd, "gh pr create"):
@@ -340,7 +340,7 @@ func (m *Mock) read(path string) []byte {
 }
 
 func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
-	rt := wt + "/.agentdeck"
+	rt := wt + "/.lectern"
 	events := rt + "/events.jsonl"
 	prompt := string(m.read(rt + "/prompt.md"))
 	pace := m.Delay
@@ -395,7 +395,7 @@ func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
 	m.append(events, map[string]any{"type": "assistant", "message": map[string]any{
 		"content": []any{map[string]any{"type": "tool_use", "id": "tu_1", "name": "Edit",
 			"input": map[string]any{"file_path": "app.py", "old_string": "hello",
-				"new_string": "hello, agentdeck"}}}}})
+				"new_string": "hello, lectern"}}}}})
 	if !sleep() {
 		return
 	}
@@ -436,7 +436,7 @@ func (m *Mock) finish(rt, sid string, rc int, result string) {
 	m.mu.Unlock()
 }
 
-// hookPost simulates the agent using .agentdeck/adk.py.
+// hookPost simulates the agent using .lectern/lec.py.
 func (m *Mock) hookPost(ctx context.Context, rt, path string, payload map[string]any) {
 	env := parseEnvFile(string(m.read(rt + "/env")))
 	url, token := env["ADK_URL"], env["ADK_TOKEN"]

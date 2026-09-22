@@ -35,7 +35,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     row=next(s for s in t['api']('/sessions') if s['name']=='Isolated UI proof')
     dest=Path(row['workspace']['path']);assert dest!=t['root'] and (dest/'hello.txt').exists()
     assert git('status','--porcelain')==''
-    page.screenshot(path=f'/tmp/agentdeck-worktree-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-worktree-{width}.png')
     def delete(path):
         return urllib.request.urlopen(urllib.request.Request(t['url']+'/api'+path,method='DELETE')).read()
     delete('/sessions/'+str(row['id']))

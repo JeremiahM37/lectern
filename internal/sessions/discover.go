@@ -7,7 +7,7 @@ import (
 )
 
 // DiscoverDelimiter separates the tmux listing from the process listing.
-const DiscoverDelimiter = "\x1e---AGENTDECK-PS---\x1e"
+const DiscoverDelimiter = "\x1e---LECTERN-PS---\x1e"
 
 // DiscoverCommand finds agents the operator started themselves.
 //
@@ -22,7 +22,7 @@ func DiscoverCommand() string {
 		"; ps -eo tty=,args= 2>/dev/null"
 }
 
-// Candidate is an agent found running on a target that agentdeck does not own.
+// Candidate is an agent found running on a target that lectern does not own.
 type Candidate struct {
 	TmuxSession string `json:"tmux_session"`
 	Agent       string `json:"agent"`
@@ -31,7 +31,7 @@ type Candidate struct {
 	Command     string `json:"command"`
 	TargetID    int64  `json:"target_id"`
 	TargetName  string `json:"target_name,omitempty"`
-	// Adopted is set when agentdeck is already tracking this tmux session, so the
+	// Adopted is set when lectern is already tracking this tmux session, so the
 	// UI can show it as known rather than offering to adopt it twice.
 	Adopted   bool   `json:"adopted"`
 	SessionID int64  `json:"session_id,omitempty"`

@@ -30,7 +30,7 @@ func ParseStreamLines(agent, buf string) ([]Event, string) {
 
 // ParseTaskStreamLines applies a configured task output mode. Custom CLIs do
 // not have an adapter-specific parser: plain output is one text event per line,
-// while JSONL accepts the common AgentDeck event envelope and maps other useful
+// while JSONL accepts the common Lectern event envelope and maps other useful
 // message-shaped records to text.
 func ParseTaskStreamLines(agent, mode, buf string) ([]Event, string) {
 	if mode == "jsonl" {
@@ -39,7 +39,7 @@ func ParseTaskStreamLines(agent, mode, buf string) ([]Event, string) {
 	return parsePlaintext(buf)
 }
 
-// NormalizeGeneric preserves the stable AgentDeck event types when a CLI
+// NormalizeGeneric preserves the stable Lectern event types when a CLI
 // emits them, and gives ordinary JSONL responses a useful text timeline.
 func NormalizeGeneric(raw map[string]any) []Event {
 	t, _ := raw["type"].(string)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""agentdeck nightly smoke — proves the full pipeline still works while you sleep.
+"""lectern nightly smoke — proves the full pipeline still works while you sleep.
 
 1. deep-probes every non-mock target (toolchain + REAL claude auth round-trip)
 2. dispatches one tiny task on the smoke project (local target, scratch repo)
 3. waits for review + auto-verify, marks it done, cleans the worktree
 4. reports the outcome to Discord (same bot/channel as the morning briefing)
 
-Run by agentdeck-smoke.timer (04:30). Stdlib only.
+Run by lectern-smoke.timer (04:30). Stdlib only.
 """
 import json
 import os
@@ -16,12 +16,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-API = os.environ.get("AGENTDECK_API", "http://127.0.0.1:9110").rstrip("/") + "/api"
+API = os.environ.get("LECTERN_API", "http://127.0.0.1:9110").rstrip("/") + "/api"
 SMOKE_REPO = Path(os.environ.get(
-    "AGENTDECK_SMOKE_REPO", "/home/admin/projects/agentdeck/smoke-repo"))
+    "LECTERN_SMOKE_REPO", "/home/admin/projects/lectern/smoke-repo"))
 # Discord reporting is optional; set these (e.g. via EnvironmentFile) to enable.
-BOT_TOKEN = os.environ.get("AGENTDECK_DISCORD_BOT_TOKEN", "")
-CHANNEL_ID = os.environ.get("AGENTDECK_DISCORD_CHANNEL_ID", "")
+BOT_TOKEN = os.environ.get("LECTERN_DISCORD_BOT_TOKEN", "")
+CHANNEL_ID = os.environ.get("LECTERN_DISCORD_CHANNEL_ID", "")
 
 
 def api(method: str, path: str, body: dict | None = None):
@@ -43,7 +43,7 @@ def discord(msg: str) -> None:
             headers={"Authorization": f"Bot {BOT_TOKEN}",
                      "Content-Type": "application/json",
                      # Cloudflare 403s urllib's default UA
-                     "User-Agent": "agentdeck-smoke/1.0"},
+                     "User-Agent": "lectern-smoke/1.0"},
             data=json.dumps({"content": msg[:1900]}).encode())
         urllib.request.urlopen(req, timeout=15)
     except Exception as e:  # noqa: BLE001
@@ -56,18 +56,18 @@ def ensure_smoke_repo() -> None:
     SMOKE_REPO.mkdir(parents=True, exist_ok=True)
     (SMOKE_REPO / "app.py").write_text('print("smoke ok")\n')
     for cmd in (["git", "init", "-q", "-b", "main"], ["git", "add", "app.py"],
-                ["git", "-c", "user.email=smoke@adk", "-c", "user.name=smoke",
+                ["git", "-c", "user.email=smoke@lec", "-c", "user.name=smoke",
                  "commit", "-qm", "initial"]):
         subprocess.run(cmd, cwd=SMOKE_REPO, check=True)
 
 
 def ensure_smoke_project() -> int:
     for p in api("GET", "/projects"):
-        if p["name"] == "adk-smoke":
+        if p["name"] == "lec-smoke":
             return p["id"]
     local = next(t for t in api("GET", "/targets") if t["kind"] == "local")
     return api("POST", "/projects", {
-        "name": "adk-smoke", "target_id": local["id"],
+        "name": "lec-smoke", "target_id": local["id"],
         "repo_path": str(SMOKE_REPO), "verify_cmd": "python3 app.py"})["id"]
 
 
@@ -121,7 +121,7 @@ def main() -> int:
         api("POST", f"/tasks/{task['id']}/cleanup")
         api("POST", "/admin/janitor", {})
 
-    header = "🔴 **agentdeck smoke FAILED**" if failed else "🟢 **agentdeck smoke passed**"
+    header = "🔴 **lectern smoke FAILED**" if failed else "🟢 **lectern smoke passed**"
     discord(header + "\n" + "\n".join(lines))
     print(header)
     print("\n".join(lines))

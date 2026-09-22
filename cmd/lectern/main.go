@@ -1,11 +1,11 @@
-// Command agentdeck is the control plane: one binary that serves the API, the
+// Command lectern is the control plane: one binary that serves the API, the
 // PWA and the scheduler that drives every dispatched agent.
 //
 // Usage:
 //
-//	agentdeck            run the control plane
-//	agentdeck mcp        speak MCP on stdio against a running control plane
-//	agentdeck version    print the version
+//	lectern            run the control plane
+//	lectern mcp        speak MCP on stdio against a running control plane
+//	lectern version    print the version
 package main
 
 import (
@@ -23,11 +23,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/cmd/agentdeck/localruntime"
-	"github.com/JeremiahM37/agentdeck/internal/app"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/mcp"
-	"github.com/JeremiahM37/agentdeck/internal/version"
+	"github.com/JeremiahM37/lectern/cmd/lectern/localruntime"
+	"github.com/JeremiahM37/lectern/internal/app"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/mcp"
+	"github.com/JeremiahM37/lectern/internal/version"
 )
 
 func main() {
@@ -57,15 +57,15 @@ func main() {
 		return
 	}
 	// An agent launched by a hosted server inherits that server's
-	// AGENTDECK_BASE_URL but no AGENTDECK_API. Its MCP tools and posts belong on
+	// LECTERN_BASE_URL but no LECTERN_API. Its MCP tools and posts belong on
 	// the board that launched it, not in a private runtime nobody is watching.
 	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "post" || os.Args[1] == "live" || os.Args[1] == "expose") &&
-		strings.TrimSpace(os.Getenv("AGENTDECK_API")) == "" {
-		if hosted := strings.TrimSpace(os.Getenv("AGENTDECK_BASE_URL")); hosted != "" {
-			_ = os.Setenv("AGENTDECK_API", hosted)
+		strings.TrimSpace(os.Getenv("LECTERN_API")) == "" {
+		if hosted := strings.TrimSpace(os.Getenv("LECTERN_BASE_URL")); hosted != "" {
+			_ = os.Setenv("LECTERN_API", hosted)
 		}
 	}
-	explicitRemote := strings.TrimSpace(os.Getenv("AGENTDECK_API")) != ""
+	explicitRemote := strings.TrimSpace(os.Getenv("LECTERN_API")) != ""
 	if len(os.Args) == 1 && interactiveTerminal() {
 		var err error
 		if explicitRemote {
@@ -102,7 +102,7 @@ func main() {
 			return
 		case "serve":
 			if len(os.Args) != 2 {
-				fmt.Fprintln(os.Stderr, "usage: agentdeck serve")
+				fmt.Fprintln(os.Stderr, "usage: lectern serve")
 				os.Exit(2)
 			}
 		case "attach":
@@ -124,7 +124,7 @@ func main() {
 				return
 			}
 			// stdio belongs to the protocol here — logs would corrupt the stream
-			api := env("AGENTDECK_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port))
+			api := env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port))
 			if err := mcp.New(api, cfg.AuthToken).Serve(os.Stdin, os.Stdout); err != nil {
 				os.Exit(1)
 			}
@@ -154,8 +154,12 @@ func main() {
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 
+	if aliased := config.LegacyEnvAliased(); len(aliased) > 0 {
+		log.Info("reading settings under their old names; rename them to LECTERN_*",
+			"legacy", aliased)
+	}
 	go func() {
-		log.Info("agentdeck listening", "addr", addr, "version", version.Version,
+		log.Info("lectern listening", "addr", addr, "version", version.Version,
 			"mock", cfg.Mock)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server failed", "err", err)
@@ -191,7 +195,7 @@ func runLocalEngine(cfg *config.Config, args []string, log *slog.Logger) error {
 	if err != nil || fd < 3 || tokenErr != nil || tokenFD < 3 || values["--local-state-dir"] == "" {
 		return errors.New("usage: --local-engine --local-state-dir DIR --local-token-fd FD --local-lock-fd FD")
 	}
-	tokenFile := os.NewFile(uintptr(tokenFD), "agentdeck-local-token")
+	tokenFile := os.NewFile(uintptr(tokenFD), "lectern-local-token")
 	if tokenFile == nil {
 		return errors.New("local engine token pipe is unavailable")
 	}

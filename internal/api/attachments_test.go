@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func upload(t *testing.T, url, filename string, data []byte, token string) (int, obj) {
@@ -68,7 +68,7 @@ func TestRealAttachmentUploadAndTmuxDelivery(t *testing.T) {
 		t.Fatalf("upload: %d %+v", code, attached)
 	}
 	file := attached.str("path")
-	if !strings.HasPrefix(file, filepath.Join(dir, ".agentdeck", "context")+"/") {
+	if !strings.HasPrefix(file, filepath.Join(dir, ".lectern", "context")+"/") {
 		t.Fatalf("escaped destination: %s", file)
 	}
 	got, err := os.ReadFile(file)

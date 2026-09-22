@@ -33,7 +33,7 @@ interface Activity {
 }
 
 // What this session's agent wrote to the memory store, read back by the key the
-// two share. It used to be invisible: AgentDeck knew what it wrote itself at a
+// two share. It used to be invisible: Lectern knew what it wrote itself at a
 // handoff and nothing of what the agent remembered on its own. The status is
 // spelled out because an empty list has three causes, and only one of them is
 // "the agent wrote nothing".
@@ -66,7 +66,7 @@ export function SessionMemory({
           session: "",
           provider: "",
           status: "unavailable",
-          message: "AgentDeck could not be reached.",
+          message: "Lectern could not be reached.",
           counts: {},
           changes: [],
         }),

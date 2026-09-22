@@ -1,23 +1,23 @@
 services:
-  agentdeck:
+  lectern:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    container_name: agentdeck
+    container_name: lectern
     restart: unless-stopped
     ports:
       - "9110:9110"
       - "7710-7730:7710-7730"     # ttyd terminal-attach range
     volumes:
-      - agentdeck-data:/data
+      - lectern-data:/data
       # SSH key(s) used to reach targets (read-only)
       - ~/.ssh:/root/.ssh:ro
     environment:
       # URL targets use to call back for approvals — set to a host reachable FROM targets
-      AGENTDECK_BASE_URL: "http://YOUR-SERVER-IP:9110"
-      # AGENTDECK_AUTH_TOKEN: "change-me"
-      # AGENTDECK_VAPID_PUBLIC: ""
-      # AGENTDECK_VAPID_PRIVATE: ""
+      LECTERN_BASE_URL: "http://YOUR-SERVER-IP:9110"
+      # LECTERN_AUTH_TOKEN: "change-me"
+      # LECTERN_VAPID_PUBLIC: ""
+      # LECTERN_VAPID_PRIVATE: ""
 
 volumes:
-  agentdeck-data:
+  lectern-data:

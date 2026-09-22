@@ -1,6 +1,6 @@
 <div align="center">
 
-# AgentDeck
+# Lectern
 
 **Mission control for AI coding agents — on your own infrastructure.**
 Describe a task from your phone. An agent picks it up on a box you own, works in an
@@ -8,18 +8,18 @@ isolated git worktree inside tmux, streams every step live, pings you for approv
 and hands you a reviewable diff.
 
 <!-- badges -->
-![status](https://img.shields.io/badge/status-v2.2.0-8b5cf6)
+![status](https://img.shields.io/badge/status-v2.3.0-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/go-1.25%2B-00add8)
 ![docker](https://img.shields.io/badge/docker-ready-2496ed)
 ![binary](https://img.shields.io/badge/deploy-single%20binary-8b5cf6)
 ![PWA](https://img.shields.io/badge/PWA-mobile--first-19c37d)
 
-![AgentDeck board](docs/screenshots/board-current.png)
+![Lectern board](docs/screenshots/board-current.png)
 
 </div>
 
-AgentDeck is a self-hosted kanban board that dispatches AI coding agents onto
+Lectern is a self-hosted kanban board that dispatches AI coding agents onto
 **your** machines — anything you can SSH into, from a spare laptop or a VPS to a
 Raspberry Pi or a Proxmox cluster. Every task runs in its own git
 worktree, streams a live timeline to a mobile-first PWA, and gates risky tool
@@ -27,6 +27,14 @@ calls behind approvals that hit your phone. Bring your own agent and your own
 model. The control plane is self-hosted; your chosen agent and model provider
 determine where prompts and code are processed. A git worktree isolates changes,
 not operating-system access; use target and permission policies accordingly.
+
+> **Lectern was AgentDeck until v2.3.** A lectern is the stand the grimoire lies
+> open on: the place you stand to work the book. That is what this is for
+> [Grimoire](https://github.com/JeremiahM37/grimoire), the memory it pairs with.
+> Everything installed under the old name keeps working: `AGENTDECK_*` settings
+> are read under their `LECTERN_*` names (the server says so once at startup),
+> running sessions keep their identity, and a project's `.agentdeck/` files are
+> still ignored. Rename them when convenient; nothing forces it.
 
 ---
 
@@ -37,13 +45,13 @@ the PWA and the agent-side hook scripts embedded. Copy it to a box and run it.
 
 **Tasks *and* sessions.** A task is work you hand off — dispatch, walk away,
 review a diff. A **session** is an agent you work *with*, for days: it lives in
-tmux, agentdeck watches its status and screen. Tap **Chat** for a large-text live
+tmux, lectern watches its status and screen. Tap **Chat** for a large-text live
 reader and multiline composer on your phone. When its context fills up, ask it
 to write a handoff and hand the thread to a fresh one. It will also *discover and adopt* the Claude
 and Codex sessions you started yourself, without disturbing them.
 
 **Runs on your hardware.** A target is any box with SSH — or the machine
-AgentDeck itself runs on. Proxmox users get native extras (`pct` targets and
+Lectern itself runs on. Proxmox users get native extras (`pct` targets and
 ephemeral `sandbox` containers cloned per task, destroyed after), but nothing
 requires Proxmox. You choose where agents execute and which providers they use.
 
@@ -57,14 +65,14 @@ text, and other documents are accepted (25 MiB per file, up to 10 per message).
 Files are copied to the agent's actual machine, including SSH and adopted tmux
 sessions. Add your instructions and press **Send**; an attachment by itself can
 also be sent. Uploading alone does not send a message. Reading a document uses
-that agent's available file tools; AgentDeck preserves the original bytes.
+that agent's available file tools; Lectern preserves the original bytes.
 
-Uploads live in `.agentdeck/context/` under the session directory (the project
+Uploads live in `.lectern/context/` under the session directory (the project
 repository for tasks), with private permissions and a local Git exclusion.
 They stay there for later turns. Removing an attachment from the composer removes
 its message reference; it does not delete the uploaded file. Draft references
 survive reopening Chat on the same browser. Disposable sandboxes do not yet
-support attachments. If AgentDeck sits behind nginx, set
+support attachments. If Lectern sits behind nginx, set
 `client_max_body_size 26M;` to allow a 25 MiB file plus multipart overhead.
 
 **Keep talking while tasks run.** Open a task and tap **Chat** to read its
@@ -90,16 +98,16 @@ For a terminal-only workspace on the same computer as your agent, install the
 standalone local command. It needs no hosted server, SSH alias, or Grimoire:
 
 ```bash
-git clone https://github.com/JeremiahM37/agentdeck.git
-cd agentdeck
+git clone https://github.com/JeremiahM37/lectern.git
+cd lectern
 bash tools/install-local.sh
-agentdeck local
+lectern local
 ```
 
-Use `agentdeck-local` in that last command if the installer reported that the
-existing remote `agentdeck` launcher was kept.
+Use `lectern-local` in that last command if the installer reported that the
+existing remote `lectern` launcher was kept.
 
-See [Standalone local AgentDeck](docs/local.md) for Linux, macOS, and WSL
+See [Standalone local Lectern](docs/local.md) for Linux, macOS, and WSL
 installation and the difference between local and remote operation.
 
 Project-specific optional Spec Kit and Maestro workflows are documented in
@@ -112,9 +120,9 @@ Project-specific optional Spec Kit and Maestro workflows are documented in
 npm ci --prefix frontend                  # Node 24 at build time
 npm run build --prefix frontend
 python3 frontend/scripts/stage.py
-go build -o agentdeck ./cmd/agentdeck
-./agentdeck serve                          # → http://<host>:9110
-# In an interactive terminal, a bare `agentdeck` opens the terminal dashboard.
+go build -o lectern ./cmd/lectern
+./lectern serve                          # → http://<host>:9110
+# In an interactive terminal, a bare `lectern` opens the terminal dashboard.
 ```
 
 One static binary with the PWA, the agent-side hook scripts and a pure-Go SQLite
@@ -126,7 +134,7 @@ Kick the tires with **zero setup** — mock mode ships a full demo board with fa
 agents (no git/tmux/claude needed):
 
 ```bash
-AGENTDECK_MOCK=1 ./agentdeck serve
+LECTERN_MOCK=1 ./lectern serve
 ```
 
 Then register a target + project in the **Targets** tab (or `POST /api/targets` /
@@ -136,7 +144,7 @@ reachability, `git`, `tmux`, `python3`, and your agent's CLI.
 ## A quick tour
 
 These captures use the current React UI with disposable sample projects. The
-memory walkthrough connects real AgentDeck and Grimoire servers; the terminal
+memory walkthrough connects real Lectern and Grimoire servers; the terminal
 workspace uses real tmux and ttyd. No production notes or credentials appear.
 
 ### Browser workspace
@@ -155,10 +163,10 @@ Attach to the running process with keyboard input, terminal search, retained
 scrollback, file browsing, upload/download, diff review, and a split shell.
 Open multiple terminal tabs without stopping the agents when you switch away.
 
-![Native AgentDeck terminal dashboard](docs/screenshots/terminal-console-current.png)
+![Native Lectern terminal dashboard](docs/screenshots/terminal-console-current.png)
 
-Use `agentdeck console` with an explicit `AGENTDECK_API` for the hosted
-dashboard, or `agentdeck local` for a private runtime on your own computer.
+Use `lectern console` with an explicit `LECTERN_API` for the hosted
+dashboard, or `lectern local` for a private runtime on your own computer.
 The terminal dashboard manages sessions, tasks, projects, targets, agents,
 skills, and routines through the same API. Native tmux attachment preserves the
 agent's real terminal rather than reconstructing it from logs.
@@ -174,10 +182,10 @@ project does not lose its memory.
 Reproduce these screenshots and the real provisioning/scope checks:
 
 ```bash
-go build -o /tmp/agentdeck-showcase ./cmd/agentdeck
+go build -o /tmp/lectern-showcase ./cmd/lectern
 .venv/bin/python tools/capture_memory_showcase.py \
   --grimoire-root /path/to/grimoire \
-  --agentdeck-bin /tmp/agentdeck-showcase
+  --lectern-bin /tmp/lectern-showcase
 ```
 
 Build Grimoire's server and frontend first. The capture tool needs Python
@@ -244,11 +252,11 @@ artifacts. Uploads insert the path on the agent's machine without pressing Enter
 **Open in terminal** opens your device's default terminal on the same session,
 keeping the browser attached; either view can remain open and both use the same
 tmux process. Connection setup is available under Tools. The installed client
-opens the terminal dashboard when run without a subcommand; use `agentdeck serve`
+opens the terminal dashboard when run without a subcommand; use `lectern serve`
 for the control-plane process.
 The shared tmux screen fits the smaller connected terminal, so a larger native
 window cannot crop the browser into a blank view. Attachments open as tabs inside
-AgentDeck; **Pop out** remains available.
+Lectern; **Pop out** remains available.
 
 Middle-click inside the terminal, then move the pointer up or down to autoscroll;
 move farther from the starting point to scroll faster. Escape, another click,
@@ -258,15 +266,15 @@ See [Terminal workspace](docs/terminal-workspace.md).
 
 ### Terminal-only management
 
-Run `agentdeck console` on your server to manage sessions, tasks, routines,
+Run `lectern console` on your server to manage sessions, tasks, routines,
 projects, targets, approvals and settings. Install the client on your computer
-to run `agentdeck` directly from your terminal. In the live dashboard, use
+to run `lectern` directly from your terminal. In the live dashboard, use
 arrow keys to select a session and Enter to attach; `m` opens actions and `?`
-shows shortcuts. Use `agentdeck console --plain` for the line-oriented menu.
+shows shortcuts. Use `lectern console --plain` for the line-oriented menu.
 Press **Ctrl+B**, then **D** to detach and return to the menu without stopping
-the session. Skip the menus with `agentdeck attach session ID`.
+the session. Skip the menus with `lectern attach session ID`.
 
-For a fast command prompt, run `agentdeck shell [MACHINE]`. It chooses a
+For a fast command prompt, run `lectern shell [MACHINE]`. It chooses a
 configured machine (with a searchable picker when omitted), creates a tracked
 blank persistent shell, and attaches immediately. There is no project, agent,
 or model setup; run any commands or model CLI in the shell. Ctrl+B then D
@@ -282,10 +290,10 @@ client, quit and reopen any running CLI menu to use the new version.
 The CLI also includes PDF/file uploads, downloads, and a scriptable API:
 
 ```sh
-agentdeck api GET /sessions
-agentdeck api POST /tasks/12/takeover '{}'
-agentdeck upload session 4 ./requirements.pdf
-agentdeck attach session 4
+lectern api GET /sessions
+lectern api POST /tasks/12/takeover '{}'
+lectern upload session 4 ./requirements.pdf
+lectern attach session 4
 ```
 
 [Client installation and commands](docs/terminal-client.md) ·
@@ -294,34 +302,34 @@ agentdeck attach session 4
 
 ### Terminal dashboard
 
-Run `agentdeck` in a terminal for a live session dashboard with project/target
+Run `lectern` in a terminal for a live session dashboard with project/target
 groups, fuzzy search, status filters, previews, one-key attachment, and keyboard
 forms. Tasks, routines, targets, approvals, context uploads and worktree diff
 review are available without opening the browser. Ctrl-b then d returns from an
-attached session. Use `agentdeck serve` to run the server explicitly, or
-`agentdeck console --plain` for the line-oriented client.
+attached session. Use `lectern serve` to run the server explicitly, or
+`lectern console --plain` for the line-oriented client.
 See [terminal client](docs/terminal-client.md) for installation and shortcuts,
 and the [bounded terminal experience comparison](docs/terminal-experience-review.md)
 for the current evidence ledger.
 
 
-## AgentDeck + Grimoire: work and memory stay separate
+## Lectern + Grimoire: work and memory stay separate
 
-**AgentDeck owns execution:** projects, targets, tasks, approvals, worktrees,
+**Lectern owns execution:** projects, targets, tasks, approvals, worktrees,
 terminal sessions, and recovery. **[Grimoire](https://github.com/JeremiahM37/grimoire)
 owns durable knowledge:** Markdown notes, accepted facts, source provenance,
 correction history, retrieval, and optional credential brokering. Neither
 requires the other.
 
 ```bash
-AGENTDECK_GRIMOIRE_URL=http://127.0.0.1:9111
-AGENTDECK_GRIMOIRE_CONTEXT_MODE=project
+LECTERN_GRIMOIRE_URL=http://127.0.0.1:9111
+LECTERN_GRIMOIRE_CONTEXT_MODE=project
 ```
 
 Supply these in your service environment; configure the provider credential
 there if your Grimoire instance requires one. Use HTTPS for a remote instance.
 
-1. **Create, import, or promote a project.** AgentDeck records a unique memory
+1. **Create, import, or promote a project.** Lectern records a unique memory
    topic and creates its note in Grimoire. The association survives renaming.
 2. **Launch or dispatch.** Only that project's memory is consulted by default;
    unassigned scratch sessions do not get automatic project memory.
@@ -383,7 +391,7 @@ themselves if `git` or `tmux` is missing.
 ## Layout
 
 ```
-cmd/agentdeck/       the binary
+cmd/lectern/       the binary
 internal/api/        REST + hook endpoints, SSE streams, embedded PWA
 internal/scheduler/  promotes queued attempts, tails running ones, finalises
 internal/executor/   local | ssh | pct | sandbox | mock target executors
@@ -396,9 +404,9 @@ e2e/                 Playwright browser tests
 DESIGN.md            full design doc — architecture, feature catalog, roadmap
 ```
 
-Config via env: `AGENTDECK_PORT` (9110), `AGENTDECK_DB`, `AGENTDECK_BASE_URL`
-(URL targets use to reach this server for approval callbacks), `AGENTDECK_AUTH_TOKEN`
-(optional bearer), `AGENTDECK_VAPID_PUBLIC`/`_PRIVATE` (web push), `AGENTDECK_MOCK`.
+Config via env: `LECTERN_PORT` (9110), `LECTERN_DB`, `LECTERN_BASE_URL`
+(URL targets use to reach this server for approval callbacks), `LECTERN_AUTH_TOKEN`
+(optional bearer), `LECTERN_VAPID_PUBLIC`/`_PRIVATE` (web push), `LECTERN_MOCK`.
 
 ---
 

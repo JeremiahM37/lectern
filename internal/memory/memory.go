@@ -1,10 +1,10 @@
-// Package memory is agentdeck's seam onto a durable knowledge store.
+// Package memory is lectern's seam onto a durable knowledge store.
 //
-// agentdeck owns OPERATIONAL state — what the agents are doing: sessions, tasks,
+// lectern owns OPERATIONAL state — what the agents are doing: sessions, tasks,
 // worktrees, diffs, costs. It deliberately does not own SEMANTIC state — what
 // the project knows: decisions, discoveries, conventions. That belongs in a
-// memory system, and the boundary is worth keeping: agentdeck is useful with no
-// memory provider at all, and a memory provider is useful with no agentdeck.
+// memory system, and the boundary is worth keeping: lectern is useful with no
+// memory provider at all, and a memory provider is useful with no lectern.
 //
 // The interface exists so that relationship stays a composition rather than a
 // dependency. Grimoire is the first-class provider; `none` is the default.
@@ -41,7 +41,7 @@ type Fact struct {
 }
 
 // Entry is something worth remembering, with the provenance that makes it
-// findable later. Every field here is operational context agentdeck already has
+// findable later. Every field here is operational context lectern already has
 // and a memory store otherwise never learns.
 type Entry struct {
 	Project  string
@@ -66,7 +66,7 @@ type Provider interface {
 	Remember(ctx context.Context, e Entry) error
 }
 
-// None is the default provider: agentdeck works perfectly well without a memory
+// None is the default provider: lectern works perfectly well without a memory
 // system, and says so rather than pretending to have one.
 type None struct{}
 
@@ -304,7 +304,7 @@ func (g *Grimoire) recallFacts(ctx context.Context, project string, limit int) (
 	return out, nil
 }
 
-// Remember stores a fact with agentdeck's operational provenance attached.
+// Remember stores a fact with lectern's operational provenance attached.
 func (g *Grimoire) Remember(ctx context.Context, e Entry) error {
 	topic := e.Topic
 	if topic == "" {
@@ -314,7 +314,7 @@ func (g *Grimoire) Remember(ctx context.Context, e Entry) error {
 		"text":     e.Text,
 		"topic":    topic,
 		"scope":    "topic",
-		"agent":    "agentdeck",
+		"agent":    "lectern",
 		"session":  e.Session,
 		"category": e.Category,
 	})

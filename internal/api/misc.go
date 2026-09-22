@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/push"
-	"github.com/JeremiahM37/agentdeck/internal/sinks"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/version"
+	"github.com/JeremiahM37/lectern/internal/push"
+	"github.com/JeremiahM37/lectern/internal/sinks"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/version"
 )
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +80,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
-	s.Notifier.Notify("Test notification", "agentdeck sinks are wired up 🎛", "/", nil)
+	s.Notifier.Notify("Test notification", "lectern sinks are wired up 🎛", "/", nil)
 	writeJSON(w, 200, map[string]any{"sent": true})
 }
 
@@ -187,7 +187,7 @@ func (s *Server) runJanitor(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) vapidKey(w http.ResponseWriter, r *http.Request) {
 	if s.Cfg.VAPIDPublicKey == "" {
-		httpError(w, 404, "push not configured (set AGENTDECK_VAPID_PUBLIC/PRIVATE)")
+		httpError(w, 404, "push not configured (set LECTERN_VAPID_PUBLIC/PRIVATE)")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"key": s.Cfg.VAPIDPublicKey})

@@ -39,7 +39,7 @@ export function Review({
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [wrap, setWrap] = useState(
-    () => localStorage.getItem("adk-review-wrap") !== "0",
+    () => localStorage.getItem("lec-review-wrap") !== "0",
   );
   useEffect(() => {
     const previous = document.activeElement;
@@ -199,7 +199,7 @@ export function Review({
           aria-pressed={wrap}
           onClick={() => {
             setWrap(!wrap);
-            localStorage.setItem("adk-review-wrap", wrap ? "0" : "1");
+            localStorage.setItem("lec-review-wrap", wrap ? "0" : "1");
           }}
         >
           Wrap lines

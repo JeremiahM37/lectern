@@ -130,7 +130,7 @@ func (db *DB) InsertSession(s *Session) (*Session, error) {
 		workdir, tmux_session, status, origin, last_activity_at, created_at, updated_at, group_path, resume_id, native_recovery_cid, boot_id)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.ProjectID, s.TargetID, s.Name, nz(s.Agent, "claude"), s.Model, s.Workdir,
-		s.TmuxSession, nz(s.Status, "starting"), nz(s.Origin, "agentdeck"), now, now, now, s.GroupPath, s.ResumeID, s.NativeRecoveryCID, s.BootID)
+		s.TmuxSession, nz(s.Status, "starting"), nz(s.Origin, "lectern"), now, now, now, s.GroupPath, s.ResumeID, s.NativeRecoveryCID, s.BootID)
 	if err != nil {
 		return nil, err
 	}

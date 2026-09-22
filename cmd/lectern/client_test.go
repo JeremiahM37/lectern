@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/console"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/console"
 )
 
 func TestPromoteErrorExplainsOlderRunningServer(t *testing.T) {
 	err := promoteError(&console.HTTPError{Status: 404, Detail: "404 page not found"})
-	if err == nil || !strings.Contains(err.Error(), "restart or update AgentDeck") {
+	if err == nil || !strings.Contains(err.Error(), "restart or update Lectern") {
 		t.Fatalf("unhelpful promotion error: %v", err)
 	}
 	if got := promoteError(errors.New("connection refused")).Error(); !strings.Contains(got, "connection refused") {
@@ -25,7 +25,7 @@ func TestPromoteErrorExplainsOlderRunningServer(t *testing.T) {
 
 func TestShellErrorExplainsOlderRunningServer(t *testing.T) {
 	err := shellEndpointError(&console.HTTPError{Status: 404, Detail: "404 page not found"})
-	if err == nil || !strings.Contains(err.Error(), "quick shell is unavailable") || !strings.Contains(err.Error(), "restart or update AgentDeck") {
+	if err == nil || !strings.Contains(err.Error(), "quick shell is unavailable") || !strings.Contains(err.Error(), "restart or update Lectern") {
 		t.Fatalf("unhelpful shell error: %v", err)
 	}
 	original := errors.New("target refused connection")
@@ -36,12 +36,12 @@ func TestShellErrorExplainsOlderRunningServer(t *testing.T) {
 
 func TestAttachmentResolvesOnServerAndRejectsShellInput(t *testing.T) {
 	cfg := &config.Config{}
-	t.Setenv("AGENTDECK_ATTACH_HOST", "my-server")
+	t.Setenv("LECTERN_ATTACH_HOST", "my-server")
 	argv, err := attachmentCommand(cfg, []string{"session", "17"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(argv, []string{"env", "TERM=xterm-256color", "ssh", "-tt", "my-server", "/usr/local/bin/agentdeck", "--hosted-attach", "attach", "session", "17"}) {
+	if !reflect.DeepEqual(argv, []string{"env", "TERM=xterm-256color", "ssh", "-tt", "my-server", "/usr/local/bin/lectern", "--hosted-attach", "attach", "session", "17"}) {
 		t.Fatal(argv)
 	}
 	for _, args := range [][]string{{"session", "17;touch bad"}, {"-c", "17"}, {"session", "0"}} {
@@ -49,8 +49,8 @@ func TestAttachmentResolvesOnServerAndRejectsShellInput(t *testing.T) {
 			t.Fatalf("accepted %v", args)
 		}
 	}
-	t.Setenv("AGENTDECK_ATTACH_HOST", "")
-	t.Setenv("AGENTDECK_API", "https://remote.example")
+	t.Setenv("LECTERN_ATTACH_HOST", "")
+	t.Setenv("LECTERN_API", "https://remote.example")
 	if _, e := attachmentCommand(cfg, []string{"session", "17"}); e == nil {
 		t.Fatal("executed remote filesystem paths locally")
 	}
@@ -95,8 +95,8 @@ func TestLocalAttachmentUsesConfiguredAPIAndToken(t *testing.T) {
 		w.Write([]byte(`{"attach_argv":["tmux","attach","-t","safe"]}`))
 	}))
 	defer srv.Close()
-	t.Setenv("AGENTDECK_API", srv.URL)
-	t.Setenv("AGENTDECK_ATTACH_HOST", "")
+	t.Setenv("LECTERN_API", srv.URL)
+	t.Setenv("LECTERN_ATTACH_HOST", "")
 	argv, e := attachmentCommand(&config.Config{AuthToken: "test"}, []string{"session", "17"})
 	if e != nil {
 		t.Fatal(e)

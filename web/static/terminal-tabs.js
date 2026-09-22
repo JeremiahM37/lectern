@@ -1,11 +1,11 @@
 // Terminal frames live outside the board's replaceable DOM. Selecting a tab
 // changes visibility only; it never reparents/reloads an existing frame.
-const STORAGE = 'adk-terminal-tabs-v1';
+const STORAGE = 'lec-terminal-tabs-v1';
 function terminalPath(url) {
   const parsed = new URL(url, location.origin);
   const path = parsed.pathname.replace(/^\/term\//, '/terminal/').replace(/\/$/, '');
   if (parsed.origin !== location.origin || !/^\/terminal\/(session|attempt|project)\/[1-9]\d*$/.test(path))
-    throw Error('This terminal does not have a valid AgentDeck address.');
+    throw Error('This terminal does not have a valid Lectern address.');
   return path;
 }
 
@@ -18,7 +18,7 @@ export class TerminalTabs {
     this.active = null;
     this.mobile = matchMedia('(max-width:1023px)');
     this.compact = true;
-    try { this.compact = localStorage.getItem('adk-terminal-compact') !== '0'; } catch {}
+    try { this.compact = localStorage.getItem('lec-terminal-compact') !== '0'; } catch {}
     root.innerHTML = `<div class="terminal-tabbar">
       <div class="terminal-tablist" role="tablist" aria-label="Open terminals"></div>
       <a class="b terminal-popout" target="_blank" rel="noopener" title="Open this terminal in a separate browser tab" hidden>Pop out ↗</a>
@@ -29,7 +29,7 @@ export class TerminalTabs {
       <button class="terminal-focus" aria-label="Show navigation" title="Show navigation">☰</button>
     </div><div class="terminal-panels"></div>
     <div class="terminal-empty"><h2>No open terminals</h2>
-      <p>Attach a session or open a project shell. Its terminal stays here while you switch around AgentDeck.</p>
+      <p>Attach a session or open a project shell. Its terminal stays here while you switch around Lectern.</p>
       <button class="b ok">Open sessions</button></div>`;
     root.querySelector('.terminal-empty button').onclick = browse;
     this.list = root.querySelector('.terminal-tablist');
@@ -43,7 +43,7 @@ export class TerminalTabs {
     this.focusButton = root.querySelector('.terminal-focus');
     this.focusButton.onclick = () => {
       this.compact = !this.compact;
-      try { localStorage.setItem('adk-terminal-compact', this.compact ? '1' : '0'); } catch {}
+      try { localStorage.setItem('lec-terminal-compact', this.compact ? '1' : '0'); } catch {}
       this.applyLayout();
     };
     root.querySelector('.terminal-search').onclick = () => search?.();
@@ -124,7 +124,7 @@ export class TerminalTabs {
   }
   notifyVisible(tab) {
     if (!this.root.hidden && tab.path === this.active)
-      tab.frame?.contentWindow?.postMessage({type:'adk-terminal-visible', mobile:this.mobile.matches, compact:this.mobile.matches && this.compact}, location.origin);
+      tab.frame?.contentWindow?.postMessage({type:'lec-terminal-visible', mobile:this.mobile.matches, compact:this.mobile.matches && this.compact}, location.origin);
   }
   bindSwipe(tab) {
     if (tab.swipeBound || !tab.frame?.contentWindow) return;
@@ -151,7 +151,7 @@ export class TerminalTabs {
       const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
       const elapsed = performance.now() - start.at;
       const selection = win.getSelection?.();
-      const xterm = win.__adkTerminalState?.() || {};
+      const xterm = win.__lecTerminalState?.() || {};
       const selected = (selection && selection.toString()) || xterm.hasSelection;
       const threshold = Math.max(72, Math.min(140, win.innerWidth * .22));
       const flick = elapsed <= 550 && start.maxVertical < Math.max(48, threshold * .55) && Math.abs(dx) >= threshold && Math.abs(dx) >= Math.abs(dy) * 1.6;
@@ -167,7 +167,7 @@ export class TerminalTabs {
   bindTabStripSwipe() {
     // Terminal applications may claim the iframe's pointer stream for mouse
     // reporting. Keep the same flick available from the tab strip, whose
-    // controls belong to AgentDeck and are always safe to own.
+    // controls belong to Lectern and are always safe to own.
     const strip = this.list;
     let start = null;
     strip.addEventListener('touchstart', (event) => {

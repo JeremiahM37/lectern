@@ -195,7 +195,7 @@ def test_remote_pdf_context_is_uploaded_and_usable(page, remote_terminal):
             {"bytes": list(pdf), "name": "context proof.pdf"})
     attachment = response.value.json()
     remote_path = attachment["path"]
-    assert remote_path.startswith(str(t["remote_root"] / ".agentdeck" / "context") + "/")
+    assert remote_path.startswith(str(t["remote_root"] / ".lectern" / "context") + "/")
     page.keyboard.press("Enter")
     expect(page.locator("#agent-terminal .xterm-screen")).to_contain_text(digest, timeout=10000)
 

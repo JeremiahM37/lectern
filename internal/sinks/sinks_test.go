@@ -34,7 +34,7 @@ func TestNtfyRequiresServerAndTopic(t *testing.T) {
 		base, "t", "b", "/", nil); len(got) != 0 {
 		t.Errorf("server without topic: %+v", got)
 	}
-	if got := BuildPayloads(map[string]string{"ntfy_topic": "adk"},
+	if got := BuildPayloads(map[string]string{"ntfy_topic": "lec"},
 		base, "t", "b", "/", nil); len(got) != 0 {
 		t.Errorf("topic without server: %+v", got)
 	}
@@ -42,13 +42,13 @@ func TestNtfyRequiresServerAndTopic(t *testing.T) {
 
 func TestNtfyPlainPayload(t *testing.T) {
 	out := BuildPayloads(map[string]string{
-		"ntfy_server": "https://ntfy.sh/", "ntfy_topic": "adk"},
+		"ntfy_server": "https://ntfy.sh/", "ntfy_topic": "lec"},
 		base, "Ready for review", "Fix the bug", "/#task/3", nil)
 	if len(out) != 1 || out[0].Kind != "ntfy" || out[0].URL != "https://ntfy.sh" {
 		t.Fatalf("got %+v", out)
 	}
 	msg := out[0].Body
-	if msg["topic"] != "adk" {
+	if msg["topic"] != "lec" {
 		t.Errorf("topic: %v", msg["topic"])
 	}
 	if !strings.HasSuffix(msg["title"].(string), "Ready for review") {
@@ -65,7 +65,7 @@ func TestNtfyPlainPayload(t *testing.T) {
 // A phone should be able to decide without opening the app, and without VAPID.
 func TestNtfyApprovalCarriesActionButtons(t *testing.T) {
 	out := BuildPayloads(map[string]string{
-		"ntfy_server": "https://ntfy.sh", "ntfy_topic": "adk"},
+		"ntfy_server": "https://ntfy.sh", "ntfy_topic": "lec"},
 		base, "Approval needed", "Bash: rm -rf build/", "/",
 		&Extra{Kind: "approval", ApprovalID: 42})
 	msg := out[0].Body

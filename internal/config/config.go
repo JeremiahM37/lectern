@@ -1,4 +1,4 @@
-// Package config holds every knob agentdeck reads from the environment.
+// Package config holds every knob lectern reads from the environment.
 //
 // Values are resolved once at startup into a Config, then passed explicitly.
 // Tests build their own Config instead of mutating globals, which is what makes
@@ -72,7 +72,7 @@ type Config struct {
 	CodexCredsPath  string
 
 	// GrimoireURL points at a Grimoire instance for durable project memory.
-	// Empty means agentdeck runs with no memory provider, which is a supported
+	// Empty means lectern runs with no memory provider, which is a supported
 	// configuration and not a degraded one — the two tools compose, they do not
 	// depend on each other.
 	GrimoireURL             string
@@ -95,7 +95,7 @@ type Config struct {
 // collide across databases, and a shared store once let a mock run overwrite
 // production diffs.
 func (c *Config) DiffDir() string {
-	return filepath.Join(filepath.Dir(c.DBPath), "agentdeck-diffs")
+	return filepath.Join(filepath.Dir(c.DBPath), "lectern-diffs")
 }
 
 // MediaDir holds what agents post back for the operator to look at: recordings,
@@ -106,7 +106,7 @@ func (c *Config) MediaDir() string {
 	if c.MediaPath != "" {
 		return c.MediaPath
 	}
-	return filepath.Join(filepath.Dir(c.DBPath), "agentdeck-media")
+	return filepath.Join(filepath.Dir(c.DBPath), "lectern-media")
 }
 
 // MediaLimit is the largest single file an agent may post. A Config built by
@@ -140,42 +140,42 @@ func envSeconds(key string, def float64) time.Duration {
 func Load() *Config {
 	home, _ := os.UserHomeDir()
 	port := 9110
-	if p, err := strconv.Atoi(env("AGENTDECK_PORT", "")); err == nil {
+	if p, err := strconv.Atoi(env("LECTERN_PORT", "")); err == nil {
 		port = p
 	}
 	cwd, _ := os.Getwd()
 	c := &Config{
-		DBPath:                  env("AGENTDECK_DB", filepath.Join(cwd, "agentdeck.db")),
+		DBPath:                  env("LECTERN_DB", filepath.Join(cwd, "lectern.db")),
 		Port:                    port,
-		Host:                    env("AGENTDECK_HOST", "0.0.0.0"),
-		Mock:                    os.Getenv("AGENTDECK_MOCK") == "1",
-		MediaPath:               os.Getenv("AGENTDECK_MEDIA_DIR"),
-		MediaMaxBytes:           int64(envFloat("AGENTDECK_MEDIA_MAX_MB", 1024)) << 20,
-		AuthToken:               os.Getenv("AGENTDECK_AUTH_TOKEN"),
-		TickInterval:            envSeconds("AGENTDECK_TICK", 2.0),
-		ApprovalPoll:            envSeconds("AGENTDECK_APPROVAL_POLL", 25),
-		ApprovalExpire:          envSeconds("AGENTDECK_APPROVAL_EXPIRE", 900),
-		JanitorDays:             envFloat("AGENTDECK_JANITOR_DAYS", 7),
-		ScratchDays:             envFloat("AGENTDECK_SCRATCH_DAYS", 7),
-		ScratchTrashDays:        envFloat("AGENTDECK_SCRATCH_TRASH_DAYS", 14),
-		Live:                    os.Getenv("AGENTDECK_LIVE") == "1",
-		MockAgentDelay:          envSeconds("AGENTDECK_MOCK_DELAY", 0.4),
-		VAPIDPrivateKey:         os.Getenv("AGENTDECK_VAPID_PRIVATE"),
-		VAPIDPublicKey:          os.Getenv("AGENTDECK_VAPID_PUBLIC"),
-		VAPIDEmail:              env("AGENTDECK_VAPID_EMAIL", "admin@example.com"),
-		HostClaudeConfig:        env("AGENTDECK_HOST_CLAUDE_CONFIG", filepath.Join(home, ".claude.json")),
-		ClaudeBin:               env("AGENTDECK_CLAUDE_BIN", "claude"),
-		CodexBin:                env("AGENTDECK_CODEX_BIN", "codex"),
-		GeminiBin:               env("AGENTDECK_GEMINI_BIN", "gemini"),
-		AnthropicAPIKey:         os.Getenv("AGENTDECK_ANTHROPIC_API_KEY"),
-		ClaudeCredsPath:         env("AGENTDECK_CREDS", filepath.Join(home, ".claude", ".credentials.json")),
-		CodexCredsPath:          env("AGENTDECK_CODEX_CREDS", filepath.Join(home, ".codex", "auth.json")),
-		GrimoireURL:             os.Getenv("AGENTDECK_GRIMOIRE_URL"),
-		GrimoireToken:           os.Getenv("AGENTDECK_GRIMOIRE_TOKEN"),
-		GrimoireContextMode:     env("AGENTDECK_GRIMOIRE_CONTEXT_MODE", "project"),
-		GrimoireContextProjects: os.Getenv("AGENTDECK_GRIMOIRE_CONTEXT_PROJECTS"),
-		SessionPoll:             envSeconds("AGENTDECK_SESSION_POLL", 3.0),
+		Host:                    env("LECTERN_HOST", "0.0.0.0"),
+		Mock:                    os.Getenv("LECTERN_MOCK") == "1",
+		MediaPath:               os.Getenv("LECTERN_MEDIA_DIR"),
+		MediaMaxBytes:           int64(envFloat("LECTERN_MEDIA_MAX_MB", 1024)) << 20,
+		AuthToken:               os.Getenv("LECTERN_AUTH_TOKEN"),
+		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
+		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),
+		ApprovalExpire:          envSeconds("LECTERN_APPROVAL_EXPIRE", 900),
+		JanitorDays:             envFloat("LECTERN_JANITOR_DAYS", 7),
+		ScratchDays:             envFloat("LECTERN_SCRATCH_DAYS", 7),
+		ScratchTrashDays:        envFloat("LECTERN_SCRATCH_TRASH_DAYS", 14),
+		Live:                    os.Getenv("LECTERN_LIVE") == "1",
+		MockAgentDelay:          envSeconds("LECTERN_MOCK_DELAY", 0.4),
+		VAPIDPrivateKey:         os.Getenv("LECTERN_VAPID_PRIVATE"),
+		VAPIDPublicKey:          os.Getenv("LECTERN_VAPID_PUBLIC"),
+		VAPIDEmail:              env("LECTERN_VAPID_EMAIL", "admin@example.com"),
+		HostClaudeConfig:        env("LECTERN_HOST_CLAUDE_CONFIG", filepath.Join(home, ".claude.json")),
+		ClaudeBin:               env("LECTERN_CLAUDE_BIN", "claude"),
+		CodexBin:                env("LECTERN_CODEX_BIN", "codex"),
+		GeminiBin:               env("LECTERN_GEMINI_BIN", "gemini"),
+		AnthropicAPIKey:         os.Getenv("LECTERN_ANTHROPIC_API_KEY"),
+		ClaudeCredsPath:         env("LECTERN_CREDS", filepath.Join(home, ".claude", ".credentials.json")),
+		CodexCredsPath:          env("LECTERN_CODEX_CREDS", filepath.Join(home, ".codex", "auth.json")),
+		GrimoireURL:             os.Getenv("LECTERN_GRIMOIRE_URL"),
+		GrimoireToken:           os.Getenv("LECTERN_GRIMOIRE_TOKEN"),
+		GrimoireContextMode:     env("LECTERN_GRIMOIRE_CONTEXT_MODE", "project"),
+		GrimoireContextProjects: os.Getenv("LECTERN_GRIMOIRE_CONTEXT_PROJECTS"),
+		SessionPoll:             envSeconds("LECTERN_SESSION_POLL", 3.0),
 	}
-	c.BaseURL = env("AGENTDECK_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
+	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
 	return c
 }

@@ -94,7 +94,7 @@ const api: SettingsApi = {
             version: "d848fb4e18f44640ad6b42e60a280551ee90cdce",
             upstream_url: "https://github.com/github/spec-kit",
             enabled: false,
-            commands: ["agentdeck-spec-kit constitution", "agentdeck-spec-kit specify", "agentdeck-spec-kit clarify", "agentdeck-spec-kit plan", "agentdeck-spec-kit tasks", "agentdeck-spec-kit analyze", "agentdeck-spec-kit checklist", "agentdeck-spec-kit implement", "agentdeck-spec-kit converge"],
+            commands: ["lectern-spec-kit constitution", "lectern-spec-kit specify", "lectern-spec-kit clarify", "lectern-spec-kit plan", "lectern-spec-kit tasks", "lectern-spec-kit analyze", "lectern-spec-kit checklist", "lectern-spec-kit implement", "lectern-spec-kit converge"],
           },
           {
             id: "maestro",
@@ -103,7 +103,7 @@ const api: SettingsApi = {
             version: "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
             upstream_url: "https://github.com/sharpdeveye/maestro",
             enabled: false,
-            commands: ["agentdeck-maestro diagnose", "agentdeck-maestro fortify", "agentdeck-maestro refine", "agentdeck-maestro reflect", "agentdeck-maestro agent-workflow", "agentdeck-maestro teach-maestro"],
+            commands: ["lectern-maestro diagnose", "lectern-maestro fortify", "lectern-maestro refine", "lectern-maestro reflect", "lectern-maestro agent-workflow", "lectern-maestro teach-maestro"],
           },
         ],
         reload_required: true,
@@ -114,7 +114,7 @@ const api: SettingsApi = {
         {
           name: "runner-secret",
           command: "runner",
-          env: { API_KEY: { __agentdeck_retained: "token" } },
+          env: { API_KEY: { __lectern_retained: "token" } },
         },
       ];
     if (p === "/launch-profiles")

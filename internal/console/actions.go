@@ -112,7 +112,7 @@ func (u *UI) item(kind, id string, row map[string]any) error {
 		case "delete", "cleanup":
 			warning := "Remove this " + strings.TrimSuffix(kind, "s") + "?"
 			if kind == "sessions" {
-				warning = "Remove this session? AgentDeck-owned sessions are stopped; adopted sessions keep running."
+				warning = "Remove this session? Lectern-owned sessions are stopped; adopted sessions keep running."
 			}
 			if !u.confirm(warning) {
 				continue
@@ -180,7 +180,7 @@ func (u *UI) importProjects() error {
 	return u.request("POST", "/projects/import", body)
 }
 func (u *UI) api() error {
-	u.say("All API resources: targets, projects, sessions, tasks, routines, approvals, agents, launch-profiles, models, templates, settings, stats, health.\nExamples: GET /agents · PUT /templates · POST /settings/test-notification · POST /admin/janitor\nUse agentdeck api --help for scripting and file input.")
+	u.say("All API resources: targets, projects, sessions, tasks, routines, approvals, agents, launch-profiles, models, templates, settings, stats, health.\nExamples: GET /agents · PUT /templates · POST /settings/test-notification · POST /admin/janitor\nUse lectern api --help for scripting and file input.")
 	line, e := u.ask("METHOD /api/path (blank cancels)", "")
 	if e != nil || line == "" {
 		return e

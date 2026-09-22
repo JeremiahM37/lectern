@@ -52,7 +52,7 @@ def test_the_phone_size_is_stored_apart_from_the_desk_size(page,real_terminal):
     t=real_terminal
     f=attach(page,t)
     desk=int(capture_cols(t))
-    size=f.locator('body').evaluate('()=>JSON.parse(localStorage.getItem("adk-terminal-prefs")||"{}")')
+    size=f.locator('body').evaluate('()=>JSON.parse(localStorage.getItem("lec-terminal-prefs")||"{}")')
     # Nothing on a desk-sized screen adopted the phone's type size.
     assert desk>100 and size.get('mobileFontSize') in (None,11),(desk,size)
 

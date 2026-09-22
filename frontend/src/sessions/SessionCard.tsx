@@ -160,7 +160,7 @@ export function SessionCard({
         {adopted && (
           <span
             className="chip info"
-            title="started outside agentdeck and adopted"
+            title="started outside lectern and adopted"
           >
             adopted
           </span>
@@ -292,7 +292,7 @@ export function SessionCard({
               <button className="b" onClick={() => onReview(s)}>
                 Review changes
               </button>
-              <a className="b" href={`agentdeck://attach/session/${s.id}`}>
+              <a className="b" href={`lectern://attach/session/${s.id}`}>
                 Open in terminal
               </a>
               {s.status === "running" && (

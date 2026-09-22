@@ -151,7 +151,7 @@ export function NewSession({
       onCreated(s);
       onNotice(
         s.setup_state === "creating"
-          ? "Workspace setup started. You can keep using AgentDeck."
+          ? "Workspace setup started. You can keep using Lectern."
           : "Session started",
       );
       onClose();
@@ -292,7 +292,7 @@ export function NewSession({
                     : "type the model name"
             }
             id="ns-model"
-            list="adk-models"
+            list="lec-models"
             disabled={
               models[agent] === undefined &&
               !agents.find((a) => a.name === agent)?.model_flag
@@ -300,7 +300,7 @@ export function NewSession({
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />
-          <datalist id="adk-models">
+          <datalist id="lec-models">
             {(models[agent] || []).map((m) => (
               <option key={m} value={m} />
             ))}

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func scopedMemoryServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
@@ -31,7 +31,7 @@ func scopedMemoryServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
 			t.Errorf("bad scope: %v", query)
 		}
 		paths := query["path"]
-		if len(paths) != 2 || paths[0] != "teams/kestrel/" || !strings.HasPrefix(paths[1], "memory/agentdeck-") {
+		if len(paths) != 2 || paths[0] != "teams/kestrel/" || !strings.HasPrefix(paths[1], "memory/lectern-") {
 			t.Errorf("wrong assigned project: %v", paths)
 		}
 		if query.Get("exclude") != "" {
@@ -60,7 +60,7 @@ func TestAssignedProjectAutomaticallyPrimesAndDeduplicatesMessages(t *testing.T)
 	}
 	harness.post(fmt.Sprintf("/api/sessions/%d/send", session.id()), obj{"text": "What are the deployment constraints?"}, 200)
 	for path, content := range harness.mock().Files() {
-		if strings.Contains(path, "agentdeck-send-") && strings.Contains(string(content), "AUTOMATIC_KESTREL_REFERENCE") {
+		if strings.Contains(path, "lectern-send-") && strings.Contains(string(content), "AUTOMATIC_KESTREL_REFERENCE") {
 			t.Fatal("repeated context burned tokens")
 		}
 	}
@@ -79,7 +79,7 @@ func TestDispatchedTaskAutomaticallyUsesAssignedProjectMemory(t *testing.T) {
 	})
 	project := harness.post("/api/projects", obj{"name": "kestrel", "target_id": harness.firstTargetID(), "repo_path": "/mock/kestrel"}, 201)
 	harness.run(project.id(), "deployment", "check the deployment certificates", nil)
-	prompt := string(harness.staged("/.agentdeck/prompt.md"))
+	prompt := string(harness.staged("/.lectern/prompt.md"))
 	if !strings.Contains(prompt, "AUTOMATIC_KESTREL_REFERENCE") || calls.Load() != 1 {
 		t.Fatalf("missing automatic task context (%d calls): %s", calls.Load(), prompt)
 	}

@@ -2,10 +2,10 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 	"os"
 	"os/exec"
 	"strings"
@@ -13,7 +13,7 @@ import (
 )
 
 func TestRecoveryNeverAdoptsAReusedTerminalName(t *testing.T) {
-	socket, err := os.MkdirTemp("", "adk-recovery-")
+	socket, err := os.MkdirTemp("", "lec-recovery-")
 	if err != nil {
 		t.Fatal(err)
 	}

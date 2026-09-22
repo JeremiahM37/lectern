@@ -16,7 +16,7 @@ export class CommandPalette {
     this.items = items; this.refresh = refresh; this.error = error; this.generation = 0;
     this.dialog = document.createElement('dialog');
     this.dialog.className = 'command-palette';
-    this.dialog.setAttribute('aria-label', 'Search AgentDeck');
+    this.dialog.setAttribute('aria-label', 'Search Lectern');
     this.dialog.innerHTML = `<div class="command-search"><label class="sr-only" for="command-query">Search sessions, tasks, and actions</label><input id="command-query" type="search" autocomplete="off" placeholder="Search sessions, tasks, actions…" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results"><button type="button" aria-label="Close search"><span class="command-close-text">Esc</span><span class="command-close-icon" aria-hidden="true">×</span></button></div><p class="command-status" role="status" aria-live="polite"></p><div id="command-results" role="listbox" aria-label="Search results"></div><p class="command-help">↑ ↓ to choose · Enter to open · Esc to close</p>`;
     document.body.append(this.dialog);
     const fit = () => this.dialog.style.setProperty('--command-height', `${window.visualViewport?.height || innerHeight}px`);

@@ -3,7 +3,7 @@ package api_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 func TestProjectSetupRunsBeforeAgentAndStopsFailedLaunch(t *testing.T) {

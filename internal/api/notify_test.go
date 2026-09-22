@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/sinks"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/terminal"
+	"github.com/JeremiahM37/lectern/internal/sinks"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/terminal"
 )
 
 // sinkSpy captures what would have been delivered, with no network at all.
@@ -41,8 +41,8 @@ func TestSettingsRoundtrip(t *testing.T) {
 	var saved obj
 	h.decode("PUT", "/api/settings", obj{
 		"discord_webhook": "https://discord/hook",
-		"ntfy_server":     "https://ntfy.sh", "ntfy_topic": "adk"}, 200, &saved)
-	if h.get("/api/settings").str("ntfy_topic") != "adk" {
+		"ntfy_server":     "https://ntfy.sh", "ntfy_topic": "lec"}, 200, &saved)
+	if h.get("/api/settings").str("ntfy_topic") != "lec" {
 		t.Error("settings did not persist")
 	}
 	// an unknown key must fail loudly, not silently disable notifications
@@ -74,7 +74,7 @@ func TestNotifyFiresOnReview(t *testing.T) {
 	spy := &sinkSpy{}
 	h.App.Notifier.Hook = spy.hook
 	h.decode("PUT", "/api/settings",
-		obj{"ntfy_server": "https://ntfy.sh", "ntfy_topic": "adk"}, 200, nil)
+		obj{"ntfy_server": "https://ntfy.sh", "ntfy_topic": "lec"}, 200, nil)
 	task := h.task(h.seededProjectID(), "notify me", "x", nil)
 	h.post(fmt.Sprintf("/api/tasks/%d/dispatch", task.id()), obj{}, 200)
 	h.waitUntil("an ntfy payload for the review", func() bool {
@@ -111,7 +111,7 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 	if port < terminal.PortLo || port > terminal.PortHi {
 		t.Errorf("port outside the terminal range: %d", port)
 	}
-	if len(gotArgv) < 4 || !strings.HasPrefix(gotArgv[3], "adk-") {
+	if len(gotArgv) < 4 || !strings.HasPrefix(gotArgv[3], "lec-") {
 		t.Errorf("ttyd must wrap this attempt's tmux session: %v", gotArgv)
 	}
 	if code := h.status("POST", "/api/tasks/9999/terminal", nil); code != 404 {
@@ -120,24 +120,24 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 }
 
 func TestAttachArgvPerTargetKind(t *testing.T) {
-	att := terminal.Attachment{Key: "attempt:7", TmuxSession: "adk-7", SandboxVMID: "9001"}
+	att := terminal.Attachment{Key: "attempt:7", TmuxSession: "lec-7", SandboxVMID: "9001"}
 	sandbox, _ := terminal.AttachArgv(att, &store.Target{Kind: "sandbox"})
-	if strings.Join(sandbox, " ") != "sudo pct exec 9001 -- tmux attach -t adk-7 ; set-option -w -t =adk-7: window-size smallest" {
+	if strings.Join(sandbox, " ") != "sudo pct exec 9001 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
 		t.Errorf("sandbox: %v", sandbox)
 	}
-	pct, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "adk-7"},
+	pct, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"},
 		&store.Target{Kind: "pct", Host: "105"})
-	if strings.Join(pct, " ") != "sudo pct exec 105 -- tmux attach -t adk-7 ; set-option -w -t =adk-7: window-size smallest" {
+	if strings.Join(pct, " ") != "sudo pct exec 105 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
 		t.Errorf("pct: %v", pct)
 	}
-	ssh, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "adk-7"},
+	ssh, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"},
 		&store.Target{Kind: "ssh", Host: "192.0.2.9", User: "root", KeyPath: "/k"})
 	joined := strings.Join(ssh, " ")
 	if !strings.Contains(joined, "-i /k") || !strings.Contains(joined, "root@192.0.2.9") {
 		t.Errorf("ssh: %v", ssh)
 	}
-	local, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "adk-7"}, &store.Target{Kind: "local"})
-	if strings.Join(local, " ") != "tmux attach -t adk-7 ; set-option -w -t =adk-7: window-size smallest" {
+	local, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "local"})
+	if strings.Join(local, " ") != "tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
 		t.Errorf("local: %v", local)
 	}
 }

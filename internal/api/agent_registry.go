@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/sessions"
+	"github.com/JeremiahM37/lectern/internal/sessions"
 )
 
-const agentRetentionKey = "__agentdeck_retained"
+const agentRetentionKey = "__lectern_retained"
 
 var agentSecretKey = regexp.MustCompile(`(?i)(^|[_-])(key|token|secret|password|credential|private|authorization)($|[_-])`)
 var agentOpaqueConfigKey = regexp.MustCompile(`(?i)(^|[_-])(config|credentials?)[_-]?(content|json|data)$`)

@@ -1,4 +1,4 @@
-// Package localruntime starts the per-user AgentDeck control plane used by the
+// Package localruntime starts the per-user Lectern control plane used by the
 // local CLI. It deliberately keeps its state away from the checkout so a fresh
 // install can run without a hosted server or a configured target.
 package localruntime
@@ -24,17 +24,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/app"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/version"
+	"github.com/JeremiahM37/lectern/internal/app"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/version"
 )
 
 const (
 	endpointFile  = "endpoint.json"
 	lockFile      = "engine.lock"
-	engineRoute   = "/__agentdeck_local/stop"
-	identityRoute = "/__agentdeck_local/identity"
+	engineRoute   = "/__lectern_local/stop"
+	identityRoute = "/__lectern_local/identity"
 )
 
 type Endpoint struct {
@@ -69,7 +69,7 @@ func stateDir(create bool) (string, error) {
 		}
 		base = filepath.Join(home, ".local", "state")
 	}
-	dir := filepath.Join(base, "agentdeck", "local")
+	dir := filepath.Join(base, "lectern", "local")
 	var err error
 	if dir, err = filepath.Abs(dir); err != nil {
 		return "", err
@@ -187,9 +187,9 @@ func Ensure(ctx context.Context, binary string, base *config.Config) (Endpoint, 
 
 func localEnv(tmuxDir string) []string {
 	blocked := map[string]bool{
-		"AGENTDECK_API": true, "AGENTDECK_ATTACH_HOST": true, "AGENTDECK_DB": true,
-		"AGENTDECK_HOST": true, "AGENTDECK_PORT": true, "AGENTDECK_BASE_URL": true,
-		"AGENTDECK_AUTH_TOKEN": true, "AGENTDECK_LOCAL_ENGINE": true,
+		"LECTERN_API": true, "LECTERN_ATTACH_HOST": true, "LECTERN_DB": true,
+		"LECTERN_HOST": true, "LECTERN_PORT": true, "LECTERN_BASE_URL": true,
+		"LECTERN_AUTH_TOKEN": true, "LECTERN_LOCAL_ENGINE": true,
 		"TMUX": true, "TMUX_TMPDIR": true,
 	}
 	out := make([]string, 0, len(os.Environ()))
@@ -311,7 +311,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 	if lockFD > 0 {
 		// The descriptor is inherited from Ensure. Keeping it open holds the
 		// kernel lock for the engine lifetime; it is never closed early.
-		lock := os.NewFile(uintptr(lockFD), "agentdeck-local-lock")
+		lock := os.NewFile(uintptr(lockFD), "lectern-local-lock")
 		// Only the engine owns this descriptor. Do not let agent subprocesses
 		// inherit it and accidentally extend the singleton lifetime.
 		syscall.CloseOnExec(lockFD)
@@ -341,7 +341,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 	}
 	nsDigest := sha256.Sum256([]byte(absDir))
 	cfg.WorktreeNamespace = "local-" + hex.EncodeToString(nsDigest[:6])
-	cfg.DBPath = filepath.Join(dir, "agentdeck.db")
+	cfg.DBPath = filepath.Join(dir, "lectern.db")
 	cfg.Host = "127.0.0.1"
 	cfg.Port = port
 	cfg.BaseURL = "http://127.0.0.1:" + strconv.Itoa(port)

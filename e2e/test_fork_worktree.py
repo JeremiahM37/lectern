@@ -101,7 +101,7 @@ def test_web_forks_history_into_worktree(page,real_terminal,agent,width):
     expect(dialog.locator('.nh-confirm')).to_contain_text('Uncommitted changes stay')
     dialog.locator('.nh-branch').fill('web-context')
     assert dialog.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
-    page.screenshot(path=f'/tmp/agentdeck-fork-worktree-{width}.png')
+    page.screenshot(path=f'/tmp/lectern-fork-worktree-{width}.png')
     dialog.get_by_role('button',name='Create fork',exact=True).click()
     expect(dialog).not_to_be_visible(timeout=20000)
     row=next(r for r in t['api']('/sessions') if r['name']=='Isolated conversation')

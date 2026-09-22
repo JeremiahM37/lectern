@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 )
 
 type bootExecutor struct {
@@ -36,8 +36,8 @@ func TestProbeBootIDRequiresKnownLinuxIdentity(t *testing.T) {
 }
 
 func TestHasSessionUsesExactTmuxTarget(t *testing.T) {
-	got := HasSessionCommand("adk-s12")
-	if got != "tmux has-session -t =adk-s12" {
+	got := HasSessionCommand("lec-s12")
+	if got != "tmux has-session -t =lec-s12" {
 		t.Fatalf("must use an exact tmux target, got %q", got)
 	}
 }

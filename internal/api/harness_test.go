@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/app"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/app"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 )
 
-// harness is a whole agentdeck — real HTTP server, real scheduler, real hook
+// harness is a whole lectern — real HTTP server, real scheduler, real hook
 // endpoints — running against an isolated temp database with the mock executor.
 //
 // Nothing is stubbed between the API and the "target", so a fake agent exercises
@@ -61,7 +61,7 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 		isolateTmux(t)
 	}
 	// bind first so BaseURL is final before the scheduler can read it: the fake
-	// agent calls back into this very server through the staged .agentdeck/env
+	// agent calls back into this very server through the staged .lectern/env
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

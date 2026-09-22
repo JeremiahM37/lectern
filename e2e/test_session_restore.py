@@ -102,9 +102,9 @@ def test_console_restores_original_session_without_starting_a_process(real_termi
 def test_legacy_live_release_captures_identity_without_blocking_offline(real_terminal,offline):
     t=real_terminal;path=f"/sessions/{t['id']}"
     # Simulate a record created by the pre-identity version, on real tmux.
-    with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+    with sqlite3.connect(t['env']['LECTERN_DB']) as db:
         db.execute("UPDATE sessions SET tracking_identity='' WHERE id=?",(t['id'],))
-    subprocess.run(['tmux','set-option','-u','-t','=terminal-test:','@agentdeck-tracking-identity'],env=t['env'],check=True)
+    subprocess.run(['tmux','set-option','-u','-t','=terminal-test:','@lectern-tracking-identity'],env=t['env'],check=True)
     if offline:
         subprocess.run(['tmux','new-session','-d','-s','recovery-unrelated','-c',str(t['root']),'bash --norc'],env=t['env'],check=True)
         other=t['api']('/sessions/adopt',{'target_id':t['target_id'],'tmux_session':'recovery-unrelated','workdir':str(t['root']),'name':'Unrelated healthy session','agent':'claude'})
@@ -119,7 +119,7 @@ def test_legacy_live_release_captures_identity_without_blocking_offline(real_ter
             except OSError:pass
         thread=threading.Thread(target=stall_handshake,daemon=True);thread.start()
         target=t['api']('/targets',{'name':'unreachable-recovery','kind':'ssh','host':'127.0.0.1','port':listener.getsockname()[1],'user':'nobody','key_path':str(key)})
-        with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+        with sqlite3.connect(t['env']['LECTERN_DB']) as db:
             db.execute('UPDATE sessions SET target_id=? WHERE id=?',(target['id'],t['id']))
     start=time.monotonic()
     try:
@@ -143,7 +143,7 @@ def test_legacy_live_release_captures_identity_without_blocking_offline(real_ter
         assert t['api'](path)['id']==t['id']
     else:
         # Returning later must not manufacture identity on an already released row.
-        with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+        with sqlite3.connect(t['env']['LECTERN_DB']) as db:
             db.execute('UPDATE sessions SET target_id=? WHERE id=?',(t['target_id'],t['id']))
         assert request(t,'DELETE',path)[0]==200
         assert request(t,'POST',path+'/restore',{})[0]==409
@@ -156,7 +156,7 @@ def test_adopt_and_restore_do_not_poll_unrelated_targets(real_terminal):
     listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();listener.settimeout(.1)
     try:
         target=t['api']('/targets',{'name':'unrelated-stalled','kind':'ssh','host':'127.0.0.1','port':listener.getsockname()[1],'user':'nobody','key_path':str(key)})
-        with sqlite3.connect(t['env']['AGENTDECK_DB']) as db:
+        with sqlite3.connect(t['env']['LECTERN_DB']) as db:
             db.execute("INSERT INTO sessions(target_id,name,tmux_session,workdir,agent,status,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",(target['id'],'Unrelated session','unrelated',str(t['root']),'claude','idle','discovered',time.time(),time.time()))
         subprocess.run(['tmux','new-session','-d','-s','targeted-adoption','-c',str(t['root']),'bash --norc'],env=t['env'],check=True)
         start=time.monotonic()

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 // runToEnd dispatches and waits for the task to finish either way.
@@ -119,7 +119,7 @@ func TestCodexGetsStagedContextLikeClaude(t *testing.T) {
 	if got := string(h.staged("/context/CLAUDE.md")); got != "codex should read this too" {
 		t.Fatalf("staged: %q", got)
 	}
-	if !strings.Contains(string(h.staged("/prompt.md")), ".agentdeck/context/CLAUDE.md") {
+	if !strings.Contains(string(h.staged("/prompt.md")), ".lectern/context/CLAUDE.md") {
 		t.Error("the prompt prefix is how a non-claude agent learns about the bundle")
 	}
 }

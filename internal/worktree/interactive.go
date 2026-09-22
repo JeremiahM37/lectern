@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/executor"
 )
 
 // Interactive records an allocation before any remote Git mutation. A failed
@@ -52,7 +52,7 @@ func PlanInteractive(repo string, id int64, o InteractiveOptions) *Interactive {
 	key := hex.EncodeToString(token)
 	branch := strings.TrimSpace(o.Branch)
 	if branch == "" {
-		branch = fmt.Sprintf("adk/session%d-%s", id, key[:8])
+		branch = fmt.Sprintf("lec/session%d-%s", id, key[:8])
 		branch = NamespacedBranch(branch, o.Namespace)
 	}
 	base := strings.TrimSpace(o.Base)

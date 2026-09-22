@@ -19,20 +19,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/agents"
-	"github.com/JeremiahM37/agentdeck/internal/broker"
-	"github.com/JeremiahM37/agentdeck/internal/bus"
-	"github.com/JeremiahM37/agentdeck/internal/config"
-	"github.com/JeremiahM37/agentdeck/internal/creds"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/memory"
-	"github.com/JeremiahM37/agentdeck/internal/sandbox"
-	"github.com/JeremiahM37/agentdeck/internal/scratch"
-	"github.com/JeremiahM37/agentdeck/internal/sinks"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/state"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/agents"
+	"github.com/JeremiahM37/lectern/internal/broker"
+	"github.com/JeremiahM37/lectern/internal/bus"
+	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/internal/creds"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/memory"
+	"github.com/JeremiahM37/lectern/internal/sandbox"
+	"github.com/JeremiahM37/lectern/internal/scratch"
+	"github.com/JeremiahM37/lectern/internal/sinks"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/state"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 )
 
 // AgentTaskFooter is appended to every non-reviewer prompt. Scope creep is the
@@ -40,10 +40,10 @@ import (
 const AgentTaskFooter = `
 
 ---
-agentdeck: if you discover out-of-scope work (bugs, refactors, follow-ups), do NOT
+lectern: if you discover out-of-scope work (bugs, refactors, follow-ups), do NOT
 expand this task. File a card on the board instead:
-  python3 .agentdeck/adk.py add-task "short title" "detailed prompt"            # → backlog
-  python3 .agentdeck/adk.py add-task "short title" "detailed prompt" --dispatch # runs now
+  python3 .lectern/lec.py add-task "short title" "detailed prompt"            # → backlog
+  python3 .lectern/lec.py add-task "short title" "detailed prompt" --dispatch # runs now
 Stay focused on the task above.`
 
 // HostLocalKinds are the target kinds whose agent process runs on the control
@@ -335,7 +335,7 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	// push CURRENT auth so the agent never runs on a rotated-out credential copy
 	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, c.Task.Agent)
 
-	sess := fmt.Sprintf("adk-%d", att.ID)
+	sess := fmt.Sprintf("lec-%d", att.ID)
 	cmd, err := s.buildLaunch(att, c, wt, sess, false, launchKW)
 	if err != nil {
 		return err
@@ -423,7 +423,7 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 	// provision current auth into the container via its own executor (mock-safe)
 	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, c.Task.Agent)
 
-	sess := fmt.Sprintf("adk-%d", att.ID)
+	sess := fmt.Sprintf("lec-%d", att.ID)
 	cmd, err := s.buildLaunch(att, c, workdir, sess, true, launchKW)
 	if err != nil {
 		return err
@@ -578,7 +578,7 @@ func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
 	}
 
 	if len(chunk) == 0 { // no output and no exit code — is the session even alive?
-		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =adk-%d 2>/dev/null", att.ID),
+		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =lec-%d 2>/dev/null", att.ID),
 			executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
@@ -893,7 +893,7 @@ func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	s.Broker.ExpireForAttempt(att.ID)
 	if c, err := s.contextFor(att); err == nil {
 		if ex, err := s.attemptExecutor(att, c.Target); err == nil {
-			ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =adk-%d 2>/dev/null || true", att.ID),
+			ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", att.ID),
 				executor.RunOpts{Timeout: 20})
 		}
 		if c.Target.Kind == "sandbox" && att.SandboxVMID != "" {

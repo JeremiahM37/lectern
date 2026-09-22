@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/skills"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/skills"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 	"path"
 	"strings"
 )
@@ -89,7 +89,7 @@ func (m *Manager) mutateWorktree(ctx context.Context, id int64, operation string
 	}
 	if operation == "remove" && row.ProjectID != nil {
 		if project, projectErr := m.DB.Project(*row.ProjectID); projectErr == nil {
-			// Remove only symlinks recorded as AgentDeck-owned. Foreign files and
+			// Remove only symlinks recorded as Lectern-owned. Foreign files and
 			// changed links remain, so the normal worktree cleanliness guard can
 			// explain why cleanup is blocked.
 			if cleanErr := skills.Clean(ctx, ex, m.DB, project, plan.Path); cleanErr != nil {

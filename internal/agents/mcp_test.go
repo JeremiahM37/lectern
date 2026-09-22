@@ -85,7 +85,7 @@ func TestInteractiveMCPInstallUsesPrivateExclusiveRuntime(t *testing.T) {
 	state := filepath.Join(root, "state")
 	foreign := t.TempDir()
 	os.MkdirAll(state, 0700)
-	os.Symlink(foreign, filepath.Join(state, "agentdeck"))
+	os.Symlink(foreign, filepath.Join(state, "lectern"))
 	rel := InteractiveMCPRel(7, "nonce")
 	cmd := exec.Command("bash", "-c", MCPInstallCommand(rel, payload))
 	cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+state)
@@ -94,10 +94,10 @@ func TestInteractiveMCPInstallUsesPrivateExclusiveRuntime(t *testing.T) {
 	}
 	root = t.TempDir()
 	state = filepath.Join(root, "state")
-	if err := os.MkdirAll(filepath.Join(state, "agentdeck"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(state, "lectern"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	interactive := filepath.Join(state, "agentdeck", "mcp")
+	interactive := filepath.Join(state, "lectern", "mcp")
 	if err := os.Symlink(foreign, interactive); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestInteractiveMCPInstallUsesPrivateExclusiveRuntime(t *testing.T) {
 	}
 	root = t.TempDir()
 	state = filepath.Join(root, "state")
-	if err := os.MkdirAll(filepath.Join(state, "agentdeck", "mcp"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(state, "lectern", "mcp"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(state, filepath.FromSlash(strings.TrimSuffix(rel, "/mcp.json")))
@@ -131,7 +131,7 @@ func TestInteractiveMCPInstallUsesPrivateExclusiveRuntime(t *testing.T) {
 	}
 	root = t.TempDir()
 	state = filepath.Join(root, "state")
-	if err := os.MkdirAll(filepath.Join(state, "agentdeck"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(state, "lectern"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	cmd = exec.Command("bash", "-c", MCPInstallCommand(rel, payload))
@@ -161,10 +161,10 @@ func TestInteractiveMCPInstallUsesPrivateExclusiveRuntime(t *testing.T) {
 	}
 	root = t.TempDir()
 	state = filepath.Join(root, "state")
-	if err := os.MkdirAll(filepath.Join(state, "agentdeck"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(state, "lectern"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(state, "agentdeck", "mcp")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(state, "lectern", "mcp")); err != nil {
 		t.Fatal(err)
 	}
 	cmd = exec.Command("bash", "-c", MCPInstallCommand(rel, payload))
@@ -187,13 +187,13 @@ func TestInteractiveMCPInstallRejectsParentReplacementBeforeTraversal(t *testing
 	if err := os.Mkdir(state, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(state, "agentdeck"), 0700); err != nil {
+	if err := os.Mkdir(filepath.Join(state, "lectern"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
 	bin := t.TempDir()
 	python := filepath.Join(bin, "python3")
-	body := "#!/bin/sh\nset -eu\nmv -- \"$ADK_STATE/agentdeck\" \"$ADK_STATE/original-agentdeck\"\nln -s -- \"$ADK_OUTSIDE\" \"$ADK_STATE/agentdeck\"\nexec \"$ADK_REAL_PYTHON\" \"$@\"\n"
+	body := "#!/bin/sh\nset -eu\nmv -- \"$ADK_STATE/lectern\" \"$ADK_STATE/original-lectern\"\nln -s -- \"$ADK_OUTSIDE\" \"$ADK_STATE/lectern\"\nexec \"$ADK_REAL_PYTHON\" \"$@\"\n"
 	if err := os.WriteFile(python, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}

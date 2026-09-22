@@ -2,8 +2,8 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/testutil"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +22,7 @@ func TestArchiveRefusedStopOrChangedIdentityKeepsRecordLive(t *testing.T) {
 	}
 	for _, change := range []bool{false, true} {
 		t.Run(map[bool]string{false: "stop-refused", true: "identity-changed"}[change], func(t *testing.T) {
-			dir, err := os.MkdirTemp("/tmp", "adk-archive-")
+			dir, err := os.MkdirTemp("/tmp", "lec-archive-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -37,7 +37,7 @@ func TestArchiveRefusedStopOrChangedIdentityKeepsRecordLive(t *testing.T) {
 			}
 			action := "exit 0"
 			if change {
-				action = shellq.Quote(real) + " -S " + shellq.Quote(socket) + " set-option -t poll-test @agentdeck-tracking-identity ffffffffffffffffffffffffffffffff"
+				action = shellq.Quote(real) + " -S " + shellq.Quote(socket) + " set-option -t poll-test @lectern-tracking-identity ffffffffffffffffffffffffffffffff"
 			}
 			wrapper := "#!/bin/sh\nif [ \"$1\" = if-shell ]; then " + action + "; fi\ncase \"$1\" in -S|-L) exec " + shellq.Quote(real) + " \"$@\" ;; esac\nexec " + shellq.Quote(real) + " -S " + shellq.Quote(socket) + " \"$@\"\n"
 			if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(wrapper), 0755); err != nil {

@@ -12,7 +12,7 @@ The following creates the same kind of local repository and fake runner used by
 the comparison. Each product must be run in its own `RUN` directory:
 
 ```bash
-RUN=$(mktemp -d /tmp/agentdeck-parity-XXXXXX)
+RUN=$(mktemp -d /tmp/lectern-parity-XXXXXX)
 mkdir -p "$RUN"/{home,config,data,cache,state,tmp,tmux,bin,repo}
 REPO="$RUN/repo"
 git -C "$REPO" init -q -b main
@@ -34,7 +34,7 @@ FIXTURE_ENV=(
   "XDG_DATA_HOME=$RUN/data" "XDG_CACHE_HOME=$RUN/cache"
   "XDG_STATE_HOME=$RUN/state" "TMPDIR=$RUN/tmp"
   "TMUX_TMPDIR=$RUN/tmux" "TERM=xterm-256color" "LANG=C.UTF-8"
-  "PATH=$RUN/bin:$PATH" "AGENTDECK_NO_UPDATE_CHECK=1" "DO_NOT_TRACK=1"
+  "PATH=$RUN/bin:$PATH" "LECTERN_NO_UPDATE_CHECK=1" "DO_NOT_TRACK=1"
 )
 run_fixture() { env "${FIXTURE_ENV[@]}" "$@"; }
 ```
@@ -45,17 +45,17 @@ the terminal UI):
 
 ```bash
 # upstream Agent Deck 61cc4d6
-UPSTREAM_BIN=/tmp/agentdeck-parity-proof-v2/agent-deck-upstream
+UPSTREAM_BIN=/tmp/lectern-parity-proof-v2/agent-deck-upstream
 run_fixture "$UPSTREAM_BIN" launch "$REPO" -c "$RUN/bin/fixture-agent" \
   -t "Alpha synthetic" -g Work/Backend --no-wait --quiet
 
 # Agent of Empires 5687bbd (repeat with distinct titles for four sessions)
-AOE_BIN=/mnt/bulk/agentdeck-comparison/aoe-target/debug/aoe
+AOE_BIN=/mnt/bulk/lectern-comparison/aoe-target/debug/aoe
 run_fixture "$AOE_BIN" add "$REPO" --title "Alpha synthetic" --tool codex \
   --cmd-override "$RUN/bin/fixture-agent" --trust-hooks --launch --yolo
 ```
 
-For AgentDeck, create the fixture project/target through its Settings wizard,
+For Lectern, create the fixture project/target through its Settings wizard,
 choose the fake command, and create four sessions through the New session form;
 the checked-in mobile test is the executable local example. When exposing a
 browser terminal through ttyd, launch the pinned product TUI itself. Running the
@@ -118,14 +118,14 @@ branch name. Confirm the parent still contains `before\n`, the queried child
 contains `after\n`, and the attached product terminal shows the exact
 `-before` / `+after` diff.
 
-The equivalent AgentDeck/AoE web path creates the child from the product’s
+The equivalent Lectern/AoE web path creates the child from the product’s
 workspace/fork control, edits `tracked.txt` in the displayed child directory,
 and captures the rendered Review/Diff surface. Expected observations are a
 distinct child identity, unchanged parent `before\n`, and the exact two-line
 patch `-before` / `+after`. Do not count a filesystem diff without the
 user-facing product surface as full C4 proof.
 
-For the checked-in AgentDeck mobile behavior, run the real PTY/browser tests:
+For the checked-in Lectern mobile behavior, run the real PTY/browser tests:
 
 ```bash
 python -m pytest -q \

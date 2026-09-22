@@ -9,7 +9,7 @@
 //
 // Context paths close that gap. The control plane reads the listed files off its
 // OWN filesystem (one place to curate) and stages them into the worktree at
-// .agentdeck/context/ through the Executor, so every target kind gets
+// .lectern/context/ through the Executor, so every target kind gets
 // byte-identical context.
 //
 // Caps are deliberate and LOUD: an oversized or missing file is reported in the
@@ -118,7 +118,7 @@ func Collect(patterns []string) ([]File, []string) {
 		}
 		if len(data) > MaxFileBytes {
 			data = append(data[:MaxFileBytes],
-				[]byte(fmt.Sprintf("\n\n[truncated by agentdeck at %d bytes]\n", MaxFileBytes))...)
+				[]byte(fmt.Sprintf("\n\n[truncated by lectern at %d bytes]\n", MaxFileBytes))...)
 			notes = append(notes, fmt.Sprintf("%s — truncated to %d bytes", path, MaxFileBytes))
 		}
 		if total+len(data) > MaxTotalBytes {
@@ -136,7 +136,7 @@ func Collect(patterns []string) ([]File, []string) {
 // where each one came from and what could not be staged.
 func IndexMarkdown(files []File, notes []string) string {
 	var b strings.Builder
-	b.WriteString("# Staged context\n\nFiles copied here by agentdeck from the control plane at dispatch.\n\n")
+	b.WriteString("# Staged context\n\nFiles copied here by lectern from the control plane at dispatch.\n\n")
 	for _, f := range files {
 		fmt.Fprintf(&b, "- `%s` — from `%s` (%d bytes)\n", f.Name, f.Source, len(f.Data))
 	}
@@ -159,7 +159,7 @@ func PromptPrefix(files []File, notes []string) string {
 	b.WriteString("## Context\n\nRead these staged files before doing anything else — " +
 		"they carry conventions and constraints this task depends on:")
 	for _, f := range files {
-		fmt.Fprintf(&b, "\n- .agentdeck/%s/%s", Subdir, f.Name)
+		fmt.Fprintf(&b, "\n- .lectern/%s/%s", Subdir, f.Name)
 	}
 	if len(notes) > 0 {
 		b.WriteString("\n\nContext that could NOT be staged (work without it, and say so if it blocks you):")

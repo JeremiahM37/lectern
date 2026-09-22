@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
-	"github.com/JeremiahM37/agentdeck/internal/worktree"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/internal/worktree"
 	"strings"
 )
 
@@ -47,18 +47,18 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 	pending := func(message string) { m.saveSetupRecovery(row.ID, map[string]any{"setup_error": message}) }
 	_, ex, err := m.resolve(row.ID)
 	if err != nil {
-		pending("AgentDeck restarted; target unavailable while checking whether the agent started")
+		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
 	}
 	result, err := ex.Run(ctx, PollCommand([]string{row.TmuxSession}), executor.RunOpts{Timeout: 15})
 	if err != nil || !result.OK() {
-		pending("AgentDeck restarted; target unavailable while checking whether the agent started")
+		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
 	}
 	panes, complete := ParsePollSnapshot(result.Stdout, []string{row.TmuxSession})
 	pane := panes[row.TmuxSession]
 	if !complete || pane.Failed {
-		pending("AgentDeck restarted; terminal status could not be verified yet")
+		pending("Lectern restarted; terminal status could not be verified yet")
 		return
 	}
 	if pane.Missing {
@@ -66,18 +66,18 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		return
 	}
 	marker := func() (bool, bool) {
-		result, err := ex.Run(ctx, "tmux show-environment -t "+shellq.Quote("="+row.TmuxSession+":")+" AGENTDECK_SETUP_TOKEN", executor.RunOpts{Timeout: 10})
+		result, err := ex.Run(ctx, "tmux show-environment -t "+shellq.Quote("="+row.TmuxSession+":")+" LECTERN_SETUP_TOKEN", executor.RunOpts{Timeout: 10})
 		if err != nil {
 			return false, false
 		}
 		if !result.OK() {
 			return false, result.RC == 1 && strings.Contains(result.Stderr, "unknown variable")
 		}
-		return strings.TrimSpace(result.Stdout) == "AGENTDECK_SETUP_TOKEN="+plan.Token, true
+		return strings.TrimSpace(result.Stdout) == "LECTERN_SETUP_TOKEN="+plan.Token, true
 	}
 	matched, verified := marker()
 	if !verified {
-		pending("AgentDeck restarted; target unavailable while verifying terminal ownership")
+		pending("Lectern restarted; target unavailable while verifying terminal ownership")
 		return
 	}
 	if !matched {
@@ -87,7 +87,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 	identity := captureTrackingIdentity(ctx, ex, row.TmuxSession)
 	matched, verified = marker()
 	if !validTrackingIdentity(identity) || !matched || !verified {
-		pending("AgentDeck restarted; terminal identity changed during recovery, retrying verification")
+		pending("Lectern restarted; terminal identity changed during recovery, retrying verification")
 		return
 	}
 	m.saveSetupRecovery(row.ID, map[string]any{"setup_state": "ready", "setup_error": "", "status": StatusStarting, "ended_at": nil, "tracking_identity": identity})

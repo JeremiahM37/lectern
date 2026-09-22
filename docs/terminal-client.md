@@ -1,8 +1,8 @@
-# Use AgentDeck from a terminal
+# Use Lectern from a terminal
 
-Run `agentdeck` in an interactive terminal, or `agentdeck console`, for the live
+Run `lectern` in an interactive terminal, or `lectern console`, for the live
 dashboard. It opens on Sessions, groups by project, and refreshes automatically.
-Use `agentdeck serve` to start the server explicitly. Existing systemd/container
+Use `lectern serve` to start the server explicitly. Existing systemd/container
 launches with no arguments and no terminal still start the server.
 
 | Keys | Action |
@@ -46,28 +46,28 @@ For a live unassigned native session, open Actions → Promote conversation. The
 preview proves the exact agent, process, directory, terminal, and conversation
 before offering compatible existing projects or a new project name. The final
 confirmation keeps the same session, terminal, and native history. The same
-flow is available from a terminal with `agentdeck promote SESSION-ID`.
+flow is available from a terminal with `lectern promote SESSION-ID`.
 
-`agentdeck console --plain` retains the line-oriented menu. Redirected input or
+`lectern console --plain` retains the line-oriented menu. Redirected input or
 output selects it automatically, so scripts keep working. The JSON API commands
 below are unchanged. The TUI polls the existing API; it does not run another
 agent collector or maintain a second session database.
 
-Use `agentdeck shell [MACHINE]` when you want to work directly in a machine's
+Use `lectern shell [MACHINE]` when you want to work directly in a machine's
 shell. With no machine argument, an interactive client shows a searchable
 picker; scripts should pass the target name or numeric ID. The shell is tracked
 as a durable session and starts the target user's interactive shell in a fresh
-AgentDeck scratch directory. It does not select a project, agent, model, launch
+Lectern scratch directory. It does not select a project, agent, model, launch
 profile, memory, or worktree.
 
 ## Install on another Linux machine
 
-Use an existing SSH alias for the AgentDeck server. Download
-`/desktop/install-agentdeck-cli.sh` from your AgentDeck instance, then run:
+Use an existing SSH alias for the Lectern server. Download
+`/desktop/install-lectern-cli.sh` from your Lectern instance, then run:
 
 ```sh
-bash install-agentdeck-cli.sh --server agentdeck --api https://YOUR_SERVER:8443
-agentdeck
+bash install-lectern-cli.sh --server lectern --api https://YOUR_SERVER:8443
+lectern
 ```
 
 The installer copies the client from your server over SSH, checks the machine
@@ -76,18 +76,18 @@ The installed launcher opens the console by default. Re-run it to update.
 The server and client must use the same Linux architecture for this installer;
 other architectures can build the Go binary from source.
 
-For Windows, download `/desktop/install-agentdeck-cli.ps1` and run it with
+For Windows, download `/desktop/install-lectern-cli.ps1` and run it with
 `-Server YOUR_SSH_ALIAS` (and `-Api http://127.0.0.1:9110` when the server uses
 a non-default API address). It installs an OpenSSH launcher on your user PATH;
 management runs on the server with an explicit hosted API environment.
-`agentdeck upload` stages local files over SCP.
+`lectern upload` stages local files over SCP.
 The native Windows launcher requires OpenSSH, with your existing host/key setup.
 
 For a terminal workspace that runs entirely on the current computer, use the
-[standalone local installer](local.md) instead. It installs `agentdeck` (or
-`agentdeck-local` when the remote client already owns that name) and does not
+[standalone local installer](local.md) instead. It installs `lectern` (or
+`lectern-local` when the remote client already owns that name) and does not
 need a control-plane URL or SSH server; the remote installer above continues to
-install the `agentdeck` client.
+install the `lectern` client.
 
 This client works in your existing terminal. The
 separate desktop URI installers enable opening an attachment from the web UI.
@@ -95,27 +95,27 @@ separate desktop URI installers enable opening an attachment from the web UI.
 ## Scripting and context files
 
 ```sh
-agentdeck api GET /launch-profiles
-agentdeck agent list
-agentdeck agent save @agents.json
-agentdeck api POST /sessions '{"name":"Work","profile_id":7,"scratch":true}'
-agentdeck api GET /sessions
-agentdeck api POST /sessions '{"name":"Scratch","agent":"codex","scratch":true}'
-agentdeck shell AIServer
-agentdeck api POST /tasks/12/takeover '{}'
-agentdeck api PATCH /routines/3 '{"enabled":false}'
-agentdeck api POST /sessions/4/send '{"text":"Run the tests"}'
-agentdeck api POST /sessions/4/setup/cancel '{}'  # request checkout cancellation; retain files
-agentdeck api POST /sessions/4/worktree/recover '{}'  # validate interrupted allocation; keep files
-agentdeck upload session 4 ./requirements.pdf
-agentdeck files session 4
-agentdeck download session 4 reports/result.txt ./result.txt
-agentdeck post ./demo.mp4 --title "Checkout flow passing"
-agentdeck attach session 4
-agentdeck promote 4
+lectern api GET /launch-profiles
+lectern agent list
+lectern agent save @agents.json
+lectern api POST /sessions '{"name":"Work","profile_id":7,"scratch":true}'
+lectern api GET /sessions
+lectern api POST /sessions '{"name":"Scratch","agent":"codex","scratch":true}'
+lectern shell AIServer
+lectern api POST /tasks/12/takeover '{}'
+lectern api PATCH /routines/3 '{"enabled":false}'
+lectern api POST /sessions/4/send '{"text":"Run the tests"}'
+lectern api POST /sessions/4/setup/cancel '{}'  # request checkout cancellation; retain files
+lectern api POST /sessions/4/worktree/recover '{}'  # validate interrupted allocation; keep files
+lectern upload session 4 ./requirements.pdf
+lectern files session 4
+lectern download session 4 reports/result.txt ./result.txt
+lectern post ./demo.mp4 --title "Checkout flow passing"
+lectern attach session 4
+lectern promote 4
 ```
 
-`agentdeck agent save` accepts the runner fields shown in Settings → Agents:
+`lectern agent save` accepts the runner fields shown in Settings → Agents:
 `name`, required `command`, optional `args`, `model_flag`, provider endpoint
 environment, `prompt_arg`, `resume_args`, `yolo_args`, and `env`. The command
 starts the runner; provider URLs and models configure that runner through its
@@ -129,41 +129,41 @@ path in your prompt, or paste it in the attached terminal. Upload also accepts
 ## Media: agents showing their work
 
 An agent can put evidence in front of you instead of describing it. The
-`post_media` MCP tool and `agentdeck post` both publish to the **Media** view: a
+`post_media` MCP tool and `lectern post` both publish to the **Media** view: a
 screen recording of the feature working, a screenshot, a generated report, a
 log, or a link to the dev server the agent started.
 
 ```bash
-agentdeck post ./demo.mp4 --title "Checkout flow passing" --note "Watch the total"
-agentdeck post ./report.html --title "Test report"
-agentdeck post http://127.0.0.1:5173 --title "Dev server"
-agentdeck post ./trace.zip --title "Playwright trace" --session 4
+lectern post ./demo.mp4 --title "Checkout flow passing" --note "Watch the total"
+lectern post ./report.html --title "Test report"
+lectern post http://127.0.0.1:5173 --title "Dev server"
+lectern post ./trace.zip --title "Playwright trace" --session 4
 ```
 
-Inside an AgentDeck session the post attaches itself to that session: the
+Inside a Lectern session the post attaches itself to that session: the
 poster reads the tmux session it is running in, so an agent never needs to know
 its own id. `--session` (or the tool's `session_id`) is for scripts running
 somewhere else. A post from outside any session still lands, unattributed.
 
-Files are copied into AgentDeck's media store, so a recording outlives the
+Files are copied into Lectern's media store, so a recording outlives the
 worktree that produced it. Video and audio play in place and seek, images and
 PDFs render inline, HTML renders in a sandboxed frame that cannot act as the
-AgentDeck origin, and text files preview on demand. A link posted as
-`127.0.0.1` or `localhost` opens on the address you reached AgentDeck at, since
+Lectern origin, and text files preview on demand. A link posted as
+`127.0.0.1` or `localhost` opens on the address you reached Lectern at, since
 that is the machine the agent meant — the site has to listen on `0.0.0.0` for
 that to work from another device.
 
-`AGENTDECK_MEDIA_DIR` moves the store (default: `agentdeck-media` beside the
-database) and `AGENTDECK_MEDIA_MAX_MB` caps one file (default 1024).
+`LECTERN_MEDIA_DIR` moves the store (default: `lectern-media` beside the
+database) and `LECTERN_MEDIA_MAX_MB` caps one file (default 1024).
 
 ## Scratch workspaces and the sweep
 
 Every blank shell and every session started without a project gets its own
-directory under the target's scratch root (`~/agentdeck-scratch`, or
-`AGENTDECK_SCRATCH_ROOT`). Once an hour the server sweeps them. A directory is
+directory under the target's scratch root (`~/lectern-scratch`, or
+`LECTERN_SCRATCH_ROOT`). Once an hour the server sweeps them. A directory is
 removed only when all of this is true: no session is running in it, no session
 there belongs to a project, it holds no files and no commits, no conversation
-was recorded there, and it has been idle for `AGENTDECK_SCRATCH_DAYS` (default 7;
+was recorded there, and it has been idle for `LECTERN_SCRATCH_DAYS` (default 7;
 `0` turns the sweep off). Each directory it takes is named in the server log.
 
 A conversation counts as work even when the directory is empty: Claude's
@@ -174,15 +174,15 @@ fails counts as a hit. Symlinks are never followed, so a scratch name that now
 points at a promoted project is left alone.
 
 Removal is a move into `.trash` inside the scratch root (or
-`AGENTDECK_SCRATCH_TRASH`), purged after `AGENTDECK_SCRATCH_TRASH_DAYS` (default
+`LECTERN_SCRATCH_TRASH`), purged after `LECTERN_SCRATCH_TRASH_DAYS` (default
 14). Anything the sweep will not decide — work that no project claims — is listed
 under **Sessions → Scratch workspaces**, where you keep it for good or discard it.
 
 ```bash
-agentdeck api GET /scratch                       # what the sweep sees; changes nothing
-agentdeck api POST /scratch/sweep '{"dry_run":true}'
-agentdeck api POST /scratch/keep '{"target_id":1,"name":"shell-20260918-qfEK6Y"}'
-agentdeck api POST /scratch/discard '{"target_id":1,"name":"codex-20260909-Y7AYgu"}'
+lectern api GET /scratch                       # what the sweep sees; changes nothing
+lectern api POST /scratch/sweep '{"dry_run":true}'
+lectern api POST /scratch/keep '{"target_id":1,"name":"shell-20260918-qfEK6Y"}'
+lectern api POST /scratch/discard '{"target_id":1,"name":"codex-20260909-Y7AYgu"}'
 ```
 
 ## Live views: a machine's localhost, and a desktop on it
@@ -193,7 +193,7 @@ drawing to a display nobody can see. Two things in **Media → Live** bring them
 to the device you are actually using.
 
 **Expose a port.** A link posted as `http://127.0.0.1:5173` gets an *Expose*
-button; so does any port you type, on any machine. AgentDeck opens a port of its
+button; so does any port you type, on any machine. Lectern opens a port of its
 own and carries the TCP connection to that machine's loopback — over the SSH
 connection it already holds, for a remote one. It is the port that is forwarded,
 not a path, so absolute asset URLs, redirects and websockets all work and the
@@ -209,28 +209,28 @@ mouse and keyboard through. An agent can ask for one with the `open_live_view`
 tool, which returns the `DISPLAY` for it to use.
 
 ```bash
-agentdeck expose 5173 --title "Dev server"            # this session's machine
-agentdeck expose 8080 --machine lxc-104-work
-agentdeck live http://127.0.0.1:18080 --title "Watching the replay"
-agentdeck live list
-agentdeck live stop 3
+lectern expose 5173 --title "Dev server"            # this session's machine
+lectern expose 8080 --machine lxc-104-work
+lectern live http://127.0.0.1:18080 --title "Watching the replay"
+lectern live list
+lectern live stop 3
 ```
 
-Live views are **off by default**: start the server with `AGENTDECK_LIVE=1` to
+Live views are **off by default**: start the server with `LECTERN_LIVE=1` to
 turn them on. They open listening ports of their own, and `open_live_view` lets
 an agent start a desktop that can be driven from the network, which is not
 something an upgrade should hand anyone. With it off, Media offers none of this
 and the API and the tool say how to enable it.
 
-Both make something loopback-only reachable by whoever can reach AgentDeck, so
+Both make something loopback-only reachable by whoever can reach Lectern, so
 even when enabled neither happens on its own: a posted localhost link is never exposed until you
 press the button, every open view is listed with an *exposed* badge, and each
 one closes when its session ends, after four hours (`ttl_minutes`, at most a
 day), when you stop it, or when the server restarts. Forwards only ever reach
 the target's `127.0.0.1`. A forwarded port cannot check a bearer token, so a
-server with `AGENTDECK_AUTH_TOKEN` set refuses to open one unless
-`AGENTDECK_LIVE_UNAUTHENTICATED=1`. `AGENTDECK_LIVE_PORTS` sets the range
-AgentDeck listens on (default `19200-19299`).
+server with `LECTERN_AUTH_TOKEN` set refuses to open one unless
+`LECTERN_LIVE_UNAUTHENTICATED=1`. `LECTERN_LIVE_PORTS` sets the range
+Lectern listens on (default `19200-19299`).
 
 A desktop needs `Xvfb`, `x11vnc`, `websockify` and `novnc` on the machine that
 hosts it (`apt install xvfb x11vnc novnc websockify`); a machine without them
@@ -245,17 +245,17 @@ project. Configure additional target-local source directories with the project
 API; repository skills are discovered by walking up from the project's Git root:
 
 ```sh
-agentdeck api PATCH /projects/7 '{"skill_sources":["/srv/agent-skills"]}'
-agentdeck skill list 7 --agent codex
-agentdeck skill attach 7 'configured:<source-hash>/lint' --agent codex
-agentdeck skill attached 7 --agent codex
-agentdeck skill detach 7 12
+lectern api PATCH /projects/7 '{"skill_sources":["/srv/agent-skills"]}'
+lectern skill list 7 --agent codex
+lectern skill attach 7 'configured:<source-hash>/lint' --agent codex
+lectern skill attached 7 --agent codex
+lectern skill detach 7 12
 ```
 
 The web and terminal dashboards provide the same discovery and attach/detach
 actions. Sources are read on the target and linked into `.claude/skills` or
 `.agents/skills` in the project and any selected worktree; source files are not
-copied. Detach removes only links proven to be AgentDeck-owned. Native
+copied. Detach removes only links proven to be Lectern-owned. Native
 repository skills and changed or foreign destinations are preserved.
 
 `api` writes JSON to stdout and failures to stderr with a nonzero exit code.
@@ -283,8 +283,8 @@ and Full API accepts the remainder without opening a browser.
 | `/models`, `/stats`, `/health`, `/projects/usage` | GET available models, usage and health |
 | `/settings/test-notification`, `/admin/janitor` | POST test or maintenance |
 
-Configure `AGENTDECK_API` and `AGENTDECK_AUTH_TOKEN` for HTTP. Set
-`AGENTDECK_ATTACH_HOST` to the server's SSH alias on a remote Linux client;
+Configure `LECTERN_API` and `LECTERN_AUTH_TOKEN` for HTTP. Set
+`LECTERN_ATTACH_HOST` to the server's SSH alias on a remote Linux client;
 attachment is resolved on the server, where its tmux sessions and SSH targets
 exist. The Linux installer sets the URL and alias in its launcher.
 
@@ -369,7 +369,7 @@ actual tmux launch with scripted agents, without requiring either paid CLI.
 In **New session**, select a project and enable **Isolate in a new Git worktree**.
 The terminal dashboard's `n` form has the same choice and also accepts an
 explicit repository directory. Choose a base branch/tag/commit (blank means
-committed `HEAD`) and a new branch name, or let AgentDeck allocate a unique name.
+committed `HEAD`) and a new branch name, or let Lectern allocate a unique name.
 The agent starts in a separate directory beside the repository. Uncommitted
 source edits are not copied; this mode starts a fresh conversation.
 

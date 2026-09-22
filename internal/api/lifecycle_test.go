@@ -78,7 +78,7 @@ func TestHappyPathToDone(t *testing.T) {
 	if att.sub("result").num("cost_usd") != 0.0123 {
 		t.Errorf("cost was not captured: %v", att.sub("result"))
 	}
-	if !strings.HasPrefix(att.str("branch"), "adk/task") || att.str("worktree_path") == "" {
+	if !strings.HasPrefix(att.str("branch"), "lec/task") || att.str("worktree_path") == "" {
 		t.Errorf("worktree/branch: %v", att)
 	}
 
@@ -105,7 +105,7 @@ func TestHappyPathToDone(t *testing.T) {
 	if stats[0].num("additions") != 4 || stats[0].num("deletions") != 1 {
 		t.Errorf("diff stats: %v", stats)
 	}
-	if !strings.Contains(files[0].str("patch"), `+    print("hello, agentdeck")`) {
+	if !strings.Contains(files[0].str("patch"), `+    print("hello, lectern")`) {
 		t.Errorf("patch body: %v", files[0].str("patch"))
 	}
 

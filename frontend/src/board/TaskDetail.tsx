@@ -44,7 +44,7 @@ export function TaskDetail({
   const [diff, setDiff] = useState<Diff>();
   const [diffOpen, setDiffOpen] = useState(false);
   const [wrap, setWrap] = useState(
-    localStorage.getItem("adk-diffwrap") === "1",
+    localStorage.getItem("lec-diffwrap") === "1",
   );
   const [busy, setBusy] = useState(false);
   async function load(signal?: AbortSignal, n = attempt) {
@@ -320,7 +320,7 @@ export function TaskDetail({
               onClick={() => {
                 const n = !wrap;
                 setWrap(n);
-                localStorage.setItem("adk-diffwrap", n ? "1" : "");
+                localStorage.setItem("lec-diffwrap", n ? "1" : "");
               }}
             >
               ⏎ wrap: {wrap ? "on" : "off"}

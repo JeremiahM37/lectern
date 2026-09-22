@@ -67,7 +67,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     page.unroute("**/api/agents", reject)
     dialog.get_by_role("button", name="Save runner", exact=True).click()
     expect(page.locator(".agent-card", has_text="local-proof")).to_be_visible()
-    page.screenshot(path=f"/tmp/agentdeck-agent-settings-{width}.png", full_page=True)
+    page.screenshot(path=f"/tmp/lectern-agent-settings-{width}.png", full_page=True)
 
     # Reopen to prove the secret is not rendered into the browser form.
     page.locator(".agent-card").filter(has_text="local-proof").get_by_role("button", name="Edit", exact=True).click()
@@ -139,7 +139,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     session = next(row for row in t["api"]("/sessions") if row["name"] == "Local proof session")
     master, slave = pty.openpty()
     child = subprocess.Popen([_binary(), "attach", "session", str(session["id"])], stdin=slave, stdout=slave, stderr=slave,
-                             env={**t["env"], "AGENTDECK_API": t["url"], "TERM": "xterm-256color"})
+                             env={**t["env"], "LECTERN_API": t["url"], "TERM": "xterm-256color"})
     os.close(slave)
     try:
         output = b""

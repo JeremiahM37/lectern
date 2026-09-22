@@ -4,23 +4,23 @@ For a terminal-only setup on the same machine as the agent, use the
 [standalone local runtime](local.md). It requires no server URL or SSH setup:
 
 ```bash
-git clone https://github.com/JeremiahM37/agentdeck.git
-cd agentdeck
+git clone https://github.com/JeremiahM37/lectern.git
+cd lectern
 bash tools/install-local.sh
-agentdeck local
+lectern local
 ```
 
-If the installer reported `agentdeck-local` because a remote launcher already
+If the installer reported `lectern-local` because a remote launcher already
 exists, substitute that command name.
 
 The rest of this page describes the hosted control-plane setup, where one
-AgentDeck server manages local or SSH targets.
+Lectern server manages local or SSH targets.
 
 ## 1. Run the control plane
 
 ```bash
-go build -o agentdeck ./cmd/agentdeck
-./agentdeck                       # http://<host>:9110
+go build -o lectern ./cmd/lectern
+./lectern                       # http://<host>:9110
 ```
 
 One static binary — the PWA, the agent-side hook scripts and a pure-Go SQLite
@@ -29,7 +29,7 @@ driver are all embedded in it.
 Try it with fake agents first (no infrastructure needed):
 
 ```bash
-AGENTDECK_MOCK=1 ./agentdeck
+LECTERN_MOCK=1 ./lectern
 ```
 
 ## 2. Register a target
@@ -94,18 +94,18 @@ model — small local models may respond conversationally instead of editing.)
 
 ## MCP
 
-`agentdeck mcp` speaks MCP on stdio, so any MCP client can file and steer tasks.
+`lectern mcp` speaks MCP on stdio, so any MCP client can file and steer tasks.
 It is a client of the HTTP API, so point it at a running control plane — local or
 remote. Register with Claude Code:
 
 ```bash
-claude mcp add agentdeck --env AGENTDECK_API=http://localhost:9110 -- /usr/local/bin/agentdeck mcp
+claude mcp add lectern --env LECTERN_API=http://localhost:9110 -- /usr/local/bin/lectern mcp
 # non-default host, or a token-protected instance:
-#   claude mcp add agentdeck --env AGENTDECK_API=http://aiserver:9110 --env AGENTDECK_AUTH_TOKEN=… -- /usr/local/bin/agentdeck mcp
+#   claude mcp add lectern --env LECTERN_API=http://aiserver:9110 --env LECTERN_AUTH_TOKEN=… -- /usr/local/bin/lectern mcp
 ```
 
 ## Deploy for real
 
 `deploy/` has a `Dockerfile`, `docker-compose.yml`, and a `systemd` unit. Put it
-behind a reverse proxy with auth; set `AGENTDECK_BASE_URL` to an address your
+behind a reverse proxy with auth; set `LECTERN_BASE_URL` to an address your
 phone can reach (approval callbacks and ntfy buttons use it).

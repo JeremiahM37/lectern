@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // One binary speaks headless stream-json, then accepts terminal input when
@@ -188,7 +188,7 @@ func TestTakeoverFailureKeepsRunAndRetriesSameRequest(t *testing.T) {
 	r.waitStatus(id, "running")
 	r.app.Sched.Stop()
 	att, _ := r.app.DB.LatestAttempt(id)
-	settingsPath := filepath.Join(att.WorktreePath, ".agentdeck", "settings.json")
+	settingsPath := filepath.Join(att.WorktreePath, ".lectern", "settings.json")
 	settings, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestTakeoverFailureKeepsRunAndRetriesSameRequest(t *testing.T) {
 	tr = waitTakeover(t, r, id)
 	sess, _ := r.app.DB.Session(*tr.SessionID)
 	r.waitForLog(sess.Workdir, "argv:", 5*time.Second)
-	raw, err = os.ReadFile(filepath.Join(sess.Workdir, ".agentdeck", "interactive-settings.json"))
+	raw, err = os.ReadFile(filepath.Join(sess.Workdir, ".lectern", "interactive-settings.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestTakeoverWithoutConversationIDCarriesHandoff(t *testing.T) {
 	if strings.Contains(log, "--resume") || strings.Contains(log, "--continue") || !strings.Contains(log, "takeover.md") {
 		t.Fatalf("wrong handoff: %s", log)
 	}
-	handoff, err := os.ReadFile(filepath.Join(sess.Workdir, ".agentdeck", "takeover.md"))
+	handoff, err := os.ReadFile(filepath.Join(sess.Workdir, ".lectern", "takeover.md"))
 	if err != nil || !strings.Contains(string(handoff), "preserve the original instructions") || !strings.Contains(string(handoff), "events.jsonl") {
 		t.Fatalf("missing context: %s %v", handoff, err)
 	}

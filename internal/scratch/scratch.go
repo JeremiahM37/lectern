@@ -33,7 +33,7 @@ const (
 )
 
 // KeepMarker is the file that exempts a directory from the sweep for good.
-const KeepMarker = ".agentdeck-keep"
+const KeepMarker = ".lectern-keep"
 
 // Dir is what the target reported about one scratch directory.
 type Dir struct {
@@ -171,12 +171,16 @@ func plural(n int, noun string) string {
 // Runner executes a shell script on one target and returns its stdout.
 type Runner func(ctx context.Context, script string) (string, error)
 
-const rootExpr = `root="${AGENTDECK_SCRATCH_ROOT:-$HOME/agentdeck-scratch}"`
+// RootExpr resolves the scratch root on the target. A target that was set up
+// under the old name still has its workspaces in ~/agentdeck-scratch, and a
+// sweep that looked elsewhere would silently stop covering them; so the old
+// directory is used until a new one exists.
+const RootExpr = `root="${LECTERN_SCRATCH_ROOT:-${AGENTDECK_SCRATCH_ROOT:-}}"; [ -n "$root" ] || { if [ -d "$HOME/lectern-scratch" ] || [ ! -d "$HOME/agentdeck-scratch" ]; then root="$HOME/lectern-scratch"; else root="$HOME/agentdeck-scratch"; fi; }`
 
 // inspectScript reports every directory directly under the scratch root. A
 // field it cannot measure is printed as "?", which Classify reads as work.
-const inspectScript = `# agentdeck-scratch-inspect
-` + rootExpr + `
+const inspectScript = `# lectern-scratch-inspect
+` + RootExpr + `
 [ -d "$root" ] || exit 0
 cd "$root" || exit 0
 real=$(pwd -P)
@@ -185,7 +189,7 @@ claude="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 for d in *; do
   [ -d "$d" ] && [ ! -L "$d" ] || continue
   case "$d" in *[!A-Za-z0-9._-]*|.*) continue;; esac
-  files=$(find "$d" -path "$d/.git" -prune -o -type f ! -name .agentdeck-keep -print 2>/dev/null | head -n 500 | wc -l) || files='?'
+  files=$(find "$d" -path "$d/.git" -prune -o -type f ! -name .lectern-keep -print 2>/dev/null | head -n 500 | wc -l) || files='?'
   commits=0
   if [ -e "$d/.git" ]; then
     commits=$(git --git-dir="$d/.git" rev-list --count --all 2>/dev/null) || commits='?'
@@ -196,7 +200,7 @@ for d in *; do
   if [ -d "$claude/$slug" ]; then
     chat=$(cat "$claude/$slug"/*.jsonl 2>/dev/null | wc -c) || chat='?'
   fi
-  keep=0; [ -e "$d/.agentdeck-keep" ] && keep=1
+  keep=0; [ -e "$d/.lectern-keep" ] && keep=1
   size=$(du -sk "$d" 2>/dev/null | cut -f1) || size='?'
   printf 'DIR\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$d" "${mtime:-?}" "${files:-?}" "${commits:-?}" "${chat:-?}" "$keep" "${size:-?}"
 done
@@ -239,7 +243,7 @@ func HistoryMentions(ctx context.Context, run Runner, paths []string) (map[strin
 		return hits, nil
 	}
 	var b strings.Builder
-	b.WriteString("# agentdeck-scratch-history\n")
+	b.WriteString("# lectern-scratch-history\n")
 	b.WriteString(`codex="${CODEX_HOME:-$HOME/.codex}/sessions"` + "\n")
 	for i, p := range paths {
 		hits[p] = true // until the target says otherwise
@@ -267,16 +271,16 @@ func HistoryMentions(ctx context.Context, run Runner, paths []string) (map[strin
 // trashStamp separates a trashed directory's name from the time it was trashed.
 // A bare numeric suffix is not enough to call an entry ours: a person's own
 // "notes.2026" would read as a directory trashed in 1970.
-const trashStamp = ".adk-trashed-"
+const trashStamp = ".lec-trashed-"
 
 // Trash moves directories out of the scratch root into the trash, stamped with
 // the time so Purge knows how long each has been there. It returns the names
 // that actually moved.
 func Trash(ctx context.Context, run Runner, names []string, now int64) ([]string, error) {
 	var b strings.Builder
-	b.WriteString("# agentdeck-scratch-trash\n" + rootExpr + "\n")
+	b.WriteString("# lectern-scratch-trash\n" + RootExpr + "\n")
 	b.WriteString(`cd "$root" || exit 1` + "\n")
-	b.WriteString(`trash="${AGENTDECK_SCRATCH_TRASH:-$root/.trash}"; mkdir -p "$trash" || exit 1` + "\n")
+	b.WriteString(`trash="${LECTERN_SCRATCH_TRASH:-$root/.trash}"; mkdir -p "$trash" || exit 1` + "\n")
 	for _, name := range names {
 		if !SafeName(name) {
 			continue
@@ -301,8 +305,8 @@ func Trash(ctx context.Context, run Runner, names []string, now int64) ([]string
 // Purge deletes trash entries older than days. Only names this package stamped
 // are eligible, so nothing else that finds its way into the trash is removed.
 func Purge(ctx context.Context, run Runner, days float64, now int64) (int, error) {
-	script := "# agentdeck-scratch-purge\n" + rootExpr + "\n" +
-		`trash="${AGENTDECK_SCRATCH_TRASH:-$root/.trash}"; [ -d "$trash" ] || exit 0; cd "$trash" || exit 0` + "\n" +
+	script := "# lectern-scratch-purge\n" + RootExpr + "\n" +
+		`trash="${LECTERN_SCRATCH_TRASH:-$root/.trash}"; [ -d "$trash" ] || exit 0; cd "$trash" || exit 0` + "\n" +
 		fmt.Sprintf("now=%d; ttl=%d\n", now, int64(days*86400)) +
 		`for e in *` + trashStamp + `*; do
   [ -d "$e" ] && [ ! -L "$e" ] || continue
@@ -325,7 +329,7 @@ func MarkKeep(ctx context.Context, run Runner, name string) error {
 		return fmt.Errorf("not a scratch directory name")
 	}
 	q := shellQuote(name)
-	out, err := run(ctx, "# agentdeck-scratch-keep\n"+rootExpr+"\n"+
+	out, err := run(ctx, "# lectern-scratch-keep\n"+RootExpr+"\n"+
 		fmt.Sprintf(`cd "$root" && [ -d %s ] && [ ! -L %s ] && : > %s/%s && echo KEPT || true`, q, q, q, KeepMarker))
 	if err != nil {
 		return err

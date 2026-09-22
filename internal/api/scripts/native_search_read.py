@@ -59,7 +59,7 @@ def _read_match(index,document,cid,cwd,offset,fingerprint,query,mode="match",anc
             if row['offset'] not in page_offsets:continue
             matched=row['offset']==offset;truncated=len(message['text'])>64000
             if matched and truncated:
-                marker='adk-'+secrets.token_hex(12);opening='['+marker+']';closing='[/'+marker+']'
+                marker='lec-'+secrets.token_hex(12);opening='['+marker+']';closing='[/'+marker+']'
                 match=' AND '.join('"'+term.replace('"','""')+'"' for term in query.strip().split())
                 highlighted=index.db.execute('SELECT highlight(message_search,0,?,?) FROM message_search WHERE rowid=? AND message_search MATCH ?',(opening,closing,selected['id'],match)).fetchone()
                 if not highlighted:raise ValueError('Search text changed; run the search again')
@@ -83,7 +83,7 @@ def main():
     args=parser.parse_args();index=None
     try:
         home=os.path.expanduser(os.environ.get('CODEX_HOME','~/.codex') if args.agent=='codex' else os.environ.get('CLAUDE_CONFIG_DIR','~/.claude'))
-        cache=os.environ.get('AGENTDECK_NATIVE_SEARCH_CACHE') or str(Path(os.environ.get('XDG_CACHE_HOME',str(Path.home()/'.cache')))/'agentdeck')
+        cache=os.environ.get('LECTERN_NATIVE_SEARCH_CACHE') or str(Path(os.environ.get('XDG_CACHE_HOME',str(Path.home()/'.cache')))/'lectern')
         index=NativeSearchIndex(cache,home,args.agent)
         if index.path.stem!=args.profile_key:raise ValueError('Native profile changed; run the search again')
         print(json.dumps(read_match(index,args.document,args.cid,args.cwd,args.offset,args.fingerprint,args.query,args.mode,args.anchor),ensure_ascii=False))

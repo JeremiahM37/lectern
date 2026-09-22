@@ -1,5 +1,5 @@
 // Package skills manages project skill intent and target-local materialization.
-// A skill source is always read on the target; AgentDeck stores only the
+// A skill source is always read on the target; Lectern stores only the
 // attachment record and never copies a user's home, credentials, or config.
 package skills
 
@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/executor"
-	"github.com/JeremiahM37/agentdeck/internal/shellq"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 type Skill struct {
@@ -53,7 +53,7 @@ def edit_exclude(repo,marker,line,remove):
  p=os.popen('git -c safe.directory='+quoted_repo+' -C '+quoted_repo+' rev-parse --git-path info/exclude').read().strip()
  if not p: raise OSError('Git info/exclude unavailable')
  if not os.path.isabs(p): p=os.path.join(repo,p)
- lockp=p+'.agentdeck.lock'; import fcntl,tempfile
+ lockp=p+'.lectern.lock'; import fcntl,tempfile
  with open(lockp,'a+') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX)
   try: old=open(p,encoding='utf8').read()
@@ -61,7 +61,7 @@ def edit_exclude(repo,marker,line,remove):
   pair=marker+'\n'+gitpat(line)+'\n'
   new=old.replace(pair,'') if remove else (old if pair in old else old+('' if not old or old.endswith('\n') else '\n')+pair)
   if new!=old:
-   fd,tmp=tempfile.mkstemp(prefix='.agentdeck-exclude-',dir=os.path.dirname(p)); os.write(fd,new.encode()); os.close(fd); os.replace(tmp,p)
+   fd,tmp=tempfile.mkstemp(prefix='.lectern-exclude-',dir=os.path.dirname(p)); os.write(fd,new.encode()); os.close(fd); os.replace(tmp,p)
  return p
 def tracked_native(src,dst):
  try:
@@ -293,7 +293,7 @@ func remove(ctx context.Context, ex executor.Executor, p *store.Project, x *stor
 
 func Marker(id int64, workdir string) string {
 	h := sha256.Sum256([]byte(filepath.Clean(workdir)))
-	return fmt.Sprintf("# agentdeck-owned-skill:%d:%x", id, h[:6])
+	return fmt.Sprintf("# lectern-owned-skill:%d:%x", id, h[:6])
 }
 
 func Reassert(ctx context.Context, ex executor.Executor, db *store.DB, p *store.Project, agent, workdir string) error {
@@ -320,7 +320,7 @@ func Reassert(ctx context.Context, ex executor.Executor, db *store.DB, p *store.
 		}
 		dst := filepath.Join(workdir, rel(agent, s.EntryName))
 		// Record pending intent before touching the target. A row in this state
-		// is never evidence that AgentDeck owns the destination.
+		// is never evidence that Lectern owns the destination.
 		if err := db.UpsertMaterialization(&store.SkillMaterialization{AttachmentID: x.ID, TargetID: x.TargetID, WorktreePath: workdir, TargetPath: dst, SourcePath: s.SourcePath, TargetRel: x.TargetRel, State: state}); err != nil {
 			return fmt.Errorf("skill %q materialization intent: %w", x.SkillID, err)
 		}

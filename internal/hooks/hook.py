@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""agentdeck PreToolUse hook — blocks a tool call until the operator decides.
+"""lectern PreToolUse hook — blocks a tool call until the operator decides.
 
 Claude Code invokes this with the tool call as JSON on stdin. Exit 0 allows the
 call; exit 2 blocks it and feeds stderr back to Claude as the reason.
-Configuration via env: AGENTDECK_URL, AGENTDECK_TOKEN (per-attempt secret).
+Configuration via env: LECTERN_URL, LECTERN_TOKEN (per-attempt secret).
 Stdlib only — targets need nothing beyond python3.
 """
 import json
@@ -13,8 +13,8 @@ import time
 import urllib.error
 import urllib.request
 
-URL = os.environ.get("AGENTDECK_URL", "").rstrip("/")
-TOKEN = os.environ.get("AGENTDECK_TOKEN", "")
+URL = os.environ.get("LECTERN_URL", "").rstrip("/")
+TOKEN = os.environ.get("LECTERN_TOKEN", "")
 
 
 def api(method: str, path: str, body: dict | None = None) -> dict:
@@ -38,11 +38,11 @@ def main() -> int:
             "tool_name": payload.get("tool_name", "?"),
             "tool_input": payload.get("tool_input", {})})
     except (urllib.error.URLError, OSError) as e:
-        print(f"agentdeck approval server unreachable ({e}); blocking for safety",
+        print(f"lectern approval server unreachable ({e}); blocking for safety",
               file=sys.stderr)
         return 2
     aid = created["id"]
-    deadline = time.time() + float(os.environ.get("AGENTDECK_APPROVAL_TIMEOUT", "900"))
+    deadline = time.time() + float(os.environ.get("LECTERN_APPROVAL_TIMEOUT", "900"))
     while time.time() < deadline:
         try:
             d = api("GET", f"/api/hook/approval/{aid}/decision")

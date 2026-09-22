@@ -144,7 +144,7 @@ export function Board({
   }
   async function drop(event: React.DragEvent, column: Column) {
     event.preventDefault();
-    const raw = event.dataTransfer.getData("text/adk-task");
+    const raw = event.dataTransfer.getData("text/lec-task");
     if (!raw) return;
     const data = JSON.parse(raw) as { id: number; status: string };
     try {
@@ -199,7 +199,7 @@ export function Board({
               draggable
               onDragStart={(e) =>
                 e.dataTransfer.setData(
-                  "text/adk-task",
+                  "text/lec-task",
                   JSON.stringify({ id: task.id, status: task.status }),
                 )
               }

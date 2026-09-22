@@ -20,7 +20,7 @@ existing install behaves exactly as it did before.
 ## Staged context
 
 Files listed in `context_paths` are read from the **control plane's** filesystem
-at dispatch and copied into `<worktree>/.agentdeck/context/`, with a header
+at dispatch and copied into `<worktree>/.lectern/context/`, with a header
 prepended to the prompt telling the agent to read them first. One place to
 curate, identical result on every target kind. Globs are supported.
 
@@ -36,7 +36,7 @@ curl -X PATCH .../api/projects/3 \
 
 Target files are staged first, then the project's. Files are truncated at 256KB
 and the bundle stops at 1MB — both cases are reported in the prompt and in
-`.agentdeck/context/INDEX.md` rather than dropped silently. A path that doesn't
+`.lectern/context/INDEX.md` rather than dropped silently. A path that doesn't
 exist is reported too, so a typo shows up as a note instead of missing context.
 
 On a `local` target you may not need this: Claude Code already discovers
@@ -57,7 +57,7 @@ curl -X PATCH .../api/projects/3 -d '{
 For interactive Claude and Codex sessions, the project declaration is applied
 after the final worktree is selected, so fresh, resumed, and forked sessions
 see the same servers. Claude receives a session-private
-`.agentdeck/interactive/<session-id>/mcp.json` via
+`.lectern/interactive/<session-id>/mcp.json` via
 `--mcp-config`; `strict_mcp` additionally supplies `--strict-mcp-config`.
 Codex receives additive `-c mcp_servers.<server>.<field>=<value>` overrides
 before `exec`, while its normal `CODEX_HOME` remains intact (including auth,
@@ -82,7 +82,7 @@ curl -X PATCH .../api/projects/3 \
                       "deny":["Bash(rm *)"]}}'
 ```
 
-These are written to `.agentdeck/settings.json` for every mode. Accepted keys are
+These are written to `.lectern/settings.json` for every mode. Accepted keys are
 `allow`, `deny`, `ask`, `defaultMode`, `additionalDirectories`; anything else is
 rejected with a 400 when you set it, rather than becoming a mystery denial later.
 
@@ -111,16 +111,16 @@ curl -X PATCH .../api/targets/1 \
   -d '{"memory_dir":"/home/you/.claude/projects/-home-you/memory"}'
 ```
 
-At dispatch, agentdeck symlinks that attempt's session memory directory at your
+At dispatch, lectern symlinks that attempt's session memory directory at your
 store, and adds the store to `additionalDirectories` so the agent may actually
 read it — the filesystem sandbox refuses paths outside the worktree, so without
 that the store is linked and then unreadable.
 
 Memory is keyed to the git **main worktree**, not to cwd. Sessions are keyed by
 cwd, so the two diverge inside a worktree: a session running in
-`repo/.agentdeck-worktrees/task9-a1` writes its transcript under that slug but
+`repo/.lectern-worktrees/task9-a1` writes its transcript under that slug but
 reads memory from `repo`'s. Verified by running the CLI inside a linked worktree
-under `/tmp` and asking it for its own memory path. agentdeck resolves the main
+under `/tmp` and asking it for its own memory path. lectern resolves the main
 worktree on the target (`git rev-parse --git-common-dir`) rather than guessing,
 so worktrees, plain clones and sandbox checkouts all agree.
 
@@ -133,9 +133,9 @@ rather than replacing it.
 > a public API and could change in a future release — which is why it is off
 > unless you set it. A failed link logs a warning and never fails the run.
 >
-> If you'd rather not depend on internals, agentdeck's own project memory does a
+> If you'd rather not depend on internals, lectern's own project memory does a
 > similar job through a supported path: agents call
-> `python3 .agentdeck/adk.py add-note "..."` and the notes are prepended to every
+> `python3 .lectern/lec.py add-note "..."` and the notes are prepended to every
 > later prompt on that project.
 
 

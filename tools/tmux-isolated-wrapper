@@ -1,5 +1,5 @@
 #!/bin/sh
-# tmux binary used by isolated AgentDeck tests.
+# tmux binary used by isolated Lectern tests.
 #
 # The test process is expected to run in a bubblewrap mount namespace.  This
 # wrapper is still deliberately defensive: an inherited TMUX value is ignored,

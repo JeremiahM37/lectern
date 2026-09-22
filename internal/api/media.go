@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 )
 
 // Media is the channel from an agent back to the operator: "here is the feature
@@ -32,7 +32,7 @@ type mediaLinkIn struct {
 
 // mediaSession resolves who is posting. An explicit id must exist. A hint — the
 // id or tmux name the poster inherited from its environment — is only evidence:
-// it may have been inherited from a session of some other AgentDeck, and an
+// it may have been inherited from a session of some other Lectern, and an
 // unknown one still posts, unattributed, because losing the evidence is worse
 // than losing its label.
 func (s *Server) mediaSession(id int64, tmux string, hints ...int64) (*int64, error) {
@@ -118,7 +118,7 @@ func (s *Server) postMedia(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, "media store: %s", closeErr)
 		return
 	case size > limit:
-		httpError(w, 413, "file exceeds the %d MiB media limit (AGENTDECK_MEDIA_MAX_MB)", limit>>20)
+		httpError(w, 413, "file exceeds the %d MiB media limit (LECTERN_MEDIA_MAX_MB)", limit>>20)
 		return
 	case size == 0:
 		httpError(w, 422, "the file is empty")
@@ -233,7 +233,7 @@ func (s *Server) mediaContent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Posted content is whatever an agent produced, HTML reports included. The
 	// sandbox gives it an opaque origin, so a page can render and run its own
-	// scripts without being able to act as the AgentDeck origin it is served from.
+	// scripts without being able to act as the Lectern origin it is served from.
 	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", row.Mime)

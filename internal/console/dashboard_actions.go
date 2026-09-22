@@ -233,7 +233,7 @@ func (m *dashboard) rowActions() []dashboardAction {
 				warning = "Remove this adopted session from tracking? It keeps running. Use z to include untracked records, then m → Track again; f finds other running sessions."
 			} else {
 				label = "End session"
-				warning = "Stop this AgentDeck-owned session and remove it from tracking?"
+				warning = "Stop this Lectern-owned session and remove it from tracking?"
 			}
 		}
 		actions = append(actions, dashboardAction{Label: label, Method: "DELETE", Path: path, Warning: warning})

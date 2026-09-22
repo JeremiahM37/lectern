@@ -13,7 +13,7 @@ import { openReview } from "/review.js";
 import { TerminalTabs } from "/terminal-tabs.js";
 import { actionMenu } from "/ui-menu.js";
 import { openConversation } from "/conversation.js";
-/* agentdeck PWA — vanilla ES module, no build step. */
+/* lectern PWA — vanilla ES module, no build step. */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const sheetFocus = new SheetFocus($("#sheet"));
@@ -29,8 +29,8 @@ const state = {
   mobileCol: null,        // phone: which status column is showing (null = auto)
   mobileColPinned: false, // ...and whether the user chose it themselves
   showAllDone: false,     // phone: finished lists are capped until asked
-  diffWrap: localStorage.getItem("adk-diffwrap") === "1",
-  sessionFilter: "", sessionGrouping: sessionStorage.getItem("adk-session-grouping") || "none", archivedSessions: [], showArchivedSessions: false, showEndedSessions: false, endedSessions: [], settingsSection: sessionStorage.getItem('adk-settings-section') || "machines", agents: [],
+  diffWrap: localStorage.getItem("lec-diffwrap") === "1",
+  sessionFilter: "", sessionGrouping: sessionStorage.getItem("lec-session-grouping") || "none", archivedSessions: [], showArchivedSessions: false, showEndedSessions: false, endedSessions: [], settingsSection: sessionStorage.getItem('lec-settings-section') || "machines", agents: [],
 };
 
 // Rotating a phone or dragging a desktop window across the breakpoint has to
@@ -42,7 +42,7 @@ addEventListener("resize", () => {
 });
 
 /* ---------- api ---------- */
-function authToken() { return localStorage.getItem("adk-token") || ""; }
+function authToken() { return localStorage.getItem("lec-token") || ""; }
 // EventSource can't set headers and fetch needs the bearer too — thread the
 // token (when the server runs in token-auth mode) through both surfaces.
 function withToken(url) {
@@ -57,8 +57,8 @@ async function api(path, opts = {}) {
     headers, ...opts, body: multipart ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (r.status === 401) {
-    const t = prompt("This agentdeck requires an access token:", authToken());
-    if (t !== null) { localStorage.setItem("adk-token", t); location.reload(); }
+    const t = prompt("This lectern requires an access token:", authToken());
+    if (t !== null) { localStorage.setItem("lec-token", t); location.reload(); }
     throw new Error("unauthorized");
   }
   if (!r.ok) {
@@ -132,7 +132,7 @@ async function refreshApprovals() {
   if (state.tab === "approvals") renderApprovals();
   if (state.sheet?.kind === "task") renderSheet();
 }
-const collapsedSessionGroups = new Set((()=>{try{const value=JSON.parse(sessionStorage.getItem('adk-collapsed-session-groups')||'[]');return Array.isArray(value)?value:[];}catch{return [];}})());
+const collapsedSessionGroups = new Set((()=>{try{const value=JSON.parse(sessionStorage.getItem('lec-collapsed-session-groups')||'[]');return Array.isArray(value)?value:[];}catch{return [];}})());
 let sessionRefreshVersion=0;
 async function refreshSessions() {
   const generation=++sessionRefreshVersion;
@@ -192,7 +192,7 @@ function card(t) {
   const el = document.createElement("div");
   el.className = `card s-${t.status}`;
   el.draggable = true;
-  el.ondragstart = (e) => e.dataTransfer.setData("text/adk-task", JSON.stringify(
+  el.ondragstart = (e) => e.dataTransfer.setData("text/lec-task", JSON.stringify(
     { id: t.id, status: t.status }));
   // diff_stat is {} server-side until a diff is captured; a running card that
   // assumed an array once threw and aborted the whole column render
@@ -257,8 +257,8 @@ function renderBoard() {
   $("#qb-filter").oninput = (e) => { state.filter = e.target.value; renderColumns(); };
   const sel = $("#qb-project");
   sel.innerHTML = state.projects.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-  sel.value = localStorage.getItem("adk-quickproj") || (state.projects[0]?.id ?? "");
-  sel.onchange = () => localStorage.setItem("adk-quickproj", sel.value);
+  sel.value = localStorage.getItem("lec-quickproj") || (state.projects[0]?.id ?? "");
+  sel.onchange = () => localStorage.setItem("lec-quickproj", sel.value);
   $("#qb-input").onkeydown = async (e) => {
     if (e.key !== "Enter" || !e.target.value.trim()) return;
     const text = e.target.value.trim();
@@ -301,7 +301,7 @@ function attachDrop(c, col) {
   c.ondragleave = () => c.classList.remove("dropok");
   c.ondrop = async (e) => {
     e.preventDefault(); c.classList.remove("dropok");
-    const data = e.dataTransfer.getData("text/adk-task");
+    const data = e.dataTransfer.getData("text/lec-task");
     if (!data) return;
     const { id, status } = JSON.parse(data);
     try {
@@ -507,7 +507,7 @@ function sessionCard(s) {
       <span class="chip tgt">${esc(s.target_name || "")}</span>
       <span class="chip">${settingUp?"setup":"up"} ${fmtDuration(s.uptime_seconds)}</span>
       ${s.launch_profile ? `<span class="chip" title="Captured launch profile">${esc(s.launch_profile)}</span>` : ""}
-      ${s.origin === "discovered" ? '<span class="chip info" title="started outside agentdeck and adopted">adopted</span>' : ""}
+      ${s.origin === "discovered" ? '<span class="chip info" title="started outside lectern and adopted">adopted</span>' : ""}
       ${s.wraps ? `<span class="chip info" title="handoffs written from this session">⇥ ${s.wraps}</span>` : ""}
       ${s.handoff_in_flight ? '<span class="chip warn">writing handoff…</span>' : ""}
       ${ctx != null ? `<span class="ctxbar${ctxClass}">ctx <i><b style="width:${ctx}%"></b></i> ${ctx}%</span>` : ""}
@@ -559,7 +559,7 @@ function sessionCard(s) {
     act("Review changes", "", () => openReview({kind:"session", id:s.id, name:s.name, api}));
     const native = document.createElement('a');
     native.className = 'b';
-    native.href = `agentdeck://attach/session/${s.id}`;
+    native.href = `lectern://attach/session/${s.id}`;
     native.textContent = 'Open in terminal';
     panel.appendChild(native);
     if (s.status === "running") act("⎋ Interrupt", "warn", () => sendKey(s, "escape"));
@@ -568,7 +568,7 @@ function sessionCard(s) {
     if (!s.project_id) act("⇑ Make a project", "ok", () => promoteSession(s));
   }
   // Adoption is non-destructive, so letting go has to be too. An agent you
-  // started yourself is released — agentdeck stops watching, the terminal keeps
+  // started yourself is released — lectern stops watching, the terminal keeps
   // running — and killing it is a separate, explicit choice.
   const adopted = s.origin === "discovered";
   actionRow = panel;
@@ -750,7 +750,7 @@ function renderHandoff(sheet) {
       <select class="f" id="ho-agent"></select>
       <div class="subhint" id="ho-agent-hint"></div>
       <label class="f">Model</label>
-      <input class="f" id="ho-model" list="adk-models" placeholder="default" autocomplete="off">
+      <input class="f" id="ho-model" list="lec-models" placeholder="default" autocomplete="off">
       <label class="f check" style="display:flex;align-items:center;gap:9px;cursor:pointer;margin-top:12px">
         <input type="checkbox" id="ho-kill" checked style="width:auto;margin:0">
         <span>Retire <span class="hs-name2"></span> once the handoff is written</span>
@@ -854,7 +854,7 @@ function renderSessions() {
   $('#sess-scope').value=state.showArchivedSessions?'archived':state.showEndedSessions?'all':'active';
   $('#sess-scope').onchange=async e=>{state.showArchivedSessions=e.target.value==='archived';state.showEndedSessions=e.target.value!=='active';try{await refreshSessions();}catch(err){toast(err.message,true);}};
   $('#sess-grouping').value=state.sessionGrouping;
-  $('#sess-grouping').onchange=e=>{state.sessionGrouping=e.target.value;sessionStorage.setItem('adk-session-grouping',state.sessionGrouping);renderSessionList();};
+  $('#sess-grouping').onchange=e=>{state.sessionGrouping=e.target.value;sessionStorage.setItem('lec-session-grouping',state.sessionGrouping);renderSessionList();};
   $('#sess-search').value = state.sessionFilter;
   $('#sess-search').oninput = (e) => { state.sessionFilter = e.target.value; renderSessionList(); };
   renderSessionList();
@@ -867,13 +867,13 @@ function renderSessionList() {
   if (!live.length) {
     list.innerHTML = state.showArchivedSessions ? `<div class="hint">No archived sessions. Use “Stop and archive” in a session’s actions to keep it here for later.</div>` : `<div class="hint">No sessions yet.<br><br>
       Start one here, or hit <b>Find running agents</b> to adopt the Claude and Codex
-      sessions already running in tmux — agentdeck will watch them from then on.</div>`;
+      sessions already running in tmux — lectern will watch them from then on.</div>`;
     return;
   }
   const query = state.sessionFilter.toLowerCase().trim();
   const items = live.filter(s => {const text=[s.name,s.project_name,s.target_name,s.agent,s.group_path,s.workdir,s.workspace?.branch].join(' ').toLowerCase();return query.split(/\s+/).every(word=>text.includes(word));});
   items.sort((a,b) => (SESSION_ORDER[a.status] ?? 9) - (SESSION_ORDER[b.status] ?? 9) || a.idle_seconds-b.idle_seconds);
-  renderSessionGroups(list,items,{mode:state.sessionGrouping,query,collapsed:collapsedSessionGroups,renderCard:sessionCard,onToggle:()=>sessionStorage.setItem('adk-collapsed-session-groups',JSON.stringify([...collapsedSessionGroups]))});
+  renderSessionGroups(list,items,{mode:state.sessionGrouping,query,collapsed:collapsedSessionGroups,renderCard:sessionCard,onToggle:()=>sessionStorage.setItem('lec-collapsed-session-groups',JSON.stringify([...collapsedSessionGroups]))});
   if (!items.length) list.innerHTML = '<div class="hint">No sessions match your search.</div>';
 }
 
@@ -902,8 +902,8 @@ function renderNewSession(sheet) {
     <select class="f" id="ns-agent" aria-describedby="ns-agent-hint"></select>
     <div class="subhint" id="ns-agent-hint"></div>
     <label class="f" for="ns-model">Model</label>
-    <input class="f" id="ns-model" list="adk-models" placeholder="default" autocomplete="off">
-    <datalist id="adk-models"></datalist>
+    <input class="f" id="ns-model" list="lec-models" placeholder="default" autocomplete="off">
+    <datalist id="lec-models"></datalist>
     <label class="f check"><input type="checkbox" id="ns-worktree"> Isolate in a new Git worktree</label>
     <div id="ns-worktree-options" hidden>
       <p class="subhint">A fresh session with separate files on a new branch. Starts from a committed revision; uncommitted edits stay in the original directory.</p>
@@ -980,7 +980,7 @@ function renderNewSession(sheet) {
     const box = $("#ns-model");
     const list = (state.models || {})[agentBox.value];
     const spec = agentSpecs.find((a) => a.name === agentBox.value);
-    $("#adk-models").innerHTML = (list || [])
+    $("#lec-models").innerHTML = (list || [])
       .map((m) => `<option>${esc(m)}</option>`).join("");
     box.placeholder = list === undefined
       ? "this agent has no model switch"
@@ -1093,7 +1093,7 @@ function renderNewSession(sheet) {
       closeSheet();
       switchTab("sessions");
       await refreshSessions();
-      toast(launched.setup_state === "creating" ? "Workspace setup started. You can keep using AgentDeck." : "Session started");
+      toast(launched.setup_state === "creating" ? "Workspace setup started. You can keep using Lectern." : "Session started");
     } catch (e) { toast(e.message, true); } finally {const button=$("#ns-go");if(button)button.disabled=false;}
   };
 }
@@ -1101,7 +1101,7 @@ function renderNewSession(sheet) {
 /* ---------- discover sheet ----------
    The sessions worth tracking are usually the ones you started yourself, by
    hand, weeks ago. Adopting one is non-destructive: the tmux session is left
-   exactly as it is and agentdeck simply starts watching it. */
+   exactly as it is and lectern simply starts watching it. */
 function renderDiscover(sheet) {
   sheet.innerHTML = `
     <div class="sheet-grip"><i></i></div>
@@ -1232,7 +1232,7 @@ async function renderTargets() {
   const agentsPanel = $('[data-settings-panel="agents"]', page);
   const chooseSection = (section) => {
     state.settingsSection = section;
-    sessionStorage.setItem('adk-settings-section', section);
+    sessionStorage.setItem('lec-settings-section', section);
     $$('[data-settings-panel]',page).forEach(p => p.hidden = p.dataset.settingsPanel !== section);
     $$('[data-settings]',page).forEach(b => { const selected=b.dataset.settings === section; b.setAttribute('aria-selected', String(selected)); b.tabIndex=selected?0:-1; });
   };
@@ -1476,7 +1476,7 @@ function projectCard(p) {
   };
   const syncRetained = (draftValue, latestValue) => {
     if (latestValue && typeof latestValue === "object" && !Array.isArray(latestValue) &&
-        Object.keys(latestValue).length === 1 && Object.prototype.hasOwnProperty.call(latestValue, "__agentdeck_retained")) {
+        Object.keys(latestValue).length === 1 && Object.prototype.hasOwnProperty.call(latestValue, "__lectern_retained")) {
       return JSON.parse(JSON.stringify(latestValue));
     }
     if (Array.isArray(draftValue) && Array.isArray(latestValue)) {
@@ -1837,8 +1837,8 @@ function renderRoutines(sheet) {
       <label class="f">Agent</label>
       <select class="f" id="rt-agent"></select>
       <label class="f">Model</label>
-      <input class="f" id="rt-model" list="adk-models" placeholder="the project's default" autocomplete="off">
-      <datalist id="adk-models"></datalist>
+      <input class="f" id="rt-model" list="lec-models" placeholder="the project's default" autocomplete="off">
+      <datalist id="lec-models"></datalist>
       <label class="f">Permission mode</label>
       <select class="f" id="rt-perm">
         <option value="acceptEdits">acceptEdits</option>
@@ -1860,7 +1860,7 @@ function renderRoutines(sheet) {
   const syncModels = () => {
     const list = (state.models || {})[agentBox.value] || [];
     const spec = routineAgentSpecs.find((a) => a.name === agentBox.value);
-    $("#adk-models", sheet).innerHTML = list.map((m) => `<option>${esc(m)}</option>`).join("");
+    $("#lec-models", sheet).innerHTML = list.map((m) => `<option>${esc(m)}</option>`).join("");
     $("#rt-model", sheet).disabled = !(state.models || {})[agentBox.value] && !spec?.model_flag;
   };
   api("/agents").then((specs) => {
@@ -2393,7 +2393,7 @@ function renderDiff(body) {
   };
   wrapBtn.onclick = () => {
     state.diffWrap = !state.diffWrap;
-    localStorage.setItem("adk-diffwrap", state.diffWrap ? "1" : "");
+    localStorage.setItem("lec-diffwrap", state.diffWrap ? "1" : "");
     paintWrap();
   };
   head.appendChild(wrapBtn);
@@ -2446,8 +2446,8 @@ function renderNewTask(sheet) {
     <div class="seg f" id="f-agent" data-value="claude" aria-label="Task runner"></div>
     <div class="subhint" id="f-agent-hint"></div>
     <label class="f">Model</label>
-    <input class="f" id="f-model" list="adk-models" placeholder="default" autocomplete="off">
-    <datalist id="adk-models">
+    <input class="f" id="f-model" list="lec-models" placeholder="default" autocomplete="off">
+    <datalist id="lec-models">
       <option>fable</option><option>opus</option><option>sonnet</option><option>haiku</option>
     </datalist>
     <div id="f-ab-row">
@@ -2501,7 +2501,7 @@ function renderNewTask(sheet) {
     if (!claude && $("#f-perm").value === "default") $("#f-perm").value = "acceptEdits";
     $("#f-ab-row").style.display = claude ? "" : "none";
     if (!claude) $("#f-modelb").value = "";
-    $("#adk-models").innerHTML = ((state.models || {})[agentBox.dataset.value] || [])
+    $("#lec-models").innerHTML = ((state.models || {})[agentBox.dataset.value] || [])
       .map((m) => `<option>${esc(m)}</option>`).join("");
     // probe truth beats optimism: say when the target has no such binary
     const proj = state.projects.find((p) => p.id === +$("#f-project").value);
@@ -2511,7 +2511,7 @@ function renderNewTask(sheet) {
     const missing = tgt && info[agent] === null;
     $("#f-agent-hint").textContent = missing
       ? `⚠ ${agent} not detected on ${tgt.name} — probe the target, or set `
-        + `AGENTDECK_${agent.toUpperCase()}_BIN if it lives outside the service PATH`
+        + `LECTERN_${agent.toUpperCase()}_BIN if it lives outside the service PATH`
       : "";
   };
   if (!taskAgentSpecs.some(a => a.name === agentBox.dataset.value)) agentBox.dataset.value = taskAgentSpecs[0]?.name || "";
@@ -2667,7 +2667,7 @@ addEventListener("hashchange", applyHash);
 function switchTab(tab, opts = {}) {
   state.tab = tab;
   if (!opts.fromHash) {
-    try { localStorage.setItem('adk-last-view', tab); } catch {}
+    try { localStorage.setItem('lec-last-view', tab); } catch {}
   }
   const terminal = tab === "terminals";
   $("#view").hidden = terminal;
@@ -2750,7 +2750,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
     let tab = 'board';
     if (!location.hash) {
       try {
-        const saved = localStorage.getItem('adk-last-view');
+        const saved = localStorage.getItem('lec-last-view');
         if (TABS.includes(saved)) tab = saved;
       } catch {}
       // Terminal frames belong to this browser tab. A fresh browser tab should

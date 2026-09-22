@@ -5,7 +5,7 @@ package store
 // UI parses the JSON blobs it needs — the same contract the Python service had,
 // so dashboards and the MCP server keep working across the rewrite.
 
-// Target is a machine agentdeck can dispatch onto.
+// Target is a machine lectern can dispatch onto.
 type Target struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`

@@ -2,7 +2,7 @@ package api_test
 
 import (
 	"fmt"
-	"github.com/JeremiahM37/agentdeck/internal/store"
+	"github.com/JeremiahM37/lectern/internal/store"
 	"testing"
 )
 

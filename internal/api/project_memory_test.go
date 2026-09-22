@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/agentdeck/internal/config"
+	"github.com/JeremiahM37/lectern/internal/config"
 )
 
 func TestProjectMemoryProvisioningIsPersistentScopedAndRetryable(t *testing.T) {
