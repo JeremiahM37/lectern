@@ -2,7 +2,7 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"os"
 	"path/filepath"
 	"testing"

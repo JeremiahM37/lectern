@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 type shellIn struct {

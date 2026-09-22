@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/version"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 func TestLocalHandlerRequiresIdentityAndReportsStopConflict(t *testing.T) {

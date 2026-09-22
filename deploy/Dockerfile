@@ -23,7 +23,7 @@ COPY --from=frontend /src/frontend/dist/sw.js /src/web/static/sw.js
 # Cross-compiled on the builder's own architecture, so a multi-arch image
 # does not run the Go toolchain under emulation. The tag is stamped in.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w -X github.com/JeremiahM37/lectern/internal/version.Version=${VERSION#v}" -o /out/lectern ./cmd/lectern
+    go build -trimpath -ldflags="-s -w -X github.com/JeremiahM37/lectern/v2/internal/version.Version=${VERSION#v}" -o /out/lectern ./cmd/lectern
 
 FROM debian:bookworm-slim
 # git and tmux drive the LOCAL target; openssh-client reaches remote ones

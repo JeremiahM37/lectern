@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/console"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/console"
 )
 
 func TestPromoteErrorExplainsOlderRunningServer(t *testing.T) {

@@ -3,8 +3,8 @@ package scheduler
 import (
 	"path/filepath"
 
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 // taskWorktree derives the first-attempt allocation. Persisted paths and

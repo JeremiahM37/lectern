@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 const prReview = `Go through every open pull request. For each one: read the diff, ` +

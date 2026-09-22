@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/delegation"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/sessions"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/delegation"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Delegated builds: the lead plans and reviews, a cheaper worker builds.

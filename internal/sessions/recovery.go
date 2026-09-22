@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 const StatusInterrupted = "interrupted"

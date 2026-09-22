@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // fakeTTYD stands in for the real binary: it records the port it was handed and

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 // Provision clones the template, starts it, and waits for it to answer.

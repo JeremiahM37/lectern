@@ -20,7 +20,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 // Spec says where the control plane keeps an agent's credentials and where the

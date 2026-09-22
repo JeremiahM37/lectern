@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
 // SettingKey is the settings-table key the configuration is stored under.

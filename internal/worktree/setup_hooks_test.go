@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 func TestWorkspaceSetupCommandsRunInEachCheckout(t *testing.T) {

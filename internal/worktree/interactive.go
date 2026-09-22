@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 // Interactive records an allocation before any remote Git mutation. A failed

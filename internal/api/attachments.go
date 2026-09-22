@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/sessions"
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 const maxAttachmentSize = 25 << 20

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 func (m *Manager) claimWorkspaceOperation(id int64) bool {

@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	agentcfg "github.com/JeremiahM37/lectern/internal/agents"
-	"github.com/JeremiahM37/lectern/internal/bus"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/memory"
-	"github.com/JeremiahM37/lectern/internal/scratch"
-	"github.com/JeremiahM37/lectern/internal/shellq"
-	"github.com/JeremiahM37/lectern/internal/skills"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/scratch"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/skills"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 // Manager owns the lifecycle of every interactive session.

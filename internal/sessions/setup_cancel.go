@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 func (m *Manager) checkSetupCancellation(id int64) error {

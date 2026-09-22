@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/state"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/state"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // The three calls a lead agent makes around a delegated build, beyond what

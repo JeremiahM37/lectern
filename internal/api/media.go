@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Media is the channel from an agent back to the operator: "here is the feature

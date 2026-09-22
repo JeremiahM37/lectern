@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/JeremiahM37/lectern/internal/agents"
-	"github.com/JeremiahM37/lectern/internal/ctxbundle"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/hooks"
-	"github.com/JeremiahM37/lectern/internal/memory"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/ctxbundle"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/hooks"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // taskLaunchConfig resolves the configured task adapter once, or returns the

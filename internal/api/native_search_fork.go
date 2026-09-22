@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/sessions"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 func (s *Server) forkConversationSearchResult(w http.ResponseWriter, r *http.Request) {

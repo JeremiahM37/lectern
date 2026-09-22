@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/sinks"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/sinks"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 )
 
 // sinkSpy captures what would have been delivered, with no network at all.

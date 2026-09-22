@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 var simpleAgentCommand = regexp.MustCompile(`^[A-Za-z0-9_./+][A-Za-z0-9_./+-]*$`)

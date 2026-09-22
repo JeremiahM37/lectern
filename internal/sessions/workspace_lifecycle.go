@@ -3,8 +3,8 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"path"
 	"strings"
 )

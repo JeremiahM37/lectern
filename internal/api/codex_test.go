@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 // runToEnd dispatches and waits for the task to finish either way.

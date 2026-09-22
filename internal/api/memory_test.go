@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/scheduler"
+	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 )
 
 // What one agent learns should not die with its worktree.

@@ -2,7 +2,7 @@ package worktree
 
 import (
 	"context"
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"os"
 	"os/exec"
 	"path/filepath"

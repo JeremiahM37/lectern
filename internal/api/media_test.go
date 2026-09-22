@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 func (h *harness) raw(method, path string, body io.Reader, headers map[string]string) (*http.Response, []byte) {

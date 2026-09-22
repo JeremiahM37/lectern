@@ -10,13 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/scheduler"
-	"github.com/JeremiahM37/lectern/internal/skills"
-	"github.com/JeremiahM37/lectern/internal/state"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/terminal"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
+	"github.com/JeremiahM37/lectern/v2/internal/skills"
+	"github.com/JeremiahM37/lectern/v2/internal/state"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 type taskIn struct {

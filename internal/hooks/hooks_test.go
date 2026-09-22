@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/hooks"
+	"github.com/JeremiahM37/lectern/v2/internal/hooks"
 )
 
 func stage(t *testing.T, name string, body []byte) string {

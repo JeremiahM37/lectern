@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 // FileStat is one file's line churn in a captured diff.

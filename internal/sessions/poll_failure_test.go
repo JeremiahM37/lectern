@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/bus"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/shellq"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
 func pollRig(t *testing.T) (*Manager, *store.Session) {

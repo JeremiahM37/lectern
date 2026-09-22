@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // ResumeConversation starts an exact native conversation after its old terminal

@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/desktop"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/forward"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/desktop"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/forward"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Live is how the operator reaches what a target keeps on its own localhost: a

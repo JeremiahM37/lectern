@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/sessions"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 )
 
 // termProxy serves an attached terminal on lectern's own origin.

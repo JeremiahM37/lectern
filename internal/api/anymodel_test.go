@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 // The any-model door: a project can point its agent at any Anthropic-compatible

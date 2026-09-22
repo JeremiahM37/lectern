@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"net"
 	"os/exec"
 	"strconv"
@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Port range handed out to attached terminals.

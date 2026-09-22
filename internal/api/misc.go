@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/push"
-	"github.com/JeremiahM37/lectern/internal/sinks"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/version"
+	"github.com/JeremiahM37/lectern/v2/internal/push"
+	"github.com/JeremiahM37/lectern/v2/internal/sinks"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {

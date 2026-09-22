@@ -23,8 +23,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Statuses a session can be in. These are derived from what the pane is

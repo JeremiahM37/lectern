@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Registry hands out one cached executor per target id.

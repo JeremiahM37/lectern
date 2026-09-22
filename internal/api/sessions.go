@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/memory"
-	"github.com/JeremiahM37/lectern/internal/sessions"
-	"github.com/JeremiahM37/lectern/internal/shellq"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/terminal"
-	"github.com/JeremiahM37/lectern/internal/worktree"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
 // sessionView is a session plus the two things a card always needs: how long it

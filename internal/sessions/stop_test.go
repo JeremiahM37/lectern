@@ -2,9 +2,9 @@ package sessions
 
 import (
 	"context"
-	"github.com/JeremiahM37/lectern/internal/shellq"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"

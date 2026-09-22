@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 func TestSavedLaunchConfigurationIgnoresLaterAgentSettings(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/memory"
-	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
 // sessionMemory reports what a session's agent wrote to the memory store, read

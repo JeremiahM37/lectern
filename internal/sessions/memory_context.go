@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/memory"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 type contextDelivery struct {

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Result is the outcome of one command.

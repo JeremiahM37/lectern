@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Paths of the runtime files every attempt gets, relative to its worktree.

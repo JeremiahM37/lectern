@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/JeremiahM37/lectern/internal/scratch"
+	"github.com/JeremiahM37/lectern/v2/internal/scratch"
 )
 
 // Scratch workspaces are made freely and were never removed. The sweep trashes

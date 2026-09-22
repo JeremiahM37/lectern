@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/console"
-	"github.com/JeremiahM37/lectern/internal/mediapost"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/console"
+	"github.com/JeremiahM37/lectern/v2/internal/mediapost"
 )
 
 func promoteCommand(c *console.Client, args []string) error {

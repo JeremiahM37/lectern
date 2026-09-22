@@ -2,8 +2,8 @@ package api_test
 
 import (
 	"fmt"
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"

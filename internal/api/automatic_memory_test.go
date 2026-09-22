@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 func scopedMemoryServer(t *testing.T) (*httptest.Server, *atomic.Int64) {

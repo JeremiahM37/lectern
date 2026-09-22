@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 )
 
 type bootExecutor struct {

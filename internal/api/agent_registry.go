@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
 const agentRetentionKey = "__lectern_retained"

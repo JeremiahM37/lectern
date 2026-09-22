@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Desktop launchers send an ID, never a shell command or a destination host.

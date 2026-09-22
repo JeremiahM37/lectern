@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // One binary speaks headless stream-json, then accepts terminal input when

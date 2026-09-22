@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/app"
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // deployment is one database plus a fixed address, which successive Apps take

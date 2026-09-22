@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/push"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/push"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Keys are the settings rows this package owns. Anything else is rejected by the

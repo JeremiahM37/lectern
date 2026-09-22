@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/mcp"
+	"github.com/JeremiahM37/lectern/v2/internal/mcp"
 )
 
 // mcpCall drives one JSON-RPC exchange over the stdio transport.

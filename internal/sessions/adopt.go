@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Discover finds agents running on every registered target, whether or not

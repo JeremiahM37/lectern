@@ -101,7 +101,7 @@ the same tagged release.
 | **Scoop** (Windows) | `scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern` |
 | **Debian / Ubuntu**, **Fedora / RHEL** | the `.deb` / `.rpm` on the [latest release](https://github.com/JeremiahM37/lectern/releases/latest) |
 | **Docker** | `docker run -d -p 9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
-| **Go** | `go install github.com/JeremiahM37/lectern/cmd/lectern@latest` |
+| **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
 
 The installers verify the archive against the release's `checksums.txt`.
 Running agents on a machine needs `git` and `tmux` there; on Windows the

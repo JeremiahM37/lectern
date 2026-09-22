@@ -3,7 +3,7 @@ package sessions
 import (
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 func TestLaunchProfileExplicitOverridesAndAgentBoundary(t *testing.T) {

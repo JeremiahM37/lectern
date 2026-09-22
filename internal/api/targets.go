@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/agents"
-	"github.com/JeremiahM37/lectern/internal/creds"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/creds"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 var targetKinds = []string{"local", "ssh", "pct", "sandbox", "mock"}

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
 func TestMultiWorkspaceTargetPreflightPreservesRepositories(t *testing.T) {

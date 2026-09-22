@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/version"
-	"github.com/JeremiahM37/lectern/web"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
+	"github.com/JeremiahM37/lectern/v2/web"
 )
 
 func repoFile(t *testing.T, rel string) string {

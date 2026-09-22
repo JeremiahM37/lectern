@@ -26,10 +26,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/app"
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/store"
-	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
 // tmux names come from database ids (lec-<attempt>, lec-s<session>), and every

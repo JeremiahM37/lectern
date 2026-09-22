@@ -23,11 +23,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JeremiahM37/lectern/cmd/lectern/localruntime"
-	"github.com/JeremiahM37/lectern/internal/app"
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/mcp"
-	"github.com/JeremiahM37/lectern/internal/version"
+	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
+	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/mcp"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 func main() {

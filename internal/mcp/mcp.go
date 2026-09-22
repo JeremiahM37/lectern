@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/version"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 // protocolVersion is the MCP revision this server implements.

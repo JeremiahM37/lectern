@@ -1,4 +1,4 @@
-module github.com/JeremiahM37/lectern
+module github.com/JeremiahM37/lectern/v2
 
 go 1.25.0
 

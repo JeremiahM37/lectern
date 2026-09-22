@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/delegation"
-	"github.com/JeremiahM37/lectern/internal/mediapost"
+	"github.com/JeremiahM37/lectern/v2/internal/delegation"
+	"github.com/JeremiahM37/lectern/v2/internal/mediapost"
 )
 
 // tool is one MCP tool: its schema, and what it does.

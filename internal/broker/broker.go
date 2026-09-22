@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/bus"
-	"github.com/JeremiahM37/lectern/internal/sinks"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/sinks"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Broker owns pending approvals and the channels blocked hooks wait on.

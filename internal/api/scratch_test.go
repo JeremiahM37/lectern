@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 func TestAScratchSessionGetsItsOwnDirectory(t *testing.T) {

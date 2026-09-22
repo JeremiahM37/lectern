@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JeremiahM37/lectern/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 // fakeGrimoire records what Lectern writes and answers what it reads.

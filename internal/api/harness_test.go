@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/app"
-	"github.com/JeremiahM37/lectern/internal/config"
-	"github.com/JeremiahM37/lectern/internal/executor"
-	"github.com/JeremiahM37/lectern/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
 // harness is a whole lectern — real HTTP server, real scheduler, real hook

@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 )
 
 // The URL handed to the browser must be same-origin, so it survives every way

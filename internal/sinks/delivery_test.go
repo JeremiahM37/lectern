@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/lectern/internal/push"
-	"github.com/JeremiahM37/lectern/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/push"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // BuildPayloads was tested; actually delivering them was not. A notification

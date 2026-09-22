@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Spec describes how to start one interactive coding CLI.
