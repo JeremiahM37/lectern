@@ -30,7 +30,8 @@ import (
 const checkpointVersion = 2
 
 var (
-	checkpointTmuxName = regexp.MustCompile(`^lec-s[0-9]+$`)
+	// A session started before the rename is still named adk-s<id>.
+	checkpointTmuxName = regexp.MustCompile(`^(lec|adk)-s[0-9]+$`)
 	checkpointUUID     = regexp.MustCompile(`^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$`)
 	checkpointTracking = regexp.MustCompile(`^[a-f0-9]{32}$`)
 	checkpointHash     = regexp.MustCompile(`^[a-f0-9]{64}$`)

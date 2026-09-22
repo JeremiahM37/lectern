@@ -30,3 +30,16 @@ func TestRestoreReadsIdentityWithoutCreatingIt(t *testing.T) {
 		t.Fatalf("seeds before reading the legacy option: %s", seeded)
 	}
 }
+
+func TestCheckpointAcceptsSessionsNamedBeforeTheRename(t *testing.T) {
+	for _, name := range []string{"lec-s12", "adk-s117"} {
+		if !checkpointTmuxName.MatchString(name) {
+			t.Fatalf("%s rejected", name)
+		}
+	}
+	for _, name := range []string{"lec-sh3", "adk-", "s12", "lec-s12x"} {
+		if checkpointTmuxName.MatchString(name) {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
