@@ -103,7 +103,9 @@ export function Delegation({
     }
   }
 
-  if (!view) return null;
+  // An API without the route (an older server, a harness) answers with
+  // something else; the banner then says nothing rather than breaking the page.
+  if (!view || !view.settings || typeof view.settings.enabled !== "boolean") return null;
   const s = view.settings;
   const workers = agents.filter((a) => a.task || a.builtin);
   const on = s.enabled;

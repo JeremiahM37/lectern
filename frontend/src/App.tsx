@@ -534,7 +534,7 @@ export default function App() {
             <Icon name="brand" size={22} />
           </span>
           <h1>
-            agent<b>deck</b>
+            lec<b>tern</b>
           </h1>
           <span className="brand-sub">mission control</span>
         </div>

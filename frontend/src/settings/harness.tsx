@@ -130,6 +130,8 @@ const api: SettingsApi = {
       ];
     if (p === "/stats")
       return { total_cost_usd: 2, last_7d_usd: 1, tasks_done: 4 };
+    if (p === "/delegation")
+      return { settings: { enabled: false, worker_agent: "", worker_model: "", permission_mode: "acceptEdits", correction_cycles: 1 }, worker_ready: false, worker_problem: "no worker agent chosen" };
     if (p === "/health")
       return {
         version: "v1",
