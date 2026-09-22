@@ -801,3 +801,43 @@ body.terminals-open { overflow: hidden; }
 .session-group-body .scard {margin-top:10px;}
 /* Extra repositories stay collapsed until a grouped workspace is needed. */
 #ns-repositories details{margin:12px 0}#ns-repositories summary{cursor:pointer;padding:8px 0;min-height:28px}.workspace-repository{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere}#ns-repositories select{max-width:100%}
+
+/* Delegated builds — a banner above the Settings tabs, not a row in one.
+   Its state is the largest text on the page: nobody should learn that a
+   second provider is building their code from a task card. */
+.delegation-banner {
+  margin: 0 0 18px; padding: 16px 18px; border-radius: 14px;
+  border: 2px solid var(--line); background: var(--bg-soft);
+}
+.delegation-banner.on {
+  border-color: var(--accent); box-shadow: var(--glow);
+  background: linear-gradient(135deg, var(--accent-wash), transparent 60%), var(--bg-soft);
+}
+.delegation-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.delegation-head h3 { margin: 0 0 6px; font-size: 1.45rem; letter-spacing: -.01em; display: flex; gap: 10px; align-items: center; }
+.delegation-head p { margin: 0; max-width: 62ch; }
+.delegation-state {
+  font-size: .8rem; font-weight: 800; letter-spacing: .12em; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid currentColor; color: var(--ink-dim);
+}
+.delegation-banner.on .delegation-state { color: #fff; background: var(--accent); border-color: var(--accent); }
+.delegation-switch { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; cursor: pointer; }
+.delegation-switch input { width: 54px; height: 30px; appearance: none; -webkit-appearance: none; border-radius: 999px; position: relative; cursor: pointer;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.18); transition: background .15s; margin: 0; }
+.delegation-switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; transition: transform .15s; }
+.delegation-switch input:checked { background: var(--accent); border-color: var(--accent); }
+.delegation-switch input:checked::after { transform: translateX(24px); }
+.delegation-banner > .b { margin-top: 12px; }
+.delegation-setup { margin-top: 14px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.delegation-setup > label { display: grid; gap: 4px; font-size: .9rem; }
+.delegation-preset, .delegation-check, .delegation-install, .delegation-note { grid-column: 1 / -1; }
+.delegation-preset { display: grid; gap: 8px; grid-template-columns: 1fr auto; align-items: center; }
+.delegation-preset p { grid-column: 1 / -1; margin: 0; }
+.delegation-check, .delegation-install { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.delegation-install p { margin: 0; flex-basis: 100%; }
+.delegation-note { margin: 0; font-size: .85rem; opacity: .8; }
+@media (max-width: 640px) {
+  .delegation-head h3 { font-size: 1.2rem; }
+  .delegation-preset { grid-template-columns: 1fr; }
+}

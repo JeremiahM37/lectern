@@ -4,6 +4,7 @@ import type { Project, Target } from "../types";
 import { AgentEditor, type AgentSpec } from "./AgentEditor";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
+import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 export interface SettingsApi {
@@ -127,6 +128,7 @@ export function Settings({
         <h2>Settings</h2>
         <p>Machines, projects and preferences in one place.</p>
       </header>
+      <Delegation api={api} agents={agents} projects={projects} onNotice={onNotice} onChanged={load} />
       <nav role="tablist">
         {(
           [

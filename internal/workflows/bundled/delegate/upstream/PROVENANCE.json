@@ -1,0 +1,79 @@
+{
+  "repository": "https://github.com/ethanplusai/astra-flash-orchestrator",
+  "revision": "bcc7f9eaee051126c0ce821a55194d0b20425b22",
+  "version": "1.2.0",
+  "license": "MIT",
+  "description": "Unmodified upstream files. Lectern adaptations are outside this upstream directory.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "8ca493501d87377b67fb191cf01a70630cd9f1cdfe11f2e726d34b82f1a7f60e",
+      "bytes": 1069
+    },
+    {
+      "path": "source/POLICY.md",
+      "sha256": "aaa7ea94c3ad96f8847f5ab723cc7f20a3843fad2a80a7179de78f3a6bc3e742",
+      "bytes": 3053
+    },
+    {
+      "path": "source/WORKER-INSTRUCTIONS.md",
+      "sha256": "f8d7f47fd0f369afc2140493c57ed705a023bb742c97395daabac0769eb93125",
+      "bytes": 2996
+    },
+    {
+      "path": "source/skill/SKILL.md",
+      "sha256": "fc4ccfa15c160683f0495ef5bdc4073ab9b8823c85c9f131047db9f2c63740e7",
+      "bytes": 10123
+    },
+    {
+      "path": "source/skill/references/execution.md",
+      "sha256": "311c2781200b3f8f9c16a281f96b8acf593ffcf8123ba60279ea1b8ab150dce6",
+      "bytes": 4590
+    },
+    {
+      "path": "source/skill/references/planning.md",
+      "sha256": "a26012a139428159d1e38dd27f09fdeec5490de52693abd575095ece540c16b7",
+      "bytes": 3746
+    },
+    {
+      "path": "source/skill/references/review.md",
+      "sha256": "9ae1a6521b5148db5172bd4e31cd959629b61841bd8bee59a4ff9adb6b903da2",
+      "bytes": 2638
+    },
+    {
+      "path": "source/skill/references/routing.md",
+      "sha256": "0ddc2caf17d1ae80545048ae83ac394e94347a6160e7664a789cfa33ed9f6bf5",
+      "bytes": 4367
+    },
+    {
+      "path": "source/skill/references/sources.md",
+      "sha256": "526c1fab5a22d2f19337a8c33868aa1b709847b9c4643c53c248416afd6da1b6",
+      "bytes": 2805
+    },
+    {
+      "path": "source/skill/templates/checkpoint.md",
+      "sha256": "f656b6b4414fcb454ae2c6899a2b1df701bdcd45eb829aa5e7308fee90227d8c",
+      "bytes": 757
+    },
+    {
+      "path": "source/skill/templates/plan.json",
+      "sha256": "f955701fb423a735b16d10183490b0f8f32df59e9753f19846cae95763ddf105",
+      "bytes": 628
+    },
+    {
+      "path": "source/skill/templates/spec.md",
+      "sha256": "ed495a7d94265d165413e80d195712306fe2b53f19193530daa05399fd01df89",
+      "bytes": 700
+    },
+    {
+      "path": "source/skill/templates/task-brief.md",
+      "sha256": "214c25b97c6ebf623b39af528a13b22060d4b5164fda1cd412002a7aec9aa7c9",
+      "bytes": 2019
+    },
+    {
+      "path": "source/skill/templates/task-report.md",
+      "sha256": "d725778b88d93f3b770668f01a071310b32e57dd351a778beb1e73d74120b138",
+      "bytes": 1009
+    }
+  ]
+}

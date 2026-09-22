@@ -92,6 +92,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 				Name: resolved.Name, Command: command, Args: append([]string(nil), resolved.Task.Args...),
 				ModelFlag: resolved.ModelFlag, PromptTemplate: resolved.Task.PromptTemplate, OutputMode: resolved.Task.OutputMode,
 				PermissionArgs: cloneArgs(resolved.Task.PermissionArgs),
+				ResumeArgs:     append([]string(nil), resolved.Task.ResumeArgs...),
 				Env:            cloneStringMap(resolved.Env),
 			}
 		}

@@ -45,6 +45,7 @@ type TaskDefinition struct {
 	// acceptEdits may be omitted when the CLI's native default is acceptable;
 	// plan and bypassPermissions require an explicit mapping.
 	PermissionArgs map[string][]string `json:"permission_args,omitempty"`
+	ResumeArgs     []string            `json:"resume_args,omitempty"`
 	Env            map[string]string   `json:"env,omitempty"`
 	Builtin        bool                `json:"builtin,omitempty"`
 }
@@ -197,7 +198,7 @@ func genericTaskCommand(s LaunchSpec, prefix string, d TaskDefinition) (string, 
 	if mode == "" {
 		mode = "plain"
 	}
-	if mode != "plain" && mode != "jsonl" {
+	if mode != "plain" && mode != "jsonl" && mode != "codex" && mode != "claude" {
 		return "", fmt.Errorf("agent %q has unsupported task output mode %q", d.Name, mode)
 	}
 	if s.PermissionMode == "plan" || s.PermissionMode == "bypassPermissions" {
@@ -217,6 +218,11 @@ func genericTaskCommand(s LaunchSpec, prefix string, d TaskDefinition) (string, 
 	if args := d.PermissionArgs[s.PermissionMode]; len(args) > 0 {
 		for _, arg := range args {
 			parts = append(parts, shellQuote(arg))
+		}
+	}
+	if s.ResumeSession != "" && len(d.ResumeArgs) > 0 {
+		for _, arg := range d.ResumeArgs {
+			parts = append(parts, shellQuote(strings.ReplaceAll(arg, "{id}", s.ResumeSession)))
 		}
 	}
 	invocation := strings.Join(parts, " ")

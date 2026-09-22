@@ -134,6 +134,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/terminal", s.attachTerminal)
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.taskEvents)
 	mux.HandleFunc("GET /api/tasks/{id}/diff", s.taskDiff)
+	mux.HandleFunc("GET /api/tasks/{id}/wait", s.waitTask)
+	mux.HandleFunc("GET /api/tasks/{id}/report", s.taskReport)
+	mux.HandleFunc("POST /api/tasks/{id}/integrate", s.integrateTask)
 	mux.HandleFunc("GET /api/tasks/{id}/stream", s.taskStream)
 	mux.HandleFunc("GET /api/stream", s.boardStream)
 	mux.HandleFunc("GET /api/live", s.listLive)
@@ -221,6 +224,10 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- misc ----
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/delegation", s.getDelegation)
+	mux.HandleFunc("PUT /api/delegation", s.putDelegation)
+	mux.HandleFunc("POST /api/delegation/preset", s.installDelegationPreset)
+	mux.HandleFunc("POST /api/delegation/check", s.checkDelegationWorker)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test-notification", s.testNotification)

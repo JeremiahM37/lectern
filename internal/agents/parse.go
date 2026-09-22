@@ -33,8 +33,13 @@ func ParseStreamLines(agent, buf string) ([]Event, string) {
 // while JSONL accepts the common Lectern event envelope and maps other useful
 // message-shaped records to text.
 func ParseTaskStreamLines(agent, mode, buf string) ([]Event, string) {
-	if mode == "jsonl" {
+	switch mode {
+	case "jsonl":
 		return parseJSONL(buf, NormalizeGeneric)
+	case "codex":
+		return parseJSONL(buf, normalizeCodex)
+	case "claude":
+		return parseJSONL(buf, NormalizeClaude)
 	}
 	return parsePlaintext(buf)
 }

@@ -65,6 +65,16 @@ var definitions = map[string]Definition{
 			"lectern-spec-kit converge",
 		},
 	},
+	"delegate": {
+		ID:          "delegate",
+		Name:        "Delegated build",
+		Description: "The lead plans and reviews; a cheaper worker agent builds, as a Lectern task in its own worktree. Needs Delegated builds ON in Settings.",
+		Version:     "bcc7f9eaee051126c0ce821a55194d0b20425b22",
+		UpstreamURL: "https://github.com/ethanplusai/astra-flash-orchestrator",
+		Commands: []string{
+			"lectern-delegate",
+		},
+	},
 	"maestro": {
 		ID:          "maestro",
 		Name:        "Maestro",

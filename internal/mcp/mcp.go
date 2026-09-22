@@ -133,6 +133,16 @@ func (s *Server) handle(req request) (response, bool) {
 // ---- the HTTP client --------------------------------------------------------
 
 func (s *Server) api(method, path string, body any) (any, error) {
+	return s.apiWithClient(s.HTTP, method, path, body)
+}
+
+// apiLong is for the one call that legitimately takes as long as a build: the
+// wait. The default client's minute would turn every wait into an error.
+func (s *Server) apiLong(method, path string, body any, timeout time.Duration) (any, error) {
+	return s.apiWithClient(&http.Client{Timeout: timeout + 15*time.Second}, method, path, body)
+}
+
+func (s *Server) apiWithClient(client *http.Client, method, path string, body any) (any, error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -149,7 +159,7 @@ func (s *Server) api(method, path string, body any) (any, error) {
 	if s.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+s.Token)
 	}
-	resp, err := s.HTTP.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("lectern unreachable at %s: %w", s.API, err)
 	}

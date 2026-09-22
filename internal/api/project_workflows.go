@@ -252,8 +252,11 @@ func (s *Server) enableProjectWorkflow(r *http.Request, p *store.Project, ex exe
 }
 
 func workflowEntryName(id string) string {
-	if id == "spec-kit" {
+	switch id {
+	case "spec-kit":
 		return "lectern-spec-kit"
+	case "delegate":
+		return "lectern-delegate"
 	}
 	return "lectern-maestro"
 }

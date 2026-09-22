@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/JeremiahM37/lectern/internal/delegation"
 	"github.com/JeremiahM37/lectern/internal/mediapost"
 )
 
@@ -172,6 +174,7 @@ var tools = []tool{
 			"prompt":          str("what the agent should do"),
 			"dispatch":        flag("start an agent now (default true)"),
 			"model":           str("model override, e.g. sonnet"),
+			"agent":           str("agent name from the registry (default: the project's)"),
 			"permission_mode": str("default|acceptEdits|plan|bypassPermissions"),
 		}, "project", "title", "prompt"),
 		Run: func(s *Server, args map[string]any) (any, error) {
@@ -197,10 +200,14 @@ var tools = []tool{
 			if mode == "" {
 				mode = "acceptEdits"
 			}
-			created, err := s.api("POST", "/tasks", map[string]any{
+			body := map[string]any{
 				"project_id": match["id"], "title": argStr(args, "title"),
 				"prompt": argStr(args, "prompt"), "model": argStr(args, "model"),
-				"permission_mode": mode})
+				"permission_mode": mode}
+			if agent := argStr(args, "agent"); agent != "" {
+				body["agent"] = agent
+			}
+			created, err := s.api("POST", "/tasks", body)
 			if err != nil {
 				return nil, err
 			}
@@ -301,6 +308,141 @@ var tools = []tool{
 				map[string]any{"feedback": argStr(args, "feedback")})
 		},
 	},
+	{
+		Name: "delegate_build",
+		Description: "Delegated builds: hand an implementation brief to the configured worker agent " +
+			"(a cheaper model) as a task in its own worktree, and wait for it. You stay the lead: " +
+			"you write the brief, then review the diff and the report, then accept_build or " +
+			"request_changes. Refused when Delegated builds is off in Settings. `project` is a " +
+			"project NAME; `brief` is the complete task brief (contracts, file scope, acceptance " +
+			"criteria, verification commands). Returns the task id, the worker's completion " +
+			"report, branch and diff stats once the worker finishes, or done:false at the timeout " +
+			"(then call wait_build).",
+		Schema: obj(map[string]any{
+			"project":   str("project name (see list_projects)"),
+			"title":     str("short card title"),
+			"brief":     str("the full brief for the worker"),
+			"timeout_s": num("seconds to wait before returning done:false (default 1500, max 3300)"),
+		}, "project", "title", "brief"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			cfg, err := s.object("/delegation")
+			if err != nil {
+				return nil, err
+			}
+			settings, _ := cfg["settings"].(map[string]any)
+			if on, _ := settings["enabled"].(bool); !on {
+				return nil, fmt.Errorf("Delegated builds is OFF. Turn it on in Settings (the big card at the top) and choose a worker; or do the implementation yourself")
+			}
+			if ready, _ := cfg["worker_ready"].(bool); !ready {
+				return nil, fmt.Errorf("Delegated builds is on but the worker is not runnable: %v", cfg["worker_problem"])
+			}
+			name := argStr(args, "project")
+			projects, err := s.list("/projects")
+			if err != nil {
+				return nil, err
+			}
+			var match map[string]any
+			for _, p := range projects {
+				if pn, _ := p["name"].(string); pn == name {
+					match = p
+				}
+			}
+			if match == nil {
+				return nil, fmt.Errorf("no project named %q", name)
+			}
+			agent, _ := settings["worker_agent"].(string)
+			model, _ := settings["worker_model"].(string)
+			mode, _ := settings["permission_mode"].(string)
+			created, err := s.api("POST", "/tasks", map[string]any{
+				"project_id": match["id"], "title": argStr(args, "title"),
+				"prompt": delegation.WorkerPrompt(argStr(args, "brief")), "model": model,
+				"agent": agent, "permission_mode": mode, "labels": []string{"delegated-build"}})
+			if err != nil {
+				return nil, err
+			}
+			task, _ := created.(map[string]any)
+			id := int64(task["id"].(float64))
+			if _, err := s.api("POST", fmt.Sprintf("/tasks/%d/dispatch", id), map[string]any{}); err != nil {
+				return nil, err
+			}
+			return s.waitBuild(id, argInt(args, "timeout_s"))
+		},
+	},
+	{
+		Name: "wait_build",
+		Description: "Wait for a delegated build (or any task) to leave queued/running. One call, " +
+			"not polling: nothing is reported in between. Returns done:false at the timeout so you " +
+			"can call it again; a timeout alone is not evidence the worker is stuck.",
+		Schema: obj(map[string]any{
+			"task_id":   num("task id"),
+			"timeout_s": num("seconds to wait (default 1500, max 3300)"),
+		}, "task_id"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			return s.waitBuild(argInt(args, "task_id"), argInt(args, "timeout_s"))
+		},
+	},
+	{
+		Name: "accept_build",
+		Description: "Accept a reviewed delegated build: marks the task done and, when `workdir` is " +
+			"given, brings the worker's branch into that working tree (your own checkout) as " +
+			"uncommitted changes (mode apply, default) or as a merge commit (mode merge). A conflict " +
+			"is reported and nothing is half-applied. Review task_diff before calling this.",
+		Schema: obj(map[string]any{
+			"task_id": num("task id"),
+			"workdir": str("absolute path of the checkout to integrate into (omit to only mark done)"),
+			"mode":    str("apply (default, uncommitted) or merge (merge commit)"),
+		}, "task_id"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			id := argInt(args, "task_id")
+			out := map[string]any{"task_id": id}
+			if wd := argStr(args, "workdir"); wd != "" {
+				merged, err := s.api("POST", fmt.Sprintf("/tasks/%d/integrate", id), map[string]any{"workdir": wd, "mode": argStr(args, "mode")})
+				if err != nil {
+					return nil, err
+				}
+				out["integration"] = merged
+			}
+			done, err := s.api("POST", fmt.Sprintf("/tasks/%d/complete", id), nil)
+			if err != nil {
+				return nil, err
+			}
+			if t, ok := done.(map[string]any); ok {
+				out["status"] = t["status"]
+			}
+			return out, nil
+		},
+	},
+}
+
+// waitBuild blocks on the server-side wait and, once the task has stopped,
+// attaches the worker's report and diff stats so the lead reads one result.
+func (s *Server) waitBuild(id, timeout int64) (any, error) {
+	if timeout <= 0 {
+		timeout = 1500
+	}
+	if timeout > 3300 {
+		timeout = 3300
+	}
+	raw, err := s.apiLong("GET", fmt.Sprintf("/tasks/%d/wait?timeout=%d", id, timeout), nil, time.Duration(timeout)*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	res, _ := raw.(map[string]any)
+	task, _ := res["task"].(map[string]any)
+	out := map[string]any{"task_id": id, "done": res["done"], "status": task["status"]}
+	if done, _ := res["done"].(bool); !done {
+		out["next"] = "call wait_build again with the same task_id"
+		return out, nil
+	}
+	report, err := s.object(fmt.Sprintf("/tasks/%d/report", id))
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range []string{"report", "branch", "worktree_path", "diff_stat", "verify", "exit_code", "attempt"} {
+		out[k] = report[k]
+	}
+	out["next"] = "read task_diff, then accept_build (with workdir to merge) or request_changes for one correction cycle"
+	return out, nil
 }
 
 func toolSchemas() []map[string]any {

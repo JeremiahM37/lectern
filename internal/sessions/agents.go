@@ -77,6 +77,11 @@ type TaskSpec struct {
 	PromptTemplate string              `json:"prompt_template"`
 	OutputMode     string              `json:"output_mode,omitempty"`
 	PermissionArgs map[string][]string `json:"permission_args,omitempty"`
+	// ResumeArgs continue the CLI's own previous run for a follow-up, with
+	// {id} replaced by the session id captured from its output, e.g.
+	// ["resume", "{id}"] for a codex wrapper. Empty means a follow-up starts a
+	// fresh process in the same worktree.
+	ResumeArgs []string `json:"resume_args,omitempty"`
 }
 
 // Builtins are the agents lectern knows without being told.
@@ -221,8 +226,8 @@ func ValidateSpecs(raw string) error {
 			return fmt.Errorf("agent %q has no command", name)
 		}
 		if c.Task != nil {
-			if c.Task.OutputMode != "" && c.Task.OutputMode != "plain" && c.Task.OutputMode != "jsonl" {
-				return fmt.Errorf("agent %q: task.output_mode must be plain or jsonl", name)
+			if !TaskOutputModeKnown(c.Task.OutputMode) {
+				return fmt.Errorf("agent %q: task.output_mode must be plain, jsonl, codex or claude", name)
 			}
 			if err := validTaskPromptTemplate(c.Task.PromptTemplate); err != nil {
 				return fmt.Errorf("agent %q: %w", name, err)
@@ -536,4 +541,17 @@ func (s Spec) TrustProbe(dir string) string {
 	}
 	cmd := strings.ReplaceAll(currentTrustCommand(s.TrustCommand), "{dir}", shellq.Quote(dir))
 	return strings.ReplaceAll(cmd, "{dir_raw}", dir)
+}
+
+// TaskOutputModeKnown says whether a custom agent's task output can be
+// parsed. "codex" and "claude" are for a custom agent that wraps one of those
+// CLIs (a different provider, a pinned model, extra flags) and so emits its
+// exact stream; the timeline then reads as it does for the built-in agent
+// instead of as generic JSON lines.
+func TaskOutputModeKnown(mode string) bool {
+	switch mode {
+	case "", "plain", "jsonl", "codex", "claude":
+		return true
+	}
+	return false
 }
