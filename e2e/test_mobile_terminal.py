@@ -113,3 +113,97 @@ def test_a_snippet_is_one_tap_and_the_list_is_the_operators(page,real_terminal):
     f.locator('[data-terminal-key="snippets"]').click()
     expect(f.locator('#snippets-dialog .snippet-send')).to_have_count(0)
 
+
+
+@pytest.mark.parametrize('page',[PHONE],indirect=True)
+def test_phone_primary_keys_and_keyboard_toggle(page,real_terminal):
+    f=attach(page,real_terminal)
+    row=f.locator('#terminal-keybar').bounding_box()
+    for key in ('escape','tab','ctrl','left','up','down','right'):
+        box=f.locator(f'[data-terminal-key="{key}"]').bounding_box()
+        assert box['x']>=row['x'] and box['x']+box['width']<=row['x']+row['width'],(key,box,row)
+    f.locator('#terminal-keyboard').click()
+    expect(f.locator('.xterm-helper-textarea')).to_be_focused()
+    f.locator('#terminal-keyboard').click()
+    expect(f.locator('.xterm-helper-textarea')).not_to_be_focused()
+    f.locator('[data-terminal-key="up"]').click()
+    expect(f.locator('.xterm-helper-textarea')).not_to_be_focused()
+
+
+@pytest.mark.parametrize('page',[PHONE],indirect=True)
+def test_phone_composer_keeps_draft_and_inserts_without_executing(page,real_terminal):
+    t=real_terminal;f=attach(page,t)
+    f.locator('#terminal-tools-summary').click();f.locator('#compose').click()
+    draft=f.locator('#terminal-draft');draft.fill('echo COMPOSER-$((20+22))')
+    f.locator('#compose-dialog [data-close]').click()
+    f.locator('#terminal-tools-summary').click();f.locator('#compose').click()
+    expect(draft).to_have_value('echo COMPOSER-$((20+22))')
+    f.get_by_role('button',name='Insert',exact=True).click()
+    expect(f.locator('#compose-dialog')).to_have_count(0)
+    assert 'COMPOSER-42' not in capture(t)
+    f.locator('#agent-terminal').click();page.keyboard.press('Enter')
+    expect(f.locator('.xterm-screen')).to_contain_text('COMPOSER-42')
+    f.locator('#terminal-tools-summary').click();f.locator('#compose').click()
+    draft.fill('echo SENT-$((6*7))')
+    f.get_by_role('button',name='Send ↵',exact=True).click()
+    expect(f.locator('.xterm-screen')).to_contain_text('SENT-42')
+
+
+def test_android_native_edit_sequences_reach_real_shell_once(browser,real_terminal):
+    # Replays the exact native event shape recorded on Android 14 + Gboard.
+    # A physical/emulated Android run is still required for OS keyboard coverage.
+    ctx=browser.new_context(viewport=PHONE,user_agent='Mozilla/5.0 (Linux; Android 14) Chrome/120 Mobile Safari/537.36')
+    page=ctx.new_page()
+    try:
+        f=attach(page,real_terminal)
+        f.locator('#agent-terminal').click();page.keyboard.type('echo ')
+        ta=f.locator('.xterm-helper-textarea')
+        ta.evaluate(r'''el=>{
+          for(const word of ['h','he','hel','hell','hello']) {
+            el.dispatchEvent(new KeyboardEvent('keydown',{key:'Unidentified',keyCode:229,bubbles:true}));
+            el.value=word;el.setSelectionRange(0,0);
+            el.dispatchEvent(new InputEvent('input',{inputType:'insertText',data:word.at(-1),bubbles:true}));
+          }
+          el.setSelectionRange(0,0);
+          const event=new InputEvent('beforeinput',{inputType:'insertText',data:'jello ',bubbles:true,cancelable:true});
+          if(el.dispatchEvent(event))throw Error('Gboard replacement was not handled');
+        }''')
+        page.keyboard.press('Enter')
+        expect(f.locator('.xterm-screen')).to_contain_text('jello')
+        out=capture(real_terminal)
+        assert '\njello\n' in out and 'hellojello' not in out and 'jello jello' not in out,out
+        # A real composing IME changes the existing word then repeats the final
+        # input on compositionend. The repeated value must send no extra bytes.
+        page.keyboard.type('echo ')
+        ta.evaluate(r'''el=>{
+          el.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));
+          for(const text of ['caf','café']){
+            el.value=text;
+            el.dispatchEvent(new InputEvent('input',{inputType:'insertCompositionText',data:text,isComposing:true,bubbles:true}));
+          }
+          el.dispatchEvent(new CompositionEvent('compositionend',{data:'café',bubbles:true}));
+          el.dispatchEvent(new InputEvent('input',{inputType:'insertText',data:'café',bubbles:true}));
+        }''')
+        page.keyboard.press('Enter')
+        expect(f.locator('.xterm-screen')).to_contain_text('café')
+        assert '\ncafé\n' in capture(real_terminal)
+        # External cursor keys clear IME context; paste retains xterm's normal path.
+        page.keyboard.type('echo cursor');f.locator('[data-terminal-key="left"]').click()
+        page.keyboard.type('X');page.keyboard.press('Enter')
+        expect(f.locator('.xterm-screen')).to_contain_text('cursoXr')
+        page.set_viewport_size({'width':390,'height':500})
+        page.set_viewport_size(PHONE)
+        expect(f.locator('.xterm-helper-textarea')).not_to_be_focused()
+        f.locator('#terminal-keyboard').click()
+        expect(f.locator('.xterm-helper-textarea')).to_be_focused()
+    finally: ctx.close()
+
+
+@pytest.mark.parametrize('page',[PHONE],indirect=True)
+def test_standalone_phone_keyboard_control_sits_in_key_row(page,real_terminal):
+    from test_terminal_workspace import open_terminal
+    open_terminal(page,real_terminal)
+    row=page.locator('#terminal-keybar').bounding_box()
+    keyboard=page.locator('#terminal-keyboard').bounding_box()
+    assert row['y']<=keyboard['y'] and keyboard['y']+keyboard['height']<=row['y']+row['height']+1
+    assert row['x']+row['width']<=keyboard['x']

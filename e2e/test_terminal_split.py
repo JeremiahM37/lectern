@@ -49,6 +49,22 @@ def test_tools_menu_opens_over_the_terminal(page,real_terminal):
     assert not errors,errors
 
 
+def test_tools_menu_is_placed_during_activation(page, real_terminal):
+    t = real_terminal
+    page.goto(t['url'] + '/#sessions')
+    attach(page, 'Real terminal'); f = frame(page, t['id']); ready(f)
+    # Inspect the same activation turn: native <details> opens immediately,
+    # before its deferred toggle event / React effect can position the panel.
+    hit = f.locator('#terminal-tools-summary').evaluate('''summary => {
+        summary.click();
+        const panel = summary.parentElement.querySelector('.action-menu-panel');
+        const r = panel.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + 20);
+        return {inside: !!top && panel.contains(top), tag: top?.className};
+    }''')
+    assert hit['inside'], f'Tools must be usable on its first frame: {hit}'
+
+
 def test_split_view_runs_two_agents_side_by_side(page,real_terminal):
     t=real_terminal;errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     second=second_session(t)

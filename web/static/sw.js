@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 const worker = self;
-const CACHE = "lectern-react-c64de825cdef";
-worker.addEventListener('install', event => event.waitUntil((async () => { await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/Review-CBLNiV_U.js","/react/assets/Review-DR5PCwew.css","/react/assets/app-C90dTM5z.css","/react/assets/app-DfOAnoOX.js","/react/assets/terminal-CfIRu0lm.js","/react/assets/terminal-D1lajMty.css"]); await worker.skipWaiting(); })()));
+const CACHE = "lectern-react-b9af1f433fd5";
+worker.addEventListener('install', event => event.waitUntil((async () => { await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/Review-CBLNiV_U.js","/react/assets/Review-DR5PCwew.css","/react/assets/app-C90dTM5z.css","/react/assets/app-DfOAnoOX.js","/react/assets/terminal-BeQAln03.css","/react/assets/terminal-VgQ9-LP8.js"]); await worker.skipWaiting(); })()));
 worker.addEventListener('activate', event => event.waitUntil((async () => { await Promise.all((await caches.keys()).filter(key => key.startsWith('lectern-') && key !== CACHE).map(key => caches.delete(key))); await worker.clients.claim(); })()));
 worker.addEventListener('fetch', event => {
     const request = event.request, url = new URL(request.url);

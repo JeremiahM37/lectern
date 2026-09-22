@@ -32,7 +32,9 @@ export interface EngineOptions {
   history: () => void;
   matches: (index: number, count: number) => void;
 }
+import { installAndroidInput } from "./android-input";
 export class Engine {
+  private androidInput?: ReturnType<typeof installAndroidInput>;
   readonly term: Terminal;
   readonly fit = new FitAddon();
   readonly search = new SearchAddon();
@@ -79,6 +81,11 @@ export class Engine {
       }),
     );
     this.term.open(options.host);
+    if (/Android/i.test(navigator.userAgent) && this.term.textarea) {
+      this.androidInput = installAndroidInput(options.host, this.term.textarea,
+        text => this.input(text, true));
+      this.disposables.push({ dispose: () => this.androidInput?.dispose() });
+    }
     this.fit.fit();
     this.disposables.push(
       this.term.onData((data) => this.input(data)),
@@ -154,9 +161,14 @@ export class Engine {
   // Set by the page for the on-screen modifier keys: a phone keyboard has no
   // Ctrl, so an armed Ctrl has to rewrite whatever is typed next.
   inputFilter?: (text: string) => string;
-  input(text: string) {
+  input(text: string, fromIME = false) {
     if (!this.connected || this.paused) return;
-    if (this.inputFilter) text = this.inputFilter(text);
+    if (!fromIME) this.androidInput?.reset();
+    if (this.inputFilter) {
+      const filtered = this.inputFilter(text);
+      if (filtered !== text) this.androidInput?.reset();
+      text = filtered;
+    }
     ++this.historyRevision;
     this.leaveRetainedHistory();
     this.send("0" + text);

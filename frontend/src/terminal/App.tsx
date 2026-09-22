@@ -13,6 +13,7 @@ import { modified, type Mods } from "./keys";
 import {
   Appearance,
   Desktop,
+  Dialog,
   HistoryDialog,
   Snippets,
   WorkspaceFiles,
@@ -173,6 +174,7 @@ declare global {
 const keys = {
   escape: "\x1b",
   tab: "\t",
+  backtab: "\x1b[Z",
   left: "\x1b[D",
   up: "\x1b[A",
   down: "\x1b[B",
@@ -190,6 +192,7 @@ const keys = {
 const labels: Record<keyof typeof keys, [string, string]> = {
   escape: ["Esc", "Send Escape"],
   tab: ["Tab", "Send Tab"],
+  backtab: ["⇧Tab", "Send Shift-Tab"],
   left: ["←", "Send Left arrow"],
   up: ["↑", "Send Up arrow"],
   down: ["↓", "Send Down arrow"],
@@ -207,7 +210,7 @@ const labels: Record<keyof typeof keys, [string, string]> = {
 // Esc and Tab lead; the sticky modifiers sit right after them, where a thumb
 // looks for Ctrl.
 const keyOrder: (keyof typeof keys | "ctrl" | "alt")[] = [
-  "escape", "tab", "ctrl", "alt", "left", "up", "down", "right", "interrupt",
+  "escape", "tab", "ctrl", "left", "up", "down", "right", "interrupt", "backtab", "alt",
   "slash", "dash", "pipe", "tilde", "home", "end", "pageup", "pagedown",
 ];
 export function TerminalApp({
@@ -230,9 +233,11 @@ export function TerminalApp({
   const [notice, setNotice] = useState("");
   const [uploading, setUploading] = useState(0);
   const [dialog, setDialog] = useState<
-    "appearance" | "history" | "files" | "desktop" | "snippets" | null
+    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | null
   >(null);
   const [snippets, setSnippets] = useState(loadSnippets);
+  const [draft, setDraft] = useState("");
+  const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [historyPane, setHistoryPane] = useState("agent");
   const [previewPath, setPreviewPath] = useState<string>();
   const [search, setSearch] = useState(false);
@@ -453,6 +458,21 @@ export function TerminalApp({
     mobile.addEventListener("change", layout, { signal });
     short.addEventListener("change", chrome, { signal });
     const fit = () => engines.current.forEach((engine) => engine.scheduleFit());
+    const focus = () => setKeyboardFocused(document.activeElement?.classList.contains("xterm-helper-textarea") === true);
+    document.addEventListener("focusin", focus, { signal });
+    document.addEventListener("focusout", () => queueMicrotask(focus), { signal });
+    // Android's system Back dismisses the IME without blurring its textarea.
+    // Release that stale focus when the viewport grows back, so the keyboard
+    // button can reopen it in one tap. Rotation changes width and is ignored.
+    let height = innerHeight, width = innerWidth;
+    window.addEventListener("resize", () => {
+      if (/Android/i.test(navigator.userAgent) && innerWidth === width &&
+          innerHeight - height > 150 &&
+          document.activeElement?.classList.contains("xterm-helper-textarea"))
+        current()?.term.blur();
+      height = innerHeight;
+      width = innerWidth;
+    }, { signal });
     window.visualViewport?.addEventListener("resize", fit, { signal });
     window.addEventListener("focus", fit, { signal });
     window.addEventListener("pageshow", fit, { signal });
@@ -726,7 +746,16 @@ export function TerminalApp({
           ref={tools}
           onToggle={(event) => setToolsOpen(event.currentTarget.open)}
         >
-          <summary id="terminal-tools-summary">
+          <summary id="terminal-tools-summary" onClick={(event) => {
+            // Native details opens before its deferred toggle event. Position
+            // in this activation turn so the first visible frame isn't clipped.
+            event.preventDefault();
+            const details = tools.current;
+            if (!details) return;
+            details.open = !details.open;
+            placeTools();
+            setToolsOpen(details.open);
+          }}>
             {state?.paused ? "Paused · Tools" : "Tools"}
           </summary>
           <div
@@ -758,6 +787,12 @@ export function TerminalApp({
               Files
             </button>
             <span id="compact-workspace">{info?.workdir}</span>
+            <button id="compose" disabled={!state?.connected} onClick={() => setDialog("compose")}>
+              Write or paste text
+            </button>
+            <button id="mobile-snippets" disabled={!state?.connected} onClick={() => setDialog("snippets")}>
+              Saved replies
+            </button>
             <button
               id="search-conversations"
               disabled={!info}
@@ -945,8 +980,21 @@ export function TerminalApp({
           {fontHint} · {current()?.term.cols ?? 0} columns
         </div>
       )}
+      {mobile && state?.retained && !state.paused && (
+        <button id="return-live" onPointerDown={event => event.preventDefault()}
+          onClick={() => { current()?.leaveRetainedHistory(); current()?.term.scrollToBottom(); }}>
+          ↓ Live
+        </button>
+      )}
+      {mobile && <button id="terminal-keyboard" aria-label={keyboardFocused ? "Hide keyboard" : "Show keyboard"}
+        title={keyboardFocused ? "Hide keyboard" : "Show keyboard"} aria-pressed={keyboardFocused}
+        disabled={!state?.connected || state.paused} onPointerDown={event => event.preventDefault()}
+        onClick={() => {
+          const engine = current();
+          if (keyboardFocused) engine?.term.blur(); else engine?.term.focus();
+        }}>⌨</button>}
       <div id="terminal-keybar" role="group" aria-label="Terminal keys">
-        <button
+        <button style={{ order: 1 }}
           data-terminal-key="snippets"
           className="snippets"
           aria-label="Snippets"
@@ -992,7 +1040,8 @@ export function TerminalApp({
                 // input() applies and releases any armed modifier itself.
                 engine.input(text);
                 engine.term.scrollToBottom();
-                engine.term.focus();
+                // Keep a hidden keyboard hidden. preventDefault on pointerdown
+                // already preserves focus when the keyboard is being used.
               }}
             >
               {labels[key][0]}
@@ -1007,6 +1056,23 @@ export function TerminalApp({
           paste
         </span>
       </footer>
+      {dialog === "compose" && (
+        <Dialog id="compose-dialog" title="Write or paste text" onClose={close}>
+          <p>Edit a longer prompt here. Insert puts it in the terminal; Send also presses Enter.</p>
+          <textarea id="terminal-draft" aria-label="Text to insert in terminal" autoFocus
+            value={draft} onChange={event => setDraft(event.target.value)} rows={5} />
+          <div className="compose-actions">
+            <button disabled={!draft || !state?.connected} onClick={() => {
+              current()?.paste(draft); setDraft(""); close();
+            }}>Insert</button>
+            <button className="primary" disabled={!draft || !state?.connected} onClick={() => {
+              const engine = current();
+              if (!engine) return;
+              engine.paste(draft); engine.input("\r"); setDraft(""); close();
+            }}>Send ↵</button>
+          </div>
+        </Dialog>
+      )}
       {dialog === "appearance" && (
         <Appearance
           prefs={shown}

@@ -188,6 +188,13 @@ Attach to the running process with keyboard input, terminal search, retained
 scrollback, file browsing, upload/download, diff review, and a split shell.
 Open multiple terminal tabs without stopping the agents when you switch away.
 
+On a phone, the key row keeps Esc, Tab, Ctrl and the arrows within reach, with a
+keyboard toggle beside Tools. Use **Tools → Write or paste text** for a longer
+prompt; **Insert** pastes the text and **Send** also presses
+Enter. Pinch changes text size, long press selects output, and **Live** returns
+from retained scrollback. See the [mobile testing guide](docs/testing/mobile-terminal.md)
+for the Android emulator audit and its coverage limits.
+
 ![Native Lectern terminal dashboard](docs/screenshots/terminal-console-current.png)
 
 Use `lectern console` with an explicit `LECTERN_API` for the hosted

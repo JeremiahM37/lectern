@@ -905,3 +905,48 @@ body.mobile-terminal .terminal-host {
 [hidden] {
   display: none !important;
 }
+
+/* Keep the navigation keys in the first thumb reach. Extras scroll as one row. */
+body.mobile-terminal #terminal-keybar {
+  margin-right: calc(106px + env(safe-area-inset-right, 0px));
+  padding-left: 2px;
+}
+body.mobile-terminal #terminal-keybar button {
+  min-width: 36px;
+  padding-inline: 6px;
+}
+#terminal-keyboard {
+  position: fixed;
+  right: calc(66px + env(safe-area-inset-right, 0px));
+  bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  z-index: 20;
+  font-size: 20px;
+  background: var(--surface);
+}
+/* A standalone terminal has its Tools control at the top. Its path footer
+   must not sit between the key row and a keyboard pinned to the bottom. */
+body.mobile-terminal #root > footer { display: none; }
+body.mobile-terminal:not(.compact-chrome) #terminal-keybar { margin-right: 44px; }
+body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
+#return-live {
+  position: absolute;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  right: 12px;
+  z-index: 10;
+  min-height: 38px;
+  border-radius: 20px;
+  box-shadow: 0 3px 12px #0008;
+}
+#terminal-draft { width: 100%; resize: vertical; min-height: 90px; }
+.compose-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.compose-actions button { min-height: 40px; }
+.compose-actions .primary { background: #7860d2; border-color: #8f79df; color: white; }
+@media (max-width: 1023px) {
+  /* Safari must not zoom when a terminal dialog receives focus. */
+  input, textarea, select { font-size: 16px; }
+  #compose-dialog { width: calc(100% - 16px); padding: 14px; }
+  #compose-dialog p { font-size: 12px; margin-block: 10px; }
+}
