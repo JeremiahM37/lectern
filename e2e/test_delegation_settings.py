@@ -8,11 +8,19 @@ from test_ui import _tab
 
 @pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone390", "desktop1440"])
 def test_delegated_builds_banner_switch_and_preset(page, server):
-    # The server is shared between the phone and desktop runs: start from off.
-    page.request.put(f"{server}/api/delegation", data={"enabled": False})
-    for p in page.request.get(f"{server}/api/projects").json():
-        if p["name"] == "delegate fixture":
-            page.request.delete(f"{server}/api/projects/{p['id']}")
+    # The server is shared with every other suite: start from off, and put
+    # everything back at the end (a leftover project that defaults to Codex
+    # would become the task form's default for the tests that follow).
+    def reset():
+        page.request.put(f"{server}/api/delegation", data={"enabled": False})
+        for p in page.request.get(f"{server}/api/projects").json():
+            if p["name"] == "delegate fixture":
+                page.request.delete(f"{server}/api/projects/{p['id']}")
+        agents = page.request.get(f"{server}/api/agents").json()
+        custom = [a for a in agents if not a.get("builtin") and a["name"] != "flash-builder"]
+        page.request.put(f"{server}/api/agents", data=custom)
+
+    reset()
     page.goto(server)
     _tab(page, "targets")
     banner = page.locator("#delegation")
@@ -27,11 +35,9 @@ def test_delegated_builds_banner_switch_and_preset(page, server):
     assert float(size.rstrip("px")) >= 19
     switch = page.locator("#delegation-enabled")
     expect(switch).to_be_visible()
-    already = page.request.get(f"{server}/api/delegation").json()["worker_ready"]
-    if not already:
-        # Turning it on without a worker is refused, with a notice, and stays off.
-        switch.click()
-        expect(banner.locator(".delegation-state")).to_have_text("OFF")
+    # Turning it on without a worker is refused, with a notice, and stays off.
+    switch.click()
+    expect(banner.locator(".delegation-state")).to_have_text("OFF")
     # Set up the worker with the preset (no request leaves the box: mock mode).
     banner.get_by_role("button", name="Set up the worker").click()
     banner.get_by_placeholder("DeepSeek API key (sk-…)").fill("sk-not-a-real-key")
@@ -66,3 +72,6 @@ def test_delegated_builds_banner_switch_and_preset(page, server):
     banner.get_by_role("button", name="for Codex").click()
     expect(page.get_by_text("Lead skill installed for codex")).to_be_visible()
     assert puts and puts[0][0] == "PUT" and puts[0][2] == {"agent": "codex", "enabled": True}
+    reset()
+    assert page.request.get(f"{server}/api/delegation").json()["settings"]["enabled"] is False
+    assert not any(a["name"] == "flash-builder" for a in page.request.get(f"{server}/api/agents").json())

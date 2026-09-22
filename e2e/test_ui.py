@@ -27,7 +27,7 @@ def _new_task(page, title, prompt="fix it", perm=None):
 
 def test_board_renders(page, server):
     page.goto(server)
-    expect(page.locator(".brand h1")).to_contain_text("agent")
+    expect(page.locator(".brand h1")).to_contain_text("lectern")
     expect(page.locator(".col-head")).to_have_count(6)
     for name in ["backlog", "queued", "running", "review", "done", "failed"]:
         expect(page.locator(f".col.s-{name}")).to_be_visible()
