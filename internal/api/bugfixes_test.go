@@ -251,7 +251,7 @@ func TestRunningCardHasListShapedDiffStat(t *testing.T) {
 // working.
 func TestStaticAssetsRevalidate(t *testing.T) {
 	h := newHarness(t)
-	for _, path := range []string{"/", "/app.js", "/style.css", "/sw.js",
+	for _, path := range []string{"/", "/style.css", "/sw.js",
 		"/manifest.webmanifest", "/icon.svg"} {
 		resp, err := httpGet(h.URL + path)
 		if err != nil {

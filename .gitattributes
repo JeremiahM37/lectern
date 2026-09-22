@@ -1,0 +1,7 @@
+# The React bundle is built output committed for go:embed; xterm is vendored.
+# Neither is source, and GitHub's language bar should not count them as such.
+web/static/react/assets/** linguist-generated=true
+web/static/vendor/** linguist-vendored=true
+web/static/sw.js linguist-generated=true
+web/index.html linguist-generated=true
+web/static/terminal.html linguist-generated=true
