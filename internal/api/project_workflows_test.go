@@ -26,7 +26,7 @@ func TestProjectWorkflowAPIListsDisabledAndValidatesToggles(t *testing.T) {
 	var listed obj
 	h.decode("GET", "/api/projects/"+itoa(project.id())+"/workflows?agent=claude", nil, 200, &listed)
 	rows, ok := listed["workflows"].([]any)
-	if !ok || len(rows) != 2 {
+	if !ok || len(rows) != 3 { // spec-kit, maestro, delegate
 		t.Fatalf("workflows=%v", listed["workflows"])
 	}
 	for _, raw := range rows {
