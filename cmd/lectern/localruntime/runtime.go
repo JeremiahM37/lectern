@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/JeremiahM37/lectern/internal/app"
@@ -100,13 +99,17 @@ func Ensure(ctx context.Context, binary string, base *config.Config) (Endpoint, 
 	if ep, ok := healthyEndpoint(ctx, dir); ok {
 		return ep, nil
 	}
+	if err := runtimeSupported(); err != nil {
+		return Endpoint{}, err
+	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
+		var held bool
+		held, err = tryLock(lock)
+		if held {
 			break
 		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+		if err != nil {
 			return Endpoint{}, fmt.Errorf("local runtime lock: %w", err)
 		}
 		if ep, ok := healthyEndpoint(ctx, dir); ok {
@@ -156,7 +159,7 @@ func Ensure(ctx context.Context, binary string, base *config.Config) (Endpoint, 
 		"--local-token-fd", strconv.Itoa(4), "--local-lock-fd", strconv.Itoa(3))
 	cmd.Env = localEnv(tmuxDir)
 	cmd.ExtraFiles = []*os.File{lock, tokenReader}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	detach(cmd)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		_ = tokenReader.Close()
@@ -314,7 +317,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		lock := os.NewFile(uintptr(lockFD), "lectern-local-lock")
 		// Only the engine owns this descriptor. Do not let agent subprocesses
 		// inherit it and accidentally extend the singleton lifetime.
-		syscall.CloseOnExec(lockFD)
+		keepPrivate(lockFD)
 		defer lock.Close()
 	}
 	listenAddr := "127.0.0.1:0"
@@ -463,13 +466,12 @@ func localLockFree(dir string) (bool, error) {
 		return false, err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return false, nil
-		}
+	if held, err := tryLock(lock); err != nil {
 		return false, err
+	} else if !held {
+		return false, nil
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+	if err := unlock(lock); err != nil {
 		return false, err
 	}
 	return true, nil

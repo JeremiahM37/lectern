@@ -1,0 +1,138 @@
+# Release builds. `git tag vX.Y.Z && git push origin vX.Y.Z` is the whole
+# trigger; .github/workflows/release.yml runs this after the frontend is
+# built and staged into web/, so the binary embeds the console.
+#
+# One static binary (pure-Go SQLite, CGO off): a release is a file you
+# download and run. The same build ships as archives, deb/rpm packages, a
+# Homebrew formula and a Scoop manifest, all from one tag.
+version: 2
+
+project_name: lectern
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: lectern
+    main: ./cmd/lectern
+    binary: lectern
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/JeremiahM37/lectern/internal/version.Version={{.Version}}
+
+archives:
+  # No version in the archive name, so /releases/latest/download/<name> is a
+  # stable URL install.sh and the README can print.
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - deploy/lectern.service
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - id: packages
+    package_name: lectern
+    vendor: JeremiahM37
+    homepage: https://github.com/JeremiahM37/lectern
+    maintainer: JeremiahM37 <JeremiahM37@users.noreply.github.com>
+    description: Mission control for AI coding agents on your own infrastructure.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/local/bin
+    # tmux runs the sessions and git the worktrees; ssh reaches remote targets.
+    dependencies: [git, tmux]
+    recommends: [openssh-client]
+    contents:
+      - src: deploy/lectern.service
+        dst: /usr/share/doc/lectern/lectern.service
+        type: config
+
+homebrew_casks:
+  # A cask, not a formula: since Homebrew 4 a cask is the way to ship a
+  # prebuilt binary, and `brew install JeremiahM37/tap/lectern` resolves it.
+  - name: lectern
+    repository:
+      owner: JeremiahM37
+      name: homebrew-tap
+      branch: main
+      git:
+        url: git@github.com:JeremiahM37/homebrew-tap.git
+        private_key: "{{ .Env.TAP_DEPLOY_KEY }}"
+    directory: Casks
+    homepage: https://github.com/JeremiahM37/lectern
+    description: Mission control for AI coding agents on your own infrastructure
+    license: MIT
+    binaries: [lectern]
+    dependencies:
+      - formula: git
+      - formula: tmux
+    hooks:
+      post:
+        # An unsigned binary downloaded by brew carries the quarantine flag;
+        # without this Gatekeeper refuses to run it.
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/lectern"]
+          end
+    commit_author:
+      name: JeremiahM37
+      email: JeremiahM37@users.noreply.github.com
+    commit_msg_template: "lectern {{ .Tag }}"
+
+scoops:
+  - name: lectern
+    repository:
+      owner: JeremiahM37
+      name: scoop-bucket
+      branch: main
+      git:
+        url: git@github.com:JeremiahM37/scoop-bucket.git
+        private_key: "{{ .Env.SCOOP_DEPLOY_KEY }}"
+    directory: bucket
+    homepage: https://github.com/JeremiahM37/lectern
+    description: Mission control for AI coding agents on your own infrastructure
+    license: MIT
+    commit_author:
+      name: JeremiahM37
+      email: JeremiahM37@users.noreply.github.com
+    commit_msg_template: "lectern {{ .Tag }}"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  # One commit per decision, reasoning in the body: the log is the changelog.
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: false
+  prerelease: auto
+  header: |
+    ## Install
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh   # Linux, macOS
+    brew install JeremiahM37/tap/lectern                                                   # Homebrew
+    scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern   # Windows
+    docker run -p 9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:{{ .Version }}
+    go install github.com/JeremiahM37/lectern/cmd/lectern@{{ .Tag }}
+    ```
+
+    Windows PowerShell one-liner: `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 | iex`.
+    Archives, `.deb` and `.rpm` packages and `checksums.txt` are attached below.

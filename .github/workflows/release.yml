@@ -1,0 +1,115 @@
+name: Release
+
+# `git tag vX.Y.Z && git push origin vX.Y.Z` is the whole trigger. Everything
+# a user can install comes out of this one run: archives, deb/rpm, the
+# Homebrew cask, the Scoop manifest, the ghcr image, and a resolvable Go
+# module version.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the release and upload the artifacts
+  packages: write   # push the container image to ghcr
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # goreleaser builds the changelog from history
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # The console is embedded in the binary, so it is built and staged
+      # before Go compiles anything.
+      - name: Build and stage the console
+        run: |
+          npm ci --prefix frontend
+          npm test --prefix frontend
+          npm run build --prefix frontend
+          python3 frontend/scripts/stage.py
+      # A tag that does not build is worse than no tag: the unit suites run
+      # here too, so a release is never the first time this commit compiled.
+      - name: Tests
+        run: |
+          go vet ./...
+          go test ./cmd/... ./internal/config/ ./internal/version/ ./internal/agents/ ./internal/workflows/ ./internal/delegation/
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+        env:
+          TAP_DEPLOY_KEY: unused-for-snapshot
+          SCOOP_DEPLOY_KEY: unused-for-snapshot
+      # The archive must be a working install BEFORE anything is published:
+      # it starts, it answers, and the page it serves is the React console.
+      - name: The archive must be a working install
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/relcheck && tar xzf dist/lectern_linux_amd64.tar.gz -C /tmp/relcheck
+          cd /tmp/relcheck
+          ./lectern version
+          LECTERN_MOCK=1 LECTERN_PORT=19110 LECTERN_DB=$PWD/check.db HOME=$PWD ./lectern serve &
+          for _ in $(seq 1 30); do curl -sf localhost:19110/api/health >/dev/null && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:19110/)" = 200
+          curl -s localhost:19110/ | grep -q 'react/assets/app-'
+          curl -sf localhost:19110/sw.js >/dev/null
+          test "$(curl -s localhost:19110/api/delegation | grep -o '"enabled":false')" = '"enabled":false'
+          kill %1
+          # the deb installs where the docs say
+          dpkg-deb -c "$(ls "$GITHUB_WORKSPACE"/dist/lectern_*_linux_amd64.deb)" | grep -q './usr/local/bin/lectern'
+      - name: Publish
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+          SCOOP_DEPLOY_KEY: ${{ secrets.SCOOP_DEPLOY_KEY }}
+      # The installer must work against what was just published.
+      - name: install.sh installs this release
+        run: |
+          set -euo pipefail
+          LECTERN_VERSION="${GITHUB_REF_NAME}" LECTERN_INSTALL_DIR=/tmp/instcheck sh install.sh
+          /tmp/instcheck/lectern version | grep -q "${GITHUB_REF_NAME#v}"
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ github.ref_name }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

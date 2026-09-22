@@ -29,3 +29,6 @@ smoke-repo/
 
 # Local verification output and dependency caches
 node_modules/
+
+# goreleaser output
+dist/

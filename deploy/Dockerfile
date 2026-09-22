@@ -8,7 +8,9 @@ COPY web/ /src/web/
 RUN npm run build
 
 # Build the control plane, then ship a single static binary.
-FROM golang:1.25-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
+ARG TARGETOS TARGETARCH
+ARG VERSION=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -18,7 +20,10 @@ COPY --from=frontend /src/frontend/dist/index.html /src/web/index.html
 COPY --from=frontend /src/frontend/dist/terminal.html /src/web/static/terminal.html
 COPY --from=frontend /src/frontend/dist/sw.js /src/web/static/sw.js
 # CGO off: modernc.org/sqlite is pure Go, so the result runs on any base image
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/lectern ./cmd/lectern
+# Cross-compiled on the builder's own architecture, so a multi-arch image
+# does not run the Go toolchain under emulation. The tag is stamped in.
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w -X github.com/JeremiahM37/lectern/internal/version.Version=${VERSION#v}" -o /out/lectern ./cmd/lectern
 
 FROM debian:bookworm-slim
 # git and tmux drive the LOCAL target; openssh-client reaches remote ones
@@ -27,9 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ttyd powers one-click terminal attach (optional but recommended)
-RUN curl -fsSL -o /usr/local/bin/ttyd \
-    https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
-    && chmod +x /usr/local/bin/ttyd || true
+ARG TARGETARCH
+RUN case "$TARGETARCH" in amd64) t=x86_64 ;; arm64) t=aarch64 ;; *) t="" ;; esac; \
+    [ -z "$t" ] || { curl -fsSL -o /usr/local/bin/ttyd \
+    "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.$t" \
+    && chmod +x /usr/local/bin/ttyd; } || true
 
 COPY --from=build /out/lectern /usr/local/bin/lectern
 

@@ -88,6 +88,31 @@ Gemini ship with adapters, and the adapter seam is small enough to add your
 own. Point a project's `env` at any Anthropic-compatible endpoint (Ollama,
 LiteLLM, vLLM) to drive whatever model you run.
 
+## Install
+
+One command on any of these; every channel ships the same static binary from
+the same tagged release.
+
+| | |
+|---|---|
+| **Linux / macOS** | `curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh \| sh` |
+| **Homebrew** (macOS) | `brew install JeremiahM37/tap/lectern` |
+| **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 \| iex` |
+| **Scoop** (Windows) | `scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern` |
+| **Debian / Ubuntu**, **Fedora / RHEL** | the `.deb` / `.rpm` on the [latest release](https://github.com/JeremiahM37/lectern/releases/latest) |
+| **Docker** | `docker run -d -p 9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
+| **Go** | `go install github.com/JeremiahM37/lectern/cmd/lectern@latest` |
+
+The installers verify the archive against the release's `checksums.txt`.
+Running agents on a machine needs `git` and `tmux` there; on Windows the
+binary is the client (`mcp`, `post`, `sessions`, `tasks`…) for a Lectern
+server elsewhere, since the control plane itself needs tmux (use WSL to host
+it). Then:
+
+```bash
+lectern serve            # → http://localhost:9110
+```
+
 ## Quick start
 
 ```bash
