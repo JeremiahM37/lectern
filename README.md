@@ -368,6 +368,41 @@ curl -X POST .../api/projects -d '{
 > models often reply conversationally instead of acting. The transport works with
 > any model; results depend on the model.
 
+## Delegated builds (optional)
+
+**Off by default.** Turn it on and a lead session plans a substantial change
+and reviews the result, while a cheaper worker agent builds it as a Lectern
+task in its own worktree. Settings shows it as one banner above the tabs with
+the state in large type; the switch refuses to turn on until a runnable worker
+is chosen, and a preset installs Codex-on-DeepSeek-Flash as a worker by flags
+alone. The lead's side is three MCP tools (`delegate_build`, `wait_build`,
+`accept_build`) plus the existing `task_diff` and `request_changes`, and a
+bundled `lectern-delegate` skill adapted from
+[astra-flash-orchestrator](https://github.com/ethanplusai/astra-flash-orchestrator).
+Details: [docs/DELEGATED_BUILDS.md](docs/DELEGATED_BUILDS.md).
+
+Measured on four real tasks in three repositories, two runs each, graded by
+hidden acceptance tests and the repositories' own suites
+([full write-up](docs/benchmarks/delegated-builds-2026-09-22.md)):
+
+| Arm | Accept | Suite | Mean wall | Mean Astra input (cached) | Mean Astra output | Mean Flash in / out | Est. $ / task |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Lead alone (Astra) | 8/8 | 8/8 | 181 s | 338k (301k) | 4,568 | – | 0.91 |
+| astra-flash-orchestrator, process worker | 8/8 | 8/8 | 305 s | 698k (660k) | 3,115 | 2.2M / 32k | 1.26 |
+| **Lectern delegated build** | 8/8 | 8/8 | 379 s | 685k (628k) | 2,463 | 3.2M / 41k | 1.41 |
+
+Quality was equal across the board. Against the upstream workflow, Lectern's
+transport used 2% less lead input and 21% less lead output at a cost inside
+the run-to-run noise (one Lectern run went through a correction cycle the
+review caught). Against the lead working alone, *neither* delegating workflow
+was cheaper or faster at this task size (120–190-line diffs): delegation
+halves the lead's output tokens but roughly doubles its input, because the
+lead still reads the repository to write the brief and reads the diff to
+review it. The upstream project's headline savings were measured on builds
+of tens of thousands of lines; expect the arithmetic to change with size,
+and read the write-up before turning this on to save money rather than to
+save the lead's attention.
+
 ## Tests
 
 ```bash
