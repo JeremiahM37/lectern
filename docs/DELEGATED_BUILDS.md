@@ -51,6 +51,36 @@ in large type. It cannot be missed and it cannot be on by accident:
 API: `GET/PUT /api/delegation`, `POST /api/delegation/preset`,
 `POST /api/delegation/check`.
 
+## Orchestrate from the board
+
+The lead does not have to be a session you sit in. With the feature on, the
+Task board's quick bar has two modes, **⚡ Dispatch** (one agent takes the
+task as written) and **✦ Orchestrate**. In Orchestrate you type the outcome
+you want and press ⏎; the same switch, with the full set of controls, is the
+first row of the **New task** sheet.
+
+What happens: `POST /api/tasks` with `orchestrate: true` files a task labelled
+`orchestrated` whose prompt is the lead's guide wrapped around your
+description, with the lead's agent (Settings → *Lead agent*, else the
+project's default; Claude Code or Codex only) and model. When it is
+dispatched, the scheduler attaches the `lectern` MCP server to that attempt —
+this binary in `mcp` mode, aimed at this server — and, for Codex, the
+`tool_timeout_sec` a build wait needs (`MCP_TOOL_TIMEOUT` for Claude Code).
+The lead then runs the workflow above unattended: orient, design, brief,
+`delegate_build` by project name, review, up to *correction cycles* rounds of
+`request_changes`, then `accept_build` with its own worktree as `workdir`, so
+the worker's changes land there uncommitted. It runs the project's
+verification commands on the result and finishes with one report (plan,
+builds, changed files, verified commands, risks). The task then sits in
+**review** with the integrated diff, exactly like any other task; a one-line
+request the lead judges trivial is done directly instead of delegated.
+
+Orchestrate is refused, with the reason, while the feature is off or the
+worker is not runnable, when the lead would be a custom agent (there is no
+per-task MCP mapping for one), and for projects on remote targets (the
+lead's MCP server is the local binary). The quick bar says so before ⏎ rather
+than after. A project that declares its own `lectern` MCP server keeps it.
+
 ## What the lead calls
 
 On the `lectern` MCP server:

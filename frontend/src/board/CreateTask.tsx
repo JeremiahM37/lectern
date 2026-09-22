@@ -10,6 +10,11 @@ type AgentSpec = {
   task?: unknown;
   model_flag?: string;
 };
+type Orchestration = {
+  orchestrate_ready?: boolean;
+  worker_problem?: string;
+  settings?: { enabled?: boolean; lead_agent?: string; worker_agent?: string; worker_model?: string };
+};
 type Template = {
   name: string;
   title?: string;
@@ -42,7 +47,11 @@ export function CreateTask({
     [priority, setPriority] = useState(2),
     [agents, setAgents] = useState<AgentSpec[]>([]),
     [templates, setTemplates] = useState<Template[]>([]),
-    [cap, setCap] = useState("");
+    [cap, setCap] = useState(""),
+    // Orchestrate: the same switch the quick bar has, with the rest of the
+    // form choosing the lead instead of the worker.
+    [orchestrate, setOrchestrate] = useState(false),
+    [orchestration, setOrchestration] = useState<Orchestration>();
   const project = projects.find((p) => p.id === projectId);
   const eligible = useMemo(
     () => agents.filter((a) => a.builtin || a.task),
@@ -58,6 +67,10 @@ export function CreateTask({
         setTemplates(t);
       })
       .catch(() => {});
+    void api
+      .request<Orchestration>("/delegation")
+      .then((v) => setOrchestration(v && typeof v.orchestrate_ready === "boolean" ? v : { orchestrate_ready: false }))
+      .catch(() => setOrchestration({ orchestrate_ready: false }));
   }, []);
   useEffect(() => {
     if (!project) return;
@@ -94,6 +107,7 @@ export function CreateTask({
         agent,
         model,
         permission_mode: permission,
+        ...(orchestrate ? { orchestrate: true } : {}),
       });
       if (dispatch)
         await api.request(`/tasks/${t.id}/dispatch`, {
@@ -102,7 +116,7 @@ export function CreateTask({
         });
       onCreated();
       onClose();
-      onNotice(dispatch ? "Dispatched" : "Saved to backlog");
+      onNotice(dispatch ? (orchestrate ? "Orchestrating" : "Dispatched") : "Saved to backlog");
       if (chat) onChat(t);
     } catch (e) {
       onNotice(String(e), true);
@@ -150,6 +164,29 @@ export function CreateTask({
         </select>
       </label>
       <div id="f-cap-hint" className="subhint">{cap}<span className="cap-note">{cap.includes("restricted") ? " · denied with no prompt" : ""}</span></div>
+      <div id="f-orchestrate" className={"orchestrate-row" + (orchestrate ? " on" : "") + (orchestration?.orchestrate_ready ? "" : " unavailable")}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={orchestrate}
+          aria-label="Orchestrate"
+          disabled={!orchestration?.orchestrate_ready}
+          onClick={() => setOrchestrate(!orchestrate)}
+        />
+        <span onClick={() => orchestration?.orchestrate_ready && setOrchestrate(!orchestrate)}>
+          <b>✦ Orchestrate</b>
+          {orchestration?.orchestrate_ready ? (
+            <small>
+              A lead plans the prompt and writes the brief, <b>{orchestration.settings?.worker_agent}</b> builds it in its own worktree, the lead
+              reviews, fixes and merges it into this task. Agent and model below choose the <b>lead</b> (Claude Code or Codex).
+            </small>
+          ) : (
+            <small>
+              Needs Delegated builds ON with a worker that answers — <a href="#targets">open Settings</a>.
+            </small>
+          )}
+        </span>
+      </div>
       <label>
         Title
         <input
@@ -160,7 +197,7 @@ export function CreateTask({
         />
       </label>
       <label>
-        Prompt — what should the agent do?
+        {orchestrate ? "What should be built? The lead turns this into a plan and a brief." : "Prompt — what should the agent do?"}
         <textarea
           id="f-prompt"
           value={prompt}
@@ -198,6 +235,8 @@ export function CreateTask({
             className={agent === a.name ? "on" : ""}
             data-agent={a.name}
             key={a.name}
+            disabled={orchestrate && a.name !== "claude" && a.name !== "codex"}
+            title={orchestrate && a.name !== "claude" && a.name !== "codex" ? "Only Claude Code or Codex can lead an orchestrated task" : undefined}
             onClick={() => {
               setAgent(a.name);
               if (a.name !== "claude" && permission === "default")

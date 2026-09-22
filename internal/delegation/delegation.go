@@ -40,6 +40,13 @@ type Settings struct {
 	// CorrectionCycles is how many follow-ups the lead should send before it
 	// reassesses scope. The tools do not enforce it; the guide states it.
 	CorrectionCycles int `json:"correction_cycles"`
+	// LeadAgent runs an orchestrated task: the agent that plans, briefs the
+	// worker, reviews and integrates. Empty means the project's default agent.
+	// It must be a built-in agent (Claude Code or Codex), because the lead is
+	// launched with the Lectern MCP server and only those have a mapping for it.
+	LeadAgent string `json:"lead_agent"`
+	// LeadModel overrides the lead agent's default model when set.
+	LeadModel string `json:"lead_model"`
 }
 
 // Defaults are what an untouched install reports.
@@ -80,7 +87,21 @@ func (s Settings) Validate() error {
 	if s.Enabled && strings.TrimSpace(s.WorkerAgent) == "" {
 		return fmt.Errorf("choose a worker agent before enabling delegated builds")
 	}
+	if !LeadAgentAllowed(s.LeadAgent) {
+		return fmt.Errorf("lead_agent must be claude or codex (or empty for the project default)")
+	}
 	return nil
+}
+
+// LeadAgentAllowed says whether an agent can run an orchestrated task. The
+// lead is launched with the Lectern MCP server attached, and only the
+// built-in agents have a mapping for a per-task MCP configuration.
+func LeadAgentAllowed(agent string) bool {
+	switch strings.TrimSpace(agent) {
+	case "", "claude", "codex":
+		return true
+	}
+	return false
 }
 
 // Encode is the stored form.

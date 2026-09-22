@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
@@ -35,6 +36,11 @@ type taskIn struct {
 	// silently bypassing it.
 	PermissionMode *string `json:"permission_mode"`
 	BaseBranch     string  `json:"base_branch"`
+	// Orchestrate turns the task into an orchestrated build: the prompt is the
+	// operator's description, and the attempt runs a lead that plans it, hands
+	// the implementation to the delegated-build worker, reviews and integrates
+	// the result into its own worktree. Requires Delegated builds to be on.
+	Orchestrate bool `json:"orchestrate"`
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +100,20 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent := strOr(in.Agent, orDefault(project.DefaultAgent, "claude"))
+	labels := orEmpty(in.Labels)
+	prompt := in.Prompt
+	if in.Orchestrate {
+		lead, err := s.orchestrationLead(project, in.Agent, in.Model)
+		if err != nil {
+			httpError(w, 400, "%s", err)
+			return
+		}
+		agent, in.Model = lead.agent, lead.model
+		if !delegation.IsLead(labels) {
+			labels = append(labels, delegation.LeadLabel)
+		}
+		prompt = delegation.LeadPrompt(project.Name, firstNonEmptyStr(strings.TrimSpace(in.Prompt), in.Title), lead.cycles)
+	}
 	if _, ok := s.taskAgent(agent); !ok {
 		httpError(w, 422, "agent %q has no non-interactive task definition; configure agent.task or use it for sessions only", agent)
 		return
@@ -105,8 +125,8 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, err := s.DB.InsertTask(&store.Task{
-		ProjectID: in.ProjectID, Title: in.Title, Prompt: in.Prompt, Status: "backlog",
-		Priority: priority, LabelsJSON: store.J(orEmpty(in.Labels)), Agent: agent,
+		ProjectID: in.ProjectID, Title: in.Title, Prompt: prompt, Status: "backlog",
+		Priority: priority, LabelsJSON: store.J(labels), Agent: agent,
 		Model: in.Model, PermissionMode: mode, BaseBranch: in.BaseBranch,
 	})
 	if err != nil {

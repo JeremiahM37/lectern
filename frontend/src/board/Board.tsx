@@ -6,6 +6,19 @@ import { Routines } from "./Routines";
 import { TaskDetail } from "./TaskDetail";
 import "./board.css";
 
+type QuickMode = "dispatch" | "orchestrate";
+type OrchestrationView = {
+  orchestrate_ready: boolean;
+  settings?: { lead_agent?: string; worker_agent?: string };
+};
+function readQuickMode(): QuickMode {
+  try {
+    return localStorage.getItem("adk-quick-mode") === "orchestrate" ? "orchestrate" : "dispatch";
+  } catch {
+    return "dispatch";
+  }
+}
+
 const columns = [
   "backlog",
   "queued",
@@ -27,6 +40,7 @@ export interface BoardApi {
     agent?: string;
     model?: string;
     permission_mode?: string;
+    orchestrate?: boolean;
   }) => Promise<TaskView>;
   taskAction: (
     id: number,
@@ -77,7 +91,13 @@ export function Board({
     [mobilePinned, setMobilePinned] = useState(false),
     [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 700px)").matches),
     [showDone, setShowDone] = useState(false),
-    [sheet, setSheet] = useState<"new" | "routines" | number>();
+    [sheet, setSheet] = useState<"new" | "routines" | number>(),
+    // The quick bar has two modes. Dispatch is the classic one-agent task;
+    // Orchestrate hands the description to a lead that plans it, has the
+    // delegated-build worker build it, reviews and integrates. The choice is
+    // remembered per device, like the rest of the board's preferences.
+    [mode, setMode] = useState<QuickMode>(() => readQuickMode()),
+    [orchestration, setOrchestration] = useState<OrchestrationView>();
   async function refresh(signal?: AbortSignal) {
     const sequence = ++refreshSequence.current;
     const [next, ps] = await Promise.all([api.tasks(signal), api.projects(signal)]);
@@ -87,6 +107,21 @@ export function Board({
     setProjects(ps);
     setProject((old) => old || ps[0]?.id || 0);
   }
+  useEffect(() => {
+    try {
+      localStorage.setItem("adk-quick-mode", mode);
+    } catch {
+      /* private mode: the choice lasts the page */
+    }
+  }, [mode]);
+  useEffect(() => {
+    // Whether Orchestrate would actually run; the bar says so instead of
+    // letting ⏎ fail with an API error.
+    void api
+      .request<OrchestrationView>("/delegation")
+      .then((v) => setOrchestration(v && typeof v.orchestrate_ready === "boolean" ? v : { orchestrate_ready: false }))
+      .catch(() => setOrchestration({ orchestrate_ready: false }));
+  }, [refreshVersion]);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 700px)");
     const update = () => setNarrow(media.matches);
@@ -128,15 +163,21 @@ export function Board({
   async function dispatch() {
     const text = prompt.trim();
     if (!text || !project) return;
+    const orchestrate = mode === "orchestrate";
+    if (orchestrate && orchestration && !orchestration.orchestrate_ready) {
+      onNotice("Orchestrate needs Delegated builds ON — open Settings", true);
+      return;
+    }
     try {
       const task = await api.createTask({
         project_id: project,
         title: text.slice(0, 70),
         prompt: text,
+        ...(orchestrate ? { orchestrate: true } : {}),
       });
       await api.taskAction(task.id, "dispatch", {});
       setPrompt((current) => current === text ? "" : current);
-      onNotice(`Dispatched — ${text.slice(0, 40)}`);
+      onNotice(`${orchestrate ? "Orchestrating" : "Dispatched"} — ${text.slice(0, 40)}`);
       await refresh();
     } catch (e) {
       onNotice(String(e), true);
@@ -245,6 +286,7 @@ export function Board({
                   <span className="chip warn">▲ high</span>
                 )}
                 {task.agent && task.agent !== "claude" && <span className="chip tgt">{task.agent}</span>}
+                {task.labels?.includes("orchestrated") && <span className="chip orch">✦ orchestrated</span>}
                 {task.attempts.length > 1 && (
                   <span className="chip info">⑂ ×{task.attempts.length}</span>
                 )}
@@ -273,7 +315,29 @@ export function Board({
           </button>
         </div>
       </div>
-      <div id="quickbar">
+      <div id="quickbar" className={mode === "orchestrate" ? "orchestrate" : ""}>
+        <div id="qb-mode" role="radiogroup" aria-label="Quick bar mode">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={mode === "dispatch"}
+            className={mode === "dispatch" ? "on" : ""}
+            onClick={() => setMode("dispatch")}
+            title="One agent takes the task as written"
+          >
+            ⚡ Dispatch
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={mode === "orchestrate"}
+            className={mode === "orchestrate" ? "on" : ""}
+            onClick={() => setMode("orchestrate")}
+            title="A lead plans it, the worker builds it, the lead reviews and merges"
+          >
+            ✦ Orchestrate
+          </button>
+        </div>
         <select
           id="qb-project"
           value={project}
@@ -292,7 +356,11 @@ export function Board({
           onKeyDown={(e) => {
             if (e.key === "Enter") void dispatch();
           }}
-          placeholder="Describe it, hit ⏎ — instant dispatch"
+          placeholder={
+            mode === "orchestrate"
+              ? "Describe the outcome, hit ⏎ — Lectern plans, builds and reviews it"
+              : "Describe it, hit ⏎ — instant dispatch"
+          }
         />
         <input
           id="qb-filter"
@@ -301,6 +369,21 @@ export function Board({
           placeholder="Filter…"
         />
       </div>
+      {mode === "orchestrate" && orchestration && (
+        <div id="qb-orch-hint" className={orchestration.orchestrate_ready ? "" : "off"}>
+          {orchestration.orchestrate_ready ? (
+            <>
+              A lead ({orchestration.settings?.lead_agent || "the project's agent"}) writes the plan and brief, <b>{orchestration.settings?.worker_agent}</b> builds
+              it in its own worktree, the lead reviews, fixes and merges it into this task. Want to pick the lead, model or permissions?{" "}
+              <button type="button" className="linkish" onClick={() => setSheet("new")}>Open the full form</button>.
+            </>
+          ) : (
+            <>
+              Orchestrate needs <b>Delegated builds ON</b> with a worker that answers — <a href="#targets">open Settings</a>. Dispatch still works.
+            </>
+          )}
+        </div>
+      )}
       <div className="colstrip">
         {columns.map((c) => (
           <button

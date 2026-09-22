@@ -22,7 +22,7 @@ export function createDeckApi(options: ClientOptions = {}) {
       if (!options.archived && !options.all) query.set('include_setup_failures', 'true');
       return request<SessionView[]>(`/sessions${query.size ? `?${query}` : ''}`, { signal: options.signal });
     },
-    createTask: (body: {project_id:number;title:string;prompt:string;priority?:number;agent?:string;model?:string;permission_mode?:string;base_branch?:string}) => request<TaskView>('/tasks', {method:'POST', body}),
+    createTask: (body: {project_id:number;title:string;prompt:string;priority?:number;agent?:string;model?:string;permission_mode?:string;base_branch?:string;orchestrate?:boolean}) => request<TaskView>('/tasks', {method:'POST', body}),
     patchTask: (id:number, body: Record<string, JsonValue>) => request<TaskView>(`/tasks/${id}`, {method:'PATCH', body}),
     deleteTask: (id:number) => request<null>(`/tasks/${id}`, {method:'DELETE'}),
     taskAction: (id:number, action:'dispatch'|'followup'|'complete'|'cancel'|'commit'|'cleanup'|'takeover', body:Record<string,JsonValue>={}) => request<Record<string,JsonValue>>(`/tasks/${id}/${action}`, {method:'POST', body}),

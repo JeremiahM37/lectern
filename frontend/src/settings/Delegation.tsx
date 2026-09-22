@@ -12,6 +12,8 @@ type Settings = {
   worker_model: string;
   permission_mode: string;
   correction_cycles: number;
+  lead_agent?: string;
+  lead_model?: string;
 };
 type View = { settings: Settings; worker_ready: boolean; worker_problem: string; worker_command?: string };
 type Agent = { name: string; builtin?: boolean; task?: unknown };
@@ -118,7 +120,7 @@ export function Delegation({
           </h3>
           <p>
             {on
-              ? `Lead sessions plan and review; ${s.worker_agent}${s.worker_model ? ` (${s.worker_model})` : ""} builds each substantial change as a task in its own worktree.`
+              ? `Lead sessions plan and review; ${s.worker_agent}${s.worker_model ? ` (${s.worker_model})` : ""} builds each substantial change as a task in its own worktree. The board's Orchestrate bar runs the whole loop from one description.`
               : "Off: every session does its own implementation. Turn on to have a cheaper worker agent build what a lead session plans and reviews."}
             {on && !view.worker_ready && <strong> The worker is not runnable: {view.worker_problem}.</strong>}
           </p>
@@ -164,6 +166,18 @@ export function Delegation({
               <option value="bypassPermissions">bypassPermissions</option>
             </select>
           </label>
+          <label>
+            Lead agent (Orchestrate)
+            <select value={s.lead_agent || ""} disabled={busy} onChange={(e) => void save({ lead_agent: e.target.value })}>
+              <option value="">the project's default agent</option>
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          </label>
+          <label>
+            Lead model
+            <input value={s.lead_model || ""} disabled={busy} placeholder="agent default" onBlur={(e) => e.target.value !== (s.lead_model || "") && void save({ lead_model: e.target.value })} onChange={(e) => setView({ ...view, settings: { ...s, lead_model: e.target.value } })} />
+          </label>
           <div className="delegation-preset">
             <p>
               <strong>Preset: DeepSeek Flash.</strong> Installs a <code>flash-builder</code> agent that runs Codex against DeepSeek's API with the
@@ -200,7 +214,8 @@ export function Delegation({
             </button>
           </div>
           <p className="delegation-note">
-            Codex needs <code>tool_timeout_sec = 3600</code> on its <code>lectern</code> MCP server entry so <code>wait_build</code> can block for a whole build.
+            An orchestrated task launches its lead with the <code>lectern</code> MCP server attached automatically. A lead <em>session</em> you open yourself still
+            needs the server in its own config, and Codex needs <code>tool_timeout_sec = 3600</code> on that entry so <code>wait_build</code> can block for a whole build.
           </p>
         </div>
       )}

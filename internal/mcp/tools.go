@@ -167,12 +167,15 @@ var tools = []tool{
 	{
 		Name: "create_task",
 		Description: "File a coding task. `project` is a project NAME (see list_projects). " +
-			"dispatch=true starts an agent immediately; false parks it in the backlog.",
+			"dispatch=true starts an agent immediately; false parks it in the backlog. " +
+			"orchestrate=true makes it an orchestrated build: a lead plans the prompt, hands the " +
+			"implementation to the delegated-build worker, reviews and integrates it (needs Delegated builds ON).",
 		Schema: obj(map[string]any{
 			"project":         str("project name"),
 			"title":           str("short card title"),
 			"prompt":          str("what the agent should do"),
 			"dispatch":        flag("start an agent now (default true)"),
+			"orchestrate":     flag("run it as an orchestrated build: lead plans, worker builds, lead reviews (default false)"),
 			"model":           str("model override, e.g. sonnet"),
 			"agent":           str("agent name from the registry (default: the project's)"),
 			"permission_mode": str("default|acceptEdits|plan|bypassPermissions"),
@@ -204,6 +207,9 @@ var tools = []tool{
 				"project_id": match["id"], "title": argStr(args, "title"),
 				"prompt": argStr(args, "prompt"), "model": argStr(args, "model"),
 				"permission_mode": mode}
+			if on, _ := args["orchestrate"].(bool); on {
+				body["orchestrate"] = true
+			}
 			if agent := argStr(args, "agent"); agent != "" {
 				body["agent"] = agent
 			}
@@ -359,6 +365,12 @@ var tools = []tool{
 					match = p
 				}
 			}
+			if match == nil && name == "" {
+				// A lead running as a task (an orchestrated build) sits in a
+				// task worktree, not at the project's registered path; the
+				// worktree still says which project it belongs to.
+				match = s.projectOfWorktree(projects, workdir)
+			}
 			if match == nil {
 				if name != "" {
 					return nil, fmt.Errorf("no project named %q — have: %s", name, strings.Join(names, ", "))
@@ -498,4 +510,33 @@ func (s *Server) call(name string, args map[string]any) (any, error) {
 		}
 	}
 	return nil, fmt.Errorf("unknown tool %q", name)
+}
+
+// projectOfWorktree finds the project whose task owns the worktree at
+// workdir, for a lead that is itself a task. Only the latest attempt of each
+// task is consulted; an older attempt's tree is gone or about to be.
+func (s *Server) projectOfWorktree(projects []map[string]any, workdir string) map[string]any {
+	if workdir == "" {
+		return nil
+	}
+	tasks, err := s.list("/tasks")
+	if err != nil {
+		return nil
+	}
+	for _, t := range tasks {
+		att, _ := t["attempt"].(map[string]any)
+		if att == nil {
+			continue
+		}
+		if wt, _ := att["worktree_path"].(string); strings.TrimRight(wt, "/") != workdir {
+			continue
+		}
+		pid, _ := t["project_id"].(float64)
+		for _, p := range projects {
+			if id, _ := p["id"].(float64); id == pid {
+				return p
+			}
+		}
+	}
+	return nil
 }

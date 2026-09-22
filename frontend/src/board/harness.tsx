@@ -101,7 +101,8 @@ const api: BoardApi = {
   task: async (id) => tasks.find((t) => t.id === id)!,
   projects: async () => [project],
   createTask: async (body) => {
-    const t = { ...task(99, "backlog", body.title), ...body };
+    // The server labels an orchestrated task; the harness mirrors that contract.
+    const t = { ...task(99, "backlog", body.title), ...body, labels: body.orchestrate ? ["orchestrated"] : [] };
     tasks = [t, ...tasks];
     calls.push(["create", body]);
     return t;
@@ -114,7 +115,9 @@ const api: BoardApi = {
   },
   request: (async (path, opts) => {
     calls.push([path, opts]);
-    if (path === "/agents") return [{ name: "claude", builtin: true }];
+    if (path === "/agents") return [{ name: "claude", builtin: true }, { name: "codex", builtin: true }, { name: "flash-builder", task: {} }];
+    if (path === "/delegation")
+      return { orchestrate_ready: true, worker_ready: true, settings: { enabled: true, lead_agent: "codex", worker_agent: "flash-builder" } };
     if (path === "/templates")
       return [{ name: "Health", title: "Health check", prompt: "Add health" }];
     if (path.includes("capability"))

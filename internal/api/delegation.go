@@ -9,6 +9,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -48,7 +49,42 @@ func (s *Server) delegationView() map[string]any {
 	if out["worker_command"] == "" {
 		out["worker_command"] = spec.Command
 	}
+	// The board's Orchestrate entry is only offered when a description typed
+	// there would actually run: the feature is on and the worker answers.
+	out["orchestrate_ready"] = cfg.Enabled
 	return out
+}
+
+// orchestrationLead is who runs an orchestrated task: the request's agent
+// and model when given, else the configured lead, else the project's
+// default. It is refused when nothing could run behind it.
+type orchestrationLead struct {
+	agent, model string
+	cycles       int
+}
+
+func (s *Server) orchestrationLead(project *store.Project, agent *string, model string) (orchestrationLead, error) {
+	view := s.delegationView()
+	cfg := s.delegationSettings()
+	if !cfg.Enabled {
+		return orchestrationLead{}, fmt.Errorf("orchestration needs Delegated builds ON: turn it on in Settings (the big card at the top) and choose a worker")
+	}
+	if ready, _ := view["worker_ready"].(bool); !ready {
+		return orchestrationLead{}, fmt.Errorf("delegated builds is on but the worker is not runnable: %v", view["worker_problem"])
+	}
+	lead := orchestrationLead{agent: strOr(agent, orDefault(cfg.LeadAgent, orDefault(project.DefaultAgent, "claude"))),
+		model: orDefault(model, cfg.LeadModel), cycles: cfg.CorrectionCycles}
+	if !delegation.LeadAgentAllowed(lead.agent) {
+		return orchestrationLead{}, fmt.Errorf("the lead must be Claude Code or Codex (got %q): it is launched with the Lectern MCP server, which only those can attach", lead.agent)
+	}
+	target, err := s.DB.Target(project.TargetID)
+	if err != nil {
+		return orchestrationLead{}, err
+	}
+	if !scheduler.HostLocalKinds[target.Kind] {
+		return orchestrationLead{}, fmt.Errorf("orchestration runs on local targets only (project %q is on %s): the lead's MCP server is this Lectern binary", project.Name, target.Kind)
+	}
+	return lead, nil
 }
 
 func (s *Server) getDelegation(w http.ResponseWriter, r *http.Request) {
@@ -64,10 +100,18 @@ func (s *Server) putDelegation(w http.ResponseWriter, r *http.Request) {
 		WorkerModel      *string `json:"worker_model"`
 		PermissionMode   *string `json:"permission_mode"`
 		CorrectionCycles *int    `json:"correction_cycles"`
+		LeadAgent        *string `json:"lead_agent"`
+		LeadModel        *string `json:"lead_model"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		httpError(w, 422, "%s", err.Error())
 		return
+	}
+	if in.LeadAgent != nil {
+		cfg.LeadAgent = strings.TrimSpace(*in.LeadAgent)
+	}
+	if in.LeadModel != nil {
+		cfg.LeadModel = strings.TrimSpace(*in.LeadModel)
 	}
 	if in.Enabled != nil {
 		cfg.Enabled = *in.Enabled

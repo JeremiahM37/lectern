@@ -406,6 +406,19 @@ bundled `lectern-delegate` skill adapted from
 [astra-flash-orchestrator](https://github.com/ethanplusai/astra-flash-orchestrator).
 Details: [docs/DELEGATED_BUILDS.md](docs/DELEGATED_BUILDS.md).
 
+**Orchestrate from the board.** Once it is on, the quick bar at the top of the
+Task board has two modes, **⚡ Dispatch** and **✦ Orchestrate**. In Orchestrate,
+type what you want and press ⏎: Lectern files a task whose attempt is the
+*lead*. It reads the repository, writes the design and the brief, calls
+`delegate_build`, reviews the worker's diff and report, sends at most the
+configured number of correction cycles, then integrates the result into its
+own worktree and runs the project's checks, so the finished work is that
+task's diff, reviewed on the board like any other. The lead is launched with
+the `lectern` MCP server attached automatically; nothing has to be registered
+for it. The same switch is at the top of the **New task** sheet when you want
+to pick the lead, its model, permissions or priority, and `create_task` on the
+MCP server takes `orchestrate: true`.
+
 Measured on four real tasks in three repositories, two runs each, graded by
 hidden acceptance tests and the repositories' own suites
 ([full write-up](docs/benchmarks/delegated-builds-2026-09-22.md)):

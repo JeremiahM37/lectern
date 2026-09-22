@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/ctxbundle"
+	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/hooks"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -175,6 +177,18 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	// local one
 	mcp := store.UnjObj(c.Project.MCPJSON)
 	agent := launchConfig.Agent
+	if delegation.IsLead(store.UnjStrings(c.Task.LabelsJSON)) {
+		// An orchestrated attempt runs the lead, which needs delegate_build and
+		// friends. They come from this binary in MCP mode, aimed at this server,
+		// so the operator never has to register anything for it to work.
+		mcp = withLeadMCP(mcp, agent, s.leadExecutable(), s.Cfg.BaseURL, s.Cfg.AuthToken)
+		for k, v := range delegation.LeadEnv(agent) {
+			if kw.Env == nil {
+				kw.Env = map[string]string{}
+			}
+			kw.Env[k] = v
+		}
+	}
 	if !launchConfig.Definition.Builtin && (len(mcp) > 0 || c.Project.StrictMCP != 0) {
 		return kw, fmt.Errorf("agent %q has no MCP capability mapping; configure MCP flags in its task definition or use a built-in agent", agent)
 	}
@@ -293,4 +307,44 @@ func randomToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// withLeadMCP adds the Lectern server to a project's MCP declaration for an
+// orchestrated attempt. A project that declares its own "lectern" server keeps
+// it: the operator may have pointed it somewhere deliberately.
+func withLeadMCP(mcp map[string]any, agent, executable, baseURL, token string) map[string]any {
+	out := map[string]any{}
+	servers := out
+	if inner, ok := mcp["mcpServers"].(map[string]any); ok {
+		servers = map[string]any{}
+		for k, v := range inner {
+			servers[k] = v
+		}
+		out["mcpServers"] = servers
+	} else {
+		for k, v := range mcp {
+			out[k] = v
+		}
+	}
+	if _, declared := servers[delegation.MCPServerName]; declared {
+		return out
+	}
+	for k, v := range delegation.LeadMCP(agent, executable, baseURL, token) {
+		servers[k] = v
+	}
+	return out
+}
+
+// leadExecutable is the binary the lead's MCP server runs: this process,
+// which is the server the lead talks to. The path is resolved once at startup
+// by the caller through LeadBinary when the executable cannot be trusted
+// (tests), and falls back to os.Executable.
+func (s *Scheduler) leadExecutable() string {
+	if s.LeadBinary != "" {
+		return s.LeadBinary
+	}
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "lectern"
 }

@@ -76,7 +76,11 @@ type Scheduler struct {
 	AgentDefinitions func() map[string]agents.TaskDefinition
 	Creds            *creds.Provisioner
 	Cfg              *config.Config
-	Log              *slog.Logger
+	// LeadBinary is the executable an orchestrated attempt's Lectern MCP server
+	// runs; empty means this process. Tests set it to keep the launch line
+	// independent of the test binary's path.
+	LeadBinary string
+	Log        *slog.Logger
 
 	// Sessions is the interactive-session manager. The scheduler drives its poll
 	// so there is ONE loop watching targets, not two competing for the same
