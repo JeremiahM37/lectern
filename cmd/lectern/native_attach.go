@@ -312,9 +312,66 @@ func (p *nativeWrapPlan) attach(tmuxPath string) error {
 		return cmd.Run()
 	}
 	cmd := exec.Command(tmuxPath, p.clientArgv()[1:]...)
-	cmd.Env = withoutEnv(os.Environ(), "TMUX")
+	cmd.Env = portableTerm(withoutEnv(os.Environ(), "TMUX"), terminfoDirs())
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+// portableTerm keeps the caller's TERM when this machine can describe it and
+// otherwise falls back to xterm-256color, the same type the SSH hop already
+// uses. tmux refuses to attach a client whose terminal it has no terminfo
+// for ("missing or unsuitable terminal"), which is what a kitty or WezTerm
+// user meets on a machine without that terminal's entry installed. The
+// fallback only changes how the private tmux draws, not what the agent sees.
+func portableTerm(env []string, dirs []string) []string {
+	name := ""
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "TERM=") {
+			name = strings.TrimPrefix(entry, "TERM=")
+		}
+	}
+	if name != "" && hasTerminfo(name, dirs) {
+		return env
+	}
+	return append(withoutEnv(env, "TERM"), "TERM=xterm-256color")
+}
+
+// terminfoDirs lists where ncurses looks for a compiled entry, in its order.
+func terminfoDirs() []string {
+	var dirs []string
+	if dir := os.Getenv("TERMINFO"); dir != "" {
+		dirs = append(dirs, dir)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".terminfo"))
+	}
+	if list, ok := os.LookupEnv("TERMINFO_DIRS"); ok {
+		for _, dir := range strings.Split(list, ":") {
+			if dir == "" {
+				dir = "/usr/share/terminfo"
+			}
+			dirs = append(dirs, dir)
+		}
+	}
+	return append(dirs, "/etc/terminfo", "/lib/terminfo", "/usr/share/terminfo", "/usr/lib/terminfo")
+}
+
+// hasTerminfo reports whether any directory holds an entry for name, under
+// either the letter directory Linux uses or the hex one macOS uses.
+func hasTerminfo(name string, dirs []string) bool {
+	if name == "" || strings.ContainsAny(name, "/\\") {
+		return false
+	}
+	first := name[:1]
+	hex := strconv.FormatInt(int64(name[0]), 16)
+	for _, dir := range dirs {
+		for _, sub := range []string{first, hex} {
+			if info, err := os.Stat(filepath.Join(dir, sub, name)); err == nil && !info.IsDir() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func withoutEnv(env []string, key string) []string {

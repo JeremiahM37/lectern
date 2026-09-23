@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -315,5 +316,53 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 	}
 	if strings.Contains(plan.conf, "Lectern#[default] Ctrl+] then m") {
 		t.Fatalf("status line still leads with the long prefix:\n%s", plan.conf)
+	}
+}
+
+// A terminal type this machine has no terminfo for makes tmux refuse the
+// client outright ("missing or unsuitable terminal"). The private client falls
+// back to the portable type; a type that is installed is left alone.
+func TestPortableTermFallsBackOnlyWhenTheEntryIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	for _, entry := range []string{"x/xterm-256color", "78/xterm-kitty"} {
+		path := filepath.Join(dir, entry)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("entry"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	termOf := func(env []string) string {
+		value := ""
+		for _, entry := range env {
+			if strings.HasPrefix(entry, "TERM=") {
+				if value != "" {
+					t.Fatalf("TERM appears twice: %v", env)
+				}
+				value = strings.TrimPrefix(entry, "TERM=")
+			}
+		}
+		return value
+	}
+	for name, tc := range map[string]struct {
+		env  []string
+		want string
+	}{
+		"installed under its letter":      {[]string{"A=1", "TERM=xterm-256color"}, "xterm-256color"},
+		"installed under its hex (macOS)": {[]string{"TERM=xterm-kitty"}, "xterm-kitty"},
+		"missing entry":                   {[]string{"TERM=wezterm", "B=2"}, "xterm-256color"},
+		"unset":                           {[]string{"B=2"}, "xterm-256color"},
+		"path-like name":                  {[]string{"TERM=../x/xterm-256color"}, "xterm-256color"},
+	} {
+		got := portableTerm(tc.env, []string{filepath.Join(dir, "absent"), dir})
+		if termOf(got) != tc.want {
+			t.Errorf("%s: TERM=%q, want %q (%v)", name, termOf(got), tc.want, got)
+		}
+		for _, entry := range tc.env {
+			if !strings.HasPrefix(entry, "TERM=") && !slices.Contains(got, entry) {
+				t.Errorf("%s: lost %q", name, entry)
+			}
+		}
 	}
 }
