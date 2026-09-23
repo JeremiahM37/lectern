@@ -17,6 +17,7 @@ import { NativeSearch } from "./sessions/SavedConversations";
 import { LaunchProfiles } from "./settings/LaunchProfiles";
 import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
+import { SessionReview } from "./review/SessionReview";
 import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
 import { Palette, type Command } from "./shell/Palette";
 import { Deck, Approvals } from "./shell/LiveViews";
@@ -124,6 +125,7 @@ export default function App() {
       name: string;
     }>(),
     [review, setReview] = useState<SessionView>(),
+    [mergeReview, setMergeReview] = useState<SessionView>(),
     [switchSession, setSwitchSession] = useState<SessionView>(),
     [pendingSwitches, setPendingSwitches] = useState(savedSwitches);
   const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
@@ -708,6 +710,7 @@ export default function App() {
             onMedia={(id) => navigate("#media/" + id)}
             onOpenTerminal={openTerminal}
             onReview={setReview}
+            onMergeReview={setMergeReview}
             onOpenTask={openTask}
             onSwitch={setSwitchSession}
             onNotice={notice}
@@ -930,6 +933,15 @@ export default function App() {
           id={String(review.id)}
           name={review.name}
           onClose={() => setReview(undefined)}
+        />
+      )}{" "}
+      {mergeReview && (
+        <SessionReview
+          api={api}
+          sessionId={mergeReview.id}
+          name={mergeReview.name}
+          onClose={() => setMergeReview(undefined)}
+          onNotice={notice}
         />
       )}{" "}
       {unauthorized && (

@@ -31,6 +31,10 @@ interface Props {
   onAttach: (session: SessionView) => void;
   onChat: (session: SessionView) => void;
   onReview: (session: SessionView) => void;
+  // Opens the review-and-merge panel (live diff, inline comments, commit/
+  // push/PR) — a different thing from onReview's working-tree file browser.
+  // Optional so existing call sites (and tests) that predate it keep compiling.
+  onMergeReview?: (session: SessionView) => void;
   onHandoff: (session: SessionView) => void;
   onSwitch?: (session: SessionView) => void;
   onGroup: (session: SessionView) => void;
@@ -51,6 +55,7 @@ export function SessionCard({
   onAttach,
   onChat,
   onReview,
+  onMergeReview,
   onHandoff,
   onSwitch,
   onGroup,
@@ -383,6 +388,11 @@ export function SessionCard({
               <button className="b" onClick={() => onReview(s)}>
                 Review changes
               </button>
+              {onMergeReview && (
+                <button className="b" onClick={() => onMergeReview(s)}>
+                  Review &amp; merge
+                </button>
+              )}
               <a className="b" href={`lectern://attach/session/${s.id}`}>
                 Open in terminal
               </a>

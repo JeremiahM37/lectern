@@ -36,6 +36,7 @@ export interface SessionsProps {
   onMedia?(sessionID: number): void;
   onConversation?(session: SessionView): void;
   onReview(session: SessionView): void;
+  onMergeReview?(session: SessionView): void;
   onSwitch?(session: SessionView): void;
   onOpenTask?(id: number): void;
   onNotice(message: string, error?: boolean): void;
@@ -80,6 +81,7 @@ export function Sessions({
   onOpenTerminal,
   onConversation,
   onReview,
+  onMergeReview,
   onSwitch,
   onOpenTask,
   onNotice,
@@ -374,6 +376,7 @@ export function Sessions({
           setConversation(session);
         }}
         onReview={onReview}
+        onMergeReview={onMergeReview}
         onHandoff={setSheet}
         onSwitch={onSwitch}
         onGroup={setGroupSession}

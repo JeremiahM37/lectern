@@ -16,6 +16,7 @@ import type {
   TaskView,
 } from "../types";
 import type { SessionsApi } from "./Sessions";
+import { SessionReview } from "../review/SessionReview";
 interface Attachment {
   name: string;
   path: string;
@@ -142,6 +143,7 @@ export function Conversation({
     [uploading, setUploading] = useState(false),
     [drag, setDrag] = useState(false),
     [dictating, setDictating] = useState(false),
+    [showMergeReview, setShowMergeReview] = useState(false),
     [font, setFont] = useState(() =>
       Math.max(
         16,
@@ -714,7 +716,24 @@ export function Conversation({
           >
             ⌨ Open terminal
           </button>
+          <button
+            type="button"
+            className="b"
+            id="conversation-merge-review"
+            onClick={() => setShowMergeReview(true)}
+          >
+            ± Review &amp; merge
+          </button>
         </div>
+      )}
+      {showMergeReview && (
+        <SessionReview
+          api={api}
+          sessionId={id}
+          name={name}
+          onClose={() => setShowMergeReview(false)}
+          onNotice={onNotice}
+        />
       )}
       {kind === "session" && (
         <details

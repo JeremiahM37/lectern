@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import type { Event, TaskView } from "../types";
 import { withToken, type JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
+import { DiffViewer } from "../review/DiffViewer";
+import { CommentTray } from "../review/CommentTray";
+import { nextDraftKey, toWireComments } from "../review/types";
+import type { DraftComment } from "../review/types";
 import "./board.css";
 
 export interface TaskDetailApi {
@@ -47,6 +51,41 @@ export function TaskDetail({
     localStorage.getItem("lec-diffwrap") === "1",
   );
   const [busy, setBusy] = useState(false);
+  const [comments, setComments] = useState<DraftComment[]>([]);
+  const [reviewSummary, setReviewSummary] = useState("");
+  const [reviewSending, setReviewSending] = useState(false);
+  function addComment(c: Omit<DraftComment, "key">) {
+    setComments((prev) => [...prev, { ...c, key: nextDraftKey() }]);
+  }
+  function removeComment(key: string) {
+    setComments((prev) => prev.filter((c) => c.key !== key));
+  }
+  async function sendReview() {
+    if (!task) return;
+    setReviewSending(true);
+    try {
+      const result = await api.request<{ comments: number }>(
+        `/tasks/${task.id}/review`,
+        {
+          method: "POST",
+          body: {
+            comments: toWireComments(comments) as unknown as JsonValue,
+            summary: reviewSummary,
+          },
+        },
+      );
+      onNotice(
+        `Sent ${String(result.comments ?? comments.length)} comment(s) as request-changes feedback.`,
+      );
+      setComments([]);
+      setReviewSummary("");
+      onChanged();
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setReviewSending(false);
+    }
+  }
   async function load(signal?: AbortSignal, n = attempt) {
     const q = n ? `?attempt_n=${n}` : "";
     const [t, e] = await Promise.all([
@@ -68,6 +107,8 @@ export function TaskDetail({
     setDiff(undefined);
     setDiffOpen(false);
     setAttempt(undefined);
+    setComments([]);
+    setReviewSummary("");
   }, [taskId]);
   useEffect(() => {
     const stream = new EventSource(withToken(`/api/tasks/${taskId}/stream`));
@@ -103,6 +144,8 @@ export function TaskDetail({
     setEvents(await api.request(`/tasks/${taskId}/events?attempt_n=${n}`));
     setDiff(undefined);
     setDiffOpen(false);
+    setComments([]);
+    setReviewSummary("");
   }
   async function toggleDiff() {
     if (diffOpen) {
@@ -312,11 +355,12 @@ export function TaskDetail({
           ))}
         </div>
       ) : (
-        <div className={wrap ? "diff wrapped" : "diff"}>
+        <>
           <header className="diffhead">
             attempt #{diff?.attempt_n} · {diff?.stats.length ?? 0} file(s)
             changed{" "}
             <button
+              className={"wrapbtn" + (wrap ? " on" : "")}
               onClick={() => {
                 const n = !wrap;
                 setWrap(n);
@@ -326,42 +370,26 @@ export function TaskDetail({
               ⏎ wrap: {wrap ? "on" : "off"}
             </button>
           </header>
-          {diff?.files.map((f) => {
-            const s = diff.stats.find((x) => x.path === f.path);
-            return (
-              <details
-                className="dfile"
-                open={diff.files.length <= 3}
-                key={f.path}
-              >
-                <summary>
-                  {f.path}{" "}
-                  <b>
-                    +{s?.additions ?? "?"} −{s?.deletions ?? "?"}
-                  </b>
-                </summary>
-                <div className="dcode">
-                  {f.patch.split("\n").map((line, i) => (
-                    <div
-                      key={i}
-                      className={
-                        line.startsWith("+") && !line.startsWith("+++")
-                          ? "dl-add"
-                          : line.startsWith("-") && !line.startsWith("---")
-                            ? "dl-del"
-                            : line.startsWith("@@")
-                              ? "dl-hunk"
-                              : ""
-                      }
-                    >
-                      {line || " "}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-        </div>
+          <DiffViewer
+            files={diff?.files ?? []}
+            stats={diff?.stats ?? []}
+            wrap={wrap}
+            commentable={task.status === "review"}
+            comments={comments}
+            onAddComment={addComment}
+          />
+          {task.status === "review" && (
+            <CommentTray
+              comments={comments}
+              summary={reviewSummary}
+              onSummaryChange={setReviewSummary}
+              onRemove={removeComment}
+              onSend={() => void sendReview()}
+              busy={reviewSending}
+              sendLabel="Send as request-changes feedback"
+            />
+          )}
+        </>
       )}
     </Modal>
   );

@@ -45,6 +45,12 @@ type Server struct {
 	Cfg       *config.Config
 	Log       *slog.Logger
 
+	// SummaryGen, when set, replaces the real headless cheap-model call PR
+	// description generation makes (see review.go runSummary). Tests set this
+	// to a stub so a review test never spends a real model token or needs a
+	// real agent binary.
+	SummaryGen func(ctx context.Context, ex executor.Executor, agent, model, prompt string) (string, error)
+
 	streamsOnce   sync.Once
 	streamsCtx    context.Context
 	streamsCancel context.CancelFunc
@@ -249,6 +255,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scratch/keep", s.scratchKeep)
 	mux.HandleFunc("GET /api/push/vapid", s.vapidKey)
 	mux.HandleFunc("POST /api/push/subscribe", s.subscribePush)
+
+	// ---- review: live diffs, commit/push/PR and inline comments ----
+	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)
+	mux.HandleFunc("POST /api/sessions/{id}/commit", s.commitSession)
+	mux.HandleFunc("POST /api/sessions/{id}/pr-description", s.sessionPRDescription)
+	mux.HandleFunc("POST /api/tasks/{id}/pr-description", s.taskPRDescription)
+	mux.HandleFunc("POST /api/sessions/{id}/review", s.reviewSession)
+	mux.HandleFunc("POST /api/tasks/{id}/review", s.reviewTask)
 
 	mux.Handle("/", s.staticHandler())
 	return s.withAuth(mux)
