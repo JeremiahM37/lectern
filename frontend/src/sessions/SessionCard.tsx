@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
+import { isScratchTerminal } from "./scratch";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -61,6 +62,7 @@ export function SessionCard({
     ended = s.ended_at != null,
     archived = s.archived_at != null,
     adopted = s.origin === "discovered",
+    scratch = isScratchTerminal(s),
     live = !ended && s.status !== "dead" && !setup && !failed,
     // A blank shell is a terminal, not a conversation: chat would be a worse
     // way to drive it, so the card keeps the terminal as its one action.
@@ -93,6 +95,29 @@ export function SessionCard({
       {},
       "Cancellation requested. Files already created will be retained.",
     );
+  // The one promotion path, shared by the visible scratch action and the
+  // actions menu. A bare shell has no conversation to wrap, and a wrap prompt
+  // would be typed into the shell itself, so only an AI session wraps; either
+  // way the directory and the running terminal are untouched.
+  function makeProject() {
+    const suggested =
+      (s.workdir || "")
+        .split("/")
+        .filter(Boolean)
+        .pop()
+        ?.replace(/-\d{8}-[A-Za-z0-9]{6}$/, "") || s.name;
+    const name = prompt(
+      `Make this a project.\n\n${s.workdir}\n\nIt stays exactly where it is. Name it:`,
+      suggested,
+    );
+    if (name !== null)
+      void action(
+        "promote",
+        "POST",
+        { name: name.trim(), wrap: !scratch },
+        "Project created. The session keeps running.",
+      );
+  }
   function end(kill: boolean) {
     void run(`/sessions/${s.id}${kill ? "?kill=true" : ""}`, "DELETE");
   }
@@ -131,6 +156,7 @@ export function SessionCard({
     <article
       className={`scard s-${failed ? "failed" : s.status}`}
       data-session-id={s.id}
+      data-scratch-terminal={scratch ? "true" : undefined}
     >
       <div className="scard-project">{s.project_name || "Unassigned"}</div>
       <div className="scard-top">
@@ -284,6 +310,11 @@ export function SessionCard({
                 Chat
               </button>
             )}
+            {scratch && (
+              <button className="b ok make-project" onClick={makeProject}>
+                ⇑ Make a project
+              </button>
+            )}
             {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}
           </>
         )}
@@ -322,29 +353,8 @@ export function SessionCard({
               <button className="b" onClick={() => onHandoff(s)}>
                 ⇥ Handoff
               </button>
-              {!s.project_id && (
-                <button
-                  className="b ok"
-                  onClick={() => {
-                    const suggested =
-                      (s.workdir || "")
-                        .split("/")
-                        .filter(Boolean)
-                        .pop()
-                        ?.replace(/-\d{8}-[A-Za-z0-9]{6}$/, "") || s.name;
-                    const name = prompt(
-                      `Make this a project.\n\n${s.workdir}\n\nIt stays exactly where it is. Name it:`,
-                      suggested,
-                    );
-                    if (name !== null)
-                      void action(
-                        "promote",
-                        "POST",
-                        { name: name.trim(), wrap: true },
-                        "Project created. The session keeps running.",
-                      );
-                  }}
-                >
+              {!s.project_id && !scratch && (
+                <button className="b ok" onClick={makeProject}>
                   ⇑ Make a project
                 </button>
               )}

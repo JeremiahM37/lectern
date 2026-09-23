@@ -22,10 +22,12 @@ interface ScratchResult {
 const size = (kb: number) => (kb < 1024 ? kb + " KiB" : (kb / 1024).toFixed(kb < 10240 ? 1 : 0) + " MiB");
 const age = (days: number) => (days < 1 ? "today" : Math.floor(days) + "d idle");
 
-// Scratch workspaces pile up: every blank shell and project-less session makes
-// one. The server removes the empty ones on its own. What is listed here is the
-// rest — directories where something happened and no project claims it — because
-// only a person can say whether that was work or noise.
+// Scratch directories pile up on disk: every blank shell and project-less
+// session makes one. This is the cleanup review, separate from the Scratch
+// terminals list above — it inspects leftover directories, not tracked
+// sessions. The server removes the empty ones on its own. What is listed here
+// is the rest — directories where something happened and no project claims it —
+// because only a person can say whether that was work or noise.
 export function ScratchReview({
   api,
   onNotice,
@@ -76,9 +78,9 @@ export function ScratchReview({
         if (event.currentTarget.open && !result && !loading) load();
       }}
     >
-      <summary>Scratch workspaces</summary>
+      <summary>Scratch directory cleanup</summary>
       <div className="scratch-body">
-        {loading && <p className="sub">Inspecting scratch workspaces…</p>}
+        {loading && <p className="sub">Inspecting scratch directories…</p>}
         {result && (
           <>
             <p className="sub" id="scratch-summary">

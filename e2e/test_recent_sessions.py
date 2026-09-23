@@ -66,7 +66,7 @@ def test_recent_closed_empty_live_list_last_ten_restore_and_narrow(page, real_te
     seed_closed_rows(t)
     open_recent(page, t, width=390)
 
-    expect(page.locator("#sesslist .hint")).to_contain_text("No sessions yet")
+    expect(page.locator("#regular-sessions .hint")).to_contain_text("No sessions yet")
     rows = page.locator(".recent-row")
     expect(rows).to_have_count(10)
     expect(rows.first).to_contain_text("Real terminal")

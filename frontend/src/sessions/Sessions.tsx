@@ -14,6 +14,8 @@ import { Modal } from "./Modal";
 import { WorkspaceExtension } from "./WorkspaceExtension";
 import { SessionCard } from "./SessionCard";
 import { SessionGroups, type GroupMode } from "./SessionGroups";
+import { ScratchTerminals } from "./ScratchTerminals";
+import { isScratchTerminal } from "./scratch";
 import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
 import { NeedsYou } from "./NeedsYou";
 import "./sessions.css";
@@ -224,6 +226,26 @@ export function Sessions({
           a.idle_seconds - b.idle_seconds,
       );
   }, [rows, scope, query]);
+  // Blank shells and AI sessions share one dashboard but not one list. This is
+  // presentation only: the same tracked rows, split so neither buries the other.
+  const { regular, scratch } = useMemo(() => {
+    const regular: SessionView[] = [],
+      scratch: SessionView[] = [];
+    for (const session of shown)
+      (isScratchTerminal(session) ? scratch : regular).push(session);
+    return { regular, scratch };
+  }, [shown]);
+  const toggleGroup = (key: string, open: boolean) =>
+    setCollapsed((old) => {
+      const next = new Set(old);
+      if (open) next.delete(key);
+      else next.add(key);
+      sessionStorage.setItem(
+        "lec-collapsed-session-groups",
+        JSON.stringify([...next]),
+      );
+      return next;
+    });
   async function attach(session: SessionView, waitForSetup = false) {
     if (waitForSetup && session.setup_state === "creating") {
       // Resume returns before the successor's launch/setup worker has marked
@@ -479,36 +501,48 @@ export function Sessions({
         onChanged={() => void load()}
         onNotice={onNotice}
       />
+      {/* One id wraps both sections: nothing that already points at #sesslist
+          breaks, while each list is labelled on its own. */}
       <div id="sesslist">
-        {shown.length ? (
-          <SessionGroups
-            items={shown}
-            mode={group}
-            query={query.trim()}
-            collapsed={collapsed}
-            onToggle={(key, open) =>
-              setCollapsed((old) => {
-                const next = new Set(old);
-                if (open) next.delete(key);
-                else next.add(key);
-                sessionStorage.setItem(
-                  "lec-collapsed-session-groups",
-                  JSON.stringify([...next]),
-                );
-                return next;
-              })
-            }
-            render={render}
-          />
-        ) : (
-          <div className="hint">
-            {query
-              ? "No sessions match your search."
-              : scope === "archived"
-                ? "No archived sessions. Use “Stop and archive” in a session’s actions to keep it here for later."
-                : "No sessions yet. Start one here, or hit Find running agents to adopt sessions already running in tmux."}
+        <section
+          className="session-section"
+          id="regular-sessions"
+          aria-labelledby="regular-sessions-title"
+        >
+          <h3 className="session-section-title" id="regular-sessions-title">
+            Sessions and projects
+          </h3>
+          {/* #sesslist is a responsive card grid; each section holds its own
+              grid so the cards keep the same columns they had before. */}
+          <div className="session-grid">
+            {regular.length ? (
+              <SessionGroups
+                items={regular}
+                mode={group}
+                query={query.trim()}
+                collapsed={collapsed}
+                onToggle={toggleGroup}
+                render={render}
+              />
+            ) : (
+              <div className="hint">
+                {query
+                  ? "No sessions match your search."
+                  : scope === "archived"
+                    ? "No archived sessions. Use “Stop and archive” in a session’s actions to keep it here for later."
+                    : "No sessions yet. Start one here, or hit Find running agents to adopt sessions already running in tmux."}
+              </div>
+            )}
           </div>
-        )}
+        </section>
+        <ScratchTerminals
+          items={scratch}
+          mode={group}
+          query={query.trim()}
+          collapsed={collapsed}
+          onToggle={toggleGroup}
+          render={render}
+        />
       </div>
       {sheet === "new" && (
         <NewSession

@@ -151,6 +151,47 @@
   overflow-wrap: anywhere;
 }
 
+/* Two labelled lists: the sessions, then the blank shells that are not
+   AI conversations. Both headings stay visible so the split is legible even when one
+   list is empty. #sesslist is a card grid, so each section spans it and holds
+   its own grid rather than becoming one narrow column. */
+.session-section {
+  grid-column: 1 / -1;
+}
+.session-section-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.session-section-sub {
+  margin: 0 0 8px;
+  color: var(--ink-dim, #a6adc2);
+  font-size: 12px;
+}
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.session-grid > .hint {
+  grid-column: 1 / -1;
+}
+.scratch-terminals {
+  padding-top: 14px;
+  border-top: 1px solid var(--line, #33384a);
+}
+.scratch-terminals .hint {
+  margin-top: 6px;
+}
+@media (max-width: 600px) {
+  .session-section-title {
+    font-size: 14px;
+  }
+  .scratch-terminals .make-project {
+    flex: 1 1 100%;
+  }
+}
+
 /* Scratch workspaces nobody claimed: out of the way until someone looks. */
 .scratch-review { margin: 28px 0 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 .scratch-review > summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; font-weight: 600; padding: 6px 0; }

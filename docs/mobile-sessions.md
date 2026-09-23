@@ -1,7 +1,11 @@
 # Using sessions on a phone
 
 A fresh phone opens Sessions. An explicit URL or your remembered view still wins.
-Agent cards put **Chat** first; **Terminal** remains one tap away. Chat preserves
+Blank shells with no project sit under their own **Scratch terminals** heading,
+apart from **Sessions and projects**, and both lists keep the search, scope and
+grouping controls. **Make a project** on a scratch card promotes it without
+moving its files or restarting its terminal. Agent cards put **Chat** first;
+**Terminal** remains one tap away. Chat preserves
 an unsent draft on the device, shows connection state, and offers working-file
 changes. **Needs you** collects pending approvals, waiting sessions, setup/task
 failures and work ready for review. A failed refresh is shown explicitly.

@@ -207,7 +207,7 @@ that to work from another device.
 `LECTERN_MEDIA_DIR` moves the store (default: `lectern-media` beside the
 database) and `LECTERN_MEDIA_MAX_MB` caps one file (default 1024).
 
-## Scratch workspaces and the sweep
+## Scratch directories and the sweep
 
 Every blank shell and every session started without a project gets its own
 directory under the target's scratch root (`~/lectern-scratch`, or
@@ -224,10 +224,22 @@ run only for directories that already pass every other test, and a search that
 fails counts as a hit. Symlinks are never followed, so a scratch name that now
 points at a promoted project is left alone.
 
+The Sessions view keeps the two kinds of scratch apart. **Sessions and projects**
+lists agent sessions; **Scratch terminals** lists the blank shells — the quick
+shells with no project or agent opened from Terminal's **New terminal**,
+`lectern shell`, or the native dashboard's **S** action. Both headings stay visible when
+their list is empty, search covers both, and **Group by** and the show-scope
+filter apply to each. A project-less *agent* session is work, not a terminal, so
+it stays in **Sessions and projects**. **Make a project** on a scratch card (or
+**More → Make a project** on a project-less agent session) uses the same
+promotion endpoint: the directory and the running terminal are neither moved nor
+restarted, and the card moves to **Sessions and projects** on the next refresh.
+
 Removal is a move into `.trash` inside the scratch root (or
 `LECTERN_SCRATCH_TRASH`), purged after `LECTERN_SCRATCH_TRASH_DAYS` (default
 14). Anything the sweep will not decide — work that no project claims — is listed
-under **Sessions → Scratch workspaces**, where you keep it for good or discard it.
+under **Sessions → Scratch directory cleanup**, where you keep it for good or
+discard it.
 
 ```bash
 lectern api GET /scratch                       # what the sweep sees; changes nothing
