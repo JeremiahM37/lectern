@@ -57,6 +57,12 @@ class Dashboard:
             self.pump()
             if text in self.text:return
         raise AssertionError(f'Missing {text!r}:\n{self.text}')
+    def wait_gone(self,text,timeout=12):
+        end=time.monotonic()+timeout
+        while time.monotonic()<end:
+            self.pump()
+            if text not in self.text:return
+        raise AssertionError(f'Still showing {text!r}:\n{self.text}')
     def send(self,data):os.write(self.master,data.encode());self.pump(.15)
     def resize(self,cols,rows):
         self.screen.resize(rows,cols)

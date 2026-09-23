@@ -66,7 +66,9 @@ def test_native_attached_controls_preserve_agent_and_draft(real_terminal,outer_t
         d.wait('Ctrl+]')
         d.send('unfinished draft');wait_bytes(output,b'unfinished draft')
         d.send('\x1dm');d.wait('Rename')
-        d.send('\x1b');d.wait('AGENT_READY')
+        # AGENT_READY never left the screen, so it cannot show the popup has
+        # closed; typing before it has sends the next keys to the popup.
+        d.send('\x1b');d.wait_gone('Rename');d.wait('AGENT_READY')
         d.send(' continued');d.send('\x1d\x1d')
         wait_bytes(output,b'unfinished draft continued\x1d')
         d.resize(90,27);d.wait('Ctrl+]')

@@ -345,13 +345,26 @@ while True:
             expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text('R000=', timeout=5000)
             # Rows have one label and one repeated glyph; overlapping redraws
             # produce stale labels or a second row's glyph on the same line.
-            visible = page.locator('#agent-terminal .xterm-rows>div').all_text_contents()
-            grid_rows = [line.rstrip() for line in visible if line.startswith('R')]
-            assert len(grid_rows) >= 2, visible
-            grid_cols = int(subprocess.check_output(['tmux','display-message','-p','-t','=terminal-test:', '#{pane_width}'],env=t['env']))
-            for line in grid_rows:
-                number = int(line[1:4]); payload = line[5:grid_cols].rstrip()
-                assert payload and set(payload) == {chr(65+number%26)}, repr(line)
+            # Focus resizes the pane (and the claim steps it one row and back),
+            # so the application redraws more than once: judge the screen
+            # once it has settled, and fail only if it never comes out clean.
+            def grid_problem():
+                visible = page.locator('#agent-terminal .xterm-rows>div').all_text_contents()
+                grid_rows = [line.rstrip() for line in visible if line.startswith('R')]
+                if len(grid_rows) < 2:
+                    return visible
+                grid_cols = int(subprocess.check_output(['tmux','display-message','-p','-t','=terminal-test:', '#{pane_width}'],env=t['env']))
+                for line in grid_rows:
+                    number = int(line[1:4]); payload = line[5:grid_cols].rstrip()
+                    if not payload or set(payload) != {chr(65+number%26)}:
+                        return repr(line)
+                return None
+            deadline = time.monotonic()+5
+            problem = grid_problem()
+            while problem is not None and time.monotonic()<deadline:
+                page.wait_for_timeout(100)
+                problem = grid_problem()
+            assert problem is None, problem
             clients = subprocess.check_output(['tmux','list-clients','-F','#{client_name}'],env=t['env']).decode().splitlines()
             assert len(clients)==2, clients
     finally:
