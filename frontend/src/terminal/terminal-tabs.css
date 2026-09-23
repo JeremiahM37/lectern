@@ -45,3 +45,15 @@
     display: none;
   }
 }
+
+/* Fixed coordinates escape the terminal workspace's clipping and are clamped
+   to visualViewport by placeActions before the menu's first visible frame. */
+#terminal-workspace .terminal-actions > .terminal-actions-panel {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 80;
+}

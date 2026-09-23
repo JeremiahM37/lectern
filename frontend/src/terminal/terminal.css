@@ -1008,20 +1008,5 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
 body.compact-chrome .terminal-controls-hint { display: none; }
 .terminal-controls-help { margin: 4px 8px 8px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 
-/* The shortcut must remain visible when compact chrome hides the toolbar.
-   Stack it inside the existing Tools key, preserving the mobile keybar space. */
-.terminal-controls-hint-compact { display: none; }
-body.mobile-terminal #root > nav > #terminal-tools > summary,
-body.compact-chrome #root > nav > #terminal-tools > summary {
-  padding: 3px 6px;
-  line-height: 16px;
-  text-align: center;
-}
-body.mobile-terminal .terminal-controls-hint-compact,
-body.compact-chrome .terminal-controls-hint-compact {
-  display: block;
-  font-size: 10px;
-  line-height: 14px;
-  white-space: nowrap;
-  color: var(--muted);
-}
+/* Hardware-keyboard instructions do not belong in the touch controls. */
+body.mobile-terminal .terminal-controls-help { display: none; }

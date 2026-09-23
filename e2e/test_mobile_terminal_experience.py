@@ -526,3 +526,34 @@ def test_a_background_resume_after_a_dropped_stream_keeps_output(page, real_term
     expect(f.locator("#agent-terminal .xterm-screen")).to_contain_text("AFTER-BACKGROUND-8")
     out = capture(t)
     assert out.count("AFTER-BACKGROUND-8") == 1, out
+
+
+@pytest.mark.parametrize('width,height', [(320,640), (390,844), (844,390)])
+def test_terminal_close_menu_stays_inside_visible_phone_viewport(page,real_terminal,width,height):
+    t=real_terminal
+    page.set_viewport_size({'width':width,'height':height})
+    frame=attach(page,t)
+    expect(frame.locator('#connection')).to_have_text('Connected',timeout=15000)
+    expect(frame.locator('.terminal-controls-hint')).not_to_be_visible()
+    frame.locator('#terminal-tools-summary').click()
+    expect(frame.locator('.terminal-controls-help')).not_to_be_visible()
+    frame.locator('#terminal-tools-summary').click()
+    summary=page.locator('.terminal-actions > summary')
+    def check():
+        result=page.locator('.terminal-actions-panel').filter(has=page.locator('.terminal-menu-close')).evaluate('''panel=>{
+          const r=panel.getBoundingClientRect(),v=visualViewport;
+          return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,
+            minX:v.offsetLeft,minY:v.offsetTop,maxX:v.offsetLeft+v.width,maxY:v.offsetTop+v.height,
+            hit:panel.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};
+        }''')
+        assert result['left']>=result['minX'] and result['right']<=result['maxX'],result
+        assert result['top']>=result['minY'] and result['bottom']<=result['maxY'],result
+        assert result['hit'],result
+    summary.click();check()
+    page.evaluate(FAKE_KEYBOARD,150)
+    check()
+    page.evaluate(RESTORE_VIEWPORT)
+    check()
+    page.get_by_role('menuitem',name='Close this view',exact=True).click()
+    expect(page.locator('.terminal-empty')).to_be_visible()
+    subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)

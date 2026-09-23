@@ -108,7 +108,11 @@ directory and removes it when the attachment ends.
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
 
-The status line names these keys while you are attached. The menu is the same
+The top status line keeps **Ctrl+] m** visible while you are attached, including
+in narrow terminals. Direct SSH launchers also get this bar from the server;
+updated clients that provide their own controls mark the connection to avoid
+a second wrapper. Update an older installed native client and reattach to use
+the current behavior. The menu is the same
 one the dashboard shows — upload, send message, rename, groups, review, handoff,
 settings — opened with the current session or task already selected. Native
 attach actions are hidden there, because the popup never nests another terminal
@@ -116,7 +120,9 @@ inside itself. Esc from that menu closes the popup; Esc from a form or a code
 review returns to the menu.
 
 The popup runs on the machine where the native client runs, so upload paths refer to files on that machine. Reviews still show the agent's
-workspace on its target. Authentication reuses the
+workspace on its target. When a direct SSH launcher uses the server-provided
+controls bar, upload paths are on that server; a native client running locally
+can upload files from the laptop. Authentication reuses the
 client's own API base and token, handed to the private tmux server through its
 environment only — never through a command line, a config file, or the status
 line.
@@ -134,8 +140,8 @@ with every key going to the agent. A missing tmux or non-interactive terminal
 prints a note that controls are unavailable.
 
 In the browser terminal, **Ctrl+] then m** opens **Tools**, and **Esc** returns
-to typing. The shortcut is visible beside Tools on desktop and inside its menu
-on phones. **Ctrl+] twice** sends a literal Ctrl+] here too.
+to typing. The shortcut is visible beside Tools on desktop. Phone controls omit
+hardware-keyboard hints; tap Tools there. **Ctrl+] twice** sends a literal Ctrl+] here too.
 
 ## Scripting and context files
 

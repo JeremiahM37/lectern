@@ -198,9 +198,9 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		controls:       controls,
 		inWorkspace:    workspace,
-		innerArgv:      append([]string(nil), argv...),
+		innerArgv:      withClientControlsMarker(argv),
 	}
-	plan.inner = innerScript(argv)
+	plan.inner = innerScript(plan.innerArgv)
 	plan.controlsBody = execScript([]string{self, "controls", controls.Kind, controls.ID, "--popup"})
 	plan.uploadBody = execScript([]string{self, "controls", controls.Kind, controls.ID, "--popup", "--action", "upload"})
 	plan.conf = plan.tmuxConfig()
@@ -235,10 +235,16 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",
-		"set -g status-left-length 90",
+		"set -g status-position top",
+		"set -g status-left-length 44",
 		"set -g status-style fg=colour252,bg=colour236",
-		"set -g status-left '#[bold]Lectern#[default] Ctrl+] then m: controls · Ctrl+] twice: literal · Ctrl-b d: detach'",
+		// The primary shortcut leads the row so a narrow client clips trailing
+		// text, never the hint itself. The window list is dropped: its text
+		// otherwise crowds the hint out on mobile-width terminals.
+		"set -g status-left '#[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
 		"set -g status-right ''",
+		"set -g window-status-format ''",
+		"set -g window-status-current-format ''",
 		"set -g status-interval 0",
 		"set -g escape-time 0",
 		"",

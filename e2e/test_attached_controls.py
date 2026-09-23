@@ -50,20 +50,10 @@ def test_browser_controls_hint_and_input_isolation(page,real_terminal):
     page.keyboard.press('Control+]');page.keyboard.press('Control+]')
     wait_bytes(output,b'unfinished draft continued\x1d')
     page.set_viewport_size({'width':390,'height':844})
-    expect(page.locator('.terminal-controls-hint-compact')).to_be_visible()
+    expect(page.locator('.terminal-controls-hint')).not_to_be_visible()
     page.locator('#terminal-tools-summary').click()
-    expect(page.locator('.terminal-controls-help')).to_be_visible()
+    expect(page.locator('.terminal-controls-help')).not_to_be_visible()
     assert page.locator('#terminal-tools-summary').bounding_box()['width'] < 100
-    # Enter the actual embedded compact terminal, where the old hint vanished.
-    from test_mobile_terminal_experience import attach
-    frame = attach(page, t)
-    expect(frame.locator('body')).to_have_class(__import__('re').compile(r'.*compact-chrome.*'))
-    hint = frame.locator('.terminal-controls-hint-compact')
-    expect(hint).to_be_visible()
-    expect(frame.locator('#terminal-tools')).not_to_have_attribute('open', '')
-    assert hint.evaluate("el => { const r=el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)); }")
-    bounds=frame.locator('#terminal-tools-summary').bounding_box()
-    assert bounds['width'] <= 66 and bounds['height'] <= 44, bounds
 
 
 @pytest.mark.parametrize('outer_tmux',[False,True])
@@ -116,6 +106,31 @@ def test_native_controls_interrupt_restores_tty(real_terminal):
         d.wait('Ctrl+]')
         d.proc.send_signal(signal.SIGTERM)
         d.proc.wait(timeout=10)
+        assert termios.tcgetattr(d.slave)==d.original
+        subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
+    finally:d.close()
+
+
+def test_hosted_attachment_keeps_controls_hint_visible_in_narrow_terminal(real_terminal):
+    """Old clients and direct SSH launchers enter this exact server command."""
+    t=real_terminal
+    output=record_input(t)
+    d=Dashboard(t,args=('--hosted-attach','attach','session',str(t['id'])))
+    try:
+        d.wait('AGENT_READY')
+        d.wait('Ctrl+] m')
+        assert 'Ctrl+] m' in d.screen.display[0]
+        d.resize(45,24)
+        d.wait('Ctrl+] m')
+        assert 'Ctrl+] m' in d.screen.display[0]
+        d.send('draft before controls')
+        d.send('\x1dm');d.wait('Send message')
+        d.send('\x1b');d.wait('Ctrl+] m')
+        assert 'Ctrl+] m' in d.screen.display[0]
+        d.send(' after');d.send('\x1d\x1d')
+        wait_bytes(output,b'draft before controls after\x1d')
+        d.send('\x02d');d.proc.wait(timeout=10)
+        assert d.proc.returncode==0
         assert termios.tcgetattr(d.slave)==d.original
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
     finally:d.close()
