@@ -18,6 +18,11 @@ type Config struct {
 	Port    int
 	Host    string
 	BaseURL string // what a target uses to reach the control plane (hook callbacks)
+	// HookBase is the host part an agent's own hooks/statusline call back to
+	// (LECTERN_HOOK_URL is built from it). Defaults to BaseURL; only needs
+	// its own value when a remote target cannot reach the control plane the
+	// same way the operator's browser does.
+	HookBase string
 	// WorktreeNamespace scopes automatically-created local worktrees and
 	// branches to one durable local runtime. Empty preserves hosted behavior.
 	WorktreeNamespace string
@@ -181,5 +186,6 @@ func Load() *Config {
 		SessionPoll:             envSeconds("LECTERN_SESSION_POLL", 3.0),
 	}
 	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
+	c.HookBase = env("LECTERN_HOOK_BASE", c.BaseURL)
 	return c
 }

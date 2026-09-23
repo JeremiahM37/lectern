@@ -77,6 +77,64 @@ Codex sessions: `-c notify=[...]` for agent-turn-complete plus whatever
 hooks.json events codex 0.155 supports (probe it), and usage from its rollout
 JSONL. Anything not covered falls back to screen state.
 
+> **Implementation note (2026-09-23, section 2 worker) — what probing codex
+> 0.155.1 found**, so a later worker does not have to redo it. `codex --help`
+> / `codex exec --help` list `--dangerously-bypass-hook-trust` ("Run enabled
+> hooks without requiring persisted hook trust for this invocation.
+> DANGEROUS. Intended only for automation that already vets hook
+> sources") — hooks are a real, shipped feature, gated by a trust dialog like
+> MCP servers. `strings` on the installed binary
+> (`~/.codex/packages/standalone/releases/0.155.1-*/bin/codex`) turns up full
+> embedded JSON Schemas (title `pre-tool-use.command.input` etc.) for
+> `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+> `PreCompact`, `PostCompact`, `SessionEnd`, `SubagentStart`, `SubagentStop`,
+> `PermissionRequest`, `Stop` and `Interrupt` — byte-for-byte Claude Code's
+> own wire format: `hook_event_name`, `session_id`, `cwd`, `permission_mode`
+> enum (`default|acceptEdits|plan|dontAsk|bypassPermissions`),
+> `hookSpecificOutput`, `permissionDecision`
+> (`allow|deny|ask`/`updatedInput`/`permissionDecisionReason`), `decision:
+> block`, `continue`, `stopReason`, `suppressOutput`. A `PermissionRequest`
+> hook's answer is exactly this contract's
+> `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":
+> {"behavior":"allow"|"deny","message":"..."}}}` — so `internal/agentevents`'s
+> ingest path needs no per-agent branching for that shape. Handlers are
+> **command**-based (`codex_hooks::engine::command_runner`, invoked via
+> `sh -lc`), not Claude's `type: "http"` — no evidence of a native HTTP
+> handler for codex hooks was found. What was **not** pinned down in this
+> pass: the exact on-disk hooks.json registration schema (event name → list
+> of handlers) and its project-level discovery path — a plugin manifest can
+> point `"hooks": "./hooks.json"`, and a
+> `.tmp/plugins/.../hooks/hooks.json` path turned up in an installed plugin
+> tree, but nothing here proves a *standalone* project's `.codex/hooks.json`
+> (or an equivalent `-c hooks...=` override) is discovered the way
+> `.claude/settings.json` is, and doing so needs a real ChatGPT-authenticated
+> turn to observe, which this offline pass could not run. **What IS wired**
+> (`internal/agentevents/codex_settings.go`,
+> `internal/sessions.codexNotifyArg`): the independently-confirmed `notify`
+> mechanism — `-c 'notify=["python3","<script>"]'` was accepted outright by
+> `--strict-config`, and the binary's strings list the exact notify payload
+> field names (`thread-id`, `turn-id`, `cwd`, `client`, `input-messages`,
+> `last-assistant-message`) passed as that script's last argv element on
+> agent-turn-complete. Lectern's notify script POSTs a synthetic
+> `AgentTurnComplete` event to the same `/api/hook/session/{id}/{event}`
+> endpoint, mapped to `idle` — covering this section's headline mapping
+> without depending on the unconfirmed hooks.json shape. The cost: a codex
+> session gets no PreToolUse/PostToolUse/Notification-equivalent signal
+> between turns, so it falls back to screen scraping there exactly as an
+> agent with no hooks at all does (poll.go's 10-minute rule). Wiring
+> hooks.json for the richer signals is a good next step and needs no ingest
+> changes — `MapEventState`/`IngestEvent` already accept every event name
+> above.
+
+Both the claude and codex installers write into `~/.lectern/hooks/` on the
+session's TARGET (not the control plane) via the same `ex.Run` seam
+`internal/sessions/agents.go`'s `claudeTrust`/`codexTrust` probes already use,
+and are only attempted when the launched spec is the true, unmodified
+built-in (`spec.Builtin`) — an operator's own agent definition that happens
+to reuse the name `claude` or `codex` (as
+`e2e/test_session_continuity.py`'s scripted stand-in does) is a different
+program and is not assumed to understand `--settings` or `-c notify=[...]`.
+
 ### Session state
 
 New columns on `sessions`: `agent_state` (`working` | `waiting_input` |

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -36,6 +37,18 @@ type Manager struct {
 	// WorktreeNamespace scopes automatically-created local allocations. Hosted
 	// managers leave it empty to retain historical paths and branch names.
 	WorktreeNamespace string
+	// HookBase is the host part every launched session's LECTERN_HOOK_URL is
+	// built from (see internal/agentevents). Empty falls back to
+	// "http://127.0.0.1:9110" only in the sense that an empty value here
+	// means the caller (app.New) did not set config.Config.HookBase/BaseURL —
+	// production always does.
+	HookBase string
+	// AskPermission, when true, tells newly launched Claude sessions to
+	// register the PermissionRequest hook (docs/agent-events.md section 3).
+	// It is a manager-wide default; LaunchOpts has no override yet because
+	// the per-launch permission mode this hangs off of does not exist until
+	// that section's worker lands.
+	AskPermission bool
 
 	// HandoffTimeout bounds how long we wait for an agent to write its wrap
 	// before giving up and saying so.
@@ -399,6 +412,25 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		env[k] = v
 	}
 	identityEnv(env, sess.ID)
+	// Agent hooks (docs/agent-events.md section 2): every interactive session
+	// gets a random hook secret and the env an agent's own hooks/statusline
+	// need to call back with it. Generated per launch (including a resume or
+	// relaunch of the same row), so an old token from a previous process can
+	// never be replayed against a new one.
+	hookToken, err := agentevents.NewHookToken()
+	if err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	if err := m.DB.Update("sessions", sess.ID, map[string]any{"hook_token": hookToken}); err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	sess.HookToken = hookToken
+	hookBase := strings.TrimRight(firstNonEmpty(m.HookBase, "http://127.0.0.1:9110"), "/")
+	hookURL := fmt.Sprintf("%s/api/hook/session/%d", hookBase, sess.ID)
+	env[agentevents.EnvHookToken] = hookToken
+	env[agentevents.EnvHookURL] = hookURL
 	envPrefix, err := EnvPrefix(env)
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -612,6 +644,35 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		if r, err := ex.Run(ctx, envPrefix+"bash -c "+shellq.Quote(probe), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 			m.Log.Warn("could not pre-trust the working directory",
 				"agent", agent, "dir", workdir, "err", err)
+		}
+	}
+
+	// Agent hooks, continued (docs/agent-events.md section 2): the env above
+	// is enough for the target process to know its token and callback URL;
+	// claude and codex additionally need something written to disk and an
+	// extra launch flag pointing at it. Gated on spec.Builtin, not just the
+	// agent name: a custom agent an operator has named "claude" (overriding
+	// the built-in, e.g. a different CLI or a test double) is not
+	// necessarily anything --settings or -c notify=[...] mean something to.
+	// Best-effort like the trust probe above — a target that cannot write
+	// the file still gets to launch, just without hook-driven state (screen
+	// scraping remains the fallback).
+	if spec.Builtin {
+		switch agent {
+		case "claude":
+			install := envPrefix + agentevents.ClaudeSettingsInstallCommand(tmuxName, hookURL, m.AskPermission)
+			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+				m.Log.Warn("could not install claude hooks", "session", sess.ID, "err", err)
+			} else if settingsPath := strings.TrimSpace(r.Stdout); settingsPath != "" {
+				toolArgs = append(toolArgs, "--settings", settingsPath)
+			}
+		case "codex":
+			install := envPrefix + agentevents.CodexNotifyInstallCommand(tmuxName)
+			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+				m.Log.Warn("could not install codex notify hook", "session", sess.ID, "err", err)
+			} else if notifyPath := strings.TrimSpace(r.Stdout); notifyPath != "" {
+				toolArgs = append(toolArgs, codexNotifyArg(notifyPath)...)
+			}
 		}
 	}
 

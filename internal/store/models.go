@@ -189,6 +189,35 @@ type Session struct {
 	UpdatedAt            float64  `json:"updated_at"`
 	EndedAt              *float64 `json:"ended_at"`
 
+	// HookToken authenticates POST /api/hook/session/{id}/* (see
+	// internal/agentevents). Never serialized: it is a bearer secret handed to
+	// the target process via LECTERN_HOOK_TOKEN, not something the API repeats
+	// back to a browser.
+	HookToken string `json:"-"`
+	// AgentState/StateSource/StateAt/HookSeenAt are the hook-driven lifecycle
+	// signal described in docs/agent-events.md section 2, kept alongside the
+	// older screen-scraped Status. StateSource says who wrote AgentState last
+	// (hook|screen); HookSeenAt is when a hook last reached this session at
+	// all, which is what poll.go's applyPane checks before screen-scraping is
+	// allowed to overwrite AgentState again.
+	AgentState  string   `json:"agent_state,omitempty"`
+	StateSource string   `json:"state_source,omitempty"`
+	StateAt     *float64 `json:"state_at,omitempty"`
+	HookSeenAt  *float64 `json:"hook_seen_at,omitempty"`
+
+	// Usage — latest values only, from the agent's own statusline/rollout.
+	// History lives in usage_daily (see store/usage.go).
+	ContextTokens *int     `json:"context_tokens,omitempty"`
+	ContextSize   *int     `json:"context_size,omitempty"`
+	CostUSD       *float64 `json:"cost_usd,omitempty"`
+	LinesAdded    *int     `json:"lines_added,omitempty"`
+	LinesRemoved  *int     `json:"lines_removed,omitempty"`
+	Rate5hPct     *int     `json:"rate_5h_pct,omitempty"`
+	Rate5hReset   *float64 `json:"rate_5h_reset,omitempty"`
+	Rate7dPct     *int     `json:"rate_7d_pct,omitempty"`
+	Rate7dReset   *float64 `json:"rate_7d_reset,omitempty"`
+	UsageAt       *float64 `json:"usage_at,omitempty"`
+
 	// joined for the UI, which groups sessions by project and names their host
 	ProjectName string `json:"project_name,omitempty"`
 	TargetName  string `json:"target_name,omitempty"`

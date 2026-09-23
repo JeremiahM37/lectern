@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/api"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
@@ -70,6 +71,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}, mem, log)
 	sessMgr.WorktreeNamespace = cfg.WorktreeNamespace
 	sessMgr.HandoffPoll = cfg.HandoffPoll
+	// cfg.HookBase already defaults to cfg.BaseURL in config.Load(), but a
+	// hand-built config.Config{} (every test in this repo) does not go
+	// through Load() and leaves both zero — fall back explicitly so a test
+	// harness that sets only BaseURL (to its own ephemeral listener) still
+	// gets a hook callback URL that actually reaches it.
+	sessMgr.HookBase = firstNonEmptyString(cfg.HookBase, cfg.BaseURL)
 	// the agent set is the operator's, read fresh so a change takes effect
 	// without a restart
 	sessMgr.Specs = func() []sessions.Spec { return sessions.ParseSpecs(db.Setting("agents")) }
@@ -102,11 +109,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Sessions = sessMgr
 	sched.Memory = mem
 	terms := terminal.NewManager()
+	events := agentevents.New(db, b)
 
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Log: log,
-		Sessions: sessMgr, Memory: mem,
+		Sessions: sessMgr, Events: events, Memory: mem,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due
@@ -150,6 +158,15 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 	sched.Start()
 	return app, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func cloneArgs(in map[string][]string) map[string][]string {
