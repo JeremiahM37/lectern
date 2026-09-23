@@ -50,9 +50,20 @@ def test_browser_controls_hint_and_input_isolation(page,real_terminal):
     page.keyboard.press('Control+]');page.keyboard.press('Control+]')
     wait_bytes(output,b'unfinished draft continued\x1d')
     page.set_viewport_size({'width':390,'height':844})
+    expect(page.locator('.terminal-controls-hint-compact')).to_be_visible()
     page.locator('#terminal-tools-summary').click()
     expect(page.locator('.terminal-controls-help')).to_be_visible()
     assert page.locator('#terminal-tools-summary').bounding_box()['width'] < 100
+    # Enter the actual embedded compact terminal, where the old hint vanished.
+    from test_mobile_terminal_experience import attach
+    frame = attach(page, t)
+    expect(frame.locator('body')).to_have_class(__import__('re').compile(r'.*compact-chrome.*'))
+    hint = frame.locator('.terminal-controls-hint-compact')
+    expect(hint).to_be_visible()
+    expect(frame.locator('#terminal-tools')).not_to_have_attribute('open', '')
+    assert hint.evaluate("el => { const r=el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)); }")
+    bounds=frame.locator('#terminal-tools-summary').bounding_box()
+    assert bounds['width'] <= 66 and bounds['height'] <= 44, bounds
 
 
 @pytest.mark.parametrize('outer_tmux',[False,True])

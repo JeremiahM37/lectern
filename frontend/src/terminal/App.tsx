@@ -864,6 +864,7 @@ export function TerminalApp({
           }}>
             {state?.paused ? "Paused · Tools" : "Tools"}
             <span className="terminal-controls-hint"> · Ctrl+] then m</span>
+            <span className="terminal-controls-hint-compact">Ctrl+] m</span>
           </summary>
           <div
             className="action-menu-panel"
