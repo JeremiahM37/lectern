@@ -595,10 +595,12 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type handoffIn struct {
-	Successor bool   `json:"successor"`
-	KillOld   bool   `json:"kill_old"`
-	Agent     string `json:"agent"`
-	Model     string `json:"model"`
+	Successor   bool   `json:"successor"`
+	KillOld     bool   `json:"kill_old"`
+	Agent       string `json:"agent"`
+	Model       string `json:"model"`
+	ProfileID   int64  `json:"profile_id"`
+	QuickSwitch bool   `json:"quick_switch"`
 }
 
 // handoffSession asks a session to write its wrap. It returns immediately: an
@@ -618,19 +620,34 @@ func (s *Server) handoffSession(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
+	if in.QuickSwitch && (row.Agent == "shell" || !in.Successor) {
+		httpError(w, 422, "quick switch requires an agent session and a successor")
+		return
+	}
 	if in.Agent != "" {
 		if _, ok := sessions.Find(s.agentSpecs(), in.Agent); !ok {
 			httpError(w, 422, "unknown agent %q — define it in /api/agents", in.Agent)
 			return
 		}
 	}
+	wraps, err := s.DB.SessionWraps(row.ID)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	var afterWrapID int64
+	for _, wrap := range wraps {
+		if wrap.ID > afterWrapID {
+			afterWrapID = wrap.ID
+		}
+	}
 	if err := s.Sessions.StartHandoff(row.ID, sessions.HandoffOpts{
 		Successor: in.Successor, KillOld: in.KillOld,
-		Agent: in.Agent, Model: in.Model}); err != nil {
+		Agent: in.Agent, Model: in.Model, ProfileID: in.ProfileID, QuickSwitch: in.QuickSwitch}); err != nil {
 		httpError(w, 409, "%s", err.Error())
 		return
 	}
-	writeJSON(w, 202, map[string]any{"started": true, "session_id": row.ID})
+	writeJSON(w, 202, map[string]any{"started": true, "session_id": row.ID, "after_wrap_id": afterWrapID})
 }
 
 func (s *Server) sessionWraps(w http.ResponseWriter, r *http.Request) {

@@ -191,7 +191,11 @@ def test_android_native_edit_sequences_reach_real_shell_once(browser,real_termin
         page.keyboard.type('echo cursor');f.locator('[data-terminal-key="left"]').click()
         page.keyboard.type('X');page.keyboard.press('Enter')
         expect(f.locator('.xterm-screen')).to_contain_text('cursoXr')
+        # Observe the keyboard-open viewport before dismissing it. Back-to-back
+        # resizes can be coalesced, skipping the state a real IME holds open.
+        f.locator('body').evaluate("el=>{el.removeAttribute('data-test-keyboard-resize');window.addEventListener('resize',()=>el.setAttribute('data-test-keyboard-resize','seen'),{once:true});}")
         page.set_viewport_size({'width':390,'height':500})
+        expect(f.locator('body')).to_have_attribute('data-test-keyboard-resize','seen')
         page.set_viewport_size(PHONE)
         expect(f.locator('.xterm-helper-textarea')).not_to_be_focused()
         f.locator('#terminal-keyboard').click()

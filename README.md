@@ -250,6 +250,14 @@ temporary databases, a separate vault, and a private tmux socket.
   attach, send-a-message and interrupt from your phone, **discovery + adoption**
   of agents you started by hand, and **handoff**: the agent writes a wrap for its
   successor, which starts primed with it. The project outlives the context window.
+  **Quick switch:** tap the agent/model button beside the open terminal (or
+  **Switch** on its session card or chat), then pick a model or saved provider. Lectern
+  carries a handoff into the same workspace and opens the replacement terminal
+  automatically. The original session stays available in Sessions. A busy agent
+  finishes its turn before writing the handoff; this is a fresh conversation with
+  a summary, not a transfer of the provider's private conversation state. Saved
+  launch profiles expose other configured providers, such as a DeepSeek setup,
+  in the same picker.
 - **Blank rooms** — start any agent CLI in a throwaway git repository with no
   project attached, for work that does not have a name yet. When it turns into
   something, promote it: the directory it has been working in becomes the

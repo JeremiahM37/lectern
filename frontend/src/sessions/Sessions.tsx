@@ -33,6 +33,7 @@ export interface SessionsProps {
   onMedia?(sessionID: number): void;
   onConversation?(session: SessionView): void;
   onReview(session: SessionView): void;
+  onSwitch?(session: SessionView): void;
   onNotice(message: string, error?: boolean): void;
   refreshVersion?: number;
   action?: { kind: "new" | "discover"; version: number };
@@ -75,6 +76,7 @@ export function Sessions({
   onOpenTerminal,
   onConversation,
   onReview,
+  onSwitch,
   onNotice,
   refreshVersion = 0,
   mediaCounts = {},
@@ -334,6 +336,7 @@ export function Sessions({
         }}
         onReview={onReview}
         onHandoff={setSheet}
+        onSwitch={onSwitch}
         onGroup={setGroupSession}
         onHistory={setHistory}
         onWorkspace={setWorkspaceSession}
@@ -520,6 +523,7 @@ export function Sessions({
           api={api}
           onClose={() => setConversation(undefined)}
           onNotice={onNotice}
+          onSwitch={onSwitch && conversation.agent!=='shell' && !conversation.ended_at && conversation.status!=='dead' ? ()=>{setConversation(undefined);onSwitch(conversation);} : undefined}
         />
       )}{" "}
       {workspaceSession && (

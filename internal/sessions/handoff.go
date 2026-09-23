@@ -68,8 +68,12 @@ type HandoffOpts struct {
 	// KillOld retires the old session once the wrap is captured.
 	KillOld bool
 	// Agent/Model for the successor; empty reuses the old session's.
-	Agent string
-	Model string
+	Agent     string
+	Model     string
+	ProfileID int64
+	// QuickSwitch treats an empty model as the destination's default.
+	QuickSwitch bool
+	launch      *LaunchOpts
 }
 
 // HandoffResult reports what a wrap produced.
@@ -97,6 +101,14 @@ func (m *Manager) StartHandoff(id int64, o HandoffOpts) error {
 		m.clearHandoff(id)
 		return err
 	}
+	if o.Successor {
+		next, err := m.handoffLaunch(sess, o)
+		if err != nil {
+			m.clearHandoff(id)
+			return err
+		}
+		o.launch = &next
+	}
 	go func() {
 		defer m.clearHandoff(id)
 		ctx, cancel := context.WithTimeout(context.Background(), m.HandoffTimeout+time.Minute)
@@ -115,6 +127,35 @@ func (m *Manager) InFlight(id int64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.handoffs[id]
+}
+
+func (m *Manager) handoffLaunch(sess *store.Session, o HandoffOpts) (LaunchOpts, error) {
+	agent := firstNonEmpty(o.Agent, sess.Agent)
+	if o.ProfileID != 0 && o.Agent == "" {
+		agent = ""
+	}
+	model := o.Model
+	if model == "" && agent == sess.Agent && o.ProfileID == 0 && !o.QuickSwitch {
+		model = sess.Model
+	}
+	cfg, err := m.SessionLaunchConfiguration(sess)
+	if err != nil {
+		return LaunchOpts{}, err
+	}
+	next := LaunchOpts{GroupPath: sess.GroupPath, ProjectID: sess.ProjectID,
+		TargetID: sess.TargetID, Name: sess.Name, Workdir: sess.Workdir,
+		Agent: agent, Model: model, ProfileID: o.ProfileID, Yolo: cfg.Yolo}
+	next, err = m.ApplyLaunchProfile(next)
+	if err != nil {
+		return next, err
+	}
+	if next.Configuration == nil {
+		next.Configuration, err = m.launchConfiguration(next.Agent, next.ProjectID, nil)
+		if err == nil {
+			next.Configuration.Yolo = next.Yolo
+		}
+	}
+	return next, err
 }
 
 func (m *Manager) clearHandoff(id int64) {
@@ -200,26 +241,31 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	// so a handoff that started a new agent always killed the old one even when
 	// the operator had explicitly said not to — and comparing two agents on the
 	// same work, which is the obvious reason to keep both, was impossible.
+	if o.Successor {
+		prime := ResumePrompt(projectName, wrap, m.projectPrime(ctx, projectName))
+		launch := o.launch
+		if launch == nil {
+			resolved, err := m.handoffLaunch(sess, o)
+			if err != nil {
+				return err
+			}
+			launch = &resolved
+		}
+		launch.Prime = prime
+		next, err := m.Launch(ctx, *launch)
+		if err != nil {
+			return fmt.Errorf("wrap saved, but the successor failed to start: %w", err)
+		}
+		res.Session = next
+	}
+	// A failed successor must never cost the operator the original session.
 	if o.KillOld {
 		if err := m.Kill(ctx, sess.ID); err != nil {
 			m.Log.Warn("could not retire the old session", "session", sess.ID, "err", err)
 		}
 	}
-	if o.Successor {
-		prime := ResumePrompt(projectName, wrap, m.projectPrime(ctx, projectName))
-		next, err := m.Launch(ctx, LaunchOpts{
-			GroupPath: sess.GroupPath,
-			ProjectID: sess.ProjectID, TargetID: sess.TargetID,
-			Name:    sess.Name,
-			Agent:   firstNonEmpty(o.Agent, sess.Agent),
-			Model:   firstNonEmpty(o.Model, sess.Model),
-			Workdir: sess.Workdir, Prime: prime,
-		})
-		if err != nil {
-			return fmt.Errorf("wrap saved, but the successor failed to start: %w", err)
-		}
-		m.DB.Exec(`UPDATE session_wraps SET next_session_id=? WHERE id=?`, next.ID, wrapID)
-		res.Session = next
+	if res.Session != nil {
+		m.DB.Exec(`UPDATE session_wraps SET next_session_id=? WHERE id=?`, res.Session.ID, wrapID)
 	}
 	m.Bus.Publish("board", "session_handoff", map[string]any{
 		"session_id": sess.ID, "ok": true, "wrap_id": wrapID,

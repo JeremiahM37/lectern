@@ -1,0 +1,14 @@
+.quick-switch section { margin:18px 0; }
+.quick-switch h3 { margin:0 0 8px; font-size:13px; color:var(--muted); }
+.switch-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.switch-choice { min-height:48px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.switch-choice small { color:var(--muted); font-weight:normal; }
+.switch-choice[aria-current=true] { border-color:var(--accent); opacity:.7; }
+.switch-custom { margin:18px 0; }
+.switch-custom summary { cursor:pointer; padding:8px 0; }
+.switch-providers { width:100%; margin-top:12px; }
+.terminal-agent-switch { flex:none; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:40px; }
+@media(max-width:1023px) {
+  .terminal-agent-switch { max-width:72px; min-height:34px; height:34px; padding:0 8px; font-size:12px; }
+  .quick-switch input,.quick-switch select { font-size:16px; }
+}

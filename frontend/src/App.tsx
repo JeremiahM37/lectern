@@ -22,6 +22,14 @@ import { Palette, type Command } from "./shell/Palette";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
+import { QuickSwitch, sessionModelLabel } from "./sessions/QuickSwitch";
+const SWITCH_STORAGE = 'lec-pending-switches';
+function savedSwitches(): Record<string, number> {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(SWITCH_STORAGE) || '{}');
+    return Object.fromEntries(Object.entries(value).filter(([id, at])=>/^\d+$/.test(id)&&typeof at==='number')) as Record<string,number>;
+  } catch { return {}; }
+}
 const tabs = [
   "board",
   "sessions",
@@ -87,7 +95,14 @@ export default function App() {
       id: number;
       name: string;
     }>(),
-    [review, setReview] = useState<SessionView>();
+    [review, setReview] = useState<SessionView>(),
+    [switchSession, setSwitchSession] = useState<SessionView>(),
+    [pendingSwitches, setPendingSwitches] = useState(savedSwitches);
+  const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
+  const saveSwitches = useCallback((next: Record<string,number>)=>{
+    switching.current = next; setPendingSwitches(next);
+    try { sessionStorage.setItem(SWITCH_STORAGE, JSON.stringify(next)); } catch {}
+  },[]);
   const root = useRef<HTMLElement>(null),
     toastCounter = useRef(0),
     refreshGeneration = useRef(0),
@@ -158,6 +173,44 @@ export default function App() {
     },
     [terminals.open],
   );
+  const finishSwitch = useCallback(async (source: number, next?: {id:number;name:string}, error?: string)=>{
+    if (!(source in switching.current) || completingSwitches.current.has(source)) return;
+    completingSwitches.current.add(source);
+    try {
+      if(!next) throw new Error(error || 'The switch did not complete. Your original session is still available.');
+      const response = await api.request<{url:string}>(`/sessions/${next.id}/terminal`,{method:'POST'});
+      openTerminal(response.url,next.name);
+      terminals.close(`/terminal/session/${source}`);
+      notice('Switched. The original session is still available in Sessions.');
+    } catch(e) {notice(String(e),true);}
+    finally {
+      const remaining = {...switching.current}; delete remaining[source]; saveSwitches(remaining);
+      completingSwitches.current.delete(source);
+    }
+  },[api,openTerminal,terminals.close,notice,saveSwitches]);
+  // Reconcile after a reload or missed SSE event using the saved handoff link.
+  useEffect(()=>{
+    if(!Object.keys(pendingSwitches).length) return;
+    let stopped = false;
+    const reconcile = async()=>{
+      try {
+        const rows = await api.sessions();
+        for(const [id,after] of Object.entries(pendingSwitches)) {
+          if(stopped) return;
+          const source = rows.find(s=>s.id===Number(id));
+          if(source?.handoff_in_flight) continue;
+          const wraps = await api.request<{id:number;next_session_id:number|null}[]>(`/sessions/${id}/wraps`);
+          if(stopped) return;
+          const next = wraps.find(w=>w.id>after && w.next_session_id);
+          if(next?.next_session_id) await finishSwitch(Number(id),{id:next.next_session_id,name:source?.name||'Switched session'});
+          else await finishSwitch(Number(id),undefined,'Switch did not complete. Your original session is still available.');
+        }
+      } catch {/* A temporary connection failure can be retried on reconnect. */}
+    };
+    void reconcile();
+    const timer = setInterval(()=>void reconcile(),5000);
+    return ()=>{stopped=true;clearInterval(timer);};
+  },[pendingSwitches,api,finishSwitch]);
   const attach = useCallback(
     async (id: number) => {
       try {
@@ -290,10 +343,16 @@ export default function App() {
       try {
         const row = JSON.parse((event as MessageEvent<string>).data) as {
           ok?: boolean;
-          successor?: boolean;
+          session_id?: number;
+          successor?: {id:number;name:string};
           remembered?: boolean;
           error?: string;
         };
+        if(row.session_id && row.session_id in switching.current) {
+          void finishSwitch(row.session_id,row.ok ? row.successor : undefined,row.error);
+          update();
+          return;
+        }
         notice(
           row.ok
             ? "Handoff written" +
@@ -321,7 +380,7 @@ export default function App() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [api, authVersion, refresh, notice]);
+  }, [api, authVersion, refresh, notice, finishSwitch]);
   useEffect(() => {
     document.body.classList.toggle("terminals-open", view === "terminals");
     return () => document.body.classList.remove("terminals-open");
@@ -601,6 +660,7 @@ export default function App() {
             onMedia={(id) => navigate("#media/" + id)}
             onOpenTerminal={openTerminal}
             onReview={setReview}
+            onSwitch={setSwitchSession}
             onNotice={notice}
           />
         )}{" "}
@@ -652,7 +712,18 @@ export default function App() {
         onNew={newTerminal}
         onBrowse={() => navigate("#sessions")}
         onSearch={() => setPalette(true)}
+        switcher={(()=>{
+          const active = sessions.find(s=>terminals.active===`/terminal/session/${s.id}` && s.agent!=='shell' && !s.ended_at && s.status!=='dead' && s.setup_state!=='creating');
+          if(!active) return null;
+          const busy = active.id in pendingSwitches || active.handoff_in_flight;
+          return <button className="b terminal-agent-switch" aria-label="Switch agent or model" title={`Switch ${sessionModelLabel(active)}`} disabled={busy} onClick={()=>setSwitchSession(active)}>{busy?'Switching…':`⇄ ${sessionModelLabel(active)} ▾`}</button>;
+        })()}
       />
+      {switchSession && <QuickSwitch api={api} session={switchSession} onClose={()=>setSwitchSession(undefined)} onStarted={(source,afterWrap)=>{
+        saveSwitches({...switching.current,[source.id]:afterWrap});
+        notice('Switching… waiting for the current agent to save its handoff.');
+        void refresh().catch(error=>notice(String(error),true));
+      }} onProfiles={()=>{setSwitchSession(undefined);setManageProfiles(true);}}/>}
       <button
         id="fab"
         title="new task"
@@ -791,6 +862,10 @@ export default function App() {
           api={api}
           onClose={() => setConversation(undefined)}
           onNotice={notice}
+          onSwitch={(()=>{
+            const session = conversation.kind==='session' && sessions.find(s=>s.id===conversation.id && s.agent!=='shell' && !s.ended_at && s.status!=='dead');
+            return session ? ()=>{setConversation(undefined);setSwitchSession(session);} : undefined;
+          })()}
         />
       )}{" "}
       {review && (

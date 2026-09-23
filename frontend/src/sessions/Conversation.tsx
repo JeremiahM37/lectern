@@ -97,6 +97,7 @@ export function Conversation({
   api,
   onClose,
   onNotice,
+  onSwitch,
 }: {
   kind: "session" | "task";
   id: number;
@@ -104,6 +105,7 @@ export function Conversation({
   api: SessionsApi;
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
+  onSwitch?(): void;
 }) {
   const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
@@ -525,6 +527,7 @@ export function Conversation({
             {status}
           </p>
         </div>
+        {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
         <button
           className="b"
           id="conversation-close"

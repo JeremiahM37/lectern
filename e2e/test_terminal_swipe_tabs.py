@@ -27,7 +27,7 @@ def _session_frame(page, session_id):
     return next(f for f in page.frames if f.url.split("?", 1)[0].endswith(suffix))
 
 
-@pytest.mark.parametrize("width", [390])
+@pytest.mark.parametrize("width", [320, 390])
 def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_selection(
     page, real_terminal, width, tmp_path
 ):

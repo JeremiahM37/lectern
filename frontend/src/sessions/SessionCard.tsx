@@ -26,6 +26,7 @@ interface Props {
   onChat: (session: SessionView) => void;
   onReview: (session: SessionView) => void;
   onHandoff: (session: SessionView) => void;
+  onSwitch?: (session: SessionView) => void;
   onGroup: (session: SessionView) => void;
   onHistory: (session: SessionView) => void;
   onWorkspace: (session: SessionView) => void;
@@ -45,6 +46,7 @@ export function SessionCard({
   onChat,
   onReview,
   onHandoff,
+  onSwitch,
   onGroup,
   onHistory,
   onWorkspace,
@@ -269,6 +271,7 @@ export function SessionCard({
             <button className="b grow" onClick={() => onChat(s)}>
               Chat
             </button>
+            {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}
           </>
         )}
         {ended && !archived && s.can_restore && (
