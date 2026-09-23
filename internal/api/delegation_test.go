@@ -11,7 +11,7 @@ func TestDelegationIsOffUntilAWorkerIsChosenAndThePresetInstallsOne(t *testing.T
 	h := newHarness(t)
 	view := h.get("/api/delegation")
 	settings, _ := view["settings"].(map[string]any)
-	if settings["enabled"] != false || view["worker_ready"] != false {
+	if settings["enabled"] != false || view["worker_ready"] != false || view["orchestrate_ready"] != false {
 		t.Fatalf("default view: %v", view)
 	}
 	if code := h.status("PUT", "/api/delegation", obj{"enabled": true}); code != 400 {

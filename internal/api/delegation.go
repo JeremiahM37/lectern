@@ -30,7 +30,9 @@ func (s *Server) delegationSettings() delegation.Settings {
 // run".
 func (s *Server) delegationView() map[string]any {
 	cfg := s.delegationSettings()
-	out := map[string]any{"settings": cfg, "worker_ready": false, "worker_problem": ""}
+	// orchestrate_ready is always present: the board's Orchestrate entry reads
+	// it on every load, and a missing field would read as "unknown", not "no".
+	out := map[string]any{"settings": cfg, "worker_ready": false, "worker_problem": "", "orchestrate_ready": false}
 	if cfg.WorkerAgent == "" {
 		out["worker_problem"] = "no worker agent chosen"
 		return out
@@ -49,8 +51,8 @@ func (s *Server) delegationView() map[string]any {
 	if out["worker_command"] == "" {
 		out["worker_command"] = spec.Command
 	}
-	// The board's Orchestrate entry is only offered when a description typed
-	// there would actually run: the feature is on and the worker answers.
+	// Offered only when a description typed there would actually run: the
+	// feature is on and the worker is runnable.
 	out["orchestrate_ready"] = cfg.Enabled
 	return out
 }
