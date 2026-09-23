@@ -122,12 +122,12 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 func TestAttachArgvPerTargetKind(t *testing.T) {
 	att := terminal.Attachment{Key: "attempt:7", TmuxSession: "lec-7", SandboxVMID: "9001"}
 	sandbox, _ := terminal.AttachArgv(att, &store.Target{Kind: "sandbox"})
-	if strings.Join(sandbox, " ") != "sudo pct exec 9001 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
+	if strings.Join(sandbox, " ") != "sudo pct exec 9001 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size latest" {
 		t.Errorf("sandbox: %v", sandbox)
 	}
 	pct, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"},
 		&store.Target{Kind: "pct", Host: "105"})
-	if strings.Join(pct, " ") != "sudo pct exec 105 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
+	if strings.Join(pct, " ") != "sudo pct exec 105 -- tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size latest" {
 		t.Errorf("pct: %v", pct)
 	}
 	ssh, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"},
@@ -137,7 +137,7 @@ func TestAttachArgvPerTargetKind(t *testing.T) {
 		t.Errorf("ssh: %v", ssh)
 	}
 	local, _ := terminal.AttachArgv(terminal.Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "local"})
-	if strings.Join(local, " ") != "tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size smallest" {
+	if strings.Join(local, " ") != "tmux attach -t lec-7 ; set-option -w -t =lec-7: window-size latest" {
 		t.Errorf("local: %v", local)
 	}
 }

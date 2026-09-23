@@ -127,6 +127,15 @@ export class Engine {
         options.matches(event.resultIndex, event.resultCount),
       ),
     );
+    // Clicking or tapping into this terminal makes it the one tmux sizes for.
+    const textarea = this.term.textarea;
+    if (textarea) {
+      const claim = () => this.scheduleFit(true);
+      textarea.addEventListener("focus", claim);
+      this.disposables.push({
+        dispose: () => textarea.removeEventListener("focus", claim),
+      });
+    }
     this.observer = new ResizeObserver(() => this.scheduleFit());
     this.observer.observe(options.host);
     this.term.textarea?.addEventListener("blur", () => {
@@ -317,7 +326,11 @@ export class Engine {
       bytes[i + 1] = text.charCodeAt(i) & 255;
     this.ws.send(bytes);
   }
-  scheduleFit() {
+  // Claims survive a cancelled frame: a plain fit scheduled right after a
+  // claiming one must not drop the claim.
+  private claimQueued = false;
+  scheduleFit(claim = false) {
+    if (claim) this.claimQueued = true;
     if (this.fitFrame !== undefined) cancelAnimationFrame(this.fitFrame);
     this.fitFrame = requestAnimationFrame(() => {
       if (
@@ -329,7 +342,24 @@ export class Engine {
       this.fit.fit();
       this.options.frozen.style.top = this.options.host.offsetTop + "px";
       this.term.refresh(0, this.term.rows - 1);
+      if (this.claimQueued) {
+        this.claimQueued = false;
+        this.claim();
+      }
     });
+  }
+  // tmux sizes a shared window to the client used last (window-size latest).
+  // Re-announcing this view's size makes it that client, so a terminal the
+  // operator has just brought into view is drawn at its own size rather than
+  // at the size of a phone, hidden tab or native terminal also attached. The
+  // kernel only signals a real size change, so step one row down and back;
+  // tmux counts both as a resize from this client even though the final size
+  // is the one it already had.
+  private claim() {
+    if (!this.connected || document.hidden || this.term.rows < 2) return;
+    const { cols, rows } = this.term;
+    this.send("1" + JSON.stringify({ columns: cols, rows: rows - 1 }));
+    this.send("1" + JSON.stringify({ columns: cols, rows }));
   }
   async connect(soft = false) {
     if (this.stopped) return;

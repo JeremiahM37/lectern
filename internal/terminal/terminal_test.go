@@ -198,28 +198,28 @@ func TestAttachArgvPerTargetKind(t *testing.T) {
 		"local": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "local"},
-			[]string{"tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
+			[]string{"tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 		"pct container": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "pct", Host: "104"},
-			[]string{"sudo", "pct", "exec", "104", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
+			[]string{"sudo", "pct", "exec", "104", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 		"ephemeral sandbox beats the target kind": {
 			Attachment{TmuxSession: "lec-7", SandboxVMID: "9001"},
 			&store.Target{Kind: "sandbox", Host: "irrelevant"},
-			[]string{"sudo", "pct", "exec", "9001", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
+			[]string{"sudo", "pct", "exec", "9001", "--", "tmux", "attach", "-t", "lec-7", ";", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 		"ssh with a key": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude", KeyPath: "/home/admin/.ssh/id_ed25519"},
 			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new",
-				"-i", "/home/admin/.ssh/id_ed25519", "claude@192.0.2.14", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
+				"-i", "/home/admin/.ssh/id_ed25519", "claude@192.0.2.14", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 		"ssh defaults to root": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "h"},
-			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "root@h", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "smallest"},
+			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "root@h", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 	} {
 		got, err := AttachArgv(tc.a, tc.target)
@@ -273,12 +273,12 @@ func TestShellAttachOpensAPersistentSessionInTheRepo(t *testing.T) {
 		want   string
 	}{
 		"local": {&store.Target{Kind: "local"},
-			"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size smallest"},
+			"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size latest"},
 		"pct": {&store.Target{Kind: "pct", Host: "104"},
-			"sudo pct exec 104 -- tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size smallest"},
+			"sudo pct exec 104 -- tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size latest"},
 		"ssh": {&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude"},
 			"ssh -tt -o StrictHostKeyChecking=accept-new claude@192.0.2.14 " +
-				"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c 'exec \"${SHELL:-/bin/sh}\" -i' ';' set-option -w -t =lec-sh12: window-size smallest"},
+				"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c 'exec \"${SHELL:-/bin/sh}\" -i' ';' set-option -w -t =lec-sh12: window-size latest"},
 	} {
 		got, err := AttachArgv(att, tc.target)
 		if err != nil {
@@ -304,7 +304,7 @@ func TestAnAgentAttachIsStillAnAttach(t *testing.T) {
 		t.Fatal("an attachment with no workdir is not a shell")
 	}
 	got, _ := AttachArgv(att, &store.Target{Kind: "local"})
-	if strings.Join(got, " ") != "tmux attach -t lec-s3 ; set-option -w -t =lec-s3: window-size smallest" {
+	if strings.Join(got, " ") != "tmux attach -t lec-s3 ; set-option -w -t =lec-s3: window-size latest" {
 		t.Errorf("got %v", got)
 	}
 }

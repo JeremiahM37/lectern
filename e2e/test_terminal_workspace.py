@@ -326,6 +326,17 @@ while True:
             assert f'{cols}x{rows}' in sizes, sizes
             page.evaluate("window.dispatchEvent(new Event('focus'))")
             expect(page.locator('#connection')).to_have_text('Connected')
+            # Focus claims the shared window for the browser, whatever size
+            # the native client is. Under `window-size smallest` a smaller
+            # native client pinned the browser to its size, padded with dots.
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                clients = subprocess.check_output(['tmux','list-clients','-F','#{client_width}x#{client_height}'],env=t['env']).decode().splitlines()
+                browser_size = next((c for c in clients if c != f'{cols}x{rows}'), clients[0])
+                window = subprocess.check_output(['tmux','display-message','-p','-t','=terminal-test:','#{window_width}'],env=t['env']).decode().strip()
+                if window == browser_size.split('x')[0]: break
+                page.wait_for_timeout(100)
+            assert window == browser_size.split('x')[0], (window, clients)
             expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text('R000=', timeout=5000)
             # Rows have one label and one repeated glyph; overlapping redraws
             # produce stale labels or a second row's glyph on the same line.

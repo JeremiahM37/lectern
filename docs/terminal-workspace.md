@@ -94,10 +94,21 @@ remain in the suite; do not mistake a stopped WSL instance for a ttyd failure.
 ## Shared native and browser terminals
 
 Opening Kitty or WezTerm keeps the browser attached to the same tmux session.
-Lectern sets `window-size smallest` on the attached window (never globally).
-The shared screen fits the smallest connected client and expands when that
-client disconnects. This prevents tmux's `latest` policy from cropping a small
-browser around the cursor of a larger desktop, which could make it look blank.
+Lectern sets `window-size latest` on the attached window (never globally), so
+the shared screen fits whichever client last attached, typed or resized. The
+browser re-announces its size when a terminal tab is shown, when the page
+becomes visible or is restored, and when the window or the terminal gains
+focus. The Linux PTY only signals real size changes, so the engine steps one
+row down and back, which tmux counts as a resize from that client even when
+the final size is unchanged.
+
+Lectern used `window-size smallest` until 2026-09-23. That kept a small browser
+from being cropped around a larger desktop's cursor, but any forgotten client
+(a sleeping phone, a hidden tab, a narrow split pane) then pinned every other
+view to its size. The larger view showed a sliver of the agent's input box
+padded with tmux's dots until the session was restarted. With `latest`, the
+view you are using always wins, and a passive second viewer is the one that is
+cropped until it is shown, focused or typed in.
 
 Regression coverage joins a real native PTY and a real browser, changes both
 terminal sizes, and checks complete, uncorrupted rows without reopening either.

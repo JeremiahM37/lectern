@@ -554,6 +554,10 @@ export function TerminalApp({
       window.visualViewport?.addEventListener("scroll", measure, { signal });
       measure();
     }
+    // Coming into view also takes the shared tmux window's size (see
+    // Engine.claim), so a hidden or sleeping client cannot shrink this one.
+    const show = () =>
+      engines.current.forEach((engine) => engine.scheduleFit(true));
     const focus = () => setKeyboardFocused(document.activeElement?.classList.contains("xterm-helper-textarea") === true);
     document.addEventListener("focusin", focus, { signal });
     document.addEventListener("focusout", () => queueMicrotask(focus), { signal });
@@ -570,8 +574,8 @@ export function TerminalApp({
       width = innerWidth;
     }, { signal });
     window.visualViewport?.addEventListener("resize", fit, { signal });
-    window.addEventListener("focus", fit, { signal });
-    window.addEventListener("pageshow", fit, { signal });
+    window.addEventListener("focus", show, { signal });
+    window.addEventListener("pageshow", show, { signal });
     void document.fonts?.ready.then(() => {
       if (!signal.aborted) fit();
     });
@@ -581,13 +585,13 @@ export function TerminalApp({
         document.body.classList.toggle("mobile-terminal", data.mobile);
         setMobile(data.mobile);
         chrome();
-        fit();
+        show();
       }
     });
     document.addEventListener(
       "visibilitychange",
       () => {
-        if (!document.hidden) fit();
+        if (!document.hidden) show();
       },
       { signal },
     );
