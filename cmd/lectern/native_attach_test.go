@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -76,6 +77,134 @@ func TestNativeWrapConfigBindings(t *testing.T) {
 	}
 	if !strings.HasSuffix(strings.TrimSpace(plan.uploadBody), "--popup --action upload") {
 		t.Fatalf("upload command: %q", plan.uploadBody)
+	}
+	// Both popups carry the private socket and the attached session so a
+	// finished upload inserts the path whether it was started with the upload
+	// shortcut or chosen from the Ctrl-] controls menu.
+	for name, body := range map[string]string{"controls": plan.controlsBody, "upload": plan.uploadBody} {
+		if !strings.Contains(body, insertSocketEnv+"="+plan.socket) ||
+			!strings.Contains(body, insertTargetEnv+"="+plan.session) {
+			t.Errorf("%s command is missing the insert target: %q", name, body)
+		}
+	}
+}
+
+// The insert command must bind the private socket and name the session
+// exactly, so it can never type into an unrelated session on the operator's
+// ambient tmux.
+func TestInsertSendKeysArgsUseExactPrivateTarget(t *testing.T) {
+	args, err := insertSendKeysArgs("/tmp/private/sock", "lectern-attach", "typed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-S", "/tmp/private/sock", "send-keys", "-l", "-t", "=lectern-attach:", "--", "typed"}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("insert args %q, want %q", args, want)
+	}
+	if _, err := insertSendKeysArgs("", "=lectern-attach", "typed"); err == nil {
+		t.Fatal("a missing private socket was accepted")
+	}
+	if _, err := insertSendKeysArgs("/tmp/private/sock", "", "typed"); err == nil {
+		t.Fatal("a missing target was accepted")
+	}
+}
+
+// send-keys -l writes control bytes literally, so inserting them could submit
+// the draft (LF/CR) or drive the terminal (ESC, DEL, the C1 range) even though
+// shell quoting already neutralised them as shell syntax.
+func TestInsertSendKeysArgsRejectsControlCharacters(t *testing.T) {
+	for name, text := range map[string]string{
+		"LF":      "path\ncommand",
+		"CR":      "path\rcommand",
+		"ESC":     "path\x1b[2J",
+		"DEL":     "path\x7f",
+		"C1 CSI":  "path\u009b31m",
+		"C1 NEL":  "path\u0085command",
+		"raw C1":  "path\x9b31m",
+		"raw NUL": "path\x00",
+		"invalid": "path\xff",
+	} {
+		if _, err := insertSendKeysArgs("/tmp/sock", "lectern-attach", text); err == nil {
+			t.Errorf("%s text was accepted for insertion", name)
+		}
+	}
+	// A non-ASCII path is still a legitimate shell word and must survive.
+	if _, err := insertSendKeysArgs("/tmp/sock", "lectern-attach", "'/remote/contexte café.txt' "); err != nil {
+		t.Errorf("a non-ASCII path was rejected: %v", err)
+	}
+}
+
+// The rendered exact target must really resolve to the private session's pane:
+// a bare session name is not a valid pane target, so the insert would silently
+// fall back to manual copy against a live tmux.
+func TestInsertIntoAttachmentTypesIntoThePrivateSession(t *testing.T) {
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux is not installed")
+	}
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "sock")
+	start := exec.Command(tmuxPath, "-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "lectern-attach", "--", "cat")
+	if out, err := start.CombinedOutput(); err != nil {
+		t.Fatalf("start private tmux: %v: %s", err, out)
+	}
+	t.Cleanup(func() { exec.Command(tmuxPath, "-S", socket, "kill-server").Run() })
+	t.Setenv(insertSocketEnv, socket)
+	t.Setenv(insertTargetEnv, "lectern-attach")
+
+	if err := insertIntoAttachment("inserted without submitting"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, err := exec.Command(tmuxPath, "-S", socket, "capture-pane", "-p", "-t", "lectern-attach").Output()
+		if err == nil && strings.Contains(string(out), "inserted without submitting") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("inserted text never reached the private pane: %q", string(out))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// Both popup scripts must set the insert environment without a shell
+// reinterpreting either the private socket path or the command arguments.
+func TestNativeWrapPopupScriptsRunWithInsertTarget(t *testing.T) {
+	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
+	// Replace the real client with a probe that reports the two variables and
+	// its own arguments; every word must survive unchanged.
+	probe := filepath.Join(plan.dir, "probe")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$" + insertSocketEnv + "\" \"$" + insertTargetEnv + "\" \"$@\"\n"
+	if err := os.WriteFile(probe, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{
+		insertSocketEnv + "=" + plan.socket,
+		insertTargetEnv + "=" + plan.session,
+	}
+	for name, tc := range map[string]struct {
+		script string
+		argv   []string
+	}{
+		"controls": {"controls.sh", []string{probe, "controls", "session", "17", "--popup"}},
+		"upload":   {"upload.sh", []string{probe, "controls", "session", "17", "--popup", "--action", "upload"}},
+	} {
+		script := filepath.Join(plan.dir, tc.script)
+		if err := os.WriteFile(script, []byte(execScriptWithEnv(env, tc.argv)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("sh", script).Output()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if len(lines) < 2 || lines[0] != plan.socket || lines[1] != plan.session {
+			t.Fatalf("%s insert environment missing: %q", name, string(out))
+		}
+		if got, want := strings.Join(lines[2:], " "), strings.Join(tc.argv[1:], " "); got != want {
+			t.Fatalf("%s arguments changed: %q want %q", name, got, want)
+		}
 	}
 }
 

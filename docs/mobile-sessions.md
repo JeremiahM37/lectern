@@ -5,6 +5,12 @@ Blank shells with no project sit under their own **Scratch terminals** heading,
 apart from **Sessions and projects**, and both lists keep the search, scope and
 grouping controls. **Make a project** on a scratch card promotes it without
 moving its files or restarting its terminal. Agent cards put **Chat** first;
+Two quick shells never read the same: each scratch card is titled with its own
+scratch folder, shows that full path so it can be read or copied, and keeps
+**✎ Rename** for a name you recognize. Renaming changes the card only — the
+folder, its files and the terminal stay where they are — and the name survives a
+reload. Cards nobody renamed are titled from their folder; stored rows are never
+rewritten behind your back.
 **Terminal** remains one tap away. Chat preserves
 an unsent draft on the device, shows connection state, and offers working-file
 changes. **Needs you** collects pending approvals, waiting sessions, setup/task

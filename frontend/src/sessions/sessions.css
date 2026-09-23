@@ -183,11 +183,41 @@
 .scratch-terminals .hint {
   margin-top: 6px;
 }
+/* A blank shell's card title is its scratch folder, so the full path stays on
+   the card: readable when it wraps and copyable for pasting into a terminal.
+   It wraps rather than widening the card on a phone. */
+.scard-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 4px 0 2px;
+}
+.scard-path code {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: block;
+  padding: 4px 7px;
+  color: var(--ink-dim, #a6adc2);
+  font: 500 11.5px var(--mono, ui-monospace, monospace);
+  background: var(--panel-2, #202536);
+  border: 1px solid var(--line, #33384a);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.scard-path .copy-path {
+  flex: none;
+}
 @media (max-width: 600px) {
   .session-section-title {
     font-size: 14px;
   }
   .scratch-terminals .make-project {
+    flex: 1 1 100%;
+  }
+  .scard-path code {
     flex: 1 1 100%;
   }
 }

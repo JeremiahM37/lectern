@@ -7,6 +7,7 @@ stopped. --allow-input acknowledges that commands will be typed into --session.
 ADB reverse must make --url reachable inside the emulator; CDP must be forwarded.
 """
 import argparse
+from contextlib import nullcontext
 import json
 import re
 import subprocess
@@ -22,7 +23,7 @@ parser.add_argument('--adb', default='adb')
 parser.add_argument('--cdp', default='http://127.0.0.1:19222')
 parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--allow-input', action='store_true')
-args = parser.parse_args()
+args = globals().get('_audit_args') or parser.parse_args()
 if not args.allow_input or not args.serial.startswith('emulator-'):
     parser.error('Requires --allow-input and an explicit emulator serial')
 base = args.url.rstrip('/')
@@ -45,11 +46,16 @@ def tap(x, y):
 if not re.search(r'Physical size: 1080x2400', adb('shell', 'wm', 'size').decode()):
     parser.error('Native key coordinates require the 1080x2400 Pixel 7 profile')
 report = {'serial': args.serial, 'session': args.session, 'checks': []}
-with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp(args.cdp)
-    page = next((page for page in browser.contexts[0].pages if page.url.startswith(base)), None)
+shared_page = globals().get('_audit_page')
+with (nullcontext() if shared_page is not None else sync_playwright()) as p:
+    if shared_page is not None:
+        page = shared_page
+    else:
+        browser = p.chromium.connect_over_cdp(args.cdp, timeout=15000)
+        page = next((page for page in browser.contexts[0].pages if page.url.startswith(base)), None)
     if page is None:
         parser.error('Open the audit URL in Android Chrome before connecting')
+    page.bring_to_front()
     page.goto(f'{base}/#terminals/session/{args.session}')
     page.reload()  # a hash-only navigation would keep the previous build alive
     frame = page.frame_locator(f'iframe[src="/terminal/session/{args.session}?embed=1"]')

@@ -4,7 +4,11 @@ import { useState } from "react";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
-import { isScratchTerminal } from "./scratch";
+import {
+  isScratchTerminal,
+  scratchDefaultName,
+  scratchTitle,
+} from "./scratch";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -63,6 +67,10 @@ export function SessionCard({
     archived = s.archived_at != null,
     adopted = s.origin === "discovered",
     scratch = isScratchTerminal(s),
+    // A blank shell is named after the folder the target made for it, so two
+    // "Shell · <target>" cards are told apart. An explicit rename still wins.
+    scratchPath = scratch ? s.workdir || s.workspace?.path || "" : "",
+    cardTitle = scratch ? scratchTitle(s) : s.name,
     live = !ended && s.status !== "dead" && !setup && !failed,
     // A blank shell is a terminal, not a conversation: chat would be a worse
     // way to drive it, so the card keeps the terminal as its one action.
@@ -121,6 +129,24 @@ export function SessionCard({
   function end(kill: boolean) {
     void run(`/sessions/${s.id}${kill ? "?kill=true" : ""}`, "DELETE");
   }
+  // Renaming a scratch card is a convenience on top of the folder title: the
+  // directory stays where it is, only the tracked row's name changes.
+  function rename() {
+    const next = prompt(
+      "Rename this scratch terminal. Its folder is untouched.",
+      cardTitle,
+    );
+    if (next === null || !next.trim()) return;
+    void run(`/sessions/${s.id}`, "PATCH", { name: next.trim() }, "Renamed.");
+  }
+  async function copyPath() {
+    try {
+      await navigator.clipboard.writeText(scratchPath);
+      onNotice("Scratch folder path copied.");
+    } catch {
+      onNotice("Copy failed. Select the path and copy it manually.", true);
+    }
+  }
   const status = setup
     ? s.setup_cancel_requested
       ? "cancelling"
@@ -158,10 +184,15 @@ export function SessionCard({
       data-session-id={s.id}
       data-scratch-terminal={scratch ? "true" : undefined}
     >
-      <div className="scard-project">{s.project_name || "Unassigned"}</div>
+      {/* A blank shell has no project, so its location line names the machine
+          instead: the card's title is the folder, and this keeps "which host"
+          readable without repeating the folder. */}
+      <div className="scard-project">
+        {scratch ? scratchDefaultName(s) : s.project_name || "Unassigned"}
+      </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
-        <span className="nm">{s.name}</span>
+        <span className="nm">{cardTitle}</span>
         <span className="sstate">{status}</span>
         <span className="sidle">
           {s.status === "dead" || setup
@@ -169,6 +200,14 @@ export function SessionCard({
             : "quiet " + duration(s.idle_seconds)}
         </span>
       </div>
+      {scratch && scratchPath && (
+        <div className="scard-path">
+          <code title={scratchPath}>{scratchPath}</code>
+          <button className="b copy-path" onClick={() => void copyPath()}>
+            Copy path
+          </button>
+        </div>
+      )}
       <div className="smeta">
         <span className="chip">
           {s.agent}
@@ -313,6 +352,11 @@ export function SessionCard({
             {scratch && (
               <button className="b ok make-project" onClick={makeProject}>
                 ⇑ Make a project
+              </button>
+            )}
+            {scratch && (
+              <button className="b rename" onClick={rename}>
+                ✎ Rename
               </button>
             )}
             {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}

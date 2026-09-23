@@ -127,6 +127,15 @@ client's own API base and token, handed to the private tmux server through its
 environment only — never through a command line, a config file, or the status
 line.
 
+When the upload finishes, the popup types the stored **remote** path back into
+the attached terminal, shell-quoted, without pressing Enter — the same behavior
+as the browser's **Attach files** action. This holds whether the upload was
+opened with the `Ctrl-] u` shortcut or chosen from the `Ctrl-] m` controls
+menu. The path refers to the agent's workspace on its target, so it stays
+usable wherever the agent is running; submit it yourself when your prompt is
+ready. If the client cannot reach the attached pane, or the path cannot be
+typed literally, the popup reports the path instead of inserting it.
+
 `lectern controls [KIND ID]` opens the same control-only dashboard directly
 (`session`, `task`, `attempt`, or `project`). An attempt resolves to its owning
 task; when the requested row is not in the current list — an ended or archived

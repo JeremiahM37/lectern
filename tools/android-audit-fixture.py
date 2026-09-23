@@ -5,6 +5,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
+import runpy
+from types import SimpleNamespace
 import socket
 import subprocess
 import sys
@@ -74,20 +77,21 @@ def main():
         device('reverse', reverse, reverse)
         forward=f'tcp:{cdp_port}'
         device('forward', forward, 'localabstract:chrome_devtools_remote')
-        device('shell','am','start','-a','android.intent.action.VIEW','-d',base,'com.android.chrome')
+        # A cold AVD snapshot may restore a stale Chrome ANR dialog. Restart
+        # the browser on this explicit test emulator before opening our fixture.
+        device('shell','am','force-stop','com.android.chrome')
+        device('shell','am','start','-W','-a','android.intent.action.VIEW','-d',base,'com.android.chrome')
         for _ in range(100):
             try:
-                with urllib.request.urlopen(f'http://127.0.0.1:{cdp_port}/json/version',timeout=2): pass
-                break
+                with urllib.request.urlopen(f'http://127.0.0.1:{cdp_port}/json/list',timeout=2) as response:
+                    pages = json.load(response)
+                if any(tab.get('type') == 'page' and tab.get('url', '').startswith(base) for tab in pages):
+                    break
             except OSError:
-                time.sleep(.2)
+                pass
+            time.sleep(.2)
         else:
             raise RuntimeError('Chrome CDP unavailable')
-        subprocess.run([sys.executable,'/src/tools/android-terminal-audit.py','--url',base,
-            '--session',str(sessions[0]['id']),'--serial',serial,'--adb',adb,
-            '--cdp',f'http://127.0.0.1:{cdp_port}','--artifacts',str(out/'keyboard'),
-            '--allow-input'],check=True)
-        report['checks'].extend(json.loads((out/'keyboard/result.json').read_text())['checks'])
         # Full-screen prompt and gesture proof, using only this fixture's panes.
         from playwright.sync_api import sync_playwright, expect
         tui=root/'bottom-prompt.py'
@@ -108,10 +112,22 @@ finally:
 ''')
         subprocess.run(['tmux','send-keys','-t','='+sessions[1]['tmux_session']+':0.0','-l','python3 '+str(tui)],env=env,check=True)
         subprocess.run(['tmux','send-keys','-t','='+sessions[1]['tmux_session']+':0.0','Enter'],env=env,check=True)
+        print('Connecting full-screen Android audit',flush=True)
         with sync_playwright() as p:
-            browser=p.chromium.connect_over_cdp(f'http://127.0.0.1:{cdp_port}')
+            browser=p.chromium.connect_over_cdp(f'http://127.0.0.1:{cdp_port}',timeout=15000)
+            print('Connected full-screen Android audit',flush=True)
             context=browser.contexts[0]
             page=next(page for page in context.pages if page.url.startswith(base))
+            page.bring_to_front()
+            # Keep one CDP connection through all stages. Reattaching another
+            # Playwright driver to Android Chrome can stall on detached targets.
+            runpy.run_path('/src/tools/android-terminal-audit.py', init_globals={
+                '_audit_page': page,
+                '_audit_args': SimpleNamespace(url=base,session=sessions[0]['id'],
+                    serial=serial,adb=adb,cdp=f'http://127.0.0.1:{cdp_port}',
+                    artifacts=out/'keyboard',allow_input=True),
+            })
+            report['checks'].extend(json.loads((out/'keyboard/result.json').read_text())['checks'])
             # Set resize policy before navigation. Updating the viewport meta
             # after load is ignored by some Chrome versions.
             cdp=context.new_cdp_session(page)
@@ -181,6 +197,76 @@ finally:
             device('shell','am','start','-a','android.intent.action.VIEW','-d',page.url,'com.android.chrome')
             expect(frame0.locator('#connection')).to_have_text('Connected',timeout=20000)
             report['checks'].append('Offline/online and background/foreground restore the same terminal')
+            page.bring_to_front()
+            # A WebView/browser shell may overlay the IME without resizing
+            # either viewport. The OS keyboard geometry must still fit the PTY.
+            page.goto(f'{base}/#terminals/session/{sessions[1]["id"]}')
+            frame=page.frame_locator(f'iframe[src="/terminal/session/{sessions[1]["id"]}?embed=1"]')
+            expect(frame.locator('#connection')).to_have_text('Connected',timeout=20000)
+            page.reload()
+            expect(frame.locator('#connection')).to_have_text('Connected',timeout=20000)
+            page.evaluate('navigator.virtualKeyboard.overlaysContent=true')
+            frame.locator('#agent-terminal').click()
+            page.wait_for_function('navigator.virtualKeyboard.boundingRect.height > 200')
+            page.keyboard.type('OVERLAY-VISIBLE')
+            expect(frame.locator('.xterm-screen')).to_contain_text('OVERLAY-VISIBLE')
+            page.wait_for_timeout(800)
+            keyboard=page.evaluate('navigator.virtualKeyboard.boundingRect.toJSON()')
+            cursor=frame.locator('.xterm-cursor').bounding_box()
+            keys=frame.locator('#terminal-keybar').bounding_box()
+            report['overlay_geometry']={'keyboard':keyboard,'cursor':cursor,'keybar':keys,
+                'viewport':page.evaluate('({layout:innerHeight,visual:visualViewport.height})')}
+            (out/'overlay-keyboard.png').write_bytes(device('exec-out','screencap','-p'))
+            # Chrome 148's boundingRect.y is a window inset (upstream
+            # crbug.com/493416495), not keyboard top. Its docked IME height
+            # is correct; ADB screenshot includes the actual OS boundary.
+            keyboard_top=page.evaluate('innerHeight')-keyboard['height']
+            assert cursor and keys and cursor['y']+cursor['height']<=keys['y']+2 and keys['y']+keys['height']<=keyboard_top+2, report['overlay_geometry']
+            report['checks'].append('Overlay keyboard geometry keeps full-screen input visible without viewport resizing')
+            frame.locator('#terminal-keyboard').click()
+            page.evaluate('navigator.virtualKeyboard.overlaysContent=false')
+            if shutil.which('claude'):
+                # Optional real renderer, mounted explicitly by the isolated
+                # runner. Private config/dummy key; never submit a prompt.
+                home=root/'claude-input-audit';home.mkdir()
+                (home/'.claude.json').write_text(json.dumps({'hasCompletedOnboarding':True,'theme':'dark','numStartups':1}))
+                claude_env=dict(env, ANTHROPIC_API_KEY='lectern-keyboard-audit',
+                    ANTHROPIC_BASE_URL='http://127.0.0.1:1',CLAUDE_CONFIG_DIR=str(home),
+                    DISABLE_AUTOUPDATER='1',CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1')
+                command='env '+ ' '.join(shlex.quote(k+'='+claude_env[k]) for k in
+                    ['ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL','CLAUDE_CONFIG_DIR','DISABLE_AUTOUPDATER','CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'])+' claude --setting-sources ""'
+                subprocess.run(['tmux','new-session','-d','-s','android-audit-claude','-c',str(root),command],env=env,check=True)
+                session=api('/sessions/adopt', {'target_id':target['id'],'tmux_session':'android-audit-claude',
+                    'workdir':str(root),'name':'Claude input audit','agent':'claude'})
+                page.goto(f'{base}/#terminals/session/{session["id"]}')
+                claude=page.frame_locator(f'iframe[src="/terminal/session/{session["id"]}?embed=1"]')
+                expect(claude.locator('.xterm-screen')).to_contain_text('trust',timeout=20000)
+                claude.locator('#agent-terminal').click()
+                page.keyboard.press('ArrowDown');page.keyboard.press('Enter')
+                expect(claude.locator('.xterm-screen')).to_contain_text('custom API key',timeout=20000)
+                page.keyboard.press('ArrowUp');page.keyboard.press('Enter')
+                expect(claude.locator('.xterm-screen')).to_contain_text('? for shortcuts',timeout=20000)
+                page.keyboard.type('Unsent keyboard visibility probe '*20+' CLAUDE-DRAFT')
+                def check_claude(marker, filename):
+                    row=claude.locator('.xterm-rows > div').filter(has_text=marker).last
+                    expect(row).to_be_visible()
+                    page.wait_for_timeout(800)
+                    line=row.bounding_box();bar=claude.locator('#terminal-keybar').bounding_box()
+                    limit=page.evaluate('navigator.virtualKeyboard.overlaysContent ? innerHeight-navigator.virtualKeyboard.boundingRect.height : visualViewport.offsetTop+visualViewport.height')
+                    assert line and bar and line['y']+line['height']<=bar['y']+2 and bar['y']+bar['height']<=limit+2,(line,bar,limit)
+                    (out/filename).write_bytes(device('exec-out','screencap','-p'))
+                check_claude('CLAUDE-DRAFT','claude-keyboard.png')
+                report['checks'].append('Real Claude long unsent draft stays above native Gboard')
+                claude.locator('#terminal-keyboard').click()
+                page.wait_for_function('innerHeight > 650')
+                page.evaluate('navigator.virtualKeyboard.overlaysContent=true')
+                claude.locator('#agent-terminal').click()
+                page.wait_for_function('navigator.virtualKeyboard.boundingRect.height > 200')
+                page.keyboard.type(' CLAUDE-OVERLAY')
+                check_claude('CLAUDE-OVERLAY','claude-overlay-keyboard.png')
+                report['checks'].append('Real Claude input stays above native overlay Gboard')
+                claude.locator('#terminal-keyboard').click()
+                page.evaluate('navigator.virtualKeyboard.overlaysContent=false')
             page.close()
         report['ok']=True
     except Exception as exc:
@@ -208,8 +294,8 @@ finally:
             except subprocess.TimeoutExpired:server.kill();server.wait()
         # Only this namespace's tmux socket exists here; parent death also reaps
         # every fixture process. Never issue a host kill-server or emulator kill.
-        for i in range(2):
-            subprocess.run(['tmux','kill-session','-t',f'=android-audit-{i}'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        for name in ['android-audit-0','android-audit-1','android-audit-claude']:
+            subprocess.run(['tmux','kill-session','-t','='+name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         for operation,spec in [('reverse',reverse),('forward',forward)]:
             if spec:
                 try:device(operation,'--remove',spec)

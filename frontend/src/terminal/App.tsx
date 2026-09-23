@@ -1,5 +1,5 @@
 import { subscribeLayout, subscribeViewport } from "./layout";
-import { applyVisibleHeight, localViewportSlice } from "./viewport";
+import { applyVisibleHeight, localViewportSlice, virtualKeyboard } from "./viewport";
 import { errorMessage } from "./model";
 import {
   useCallback,
@@ -552,6 +552,7 @@ export function TerminalApp({
       window.addEventListener("orientationchange", measure, { signal });
       window.visualViewport?.addEventListener("resize", measure, { signal });
       window.visualViewport?.addEventListener("scroll", measure, { signal });
+      virtualKeyboard()?.addEventListener("geometrychange", measure, { signal });
       measure();
     }
     // Coming into view also takes the shared tmux window's size (see

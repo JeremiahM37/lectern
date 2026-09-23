@@ -106,6 +106,9 @@ type resultMsg struct {
 	err     error
 	preview bool
 	key     string
+	// notice, when set, replaces the default "<label> completed" message so an
+	// action can report what it actually did to the terminal.
+	notice string
 }
 type attachedMsg struct{ err error }
 type promotionPreviewMsg struct {
@@ -116,6 +119,7 @@ type dashboard struct {
 	focusSessionID                      string
 	client                              *Client
 	attach                              func(string, string) error
+	insert                              func(string) error
 	section                             int
 	rows, visible                       []row
 	selected, offset                    int
@@ -170,7 +174,10 @@ type dashboardFocus struct {
 
 // DashboardOptions selects which dashboard surface to render.
 type DashboardOptions struct {
-	Attach      func(string, string) error
+	Attach func(string, string) error
+	// Insert types text into the attached terminal without submitting it. Only
+	// the Ctrl-] controls popup sets it, where a real pane sits underneath.
+	Insert      func(string) error
 	ControlOnly bool
 	Popup       bool
 	FocusKind   string
@@ -212,7 +219,7 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	q.Prompt = "/ "
 	q.Placeholder = "Search name, project, target, agent…"
 	q.CharLimit = 200
-	m := &dashboard{client: c, attach: opts.Attach, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
+	m := &dashboard{client: c, attach: opts.Attach, insert: opts.Insert, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
 	m.controlOnly = opts.ControlOnly
 	m.popup = opts.Popup
 	if kind := controlsKind(opts.FocusKind); kind != "" && opts.FocusID != "" {
@@ -775,7 +782,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.attachAfterRefresh = true
 			}
 		}
-		m.notice = v.label + " completed"
+		if v.notice != "" {
+			m.notice = v.notice
+		} else {
+			m.notice = v.label + " completed"
+		}
 		if v.label == "Create blank shell" {
 			var created row
 			if json.Unmarshal(v.data, &created) == nil && id(created) != "" {

@@ -169,3 +169,35 @@ resize the visual viewport itself and produce misleading keyboard evidence.
 The prompt, key row, keyboard toggle and Tools must all fit above Gboard.
 Horizontal swipes are recognized by the terminal's existing gesture owner,
 which locks one axis so vertical reading cannot turn into a session change.
+
+
+## Optional real Claude input check
+
+To exercise the installed Claude renderer in the same isolated test environment:
+
+```sh
+ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=e2e \
+  ADK_TEST_CLAUDE_BIN="$(command -v claude)" \
+  ADK_TEST_E2E_ARGS='-q e2e/test_claude_keyboard_probe.py' \
+  tools/run-isolated-tests.sh .
+```
+
+Only that executable is mounted read-only. The test uses a private config,
+a dummy API key and an unreachable loopback API endpoint; it types a long draft
+without submitting it. It checks the rendered last input line after visual-viewport
+and overlay-keyboard changes. Without the explicit executable mount these two
+checks skip. This supplements the native Android audit; it does not establish
+coverage of an unknown physical phone/browser combination.
+
+The overlay-keyboard case also exercises `navigator.virtualKeyboard` with both
+viewports unchanged. Android Chromium before M152 exposes incorrect rectangle
+coordinates ([upstream fix](https://chromium-review.googlesource.com/c/chromium/src/+/7686010));
+Lectern uses the reported height for its full-width docked keyboard. Newer
+Chromium and floating keyboards retain the rectangle coordinates. Normal
+viewport-resizing keyboards do not use this overlay workaround.
+
+Set the same `ADK_TEST_CLAUDE_BIN` when invoking `tools/run-android-audit.py`
+to add two native Gboard checks using the real Claude renderer (ordinary resize
+and keyboard overlay). They create a disposable third terminal with a private
+config and dummy API key, leave the draft unsent, and capture ADB screenshots.
+The standard nightly run remains independent of an installed Claude binary.

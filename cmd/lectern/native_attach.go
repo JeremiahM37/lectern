@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/console"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -201,8 +202,15 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		innerArgv:      withClientControlsMarker(argv),
 	}
 	plan.inner = innerScript(plan.innerArgv)
-	plan.controlsBody = execScript([]string{self, "controls", controls.Kind, controls.ID, "--popup"})
-	plan.uploadBody = execScript([]string{self, "controls", controls.Kind, controls.ID, "--popup", "--action", "upload"})
+	// Both popups carry the private socket and session so a successful upload
+	// can type the returned path into the attached pane no matter whether the
+	// operator picked it from the Ctrl-] menu or with the upload shortcut.
+	insertEnv := []string{
+		insertSocketEnv + "=" + socket,
+		insertTargetEnv + "=" + plan.session,
+	}
+	plan.controlsBody = execScriptWithEnv(insertEnv, []string{self, "controls", controls.Kind, controls.ID, "--popup"})
+	plan.uploadBody = execScriptWithEnv(insertEnv, []string{self, "controls", controls.Kind, controls.ID, "--popup", "--action", "upload"})
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
 }
@@ -226,6 +234,20 @@ func execScript(argv []string) string {
 		words[i] = shellq.Quote(word)
 	}
 	return "#!/bin/sh\nexec " + strings.Join(words, " ") + "\n"
+}
+
+// execScriptWithEnv runs argv with extra NAME=VALUE entries in the child
+// environment. Values are quoted as whole env assignments so a path with
+// spaces or shell metacharacters survives as one argument.
+func execScriptWithEnv(env []string, argv []string) string {
+	words := make([]string, 0, len(env)+len(argv))
+	for _, entry := range env {
+		words = append(words, shellq.Quote(entry))
+	}
+	for _, word := range argv {
+		words = append(words, shellq.Quote(word))
+	}
+	return "#!/bin/sh\nexec env " + strings.Join(words, " ") + "\n"
 }
 
 func (p *nativeWrapPlan) tmuxConfig() string {
@@ -388,6 +410,15 @@ func withoutEnv(env []string, key string) []string {
 
 var controlsActions = map[string]bool{"upload": true, "send": true, "review": true, "rename": true, "history": true}
 
+// The controls popups are started by the private tmux server, which knows the
+// socket it bound and the session that hosts the attached terminal. Passing
+// both here lets a finished upload type its returned path into the agent's
+// pane without guessing at the ambient environment.
+const (
+	insertSocketEnv = "LECTERN_CONTROLS_INSERT_SOCKET"
+	insertTargetEnv = "LECTERN_CONTROLS_INSERT_TARGET"
+)
+
 // controlsCommand is the surface behind `lectern controls` and the attached
 // terminal's popup. It reuses the dashboard's actions, forms and API client;
 // only native attach actions are disabled.
@@ -396,7 +427,76 @@ func controlsCommand(c *console.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	return console.RunControls(c, os.Stdin, os.Stdout, console.DashboardOptions{Popup: popup, FocusKind: kind, FocusID: rid, Action: action})
+	opts := console.DashboardOptions{Popup: popup, FocusKind: kind, FocusID: rid, Action: action}
+	if os.Getenv(insertSocketEnv) != "" && os.Getenv(insertTargetEnv) != "" {
+		opts.Insert = insertIntoAttachment
+	}
+	return console.RunControls(c, os.Stdin, os.Stdout, opts)
+}
+
+// insertIntoAttachment types text into the pane the controls popup was opened
+// over, without pressing Enter. send-keys -l delivers the bytes verbatim, so a
+// quoted path reaches a local tmux attach or an SSH client unchanged.
+func insertIntoAttachment(text string) error {
+	args, err := insertSendKeysArgs(os.Getenv(insertSocketEnv), os.Getenv(insertTargetEnv), text)
+	if err != nil {
+		return err
+	}
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		return err
+	}
+	return exec.Command(tmuxPath, args...).Run()
+}
+
+// insertSendKeysArgs validates an insert request and renders the tmux command
+// that types text into the exact attached session on the private socket. A
+// missing socket is refused rather than falling back to the operator's ambient
+// tmux, and text carrying control bytes is refused before anything is sent:
+// send-keys -l writes those bytes literally, so an embedded newline would
+// submit the draft and ESC or a C1 control could drive the terminal even
+// though shell quoting already neutralised them as shell syntax.
+func insertSendKeysArgs(socket, target, text string) ([]string, error) {
+	if socket == "" {
+		return nil, errors.New("no private tmux socket for insertion")
+	}
+	if target == "" {
+		return nil, errors.New("no attached terminal")
+	}
+	if r, ok := firstInsertControl(text); ok {
+		return nil, fmt.Errorf("refusing to insert text containing control character %s", strconv.QuoteRune(r))
+	}
+	return []string{"-S", socket, "send-keys", "-l", "-t", exactSessionTarget(target), "--", text}, nil
+}
+
+// exactSessionTarget makes tmux match the session by its whole name instead of
+// prefix-matching it, and names the session's current window so the target is a
+// valid pane. A bare, prefix-compatible session name gets the "=" exact-match
+// marker and a trailing colon; a target that already carries either part is
+// left untouched.
+func exactSessionTarget(target string) string {
+	if strings.HasPrefix(target, "=") || strings.ContainsAny(target, ":.") {
+		return target
+	}
+	return "=" + target + ":"
+}
+
+// firstInsertControl reports the first control code in text. It covers the C0
+// range (including LF, CR and ESC), DEL, and the C1 range, plus any byte that
+// is not valid UTF-8 so a raw control byte cannot slip past as a replacement
+// rune.
+func firstInsertControl(text string) (rune, bool) {
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == utf8.RuneError && size == 1 {
+			return rune(text[i]), true
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return r, true
+		}
+		i += size
+	}
+	return 0, false
 }
 
 func parseControlsArgs(args []string) (kind, rid, action string, popup bool, err error) {

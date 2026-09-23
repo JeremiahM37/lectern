@@ -1,6 +1,12 @@
 package console
 
 import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -186,5 +192,112 @@ func TestControlsPopupFormAndReviewReturnToTheMenu(t *testing.T) {
 	m.updateReview(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.review != nil || !m.menu {
 		t.Fatalf("Esc from review did not return to the menu: review=%v menu=%v", m.review, m.menu)
+	}
+}
+
+// A controls upload must hand the shell-quoted remote path to the attached
+// terminal, matching the browser, and must never submit it.
+func TestControlsUploadInsertsQuotedRemotePath(t *testing.T) {
+	local := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(local, []byte("context bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/attachments") {
+			t.Errorf("unexpected upload path %s", r.URL.Path)
+		}
+		if _, _, err := r.FormFile("file"); err != nil {
+			t.Errorf("upload did not carry a file: %v", err)
+		}
+		io.WriteString(w, `{"name":"my notes.txt","path":"/remote/context/my notes.txt"}`)
+	}))
+	defer srv.Close()
+
+	var inserted string
+	m := controlsDashboard(DashboardOptions{Insert: func(text string) error {
+		inserted = text
+		return nil
+	}})
+	m.client = New(srv.URL, "")
+	m.rows = []row{runningSessionRow(1, "Alpha")}
+	m.filter()
+	m.uploadForm()
+	if m.form == nil {
+		t.Fatal("upload form did not open")
+	}
+	cmd := m.form.submit(map[string]any{"file": local})
+	if cmd == nil {
+		t.Fatal("upload form did not submit")
+	}
+	msg, ok := cmd().(resultMsg)
+	if !ok || msg.err != nil {
+		t.Fatalf("upload result: %#v", msg)
+	}
+	if want := "'/remote/context/my notes.txt' "; inserted != want {
+		t.Fatalf("inserted %q, want %q", inserted, want)
+	}
+	if !strings.Contains(msg.notice, "Path inserted") || !strings.Contains(msg.notice, "press Enter") {
+		t.Fatalf("notice does not explain insertion: %q", msg.notice)
+	}
+}
+
+// Without an attached pane (the plain dashboard) the upload still succeeds and
+// reports the path instead of claiming it was inserted.
+func TestUploadWithoutAttachedPaneReportsThePath(t *testing.T) {
+	local := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(local, []byte("context bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"name":"notes.txt","path":"/remote/context/notes.txt"}`)
+	}))
+	defer srv.Close()
+	m := controlsDashboard(DashboardOptions{})
+	m.client = New(srv.URL, "")
+	m.rows = []row{runningSessionRow(1, "Alpha")}
+	m.filter()
+	m.uploadForm()
+	cmd := m.form.submit(map[string]any{"file": local})
+	msg := cmd().(resultMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	if !strings.Contains(msg.notice, "/remote/context/notes.txt") || strings.Contains(msg.notice, "Path inserted") {
+		t.Fatalf("notice does not report the path: %q", msg.notice)
+	}
+}
+
+// A refused insertion (for example, text the terminal cannot be trusted with)
+// still uploads, but the notice tells the operator why and hands them the path
+// to copy rather than pretending the terminal received it.
+func TestUploadInsertFailureFallsBackToCopyingThePath(t *testing.T) {
+	local := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(local, []byte("context bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"name":"notes.txt","path":"/remote/context/notes.txt"}`)
+	}))
+	defer srv.Close()
+	m := controlsDashboard(DashboardOptions{Insert: func(string) error {
+		return errors.New("refusing to insert text containing control character '\\n'")
+	}})
+	m.client = New(srv.URL, "")
+	m.rows = []row{runningSessionRow(1, "Alpha")}
+	m.filter()
+	m.uploadForm()
+	cmd := m.form.submit(map[string]any{"file": local})
+	msg := cmd().(resultMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	if !strings.Contains(msg.notice, "/remote/context/notes.txt") {
+		t.Fatalf("fallback notice dropped the path: %q", msg.notice)
+	}
+	if !strings.Contains(msg.notice, "control character") || !strings.Contains(msg.notice, "copy this path") {
+		t.Fatalf("fallback notice did not explain the failure: %q", msg.notice)
+	}
+	if strings.Contains(msg.notice, "Path inserted") {
+		t.Fatalf("fallback notice claimed insertion: %q", msg.notice)
 	}
 }

@@ -199,6 +199,14 @@ if [[ -n "$playwright" ]]; then
   bwrap_args+=(--dir /opt/playwright --ro-bind "$playwright" /opt/playwright)
 fi
 bwrap_args+=(--ro-bind "$stage/bin/tmux" /opt/test-bin/tmux)
+# Optional real Claude CLI for explicit terminal-input audits. Only the executable
+# is exposed; HOME/config/credentials stay private to the test namespace.
+if [[ -n ${ADK_TEST_CLAUDE_BIN:-} ]]; then
+  claude_test_bin=$(readlink -f "$ADK_TEST_CLAUDE_BIN")
+  [[ -f "$claude_test_bin" && -x "$claude_test_bin" ]] || { echo "Claude test executable missing" >&2; exit 2; }
+  bwrap_args+=(--ro-bind "$claude_test_bin" /opt/test-bin/claude)
+fi
+
 if [[ -n "$ttyd" ]]; then
   # e2e's real browser fixture needs ttyd; expose only this executable rather
   # than the host's /usr/local tree, and keep it read-only in the namespace.

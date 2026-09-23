@@ -1,6 +1,6 @@
 import type React from 'react';
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {viewportSliceFor} from './viewport';
+import {viewportSliceFor, visibleViewport, virtualKeyboard} from './viewport';
 import './terminal-tabs.css';
 const STORAGE='lec-terminal-tabs-v1';
 const DURABLE_STORAGE='lec-terminal-tabs-durable-v1';
@@ -41,7 +41,7 @@ function Frame(props:FrameProps){const frame=useRef<HTMLIFrameElement>(null),lat
  // asks for one when it mounts: a message posted before it loads is lost.
  const measure=()=>{const value=latest.current,node=frame.current;if(!value.active||!value.visible||!node)return;const win=node.contentWindow;if(!win)return;const slice=viewportSliceFor(node);win.postMessage({type:'lec-terminal-viewport',top:slice.top,height:slice.height},location.origin);};
  useEffect(()=>{notify();measure();},[props.active,props.visible,props.mobile,props.compact,props.slot]);
- useEffect(()=>{const node=frame.current;if(!node)return;const abort=new AbortController(),signal=abort.signal,view=window.visualViewport;let settle:number|undefined;const run=()=>{measure();clearTimeout(settle);settle=window.setTimeout(measure,150);};window.addEventListener('resize',run,{signal});window.addEventListener('orientationchange',run,{signal});view?.addEventListener('resize',run,{signal});view?.addEventListener('scroll',run,{signal});const observer=new ResizeObserver(run);observer.observe(node);return()=>{clearTimeout(settle);observer.disconnect();abort.abort();};},[]);
+ useEffect(()=>{const node=frame.current;if(!node)return;const abort=new AbortController(),signal=abort.signal,view=window.visualViewport;let settle:number|undefined;const run=()=>{measure();clearTimeout(settle);settle=window.setTimeout(measure,150);};window.addEventListener('resize',run,{signal});window.addEventListener('orientationchange',run,{signal});view?.addEventListener('resize',run,{signal});view?.addEventListener('scroll',run,{signal});virtualKeyboard()?.addEventListener('geometrychange',run,{signal});const observer=new ResizeObserver(run);observer.observe(node);return()=>{clearTimeout(settle);observer.disconnect();abort.abort();};},[]);
  // A deliberate horizontal flick on the terminal body is recognised inside the
  // frame, where scrolling, long-press selection and pinch already own the
  // gesture, and relayed here; negotiated mouse reporting no longer blocks it.
@@ -64,7 +64,7 @@ export function TerminalTabs({controller,visible,machines,onNew,onBrowse,onSearc
  const placeActions=useCallback(()=>{
   const details=actions.current,panel=details?.querySelector<HTMLElement>('.terminal-actions-panel'),summary=details?.querySelector('summary');
   if(!details?.open||!panel||!summary)return;
-  const view=window.visualViewport,edge=8,left=view?.offsetLeft??0,top=view?.offsetTop??0,width=view?.width??innerWidth,height=view?.height??innerHeight;
+  const view=window.visualViewport,usable=visibleViewport(),edge=8,left=view?.offsetLeft??0,top=usable.top,width=view?.width??innerWidth,height=usable.height;
   const availableWidth=Math.max(1,width-2*edge),availableHeight=Math.max(1,height-2*edge);
   panel.style.width=Math.min(240,availableWidth)+'px';panel.style.maxHeight=availableHeight+'px';
   const anchor=summary.getBoundingClientRect(),box=panel.getBoundingClientRect();
@@ -75,7 +75,7 @@ export function TerminalTabs({controller,visible,machines,onNew,onBrowse,onSearc
  useEffect(()=>{
   const abort=new AbortController(),signal=abort.signal;
   addEventListener('resize',placeActions,{signal});addEventListener('scroll',placeActions,{signal,capture:true});
-  visualViewport?.addEventListener('resize',placeActions,{signal});visualViewport?.addEventListener('scroll',placeActions,{signal});
+  visualViewport?.addEventListener('resize',placeActions,{signal});visualViewport?.addEventListener('scroll',placeActions,{signal});virtualKeyboard()?.addEventListener('geometrychange',placeActions,{signal});
   document.addEventListener('pointerdown',event=>{if(actions.current?.open&&event.target instanceof Node&&!actions.current.contains(event.target))actions.current.open=false;},{signal});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&actions.current?.open){event.preventDefault();actions.current.open=false;actions.current.querySelector('summary')?.focus();}},{signal});
   return()=>abort.abort();

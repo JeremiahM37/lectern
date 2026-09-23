@@ -563,3 +563,43 @@ def test_terminal_close_menu_stays_inside_visible_phone_viewport(page,real_termi
     page.get_by_role('menuitem',name='Close this view',exact=True).click()
     expect(page.locator('.terminal-empty')).to_be_visible()
     subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
+
+
+@pytest.mark.parametrize('legacy_android', [True, False])
+@pytest.mark.parametrize('embedded', [True, False])
+def test_overlay_keyboard_geometry_fits_the_terminal_without_a_viewport_resize(page, real_terminal, embedded, legacy_android):
+    t = real_terminal
+    # Some browser shells explicitly overlay the keyboard. Neither viewport
+    # shrinks there; the keyboard's geometrychange is the resize signal.
+    page.add_init_script('''(() => {
+      const keyboard = new EventTarget();
+      keyboard.overlaysContent = true;
+      keyboard.boundingRect = {x:0,y:0,top:0,left:0,width:0,height:0,bottom:0,right:0};
+      Object.defineProperty(navigator, 'virtualKeyboard', {configurable:true,value:keyboard});
+      window.setKeyboard = height => {
+        keyboard.boundingRect = {x:0,y:innerHeight-height,top:innerHeight-height,left:0,
+          width:innerWidth,height,bottom:innerHeight,right:innerWidth};
+        keyboard.dispatchEvent(new Event('geometrychange'));
+      };
+    })()''')
+    if legacy_android:
+        page.add_init_script('''Object.defineProperty(navigator, 'userAgent', {value:'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/148.0.0.0 Mobile Safari/537.36'});''')
+    page.set_viewport_size({'width':390,'height':844})
+    if embedded:
+        f = attach(page, t)
+    else:
+        page.goto(t['url'] + f'/terminal/session/{t["id"]}')
+        f = page
+    expect(f.locator('#connection')).to_have_text('Connected',timeout=20000)
+    before = pane_size(t)[1]
+    layout = page.evaluate('innerHeight')
+    page.evaluate('setKeyboard(420)')
+    if legacy_android:
+        page.evaluate('''() => { const k=navigator.virtualKeyboard; k.boundingRect.top=52; k.dispatchEvent(new Event('geometrychange')); }''')
+    expect(f.locator('body')).to_have_class(re.compile('fitted-viewport'))
+    assert page.evaluate('innerHeight') == layout
+    wait_for_pane_height(t, before)
+    keys = f.locator('#terminal-keybar').bounding_box()
+    assert keys and keys['y'] + keys['height'] <= layout - 420 + 1, keys
+    page.evaluate('setKeyboard(0)')
+    expect(f.locator('body')).not_to_have_class(re.compile('fitted-viewport'))

@@ -161,6 +161,42 @@ def test_real_terminal_drop_paste_files_and_shell(page,real_terminal):
     page.screenshot(path='/tmp/lectern-terminal-workspace-desktop.png')
     assert errors==[]
 
+
+def test_visible_upload_action_inserts_path_without_submitting(page,real_terminal):
+    """The terminal's own upload control opens a real chooser on desktop and,
+    folded into Tools, on a phone — the terminal is never left behind."""
+    t=real_terminal;open_terminal(page,t)
+    content=b'visible upload path\n'
+    digest=hashlib.sha256(content).hexdigest()
+    page.keyboard.type('sha256sum ')
+    with page.expect_file_chooser() as picked:
+        page.locator('#upload').click()
+    with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/attachments')) as response:
+        picked.value.set_files({'name':'notes.txt','mimeType':'text/plain','buffer':content})
+    attachment=response.value.json()
+    expect(page.locator('#notice')).to_contain_text('Path inserted')
+    assert Path(attachment['path']).read_bytes()==content
+    # The upload submitted nothing: the digest cannot exist until we press
+    # Enter, and sha256sum with no argument would block instead of printing it.
+    assert digest not in capture(t)
+    page.locator('#agent-terminal').click()
+    page.keyboard.press('Enter')
+    expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text(digest,timeout=10000)
+    # A short phone screen folds the direct button into Tools, which must still
+    # offer the same action without leaving the terminal.
+    page.set_viewport_size({'width':390,'height':360})
+    page.wait_for_function("document.body.classList.contains('compact-chrome')")
+    expect(page.locator('#upload')).to_be_hidden()
+    page.locator('#terminal-tools-summary').click()
+    expect(page.locator('#compact-upload')).to_be_visible()
+    with page.expect_file_chooser() as picked:
+        page.locator('#compact-upload').click()
+    with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/attachments')) as response:
+        picked.value.set_files({'name':'phone.txt','mimeType':'text/plain','buffer':b'phone upload\n'})
+    assert Path(response.value.json()['path']).read_bytes()==b'phone upload\n'
+    expect(page.locator('#notice')).to_contain_text('Path inserted')
+
+
 def test_real_terminal_history_preferences_pause_and_two_clients(page,browser,real_terminal):
     t=real_terminal;open_terminal(page,t)
     type_command(page,"for i in $(seq 1 180); do echo HISTORY-PROOF-$i; done")

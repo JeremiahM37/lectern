@@ -1,4 +1,5 @@
 """Controls consume keys locally; the attached process and its input survive."""
+import hashlib
 import shlex
 import subprocess
 import signal
@@ -78,22 +79,52 @@ def test_native_attached_controls_preserve_agent_and_draft(real_terminal,outer_t
     finally:d.close()
 
 
-def test_native_controls_upload_to_ssh_target(remote_terminal):
+@pytest.mark.parametrize('entry', ['shortcut', 'menu'])
+def test_native_controls_upload_to_ssh_target(remote_terminal, tmp_path, entry):
+    """A native client wrapping SSH uploads from the laptop's own path, then
+    inserts the returned remote path without submitting it. The upload runs
+    both from the Ctrl-] u shortcut and from the Ctrl-] m controls menu, which
+    must insert identically."""
     t=remote_terminal
-    source=t['root']/"context 'sample.txt"
-    source.write_bytes(b'Laptop context via controls popup\x00\xff\n')
+    # The local file lives outside the control-plane repository, as a laptop
+    # file would, and its name needs quoting when it reaches a shell.
+    laptop=tmp_path/'laptop-home';laptop.mkdir(mode=0o700)
+    source=laptop/'laptop notes.txt'
+    payload=b'Laptop context via controls popup\x00\xff\n'
+    source.write_bytes(payload)
+    digest=hashlib.sha256(payload).hexdigest()
+    # Uploading while the agent sits in a different remote directory proves the
+    # inserted path is absolute and stays usable from anywhere.
+    remote_cwd=t['remote_root']/'sub dir'
+    _ssh(t,'mkdir -p '+shlex.quote(str(remote_cwd)))
     d=Dashboard(t,args=('attach','session',str(t['id'])))
     try:
         d.wait('Ctrl+]')
-        d.send('\x1du');d.wait('Local file path')
+        d.send('cd '+shlex.quote(str(remote_cwd))+" && printf 'CWD-OK\\n'\r")
+        d.wait('CWD-OK')
+        # Type a command prefix first: a finished upload must not submit it.
+        d.send('sha256sum ')
+        if entry=='shortcut':
+            d.send('\x1du')
+        else:
+            d.send('\x1dm');d.wait('Upload context file')
+            d.send('j\r')
+        d.wait('Local file path')
         d.send(str(source)+'\x13');d.wait('Uploaded:',timeout=20)
-        files=list((t['remote_root']/'.lectern/context').rglob('*sample.txt'))
+        files=list((t['remote_root']/'.lectern/context').rglob('*laptop notes.txt'))
         assert len(files)==1
-        assert files[0].read_bytes()==source.read_bytes()
+        assert files[0].read_bytes()==payload
+        # The bytes landed on the SSH target, not the control-plane host.
         assert not (t['root']/'.lectern/context').exists()
         d.send('\x1b');d.wait('Ctrl+]')
-        d.send("printf 'POPUP-%s-RETURN\\n' SSH\r")
-        d.wait('POPUP-SSH-RETURN')
+        # The quoted path was appended to the unsubmitted command line, and the
+        # upload did not run anything yet.
+        assert "sha256sum '" in d.text
+        assert digest not in d.text
+        d.send('\r')
+        # Only after the operator submits does the remote digest appear, which
+        # proves the inserted path names the uploaded file on the target.
+        d.wait(digest,timeout=10)
         d.send('\x02d');d.proc.wait(timeout=10)
         assert d.proc.returncode==0
         env="env TMUX='' TMUX_TMPDIR="+shlex.quote(str(t['remote_tmux']))

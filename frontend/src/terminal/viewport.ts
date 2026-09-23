@@ -19,27 +19,52 @@ export function visibleSlice(element: ViewportRect, view: ViewportRect): Viewpor
   return { top: Math.max(0, start - element.top), height: Math.max(0, end - start) };
 }
 
-// The top-level visual viewport is the only one that knows a phone keyboard is
-// open; an embedded frame keeps reporting its own, unchanged, size.
-export function viewportSliceFor(node: HTMLElement): ViewportBox {
-  const rect = node.getBoundingClientRect(),
-    view = window.visualViewport;
-  return visibleSlice(
-    { top: rect.top, height: rect.height },
-    view
-      ? { top: view.offsetTop, height: view.height }
-      : { top: 0, height: window.innerHeight },
-  );
+// Overlay keyboards can leave BOTH viewports unchanged. Their geometry is
+// still authoritative when supplied by the VirtualKeyboard API. Observe it
+// without opting the browser into overlay mode ourselves.
+interface KeyboardGeometry extends EventTarget {
+  readonly boundingRect: DOMRectReadOnly;
+  readonly overlaysContent?: boolean;
+}
+export function virtualKeyboard(): KeyboardGeometry | undefined {
+  return (navigator as Navigator & { virtualKeyboard?: KeyboardGeometry }).virtualKeyboard;
 }
 
-// The standalone terminal page has no parent to measure for it.
+export function visibleViewport(): ViewportBox {
+  const view = window.visualViewport,
+    top = view?.offsetTop ?? 0,
+    height = view?.height ?? window.innerHeight,
+    left = view?.offsetLeft ?? 0,
+    width = view?.width ?? window.innerWidth,
+    api = virtualKeyboard(),
+    keyboard = api?.overlaysContent ? api.boundingRect : undefined;
+  let bottom = top + height;
+  if (keyboard && keyboard.height > 0 && keyboard.width > 0 &&
+      Number.isFinite(keyboard.top + keyboard.height + keyboard.left + keyboard.width) &&
+      keyboard.left < left + width && keyboard.left + keyboard.width > left &&
+      keyboard.top + keyboard.height > top && keyboard.top < bottom) {
+    // Android Chromium before M152 reports window insets as a rectangle
+    // (crbug.com/493416495): y can be the browser toolbar height, not the
+    // keyboard's top. For its full-width docked keyboard, height is usable.
+    // Do not apply this workaround to floating keyboards or other engines.
+    const chrome = navigator.userAgent.match(/(?:Chrome|Chromium)\/(\d+)/),
+      legacyAndroid = /Android/.test(navigator.userAgent) && chrome && Number(chrome[1]) < 152,
+      docked = Math.abs(keyboard.left) < 2 && keyboard.width >= window.innerWidth - 2,
+      keyboardTop = legacyAndroid && docked ? window.innerHeight - keyboard.height : keyboard.top;
+    bottom = Math.min(bottom, Math.max(top, keyboardTop));
+  }
+  return { top, height: Math.max(0, bottom - top) };
+}
+
+// Only the parent knows how much of an embedded frame is above the keyboard.
+export function viewportSliceFor(node: HTMLElement): ViewportBox {
+  const rect = node.getBoundingClientRect();
+  return visibleSlice({ top: rect.top, height: rect.height }, visibleViewport());
+}
+
 export function localViewportSlice(): ViewportBox {
-  const height = window.innerHeight || document.documentElement.clientHeight || 0,
-    view = window.visualViewport;
-  return visibleSlice(
-    { top: 0, height },
-    view ? { top: view.offsetTop, height: view.height } : { top: 0, height },
-  );
+  const height = window.innerHeight || document.documentElement.clientHeight || 0;
+  return visibleSlice({ top: 0, height }, visibleViewport());
 }
 
 // Applies the measured slice to the terminal page. A slice that covers the

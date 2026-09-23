@@ -8,6 +8,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 type choice struct{ Label, Value string }
@@ -59,7 +61,10 @@ func (m *dashboard) request(label, method, path string, body any, preview bool) 
 	}
 	m.busy = true
 	c, key := m.client, m.key()
-	return func() tea.Msg { b, e := c.JSON(method, path, body); return resultMsg{label, b, e, preview, key} }
+	return func() tea.Msg {
+		b, e := c.JSON(method, path, body)
+		return resultMsg{label: label, data: b, err: e, preview: preview, key: key}
+	}
 }
 func (m *dashboard) execute(a dashboardAction) tea.Cmd {
 	return m.request(a.Label, a.Method, a.Path, a.Body, false)
@@ -870,17 +875,27 @@ func (m *dashboard) uploadForm() tea.Cmd {
 			return nil
 		}
 		m.busy = true
-		c := m.client
+		c, insert := m.client, m.insert
 		path := str(body["file"])
 		return func() tea.Msg {
 			data, e := c.Upload(kind, rid, path)
-			label := "Upload"
-			if e == nil {
-				var v row
-				_ = json.Unmarshal(data, &v)
-				label = "Uploaded: " + str(v["path"])
+			if e != nil {
+				return resultMsg{label: "Upload", data: data, err: e}
 			}
-			return resultMsg{label: label, data: data, err: e}
+			var v row
+			_ = json.Unmarshal(data, &v)
+			dest := str(v["path"])
+			// The popup can only reach the running attachment through tmux; the
+			// dashboard has no attached pane, so it just reports the path.
+			notice := "Uploaded: " + dest + ". Mention or paste this path in your prompt."
+			if insert != nil {
+				if e := insert(shellq.Quote(dest) + " "); e != nil {
+					notice = "Uploaded: " + dest + ". " + e.Error() + "; copy this path into your prompt."
+				} else {
+					notice = "Uploaded: " + dest + ". Path inserted; press Enter when ready."
+				}
+			}
+			return resultMsg{label: "Uploaded: " + dest, data: data, notice: notice}
 		}
 	})
 }
