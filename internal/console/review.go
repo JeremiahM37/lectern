@@ -136,6 +136,7 @@ func (m *dashboard) updateReview(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case "esc":
 		m.review = nil
+		m.showHome()
 		return nil
 	case "tab":
 		if r.loading || len(r.data.Repositories) < 2 {

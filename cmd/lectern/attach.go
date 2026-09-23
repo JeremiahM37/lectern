@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/config"
@@ -23,12 +21,12 @@ func attach(cfg *config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	argv = attachmentInWorkspace(argv, os.Getenv("TMUX"))
-	binary, err := exec.LookPath(argv[0])
-	if err != nil {
-		return err
-	}
-	return syscall.Exec(binary, argv, os.Environ())
+	return runAttachment(argv, &nativeControls{
+		Kind:  args[0],
+		ID:    args[1],
+		Base:  env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)),
+		Token: cfg.AuthToken,
+	})
 }
 
 // hostedAttach is the server-side half of an SSH attachment. The generated
@@ -50,25 +48,22 @@ func hostedAttach(cfg *config.Config, args []string) error {
 			_ = os.Setenv("LECTERN_ATTACH_HOST", oldHost)
 		}
 	}()
-	return attachAt(cfg, args[1:], "http://127.0.0.1:"+strconv.Itoa(cfg.Port), "")
+	return attachAt(cfg, args[1:], "http://127.0.0.1:"+strconv.Itoa(cfg.Port), "", false)
 }
 
-func attachAt(cfg *config.Config, args []string, base, attachHost string) error {
+// attachAt resolves and runs an attachment. controls is false on the hosted
+// peer: only the outer client owns the Ctrl-] controls prefix.
+func attachAt(cfg *config.Config, args []string, base, attachHost string, controls bool) error {
 	argv, err := attachmentCommandAt(cfg, args, base, attachHost)
 	if err != nil {
 		return err
 	}
-	return runAttachment(argv)
+	if !controls {
+		return runAttachment(argv, nil)
+	}
+	return runAttachment(argv, &nativeControls{Kind: args[0], ID: args[1], Base: base, Token: cfg.AuthToken})
 }
 
-func runAttachment(argv []string) error {
-	argv = attachmentInWorkspace(argv, os.Getenv("TMUX"))
-	binary, err := exec.LookPath(argv[0])
-	if err != nil {
-		return err
-	}
-	return syscall.Exec(binary, argv, os.Environ())
-}
 func attachmentCommand(cfg *config.Config, args []string) ([]string, error) {
 	return attachmentCommandAt(cfg, args, env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)), os.Getenv("LECTERN_ATTACH_HOST"))
 }
@@ -128,6 +123,12 @@ func attachmentCommandAt(cfg *config.Config, args []string, base, attachHost str
 // not detach the dashboard itself. Quote the entire inner command: attachment
 // argv can contain tmux command separators that belong to the inner client.
 func attachmentInWorkspace(argv []string, workspace string) []string {
+	return workspacePopup(argv, workspace, "Lectern · Ctrl-b d returns")
+}
+
+// workspacePopup shows argv in a full-screen popup on the workspace tmux so
+// its prefix cannot steal keys from the attached terminal.
+func workspacePopup(argv []string, workspace, title string) []string {
 	if workspace == "" {
 		return argv
 	}
@@ -135,5 +136,5 @@ func attachmentInWorkspace(argv []string, workspace string) []string {
 	for i, word := range argv {
 		words[i] = shellq.Quote(word)
 	}
-	return []string{"tmux", "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", "Lectern · Ctrl-b d returns", "env -u TMUX " + strings.Join(words, " ")}
+	return []string{"tmux", "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", title, "env -u TMUX " + strings.Join(words, " ")}
 }

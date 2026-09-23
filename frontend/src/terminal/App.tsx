@@ -47,6 +47,7 @@ interface Callbacks {
   select: (id: string) => void;
   notice: (text: string) => void;
   history: (id: string) => void;
+  controls: () => void;
   matches: (id: string, index: number, count: number) => void;
   preview: (path: string) => void;
   swipe: (id: string, direction: 1 | -1) => void;
@@ -94,6 +95,7 @@ function Pane({
       },
       notice: (text) => latest.current.callbacks.notice(text),
       history: () => latest.current.callbacks.history(spec.id),
+      controls: () => latest.current.callbacks.controls(),
       swipe: (direction) => latest.current.callbacks.swipe(spec.id, direction),
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
@@ -388,12 +390,23 @@ export function TerminalApp({
     if (!embedded) return;
     parent.postMessage({ type: "lec-terminal-swipe", direction }, location.origin);
   }, [embedded]);
+  const openControls = useCallback(() => {
+    const details = tools.current;
+    if (!details) return;
+    details.open = true;
+    placeTools();
+    setToolsOpen(true);
+    const firstAction = [...details.querySelectorAll<HTMLElement>("button:not(:disabled), a[href]")]
+      .find((element) => element.getClientRects().length > 0);
+    (firstAction ?? details.querySelector<HTMLElement>("summary"))?.focus();
+  }, [placeTools]);
   const callbacks: Callbacks = {
     engine: register,
     state: update,
     select: setActive,
     notice: setNotice,
     history: showHistory,
+    controls: openControls,
     matches: match,
     preview,
     swipe,
@@ -593,7 +606,7 @@ export function TerminalApp({
           event.preventDefault();
           event.stopImmediatePropagation();
           tools.current.open = false;
-          tools.current.querySelector("summary")?.focus();
+          current()?.term.focus();
           return;
         }
         if (!((event.ctrlKey || event.metaKey) && event.code === "KeyC"))
@@ -850,6 +863,7 @@ export function TerminalApp({
             setToolsOpen(details.open);
           }}>
             {state?.paused ? "Paused · Tools" : "Tools"}
+            <span className="terminal-controls-hint"> · Ctrl+] then m</span>
           </summary>
           <div
             className="action-menu-panel"
@@ -862,6 +876,10 @@ export function TerminalApp({
                 tools.current.open = false;
             }}
           >
+            <p className="terminal-controls-help">
+              Controls: <kbd>Ctrl+]</kbd> then <kbd>m</kbd><br />
+              Esc returns to typing. Ctrl+] twice sends Ctrl+].
+            </p>
             <a id="compact-desktop" className="button" href={info?.desktop_uri}>
               Open in terminal
             </a>

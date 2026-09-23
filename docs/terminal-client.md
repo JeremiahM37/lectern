@@ -92,6 +92,51 @@ install the `lectern` client.
 This client works in your existing terminal. The
 separate desktop URI installers enable opening an attachment from the web UI.
 
+## Attached terminal controls
+
+A native attachment (`lectern attach`, Enter in the dashboard, or `lectern
+shell`) runs inside a private tmux server Lectern owns for that one attachment.
+The agent's session, the control plane's tmux, and your own tmux config and
+server are untouched: the wrapper binds its own socket in a private `0700`
+directory and removes it when the attachment ends.
+
+| Keys while attached | Action |
+| --- | --- |
+| Ctrl+] then m | Open Lectern actions for this attachment |
+| Ctrl+] then u | Upload a file from this machine as context |
+| Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
+| Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
+| Ctrl-b then d | Detach; the session keeps running and you return where you started |
+
+The status line names these keys while you are attached. The menu is the same
+one the dashboard shows — upload, send message, rename, groups, review, handoff,
+settings — opened with the current session or task already selected. Native
+attach actions are hidden there, because the popup never nests another terminal
+inside itself. Esc from that menu closes the popup; Esc from a form or a code
+review returns to the menu.
+
+The popup runs on the machine where the native client runs, so upload paths refer to files on that machine. Reviews still show the agent's
+workspace on its target. Authentication reuses the
+client's own API base and token, handed to the private tmux server through its
+environment only — never through a command line, a config file, or the status
+line.
+
+`lectern controls [KIND ID]` opens the same control-only dashboard directly
+(`session`, `task`, `attempt`, or `project`). An attempt resolves to its owning
+task; when the requested row is not in the current list — an ended or archived
+session, a task from another view — the popup says so instead of acting on a
+different row.
+
+The wrapper needs a working `tmux` on the machine where the native client runs
+(Linux and macOS native clients). Set `LECTERN_NATIVE_CONTROLS=0`, or run where
+`tmux` is missing or stdin/stdout is not a terminal, to keep the older behavior
+with every key going to the agent. A missing tmux or non-interactive terminal
+prints a note that controls are unavailable.
+
+In the browser terminal, **Ctrl+] then m** opens **Tools**, and **Esc** returns
+to typing. The shortcut is visible beside Tools on desktop and inside its menu
+on phones. **Ctrl+] twice** sends a literal Ctrl+] here too.
+
 ## Scripting and context files
 
 ```sh

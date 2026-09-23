@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -128,6 +127,7 @@ const clientHelp = `Lectern — web and terminal control
   lectern console --plain         Line-oriented menu for pipes / accessibility
   lectern shell [MACHINE]         Enter a blank persistent shell on a machine
   lectern attach KIND ID          Join tmux (Ctrl-b d returns to console)
+  lectern controls [KIND ID]      Lectern actions without opening another terminal
   lectern promote SESSION-ID      Bind a running conversation to a project
   lectern api METHOD /path [JSON|@file|-]
   lectern upload KIND ID FILE     Add a local file as agent context
@@ -311,10 +311,13 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return shellCommandAt(cfg, args, base, token, local)
 	case "promote":
 		return promoteCommand(c, args)
+	case "controls":
+		return controlsCommand(c, args)
 	case "console", "tui":
 		attachClient := func(kind, id string) error {
 			var argv []string
 			var e error
+			controls := &nativeControls{Kind: kind, ID: id, Base: base, Token: token}
 			if local {
 				localCfg := *cfg
 				localCfg.AuthToken = token
@@ -325,12 +328,9 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 			if e != nil {
 				return e
 			}
-			argv = attachmentInWorkspace(argv, os.Getenv("TMUX"))
-			cmd := exec.Command(argv[0], argv[1:]...)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			return cmd.Run()
+			// The dashboard callback waits for the attachment instead of
+			// replacing the process: Bubble Tea must resume afterwards.
+			return startAttachment(argv, controls, false)
 		}
 		if len(args) > 0 && (len(args) != 1 || args[0] != "--plain") {
 			return fmt.Errorf("usage: lectern console [--plain]")

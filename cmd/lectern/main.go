@@ -82,7 +82,7 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "console", "tui", "shell", "api", "agent", "upload", "files", "download", "post", "live", "expose", "skill", "promote", "help", "--help", "-h":
+		case "console", "tui", "shell", "api", "agent", "upload", "files", "download", "post", "live", "expose", "skill", "promote", "controls", "help", "--help", "-h":
 			var err error
 			if explicitRemote || os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" {
 				err = clientCommand(cfg, os.Args[1], os.Args[2:])

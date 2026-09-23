@@ -16,7 +16,7 @@ import (
 var localClientCommands = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true, "expose": true, "skill": true,
-	"attach": true, "mcp": true, "promote": true,
+	"attach": true, "mcp": true, "promote": true, "controls": true,
 }
 
 // localCommand is deliberately a thin routing layer. The local runtime is
@@ -85,7 +85,7 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 	if command == "attach" {
 		localCfg := *cfg
 		localCfg.AuthToken = ep.Token
-		return attachAt(&localCfg, args, ep.URL, "")
+		return attachAt(&localCfg, args, ep.URL, "", true)
 	}
 	return clientCommandAt(cfg, command, args, ep.URL, ep.Token, true)
 }

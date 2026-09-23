@@ -36,12 +36,14 @@ export interface EngineOptions {
   change: (state: Snapshot) => void;
   notice: (text: string) => void;
   history: () => void;
+  controls: () => void;
   matches: (index: number, count: number) => void;
   // A deliberate horizontal flick on the terminal body, for the tab bar.
   swipe?: (direction: 1 | -1) => void;
 }
 import { installAndroidInput } from "./android-input";
 export class Engine {
+  private controlsPrefix = false;
   private androidInput?: ReturnType<typeof installAndroidInput>;
   readonly term: Terminal;
   readonly fit = new FitAddon();
@@ -127,8 +129,26 @@ export class Engine {
     );
     this.observer = new ResizeObserver(() => this.scheduleFit());
     this.observer.observe(options.host);
+    this.term.textarea?.addEventListener("blur", () => {
+      this.controlsPrefix = false;
+    }, { signal: this.lifetime.signal });
     this.term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
+      const prefix = event.ctrlKey && !event.altKey && !event.metaKey &&
+        (event.key === "]" || event.code === "BracketRight");
+      if (this.controlsPrefix || prefix) {
+        // Reserve a client-side prefix exactly as the native attachment does.
+        // Neither the prefix nor menu keystrokes are sent to the agent.
+        event.preventDefault();
+        if (event.repeat || ["Control", "Shift", "Alt", "Meta"].includes(event.key)) return false;
+        if (this.controlsPrefix) {
+          this.controlsPrefix = false;
+          if (prefix) this.input("\x1d");
+          else if (event.key === "m" && !event.ctrlKey && !event.altKey && !event.metaKey)
+            options.controls();
+        } else this.controlsPrefix = true;
+        return false;
+      }
       if (
         (event.ctrlKey || event.metaKey) &&
         event.shiftKey &&

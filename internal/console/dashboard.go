@@ -149,25 +149,100 @@ type dashboard struct {
 	recentSelected                      int
 	recentPending                       row
 	attachAfterRefresh                  bool
+	// controlOnly hides the actions that open another native terminal, so the
+	// controls popup cannot nest an attachment inside itself. popup marks the
+	// surface as the tmux popup whose Esc leaves the popup.
+	controlOnly  bool
+	popup        bool
+	pendingFocus *dashboardFocus
+}
+
+// dashboardFocus is the row a controls popup was opened for. It is resolved
+// after the owning section loads so the popup never opens actions on the wrong
+// row while the list is still empty.
+type dashboardFocus struct {
+	section  int
+	id       string
+	attempt  bool
+	action   string
+	openMenu bool
+}
+
+// DashboardOptions selects which dashboard surface to render.
+type DashboardOptions struct {
+	Attach      func(string, string) error
+	ControlOnly bool
+	Popup       bool
+	FocusKind   string
+	FocusID     string
+	Action      string
 }
 
 // RunDashboard uses a full-screen renderer that owns raw mode, resizing and the
 // suspend/restore boundary around native tmux/SSH. The line client remains useful
 // for pipes and accessibility via console --plain.
 func RunDashboard(c *Client, in io.Reader, out io.Writer, attach func(string, string) error) error {
-	m := newDashboard(c, attach)
-	m.loadPreferences()
+	return runDashboard(c, in, out, DashboardOptions{Attach: attach})
+}
+
+// RunControls renders the dashboard without native attachment actions. It is
+// the surface behind `lectern controls` and the attached terminal's Ctrl-]
+// popup: ordinary Lectern actions stay available, but opening another terminal
+// would nest an attachment inside itself.
+func RunControls(c *Client, in io.Reader, out io.Writer, opts DashboardOptions) error {
+	opts.ControlOnly = true
+	return runDashboard(c, in, out, opts)
+}
+
+func runDashboard(c *Client, in io.Reader, out io.Writer, opts DashboardOptions) error {
+	m := newDashboardOpts(c, opts)
+	// A contextual popup must find its attachment even if the dashboard saved
+	// its group collapsed. Keep that temporary view out of saved preferences.
+	if opts.FocusID == "" {
+		m.loadPreferences()
+	}
 	_, err := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 func newDashboard(c *Client, attach func(string, string) error) *dashboard {
+	return newDashboardOpts(c, DashboardOptions{Attach: attach})
+}
+func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	q := textinput.New()
 	q.Prompt = "/ "
 	q.Placeholder = "Search name, project, target, agent…"
 	q.CharLimit = 200
-	m := &dashboard{client: c, attach: attach, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
+	m := &dashboard{client: c, attach: opts.Attach, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
+	m.controlOnly = opts.ControlOnly
+	m.popup = opts.Popup
+	if kind := controlsKind(opts.FocusKind); kind != "" && opts.FocusID != "" {
+		m.section = controlsSection(kind)
+		m.pendingFocus = &dashboardFocus{section: m.section, id: opts.FocusID, attempt: kind == "attempt", action: opts.Action, openMenu: true}
+		m.notice = "Opening controls for " + kind + " " + opts.FocusID + "…"
+	}
 	m.layout()
 	return m
+}
+
+// controlsKind accepts the terminal kinds an attachment can name and returns
+// the row family the controls popup should select.
+func controlsKind(kind string) string {
+	kind = strings.TrimSuffix(kind, "-shell")
+	switch kind {
+	case "session", "task", "attempt", "project":
+		return kind
+	}
+	return ""
+}
+
+func controlsSection(kind string) int {
+	switch kind {
+	case "task", "attempt":
+		return 1
+	case "project":
+		return 3
+	}
+	return 0
 }
 func (m *dashboard) Init() tea.Cmd { return tea.Batch(m.refresh(), m.references(), nextTick()) }
 func nextTick() tea.Cmd {
@@ -326,6 +401,99 @@ func (m *dashboard) ensureSelection() {
 	m.offset = max(0, min(m.offset, m.selected))
 	for m.offset < m.selected && m.rowsHeight(m.offset, m.selected+1) > max(3, m.height-8) {
 		m.offset++
+	}
+}
+
+// resolveFocus selects the row a controls popup asked for and opens the actions
+// menu only once that exact row is loaded. A missing row is reported explicitly
+// rather than silently acting on whichever row happens to be first.
+func (m *dashboard) resolveFocus(v rowsMsg) (tea.Cmd, bool) {
+	f := m.pendingFocus
+	if f == nil || v.section != sections[f.section] {
+		return nil, false
+	}
+	m.pendingFocus = nil
+	index := -1
+	for i, r := range m.visible {
+		if isGroup(r) {
+			continue
+		}
+		if f.attempt {
+			a, _ := r["attempt"].(map[string]any)
+			if a != nil && id(row(a)) == f.id {
+				index = i
+				break
+			}
+			continue
+		}
+		if id(r) == f.id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		m.notice = focusMissingNotice(f)
+		return nil, true
+	}
+	m.selected = index
+	m.ensureSelection()
+	m.previewFocus = false
+	m.updatePreview()
+	if !f.openMenu {
+		return nil, true
+	}
+	m.menu = true
+	m.menuIndex = 0
+	if f.action != "" {
+		m.menu = false
+		return m.controlAction(f.action), true
+	}
+	return nil, true
+}
+
+func focusMissingNotice(f *dashboardFocus) string {
+	switch sections[f.section] {
+	case "tasks":
+		return "No task in the current list matches " + f.id + "; it may be archived or belong to another project."
+	case "projects":
+		return "No project in the current list matches " + f.id + "."
+	}
+	return "No session in the current live list matches " + f.id + "; press A or z to widen the view."
+}
+
+// controlAction runs one direct controls shortcut (Ctrl-] u and friends) after
+// the requested row is selected.
+func (m *dashboard) controlAction(name string) tea.Cmd {
+	switch name {
+	case "upload":
+		return m.uploadForm()
+	case "send":
+		return m.sendForm()
+	case "review":
+		return m.openReview()
+	case "rename":
+		return m.renameForm()
+	case "history":
+		return m.readDetail("History")
+	case "":
+		return nil
+	}
+	m.notice = "Unknown controls action " + name
+	return nil
+}
+
+// nativeDisabled explains why a native terminal action is unavailable here.
+func (m *dashboard) nativeDisabled() tea.Cmd {
+	m.notice = "Native terminals are disabled in the controls popup; detach (Ctrl-b d) or quit and attach from the dashboard."
+	return nil
+}
+
+// showHome returns the controls popup to its actions menu after a form or detail
+// closes, so Esc keeps the popup on the menu it was opened with.
+func (m *dashboard) showHome() {
+	if m.popup {
+		m.menu = true
+		m.menuIndex = 0
 	}
 }
 func (m *dashboard) layout() {
@@ -532,6 +700,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if cmd, handled := m.resolveFocus(v); handled {
+			return m, cmd
+		}
 		return m, nil
 	case recentMsg:
 		m.busy = false
@@ -730,7 +901,12 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.menu {
 			list := m.actions()
 			switch v.String() {
-			case "esc", "m", "q":
+			case "esc", "q":
+				if m.popup {
+					return m, tea.Quit
+				}
+				m.menu = false
+			case "m":
 				m.menu = false
 			case "up", "k":
 				m.menuIndex = max(0, m.menuIndex-1)
@@ -778,6 +954,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searching = true
 			return m, m.query.Focus()
 		case "esc":
+			if m.popup && !m.searching && m.detailKey == "" {
+				return m, tea.Quit
+			}
 			m.query.SetValue("")
 			m.detailKey = ""
 			m.detail = ""
@@ -866,10 +1045,19 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.toggleGroup()
 				return m, nil
 			}
+			if m.controlOnly {
+				return m, m.nativeDisabled()
+			}
 			return m, m.attachSelected(false)
 		case "s":
+			if m.controlOnly {
+				return m, m.nativeDisabled()
+			}
 			return m, m.attachSelected(true)
 		case "S":
+			if m.controlOnly {
+				return m, m.nativeDisabled()
+			}
 			return m, m.newShellForm()
 		case "m":
 			m.menu = true
@@ -934,6 +1122,9 @@ func (e attachmentExec) SetStdin(io.Reader)  {}
 func (e attachmentExec) SetStdout(io.Writer) {}
 func (e attachmentExec) SetStderr(io.Writer) {}
 func (m *dashboard) attachSelected(shell bool) tea.Cmd {
+	if m.controlOnly {
+		return m.nativeDisabled()
+	}
 	r := m.current()
 	if r == nil {
 		return nil

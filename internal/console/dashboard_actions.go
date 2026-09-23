@@ -92,10 +92,19 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 		m.expandGroup()
 		return nil
 	case "attach":
+		if m.controlOnly {
+			return m.nativeDisabled()
+		}
 		return m.attachSelected(false)
 	case "shell":
+		if m.controlOnly {
+			return m.nativeDisabled()
+		}
 		return m.attachSelected(true)
 	case "blank-shell":
+		if m.controlOnly {
+			return m.nativeDisabled()
+		}
 		return m.newShellForm()
 	case "group":
 		return m.groupForm()
@@ -140,6 +149,30 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	return m.execute(a)
 }
 func (m *dashboard) actions() []dashboardAction {
+	list := m.allActions()
+	if !m.controlOnly {
+		return list
+	}
+	filtered := make([]dashboardAction, 0, len(list))
+	for _, action := range list {
+		if nativeTerminalAction(action.Operation) {
+			continue
+		}
+		filtered = append(filtered, action)
+	}
+	return filtered
+}
+
+// nativeTerminalAction reports whether an action opens another native
+// terminal. A controls popup omits these so it cannot attach inside itself.
+func nativeTerminalAction(operation string) bool {
+	switch operation {
+	case "attach", "shell", "blank-shell":
+		return true
+	}
+	return false
+}
+func (m *dashboard) allActions() []dashboardAction {
 	actions := m.rowActions()
 	profile := dashboardAction{Label: "Manage launch profiles", Operation: "launch-profiles"}
 	agents := dashboardAction{Label: "Manage agent runners", Operation: "agents"}
@@ -372,6 +405,7 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.form = nil
 		m.notice = "Cancelled"
+		m.showHome()
 		return nil
 	case "ctrl+s":
 		if len(current.Options) > 0 && current.Searchable && current.OptionFilter != "" && len(filteredChoices(*current)) == 0 {

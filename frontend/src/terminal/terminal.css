@@ -1001,3 +1001,9 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
     max-height: max(80px, calc(var(--lec-visible-height) - 96px));
   }
 }
+
+/* Keep the phone's compact Tools key the same width. */
+.terminal-controls-hint { font-size: 11px; opacity: .75; }
+.mobile-terminal .terminal-controls-hint,
+body.compact-chrome .terminal-controls-hint { display: none; }
+.terminal-controls-help { margin: 4px 8px 8px; font-size: 12px; line-height: 1.6; color: var(--muted); }

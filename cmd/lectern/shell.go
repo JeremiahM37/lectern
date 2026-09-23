@@ -69,11 +69,12 @@ func shellCommandAt(cfg *config.Config, args []string, base, token string, local
 	if local {
 		attachCfg.AuthToken = token
 	}
-	argv, err := attachmentCommandAt(&attachCfg, []string{"session", strconv.FormatInt(sess.ID, 10)}, base, attachHost)
+	shellKind, shellID := "session", strconv.FormatInt(sess.ID, 10)
+	argv, err := attachmentCommandAt(&attachCfg, []string{shellKind, shellID}, base, attachHost)
 	if err != nil {
 		return err
 	}
-	return runAttachment(argv)
+	return runAttachment(argv, &nativeControls{Kind: shellKind, ID: shellID, Base: base, Token: attachCfg.AuthToken})
 }
 
 func shellEndpointError(err error) error {
