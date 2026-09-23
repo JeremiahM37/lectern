@@ -87,7 +87,10 @@ func TestInteractiveMCPArgsReachSyntheticProcess(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "argv")
 	bin := filepath.Join(dir, "agent")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellq.Quote(log)+"\n"), 0700); err != nil {
+	// The argv file appears only once it is complete: the shell opens the
+	// redirect target before printf writes a byte, and a reader that polls for
+	// existence can see the empty file in between (it did, on CI).
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellq.Quote(log+".tmp")+" && mv "+shellq.Quote(log+".tmp")+" "+shellq.Quote(log)+"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	spec := Spec{Command: bin, ResumeIDArgs: []string{"resume", "{id}"}, ForkArgs: []string{"fork", "{id}"}}
