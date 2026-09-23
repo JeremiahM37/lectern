@@ -1,4 +1,6 @@
 import "./conversation-react.css";
+import "./session-home.css";
+import { SessionLineage } from "../continuity/SessionLineage";
 import { Modal } from "./Modal";
 import {
   useEffect,
@@ -55,6 +57,12 @@ interface Recognition {
   start(): void;
   stop(): void;
 }
+interface Changes {
+  branch: string;
+  files: { path: string; status: string; working: boolean; staged: boolean }[];
+  repositories?: { id: number; name: string }[];
+  truncated: boolean;
+}
 const uid = () =>
   globalThis.crypto?.randomUUID?.() ||
   `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -97,7 +105,10 @@ export function Conversation({
   api,
   onClose,
   onNotice,
+  onAttach,
   onSwitch,
+  session,
+  onOpenSession,
 }: {
   kind: "session" | "task";
   id: number;
@@ -105,14 +116,23 @@ export function Conversation({
   api: SessionsApi;
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
+  session?: SessionView;
+  onOpenSession?(session: SessionView): void;
+  onAttach?(): void;
   onSwitch?(): void;
 }) {
   const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
     [rows, setRows] = useState<Row[]>([]),
     [sessionText, setSessionText] = useState(""),
+    [sessionAgent, setSessionAgent] = useState(""),
     [status, setStatus] = useState("Connecting…"),
     [error, setError] = useState(""),
+    [reachable, setReachable] = useState<boolean>(),
+    [online, setOnline] = useState(() => navigator.onLine),
+    [changes, setChanges] = useState<Changes>(),
+    [changesBusy, setChangesBusy] = useState(false),
+    [changesError, setChangesError] = useState(false),
     [receipt, setReceipt] = useState(""),
     [uploadStatus, setUploadStatus] = useState(""),
     [unavailable, setUnavailable] = useState(false),
@@ -142,8 +162,22 @@ export function Conversation({
     input = useRef<HTMLTextAreaElement>(null),
     files = useRef<HTMLInputElement>(null),
     abort = useRef(new AbortController()),
+    takeoverTasks = useRef<number[]>([]),
+    loadingChanges = useRef(false),
     recognition = useRef<Recognition | undefined>(undefined);
   current.current = draft;
+  // A successful read is live; a failed read is offline only when the browser
+  // agrees, and stale otherwise. Both are said out loud rather than hidden
+  // behind a spinner.
+  const connection =
+    reachable === true
+      ? "live"
+      : reachable === false
+        ? online
+          ? "stale"
+          : "offline"
+        : "connecting";
+  const changedFiles = Array.isArray(changes?.files) ? changes.files : [];
   function change(update: (old: Draft) => Draft) {
     const next = update(current.current);
     current.current = next;
@@ -155,6 +189,42 @@ export function Conversation({
   useEffect(() => {
     localStorage.setItem("lec-reader-font", String(font));
   }, [font]);
+  useEffect(() => {
+    // Reaching the server is the evidence; the browser's own flag only
+    // invalidates. A phone can be wrong, and a hermetic namespace reports
+    // offline with a perfectly reachable server, so a successful read always
+    // wins and an offline event stops us claiming live before the next read.
+    const up = () => {
+      setOnline(true);
+      void refresh();
+    };
+    const down = () => {
+      setOnline(false);
+      setReachable(false);
+    };
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  // Approvals belong to task attempts. A session that took a task over is that
+  // task's interactive half, so its pending approvals belong in this chat.
+  useEffect(() => {
+    if (kind !== "session") return;
+    const controller = new AbortController();
+    void api
+      .request<TaskView[]>("/tasks", { signal: controller.signal })
+      .then((rows) => {
+        if (controller.signal.aborted || !Array.isArray(rows)) return;
+        takeoverTasks.current = rows
+          .filter((row) => row.takeover?.session_id === id)
+          .map((row) => row.id);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [api, kind, id]);
   useEffect(() => {
     const fit = () =>
       setViewport({
@@ -190,8 +260,22 @@ export function Conversation({
         setStatus(
           `${data.session.agent} · ${data.ended ? "Ended" : data.session.status} · live reader`,
         );
-        setUnavailable(data.ended);
+        setSessionAgent(data.session.agent);
+        setUnavailable(data.ended || data.session.status === "dead");
         setSessionText(data.text || "Waiting for agent output…");
+        if (takeoverTasks.current.length) {
+          const pending = await api
+            .request<Approval[]>("/approvals?status=pending", {
+              signal: abort.current.signal,
+            })
+            .catch(() => []);
+          if (closed.current) return;
+          setApprovals(
+            (Array.isArray(pending) ? pending : []).filter(
+              (row) => !!row.task_id && takeoverTasks.current.includes(row.task_id),
+            ),
+          );
+        }
       } else {
         const [next, events, messages, pending] = await Promise.all([
           api.request<TaskView>(`/tasks/${id}`, {
@@ -288,12 +372,15 @@ export function Conversation({
         );
         setApprovals(pending.filter((row) => row.task_id === id));
       }
+      setReachable(true);
       setError("");
     } catch (error) {
-      if (!closed.current)
+      if (!closed.current) {
+        setReachable(false);
         setError(
           `Could not refresh: ${String(error)}. Displayed output may be stale.`,
         );
+      }
     } finally {
       busy.current = false;
     }
@@ -359,6 +446,30 @@ export function Conversation({
       }
     }
   }
+  // The same endpoint the Review dialog reads. It runs Git on the target, so it
+  // happens when the file list is opened or refreshed — not on every poll.
+  async function loadChanges() {
+    if (kind !== "session" || loadingChanges.current) return;
+    loadingChanges.current = true;
+    setChangesBusy(true);
+    try {
+      const next = await api.request<Changes>(
+        `/term/session/${id}/changes?scope=working`,
+        { signal: abort.current.signal },
+      );
+      if (closed.current) return;
+      setChanges(next);
+      setChangesError(false);
+    } catch {
+      if (!closed.current) {
+        setChanges(undefined);
+        setChangesError(true);
+      }
+    } finally {
+      loadingChanges.current = false;
+      if (!closed.current) setChangesBusy(false);
+    }
+  }
   async function send() {
     if (
       sendingRef.current ||
@@ -367,6 +478,12 @@ export function Conversation({
       (kind === "session" && unavailable)
     )
       return;
+    if (connection === "offline") {
+      setReceipt(
+        "You're offline. Nothing was sent; your draft is kept on this device.",
+      );
+      return;
+    }
     const submitted = current.current;
     const text =
       submitted.text +
@@ -503,6 +620,12 @@ export function Conversation({
               : task?.status === "queued"
                 ? "Your message is added before the queued run starts."
                 : "Send continues the task in its existing worktree.";
+  function openTerminal() {
+    // The card's attach flow already retries the transient 503, reports the
+    // permanent ones and opens the tab. Reuse it instead of a second copy.
+    onClose();
+    onAttach?.();
+  }
   return (
     <Modal
       id="conversation"
@@ -523,8 +646,12 @@ export function Conversation({
       <header className="conversation-head">
         <div>
           <h2 id="conversation-title">{name}</h2>
-          <p id="conversation-status" role="status">
-            {status}
+          <p id="conversation-status" role="status" data-connection={connection}>
+            {connection === "offline"
+              ? "Offline — showing the last output; sends are paused"
+              : connection === "stale"
+                ? `${status} · reconnecting…`
+                : status}
           </p>
         </div>
         {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
@@ -537,6 +664,7 @@ export function Conversation({
           ✕
         </button>
       </header>
+      {session && onOpenSession && <SessionLineage api={api} session={session} onOpen={onOpenSession} className="conversation-lineage" />}
       <div className="reader-controls">
         <span>
           {kind === "session"
@@ -573,6 +701,70 @@ export function Conversation({
       <div id="conversation-error" role="status" hidden={!error}>
         {error}
       </div>
+      {kind === "session" && onAttach && !unavailable && (
+        <div
+          className="conversation-session-actions"
+          id="conversation-session-actions"
+        >
+          <button
+            type="button"
+            className="b"
+            id="conversation-terminal"
+            onClick={openTerminal}
+          >
+            ⌨ Open terminal
+          </button>
+        </div>
+      )}
+      {kind === "session" && (
+        <details
+          id="conversation-changes"
+          className="conversation-changes"
+          onToggle={(event) => {
+            if (event.currentTarget.open) void loadChanges();
+          }}
+        >
+          <summary>
+            Changed files{changedFiles.length ? ` · ${changedFiles.length}` : ""}
+          </summary>
+          <div className="changes-body">
+            {changesBusy && <p className="sub">Reading working changes…</p>}
+            {!changesBusy && changesError && (
+              <p className="sub">
+                Working changes are unavailable for this session.
+              </p>
+            )}
+            {!changesBusy && changes && (
+              <>
+                <p className="sub">
+                  {changes.branch || "workspace"} · working
+                  {changes.truncated ? " · truncated" : ""}
+                </p>
+                {changedFiles.length ? (
+                  <ul className="changes-files">
+                    {changedFiles.map((file) => (
+                      <li key={file.path} data-status={file.status}>
+                        <code>{file.path}</code>
+                        <span>{file.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="sub">No changed files right now.</p>
+                )}
+              </>
+            )}
+            <button
+              type="button"
+              className="b"
+              disabled={changesBusy}
+              onClick={() => void loadChanges()}
+            >
+              Refresh
+            </button>
+          </div>
+        </details>
+      )}
       <div
         id="conversation-log"
         ref={log}
@@ -587,8 +779,40 @@ export function Conversation({
               70;
         }}
       >
-        {kind === "session" ? (
-          <pre className="session-reader">{sessionText || "Loading…"}</pre>
+        {kind === "session" && sessionAgent === "shell" ? (
+          <div id="conversation-output-error">
+            <p>
+              This tracked session is a shell, not an agent conversation. Type
+              to the pane from here, or use the Terminal action above for the
+              full keyboard.
+            </p>
+          </div>
+        ) : kind === "session" && error && !sessionText ? (
+          <div id="conversation-output-error">
+            <p>
+              Live output could not be read from this session
+              {unavailable ? " because it has ended" : ""}.
+            </p>
+            <p>
+              {unavailable
+                ? "Restore tracking to continue the conversation."
+                : "Messages still go to the session; the Terminal action above reads the pane directly."}
+            </p>
+          </div>
+        ) : kind === "session" ? (
+          <>
+            {!!draft.text.trim() && (
+              <article
+                className="reader-message operator queued"
+                id="conversation-draft-row"
+                data-status="draft"
+              >
+                <div className="reader-speaker">You · not sent yet</div>
+                <div className="reader-text">{draft.text}</div>
+              </article>
+            )}
+            <pre className="session-reader">{sessionText || "Loading…"}</pre>
+          </>
         ) : (
           rows.map((row) =>
             row.role === "detail" ? (
@@ -626,6 +850,15 @@ export function Conversation({
             >
               Deny
             </button>
+            {!!approval.task_id && (
+              <a
+                className="b link-button"
+                href={`#task/${approval.task_id}`}
+                onClick={onClose}
+              >
+                Open task
+              </a>
+            )}
           </div>
         ))}
       </div>
@@ -720,6 +953,11 @@ export function Conversation({
         <p id="conversation-upload-status" role="status">
           {uploadStatus}
         </p>
+        {!!draft.text.trim() && !sending && (
+          <p id="conversation-draft" role="status">
+            Draft saved on this device · not sent yet
+          </p>
+        )}
         <p id="conversation-hint">{hint}</p>
         <div className="compose-actions">
           <button
@@ -791,13 +1029,23 @@ export function Conversation({
             type="submit"
             className="b ok grow"
             id="conversation-send"
+            data-sending={sending ? "true" : undefined}
             disabled={
-              sending || uploading || (kind === "session" && unavailable)
+              sending ||
+              uploading ||
+              connection === "offline" ||
+              (kind === "session" && unavailable)
             }
           >
             Send
           </button>
         </div>
+        {connection === "offline" && (
+          <p id="conversation-offline" className="conversation-notice" role="status">
+            Offline — nothing is sent while you are disconnected. Your draft is
+            saved on this device and stays here when you reconnect.
+          </p>
+        )}
         <p id="conversation-receipt" role="status">
           {receipt}
         </p>

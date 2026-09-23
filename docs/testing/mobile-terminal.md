@@ -99,3 +99,73 @@ than CDP typing disguised as keyboard testing. CDP is used for page inspection
 and setup commands. Screenshots include device chrome and the actual keyboard;
 the final `result.json` names each completed check. Keep the screenshot artifacts
 private if testing an instance with personal sessions.
+
+## Automated nightly and pre-release audit
+
+`tools/run-android-audit.py` owns setup and cleanup. It boots the named AVD only
+when the requested emulator is absent, runs a disposable Lectern server and two
+synthetic sessions, and stops only an emulator it started. It never connects to
+the production Lectern API. A lock serializes scheduled and manual runs.
+
+After reviewing `tools/run-isolated-tests.sh`, run from the candidate checkout:
+
+```sh
+ADK_ISOLATION_REVIEWED=1 PATH=/usr/local/go/bin:$PATH \
+  python3 tools/run-android-audit.py --sdk "$ANDROID_SDK_ROOT" \
+  --avd pixel7_test --serial emulator-5554 \
+  --artifacts .verify-artifacts/android
+```
+
+The AVD must already contain Chrome and English Gboard with the documented
+Pixel 7 geometry. `--preflight` validates local paths without launching or typing.
+The audited source must have its frontend built/staged first. Native tests add a
+bottom-pinned alternate-screen input fixture, mouse-reporting terminal swipes,
+and offline/background recovery to the keyboard/selection checks. This is a
+synthetic full-screen application; it does not assert parity with every release
+of Claude or Codex, and it does not establish iPhone coverage.
+
+The ordinary test modes retain network isolation. The explicit `android` mode
+shares loopback solely to reach the external ADB server and expose the temporary
+fixture to the emulator through `adb reverse`. It retains private HOME, /tmp,
+mount, UID and PID namespaces. The host's tmux socket and credentials are absent;
+fixture processes cannot reach production sessions through a shared tmux socket.
+Only the chosen artifact directory is mounted writable outside the private copy.
+
+Every run writes a timestamped directory with `audit.log`, `fixture.log`, device
+screenshots, and `result.json`. `latest.json` is replaced on success **or failure**;
+a failed run cannot leave yesterday's PASS as today's result. Nonzero exit status
+fails the service or release check. Receipts include the tested source revision.
+
+The host service/timer templates are in `deploy/android-audit/`. Install the
+runner as `~/.local/bin/lectern-android-audit`, install the units under
+`/etc/systemd/system/`, and create `~/.config/lectern/android-audit.env`:
+
+```ini
+LEC_AUDIT_CHECKOUT=/absolute/path/to/deployed-source-snapshot
+ANDROID_SDK_ROOT=/absolute/path/to/android-sdk
+LEC_ANDROID_ARTIFACT_ROOT=/absolute/path/to/private-audit-results
+PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+```
+
+Then `sudo systemctl daemon-reload` and
+`sudo systemctl enable --now lectern-android-audit.timer`. The timer runs at
+04:30 with up to ten minutes of jitter. Point it at the deployed source snapshot,
+not a mutable development checkout. Run the same command against a candidate
+before deployment; passing does not publish anything automatically. Check status
+with `systemctl status lectern-android-audit.service` and the latest JSON
+receipt. An unavailable emulator, failed setup, or failed assertion is a failure,
+not a skipped green check.
+
+The example service runs as `admin` (UID 1000) and starts that user's scope bus
+without enabling lingering. Adapt the account and `user@` dependency when
+installing on another machine. No live server or agent is used by this audit.
+
+## Full-screen follow-up
+
+The new audit adds a bottom-pinned alternate-screen prompt with mouse reporting,
+and exercises `interactive-widget=resizes-visual` as well as ordinary Android
+layout resizing. Inspect the ADB screenshot: a CDP screenshot can temporarily
+resize the visual viewport itself and produce misleading keyboard evidence.
+The prompt, key row, keyboard toggle and Tools must all fit above Gboard.
+Horizontal swipes are recognized by the terminal's existing gesture owner,
+which locks one axis so vertical reading cannot turn into a session change.

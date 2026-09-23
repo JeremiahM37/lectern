@@ -23,6 +23,8 @@ export interface Snapshot {
   // process that ignores its terminal looks exactly like an idle one from the
   // board, so this is the only place the difference is visible.
   unresponsive: boolean;
+  // A connection attempt failed while the device reports no network at all.
+  offline: boolean;
 }
 export interface EngineOptions {
   url: string;
@@ -35,6 +37,8 @@ export interface EngineOptions {
   notice: (text: string) => void;
   history: () => void;
   matches: (index: number, count: number) => void;
+  // A deliberate horizontal flick on the terminal body, for the tab bar.
+  swipe?: (direction: 1 | -1) => void;
 }
 import { installAndroidInput } from "./android-input";
 export class Engine {
@@ -67,6 +71,14 @@ export class Engine {
   // agent. Only the operator's own keystrokes count, never a resize, and a
   // password prompt is cleared the moment Enter draws something.
   private silentTimer?: number;
+  // When the page last went to the background. A phone freezes a backgrounded
+  // page without warning: its socket can be gone while the tab still says
+  // connected, and its close event may never arrive.
+  private hiddenAt = 0;
+  // Only a failed attempt while the browser reports no network sets this: a
+  // server that is merely down is still "reconnecting", not "offline".
+  private offline = false;
+  private lifetime = new AbortController();
   private unansweredKeys = 0;
   unresponsive = false;
   static readonly silenceMs = 2000;
@@ -146,6 +158,10 @@ export class Engine {
       // Held still, the terminal becomes text: the buffer as the phone's own
       // selectable type, which is the only kind a phone can select and copy.
       longPress: () => this.freeze(true),
+      // A live selection owns a horizontal drag: it is how text is extended,
+      // not how the next terminal is chosen.
+      selection: () => this.term.hasSelection(),
+      swipe: (direction) => this.options.swipe?.(direction),
       autoscrollHost: options.pane,
       historyViewport: () =>
         this.readingRetainedHistory ? options.frozen : null,
@@ -156,7 +172,67 @@ export class Engine {
         ++this.historyRevision;
       },
     });
+    // Coming back from a phone's background or a lost network reconnects at
+    // once instead of waiting out an exponential backoff that was never told
+    // what happened.
+    const signal = this.lifetime.signal;
+    // A phone that has lost its network cannot use the socket it still holds:
+    // show that at once, drop the dead stream, and stop hammering a network
+    // that is not there. The explicit event is the signal, not the
+    // `navigator.onLine` flag, which a hermetic browser may report wrongly.
+    window.addEventListener("offline", () => {
+      this.offline = true;
+      this.connected = false;
+      this.status = "Offline";
+      this.term.options.disableStdin = true;
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      this.ws?.close();
+      this.changed();
+    }, { signal });
+    // The network is back: reconnect at once, and softly, so the screen keeps
+    // what the session already printed and nothing the finger typed is sent
+    // a second time.
+    window.addEventListener("online", () => {
+      this.offline = false;
+      this.retry = 500;
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      if (this.connected) this.changed();
+      else void this.connect(true);
+    }, { signal });
+    window.addEventListener("pageshow", () => this.resume(), { signal });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        this.hiddenAt = Date.now();
+        return;
+      }
+      this.resume();
+    }, { signal });
     void this.connect();
+  }
+  // A socket that outlived a long stay in the background may be a zombie: it
+  // still reports open, but nothing has been read or written through it.
+  private resume() {
+    if (this.stopped || this.paused) return;
+    if (!this.connected) {
+      this.retry = 500;
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      // A resume reattaches to the same session: the screen keeps what it
+      // already printed instead of being wiped by a hard reconnect.
+      void this.connect(true);
+      return;
+    }
+    if (
+      this.hiddenAt &&
+      Date.now() - this.hiddenAt > 60000 &&
+      this.ws?.readyState === WebSocket.OPEN
+    ) {
+      this.hiddenAt = 0;
+      this.retry = 500;
+      void this.connect(true);
+    }
   }
   private changed() {
     if (!this.stopped)
@@ -167,6 +243,7 @@ export class Engine {
         frozen: this.frozenText,
         retained: this.readingRetainedHistory,
         unresponsive: this.unresponsive,
+        offline: this.offline,
       });
   }
   private armSilence() {
@@ -234,8 +311,13 @@ export class Engine {
       this.term.refresh(0, this.term.rows - 1);
     });
   }
-  async connect() {
+  async connect(soft = false) {
     if (this.stopped) return;
+    // A reconnect to the same session keeps what is on screen: the session is
+    // the same, and the new attachment repaints over it. Only a first connect,
+    // or a stream that may be a different session, starts from a clean buffer.
+    this.androidInput?.reset();
+    this.hiddenAt = 0;
     ++this.historyRevision;
     this.leaveRetainedHistory();
     const generation = ++this.generation;
@@ -252,7 +334,7 @@ export class Engine {
     try {
       await new Promise<void>((resolve) => this.term.write("", resolve));
       if (!current()) return;
-      this.term.reset();
+      if (!soft) this.term.reset();
       if (!this.paused) this.fit.fit();
       const data = await json<{ token: string }>(
         withToken(this.options.url + "/token"),
@@ -272,6 +354,7 @@ export class Engine {
         this.pending = 0;
         this.flowPaused = false;
         this.connected = true;
+        this.offline = false;
         this.retry = 500;
         this.term.options.disableStdin = this.paused;
         this.send(
@@ -314,23 +397,32 @@ export class Engine {
       };
       ws.onerror = () => ws.close();
     } catch (error) {
-      if (current())
+      if (current()) {
+        // A failed request plus the browser's offline flag is useful evidence
+        // even if its offline event was missed. Never reject a working stream
+        // solely because of this flag (private test networks can report false).
+        this.offline = this.offline || navigator.onLine === false;
         this.reconnect(
           error instanceof Error ? error.message : errorMessage(error),
         );
+      }
     }
   }
   private reconnect(message = "Reconnecting…") {
     ++this.generation;
     this.connected = false;
-    this.status = message;
+    this.status = this.offline ? "Offline" : message;
     this.term.options.disableStdin = true;
     this.changed();
     if (this.stopped) return;
     clearTimeout(this.timer);
+    this.timer = undefined;
+    // Online events reconnect immediately. A slow fallback also covers a
+    // missed event or a browser with an inaccurate network flag.
     this.timer = window.setTimeout(() => {
-      void this.connect();
-    }, this.retry);
+      this.timer = undefined;
+      if (!this.connected) void this.connect(true);
+    }, this.offline ? 10000 : this.retry);
     this.retry = Math.min(this.retry * 2, 10000);
   }
   paste(text: string) {
@@ -464,6 +556,7 @@ export class Engine {
   }
   dispose() {
     this.stopped = true;
+    this.lifetime.abort();
     ++this.generation;
     this.controller?.abort();
     if (this.fitFrame !== undefined) cancelAnimationFrame(this.fitFrame);

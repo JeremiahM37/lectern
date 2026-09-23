@@ -1,0 +1,17 @@
+[Unit]
+Description=Lectern native Android keyboard and terminal regression audit
+# The isolated test runner uses a user scope. Start its bus without enabling
+# lingering or changing any login policy.
+Wants=user@1000.service
+After=user@1000.service
+
+[Service]
+Type=oneshot
+User=admin
+Group=admin
+EnvironmentFile=/home/admin/.config/lectern/android-audit.env
+Environment=ADK_ISOLATION_REVIEWED=1
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/home/admin/.local/bin/lectern-android-audit --checkout ${LEC_AUDIT_CHECKOUT} --sdk ${ANDROID_SDK_ROOT} --artifacts ${LEC_ANDROID_ARTIFACT_ROOT}
+TimeoutStartSec=30min
+Nice=10

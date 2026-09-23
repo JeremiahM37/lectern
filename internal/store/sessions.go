@@ -191,6 +191,22 @@ func (db *DB) InsertWrap(w *Wrap) (int64, error) {
 	return res.LastInsertId()
 }
 
+// WrapPredecessor returns the newest wrap that started this session, so a
+// successor can point back at the conversation that handed the work over.
+func (db *DB) WrapPredecessor(sessionID int64) (*Wrap, error) {
+	row := db.QueryRow(`SELECT id, session_id, project_id, summary, next_session_id,
+		created_at FROM session_wraps WHERE next_session_id=? ORDER BY id DESC LIMIT 1`, sessionID)
+	var w Wrap
+	err := row.Scan(&w.ID, &w.SessionID, &w.ProjectID, &w.Summary, &w.NextSessionID, &w.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 // ScratchSession is the little the scratch sweep needs from a session row: who
 // claims a directory, whether they still do, and whether a conversation was
 // ever recorded there.

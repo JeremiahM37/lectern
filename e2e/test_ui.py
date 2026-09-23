@@ -38,7 +38,7 @@ def test_board_renders(page, server):
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_phone_board_is_one_column_with_a_status_strip(page, server):
     """Six 86vw columns meant ~2100px of sideways scrolling on a 390px screen."""
-    page.goto(server)
+    page.goto(server + "/#board")
     expect(page.locator("#conn-label")).to_have_text("LIVE", timeout=10000)
     expect(page.locator(".colstrip .colchip")).to_have_count(6)
     expect(page.locator(".col")).to_have_count(1)
@@ -47,9 +47,9 @@ def test_phone_board_is_one_column_with_a_status_strip(page, server):
 
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
-def test_phone_lands_on_work_that_wants_a_decision(page, server):
+def test_phone_board_focuses_work_that_wants_a_decision(page, server):
     """It used to open on an empty BACKLOG with the live card three swipes away."""
-    page.goto(server)
+    page.goto(server + "/#board")
     expect(page.locator("#conn-label")).to_have_text("LIVE", timeout=10000)
     _new_task(page, "PHONE focus", "add health endpoint")
     expect(page.locator(".col.s-review .card", has_text="PHONE focus")) \
@@ -86,7 +86,7 @@ def test_full_flow_dispatch_review_diff_done(page, server):
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_approval_flow_from_phone(page, server):
-    page.goto(server)
+    page.goto(server + "/#board")
     _new_task(page, "E2E gated deploy", "deploy [mock:approval]", perm="default")
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
@@ -140,7 +140,7 @@ def test_new_task_sheet_states_the_agent_capability(page, server):
     pid = page.request.get(f"{server}/api/projects").json()[0]["id"]
     page.request.patch(f"{server}/api/projects/{pid}",
                        data={"capability_profile": "restricted"})
-    page.goto(server)
+    page.goto(server + "/#board")
     page.click("#fab")
     page.select_option("#f-project", str(pid))
     expect(page.locator("#f-cap-hint")).to_contain_text("restricted", timeout=10000)
@@ -432,7 +432,7 @@ def test_mobile_board_has_no_page_level_horizontal_overflow(browser, server):
     ctx = browser.new_context(viewport=PHONE)
     pg = ctx.new_page()
     try:
-        pg.goto(server)
+        pg.goto(server + "/#board")
         pg.wait_for_selector(".card, .col", timeout=10000)
         scroll_w = pg.evaluate("() => document.documentElement.scrollWidth")
         assert scroll_w <= PHONE["width"] + 1, \
@@ -1058,7 +1058,7 @@ def test_a_routine_can_be_edited(page, server):
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_mobile_task_conversation_keeps_drafts_and_continues(page, server):
-    page.goto(server)
+    page.goto(server + "/#board")
     _new_task(page, "Mobile conversation", "Create a friendly welcome page")
     card = page.locator(".col.s-review .card", has_text="Mobile conversation")
     expect(card).to_be_visible(timeout=20000)
@@ -1097,7 +1097,7 @@ def test_mobile_task_conversation_keeps_drafts_and_continues(page, server):
 @pytest.mark.parametrize("width", [320, 390, 768, 1100, 1440])
 def test_responsive_chrome_and_dispatch_remain_usable(page, server, width):
     page.set_viewport_size({"width": width, "height": 900})
-    page.goto(server)
+    page.goto(server + "/#board")
     expect(page.locator("#qb-input")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     if width <= 600:
@@ -1111,7 +1111,7 @@ def test_responsive_chrome_and_dispatch_remain_usable(page, server, width):
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_dispatch_directly_into_chat_and_message_running_task(page, server):
-    page.goto(server)
+    page.goto(server + "/#board")
     page.click("#fab")
     page.fill("#f-title","Talk while working")
     page.fill("#f-prompt","Review this change [mock:approval]")

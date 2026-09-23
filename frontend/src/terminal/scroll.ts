@@ -6,6 +6,11 @@ interface ScrollOptions {
   // A finger held still. xterm has no touch selection, so the page answers a
   // long press by showing the buffer as text the phone can select natively.
   longPress?: () => void;
+  // A deliberate horizontal flick on the terminal body. The same gesture owner
+  // that scrolls and turns a long press into text decides it, so a plain shell
+  // and a full-screen app with mouse reporting behave alike.
+  swipe?: (direction: 1 | -1) => void;
+  selection?: () => boolean;
   retainedHistory: (lines: number) => void;
   liveIntent: () => void;
   autoscrollHost?: HTMLElement;
@@ -16,6 +21,10 @@ interface Gesture {
   y: number;
   x: number;
   start: number;
+  startX: number;
+  startedAt: number;
+  axis?: "x" | "y";
+  swipe: boolean;
   time: number;
   remainder: number;
   velocity: number;
@@ -40,6 +49,8 @@ export function installTerminalScroll({
   autoscrollHost = host,
   historyViewport = () => null,
   longPress,
+  swipe,
+  selection = () => false,
 }: ScrollOptions) {
   let gesture: Gesture | null = null,
     held: number | undefined,
@@ -130,12 +141,16 @@ export function installTerminalScroll({
             longPress();
           }
         }, 520);
+      const started = performance.now();
       gesture = {
         id: e.pointerId,
         y: e.clientY,
         x: e.clientX,
         start: e.clientY,
-        time: performance.now(),
+        startX: e.clientX,
+        startedAt: started,
+        swipe: !selection(),
+        time: started,
         remainder: 0,
         velocity: 0,
         dragged: false,
@@ -148,10 +163,29 @@ export function installTerminalScroll({
     (e) => {
       if (!gesture || e.pointerId !== gesture.id) return;
       const g = gesture,
-        now = performance.now();
-      // Sideways counts too: a slow swipe between terminals is not a press.
-      if (Math.abs(e.clientX - g.x) > 10) clearTimeout(held);
-      if (!g.dragged && Math.abs(e.clientY - g.start) < 6) return;
+        now = performance.now(),
+        dx = e.clientX - g.startX,
+        dy = e.clientY - g.start;
+      // One axis wins for the whole gesture, so a vertical read that backtracks
+      // sideways never turns into a tab change, and a swipe that drifts never
+      // scrolls the terminal underneath it.
+      if (!g.axis) {
+        if (Math.abs(dx) < 14 && Math.abs(dy) < 6) return;
+        g.axis =
+          Math.abs(dx) >= 14 && Math.abs(dx) > Math.abs(dy) * 1.5 ? "x" : "y";
+      }
+      if (g.axis === "x") {
+        // Sideways counts too: a slow swipe between terminals is not a press.
+        clearTimeout(held);
+        g.dragged = true;
+        try {
+          host.setPointerCapture(e.pointerId);
+        } catch {}
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (Math.abs(dy) < 6) return;
       g.dragged = true;
       clearTimeout(held);
       try {
@@ -190,12 +224,27 @@ export function installTerminalScroll({
     try {
       host.releasePointerCapture(e.pointerId);
     } catch {}
-    if (
-      !g.dragged ||
-      e.type === "pointercancel" ||
-      performance.now() - g.time > 100
-    )
+    if (!g.dragged || e.type === "pointercancel") return;
+    if (g.axis === "x") {
+      // A flick, not a scroll: hand it to the tab owner.
+      const dx = e.clientX - g.startX,
+        dy = e.clientY - g.start,
+        width = host.getBoundingClientRect().width || 320,
+        threshold = Math.max(56, Math.min(120, width * 0.18));
+      e.preventDefault();
+      e.stopPropagation();
+      if (
+        g.swipe &&
+        enabled() &&
+        !selection() &&
+        performance.now() - g.startedAt <= 650 &&
+        Math.abs(dx) >= threshold &&
+        Math.abs(dy) <= Math.max(48, Math.abs(dx) * 0.7)
+      )
+        swipe?.(dx < 0 ? 1 : -1);
       return;
+    }
+    if (performance.now() - g.time > 100) return;
     e.preventDefault();
     e.stopPropagation();
     let last = performance.now(),

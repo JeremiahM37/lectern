@@ -4,6 +4,12 @@
 .switch-choice { min-height:48px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; white-space:normal; overflow-wrap:anywhere; text-align:left; }
 .switch-choice small { color:var(--muted); font-weight:normal; }
 .switch-choice[aria-current=true] { border-color:var(--accent); opacity:.7; }
+.switch-choice-wrap { display:flex; align-items:stretch; gap:6px; min-width:0; }
+.switch-choice-wrap .switch-choice { flex:1; min-width:0; }
+.switch-fav { flex:none; width:40px; border:1px solid var(--line-2); background:transparent; color:var(--muted); border-radius:8px; cursor:pointer; }
+.switch-fav[aria-pressed=true] { color:var(--accent-soft); border-color:var(--accent-soft); }
+.switch-favorites { display:flex; flex-direction:column; gap:6px; }
+.switch-favorites .switch-choice { min-height:44px; padding:6px 10px; }
 .switch-custom { margin:18px 0; }
 .switch-custom summary { cursor:pointer; padding:8px 0; }
 .switch-providers { width:100%; margin-top:12px; }
@@ -11,4 +17,5 @@
 @media(max-width:1023px) {
   .terminal-agent-switch { max-width:72px; min-height:34px; height:34px; padding:0 8px; font-size:12px; }
   .quick-switch input,.quick-switch select { font-size:16px; }
+  .switch-fav { width:44px; min-height:44px; font-size:16px; }
 }

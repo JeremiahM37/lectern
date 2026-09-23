@@ -17,12 +17,12 @@ source_dir=$(readlink -f "${1:-$(dirname "${BASH_SOURCE[0]}")/..}")
 }
 
 mode=${ADK_TEST_MODE:-all}
-case "$mode" in go|e2e|frontend|all|smoke) ;; *) echo "ADK_TEST_MODE must be go, e2e, frontend, all, or smoke" >&2; exit 2 ;; esac
+case "$mode" in go|e2e|frontend|all|smoke|android) ;; *) echo "ADK_TEST_MODE must be go, e2e, frontend, all, smoke, or android" >&2; exit 2 ;; esac
 
 command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 command -v go >/dev/null || { echo "go is required" >&2; exit 2; }
 ttyd=$(command -v ttyd || true)
-if [[ $mode == e2e || $mode == all ]] && [[ -z $ttyd ]]; then
+if [[ $mode == e2e || $mode == all || $mode == android ]] && [[ -z $ttyd ]]; then
   echo "ttyd is required for isolated e2e mode" >&2
   exit 2
 fi
@@ -119,7 +119,7 @@ fi
 # dependency, browser, and source mounts cross the boundary.  /tmp, /run, HOME,
 # caches, DBs, and test workspaces are fresh per run.
  bwrap_args=(
-  --die-with-parent --new-session --unshare-user --unshare-pid --unshare-net
+  --die-with-parent --new-session --unshare-user --unshare-pid
   --unshare-ipc --unshare-uts --uid 65534 --gid 65534
   --bind "$stage/src" /src
   --ro-bind /usr /usr
@@ -132,6 +132,20 @@ fi
   --dir /opt --dir /opt/test-bin
   --chdir /src
 )
+
+# Native Android lives outside this namespace. Only this explicit mode shares
+# loopback for ADB and its disposable fixture server; ordinary tests keep their
+# network namespace. HOME, /tmp, mounts, UID and PID isolation remain identical.
+if [[ $mode == android ]]; then
+  [[ ${LEC_ANDROID_SERIAL:-} == emulator-* ]] || { echo "an explicit emulator serial is required" >&2; exit 2; }
+  android_sdk=$(readlink -f "${ANDROID_SDK_ROOT:?ANDROID_SDK_ROOT is required}")
+  [[ -x "$android_sdk/platform-tools/adb" ]] || { echo "Android SDK adb is missing" >&2; exit 2; }
+  android_artifacts=$(readlink -m "${LEC_ANDROID_ARTIFACTS:?LEC_ANDROID_ARTIFACTS is required}")
+  mkdir -p "$android_artifacts"
+  bwrap_args+=(--ro-bind "$android_sdk" /opt/android-sdk --bind "$android_artifacts" /artifacts)
+else
+  bwrap_args+=(--unshare-net)
+fi
 
 # A CI-created venv may point at a hosted-toolcache Python installation whose
 # absolute path is recorded in pyvenv.cfg. Mount that base installation at the
@@ -253,6 +267,7 @@ case "$mode" in
     ;;
   go) inner+=("$go_test_cmd") ;;
   e2e) inner+=("[[ -x /opt/venv/bin/python ]] || { echo \"Python venv is required for e2e mode\" >&2; exit 2; }; $e2e_test_cmd") ;;
+  android) inner+=('GOMAXPROCS=2 go build -o /tmp/lectern-audit ./cmd/lectern && /opt/venv/bin/python tools/android-audit-fixture.py') ;;
   frontend) inner+=("$frontend_test_cmd") ;;
   all) inner+=("set -e; $go_test_cmd; $frontend_test_cmd; cd /src; [[ -x /opt/venv/bin/python ]] || { echo \"Python venv is required for e2e mode\" >&2; exit 2; }; $e2e_test_cmd") ;;
 esac
@@ -283,6 +298,14 @@ env_args=(
   --setenv ADK_TEST_ISOLATED 1
   --setenv ADK_HOST_TMUX_SOCKET "$host_tmux_socket"
 )
+
+if [[ $mode == android ]]; then
+  audit_revision=$(git -C "$source_dir" describe --always --dirty 2>/dev/null || cat "$source_dir/.audit-revision")
+  env_args+=(--setenv LEC_ANDROID_SERIAL "$LEC_ANDROID_SERIAL"
+    --setenv LEC_ANDROID_ADB /opt/android-sdk/platform-tools/adb
+    --setenv LEC_ANDROID_ARTIFACTS /artifacts
+    --setenv LEC_AUDIT_REVISION "$audit_revision")
+fi
 
 # Resource bound: 8 GiB, 512 tasks, two host CPU cores.  The explicit
 # GOMAXPROCS bound remains in Go modes even when a caller runs without cgroups.

@@ -15,6 +15,7 @@ import { WorkspaceExtension } from "./WorkspaceExtension";
 import { SessionCard } from "./SessionCard";
 import { SessionGroups, type GroupMode } from "./SessionGroups";
 import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
+import { NeedsYou } from "./NeedsYou";
 import "./sessions.css";
 export interface SessionsApi {
   sessions(options?: {
@@ -34,6 +35,7 @@ export interface SessionsProps {
   onConversation?(session: SessionView): void;
   onReview(session: SessionView): void;
   onSwitch?(session: SessionView): void;
+  onOpenTask?(id: number): void;
   onNotice(message: string, error?: boolean): void;
   refreshVersion?: number;
   action?: { kind: "new" | "discover"; version: number };
@@ -77,6 +79,7 @@ export function Sessions({
   onConversation,
   onReview,
   onSwitch,
+  onOpenTask,
   onNotice,
   refreshVersion = 0,
   mediaCounts = {},
@@ -278,6 +281,20 @@ export function Sessions({
     await load();
     onMetadataRefresh?.();
   };
+  // A needs-you row for a session that cannot be chatted with (failed setup,
+  // gone terminal) points at its card, where recovery lives. Opening the
+  // worktree disclosure is how the setup error is already read.
+  function showSession(session: SessionView) {
+    const node = document.querySelector<HTMLElement>(
+      `[data-session-id="${session.id}"]`,
+    );
+    if (!node) return;
+    node.scrollIntoView();
+    const worktree = node.querySelector<HTMLDetailsElement>(
+      "details.session-worktree",
+    );
+    if (worktree) worktree.open = true;
+  }
   async function restoreRecent(session: RecentSession) {
     try {
       const restored = await api.request<SessionView>(
@@ -447,6 +464,21 @@ export function Sessions({
           onHistory={(session) => setHistory(session)}
         />
       )}
+      <NeedsYou
+        api={api}
+        rows={rows}
+        refreshVersion={refreshVersion}
+        onChat={(session) => {
+          onConversation?.(session);
+          setConversation(session);
+        }}
+        onAttach={(session) => void attach(session)}
+        onReview={onReview}
+        onShowSession={showSession}
+        onOpenTask={onOpenTask}
+        onChanged={() => void load()}
+        onNotice={onNotice}
+      />
       <div id="sesslist">
         {shown.length ? (
           <SessionGroups
@@ -520,9 +552,12 @@ export function Sessions({
           kind="session"
           id={conversation.id}
           name={conversation.name}
+          session={rows.find(row => row.id === conversation.id) || conversation}
+          onOpenSession={setConversation}
           api={api}
           onClose={() => setConversation(undefined)}
           onNotice={onNotice}
+          onAttach={() => void attach(conversation)}
           onSwitch={onSwitch && conversation.agent!=='shell' && !conversation.ended_at && conversation.status!=='dead' ? ()=>{setConversation(undefined);onSwitch(conversation);} : undefined}
         />
       )}{" "}

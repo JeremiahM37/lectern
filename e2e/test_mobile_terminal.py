@@ -22,9 +22,11 @@ def test_a_phone_gets_readable_columns_and_the_keys_it_lacks(page,real_terminal)
     expect(f.locator('body')).to_have_class(__import__('re').compile('mobile-terminal'))
     cols=int(capture_cols(t))
     assert cols>=50,f'only {cols} columns on a phone'
-    # Chrome may not eat the screen: tab bar and key bar together under 100px.
+    # Chrome may not eat the screen. The names row and the action row are two
+    # slim rows on a phone, and the key row is one more.
     bar=page.locator('.terminal-tabbar').bounding_box()['height'];keys=f.locator('#terminal-keybar').bounding_box()['height']
-    assert bar<=46 and keys<=46,(bar,keys)
+    names=page.locator('.terminal-tablist').bounding_box()['height']
+    assert bar<=84 and names<=40 and keys<=46,(bar,names,keys)
     for key in ('ctrl','alt','escape','tab','pipe','tilde','home','end','pageup','pagedown'):
         expect(f.locator(f'[data-terminal-key="{key}"]')).to_have_count(1)
     # Sticky Ctrl applies to the next key from the phone's own keyboard, once.

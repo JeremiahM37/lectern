@@ -6,7 +6,7 @@ from playwright.sync_api import expect
 def open_chat(page,server,title='Conversation regression'):
  project=page.request.get(server+'/api/projects').json()[0]['id']
  task=page.request.post(server+'/api/tasks',data={'project_id':project,'title':title,'prompt':'Read the context carefully'}).json()
- page.goto(server)
+ page.goto(server+"/#board")
  page.locator('.card',has_text=title).get_by_role('button',name=re.compile('Chat')).click()
  expect(page.locator('#conversation-log')).to_contain_text('Read the context carefully')
  return task

@@ -1,3 +1,4 @@
+import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
@@ -61,6 +62,9 @@ export function SessionCard({
     archived = s.archived_at != null,
     adopted = s.origin === "discovered",
     live = !ended && s.status !== "dead" && !setup && !failed,
+    // A blank shell is a terminal, not a conversation: chat would be a worse
+    // way to drive it, so the card keeps the terminal as its one action.
+    chatReady = live && s.agent !== "shell",
     workspace = s.workspace;
   async function run(
     path: string,
@@ -124,7 +128,10 @@ export function SessionCard({
       ? "Setup failed: " + s.setup_error
       : s.pane_tail || "";
   return (
-    <article className={`scard s-${failed ? "failed" : s.status}`}>
+    <article
+      className={`scard s-${failed ? "failed" : s.status}`}
+      data-session-id={s.id}
+    >
       <div className="scard-project">{s.project_name || "Unassigned"}</div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
@@ -252,6 +259,7 @@ export function SessionCard({
           )}
         </details>
       )}
+      <SessionLineage api={api} session={s} onOpen={onChat} className="session-lineage" />
       <div className="btnrow">
         {setup && (
           <>
@@ -265,12 +273,17 @@ export function SessionCard({
         )}
         {live && (
           <>
-            <button className="b attach" onClick={() => onAttach(s)}>
+            <button
+              className={`b attach${chatReady ? "" : " grow"}`}
+              onClick={() => onAttach(s)}
+            >
               ⌨ Attach
             </button>
-            <button className="b grow" onClick={() => onChat(s)}>
-              Chat
-            </button>
+            {chatReady && (
+              <button className="b grow chat-open" onClick={() => onChat(s)}>
+                Chat
+              </button>
+            )}
             {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}
           </>
         )}

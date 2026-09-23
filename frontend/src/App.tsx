@@ -23,11 +23,39 @@ import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
 import { QuickSwitch, sessionModelLabel } from "./sessions/QuickSwitch";
+import { requestSwitch, type SwitchRequest } from "./continuity/handoff";
+import { SessionLineage } from "./continuity/SessionLineage";
+import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
 const SWITCH_STORAGE = 'lec-pending-switches';
-function savedSwitches(): Record<string, number> {
+// A pending switch remembers where the context is going as well as the wrap it
+// started after, so a reload can keep showing progress and offer a retry.
+function savedSwitches(): Record<string, PendingSwitch> {
   try {
     const value = JSON.parse(sessionStorage.getItem(SWITCH_STORAGE) || '{}');
-    return Object.fromEntries(Object.entries(value).filter(([id, at])=>/^\d+$/.test(id)&&typeof at==='number')) as Record<string,number>;
+    const out: Record<string, PendingSwitch> = {};
+    for (const [id, raw] of Object.entries(value)) {
+      if (!/^\d+$/.test(id)) continue;
+      if (typeof raw === 'number') {
+        out[id] = { after: raw, generation: 0, destination: '', agent: '', model: '', profile: 0 };
+        continue;
+      }
+      if (!raw || typeof raw !== 'object') continue;
+      const row = raw as Partial<PendingSwitch>;
+      const successor = row.successor && Number(row.successor.id)
+        ? { id: Number(row.successor.id), name: String(row.successor.name || '') }
+        : undefined;
+      out[id] = {
+        after: typeof row.after === 'number' ? row.after : 0,
+        generation: Number(row.generation) || 0,
+        destination: String(row.destination || ''),
+        agent: String(row.agent || ''),
+        model: String(row.model || ''),
+        profile: Number(row.profile) || 0,
+        error: row.error ? String(row.error) : undefined,
+        successor,
+      };
+    }
+    return out;
   } catch { return {}; }
 }
 const tabs = [
@@ -99,7 +127,7 @@ export default function App() {
     [switchSession, setSwitchSession] = useState<SessionView>(),
     [pendingSwitches, setPendingSwitches] = useState(savedSwitches);
   const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
-  const saveSwitches = useCallback((next: Record<string,number>)=>{
+  const saveSwitches = useCallback((next: Record<string,PendingSwitch>)=>{
     switching.current = next; setPendingSwitches(next);
     try { sessionStorage.setItem(SWITCH_STORAGE, JSON.stringify(next)); } catch {}
   },[]);
@@ -173,44 +201,57 @@ export default function App() {
     },
     [terminals.open],
   );
-  const finishSwitch = useCallback(async (source: number, next?: {id:number;name:string}, error?: string)=>{
-    if (!(source in switching.current) || completingSwitches.current.has(source)) return;
+  const completeSwitch = useCallback(async (source: number, next: {id:number;name:string})=>{
+    const current = switching.current[String(source)];
+    if (!current || completingSwitches.current.has(source)) return;
     completingSwitches.current.add(source);
     try {
-      if(!next) throw new Error(error || 'The switch did not complete. Your original session is still available.');
       const response = await api.request<{url:string}>(`/sessions/${next.id}/terminal`,{method:'POST'});
       openTerminal(response.url,next.name);
       terminals.close(`/terminal/session/${source}`);
+      const remaining = {...switching.current}; delete remaining[String(source)]; saveSwitches(remaining);
       notice('Switched. The original session is still available in Sessions.');
-    } catch(e) {notice(String(e),true);}
+    } catch(error) {
+      // The successor exists even though this browser could not open it. Keep
+      // it so the operator can retry the attach — and never ask the agent to
+      // hand off a second time.
+      const latest = switching.current[String(source)] || current;
+      saveSwitches({...switching.current,[String(source)]:{...latest,successor:{id:next.id,name:next.name},error:String(error)}});
+      notice(String(error),true);
+    }
     finally {
-      const remaining = {...switching.current}; delete remaining[source]; saveSwitches(remaining);
       completingSwitches.current.delete(source);
     }
   },[api,openTerminal,terminals.close,notice,saveSwitches]);
-  // Reconcile after a reload or missed SSE event using the saved handoff link.
-  useEffect(()=>{
-    if(!Object.keys(pendingSwitches).length) return;
-    let stopped = false;
-    const reconcile = async()=>{
-      try {
-        const rows = await api.sessions();
-        for(const [id,after] of Object.entries(pendingSwitches)) {
-          if(stopped) return;
-          const source = rows.find(s=>s.id===Number(id));
-          if(source?.handoff_in_flight) continue;
-          const wraps = await api.request<{id:number;next_session_id:number|null}[]>(`/sessions/${id}/wraps`);
-          if(stopped) return;
-          const next = wraps.find(w=>w.id>after && w.next_session_id);
-          if(next?.next_session_id) await finishSwitch(Number(id),{id:next.next_session_id,name:source?.name||'Switched session'});
-          else await finishSwitch(Number(id),undefined,'Switch did not complete. Your original session is still available.');
-        }
-      } catch {/* A temporary connection failure can be retried on reconnect. */}
-    };
-    void reconcile();
-    const timer = setInterval(()=>void reconcile(),5000);
-    return ()=>{stopped=true;clearInterval(timer);};
-  },[pendingSwitches,api,finishSwitch]);
+  const reopenSwitch = useCallback((source: number)=>{
+    const current = switching.current[String(source)];
+    if (!current?.successor) return;
+    void completeSwitch(source, current.successor);
+  },[completeSwitch]);
+  const switchFailure = useCallback((source: number, error: string)=>{
+    const current = switching.current[String(source)];
+    if (!current) return;
+    saveSwitches({...switching.current,[String(source)]:{...current,error}});
+    notice(error,true);
+  },[notice,saveSwitches]);
+  const retrySwitch = useCallback(async (source: number)=>{
+    const current = switching.current[String(source)];
+    // A successor already exists: the only retry is opening it, never another
+    // handoff.
+    if (!current || current.successor) return;
+    try {
+      const result = await requestSwitch(api, source, {agent:current.agent,model:current.model,profile:current.profile,destination:current.destination});
+      const latest = switching.current[String(source)];
+      // Only an accepted request clears the previous failure and restarts the
+      // progress surface; a rejected retry keeps showing why it failed.
+      saveSwitches({...switching.current,[String(source)]:{...(latest||current),after:result.after_wrap_id,generation:((latest||current).generation||0)+1,error:undefined,successor:undefined}});
+      notice('Switching… waiting for the current agent to save its handoff.');
+      void refresh().catch(error=>notice(String(error),true));
+    } catch(error) { switchFailure(source, String(error)); }
+  },[api,notice,refresh,saveSwitches,switchFailure]);
+  const dismissSwitch = useCallback((source: number)=>{
+    const remaining = {...switching.current}; delete remaining[String(source)]; saveSwitches(remaining);
+  },[saveSwitches]);
   const attach = useCallback(
     async (id: number) => {
       try {
@@ -297,9 +338,15 @@ export default function App() {
         if (kind === "media") setMediaSession(mediaSessionOf(raw));
         return;
       }
-      let saved = "board";
+      // Fresh phone loads land on Sessions, where the work is; an explicit
+      // hash, or a view the operator already chose, still wins.
+      let fallback = "board";
       try {
-        saved = localStorage.getItem("lec-last-view") || "board";
+        if (matchMedia("(max-width: 1023px)").matches) fallback = "sessions";
+      } catch {}
+      let saved = fallback;
+      try {
+        saved = localStorage.getItem("lec-last-view") || fallback;
       } catch {}
       setView(
         isTab(saved)
@@ -349,7 +396,8 @@ export default function App() {
           error?: string;
         };
         if(row.session_id && row.session_id in switching.current) {
-          void finishSwitch(row.session_id,row.ok ? row.successor : undefined,row.error);
+          if(row.ok && row.successor) void completeSwitch(row.session_id,row.successor);
+          else switchFailure(row.session_id,row.error || 'The switch did not complete. Your original session is still available.');
           update();
           return;
         }
@@ -380,7 +428,7 @@ export default function App() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [api, authVersion, refresh, notice, finishSwitch]);
+  }, [api, authVersion, refresh, notice, completeSwitch, switchFailure]);
   useEffect(() => {
     document.body.classList.toggle("terminals-open", view === "terminals");
     return () => document.body.classList.remove("terminals-open");
@@ -660,6 +708,7 @@ export default function App() {
             onMedia={(id) => navigate("#media/" + id)}
             onOpenTerminal={openTerminal}
             onReview={setReview}
+            onOpenTask={(id) => navigate("#task/" + id)}
             onSwitch={setSwitchSession}
             onNotice={notice}
           />
@@ -716,14 +765,18 @@ export default function App() {
           const active = sessions.find(s=>terminals.active===`/terminal/session/${s.id}` && s.agent!=='shell' && !s.ended_at && s.status!=='dead' && s.setup_state!=='creating');
           if(!active) return null;
           const busy = active.id in pendingSwitches || active.handoff_in_flight;
-          return <button className="b terminal-agent-switch" aria-label="Switch agent or model" title={`Switch ${sessionModelLabel(active)}`} disabled={busy} onClick={()=>setSwitchSession(active)}>{busy?'Switching…':`⇄ ${sessionModelLabel(active)} ▾`}</button>;
+          return <>
+            <button className="b terminal-agent-switch" aria-label="Switch agent or model" title={`Switch ${sessionModelLabel(active)}`} disabled={busy} onClick={()=>setSwitchSession(active)}>{busy?'Switching…':`⇄ ${sessionModelLabel(active)} ▾`}</button>
+            <SessionLineage api={api} session={active} pending={busy} onOpen={(session)=>{ if(session.ended_at) setConversation({kind:'session',id:session.id,name:session.name}); else void attach(session.id); }} onOpenChat={(session)=>setConversation({kind:'session',id:session.id,name:session.name})}/>
+          </>;
         })()}
       />
-      {switchSession && <QuickSwitch api={api} session={switchSession} onClose={()=>setSwitchSession(undefined)} onStarted={(source,afterWrap)=>{
-        saveSwitches({...switching.current,[source.id]:afterWrap});
+      {switchSession && <QuickSwitch api={api} session={switchSession} onClose={()=>setSwitchSession(undefined)} onStarted={(source,afterWrap,request:SwitchRequest)=>{
+        saveSwitches({...switching.current,[String(source.id)]:{after:afterWrap,generation:1,destination:request.destination,agent:request.agent,model:request.model,profile:request.profile}});
         notice('Switching… waiting for the current agent to save its handoff.');
         void refresh().catch(error=>notice(String(error),true));
       }} onProfiles={()=>{setSwitchSession(undefined);setManageProfiles(true);}}/>}
+      <SwitchProgressPanel api={api} pending={pendingSwitches} onReady={completeSwitch} onFailed={switchFailure} onRetry={(source)=>void retrySwitch(source)} onReopen={reopenSwitch} onDismiss={dismissSwitch}/>
       <button
         id="fab"
         title="new task"
@@ -859,6 +912,9 @@ export default function App() {
         <Conversation
           key={`${conversation.kind}-${conversation.id}`}
           {...conversation}
+          session={conversation.kind === "session" ? sessions.find(row => row.id === conversation.id) : undefined}
+          onOpenSession={(row) => setConversation({kind: "session", id: row.id, name: row.name})}
+          onAttach={conversation.kind === "session" ? () => void attach(conversation.id) : undefined}
           api={api}
           onClose={() => setConversation(undefined)}
           onNotice={notice}

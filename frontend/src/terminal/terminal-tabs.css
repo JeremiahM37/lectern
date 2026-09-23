@@ -1,0 +1,47 @@
+/* A phone's terminal tab bar carries the tab names, the new-terminal button,
+   search, the overflow menu and the agent switcher at once. The names get their
+   own full-width row so they stay readable; the controls wrap onto a compact
+   action row beneath them. Imported here so the rules are scoped to this view
+   and are specific enough to beat the shared stylesheets that load later. */
+@media (max-width: 1023px) {
+  body.terminals-open #terminal-workspace .terminal-tabbar {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+  }
+  body.terminals-open #terminal-workspace .terminal-tabbar .terminal-tablist {
+    flex: 1 0 100%;
+  }
+  /* The switcher shares the action row and gives way before the controls. */
+  body.terminals-open #terminal-workspace .terminal-tabbar .terminal-agent-switch {
+    flex: 1 1 0;
+    /* The shared phone styles cap the label at 72px; on its own row the
+       switcher takes whatever room the controls leave instead. */
+    max-width: none;
+    min-width: 0;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+@media (max-width: 600px) {
+  body.terminals-open #terminal-workspace .terminal-tabbar {
+    gap: 3px;
+    padding: 3px 4px;
+  }
+  body.terminals-open #terminal-workspace .terminal-tabbar .terminal-tab {
+    max-width: min(230px, 74vw);
+  }
+  body.terminals-open #terminal-workspace .terminal-tabbar .terminal-agent-switch {
+    min-height: 34px;
+    height: 34px;
+    font-size: 12.5px;
+  }
+  /* The same action is in the overflow menu; on a phone its long label would
+     push the switcher off the row. */
+  body.terminals-open #terminal-workspace .terminal-tabbar .terminal-popout {
+    display: none;
+  }
+}

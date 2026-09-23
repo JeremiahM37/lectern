@@ -105,7 +105,8 @@ finally:
     expect(one.locator('#connection')).to_have_text('Connected')
     page.context.set_offline(True)
     one.locator('#terminal-tools-summary').click();one.locator('#reconnect').click()
-    expect(one.locator('#compact-status')).to_have_attribute('aria-label','Terminal reconnecting')
+    # A phone with no network is a state of its own, not a generic reconnect.
+    expect(one.locator('#compact-status')).to_have_attribute('aria-label','Terminal offline')
     expect(one.locator('#agent-pane .pane-title')).to_be_visible()
     expect(one.get_by_role('button',name='Send Tab',exact=True)).to_be_disabled()
     page.context.set_offline(False)

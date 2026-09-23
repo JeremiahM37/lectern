@@ -72,7 +72,7 @@ def test_orchestrated_task_is_a_lead_on_the_real_server(page, server):
         page.request.put(f"{server}/api/agents", data=[a for a in agents if not a.get("builtin") and a["name"] != "flash-builder"])
 
     reset()
-    page.goto(server)
+    page.goto(server + "/#board")
     page.locator("#qb-mode").get_by_role("radio", name="Orchestrate").click()
     # Off: the bar says why instead of failing on ⏎.
     expect(page.locator("#qb-orch-hint")).to_have_class("off")

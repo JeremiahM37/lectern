@@ -419,6 +419,21 @@ body.embedded #root > nav > button {
   touch-action: none;
 }
 
+/* A phone keyboard overlays the frame instead of resizing it. The parent sends
+   the slice of the frame a phone can actually see; the terminal, the key row
+   and a full-screen app's input line are laid out inside it. Overlays that were
+   pinned to the viewport would otherwise stay behind the keys, so they follow
+   the fitted box instead. */
+body.fitted-viewport {
+  position: relative;
+  height: var(--lec-visible-height, 100dvh);
+}
+body.fitted-viewport #terminal-keyboard,
+body.fitted-viewport #select-bar,
+body.fitted-viewport #font-hint {
+  position: absolute;
+}
+
 /* A short toolbar; secondary tools remain available in one disclosure. */
 :root {
   --bg: #0c1018;
@@ -689,6 +704,9 @@ body.compact-chrome #compact-status {
 }
 body.compact-chrome #compact-status.connected {
   background: #55c7a0;
+}
+body.compact-chrome #compact-status.offline {
+  background: #e06c75;
 }
 body.compact-chrome #terminal-tools {
   margin-left: auto;
@@ -961,3 +979,25 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
 .unresponsive-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .unresponsive-actions button { min-height: 38px; }
 .unresponsive-actions .primary { background: #7860d2; border-color: #8f79df; color: white; font-weight: 700; }
+
+/* A phone keyboard overlays the frame instead of resizing it, so the page is
+   fitted to the slice a phone can actually see (body.fitted-viewport). The
+   footer controls are pinned to the layout viewport, which the keyboard does
+   not move: anchored absolutely to the fitted body they stay beside the key
+   row and above the keys instead of disappearing behind them. */
+@media (max-width: 1023px) {
+  body.compact-chrome.fitted-viewport #root > nav > #terminal-tools {
+    position: absolute;
+  }
+  body.compact-chrome.fitted-viewport #root > nav > #terminal-tools[open] > .action-menu-panel {
+    position: absolute;
+  }
+  body.compact-chrome.fitted-viewport #compact-status {
+    position: absolute;
+  }
+}
+@media (max-width: 1023px) {
+  body.compact-chrome.fitted-viewport #root > nav > #terminal-tools[open] > .action-menu-panel {
+    max-height: max(80px, calc(var(--lec-visible-height) - 96px));
+  }
+}

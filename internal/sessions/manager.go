@@ -52,7 +52,7 @@ type Manager struct {
 	workspaceOperations       map[int64]bool
 	workspaceCancelDeliveries map[int64]bool
 	setupLaunching            map[int64]bool
-	handoffs                  map[int64]bool // sessions with a wrap in flight
+	handoffs                  *handoffState // switches in flight and how far they have got
 	checkpointMu              sync.Mutex
 	checkpoints               map[int64]context.CancelFunc
 	checkpointGeneration      map[int64]uint64
@@ -68,7 +68,7 @@ func New(db *store.DB, reg *executor.Registry, b *bus.Bus, l Launcher,
 		mem = memory.None{}
 	}
 	return &Manager{DB: db, Reg: reg, Bus: b, Launcher: l, Memory: mem, Log: log,
-		HandoffTimeout: 4 * time.Minute, handoffs: map[int64]bool{}, checkpoints: map[int64]context.CancelFunc{}, checkpointGeneration: map[int64]uint64{}}
+		HandoffTimeout: 4 * time.Minute, handoffs: newHandoffState(), checkpoints: map[int64]context.CancelFunc{}, checkpointGeneration: map[int64]uint64{}}
 }
 
 func (m *Manager) publish(s *store.Session) {

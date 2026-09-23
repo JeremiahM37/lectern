@@ -1,0 +1,33 @@
+# Using sessions on a phone
+
+A fresh phone opens Sessions. An explicit URL or your remembered view still wins.
+Agent cards put **Chat** first; **Terminal** remains one tap away. Chat preserves
+an unsent draft on the device, shows connection state, and offers working-file
+changes. **Needs you** collects pending approvals, waiting sessions, setup/task
+failures and work ready for review. A failed refresh is shown explicitly.
+
+In Terminal, session names have their own full-width row. The switcher, new
+terminal, search, menu and navigation controls use a separate row. Swipe sideways
+on the terminal body to move between open terminals, including full-screen apps
+that enable terminal mouse reporting. Vertical drags still scroll; long press
+selects text and pinch changes text size. The terminal fits the visible viewport
+when the phone keyboard opens, including browsers that overlay the layout.
+
+**Switch agent or model** offers discovered models, saved provider profiles and
+favorites. Switching saves a fresh handoff and starts the destination with that
+context. It keeps the original session running. The progress display distinguishes
+saving from starting, reports failures, and lets you retry. If the new session
+already exists but its terminal cannot open, **Open new session** retries only the
+attachment. **Go back** opens the predecessor; it does not restart it. This is a
+context handoff between agents, not a claim that their native conversation formats
+are interchangeable.
+
+Favorites are saved per browser. A favorite for a deleted provider is marked
+unavailable; editing a saved provider uses its current configuration. Keep API
+keys in a protected server-side credential source or launcher, never in model
+names, command arguments or browser storage. A launcher profile is specific to
+the targets where its command and credentials are installed.
+
+Native keyboard and gesture coverage, limitations, and the nightly audit are
+in [Mobile terminal testing](testing/mobile-terminal.md). The Android fixture is
+disposable and never types into a person's running agent.

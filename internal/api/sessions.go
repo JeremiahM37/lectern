@@ -32,7 +32,17 @@ type sessionView struct {
 	IdleSeconds     float64 `json:"idle_seconds"`
 	UptimeSeconds   float64 `json:"uptime_seconds"`
 	HandoffInFlight bool    `json:"handoff_in_flight"`
-	Wraps           int     `json:"wraps"`
+	// HandoffPhase is saving/starting while a switch runs, so a reloaded page
+	// can say where the context is without guessing from timing.
+	HandoffPhase       string `json:"handoff_phase,omitempty"`
+	HandoffDestination string `json:"handoff_destination,omitempty"`
+	HandoffError       string `json:"handoff_error,omitempty"`
+	// Lineage links the conversations a switch produced. PredecessorID is the
+	// session whose wrap started this one; SuccessorID is the session this one
+	// handed off to, once that session exists.
+	PredecessorID *int64 `json:"predecessor_id,omitempty"`
+	SuccessorID   *int64 `json:"successor_id,omitempty"`
+	Wraps         int    `json:"wraps"`
 }
 
 // recentSessionView keeps the ordinary session representation while making the
@@ -68,6 +78,21 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 	}
 	if wraps, err := s.DB.SessionWraps(row.ID); err == nil {
 		v.Wraps = len(wraps)
+		for _, wrap := range wraps {
+			if wrap.NextSessionID != nil {
+				v.SuccessorID = wrap.NextSessionID
+				break
+			}
+		}
+	}
+	if wrap, err := s.DB.WrapPredecessor(row.ID); err == nil && wrap != nil {
+		predecessor := wrap.SessionID
+		v.PredecessorID = &predecessor
+	}
+	if status, ok := s.Sessions.Handoff(row.ID); ok {
+		v.HandoffPhase, v.HandoffDestination = status.Phase, status.Destination
+	} else {
+		v.HandoffError = s.Sessions.HandoffError(row.ID)
 	}
 	return v
 }

@@ -1,4 +1,5 @@
-import { subscribeLayout } from "./layout";
+import { subscribeLayout, subscribeViewport } from "./layout";
+import { applyVisibleHeight, localViewportSlice } from "./viewport";
 import { errorMessage } from "./model";
 import {
   useCallback,
@@ -48,6 +49,7 @@ interface Callbacks {
   history: (id: string) => void;
   matches: (id: string, index: number, count: number) => void;
   preview: (path: string) => void;
+  swipe: (id: string, direction: 1 | -1) => void;
 }
 function Pane({
   spec,
@@ -75,6 +77,7 @@ function Pane({
     frozen: "",
     retained: false,
     unresponsive: false,
+    offline: false,
   });
   useEffect(() => {
     if (!el.current || !host.current || !frozen.current) return;
@@ -91,6 +94,7 @@ function Pane({
       },
       notice: (text) => latest.current.callbacks.notice(text),
       history: () => latest.current.callbacks.history(spec.id),
+      swipe: (direction) => latest.current.callbacks.swipe(spec.id, direction),
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
     });
@@ -168,6 +172,10 @@ declare global {
     __lecTerminalState?: () => {
       hasSelection: boolean;
       mouseTrackingMode: string;
+      // What the buffer still holds, for the tests that prove a reconnect
+      // keeps the session's output instead of wiping the screen.
+      bufferLines: number;
+      bufferContains: (text: string) => boolean;
     };
   }
 }
@@ -229,6 +237,7 @@ export function TerminalApp({
   const base = `/api/term/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   const [info, setInfo] = useState<TerminalInfo>();
+  const [infoAttempt, setInfoAttempt] = useState(0);
   const [prefs, setPrefs] = useState(loadPrefs);
   const [active, setActive] = useState("agent");
   const [split, setSplit] = useState(false);
@@ -373,6 +382,12 @@ export function TerminalApp({
     if (id === activeRef.current)
       setMatches(count ? `${index + 1} / ${count}` : "No matches");
   }, []);
+  // The tab bar owns the tab list; a deliberate flick inside the terminal body
+  // is relayed to it, because only the frame knows the gesture was a flick.
+  const swipe = useCallback((_id: string, direction: 1 | -1) => {
+    if (!embedded) return;
+    parent.postMessage({ type: "lec-terminal-swipe", direction }, location.origin);
+  }, [embedded]);
   const callbacks: Callbacks = {
     engine: register,
     state: update,
@@ -381,19 +396,38 @@ export function TerminalApp({
     history: showHistory,
     matches: match,
     preview,
+    swipe,
   };
   useEffect(() => {
     const abort = new AbortController();
+    let retryTimer: number | undefined;
     void json<TerminalInfo>(base + "/info", { signal: abort.signal })
       .then((data) => {
         setInfo(data);
+        setNotice("");
         document.title = data.tmux_session + " · Lectern";
       })
       .catch((error) => {
-        if (!abort.signal.aborted) setNotice(errorMessage(error));
+        if (!abort.signal.aborted) {
+          setNotice(errorMessage(error));
+          // An online event can arrive before a failed bootstrap settles, or
+          // a server can recover without any network-state event at all.
+          retryTimer = window.setTimeout(() => setInfoAttempt(attempt => attempt + 1),
+            Math.min(10000, 1000 * 2 ** Math.min(infoAttempt, 4)));
+        }
       });
-    return () => abort.abort();
-  }, [base]);
+    return () => { abort.abort(); clearTimeout(retryTimer); };
+  }, [base, infoAttempt]);
+  // A terminal opened while the phone had no network failed its one bootstrap
+  // fetch. Without info there is no pane and no engine to retry anything, so
+  // the status would sit at "Connecting" for good. The network coming back
+  // retries the bootstrap itself: recovery without a manual reload.
+  useEffect(() => {
+    if (info) return;
+    const retry = () => setInfoAttempt((attempt) => attempt + 1);
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [info]);
   // Two fingers resize the type, as they do in every phone terminal worth using.
   // The size follows the fingers live and is saved when they lift.
   const pinch = useRef({ size: shown.fontSize, set: setShownFont });
@@ -445,9 +479,20 @@ export function TerminalApp({
     };
   }, []);
   useEffect(() => {
+    const bufferContains = (text: string) => {
+      const term = current()?.term;
+      if (!term) return false;
+      const buffer = term.buffer.active;
+      for (let i = 0; i < buffer.length; i++)
+        if (buffer.getLine(i)?.translateToString(true).includes(text))
+          return true;
+      return false;
+    };
     window.__lecTerminalState = () => ({
       hasSelection: !!current()?.term.hasSelection(),
       mouseTrackingMode: current()?.term.modes.mouseTrackingMode || "none",
+      bufferLines: current()?.term.buffer.active.length || 0,
+      bufferContains,
     });
     return () => {
       delete window.__lecTerminalState;
@@ -477,6 +522,25 @@ export function TerminalApp({
     mobile.addEventListener("change", layout, { signal });
     short.addEventListener("change", chrome, { signal });
     const fit = () => engines.current.forEach((engine) => engine.scheduleFit());
+    // The phone keyboard overlays the embedded frame instead of resizing it, so
+    // the parent measures the slice a phone can actually see; a standalone page
+    // measures its own visual viewport.
+    const relate = (box: { top: number; height: number } | null | undefined) => {
+      applyVisibleHeight(box ?? null);
+      fit();
+    };
+    let viewportCleanup = () => {};
+    if (embedded) {
+      viewportCleanup = subscribeViewport(relate);
+      parent.postMessage({ type: "lec-terminal-need-viewport" }, location.origin);
+    } else {
+      const measure = () => relate(localViewportSlice());
+      window.addEventListener("resize", measure, { signal });
+      window.addEventListener("orientationchange", measure, { signal });
+      window.visualViewport?.addEventListener("resize", measure, { signal });
+      window.visualViewport?.addEventListener("scroll", measure, { signal });
+      measure();
+    }
     const focus = () => setKeyboardFocused(document.activeElement?.classList.contains("xterm-helper-textarea") === true);
     document.addEventListener("focusin", focus, { signal });
     document.addEventListener("focusout", () => queueMicrotask(focus), { signal });
@@ -554,6 +618,8 @@ export function TerminalApp({
         tools.current.open = false;
     }, { signal });
     return () => {
+      viewportCleanup();
+      applyVisibleHeight(null);
       unsubscribe();
       abort.abort();
       document.body.classList.remove(
@@ -715,18 +781,26 @@ export function TerminalApp({
         <span id="connection" role="status">
           {state?.connected
             ? "Connected"
-            : state
-              ? "Reconnecting…"
-              : "Connecting"}
+            : state?.offline
+              ? "Offline"
+              : state
+                ? "Reconnecting…"
+                : "Connecting"}
         </span>
       </header>
       <nav aria-label="Terminal tools">
         <span
           id="compact-status"
-          className={state?.connected ? "connected" : ""}
+          className={
+            state?.connected ? "connected" : state?.offline ? "offline" : ""
+          }
           role="status"
           aria-label={
-            state?.connected ? "Terminal connected" : "Terminal reconnecting"
+            state?.connected
+              ? "Terminal connected"
+              : state?.offline
+                ? "Terminal offline"
+                : "Terminal reconnecting"
           }
           title={state?.status || "Connecting"}
         />

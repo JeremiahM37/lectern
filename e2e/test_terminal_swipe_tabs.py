@@ -122,8 +122,9 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
                        (box["x"] + box["width"] * .65, box["y"] + box["height"] * .5)])
     expect(page.locator('.terminal-tab[aria-selected="true"]')).to_have_text(active_before)
 
-    # A terminal application that negotiates mouse tracking owns horizontal
-    # gestures, so the tab strip must yield to it as well.
+    # A terminal application that negotiates mouse tracking still yields a
+    # deliberate horizontal flick on its body: a full-screen TUI must not make
+    # the next terminal unreachable. Vertical drags keep going to the app.
     second_input.focus()
     page.keyboard.type("printf '\\033[?1000h'", delay=1); page.keyboard.press("Enter")
     for _ in range(50):
@@ -132,6 +133,10 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     assert frame.evaluate("window.__lecTerminalState?.().mouseTrackingMode") != "none"
     _touch_swipe(page, box["x"] + box["width"] * .25, box["y"] + box["height"] * .5,
                  box["x"] + box["width"] * .65, box["y"] + box["height"] * .5)
+    expect(page.locator('.terminal-tab[aria-selected="true"]')).to_have_text(
+        "Real terminal", timeout=3000
+    )
+    page.locator('.terminal-tab', has_text="Second terminal").click()
     expect(page.locator('.terminal-tab[aria-selected="true"]')).to_have_text(active_before)
     second_input.focus()
     page.keyboard.type("printf '\\033[?1000l'", delay=1); page.keyboard.press("Enter")

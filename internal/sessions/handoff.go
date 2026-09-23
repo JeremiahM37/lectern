@@ -6,12 +6,114 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
+
+// HandoffStatus is the observable progress of a switch. A switch is two
+// separate operations — the predecessor writing its wrap, then the successor
+// starting — and the operator should be able to see which one is running
+// instead of watching an opaque "Switching…".
+type HandoffStatus struct {
+	Phase       string `json:"phase"`                 // saving | starting
+	Destination string `json:"destination,omitempty"` // what the successor will be
+	SuccessorID int64  `json:"successor_id,omitempty"`
+}
+
+// handoffState is the manager's handoff bookkeeping in one place. It is a
+// pointer so the zero Manager stays usable in focused tests.
+type handoffState struct {
+	mu       sync.Mutex
+	inFlight map[int64]HandoffStatus
+	errors   map[int64]string
+}
+
+func newHandoffState() *handoffState {
+	return &handoffState{inFlight: map[int64]HandoffStatus{}, errors: map[int64]string{}}
+}
+
+// handoffState lazily supplies the bookkeeping for a Manager built by hand in a
+// test, so the zero value stays usable. Both the check and the assignment happen
+// under m.mu: two goroutines reaching a zero Manager together must not race on
+// the field, and every caller takes this path without holding m.mu already.
+func (m *Manager) handoffState() *handoffState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.handoffs == nil {
+		m.handoffs = newHandoffState()
+	}
+	return m.handoffs
+}
+
+// Handoff comes back with the phase of a switch that is still running, and the
+// successor id once one has started. Reloading the page mid-switch must not
+// lose either.
+func (m *Manager) Handoff(id int64) (HandoffStatus, bool) {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status, ok := s.inFlight[id]
+	return status, ok
+}
+
+// HandoffError is the reason the last switch on this session failed, kept until
+// the next one starts so a reload can still explain what happened.
+func (m *Manager) HandoffError(id int64) string {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.errors[id]
+}
+
+func (m *Manager) setHandoffPhase(id int64, phase, destination string) {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := s.inFlight[id]
+	status.Phase, status.Destination = phase, destination
+	s.inFlight[id] = status
+}
+
+func (m *Manager) setHandoffSuccessor(id, successorID int64) {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := s.inFlight[id]
+	status.SuccessorID = successorID
+	s.inFlight[id] = status
+}
+
+// finishHandoff clears in-flight state. A failure is remembered, a success is
+// not: the successor session is the evidence that it worked.
+func (m *Manager) finishHandoff(id int64, failure string) {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inFlight, id)
+	if failure != "" {
+		s.errors[id] = failure
+		return
+	}
+	delete(s.errors, id)
+}
+
+// beginHandoff claims the session and returns false when a switch is already
+// running for it.
+func (m *Manager) beginHandoff(id int64) bool {
+	s := m.handoffState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, busy := s.inFlight[id]; busy {
+		return false
+	}
+	delete(s.errors, id)
+	s.inFlight[id] = HandoffStatus{Phase: "saving"}
+	return true
+}
 
 // HandoffPrompt is what we ask a session to write before it is retired.
 //
@@ -88,45 +190,63 @@ type HandoffResult struct {
 // background: an agent mid-turn can take minutes to answer, and the operator
 // should not sit on a hanging request to find that out.
 func (m *Manager) StartHandoff(id int64, o HandoffOpts) error {
-	m.mu.Lock()
-	if m.handoffs[id] {
-		m.mu.Unlock()
+	if !m.beginHandoff(id) {
 		return fmt.Errorf("a handoff is already in flight for this session")
 	}
-	m.handoffs[id] = true
-	m.mu.Unlock()
 
 	sess, _, err := m.resolve(id)
 	if err != nil {
-		m.clearHandoff(id)
+		m.finishHandoff(id, err.Error())
 		return err
 	}
 	if o.Successor {
 		next, err := m.handoffLaunch(sess, o)
 		if err != nil {
-			m.clearHandoff(id)
+			m.finishHandoff(id, err.Error())
 			return err
 		}
 		o.launch = &next
+		// The picker can say exactly where the context is going while the
+		// predecessor is still writing, not just "switching".
+		m.setHandoffPhase(id, "saving", handoffDestination(next))
 	}
 	go func() {
-		defer m.clearHandoff(id)
 		ctx, cancel := context.WithTimeout(context.Background(), m.HandoffTimeout+time.Minute)
 		defer cancel()
 		if err := m.runHandoff(ctx, sess, o); err != nil {
+			m.finishHandoff(id, err.Error())
 			m.Log.Warn("handoff failed", "session", id, "err", err)
 			m.Bus.Publish("board", "session_handoff", map[string]any{
 				"session_id": id, "ok": false, "error": err.Error()})
+			return
 		}
+		m.finishHandoff(id, "")
 	}()
 	return nil
 }
 
 // InFlight reports whether a session currently has a wrap being written.
 func (m *Manager) InFlight(id int64) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.handoffs[id]
+	_, ok := m.Handoff(id)
+	return ok
+}
+
+// handoffDestination names what the successor will be, so the operator sees
+// "Starting Codex · astra-test" rather than a generic switch.
+func handoffDestination(o LaunchOpts) string {
+	if o.Configuration != nil && o.Configuration.ProfileName != "" {
+		return o.Configuration.ProfileName
+	}
+	name := strings.TrimSpace(o.Agent)
+	if name == "" {
+		name = "session"
+	} else {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	if o.Model == "" {
+		return name + " · default model"
+	}
+	return name + " · " + o.Model
 }
 
 func (m *Manager) handoffLaunch(sess *store.Session, o HandoffOpts) (LaunchOpts, error) {
@@ -156,12 +276,6 @@ func (m *Manager) handoffLaunch(sess *store.Session, o HandoffOpts) (LaunchOpts,
 		}
 	}
 	return next, err
-}
-
-func (m *Manager) clearHandoff(id int64) {
-	m.mu.Lock()
-	delete(m.handoffs, id)
-	m.mu.Unlock()
 }
 
 func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o HandoffOpts) error {
@@ -252,11 +366,13 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 			launch = &resolved
 		}
 		launch.Prime = prime
+		m.setHandoffPhase(sess.ID, "starting", handoffDestination(*launch))
 		next, err := m.Launch(ctx, *launch)
 		if err != nil {
 			return fmt.Errorf("wrap saved, but the successor failed to start: %w", err)
 		}
 		res.Session = next
+		m.setHandoffSuccessor(sess.ID, next.ID)
 	}
 	// A failed successor must never cost the operator the original session.
 	if o.KillOld {
