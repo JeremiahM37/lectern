@@ -355,7 +355,13 @@ def test_offline_resume_keeps_the_session_and_never_replays_input(page, real_ter
     expect(f.locator("#agent-terminal .xterm-screen")).to_contain_text("MARK-90-END")
 
     # And the real thing: the phone loses its network and the stream dies.
+    was_online = f.locator("body").evaluate("()=>navigator.onLine")
     page.context.set_offline(True)
+    if not was_online:
+        # The sandbox has no network, and Chrome sometimes concludes that on
+        # its own before this point. Then going offline changes nothing and no
+        # event fires, exactly the case the stub above exists for.
+        f.locator("body").evaluate("()=>window.dispatchEvent(new Event('offline'))")
     kill_ttyd(t)
     expect(f.locator("#connection")).to_have_text("Offline", timeout=10000)
     expect(f.locator("#compact-status")).to_have_attribute("aria-label", "Terminal offline")
