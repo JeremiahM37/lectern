@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
-	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/state"
@@ -295,6 +294,13 @@ func (s *Server) followupTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
+	s.followupWithFeedback(w, r, task, body.Feedback)
+}
+
+// followupWithFeedback sends a reviewed task back for another attempt with
+// feedback, however that feedback was assembled — a plain follow-up note
+// (followupTask) or formatted inline review comments (reviewTask).
+func (s *Server) followupWithFeedback(w http.ResponseWriter, r *http.Request, task *store.Task, feedback string) {
 	last, lastErr := s.DB.LatestAttempt(task.ID)
 	proj, err := s.DB.Project(task.ProjectID)
 	if err != nil {
@@ -312,10 +318,10 @@ func (s *Server) followupTask(w http.ResponseWriter, r *http.Request) {
 		// all the context the new agent gets
 		opts.Prompt = "A previous agent attempted this task and the operator requests " +
 			"changes:\n\nORIGINAL TASK:\n" + task.Prompt +
-			"\n\nREQUESTED CHANGES:\n" + body.Feedback
+			"\n\nREQUESTED CHANGES:\n" + feedback
 	} else {
 		opts.Prompt = "The previous attempt finished. The operator reviewed the diff and " +
-			"requests changes:\n\n" + body.Feedback + "\n\nApply them in this worktree."
+			"requests changes:\n\n" + feedback + "\n\nApply them in this worktree."
 		if lastErr == nil {
 			opts.ResumeSession = last.SessionID
 			opts.WorktreePath = last.WorktreePath
@@ -503,89 +509,6 @@ func (s *Server) clearTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("cleared finished tasks", "count", cleared, "statuses", statuses)
 	writeJSON(w, 200, map[string]any{"cleared": cleared, "statuses": statuses})
-}
-
-type commitIn struct {
-	Message string `json:"message"`
-	Push    bool   `json:"push"`
-	PR      bool   `json:"pr"`
-}
-
-func (s *Server) commitTask(w http.ResponseWriter, r *http.Request) {
-	task, proj, target, att, ok := s.workCtx(w, r)
-	if !ok {
-		return
-	}
-	if task.Status != "review" && task.Status != "done" {
-		httpError(w, 409, "cannot commit from %s", task.Status)
-		return
-	}
-	var body commitIn
-	if err := decodeBody(r, &body); err != nil {
-		httpError(w, 422, "%s", err.Error())
-		return
-	}
-	_ = proj
-	ex, err := s.Reg.For(target)
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	ctx := r.Context()
-	msg := strings.ReplaceAll(orDefault(body.Message, task.Title), `"`, "'")
-	steps := []map[string]any{}
-
-	res, err := ex.Run(ctx, fmt.Sprintf(`git add -A && git commit -m "%s"`, msg),
-		executor.RunOpts{Cwd: att.WorktreePath, Timeout: 60})
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	output := clipEnd(res.Stdout+res.Stderr, 800)
-	steps = append(steps, map[string]any{"step": "commit", "rc": res.RC, "output": output})
-	if !res.OK() {
-		detail := output
-		if strings.Contains(res.Stdout+res.Stderr, "nothing to commit") {
-			detail = "nothing to commit"
-		}
-		httpError(w, 409, "commit failed: %s", detail)
-		return
-	}
-	if body.Push {
-		res, err := ex.Run(ctx, "git push -u origin "+att.Branch,
-			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 120})
-		if err != nil {
-			respondErr(w, err)
-			return
-		}
-		steps = append(steps, map[string]any{"step": "push", "rc": res.RC,
-			"output": clipEnd(res.Stdout+res.Stderr, 800)})
-		if body.PR && res.RC != 0 {
-			body.PR = false // never open a PR for a branch that failed to push
-		}
-	}
-	if body.PR {
-		title := strings.ReplaceAll(task.Title, `"`, "'")
-		res, err := ex.Run(ctx, fmt.Sprintf(
-			`gh pr create --head %s --title "%s" --body "Created by lectern task #%d."`,
-			att.Branch, title, task.ID),
-			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 120})
-		if err != nil {
-			respondErr(w, err)
-			return
-		}
-		url := ""
-		if res.OK() {
-			if lines := strings.Fields(strings.TrimSpace(res.Stdout)); len(lines) > 0 {
-				parts := strings.Split(strings.TrimSpace(res.Stdout), "\n")
-				url = strings.TrimSpace(parts[len(parts)-1])
-			}
-		}
-		steps = append(steps, map[string]any{"step": "pr", "rc": res.RC,
-			"output": clipEnd(res.Stdout+res.Stderr, 800), "url": url})
-	}
-	s.Bus.Publish(fmt.Sprintf("task:%d", task.ID), "git", map[string]any{"steps": steps})
-	writeJSON(w, 200, map[string]any{"steps": steps})
 }
 
 func (s *Server) cleanupTask(w http.ResponseWriter, r *http.Request) {

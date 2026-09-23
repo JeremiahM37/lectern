@@ -21,7 +21,7 @@ import (
 
 // Keys are the settings rows this package owns. Anything else is rejected by the
 // settings endpoint so a typo cannot silently disable notifications.
-var Keys = []string{"discord_webhook", "ntfy_server", "ntfy_topic"}
+var Keys = []string{"discord_webhook", "ntfy_server", "ntfy_topic", "summary_agent", "summary_model"}
 
 // Payload is one outbound notification, already addressed and rendered.
 type Payload struct {

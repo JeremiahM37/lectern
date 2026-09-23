@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/api/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts",
+    "test": "tsx --test src/api/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
