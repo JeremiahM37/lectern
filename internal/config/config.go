@@ -28,7 +28,10 @@ type Config struct {
 
 	AuthToken string // single bearer for the API/PWA; empty = open
 
-	TickInterval   time.Duration
+	TickInterval time.Duration
+	// HandoffPoll is how often a session switch checks for the agent's wrap;
+	// zero keeps the session manager's default. Tests shorten it.
+	HandoffPoll    time.Duration
 	ApprovalPoll   time.Duration
 	ApprovalExpire time.Duration
 	JanitorDays    float64
@@ -153,6 +156,7 @@ func Load() *Config {
 		MediaMaxBytes:           int64(envFloat("LECTERN_MEDIA_MAX_MB", 1024)) << 20,
 		AuthToken:               os.Getenv("LECTERN_AUTH_TOKEN"),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
+		HandoffPoll:             envSeconds("LECTERN_HANDOFF_POLL", 0),
 		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),
 		ApprovalExpire:          envSeconds("LECTERN_APPROVAL_EXPIRE", 900),
 		JanitorDays:             envFloat("LECTERN_JANITOR_DAYS", 7),

@@ -468,9 +468,19 @@ before turning this on to save money.
 ## Tests
 
 ```bash
+# everything at once: Go, frontend and browser suites in parallel
+ADK_ISOLATION_REVIEWED=1 tools/test-all-parallel.sh .
+# or one suite
 ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=go tools/run-isolated-tests.sh .
 ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=e2e tools/run-isolated-tests.sh .
 ```
+
+The runner's CPU budget is `ADK_TEST_CPUS` (default: half the host's cores).
+The browser suite runs on `pytest-xdist` with one worker per two of those
+cores (`ADK_TEST_E2E_WORKERS` overrides; `0` runs serially), and each worker
+gets its own tmux directory and home. `ADK_TEST_GOCACHE` names a build cache
+that persists between runs; use a directory reserved for test builds. On a
+32-core host, `ADK_TEST_CPUS=24` runs all three suites in about two minutes.
 
 Read the isolation runner before setting its acknowledgement variable. It uses
 bubblewrap with private process/network namespaces and tmux state so tests

@@ -11,30 +11,21 @@ options:
     viewport: [1280, 800]
 
 steps:
-  - name: frontend checks and build pass
+  - name: go, frontend and browser suites pass
     actions:
       - shell:
-          cmd: ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=frontend tools/run-isolated-tests.sh .
-          timeout: 300
-
-  - name: go suite passes
-    actions:
-      - shell:
-          cmd: ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=go tools/run-isolated-tests.sh .
-          timeout: 1200
+          # All three suites run at once, each in its own isolated namespace;
+          # the browser suite is split across parallel workers. Serially this
+          # step took 30-40 minutes on a two-core budget; now about two.
+          # ADK_TEST_GOCACHE keeps compiled packages between runs in a cache
+          # used only by these test builds.
+          cmd: >-
+            ADK_ISOLATION_REVIEWED=1 ADK_TEST_CPUS=24
+            ADK_TEST_GOCACHE=/mnt/bulk/admin-cache/lectern-test-gocache
+            tools/test-all-parallel.sh .
+          timeout: 900
     expect:
-      no_log_contains: "FAIL"
-
-  - name: browser end-to-end passes
-    actions:
-      - shell:
-          cmd: ADK_ISOLATION_REVIEWED=1 ADK_TEST_MODE=e2e tools/run-isolated-tests.sh .
-          # The 201-case suite reached 100% after the 900s aggregate deadline.
-          # Allow startup/teardown headroom and report slow tests for diagnosis.
-          # Individual Playwright and subprocess deadlines remain unchanged.
-          timeout: 1200
-    expect:
-      no_log_contains: "failed"
+      no_log_contains: "FAILED"
 
   - name: systemd service healthy
     actions:

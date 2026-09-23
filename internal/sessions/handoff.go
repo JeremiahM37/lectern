@@ -278,6 +278,20 @@ func (m *Manager) handoffLaunch(sess *store.Session, o HandoffOpts) (LaunchOpts,
 	return next, err
 }
 
+// HandoffPollInterval is the default for Manager.HandoffPoll: how often a
+// handoff checks whether the agent has finished writing its wrap. Agents take
+// seconds to minutes to write one, so checking more often buys nothing in
+// production; tests lower it so each handoff does not cost a fixed three
+// seconds of waiting.
+var HandoffPollInterval = 3 * time.Second
+
+func (m *Manager) handoffPoll() time.Duration {
+	if m.HandoffPoll > 0 {
+		return m.HandoffPoll
+	}
+	return HandoffPollInterval
+}
+
 func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o HandoffOpts) error {
 	_, ex, err := m.resolve(sess.ID)
 	if err != nil {
@@ -303,7 +317,7 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(m.handoffPoll()):
 		}
 		raw, err := ex.ReadFile(ctx, path, 0)
 		if err == nil {

@@ -96,7 +96,7 @@ jobs:
         run: |
           python -m venv --copies "$RUNNER_TEMP/lec-venv"
           "$RUNNER_TEMP/lec-venv/bin/python" -m pip install --upgrade pip
-          "$RUNNER_TEMP/lec-venv/bin/pip" install pytest playwright pyte==0.8.2 asyncssh
+          "$RUNNER_TEMP/lec-venv/bin/pip" install pytest pytest-xdist playwright pyte==0.8.2 asyncssh
           echo "LEC_PYTHON_BASE=$(python -c 'import sys; print(sys.base_prefix)')" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/lec-playwright" \
             "$RUNNER_TEMP/lec-venv/bin/python" -m playwright install --with-deps chromium
@@ -137,6 +137,8 @@ jobs:
         env:
           ADK_ISOLATION_REVIEWED: "1"
           ADK_TEST_MODE: e2e
+          # Hosted runners have four cores: two browser workers.
+          ADK_TEST_CPUS: "4"
           ADK_PYTHON_VENV: ${{ runner.temp }}/lec-venv
           ADK_PLAYWRIGHT_CACHE: ${{ runner.temp }}/lec-playwright
         run: |

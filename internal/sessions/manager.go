@@ -40,6 +40,8 @@ type Manager struct {
 	// HandoffTimeout bounds how long we wait for an agent to write its wrap
 	// before giving up and saying so.
 	HandoffTimeout time.Duration
+	// HandoffPoll overrides HandoffPollInterval when positive.
+	HandoffPoll time.Duration
 
 	lifecycleMu               sync.Mutex
 	pollMu                    sync.Mutex

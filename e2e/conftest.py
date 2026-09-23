@@ -70,6 +70,33 @@ for _name in [*OUTSIDE_WORLD, "LECTERN_BASE_URL", "LECTERN_DB",
               "LECTERN_GRIMOIRE_CONTEXT_MODE", "LECTERN_GRIMOIRE_CONTEXT_PROJECTS"]:
     os.environ.pop(_name, None)
 
+# A shell starts background jobs (`cmd &`) with SIGINT and SIGQUIT ignored,
+# and an ignored signal survives every exec after it. Tests that press Ctrl-C
+# in a child's PTY then wait forever for a process that never saw it. Put the
+# ordinary dispositions back, so the suite behaves the same however it was
+# launched; children then inherit the defaults.
+import signal as _signal
+if _signal.getsignal(_signal.SIGINT) is _signal.SIG_IGN:
+    _signal.signal(_signal.SIGINT, _signal.default_int_handler)
+if _signal.getsignal(_signal.SIGQUIT) is _signal.SIG_IGN:
+    _signal.signal(_signal.SIGQUIT, _signal.SIG_DFL)
+
+# Parallel workers (pytest-xdist) share the namespace's /tmp and HOME. Many
+# tests drive the default tmux server by fixed session names ("terminal-test",
+# "terminal-two") and set global tmux options, so each worker gets its own tmux
+# directory and home before any test runs. A worker then behaves exactly like
+# a serial run that happens to see only its share of the tests.
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+if _WORKER:
+    _tmux_root = Path(os.environ.get("ADK_TEST_TMUX_ROOT") or tempfile.gettempdir()) / f"worker-{_WORKER}"
+    _tmux_root.mkdir(parents=True, exist_ok=True)
+    os.environ["ADK_TEST_TMUX_ROOT"] = str(_tmux_root)
+    os.environ["TMUX_TMPDIR"] = str(_tmux_root)
+    os.environ.pop("ADK_TEST_TMUX_SOCKET", None)
+    _home = Path(tempfile.gettempdir()) / f"lec-e2e-home-{_WORKER}"
+    _home.mkdir(parents=True, exist_ok=True)
+    os.environ["HOME"] = str(_home)
+
 
 def _start(port: int, extra_env: dict):
     tmp = tempfile.mkdtemp(prefix="lec-e2e-")
@@ -83,6 +110,7 @@ def _start(port: int, extra_env: dict):
     env = {**os.environ,
            "LECTERN_MOCK": "1", "LECTERN_TICK": "0.1",
            "LECTERN_MOCK_DELAY": "0.25", "LECTERN_PORT": str(port),
+           "LECTERN_HANDOFF_POLL": "0.1",
            "LECTERN_DB": str(Path(tmp) / "e2e.db"),
            "LECTERN_BASE_URL": f"http://127.0.0.1:{port}",
            "HOME": str(private_home),

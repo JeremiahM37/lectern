@@ -166,6 +166,18 @@ if [[ -n "$python_base" ]]; then
 fi
 
 bwrap_args+=(--ro-bind "$goroot" /usr/local/go)
+# Optional persistent build cache. Without it every run recompiles the module
+# and its dependencies from nothing. It must be a directory used only by these
+# test builds -- never the developer's own GOCACHE, and never one a release
+# binary is built from -- because tests can write to it.
+gocache_dir=/tmp/go-cache
+if [[ -n ${ADK_TEST_GOCACHE:-} ]]; then
+  test_gocache=$(readlink -m "$ADK_TEST_GOCACHE")
+  [[ $test_gocache != "$(go env GOCACHE)" ]] || { echo "ADK_TEST_GOCACHE must not be the developer's own GOCACHE" >&2; exit 2; }
+  mkdir -p "$test_gocache"
+  bwrap_args+=(--bind "$test_gocache" /go-cache)
+  gocache_dir=/go-cache
+fi
 bwrap_args+=(--ro-bind "$gomodcache" /go/pkg/mod)
 if [[ -n "$node_root" && "$node_root" != /usr ]]; then
   bwrap_args+=(--dir /opt/node --ro-bind "$node_root" /opt/node)
@@ -198,8 +210,19 @@ fi
 cp "$source_dir/tools/tmux-isolated-wrapper" "$stage/bin/tmux"
 chmod 0755 "$stage/bin/tmux"
 
+# CPU budget for the namespace. The historical bound was two cores, which is
+# what made a full run take half an hour on a 32-core host. ADK_TEST_CPUS
+# overrides; the default leaves half the host for everything else.
+host_cpus=$(nproc)
+cpus=${ADK_TEST_CPUS:-$(( host_cpus / 2 > 2 ? host_cpus / 2 : 2 ))}
+[[ $cpus =~ ^[1-9][0-9]*$ ]] || { echo "ADK_TEST_CPUS must be a positive integer" >&2; exit 2; }
+# Browser workers: each runs its own Chromium, fixture servers and tmux, so
+# roughly one per two cores. ADK_TEST_E2E_WORKERS=0 runs serially.
+e2e_workers=${ADK_TEST_E2E_WORKERS:-$(( cpus / 2 > 1 ? cpus / 2 : 1 ))}
+[[ $e2e_workers =~ ^[0-9]+$ ]] || { echo "ADK_TEST_E2E_WORKERS must be a non-negative integer" >&2; exit 2; }
+
 inner=(/bin/bash -c)
-go_test_cmd='GOMAXPROCS=2 go test ./... -count=1'
+go_test_cmd="GOMAXPROCS=$cpus go test ./... -count=1"
 if [[ -n ${ADK_TEST_GO_ARGS:-} ]]; then
   # Parse the optional focused-test arguments as shell words here, then quote
   # each word before placing it in the namespace command. This keeps the
@@ -211,10 +234,18 @@ if [[ -n ${ADK_TEST_GO_ARGS:-} ]]; then
     go_test_cmd+="$quoted"
   done
 fi
-e2e_test_cmd='/opt/venv/bin/python -m pytest -q e2e --durations=20'
+# One binary for every worker: without LECTERN_BIN each xdist worker would
+# build its own copy of the server at startup.
+e2e_prelude='go build -o /tmp/lectern-e2e ./cmd/lectern && export LECTERN_BIN=/tmp/lectern-e2e && '
+e2e_parallel=
+if (( e2e_workers > 1 )); then
+  e2e_parallel=" -p xdist -n $e2e_workers --dist worksteal"
+fi
+e2e_test_cmd="$e2e_prelude/opt/venv/bin/python -m pytest -q e2e --durations=25$e2e_parallel"
 if [[ -n ${ADK_TEST_E2E_ARGS:-} ]]; then
   read -r -a e2e_args <<<"$ADK_TEST_E2E_ARGS"
-  e2e_test_cmd='/opt/venv/bin/python -m pytest'
+  # Focused runs choose their own -n; they still share one prebuilt binary.
+  e2e_test_cmd="$e2e_prelude/opt/venv/bin/python -m pytest"
   for arg in "${e2e_args[@]}"; do
     printf -v quoted ' %q' "$arg"
     e2e_test_cmd+="$quoted"
@@ -286,7 +317,7 @@ env_args=(
   --setenv XDG_CONFIG_HOME /tmp/home/.config
   --setenv XDG_CACHE_HOME /tmp/cache
   --setenv XDG_STATE_HOME /tmp/state
-  --setenv GOCACHE /tmp/go-cache
+  --setenv GOCACHE "$gocache_dir"
   --setenv GOPATH /tmp/go
   --setenv GOMODCACHE /go/pkg/mod
   --setenv GOTOOLCHAIN local
@@ -307,12 +338,14 @@ if [[ $mode == android ]]; then
     --setenv LEC_AUDIT_REVISION "$audit_revision")
 fi
 
-# Resource bound: 8 GiB, 512 tasks, two host CPU cores.  The explicit
-# GOMAXPROCS bound remains in Go modes even when a caller runs without cgroups.
+# Resource bound: memory and task ceilings scale with the browser workers, and
+# the CPU quota is the budget chosen above. The explicit GOMAXPROCS bound
+# remains in Go modes even when a caller runs without cgroups.
 # `--wait` is for transient service units and cannot be combined with a scope;
 # scope invocations already remain attached until the command exits.
 scope=(systemd-run --user --expand-environment=no --scope --collect
-  -p MemoryMax=8G -p TasksMax=512 -p CPUQuota=200%)
+  -p MemoryMax=$(( 8 + e2e_workers * 2 ))G -p TasksMax=$(( 512 + e2e_workers * 512 ))
+  -p CPUQuota=$(( cpus * 100 ))%)
 if [[ ${ADK_TEST_NO_SCOPE:-0} == 1 && $mode != smoke ]]; then
   echo "ADK_TEST_NO_SCOPE=1 is permitted only for the smoke proof" >&2
   exit 2

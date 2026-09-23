@@ -26,6 +26,7 @@ def real_terminal(tmp_path, request):
     env = {**os.environ, **OUTSIDE_WORLD, 'TMUX_TMPDIR': fixture_tmux_dir, 'TMUX': '', 'LECTERN_MOCK': '0',
            'LECTERN_DB': str(tmp_path/'test.db'), 'LECTERN_HOST': '127.0.0.1',
            'LECTERN_GRIMOIRE_URL': '', 'LECTERN_AUTH_TOKEN': '', 'LECTERN_SESSION_POLL': '3600',
+           'LECTERN_HANDOFF_POLL': '0.1', 'LECTERN_TICK': '0.25',
            'XDG_STATE_HOME': str(tmp_path/'state')}
     port = _unused_port(); env['LECTERN_PORT'] = str(port)
     url = f'http://127.0.0.1:{port}'
