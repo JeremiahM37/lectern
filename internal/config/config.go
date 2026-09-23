@@ -37,6 +37,21 @@ type Config struct {
 	TailscaleUsers  string
 	TailscaleTags   string
 
+	// TrustServeHeaders is LECTERN_TRUST_SERVE_HEADERS — see its doc comment
+	// on auth.Settings. Off by default: unsafe wherever an untrusted process
+	// (an agent included) can reach this host's loopback interface.
+	TrustServeHeaders bool
+
+	// TLS turns on a second listener bound to this node's tailnet addresses,
+	// so a phone gets a secure context without needing `tailscale serve` to
+	// front it. LECTERN_TLS: "" (off) or "tailscale". TLSPort
+	// (LECTERN_TLS_PORT) is required for it to actually start — "tailscale"
+	// with no port configured is a no-op, same as leaving TLS unset. It is
+	// also auto-enabled when the resolved auth mode is tailscale and TLSPort
+	// is set, so setting just LECTERN_TLS_PORT is enough in the common case.
+	TLS     string
+	TLSPort int
+
 	TickInterval time.Duration
 	// HandoffPoll is how often a session switch checks for the agent's wrap;
 	// zero keeps the session manager's default. Tests shorten it.
@@ -168,6 +183,9 @@ func Load() *Config {
 		TailscaleSocket:         os.Getenv("LECTERN_TAILSCALE_SOCKET"),
 		TailscaleUsers:          os.Getenv("LECTERN_TAILSCALE_USERS"),
 		TailscaleTags:           os.Getenv("LECTERN_TAILSCALE_TAGS"),
+		TrustServeHeaders:       os.Getenv("LECTERN_TRUST_SERVE_HEADERS") == "1",
+		TLS:                     os.Getenv("LECTERN_TLS"),
+		TLSPort:                 int(envFloat("LECTERN_TLS_PORT", 0)),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
 		HandoffPoll:             envSeconds("LECTERN_HANDOFF_POLL", 0),
 		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),

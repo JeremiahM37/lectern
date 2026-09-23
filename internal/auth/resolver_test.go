@@ -14,8 +14,17 @@ type fakeLocalAPI struct {
 	whois       map[string]*WhoIsResponse // keyed by the IP passed to WhoIs (port stripped)
 	statusErr   error
 	ownerLogin  string
+	self        *StatusSelf // overrides the default Self in Status(), when set
 	statusCalls int
+
+	// Cert() fixtures: either a single fixed pair, or per-dnsName pairs.
+	certPEM, keyPEM []byte
+	certFor         map[string]certPair
+	certErr         error
+	certCalls       int
 }
+
+type certPair struct{ cert, key []byte }
 
 func (f *fakeLocalAPI) WhoIs(_ context.Context, addr string) (*WhoIsResponse, error) {
 	host, _, err := splitAddr(addr)
@@ -33,14 +42,28 @@ func (f *fakeLocalAPI) Status(context.Context) (*StatusResponse, error) {
 	if f.statusErr != nil {
 		return nil, f.statusErr
 	}
+	self := f.self
+	if self == nil {
+		self = &StatusSelf{UserID: 1}
+	}
 	return &StatusResponse{
-		Self: &struct {
-			UserID int64 `json:"UserID"`
-		}{UserID: 1},
-		User: map[string]struct {
-			LoginName string `json:"LoginName"`
-		}{"1": {LoginName: f.ownerLogin}},
+		Self: self,
+		User: map[string]StatusUser{"1": {LoginName: f.ownerLogin}},
 	}, nil
+}
+
+func (f *fakeLocalAPI) Cert(_ context.Context, dnsName string) ([]byte, []byte, error) {
+	f.certCalls++
+	if f.certErr != nil {
+		return nil, nil, f.certErr
+	}
+	if f.certFor != nil {
+		if pair, ok := f.certFor[dnsName]; ok {
+			return pair.cert, pair.key, nil
+		}
+		return nil, nil, errNotFound
+	}
+	return f.certPEM, f.keyPEM, nil
 }
 
 func splitAddr(addr string) (string, string, error) {
@@ -59,14 +82,25 @@ type notFoundErr struct{}
 func (*notFoundErr) Error() string { return "not found" }
 
 func newTestResolver(mode Mode, la LocalAPI, users, tags string) *Resolver {
+	return newTestResolverOpt(mode, la, users, tags, false)
+}
+
+// newTestResolverTrusting builds a resolver with LECTERN_TRUST_SERVE_HEADERS=1
+// — only for tests that specifically exercise that opt-in path.
+func newTestResolverTrusting(mode Mode, la LocalAPI, users, tags string) *Resolver {
+	return newTestResolverOpt(mode, la, users, tags, true)
+}
+
+func newTestResolverOpt(mode Mode, la LocalAPI, users, tags string, trustServeHeaders bool) *Resolver {
 	return &Resolver{
-		Mode:         mode,
-		token:        "secret",
-		localAPI:     la,
-		allowedUsers: splitCSV(users),
-		allowedTags:  splitCSV(tags),
-		log:          slog.Default(),
-		cache:        map[string]cacheEntry{},
+		Mode:              mode,
+		token:             "secret",
+		localAPI:          la,
+		allowedUsers:      splitCSV(users),
+		allowedTags:       splitCSV(tags),
+		trustServeHeaders: trustServeHeaders,
+		log:               slog.Default(),
+		cache:             map[string]cacheEntry{},
 	}
 }
 
@@ -136,15 +170,47 @@ func TestAuthenticateTaggedNodeAllowedByTag(t *testing.T) {
 	}
 }
 
-func TestAuthenticateLoopbackForwardedForTailnet(t *testing.T) {
+func TestAuthenticateLoopbackForwardedForTailnetRequiresOptIn(t *testing.T) {
+	la := &fakeLocalAPI{whois: map[string]*WhoIsResponse{
+		"100.64.2.5": {UserProfile: &WhoIsUser{LoginName: "owner@example.com"}},
+	}}
+	// tailscale serve proxies from loopback and sets X-Forwarded-For — but so
+	// can anything else on this box, so by default it must NOT be trusted.
+	a := newTestResolver(ModeTailscale, la, "owner@example.com", "")
+	p, ok := a.Authenticate(req("127.0.0.1:6789", map[string]string{"X-Forwarded-For": "100.64.2.5"}))
+	if !ok || p.Kind != KindLocal || p.Human {
+		t.Fatalf("X-Forwarded-For must be ignored on loopback by default: got %+v ok=%v", p, ok)
+	}
+
+	trusting := newTestResolverTrusting(ModeTailscale, la, "owner@example.com", "")
+	p, ok = trusting.Authenticate(req("127.0.0.1:6789", map[string]string{"X-Forwarded-For": "100.64.2.5"}))
+	if !ok || p.Kind != KindTailscale || !p.Human || p.Login != "owner@example.com" {
+		t.Fatalf("with LECTERN_TRUST_SERVE_HEADERS=1: got %+v ok=%v", p, ok)
+	}
+}
+
+// The exact attack the trust flag exists to prevent by default: any process
+// on this machine — including a dispatched agent — can forge these headers
+// against the plain loopback listener and must not become a human principal.
+func TestAuthenticateLoopbackForgedTailscaleHeadersAreNotHuman(t *testing.T) {
 	la := &fakeLocalAPI{whois: map[string]*WhoIsResponse{
 		"100.64.2.5": {UserProfile: &WhoIsUser{LoginName: "owner@example.com"}},
 	}}
 	a := newTestResolver(ModeTailscale, la, "owner@example.com", "")
-	// tailscale serve proxies from loopback and sets X-Forwarded-For.
-	p, ok := a.Authenticate(req("127.0.0.1:6789", map[string]string{"X-Forwarded-For": "100.64.2.5"}))
-	if !ok || p.Kind != KindTailscale || !p.Human || p.Login != "owner@example.com" {
-		t.Fatalf("got %+v ok=%v", p, ok)
+
+	forgedXFF := req("127.0.0.1:1", map[string]string{"X-Forwarded-For": "100.64.2.5"})
+	p, ok := a.Authenticate(forgedXFF)
+	if !ok || p.Human {
+		t.Fatalf("forged X-Forwarded-For must not grant a human principal: %+v ok=%v", p, ok)
+	}
+
+	forgedLogin := req("127.0.0.1:1", map[string]string{"Tailscale-User-Login": "owner@example.com"})
+	p, ok = a.Authenticate(forgedLogin)
+	if !ok || p.Human {
+		t.Fatalf("forged Tailscale-User-Login must not grant a human principal: %+v ok=%v", p, ok)
+	}
+	if a.CanDecide(p) {
+		t.Fatal("a principal from forged loopback headers must not be able to decide approvals")
 	}
 }
 

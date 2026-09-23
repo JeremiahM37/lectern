@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"time"
+	"strings"
 )
 
 // DefaultSocket is tailscaled's LocalAPI socket on a standard Linux install.
@@ -32,15 +35,25 @@ type WhoIsResponse struct {
 	UserProfile *WhoIsUser `json:"UserProfile"`
 }
 
+// StatusSelf is the subset of ipnstate.PeerStatus for this node that
+// StatusResponse.Self carries.
+type StatusSelf struct {
+	UserID       int64    `json:"UserID"`
+	TailscaleIPs []string `json:"TailscaleIPs"`
+	DNSName      string   `json:"DNSName"`
+}
+
+// StatusUser is the subset of tailcfg.UserProfile this package reads.
+type StatusUser struct {
+	LoginName string `json:"LoginName"`
+}
+
 // StatusResponse is the subset of GET /localapi/v0/status this package reads:
-// enough to learn who owns this node.
+// enough to learn who owns this node, and (for the tailscale TLS listener)
+// this node's own tailnet addresses and DNS name.
 type StatusResponse struct {
-	Self *struct {
-		UserID int64 `json:"UserID"`
-	} `json:"Self"`
-	User map[string]struct {
-		LoginName string `json:"LoginName"`
-	} `json:"User"`
+	Self *StatusSelf           `json:"Self"`
+	User map[string]StatusUser `json:"User"`
 }
 
 // OwnerLogin is the login of the account this tailscaled node belongs to
@@ -62,6 +75,10 @@ func (s *StatusResponse) OwnerLogin() string {
 type LocalAPI interface {
 	WhoIs(ctx context.Context, addr string) (*WhoIsResponse, error)
 	Status(ctx context.Context) (*StatusResponse, error)
+	// Cert fetches a TLS certificate/key pair for dnsName from tailscaled's
+	// own cert store (issuing or renewing it via Let's Encrypt as needed).
+	// Both return values are PEM-encoded.
+	Cert(ctx context.Context, dnsName string) (certPEM, keyPEM []byte, err error)
 }
 
 type localAPIClient struct {
@@ -83,24 +100,39 @@ func NewLocalAPIClient(socket string) LocalAPI {
 				return d.DialContext(ctx, "unix", socket)
 			},
 		},
-		Timeout: 5 * time.Second,
+		// No blanket Timeout here: a first-time cert issuance can legitimately
+		// take tens of seconds (tailscaled talking to Let's Encrypt), far
+		// longer than a whois/status call should ever take. Each call site
+		// bounds itself with its own context deadline instead.
 	}}
 }
 
-func (c *localAPIClient) do(ctx context.Context, path string, out any) error {
+func (c *localAPIClient) get(ctx context.Context, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://local-tailscaled.sock"+path, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("tailscaled localapi %s: status %d", path, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tailscaled localapi %s: status %d", path, resp.StatusCode)
+	}
+	return body, nil
+}
+
+func (c *localAPIClient) do(ctx context.Context, path string, out any) error {
+	body, err := c.get(ctx, path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
 }
 
 func (c *localAPIClient) WhoIs(ctx context.Context, addr string) (*WhoIsResponse, error) {
@@ -117,4 +149,41 @@ func (c *localAPIClient) Status(ctx context.Context) (*StatusResponse, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Cert fetches this node's cert+key pair for dnsName. `type=pair` asks
+// tailscaled for the leaf certificate chain immediately followed by the
+// private key, both PEM; splitCertPair separates them by block type rather
+// than assuming that exact order, so it isn't brittle to how tailscaled
+// concatenates them.
+func (c *localAPIClient) Cert(ctx context.Context, dnsName string) ([]byte, []byte, error) {
+	body, err := c.get(ctx, "/localapi/v0/cert/"+url.PathEscape(dnsName)+"?type=pair")
+	if err != nil {
+		return nil, nil, err
+	}
+	return splitCertPair(body)
+}
+
+// splitCertPair separates a PEM blob containing both a certificate chain and
+// a private key into the two, by decoding every block and sorting it by type.
+func splitCertPair(pair []byte) (certPEM, keyPEM []byte, err error) {
+	var certs, keys bytes.Buffer
+	rest := pair
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		encoded := pem.EncodeToMemory(block)
+		if strings.Contains(block.Type, "PRIVATE KEY") {
+			keys.Write(encoded)
+		} else {
+			certs.Write(encoded)
+		}
+	}
+	if certs.Len() == 0 || keys.Len() == 0 {
+		return nil, nil, fmt.Errorf("tailscaled cert response did not contain both a certificate and a key")
+	}
+	return certs.Bytes(), keys.Bytes(), nil
 }

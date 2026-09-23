@@ -447,6 +447,29 @@ that needs a real human behind it (a tailnet identity, a token, or `none`
 mode, where there's no one else it could be). `GET /api/whoami` reports how a
 given request resolved; the PWA shows it under Settings → Usage & about.
 
+**Loopback never becomes a human from headers, even in `tailscale` mode.**
+`X-Forwarded-For` and `Tailscale-User-Login` are how `tailscale serve` hands
+Lectern the real client's identity when it proxies from loopback — but
+anything else on the box, including a dispatched agent, can set the same
+headers on a plain `curl` to `127.0.0.1` and would otherwise be able to
+approve its own permission requests. So by default they're ignored on
+loopback and it resolves to the ordinary, non-human local principal instead.
+Set `LECTERN_TRUST_SERVE_HEADERS=1` to restore the header path — **only** if
+this listener is reachable exclusively through `tailscale serve` on this same
+host and nothing untrusted can run a process here.
+
+**A native TLS listener is the better fix for a secure context**, and avoids
+that whole trust question: set `LECTERN_TLS_PORT=8443` (with `LECTERN_AUTH`
+resolving to `tailscale`, or explicitly `LECTERN_TLS=tailscale`) and Lectern
+binds that port directly on this node's tailnet IPs (v4 and v6), fetching its
+TLS certificate from tailscaled's own LocalAPI (`GET
+/localapi/v0/cert/<dnsname>?type=pair`) and refreshing it before it expires.
+Requests there carry the real tailnet peer address, so whois is trustworthy
+with no proxy and no header-trust flag involved. If you previously ran
+`tailscale serve --https=8443 http://127.0.0.1:9110`, replace it with
+`LECTERN_TLS_PORT=8443` and turn `serve` off — Lectern serves that port
+itself now. Plain HTTP on `LECTERN_PORT` (9110) keeps working either way.
+
 ## Delegated builds (optional)
 
 **Off by default.** Turn it on and a lead session plans a substantial change

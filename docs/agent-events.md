@@ -28,6 +28,9 @@ Principal resolution for one request (`auth.Principal{Kind, Login, Node, Human b
    - else `Tailscale-User-Login` header → that login.
    - else → `Kind: "local"`, `Human: false` (a process on this machine,
      possibly an agent).
+   - **Both header paths require `LECTERN_TRUST_SERVE_HEADERS=1`** (default
+     off — see the second deviation below). Without it, loopback is always
+     `Kind: "local"`, `Human: false`, headers or not.
 2. Remote address is a tailnet IP (100.64.0.0/10, fd7a:115c:a1e0::/48) →
    LocalAPI `GET /localapi/v0/whois?addr=IP:PORT` (socket
    `/var/run/tailscale/tailscaled.sock`, overridable `LECTERN_TAILSCALE_SOCKET`).
@@ -55,6 +58,39 @@ server must get 401 without the token) — a literal "every mode" reading would
 have broken it, since a same-host browser is indistinguishable from a trusted
 local CLI at the TCP layer. `none` and `tailscale` mode are unaffected and
 match the text above exactly.
+
+**Deviation 2 (security fix, found in review before merge):** the loopback
+`X-Forwarded-For`/`Tailscale-User-Login` path is gated behind
+`LECTERN_TRUST_SERVE_HEADERS=1` (default off), not on unconditionally in
+`tailscale` mode as originally written. Loopback can't tell `tailscale serve`
+proxying a real tailnet client from any other process on the box — including a
+dispatched agent — sending the same headers to `127.0.0.1` directly, which
+would otherwise let an agent forge a human principal and approve its own
+permission request. `internal/auth.Resolver.Authenticate` only honors the
+headers on loopback when the flag is set; otherwise loopback in `tailscale`
+mode is unconditionally `Kind: "local"`, `Human: false`.
+
+**Addition: a native TLS listener**, so the flag above has a real alternative
+instead of being the only way to get a phone a secure context.
+`LECTERN_TLS=tailscale` (or auto-on when the resolved auth mode is `tailscale`
+and `LECTERN_TLS_PORT` is set) brings up a second listener on
+`LECTERN_TLS_PORT`, bound to this node's tailnet addresses — both v4 and v6,
+from LocalAPI `status.Self.TailscaleIPs` — serving the same handler as the
+plain HTTP listener. Its `tls.Config.GetCertificate` (`internal/auth.CertCache`)
+fetches the cert/key pair from LocalAPI `GET
+/localapi/v0/cert/<dnsname>?type=pair` (`dnsname` = `status.Self.DNSName` minus
+its trailing dot; the response is the leaf cert chain PEM immediately followed
+by the key PEM — `internal/auth.splitCertPair` separates them by PEM block
+type rather than assuming that order), cached in memory and refetched once
+within 7 days of the cached cert's expiry. `LocalAPI.Cert` is an interface
+method for exactly this: tests fake it instead of touching a real tailscaled.
+Requests on this listener carry the real tailnet peer address, so whois there
+is trustworthy without `tailscale serve` and without
+`LECTERN_TRUST_SERVE_HEADERS`. An existing `tailscale serve --https=8443
+http://127.0.0.1:9110` should be replaced with `LECTERN_TLS_PORT=8443` and
+`serve` turned off — Lectern now serves that port itself. (Not done as part of
+this change: the live AIServer `serve` config stays as-is until someone
+deliberately cuts it over.)
 
 Everything is gated: API, SSE, `/term/*` proxy, static assets may stay open.
 `GET /api/whoami` → `{mode, kind, login, node, human}`.

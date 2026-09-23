@@ -111,6 +111,18 @@ type Settings struct {
 	Socket          string // LECTERN_TAILSCALE_SOCKET override
 	AllowedUsersCSV string // LECTERN_TAILSCALE_USERS
 	AllowedTagsCSV  string // LECTERN_TAILSCALE_TAGS
+
+	// TrustServeHeaders is LECTERN_TRUST_SERVE_HEADERS=1. Unsafe wherever an
+	// agent can run a process on this host: X-Forwarded-For and
+	// Tailscale-User-Login are ordinary headers, and loopback cannot tell
+	// `tailscale serve` proxying a real tailnet client from `curl -H
+	// 'Tailscale-User-Login: owner@example.com' 127.0.0.1:PORT/...` run by
+	// anything on the box, including a dispatched agent. Off by default, so a
+	// loopback request is always KindLocal/non-human regardless of what
+	// headers it carries. Opt in only when Lectern's HTTP listener is
+	// unreachable except through `tailscale serve` on the same host and no
+	// untrusted process shares that host.
+	TrustServeHeaders bool
 }
 
 type cacheEntry struct {
@@ -124,11 +136,12 @@ type cacheEntry struct {
 type Resolver struct {
 	Mode Mode
 
-	token        string
-	localAPI     LocalAPI
-	allowedUsers map[string]struct{}
-	allowedTags  map[string]struct{}
-	log          *slog.Logger
+	token             string
+	localAPI          LocalAPI
+	allowedUsers      map[string]struct{}
+	allowedTags       map[string]struct{}
+	trustServeHeaders bool
+	log               *slog.Logger
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -159,13 +172,14 @@ func newWithClient(mode Mode, la LocalAPI, s Settings, log *slog.Logger) *Resolv
 		log = slog.Default()
 	}
 	r := &Resolver{
-		Mode:         mode,
-		token:        s.Token,
-		localAPI:     la,
-		allowedUsers: splitCSV(s.AllowedUsersCSV),
-		allowedTags:  splitCSV(s.AllowedTagsCSV),
-		log:          log,
-		cache:        map[string]cacheEntry{},
+		Mode:              mode,
+		token:             s.Token,
+		localAPI:          la,
+		allowedUsers:      splitCSV(s.AllowedUsersCSV),
+		allowedTags:       splitCSV(s.AllowedTagsCSV),
+		trustServeHeaders: s.TrustServeHeaders,
+		log:               log,
+		cache:             map[string]cacheEntry{},
 	}
 
 	if mode == ModeTailscale && len(r.allowedUsers) == 0 {
@@ -185,7 +199,13 @@ func newWithClient(mode Mode, la LocalAPI, s Settings, log *slog.Logger) *Resolv
 
 	log.Info("lectern auth mode resolved", "mode", mode,
 		"tailscale_users", sortedKeys(r.allowedUsers), "tailscale_tags", sortedKeys(r.allowedTags),
-		"token_configured", s.Token != "")
+		"token_configured", s.Token != "", "trust_serve_headers", s.TrustServeHeaders)
+	if s.TrustServeHeaders {
+		log.Warn("LECTERN_TRUST_SERVE_HEADERS=1: a loopback request carrying X-Forwarded-For or " +
+			"Tailscale-User-Login is trusted as that identity. Safe only when this listener is reachable " +
+			"solely through `tailscale serve` on this host and nothing untrusted (an agent included) can " +
+			"run a process here")
+	}
 	if mode == ModeNone && !isLoopbackHost(s.Host) {
 		log.Warn("LECTERN_AUTH=none on a non-loopback listener: every request is trusted with no identity check",
 			"host", s.Host)
@@ -208,20 +228,27 @@ func (a *Resolver) Authenticate(r *http.Request) (Principal, bool) {
 	}
 
 	remote := hostOf(r.RemoteAddr)
-	if isLoopbackIP(remote) && a.Mode == ModeTailscale {
-		// `tailscale serve` proxies from loopback and carries the real
-		// client's address in X-Forwarded-For.
-		if xff := firstForwarded(r); xff != "" && isTailscaleIP(xff) {
-			return a.whois(r.Context(), xff)
+	if isLoopbackIP(remote) {
+		// Loopback cannot tell `tailscale serve` proxying a real tailnet
+		// client from ANY other process on this box forging the same
+		// headers — including a dispatched agent that wants to approve its
+		// own permission request. Trust them only when the operator has
+		// opted in, having confirmed nothing untrusted shares this host.
+		if a.Mode == ModeTailscale && a.trustServeHeaders {
+			if xff := firstForwarded(r); xff != "" && isTailscaleIP(xff) {
+				return a.whois(r.Context(), xff)
+			}
+			if login := strings.TrimSpace(r.Header.Get("Tailscale-User-Login")); login != "" {
+				ok, human := a.authorize(login, nil)
+				return Principal{Kind: KindTailscale, Login: login, Human: human}, ok
+			}
 		}
-		if login := strings.TrimSpace(r.Header.Get("Tailscale-User-Login")); login != "" {
-			ok, human := a.authorize(login, nil)
-			return Principal{Kind: KindTailscale, Login: login, Human: human}, ok
+		if a.Mode == ModeTailscale {
+			// A process on this machine — the CLI, the MCP server, an
+			// agent. Allowed for ordinary API use; not human, so it cannot
+			// decide approvals (mode isn't none here — that returned above).
+			return Principal{Kind: KindLocal}, true
 		}
-		// A process on this machine — the CLI, the MCP server, an agent.
-		// Allowed for ordinary API use; not human, so it cannot decide
-		// approvals (mode isn't none here — that returned above).
-		return Principal{Kind: KindLocal}, true
 	}
 
 	if a.Mode == ModeTailscale && isTailscaleIP(remote) {

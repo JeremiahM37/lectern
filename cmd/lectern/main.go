@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
 	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/mcp"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
@@ -158,14 +160,16 @@ func main() {
 		log.Info("reading settings under their old names; rename them to LECTERN_*",
 			"legacy", aliased)
 	}
+	log.Info("lectern listening", "addr", addr, "version", version.Version,
+		"mock", cfg.Mock, "auth_mode", a.Server.Auth.Mode)
 	go func() {
-		log.Info("lectern listening", "addr", addr, "version", version.Version,
-			"mock", cfg.Mock)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("server failed", "err", err)
 			os.Exit(1)
 		}
 	}()
+
+	tlsSrv := startTLSListener(cfg, a, log)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -173,8 +177,64 @@ func main() {
 	log.Info("shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if tlsSrv != nil {
+		_ = tlsSrv.Shutdown(ctx)
+	}
 	a.Server.DrainStreams()
 	_ = srv.Shutdown(ctx)
+}
+
+// startTLSListener brings up the tailnet-bound HTTPS listener (see
+// auth.Resolver.TLSListenerConfig): LECTERN_TLS=tailscale, or LECTERN_TLS_PORT
+// set while the resolved auth mode is already tailscale. A phone then gets a
+// secure context — install, service worker, push — straight from Lectern,
+// with no `tailscale serve` in front of it. Returns nil when TLS isn't
+// enabled or couldn't be started; plain HTTP on cfg.Port keeps working
+// either way.
+func startTLSListener(cfg *config.Config, a *app.App, log *slog.Logger) *http.Server {
+	wantTLS := cfg.TLS == "tailscale" || a.Server.Auth.Mode == auth.ModeTailscale
+	if !wantTLS || cfg.TLSPort <= 0 {
+		if cfg.TLS == "tailscale" && cfg.TLSPort <= 0 {
+			log.Warn("LECTERN_TLS=tailscale set with no LECTERN_TLS_PORT; the tailnet HTTPS listener is off")
+		}
+		log.Info("tailnet TLS listener: off", "reason", tlsOffReason(cfg, a))
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tlsCfg, err := a.Server.Auth.TLSListenerConfig(ctx, cfg.TLSPort)
+	if err != nil {
+		log.Warn("tailnet TLS listener: could not resolve tailnet addresses/cert; staying HTTP-only",
+			"err", err)
+		return nil
+	}
+	tlsSrv := &http.Server{Handler: a.Handler(), TLSConfig: tlsCfg.TLS, ReadHeaderTimeout: 15 * time.Second}
+	started := 0
+	for _, listenAddr := range tlsCfg.Addrs {
+		ln, err := tls.Listen("tcp", listenAddr, tlsCfg.TLS)
+		if err != nil {
+			log.Warn("tailnet TLS listener: could not bind", "addr", listenAddr, "err", err)
+			continue
+		}
+		started++
+		log.Info("lectern tailnet TLS listener", "addr", listenAddr)
+		go func(ln net.Listener) {
+			if err := tlsSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("tailnet TLS listener failed", "addr", ln.Addr().String(), "err", err)
+			}
+		}(ln)
+	}
+	if started == 0 {
+		return nil
+	}
+	return tlsSrv
+}
+
+func tlsOffReason(cfg *config.Config, a *app.App) string {
+	if cfg.TLSPort <= 0 {
+		return "LECTERN_TLS_PORT is not set"
+	}
+	return fmt.Sprintf("auth mode is %s, not tailscale, and LECTERN_TLS is not \"tailscale\"", a.Server.Auth.Mode)
 }
 
 func runLocalEngine(cfg *config.Config, args []string, log *slog.Logger) error {

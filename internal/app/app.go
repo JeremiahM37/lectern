@@ -107,6 +107,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	authResolver := auth.New(auth.Settings{
 		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
 		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
+		TrustServeHeaders: cfg.TrustServeHeaders,
 	}, log)
 
 	srv := &api.Server{
