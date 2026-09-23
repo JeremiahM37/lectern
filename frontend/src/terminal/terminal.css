@@ -950,3 +950,14 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
   #compose-dialog { width: calc(100% - 16px); padding: 14px; }
   #compose-dialog p { font-size: 12px; margin-block: 10px; }
 }
+
+/* A hung agent: the one state the board cannot see, shown where it was noticed. */
+#unresponsive {
+  position: absolute; left: 12px; right: 12px; top: 12px; z-index: 12;
+  padding: 12px 14px; border-radius: 10px; background: #2a1f3d; color: #f1ecff;
+  border: 1px solid #a78bfa; box-shadow: 0 6px 24px #000a; font-size: 14px; line-height: 1.45;
+}
+#unresponsive p { margin: 0 0 10px; }
+.unresponsive-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.unresponsive-actions button { min-height: 38px; }
+.unresponsive-actions .primary { background: #7860d2; border-color: #8f79df; color: white; font-weight: 700; }

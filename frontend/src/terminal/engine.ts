@@ -19,6 +19,10 @@ export interface Snapshot {
   status: string;
   frozen: string;
   retained: boolean;
+  // The agent has taken several keystrokes and drawn nothing back. A live
+  // process that ignores its terminal looks exactly like an idle one from the
+  // board, so this is the only place the difference is visible.
+  unresponsive: boolean;
 }
 export interface EngineOptions {
   url: string;
@@ -57,6 +61,16 @@ export class Engine {
   private retainedLines = 0;
   private frozenText = "";
   private status = "Connecting…";
+  // Input-to-output watchdog. A keystroke to a healthy TUI, shell or editor
+  // produces output within a frame. Keys are counted until any output comes
+  // back; a pause in typing with several keys still unanswered is a hung
+  // agent. Only the operator's own keystrokes count, never a resize, and a
+  // password prompt is cleared the moment Enter draws something.
+  private silentTimer?: number;
+  private unansweredKeys = 0;
+  unresponsive = false;
+  static readonly silenceMs = 2000;
+  static readonly silenceKeys = 3;
   private disposeScroll: () => void;
   private observer: ResizeObserver;
   private disposables: IDisposable[] = [];
@@ -152,7 +166,29 @@ export class Engine {
         status: this.status,
         frozen: this.frozenText,
         retained: this.readingRetainedHistory,
+        unresponsive: this.unresponsive,
       });
+  }
+  private armSilence() {
+    ++this.unansweredKeys;
+    clearTimeout(this.silentTimer);
+    this.silentTimer = window.setTimeout(() => {
+      this.silentTimer = undefined;
+      if (this.stopped || !this.connected) return;
+      if (this.unansweredKeys >= Engine.silenceKeys && !this.unresponsive) {
+        this.unresponsive = true;
+        this.changed();
+      }
+    }, Engine.silenceMs);
+  }
+  private sawOutput() {
+    clearTimeout(this.silentTimer);
+    this.silentTimer = undefined;
+    this.unansweredKeys = 0;
+    if (this.unresponsive) {
+      this.unresponsive = false;
+      this.changed();
+    }
   }
   private send(text: string) {
     if (this.ws?.readyState === WebSocket.OPEN)
@@ -172,6 +208,7 @@ export class Engine {
     ++this.historyRevision;
     this.leaveRetainedHistory();
     this.send("0" + text);
+    if (text) this.armSilence();
   }
   private sendBinary(text: string) {
     if (!this.connected || this.paused || !this.ws) return;
@@ -253,6 +290,7 @@ export class Engine {
         const bytes = new Uint8Array(event.data as ArrayBuffer);
         if (bytes[0] !== 48) return;
         const content = bytes.subarray(1);
+        if (content.length) this.sawOutput();
         this.pending += content.length;
         if (this.pending > 1000000 && !this.flowPaused) {
           this.flowPaused = true;
@@ -430,6 +468,7 @@ export class Engine {
     this.controller?.abort();
     if (this.fitFrame !== undefined) cancelAnimationFrame(this.fitFrame);
     clearTimeout(this.timer);
+    clearTimeout(this.silentTimer);
     this.ws?.close();
     this.disposeScroll();
     this.observer.disconnect();

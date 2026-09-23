@@ -195,6 +195,13 @@ Enter. Pinch changes text size, long press selects output, and **Live** returns
 from retained scrollback. See the [mobile testing guide](docs/testing/mobile-terminal.md)
 for the Android emulator audit and its coverage limits.
 
+**A hung agent is caught where it happens.** An agent's TUI can deadlock while
+its process stays alive: it keeps reading keystrokes and never draws them, so
+the board says idle and the connection says connected. The terminal notices —
+several keys with nothing back — and says so, with one button: **Restart agent,
+keep conversation** (`POST /api/sessions/{id}/revive`) stops the process and
+resumes the session's own saved conversation, so nothing said is lost.
+
 ![Native Lectern terminal dashboard](docs/screenshots/terminal-console-current.png)
 
 Use `lectern console` with an explicit `LECTERN_API` for the hosted

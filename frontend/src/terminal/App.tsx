@@ -26,6 +26,7 @@ import {
   json,
   loadPrefs,
   quote,
+  request,
   themes,
   type Attachment,
   type Prefs,
@@ -73,6 +74,7 @@ function Pane({
     status: "Connecting…",
     frozen: "",
     retained: false,
+    unresponsive: false,
   });
   useEffect(() => {
     if (!el.current || !host.current || !frozen.current) return;
@@ -262,6 +264,23 @@ export function TerminalApp({
   }, [externalNotice]);
   const current = () => engines.current.get(activeRef.current);
   const state = states[active];
+  const [unresponsiveDismissed, setUnresponsiveDismissed] = useState(false);
+  const [reviving, setReviving] = useState(false);
+  // A dismissed warning comes back if the agent answers and then hangs again.
+  useEffect(() => {
+    if (!state?.unresponsive) setUnresponsiveDismissed(false);
+  }, [state?.unresponsive]);
+  async function revive() {
+    setReviving(true);
+    try {
+      const response = await request(`/api/sessions/${encodeURIComponent(id)}/revive`, { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+      const next = (await response.json()) as { id: number };
+      location.replace(`/terminal/session/${next.id}${location.search}`);
+    } catch (error) {
+      setNotice(`Could not restart the agent: ${(error as Error).message}`);
+      setReviving(false);
+    }
+  }
   // The terminal is drawn at the size for the device it is on; the two are
   // stored apart so resizing on the phone never shrinks the desk.
   const shown = useMemo(
@@ -978,6 +997,22 @@ export function TerminalApp({
       {fontHint && (
         <div id="font-hint" role="status">
           {fontHint} · {current()?.term.cols ?? 0} columns
+        </div>
+      )}
+      {state?.unresponsive && !unresponsiveDismissed && (
+        <div id="unresponsive" role="alert">
+          <p>
+            <b>The agent is not reacting to your keystrokes.</b> It is still running, but it has taken several keys and drawn
+            nothing back{kind === "session" ? " — its process has probably hung. Restarting it resumes this same conversation." : "."}
+          </p>
+          <div className="unresponsive-actions">
+            {kind === "session" && (
+              <button className="primary" disabled={reviving} onClick={() => void revive()}>
+                {reviving ? "Restarting…" : "Restart agent, keep conversation"}
+              </button>
+            )}
+            <button onClick={() => setUnresponsiveDismissed(true)}>Dismiss</button>
+          </div>
         </div>
       )}
       {mobile && state?.retained && !state.paused && (
