@@ -397,6 +397,17 @@ func (s Spec) LaunchCommand(o Start) string {
 		shellq.Quote(o.TmuxName), shellq.Quote(inner))
 }
 
+// codexNotifyArg builds the `-c notify=[...]` override that points codex at
+// the notify script agentevents.CodexNotifyInstallCommand just wrote (see
+// manager.go's launch). TOML string escaping only, not shell escaping — the
+// caller's LaunchCommand shell-quotes each element of ToolArgs itself, same
+// as every other -c override this package builds (agents/mcp.go's
+// CodexMCPArgs).
+func codexNotifyArg(scriptPath string) []string {
+	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(scriptPath)
+	return []string{"-c", `notify=["python3","` + esc + `"]`}
+}
+
 func validEnvName(k string) bool {
 	if k == "" || (k[0] >= '0' && k[0] <= '9') {
 		return false

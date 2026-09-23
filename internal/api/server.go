@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
@@ -40,6 +41,7 @@ type Server struct {
 	Reg       *executor.Registry
 	Sched     *scheduler.Scheduler
 	Sessions  *sessions.Manager
+	Events    *agentevents.Ingester
 	Memory    memory.Provider
 	Terminals *terminal.Manager
 	Push      *push.Sender
@@ -164,6 +166,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/hook/approval/{id}/decision", s.hookApprovalDecision)
 	mux.HandleFunc("POST /api/hook/tasks", s.hookFileTask)
 	mux.HandleFunc("POST /api/hook/notes", s.hookAddNote)
+	// ---- agent hooks (docs/agent-events.md section 2): per-SESSION bearer
+	// token, not the per-attempt token the approval hooks above use ----
+	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
+	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
 
 	mux.HandleFunc("POST /api/conversation-search", s.startConversationSearch)
 	mux.HandleFunc("GET /api/conversation-search/{search}", s.getConversationSearch)

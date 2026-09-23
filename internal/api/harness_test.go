@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,31 @@ func (h *harness) request(method, path string, body any, headers map[string]stri
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, raw
+}
+
+// rawRequest posts a body exactly as given — no json.Marshal wrapping — with
+// a bearer token, for endpoints whose caller is another program sending its
+// own already-serialized JSON rather than this harness's usual `obj`/struct
+// bodies. Used by the agent-hook tests (hooks_agentevents_test.go), which
+// post real Claude Code fixture payloads byte-for-byte and authenticate with
+// a session's hook_token rather than the general API bearer.
+func (h *harness) rawRequest(method, path, body, bearerToken string) (int, []byte) {
+	h.t.Helper()
+	req, err := http.NewRequest(method, h.URL+path, strings.NewReader(body))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

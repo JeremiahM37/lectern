@@ -148,7 +148,32 @@ CREATE TABLE IF NOT EXISTS sessions(
   archived_at REAL,
   archive_text TEXT NOT NULL DEFAULT '',
   resume_id TEXT NOT NULL DEFAULT '',
-  launch_config_json TEXT NOT NULL DEFAULT ''
+  launch_config_json TEXT NOT NULL DEFAULT '',
+  -- Agent hooks (see internal/agentevents and docs/agent-events.md section 2).
+  -- hook_token authenticates POST /api/hook/session/{id}/*; it is never
+  -- serialized in the session's own JSON.
+  hook_token TEXT NOT NULL DEFAULT '',
+  -- agent_state is the hook-driven lifecycle signal, distinct from the older
+  -- screen-scraped status column: working|waiting_input|waiting_permission|
+  -- idle|error|ended. state_source records who wrote it last (hook|screen) so
+  -- applyPane knows when it is still allowed to overwrite it (see poll.go).
+  agent_state TEXT NOT NULL DEFAULT '',
+  state_source TEXT NOT NULL DEFAULT '',
+  state_at REAL,
+  hook_seen_at REAL,
+  -- Usage, latest values only — history lives in usage_daily. Populated from
+  -- Claude's statusline JSON (context_window, cost, rate_limits) today; other
+  -- drivers fill what they can and leave the rest at their zero value.
+  context_tokens INTEGER,
+  context_size INTEGER,
+  cost_usd REAL,
+  lines_added INTEGER,
+  lines_removed INTEGER,
+  rate_5h_pct INTEGER,
+  rate_5h_reset REAL,
+  rate_7d_pct INTEGER,
+  rate_7d_reset REAL,
+  usage_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 -- One wrap per handoff: what the agent said it was doing, kept so the project
@@ -234,6 +259,27 @@ CREATE TABLE IF NOT EXISTS workspace_operations(
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_active ON workspace_operations(session_id)
  WHERE state IN ('running','recovering');
+-- usage_daily is the history a session's/task's latest usage columns do not
+-- keep. Each row accumulates DELTAS between successive statusline totals
+-- (never the raw cumulative number, which would double-count every sample),
+-- one row per (date, session_id|task_id, agent, model). session_id and
+-- task_id are nullable so the same table can later hold task usage; today
+-- only the session ingest path (internal/agentevents) writes it.
+CREATE TABLE IF NOT EXISTS usage_daily(
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,
+  session_id INTEGER REFERENCES sessions(id),
+  task_id INTEGER REFERENCES tasks(id),
+  agent TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  cost_usd REAL NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_session ON usage_daily(date, session_id, agent, model)
+ WHERE session_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_task ON usage_daily(date, task_id, agent, model)
+ WHERE task_id IS NOT NULL;
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -282,4 +328,19 @@ var migrations = []string{
 	"ALTER TABLE attempts ADD COLUMN strict_mcp INTEGER DEFAULT 0",
 	"ALTER TABLE attempts ADD COLUMN mcp_snapshot INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE attempts ADD COLUMN launch_config_json TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN hook_token TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN agent_state TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN state_source TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN state_at REAL",
+	"ALTER TABLE sessions ADD COLUMN hook_seen_at REAL",
+	"ALTER TABLE sessions ADD COLUMN context_tokens INTEGER",
+	"ALTER TABLE sessions ADD COLUMN context_size INTEGER",
+	"ALTER TABLE sessions ADD COLUMN cost_usd REAL",
+	"ALTER TABLE sessions ADD COLUMN lines_added INTEGER",
+	"ALTER TABLE sessions ADD COLUMN lines_removed INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_5h_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_5h_reset REAL",
+	"ALTER TABLE sessions ADD COLUMN rate_7d_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_7d_reset REAL",
+	"ALTER TABLE sessions ADD COLUMN usage_at REAL",
 }
