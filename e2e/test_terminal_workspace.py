@@ -316,6 +316,10 @@ while True:
     try:
         for cols, rows in [(240,50),(72,22),(180,44),(90,30)]:
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+            # Native attach wraps the session in a private tmux whose status
+            # line shows the controls shortcut, so the client of the agent's
+            # own tmux is one row shorter than the terminal around it.
+            native_size = f'{cols}x{rows-1}'
             # Attachment includes an HTTP resolution step. Wait for the
             # actual client/resize instead of assuming it finished in 400ms.
             deadline=time.monotonic()+10
@@ -323,8 +327,8 @@ while True:
                 page.wait_for_timeout(100)
                 assert native.poll() is None, 'native attachment exited'
                 sizes = subprocess.check_output(['tmux','list-clients','-F','#{client_width}x#{client_height}'],env=t['env']).decode().splitlines()
-                if f'{cols}x{rows}' in sizes:break
-            assert f'{cols}x{rows}' in sizes, sizes
+                if native_size in sizes:break
+            assert native_size in sizes, sizes
             page.evaluate("window.dispatchEvent(new Event('focus'))")
             expect(page.locator('#connection')).to_have_text('Connected')
             # Focus claims the shared window for the browser, whatever size
@@ -333,7 +337,7 @@ while True:
             deadline=time.monotonic()+5
             while time.monotonic()<deadline:
                 clients = subprocess.check_output(['tmux','list-clients','-F','#{client_width}x#{client_height}'],env=t['env']).decode().splitlines()
-                browser_size = next((c for c in clients if c != f'{cols}x{rows}'), clients[0])
+                browser_size = next((c for c in clients if c != native_size), clients[0])
                 window = subprocess.check_output(['tmux','display-message','-p','-t','=terminal-test:','#{window_width}'],env=t['env']).decode().strip()
                 if window == browser_size.split('x')[0]: break
                 page.wait_for_timeout(100)
