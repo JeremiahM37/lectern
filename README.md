@@ -415,6 +415,38 @@ curl -X POST .../api/projects -d '{
 > models often reply conversationally instead of acting. The transport works with
 > any model; results depend on the model.
 
+## Auth
+
+`LECTERN_AUTH` picks the gating mode: `auto` (default), `none`, `token`, or
+`tailscale`.
+
+- **`auto`** needs no configuration. A loopback-only listener
+  (`LECTERN_HOST=127.0.0.1`) resolves to `none` — a single-machine install
+  never asks for a login. Otherwise, if tailscaled's LocalAPI answers, it
+  resolves to `tailscale`; otherwise, if `LECTERN_AUTH_TOKEN` is set, `token`;
+  otherwise `none` with a startup warning.
+- **`tailscale`** trusts your tailnet identity — nothing to log into from a
+  device already on the tailnet. By default only the node's own owner is
+  allowed; add more people with `LECTERN_TAILSCALE_USERS` (comma-separated
+  logins) and tagged/service nodes with `LECTERN_TAILSCALE_TAGS`. Being on the
+  tailnet is not by itself authorization — only an allow-listed login or tag
+  gets in. `LECTERN_TAILSCALE_SOCKET` overrides tailscaled's LocalAPI socket
+  (default `/var/run/tailscale/tailscaled.sock`).
+- **`token`** gates every request, including ones from this machine, behind
+  `LECTERN_AUTH_TOKEN` — as a Bearer header, a `lectern_token` cookie, or
+  `?token=` (what the PWA and EventSource use). Use this when tailscale isn't
+  available and you're reachable beyond loopback.
+- **`none`** requires nothing. Fine on a loopback listener; a loud warning is
+  logged if it's ever chosen on a listener that isn't.
+
+A process already running on the machine (the CLI, the MCP server, a
+dispatched agent) always reaches the ordinary API over loopback without a
+token in `none` and `tailscale` mode — the same way your own shell already has
+full access to the box. It can never decide a pending approval, though:
+that needs a real human behind it (a tailnet identity, a token, or `none`
+mode, where there's no one else it could be). `GET /api/whoami` reports how a
+given request resolved; the PWA shows it under Settings → Usage & about.
+
 ## Delegated builds (optional)
 
 **Off by default.** Turn it on and a lead session plans a substantial change

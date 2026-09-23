@@ -45,6 +45,17 @@ server, CLI and agents on this host use it), but **cannot decide approvals**
 unless the mode is `none`. Approval decisions need a human principal
 (tailscale identity, token, or mode `none`).
 
+**Deviation (implemented in `internal/auth`):** the loopback-bypass above does
+not extend to mode `token`. `token` is chosen specifically when there's no
+tailscale identity to fall back on, so unlike `none`/`tailscale` it doesn't
+also relax loopback: every request, including one from a process on this
+machine, needs the token. This is what `e2e/test_ui.py::test_token_auth_ui_works`
+already encoded (a browser hitting `http://127.0.0.1:PORT` on a token-configured
+server must get 401 without the token) — a literal "every mode" reading would
+have broken it, since a same-host browser is indistinguishable from a trusted
+local CLI at the TCP layer. `none` and `tailscale` mode are unaffected and
+match the text above exactly.
+
 Everything is gated: API, SSE, `/term/*` proxy, static assets may stay open.
 `GET /api/whoami` → `{mode, kind, login, node, human}`.
 

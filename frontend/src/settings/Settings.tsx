@@ -196,6 +196,7 @@ export function Settings({
               {stats.tasks_done} tasks done
             </p>
           )}
+          <Whoami api={api} />
           <Build api={api} />
         </section>
       )}{" "}
@@ -753,6 +754,37 @@ function Notifications({
       >
         Send test
       </button>
+    </article>
+  );
+}
+interface Whoami {
+  mode: string;
+  kind: string;
+  login: string;
+  node: string;
+  human: boolean;
+}
+// Unobtrusive identity line: who this device is signed in as, and how. Most
+// useful in tailscale mode, where nobody ever typed a credential in — this is
+// the one place that confirms it actually resolved to the right person.
+function Whoami({ api }: { api: SettingsApi }) {
+  const [w, setW] = useState<Whoami>();
+  useEffect(() => {
+    void api.request<Whoami>("/whoami").then(setW);
+  }, []);
+  if (!w) return null;
+  const identity =
+    w.kind === "tailscale"
+      ? `tailscale · ${w.login}${w.node ? ` (${w.node})` : ""}`
+      : w.kind === "token"
+        ? "access token"
+        : "local (no login needed)";
+  return (
+    <article id="whoami">
+      <h3>Signed in</h3>
+      <p>
+        {identity} · auth mode: {w.mode}
+      </p>
     </article>
   );
 }

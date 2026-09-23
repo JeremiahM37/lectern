@@ -31,7 +31,7 @@ func TestLiveViewsRefuseATargetWhoseLoopbackCannotBeReached(t *testing.T) {
 }
 
 func TestLiveViewsStayShutOnATokenProtectedServer(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.AuthToken = "secret123"; c.Live = true })
+	h := newHarness(t, func(c *config.Config) { c.AuthToken = "secret123"; c.Auth = "token"; c.Live = true })
 	auth := map[string]string{"Authorization": "Bearer secret123"}
 	// Even a caller holding the token is refused: the port it would open could
 	// not ask the next caller for one.

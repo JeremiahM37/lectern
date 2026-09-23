@@ -113,7 +113,7 @@ func TestRealAttachmentUploadAndTmuxDelivery(t *testing.T) {
 }
 
 func TestAttachmentLimitsAuthAndTaskTarget(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.AuthToken = "upload-token" })
+	h := newHarness(t, func(c *config.Config) { c.AuthToken = "upload-token"; c.Auth = "token" })
 	// Seed directly: authenticated endpoint is tested with actual multipart data.
 	projects, _ := h.App.DB.Projects()
 	p := projects[0]

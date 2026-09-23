@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
@@ -43,6 +44,7 @@ type Server struct {
 	Terminals *terminal.Manager
 	Push      *push.Sender
 	Cfg       *config.Config
+	Auth      *auth.Resolver
 	Log       *slog.Logger
 
 	streamsOnce   sync.Once
@@ -225,6 +227,7 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- misc ----
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/whoami", s.whoami)
 	mux.HandleFunc("GET /api/delegation", s.getDelegation)
 	mux.HandleFunc("PUT /api/delegation", s.putDelegation)
 	mux.HandleFunc("POST /api/delegation/preset", s.installDelegationPreset)
@@ -254,26 +257,37 @@ func (s *Server) Handler() http.Handler {
 	return s.withAuth(mux)
 }
 
-// withAuth gates /api behind the bearer token when one is configured.
+// withAuth gates /api and /term/* behind internal/auth: tailscale identity,
+// a bearer token, or nothing at all, depending on the resolved mode (see
+// auth.Resolver, built once at startup in internal/app).
 //
 // /api/hook/* is deliberately exempt: agents authenticate with their own
 // per-attempt token there. That is also the security boundary — in token mode an
 // agent holds ONLY its hook token, so it cannot reach the human decision
 // endpoint to approve its own gated action.
 func (s *Server) withAuth(next http.Handler) http.Handler {
-	if s.Cfg.AuthToken == "" {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) || strings.HasPrefix(p, "/term/") {
-			supplied := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if supplied != s.Cfg.AuthToken && r.URL.Query().Get("token") != s.Cfg.AuthToken {
-				writeJSON(w, 401, map[string]any{"detail": "unauthorized"})
-				return
-			}
+		if !((strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) || strings.HasPrefix(p, "/term/")) {
+			next.ServeHTTP(w, r)
+			return
 		}
-		next.ServeHTTP(w, r)
+		principal, ok := s.Auth.Authenticate(r)
+		if !ok {
+			writeJSON(w, 401, map[string]any{"detail": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
+	})
+}
+
+// whoami reports the caller's own resolved identity — what the PWA shows in
+// Settings, and the first thing worth checking when access looks wrong.
+func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
+	principal, _ := auth.FromContext(r.Context())
+	writeJSON(w, 200, map[string]any{
+		"mode": string(s.Auth.Mode), "kind": principal.Kind,
+		"login": principal.Login, "node": principal.Node, "human": principal.Human,
 	})
 }
 

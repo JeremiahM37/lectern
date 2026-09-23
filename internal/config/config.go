@@ -28,6 +28,15 @@ type Config struct {
 
 	AuthToken string // single bearer for the API/PWA; empty = open
 
+	// Auth is LECTERN_AUTH: "", "auto" (default), "none", "token", or
+	// "tailscale" — see internal/auth. TailscaleSocket overrides tailscaled's
+	// LocalAPI socket path; TailscaleUsers/TailscaleTags are comma-separated
+	// allowlists (LECTERN_TAILSCALE_USERS / LECTERN_TAILSCALE_TAGS).
+	Auth            string
+	TailscaleSocket string
+	TailscaleUsers  string
+	TailscaleTags   string
+
 	TickInterval time.Duration
 	// HandoffPoll is how often a session switch checks for the agent's wrap;
 	// zero keeps the session manager's default. Tests shorten it.
@@ -155,6 +164,10 @@ func Load() *Config {
 		MediaPath:               os.Getenv("LECTERN_MEDIA_DIR"),
 		MediaMaxBytes:           int64(envFloat("LECTERN_MEDIA_MAX_MB", 1024)) << 20,
 		AuthToken:               os.Getenv("LECTERN_AUTH_TOKEN"),
+		Auth:                    env("LECTERN_AUTH", "auto"),
+		TailscaleSocket:         os.Getenv("LECTERN_TAILSCALE_SOCKET"),
+		TailscaleUsers:          os.Getenv("LECTERN_TAILSCALE_USERS"),
+		TailscaleTags:           os.Getenv("LECTERN_TAILSCALE_TAGS"),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
 		HandoffPoll:             envSeconds("LECTERN_HANDOFF_POLL", 0),
 		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),
