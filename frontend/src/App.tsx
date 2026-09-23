@@ -708,7 +708,7 @@ export default function App() {
             onMedia={(id) => navigate("#media/" + id)}
             onOpenTerminal={openTerminal}
             onReview={setReview}
-            onOpenTask={(id) => navigate("#task/" + id)}
+            onOpenTask={openTask}
             onSwitch={setSwitchSession}
             onNotice={notice}
           />
