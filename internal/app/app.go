@@ -11,6 +11,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/api"
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
@@ -103,9 +104,15 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Memory = mem
 	terms := terminal.NewManager()
 
+	authResolver := auth.New(auth.Settings{
+		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
+		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
+		TrustServeHeaders: cfg.TrustServeHeaders,
+	}, log)
+
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
-		Terminals: terms, Push: pushSender, Cfg: cfg, Log: log,
+		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Memory: mem,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler

@@ -91,7 +91,7 @@ func TestWorkspaceFilesReadActualTargetAndStayWithinRoot(t *testing.T) {
 }
 
 func TestTerminalAuthCoversWebsocketAndFiles(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.AuthToken = "terminal-secret" })
+	h := newHarness(t, func(c *config.Config) { c.AuthToken = "terminal-secret"; c.Auth = "token" })
 	for _, p := range []string{"/term/session/1/token", "/term/session/1/ws", "/api/term/session/1/info", "/api/term/session/1/files", "/api/term/session/1/file?path=x", "/api/term/session/1/history"} {
 		code, _ := h.request("GET", p, nil, nil)
 		if code != 401 {

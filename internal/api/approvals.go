@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/policy"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -39,6 +40,13 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
 		httpError(w, 409, "approval not pending")
+		return
+	}
+	// Approvals gate a real, unsupervised action; deciding one needs a human
+	// behind it, not just anything that can reach the API. In mode none the
+	// whole control plane is unauthenticated by design, so this is skipped.
+	if principal, _ := auth.FromContext(r.Context()); !s.Auth.CanDecide(principal) {
+		httpError(w, 403, "approval decisions require a signed-in human (tailscale identity or access token)")
 		return
 	}
 	var body decisionIn

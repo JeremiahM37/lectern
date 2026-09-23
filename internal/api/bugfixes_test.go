@@ -205,7 +205,7 @@ func TestStoreEventsSurvivesConcurrentDelete(t *testing.T) {
 // token mode it must NOT be able to reach the human decision endpoint and
 // self-approve — while the hook endpoints stay reachable.
 func TestTokenModeBlocksAgentSelfApproval(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.AuthToken = "humanonly" })
+	h := newHarness(t, func(c *config.Config) { c.AuthToken = "humanonly"; c.Auth = "token" })
 
 	if code := h.status("GET", "/api/approvals?status=pending", nil); code != 401 {
 		t.Errorf("listing approvals without the bearer: %d", code)
