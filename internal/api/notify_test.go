@@ -1,12 +1,18 @@
 package api_test
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
@@ -178,14 +184,113 @@ func TestStatsAggregatesCosts(t *testing.T) {
 	}
 }
 
-func TestPushVAPIDRequiresConfiguration(t *testing.T) {
+// The owner must never have to configure VAPID keys by hand: a fresh harness
+// sets neither LECTERN_VAPID_PRIVATE nor LECTERN_VAPID_PUBLIC, so this proves
+// the whole install auto-provisions push rather than leaving it dark.
+func TestPushVAPIDIsAutoProvisionedWithNoEnvKeys(t *testing.T) {
 	h := newHarness(t)
-	if code := h.status("GET", "/api/push/vapid", nil); code != 404 {
-		t.Fatalf("push is unconfigured here, expected 404, got %d", code)
+	got := h.get("/api/push/vapid")
+	if got.str("key") == "" {
+		t.Fatal("push should be auto-provisioned; got an empty key")
 	}
-	// a subscription is still accepted, so a device can register before keys exist
 	if code := h.status("POST", "/api/push/subscribe",
 		obj{"endpoint": "https://push.example/x", "keys": obj{"p256dh": "k", "auth": "a"}}); code != 201 {
 		t.Errorf("subscribe: %d", code)
 	}
+}
+
+// LECTERN_VAPID_PRIVATE/PUBLIC, when both are set, are an explicit operator
+// choice and must win over the auto-generated pair.
+func TestPushVAPIDEnvKeysWinOverAutoProvisioning(t *testing.T) {
+	h := newHarness(t, func(cfg *config.Config) {
+		cfg.VAPIDPrivateKey = "operator-private-key"
+		cfg.VAPIDPublicKey = "operator-public-key"
+	})
+	got := h.get("/api/push/vapid")
+	if got.str("key") != "operator-public-key" {
+		t.Fatalf("expected the operator's own key, got %q", got.str("key"))
+	}
+}
+
+// Neither the auto-generated nor an env-configured private key may ever be
+// exposed by an API — not /api/push/vapid (public key only, asserted above),
+// and not /api/settings, which is a generic key/value surface and does not
+// even know these settings keys exist.
+func TestPushPrivateKeyIsNeverExposedBySettings(t *testing.T) {
+	h := newHarness(t)
+	got := h.get("/api/settings")
+	if _, ok := got["vapid_private"]; ok {
+		t.Fatalf("private key leaked through /api/settings: %v", got)
+	}
+	if _, ok := got["vapid_public"]; ok {
+		t.Fatalf("vapid_public leaked through /api/settings: %v", got)
+	}
+	// and PUT must reject it exactly like any other unknown key, so nothing can
+	// overwrite the generated identity through the settings surface either
+	if code := h.status("PUT", "/api/settings", obj{"vapid_private": "x"}); code != 400 {
+		t.Errorf("PUT /api/settings accepted vapid_private: %d", code)
+	}
+	if code := h.status("PUT", "/api/settings", obj{"vapid_public": "x"}); code != 400 {
+		t.Errorf("PUT /api/settings accepted vapid_public: %d", code)
+	}
+}
+
+func TestPushSubscriptionListAndUnsubscribe(t *testing.T) {
+	h := newHarness(t)
+	endpoint := "https://push.example/device-1"
+	h.decode("POST", "/api/push/subscribe",
+		obj{"endpoint": endpoint, "keys": obj{"p256dh": "k", "auth": "a"}}, 201, nil)
+
+	subs := h.getList("/api/push/subscriptions")
+	if len(subs) != 1 || subs[0].str("endpoint") != endpoint {
+		t.Fatalf("subscriptions: %v", subs)
+	}
+	if _, ok := subs[0]["p256dh"]; ok {
+		t.Errorf("subscription keys must not be listed: %v", subs[0])
+	}
+
+	if code := h.status("DELETE", "/api/push/subscribe", obj{"endpoint": endpoint}); code != 200 {
+		t.Fatalf("unsubscribe: %d", code)
+	}
+	if subs := h.getList("/api/push/subscriptions"); len(subs) != 0 {
+		t.Fatalf("subscription survived unsubscribe: %v", subs)
+	}
+	// unsubscribing something already gone is not an error
+	if code := h.status("DELETE", "/api/push/subscribe", obj{"endpoint": endpoint}); code != 200 {
+		t.Errorf("unsubscribe of an already-gone endpoint: %d", code)
+	}
+	if code := h.status("DELETE", "/api/push/subscribe", obj{}); code != 422 {
+		t.Errorf("unsubscribe with no endpoint: %d", code)
+	}
+}
+
+// A push send that comes back 404/410 means the browser dropped the
+// subscription; the notifier must prune it rather than retry forever.
+func TestExpiredPushSubscriptionIsPrunedOnDelivery(t *testing.T) {
+	h := newHarness(t)
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(410)
+	}))
+	defer gone.Close()
+	h.decode("POST", "/api/push/subscribe",
+		obj{"endpoint": gone.URL, "keys": obj{"p256dh": browserP256dh(), "auth": browserAuth()}}, 201, nil)
+
+	h.post("/api/settings/test-notification", nil, 200)
+	h.waitUntil("the expired subscription to be pruned", func() bool {
+		return len(h.getList("/api/push/subscriptions")) == 0
+	})
+}
+
+func browserP256dh() string {
+	priv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes())
+}
+
+func browserAuth() string {
+	auth := make([]byte, 16)
+	rand.Read(auth)
+	return base64.RawURLEncoding.EncodeToString(auth)
 }

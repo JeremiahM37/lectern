@@ -473,6 +473,27 @@ with no proxy and no header-trust flag involved. If you previously ran
 `LECTERN_TLS_PORT=8443` and turn `serve` off — Lectern serves that port
 itself now. Plain HTTP on `LECTERN_PORT` (9110) keeps working either way.
 
+### Phone alerts
+
+Web push (approval, waiting-for-input, finished, error, compacting) needs no
+setup: on first start Lectern generates and persists its own VAPID key pair
+(`LECTERN_VAPID_PRIVATE`/`_PUBLIC` still win if you set them, e.g. to share
+one identity across installs). What you do have to do, once per device:
+
+1. **Open Lectern over https.** A browser only exposes push on a secure
+   context — the `LECTERN_TLS_PORT` setup above (or `tailscale serve`) gets
+   you there. On iPhone/iPad, Home Screen installation is also required:
+   Safari does not support web push for a page opened in the ordinary
+   browser tab, only for one added via Share → Add to Home Screen.
+2. Open **Settings → Notifications** and tap **Enable phone alerts**. A test
+   notification is sent immediately so you know it worked. The same tab
+   lists every device that's subscribed and lets you unsubscribe one (a
+   subscription a browser has itself dropped — an uninstalled PWA, for
+   instance — is pruned automatically the next time a push to it 404s/410s).
+   A one-time prompt also appears in the Needs-you area on any device that
+   could subscribe but hasn't yet; "Not now" dismisses it for good on that
+   device.
+
 ## Delegated builds (optional)
 
 **Off by default.** Turn it on and a lead session plans a substantial change
@@ -571,7 +592,9 @@ DESIGN.md            full design doc — architecture, feature catalog, roadmap
 
 Config via env: `LECTERN_PORT` (9110), `LECTERN_DB`, `LECTERN_BASE_URL`
 (URL targets use to reach this server for approval callbacks), `LECTERN_AUTH_TOKEN`
-(optional bearer), `LECTERN_VAPID_PUBLIC`/`_PRIVATE` (web push), `LECTERN_MOCK`.
+(optional bearer), `LECTERN_VAPID_PUBLIC`/`_PRIVATE` (web push — optional; see
+"Phone alerts" above, Lectern generates and persists its own if you don't set
+these), `LECTERN_MOCK`.
 
 ---
 

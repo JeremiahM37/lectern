@@ -230,6 +230,47 @@ func Subscribe(db *store.DB, sub push.Subscription) error {
 	return err
 }
 
+// Unsubscribe removes one browser's push subscription by endpoint — the same
+// identity a 404/410 delivery failure prunes automatically (sendPush above).
+// It never errors on an endpoint that is already gone: asking to unsubscribe
+// a device that was never (or is no longer) subscribed is not a failure.
+func Unsubscribe(db *store.DB, endpoint string) error {
+	_, err := db.Exec(`DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+	return err
+}
+
+// SubscriptionInfo is one subscribed device, as listed for the settings UI.
+// The endpoint is included so the UI can point out "this device" (it matches
+// the endpoint the browser's own pushManager.getSubscription() returns) — it
+// is not secret, unlike the p256dh/auth keys, which this never exposes.
+type SubscriptionInfo struct {
+	ID        int64   `json:"id"`
+	Endpoint  string  `json:"endpoint"`
+	CreatedAt float64 `json:"created_at"`
+}
+
+// Subscriptions lists every subscribed device, newest first.
+func Subscriptions(db *store.DB) ([]SubscriptionInfo, error) {
+	rows, err := db.Query(`SELECT id, endpoint, created_at FROM push_subscriptions ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SubscriptionInfo{}
+	for rows.Next() {
+		var s SubscriptionInfo
+		var createdAt *float64
+		if err := rows.Scan(&s.ID, &s.Endpoint, &createdAt); err != nil {
+			return nil, err
+		}
+		if createdAt != nil {
+			s.CreatedAt = *createdAt
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s

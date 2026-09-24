@@ -567,6 +567,20 @@ textarea.f { min-height: 118px; resize: vertical; line-height: 1.6; }
 #f-cap-hint { color: var(--ink-dim); }
 #f-cap-hint b { color: var(--accent-soft); }
 
+/* ---- push notifications (Settings -> Notifications, and Needs-you) ---- */
+.push-status { margin: 4px 0 16px; }
+.push-devices {
+  list-style: none; margin: 10px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.push-devices li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--panel); font-size: 12.5px;
+}
+.push-this-device { color: var(--accent-soft); font-style: normal; font-weight: 600; }
+.ny-push-prompt span { font-size: 13px; }
+
 /* toasts */
 #toasts {
   position: fixed; z-index: 80; left: 14px; right: 14px;

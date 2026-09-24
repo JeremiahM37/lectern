@@ -52,9 +52,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	b := bus.New()
-	pushSender := &push.Sender{
-		PrivateKey: cfg.VAPIDPrivateKey, PublicKey: cfg.VAPIDPublicKey,
-		Email: cfg.VAPIDEmail, Log: log,
+	// Phone alerts must work with zero manual setup: when no VAPID env vars
+	// are set, ResolveKeys loads (or, on first start, generates and persists)
+	// a key pair from the database instead of leaving push permanently
+	// disabled — see internal/push/keys.go.
+	pushSender, err := push.ResolveKeys(db, cfg.VAPIDPrivateKey, cfg.VAPIDPublicKey, cfg.VAPIDEmail, log)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
 	notifier := &sinks.Notifier{DB: db, BaseURL: cfg.BaseURL, Push: pushSender, Log: log}
 	br := broker.New(db, b, notifier, cfg.ApprovalExpire)
