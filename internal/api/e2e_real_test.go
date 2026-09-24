@@ -101,6 +101,9 @@ type realRig struct {
 
 func newRealRig(t *testing.T) *realRig {
 	t.Helper()
+	// Real git, tmux and processes: only inside the reviewed namespace, so a
+	// plain `go test` on the host can never reach the operator's tmux server.
+	testutil.RequireIsolated(t)
 	requireRealTools(t)
 	dir := t.TempDir()
 	isolateTmux(t)
