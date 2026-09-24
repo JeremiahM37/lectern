@@ -206,6 +206,46 @@ per account, so also keep the latest in a `settings` key `rate_limits`.
 Bus event `session.usage`. Tasks keep their existing cost accounting and gain
 the same context fields where the driver reports them.
 
+> **Correction (2026-09-23, cards/usage-view worker):** `context_pct` above
+> collided with a column that already existed before this section — the
+> screen-scraped "percent left until auto-compact" ContextPct
+> (`internal/sessions.ContextPct`, low is bad), which `poll.go`'s `applyPane`
+> keeps writing on every tick regardless of hooks. The statusline path was
+> writing `used_percentage` (high is bad) into that same column, so the two
+> fought over one field with opposite meanings. Fixed by giving the hook/
+> rollout-sourced reading its own column, `context_used_pct` (int, nullable),
+> documented on the column itself in `store/schema.go`. `context_pct` keeps
+> its original screen-scraped meaning and is untouched; every card renders
+> `context_used_pct` (amber ≥70, red ≥85) when present, since that is what
+> "how full is the context window" means for the UI, and falls back to the
+> legacy bar only when a session has never reported it.
+>
+> **Codex usage**, since codex has no statusline/http-hook push for it: a
+> session's `codex_thread_id` column is learned from the `AgentTurnComplete`
+> notify payload's `thread-id` (validated against
+> `agentevents.ValidCodexThreadID` before it is ever stored or shell-quoted
+> into a command — see `codex_rollout.go`). `internal/sessions.Poll` then
+> batches one `ls`+`tail` per target, per poll tick, over every codex
+> session's exact `~/.codex/sessions/*/*/*/rollout-*-<thread_id>.jsonl`, and
+> `agentevents.ParseCodexRolloutUsage` reads the latest `token_count`
+> `event_msg` record (real shape confirmed against live 0.155.1 rollout files
+> on this machine — `total_token_usage`/`model_context_window`, genuinely
+> cumulative for the whole thread, unlike Claude's confusingly-named
+> `total_input_tokens`). Feeds the same `context_used_pct`/`context_tokens`/
+> `context_size`/`model` fields and the same `usage_daily` delta-booking
+> (`Ingester.IngestCodexUsage`) as the statusline path; `cost_usd` is left
+> alone, since codex reports no dollar figure — the UI shows tokens instead
+> for a codex session, per this section's original text above.
+>
+> **`precompact_at`** (float, nullable) records the last time a `PreCompact`
+> hook reached a session, independent of `agent_state` (PreCompact still maps
+> to `ok=false` in `MapEventState`, so it never changes `agent_state` itself —
+> only `hook_seen_at` moved before this addition). It exists so a card can
+> show a brief "compacting" note in the window before the next statusline/
+> rollout tick reports the resulting drop in `context_used_pct`. This is a
+> read model only; the section 3 push on `PreCompact(auto)` is a different
+> worker's responsibility and is untouched here.
+
 ## 3. Alerts and approvals
 
 Push (existing Web Push) on session transitions: → waiting_permission,

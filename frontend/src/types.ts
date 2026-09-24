@@ -214,6 +214,77 @@ export interface Session {
   project_name?: string;
   target_name?: string;
   target_kind?: string;
+  // Usage (see internal/store/models.go and docs/agent-events.md's usage
+  // section). context_used_pct is deliberately a SEPARATE field from the
+  // older context_pct above: context_pct is "percent left until
+  // auto-compact" (low is bad); context_used_pct is "percent of the context
+  // window already used", from the agent's own statusline/rollout (high is
+  // bad) — see SessionCard's contextBadge for the one place that renders it.
+  context_used_pct?: number | null;
+  context_tokens?: number | null;
+  context_size?: number | null;
+  cost_usd?: number | null;
+  lines_added?: number | null;
+  lines_removed?: number | null;
+  rate_5h_pct?: number | null;
+  rate_5h_reset?: number | null;
+  rate_7d_pct?: number | null;
+  rate_7d_reset?: number | null;
+  usage_at?: number | null;
+  precompact_at?: number | null;
+}
+
+// GET /api/usage?days=N — see internal/api/usage.go.
+export interface UsageDayBucket {
+  date: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+export interface UsageSplit {
+  key: string;
+  agent?: string;
+  model?: string;
+  project_id?: number | null;
+  project_name?: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+export interface UsageTopSession {
+  id: number;
+  name: string;
+  agent: string;
+  model: string;
+  cost_usd: number;
+}
+export interface UsageTopTask {
+  id: number;
+  title: string;
+  cost_usd: number;
+}
+export interface UsageRateWindow {
+  used_percentage: number;
+  resets_at: number;
+}
+export interface UsageQuota {
+  five_hour: UsageRateWindow;
+  seven_day: UsageRateWindow;
+  at: number;
+  stale: boolean;
+  empty: boolean;
+}
+export interface UsageReport {
+  days: number;
+  generated_at: number;
+  daily: UsageDayBucket[];
+  by_agent_model: UsageSplit[];
+  by_project: UsageSplit[];
+  today_usd: number;
+  week_usd: number;
+  top_sessions: UsageTopSession[];
+  top_tasks: UsageTopTask[];
+  quota: UsageQuota;
 }
 
 export interface Wrap {

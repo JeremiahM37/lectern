@@ -257,6 +257,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/templates", s.getTemplates)
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
 	mux.HandleFunc("GET /api/stats", s.stats)
+	mux.HandleFunc("GET /api/usage", s.usageReport)
 	mux.HandleFunc("POST /api/admin/janitor", s.runJanitor)
 	mux.HandleFunc("GET /api/scratch", s.scratchReport)
 	mux.HandleFunc("POST /api/scratch/sweep", s.scratchSweep)

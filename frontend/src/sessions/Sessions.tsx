@@ -18,6 +18,7 @@ import { ScratchTerminals } from "./ScratchTerminals";
 import { isScratchTerminal } from "./scratch";
 import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
 import { NeedsYou } from "./NeedsYou";
+import { QuotaChip } from "./QuotaChip";
 import "./sessions.css";
 export interface SessionsApi {
   sessions(options?: {
@@ -408,6 +409,7 @@ export function Sessions({
             active · Pick up where you left off.
           </p>
         </div>
+        <QuotaChip api={api} />
         <button
           className="b"
           id="sess-saved-search"

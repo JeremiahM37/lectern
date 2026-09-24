@@ -120,8 +120,8 @@ func TestHookSessionStatuslineBooksUsage(t *testing.T) {
 	if got.str("model") != "claude-opus-5-5" {
 		t.Fatalf("model = %v", got["model"])
 	}
-	if int64(got.num("context_pct")) != 4 {
-		t.Fatalf("context_pct = %v", got["context_pct"])
+	if int64(got.num("context_used_pct")) != 4 {
+		t.Fatalf("context_used_pct = %v", got["context_used_pct"])
 	}
 	if got.num("cost_usd") < 0.114 || got.num("cost_usd") > 0.115 {
 		t.Fatalf("cost_usd = %v", got["cost_usd"])

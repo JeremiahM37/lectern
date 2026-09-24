@@ -191,6 +191,7 @@ func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
 			}
 			m.applyPane(s, pane.Text, pane.Missing)
 		}
+		m.pollCodexUsage(ctx, ex, group)
 	}
 }
 

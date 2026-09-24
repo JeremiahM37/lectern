@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Approval, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
+import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import "./session-home.css";
 
 // What actually wants a person, drawn only from state the server already
@@ -195,6 +196,14 @@ export function NeedsYou({
                     : item.task.title}
               </span>
               <span className="ny-where">{describe(item)}</span>
+              {"session" in item && (
+                <div className="ny-usage">
+                  {item.session.model && <span className="chip">{item.session.model}</span>}
+                  <ContextBadge session={item.session} />
+                  <CostBadge session={item.session} />
+                  <LinesBadge session={item.session} />
+                </div>
+              )}
             </div>
             <div className="ny-actions">{actions(item)}</div>
           </li>

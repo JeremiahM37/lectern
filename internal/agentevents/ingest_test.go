@@ -163,8 +163,8 @@ func TestIngestStatuslineFixtureUpdatesSessionAndBooksUsage(t *testing.T) {
 	if row.Model != "claude-opus-5-5" {
 		t.Errorf("model = %q", row.Model)
 	}
-	if row.ContextPct == nil || *row.ContextPct != 4 {
-		t.Errorf("context_pct = %v", row.ContextPct)
+	if row.ContextUsedPct == nil || *row.ContextUsedPct != 4 {
+		t.Errorf("context_used_pct = %v", row.ContextUsedPct)
 	}
 	if row.ContextTokens == nil || *row.ContextTokens != 36451 {
 		t.Errorf("context_tokens = %v", row.ContextTokens)
