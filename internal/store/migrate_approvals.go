@@ -1,6 +1,9 @@
 package store
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // migrateApprovalsSessionColumn rebuilds the approvals table, once, so an
 // approval can belong to a session's PermissionRequest hook instead of only
@@ -35,12 +38,26 @@ func migrateApprovalsSessionColumn(db *sql.DB) error {
 	// values keep referencing the same, untouched attempts rows; the new
 	// session_id column is NULL throughout), but disabling it removes any
 	// doubt about DROP/RENAME ordering under enforcement.
-	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+	// PRAGMA foreign_keys is per connection and database/sql pools them, so
+	// the pragma, the rebuild and the restore must all use one connection.
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
 		return err
 	}
-	defer db.Exec(`PRAGMA foreign_keys=ON`)
-	_, err = db.Exec(`
-BEGIN;
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`)
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// A failure part-way must leave the original table untouched, not an
+	// open transaction on a pooled connection.
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
 CREATE TABLE approvals_new(
   id INTEGER PRIMARY KEY, attempt_id INTEGER REFERENCES attempts(id),
   session_id INTEGER REFERENCES sessions(id),
@@ -54,8 +71,11 @@ INSERT INTO approvals_new(id, attempt_id, tool_name, input_json, status, decided
 DROP TABLE approvals;
 ALTER TABLE approvals_new RENAME TO approvals;
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
-COMMIT;
 `)
+	if err != nil {
+		return err
+	}
+	err = tx.Commit()
 	return err
 }
 
