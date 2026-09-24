@@ -22,6 +22,19 @@ type Template = {
   permission_mode?: string;
   model?: string;
 };
+type LaunchProfile = { id: number; name: string; agent: string; model?: string };
+// ExtraVariant is one Best-of-N attempt beyond the "main" one described by the
+// form's own agent/model/permission fields — together they become the
+// `variants` array a dispatch sends, capped at maxVariants total.
+type ExtraVariant = {
+  key: number;
+  agent: string;
+  model: string;
+  permissionMode: string;
+  launchProfile: string;
+};
+const maxVariants = 8;
+let variantKeySeq = 0;
 export function CreateTask({
   api,
   projects,
@@ -43,10 +56,11 @@ export function CreateTask({
     [permission, setPermission] = useState("acceptEdits"),
     [agent, setAgent] = useState("claude"),
     [model, setModel] = useState(""),
-    [modelB, setModelB] = useState(""),
+    [variants, setVariants] = useState<ExtraVariant[]>([]),
     [priority, setPriority] = useState(2),
     [agents, setAgents] = useState<AgentSpec[]>([]),
     [templates, setTemplates] = useState<Template[]>([]),
+    [profiles, setProfiles] = useState<LaunchProfile[]>([]),
     [cap, setCap] = useState(""),
     // Orchestrate: the same switch the quick bar has, with the rest of the
     // form choosing the lead instead of the worker.
@@ -61,10 +75,12 @@ export function CreateTask({
     void Promise.all([
       api.request<AgentSpec[]>("/agents"),
       api.request<Template[]>("/templates"),
+      api.request<LaunchProfile[]>("/launch-profiles"),
     ])
-      .then(([a, t]) => {
+      .then(([a, t, p]) => {
         setAgents(a);
         setTemplates(t);
+        setProfiles(p);
       })
       .catch(() => {});
     void api
@@ -90,9 +106,11 @@ export function CreateTask({
   }, [projectId]);
   async function create(dispatch: boolean, chat = false) {
     if (!title.trim()) return onNotice("Title required", true);
+    const usesFable =
+      model === "fable" || variants.some((v) => v.model === "fable");
     if (
       dispatch &&
-      (model === "fable" || modelB === "fable") &&
+      usesFable &&
       !confirm(
         "Dispatch on Fable 5? It's the most capable model and uses the most of your Claude Code plan. Continue?",
       )
@@ -112,7 +130,20 @@ export function CreateTask({
       if (dispatch)
         await api.request(`/tasks/${t.id}/dispatch`, {
           method: "POST",
-          body: modelB ? { model_b: modelB } : {},
+          body:
+            variants.length > 0
+              ? {
+                  variants: [
+                    { agent, model, permission_mode: permission },
+                    ...variants.map((v) => ({
+                      agent: v.agent,
+                      model: v.model,
+                      permission_mode: v.permissionMode,
+                      launch_profile: v.launchProfile,
+                    })),
+                  ],
+                }
+              : {},
         });
       onCreated();
       onClose();
@@ -256,18 +287,125 @@ export function CreateTask({
           placeholder="default"
         />
       </label>
-      {agent === "claude" && (
-        <label id="f-ab-row">
-          A/B second attempt
-          <select value={modelB} onChange={(e) => setModelB(e.target.value)}>
-            <option value="">off</option>
-            <option>fable</option>
-            <option>opus</option>
-            <option>sonnet</option>
-            <option>haiku</option>
-          </select>
-        </label>
-      )}
+      <div id="f-variants">
+        <div className="variants-head">
+          <span>
+            Attempts{variants.length > 0 && ` (${variants.length + 1})`}
+          </span>
+          <button
+            type="button"
+            id="f-add-variant"
+            disabled={variants.length + 1 >= maxVariants}
+            onClick={() =>
+              setVariants((v) => [
+                ...v,
+                {
+                  key: ++variantKeySeq,
+                  agent: "",
+                  model: "",
+                  permissionMode: "",
+                  launchProfile: "",
+                },
+              ])
+            }
+          >
+            + Add attempt
+          </button>
+        </div>
+        {variants.length > 0 && (
+          <p className="subhint">
+            The agent/model/permission above is attempt 1. Every extra row
+            below runs the same prompt in its own worktree, in parallel — pick
+            the best one when they land.
+          </p>
+        )}
+        {variants.map((v, i) => (
+          <div className="variant-row" key={v.key}>
+            <span className="variant-n">#{i + 2}</span>
+            <select
+              value={v.launchProfile}
+              onChange={(e) => {
+                const name = e.target.value;
+                setVariants((list) =>
+                  list.map((x) =>
+                    x.key === v.key ? { ...x, launchProfile: name } : x,
+                  ),
+                );
+              }}
+            >
+              <option value="">custom agent/model</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.name}>
+                  profile: {p.name}
+                </option>
+              ))}
+            </select>
+            {!v.launchProfile && (
+              <>
+                <select
+                  value={v.agent}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setVariants((list) =>
+                      list.map((x) =>
+                        x.key === v.key ? { ...x, agent: val } : x,
+                      ),
+                    );
+                  }}
+                >
+                  <option value="">same agent ({agent})</option>
+                  {(eligible.length
+                    ? eligible
+                    : [{ name: "claude" }, { name: "codex" }, { name: "gemini" }]
+                  ).map((a) => (
+                    <option key={a.name} value={a.name}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  placeholder="model"
+                  value={v.model}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setVariants((list) =>
+                      list.map((x) =>
+                        x.key === v.key ? { ...x, model: val } : x,
+                      ),
+                    );
+                  }}
+                />
+              </>
+            )}
+            <select
+              value={v.permissionMode}
+              onChange={(e) => {
+                const val = e.target.value;
+                setVariants((list) =>
+                  list.map((x) =>
+                    x.key === v.key ? { ...x, permissionMode: val } : x,
+                  ),
+                );
+              }}
+            >
+              <option value="">same permission</option>
+              <option value="acceptEdits">accept edits</option>
+              <option value="plan">plan only</option>
+              <option value="bypassPermissions">bypass</option>
+            </select>
+            <button
+              type="button"
+              className="variant-remove"
+              aria-label={`Remove attempt ${i + 2}`}
+              onClick={() =>
+                setVariants((list) => list.filter((x) => x.key !== v.key))
+              }
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
       <label>
         Priority
         <select

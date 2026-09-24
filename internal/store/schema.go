@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS tasks(
   permission_mode TEXT DEFAULT 'acceptEdits', base_branch TEXT DEFAULT '',
   parent_task_id INTEGER, created_by TEXT DEFAULT 'user',
   created_by_attempt INTEGER,
-  created_at REAL, updated_at REAL
+  created_at REAL, updated_at REAL,
+  check_command TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE TABLE IF NOT EXISTS attempts(
@@ -338,6 +339,58 @@ CREATE TABLE IF NOT EXISTS session_checks(
   reason TEXT NOT NULL DEFAULT ''           -- stop|screen|manual
 );
 CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_id, id DESC);
+-- Agent test suites ("evals"): a suite is a set of cases, each run through
+-- Best-of-N's machinery — a case x variant x repeat cell is one task attempt
+-- in its own worktree, graded by the case's own check_command.
+CREATE TABLE IF NOT EXISTS eval_suites(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  description TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_suites_project ON eval_suites(project_id);
+CREATE TABLE IF NOT EXISTS eval_cases(
+  id INTEGER PRIMARY KEY,
+  suite_id INTEGER NOT NULL REFERENCES eval_suites(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL DEFAULT '',
+  base_ref TEXT NOT NULL DEFAULT '',
+  check_command TEXT NOT NULL DEFAULT '',
+  timeout_s INTEGER NOT NULL DEFAULT 900,
+  setup_command TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_cases_suite ON eval_cases(suite_id);
+CREATE TABLE IF NOT EXISTS eval_runs(
+  id INTEGER PRIMARY KEY,
+  suite_id INTEGER NOT NULL REFERENCES eval_suites(id) ON DELETE CASCADE,
+  created_at REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued|running|done|cancelled
+  variants_json TEXT NOT NULL DEFAULT '[]',
+  repeats INTEGER NOT NULL DEFAULT 1,
+  notes TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_suite ON eval_runs(suite_id);
+CREATE TABLE IF NOT EXISTS eval_results(
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  case_id INTEGER NOT NULL REFERENCES eval_cases(id),
+  variant_idx INTEGER NOT NULL,
+  repeat_idx INTEGER NOT NULL,
+  task_id INTEGER,
+  attempt_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued|running|passed|failed|error|timeout
+  duration_s REAL,
+  cost_usd REAL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  diff_files INTEGER,
+  diff_lines INTEGER,
+  check_rc INTEGER,
+  check_output_tail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_results_case ON eval_results(case_id);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -406,4 +459,10 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN codex_thread_id TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE sessions ADD COLUMN precompact_at REAL",
 	"ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
+	// Best-of-N: a variant can name its own agent/permission mode instead of
+	// inheriting the task's — empty means "use the task's", so an ordinary
+	// single-attempt task or an A/B model-only dispatch is unaffected.
+	"ALTER TABLE attempts ADD COLUMN agent TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE attempts ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE tasks ADD COLUMN check_command TEXT NOT NULL DEFAULT ''",
 }

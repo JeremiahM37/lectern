@@ -4,6 +4,7 @@ import { withToken, type JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import { DiffViewer } from "../review/DiffViewer";
 import { CommentTray } from "../review/CommentTray";
+import { CompareView, type JudgeVerdict } from "./CompareView";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
 import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
@@ -48,6 +49,8 @@ export function TaskDetail({
   const [attempt, setAttempt] = useState<number>();
   const [diff, setDiff] = useState<Diff>();
   const [diffOpen, setDiffOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [judging, setJudging] = useState(false);
   const [wrap, setWrap] = useState(
     localStorage.getItem("lec-diffwrap") === "1",
   );
@@ -155,6 +158,50 @@ export function TaskDetail({
     setComments([]);
     setReviewSummary("");
   }
+  async function pickAttempt(n: number) {
+    if (
+      !confirm(
+        `Pick attempt #${n} as the winner? The other attempt(s)' worktrees will be removed.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.request(`/tasks/${taskId}/pick_attempt`, {
+        method: "POST",
+        body: { n },
+      });
+      setCompareOpen(false);
+      await load();
+      onChanged();
+      onNotice(`Attempt #${n} picked.`);
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runJudge() {
+    setJudging(true);
+    try {
+      await api.request(`/tasks/${taskId}/judge`, { method: "POST" });
+      onNotice("Judge dispatched — its verdict will appear here when it finishes.");
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setJudging(false);
+    }
+  }
+  async function viewAttemptDiff(n: number) {
+    await pick(n);
+    setCompareOpen(false);
+    try {
+      setDiff(await api.request<Diff>(`/tasks/${taskId}/diff?attempt_n=${n}`));
+      setDiffOpen(true);
+    } catch (e) {
+      onNotice(String(e), true);
+    }
+  }
   async function toggleDiff() {
     if (diffOpen) {
       setDiffOpen(false);
@@ -223,16 +270,36 @@ export function TaskDetail({
         <div className="btnrow attempt-chips">
           {task.attempts.map((a) => (
             <button
-              className={attempt === a.n ? "b ok" : "b"}
+              className={attempt === a.n && !compareOpen ? "b ok" : "b"}
               key={a.n}
-              onClick={() => void pick(a.n)}
+              onClick={() => {
+                setCompareOpen(false);
+                void pick(a.n);
+              }}
             >
               ⑂ A{a.n}
               {a.model && ` · ${a.model}`} · {a.status}
               {a.cost_usd != null && ` · $${Number(a.cost_usd).toFixed(2)}`}
             </button>
           ))}
+          <button
+            className={compareOpen ? "b ok" : "b"}
+            onClick={() => setCompareOpen((v) => !v)}
+          >
+            ⊞ Compare
+          </button>
         </div>
+      )}
+      {compareOpen && task.attempts.length > 1 && (
+        <CompareView
+          attempts={task.attempts}
+          judgment={task.attempt?.result?.judge as JudgeVerdict | undefined}
+          busy={busy}
+          judging={judging}
+          onViewDiff={(n) => void viewAttemptDiff(n)}
+          onPick={(n) => void pickAttempt(n)}
+          onJudge={() => void runJudge()}
+        />
       )}
       <div id="actions" className="btnrow actions">
         <button

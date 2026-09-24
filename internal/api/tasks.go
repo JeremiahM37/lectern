@@ -207,11 +207,77 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.view(fresh))
 }
 
+// variantIn is one Best-of-N attempt to dispatch: its own agent/model/gating,
+// or a saved launch profile naming them instead. Unset fields fall back to
+// the task's own agent/permission_mode, exactly like a bare dispatch always
+// has — a single-variant dispatch is indistinguishable from the old
+// single-attempt path, and two variants (agent/permission_mode left unset,
+// only model set) is exactly the old model/model_b shape.
+type variantIn struct {
+	Agent          string `json:"agent"`
+	Model          string `json:"model"`
+	LaunchProfile  string `json:"launch_profile"`
+	PermissionMode string `json:"permission_mode"`
+}
+
+const maxDispatchVariants = 8
+
 type dispatchIn struct {
 	PermissionMode string `json:"permission_mode"`
 	Model          string `json:"model"`
 	// ModelB opens a second parallel attempt on another model, for A/B compare.
+	// Kept working as a two-variant shorthand once Variants generalised it.
 	ModelB string `json:"model_b"`
+	// Variants generalises model/model_b to 1..8 attempts, each free to pick
+	// its own agent, model, launch profile and permission mode.
+	Variants []variantIn `json:"variants"`
+}
+
+// resolveVariant fills a variant's agent/model from its named launch profile
+// (an explicit agent/model on the variant always wins), then validates the
+// result exactly like createTask/dispatchTask already validate a task's own
+// agent and permission mode — a variant is not allowed to reach the scheduler
+// with a combination a plain task could never have gotten past.
+func (s *Server) resolveVariant(v variantIn, fallbackAgent, fallbackPermission string) (agent, model, permission string, err error) {
+	agent, model, permission = v.Agent, v.Model, v.PermissionMode
+	if v.LaunchProfile != "" {
+		profiles, perr := s.DB.LaunchProfiles()
+		if perr != nil {
+			return "", "", "", perr
+		}
+		var found *store.LaunchProfile
+		for _, p := range profiles {
+			if strings.EqualFold(p.Name, v.LaunchProfile) {
+				found = p
+				break
+			}
+		}
+		if found == nil {
+			return "", "", "", fmt.Errorf("no launch profile named %q", v.LaunchProfile)
+		}
+		if agent == "" {
+			agent = found.Agent
+		}
+		if model == "" {
+			model = found.Model
+		}
+	}
+	agent = strOr(&agent, fallbackAgent)
+	permission = strOr(&permission, fallbackPermission)
+	if !s.knownAgent(agent) {
+		return "", "", "", fmt.Errorf("agent must be one of %v", s.knownAgentNames())
+	}
+	spec, exists := s.taskAgent(agent)
+	if !exists {
+		return "", "", "", fmt.Errorf("agent %q has no non-interactive task definition", agent)
+	}
+	if !oneOf(permission, permissionModes...) {
+		return "", "", "", fmt.Errorf("permission_mode must be one of %v", permissionModes)
+	}
+	if err := taskPermissionError(spec, permission); err != nil {
+		return "", "", "", err
+	}
+	return agent, model, permission, nil
 }
 
 func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +296,14 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 	var body dispatchIn
 	if err := decodeBody(r, &body); err != nil {
 		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	if len(body.Variants) > 0 && body.ModelB != "" {
+		httpError(w, 422, "use either variants or model_b, not both")
+		return
+	}
+	if len(body.Variants) > maxDispatchVariants {
+		httpError(w, 422, "at most %d variants per dispatch", maxDispatchVariants)
 		return
 	}
 	fields := map[string]any{"status": "queued", "updated_at": store.Now()}
@@ -252,6 +326,20 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 	if body.Model != "" {
 		fields["model"] = body.Model
 	}
+
+	// Validate every variant BEFORE touching the database — a dispatch either
+	// queues cleanly or not at all, never half of an N-way spread.
+	type resolved struct{ agent, model, permission string }
+	var variants []resolved
+	for _, v := range body.Variants {
+		agent, model, permission, verr := s.resolveVariant(v, task.Agent, orDefault(body.PermissionMode, task.PermissionMode))
+		if verr != nil {
+			httpError(w, 422, "%s", verr.Error())
+			return
+		}
+		variants = append(variants, resolved{agent, model, permission})
+	}
+
 	if err := s.DB.Update("tasks", task.ID, fields); err != nil {
 		respondErr(w, err)
 		return
@@ -261,14 +349,30 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{}); err != nil {
-		respondErr(w, err)
-		return
-	}
-	if body.ModelB != "" {
-		if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB}); err != nil {
+	if len(variants) == 0 {
+		if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{}); err != nil {
 			respondErr(w, err)
 			return
+		}
+		if body.ModelB != "" {
+			if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB}); err != nil {
+				respondErr(w, err)
+				return
+			}
+		}
+	} else {
+		for _, v := range variants {
+			opts := scheduler.AttemptOpts{Model: v.model}
+			if v.agent != fresh.Agent {
+				opts.Agent = v.agent
+			}
+			if v.permission != fresh.PermissionMode {
+				opts.PermissionMode = v.permission
+			}
+			if _, err := s.Sched.CreateAttempt(fresh, opts); err != nil {
+				respondErr(w, err)
+				return
+			}
 		}
 	}
 	fresh, _ = s.DB.Task(task.ID)

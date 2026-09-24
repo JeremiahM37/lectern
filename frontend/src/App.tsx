@@ -18,6 +18,7 @@ import { LaunchProfiles } from "./settings/LaunchProfiles";
 import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
 import { SessionReview } from "./review/SessionReview";
+import { Evals } from "./evals/Evals";
 import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
 import { Palette, type Command } from "./shell/Palette";
 import { Deck, Approvals } from "./shell/LiveViews";
@@ -67,6 +68,7 @@ const tabs = [
   "deck",
   "approvals",
   "targets",
+  "evals",
 ] as const;
 type Tab = (typeof tabs)[number];
 const labels: Record<Tab, string> = {
@@ -77,7 +79,13 @@ const labels: Record<Tab, string> = {
   deck: "Deck",
   approvals: "Approvals",
   targets: "Settings",
+  evals: "Agent tests",
 };
+// "evals" opens a modal over the current view rather than a page of its own
+// (see showEvals below) — everywhere a tab click would otherwise navigate,
+// it toggles that modal instead. Kept out of `view`/`isTab`'s routing so an
+// evals modal never fights the board/sessions/etc. hash it was opened over.
+const opensModal = (tab: Tab) => tab === "evals";
 const isTab = (value: string): value is Tab =>
   tabs.some((tab) => tab === value);
 // #media/<session id> narrows the feed to one session's posts.
@@ -87,6 +95,7 @@ const mediaSessionOf = (hash: string) => {
 };
 export default function App() {
   const [view, setView] = useState<Tab>("board"),
+    [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
     [targets, setTargets] = useState<Target[]>([]),
     [tasks, setTasks] = useState<TaskView[]>([]),
@@ -152,6 +161,10 @@ export default function App() {
   );
   const navigate = useCallback((hash: string) => {
     const kind = hash.replace(/^#/, "").split("/")[0] || "board";
+    if (isTab(kind) && opensModal(kind)) {
+      setShowEvals(true);
+      return;
+    }
     if (isTab(kind)) {
       setView(kind);
       if (kind === "media") setMediaSession(mediaSessionOf(hash));
@@ -333,6 +346,10 @@ export default function App() {
       }
       if (kind === "session") {
         setView("sessions");
+        return;
+      }
+      if (kind && isTab(kind) && opensModal(kind)) {
+        setShowEvals(true);
         return;
       }
       if (kind && isTab(kind)) {
@@ -853,7 +870,7 @@ export default function App() {
             </b>
           </summary>
           <div className="action-menu-panel">
-            {(["media", "deck", "approvals", "targets"] as const).map((tab) => (
+            {(["media", "deck", "approvals", "targets", "evals"] as const).map((tab) => (
               <button
                 key={tab}
                 data-nav-target={tab}
@@ -942,6 +959,14 @@ export default function App() {
           sessionId={mergeReview.id}
           name={mergeReview.name}
           onClose={() => setMergeReview(undefined)}
+          onNotice={notice}
+        />
+      )}{" "}
+      {showEvals && (
+        <Evals
+          api={api}
+          projects={projects}
+          onClose={() => setShowEvals(false)}
           onNotice={notice}
         />
       )}{" "}

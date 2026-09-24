@@ -34,6 +34,7 @@ var Keys = []string{
 	"discord_webhook", "ntfy_server", "ntfy_topic", "summary_agent", "summary_model",
 	"alert_waiting_permission", "alert_waiting_input", "alert_idle", "alert_error", "alert_compacting",
 	"session_permission_mode",
+	"judge_agent", "judge_model", "eval_concurrency",
 }
 
 // Payload is one outbound notification, already addressed and rendered.

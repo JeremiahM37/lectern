@@ -82,6 +82,12 @@ type Task struct {
 	CreatedByAttempt *int64  `json:"created_by_attempt"`
 	CreatedAt        float64 `json:"created_at"`
 	UpdatedAt        float64 `json:"updated_at"`
+	// CheckCommand overrides the project's own VerifyCmd for auto-verify on
+	// this one task, when set — empty means "use the project's", which is
+	// every task that predates this field. It exists for evals: a case's own
+	// check_command needs to run instead of the project default, without
+	// mutating shared project state for the run's duration.
+	CheckCommand string `json:"check_command,omitempty"`
 }
 
 // Attempt is a single agent run against a task. Retries, follow-ups and the
@@ -118,6 +124,12 @@ type Attempt struct {
 	// workers and the UI can see and reuse the choice without re-deriving it
 	// from the agent name and permission mode.
 	Driver string `json:"driver"`
+	// Agent and PermissionMode let a Best-of-N variant pick its own agent or
+	// gating instead of inheriting the task's; empty means "use the task's"
+	// (see scheduler.effAgent/effPermissionMode), which is what every
+	// pre-existing single-attempt task and model-only A/B dispatch already is.
+	Agent          string `json:"agent,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.
@@ -266,6 +278,68 @@ type SessionCheck struct {
 	StartedAt   float64  `json:"started_at"`
 	FinishedAt  *float64 `json:"finished_at"`
 	Reason      string   `json:"reason"`
+}
+
+// EvalSuite is a named set of agent test cases against one project.
+type EvalSuite struct {
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	ProjectID   int64   `json:"project_id"`
+	Description string  `json:"description"`
+	CreatedAt   float64 `json:"created_at"`
+}
+
+// EvalCase is one scenario in a suite: a prompt run from base_ref and graded
+// by check_command (falling back to the project's own VerifyCmd when empty).
+type EvalCase struct {
+	ID           int64  `json:"id"`
+	SuiteID      int64  `json:"suite_id"`
+	Name         string `json:"name"`
+	Prompt       string `json:"prompt"`
+	BaseRef      string `json:"base_ref"`
+	CheckCommand string `json:"check_command"`
+	TimeoutS     int    `json:"timeout_s"`
+	SetupCommand string `json:"setup_command"`
+}
+
+// EvalVariant is one agent/model/permission combination a run scores every
+// case against — the same shape a Best-of-N dispatch variant takes.
+type EvalVariant struct {
+	Agent          string `json:"agent"`
+	Model          string `json:"model"`
+	LaunchProfile  string `json:"launch_profile,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// EvalRun is one execution of a suite: cases x variants x repeats.
+type EvalRun struct {
+	ID           int64   `json:"id"`
+	SuiteID      int64   `json:"suite_id"`
+	CreatedAt    float64 `json:"created_at"`
+	Status       string  `json:"status"`
+	VariantsJSON string  `json:"-"`
+	Repeats      int     `json:"repeats"`
+	Notes        string  `json:"notes"`
+}
+
+// EvalResult is one cell of a run's matrix: one case, one variant, one repeat.
+type EvalResult struct {
+	ID              int64    `json:"id"`
+	RunID           int64    `json:"run_id"`
+	CaseID          int64    `json:"case_id"`
+	VariantIdx      int      `json:"variant_idx"`
+	RepeatIdx       int      `json:"repeat_idx"`
+	TaskID          *int64   `json:"task_id"`
+	AttemptID       *int64   `json:"attempt_id"`
+	Status          string   `json:"status"`
+	DurationS       *float64 `json:"duration_s"`
+	CostUSD         *float64 `json:"cost_usd"`
+	InputTokens     *int     `json:"input_tokens"`
+	OutputTokens    *int     `json:"output_tokens"`
+	DiffFiles       *int     `json:"diff_files"`
+	DiffLines       *int     `json:"diff_lines"`
+	CheckRC         *int     `json:"check_rc"`
+	CheckOutputTail string   `json:"check_output_tail"`
 }
 
 // Wrap is one session handoff: the summary an agent wrote for its successor.
