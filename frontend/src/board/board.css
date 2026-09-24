@@ -16,6 +16,8 @@
 .sheet label { display: grid; gap: 5px; margin: 10px 0; }
 .sheet input, .sheet select, .sheet textarea { box-sizing: border-box; max-width: 100%; }
 .task-detail { width: min(900px, calc(100vw - 24px)); }
+.steer-row { display: flex; gap: 8px; margin: 10px 0; }
+.steer-row .steer-input { flex: 1; min-width: 0; }
 .board-column { display: contents; }
 #rt-list { min-height: 1px; }
 @media (max-width: 700px) {

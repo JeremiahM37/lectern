@@ -241,11 +241,56 @@ Claude falls back to its own terminal dialog. Response on decision:
   check_command, timeout}` (UI or `.lectern/evals/*.yaml`); a run is cases ×
   profiles × repeats executed headless through the structured drivers; results
   store pass/fail, duration, cost, tokens, diff size; leaderboard + matrix UI.
-- Structured drivers: tasks and delegated builds already run headless
-  (`claude -p --output-format stream-json`, `codex exec --json`, parsed in
-  `internal/agents/parse.go`). What is added: one Go interface in
-  `internal/drivers` that the scheduler and eval runner use; a Claude driver
-  with `--input-format stream-json` so a running task can be steered (send a
-  message mid-run) instead of cancel-and-redispatch; a Codex driver on
-  `codex app-server` (JSON-RPC) whose approval requests go through the broker
-  like Claude's PreToolUse hook, with `codex exec --json` kept as fallback.
+- Structured drivers (`internal/drivers`, implemented): `drivers.Driver` starts
+  a run and returns a `drivers.Handle` (`Events`, `Send`, `Cancel`, `Wait`);
+  `drivers.Select(agent, builtin, permissionMode)` is the one place that turns
+  "which agent, launched how" into a driver kind, and `drivers.Run(ctx, ex,
+  spec)` is the standalone entry point for a future best-of-N/eval worker —
+  no scheduler, database or board required, just an `executor.Executor`.
+  `attempts.driver` (new column) records the choice, exposed as
+  `attempt.driver` on the task view.
+  - `claude-exec` / `codex-exec` / `gemini-exec` (`exec.go`) are the EXISTING
+    tmux + redirected-events.jsonl path, unchanged: they call the same
+    `agents.Launcher.Command` and `agents.ParseStreamLines` scheduler.go
+    already used, just behind the `Handle` interface. Not steerable.
+  - `claude-steer` (permission_mode `steerable`, claude only): claude launches
+    with `--input-format stream-json --output-format stream-json` instead of
+    `-p <prompt>`, reading stdin from a FIFO a small python3 pump
+    (`.lectern/pump.py`) keeps open for the run's whole life — see `fifo.go`'s
+    package comment for why a plain FIFO redirect breaks after the first
+    message. `Send` appends another `{"type":"user","message":{"role":"user",
+    "content":[{"type":"text","text":...}]}}` line (verified against `claude
+    --help`'s `--input-format` and Claude Code's streaming-input docs) to the
+    fifo at any time; `Cancel` sends an end sentinel that closes the pump,
+    which closes claude's stdin, which lets it exit normally.
+  - `codex-appserver` (permission_mode `default` on codex): runs
+    `codex app-server` over the same fifo/pump substrate, speaking JSON-RPC
+    (initialize, thread/start, turn/start, turn/steer for `Send`,
+    turn/interrupt for `Cancel`). Its `execCommandApproval`/
+    `applyPatchApproval` server requests are routed through
+    `internal/broker` exactly like claude's PreToolUse hook — this is what
+    lets a codex task run gated instead of only bypass, which was rejected
+    outright before this driver existed. Falls back to `codex exec --json`
+    (bypass mode, with a visible timeline notice) if the `initialize`
+    handshake fails. Protocol shapes were read directly off `codex
+    app-server generate-json-schema --out DIR` (codex-cli 0.155.1, the stable
+    non-experimental subset), not guessed — see `codex_appserver.go`'s doc
+    comment for the exact method list.
+  - The scheduler wires the two streaming kinds through `driverRuns` (a live
+    `Handle` per attempt); every other attempt is completely unaffected — the
+    map is only ever populated for `claude-steer`/`codex-appserver`, and
+    `poll()`/`CancelAttempt` skip straight past anything in it. Ending a
+    steerable/gated run is the existing Cancel action: it closes gracefully
+    and is finalised (diff capture, auto-verify) exactly like a naturally
+    completed attempt, instead of the bare 'cancelled' status a tmux kill
+    leaves behind. There is deliberately no auto-close grace timer — these
+    runs stay open, like an interactive session, until the operator ends them.
+  - `POST /api/tasks/{id}/steer {text}` delivers a follow-up to a running
+    attempt's driver (`Scheduler.Steer`); the task detail view shows a "Send
+    to running agent" input only while `task.status === "running" &&
+    task.attempt.driver === "claude-steer"`.
+  - Not done: `codex-appserver` is not wired into the frontend steer input
+    (its approvals surface through the existing approvals UI instead); there
+    is no driver for a configured custom CLI (`task-generic` stays on the
+    scheduler's existing generic-task tmux path); no auto-close/idle-timeout
+    policy for a steerable run left unattended.

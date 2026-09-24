@@ -113,6 +113,11 @@ type Attempt struct {
 	StrictMCP        int    `json:"-"`
 	MCPSnapshot      int    `json:"-"`
 	LaunchConfigJSON string `json:"-"`
+	// Driver is the internal/drivers.Kind chosen for this attempt at queue
+	// time (e.g. "claude-exec", "claude-steer", "codex-appserver"), so later
+	// workers and the UI can see and reuse the choice without re-deriving it
+	// from the agent name and permission mode.
+	Driver string `json:"driver"`
 }
 
 // Event is one normalised line of an agent's output stream.

@@ -342,6 +342,45 @@ func (s *Server) followupWithFeedback(w http.ResponseWriter, r *http.Request, ta
 	writeJSON(w, 200, s.view(fresh))
 }
 
+type steerIn struct {
+	Text string `json:"text"`
+}
+
+// steerTask delivers a follow-up message to a running attempt's driver
+// without cancelling and redispatching it. Only meaningful for an attempt
+// whose recorded driver accepts one (attempt.driver — see
+// internal/drivers.Select); anything else returns 409, same status the UI
+// already uses for "not valid from this state".
+func (s *Server) steerTask(w http.ResponseWriter, r *http.Request) {
+	task, ok := s.taskParam(w, r)
+	if !ok {
+		return
+	}
+	var body steerIn
+	if err := decodeBody(r, &body); err != nil {
+		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		httpError(w, 422, "text is required")
+		return
+	}
+	if task.Status != "running" {
+		httpError(w, 409, "can only steer a running task")
+		return
+	}
+	att, err := s.DB.OneAttemptWhere("task_id=? AND status='running' ORDER BY n DESC", task.ID)
+	if err != nil {
+		httpError(w, 409, "no running attempt")
+		return
+	}
+	if err := s.Sched.Steer(r.Context(), att.ID, body.Text); err != nil {
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) {
 	task, ok := s.taskParam(w, r)
 	if !ok {

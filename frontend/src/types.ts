@@ -14,6 +14,10 @@ export interface AttemptView {
   result: Record<string, unknown>;
   diff_stat: unknown[];
   verify: Record<string, unknown>;
+  // driver names the internal/drivers.Kind running this attempt (e.g.
+  // "claude-steer"); the UI uses it to decide whether the steer input
+  // applies, rather than guessing from agent + permission_mode.
+  driver: string;
 }
 
 export interface AttemptSummary {

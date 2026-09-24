@@ -24,6 +24,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
+	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
@@ -97,6 +98,12 @@ type Scheduler struct {
 	ghostStrikes    map[int64]int
 	lastJanitor     float64
 	lastSessionPoll float64
+	// driverRuns holds the live drivers.Handle for every attempt launched
+	// through the structured-driver path (claude steering, codex app-server
+	// approvals). An attempt not in this map is on the ordinary tmux+poll
+	// path scheduler.launch/poll have always used — that path is completely
+	// untouched, so every existing attempt's behaviour is unchanged.
+	driverRuns map[int64]drivers.Handle
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -111,6 +118,7 @@ func New(db *store.DB, b *bus.Bus, br *broker.Broker, n *sinks.Notifier,
 			GeminiBin: cfg.GeminiBin},
 		pollErrors:   map[int64]int{},
 		ghostStrikes: map[int64]int{},
+		driverRuns:   map[int64]drivers.Handle{},
 	}
 }
 
@@ -340,6 +348,9 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, c.Task.Agent)
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
+	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer {
+		return s.launchDriver(ctx, att, c, ex, wt, branch, sess, launchKW, kind)
+	}
 	cmd, err := s.buildLaunch(att, c, wt, sess, false, launchKW)
 	if err != nil {
 		return err
@@ -357,6 +368,91 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	s.setTaskStatus(att.TaskID, "running")
 	s.Log.Info("attempt launched", "attempt", att.ID, "target", c.Target.Name, "worktree", wt)
 	return nil
+}
+
+// launchDriver starts an attempt through internal/drivers instead of the
+// ordinary tmux+poll path: today, that is a claude attempt asking for the
+// steerable driver (permission_mode "steerable") or a codex attempt asking
+// for gated approvals (permission_mode "default", which codex could not
+// honour at all before the app-server driver existed). It still runs on the
+// SAME executor/tmux/worktree machinery — StartFor's drivers build their own
+// tmux launch command and poll events.jsonl exactly like buildLaunch/poll do
+// — the only difference is who owns the lifecycle afterwards.
+func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *runCtx,
+	ex executor.Executor, wt, branch, sess string, kw launchKW, kind string) error {
+	env := map[string]string{}
+	for k, v := range s.Creds.BaseAgentEnv() {
+		env[k] = v
+	}
+	for k, v := range kw.Env {
+		env[k] = v
+	}
+	if kw.Env == nil {
+		for k, v := range projectEnv(c.Project) {
+			env[k] = v
+		}
+	}
+	agent := firstNonEmpty(c.Task.Agent, "claude")
+	if kw.Agent != "" {
+		agent = kw.Agent
+	}
+	spec := drivers.Spec{
+		Agent: agent, Worktree: wt, TmuxSession: sess,
+		PermissionMode: c.Task.PermissionMode, Model: firstNonEmpty(att.Model, c.Task.Model),
+		ResumeSession: att.ResumeSession, Env: env, SettingsPath: kw.SettingsPath,
+		MCPConfig: kw.MCPConfig, StrictMCP: kw.StrictMCP, Prompt: kw.Prompt,
+		Broker: s.Broker, AttemptID: att.ID,
+	}
+	switch agent {
+	case "claude":
+		spec.Bin = s.Launcher.ClaudeBin
+	case "codex":
+		spec.Bin = s.Launcher.CodexBin
+	}
+	run, err := drivers.StartFor(kind, ctx, ex, spec)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.driverRuns[att.ID] = run
+	s.mu.Unlock()
+	s.DB.Update("attempts", att.ID, map[string]any{
+		"status": "running", "worktree_path": wt, "branch": branch,
+		"tmux_session": sess, "started_at": store.Now(), "log_offset": 0})
+	s.setTaskStatus(att.TaskID, "running")
+	s.Log.Info("attempt launched via driver", "attempt", att.ID, "driver", kind, "target", c.Target.Name)
+
+	go s.consumeDriverRun(att, c, run)
+	return nil
+}
+
+// consumeDriverRun drains a live driver run's timeline into the same
+// StoreEvents path every attempt uses, then — once the run ends, which only
+// happens on an explicit Cancel or the process exiting/crashing on its own,
+// see codexAppServerDriver/claudeSteerDriver's doc comments — finalises it
+// exactly like a naturally-completed tmux attempt (diff capture, auto-verify,
+// reviewer gate). If the attempt was already finalised by something else
+// (CancelAttempt, deletion) by the time the run ends, this is a no-op: the DB
+// status is checked before touching it.
+func (s *Scheduler) consumeDriverRun(att *store.Attempt, c *runCtx, run drivers.Handle) {
+	for ev := range run.Events() {
+		if err := s.StoreEvents(att, []agents.Event{ev}); err != nil {
+			s.Log.Warn("driver event store failed", "attempt", att.ID, "err", err)
+		}
+	}
+	result, _ := run.Wait(context.Background())
+	s.mu.Lock()
+	delete(s.driverRuns, att.ID)
+	s.mu.Unlock()
+	// re-fetch: the in-memory att this goroutine closed over predates the
+	// worktree_path/branch/status DB.Update in launchDriver, exactly like
+	// scheduler.poll always works from a freshly-queried attempt rather than
+	// a stale one captured at launch time.
+	fresh, err := s.DB.Attempt(att.ID)
+	if err != nil || fresh.Status != "running" {
+		return
+	}
+	s.captureAndFinalize(context.Background(), fresh, c, result.ExitCode)
 }
 
 // launchSandbox is the ephemeral flow: clone template -> repo inside container ->
@@ -548,6 +644,14 @@ func (s *Scheduler) parseAttemptEvents(att *store.Attempt, c *runCtx, buf string
 }
 
 func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
+	s.mu.Lock()
+	_, driven := s.driverRuns[att.ID]
+	s.mu.Unlock()
+	if driven {
+		// consumeDriverRun (started in launchDriver) owns this attempt's
+		// lifecycle end to end; Tick's ordinary poll must leave it alone.
+		return nil
+	}
 	c, err := s.contextFor(att)
 	if err != nil {
 		return err
@@ -895,6 +999,19 @@ func (s *Scheduler) Janitor(ctx context.Context, days float64) (map[string]any, 
 // sandbox, and resolves any approval it left pending.
 func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	s.Broker.ExpireForAttempt(att.ID)
+	s.mu.Lock()
+	run, driven := s.driverRuns[att.ID]
+	s.mu.Unlock()
+	if driven {
+		// Graceful close: the run's own consumeDriverRun goroutine observes
+		// it end and finalises it exactly like a naturally-completed
+		// attempt (diff capture, auto-verify) instead of the bare
+		// 'cancelled' status a tmux kill leaves behind. A stuck process
+		// still gets killed — belt and suspenders — after a bounded wait.
+		run.Cancel(ctx)
+		go s.forceKillIfStillRunning(att.ID)
+		return
+	}
 	if c, err := s.contextFor(att); err == nil {
 		if ex, err := s.attemptExecutor(att, c.Target); err == nil {
 			ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", att.ID),
@@ -910,6 +1027,44 @@ func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	s.DB.Update("attempts", att.ID, map[string]any{
 		"status": "cancelled", "finished_at": store.Now()})
 	s.setTaskStatus(att.TaskID, "cancelled")
+}
+
+// forceKillIfStillRunning is the driver-cancel safety net: a graceful close
+// depends on the target agent process actually noticing stdin closed and
+// exiting, which a wedged process might never do. If the attempt is still
+// 'running' after this bound, kill the tmux session directly so it cannot
+// hold a target's concurrency slot forever.
+func (s *Scheduler) forceKillIfStillRunning(attemptID int64) {
+	time.Sleep(30 * time.Second)
+	fresh, err := s.DB.Attempt(attemptID)
+	if err != nil || fresh.Status != "running" {
+		return
+	}
+	c, err := s.contextFor(fresh)
+	if err != nil {
+		return
+	}
+	ex, err := s.attemptExecutor(fresh, c.Target)
+	if err != nil {
+		return
+	}
+	ex.Run(context.Background(), fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", attemptID),
+		executor.RunOpts{Timeout: 20})
+	s.DB.Update("attempts", attemptID, map[string]any{
+		"status": "cancelled", "finished_at": store.Now()})
+	s.setTaskStatus(fresh.TaskID, "cancelled")
+}
+
+// Steer delivers a follow-up message to a running attempt's driver, if it has
+// one (see Handle.Send's doc comment for what "steerable" means per driver).
+func (s *Scheduler) Steer(ctx context.Context, attemptID int64, text string) error {
+	s.mu.Lock()
+	run, ok := s.driverRuns[attemptID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("attempt %d is not running a steerable driver", attemptID)
+	}
+	return run.Send(ctx, text)
 }
 
 // AttemptOpts are the optional inputs of CreateAttempt.
@@ -946,10 +1101,11 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 		return nil, err
 	}
 	launchJSON := store.J(launchConfig)
+	driverKind := drivers.Select(launchConfig.Agent, launchConfig.Definition.Builtin, task.PermissionMode)
 	return s.DB.InsertAttempt(&store.Attempt{
 		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
 		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
-		Branch: o.Branch, Model: o.Model, LaunchConfigJSON: launchJSON})
+		Branch: o.Branch, Model: o.Model, LaunchConfigJSON: launchJSON, Driver: driverKind})
 }
 
 // SetTaskStatus is the one place a task's column changes, so every move is
