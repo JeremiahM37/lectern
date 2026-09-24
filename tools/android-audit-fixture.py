@@ -80,18 +80,29 @@ def main():
         # A cold AVD snapshot may restore a stale Chrome ANR dialog. Restart
         # the browser on this explicit test emulator before opening our fixture.
         device('shell','am','force-stop','com.android.chrome')
-        device('shell','am','start','-W','-a','android.intent.action.VIEW','-d',base,'com.android.chrome')
-        for _ in range(100):
-            try:
-                with urllib.request.urlopen(f'http://127.0.0.1:{cdp_port}/json/list',timeout=2) as response:
-                    pages = json.load(response)
-                if any(tab.get('type') == 'page' and tab.get('url', '').startswith(base) for tab in pages):
-                    break
-            except OSError:
-                pass
-            time.sleep(.2)
-        else:
-            raise RuntimeError('Chrome CDP unavailable')
+        report['browser_startup'] = []
+        for attempt in range(2):
+            launch = device('shell','am','start','-W','-a','android.intent.action.VIEW','-d',base,'com.android.chrome').decode(errors='replace')
+            report['browser_startup'].append(launch)
+            for _ in range(100):
+                try:
+                    with urllib.request.urlopen(f'http://127.0.0.1:{cdp_port}/json/list',timeout=2) as response:
+                        pages = json.load(response)
+                    if any(tab.get('type') == 'page' and tab.get('url', '').startswith(base) for tab in pages):
+                        break
+                except OSError:
+                    pass
+                time.sleep(.2)
+            else:
+                # Cold-boot Android occasionally exits Chrome before a page
+                # exists. Retry only an absent process, never a live browser
+                # whose test/navigation is slow or failing.
+                running = device('shell', 'sh', '-c', 'pidof com.android.chrome || true').strip()
+                if not running and attempt == 0:
+                    (out/'chrome-startup-exit.log').write_bytes(device('logcat', '-d', '-t', '300'))
+                    continue
+                raise RuntimeError('Chrome CDP unavailable')
+            break
         # Full-screen prompt and gesture proof, using only this fixture's panes.
         from playwright.sync_api import sync_playwright, expect
         tui=root/'bottom-prompt.py'
@@ -119,14 +130,25 @@ finally:
             context=browser.contexts[0]
             page=next(page for page in context.pages if page.url.startswith(base))
             page.bring_to_front()
+            report["browser"] = page.evaluate("navigator.userAgent")
+            report["browser_errors"] = []
+            page.on("pageerror", lambda error: report["browser_errors"].append(str(error)))
             # Keep one CDP connection through all stages. Reattaching another
             # Playwright driver to Android Chrome can stall on detached targets.
-            runpy.run_path('/src/tools/android-terminal-audit.py', init_globals={
-                '_audit_page': page,
-                '_audit_args': SimpleNamespace(url=base,session=sessions[0]['id'],
-                    serial=serial,adb=adb,cdp=f'http://127.0.0.1:{cdp_port}',
-                    artifacts=out/'keyboard',allow_input=True),
-            })
+            try:
+                runpy.run_path('/src/tools/android-terminal-audit.py', init_globals={
+                    '_audit_page': page,
+                    '_audit_args': SimpleNamespace(url=base,session=sessions[0]['id'],
+                        serial=serial,adb=adb,cdp=f'http://127.0.0.1:{cdp_port}',
+                        artifacts=out/'keyboard',allow_input=True),
+                })
+            finally:
+                # Read before the CDP connection closes, including on a failed
+                # assertion. Only this fixture's synthetic shell input is traced.
+                try:
+                    report['input_events'] = page.frame_locator(f'iframe[src="/terminal/session/{sessions[0]["id"]}?embed=1"]').locator('body').evaluate('() => window.__lecternAuditInput || []')
+                except Exception:
+                    pass
             report['checks'].extend(json.loads((out/'keyboard/result.json').read_text())['checks'])
             # Set resize policy before navigation. Updating the viewport meta
             # after load is ignored by some Chrome versions.
@@ -271,6 +293,8 @@ finally:
         report['ok']=True
     except Exception as exc:
         report['error']=str(exc)
+        try:(out/'android-failure.log').write_bytes(device('logcat', '-d', '-t', '300'))
+        except Exception:pass
         try:(out/'failure.png').write_bytes(device('exec-out','screencap','-p'))
         except Exception:pass
         raise

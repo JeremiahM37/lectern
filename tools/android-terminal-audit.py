@@ -60,6 +60,18 @@ with (nullcontext() if shared_page is not None else sync_playwright()) as p:
     page.reload()  # a hash-only navigation would keep the previous build alive
     frame = page.frame_locator(f'iframe[src="/terminal/session/{args.session}?embed=1"]')
     expect(frame.locator('#connection')).to_have_text('Connected', timeout=20000)
+    frame.locator('#agent-terminal').evaluate("""host => {
+        window.__lecternAuditInput = [];
+        for (const name of ['keydown', 'keyup', 'compositionstart', 'compositionend', 'beforeinput', 'input']) {
+            document.addEventListener(name, e => {
+                if (e.target?.tagName !== 'TEXTAREA' || !host.contains(e.target)) return;
+                if (window.__lecternAuditInput.length >= 200) return;
+                window.__lecternAuditInput.push({type: e.type, keyCode: e.keyCode,
+                    composing: e.isComposing, inputType: e.inputType,
+                    data: e.data, value: e.target.value});
+            }, true);
+        }
+    }""")
     frame.locator('#agent-terminal').click()
     page.keyboard.press('Control+u')
     page.keyboard.type('echo ')
