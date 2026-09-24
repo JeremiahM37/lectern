@@ -4,6 +4,7 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import DESKTOP, PHONE
+from session_sheet import open_advanced
 
 
 def _tab(page, name):
@@ -480,6 +481,7 @@ def test_sessions_tab_starts_and_shows_a_session(page, server):
     expect(page.locator("#sess-new")).to_be_visible()
 
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "long haul")
     page.click("#ns-go")
 
@@ -497,6 +499,7 @@ def test_session_send_reaches_the_pane(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "chatty")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="chatty")
@@ -610,6 +613,7 @@ def test_any_agent_can_be_defined_and_picked(page, server):
     assert any("claude" in o for o in options), options
 
     page.select_option("#ns-agent", "aider")
+    open_advanced(page)
     page.fill("#ns-name", "local agent")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="local agent")
@@ -635,6 +639,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
 
     page.select_option("#ns-project", "")
     expect(page.locator("#ns-proj-hint")).to_contain_text("throwaway directory")
+    open_advanced(page)
     # nothing is known about a room that does not exist yet
     expect(page.locator("#ns-start option[value='brief']")).to_be_disabled()
 
@@ -672,6 +677,7 @@ def test_phone_session_cards_do_not_overflow_with_every_button(page, server):
     _tab(page, "sessions")
     page.click("#sess-new")
     page.select_option("#ns-project", "")          # blank room: the most buttons
+    open_advanced(page)
     page.fill("#ns-name", "phone room")
     page.click("#ns-go")
 
@@ -706,6 +712,7 @@ def test_phone_new_session_sheet_fits(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     for sel in ("#ns-project", "#ns-agent", "#ns-model", "#ns-start", "#ns-go"):
         expect(page.locator(sel)).to_be_visible()
         box = page.locator(sel).bounding_box()
@@ -722,6 +729,7 @@ def test_attach_opens_a_same_origin_terminal(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "attachable")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="attachable")
@@ -747,6 +755,7 @@ def test_yolo_is_offered_and_on_by_default(page, server):
     _tab(page, "sessions")
     page.click("#sess-new")
 
+    open_advanced(page)
     yolo = page.locator("#ns-yolo")
     expect(yolo).to_be_visible()
     assert yolo.is_checked(), "yolo should be on by default"
@@ -763,6 +772,7 @@ def test_yolo_toggle_fits_on_a_phone(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     box = page.locator("#ns-yolo").bounding_box()
     assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"] + 1, box
     assert page.evaluate("() => document.documentElement.scrollWidth") <= PHONE["width"] + 1
@@ -988,6 +998,7 @@ def test_handoff_lets_you_choose_which_agent_picks_it_up(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "handoff me")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="handoff me")
@@ -1047,6 +1058,7 @@ def test_session_preview_shows_memory_status(page, server, status, message):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.select_option("#ns-start", "brief")
     expect(page.locator("#ns-memory-status")).to_have_text(message)
     expect(page.locator("#ns-go")).to_be_enabled()
@@ -1163,6 +1175,7 @@ def test_mobile_context_attachments_keep_drafts_and_send(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "file context")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="file context")

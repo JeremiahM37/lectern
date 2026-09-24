@@ -6,6 +6,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_interactive_worktree import setup
 from test_terminal_dashboard import Dashboard
+from session_sheet import open_advanced
 
 
 @pytest.fixture
@@ -51,6 +52,7 @@ def test_web_project_setup_save_retry_and_launch(routed_page,real_terminal,width
     page.keyboard.press('Escape')
     page.goto(t['url']+'/#sessions');page.locator('#sess-new').click()
     page.get_by_label('Project',exact=True).select_option(str(project['id']))
+    open_advanced(page)
     page.locator('#ns-name').fill('Prepared workspace');page.locator('#ns-worktree').check()
     expect(page.locator('#ns-proj-hint')).to_contain_text('setup command')
     page.locator('#ns-go').click()

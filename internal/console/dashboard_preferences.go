@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -20,7 +21,20 @@ type dashboardPreferences struct {
 	Version   int            `json:"version"`
 	Grouping  map[string]int `json:"grouping"`
 	Collapsed []string       `json:"collapsed,omitempty"`
+	// RecentProjects is the newest-first list of projects the operator last
+	// successfully opened a session or project shell in. It is additive: an
+	// older Lectern ignores it, and a missing, empty, or stale value simply
+	// falls back to the existing stable project order.
+	RecentProjects []int64 `json:"recent_projects,omitempty"`
+	// ScratchNewSession records that the last successful new session used no
+	// project, so the form keeps offering Scratch instead of a remembered
+	// project. A machine shell never sets it: a machine is not a project.
+	ScratchNewSession bool `json:"scratch_new_session,omitempty"`
 }
+
+// maxRecentProjects bounds the remembered recency list. The remaining projects
+// keep their existing order, so capping the list never hides a project.
+const maxRecentProjects = 8
 
 func dashboardPreferencePath(base string) (string, error) {
 	u, err := url.Parse(base)
@@ -102,6 +116,8 @@ func (m *dashboard) loadPreferences() {
 			m.collapsed[group] = true
 		}
 	}
+	m.recentProjects = normalizeRecentProjects(prefs.RecentProjects)
+	m.scratchNewSession = prefs.ScratchNewSession
 }
 
 func (m *dashboard) savePreferences() {
@@ -109,7 +125,7 @@ func (m *dashboard) savePreferences() {
 	if m.preferencePath == "" {
 		return
 	}
-	prefs := dashboardPreferences{Version: 1, Grouping: m.groupingBySection}
+	prefs := dashboardPreferences{Version: 1, Grouping: m.groupingBySection, RecentProjects: m.recentProjects, ScratchNewSession: m.scratchNewSession}
 	for path, collapsed := range m.collapsed {
 		if collapsed && len(path) > 0 && len(path) <= 240 {
 			prefs.Collapsed = append(prefs.Collapsed, path)
@@ -149,4 +165,155 @@ func writeDashboardPreferences(path string, prefs dashboardPreferences) error {
 		return fmt.Errorf("replace saved view: %w", err)
 	}
 	return nil
+}
+
+// rowProjectID reads the project_id recorded on a session or shell row. Rows
+// arrive from JSON, so the value can be a float64, a string, or absent (a
+// scratch or machine row carries no project).
+func rowProjectID(r row) int64 { return intID(r["project_id"]) }
+
+// rowIntID reads a row's own numeric id. The projects list identifies each
+// project by "id", which is a different field from a session's project_id.
+func rowIntID(r row) int64 { return intID(r["id"]) }
+
+func intID(value any) int64 {
+	switch v := value.(type) {
+	case float64:
+		if v > 0 {
+			return int64(v)
+		}
+	case int64:
+		if v > 0 {
+			return v
+		}
+	case int:
+		if v > 0 {
+			return int64(v)
+		}
+	case json.Number:
+		if n, err := v.Int64(); err == nil && n > 0 {
+			return n
+		}
+	case string:
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// normalizeRecentProjects drops unusable and duplicate IDs and caps the list,
+// so a hand-edited or older preferences file cannot unbound the picker.
+func normalizeRecentProjects(ids []int64) []int64 {
+	out := make([]int64, 0, maxRecentProjects)
+	seen := map[int64]bool{}
+	for _, projectID := range ids {
+		if projectID <= 0 || seen[projectID] {
+			continue
+		}
+		seen[projectID] = true
+		out = append(out, projectID)
+		if len(out) == maxRecentProjects {
+			break
+		}
+	}
+	return out
+}
+
+// orderProjects lists projects most-recently-used first. Projects that are not
+// recent keep their existing order, so the picker is unchanged when recency is
+// empty and stale or deleted IDs are skipped without a gap.
+func orderProjects(projects []row, recent []int64) []row {
+	if len(projects) == 0 || len(recent) == 0 {
+		return projects
+	}
+	byID := make(map[int64]row, len(projects))
+	for _, p := range projects {
+		if projectID := rowIntID(p); projectID > 0 {
+			byID[projectID] = p
+		}
+	}
+	out := make([]row, 0, len(projects))
+	placed := make(map[int64]bool, len(projects))
+	for _, projectID := range recent {
+		if placed[projectID] {
+			continue
+		}
+		p, ok := byID[projectID]
+		if !ok {
+			continue
+		}
+		placed[projectID] = true
+		out = append(out, p)
+	}
+	for _, p := range projects {
+		if projectID := rowIntID(p); projectID > 0 && placed[projectID] {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func sameInt64s(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// rememberProject promotes a successfully used project to the front of the
+// recency list. Only a confirmed launch calls it, so a failed request never
+// reorders the picker or changes the default.
+func (m *dashboard) rememberProject(projectID int64) {
+	if projectID <= 0 {
+		return
+	}
+	recent := make([]int64, 0, maxRecentProjects)
+	recent = append(recent, projectID)
+	for _, id := range m.recentProjects {
+		if id == projectID || len(recent) == maxRecentProjects {
+			continue
+		}
+		recent = append(recent, id)
+	}
+	changed := m.scratchNewSession || !sameInt64s(recent, m.recentProjects)
+	m.recentProjects = recent
+	m.scratchNewSession = false
+	if changed {
+		m.savePreferences()
+	}
+}
+
+// rememberScratchSession records an explicit Scratch choice for the ordinary
+// new-session form. Shells never call it: picking a machine is not a project
+// choice and must not overwrite the remembered project.
+func (m *dashboard) rememberScratchSession() {
+	if m.scratchNewSession {
+		return
+	}
+	m.scratchNewSession = true
+	m.savePreferences()
+}
+
+// defaultProjectChoice is the project the new-session form preselects: the most
+// recent successful choice, unless the last choice was Scratch or the project
+// no longer exists. A stale or deleted ID degrades to the blank Scratch option.
+func (m *dashboard) defaultProjectChoice() string {
+	if m.scratchNewSession {
+		return ""
+	}
+	for _, projectID := range m.recentProjects {
+		for _, p := range m.projects {
+			if rowIntID(p) == projectID {
+				return id(p)
+			}
+		}
+	}
+	return ""
 }

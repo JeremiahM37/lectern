@@ -4,6 +4,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard
 from test_command_palette import search
+from session_sheet import open_advanced
 
 
 def setup_profile_agent(t):
@@ -28,7 +29,7 @@ def test_web_profiles_keep_drafts_launch_and_preserve_continuation(page,real_ter
     t=real_terminal;agent,env,cid,source=setup_profile_agent(t);original=source.read_bytes();errors=[]
     project=t['api']('/projects',{'name':'Profile workspace','target_id':t['target_id'],'repo_path':str(t['root'])})
     page.on('pageerror',lambda e:errors.append(str(e)));page.set_viewport_size({'width':width,'height':844});page.goto(t['url']+'/#sessions')
-    page.locator('#sess-new').click();page.locator('#ns-name').fill('Profile web session')
+    page.locator('#sess-new').click();open_advanced(page);page.locator('#ns-name').fill('Profile web session')
     page.locator('#ns-manage-profiles').click();d=page.get_by_role('dialog',name='Launch profiles',exact=True)
     expect(d.locator('.lp-agent')).to_contain_text('codex')
     briefing = 'PROFILE-BRIEFING proof: keep the user task; literal $(echo unsafe) and single quote \' stay text.'

@@ -5,6 +5,7 @@ registry is usable from Settings, a session launch carries model/provider/env,
 masked secrets remain masked in the editor, and the same session is reachable
 through the native PTY client.
 """
+from session_sheet import open_advanced
 import json
 import os
 import pty
@@ -89,6 +90,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     page.reload()
     page.locator("#sess-new").click()
     sheet = page.get_by_role("dialog", name="New session", exact=True)
+    open_advanced(sheet)
     sheet.get_by_label("Name", exact=True).fill("Local proof session")
     sheet.locator("#ns-project").select_option(str(project["id"]))
     sheet.get_by_label("Agent", exact=True).select_option("local-proof")

@@ -8,6 +8,7 @@ from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard
 from test_multi_workspace import grouped
 from test_session_restore import request
+from session_sheet import open_advanced
 
 
 def hold_second_checkout(t):
@@ -27,7 +28,7 @@ def test_browser_background_setup_survives_reload(page,real_terminal,width):
     page.on('pageerror',lambda error:errors.append(str(error)))
     try:
         page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
-        page.locator('#sess-new').click();page.locator('#ns-name').fill('Slow browser setup')
+        page.locator('#sess-new').click();open_advanced(page);page.locator('#ns-name').fill('Slow browser setup')
         page.locator('#ns-worktree').check();page.locator('#ns-repositories summary').click()
         extra=next(p for p in t['api']('/projects') if p['name']=='Second repository')
         page.get_by_label('Additional repository',exact=True).select_option(str(extra['id']))

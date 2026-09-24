@@ -25,6 +25,7 @@ import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
 import { QuickSwitch, sessionModelLabel } from "./sessions/QuickSwitch";
+import { rememberRecentProject } from "./project-preference";
 import { requestSwitch, type SwitchRequest } from "./continuity/handoff";
 import { SessionLineage } from "./continuity/SessionLineage";
 import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
@@ -322,6 +323,9 @@ export default function App() {
           method: "POST",
           body,
         });
+        // A shell that really opened is what makes the project recent; a
+        // failed creation must not reorder anyone's picker.
+        if (choice?.projectID) rememberRecentProject(choice.projectID);
         const response = await api.request<{ url: string }>(
           `/sessions/${shell.id}/terminal`,
           { method: "POST" },

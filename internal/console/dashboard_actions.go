@@ -681,11 +681,17 @@ func (m *dashboard) newForm() tea.Cmd {
 	if project != "" {
 		target = ""
 	}
+	if kind == "sessions" && project == "" {
+		// Nothing contextual to inherit: remember the project last used for a
+		// successful session, falling back to Scratch when that project is
+		// gone or the operator last chose Scratch explicitly.
+		project = m.defaultProjectChoice()
+	}
 	if kind == "approvals" {
 		m.notice = "Approvals are created by agents when they need a decision."
 		return nil
 	}
-	projects := options(m.projects, "Scratch / no project")
+	projects := options(orderProjects(m.projects, m.recentProjects), "Scratch / no project")
 	targets := options(m.targets, "Server default")
 	agents := []choice{}
 	taskCapable := kind == "tasks" || kind == "routines"
@@ -769,7 +775,7 @@ func (m *dashboard) newShellForm() tea.Cmd {
 	// stacking a project picker above a machine picker. A project opens a fresh
 	// tracked shell in its own folder (project_id); a machine keeps the scratch
 	// shell it always did (target_id).
-	location := optionField("location", "Project or machine", "", shellLocations(m.targets, m.projects), true)
+	location := optionField("location", "Project or machine", "", shellLocations(m.targets, orderProjects(m.projects, m.recentProjects)), true)
 	location.Searchable = true
 	return m.openForm("Blank persistent shell", []field{location}, func(body map[string]any) tea.Cmd {
 		value := strings.TrimSpace(str(body["location"]))

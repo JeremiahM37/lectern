@@ -22,6 +22,7 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import OUTSIDE_WORLD, _binary, _port_open, _unused_port
+from session_sheet import open_advanced
 from test_ui import _tab
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,6 +103,7 @@ def test_statusline_hook_updates_card_and_quota_chip_live(browser, usage_server)
     page.goto(base)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "usage card")
     page.click("#ns-go")
 
@@ -155,6 +157,7 @@ def test_high_context_used_pct_shows_the_compaction_warning(browser, usage_serve
     page.goto(base)
     _tab(page, "sessions")
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", "nearly full")
     page.click("#ns-go")
     card = page.locator(".scard", has_text="nearly full")

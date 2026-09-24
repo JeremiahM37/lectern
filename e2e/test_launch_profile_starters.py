@@ -14,6 +14,7 @@ import pytest
 from playwright.sync_api import expect
 
 from test_terminal_workspace import real_terminal
+from session_sheet import open_advanced
 
 PRESETS = [
     {
@@ -97,6 +98,7 @@ def mock_launch_profiles(page, rows=None):
 def open_profiles(page, t):
     page.goto(t["url"] + "/#sessions")
     page.locator("#sess-new").click()
+    open_advanced(page)
     page.locator("#ns-manage-profiles").click()
     return page.get_by_role("dialog", name="Launch profiles", exact=True)
 
@@ -179,6 +181,7 @@ def test_launch_payload_references_profile_and_shows_its_description(page, real_
     page.set_viewport_size({"width": width, "height": 844 if width < 500 else 900})
     page.goto(t["url"] + "/#sessions")
     page.locator("#sess-new").click()
+    open_advanced(page)
     page.locator("#ns-profile").select_option("3")
     expect(page.locator("#ns-profile-hint")).to_contain_text("Every change gets a review pass.")
     expect(page.locator("#ns-agent")).to_have_value("claude")

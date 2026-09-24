@@ -99,7 +99,7 @@ def main():
                 # whose test/navigation is slow or failing.
                 running = device('shell', 'sh', '-c', 'pidof com.android.chrome || true').strip()
                 if not running and attempt == 0:
-                    (out/'chrome-startup-exit.log').write_bytes(device('logcat', '-d', '-t', '300'))
+                    (out/'chrome-startup-exit.log').write_bytes(device('logcat', '-b', 'all', '-d', '-t', '3000'))
                     continue
                 raise RuntimeError('Chrome CDP unavailable')
             break
@@ -311,11 +311,38 @@ finally:
                 page.evaluate("Object.defineProperty(navigator, 'virtualKeyboard', {value:window.__auditKeyboard, configurable:true})")
                 claude.locator('#terminal-keyboard').click()
                 page.evaluate('navigator.virtualKeyboard.overlaysContent=false')
+            # Check the actual phone launch sheet, including its sticky action
+            # while Gboard is open. No agent is launched or prompt submitted.
+            page.goto(base+'/#sessions')
+            page.get_by_role('button', name='+ New session', exact=True).click()
+            sheet=page.get_by_role('dialog', name='New session', exact=True)
+            expect(sheet.locator('#ns-project')).to_be_visible()
+            expect(sheet.locator('#ns-agent')).to_be_visible()
+            expect(sheet.locator('#ns-name')).not_to_be_visible()
+            expect(sheet.locator('#ns-go')).to_be_in_viewport()
+            sheet.evaluate('el => Promise.all(el.getAnimations().map(a => a.finished))')
+            page.wait_for_timeout(400)  # Android compositor trails the DOM animation.
+            (out/'new-session-simple.png').write_bytes(device('exec-out','screencap','-p'))
+            sheet.locator('summary').filter(has_text='Advanced').click()
+            sheet.locator('#ns-name').click()
+            page.wait_for_function('visualViewport.height < 600')
+            page.keyboard.type('Unsent phone session name')
+            expect(sheet.locator('#ns-name')).to_have_value('Unsent phone session name')
+            button=sheet.locator('#ns-go').bounding_box()
+            limit=page.evaluate('visualViewport.offsetTop+visualViewport.height')
+            assert button and button['y']>=0 and button['y']+button['height']<=limit+2,(button,limit)
+            (out/'new-session-keyboard.png').write_bytes(device('exec-out','screencap','-p'))
+            report['checks'].append('Simple project/agent launch sheet and Advanced controls fit above native Gboard')
+            sheet.get_by_role('button',name='Close new session',exact=True).click()
             page.close()
         report['ok']=True
     except Exception as exc:
         report['error']=str(exc)
-        try:(out/'android-failure.log').write_bytes(device('logcat', '-d', '-t', '300'))
+        try:(out/'android-failure.log').write_bytes(device('logcat', '-b', 'all', '-d', '-t', '3000'))
+        except Exception:pass
+        try:(out/'android-anr-dropbox.log').write_bytes(device('shell','dumpsys','dropbox','--print','system_app_anr'))
+        except Exception:pass
+        try:(out/'android-last-anr.log').write_bytes(device('shell','dumpsys','activity','lastanr'))
         except Exception:pass
         try:(out/'failure.png').write_bytes(device('exec-out','screencap','-p'))
         except Exception:pass

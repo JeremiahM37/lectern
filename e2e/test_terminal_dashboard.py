@@ -40,7 +40,7 @@ class Dashboard:
             command=["tmux","new-session","-s","dashboard-outer","env",
                      f"LECTERN_API={t['url']}",*command]
         self.proc=subprocess.Popen(command,stdin=self.slave,stdout=self.slave,stderr=self.slave,
-          env={**t['env'],**({'XDG_CONFIG_HOME':str(t['root']/'.console-config')} if 'root' in t else {}),'LECTERN_API':t['url'],'TERM':'xterm-256color','LECTERN_ATTACH_HOST':''},
+          env={**t['env'],**({'XDG_CONFIG_HOME':str(t['root'].parent/'.console-config')} if 'root' in t else {}),'LECTERN_API':t['url'],'TERM':'xterm-256color','LECTERN_ATTACH_HOST':''},
           preexec_fn=controlling_terminal)
     def pump(self,duration=.1):
         end=time.monotonic()+duration

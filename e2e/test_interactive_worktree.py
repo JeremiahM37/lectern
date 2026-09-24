@@ -4,6 +4,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard
+from session_sheet import open_advanced
 
 
 def setup(t):
@@ -21,6 +22,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     page.set_viewport_size({'width':width,'height':900})
     page.goto(t['url']+'/#sessions');page.locator('#sess-new').click()
     page.get_by_label('Project',exact=True).select_option(str(project['id']))
+    open_advanced(page)
     page.locator('label[for=ns-name]').click()
     expect(page.get_by_label('Name',exact=True)).to_be_focused()
     page.get_by_label('Name',exact=True).fill('Isolated UI proof')

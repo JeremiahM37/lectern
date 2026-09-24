@@ -3,6 +3,12 @@ import { LaunchProfiles } from "../settings/LaunchProfiles";
 import { Modal } from "./Modal";
 import { useEffect, useState } from "react";
 import type { Project, SessionView, Target } from "../types";
+import {
+  orderProjectsByRecency,
+  readProjectPreference,
+  rememberProjectSelection,
+  rememberRecentProject,
+} from "../project-preference";
 import type { SessionsApi } from "./Sessions";
 interface Candidate {
   target_id: number;
@@ -46,7 +52,18 @@ export function NewSession({
     [models, setModels] = useState<Record<string, string[]>>({}),
     [memoryStatus, setMemoryStatus] = useState(""),
     [memoryKind, setMemoryKind] = useState(""),
-    [project, setProject] = useState<number | null>(projects[0]?.id ?? null),
+    // What this device opened last: a project, or a deliberate blank room.
+    // Nothing usable stored (first visit, deleted project, corrupt value)
+    // keeps the old default of the first project.
+    [preference] = useState(() => readProjectPreference()),
+    [project, setProject] = useState<number | null>(() => {
+      const remembered = preference.last;
+      if (remembered === undefined) return projects[0]?.id ?? null;
+      if (remembered === null) return null;
+      return projects.some((row) => row.id === remembered)
+        ? remembered
+        : (projects[0]?.id ?? null);
+    }),
     [name, setName] = useState(""),
     [group, setGroup] = useState(""),
     [agent, setAgent] = useState("claude"),
@@ -129,6 +146,25 @@ export function NewSession({
   useEffect(() => {
     if (!yoloSupported) setYolo(false);
   }, [yoloSupported]);
+  const selectedProject = projects.find((row) => row.id === project) ?? null;
+  // The collapsed sheet still has to say what pressing Start will do: the
+  // permission mode above all, plus anything else hidden behind Advanced.
+  const { recent: recentProjects, rest: otherProjects } = orderProjectsByRecency(
+    projects,
+    preference.recent,
+  );
+  const launchNotes = [
+    !yoloSupported
+      ? `${agent} has no way to skip its prompts — it will ask`
+      : yolo
+        ? "Yolo — no approval prompts"
+        : "Asks before it acts",
+    profile ? `launch profile “${profile.name}” (${profile.agent})` : "",
+    isolated ? "isolated Git worktree" : "",
+    mode === "brief" ? "primed with project memory" : "",
+    mode === "resume" ? "resumes the agent’s last conversation" : "",
+  ].filter(Boolean);
+  const launchSummary = launchNotes.join(" · ");
   async function start() {
     if (busy) return;
     setBusy(true);
@@ -160,6 +196,8 @@ export function NewSession({
           prime: prime.trim(),
         },
       });
+      // Only a session that actually started counts as a recent project.
+      if (project !== null) rememberRecentProject(project);
       onCreated(s);
       onNotice(
         s.setup_state === "creating"
@@ -203,73 +241,57 @@ export function NewSession({
             id="ns-project"
             aria-label="Project"
             value={project ?? ""}
-            onChange={(e) =>
-              setProject(e.target.value ? Number(e.target.value) : null)
-            }
+            onChange={(e) => {
+              const next = e.target.value ? Number(e.target.value) : null;
+              setProject(next);
+              // An explicit choice is remembered even if the sheet is closed
+              // again, so a deliberate blank room does not snap back to a
+              // project next time.
+              rememberProjectSelection(next);
+            }}
           >
             <option value="">▢ Blank room — no project yet</option>
-            {projects.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.name} — {p.target_name}
-              </option>
-            ))}
+            {recentProjects.length > 0 ? (
+              <>
+                <optgroup label="Recent">
+                  {recentProjects.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {p.name} — {p.target_name}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other projects">
+                  {otherProjects.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {p.name} — {p.target_name}
+                    </option>
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              otherProjects.map((p) => (
+                <option value={p.id} key={p.id}>
+                  {p.name} — {p.target_name}
+                </option>
+              ))
+            )}
           </select>
         </div>
         <div id="ns-proj-hint">
-          {project === null
-            ? "Starts the agent in a fresh throwaway directory. Turn it into a project later."
-            : isolated && projects.find((p) => p.id === project)?.setup_cmd
-              ? "This project’s setup command runs in the new checkout before the agent starts."
-              : ""}
-        </div>
-        <div className="session-field">
-          <label htmlFor="ns-name">Name</label>
-          <input
-            id="ns-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div className="session-field">
-          <label htmlFor="ns-group">Group</label>
-          <input
-            id="ns-group"
-            value={group}
-            onChange={(e) => setGroup(e.target.value)}
-          />
-        </div>
-        <div className="session-field">
-          <label htmlFor="ns-profile">Launch profile</label>
-          <select
-            id="ns-profile"
-            value={profileId}
-            onChange={(e) => setProfileId(Number(e.target.value))}
-          >
-            <option value={0}>Agent and project defaults</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {p.agent}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          className="b"
-          id="ns-manage-profiles"
-          type="button"
-          onClick={() => setManageProfiles(true)}
-        >
-          Manage launch profiles
-        </button>
-        <div className="subhint" id="ns-profile-hint" role="status">
-          {profile && (
+          {selectedProject === null ? (
+            "Starts the agent in a fresh throwaway directory. Turn it into a project later."
+          ) : (
             <>
-              {`${profile.name} · ${profile.agent}${profile.model ? " · default model: " + profile.model : ""}. Settings are captured when the session starts.`}
-              {profile.description && (
-                <span className="ns-profile-description">
-                  {profile.description}
+              <span className="ns-proj-path">{selectedProject.repo_path}</span>
+              {selectedProject.target_name
+                ? ` · ${selectedProject.target_name}`
+                : ""}
+              {isolated && selectedProject.setup_cmd ? (
+                <span className="ns-proj-setup">
+                  This project’s setup command runs in the new checkout before
+                  the agent starts.
                 </span>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -286,6 +308,12 @@ export function NewSession({
             ))}
           </select>
         </div>
+        {profile && (
+          <div className="subhint" id="ns-agent-profile">
+            Locked to {profile.agent} by the “{profile.name}” launch profile —
+            pick another profile under Advanced options.
+          </div>
+        )}
         <div id="ns-agent-hint" className="subhint">
           {spec
             ? [
@@ -298,136 +326,197 @@ export function NewSession({
                 .join(" · ")
             : ""}
         </div>
-        <div className="session-field">
-          <label htmlFor="ns-model">Model</label>
-          <input
-            placeholder={
-              profile?.model
-                ? profile.model + " — or override"
-                : models[agent] === undefined
-                  ? "this agent has no model switch"
-                  : models[agent]?.length
-                    ? "default — or type any model name"
-                    : "type the model name"
-            }
-            id="ns-model"
-            list="lec-models"
-            disabled={
-              models[agent] === undefined &&
-              !agents.find((a) => a.name === agent)?.model_flag
-            }
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          />
-          <datalist id="lec-models">
-            {(models[agent] || []).map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </div>
-
-        <label>
-          <input
-            type="checkbox"
-            id="ns-worktree"
-            checked={isolated}
-            disabled={!project}
-            onChange={(e) => setIsolated(e.target.checked)}
-          />{" "}
-          Isolate in a new Git worktree
-        </label>
-        {isolated && (
-          <div id="ns-worktree-options">
-            <p className="subhint">
-              A fresh session with separate files on a new branch. Starts from a
-              committed revision; uncommitted edits stay in the original
-              directory.
-            </p>
+        <details id="ns-advanced" className="session-advanced">
+          <summary>Advanced options</summary>
+          <div className="session-field">
+            <label htmlFor="ns-name">Name</label>
             <input
-              id="ns-worktree-base"
-              aria-label="Base branch, tag or commit"
-              value={base}
-              onChange={(e) => setBase(e.target.value)}
+              id="ns-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
-            <input
-              id="ns-worktree-branch"
-              aria-label="New branch name"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-            />
-            <div id="ns-repositories">
-              <RepositoryPicker
-                projects={projects}
-                primaryID={project}
-                value={extra}
-                onChange={setExtra}
-              />
-            </div>
           </div>
-        )}
-        <label htmlFor="ns-start">Start from</label>
-        <select
-          id="ns-start"
-          value={mode}
-          onChange={(e) => setMode(e.target.value)}
-        >
-          <option value="fresh">Fresh context</option>
-          <option value="brief" disabled={!project}>
-            Fresh, primed with what this project knows
-          </option>
-          <option value="resume" disabled={isolated}>
-            Resume the agent's own last conversation
-          </option>
-        </select>
-        <div className="subhint" id="ns-hint">
-          {mode === "brief"
-            ? "Pulls the project’s durable memory and its last handoff into the first message."
-            : mode === "resume"
-              ? "Reopens the agent’s own previous conversation in this directory."
-              : ""}
-        </div>
-        <div
-          className="subhint"
-          id="ns-memory-status"
-          data-status={memoryKind}
-          role="status"
-        >
-          {memoryStatus}
-        </div>
-        <label className="f check">
-          <input
-            id="ns-yolo"
-            type="checkbox"
-            disabled={!yoloSupported}
-            checked={yolo}
-            onChange={(e) => setYolo(e.target.checked)}
-          />{" "}
-          Yolo — no approval prompts
-        </label>
-        <div className="subhint" id="ns-yolo-hint">
-          {!yoloSupported
-            ? `${agent} has no way to skip its prompts — it will ask.`
-            : yolo
-              ? "The agent acts without stopping to ask. You are the supervision."
-              : agent === "claude"
-                ? // Session permission mode (docs/agent-events.md section
-                  // 3): unchecking Yolo is what launches claude in "ask"
-                  // mode, which is also what registers the PermissionRequest
-                  // hook — so this is the same checkbox that used to only
-                  // mean "prompt in the terminal" and now also means "or
-                  // from my phone".
-                  "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
-                : "The agent stops and asks before it edits or runs anything."}
-        </div>
-        <div className="session-field">
-          <label htmlFor="ns-prime">First message (optional)</label>
-          <textarea
-            id="ns-prime"
-            value={prime}
-            onChange={(e) => setPrime(e.target.value)}
-          />
-        </div>
+          <div className="session-field">
+            <label htmlFor="ns-group">Group</label>
+            <input
+              id="ns-group"
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+            />
+          </div>
+          <div className="session-field">
+            <label htmlFor="ns-profile">Launch profile</label>
+            <select
+              id="ns-profile"
+              value={profileId}
+              onChange={(e) => setProfileId(Number(e.target.value))}
+            >
+              <option value={0}>Agent and project defaults</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.agent}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            className="b"
+            id="ns-manage-profiles"
+            type="button"
+            onClick={() => setManageProfiles(true)}
+          >
+            Manage launch profiles
+          </button>
+          <div className="subhint" id="ns-profile-hint" role="status">
+            {profile && (
+              <>
+                {`${profile.name} · ${profile.agent}${profile.model ? " · default model: " + profile.model : ""}. Settings are captured when the session starts.`}
+                {profile.description && (
+                  <span className="ns-profile-description">
+                    {profile.description}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          <div className="session-field">
+            <label htmlFor="ns-model">Model</label>
+            <input
+              placeholder={
+                profile?.model
+                  ? profile.model + " — or override"
+                  : models[agent] === undefined
+                    ? "this agent has no model switch"
+                    : models[agent]?.length
+                      ? "default — or type any model name"
+                      : "type the model name"
+              }
+              id="ns-model"
+              list="lec-models"
+              disabled={
+                models[agent] === undefined &&
+                !agents.find((a) => a.name === agent)?.model_flag
+              }
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+            <datalist id="lec-models">
+              {(models[agent] || []).map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </div>
+
+          <label>
+            <input
+              type="checkbox"
+              id="ns-worktree"
+              checked={isolated}
+              disabled={!project}
+              onChange={(e) => setIsolated(e.target.checked)}
+            />{" "}
+            Isolate in a new Git worktree
+          </label>
+          {isolated && (
+            <div id="ns-worktree-options">
+              <p className="subhint">
+                A fresh session with separate files on a new branch. Starts from a
+                committed revision; uncommitted edits stay in the original
+                directory.
+              </p>
+              <input
+                id="ns-worktree-base"
+                aria-label="Base branch, tag or commit"
+                value={base}
+                onChange={(e) => setBase(e.target.value)}
+              />
+              <input
+                id="ns-worktree-branch"
+                aria-label="New branch name"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+              />
+              <div id="ns-repositories">
+                <RepositoryPicker
+                  projects={projects}
+                  primaryID={project}
+                  value={extra}
+                  onChange={setExtra}
+                />
+              </div>
+            </div>
+          )}
+          <label htmlFor="ns-start">Start from</label>
+          <select
+            id="ns-start"
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+          >
+            <option value="fresh">Fresh context</option>
+            <option value="brief" disabled={!project}>
+              Fresh, primed with what this project knows
+            </option>
+            <option value="resume" disabled={isolated}>
+              Resume the agent's own last conversation
+            </option>
+          </select>
+          <div className="subhint" id="ns-hint">
+            {mode === "brief"
+              ? "Pulls the project’s durable memory and its last handoff into the first message."
+              : mode === "resume"
+                ? "Reopens the agent’s own previous conversation in this directory."
+                : ""}
+          </div>
+          <div
+            className="subhint"
+            id="ns-memory-status"
+            data-status={memoryKind}
+            role="status"
+          >
+            {memoryStatus}
+          </div>
+          <label className="f check">
+            <input
+              id="ns-yolo"
+              type="checkbox"
+              disabled={!yoloSupported}
+              checked={yolo}
+              onChange={(e) => setYolo(e.target.checked)}
+            />{" "}
+            Yolo — no approval prompts
+          </label>
+          <div className="subhint" id="ns-yolo-hint">
+            {!yoloSupported
+              ? `${agent} has no way to skip its prompts — it will ask.`
+              : yolo
+                ? "The agent acts without stopping to ask. You are the supervision."
+                : agent === "claude"
+                  ? // Session permission mode (docs/agent-events.md section
+                    // 3): unchecking Yolo is what launches claude in "ask"
+                    // mode, which is also what registers the PermissionRequest
+                    // hook — so this is the same checkbox that used to only
+                    // mean "prompt in the terminal" and now also means "or
+                    // from my phone".
+                    "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
+                  : "The agent stops and asks before it edits or runs anything."}
+          </div>
+          <div className="session-field">
+            <label htmlFor="ns-prime">First message (optional)</label>
+            <textarea
+              id="ns-prime"
+              value={prime}
+              onChange={(e) => setPrime(e.target.value)}
+            />
+          </div>
+        </details>
         <div className="session-launch-actions">
+          <div
+            className="ns-launch-summary"
+            id="ns-launch-summary"
+            role="status"
+          >
+            {launchSummary}
+          </div>
           <button
             className="b ok grow"
             id="ns-go"

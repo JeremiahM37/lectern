@@ -4,7 +4,18 @@ A fresh phone opens Sessions. An explicit URL or your remembered view still wins
 Blank shells with no project sit under their own **Scratch terminals** heading,
 apart from **Sessions and projects**, and both lists keep the search, scope and
 grouping controls. **Make a project** on a scratch card promotes it without
-moving its files or restarting its terminal. Agent cards put **Chat** first;
+moving its files or restarting its terminal. Agent cards put **Chat** first.
+
+**New session** opens with just **Project** and **Agent** and one **Start
+session** button; the name, group, launch profile, model, worktree isolation,
+start mode, YOLO and first message wait behind **Advanced options**. The chosen
+project's folder and machine are spelled out beneath the picker, and the state
+that changes what a launch does — permission mode above all — stays visible next
+to Start. This browser remembers the project you picked last (a deliberate
+**Blank room** included) and lists recently opened projects first, in New
+session and in Terminal's new-terminal menu. A creation that fails is not
+remembered as recent.
+
 Two quick shells never read the same: each scratch card is titled with its own
 scratch folder, shows that full path so it can be read or copied, and keeps
 **✎ Rename** for a name you recognize. Renaming changes the card only — the

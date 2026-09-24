@@ -24,6 +24,7 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import OUTSIDE_WORLD, _binary, _port_open, _unused_port
+from session_sheet import open_advanced
 from test_ui import _tab
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +117,7 @@ def _post_hook(base, session_id, token, event, tool_name, file_path):
 
 def _new_session(page, name):
     page.click("#sess-new")
+    open_advanced(page)
     page.fill("#ns-name", name)
     page.click("#ns-go")
     card = page.locator(".scard", has_text=name)

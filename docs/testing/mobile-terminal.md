@@ -229,3 +229,20 @@ below the visible area, real touch gestures lift it, further typing stays visibl
 and dragging back/blur restores the normal position. The optional native Android
 Claude audit also hides geometry while real Gboard remains open and captures the
 manually lifted prompt. These tests never submit the Claude draft.
+
+The native audit also checks the compact New session sheet and its Advanced
+fields with Gboard open, without launching an agent. To investigate failures
+caused by restored emulator state, run `tools/run-android-audit.py --cold-boot`
+with the usual environment: a newly started emulator will skip loading its
+snapshot. This does not restart an already-running emulator or retry a failed
+assertion. Keep the failed receipt and screenshots for comparison.
+
+Newly started emulators receive 4096 MiB RAM by default (`--memory-mb` can
+change it). The older 2 GiB AVD hit heavy guest swapping during Chrome startup
+and showed an Android “isn't responding” dialog before physical typing began.
+Failure artifacts include Android logs and the system-app ANR stack, so a
+browser startup failure cannot be mistaken for a passing keyboard check.
+For scheduled Claude coverage, set `ADK_TEST_CLAUDE_BIN` in the audit service's
+environment file to the installed executable. The runner mounts only that
+executable into the disposable fixture, uses private settings and an unreachable
+API endpoint, and never submits the typed draft.

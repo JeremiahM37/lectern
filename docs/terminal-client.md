@@ -438,7 +438,8 @@ actual tmux launch with scripted agents, without requiring either paid CLI.
 
 ## Interactive Git worktrees
 
-In **New session**, select a project and enable **Isolate in a new Git worktree**.
+In **New session**, select a project and enable **Isolate in a new Git worktree**
+(under **Advanced options**).
 The terminal dashboard's `n` form has the same choice and also accepts an
 explicit repository directory. Choose a base branch/tag/commit (blank means
 committed `HEAD`) and a new branch name, or let Lectern allocate a unique name.

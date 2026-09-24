@@ -136,6 +136,8 @@ type dashboard struct {
 	grouping                            int
 	groupingBySection                   map[string]int
 	preferencePath                      string
+	recentProjects                      []int64
+	scratchNewSession                   bool
 	collapsed                           map[string]bool
 	matched                             int
 	attention, ended, archived          bool
@@ -790,6 +792,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.label == "Create blank shell" {
 			var created row
 			if json.Unmarshal(v.data, &created) == nil && id(created) != "" {
+				// Only a confirmed project shell counts as project use; a
+				// machine shell carries no project_id and is left alone.
+				m.rememberProject(rowProjectID(created))
 				// The action is global, so its result may arrive while another
 				// section, archive view, or filtered session list is visible.
 				// Return to the live Sessions list before the auto-attach pass.
@@ -805,6 +810,20 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusSessionID = id(created)
 				m.attachAfterRefresh = true
 				m.notice = "Blank shell created; attaching"
+			}
+		}
+		if v.label == "Create session" {
+			var created row
+			if json.Unmarshal(v.data, &created) == nil && id(created) != "" {
+				// The server-confirmed row is the result, so a failed launch or
+				// a form abandoned before the request never records anything.
+				if projectID := rowProjectID(created); projectID > 0 {
+					m.rememberProject(projectID)
+				} else {
+					// An ordinary new session with no project (Scratch) keeps
+					// Scratch as the default; a shell never reaches this path.
+					m.rememberScratchSession()
+				}
 			}
 		}
 		if v.label == "Add repository" {

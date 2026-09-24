@@ -7,6 +7,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal, terminal_tool
 from test_interactive_worktree import setup
 from test_terminal_dashboard import Dashboard
+from session_sheet import open_advanced
 
 
 def grouped(t):
@@ -78,6 +79,7 @@ def test_browser_creates_grouped_workspace(page,real_terminal,width):
     t['api']('/projects',{'name':'Wrong target','target_id':other_target['id'],'repo_path':str(repo)})
     page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
     page.locator('#sess-new').click();page.locator('#ns-project').select_option(str(primary['id']))
+    open_advanced(page)
     page.locator('#ns-name').fill('Browser grouped workspace');page.locator('#ns-worktree').check()
     page.locator('#ns-repositories summary').click()
     picker=page.get_by_label('Additional repository',exact=True)

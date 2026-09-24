@@ -19,9 +19,13 @@ def main():
     parser.add_argument('--serial',default='emulator-5554')
     parser.add_argument('--artifacts',type=Path,default=Path.home()/'.local/state/lectern/android-audit')
     parser.add_argument('--preflight',action='store_true')
+    parser.add_argument('--cold-boot',action='store_true',help='Start a new emulator without restoring its saved snapshot')
+    parser.add_argument('--memory-mb',type=int,default=4096,help='RAM for a newly started emulator (default: 4096 MiB)')
     args=parser.parse_args()
     if not args.serial.startswith('emulator-') or not args.serial.removeprefix('emulator-').isdigit():
         parser.error('Only an explicit emulator serial is allowed')
+    if not 2048 <= args.memory_mb <= 16384:
+        parser.error('--memory-mb must be between 2048 and 16384')
     checkout=args.checkout.resolve(); sdk=args.sdk.resolve()
     adb=sdk/'platform-tools/adb'; emulator=sdk/'emulator/emulator'
     for path in [adb,emulator,checkout/'tools/run-isolated-tests.sh',checkout/'tools/android-audit-fixture.py']:
@@ -36,7 +40,7 @@ def main():
     except BlockingIOError:raise SystemExit('An Android audit is already running')
     stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     out=args.artifacts.resolve()/stamp;out.mkdir(parents=True)
-    result={'ok':False,'started_at':stamp,'checkout':str(checkout),'artifacts':str(out)}
+    result={'ok':False,'started_at':stamp,'checkout':str(checkout),'artifacts':str(out),'emulator_memory_mb':args.memory_mb,'cold_boot':args.cold_boot}
     proc=None
     code=1
     try:
@@ -48,7 +52,9 @@ def main():
             port=args.serial.removeprefix('emulator-')
             with (out/'emulator.log').open('w') as log:
                 proc=subprocess.Popen([str(emulator),'-avd',args.avd,'-port',port,'-no-window',
-                    '-no-audio','-no-boot-anim','-no-snapshot-save','-gpu','swiftshader_indirect'],stdout=log,stderr=log)
+                    '-no-audio','-no-boot-anim','-no-snapshot-save','-gpu','swiftshader_indirect',
+                    '-memory',str(args.memory_mb),
+                    *(['-no-snapshot-load'] if args.cold_boot else [])],stdout=log,stderr=log)
             for _ in range(150):
                 if proc.poll() is not None:raise RuntimeError('Emulator exited; see emulator.log')
                 ready=subprocess.run([str(adb),'-s',args.serial,'shell','getprop','sys.boot_completed'],capture_output=True,text=True,timeout=5)

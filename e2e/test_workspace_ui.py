@@ -2,6 +2,7 @@
 import pytest
 from playwright.sync_api import expect
 from conftest import PHONE, DESKTOP
+from session_sheet import open_advanced
 from test_terminal_workspace import real_terminal, open_terminal, terminal_tool
 
 @pytest.mark.parametrize('page',[PHONE,DESKTOP],indirect=True)
@@ -131,6 +132,7 @@ def test_session_sheet_keeps_keyboard_focus_and_returns_to_opener(page, server):
     # Native modal dialogs make the background inert without an HTML attribute.
     page.locator('#tabbar .tab').first.evaluate('(e)=>e.focus()')
     assert sheet.evaluate('(e)=>e.contains(document.activeElement)')
+    open_advanced(sheet)
     sheet.get_by_label('Name', exact=True).fill('Keep this draft')
     sheet.locator('#ns-manage-profiles').click()
     profiles = page.get_by_role('dialog', name='Launch profiles', exact=True)
@@ -155,6 +157,9 @@ def test_session_launch_stays_visible_through_long_form(page, server, size):
     page.goto(server + '/#sessions')
     page.locator('#sess-new').click()
     sheet = page.get_by_role('dialog', name='New session', exact=True)
+    # This test is about the long form: open Advanced up front so the sheet is
+    # the full-height one the assertions below were written for.
+    open_advanced(sheet)
     launch = sheet.locator('#ns-go')
     sheet.evaluate('(e)=>Promise.all(e.getAnimations().map(a=>a.finished))')
     def visible_action():

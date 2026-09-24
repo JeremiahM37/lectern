@@ -149,6 +149,7 @@
   .sheet-head { padding-bottom: 8px; margin-bottom: 8px; }
   .sheet-head h2 { font-size: 17px; }
   #sheet p, #sheet .subhint, #sheet small { font-size: 11.5px; margin: 3px 0 6px; line-height: 1.4; }
+  #ns-proj-hint, .ns-launch-summary { font-size: 11.5px; line-height: 1.4; }
   #sheet label { font-size: 12px; margin-top: 8px; }
   #sheet { font-size: 12.5px; }
   /* The form's fields carry no shared class, so they are named by element. */

@@ -338,6 +338,13 @@ The main **New terminal** button still opens a scratch workspace. In the
 terminal dashboard, press `S` and select a project or machine from the single
 searchable location picker.
 
+Recently opened projects appear first on each device. **New session** remembers
+your project choice (including a blank room) and starts with just Project and
+Agent. Expand **Advanced options** for naming, profiles, models, worktrees,
+resume, permissions, and a first message; the launch summary keeps the current
+permission mode visible. The terminal dashboard remembers successful project
+launches separately for each server.
+
 Remote CLI attachments automatically use a portable `xterm-256color` terminal
 type for SSH, so a server without your terminal emulator's terminfo can still
 attach. This applies to both the menu and direct command; no manual `TERM`

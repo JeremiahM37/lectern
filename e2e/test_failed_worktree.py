@@ -5,6 +5,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_interactive_worktree import setup
 from test_terminal_dashboard import Dashboard
+from session_sheet import open_advanced
 
 
 @pytest.mark.parametrize('width',[390,1440])
@@ -13,7 +14,7 @@ def test_failed_checkout_hook_is_visible_and_safely_recoverable(page,real_termin
     hook=t['root']/'.git/hooks/post-checkout'
     hook.write_text('#!/bin/sh\nprintf "preserve setup output" > setup-artifact\necho "SETUP FAILURE SENTINEL" >&2\nexit 1\n');hook.chmod(0o755)
     page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
-    page.locator('#sess-new').click();page.locator('#ns-name').fill('Failed setup proof');page.locator('#ns-worktree').check()
+    page.locator('#sess-new').click();open_advanced(page);page.locator('#ns-name').fill('Failed setup proof');page.locator('#ns-worktree').check()
     page.locator('#ns-worktree-branch').fill('recoverable-setup')
     with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/sessions')) as response:page.locator('#ns-go').click()
     assert response.value.status==202

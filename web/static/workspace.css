@@ -133,6 +133,14 @@
 
 /* Keep the launch action reachable while reviewing a long session form. */
 #sheet:has(.session-launch-actions) { scroll-padding-bottom: 96px; }
+/* A launch sheet is a column whose action owns the last row. That keeps Start
+   at the bottom of the sheet — and so of the visible viewport on a phone —
+   whether the form is short (everything behind Advanced is folded away) or
+   long enough to scroll. Without it a collapsed sheet left the button
+   floating halfway up the sheet. */
+#sheet:has(.session-launch-actions) { display: flex; flex-direction: column; min-height: 0; }
+#sheet:has(.session-launch-actions) > * { flex: none; }
+#sheet:has(.session-launch-actions) > .session-launch-actions { margin-top: auto; }
 .session-launch-actions {
   position: sticky; bottom: calc(-28px - env(safe-area-inset-bottom, 0px)); z-index: 6;
   margin: 20px -18px calc(-28px - env(safe-area-inset-bottom, 0px));
@@ -140,6 +148,34 @@
   background: inherit; border-top: 1px solid var(--line);
   box-shadow: 0 -10px 18px -12px rgba(0,0,0,.6);
 }
+
+/* New session leads with project and agent; everything rarer sits behind one
+   native disclosure so the sheet stays short without hiding a setting. The
+   summary is shaped like the .b buttons beside it so it reads as a control. */
+.session-advanced { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.session-advanced > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  box-sizing: border-box; min-height: 44px; padding: 9px 12px;
+  border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--panel); color: var(--accent-soft);
+  font-size: 13px; cursor: pointer; list-style: none;
+}
+.session-advanced > summary::-webkit-details-marker { display: none; }
+.session-advanced > summary::after { content: "▾"; font-size: 12px; }
+.session-advanced[open] > summary { border-radius: 8px 8px 0 0; }
+.session-advanced[open] > summary::after { content: "▴"; }
+.session-advanced > summary:hover { background: var(--panel-2); }
+.session-advanced > summary:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 2px; }
+
+/* The chosen project's folder and machine, on their own lines so a long path
+   wraps instead of gluing itself to the project name. */
+#ns-proj-hint { margin-top: 6px; color: var(--ink-dim); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+#ns-proj-hint:empty { display: none; }
+.ns-proj-setup { display: block; margin-top: 4px; }
+
+/* What pressing Start will actually do, kept beside the sticky button even
+   when its controls are folded away. */
+.ns-launch-summary { margin: 0 0 8px; color: var(--ink-dim); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 
 .agent-commands { width: min(620px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel, #171a24); color: var(--text, #eee); }
 .agent-commands::backdrop { background: #0009; }

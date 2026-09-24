@@ -1,6 +1,8 @@
 """End-to-end test for session rename via conversation header and card action."""
 from playwright.sync_api import expect
 
+from session_sheet import open_advanced
+
 
 def test_rename_session_from_conversation_header(page, server):
     """Test renaming a session from the conversation header."""
@@ -10,6 +12,7 @@ def test_rename_session_from_conversation_header(page, server):
     
     # Create a new session through the UI
     page.get_by_text("+ New session").click()
+    open_advanced(page)
     page.get_by_label("Name").fill("Header Rename Test")
     page.get_by_text("▶ Start session").click()
     
@@ -52,6 +55,7 @@ def test_rename_escape_cancels_inline_edit(page, server):
     
     # Create a new session through the UI
     page.get_by_text("+ New session").click()
+    open_advanced(page)
     page.get_by_label("Name").fill("Escape Test")
     page.get_by_text("▶ Start session").click()
     
@@ -95,6 +99,7 @@ def test_rename_session_from_card_action_menu(page, server):
     
     # Create a new session through the UI
     page.get_by_text("+ New session").click()
+    open_advanced(page)
     page.get_by_label("Name").fill("Original Name")
     page.get_by_text("▶ Start session").click()
     
