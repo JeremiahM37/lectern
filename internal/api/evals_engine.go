@@ -69,8 +69,16 @@ func (s *Server) tickEvalRun(ctx context.Context, run *store.EvalRun, limit int)
 	if err != nil {
 		return
 	}
+	cases, casesErr := s.DB.EvalCases(run.SuiteID)
+	byID := map[int64]*store.EvalCase{}
+	if casesErr == nil {
+		for _, c := range cases {
+			byID[c.ID] = c
+		}
+	}
 
-	// grade every cell whose dispatched task has finished
+	// grade every cell whose dispatched task has finished, and cancel any
+	// still-running cell whose attempt has overrun its case's timeout_s.
 	inFlight := 0
 	allTerminal := true
 	for _, res := range results {
@@ -92,6 +100,10 @@ func (s *Server) tickEvalRun(ctx context.Context, run *store.EvalRun, limit int)
 			continue
 		}
 		if task.Status == "queued" || task.Status == "running" {
+			if s.evalCellTimedOut(ctx, res, byID[res.CaseID]) {
+				allTerminal = false // read as terminal from the NEXT tick, once cancellation lands
+				continue
+			}
 			inFlight++
 			allTerminal = false
 			continue
@@ -102,12 +114,7 @@ func (s *Server) tickEvalRun(ctx context.Context, run *store.EvalRun, limit int)
 	if run.Status == "running" {
 		var variants []store.EvalVariant
 		json.Unmarshal([]byte(run.VariantsJSON), &variants)
-		cases, err := s.DB.EvalCases(run.SuiteID)
-		if err == nil {
-			byID := map[int64]*store.EvalCase{}
-			for _, c := range cases {
-				byID[c.ID] = c
-			}
+		if casesErr == nil {
 			for _, res := range results {
 				if inFlight >= limit {
 					break
@@ -177,18 +184,20 @@ func (s *Server) materializeEvalRun(run *store.EvalRun, suite *store.EvalSuite) 
 // auto-verified exactly like any other attempt.
 func (s *Server) dispatchEvalCell(ctx context.Context, run *store.EvalRun, suite *store.EvalSuite,
 	c *store.EvalCase, v store.EvalVariant, res *store.EvalResult) error {
-	prompt := c.Prompt
-	if strings.TrimSpace(c.SetupCommand) != "" {
-		prompt = fmt.Sprintf("Before doing anything else, run this setup command in the repo "+
-			"root and make sure it succeeds:\n\n```\n%s\n```\n\n%s", c.SetupCommand, prompt)
-	}
 	task, err := s.DB.InsertTask(&store.Task{
 		ProjectID: suite.ProjectID,
 		Title: clip(fmt.Sprintf("[eval] %s / %s (v%d r%d)", suite.Name, c.Name,
 			oneBased(res.VariantIdx), res.RepeatIdx+1), 120),
-		Prompt: prompt, Status: "queued", Agent: v.Agent, Model: v.Model,
+		Prompt: c.Prompt, Status: "queued", Agent: v.Agent, Model: v.Model,
 		PermissionMode: v.PermissionMode, BaseBranch: c.BaseRef,
 		LabelsJSON: store.J([]string{"eval"}), CreatedBy: "eval", CheckCommand: c.CheckCommand,
+		// SetupCommand is run for real by the scheduler (runSetupCommand) in
+		// the attempt's own worktree before the agent starts, instead of the
+		// old approach of folding it into the prompt as an instruction the
+		// agent had to remember to follow. Capped at 600s regardless of the
+		// case's own timeout_s, so a generous overall timeout can't be used
+		// to let a setup step run unbounded.
+		SetupCommand: c.SetupCommand, SetupTimeoutS: min(c.TimeoutS, 600),
 	})
 	if err != nil {
 		return err
@@ -204,6 +213,43 @@ func (s *Server) dispatchEvalCell(ctx context.Context, run *store.EvalRun, suite
 }
 
 func oneBased(i int) int { return i + 1 }
+
+// evalCellTimedOut checks a still-running cell's dispatched attempt against
+// its case's timeout_s and, if it has run longer, cancels it through the
+// scheduler's normal cancel path (CancelAttempt — the same one the board's
+// Cancel button and cancelEvalRunNow use) and records the cell as "timeout":
+// a status distinct from "failed" (the agent ran to completion and got it
+// wrong) and "error" (the agent or its launch broke), so a hung agent reads
+// as exactly what it was.
+//
+// Measured from the attempt's own StartedAt rather than when the cell was
+// queued, so time spent waiting for a target's concurrency slot — which the
+// eval's own dispatch loop already throttles independently via
+// evalConcurrencyLimit — never counts against the case's budget. A case with
+// no timeout_s (never happens through the API, which defaults it to 900, but
+// guards a hand-edited row) never times out.
+func (s *Server) evalCellTimedOut(ctx context.Context, res *store.EvalResult, c *store.EvalCase) bool {
+	if c == nil || c.TimeoutS <= 0 || res.AttemptID == nil {
+		return false
+	}
+	att, err := s.DB.Attempt(*res.AttemptID)
+	if err != nil || att.StartedAt == nil {
+		return false
+	}
+	elapsed := store.Now() - *att.StartedAt
+	if elapsed < float64(c.TimeoutS) {
+		return false
+	}
+	if att.Status == "queued" || att.Status == "running" {
+		s.Sched.CancelAttempt(ctx, att)
+	}
+	s.DB.Update("eval_results", res.ID, map[string]any{
+		"status": "timeout", "duration_s": elapsed,
+		"check_output_tail": fmt.Sprintf(
+			"cell exceeded its %ds timeout (ran %.0fs) and was cancelled", c.TimeoutS, elapsed),
+	})
+	return true
+}
 
 // gradeEvalResult turns a finished task into a scored eval_results row. A
 // task's own failure (the agent errored/crashed, exit_code != 0) is "error";

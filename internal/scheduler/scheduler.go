@@ -364,6 +364,9 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 			return err
 		}
 	}
+	if err := s.runSetupCommand(ctx, ex, wt, c.Task); err != nil {
+		return err
+	}
 	if err := skills.Reassert(ctx, ex, s.DB, c.Project, effAgent(c, att), wt); err != nil {
 		return fmt.Errorf("project skills: %w", err)
 	}
@@ -543,6 +546,9 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 	if err := worktree.AddExcludes(ctx, inside, workdir); err != nil {
 		return err
 	}
+	if err := s.runSetupCommand(ctx, inside, workdir, c.Task); err != nil {
+		return err
+	}
 
 	launchKW, err := s.stageRuntime(ctx, inside, workdir, att, c)
 	if err != nil {
@@ -568,6 +574,41 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 		"tmux_session": sess, "started_at": store.Now(), "log_offset": 0})
 	s.setTaskStatus(att.TaskID, "running")
 	s.Log.Info("attempt launched in sandbox", "attempt", att.ID, "vmid", vmid)
+	return nil
+}
+
+// runSetupCommand runs a task's SetupCommand (set by the eval engine from a
+// case's own setup_command) for real, on the target, in the worktree the
+// agent is about to run in — as opposed to the old behaviour of folding it
+// into the prompt and hoping the agent ran it itself. Called from both
+// launch and launchSandboxInner, after the worktree/workdir exists and
+// before stageRuntime writes anything the agent reads, so a fixture the
+// setup step creates is visible to the agent's very first turn.
+//
+// A non-zero exit (or an executor-level error, e.g. the target being
+// unreachable) returns an error here, which its callers propagate straight
+// out of launch/launchSandboxInner: promoteQueued then fails the attempt
+// without ever building the tmux launch command, so the agent never starts.
+// gradeEvalResult (internal/api/evals_engine.go) turns that failed attempt
+// into eval_results.status="error" carrying this message as the
+// check_output_tail — no separate plumbing needed for "setup failed".
+func (s *Scheduler) runSetupCommand(ctx context.Context, ex executor.Executor, workdir string, task *store.Task) error {
+	cmd := strings.TrimSpace(task.SetupCommand)
+	if cmd == "" {
+		return nil
+	}
+	timeout := task.SetupTimeoutS
+	if timeout <= 0 || timeout > 600 {
+		timeout = 600
+	}
+	r, err := ex.Run(ctx, cmd, executor.RunOpts{Cwd: workdir, Timeout: float64(timeout)})
+	if err != nil {
+		return fmt.Errorf("setup command: %w", err)
+	}
+	if !r.OK() {
+		return fmt.Errorf("setup command failed (exit %d): %s", r.RC,
+			clipEnd(strings.TrimSpace(r.Stdout+r.Stderr), 500))
+	}
 	return nil
 }
 

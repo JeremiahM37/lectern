@@ -80,6 +80,61 @@ func TestDetectCommandAutoDetectsVerifyYaml(t *testing.T) {
 	}
 }
 
+// TestRunForTaskTaskCheckCommandOverridesProjectVerifyCmd proves, at the
+// exact function scheduler.captureAndFinalize calls, that a task's own
+// CheckCommand (set by the eval engine so each eval case grades against its
+// own command) wins over the project's VerifyCmd. It mirrors
+// captureAndFinalize's own override construction — copy the project, set
+// VerifyCmd to the task's CheckCommand — rather than reaching into the
+// scheduler package, since RunForTask itself has no notion of "task" at all;
+// the override happens one layer up, at the call site.
+func TestRunForTaskTaskCheckCommandOverridesProjectVerifyCmd(t *testing.T) {
+	r, db, sess, _ := fixture(t)
+	proj, _ := db.Project(*sess.ProjectID)
+	proj.VerifyCmd = "mockverify-pass"
+
+	taskCheckCommand := "mockverify-fail"
+	override := *proj
+	override.VerifyCmd = taskCheckCommand
+
+	verify, ok := r.RunForTask(context.Background(), mustExecutor(t, r, proj), &override, proj.RepoPath)
+	if !ok {
+		t.Fatal("expected a check to run")
+	}
+	if verify["cmd"] != taskCheckCommand {
+		t.Fatalf("expected the task's own check_command to run, got %v", verify["cmd"])
+	}
+	if rc, _ := verify["rc"].(int); rc == 0 {
+		t.Fatalf("expected the task's check_command (mockverify-fail) to fail, got %v", verify)
+	}
+
+	// the original project object is untouched — the override was a copy,
+	// not a mutation of shared project state
+	if proj.VerifyCmd != "mockverify-pass" {
+		t.Fatalf("project VerifyCmd was mutated: %q", proj.VerifyCmd)
+	}
+	verify2, ok := r.RunForTask(context.Background(), mustExecutor(t, r, proj), proj, proj.RepoPath)
+	if !ok {
+		t.Fatal("expected a check to run")
+	}
+	if verify2["cmd"] != "mockverify-pass" || verify2["rc"] != 0 {
+		t.Fatalf("expected the project's own verify_cmd to pass when there is no task override: %v", verify2)
+	}
+}
+
+func mustExecutor(t *testing.T, r *Runner, proj *store.Project) executor.Executor {
+	t.Helper()
+	target, err := r.DB.Target(proj.TargetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex, err := r.Reg.For(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ex
+}
+
 // TestFingerprintSkipsUnchangedWorktree is the "fingerprint skip" test the
 // workstream calls for: a second Stop trigger with nothing new in the
 // worktree must not run the command again.

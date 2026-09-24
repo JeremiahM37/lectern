@@ -88,6 +88,18 @@ type Task struct {
 	// check_command needs to run instead of the project default, without
 	// mutating shared project state for the run's duration.
 	CheckCommand string `json:"check_command,omitempty"`
+	// SetupCommand, when set, is run for real by the scheduler in the
+	// attempt's own worktree, on its target, after the worktree is created
+	// and before the agent starts — a non-zero exit fails the attempt and the
+	// agent never runs. Empty (every task that predates this field) skips the
+	// step entirely. It exists for evals: a case's own setup_command used to
+	// be folded into the prompt as an instruction for the agent to run itself;
+	// this is the real host-side pre-step instead.
+	SetupCommand string `json:"setup_command,omitempty"`
+	// SetupTimeoutS bounds how long SetupCommand may run, in seconds. The eval
+	// engine sets it to min(case.timeout_s, 600); zero falls back to a 600s
+	// default inside the scheduler.
+	SetupTimeoutS int `json:"setup_timeout_s,omitempty"`
 }
 
 // Attempt is a single agent run against a task. Retries, follow-ups and the
