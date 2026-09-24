@@ -205,7 +205,7 @@ def test_tui_quick_shell_action_is_real_and_cancellable(real_terminal):
         os.write(master, b"?")
         output = _read_until(master, b"Blank persistent shell", 20, output)
         clean = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output).decode(errors="replace")
-        assert "S             Blank persistent shell on a selected machine" in clean, clean
+        assert "S             Blank persistent shell in a project or on a machine" in clean, clean
         # Help closes on one key; S is the documented quick action.
         os.write(master, b"xS")
         # Discard the help frame: it has the same title as the form.

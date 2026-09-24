@@ -143,6 +143,18 @@ func (m *Manager) Launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	return m.launch(ctx, o)
 }
 
+// shellRoom is the resolved shape of an agent-free shell: the machine it runs
+// on, where it opens, and the project it belongs to (if any). LaunchShell and
+// LaunchProjectShell differ only in how they resolve these fields, so the
+// identity and lifecycle below are shared in one place.
+type shellRoom struct {
+	target    *store.Target
+	ex        executor.Executor
+	name      string
+	workdir   string
+	projectID *int64
+}
+
 // LaunchShell creates a tracked, agent-free shell room on a target.
 //
 // This deliberately does not pass through launch profiles, agent setup,
@@ -158,16 +170,59 @@ func (m *Manager) LaunchShell(ctx context.Context, targetID int64) (*store.Sessi
 	if err != nil {
 		return nil, err
 	}
-	bootID, _ := ProbeBootID(ctx, ex)
 	workdir, err := m.makeScratch(ctx, ex, "shell")
 	if err != nil {
 		return nil, err
 	}
+	return m.startShellRoom(ctx, shellRoom{target: target, ex: ex, name: "Shell · " + target.Name, workdir: workdir})
+}
+
+// LaunchProjectShell opens a fresh tracked, agent-free shell directly in a
+// project's repository. The target and directory come from the stored project,
+// never from the caller, and a missing repository fails instead of silently
+// falling back to a scratch room or the target user's home. Unlike the
+// preexisting project terminal, every call creates a new tracked session whose
+// tmux name and identity are its own.
+func (m *Manager) LaunchProjectShell(ctx context.Context, projectID int64) (*store.Session, error) {
+	project, err := m.DB.Project(projectID)
+	if err != nil {
+		return nil, err
+	}
+	workdir := strings.TrimSpace(project.RepoPath)
+	if workdir == "" {
+		return nil, fmt.Errorf("project %q has no repository path", project.Name)
+	}
+	target, err := m.DB.Target(project.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	ex, err := m.Reg.For(target)
+	if err != nil {
+		return nil, err
+	}
+	directory, err := ex.Run(ctx, "test -d "+shellq.Quote(workdir), executor.RunOpts{Timeout: 10})
+	if err != nil {
+		return nil, err
+	}
+	if !directory.OK() {
+		return nil, fmt.Errorf("project %q repository is unavailable on %s: %s", project.Name, target.Name, workdir)
+	}
+	return m.startShellRoom(ctx, shellRoom{
+		target: target, ex: ex, name: project.Name, workdir: workdir, projectID: &project.ID,
+	})
+}
+
+// startShellRoom reserves the session row and launches the tracked, agent-free
+// tmux shell. It is the one place a shell room's identity and lifecycle are
+// established, shared by the scratch and project forms above.
+func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Session, error) {
+	ex, target, workdir := room.ex, room.target, room.workdir
+	bootID, _ := ProbeBootID(ctx, ex)
 	// Reserve the record only after target-side preparation has completed. The
 	// lifecycle lock is deliberately not held across SSH/PCT/local executor I/O.
 	m.lifecycleMu.Lock()
 	sess, err := m.DB.InsertSession(&store.Session{
-		TargetID: targetID, Name: "Shell · " + target.Name, Agent: "shell",
+		ProjectID: room.projectID, TargetID: target.ID, Name: room.name, Agent: "shell",
 		Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID,
 	})
 	if err != nil {

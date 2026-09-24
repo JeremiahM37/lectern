@@ -267,11 +267,19 @@ export default function App() {
     [api, openTerminal, sessions, notice],
   );
   const newTerminal = useCallback(
-    async (machineID?: number) => {
+    async (choice?: { machineID?: number; projectID?: number }) => {
       try {
+        // A project shell is a fresh tracked session in that project's folder;
+        // plain "New terminal" still opens a scratch shell on the default
+        // machine. The picker never sends both.
+        const body: Record<string, number> = choice?.projectID
+          ? { project_id: choice.projectID }
+          : choice?.machineID
+            ? { target_id: choice.machineID }
+            : {};
         const shell = await api.request<SessionView>("/shells", {
           method: "POST",
-          body: machineID ? { target_id: machineID } : {},
+          body,
         });
         const response = await api.request<{ url: string }>(
           `/sessions/${shell.id}/terminal`,
@@ -758,6 +766,7 @@ export default function App() {
         controller={terminals}
         visible={view === "terminals"}
         machines={targets}
+        projects={projects}
         onNew={newTerminal}
         onBrowse={() => navigate("#sessions")}
         onSearch={() => setPalette(true)}

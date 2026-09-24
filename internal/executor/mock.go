@@ -138,6 +138,10 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	case hasAnyPrefix(cmd, "sudo pct clone", "sudo pct start", "sudo pct stop",
 		"sudo pct destroy", "sudo pct push", "sudo pct exec"):
 		return Result{0, "", ""}, nil
+	case strings.HasPrefix(cmd, "test -d ") && strings.Contains(cmd, "missingdir"):
+		// A test sentinel: the path a project claims does not exist on the
+		// target. A project shell must fail rather than fall back elsewhere.
+		return Result{1, "", ""}, nil
 	case strings.HasPrefix(cmd, "git clone"):
 		return Result{0, "", ""}, nil
 	case strings.Contains(cmd, "lectern-scratch") && strings.Contains(cmd, "mktemp -d"):

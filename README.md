@@ -331,6 +331,13 @@ or model setup; run any commands or model CLI in the shell. Ctrl+B then D
 detaches without stopping it. The dashboard provides the same action with `S`
 or Actions → Open blank shell.
 
+In the web dashboard, use the arrow beside **New terminal** and choose a
+project to open a new shell in its existing folder on its configured machine.
+Search by project name or folder; selecting a project attaches immediately.
+The main **New terminal** button still opens a scratch workspace. In the
+terminal dashboard, press `S` and select a project or machine from the single
+searchable location picker.
+
 Remote CLI attachments automatically use a portable `xterm-256color` terminal
 type for SSH, so a server without your terminal emulator's terminfo can still
 attach. This applies to both the menu and direct command; no manual `TERM`

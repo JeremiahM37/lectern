@@ -23,19 +23,45 @@ func TestTargetPickerFiltersAsKeysArrive(t *testing.T) {
 	}
 }
 
-func TestBlankShellFormOffersSearchableMachines(t *testing.T) {
+func TestBlankShellFormOffersOneSearchableLocationField(t *testing.T) {
 	m := sampleDashboard()
 	m.targets = []row{{"id": float64(1), "name": "AIServer", "kind": "local"}, {"id": float64(2), "name": "MediaServer", "kind": "ssh"}}
+	m.projects = []row{{"id": float64(7), "name": "Site", "repo_path": "/srv/site", "target_name": "AIServer"}}
 	m.newShellForm()
-	if m.form == nil || len(m.form.fields) != 1 || !m.form.fields[0].Searchable {
-		t.Fatal("blank shell form did not offer a searchable machine field")
+	if m.form == nil || len(m.form.fields) != 1 || m.form.fields[0].Key != "location" || !m.form.fields[0].Searchable {
+		t.Fatal("blank shell form should offer one searchable location field")
 	}
-	if got := m.form.fields[0].Value; got != "1" {
-		t.Fatalf("blank shell form defaulted to %q, want first machine", got)
+	// Projects lead the list, shown with their folder and target.
+	if got := m.form.fields[0].Value; got != "project:7" {
+		t.Fatalf("blank shell form defaulted to %q, want the first project", got)
+	}
+	labels := map[string]string{}
+	for _, c := range m.form.fields[0].Options {
+		labels[c.Value] = c.Label
+	}
+	if !strings.Contains(labels["project:7"], "/srv/site") || !strings.Contains(labels["project:7"], "AIServer") {
+		t.Fatalf("project option hid its folder or target: %q", labels["project:7"])
+	}
+	if !strings.Contains(labels["machine:2"], "MediaServer") {
+		t.Fatalf("machine option lost its label: %q", labels["machine:2"])
 	}
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil || !m.busy {
 		t.Fatal("Enter should submit the one-field blank shell form")
+	}
+}
+
+func TestBlankShellLocationMapsToTheRightSelector(t *testing.T) {
+	// A project sends project_id so the server derives target and folder; a
+	// machine keeps target_id. There is never a caller-supplied path.
+	if body, ok := shellBody("project:9"); !ok || body["project_id"] != int64(9) {
+		t.Fatalf("project location mapped to %v (ok=%v)", body, ok)
+	}
+	if body, ok := shellBody("machine:3"); !ok || body["target_id"] != int64(3) {
+		t.Fatalf("machine location mapped to %v (ok=%v)", body, ok)
+	}
+	if _, ok := shellBody("nonsense"); ok {
+		t.Fatal("an unparsable location was accepted")
 	}
 }
 

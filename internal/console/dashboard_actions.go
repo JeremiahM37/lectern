@@ -637,8 +637,11 @@ func filteredChoices(f field) []choice {
 }
 
 func optionNoun(f field) string {
-	if f.Key == "target_id" {
+	switch f.Key {
+	case "target_id":
 		return "machines"
+	case "location":
+		return "projects or machines"
 	}
 	return "projects"
 }
@@ -758,15 +761,82 @@ func (m *dashboard) newForm() tea.Cmd {
 }
 
 func (m *dashboard) newShellForm() tea.Cmd {
-	if len(m.targets) == 0 {
+	if len(m.targets) == 0 && len(m.projects) == 0 {
 		m.notice = "No machines are configured. Add a target first."
 		return nil
 	}
-	target := optionField("target_id", "Machine", "", options(m.targets, ""), true)
-	target.Searchable = true
-	return m.openForm("Blank persistent shell", []field{target}, func(body map[string]any) tea.Cmd {
-		return m.request("Create blank shell", "POST", "/shells", body, false)
+	// One searchable location field groups projects and machines instead of
+	// stacking a project picker above a machine picker. A project opens a fresh
+	// tracked shell in its own folder (project_id); a machine keeps the scratch
+	// shell it always did (target_id).
+	location := optionField("location", "Project or machine", "", shellLocations(m.targets, m.projects), true)
+	location.Searchable = true
+	return m.openForm("Blank persistent shell", []field{location}, func(body map[string]any) tea.Cmd {
+		value := strings.TrimSpace(str(body["location"]))
+		launch, ok := shellBody(value)
+		if !ok {
+			m.notice = "Choose a project or machine."
+			return nil
+		}
+		return m.request("Create blank shell", "POST", "/shells", launch, false)
 	})
+}
+
+// shellBody turns the single picker value into the one selector /shells takes:
+// project_id for a project folder, target_id for a machine. There is no path
+// in the request — the server derives the project's target and folder itself.
+func shellBody(value string) (map[string]any, bool) {
+	projectID, machineID, ok := parseShellLocation(value)
+	if !ok {
+		return nil, false
+	}
+	if projectID != 0 {
+		return map[string]any{"project_id": projectID}, true
+	}
+	return map[string]any{"target_id": machineID}, true
+}
+
+// shellLocations builds the single picker list: projects first, then machines,
+// each labelled with enough to tell look-alikes apart. A project shows its
+// folder and target; a machine shows its kind.
+func shellLocations(targets, projects []row) []choice {
+	out := make([]choice, 0, len(projects)+len(targets))
+	for _, p := range projects {
+		label := str(p["name"])
+		if path := str(p["repo_path"]); path != "" {
+			label += " — " + path
+		}
+		if target := str(p["target_name"]); target != "" {
+			label += " · " + target
+		}
+		out = append(out, choice{Label: label, Value: "project:" + id(p)})
+	}
+	for _, t := range targets {
+		label := str(t["name"])
+		if kind := str(t["kind"]); kind != "" {
+			label += " · " + kind
+		}
+		out = append(out, choice{Label: label, Value: "machine:" + id(t)})
+	}
+	return out
+}
+
+func parseShellLocation(value string) (projectID, machineID int64, ok bool) {
+	switch {
+	case strings.HasPrefix(value, "project:"):
+		n, err := strconv.ParseInt(strings.TrimPrefix(value, "project:"), 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		return n, 0, true
+	case strings.HasPrefix(value, "machine:"):
+		n, err := strconv.ParseInt(strings.TrimPrefix(value, "machine:"), 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		return 0, n, true
+	}
+	return 0, 0, false
 }
 
 func (m *dashboard) renameForm() tea.Cmd {

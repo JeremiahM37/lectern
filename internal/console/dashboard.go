@@ -1402,7 +1402,7 @@ const dashboardHelp = ` Keyboard shortcuts
  Space/Enter   Fold selected group   [ Collapse parent   ] Expand group
  g             Group by project/target/name   w  Needs attention only
  n             New item         e        Rename   u Upload context
- S             Blank persistent shell on a selected machine
+ S             Blank persistent shell in a project or on a machine
  P             Launch profiles
 	Q             Agent runners (add custom CLIs)
  m             All actions      f        Find and track running agents

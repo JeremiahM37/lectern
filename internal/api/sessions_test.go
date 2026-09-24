@@ -104,6 +104,80 @@ func TestQuickShellRejectsAmbiguousTargetSelection(t *testing.T) {
 	}
 }
 
+func TestProjectShellOpensTrackedSessionInProjectRepository(t *testing.T) {
+	h := newHarness(t)
+	project := h.project("proj-shell", obj{"repo_path": "/mock/proj-shell"})
+	repoPath := project.str("repo_path")
+	sess := h.post("/api/shells", obj{"project_id": project.id()}, 201)
+	// A project shell is a regular tracked session that belongs to the project,
+	// not a scratch room: the row names the project, its target and its folder.
+	if got := int64(sess.num("project_id")); got != project.id() {
+		t.Fatalf("project shell lost its project: got %d want %d (%v)", got, project.id(), sess)
+	}
+	if int64(sess.num("target_id")) != int64(project.num("target_id")) {
+		t.Fatalf("project shell target: %v", sess)
+	}
+	if sess.str("agent") != "shell" || sess.str("model") != "" {
+		t.Fatalf("project shell must stay agent-free: %v", sess)
+	}
+	if sess.str("workdir") != repoPath {
+		t.Fatalf("project shell opened in %q, want %q", sess.str("workdir"), repoPath)
+	}
+	if sess.str("tmux_session") == "" || sess.str("status") != "idle" {
+		t.Fatalf("project shell is not ready: %v", sess)
+	}
+	// Nothing about the launch may fall back to a scratch directory, a home
+	// directory, or an agent.
+	cmd := h.launchCmd()
+	if strings.Contains(cmd, "lectern-scratch") {
+		t.Fatalf("project shell used a scratch directory: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-c "+repoPath) {
+		t.Fatalf("project shell did not cd into the project: %s", cmd)
+	}
+	if strings.Contains(cmd, "claude") || strings.Contains(cmd, "codex") {
+		t.Fatalf("project shell launched an agent: %s", cmd)
+	}
+}
+
+func TestProjectShellRejectsUnknownProjectAndMixedSelectors(t *testing.T) {
+	h := newHarness(t)
+	project := h.project("proj-shell-mix", obj{"repo_path": "/mock/proj-shell-mix"})
+	target := h.firstTargetID()
+	if code := h.status("POST", "/api/shells", obj{"project_id": 999999}); code != 400 {
+		t.Fatalf("unknown project: got %d, want 400", code)
+	}
+	if code := h.status("POST", "/api/shells", obj{"project_id": project.id(), "target_id": target}); code != 400 {
+		t.Fatalf("project_id + target_id: got %d, want 400", code)
+	}
+	if code := h.status("POST", "/api/shells", obj{"project_id": project.id(), "machine": "local"}); code != 400 {
+		t.Fatalf("project_id + machine: got %d, want 400", code)
+	}
+}
+
+func TestProjectShellMissingRepositoryFailsInsteadOfFallingBack(t *testing.T) {
+	h := newHarness(t)
+	project := h.project("proj-shell-gone", obj{"repo_path": "/mock/missingdir-shell"})
+	before := len(h.getList("/api/sessions"))
+	if code := h.status("POST", "/api/shells", obj{"project_id": project.id()}); code != 409 {
+		t.Fatalf("missing project folder: got %d, want 409", code)
+	}
+	if after := len(h.getList("/api/sessions")); after != before {
+		t.Fatalf("a failed project shell left a tracked session: %d -> %d", before, after)
+	}
+}
+
+func TestProjectShellEmptyRepositoryPathFails(t *testing.T) {
+	h := newHarness(t)
+	project, err := h.App.DB.InsertProject(&store.Project{Name: "proj-shell-empty", TargetID: h.firstTargetID(), RepoPath: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := h.status("POST", "/api/shells", obj{"project_id": project.ID}); code != 400 {
+		t.Fatalf("empty project path: got %d, want 400", code)
+	}
+}
+
 func TestSessionProjectTargetMismatchIsRejected(t *testing.T) {
 	h := newHarness(t)
 	projectID := h.seededProjectID()
