@@ -237,6 +237,7 @@ with the usual environment: a newly started emulator will skip loading its
 snapshot. This does not restart an already-running emulator or retry a failed
 assertion. Keep the failed receipt and screenshots for comparison.
 
+The scheduled service cold-boots its emulator to avoid stale browser state.
 Newly started emulators receive 4096 MiB RAM by default (`--memory-mb` can
 change it). The older 2 GiB AVD hit heavy guest swapping during Chrome startup
 and showed an Android “isn't responding” dialog before physical typing began.

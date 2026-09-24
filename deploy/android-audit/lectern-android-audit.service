@@ -12,6 +12,6 @@ Group=admin
 EnvironmentFile=/home/admin/.config/lectern/android-audit.env
 Environment=ADK_ISOLATION_REVIEWED=1
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStart=/home/admin/.local/bin/lectern-android-audit --checkout ${LEC_AUDIT_CHECKOUT} --sdk ${ANDROID_SDK_ROOT} --artifacts ${LEC_ANDROID_ARTIFACT_ROOT}
+ExecStart=/home/admin/.local/bin/lectern-android-audit --cold-boot --checkout ${LEC_AUDIT_CHECKOUT} --sdk ${ANDROID_SDK_ROOT} --artifacts ${LEC_ANDROID_ARTIFACT_ROOT}
 TimeoutStartSec=30min
 Nice=10
