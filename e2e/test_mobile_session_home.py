@@ -153,6 +153,61 @@ def test_a_shell_session_is_not_forced_into_chat(page, server):
     expect(card.get_by_role("button", name="⌨ Attach", exact=True)).to_be_visible()
 
 
+def _button_fit(button):
+    """How a row button's own text sits inside its box."""
+    return button.evaluate(
+        """el => {
+          const style = getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const text = range.getBoundingClientRect();
+          const inner =
+            rect.width -
+            parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) -
+            parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
+          return {label: el.textContent.trim(), width: rect.width, height: rect.height,
+                  x: rect.x, inner: inner, text: text.width};
+        }"""
+    )
+
+
+def _assert_row_labels_fit(card, width):
+    """Every visible action keeps its whole label, its 40px target, on screen."""
+    buttons = card.locator(".btnrow button.b:visible")
+    assert buttons.count() >= 3, "the busiest card row should show three or more actions"
+    labels = set()
+    for index in range(buttons.count()):
+        fit = _button_fit(buttons.nth(index))
+        labels.add(fit["label"])
+        assert fit["text"] <= fit["inner"] + 1, (width, fit)
+        assert fit["height"] >= (40 if width <= 600 else 38), (width, fit)
+        assert 0 <= fit["x"] and fit["x"] + fit["width"] <= width + 1, (width, fit)
+    return labels
+
+
+def test_phone_card_actions_wrap_instead_of_clipping_their_labels(page, server):
+    page.request.post(
+        server + "/api/sessions",
+        data={"name": "Row of agent actions", "scratch": True, "agent": "claude"},
+    )
+    page.request.post(server + "/api/shells", data={})
+    for width in (320, 390, 1440):
+        page.set_viewport_size({"width": width, "height": 844})
+        page.goto(server + "/#sessions")
+        agent = page.locator(".scard", has_text="Row of agent actions")
+        scratch = page.locator(".scard", has_text="Shell ·")
+        expect(agent).to_be_visible(timeout=20000)
+        expect(scratch).to_be_visible(timeout=20000)
+        # A live agent card: Attach, Chat and Switch share one row.
+        assert {"⌨ Attach", "Chat", "⇄ Switch"} <= _assert_row_labels_fit(agent, width)
+        # A blank scratch shell adds the widest label a phone has to hold.
+        assert {"⌨ Attach", "⇑ Make a project", "✎ Rename"} <= _assert_row_labels_fit(
+            scratch, width
+        )
+        assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+
+
 # ---- Needs you answers first -------------------------------------------------
 
 
@@ -321,3 +376,23 @@ def test_needs_you_caps_a_long_list_behind_a_toggle(page, server):
     assert toggle.get_attribute("aria-expanded") == "true"
     toggle.click()
     expect(rows).to_have_count(8)
+
+
+def test_named_session_can_be_renamed_without_replacing_its_terminal(page, real_terminal):
+    import subprocess
+    t = real_terminal
+    def identity():
+        return subprocess.check_output(['tmux', 'display-message', '-p', '-t', '=terminal-test:', '#{pane_pid} #{pane_current_path}'], env=t['env'], text=True)
+    before = identity()
+    for width in [320, 1440]:
+        page.set_viewport_size({'width': width, 'height': 844})
+        page.goto(t['url'] + '/#sessions')
+        card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
+        name = f'Renamed existing session {width}'
+        page.once('dialog', lambda dialog: dialog.accept(name))
+        card.get_by_role('button', name='✎ Rename', exact=True).click()
+        expect(card.locator('.nm')).to_have_text(name)
+        page.reload()
+        expect(card.locator('.nm')).to_have_text(name)
+        assert identity() == before
+        assert next(row for row in t['api']('/sessions') if row['id'] == t['id'])['tmux_session'] == 'terminal-test'

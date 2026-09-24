@@ -169,11 +169,10 @@ export function SessionCard({
   function end(kill: boolean) {
     void run(`/sessions/${s.id}${kill ? "?kill=true" : ""}`, "DELETE");
   }
-  // Renaming a scratch card is a convenience on top of the folder title: the
-  // directory stays where it is, only the tracked row's name changes.
+  // Rename only the tracked label; the directory and process stay untouched.
   function rename() {
     const next = prompt(
-      "Rename this scratch terminal. Its folder is untouched.",
+      scratch ? "Rename this scratch terminal. Its folder is untouched." : "Rename this session. Its terminal keeps running.",
       cardTitle,
     );
     if (next === null || !next.trim()) return;
@@ -429,14 +428,10 @@ export function SessionCard({
                 ⇑ Make a project
               </button>
             )}
-            {scratch && (
-              <button className="b rename" onClick={rename}>
-                ✎ Rename
-              </button>
-            )}
             {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}
           </>
         )}
+        <button className="b rename" onClick={rename}>✎ Rename</button>
         {ended && !archived && s.can_restore && (
           <button
             className="b ok"

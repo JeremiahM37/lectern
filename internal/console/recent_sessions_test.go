@@ -14,7 +14,7 @@ import (
 
 func TestRecentSessionsLoadsAndRendersHumanLabels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/sessions/recent" || r.URL.Query().Get("limit") != "10" {
+		if r.URL.Path != "/api/sessions/recent" || r.URL.Query().Get("limit") != "30" {
 			t.Fatalf("recent request: %s", r.URL.String())
 		}
 		json.NewEncoder(w).Encode([]row{{
@@ -79,13 +79,13 @@ func TestRecentSessionsFallbackUsesNativeHistoryPicker(t *testing.T) {
 
 func TestRecentSessionsViewportKeepsLastRowsReachable(t *testing.T) {
 	m := sampleDashboard()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 30; i++ {
 		m.recentRows = append(m.recentRows, row{"id": float64(i + 1), "name": "Closed " + fmt.Sprint(i+1), "agent": "codex"})
 	}
-	m.recentSelected = 9
+	m.recentSelected = 29
 	m.width, m.height = 60, 15
 	view := m.recentView(7)
-	if !strings.Contains(view, "Closed 10") || strings.Contains(view, "Closed 1\n") {
+	if !strings.Contains(view, "Closed 30") || strings.Contains(view, "Closed 1\n") {
 		t.Fatalf("recent viewport did not keep selected tail visible:\n%s", view)
 	}
 }

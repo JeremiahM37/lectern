@@ -85,6 +85,26 @@ export class Engine {
   unresponsive = false;
   static readonly silenceMs = 2000;
   static readonly silenceKeys = 3;
+  private promptOffset = 0;
+  private promptHeight = 0;
+  private resetPromptPan() {
+    this.promptOffset = 0;
+    if (this.term.element) this.term.element.style.transform = "";
+  }
+  private panPrompt(pixels: number): boolean {
+    if (!this.connected || this.paused || this.readingRetainedHistory ||
+        document.activeElement !== this.term.textarea || navigator.maxTouchPoints < 1 ||
+        !matchMedia("(max-width: 1023px)").matches) return false;
+    const buffer = this.term.buffer.active;
+    if (!this.promptOffset && (pixels <= 0 || buffer.viewportY < buffer.baseY)) return false;
+    const height = this.options.host.clientHeight;
+    const limit = Math.max(0, Math.min(height - 64, window.innerHeight * 0.6));
+    const next = Math.max(0, Math.min(limit, this.promptOffset + pixels));
+    if (next === this.promptOffset) return false;
+    this.promptOffset = next;
+    if (this.term.element) this.term.element.style.transform = `translateY(${-next}px)`;
+    return true;
+  }
   private disposeScroll: () => void;
   private observer: ResizeObserver;
   private disposables: IDisposable[] = [];
@@ -140,6 +160,7 @@ export class Engine {
     this.observer.observe(options.host);
     this.term.textarea?.addEventListener("blur", () => {
       this.controlsPrefix = false;
+      this.resetPromptPan();
     }, { signal: this.lifetime.signal });
     this.term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
@@ -187,6 +208,7 @@ export class Engine {
       // Held still, the terminal becomes text: the buffer as the phone's own
       // selectable type, which is the only kind a phone can select and copy.
       longPress: () => this.freeze(true),
+      promptPan: pixels => this.panPrompt(pixels),
       // A live selection owns a horizontal drag: it is how text is extended,
       // not how the next terminal is chosen.
       selection: () => this.term.hasSelection(),
@@ -339,6 +361,9 @@ export class Engine {
         !this.options.host.getBoundingClientRect().width
       )
         return;
+      const height = this.options.host.clientHeight;
+      if (height > this.promptHeight + 20) this.resetPromptPan();
+      this.promptHeight = height;
       this.fit.fit();
       this.options.frozen.style.top = this.options.host.offsetTop + "px";
       this.term.refresh(0, this.term.rows - 1);
