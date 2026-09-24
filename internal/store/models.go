@@ -212,16 +212,27 @@ type Session struct {
 
 	// Usage — latest values only, from the agent's own statusline/rollout.
 	// History lives in usage_daily (see store/usage.go).
-	ContextTokens *int     `json:"context_tokens,omitempty"`
-	ContextSize   *int     `json:"context_size,omitempty"`
-	CostUSD       *float64 `json:"cost_usd,omitempty"`
-	LinesAdded    *int     `json:"lines_added,omitempty"`
-	LinesRemoved  *int     `json:"lines_removed,omitempty"`
-	Rate5hPct     *int     `json:"rate_5h_pct,omitempty"`
-	Rate5hReset   *float64 `json:"rate_5h_reset,omitempty"`
-	Rate7dPct     *int     `json:"rate_7d_pct,omitempty"`
-	Rate7dReset   *float64 `json:"rate_7d_reset,omitempty"`
-	UsageAt       *float64 `json:"usage_at,omitempty"`
+	// ContextUsedPct is the agent's "percent of context window used" —
+	// distinct from the older, screen-scraped ContextPct above ("percent
+	// left until auto-compact"); see the schema comment on context_used_pct.
+	ContextUsedPct *int     `json:"context_used_pct,omitempty"`
+	ContextTokens  *int     `json:"context_tokens,omitempty"`
+	ContextSize    *int     `json:"context_size,omitempty"`
+	CostUSD        *float64 `json:"cost_usd,omitempty"`
+	LinesAdded     *int     `json:"lines_added,omitempty"`
+	LinesRemoved   *int     `json:"lines_removed,omitempty"`
+	Rate5hPct      *int     `json:"rate_5h_pct,omitempty"`
+	Rate5hReset    *float64 `json:"rate_5h_reset,omitempty"`
+	Rate7dPct      *int     `json:"rate_7d_pct,omitempty"`
+	Rate7dReset    *float64 `json:"rate_7d_reset,omitempty"`
+	UsageAt        *float64 `json:"usage_at,omitempty"`
+	// CodexThreadID is the codex rollout session id (see schema.go). Never
+	// serialized: it is an internal handle for the rollout reader, not
+	// something a card needs to render.
+	CodexThreadID string `json:"-"`
+	// PrecompactAt is the last PreCompact hook time, for a brief
+	// "compacting" card warning (see schema.go comment).
+	PrecompactAt *float64 `json:"precompact_at,omitempty"`
 
 	// joined for the UI, which groups sessions by project and names their host
 	ProjectName string `json:"project_name,omitempty"`

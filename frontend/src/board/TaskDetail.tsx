@@ -6,6 +6,7 @@ import { DiffViewer } from "../review/DiffViewer";
 import { CommentTray } from "../review/CommentTray";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
+import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
 export interface TaskDetailApi {
@@ -198,6 +199,26 @@ export function TaskDetail({
           </>
         )}
       </div>
+      {task.attempt?.result && (() => {
+        const u = resultUsage(task.attempt!.result);
+        if (u.costUSD == null && u.outputTokens == null && u.contextPct == null) return null;
+        return (
+          <div className="usage-line">
+            {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+            {u.costUSD == null && u.outputTokens != null && (
+              <span className="chip">{formatTokens(u.outputTokens)} tok</span>
+            )}
+            {u.contextPct != null && (
+              <span
+                className={`ctxbar ctx-used ${contextClass(u.contextPct)}`}
+                title={`${formatTokens(u.contextTokens)} / ${formatTokens(u.contextSize)} tokens used`}
+              >
+                ctx <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
+              </span>
+            )}
+          </div>
+        );
+      })()}
       {task.attempts.length > 1 && (
         <div className="btnrow attempt-chips">
           {task.attempts.map((a) => (

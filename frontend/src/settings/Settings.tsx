@@ -7,6 +7,7 @@ import { Workflows } from "./Workflows";
 import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
+import { UsagePanel } from "./UsagePanel";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
 }
@@ -196,6 +197,7 @@ export function Settings({
               {stats.tasks_done} tasks done
             </p>
           )}
+          <UsagePanel api={api} />
           <Whoami api={api} />
           <Build api={api} />
         </section>

@@ -53,6 +53,19 @@ type notificationProbe struct {
 	NotificationType string `json:"notification_type"`
 }
 
+// codexNotifyProbe pulls the thread id out of an AgentTurnComplete body
+// (internal/agentevents/codex_settings.go's notify script wraps codex's
+// notify payload under "codex_notify"; the field name is "thread-id",
+// hyphenated, exactly as codex's own binary strings list it). This is what
+// lets the codex rollout reader (codex_rollout.go) find this session's exact
+// ~/.codex/sessions/*/*/*/rollout-*-<id>.jsonl file without guessing from
+// cwd or start time.
+type codexNotifyProbe struct {
+	CodexNotify struct {
+		ThreadID string `json:"thread-id"`
+	} `json:"codex_notify"`
+}
+
 // IngestEvent applies one hook event to a session and returns the state it
 // landed in (which may be unchanged, or "" if the event carries no state).
 //
@@ -81,6 +94,16 @@ func (in *Ingester) IngestEvent(s *store.Session, event string, body []byte) (st
 		fields["state_at"] = now
 		if status, sok := StatusForState(newState); sok {
 			fields["status"] = status
+		}
+	}
+	if event == EventPreCompact {
+		fields["precompact_at"] = now
+	}
+	if event == EventAgentTurnComplete && len(body) > 0 {
+		var np codexNotifyProbe
+		if err := json.Unmarshal(body, &np); err == nil && np.CodexNotify.ThreadID != s.CodexThreadID &&
+			ValidCodexThreadID(np.CodexNotify.ThreadID) {
+			fields["codex_thread_id"] = np.CodexNotify.ThreadID
 		}
 	}
 	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
@@ -141,19 +164,19 @@ func (in *Ingester) IngestStatusline(s *store.Session, body []byte) error {
 
 	model := p.Model.ID
 	fields := map[string]any{
-		"hook_seen_at":   now,
-		"updated_at":     now,
-		"usage_at":       now,
-		"context_pct":    p.ContextWindow.UsedPercentage,
-		"context_tokens": p.ContextWindow.TotalInputTokens,
-		"context_size":   p.ContextWindow.ContextWindowSize,
-		"cost_usd":       p.Cost.TotalCostUSD,
-		"lines_added":    p.Cost.TotalLinesAdded,
-		"lines_removed":  p.Cost.TotalLinesRemoved,
-		"rate_5h_pct":    p.RateLimits.FiveHour.UsedPercentage,
-		"rate_5h_reset":  p.RateLimits.FiveHour.ResetsAt,
-		"rate_7d_pct":    p.RateLimits.SevenDay.UsedPercentage,
-		"rate_7d_reset":  p.RateLimits.SevenDay.ResetsAt,
+		"hook_seen_at":     now,
+		"updated_at":       now,
+		"usage_at":         now,
+		"context_used_pct": p.ContextWindow.UsedPercentage,
+		"context_tokens":   p.ContextWindow.TotalInputTokens,
+		"context_size":     p.ContextWindow.ContextWindowSize,
+		"cost_usd":         p.Cost.TotalCostUSD,
+		"lines_added":      p.Cost.TotalLinesAdded,
+		"lines_removed":    p.Cost.TotalLinesRemoved,
+		"rate_5h_pct":      p.RateLimits.FiveHour.UsedPercentage,
+		"rate_5h_reset":    p.RateLimits.FiveHour.ResetsAt,
+		"rate_7d_pct":      p.RateLimits.SevenDay.UsedPercentage,
+		"rate_7d_reset":    p.RateLimits.SevenDay.ResetsAt,
 	}
 	if model != "" {
 		fields["model"] = model
@@ -183,7 +206,7 @@ func (in *Ingester) IngestStatusline(s *store.Session, body []byte) error {
 	}
 	in.publishSession(fresh)
 	usagePayload := map[string]any{
-		"id": s.ID, "model": model, "context_pct": p.ContextWindow.UsedPercentage,
+		"id": s.ID, "model": model, "context_used_pct": p.ContextWindow.UsedPercentage,
 		"context_tokens": p.ContextWindow.TotalInputTokens, "context_size": p.ContextWindow.ContextWindowSize,
 		"cost_usd": p.Cost.TotalCostUSD, "lines_added": p.Cost.TotalLinesAdded, "lines_removed": p.Cost.TotalLinesRemoved,
 		"rate_5h_pct": p.RateLimits.FiveHour.UsedPercentage, "rate_5h_reset": p.RateLimits.FiveHour.ResetsAt,
@@ -203,6 +226,57 @@ func (in *Ingester) IngestStatusline(s *store.Session, body []byte) error {
 func (in *Ingester) publishSession(s *store.Session) {
 	in.Bus.Publish("board", "session", s)
 	in.Bus.Publish(fmt.Sprintf("session:%d", s.ID), "session", s)
+}
+
+// IngestCodexUsage applies one codex rollout usage reading (see
+// codex_rollout.go) to a session — the codex equivalent of IngestStatusline.
+// Codex's total_token_usage is genuinely cumulative for the whole thread
+// (unlike Claude's confusingly-named total_input_tokens, which is a
+// per-request footprint — see the comment on IngestStatusline), so the same
+// "diff against whatever usage_daily already booked" delta math applies
+// unchanged. There is no cost figure: docs/agent-events.md calls for tokens
+// instead of a dollar amount for codex, so cost_usd is left untouched.
+func (in *Ingester) IngestCodexUsage(s *store.Session, usage *CodexUsage) error {
+	now := store.Now()
+	bookedInput, bookedOutput, err := in.DB.UsageDailySessionTotals(s.ID)
+	if err != nil {
+		return err
+	}
+	inputDelta := deltaInt(&bookedInput, usage.InputTokens)
+	outputDelta := deltaInt(&bookedOutput, usage.OutputTokens)
+
+	fields := map[string]any{
+		"hook_seen_at":     now,
+		"updated_at":       now,
+		"usage_at":         now,
+		"context_used_pct": usage.ContextPct,
+		"context_tokens":   usage.ContextTokens,
+		"context_size":     usage.ContextSize,
+	}
+	if usage.Model != "" {
+		fields["model"] = usage.Model
+	}
+	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
+		return err
+	}
+
+	date := time.Now().UTC().Format("2006-01-02")
+	if err := in.DB.UpsertUsageDelta(date, s.ID, s.Agent, usage.Model, 0, inputDelta, outputDelta); err != nil {
+		return err
+	}
+
+	fresh, ferr := in.DB.Session(s.ID)
+	if ferr != nil {
+		return nil
+	}
+	in.publishSession(fresh)
+	payload := map[string]any{
+		"id": s.ID, "model": usage.Model, "context_used_pct": usage.ContextPct,
+		"context_tokens": usage.ContextTokens, "context_size": usage.ContextSize, "at": now,
+	}
+	in.Bus.Publish("board", "session.usage", payload)
+	in.Bus.Publish(fmt.Sprintf("session:%d", s.ID), "session.usage", payload)
+	return nil
 }
 
 func deltaFloat(oldValue *float64, newValue float64) float64 {

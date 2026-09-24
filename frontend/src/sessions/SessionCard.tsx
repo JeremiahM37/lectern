@@ -9,6 +9,7 @@ import {
   scratchDefaultName,
   scratchTitle,
 } from "./scratch";
+import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -248,21 +249,10 @@ export function SessionCard({
         {s.handoff_in_flight && (
           <span className="chip warn">writing handoff…</span>
         )}
-        {s.context_pct != null && (
-          <span
-            className={`ctxbar ${s.context_pct <= 10 ? "crit" : s.context_pct <= 25 ? "low" : ""}`}
-          >
-            ctx{" "}
-            <i>
-              <b
-                style={{
-                  width: `${Math.max(0, Math.min(100, s.context_pct))}%`,
-                }}
-              />
-            </i>{" "}
-            {s.context_pct}%
-          </span>
-        )}
+        <ContextBadge session={s} />
+        <CostBadge session={s} />
+        <LinesBadge session={s} />
+        <CompactionWarning session={s} />
         {s.group_path && <span className="chip">{s.group_path}</span>}
       </div>
       <div className="spane">{preview}</div>

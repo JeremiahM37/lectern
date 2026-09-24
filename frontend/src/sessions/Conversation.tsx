@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
+import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 interface Attachment {
   name: string;
   path: string;
@@ -714,6 +715,15 @@ export function Conversation({
                 ? `${status} · reconnecting…`
                 : status}
           </p>
+          {session && (
+            <div className="conversation-usage">
+              {session.model && <span className="chip">{session.model}</span>}
+              <ContextBadge session={session} />
+              <CostBadge session={session} />
+              <LinesBadge session={session} />
+              <CompactionWarning session={session} />
+            </div>
+          )}
         </div>
         {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
         <button

@@ -156,6 +156,69 @@ func TestCodexInflightCommandIsNotAnError(t *testing.T) {
 	eq(t, types(events), []string{"tool_use"})
 }
 
+// TestClaudeResultUsageFeedsTaskUsage covers the result event's usage/
+// modelUsage fields (see NormalizeClaude's "result" case) — the shape
+// documented on Claude Code's SDK result event, now flowing into
+// attempts.result_json via internal/scheduler.StoreEvents without disturbing
+// the existing cost_usd/duration_ms/etc keys.
+func TestClaudeResultUsageFeedsTaskUsage(t *testing.T) {
+	line := `{"type":"result","subtype":"success","total_cost_usd":0.11,"duration_ms":900,` +
+		`"num_turns":3,"result":"done","session_id":"s-1",` +
+		`"usage":{"input_tokens":2,"cache_creation_input_tokens":13590,"cache_read_input_tokens":22859,"output_tokens":40},` +
+		`"modelUsage":{"claude-opus-5-5":{"inputTokens":2,"outputTokens":40,"contextWindow":1000000,"costUSD":0.11}}}`
+	events, _ := ParseStreamLines("claude", line+"\n")
+	eq(t, types(events), []string{"result"})
+	p := events[0].Payload
+	if p["cost_usd"] != 0.11 {
+		t.Errorf("cost_usd should still be set for existing consumers: %v", p["cost_usd"])
+	}
+	if p["context_tokens"] != 36451 {
+		t.Errorf("context_tokens = %v, want 36451 (2+13590+22859)", p["context_tokens"])
+	}
+	if p["output_tokens"] != 40 {
+		t.Errorf("output_tokens = %v", p["output_tokens"])
+	}
+	if p["model"] != "claude-opus-5-5" {
+		t.Errorf("model = %v", p["model"])
+	}
+	if p["context_size"] != 1000000 {
+		t.Errorf("context_size = %v", p["context_size"])
+	}
+	usage, ok := p["usage"].(map[string]any)
+	if !ok || usage["output_tokens"] != float64(40) {
+		t.Errorf("usage passthrough: %v", p["usage"])
+	}
+}
+
+// TestClaudeResultWithoutUsageStaysUnchanged guards the case parse_test.go
+// already covers in TestFullClaudeStream: a result event with none of the
+// newer fields must not gain fabricated ones.
+func TestClaudeResultWithoutUsageStaysUnchanged(t *testing.T) {
+	events, _ := ParseStreamLines("claude", doneLine+"\n")
+	p := events[0].Payload
+	for _, key := range []string{"usage", "context_tokens", "context_size", "output_tokens"} {
+		if _, present := p[key]; present {
+			t.Errorf("%s should be absent with no usage/modelUsage in the source event, got %v", key, p[key])
+		}
+	}
+}
+
+func TestCodexTurnCompletedCarriesInputAndOutputTokens(t *testing.T) {
+	line := `{"type":"turn.completed","usage":{"input_tokens":34710,"output_tokens":137}}`
+	events, _ := ParseStreamLines("codex", line+"\n")
+	eq(t, types(events), []string{"result"})
+	p := events[0].Payload
+	if p["input_tokens"] != float64(34710) {
+		t.Errorf("input_tokens = %v", p["input_tokens"])
+	}
+	if p["output_tokens"] != float64(137) || p["tokens"] != float64(137) {
+		t.Errorf("output_tokens/tokens = %v / %v", p["output_tokens"], p["tokens"])
+	}
+	if p["cost_usd"] != nil {
+		t.Errorf("codex cost must stay nil (unknown), got %v", p["cost_usd"])
+	}
+}
+
 func TestCodexParserToleratesGarbage(t *testing.T) {
 	events, _ := ParseStreamLines("codex", "not json\n"+`{"type":"mystery"}`+"\n")
 	eq(t, types(events), []string{"raw", "raw"})

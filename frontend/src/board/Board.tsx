@@ -4,6 +4,8 @@ import type { JsonValue } from "../api";
 import { CreateTask } from "./CreateTask";
 import { Routines } from "./Routines";
 import { TaskDetail } from "./TaskDetail";
+import { QuotaChip } from "../sessions/QuotaChip";
+import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
 type QuickMode = "dispatch" | "orchestrate";
@@ -280,7 +282,25 @@ export function Board({
                   const stats = task.attempt!.diff_stat as Array<{ additions?: number; deletions?: number }>;
                   return <span className="chip ds">+{stats.reduce((n, row) => n + (row.additions || 0), 0)} <b>−{stats.reduce((n, row) => n + (row.deletions || 0), 0)}</b></span>;
                 })()}
-                {task.attempt?.result?.cost_usd != null && <span className="chip cost">${Number(task.attempt.result.cost_usd).toFixed(3)}</span>}
+                {(() => {
+                  const u = resultUsage(task.attempt?.result);
+                  return (
+                    <>
+                      {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+                      {u.costUSD == null && u.outputTokens != null && (
+                        <span className="chip">{formatTokens(u.outputTokens)} tok</span>
+                      )}
+                      {u.contextPct != null && (
+                        <span
+                          className={`ctxbar ctx-used ${contextClass(u.contextPct)}`}
+                          title={`${formatTokens(u.contextTokens)} / ${formatTokens(u.contextSize)} tokens used`}
+                        >
+                          ctx <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
                 {typeof task.attempt?.verify?.cmd === "string" && <span className={`chip ${task.attempt.verify.rc === 0 ? "ds" : "bad"}`}>{task.attempt.verify.rc === 0 ? "✓ verified" : "✗ verify"}</span>}
                 {task.priority >= 3 && (
                   <span className="chip warn">▲ high</span>
@@ -307,6 +327,7 @@ export function Board({
     <section>
       <div className="page-heading">
         <h2>Task board</h2>
+        <QuotaChip api={api} />
         <div className="btnrow">
           <button id="qb-routines" onClick={() => setSheet("routines")}>Routines</button>
           {/* A phone has the floating button under the thumb; one is enough. */}

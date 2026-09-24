@@ -165,6 +165,16 @@ CREATE TABLE IF NOT EXISTS sessions(
   -- Usage, latest values only — history lives in usage_daily. Populated from
   -- Claude's statusline JSON (context_window, cost, rate_limits) today; other
   -- drivers fill what they can and leave the rest at their zero value.
+  -- context_used_pct is a SEPARATE column from the older context_pct above:
+  -- context_pct is "percent of context left until auto-compact" parsed off
+  -- the terminal footer (low is bad), while context_used_pct is "percent of
+  -- the context window already used" from the agent's own statusline/rollout
+  -- (high is bad) — the two are inverse-ish readings from different sources
+  -- and must never share a column (see docs/agent-events.md's usage-view
+  -- worker note: an earlier pass reused context_pct for used_percentage,
+  -- which made poll.go's screen scrape and the hook ingest fight over one
+  -- column with opposite meanings).
+  context_used_pct INTEGER,
   context_tokens INTEGER,
   context_size INTEGER,
   cost_usd REAL,
@@ -174,7 +184,19 @@ CREATE TABLE IF NOT EXISTS sessions(
   rate_5h_reset REAL,
   rate_7d_pct INTEGER,
   rate_7d_reset REAL,
-  usage_at REAL
+  usage_at REAL,
+  -- codex_thread_id is the codex rollout's session/thread id, learned from
+  -- the AgentTurnComplete notify payload (internal/agentevents/codex_settings.go).
+  -- It is what lets the codex rollout reader (internal/agentevents/codex_rollout.go)
+  -- find the exact ~/.codex/sessions/*/*/*/rollout-*-<id>.jsonl file on the
+  -- session's target without guessing from cwd/start time.
+  codex_thread_id TEXT NOT NULL DEFAULT '',
+  -- precompact_at records the last time a PreCompact hook reached this
+  -- session, so a card can show a brief "compacting" warning even in the gap
+  -- before the next statusline/rollout tick reports the resulting drop in
+  -- context_used_pct. Section 3's push-on-PreCompact is a different worker's
+  -- job; this column only feeds the card, no notification.
+  precompact_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 -- One wrap per handoff: what the agent said it was doing, kept so the project
@@ -345,4 +367,7 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN rate_7d_reset REAL",
 	"ALTER TABLE sessions ADD COLUMN usage_at REAL",
 	"ALTER TABLE attempts ADD COLUMN driver TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN context_used_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN codex_thread_id TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN precompact_at REAL",
 }

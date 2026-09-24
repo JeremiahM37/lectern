@@ -180,14 +180,47 @@ func NormalizeClaude(raw map[string]any) []Event {
 		return out
 	}
 	if t == "result" {
-		return []Event{{"result", map[string]any{
+		payload := map[string]any{
 			"subtype":     str(raw["subtype"]),
 			"cost_usd":    raw["total_cost_usd"],
 			"duration_ms": raw["duration_ms"],
 			"num_turns":   raw["num_turns"],
 			"result":      clip(str(raw["result"]), 4000),
 			"session_id":  str(raw["session_id"]),
-		}}}
+		}
+		// Usage/context fields the result event carries (see
+		// docs/agent-events.md's usage section: "Tasks ... gain the same
+		// context fields where the driver reports them"), stored into
+		// attempts.result_json by internal/scheduler.StoreEvents without
+		// disturbing any of the keys above existing consumers already read.
+		// "usage" (input/output/cache token counts) is the field Claude's own
+		// SDK types document on the result event; context_tokens mirrors how
+		// internal/agentevents/ingest.go turns the same shape of numbers into
+		// a context reading for sessions (input + cache_creation + cache_read).
+		if usage, ok := raw["usage"].(map[string]any); ok {
+			payload["usage"] = usage
+			in, _ := usage["input_tokens"].(float64)
+			cc, _ := usage["cache_creation_input_tokens"].(float64)
+			cr, _ := usage["cache_read_input_tokens"].(float64)
+			out, _ := usage["output_tokens"].(float64)
+			payload["context_tokens"] = int(in + cc + cr)
+			payload["output_tokens"] = int(out)
+		}
+		// modelUsage carries the context window size per model on newer
+		// Claude Code releases; a single-model run has one entry, so the
+		// first is taken rather than merged.
+		if mu, ok := raw["modelUsage"].(map[string]any); ok {
+			for model, v := range mu {
+				if vm, ok := v.(map[string]any); ok {
+					payload["model"] = model
+					if cw, ok := vm["contextWindow"].(float64); ok {
+						payload["context_size"] = int(cw)
+					}
+				}
+				break
+			}
+		}
+		return []Event{{"result", payload}}
 	}
 	return []Event{{"raw", map[string]any{"data": truncate(raw, 2000)}}}
 }
@@ -203,13 +236,19 @@ func normalizeCodex(raw map[string]any) []Event {
 		return nil
 	case "turn.completed":
 		usage, _ := raw["usage"].(map[string]any)
-		var tokens any
+		var tokens, inputTokens any
 		if usage != nil {
 			tokens = usage["output_tokens"]
+			inputTokens = usage["input_tokens"]
 		}
+		// codex has no per-turn cost figure in this event (unlike Claude's
+		// total_cost_usd) — cost is unknown for codex by design, per
+		// docs/agent-events.md's "cost unknown for codex -> show tokens
+		// instead of $".
 		return []Event{{"result", map[string]any{
 			"subtype": "success", "cost_usd": nil, "num_turns": nil,
-			"duration_ms": nil, "result": "", "session_id": "", "tokens": tokens}}}
+			"duration_ms": nil, "result": "", "session_id": "",
+			"tokens": tokens, "output_tokens": tokens, "input_tokens": inputTokens}}}
 	case "item.started", "item.completed":
 		item, _ := raw["item"].(map[string]any)
 		if item == nil {
