@@ -252,6 +252,10 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{1, "", "2 failed, 3 passed"}, nil
 	case strings.Contains(cmd, "mockverify-pass"):
 		return Result{0, "5 passed in 0.1s", ""}, nil
+	case strings.Contains(cmd, "mocksetup-fail"):
+		return Result{1, "", "setup blew up"}, nil
+	case strings.Contains(cmd, "mocksetup-pass"):
+		return Result{0, "setup ok", ""}, nil
 	case strings.Contains(cmd, "git add -A && git commit"):
 		return Result{0, "[lec 1a2b3c4] mock commit", ""}, nil
 	case strings.HasPrefix(cmd, "git") && strings.Contains(cmd, " push "):

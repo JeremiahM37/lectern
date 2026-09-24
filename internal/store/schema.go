@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS tasks(
   parent_task_id INTEGER, created_by TEXT DEFAULT 'user',
   created_by_attempt INTEGER,
   created_at REAL, updated_at REAL,
-  check_command TEXT NOT NULL DEFAULT ''
+  check_command TEXT NOT NULL DEFAULT '',
+  setup_command TEXT NOT NULL DEFAULT '',
+  setup_timeout_s INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE TABLE IF NOT EXISTS attempts(
@@ -469,4 +471,9 @@ var migrations = []string{
 	"ALTER TABLE tasks ADD COLUMN check_command TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE launch_profiles ADD COLUMN description TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE launch_profiles ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
+	// setup_command/setup_timeout_s are the eval engine's real host-side
+	// pre-step (see internal/scheduler's runSetupCommand): a case's own
+	// setup_command used to be folded into the prompt instead.
+	"ALTER TABLE tasks ADD COLUMN setup_command TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE tasks ADD COLUMN setup_timeout_s INTEGER NOT NULL DEFAULT 0",
 }

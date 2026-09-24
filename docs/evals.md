@@ -25,8 +25,8 @@ Agent tests → pick a project → **+ Create suite** → add cases. Each case h
 | `prompt` | What the agent is asked to do |
 | `base_ref` | Branch/ref to start the worktree from (empty = project default) |
 | `check_command` | Shell command run in the worktree after the agent finishes; exit 0 = pass. Empty falls back to the **project's** own verify command (`Project.VerifyCmd`); if neither is set, the case passes whenever the agent's own run succeeds |
-| `setup_command` | Optional; folded into the prompt as an instruction the agent runs first (there is no host-side pre-step — see Limitations) |
-| `timeout_s` | Stored per case; **not yet host-enforced** (see Limitations) |
+| `setup_command` | Optional; run for real on the target, in the attempt's own worktree, after the worktree is created and **before the agent starts** (there is no prompt involved). Bounded by `min(timeout_s, 600)` seconds. A non-zero exit (or the target being unreachable) fails the cell as `error`, with the setup command's output tail as `check_output_tail`, and the agent is never launched |
+| `timeout_s` | How long, in seconds, the case's attempt may run once it actually starts (waiting for a target concurrency slot doesn't count). An attempt that overruns it is cancelled through the scheduler's normal cancel path and the cell is recorded as `timeout` — distinct from `failed` (ran to completion, wrong result) and `error` (the agent or its launch broke) |
 
 ### From the repo: `.lectern/evals/*.yaml`
 
@@ -91,15 +91,29 @@ POST          /api/evals/runs/{id}/cancel
 GET           /api/evals/runs/{id}/compare/{other}
 ```
 
-## Limitations (known, not yet done)
+## How enforcement works
 
-- `timeout_s` is stored per case but nothing currently kills a cell's agent
-  run early because of it — a hung agent hangs the cell until it exits on its
-  own (or the run is cancelled by hand).
-- `setup_command` is not run as a host-side step before the agent starts; it
-  is prepended to the prompt as an instruction ("before doing anything else,
-  run this command…"), so it depends on the agent actually following it.
-- A cell's check runs via the same task-level auto-verify path Best-of-N
-  uses (`internal/scheduler`'s `captureAndFinalize`), with the case's
-  `check_command` overriding the project's for that one task
+- **Timeouts.** The engine tick that already polls running cells
+  (`internal/api/evals_engine.go`'s `tickEvalRun`) checks each running cell's
+  attempt against `store.Now() - attempt.StartedAt`; once that exceeds the
+  case's `timeout_s` it cancels the attempt through `Scheduler.CancelAttempt`
+  — the same path the board's Cancel button and a cancelled run use — and
+  records the cell as `eval_results.status = "timeout"`. There is no
+  per-cell goroutine or extra timer; it rides the tick that was already
+  running.
+- **Setup.** A case's `setup_command` is copied onto the dispatched task as
+  `store.Task.SetupCommand`/`SetupTimeoutS` (set by `dispatchEvalCell`,
+  analogous to how `CheckCommand` is already copied onto the task for
+  auto-verify). The scheduler runs it for real
+  (`Scheduler.runSetupCommand`, called from both `launch` and
+  `launchSandboxInner`) in the attempt's own worktree, on its target, right
+  after the worktree exists and before `stageRuntime` writes anything the
+  agent reads — so a fixture it creates is visible on the agent's first
+  turn. A non-zero exit (or an unreachable target) returns an error that
+  aborts the launch before the agent ever starts; the attempt is recorded
+  `failed` with that error, which `gradeEvalResult` turns into
+  `eval_results.status = "error"` carrying the setup command's output tail.
+- **Checks.** A cell's check still runs via the same task-level auto-verify
+  path Best-of-N uses (`internal/scheduler`'s `captureAndFinalize`), with
+  the case's `check_command` overriding the project's for that one task
   (`store.Task.CheckCommand`) — it is not a separate sandboxed check step.

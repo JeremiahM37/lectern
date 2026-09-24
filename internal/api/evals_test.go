@@ -3,6 +3,9 @@ package api_test
 import (
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 func TestEvalSuiteAndCaseCRUD(t *testing.T) {
@@ -208,5 +211,115 @@ func TestEvalRunCancelStopsItAndCompareDiffsTwoRuns(t *testing.T) {
 	}
 	if cases[0].str("status") != "improvement" {
 		t.Errorf("cancelled(0%%) -> passed(100%%) should read improvement: %v", cases[0])
+	}
+}
+
+// TestEvalRunEnforcesTimeoutAndRecordsTimeoutStatus proves timeout_s is
+// actually enforced: a cell whose attempt runs longer than its case's
+// timeout_s is cancelled through the scheduler's normal cancel path and
+// recorded as "timeout" — not "failed" or "error" — while the run itself
+// still reaches "done" rather than hanging on the cancelled cell.
+func TestEvalRunEnforcesTimeoutAndRecordsTimeoutStatus(t *testing.T) {
+	// A generous per-step mock agent delay (4 steps to "result") makes the
+	// attempt's natural runtime (~4s) comfortably longer than the 1s
+	// timeout_s below, so the assertion is "cancelled early", not "happened
+	// to still be running when it finished on its own".
+	h := newHarness(t, func(c *config.Config) { c.MockAgentDelay = 1 * time.Second })
+	pid := h.seededProjectID()
+	suite := h.post("/api/evals/suites", obj{"name": "timeout suite", "project_id": pid}, 201)
+	h.post(fmt.Sprintf("/api/evals/suites/%d/cases", suite.id()),
+		obj{"name": "slow case", "prompt": "do it", "timeout_s": 1}, 201)
+
+	run := h.post(fmt.Sprintf("/api/evals/suites/%d/runs", suite.id()), obj{
+		"variants": []obj{{"model": "sonnet"}}, "repeats": 1,
+	}, 201)
+
+	var view obj
+	h.waitUntil("the cell to be recorded as timeout", func() bool {
+		view = h.get(fmt.Sprintf("/api/evals/runs/%d", run.id()))
+		results := view.list("results")
+		return len(results) == 1 && results[0].str("status") == "timeout"
+	})
+	res := view.list("results")[0]
+	if res.num("duration_s") <= 0 || res.num("duration_s") > 3 {
+		t.Errorf("expected a duration_s just over the 1s timeout, not the ~4s natural runtime: %v", res)
+	}
+	if !contains(res.str("check_output_tail"), "timeout") {
+		t.Errorf("expected the timeout to be explained: %v", res)
+	}
+
+	// the run itself still reaches "done" — a timed-out cell must not hang it
+	h.waitUntil("the run to finish", func() bool {
+		view = h.get(fmt.Sprintf("/api/evals/runs/%d", run.id()))
+		return view.sub("run").str("status") == "done"
+	})
+}
+
+// TestEvalRunSetupCommandFailureBlocksTheAgentAndRecordsError proves
+// setup_command runs for real, on the target, before the agent starts: a
+// failing one must stop the cell as "error" (carrying the setup command's
+// own output) and the agent must never be launched at all.
+func TestEvalRunSetupCommandFailureBlocksTheAgentAndRecordsError(t *testing.T) {
+	h := newHarness(t)
+	pid := h.seededProjectID()
+	suite := h.post("/api/evals/suites", obj{"name": "bad setup suite", "project_id": pid}, 201)
+	h.post(fmt.Sprintf("/api/evals/suites/%d/cases", suite.id()),
+		obj{"name": "bad setup", "prompt": "do it", "check_command": "mockverify-pass",
+			"setup_command": "mocksetup-fail"}, 201)
+
+	run := h.post(fmt.Sprintf("/api/evals/suites/%d/runs", suite.id()), obj{
+		"variants": []obj{{"model": "sonnet"}}, "repeats": 1,
+	}, 201)
+
+	var view obj
+	h.waitUntil("the run to finish", func() bool {
+		view = h.get(fmt.Sprintf("/api/evals/runs/%d", run.id()))
+		return view.sub("run").str("status") == "done"
+	})
+	results := view.list("results")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 cell, got %v", results)
+	}
+	res := results[0]
+	if res.str("status") != "error" {
+		t.Fatalf("a failing setup_command should read error, got %v", res)
+	}
+	if !contains(res.str("check_output_tail"), "setup command") {
+		t.Errorf("expected the setup command's own failure to be explained: %v", res)
+	}
+	if h.cmdLogHas("tmux new-session") {
+		t.Error("the agent must never start when its case's setup_command fails")
+	}
+	if !h.cmdLogHas("mocksetup-fail") {
+		t.Error("the setup command should have actually been run on the target")
+	}
+}
+
+// TestEvalRunSetupCommandSuccessLetsTheAgentRun is the success-path
+// complement: a setup_command that succeeds lets the agent start and the
+// cell grade normally.
+func TestEvalRunSetupCommandSuccessLetsTheAgentRun(t *testing.T) {
+	h := newHarness(t)
+	pid := h.seededProjectID()
+	suite := h.post("/api/evals/suites", obj{"name": "good setup suite", "project_id": pid}, 201)
+	h.post(fmt.Sprintf("/api/evals/suites/%d/cases", suite.id()),
+		obj{"name": "good setup", "prompt": "do it", "check_command": "mockverify-pass",
+			"setup_command": "mocksetup-pass"}, 201)
+
+	run := h.post(fmt.Sprintf("/api/evals/suites/%d/runs", suite.id()), obj{
+		"variants": []obj{{"model": "sonnet"}}, "repeats": 1,
+	}, 201)
+
+	var view obj
+	h.waitUntil("the run to finish", func() bool {
+		view = h.get(fmt.Sprintf("/api/evals/runs/%d", run.id()))
+		return view.sub("run").str("status") == "done"
+	})
+	results := view.list("results")
+	if len(results) != 1 || results[0].str("status") != "passed" {
+		t.Fatalf("a passing setup_command should not block a passing cell: %v", results)
+	}
+	if !h.cmdLogHas("tmux new-session") {
+		t.Error("the agent should have started once setup_command succeeded")
 	}
 }

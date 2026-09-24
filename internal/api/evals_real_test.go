@@ -121,3 +121,54 @@ func TestEvalRunRealProcessMatrixAndLeaderboard(t *testing.T) {
 		t.Errorf("bad variant pass_rate: %v", bad)
 	}
 }
+
+// TestEvalRunRealProcessSetupCommandCreatesFixtureForCheck proves
+// setup_command runs for real, on the target, in the attempt's own
+// worktree, before the agent starts — not folded into the prompt as an
+// instruction the agent has to remember to follow. The variant's stub agent
+// is the "bad" one, which never creates marker.txt itself; the ONLY thing
+// that can produce fixture.txt is the case's own setup_command running as a
+// real host-side step, and the check_command (which the agent never sees or
+// runs) looks for exactly that file. A pass here is only possible if the
+// setup step actually executed on the target.
+func TestEvalRunRealProcessSetupCommandCreatesFixtureForCheck(t *testing.T) {
+	r := newRealRig(t)
+	if err := os.WriteFile(r.app.Cfg.ClaudeBin, []byte(evalStubAgent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	suite := r.doJSON(t, "POST", "/api/evals/suites", map[string]any{
+		"name": "setup fixture suite", "project_id": r.project})
+	suiteID := int64(suite["id"].(float64))
+	r.doJSON(t, "POST", fmt.Sprintf("/api/evals/suites/%d/cases", suiteID), map[string]any{
+		"name": "fixture case", "prompt": "create marker.txt",
+		"setup_command": "printf fixture > fixture.txt", "check_command": "test -f fixture.txt",
+		"timeout_s": 60,
+	})
+	run := r.doJSON(t, "POST", fmt.Sprintf("/api/evals/suites/%d/runs", suiteID), map[string]any{
+		"variants": []map[string]any{{"agent": "claude", "model": "bad"}},
+		"repeats":  1,
+	})
+	runID := int64(run["id"].(float64))
+
+	deadline := time.Now().Add(30 * time.Second)
+	var view map[string]any
+	for time.Now().Before(deadline) {
+		view = r.doJSON(t, "GET", fmt.Sprintf("/api/evals/runs/%d", runID), nil)
+		if view["run"].(map[string]any)["status"] == "done" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if view == nil || view["run"].(map[string]any)["status"] != "done" {
+		t.Fatalf("run did not finish: %v", view)
+	}
+	results := view["results"].([]any)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 cell, got %d: %v", len(results), results)
+	}
+	res := results[0].(map[string]any)
+	if res["status"] != "passed" {
+		t.Fatalf("expected the cell to pass off the setup-created fixture (agent never makes it): %v", res)
+	}
+}

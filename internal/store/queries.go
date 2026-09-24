@@ -176,14 +176,15 @@ func (db *DB) InsertProject(p *Project) (*Project, error) {
 
 const taskCols = `id, project_id, title, prompt, status, priority, labels_json,
 	agent, model, permission_mode, base_branch, parent_task_id, created_by,
-	created_by_attempt, created_at, updated_at, check_command`
+	created_by_attempt, created_at, updated_at, check_command, setup_command,
+	setup_timeout_s`
 
 func scanTask(s interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
 	err := s.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Prompt, &t.Status, &t.Priority,
 		&t.LabelsJSON, &t.Agent, &t.Model, &t.PermissionMode, &t.BaseBranch,
 		&t.ParentTaskID, &t.CreatedBy, &t.CreatedByAttempt, &t.CreatedAt, &t.UpdatedAt,
-		&t.CheckCommand)
+		&t.CheckCommand, &t.SetupCommand, &t.SetupTimeoutS)
 	return &t, err
 }
 
@@ -259,12 +260,14 @@ func (db *DB) InsertTask(t *Task) (*Task, error) {
 	now := Now()
 	res, err := db.Exec(`INSERT INTO tasks(project_id, title, prompt, status, priority,
 		labels_json, agent, model, permission_mode, base_branch, parent_task_id,
-		created_by, created_by_attempt, created_at, updated_at, check_command)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		created_by, created_by_attempt, created_at, updated_at, check_command,
+		setup_command, setup_timeout_s)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ProjectID, t.Title, t.Prompt, nz(t.Status, "backlog"), t.Priority,
 		nz(t.LabelsJSON, "[]"), nz(t.Agent, "claude"), t.Model,
 		nz(t.PermissionMode, "acceptEdits"), t.BaseBranch, t.ParentTaskID,
-		nz(t.CreatedBy, "user"), t.CreatedByAttempt, now, now, t.CheckCommand)
+		nz(t.CreatedBy, "user"), t.CreatedByAttempt, now, now, t.CheckCommand,
+		t.SetupCommand, t.SetupTimeoutS)
 	if err != nil {
 		return nil, err
 	}
