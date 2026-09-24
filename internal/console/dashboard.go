@@ -1407,7 +1407,7 @@ const dashboardHelp = ` Keyboard shortcuts
  n             New item         e        Rename   u Upload context
  S             Blank persistent shell on a selected machine
  P             Launch profiles
-	Q             Agent runners (add custom CLIs)
+ Q             Agent runners (add custom CLIs)
  m             All actions      f        Find and track running agents
  C             Recently closed (sessions)
  h             Full history     v        Review task diff
