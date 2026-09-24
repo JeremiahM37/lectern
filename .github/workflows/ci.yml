@@ -89,6 +89,12 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
+      # The isolated runner bind-mounts the module cache read-only, and the
+      # sandbox has no network, so the modules must exist before it starts.
+      # A cache miss (any go.sum change) used to leave the directory absent
+      # and bwrap refused to start.
+      - name: Download Go modules
+        run: go mod download
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
