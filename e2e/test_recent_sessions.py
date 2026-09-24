@@ -60,15 +60,17 @@ def mark_as_durable_dead(t):
         db.commit()
 
 
-def test_recent_closed_empty_live_list_last_ten_restore_and_narrow(page, real_terminal):
+def test_recent_closed_empty_live_list_last_thirty_restore_and_narrow(page, real_terminal):
     t = real_terminal
     assert request(t, "DELETE", f"/sessions/{t['id']}")[0] == 200
-    seed_closed_rows(t)
+    seed_closed_rows(t, count=35)
     open_recent(page, t, width=390)
 
     expect(page.locator("#regular-sessions .hint")).to_contain_text("No sessions yet")
     rows = page.locator(".recent-row")
-    expect(rows).to_have_count(10)
+    expect(rows).to_have_count(30)
+    expect(rows.last).to_contain_text("Closed fixture 29")
+    assert len(t["api"]("/sessions/recent")) == 30
     expect(rows.first).to_contain_text("Real terminal")
     expect(rows.first).to_contain_text("claude")
     expect(rows.first.get_by_role("button", name="Restore tracking")).to_be_visible()

@@ -16,7 +16,7 @@ func (m *dashboard) loadRecentSessions() tea.Cmd {
 	m.busy = true
 	c := m.client
 	return func() tea.Msg {
-		b, err := c.JSON("GET", "/sessions/recent?limit=10", nil)
+		b, err := c.JSON("GET", "/sessions/recent?limit=30", nil)
 		var rows []row
 		if err == nil {
 			err = json.Unmarshal(b, &rows)

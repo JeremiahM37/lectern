@@ -44,7 +44,7 @@ export function RecentlyClosed({
     setBusy(true);
     try {
       setRows(
-        await api.request<RecentSession[]>("/sessions/recent?limit=10"),
+        await api.request<RecentSession[]>("/sessions/recent?limit=30"),
       );
     } catch (error) {
       setRows([]);
@@ -63,7 +63,7 @@ export function RecentlyClosed({
       <div className="recent-closed-head">
         <div>
           <h3>Recently closed</h3>
-      <p>Your last 10 closed sessions.</p>
+      <p>Your last 30 closed sessions.</p>
         </div>
         {busy && <span className="hint">Loading…</span>}
       </div>
