@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -43,6 +44,7 @@ const MockNumstat = "4\t1\tapp.py\n"
 //	[mock:note]            agent leaves a project note
 //	[mock:approve-verdict] agent ends with VERDICT: APPROVE
 //	[mock:reject-verdict]  agent ends with VERDICT: REQUEST_CHANGES
+//	[mock:judge:N]         agent ends with JUDGE: attempt N (for judge-task tests)
 type Mock struct {
 	mu       sync.Mutex
 	fs       map[string][]byte
@@ -236,12 +238,18 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{0, "branch pushed (mock)", ""}, nil
 	case strings.HasPrefix(cmd, "gh pr create"):
 		return Result{0, "https://github.com/mock/repo/pull/7", ""}, nil
+	case strings.HasPrefix(cmd, "ls "):
+		// Backed by the in-memory fs so evals' "import from repo" (a glob
+		// listing followed by ReadFile) has something real to find, the same
+		// way a real target's directory would.
+		return m.handleLs(cmd), nil
 	}
 	// git worktree add, mkdir, exclude appends, memory links, …
 	return Result{0, "", ""}, nil
 }
 
 var scratchRe = regexp.MustCompile(`mktemp -d "\$root/([^"]+)-XXXXXX"`)
+var judgeRe = regexp.MustCompile(`\[mock:judge:(\d+)\]`)
 var gitDiffRe = regexp.MustCompile(`\bgit\b.*\bdiff\b`)
 
 // ReadFile reads from the fake filesystem.
@@ -261,6 +269,46 @@ func (m *Mock) WriteFile(_ context.Context, path string, data []byte) error {
 	defer m.mu.Unlock()
 	m.fs[path] = append([]byte(nil), data...)
 	return nil
+}
+
+// handleLs answers a plain `ls <glob> <glob> ... [2>/dev/null]` against the
+// fake filesystem — just enough for evals' "import from repo" (list
+// `.lectern/evals/*.yaml`, then ReadFile each) to see files a test wrote
+// through WriteFile, the way a real target's directory would.
+func (m *Mock) handleLs(cmd string) Result {
+	cmd = strings.TrimSuffix(strings.TrimSpace(cmd), "2>/dev/null")
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		return Result{1, "", "ls: missing operand"}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	var matches []string
+	for _, pattern := range fields[1:] {
+		for name := range m.fs {
+			if seen[name] {
+				continue
+			}
+			if ok, _ := path.Match(pattern, name); ok {
+				seen[name] = true
+				matches = append(matches, name)
+			}
+		}
+	}
+	if len(matches) == 0 {
+		return Result{1, "", "ls: no such file or directory"}
+	}
+	sortStrings(matches)
+	return Result{0, strings.Join(matches, "\n") + "\n", ""}
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
 }
 
 // Close cancels every fake agent still running.
@@ -419,6 +467,9 @@ func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
 		result = "Reviewed the diff. VERDICT: REQUEST_CHANGES — rename health() and add a test."
 	case strings.Contains(prompt, "[mock:approve-verdict]"):
 		result = "Reviewed the diff. VERDICT: APPROVE — clean, focused change."
+	case judgeRe.MatchString(prompt):
+		n := firstGroup(judgeRe, prompt)
+		result = "Compared the attempts. JUDGE: attempt " + n + "\nREASON: it passed its check."
 	}
 	m.finish(rt, sid, 0, result)
 }

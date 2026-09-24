@@ -25,12 +25,12 @@ func (s *Scheduler) taskLaunchConfig(att *store.Attempt, c *runCtx) (agents.Task
 		if err := json.Unmarshal([]byte(att.LaunchConfigJSON), &saved); err != nil || saved.Version != 1 || saved.Agent == "" {
 			return saved, fmt.Errorf("attempt task launch configuration is unreadable")
 		}
-		if saved.Agent != firstNonEmpty(c.Task.Agent, "claude") {
+		if saved.Agent != effAgent(c, att) {
 			return saved, fmt.Errorf("attempt task launch agent no longer matches its task")
 		}
 		return saved, nil
 	}
-	agent := firstNonEmpty(c.Task.Agent, "claude")
+	agent := effAgent(c, att)
 	var def agents.TaskDefinition
 	if s.AgentDefinitions != nil {
 		var ok bool
@@ -249,7 +249,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	// settings.json is written for EVERY permission mode, not just the gated one:
 	// headless has no prompt, so a tool the rules don't grant is denied outright
 	// and the operator never learns why. Rules are how acceptEdits gets Bash.
-	gated := c.Task.PermissionMode == "default"
+	gated := effPermissionMode(c, att) == "default"
 	if gated {
 		if err := ex.WriteFile(ctx, rt+"/hook.py", hooks.Hook); err != nil {
 			return kw, err

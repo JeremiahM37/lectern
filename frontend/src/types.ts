@@ -21,11 +21,21 @@ export interface AttemptView {
 }
 
 export interface AttemptSummary {
+  id: number;
   n: number;
   status: string;
   model: string;
   exit_code: number | null;
   cost_usd: unknown;
+  agent: string;
+  permission_mode: string;
+  driver: string;
+  started_at: number | null;
+  finished_at: number | null;
+  diff_stat: { path: string; additions?: number; deletions?: number }[];
+  verify: Record<string, unknown>;
+  input_tokens: unknown;
+  output_tokens: unknown;
 }
 
 export interface Takeover {

@@ -391,22 +391,51 @@ def test_fable_dispatch_requires_confirmation(page, server):
 
 
 def test_agent_toggle_reshapes_the_form(page, server):
-    """Switching to codex must disable gated mode and hide the A/B row — both are
-    Claude-only, and offering them produces a dispatch that fails later for
-    reasons the operator cannot see."""
+    """Switching to codex must disable gated mode — Claude-only, and offering
+    it produces a dispatch that fails later for reasons the operator cannot
+    see. The Attempts (Best-of-N) control stays available for every agent:
+    unlike the old A/B row it is not Claude-only."""
     page.goto(server)
     page.click("#fab")
     expect(page.locator("#f-agent button.on")).to_have_text("Claude Code")
+    expect(page.locator("#f-variants")).to_be_visible()
 
     page.click("#f-agent button[data-agent='codex']")
     expect(page.locator("#f-agent button.on")).to_have_text("Codex")
     assert page.eval_on_selector("#f-agent", "e => e.dataset.value") == "codex"
     assert page.eval_on_selector("#f-perm option[value='default']", "e => e.disabled") is True
-    expect(page.locator("#f-ab-row")).to_be_hidden()
+    expect(page.locator("#f-variants")).to_be_visible()
 
     page.click("#f-agent button[data-agent='claude']")
     assert page.eval_on_selector("#f-perm option[value='default']", "e => e.disabled") is False
-    expect(page.locator("#f-ab-row")).to_be_visible()
+    expect(page.locator("#f-variants")).to_be_visible()
+
+
+def test_attempts_control_adds_and_removes_best_of_n_variants(page, server):
+    """The Attempts control replaces the old single-model A/B row with up to
+    8 variants, each with its own agent/model/permission — this is the
+    Best-of-N generalisation."""
+    page.goto(server)
+    page.click("#fab")
+    page.fill("#f-title", "Best-of-N task")
+    expect(page.locator(".variant-row")).to_have_count(0)
+
+    page.click("#f-add-variant")
+    expect(page.locator(".variant-row")).to_have_count(1)
+    page.click("#f-add-variant")
+    expect(page.locator(".variant-row")).to_have_count(2)
+    expect(page.locator("#f-variants .variants-head")).to_contain_text("(3)")
+
+    page.locator(".variant-row").nth(0).locator("input[placeholder='model']").fill("opus")
+    # select[0] is the launch-profile picker, select[1] is the agent picker
+    page.locator(".variant-row").nth(1).locator("select").nth(1).select_option("codex")
+
+    page.locator(".variant-row").nth(0).locator("button.variant-remove").click()
+    expect(page.locator(".variant-row")).to_have_count(1)
+
+    page.click("#f-go")
+    card = page.locator(".card", has_text="Best-of-N task")
+    expect(card).to_be_visible(timeout=10000)
 
 
 def test_codex_task_dispatches_from_the_toggle(page, server):

@@ -92,6 +92,11 @@ type Scheduler struct {
 	// implemented here because creating a task is the API layer's job, and a
 	// routine is exactly a task someone saved.
 	Routines func(context.Context)
+	// Evals drives running eval suites: dispatching the next queued cell when
+	// a concurrency slot frees up, and grading a cell once its task attempt
+	// lands. Injected for the same reason as Routines — an eval cell IS a
+	// task, and creating/grading tasks is the API layer's job.
+	Evals func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -187,6 +192,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	if s.Routines != nil {
 		s.Routines(ctx)
 	}
+	if s.Evals != nil {
+		s.Evals(ctx)
+	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)
 
@@ -241,6 +249,18 @@ type runCtx struct {
 	Task    *store.Task
 	Project *store.Project
 	Target  *store.Target
+}
+
+// effAgent and effPermissionMode resolve a Best-of-N variant's own agent or
+// permission mode when the attempt carries one, falling back to the task's —
+// which is what every attempt predating variants, and every model-only A/B
+// dispatch, already has (att.Agent/att.PermissionMode empty).
+func effAgent(c *runCtx, att *store.Attempt) string {
+	return firstNonEmpty(att.Agent, c.Task.Agent, "claude")
+}
+
+func effPermissionMode(c *runCtx, att *store.Attempt) string {
+	return firstNonEmpty(att.PermissionMode, c.Task.PermissionMode)
 }
 
 func (s *Scheduler) contextFor(att *store.Attempt) (*runCtx, error) {
@@ -336,7 +356,7 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 			return err
 		}
 	}
-	if err := skills.Reassert(ctx, ex, s.DB, c.Project, firstNonEmpty(c.Task.Agent, "claude"), wt); err != nil {
+	if err := skills.Reassert(ctx, ex, s.DB, c.Project, effAgent(c, att), wt); err != nil {
 		return fmt.Errorf("project skills: %w", err)
 	}
 
@@ -345,7 +365,7 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 		return err
 	}
 	// push CURRENT auth so the agent never runs on a rotated-out credential copy
-	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, c.Task.Agent)
+	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
 	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer {
@@ -392,13 +412,13 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 			env[k] = v
 		}
 	}
-	agent := firstNonEmpty(c.Task.Agent, "claude")
+	agent := effAgent(c, att)
 	if kw.Agent != "" {
 		agent = kw.Agent
 	}
 	spec := drivers.Spec{
 		Agent: agent, Worktree: wt, TmuxSession: sess,
-		PermissionMode: c.Task.PermissionMode, Model: firstNonEmpty(att.Model, c.Task.Model),
+		PermissionMode: effPermissionMode(c, att), Model: firstNonEmpty(att.Model, c.Task.Model),
 		ResumeSession: att.ResumeSession, Env: env, SettingsPath: kw.SettingsPath,
 		MCPConfig: kw.MCPConfig, StrictMCP: kw.StrictMCP, Prompt: kw.Prompt,
 		Broker: s.Broker, AttemptID: att.ID,
@@ -521,7 +541,7 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 		return err
 	}
 	// provision current auth into the container via its own executor (mock-safe)
-	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, c.Task.Agent)
+	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
 	cmd, err := s.buildLaunch(att, c, workdir, sess, true, launchKW)
@@ -557,7 +577,7 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 			env[k] = v
 		}
 	}
-	agent := firstNonEmpty(c.Task.Agent, "claude")
+	agent := effAgent(c, att)
 	if kw.Agent != "" {
 		agent = kw.Agent
 	}
@@ -565,7 +585,7 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 		Agent:          agent,
 		Worktree:       workdir,
 		TmuxSession:    sess,
-		PermissionMode: c.Task.PermissionMode,
+		PermissionMode: effPermissionMode(c, att),
 		Model:          firstNonEmpty(att.Model, c.Task.Model),
 		ResumeSession:  att.ResumeSession,
 		Sandbox:        isSandbox,
@@ -640,7 +660,7 @@ func (s *Scheduler) parseAttemptEvents(att *store.Attempt, c *runCtx, buf string
 			return agents.ParseTaskStreamLines(cfg.Agent, cfg.Definition.OutputMode, buf)
 		}
 	}
-	return agents.ParseStreamLines(firstNonEmpty(c.Task.Agent, "claude"), buf)
+	return agents.ParseStreamLines(effAgent(c, att), buf)
 }
 
 func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
@@ -768,12 +788,14 @@ func (s *Scheduler) captureAndFinalize(ctx context.Context, att *store.Attempt, 
 	}
 	s.DB.Update("attempts", att.ID, map[string]any{"diff_stat_json": store.J(files)})
 
-	// auto-verify: run the project's own test command in the worktree and badge
-	// the result on the card — the one signal that says a diff is more than
-	// plausible-looking
-	if rc == 0 && strings.TrimSpace(c.Project.VerifyCmd) != "" {
-		verify := map[string]any{"cmd": c.Project.VerifyCmd}
-		vr, verr := ex.Run(ctx, c.Project.VerifyCmd,
+	// auto-verify: run the check command in the worktree and badge the result
+	// on the card — the one signal that says a diff is more than
+	// plausible-looking. A task's own CheckCommand (set by evals, so each
+	// case can grade against its own command) wins over the project default.
+	verifyCmd := firstNonEmpty(c.Task.CheckCommand, c.Project.VerifyCmd)
+	if rc == 0 && strings.TrimSpace(verifyCmd) != "" {
+		verify := map[string]any{"cmd": verifyCmd}
+		vr, verr := ex.Run(ctx, verifyCmd,
 			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 900})
 		if verr != nil {
 			verify["rc"] = -1
@@ -852,9 +874,12 @@ func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, no
 		}
 		s.Notifier.Notify("Ready for review", clip(task.Title, 80),
 			fmt.Sprintf("/#task/%d", task.ID), nil)
-		if task.CreatedBy == "reviewer-gate" {
+		switch task.CreatedBy {
+		case "reviewer-gate":
 			s.applyReviewVerdict(task, result)
-		} else {
+		case "judge":
+			s.applyJudgeVerdict(task, result)
+		default:
 			s.maybeSpawnReviewer(ctx, task, att)
 		}
 		return
@@ -938,6 +963,42 @@ func (s *Scheduler) applyReviewVerdict(rtask *store.Task, result map[string]any)
 			clip(parent.Title, 80), fmt.Sprintf("/#task/%d", parent.ID), nil)
 	}
 	// the reviewer card served its purpose — off the board
+	s.setTaskStatus(rtask.ID, "done")
+}
+
+// judgeRe pulls the winning attempt number out of a judge task's final
+// message. Prompted for exactly (see api.buildJudgePrompt): "JUDGE: attempt
+// <n>" on its own line — the same "one line, one regex" contract
+// applyReviewVerdict already uses for APPROVE/REQUEST_CHANGES.
+var judgeRe = regexp.MustCompile(`(?i)JUDGE:\s*attempt\s*(\d+)`)
+
+// applyJudgeVerdict records a headless judge's ranking on the parent task's
+// latest attempt, the same place applyReviewVerdict records a reviewer's
+// verdict — so the Compare view can read both from one place.
+func (s *Scheduler) applyJudgeVerdict(rtask *store.Task, result map[string]any) {
+	text, _ := result["result"].(string)
+	winner := 0
+	if m := judgeRe.FindAllStringSubmatch(text, -1); len(m) > 0 {
+		fmt.Sscanf(m[len(m)-1][1], "%d", &winner)
+	}
+	if rtask.ParentTaskID == nil {
+		return
+	}
+	parentAtt, err := s.DB.LatestAttempt(*rtask.ParentTaskID)
+	if err == nil {
+		pres := store.UnjObj(parentAtt.ResultJSON)
+		pres["judge"] = map[string]any{
+			"winner_attempt": winner, "reason": clipEnd(text, 1500), "judge_task_id": rtask.ID}
+		s.DB.Update("attempts", parentAtt.ID, map[string]any{"result_json": store.J(pres)})
+		s.StoreEvents(parentAtt, []agents.Event{{Type: "judge_verdict", Payload: map[string]any{
+			"winner_attempt": winner, "reason": clipEnd(text, 800)}}})
+	}
+	if parent, err := s.DB.Task(*rtask.ParentTaskID); err == nil {
+		s.Bus.Publish("board", "task", parent)
+		s.Notifier.Notify("Judge picked attempt "+fmt.Sprint(winner), clip(parent.Title, 80),
+			fmt.Sprintf("/#task/%d", parent.ID), nil)
+	}
+	// the judge card served its purpose — off the board, same as a reviewer's
 	s.setTaskStatus(rtask.ID, "done")
 }
 
@@ -1074,6 +1135,11 @@ type AttemptOpts struct {
 	WorktreePath  string
 	Branch        string
 	Model         string
+	// Agent and PermissionMode let a Best-of-N variant override the task's own
+	// (see effAgent/effPermissionMode); empty keeps today's single-attempt and
+	// model-only-A/B behavior unchanged.
+	Agent          string
+	PermissionMode string
 }
 
 // CreateAttempt queues attempt N+1 for a task.
@@ -1096,16 +1162,19 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 	if err != nil {
 		return nil, err
 	}
-	launchConfig, err := s.taskLaunchConfig(&store.Attempt{}, &runCtx{Task: task, Project: project})
+	att := &store.Attempt{
+		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
+		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
+		Branch: o.Branch, Model: o.Model, Agent: o.Agent, PermissionMode: o.PermissionMode,
+	}
+	c := &runCtx{Task: task, Project: project}
+	launchConfig, err := s.taskLaunchConfig(att, c)
 	if err != nil {
 		return nil, err
 	}
-	launchJSON := store.J(launchConfig)
-	driverKind := drivers.Select(launchConfig.Agent, launchConfig.Definition.Builtin, task.PermissionMode)
-	return s.DB.InsertAttempt(&store.Attempt{
-		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
-		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
-		Branch: o.Branch, Model: o.Model, LaunchConfigJSON: launchJSON, Driver: driverKind})
+	att.LaunchConfigJSON = store.J(launchConfig)
+	att.Driver = drivers.Select(launchConfig.Agent, launchConfig.Definition.Builtin, effPermissionMode(c, att))
+	return s.DB.InsertAttempt(att)
 }
 
 // SetTaskStatus is the one place a task's column changes, so every move is
