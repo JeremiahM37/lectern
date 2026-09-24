@@ -34,8 +34,8 @@ def test_rename_session_from_conversation_header(page, server):
     # Clear and type new name
     input_field.fill("Renamed From Header")
     
-    # Wait for the request to complete when pressing Enter
-    with page.expect_request(lambda r: r.method == "PATCH" and f"/api/sessions/{session_id}" in r.url):
+    # Wait for the server to answer the rename, not just for it to be sent
+    with page.expect_response(lambda r: r.request.method == "PATCH" and f"/api/sessions/{session_id}" in r.url and r.ok):
         # Press Enter to save
         input_field.press("Enter")
     
@@ -107,7 +107,7 @@ def test_rename_session_from_card_action_menu(page, server):
     page.once("dialog", lambda dialog: dialog.accept("New Name From Card"))
     
     # Wait for the API call to complete
-    with page.expect_request(lambda r: r.method == "PATCH" and f"/api/sessions/{session_id}" in r.url):
+    with page.expect_response(lambda r: r.request.method == "PATCH" and f"/api/sessions/{session_id}" in r.url and r.ok):
         # The card's own Rename button - this will trigger the prompt dialog
         card.get_by_role("button", name="✎ Rename").click()
     
