@@ -53,7 +53,8 @@ sessions, or a process by executable name. A UUID cannot be reused.
   Loopback is permitted only within the private network namespace. Public
   Internet access goes through a per-job Unix socket HTTP proxy. The controller
   must validate DNS destinations as globally routable, pin the resolved address
-  when dialing, and reject private destinations for both HTTP and CONNECT.
+  when dialing. CONNECT is restricted to exact inference hosts on 443; all
+  ordinary proxy requests are refused. Public reading goes through /research.
   Before **each** job, the trusted launcher queries the kernel for effective
   ingress and egress BPF programs on its actual cgroup. Missing support or
   permissions fails closed before running any provider CLI. `probe` creates a
@@ -68,10 +69,12 @@ sessions, or a process by executable name. A UUID cannot be reused.
 This is a process/container boundary, not a separate kernel or VM. Kernel
 vulnerabilities remain out of scope. Read-only provider credentials are still
 **readable by the worker**; it can use or disclose its own provider credential.
-Internet access allows public uploads and public APIs. The controller must not
+General public egress is denied. Opaque TLS tunnels are limited to chatgpt.com, api.openai.com and api.anthropic.com for inference. These provider tunnels remain a trust boundary: their encrypted application requests are not inspected by Lectern. The controller must not
 include secrets or confidential material in prompts or snapshots without an
-appropriate policy. Public reverse tunnels can bypass the intent of private IP
-blocking; do not supply credentials that grant production access through them.
+appropriate policy. No SSH, GitHub, registry or messaging credentials are supplied. The research
+broker fetches only approved reading hosts, using GET without caller headers,
+query strings, credentials or redirects. Missing dependencies must be reported,
+not installed through an unrestricted proxy.
 
 The worker has a private network namespace: it cannot reach host abstract Unix
 sockets. A local socat listener forwards HTTP(S) proxy requests to the explicitly

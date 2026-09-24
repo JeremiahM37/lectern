@@ -289,3 +289,45 @@ func TestAutonomyReadBridgeRefusesMutationAndBadPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestAutonomyPublicationDestinationsDenied(t *testing.T) {
+	for _, address := range []string{"github.com:443", "api.github.com:443", "gitlab.com:443", "registry.npmjs.org:443", "uploads.github.com:443", "example.com:443", "chatgpt.com.evil.test:443", "chatgpt.com:80", "127.0.0.1:443", "api.anthropic.com.:443"} {
+		req := httptest.NewRequest(http.MethodConnect, "http://ignored", nil)
+		req.Host = address
+		w := httptest.NewRecorder()
+		autoProxy(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s allowed: %d", address, w.Code)
+		}
+	}
+	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
+		w := httptest.NewRecorder()
+		autoProxy(w, httptest.NewRequest(method, "http://api.github.com/repos/user/repo/pulls", nil))
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("direct %s allowed", method)
+		}
+	}
+	for _, address := range []string{"chatgpt.com:443", "api.openai.com:443", "api.anthropic.com:443"} {
+		if !autoInferenceDestination(address) {
+			t.Fatalf("inference blocked: %s", address)
+		}
+	}
+}
+
+func TestAutonomyResearchRejectsWriteSurfaces(t *testing.T) {
+	for _, raw := range []string{"https://api.github.com/repos/user/repo/pulls", "https://github.com/user/repo/issues/new", "https://example.com/upload", "https://raw.githubusercontent.com.evil.test/x", "https://user:secret@raw.githubusercontent.com/a/b/c/d", "http://raw.githubusercontent.com/a/b/c/d", "https://go.dev:443/doc/", "https://go.dev/doc/?action=publish", "https://go.dev/doc/#fragment", "https://127.0.0.1/"} {
+		if _, err := autoResearchURL(raw); err == nil {
+			t.Fatalf("unsafe reading URL accepted: %s", raw)
+		}
+	}
+	for _, raw := range []string{"https://raw.githubusercontent.com/golang/go/master/README.md", "https://go.dev/doc/", "https://arxiv.org/abs/2407.16741"} {
+		if _, err := autoResearchURL(raw); err != nil {
+			t.Fatalf("reading URL rejected: %s: %v", raw, err)
+		}
+	}
+	w := httptest.NewRecorder()
+	autoResearch(w, httptest.NewRequest("POST", "/research", nil))
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatal("research writes accepted")
+	}
+}

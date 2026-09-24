@@ -94,3 +94,17 @@ exercised its companion execution binary inside the same sandbox. Claude uses
 proxy-side DNS (`CLAUDE_CODE_PROXY_RESOLVES_HOSTS=1`); generation was not tested
 while below reserve. A crash between runner metadata creation and unit start
 pauses safely for inspection; use Start today to retry with a fresh job.
+
+## Publication consent
+
+Autonomous mode and peer approval never authorize a public action. Pushes, PRs,
+issues, comments, releases, public uploads, messages and deployments require
+Jeremiah’s explicit consent for the specific action. Workers prepare local drafts
+and downloadable artifacts only. This release offers no publish button or agent
+approval path. A human-directed session may publish only after receiving consent.
+
+The worker proxy now blocks general external connections, including GitHub and
+registries. Only exact subscription-inference hosts retain TLS access. Research
+uses a credential-free GET broker for approved document hosts; redirects and
+query strings are refused. This intentionally limits online dependency installs.
+See isolation documentation for the remaining model-provider trust boundary.
