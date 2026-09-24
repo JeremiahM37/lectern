@@ -18,7 +18,7 @@ import { SessionGroups, type GroupMode } from "./SessionGroups";
 import { ScratchTerminals } from "./ScratchTerminals";
 import { isScratchTerminal } from "./scratch";
 import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
-import { NeedsYou } from "./NeedsYou";
+import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { QuotaChip } from "./QuotaChip";
 import "./sessions.css";
 export interface SessionsApi {
@@ -46,6 +46,7 @@ export interface SessionsProps {
   action?: { kind: "new" | "discover"; version: number };
   onActionConsumed?: () => void;
   onMetadataRefresh?: () => void;
+  pushPrompt?: PushPrompt;
 }
 const order: Record<string, number> = {
   waiting: 0,
@@ -93,6 +94,7 @@ export function Sessions({
   action: externalAction,
   onActionConsumed = () => {},
   onMetadataRefresh,
+  pushPrompt,
 }: SessionsProps) {
   const [rows, setRows] = useState<SessionView[]>([]),
     [scope, setScope] = useState<"active" | "all" | "archived">("active"),
@@ -545,6 +547,7 @@ export function Sessions({
         onOpenTask={onOpenTask}
         onChanged={() => void load()}
         onNotice={onNotice}
+        pushPrompt={pushPrompt}
       />
       {/* One id wraps both sections: nothing that already points at #sesslist
           breaks, while each list is labelled on its own. */}

@@ -10,6 +10,7 @@ import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
+import { shortEndpoint, type PushSubscriptionInfo } from "../push";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
 }
@@ -65,6 +66,10 @@ export function Settings({
   api,
   onNotice,
   onEnablePush,
+  pushAvailable = true,
+  pushUnavailableReason,
+  pushEndpoint,
+  onUnsubscribePush,
   initialSection = "machines",
   section,
   projectEdit,
@@ -76,6 +81,16 @@ export function Settings({
   api: SettingsApi;
   onNotice(t: string, e?: boolean): void;
   onEnablePush(): void;
+  // Whether this browser can even do push, and why not when it can't — see
+  // frontend/src/push.ts. Defaults to available so callers that do not pass
+  // it (the standalone settings-harness fixture used by e2e tests) keep
+  // showing the control rather than an unexplained "unavailable" state.
+  pushAvailable?: boolean;
+  pushUnavailableReason?: string;
+  // This device's current subscription endpoint: undefined while unknown,
+  // null once known to have none, or the endpoint string once subscribed.
+  pushEndpoint?: string | null;
+  onUnsubscribePush?(endpoint: string): void;
   initialSection?: string;
   section?: { name: string; version: number };
   projectEdit?: { id: number; version: number };
@@ -188,6 +203,10 @@ export function Settings({
           api={api}
           values={settings}
           onEnablePush={onEnablePush}
+          pushAvailable={pushAvailable}
+          pushUnavailableReason={pushUnavailableReason}
+          pushEndpoint={pushEndpoint}
+          onUnsubscribePush={onUnsubscribePush}
           onNotice={onNotice}
         />
       )}{" "}
@@ -751,11 +770,19 @@ function Notifications({
   api,
   values,
   onEnablePush,
+  pushAvailable = true,
+  pushUnavailableReason,
+  pushEndpoint,
+  onUnsubscribePush,
   onNotice,
 }: {
   api: SettingsApi;
   values: Record<string, JsonValue>;
   onEnablePush(): void;
+  pushAvailable?: boolean;
+  pushUnavailableReason?: string;
+  pushEndpoint?: string | null;
+  onUnsubscribePush?(endpoint: string): void;
   onNotice(t: string, e?: boolean): void;
 }) {
   const [discord, setDiscord] = useState(String(values.discord_webhook ?? "")),
@@ -777,10 +804,59 @@ function Notifications({
   const [permissionMode, setPermissionMode] = useState(
     String(values.session_permission_mode ?? "") === "ask" ? "ask" : "bypass",
   );
+  const [devices, setDevices] = useState<PushSubscriptionInfo[]>([]);
+  const loadDevices = () =>
+    void api
+      .request<PushSubscriptionInfo[]>("/push/subscriptions")
+      .then(setDevices)
+      .catch(() => {}); // the section still works with sinks alone
+  // Reload whenever this device's own subscription state settles (after
+  // enabling or unsubscribing), plus once up front.
+  useEffect(loadDevices, [pushEndpoint]);
   return (
     <article>
       <h3>Notifications</h3>
-      <button onClick={onEnablePush}>Enable push on this device</button>
+      <div className="push-status">
+        {!pushAvailable ? (
+          <p className="subhint" id="push-unavailable-reason">
+            {pushUnavailableReason || "Push notifications are not available in this browser."}
+          </p>
+        ) : pushEndpoint ? (
+          <p className="subhint" id="push-enabled-hint">
+            Phone alerts are on for this device.
+          </p>
+        ) : (
+          <button id="s-enable-push" onClick={onEnablePush}>
+            Enable phone alerts
+          </button>
+        )}
+        {devices.length > 0 && (
+          <ul className="push-devices" id="push-devices">
+            {devices.map((d) => (
+              <li key={d.id} data-endpoint={d.endpoint}>
+                <span>
+                  {shortEndpoint(d.endpoint)}
+                  {d.endpoint === pushEndpoint && (
+                    <em className="push-this-device"> · this device</em>
+                  )}
+                </span>
+                {onUnsubscribePush && (
+                  <button
+                    className="b"
+                    aria-label={`Unsubscribe ${shortEndpoint(d.endpoint)}`}
+                    onClick={() => {
+                      onUnsubscribePush(d.endpoint);
+                      setDevices((old) => old.filter((row) => row.id !== d.id));
+                    }}
+                  >
+                    Unsubscribe
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <label>
         Discord webhook URL
         <input id="s-discord" value={discord} onChange={(e) => setDiscord(e.target.value)} />

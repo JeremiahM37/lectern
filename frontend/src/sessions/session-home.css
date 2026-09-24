@@ -16,6 +16,16 @@
   border-radius: 12px;
   background: var(--panel);
 }
+.ny-push-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+}
+.needs-you > .ny-push-prompt + header { border-top: 1px solid var(--line); padding-top: 10px; }
+.ny-push-prompt-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .needs-you > header { display: flex; align-items: baseline; gap: 8px; }
 .needs-you h3 { margin: 0; font-size: 14px; }
 .ny-count {

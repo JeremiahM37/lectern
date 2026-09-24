@@ -10,6 +10,17 @@ import "./session-home.css";
 // whose setup failed, a task that failed, and work sitting in review. An idle
 // session is left in the list below — quiet is not the same as blocked.
 
+// PushPrompt is the one-time, dismissible "enable phone alerts" nudge shown
+// here when push is available in this browser but this device has never
+// subscribed. App.tsx owns the actual availability check and subscription
+// state (both require live browser APIs); this component only renders what
+// it is handed and reports the two things a person can do with it.
+export interface PushPrompt {
+  show: boolean;
+  onEnable(): void;
+  onDismiss(): void;
+}
+
 interface Props {
   api: SessionsApi;
   rows: SessionView[];
@@ -21,6 +32,7 @@ interface Props {
   onOpenTask?(id: number): void;
   onChanged?(): void;
   onNotice(text: string, error?: boolean): void;
+  pushPrompt?: PushPrompt;
 }
 
 type Item =
@@ -57,6 +69,7 @@ export function NeedsYou({
   onOpenTask,
   onChanged,
   onNotice,
+  pushPrompt,
 }: Props) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [tasks, setTasks] = useState<TaskView[]>([]);
@@ -163,9 +176,13 @@ export function NeedsYou({
     }
   }
 
+  const showPrompt = !!pushPrompt?.show;
   // Nothing to do, and we know it: stay out of the way. A failed refresh with
-  // no known rows must still say so rather than look like an all-clear.
-  if (!items.length && !stale) return null;
+  // no known rows must still say so rather than look like an all-clear. The
+  // push prompt is the one thing that can keep the section open with zero
+  // items — it is a suggestion, not something that "needs" attention, but it
+  // belongs where a person is already looking.
+  if (!items.length && !stale && !showPrompt) return null;
   const shown = showAll ? items : items.slice(0, CAP);
   return (
     <section
@@ -174,49 +191,71 @@ export function NeedsYou({
       aria-label="Needs you"
       data-stale={stale ? "true" : undefined}
     >
-      <header>
-        <h3>Needs you</h3>
-        {items.length > 0 && <span className="ny-count">{items.length}</span>}
-        {stale && (
-          <span className="ny-stale" id="needs-you-stale" role="status">
-            Couldn’t refresh — showing the last known state
-          </span>
-        )}
-      </header>
-      <ul className="ny-list">
-        {shown.map((item) => (
-          <li
-            className="ny-row"
-            key={item.key}
-            data-reason={item.reason}
-            data-id={item.key}
-            data-stale={stale ? "true" : undefined}
-          >
-            <div className="ny-why">
-              <span className="ny-reason">{REASON[item.reason]}</span>
-              <span className="ny-what">
-                {"approval" in item
-                  ? item.approval.session_name ||
-                    item.approval.task_title ||
-                    `Attempt ${item.approval.attempt_id}`
-                  : "session" in item
-                    ? item.session.name
-                    : item.task.title}
+      {showPrompt && (
+        <div className="ny-push-prompt" id="needs-you-push-prompt" role="status">
+          <span>Get a phone alert when a session needs you.</span>
+          <div className="ny-push-prompt-actions">
+            <button className="b ok" id="needs-you-push-enable" onClick={pushPrompt!.onEnable}>
+              Enable phone alerts
+            </button>
+            <button
+              className="b"
+              id="needs-you-push-dismiss"
+              aria-label="Dismiss phone alerts prompt"
+              onClick={pushPrompt!.onDismiss}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {(items.length > 0 || stale) && (
+        <>
+          <header>
+            <h3>Needs you</h3>
+            {items.length > 0 && <span className="ny-count">{items.length}</span>}
+            {stale && (
+              <span className="ny-stale" id="needs-you-stale" role="status">
+                Couldn’t refresh — showing the last known state
               </span>
-              <span className="ny-where">{describe(item)}</span>
-              {"session" in item && (
-                <div className="ny-usage">
-                  {item.session.model && <span className="chip">{item.session.model}</span>}
-                  <ContextBadge session={item.session} />
-                  <CostBadge session={item.session} />
-                  <LinesBadge session={item.session} />
+            )}
+          </header>
+          <ul className="ny-list">
+            {shown.map((item) => (
+              <li
+                className="ny-row"
+                key={item.key}
+                data-reason={item.reason}
+                data-id={item.key}
+                data-stale={stale ? "true" : undefined}
+              >
+                <div className="ny-why">
+                  <span className="ny-reason">{REASON[item.reason]}</span>
+                  <span className="ny-what">
+                    {"approval" in item
+                      ? item.approval.session_name ||
+                        item.approval.task_title ||
+                        `Attempt ${item.approval.attempt_id}`
+                      : "session" in item
+                        ? item.session.name
+                        : item.task.title}
+                  </span>
+                  <span className="ny-where">{describe(item)}</span>
+                  {"session" in item && (
+                    <div className="ny-usage">
+                      {item.session.model && <span className="chip">{item.session.model}</span>}
+                      <ContextBadge session={item.session} />
+                      <CostBadge session={item.session} />
+                      <LinesBadge session={item.session} />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="ny-actions">{actions(item)}</div>
-          </li>
-        ))}
-      </ul>
+                <div className="ny-actions">{actions(item)}</div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {items.length > CAP && (
         <button
           type="button"

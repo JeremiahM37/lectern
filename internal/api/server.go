@@ -291,6 +291,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scratch/keep", s.scratchKeep)
 	mux.HandleFunc("GET /api/push/vapid", s.vapidKey)
 	mux.HandleFunc("POST /api/push/subscribe", s.subscribePush)
+	mux.HandleFunc("GET /api/push/subscriptions", s.listPushSubscriptions)
+	mux.HandleFunc("DELETE /api/push/subscribe", s.unsubscribePush)
 
 	// ---- review: live diffs, commit/push/PR and inline comments ----
 	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)

@@ -185,12 +185,15 @@ func (s *Server) runJanitor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+// vapidKey hands the browser the VAPID PUBLIC key only — the key pair is
+// otherwise auto-provisioned server-side (internal/push.ResolveKeys) and the
+// private half is exposed by no API at all, including this one.
 func (s *Server) vapidKey(w http.ResponseWriter, r *http.Request) {
-	if s.Cfg.VAPIDPublicKey == "" {
+	if s.Push == nil || !s.Push.Enabled() {
 		httpError(w, 404, "push not configured (set LECTERN_VAPID_PUBLIC/PRIVATE)")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"key": s.Cfg.VAPIDPublicKey})
+	writeJSON(w, 200, map[string]any{"key": s.Push.PublicKey})
 }
 
 func (s *Server) subscribePush(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +211,40 @@ func (s *Server) subscribePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"ok": true})
+}
+
+// listPushSubscriptions backs the Settings "devices subscribed" list, so a
+// phone can show its own state and let the owner unsubscribe a device that no
+// longer exists (an uninstalled browser, a retired phone) without waiting for
+// a 404/410 delivery to prune it.
+func (s *Server) listPushSubscriptions(w http.ResponseWriter, r *http.Request) {
+	subs, err := sinks.Subscriptions(s.DB)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, subs)
+}
+
+type unsubscribeIn struct {
+	Endpoint string `json:"endpoint"`
+}
+
+func (s *Server) unsubscribePush(w http.ResponseWriter, r *http.Request) {
+	var body unsubscribeIn
+	if err := decodeBody(r, &body); err != nil {
+		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	if body.Endpoint == "" {
+		httpError(w, 422, "endpoint is required")
+		return
+	}
+	if err := sinks.Unsubscribe(s.DB, body.Endpoint); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 func round4(v float64) float64 {

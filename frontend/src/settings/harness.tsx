@@ -139,13 +139,38 @@ const api: SettingsApi = {
       };
     if (p.startsWith("/projects/import/scan"))
       return [{ name: "Found repo", path: "/src/found", registered: false }];
+    if (p === "/push/subscriptions") return pushDevices;
+    if (p === "/push/subscribe" && (o as { method?: string } | undefined)?.method === "DELETE") {
+      const endpoint = ((o as { body?: { endpoint?: string } }).body || {}).endpoint;
+      pushDevices = pushDevices.filter((d) => d.endpoint !== endpoint);
+      return { ok: true };
+    }
     return {};
   }) as SettingsApi["request"],
 };
+// ?push=unavailable | ?push=subscribed drive the two other scenarios the e2e
+// suite exercises against this fixture (real subscribe/getSubscription is not
+// reliably scriptable headless — see frontend/e2e coverage notes in
+// e2e/test_react_settings.py). Default is "available, not yet subscribed".
+const pushMode = new URLSearchParams(location.search).get("push");
+let pushDevices: { id: number; endpoint: string; created_at: number }[] =
+  pushMode === "subscribed"
+    ? [{ id: 1, endpoint: "https://push.example/this-device", created_at: 1 }]
+    : [{ id: 2, endpoint: "https://push.example/other-device", created_at: 1 }];
 createRoot(document.getElementById("root")!).render(
   <Settings
     api={api}
     onNotice={() => {}}
-    onEnablePush={() => calls.push(["push"])}
+    onEnablePush={() => {
+      calls.push(["push"]);
+      pushDevices = [...pushDevices, { id: 1, endpoint: "https://push.example/this-device", created_at: 2 }];
+    }}
+    pushAvailable={pushMode !== "unavailable"}
+    pushUnavailableReason={pushMode === "unavailable" ? "Open Lectern over https to enable alerts." : undefined}
+    pushEndpoint={pushMode === "subscribed" ? "https://push.example/this-device" : null}
+    onUnsubscribePush={(endpoint) => {
+      calls.push(["unsubscribe", endpoint]);
+      pushDevices = pushDevices.filter((d) => d.endpoint !== endpoint);
+    }}
   />,
 );
