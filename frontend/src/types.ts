@@ -62,6 +62,25 @@ export interface InteractiveWorkspace {
   error?: string;
   repositories?: {name:string;project_id?:number;worktree:InteractiveWorkspace}[];
 }
+// SessionCheckSummary is the badge-sized view of a session's most recent
+// check (internal/checks) — status/finished_at/command, no output.
+export interface SessionCheckSummary {
+  status: "running" | "passed" | "failed" | "error" | "skipped";
+  finished_at: number | null;
+  command: string;
+}
+
+// SessionCheck is one full run of a session's check command, as returned by
+// GET /api/sessions/{id}/checks.
+export interface SessionCheck extends SessionCheckSummary {
+  id: number;
+  session_id: number;
+  exit_code: number | null;
+  output_tail: string;
+  started_at: number;
+  reason: "stop" | "screen" | "manual" | string;
+}
+
 export interface SessionView extends Session {
   launch_profile?: string;
   can_restore: boolean;
@@ -70,6 +89,7 @@ export interface SessionView extends Session {
   uptime_seconds: number;
   handoff_in_flight: boolean;
   wraps: number;
+  last_check?: SessionCheckSummary | null;
 }
 
 export interface Target {

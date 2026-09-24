@@ -22,6 +22,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/drivers"
@@ -82,6 +83,13 @@ type Scheduler struct {
 	// independent of the test binary's path.
 	LeadBinary string
 	Log        *slog.Logger
+
+	// Checks resolves and runs a project's check command for the auto-verify
+	// step below (docs/agent-events.md section 4). Nil disables auto-verify
+	// entirely — every test that builds a Scheduler by hand and never sets it
+	// gets the pre-existing "no verify_cmd" behavior, since resolve() returns
+	// ok=false with nothing to resolve against.
+	Checks *checks.Runner
 
 	// Sessions is the interactive-session manager. The scheduler drives its poll
 	// so there is ONE loop watching targets, not two competing for the same
@@ -768,24 +776,20 @@ func (s *Scheduler) captureAndFinalize(ctx context.Context, att *store.Attempt, 
 	}
 	s.DB.Update("attempts", att.ID, map[string]any{"diff_stat_json": store.J(files)})
 
-	// auto-verify: run the project's own test command in the worktree and badge
-	// the result on the card — the one signal that says a diff is more than
-	// plausible-looking
-	if rc == 0 && strings.TrimSpace(c.Project.VerifyCmd) != "" {
-		verify := map[string]any{"cmd": c.Project.VerifyCmd}
-		vr, verr := ex.Run(ctx, c.Project.VerifyCmd,
-			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 900})
-		if verr != nil {
-			verify["rc"] = -1
-			verify["output"] = verr.Error()
-		} else {
-			verify["rc"] = vr.RC
-			verify["output"] = clipEnd(vr.Stdout+vr.Stderr, 4000)
+	// auto-verify: run the project's check command (verify_cmd, or an
+	// auto-detected .verify.yaml — see internal/checks) in the worktree and
+	// badge the result on the card — the one signal that says a diff is more
+	// than plausible-looking. The resolve/execute logic itself lives in
+	// internal/checks so it is shared with a session's Stop-triggered check;
+	// this call site keeps the exact attempts.verify_json shape and the
+	// 'verify' timeline event unchanged.
+	if rc == 0 && s.Checks != nil {
+		if verify, ok := s.Checks.RunForTask(ctx, ex, c.Project, att.WorktreePath); ok {
+			s.DB.Update("attempts", att.ID, map[string]any{"verify_json": store.J(verify)})
+			s.StoreEvents(att, []agents.Event{{Type: "verify", Payload: map[string]any{
+				"cmd": verify["cmd"], "rc": verify["rc"],
+				"output": clipEnd(fmt.Sprint(verify["output"]), 1200)}}})
 		}
-		s.DB.Update("attempts", att.ID, map[string]any{"verify_json": store.J(verify)})
-		s.StoreEvents(att, []agents.Event{{Type: "verify", Payload: map[string]any{
-			"cmd": verify["cmd"], "rc": verify["rc"],
-			"output": clipEnd(fmt.Sprint(verify["output"]), 1200)}}})
 	}
 	s.finalize(ctx, att, rc, "")
 	// ephemeral sandbox: events, diff and verify are already on the control

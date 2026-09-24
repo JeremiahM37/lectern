@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "../sessions/Modal";
 import { DiffViewer } from "./DiffViewer";
 import { CommentTray } from "./CommentTray";
 import { nextDraftKey, toWireComments } from "./types";
 import type { DraftComment, DiffResponse } from "./types";
 import type { JsonValue } from "../api";
+import type { SessionCheck } from "../types";
 
 // A subset of the app's `api.request`, the same seam TaskDetail uses — so
 // this panel can be opened both from the top-level app (the full DeckApi)
@@ -52,6 +53,39 @@ export function SessionReview({
   const [committing, setCommitting] = useState(false);
   const [commitSteps, setCommitSteps] = useState<Record<string, JsonValue>[]>();
   const [generating, setGenerating] = useState(false);
+
+  const [checks, setChecks] = useState<SessionCheck[]>();
+  const [checksRunning, setChecksRunning] = useState(false);
+  const checksPoll = useRef<number | undefined>(undefined);
+  function loadChecks() {
+    api
+      .request<SessionCheck[]>(`/sessions/${sessionId}/checks?limit=10`)
+      .then(setChecks)
+      .catch(() => {});
+  }
+  useEffect(() => {
+    loadChecks();
+    return () => window.clearInterval(checksPoll.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+  async function runCheckNow() {
+    setChecksRunning(true);
+    try {
+      await api.request(`/sessions/${sessionId}/checks`, { method: "POST" });
+      // the run happens on the target and can take a while; poll a few times
+      // rather than opening a second SSE connection just for this one panel
+      window.clearInterval(checksPoll.current);
+      let tries = 0;
+      checksPoll.current = window.setInterval(() => {
+        loadChecks();
+        if (++tries >= 15) window.clearInterval(checksPoll.current);
+      }, 2000);
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setChecksRunning(false);
+    }
+  }
 
   useEffect(() => {
     const c = new AbortController();
@@ -306,6 +340,43 @@ export function SessionReview({
                           {s.url}
                         </a>
                       </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="review-check-history">
+            <h3>
+              Checks
+              <button
+                type="button"
+                className="b"
+                disabled={checksRunning}
+                onClick={() => void runCheckNow()}
+              >
+                {checksRunning ? "Starting…" : "Run check"}
+              </button>
+            </h3>
+            {checks && checks.length === 0 && (
+              <p className="sub">No checks have run yet.</p>
+            )}
+            {checks && checks.length > 0 && (
+              <ul className="review-check-list">
+                {checks.map((c) => (
+                  <li key={c.id}>
+                    <span className={`chip check-chip check-${c.status}`}>
+                      {c.status}
+                    </span>
+                    <code>{c.command}</code>
+                    <span className="sub">
+                      {c.finished_at
+                        ? new Date(c.finished_at * 1000).toLocaleString()
+                        : "running…"}
+                    </span>
+                    {c.output_tail && (
+                      <pre className="review-check-output">{c.output_tail}</pre>
                     )}
                   </li>
                 ))}

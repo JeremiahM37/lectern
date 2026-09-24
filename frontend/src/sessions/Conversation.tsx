@@ -1,6 +1,7 @@
 import "./conversation-react.css";
 import "./session-home.css";
 import { SessionLineage } from "../continuity/SessionLineage";
+import { CheckBadge } from "./CheckBadge";
 import { Modal } from "./Modal";
 import {
   useEffect,
@@ -722,6 +723,11 @@ export function Conversation({
               <CostBadge session={session} />
               <LinesBadge session={session} />
               <CompactionWarning session={session} />
+            </div>
+          )}
+          {kind === "session" && session && (
+            <div className="conversation-checks">
+              <CheckBadge session={session} api={api} onNotice={onNotice} />
             </div>
           )}
         </div>

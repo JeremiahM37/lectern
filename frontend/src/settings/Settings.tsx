@@ -497,7 +497,20 @@ function ProjectCard({
       }
     }),
     [cap, setCap] = useState(""),
-    [setupStatus, setSetupStatus] = useState("");
+    [setupStatus, setSetupStatus] = useState(""),
+    [checkCmd, setCheckCmd] = useState(p.verify_cmd),
+    [checkStatus, setCheckStatus] = useState(""),
+    [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
+  function loadCheckCommand() {
+    api
+      .request<{ command: string; source: string }>(`/projects/${p.id}/check-command`)
+      .then(setAutoDetect)
+      .catch(() => {});
+  }
+  useEffect(() => {
+    loadCheckCommand();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.id]);
   useEffect(() => {
     void Promise.all([
       api.request<{
@@ -538,6 +551,14 @@ function ProjectCard({
       await api.request(`/projects/${p.id}`, { method: "PATCH", body: { setup_cmd: setup } });
       setSetupStatus("Saved setup command"); await onChanged();
     } catch (error) { setSetupStatus(error instanceof Error ? error.message : String(error)); }
+  }
+  async function saveCheckCmd() {
+    try {
+      await api.request(`/projects/${p.id}`, { method: "PATCH", body: { verify_cmd: checkCmd } });
+      setCheckStatus("Saved check command");
+      loadCheckCommand();
+      await onChanged();
+    } catch (error) { setCheckStatus(error instanceof Error ? error.message : String(error)); }
   }
   async function saveMCP() {
     let next: Record<string, JsonValue>;
@@ -635,6 +656,28 @@ function ProjectCard({
           <option>bypassPermissions</option>
         </select>
       </label>
+      <label>
+        Check command
+        <input
+          aria-label="Check command"
+          value={checkCmd}
+          placeholder={
+            autoDetect?.source === "auto"
+              ? `auto-detected: ${autoDetect.command}`
+              : "e.g. go test ./..."
+          }
+          onChange={(e) => setCheckCmd(e.target.value)}
+        />
+      </label>
+      <button onClick={() => void saveCheckCmd()}>Save check command</button>
+      <p className="project-check-status" role="status">
+        {checkStatus ||
+          (checkCmd
+            ? ""
+            : autoDetect?.source === "auto"
+              ? `Check command: auto-detected: ${autoDetect.command}`
+              : "Check command: none configured, and no .verify.yaml found on the target")}
+      </p>
       <label>
         New worktree setup command
         <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />

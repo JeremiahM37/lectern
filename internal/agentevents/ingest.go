@@ -12,12 +12,25 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
+// StopListener is how the session checks runner (internal/checks) learns
+// that an agent turn ended, without this package needing to import checks —
+// *checks.Runner satisfies this interface structurally, wired up in
+// internal/app. See docs/agent-events.md section 4.
+type StopListener interface {
+	OnAgentStop(sessionID int64)
+}
+
 // Ingester turns hook payloads and statusline snapshots into session state
 // and usage. It owns no HTTP: internal/api's hook handlers resolve the
 // session and its token, then call in here.
 type Ingester struct {
 	DB  *store.DB
 	Bus *bus.Bus
+	// Stop, when set, is told about every Stop (or codex AgentTurnComplete)
+	// hook that actually changes a session's state — the trigger a session's
+	// check command runs on. Nil is a valid, checks-disabled configuration
+	// (every test that builds an Ingester by hand predates this field).
+	Stop StopListener
 }
 
 // New builds an Ingester.
@@ -108,6 +121,17 @@ func (in *Ingester) IngestEvent(s *store.Session, event string, body []byte) (st
 	}
 	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
 		return "", false, err
+	}
+	// Checks (docs/agent-events.md section 4): a Stop hook — or codex's
+	// synthesized AgentTurnComplete equivalent, see EventAgentTurnComplete's
+	// doc comment — is the "an agent stopped, there may be something new to
+	// check" signal, independent of whether agent_state actually changed (a
+	// session can Stop repeatedly in the same idle state, and each one is a
+	// legitimate new turn). The runner's own fingerprint dedupes anything
+	// where the worktree genuinely has not moved, so firing unconditionally
+	// here is cheap and cannot double-run a real check.
+	if in.Stop != nil && (event == EventStop || event == EventAgentTurnComplete) {
+		in.Stop.OnAgentStop(s.ID)
 	}
 	if !ok {
 		return "", false, nil

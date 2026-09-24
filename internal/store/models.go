@@ -240,6 +240,21 @@ type Session struct {
 	TargetKind  string `json:"target_kind,omitempty"`
 }
 
+// SessionCheck is one run of a session's check command — see internal/checks
+// and schema.go's session_checks table doc comment.
+type SessionCheck struct {
+	ID          int64    `json:"id"`
+	SessionID   int64    `json:"session_id"`
+	Fingerprint string   `json:"-"`
+	Command     string   `json:"command"`
+	Status      string   `json:"status"`
+	ExitCode    *int     `json:"exit_code"`
+	OutputTail  string   `json:"output_tail"`
+	StartedAt   float64  `json:"started_at"`
+	FinishedAt  *float64 `json:"finished_at"`
+	Reason      string   `json:"reason"`
+}
+
 // Wrap is one session handoff: the summary an agent wrote for its successor.
 type Wrap struct {
 	ID            int64   `json:"id"`

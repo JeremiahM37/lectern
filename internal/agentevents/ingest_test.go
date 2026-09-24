@@ -248,3 +248,58 @@ func TestValidTokenConstantTimeAndRejectsEmpty(t *testing.T) {
 		t.Fatal("mismatched tokens must not authenticate")
 	}
 }
+
+// fakeStopListener records every OnAgentStop call for assertion, standing in
+// for internal/checks.Runner (which structurally satisfies StopListener)
+// without this package importing it.
+type fakeStopListener struct{ ids []int64 }
+
+func (f *fakeStopListener) OnAgentStop(sessionID int64) { f.ids = append(f.ids, sessionID) }
+
+func TestIngestEventTriggersStopListenerOnlyOnStopAndTurnComplete(t *testing.T) {
+	_, in, sess := newTestSession(t)
+	stop := &fakeStopListener{}
+	in.Stop = stop
+
+	// An ordinary hook event must not trigger a check.
+	if _, _, err := in.IngestEvent(sess, EventUserPromptSubmit, []byte(fixtureUserPromptSubmit)); err != nil {
+		t.Fatal(err)
+	}
+	if len(stop.ids) != 0 {
+		t.Fatalf("UserPromptSubmit must not trigger a check, got %v", stop.ids)
+	}
+
+	// A real Stop hook must, even without re-fetching the session row.
+	if _, _, err := in.IngestEvent(sess, EventStop, []byte(fixtureStop)); err != nil {
+		t.Fatal(err)
+	}
+	if len(stop.ids) != 1 || stop.ids[0] != sess.ID {
+		t.Fatalf("expected one OnAgentStop(%d), got %v", sess.ID, stop.ids)
+	}
+
+	// A second Stop in the same (already idle) state must still trigger —
+	// the runner's own fingerprint, not this package, decides whether there
+	// is anything new to check.
+	if _, _, err := in.IngestEvent(sess, EventStop, []byte(fixtureStop)); err != nil {
+		t.Fatal(err)
+	}
+	if len(stop.ids) != 2 {
+		t.Fatalf("expected a repeat Stop to trigger again, got %v", stop.ids)
+	}
+
+	// Codex's synthesized turn-complete event is Stop's equivalent.
+	if _, _, err := in.IngestEvent(sess, EventAgentTurnComplete, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(stop.ids) != 3 {
+		t.Fatalf("expected AgentTurnComplete to trigger too, got %v", stop.ids)
+	}
+}
+
+func TestIngestEventNilStopListenerIsSafe(t *testing.T) {
+	_, in, sess := newTestSession(t)
+	in.Stop = nil
+	if _, _, err := in.IngestEvent(sess, EventStop, []byte(fixtureStop)); err != nil {
+		t.Fatal(err)
+	}
+}

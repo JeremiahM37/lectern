@@ -120,6 +120,12 @@ type Config struct {
 	// MediaPath overrides MediaDir; MediaMaxBytes caps one posted file.
 	MediaPath     string
 	MediaMaxBytes int64
+
+	// CheckTimeout bounds one run of a project's check command
+	// (internal/checks), for both a session's Stop-triggered check and a
+	// task's auto-verify. LECTERN_CHECK_TIMEOUT, seconds; zero means the
+	// package's own 15-minute default (checks.DefaultTimeout).
+	CheckTimeout time.Duration
 }
 
 // DiffDir is where captured patches live — derived from the DB path so each
@@ -215,6 +221,7 @@ func Load() *Config {
 		GrimoireContextMode:     env("LECTERN_GRIMOIRE_CONTEXT_MODE", "project"),
 		GrimoireContextProjects: os.Getenv("LECTERN_GRIMOIRE_CONTEXT_PROJECTS"),
 		SessionPoll:             envSeconds("LECTERN_SESSION_POLL", 3.0),
+		CheckTimeout:            envSeconds("LECTERN_CHECK_TIMEOUT", 900),
 	}
 	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
 	c.HookBase = env("LECTERN_HOOK_BASE", c.BaseURL)

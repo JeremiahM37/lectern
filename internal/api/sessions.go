@@ -43,6 +43,17 @@ type sessionView struct {
 	PredecessorID *int64 `json:"predecessor_id,omitempty"`
 	SuccessorID   *int64 `json:"successor_id,omitempty"`
 	Wraps         int    `json:"wraps"`
+	// LastCheck summarises the most recent session_checks row (internal/checks)
+	// for the card badge — nil until the session's first check runs.
+	LastCheck *lastCheckView `json:"last_check,omitempty"`
+}
+
+// lastCheckView is the badge-sized summary of a session's most recent check;
+// the full row (including output_tail) is GET /api/sessions/{id}/checks.
+type lastCheckView struct {
+	Status     string   `json:"status"`
+	FinishedAt *float64 `json:"finished_at"`
+	Command    string   `json:"command"`
 }
 
 // recentSessionView keeps the ordinary session representation while making the
@@ -93,6 +104,9 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 		v.HandoffPhase, v.HandoffDestination = status.Phase, status.Destination
 	} else {
 		v.HandoffError = s.Sessions.HandoffError(row.ID)
+	}
+	if last, err := s.DB.LatestSessionCheck(row.ID); err == nil && last != nil {
+		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
 	}
 	return v
 }
