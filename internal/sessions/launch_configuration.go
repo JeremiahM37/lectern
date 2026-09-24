@@ -3,6 +3,7 @@ package sessions
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -16,6 +17,31 @@ type LaunchConfiguration struct {
 	Yolo        bool   `json:"yolo"`
 	ProfileID   int64  `json:"profile_id,omitempty"`
 	ProfileName string `json:"profile_name,omitempty"`
+	// ProfileInstructions is the selected profile's launch briefing, captured
+	// with the rest of the settings so a continuation reuses the briefing the
+	// session started with rather than a later edit of the reusable profile.
+	// It is text delivered to the agent, never configuration: it cannot change
+	// the spec, environment, model or approvals.
+	ProfileInstructions string `json:"profile_instructions,omitempty"`
+}
+
+// profileBriefing renders a captured profile's instructions as a labelled,
+// user-level launch briefing. It returns "" when there is nothing to deliver.
+// The caller's own prime and the project/Grimoire context are left intact; this
+// text is only ever prepended to them.
+func profileBriefing(cfg *LaunchConfiguration) string {
+	if cfg == nil {
+		return ""
+	}
+	instructions := strings.TrimSpace(cfg.ProfileInstructions)
+	if instructions == "" {
+		return ""
+	}
+	label := strings.TrimSpace(cfg.ProfileName)
+	if label == "" {
+		label = "launch profile"
+	}
+	return "Launch profile briefing (\"" + label + "\") — the operator set this as this session's launch briefing:\n" + instructions
 }
 
 // ApplyLaunchProfile resolves a named profile before creating a session record.
@@ -53,6 +79,7 @@ func (m *Manager) ApplyLaunchProfile(o LaunchOpts) (LaunchOpts, error) {
 		cfg.Spec.Command = p.Command
 	}
 	cfg.ProfileID, cfg.ProfileName, cfg.Yolo = p.ID, p.Name, o.Yolo
+	cfg.ProfileInstructions = p.Instructions
 	o.Configuration, o.Agent = cfg, p.Agent
 	if o.Model == "" {
 		o.Model = p.Model

@@ -166,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- sessions: the interactive half of the board ----
 	mux.HandleFunc("GET /api/agents", s.listAgents)
 	mux.HandleFunc("GET /api/launch-profiles", s.listLaunchProfiles)
+	mux.HandleFunc("GET /api/launch-profile-presets", s.listLaunchProfilePresets)
 	mux.HandleFunc("POST /api/launch-profiles", s.saveLaunchProfile)
 	mux.HandleFunc("PUT /api/launch-profiles/{id}", s.saveLaunchProfile)
 	mux.HandleFunc("DELETE /api/launch-profiles/{id}", s.deleteLaunchProfile)
