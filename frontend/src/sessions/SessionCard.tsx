@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
+import { CheckBadge } from "./CheckBadge";
 import {
   isScratchTerminal,
   scratchDefaultName,
@@ -264,6 +265,9 @@ export function SessionCard({
           </span>
         )}
         {s.group_path && <span className="chip">{s.group_path}</span>}
+        {live && s.agent !== "shell" && (
+          <CheckBadge session={s} api={api} onNotice={onNotice} />
+        )}
       </div>
       <div className="spane">{preview}</div>
       {workspace && (

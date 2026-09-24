@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -42,6 +43,7 @@ type Server struct {
 	Sched     *scheduler.Scheduler
 	Sessions  *sessions.Manager
 	Events    *agentevents.Ingester
+	Checks    *checks.Runner
 	Memory    memory.Provider
 	Terminals *terminal.Manager
 	Push      *push.Sender
@@ -272,6 +274,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/pr-description", s.taskPRDescription)
 	mux.HandleFunc("POST /api/sessions/{id}/review", s.reviewSession)
 	mux.HandleFunc("POST /api/tasks/{id}/review", s.reviewTask)
+
+	// ---- checks: the project verify_cmd/auto-detected .verify.yaml run,
+	// triggered on an agent's Stop and shown on the session's card ----
+	mux.HandleFunc("GET /api/sessions/{id}/checks", s.sessionChecks)
+	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
+	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
 
 	mux.Handle("/", s.staticHandler())
 	return s.withAuth(mux)

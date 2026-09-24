@@ -280,6 +280,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_session ON usage_daily(date, s
  WHERE session_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_task ON usage_daily(date, task_id, agent, model)
  WHERE task_id IS NOT NULL;
+-- session_checks is one run of a session's check command (internal/checks),
+-- triggered by an agent Stop hook or the screen-derived busy->idle fallback,
+-- or by a human pressing "Run check". fingerprint is a hash of the worktree's
+-- HEAD sha + 'git status --porcelain' + a diff hash, so a repeat trigger with
+-- nothing new to check can be skipped instead of re-running the same command.
+-- Tasks keep using attempts.verify_json (unchanged format); this table is
+-- sessions-only, whose checks are ongoing rather than one-shot.
+CREATE TABLE IF NOT EXISTS session_checks(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  fingerprint TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'running',   -- running|passed|failed|error|skipped
+  exit_code INTEGER,
+  output_tail TEXT NOT NULL DEFAULT '',
+  started_at REAL NOT NULL,
+  finished_at REAL,
+  reason TEXT NOT NULL DEFAULT ''           -- stop|screen|manual
+);
+CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_id, id DESC);
 `
 
 // migrations are additive: they bring a database created by an older build up to

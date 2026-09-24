@@ -50,6 +50,15 @@ type Manager struct {
 	// that section's worker lands.
 	AskPermission bool
 
+	// Checks, when set, is told when the screen-derived status moves a
+	// session from busy/working (StatusRunning) to idle (StatusIdle) — see
+	// applyPane in poll.go. This is the fallback trigger for a session's
+	// check command on targets/agents with no lifecycle hooks; a hooked
+	// session's Stop event (internal/agentevents) triggers the same runner
+	// independently, and the runner's own worktree fingerprint is what keeps
+	// the two triggers from ever double-running a check.
+	Checks agentevents.StopListener
+
 	// HandoffTimeout bounds how long we wait for an agent to write its wrap
 	// before giving up and saying so.
 	HandoffTimeout time.Duration

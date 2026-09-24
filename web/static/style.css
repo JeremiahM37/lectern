@@ -516,6 +516,26 @@ button.b:hover { border-color: var(--accent); color: var(--accent-soft); }
 .review-commit-steps li { padding: 4px 0; border-top: 1px solid var(--line); }
 .review-commit-steps li[data-ok="false"] { color: var(--red); }
 .review-commit-steps li[data-ok="true"] b { color: var(--green); }
+
+.review-check-history { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 14px; }
+.review-check-history h3 {
+  margin: 0 0 8px; font-size: 14px; display: flex; align-items: center;
+  justify-content: space-between; gap: 10px;
+}
+.review-check-history h3 button { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.review-check-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.review-check-list li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 0; border-top: 1px solid var(--line);
+}
+.review-check-list li:first-child { border-top: 0; }
+.review-check-list code { color: var(--ink-dim); word-break: break-all; }
+.review-check-output {
+  flex-basis: 100%; margin: 4px 0 0; max-height: 140px; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 8px 10px; font: 400 11px/1.5 var(--mono); color: var(--ink-dim);
+  white-space: pre-wrap; word-break: break-word;
+}
 @media (max-width: 480px) {
   .review-tray {
     position: sticky; bottom: 0; margin: 16px -20px -20px; border-radius: 16px 16px 0 0;
@@ -675,6 +695,29 @@ textarea.f { min-height: 118px; resize: vertical; line-height: 1.6; }
 .ctxbar i b { position: absolute; inset: 0 auto 0 0; background: var(--green); }
 .ctxbar.low i b { background: var(--amber); }
 .ctxbar.crit i b { background: var(--red); }
+
+/* ---- session checks: the project verify_cmd/.verify.yaml result badge ---- */
+.check-badge { display: contents; }
+.check-chip.check-running { color: var(--accent-soft); border-color: rgba(167,139,250,.3); background: var(--accent-wash); }
+.check-chip.check-passed  { color: var(--green); border-color: rgba(52,211,153,.28); background: rgba(52,211,153,.07); }
+.check-chip.check-failed,
+.check-chip.check-error   { color: var(--red); border-color: rgba(248,113,113,.32); background: rgba(248,113,113,.07); }
+.check-chip.check-skipped { color: var(--ink-faint); }
+.check-run { color: var(--ink-dim); cursor: pointer; }
+.check-detail {
+  flex-basis: 100%; margin-top: 4px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px;
+  max-width: 100%; box-sizing: border-box;
+}
+.check-detail code {
+  display: block; font: 500 11px var(--mono); color: var(--ink-dim);
+  margin-bottom: 4px; word-break: break-all;
+}
+.check-detail pre {
+  margin: 0; max-height: 160px; overflow: auto; font: 400 11px/1.5 var(--mono);
+  color: var(--ink-dim); white-space: pre-wrap; word-break: break-word;
+}
+.conversation-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-width: 100%; }
 .cand {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 11px 0; border-bottom: 1px dashed var(--line);

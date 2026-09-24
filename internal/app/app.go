@@ -15,6 +15,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -112,6 +113,17 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	terms := terminal.NewManager()
 	events := agentevents.New(db, b)
 
+	// checksRunner is the one place a project's check command (verify_cmd, or
+	// an auto-detected .verify.yaml) actually runs — for a task's finished
+	// attempt (wired into the scheduler below) and for a session's Stop
+	// event/screen-idle fallback (wired into events.Stop and sessMgr.Checks).
+	// *Runner satisfies agentevents.StopListener structurally; nothing here
+	// imports the other way.
+	checksRunner := checks.New(db, reg, b, notifier, cfg.CheckTimeout, log)
+	sched.Checks = checksRunner
+	sessMgr.Checks = checksRunner
+	events.Stop = checksRunner
+
 	authResolver := auth.New(auth.Settings{
 		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
 		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
@@ -121,7 +133,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
-		Sessions: sessMgr, Events: events, Memory: mem,
+		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due

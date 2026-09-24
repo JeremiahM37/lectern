@@ -266,6 +266,15 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	if !changed {
 		return
 	}
+	// Checks fallback (docs/agent-events.md section 4): a session with no
+	// lifecycle hooks (or whose hooks have gone quiet) never gets a Stop
+	// event, so busy->idle on the screen-derived status is the only signal
+	// it has that a turn just ended. A hooked session's real Stop event
+	// fires this same runner independently through internal/agentevents; the
+	// runner's own fingerprint is what keeps the two from double-running.
+	if m.Checks != nil && s.Status == StatusRunning && status == StatusIdle {
+		m.Checks.OnAgentStop(s.ID)
+	}
 	if fresh, err := m.DB.Session(s.ID); err == nil {
 		m.publish(fresh)
 		if status == StatusDead && s.Status != StatusDead {

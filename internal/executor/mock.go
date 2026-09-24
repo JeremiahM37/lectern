@@ -56,6 +56,11 @@ type Mock struct {
 	// HTTP is the client the fake agent uses for hook callbacks. Tests point it
 	// at their httptest server's transport; production demo mode uses the default.
 	HTTP *http.Client
+	// Intercept, when set, runs synchronously at the top of every Run call.
+	// It exists purely as a test seam for controlling timing — e.g. blocking
+	// on a specific command to deterministically create the overlap a
+	// coalescing test needs — and is never set in production code.
+	Intercept func(cmd string)
 }
 
 type mockAgent struct {
@@ -124,6 +129,9 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	m.mu.Lock()
 	m.cmdLog = append(m.cmdLog, cmd)
 	m.mu.Unlock()
+	if m.Intercept != nil {
+		m.Intercept(cmd)
+	}
 
 	switch {
 	case strings.HasPrefix(cmd, "python3 -c ") && strings.Contains(cmd, "os.O_NOFOLLOW"):
@@ -211,6 +219,18 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		delete(m.panes, name)
 		m.mu.Unlock()
 		return Result{0, "", ""}, nil
+	case strings.HasPrefix(cmd, "test -f ") && strings.Contains(cmd, "command -v verify"):
+		// internal/checks' auto-detect probe (".verify.yaml" present + verify on
+		// PATH). Defaults to "not found" so every existing test that doesn't set
+		// verify_cmd keeps seeing no auto-verify; write the marker path via
+		// WriteFile to opt a test into auto-detection deliberately.
+		m.mu.Lock()
+		_, present := m.fs[strings.Fields(cmd)[2]]
+		m.mu.Unlock()
+		if present {
+			return Result{0, "", ""}, nil
+		}
+		return Result{1, "", ""}, nil
 	case strings.Contains(cmd, "diff --numstat"):
 		return Result{0, MockNumstat, ""}, nil
 	case strings.Contains(cmd, "diff --no-color") || gitDiffRe.MatchString(cmd):

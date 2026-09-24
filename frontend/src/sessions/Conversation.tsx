@@ -1,6 +1,7 @@
 import "./conversation-react.css";
 import "./session-home.css";
 import { SessionLineage } from "../continuity/SessionLineage";
+import { CheckBadge } from "./CheckBadge";
 import { Modal } from "./Modal";
 import {
   useEffect,
@@ -655,6 +656,11 @@ export function Conversation({
                 ? `${status} · reconnecting…`
                 : status}
           </p>
+          {kind === "session" && session && (
+            <div className="conversation-checks">
+              <CheckBadge session={session} api={api} onNotice={onNotice} />
+            </div>
+          )}
         </div>
         {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
         <button
