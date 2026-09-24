@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS projects(
   capability_profile TEXT DEFAULT 'restricted',
   default_permission_mode TEXT DEFAULT '',
   skill_sources_json TEXT DEFAULT '[]',
+  -- repo_key/repo_toplevel (docs/agent-events.md "Cross-agent awareness"):
+  -- lazily backfilled from whichever session in this project resolves its
+  -- own git-common-dir first (internal/awareness). Every attempt of THIS
+  -- project shares it without a git call of its own, since an attempt's
+  -- worktree is always cut from this same repository.
+  repo_key TEXT NOT NULL DEFAULT '',
+  repo_toplevel TEXT NOT NULL DEFAULT '',
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS tasks(
@@ -214,7 +221,32 @@ CREATE TABLE IF NOT EXISTS sessions(
   -- before the next statusline/rollout tick reports the resulting drop in
   -- context_used_pct. Section 3's push-on-PreCompact is a different worker's
   -- job; this column only feeds the card, no notification.
-  precompact_at REAL
+  precompact_at REAL,
+  -- Cross-agent awareness (docs/agent-events.md "Cross-agent awareness").
+  -- repo_key identifies the repository across worktrees: "<target_id>:<git
+  -- common dir>", resolved once via 'git -C workdir rev-parse
+  -- --path-format=absolute --git-common-dir --show-toplevel' on a
+  -- background goroutine the first time an awareness-relevant hook fires
+  -- for this session (never on the hook's own response path, so a slow or
+  -- unreachable target cannot delay the agent). '' means "not resolved
+  -- yet"; the sentinel 'none' means "resolved once, this workdir is not a
+  -- git repository" so it is not retried on every subsequent hook.
+  -- repo_toplevel is that same git invocation's --show-toplevel line, used
+  -- to turn an edited file's absolute path into a rel_path that compares
+  -- equal across two worktrees of the same repository.
+  repo_key TEXT NOT NULL DEFAULT '',
+  repo_toplevel TEXT NOT NULL DEFAULT '',
+  -- Briefing dedup (docs/agent-events.md): a UserPromptSubmit briefing is
+  -- only re-sent when the peer summary's hash changed or 30 minutes passed,
+  -- so a chatty session does not re-read the same paragraph every turn.
+  awareness_briefing_hash TEXT NOT NULL DEFAULT '',
+  awareness_briefing_at REAL,
+  -- last_prompt_excerpt/last_prompt_at are the "what is this session working
+  -- on" signal a peer summary shows for it — the latest UserPromptSubmit
+  -- 'prompt', clipped to ~200 chars. Latest value only, like PaneTail; no
+  -- history table, since only "what are they doing right now" is needed.
+  last_prompt_excerpt TEXT NOT NULL DEFAULT '',
+  last_prompt_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 -- One wrap per handoff: what the agent said it was doing, kept so the project
@@ -395,6 +427,22 @@ CREATE TABLE IF NOT EXISTS eval_results(
 );
 CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_results_case ON eval_results(case_id);
+-- session_file_edits is cross-agent awareness's activity log (docs/agent-events.md
+-- "Cross-agent awareness"): one row per (session, rel_path) — INSERT ... ON
+-- CONFLICT keeps only the LATEST edit time per file, so a file touched
+-- repeatedly does not grow this table. rel_path is relative to the
+-- session's own repo_toplevel, so two worktrees of one repository compare
+-- equal. Rows older than 24h are pruned opportunistically on write.
+CREATE TABLE IF NOT EXISTS session_file_edits(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  repo_key TEXT NOT NULL,
+  rel_path TEXT NOT NULL,
+  at REAL NOT NULL,
+  UNIQUE(session_id, rel_path)
+);
+CREATE INDEX IF NOT EXISTS idx_session_file_edits_repo ON session_file_edits(repo_key, rel_path);
+CREATE INDEX IF NOT EXISTS idx_session_file_edits_session ON session_file_edits(session_id);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -476,4 +524,13 @@ var migrations = []string{
 	// setup_command used to be folded into the prompt instead.
 	"ALTER TABLE tasks ADD COLUMN setup_command TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE tasks ADD COLUMN setup_timeout_s INTEGER NOT NULL DEFAULT 0",
+	// Cross-agent awareness (docs/agent-events.md "Cross-agent awareness").
+	"ALTER TABLE sessions ADD COLUMN repo_key TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN repo_toplevel TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN awareness_briefing_hash TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN awareness_briefing_at REAL",
+	"ALTER TABLE sessions ADD COLUMN last_prompt_excerpt TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN last_prompt_at REAL",
+	"ALTER TABLE projects ADD COLUMN repo_key TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE projects ADD COLUMN repo_toplevel TEXT NOT NULL DEFAULT ''",
 }

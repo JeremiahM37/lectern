@@ -100,6 +100,9 @@ export interface SessionView extends Session {
   handoff_in_flight: boolean;
   wraps: number;
   last_check?: SessionCheckSummary | null;
+  // AwarenessOverlap is the card chip's data (docs/agent-events.md
+  // "Cross-agent awareness" point 6) — see AwarenessOverlapChip.tsx.
+  awareness_overlap?: { session_id: number; name: string; files: string[] } | null;
 }
 
 export interface Target {
@@ -275,6 +278,52 @@ export interface Session {
   // Absent on a row from before this field existed, which every reader
   // treats the same as "bypass".
   permission_mode?: string;
+  // Cross-agent awareness (docs/agent-events.md "Cross-agent awareness").
+  // repo_key is an opaque "<target id>:<git common dir>" string, the same
+  // for every worktree of one repository — used client-side only to GROUP
+  // live sessions for the "possible duplicate work" notice, never shown
+  // directly. Empty/absent means "not resolved yet" or not a git checkout.
+  repo_key?: string;
+  last_prompt_excerpt?: string;
+  last_prompt_at?: number | null;
+}
+
+// Cross-agent awareness (docs/agent-events.md "Cross-agent awareness"):
+// GET /api/sessions/{id}/peers, GET /api/peers, and the `active_work` MCP
+// tool all return this shape — see internal/awareness/peers.go.
+export interface PeerFile {
+  rel_path: string;
+  at: number;
+  age_seconds: number;
+}
+
+export interface Peer {
+  kind: "session" | "attempt";
+  session_id?: number;
+  attempt_id?: number;
+  task_id?: number;
+  name: string;
+  agent: string;
+  branch?: string;
+  agent_state?: string;
+  last_prompt?: string;
+  same_workdir: boolean;
+  workdir?: string;
+  files: PeerFile[];
+}
+
+export interface SessionPeers {
+  peers: Peer[];
+  self_files: PeerFile[];
+}
+
+// GET /api/awareness/duplicate-prompts.
+export interface DuplicatePromptPair {
+  session_a_id: number;
+  session_a: string;
+  session_b_id: number;
+  session_b: string;
+  score: number;
 }
 
 // GET /api/usage?days=N — see internal/api/usage.go.

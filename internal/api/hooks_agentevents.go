@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
+	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -78,11 +79,105 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 		s.holdSessionPermissionRequest(w, r, sess, body)
 		return
 	}
+	// Cross-agent awareness (docs/agent-events.md "Cross-agent awareness"):
+	// SessionStart/UserPromptSubmit get a peer briefing, PreToolUse gets an
+	// overwrite/conflict warning. Both ride the SAME `hookSpecificOutput`
+	// shape Claude/Codex already deliver verbatim to the agent's context —
+	// see agentevents.EventPermissionRequest's reply above for the sibling
+	// use of this shape.
+	if text := s.awarenessAdditionalContext(sess, event, body); text != "" {
+		writeJSON(w, 200, map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName": event, "additionalContext": text,
+		}})
+		return
+	}
 	// `{}` for every other event. Both agents' hook output schemas treat it
 	// as "no opinion", and (for PermissionRequest specifically, in bypass
 	// mode or any mode this build does not otherwise gate) fall back to
 	// their own terminal approval prompt when they see it.
 	writeJSON(w, 200, map[string]any{})
+}
+
+// awarenessHookInput is the subset of PreToolUse/PostToolUse/UserPromptSubmit
+// bodies awareness reads — a strict subset of permissionRequestIn/the
+// notificationProbe shapes already used above, since every Claude/Codex
+// hook reuses the same wire format (docs/agent-events.md section 2's codex
+// probing note).
+type awarenessHookInput struct {
+	ToolName  string         `json:"tool_name"`
+	ToolInput map[string]any `json:"tool_input"`
+	Prompt    string         `json:"prompt"`
+}
+
+// awarenessSettingOn is the same "default ON, off only when explicitly '0'"
+// convention internal/alerts.Watcher.enabled uses for its toggles.
+func (s *Server) awarenessSettingOn(key string) bool {
+	return strings.TrimSpace(s.DB.Setting(key)) != "0"
+}
+
+// awarenessAdditionalContext is the one place cross-agent awareness touches
+// the hook response. It ALWAYS kicks off EnsureRepoKeyAsync first (a no-op
+// once resolved) so a session's repo_key eventually gets populated even if
+// every awareness setting is off, and it never shells out itself — see
+// internal/awareness's package doc for why that split matters to keeping
+// this fast enough for a hook response.
+func (s *Server) awarenessAdditionalContext(sess *store.Session, event string, body []byte) string {
+	if s.Awareness == nil {
+		return ""
+	}
+	s.Awareness.EnsureRepoKeyAsync(sess)
+	var in awarenessHookInput
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+	if in.ToolInput == nil {
+		in.ToolInput = map[string]any{}
+	}
+	switch event {
+	case agentevents.EventSessionStart:
+		if !s.awarenessSettingOn("awareness_briefing") {
+			return ""
+		}
+		text, ok := s.Awareness.Briefing(sess)
+		if !ok {
+			return ""
+		}
+		return text
+	case agentevents.EventUserPromptSubmit:
+		s.Awareness.RecordPrompt(sess, in.Prompt)
+		if !s.awarenessSettingOn("awareness_briefing") {
+			return ""
+		}
+		text, ok := s.Awareness.Briefing(sess)
+		if !ok {
+			return ""
+		}
+		return text
+	case agentevents.EventPreToolUse:
+		// Record as intent (docs/agent-events.md point 1a): a peer whose own
+		// PreToolUse lands a moment later already sees this in-flight edit,
+		// not just ones PostToolUse has confirmed. EditWarning excludes the
+		// calling session's own rows, so this can never warn a session about
+		// itself.
+		if absPath, ok := awareness.FilePathFromToolInput(in.ToolName, in.ToolInput); ok {
+			s.Awareness.RecordEdit(sess, absPath)
+		}
+		if !s.awarenessSettingOn("awareness_edit_warning") {
+			return ""
+		}
+		text, ok := s.Awareness.EditWarning(sess, in.ToolName, in.ToolInput)
+		if !ok {
+			return ""
+		}
+		return text
+	case agentevents.EventPostToolUse:
+		if absPath, ok := awareness.FilePathFromToolInput(in.ToolName, in.ToolInput); ok {
+			s.Awareness.RecordEdit(sess, absPath)
+		}
+		return ""
+	default:
+		return ""
+	}
 }
 
 // permissionRequestIn is the input Claude/Codex send a PermissionRequest

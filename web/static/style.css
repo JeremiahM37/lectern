@@ -784,6 +784,17 @@ textarea.f { min-height: 118px; resize: vertical; line-height: 1.6; }
   color: var(--ink-dim); white-space: pre-wrap; word-break: break-word;
 }
 .conversation-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-width: 100%; }
+
+/* ---- cross-agent awareness: overlap chip (docs/agent-events.md) --------- */
+.awareness-overlap { display: contents; }
+.awareness-overlap-chip { cursor: pointer; }
+.awareness-overlap-detail {
+  flex-basis: 100%; margin-top: 4px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px;
+  max-width: 100%; box-sizing: border-box; font-size: 11.5px; color: var(--ink-dim);
+}
+.awareness-overlap-detail ul { margin: 4px 0 0; padding-left: 18px; }
+.awareness-overlap-detail code { font: 500 11px var(--mono); word-break: break-all; }
 .cand {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 11px 0; border-bottom: 1px dashed var(--line);

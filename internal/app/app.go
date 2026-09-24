@@ -14,6 +14,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/api"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
+	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
@@ -136,6 +137,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sessMgr.Checks = checksRunner
 	events.Stop = checksRunner
 
+	// awarenessTracker is cross-agent awareness's whole backend (see
+	// internal/awareness's package doc and docs/agent-events.md
+	// "Cross-agent awareness"): peer lookups, briefing/warning text, and
+	// the background repo-key resolution the hook handlers kick off.
+	awarenessTracker := awareness.New(db, reg, log)
+
 	authResolver := auth.New(auth.Settings{
 		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
 		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
@@ -146,6 +153,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
+		Awareness: awarenessTracker,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due

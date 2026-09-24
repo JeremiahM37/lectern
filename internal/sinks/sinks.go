@@ -35,6 +35,11 @@ var Keys = []string{
 	"alert_waiting_permission", "alert_waiting_input", "alert_idle", "alert_error", "alert_compacting",
 	"session_permission_mode",
 	"judge_agent", "judge_model", "eval_concurrency",
+	// Cross-agent awareness (docs/agent-events.md "Cross-agent awareness"):
+	// belongs conceptually to internal/awareness, appended here for the same
+	// reason the alert_* keys above are — one settings registry, not two.
+	// Same "default ON, off only when explicitly '0'" convention.
+	"awareness_briefing", "awareness_edit_warning",
 }
 
 // Payload is one outbound notification, already addressed and rendered.

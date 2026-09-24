@@ -4,12 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/mediapost"
 )
+
+// localGitCommonDir runs git LOCALLY, on the machine this MCP process is
+// itself running on (unlike everything else in this package, which only
+// ever talks to lectern's own HTTP API) — it is the one way the
+// `active_work` tool can resolve a repo_path argument to the same
+// git-common-dir string internal/awareness.ResolveRepoKey computes
+// server-side, without lectern's control plane needing to know anything
+// about this filesystem. See GET /api/peers?common_dir=... and
+// awareness.PeersForCommonDir for the matching server-side half.
+func localGitCommonDir(repoPath string) (string, bool) {
+	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return "", false
+	}
+	commonDir := strings.TrimSpace(string(out))
+	if commonDir == "" {
+		return "", false
+	}
+	return commonDir, true
+}
 
 // tool is one MCP tool: its schema, and what it does.
 type tool struct {
@@ -114,6 +135,45 @@ var tools = []tool{
 			view["how_to_use"] = "Run anything that opens a window with DISPLAY=" + display +
 				" in its environment. The operator is watching that display in Lectern → Media."
 			return view, nil
+		},
+	},
+	{
+		Name: "active_work",
+		Description: "See what OTHER agents (Claude Code, Codex, or anything else running as a Lectern " +
+			"session or task) are doing RIGHT NOW in the repository you are working in: their name, agent, " +
+			"branch, current state, last prompt, and files they edited recently. Call this before starting " +
+			"any non-trivial change so you don't duplicate or collide with work another agent already has in " +
+			"flight — two agents independently building the same feature is exactly what this is for. With no " +
+			"arguments it looks at the repository of the session you are running in; pass repo_path to check a " +
+			"different checkout (for an agent with no Lectern session context of its own).",
+		Schema: obj(map[string]any{
+			"repo_path": str("absolute path inside a git checkout to inspect instead of your own session's repository"),
+		}),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			repoPath := argStr(args, "repo_path")
+			var result map[string]any
+			var err error
+			if repoPath != "" {
+				commonDir, ok := localGitCommonDir(repoPath)
+				if !ok {
+					return nil, fmt.Errorf("%s does not look like a git checkout", repoPath)
+				}
+				result, err = s.object("/peers?common_dir=" + url.QueryEscape(commonDir))
+			} else {
+				sid := mediapost.SessionID()
+				if sid == 0 {
+					return nil, fmt.Errorf("no LECTERN_SESSION_ID in this environment; pass repo_path instead")
+				}
+				result, err = s.object(fmt.Sprintf("/sessions/%d/peers", sid))
+			}
+			if err != nil {
+				return nil, err
+			}
+			peers, _ := result["peers"].([]any)
+			if len(peers) == 0 {
+				return map[string]any{"peers": []any{}, "summary": "No other agents are currently working in this repository."}, nil
+			}
+			return result, nil
 		},
 	},
 	{
