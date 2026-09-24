@@ -167,3 +167,37 @@ def test_hosted_attachment_keeps_controls_hint_visible_in_narrow_terminal(real_t
         assert termios.tcgetattr(d.slave)==d.original
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
     finally:d.close()
+
+
+@pytest.mark.parametrize("outer_tmux", [False, True])
+def test_native_wheel_reads_scrollback_without_changing_agent_draft(real_terminal, outer_tmux):
+    """The controls wrapper must request mouse reports, not let an outer
+    terminal turn its alternate-screen wheel events into Up/Down keys."""
+    t=real_terminal
+    d=Dashboard(t, outer_tmux=outer_tmux)
+    received=[]
+    feed=d.stream.feed
+    def record(data):
+        received.append(data)
+        feed(data)
+    d.stream.feed=record
+    try:
+        d.wait('Real terminal'); d.send('\r'); d.wait('Ctrl+]')
+        # Output after attachment must remain readable in the private wrapper.
+        d.send("for i in $(seq 1 100); do printf 'WHEEL-HISTORY-%03d\\n' $i; sleep .01; done\r")
+        d.wait('WHEEL-HISTORY-100')
+        output=record_input(t); d.wait('AGENT_READY')
+        d.send('unchanged draft'); wait_bytes(output,b'unchanged draft')
+        # Dashboard mouse mode was disabled before attachment. The last mode
+        # command for the attached terminal must enable mouse reporting again.
+        import re
+        modes=re.findall(r'\x1b\[\?(?:1000|1002|1003)([hl])',''.join(received))
+        assert modes and modes[-1]=='h', 'Attached terminal has no mouse reporting'
+        for _ in range(20): d.send('\x1b[<64;30;10M')
+        d.wait('WHEEL-HISTORY-001')
+        wait_bytes(output,b'unchanged draft')
+        for _ in range(25): d.send('\x1b[<65;30;10M')
+        d.wait('AGENT_READY')
+        d.send(' continued'); wait_bytes(output,b'unchanged draft continued')
+        d.send('\x02d');d.wait('Detached. Session keeps running.');d.quit()
+    finally:d.close()

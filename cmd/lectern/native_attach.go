@@ -252,6 +252,14 @@ func execScriptWithEnv(env []string, argv []string) string {
 
 func (p *nativeWrapPlan) tmuxConfig() string {
 	return strings.Join([]string{
+		// This private client wrapper owns scrollback. Without mouse reports,
+		// Windows Terminal/xterm translate wheel motion in the alternate screen
+		// into Up/Down keys and replace the agent's draft with old prompts.
+		// Keep the inner attachment on the wrapper's normal screen so output
+		// remains available to tmux copy-mode. Shared agent tmux is untouched.
+		"set -g mouse on",
+		"set -g history-limit 100000",
+		"set -gw alternate-screen off",
 		"set -g prefix C-]",
 		"bind-key -T prefix C-] send-prefix",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
