@@ -153,7 +153,10 @@ export function Conversation({
     [viewport, setViewport] = useState({
       height: visualViewport?.height || innerHeight,
       top: visualViewport?.offsetTop || 0,
-    });
+    }),
+    [isRenaming, setIsRenaming] = useState(false),
+    [renamingValue, setRenamingValue] = useState(name),
+    [currentName, setCurrentName] = useState(name);
   const current = useRef(draft),
     closed = useRef(false),
     busy = useRef(false),
@@ -628,6 +631,24 @@ export function Conversation({
     onClose();
     onAttach?.();
   }
+  async function handleRename() {
+    const trimmed = renamingValue.trim();
+    if (!trimmed) {
+      setIsRenaming(false);
+      return;
+    }
+    try {
+      await api.request(`/sessions/${id}`, { method: "PATCH", body: { name: trimmed } });
+      setCurrentName(trimmed);
+      setIsRenaming(false);
+    } catch (err) {
+      onNotice(String(err), true);
+    }
+  }
+  function cancelRename() {
+    setRenamingValue(currentName);
+    setIsRenaming(false);
+  }
   return (
     <Modal
       id="conversation"
@@ -647,7 +668,45 @@ export function Conversation({
     >
       <header className="conversation-head">
         <div>
-          <h2 id="conversation-title">{name}</h2>
+          {isRenaming ? (
+            <div className="conversation-title-edit">
+              <input
+                type="text"
+                value={renamingValue}
+                onChange={(e) => setRenamingValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void handleRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    cancelRename();
+                  }
+                }}
+                onBlur={handleRename}
+                autoFocus
+              />
+            </div>
+          ) : (
+            <>
+              <h2 id="conversation-title">
+                {currentName}
+                <button
+                  className="b rename-btn"
+                  aria-label="Rename session"
+                  onClick={() => {
+                    setRenamingValue(currentName);
+                    setIsRenaming(true);
+                  }}
+                  title="Rename"
+                >
+                  ✎
+                </button>
+              </h2>
+            </>
+          )}
           <p id="conversation-status" role="status" data-connection={connection}>
             {connection === "offline"
               ? "Offline — showing the last output; sends are paused"
