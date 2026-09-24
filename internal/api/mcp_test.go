@@ -136,7 +136,7 @@ func TestMCPUnknownToolAndMethod(t *testing.T) {
 // In token mode the MCP client is a HUMAN surface, so it carries the bearer —
 // unlike an agent, which only ever holds its per-attempt hook token.
 func TestMCPCarriesTheBearerInTokenMode(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.AuthToken = "humanonly" })
+	h := newHarness(t, func(c *config.Config) { c.AuthToken = "humanonly"; c.Auth = "token" })
 	frames := mcpCall(t, h,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"board_summary","arguments":{}}}`)
 	if frames[0]["result"].(map[string]any)["isError"] == true {

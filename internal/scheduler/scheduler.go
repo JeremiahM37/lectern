@@ -22,8 +22,10 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
+	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
@@ -82,6 +84,13 @@ type Scheduler struct {
 	LeadBinary string
 	Log        *slog.Logger
 
+	// Checks resolves and runs a project's check command for the auto-verify
+	// step below (docs/agent-events.md section 4). Nil disables auto-verify
+	// entirely — every test that builds a Scheduler by hand and never sets it
+	// gets the pre-existing "no verify_cmd" behavior, since resolve() returns
+	// ok=false with nothing to resolve against.
+	Checks *checks.Runner
+
 	// Sessions is the interactive-session manager. The scheduler drives its poll
 	// so there is ONE loop watching targets, not two competing for the same
 	// SSH connections.
@@ -91,12 +100,23 @@ type Scheduler struct {
 	// implemented here because creating a task is the API layer's job, and a
 	// routine is exactly a task someone saved.
 	Routines func(context.Context)
+	// Evals drives running eval suites: dispatching the next queued cell when
+	// a concurrency slot frees up, and grading a cell once its task attempt
+	// lands. Injected for the same reason as Routines — an eval cell IS a
+	// task, and creating/grading tasks is the API layer's job.
+	Evals func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
 	ghostStrikes    map[int64]int
 	lastJanitor     float64
 	lastSessionPoll float64
+	// driverRuns holds the live drivers.Handle for every attempt launched
+	// through the structured-driver path (claude steering, codex app-server
+	// approvals). An attempt not in this map is on the ordinary tmux+poll
+	// path scheduler.launch/poll have always used — that path is completely
+	// untouched, so every existing attempt's behaviour is unchanged.
+	driverRuns map[int64]drivers.Handle
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -111,6 +131,7 @@ func New(db *store.DB, b *bus.Bus, br *broker.Broker, n *sinks.Notifier,
 			GeminiBin: cfg.GeminiBin},
 		pollErrors:   map[int64]int{},
 		ghostStrikes: map[int64]int{},
+		driverRuns:   map[int64]drivers.Handle{},
 	}
 }
 
@@ -179,6 +200,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	if s.Routines != nil {
 		s.Routines(ctx)
 	}
+	if s.Evals != nil {
+		s.Evals(ctx)
+	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)
 
@@ -233,6 +257,18 @@ type runCtx struct {
 	Task    *store.Task
 	Project *store.Project
 	Target  *store.Target
+}
+
+// effAgent and effPermissionMode resolve a Best-of-N variant's own agent or
+// permission mode when the attempt carries one, falling back to the task's —
+// which is what every attempt predating variants, and every model-only A/B
+// dispatch, already has (att.Agent/att.PermissionMode empty).
+func effAgent(c *runCtx, att *store.Attempt) string {
+	return firstNonEmpty(att.Agent, c.Task.Agent, "claude")
+}
+
+func effPermissionMode(c *runCtx, att *store.Attempt) string {
+	return firstNonEmpty(att.PermissionMode, c.Task.PermissionMode)
 }
 
 func (s *Scheduler) contextFor(att *store.Attempt) (*runCtx, error) {
@@ -328,7 +364,10 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 			return err
 		}
 	}
-	if err := skills.Reassert(ctx, ex, s.DB, c.Project, firstNonEmpty(c.Task.Agent, "claude"), wt); err != nil {
+	if err := s.runSetupCommand(ctx, ex, wt, c.Task); err != nil {
+		return err
+	}
+	if err := skills.Reassert(ctx, ex, s.DB, c.Project, effAgent(c, att), wt); err != nil {
 		return fmt.Errorf("project skills: %w", err)
 	}
 
@@ -337,9 +376,12 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 		return err
 	}
 	// push CURRENT auth so the agent never runs on a rotated-out credential copy
-	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, c.Task.Agent)
+	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
+	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer {
+		return s.launchDriver(ctx, att, c, ex, wt, branch, sess, launchKW, kind)
+	}
 	cmd, err := s.buildLaunch(att, c, wt, sess, false, launchKW)
 	if err != nil {
 		return err
@@ -357,6 +399,91 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	s.setTaskStatus(att.TaskID, "running")
 	s.Log.Info("attempt launched", "attempt", att.ID, "target", c.Target.Name, "worktree", wt)
 	return nil
+}
+
+// launchDriver starts an attempt through internal/drivers instead of the
+// ordinary tmux+poll path: today, that is a claude attempt asking for the
+// steerable driver (permission_mode "steerable") or a codex attempt asking
+// for gated approvals (permission_mode "default", which codex could not
+// honour at all before the app-server driver existed). It still runs on the
+// SAME executor/tmux/worktree machinery — StartFor's drivers build their own
+// tmux launch command and poll events.jsonl exactly like buildLaunch/poll do
+// — the only difference is who owns the lifecycle afterwards.
+func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *runCtx,
+	ex executor.Executor, wt, branch, sess string, kw launchKW, kind string) error {
+	env := map[string]string{}
+	for k, v := range s.Creds.BaseAgentEnv() {
+		env[k] = v
+	}
+	for k, v := range kw.Env {
+		env[k] = v
+	}
+	if kw.Env == nil {
+		for k, v := range projectEnv(c.Project) {
+			env[k] = v
+		}
+	}
+	agent := effAgent(c, att)
+	if kw.Agent != "" {
+		agent = kw.Agent
+	}
+	spec := drivers.Spec{
+		Agent: agent, Worktree: wt, TmuxSession: sess,
+		PermissionMode: effPermissionMode(c, att), Model: firstNonEmpty(att.Model, c.Task.Model),
+		ResumeSession: att.ResumeSession, Env: env, SettingsPath: kw.SettingsPath,
+		MCPConfig: kw.MCPConfig, StrictMCP: kw.StrictMCP, Prompt: kw.Prompt,
+		Broker: s.Broker, AttemptID: att.ID,
+	}
+	switch agent {
+	case "claude":
+		spec.Bin = s.Launcher.ClaudeBin
+	case "codex":
+		spec.Bin = s.Launcher.CodexBin
+	}
+	run, err := drivers.StartFor(kind, ctx, ex, spec)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.driverRuns[att.ID] = run
+	s.mu.Unlock()
+	s.DB.Update("attempts", att.ID, map[string]any{
+		"status": "running", "worktree_path": wt, "branch": branch,
+		"tmux_session": sess, "started_at": store.Now(), "log_offset": 0})
+	s.setTaskStatus(att.TaskID, "running")
+	s.Log.Info("attempt launched via driver", "attempt", att.ID, "driver", kind, "target", c.Target.Name)
+
+	go s.consumeDriverRun(att, c, run)
+	return nil
+}
+
+// consumeDriverRun drains a live driver run's timeline into the same
+// StoreEvents path every attempt uses, then — once the run ends, which only
+// happens on an explicit Cancel or the process exiting/crashing on its own,
+// see codexAppServerDriver/claudeSteerDriver's doc comments — finalises it
+// exactly like a naturally-completed tmux attempt (diff capture, auto-verify,
+// reviewer gate). If the attempt was already finalised by something else
+// (CancelAttempt, deletion) by the time the run ends, this is a no-op: the DB
+// status is checked before touching it.
+func (s *Scheduler) consumeDriverRun(att *store.Attempt, c *runCtx, run drivers.Handle) {
+	for ev := range run.Events() {
+		if err := s.StoreEvents(att, []agents.Event{ev}); err != nil {
+			s.Log.Warn("driver event store failed", "attempt", att.ID, "err", err)
+		}
+	}
+	result, _ := run.Wait(context.Background())
+	s.mu.Lock()
+	delete(s.driverRuns, att.ID)
+	s.mu.Unlock()
+	// re-fetch: the in-memory att this goroutine closed over predates the
+	// worktree_path/branch/status DB.Update in launchDriver, exactly like
+	// scheduler.poll always works from a freshly-queried attempt rather than
+	// a stale one captured at launch time.
+	fresh, err := s.DB.Attempt(att.ID)
+	if err != nil || fresh.Status != "running" {
+		return
+	}
+	s.captureAndFinalize(context.Background(), fresh, c, result.ExitCode)
 }
 
 // launchSandbox is the ephemeral flow: clone template -> repo inside container ->
@@ -419,13 +546,16 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 	if err := worktree.AddExcludes(ctx, inside, workdir); err != nil {
 		return err
 	}
+	if err := s.runSetupCommand(ctx, inside, workdir, c.Task); err != nil {
+		return err
+	}
 
 	launchKW, err := s.stageRuntime(ctx, inside, workdir, att, c)
 	if err != nil {
 		return err
 	}
 	// provision current auth into the container via its own executor (mock-safe)
-	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, c.Task.Agent)
+	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
 	cmd, err := s.buildLaunch(att, c, workdir, sess, true, launchKW)
@@ -447,6 +577,41 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 	return nil
 }
 
+// runSetupCommand runs a task's SetupCommand (set by the eval engine from a
+// case's own setup_command) for real, on the target, in the worktree the
+// agent is about to run in — as opposed to the old behaviour of folding it
+// into the prompt and hoping the agent ran it itself. Called from both
+// launch and launchSandboxInner, after the worktree/workdir exists and
+// before stageRuntime writes anything the agent reads, so a fixture the
+// setup step creates is visible to the agent's very first turn.
+//
+// A non-zero exit (or an executor-level error, e.g. the target being
+// unreachable) returns an error here, which its callers propagate straight
+// out of launch/launchSandboxInner: promoteQueued then fails the attempt
+// without ever building the tmux launch command, so the agent never starts.
+// gradeEvalResult (internal/api/evals_engine.go) turns that failed attempt
+// into eval_results.status="error" carrying this message as the
+// check_output_tail — no separate plumbing needed for "setup failed".
+func (s *Scheduler) runSetupCommand(ctx context.Context, ex executor.Executor, workdir string, task *store.Task) error {
+	cmd := strings.TrimSpace(task.SetupCommand)
+	if cmd == "" {
+		return nil
+	}
+	timeout := task.SetupTimeoutS
+	if timeout <= 0 || timeout > 600 {
+		timeout = 600
+	}
+	r, err := ex.Run(ctx, cmd, executor.RunOpts{Cwd: workdir, Timeout: float64(timeout)})
+	if err != nil {
+		return fmt.Errorf("setup command: %w", err)
+	}
+	if !r.OK() {
+		return fmt.Errorf("setup command failed (exit %d): %s", r.RC,
+			clipEnd(strings.TrimSpace(r.Stdout+r.Stderr), 500))
+	}
+	return nil
+}
+
 func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess string,
 	isSandbox bool, kw launchKW) (string, error) {
 	env := map[string]string{}
@@ -461,7 +626,7 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 			env[k] = v
 		}
 	}
-	agent := firstNonEmpty(c.Task.Agent, "claude")
+	agent := effAgent(c, att)
 	if kw.Agent != "" {
 		agent = kw.Agent
 	}
@@ -469,7 +634,7 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 		Agent:          agent,
 		Worktree:       workdir,
 		TmuxSession:    sess,
-		PermissionMode: c.Task.PermissionMode,
+		PermissionMode: effPermissionMode(c, att),
 		Model:          firstNonEmpty(att.Model, c.Task.Model),
 		ResumeSession:  att.ResumeSession,
 		Sandbox:        isSandbox,
@@ -544,10 +709,18 @@ func (s *Scheduler) parseAttemptEvents(att *store.Attempt, c *runCtx, buf string
 			return agents.ParseTaskStreamLines(cfg.Agent, cfg.Definition.OutputMode, buf)
 		}
 	}
-	return agents.ParseStreamLines(firstNonEmpty(c.Task.Agent, "claude"), buf)
+	return agents.ParseStreamLines(effAgent(c, att), buf)
 }
 
 func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
+	s.mu.Lock()
+	_, driven := s.driverRuns[att.ID]
+	s.mu.Unlock()
+	if driven {
+		// consumeDriverRun (started in launchDriver) owns this attempt's
+		// lifecycle end to end; Tick's ordinary poll must leave it alone.
+		return nil
+	}
 	c, err := s.contextFor(att)
 	if err != nil {
 		return err
@@ -664,24 +837,28 @@ func (s *Scheduler) captureAndFinalize(ctx context.Context, att *store.Attempt, 
 	}
 	s.DB.Update("attempts", att.ID, map[string]any{"diff_stat_json": store.J(files)})
 
-	// auto-verify: run the project's own test command in the worktree and badge
-	// the result on the card — the one signal that says a diff is more than
-	// plausible-looking
-	if rc == 0 && strings.TrimSpace(c.Project.VerifyCmd) != "" {
-		verify := map[string]any{"cmd": c.Project.VerifyCmd}
-		vr, verr := ex.Run(ctx, c.Project.VerifyCmd,
-			executor.RunOpts{Cwd: att.WorktreePath, Timeout: 900})
-		if verr != nil {
-			verify["rc"] = -1
-			verify["output"] = verr.Error()
-		} else {
-			verify["rc"] = vr.RC
-			verify["output"] = clipEnd(vr.Stdout+vr.Stderr, 4000)
+	// auto-verify: run the project's check command (verify_cmd, or an
+	// auto-detected .verify.yaml — see internal/checks) in the worktree and
+	// badge the result on the card — the one signal that says a diff is more
+	// than plausible-looking. The resolve/execute logic itself lives in
+	// internal/checks so it is shared with a session's Stop-triggered check;
+	// this call site keeps the exact attempts.verify_json shape and the
+	// 'verify' timeline event unchanged. A task's own CheckCommand (set by
+	// evals, so each case grades against its own command) wins over the
+	// project's, by handing the runner a copy of the project carrying it.
+	if rc == 0 && s.Checks != nil {
+		project := c.Project
+		if cmd := strings.TrimSpace(c.Task.CheckCommand); cmd != "" && project != nil {
+			override := *project
+			override.VerifyCmd = cmd
+			project = &override
 		}
-		s.DB.Update("attempts", att.ID, map[string]any{"verify_json": store.J(verify)})
-		s.StoreEvents(att, []agents.Event{{Type: "verify", Payload: map[string]any{
-			"cmd": verify["cmd"], "rc": verify["rc"],
-			"output": clipEnd(fmt.Sprint(verify["output"]), 1200)}}})
+		if verify, ok := s.Checks.RunForTask(ctx, ex, project, att.WorktreePath); ok {
+			s.DB.Update("attempts", att.ID, map[string]any{"verify_json": store.J(verify)})
+			s.StoreEvents(att, []agents.Event{{Type: "verify", Payload: map[string]any{
+				"cmd": verify["cmd"], "rc": verify["rc"],
+				"output": clipEnd(fmt.Sprint(verify["output"]), 1200)}}})
+		}
 	}
 	s.finalize(ctx, att, rc, "")
 	// ephemeral sandbox: events, diff and verify are already on the control
@@ -748,9 +925,12 @@ func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, no
 		}
 		s.Notifier.Notify("Ready for review", clip(task.Title, 80),
 			fmt.Sprintf("/#task/%d", task.ID), nil)
-		if task.CreatedBy == "reviewer-gate" {
+		switch task.CreatedBy {
+		case "reviewer-gate":
 			s.applyReviewVerdict(task, result)
-		} else {
+		case "judge":
+			s.applyJudgeVerdict(task, result)
+		default:
 			s.maybeSpawnReviewer(ctx, task, att)
 		}
 		return
@@ -837,6 +1017,42 @@ func (s *Scheduler) applyReviewVerdict(rtask *store.Task, result map[string]any)
 	s.setTaskStatus(rtask.ID, "done")
 }
 
+// judgeRe pulls the winning attempt number out of a judge task's final
+// message. Prompted for exactly (see api.buildJudgePrompt): "JUDGE: attempt
+// <n>" on its own line — the same "one line, one regex" contract
+// applyReviewVerdict already uses for APPROVE/REQUEST_CHANGES.
+var judgeRe = regexp.MustCompile(`(?i)JUDGE:\s*attempt\s*(\d+)`)
+
+// applyJudgeVerdict records a headless judge's ranking on the parent task's
+// latest attempt, the same place applyReviewVerdict records a reviewer's
+// verdict — so the Compare view can read both from one place.
+func (s *Scheduler) applyJudgeVerdict(rtask *store.Task, result map[string]any) {
+	text, _ := result["result"].(string)
+	winner := 0
+	if m := judgeRe.FindAllStringSubmatch(text, -1); len(m) > 0 {
+		fmt.Sscanf(m[len(m)-1][1], "%d", &winner)
+	}
+	if rtask.ParentTaskID == nil {
+		return
+	}
+	parentAtt, err := s.DB.LatestAttempt(*rtask.ParentTaskID)
+	if err == nil {
+		pres := store.UnjObj(parentAtt.ResultJSON)
+		pres["judge"] = map[string]any{
+			"winner_attempt": winner, "reason": clipEnd(text, 1500), "judge_task_id": rtask.ID}
+		s.DB.Update("attempts", parentAtt.ID, map[string]any{"result_json": store.J(pres)})
+		s.StoreEvents(parentAtt, []agents.Event{{Type: "judge_verdict", Payload: map[string]any{
+			"winner_attempt": winner, "reason": clipEnd(text, 800)}}})
+	}
+	if parent, err := s.DB.Task(*rtask.ParentTaskID); err == nil {
+		s.Bus.Publish("board", "task", parent)
+		s.Notifier.Notify("Judge picked attempt "+fmt.Sprint(winner), clip(parent.Title, 80),
+			fmt.Sprintf("/#task/%d", parent.ID), nil)
+	}
+	// the judge card served its purpose — off the board, same as a reviewer's
+	s.setTaskStatus(rtask.ID, "done")
+}
+
 // ---- housekeeping ------------------------------------------------------------
 
 // Janitor sweeps worktrees of finished tasks.
@@ -895,6 +1111,19 @@ func (s *Scheduler) Janitor(ctx context.Context, days float64) (map[string]any, 
 // sandbox, and resolves any approval it left pending.
 func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	s.Broker.ExpireForAttempt(att.ID)
+	s.mu.Lock()
+	run, driven := s.driverRuns[att.ID]
+	s.mu.Unlock()
+	if driven {
+		// Graceful close: the run's own consumeDriverRun goroutine observes
+		// it end and finalises it exactly like a naturally-completed
+		// attempt (diff capture, auto-verify) instead of the bare
+		// 'cancelled' status a tmux kill leaves behind. A stuck process
+		// still gets killed — belt and suspenders — after a bounded wait.
+		run.Cancel(ctx)
+		go s.forceKillIfStillRunning(att.ID)
+		return
+	}
 	if c, err := s.contextFor(att); err == nil {
 		if ex, err := s.attemptExecutor(att, c.Target); err == nil {
 			ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", att.ID),
@@ -912,6 +1141,44 @@ func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	s.setTaskStatus(att.TaskID, "cancelled")
 }
 
+// forceKillIfStillRunning is the driver-cancel safety net: a graceful close
+// depends on the target agent process actually noticing stdin closed and
+// exiting, which a wedged process might never do. If the attempt is still
+// 'running' after this bound, kill the tmux session directly so it cannot
+// hold a target's concurrency slot forever.
+func (s *Scheduler) forceKillIfStillRunning(attemptID int64) {
+	time.Sleep(30 * time.Second)
+	fresh, err := s.DB.Attempt(attemptID)
+	if err != nil || fresh.Status != "running" {
+		return
+	}
+	c, err := s.contextFor(fresh)
+	if err != nil {
+		return
+	}
+	ex, err := s.attemptExecutor(fresh, c.Target)
+	if err != nil {
+		return
+	}
+	ex.Run(context.Background(), fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", attemptID),
+		executor.RunOpts{Timeout: 20})
+	s.DB.Update("attempts", attemptID, map[string]any{
+		"status": "cancelled", "finished_at": store.Now()})
+	s.setTaskStatus(fresh.TaskID, "cancelled")
+}
+
+// Steer delivers a follow-up message to a running attempt's driver, if it has
+// one (see Handle.Send's doc comment for what "steerable" means per driver).
+func (s *Scheduler) Steer(ctx context.Context, attemptID int64, text string) error {
+	s.mu.Lock()
+	run, ok := s.driverRuns[attemptID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("attempt %d is not running a steerable driver", attemptID)
+	}
+	return run.Send(ctx, text)
+}
+
 // AttemptOpts are the optional inputs of CreateAttempt.
 type AttemptOpts struct {
 	Prompt        string
@@ -919,6 +1186,11 @@ type AttemptOpts struct {
 	WorktreePath  string
 	Branch        string
 	Model         string
+	// Agent and PermissionMode let a Best-of-N variant override the task's own
+	// (see effAgent/effPermissionMode); empty keeps today's single-attempt and
+	// model-only-A/B behavior unchanged.
+	Agent          string
+	PermissionMode string
 }
 
 // CreateAttempt queues attempt N+1 for a task.
@@ -941,15 +1213,19 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 	if err != nil {
 		return nil, err
 	}
-	launchConfig, err := s.taskLaunchConfig(&store.Attempt{}, &runCtx{Task: task, Project: project})
+	att := &store.Attempt{
+		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
+		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
+		Branch: o.Branch, Model: o.Model, Agent: o.Agent, PermissionMode: o.PermissionMode,
+	}
+	c := &runCtx{Task: task, Project: project}
+	launchConfig, err := s.taskLaunchConfig(att, c)
 	if err != nil {
 		return nil, err
 	}
-	launchJSON := store.J(launchConfig)
-	return s.DB.InsertAttempt(&store.Attempt{
-		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
-		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
-		Branch: o.Branch, Model: o.Model, LaunchConfigJSON: launchJSON})
+	att.LaunchConfigJSON = store.J(launchConfig)
+	att.Driver = drivers.Select(launchConfig.Agent, launchConfig.Definition.Builtin, effPermissionMode(c, att))
+	return s.DB.InsertAttempt(att)
 }
 
 // SetTaskStatus is the one place a task's column changes, so every move is

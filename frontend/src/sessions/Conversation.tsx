@@ -1,6 +1,7 @@
 import "./conversation-react.css";
 import "./session-home.css";
 import { SessionLineage } from "../continuity/SessionLineage";
+import { CheckBadge } from "./CheckBadge";
 import { Modal } from "./Modal";
 import {
   useEffect,
@@ -16,6 +17,8 @@ import type {
   TaskView,
 } from "../types";
 import type { SessionsApi } from "./Sessions";
+import { SessionReview } from "../review/SessionReview";
+import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 interface Attachment {
   name: string;
   path: string;
@@ -142,6 +145,7 @@ export function Conversation({
     [uploading, setUploading] = useState(false),
     [drag, setDrag] = useState(false),
     [dictating, setDictating] = useState(false),
+    [showMergeReview, setShowMergeReview] = useState(false),
     [font, setFont] = useState(() =>
       Math.max(
         16,
@@ -151,7 +155,10 @@ export function Conversation({
     [viewport, setViewport] = useState({
       height: visualViewport?.height || innerHeight,
       top: visualViewport?.offsetTop || 0,
-    });
+    }),
+    [isRenaming, setIsRenaming] = useState(false),
+    [renamingValue, setRenamingValue] = useState(name),
+    [currentName, setCurrentName] = useState(name);
   const current = useRef(draft),
     closed = useRef(false),
     busy = useRef(false),
@@ -626,6 +633,24 @@ export function Conversation({
     onClose();
     onAttach?.();
   }
+  async function handleRename() {
+    const trimmed = renamingValue.trim();
+    if (!trimmed) {
+      setIsRenaming(false);
+      return;
+    }
+    try {
+      await api.request(`/sessions/${id}`, { method: "PATCH", body: { name: trimmed } });
+      setCurrentName(trimmed);
+      setIsRenaming(false);
+    } catch (err) {
+      onNotice(String(err), true);
+    }
+  }
+  function cancelRename() {
+    setRenamingValue(currentName);
+    setIsRenaming(false);
+  }
   return (
     <Modal
       id="conversation"
@@ -645,7 +670,45 @@ export function Conversation({
     >
       <header className="conversation-head">
         <div>
-          <h2 id="conversation-title">{name}</h2>
+          {isRenaming ? (
+            <div className="conversation-title-edit">
+              <input
+                type="text"
+                value={renamingValue}
+                onChange={(e) => setRenamingValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void handleRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    cancelRename();
+                  }
+                }}
+                onBlur={handleRename}
+                autoFocus
+              />
+            </div>
+          ) : (
+            <>
+              <h2 id="conversation-title">
+                {currentName}
+                <button
+                  className="b rename-btn"
+                  aria-label="Rename session"
+                  onClick={() => {
+                    setRenamingValue(currentName);
+                    setIsRenaming(true);
+                  }}
+                  title="Rename"
+                >
+                  ✎
+                </button>
+              </h2>
+            </>
+          )}
           <p id="conversation-status" role="status" data-connection={connection}>
             {connection === "offline"
               ? "Offline — showing the last output; sends are paused"
@@ -653,6 +716,20 @@ export function Conversation({
                 ? `${status} · reconnecting…`
                 : status}
           </p>
+          {session && (
+            <div className="conversation-usage">
+              {session.model && <span className="chip">{session.model}</span>}
+              <ContextBadge session={session} />
+              <CostBadge session={session} />
+              <LinesBadge session={session} />
+              <CompactionWarning session={session} />
+            </div>
+          )}
+          {kind === "session" && session && (
+            <div className="conversation-checks">
+              <CheckBadge session={session} api={api} onNotice={onNotice} />
+            </div>
+          )}
         </div>
         {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
         <button
@@ -714,7 +791,24 @@ export function Conversation({
           >
             ⌨ Open terminal
           </button>
+          <button
+            type="button"
+            className="b"
+            id="conversation-merge-review"
+            onClick={() => setShowMergeReview(true)}
+          >
+            ± Review &amp; merge
+          </button>
         </div>
+      )}
+      {showMergeReview && (
+        <SessionReview
+          api={api}
+          sessionId={id}
+          name={name}
+          onClose={() => setShowMergeReview(false)}
+          onNotice={onNotice}
+        />
       )}
       {kind === "session" && (
         <details

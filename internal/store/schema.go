@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS tasks(
   permission_mode TEXT DEFAULT 'acceptEdits', base_branch TEXT DEFAULT '',
   parent_task_id INTEGER, created_by TEXT DEFAULT 'user',
   created_by_attempt INTEGER,
-  created_at REAL, updated_at REAL
+  created_at REAL, updated_at REAL,
+  check_command TEXT NOT NULL DEFAULT '',
+  setup_command TEXT NOT NULL DEFAULT '',
+  setup_timeout_s INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE TABLE IF NOT EXISTS attempts(
@@ -57,7 +60,8 @@ CREATE TABLE IF NOT EXISTS attempts(
   verify_json TEXT DEFAULT '{}',
   mcp_json TEXT DEFAULT '{}', strict_mcp INTEGER DEFAULT 0,
   mcp_snapshot INTEGER NOT NULL DEFAULT 0,
-  launch_config_json TEXT NOT NULL DEFAULT ''
+  launch_config_json TEXT NOT NULL DEFAULT '',
+  driver TEXT NOT NULL DEFAULT ''             -- internal/drivers.Kind chosen for this attempt
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_task ON attempts(task_id);
 CREATE TABLE IF NOT EXISTS project_skills(
@@ -110,8 +114,16 @@ CREATE TABLE IF NOT EXISTS events(
   seq INTEGER NOT NULL, ts REAL, type TEXT NOT NULL, payload_json TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_attempt ON events(attempt_id, seq);
+-- attempt_id is nullable (not the historical NOT NULL) so an approval can
+-- belong to a session's PermissionRequest hook instead of a task attempt
+-- (docs/agent-events.md section 3): exactly one of attempt_id/session_id is
+-- set. A database created before this change gets there via
+-- migrateApprovalsSessionColumn in migrate_approvals.go, a one-time table
+-- rebuild — SQLite has no ALTER COLUMN to drop a NOT NULL constraint, so it
+-- cannot be a plain entry in the migrations list below.
 CREATE TABLE IF NOT EXISTS approvals(
-  id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES attempts(id),
+  id INTEGER PRIMARY KEY, attempt_id INTEGER REFERENCES attempts(id),
+  session_id INTEGER REFERENCES sessions(id),
   tool_name TEXT NOT NULL, input_json TEXT DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'pending',      -- pending|approved|denied|expired
   decided_by TEXT DEFAULT '', note TEXT DEFAULT '',
@@ -148,7 +160,61 @@ CREATE TABLE IF NOT EXISTS sessions(
   archived_at REAL,
   archive_text TEXT NOT NULL DEFAULT '',
   resume_id TEXT NOT NULL DEFAULT '',
-  launch_config_json TEXT NOT NULL DEFAULT ''
+  launch_config_json TEXT NOT NULL DEFAULT '',
+  -- Agent hooks (see internal/agentevents and docs/agent-events.md section 2).
+  -- hook_token authenticates POST /api/hook/session/{id}/*; it is never
+  -- serialized in the session's own JSON.
+  hook_token TEXT NOT NULL DEFAULT '',
+  -- permission_mode is this session's resolved launch-time choice —
+  -- "bypass" (today's default, --permission-mode bypassPermissions) or
+  -- "ask" (no bypass flag; the PermissionRequest hook is registered and
+  -- gates every tool call through internal/broker) — docs/agent-events.md
+  -- section 3. Empty on a row launched before this column existed; treated
+  -- as "bypass" everywhere it is read, matching the unchanged default.
+  permission_mode TEXT NOT NULL DEFAULT '',
+  -- agent_state is the hook-driven lifecycle signal, distinct from the older
+  -- screen-scraped status column: working|waiting_input|waiting_permission|
+  -- idle|error|ended. state_source records who wrote it last (hook|screen) so
+  -- applyPane knows when it is still allowed to overwrite it (see poll.go).
+  agent_state TEXT NOT NULL DEFAULT '',
+  state_source TEXT NOT NULL DEFAULT '',
+  state_at REAL,
+  hook_seen_at REAL,
+  -- Usage, latest values only — history lives in usage_daily. Populated from
+  -- Claude's statusline JSON (context_window, cost, rate_limits) today; other
+  -- drivers fill what they can and leave the rest at their zero value.
+  -- context_used_pct is a SEPARATE column from the older context_pct above:
+  -- context_pct is "percent of context left until auto-compact" parsed off
+  -- the terminal footer (low is bad), while context_used_pct is "percent of
+  -- the context window already used" from the agent's own statusline/rollout
+  -- (high is bad) — the two are inverse-ish readings from different sources
+  -- and must never share a column (see docs/agent-events.md's usage-view
+  -- worker note: an earlier pass reused context_pct for used_percentage,
+  -- which made poll.go's screen scrape and the hook ingest fight over one
+  -- column with opposite meanings).
+  context_used_pct INTEGER,
+  context_tokens INTEGER,
+  context_size INTEGER,
+  cost_usd REAL,
+  lines_added INTEGER,
+  lines_removed INTEGER,
+  rate_5h_pct INTEGER,
+  rate_5h_reset REAL,
+  rate_7d_pct INTEGER,
+  rate_7d_reset REAL,
+  usage_at REAL,
+  -- codex_thread_id is the codex rollout's session/thread id, learned from
+  -- the AgentTurnComplete notify payload (internal/agentevents/codex_settings.go).
+  -- It is what lets the codex rollout reader (internal/agentevents/codex_rollout.go)
+  -- find the exact ~/.codex/sessions/*/*/*/rollout-*-<id>.jsonl file on the
+  -- session's target without guessing from cwd/start time.
+  codex_thread_id TEXT NOT NULL DEFAULT '',
+  -- precompact_at records the last time a PreCompact hook reached this
+  -- session, so a card can show a brief "compacting" warning even in the gap
+  -- before the next statusline/rollout tick reports the resulting drop in
+  -- context_used_pct. Section 3's push-on-PreCompact is a different worker's
+  -- job; this column only feeds the card, no notification.
+  precompact_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 -- One wrap per handoff: what the agent said it was doing, kept so the project
@@ -236,6 +302,99 @@ CREATE TABLE IF NOT EXISTS workspace_operations(
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_active ON workspace_operations(session_id)
  WHERE state IN ('running','recovering');
+-- usage_daily is the history a session's/task's latest usage columns do not
+-- keep. Each row accumulates DELTAS between successive statusline totals
+-- (never the raw cumulative number, which would double-count every sample),
+-- one row per (date, session_id|task_id, agent, model). session_id and
+-- task_id are nullable so the same table can later hold task usage; today
+-- only the session ingest path (internal/agentevents) writes it.
+CREATE TABLE IF NOT EXISTS usage_daily(
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,
+  session_id INTEGER REFERENCES sessions(id),
+  task_id INTEGER REFERENCES tasks(id),
+  agent TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  cost_usd REAL NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_session ON usage_daily(date, session_id, agent, model)
+ WHERE session_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_task ON usage_daily(date, task_id, agent, model)
+ WHERE task_id IS NOT NULL;
+-- session_checks is one run of a session's check command (internal/checks),
+-- triggered by an agent Stop hook or the screen-derived busy->idle fallback,
+-- or by a human pressing "Run check". fingerprint is a hash of the worktree's
+-- HEAD sha + 'git status --porcelain' + a diff hash, so a repeat trigger with
+-- nothing new to check can be skipped instead of re-running the same command.
+-- Tasks keep using attempts.verify_json (unchanged format); this table is
+-- sessions-only, whose checks are ongoing rather than one-shot.
+CREATE TABLE IF NOT EXISTS session_checks(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  fingerprint TEXT NOT NULL DEFAULT '',
+  command TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'running',   -- running|passed|failed|error|skipped
+  exit_code INTEGER,
+  output_tail TEXT NOT NULL DEFAULT '',
+  started_at REAL NOT NULL,
+  finished_at REAL,
+  reason TEXT NOT NULL DEFAULT ''           -- stop|screen|manual
+);
+CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_id, id DESC);
+-- Agent test suites ("evals"): a suite is a set of cases, each run through
+-- Best-of-N's machinery — a case x variant x repeat cell is one task attempt
+-- in its own worktree, graded by the case's own check_command.
+CREATE TABLE IF NOT EXISTS eval_suites(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  description TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_suites_project ON eval_suites(project_id);
+CREATE TABLE IF NOT EXISTS eval_cases(
+  id INTEGER PRIMARY KEY,
+  suite_id INTEGER NOT NULL REFERENCES eval_suites(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL DEFAULT '',
+  base_ref TEXT NOT NULL DEFAULT '',
+  check_command TEXT NOT NULL DEFAULT '',
+  timeout_s INTEGER NOT NULL DEFAULT 900,
+  setup_command TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_cases_suite ON eval_cases(suite_id);
+CREATE TABLE IF NOT EXISTS eval_runs(
+  id INTEGER PRIMARY KEY,
+  suite_id INTEGER NOT NULL REFERENCES eval_suites(id) ON DELETE CASCADE,
+  created_at REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued|running|done|cancelled
+  variants_json TEXT NOT NULL DEFAULT '[]',
+  repeats INTEGER NOT NULL DEFAULT 1,
+  notes TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_suite ON eval_runs(suite_id);
+CREATE TABLE IF NOT EXISTS eval_results(
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  case_id INTEGER NOT NULL REFERENCES eval_cases(id),
+  variant_idx INTEGER NOT NULL,
+  repeat_idx INTEGER NOT NULL,
+  task_id INTEGER,
+  attempt_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'queued',        -- queued|running|passed|failed|error|timeout
+  duration_s REAL,
+  cost_usd REAL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  diff_files INTEGER,
+  diff_lines INTEGER,
+  check_rc INTEGER,
+  check_output_tail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_results_case ON eval_results(case_id);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -284,6 +443,37 @@ var migrations = []string{
 	"ALTER TABLE attempts ADD COLUMN strict_mcp INTEGER DEFAULT 0",
 	"ALTER TABLE attempts ADD COLUMN mcp_snapshot INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE attempts ADD COLUMN launch_config_json TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN hook_token TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN agent_state TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN state_source TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN state_at REAL",
+	"ALTER TABLE sessions ADD COLUMN hook_seen_at REAL",
+	"ALTER TABLE sessions ADD COLUMN context_tokens INTEGER",
+	"ALTER TABLE sessions ADD COLUMN context_size INTEGER",
+	"ALTER TABLE sessions ADD COLUMN cost_usd REAL",
+	"ALTER TABLE sessions ADD COLUMN lines_added INTEGER",
+	"ALTER TABLE sessions ADD COLUMN lines_removed INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_5h_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_5h_reset REAL",
+	"ALTER TABLE sessions ADD COLUMN rate_7d_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN rate_7d_reset REAL",
+	"ALTER TABLE sessions ADD COLUMN usage_at REAL",
+	"ALTER TABLE attempts ADD COLUMN driver TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN context_used_pct INTEGER",
+	"ALTER TABLE sessions ADD COLUMN codex_thread_id TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE sessions ADD COLUMN precompact_at REAL",
+	"ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
+	// Best-of-N: a variant can name its own agent/permission mode instead of
+	// inheriting the task's — empty means "use the task's", so an ordinary
+	// single-attempt task or an A/B model-only dispatch is unaffected.
+	"ALTER TABLE attempts ADD COLUMN agent TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE attempts ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE tasks ADD COLUMN check_command TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE launch_profiles ADD COLUMN description TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE launch_profiles ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
+	// setup_command/setup_timeout_s are the eval engine's real host-side
+	// pre-step (see internal/scheduler's runSetupCommand): a case's own
+	// setup_command used to be folded into the prompt instead.
+	"ALTER TABLE tasks ADD COLUMN setup_command TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE tasks ADD COLUMN setup_timeout_s INTEGER NOT NULL DEFAULT 0",
 }

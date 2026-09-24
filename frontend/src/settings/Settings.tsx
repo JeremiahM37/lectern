@@ -7,8 +7,10 @@ import { Workflows } from "./Workflows";
 import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
+import { UsagePanel } from "./UsagePanel";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
+import { shortEndpoint, type PushSubscriptionInfo } from "../push";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
 }
@@ -64,6 +66,10 @@ export function Settings({
   api,
   onNotice,
   onEnablePush,
+  pushAvailable = true,
+  pushUnavailableReason,
+  pushEndpoint,
+  onUnsubscribePush,
   initialSection = "machines",
   section,
   projectEdit,
@@ -75,6 +81,16 @@ export function Settings({
   api: SettingsApi;
   onNotice(t: string, e?: boolean): void;
   onEnablePush(): void;
+  // Whether this browser can even do push, and why not when it can't — see
+  // frontend/src/push.ts. Defaults to available so callers that do not pass
+  // it (the standalone settings-harness fixture used by e2e tests) keep
+  // showing the control rather than an unexplained "unavailable" state.
+  pushAvailable?: boolean;
+  pushUnavailableReason?: string;
+  // This device's current subscription endpoint: undefined while unknown,
+  // null once known to have none, or the endpoint string once subscribed.
+  pushEndpoint?: string | null;
+  onUnsubscribePush?(endpoint: string): void;
   initialSection?: string;
   section?: { name: string; version: number };
   projectEdit?: { id: number; version: number };
@@ -187,6 +203,10 @@ export function Settings({
           api={api}
           values={settings}
           onEnablePush={onEnablePush}
+          pushAvailable={pushAvailable}
+          pushUnavailableReason={pushUnavailableReason}
+          pushEndpoint={pushEndpoint}
+          onUnsubscribePush={onUnsubscribePush}
           onNotice={onNotice}
         />
       )}{" "}
@@ -200,6 +220,8 @@ export function Settings({
               {stats.tasks_done} tasks done
             </p>
           )}
+          <UsagePanel api={api} />
+          <Whoami api={api} />
           <Build api={api} />
         </section>
       )}{" "}
@@ -498,7 +520,20 @@ function ProjectCard({
       }
     }),
     [cap, setCap] = useState(""),
-    [setupStatus, setSetupStatus] = useState("");
+    [setupStatus, setSetupStatus] = useState(""),
+    [checkCmd, setCheckCmd] = useState(p.verify_cmd),
+    [checkStatus, setCheckStatus] = useState(""),
+    [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
+  function loadCheckCommand() {
+    api
+      .request<{ command: string; source: string }>(`/projects/${p.id}/check-command`)
+      .then(setAutoDetect)
+      .catch(() => {});
+  }
+  useEffect(() => {
+    loadCheckCommand();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.id]);
   useEffect(() => {
     void Promise.all([
       api.request<{
@@ -539,6 +574,14 @@ function ProjectCard({
       await api.request(`/projects/${p.id}`, { method: "PATCH", body: { setup_cmd: setup } });
       setSetupStatus("Saved setup command"); await onChanged();
     } catch (error) { setSetupStatus(error instanceof Error ? error.message : String(error)); }
+  }
+  async function saveCheckCmd() {
+    try {
+      await api.request(`/projects/${p.id}`, { method: "PATCH", body: { verify_cmd: checkCmd } });
+      setCheckStatus("Saved check command");
+      loadCheckCommand();
+      await onChanged();
+    } catch (error) { setCheckStatus(error instanceof Error ? error.message : String(error)); }
   }
   async function saveMCP() {
     let next: Record<string, JsonValue>;
@@ -637,6 +680,28 @@ function ProjectCard({
         </select>
       </label>
       <label>
+        Check command
+        <input
+          aria-label="Check command"
+          value={checkCmd}
+          placeholder={
+            autoDetect?.source === "auto"
+              ? `auto-detected: ${autoDetect.command}`
+              : "e.g. go test ./..."
+          }
+          onChange={(e) => setCheckCmd(e.target.value)}
+        />
+      </label>
+      <button onClick={() => void saveCheckCmd()}>Save check command</button>
+      <p className="project-check-status" role="status">
+        {checkStatus ||
+          (checkCmd
+            ? ""
+            : autoDetect?.source === "auto"
+              ? `Check command: auto-detected: ${autoDetect.command}`
+              : "Check command: none configured, and no .verify.yaml found on the target")}
+      </p>
+      <label>
         New worktree setup command
         <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />
       </label>
@@ -705,20 +770,93 @@ function Notifications({
   api,
   values,
   onEnablePush,
+  pushAvailable = true,
+  pushUnavailableReason,
+  pushEndpoint,
+  onUnsubscribePush,
   onNotice,
 }: {
   api: SettingsApi;
   values: Record<string, JsonValue>;
   onEnablePush(): void;
+  pushAvailable?: boolean;
+  pushUnavailableReason?: string;
+  pushEndpoint?: string | null;
+  onUnsubscribePush?(endpoint: string): void;
   onNotice(t: string, e?: boolean): void;
 }) {
   const [discord, setDiscord] = useState(String(values.discord_webhook ?? "")),
     [server, setServer] = useState(String(values.ntfy_server ?? "")),
     [topic, setTopic] = useState(String(values.ntfy_topic ?? ""));
+  // Per-kind session-alert toggles (docs/agent-events.md section 3): stored
+  // as "0"/"1" strings, default ON — missing or anything but "0" means the
+  // alert is enabled (internal/alerts.Watcher.enabled).
+  const alertKeys: [string, string][] = [
+    ["alert_waiting_permission", "Needs permission"],
+    ["alert_waiting_input", "Waiting for input"],
+    ["alert_idle", "Finished"],
+    ["alert_error", "Error"],
+    ["alert_compacting", "Compacting"],
+  ];
+  const [alerts, setAlerts] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(alertKeys.map(([key]) => [key, String(values[key] ?? "") !== "0"])),
+  );
+  const [permissionMode, setPermissionMode] = useState(
+    String(values.session_permission_mode ?? "") === "ask" ? "ask" : "bypass",
+  );
+  const [devices, setDevices] = useState<PushSubscriptionInfo[]>([]);
+  const loadDevices = () =>
+    void api
+      .request<PushSubscriptionInfo[]>("/push/subscriptions")
+      .then(setDevices)
+      .catch(() => {}); // the section still works with sinks alone
+  // Reload whenever this device's own subscription state settles (after
+  // enabling or unsubscribing), plus once up front.
+  useEffect(loadDevices, [pushEndpoint]);
   return (
     <article>
       <h3>Notifications</h3>
-      <button onClick={onEnablePush}>Enable push on this device</button>
+      <div className="push-status">
+        {!pushAvailable ? (
+          <p className="subhint" id="push-unavailable-reason">
+            {pushUnavailableReason || "Push notifications are not available in this browser."}
+          </p>
+        ) : pushEndpoint ? (
+          <p className="subhint" id="push-enabled-hint">
+            Phone alerts are on for this device.
+          </p>
+        ) : (
+          <button id="s-enable-push" onClick={onEnablePush}>
+            Enable phone alerts
+          </button>
+        )}
+        {devices.length > 0 && (
+          <ul className="push-devices" id="push-devices">
+            {devices.map((d) => (
+              <li key={d.id} data-endpoint={d.endpoint}>
+                <span>
+                  {shortEndpoint(d.endpoint)}
+                  {d.endpoint === pushEndpoint && (
+                    <em className="push-this-device"> · this device</em>
+                  )}
+                </span>
+                {onUnsubscribePush && (
+                  <button
+                    className="b"
+                    aria-label={`Unsubscribe ${shortEndpoint(d.endpoint)}`}
+                    onClick={() => {
+                      onUnsubscribePush(d.endpoint);
+                      setDevices((old) => old.filter((row) => row.id !== d.id));
+                    }}
+                  >
+                    Unsubscribe
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <label>
         Discord webhook URL
         <input id="s-discord" value={discord} onChange={(e) => setDiscord(e.target.value)} />
@@ -757,6 +895,99 @@ function Notifications({
       >
         Send test
       </button>
+
+      <h4>Session alerts</h4>
+      <p className="subhint">
+        A push when a session needs permission, is waiting for you, finishes, hits an
+        error, or auto-compacts its context. Suppressed for 30s after you type into that
+        session's terminal.
+      </p>
+      {alertKeys.map(([key, label]) => (
+        <label key={key}>
+          <input
+            type="checkbox"
+            checked={alerts[key]}
+            onChange={(e) => setAlerts((old) => ({ ...old, [key]: e.target.checked }))}
+          />{" "}
+          {label}
+        </label>
+      ))}
+      <button
+        id="s-save-alerts"
+        onClick={() =>
+          void api
+            .request("/settings", {
+              method: "PUT",
+              body: Object.fromEntries(
+                alertKeys.map(([key]) => [key, alerts[key] ? "1" : "0"]),
+              ),
+            })
+            .then(() => onNotice("Alert settings saved"))
+        }
+      >
+        Save alerts
+      </button>
+
+      <h4>New session permission mode</h4>
+      <p className="subhint">
+        The default for a new interactive session that does not say otherwise. "Ask"
+        registers the PermissionRequest hook, so a tool call can be approved or denied
+        from the phone; "Bypass" is today's default — the agent runs unattended.
+      </p>
+      <label>
+        <select
+          id="s-permission-mode"
+          value={permissionMode}
+          onChange={(e) => setPermissionMode(e.target.value)}
+        >
+          <option value="bypass">Bypass (no approval prompts)</option>
+          <option value="ask">Ask (approve/deny from the phone)</option>
+        </select>
+      </label>
+      <button
+        id="s-save-permission-mode"
+        onClick={() =>
+          void api
+            .request("/settings", {
+              method: "PUT",
+              body: { session_permission_mode: permissionMode },
+            })
+            .then(() => onNotice("Default permission mode saved"))
+        }
+      >
+        Save default
+      </button>
+    </article>
+  );
+}
+interface Whoami {
+  mode: string;
+  kind: string;
+  login: string;
+  node: string;
+  human: boolean;
+}
+// Unobtrusive identity line: who this device is signed in as, and how. Most
+// useful in tailscale mode, where nobody ever typed a credential in — this is
+// the one place that confirms it actually resolved to the right person.
+function Whoami({ api }: { api: SettingsApi }) {
+  const [w, setW] = useState<Whoami>();
+  useEffect(() => {
+    void api.request<Whoami>("/whoami").then(setW);
+  }, []);
+  if (!w) return null;
+  const identity =
+    w.kind === "tailscale"
+      ? `tailscale · ${w.login}${w.node ? ` (${w.node})` : ""}`
+      : w.kind === "token"
+        ? "access token"
+        : "local (no login needed)";
+  return (
+    <article id="whoami">
+      <h3>Signed in</h3>
+      <p>
+        {identity} · auth mode: {w.mode}
+      </p>
     </article>
   );
 }

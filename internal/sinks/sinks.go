@@ -21,7 +21,21 @@ import (
 
 // Keys are the settings rows this package owns. Anything else is rejected by the
 // settings endpoint so a typo cannot silently disable notifications.
-var Keys = []string{"discord_webhook", "ntfy_server", "ntfy_topic"}
+//
+// The alert_* keys and session_permission_mode belong conceptually to
+// internal/alerts and internal/sessions respectively (docs/agent-events.md
+// section 3), but PUT/GET /api/settings only validates against this one
+// list (internal/api/misc.go), so they are appended here rather than
+// standing up a second settings registry for two features. Values are
+// "0"/"1" strings for the toggles (missing or anything but "0" means ON —
+// see internal/alerts.Enabled) and "bypass"/"ask" for the permission mode
+// default (missing or anything but "ask" means "bypass").
+var Keys = []string{
+	"discord_webhook", "ntfy_server", "ntfy_topic", "summary_agent", "summary_model",
+	"alert_waiting_permission", "alert_waiting_input", "alert_idle", "alert_error", "alert_compacting",
+	"session_permission_mode",
+	"judge_agent", "judge_model", "eval_concurrency",
+}
 
 // Payload is one outbound notification, already addressed and rendered.
 type Payload struct {
@@ -31,10 +45,16 @@ type Payload struct {
 }
 
 // Extra carries the notification's context — which is what turns an ntfy message
-// into one with decision buttons.
+// into one with decision buttons, and what a web-push payload's kind/session_id
+// fields (docs/agent-events.md section 3) come from.
 type Extra struct {
 	Kind       string
 	ApprovalID int64
+	// SessionID, when set, is included in the web-push payload as
+	// session_id so the service worker (and anything else reading a push
+	// message) can act on the session directly rather than parsing it back
+	// out of the deep-link URL.
+	SessionID int64
 }
 
 // Notifier owns the sink fan-out.
@@ -143,16 +163,29 @@ func (n *Notifier) deliver(payloads []Payload) {
 	}
 }
 
+// pushMessage builds the JSON a browser's service worker receives (before
+// web-push encryption), pulled out of sendPush so its shape — kind, the
+// deep-link url, and (docs/agent-events.md section 3) session_id — is
+// testable without a real VAPID/encryption round trip.
+func pushMessage(title, body, urlPath string, extra *Extra) map[string]any {
+	msg := map[string]any{"title": title, "body": body, "url": urlPath}
+	if extra != nil {
+		msg["kind"] = extra.Kind
+		if extra.ApprovalID != 0 {
+			msg["approval_id"] = extra.ApprovalID
+		}
+		if extra.SessionID != 0 {
+			msg["session_id"] = extra.SessionID
+		}
+	}
+	return msg
+}
+
 func (n *Notifier) sendPush(title, body, urlPath string, extra *Extra) {
 	if n.Push == nil || !n.Push.Enabled() {
 		return
 	}
-	msg := map[string]any{"title": title, "body": body, "url": urlPath}
-	if extra != nil {
-		msg["kind"] = extra.Kind
-		msg["approval_id"] = extra.ApprovalID
-	}
-	raw, _ := json.Marshal(msg)
+	raw, _ := json.Marshal(pushMessage(title, body, urlPath, extra))
 	rows, err := n.DB.Query(`SELECT id, endpoint, keys_json FROM push_subscriptions`)
 	if err != nil {
 		return
@@ -195,6 +228,47 @@ func Subscribe(db *store.DB, sub push.Subscription) error {
 		VALUES(?,?,?) ON CONFLICT(endpoint) DO UPDATE SET keys_json=excluded.keys_json`,
 		sub.Endpoint, string(keys), store.Now())
 	return err
+}
+
+// Unsubscribe removes one browser's push subscription by endpoint — the same
+// identity a 404/410 delivery failure prunes automatically (sendPush above).
+// It never errors on an endpoint that is already gone: asking to unsubscribe
+// a device that was never (or is no longer) subscribed is not a failure.
+func Unsubscribe(db *store.DB, endpoint string) error {
+	_, err := db.Exec(`DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+	return err
+}
+
+// SubscriptionInfo is one subscribed device, as listed for the settings UI.
+// The endpoint is included so the UI can point out "this device" (it matches
+// the endpoint the browser's own pushManager.getSubscription() returns) — it
+// is not secret, unlike the p256dh/auth keys, which this never exposes.
+type SubscriptionInfo struct {
+	ID        int64   `json:"id"`
+	Endpoint  string  `json:"endpoint"`
+	CreatedAt float64 `json:"created_at"`
+}
+
+// Subscriptions lists every subscribed device, newest first.
+func Subscriptions(db *store.DB) ([]SubscriptionInfo, error) {
+	rows, err := db.Query(`SELECT id, endpoint, created_at FROM push_subscriptions ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SubscriptionInfo{}
+	for rows.Next() {
+		var s SubscriptionInfo
+		var createdAt *float64
+		if err := rows.Scan(&s.ID, &s.Endpoint, &createdAt); err != nil {
+			return nil, err
+		}
+		if createdAt != nil {
+			s.CreatedAt = *createdAt
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 func clip(s string, n int) string {

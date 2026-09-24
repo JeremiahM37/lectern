@@ -25,9 +25,17 @@ export function createDeckApi(options: ClientOptions = {}) {
     createTask: (body: {project_id:number;title:string;prompt:string;priority?:number;agent?:string;model?:string;permission_mode?:string;base_branch?:string;orchestrate?:boolean}) => request<TaskView>('/tasks', {method:'POST', body}),
     patchTask: (id:number, body: Record<string, JsonValue>) => request<TaskView>(`/tasks/${id}`, {method:'PATCH', body}),
     deleteTask: (id:number) => request<null>(`/tasks/${id}`, {method:'DELETE'}),
-    taskAction: (id:number, action:'dispatch'|'followup'|'complete'|'cancel'|'commit'|'cleanup'|'takeover', body:Record<string,JsonValue>={}) => request<Record<string,JsonValue>>(`/tasks/${id}/${action}`, {method:'POST', body}),
+    taskAction: (id:number, action:'dispatch'|'followup'|'complete'|'cancel'|'commit'|'cleanup'|'takeover'|'review', body:Record<string,JsonValue>={}) => request<Record<string,JsonValue>>(`/tasks/${id}/${action}`, {method:'POST', body}),
     taskEvents: (id:number, signal?:AbortSignal) => request<import('./types').Event[]>(`/tasks/${id}/events`, {signal}),
     taskDiff: (id:number, signal?:AbortSignal) => request<Record<string,JsonValue>>(`/tasks/${id}/diff`, {signal}),
+    taskPRDescription: (id:number) => request<{title:string;body:string}>(`/tasks/${id}/pr-description`, {method:'POST'}),
+    // Review and merge for sessions: a live diff (possibly several
+    // repositories), commit/push/PR reusing the task implementation, and a
+    // headless-generated PR description — see docs/agent-events.md section 4.
+    sessionDiff: (id:number, signal?:AbortSignal) => request<Record<string,JsonValue>>(`/sessions/${id}/diff`, {signal}),
+    sessionReview: (id:number, body:Record<string,JsonValue>) => request<Record<string,JsonValue>>(`/sessions/${id}/review`, {method:'POST', body}),
+    sessionCommit: (id:number, body:Record<string,JsonValue>, repo?:string) => request<Record<string,JsonValue>>(`/sessions/${id}/commit${repo?`?repo=${encodeURIComponent(repo)}`:''}`, {method:'POST', body}),
+    sessionPRDescription: (id:number) => request<{title:string;body:string}>(`/sessions/${id}/pr-description`, {method:'POST'}),
     decideApproval: (id:number, decision:'approved'|'denied', note='', always_allow=false) => request<null>(`/approvals/${id}/decision`, {method:'POST',body:{decision,note,always_allow}}),
     patchSession: (id:number, body:Record<string,JsonValue>) => request<SessionView>(`/sessions/${id}`, {method:'PATCH',body}),
     sessionAction: (id:number, action:'terminal'|'restore'|'handoff'|'promote'|'archive'|'send'|'resume'|'fork', body:Record<string,JsonValue>={}) => request<Record<string,JsonValue>>(`/sessions/${id}/${action}`, {method:'POST',body}),

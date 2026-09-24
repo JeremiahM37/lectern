@@ -16,6 +16,26 @@
 .sheet label { display: grid; gap: 5px; margin: 10px 0; }
 .sheet input, .sheet select, .sheet textarea { box-sizing: border-box; max-width: 100%; }
 .task-detail { width: min(900px, calc(100vw - 24px)); }
+.steer-row { display: flex; gap: 8px; margin: 10px 0; }
+.steer-row .steer-input { flex: 1; min-width: 0; }
+#f-variants { margin: 12px 0; }
+.variants-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.variant-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 6px 0; padding: 8px; border: 1px solid var(--border, #334155); border-radius: 8px;
+}
+.variant-row select, .variant-row input { flex: 1 1 100px; min-width: 90px; }
+.variant-n { flex: 0 0 auto; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.variant-remove { flex: 0 0 auto; }
+.compare-view { margin: 10px 0; }
+.compare-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.judge-verdict { background: var(--panel-2, #1e293b); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.92em; }
+.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.compare-card { border: 1px solid var(--border, #334155); border-radius: 10px; padding: 10px; min-width: 0; }
+.compare-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.compare-card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0 0 8px; font-size: 0.9em; }
+.compare-card dt { opacity: 0.65; }
+.compare-card dd { margin: 0; overflow-wrap: anywhere; }
 .board-column { display: contents; }
 #rt-list { min-height: 1px; }
 @media (max-width: 700px) {

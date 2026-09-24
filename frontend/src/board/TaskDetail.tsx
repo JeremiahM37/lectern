@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import type { Event, TaskView } from "../types";
 import { withToken, type JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
+import { DiffViewer } from "../review/DiffViewer";
+import { CommentTray } from "../review/CommentTray";
+import { CompareView, type JudgeVerdict } from "./CompareView";
+import { nextDraftKey, toWireComments } from "../review/types";
+import type { DraftComment } from "../review/types";
+import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
 export interface TaskDetailApi {
@@ -43,10 +49,48 @@ export function TaskDetail({
   const [attempt, setAttempt] = useState<number>();
   const [diff, setDiff] = useState<Diff>();
   const [diffOpen, setDiffOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [judging, setJudging] = useState(false);
   const [wrap, setWrap] = useState(
     localStorage.getItem("lec-diffwrap") === "1",
   );
   const [busy, setBusy] = useState(false);
+  const [comments, setComments] = useState<DraftComment[]>([]);
+  const [reviewSummary, setReviewSummary] = useState("");
+  const [reviewSending, setReviewSending] = useState(false);
+  function addComment(c: Omit<DraftComment, "key">) {
+    setComments((prev) => [...prev, { ...c, key: nextDraftKey() }]);
+  }
+  function removeComment(key: string) {
+    setComments((prev) => prev.filter((c) => c.key !== key));
+  }
+  async function sendReview() {
+    if (!task) return;
+    setReviewSending(true);
+    try {
+      const result = await api.request<{ comments: number }>(
+        `/tasks/${task.id}/review`,
+        {
+          method: "POST",
+          body: {
+            comments: toWireComments(comments) as unknown as JsonValue,
+            summary: reviewSummary,
+          },
+        },
+      );
+      onNotice(
+        `Sent ${String(result.comments ?? comments.length)} comment(s) as request-changes feedback.`,
+      );
+      setComments([]);
+      setReviewSummary("");
+      onChanged();
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setReviewSending(false);
+    }
+  }
+  const [steerText, setSteerText] = useState("");
   async function load(signal?: AbortSignal, n = attempt) {
     const q = n ? `?attempt_n=${n}` : "";
     const [t, e] = await Promise.all([
@@ -68,6 +112,8 @@ export function TaskDetail({
     setDiff(undefined);
     setDiffOpen(false);
     setAttempt(undefined);
+    setComments([]);
+    setReviewSummary("");
   }, [taskId]);
   useEffect(() => {
     const stream = new EventSource(withToken(`/api/tasks/${taskId}/stream`));
@@ -98,11 +144,63 @@ export function TaskDetail({
       setBusy(false);
     }
   }
+  async function steer() {
+    const text = steerText.trim();
+    if (!text) return;
+    setSteerText("");
+    await act("steer", { text });
+  }
   async function pick(n: number) {
     setAttempt(n);
     setEvents(await api.request(`/tasks/${taskId}/events?attempt_n=${n}`));
     setDiff(undefined);
     setDiffOpen(false);
+    setComments([]);
+    setReviewSummary("");
+  }
+  async function pickAttempt(n: number) {
+    if (
+      !confirm(
+        `Pick attempt #${n} as the winner? The other attempt(s)' worktrees will be removed.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.request(`/tasks/${taskId}/pick_attempt`, {
+        method: "POST",
+        body: { n },
+      });
+      setCompareOpen(false);
+      await load();
+      onChanged();
+      onNotice(`Attempt #${n} picked.`);
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runJudge() {
+    setJudging(true);
+    try {
+      await api.request(`/tasks/${taskId}/judge`, { method: "POST" });
+      onNotice("Judge dispatched — its verdict will appear here when it finishes.");
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setJudging(false);
+    }
+  }
+  async function viewAttemptDiff(n: number) {
+    await pick(n);
+    setCompareOpen(false);
+    try {
+      setDiff(await api.request<Diff>(`/tasks/${taskId}/diff?attempt_n=${n}`));
+      setDiffOpen(true);
+    } catch (e) {
+      onNotice(String(e), true);
+    }
   }
   async function toggleDiff() {
     if (diffOpen) {
@@ -148,20 +246,60 @@ export function TaskDetail({
           </>
         )}
       </div>
+      {task.attempt?.result && (() => {
+        const u = resultUsage(task.attempt!.result);
+        if (u.costUSD == null && u.outputTokens == null && u.contextPct == null) return null;
+        return (
+          <div className="usage-line">
+            {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+            {u.costUSD == null && u.outputTokens != null && (
+              <span className="chip">{formatTokens(u.outputTokens)} tok</span>
+            )}
+            {u.contextPct != null && (
+              <span
+                className={`ctxbar ctx-used ${contextClass(u.contextPct)}`}
+                title={`${formatTokens(u.contextTokens)} / ${formatTokens(u.contextSize)} tokens used`}
+              >
+                ctx <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
+              </span>
+            )}
+          </div>
+        );
+      })()}
       {task.attempts.length > 1 && (
         <div className="btnrow attempt-chips">
           {task.attempts.map((a) => (
             <button
-              className={attempt === a.n ? "b ok" : "b"}
+              className={attempt === a.n && !compareOpen ? "b ok" : "b"}
               key={a.n}
-              onClick={() => void pick(a.n)}
+              onClick={() => {
+                setCompareOpen(false);
+                void pick(a.n);
+              }}
             >
               ⑂ A{a.n}
               {a.model && ` · ${a.model}`} · {a.status}
               {a.cost_usd != null && ` · $${Number(a.cost_usd).toFixed(2)}`}
             </button>
           ))}
+          <button
+            className={compareOpen ? "b ok" : "b"}
+            onClick={() => setCompareOpen((v) => !v)}
+          >
+            ⊞ Compare
+          </button>
         </div>
+      )}
+      {compareOpen && task.attempts.length > 1 && (
+        <CompareView
+          attempts={task.attempts}
+          judgment={task.attempt?.result?.judge as JudgeVerdict | undefined}
+          busy={busy}
+          judging={judging}
+          onViewDiff={(n) => void viewAttemptDiff(n)}
+          onPick={(n) => void pickAttempt(n)}
+          onJudge={() => void runJudge()}
+        />
       )}
       <div id="actions" className="btnrow actions">
         <button
@@ -290,6 +428,26 @@ export function TaskDetail({
           Delete
         </button>
       </div>
+      {task.status === "running" && task.attempt?.driver === "claude-steer" && (
+        <form
+          className="steer-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void steer();
+          }}
+        >
+          <input
+            type="text"
+            className="steer-input"
+            placeholder="Send a message to the running agent…"
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+          />
+          <button className="b ok" type="submit" disabled={busy || !steerText.trim()}>
+            Send
+          </button>
+        </form>
+      )}
       {takeover && (
         <p className="subhint">
           {takeover.status === "ready"
@@ -312,11 +470,12 @@ export function TaskDetail({
           ))}
         </div>
       ) : (
-        <div className={wrap ? "diff wrapped" : "diff"}>
+        <>
           <header className="diffhead">
             attempt #{diff?.attempt_n} · {diff?.stats.length ?? 0} file(s)
             changed{" "}
             <button
+              className={"wrapbtn" + (wrap ? " on" : "")}
               onClick={() => {
                 const n = !wrap;
                 setWrap(n);
@@ -326,42 +485,26 @@ export function TaskDetail({
               ⏎ wrap: {wrap ? "on" : "off"}
             </button>
           </header>
-          {diff?.files.map((f) => {
-            const s = diff.stats.find((x) => x.path === f.path);
-            return (
-              <details
-                className="dfile"
-                open={diff.files.length <= 3}
-                key={f.path}
-              >
-                <summary>
-                  {f.path}{" "}
-                  <b>
-                    +{s?.additions ?? "?"} −{s?.deletions ?? "?"}
-                  </b>
-                </summary>
-                <div className="dcode">
-                  {f.patch.split("\n").map((line, i) => (
-                    <div
-                      key={i}
-                      className={
-                        line.startsWith("+") && !line.startsWith("+++")
-                          ? "dl-add"
-                          : line.startsWith("-") && !line.startsWith("---")
-                            ? "dl-del"
-                            : line.startsWith("@@")
-                              ? "dl-hunk"
-                              : ""
-                      }
-                    >
-                      {line || " "}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-        </div>
+          <DiffViewer
+            files={diff?.files ?? []}
+            stats={diff?.stats ?? []}
+            wrap={wrap}
+            commentable={task.status === "review"}
+            comments={comments}
+            onAddComment={addComment}
+          />
+          {task.status === "review" && (
+            <CommentTray
+              comments={comments}
+              summary={reviewSummary}
+              onSummaryChange={setReviewSummary}
+              onRemove={removeComment}
+              onSend={() => void sendReview()}
+              busy={reviewSending}
+              sendLabel="Send as request-changes feedback"
+            />
+          )}
+        </>
       )}
     </Modal>
   );

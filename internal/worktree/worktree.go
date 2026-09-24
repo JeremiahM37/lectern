@@ -124,6 +124,33 @@ func AddExcludes(ctx context.Context, ex executor.Executor, repoDir string) erro
 
 var numstatRe = regexp.MustCompile(`^(\d+|-)\t(\d+|-)\t(.+)$`)
 
+// IsGitRepo reports whether dir is inside a git working tree. Used before a
+// live diff or commit so a plain (non-git) workdir gets a clear error instead
+// of a confusing git failure three commands later.
+func IsGitRepo(ctx context.Context, ex executor.Executor, dir string) bool {
+	r, err := ex.Run(ctx, fmt.Sprintf("git -C %s rev-parse --is-inside-work-tree",
+		executor.ShellQuote(dir)), executor.RunOpts{Timeout: 15})
+	return err == nil && r.OK() && strings.TrimSpace(r.Stdout) == "true"
+}
+
+// MergeBase resolves the commit a worktree's HEAD shares with baseRef, so a
+// live diff shows only what the worktree actually changed even if baseRef has
+// moved on since the worktree branched from it. Returns "" (not an error) when
+// git can't resolve one — an unborn branch, or baseRef missing entirely — so
+// callers can fall back to diffing against baseRef directly.
+func MergeBase(ctx context.Context, ex executor.Executor, wt, baseRef string) (string, error) {
+	q := executor.ShellQuote
+	r, err := ex.Run(ctx, fmt.Sprintf("git -C %s merge-base %s HEAD", q(wt), q(baseRef)),
+		executor.RunOpts{Timeout: 30})
+	if err != nil {
+		return "", err
+	}
+	if !r.OK() {
+		return "", nil
+	}
+	return strings.TrimSpace(r.Stdout), nil
+}
+
 // CaptureDiff returns the full patch plus per-file stats of everything the
 // attempt changed against its base branch.
 func CaptureDiff(ctx context.Context, ex executor.Executor, wt, baseBranch string) (string, []FileStat, error) {

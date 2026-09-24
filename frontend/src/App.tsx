@@ -17,6 +17,8 @@ import { NativeSearch } from "./sessions/SavedConversations";
 import { LaunchProfiles } from "./settings/LaunchProfiles";
 import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
+import { SessionReview } from "./review/SessionReview";
+import { Evals } from "./evals/Evals";
 import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
 import { Palette, type Command } from "./shell/Palette";
 import { Deck, Approvals } from "./shell/LiveViews";
@@ -26,7 +28,26 @@ import { QuickSwitch, sessionModelLabel } from "./sessions/QuickSwitch";
 import { requestSwitch, type SwitchRequest } from "./continuity/handoff";
 import { SessionLineage } from "./continuity/SessionLineage";
 import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
+import { envFromWindow, pushAvailability } from "./push";
 const SWITCH_STORAGE = 'lec-pending-switches';
+const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
+// The Needs-you push prompt is one-time and dismissible: once a person taps
+// "Not now" it must not come back on every visit. Per-device (localStorage),
+// like every other UI preference this app keeps client-side.
+function pushPromptDismissed(): boolean {
+  try {
+    return localStorage.getItem(PUSH_PROMPT_DISMISSED) === '1';
+  } catch {
+    return false;
+  }
+}
+function dismissPushPrompt() {
+  try {
+    localStorage.setItem(PUSH_PROMPT_DISMISSED, '1');
+  } catch {
+    /* best-effort — a private window losing the dismissal just re-shows it */
+  }
+}
 // A pending switch remembers where the context is going as well as the wrap it
 // started after, so a reload can keep showing progress and offer a retry.
 function savedSwitches(): Record<string, PendingSwitch> {
@@ -66,6 +87,7 @@ const tabs = [
   "deck",
   "approvals",
   "targets",
+  "evals",
 ] as const;
 type Tab = (typeof tabs)[number];
 const labels: Record<Tab, string> = {
@@ -76,7 +98,13 @@ const labels: Record<Tab, string> = {
   deck: "Deck",
   approvals: "Approvals",
   targets: "Settings",
+  evals: "Agent tests",
 };
+// "evals" opens a modal over the current view rather than a page of its own
+// (see showEvals below) — everywhere a tab click would otherwise navigate,
+// it toggles that modal instead. Kept out of `view`/`isTab`'s routing so an
+// evals modal never fights the board/sessions/etc. hash it was opened over.
+const opensModal = (tab: Tab) => tab === "evals";
 const isTab = (value: string): value is Tab =>
   tabs.some((tab) => tab === value);
 // #media/<session id> narrows the feed to one session's posts.
@@ -86,6 +114,7 @@ const mediaSessionOf = (hash: string) => {
 };
 export default function App() {
   const [view, setView] = useState<Tab>("board"),
+    [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
     [targets, setTargets] = useState<Target[]>([]),
     [tasks, setTasks] = useState<TaskView[]>([]),
@@ -124,8 +153,16 @@ export default function App() {
       name: string;
     }>(),
     [review, setReview] = useState<SessionView>(),
+    [mergeReview, setMergeReview] = useState<SessionView>(),
     [switchSession, setSwitchSession] = useState<SessionView>(),
-    [pendingSwitches, setPendingSwitches] = useState(savedSwitches);
+    [pendingSwitches, setPendingSwitches] = useState(savedSwitches),
+    // This device's current push subscription endpoint, or null once it is
+    // known there isn't one. Undefined (the initial value) means "not
+    // checked yet" — the Needs-you prompt stays hidden until it is, so it
+    // never flashes on for a device that turns out to already be subscribed.
+    [pushEndpoint, setPushEndpoint] = useState<string | null | undefined>(undefined),
+    [pushPromptGone, setPushPromptGone] = useState(pushPromptDismissed);
+  const pushAvail = useMemo(() => pushAvailability(envFromWindow(window)), []);
   const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
   const saveSwitches = useCallback((next: Record<string,PendingSwitch>)=>{
     switching.current = next; setPendingSwitches(next);
@@ -150,6 +187,10 @@ export default function App() {
   );
   const navigate = useCallback((hash: string) => {
     const kind = hash.replace(/^#/, "").split("/")[0] || "board";
+    if (isTab(kind) && opensModal(kind)) {
+      setShowEvals(true);
+      return;
+    }
     if (isTab(kind)) {
       setView(kind);
       if (kind === "media") setMediaSession(mediaSessionOf(hash));
@@ -341,6 +382,10 @@ export default function App() {
         setView("sessions");
         return;
       }
+      if (kind && isTab(kind) && opensModal(kind)) {
+        setShowEvals(true);
+        return;
+      }
       if (kind && isTab(kind)) {
         setView(kind);
         if (kind === "media") setMediaSession(mediaSessionOf(raw));
@@ -392,6 +437,7 @@ export default function App() {
       "media",
       "media_deleted",
       "live",
+      "session.check",
     ])
       stream.addEventListener(event, update);
     stream.addEventListener("session_handoff", (event) => {
@@ -479,6 +525,29 @@ export default function App() {
         .register("/sw.js")
         .catch((error) => notice("Offline support: " + String(error), true));
   }, [notice]);
+  // Learn whether this device already has a live push subscription, so the
+  // Needs-you prompt and the Settings state both reflect reality on load
+  // rather than assuming "not subscribed" until someone taps the button.
+  useEffect(() => {
+    if (!pushAvail.available) {
+      setPushEndpoint(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        const subscription = await registration?.pushManager.getSubscription();
+        if (!cancelled) setPushEndpoint(subscription?.endpoint ?? null);
+      } catch {
+        if (!cancelled) setPushEndpoint(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushAvail.available]);
   async function enablePush() {
     try {
       if (!navigator.serviceWorker || !window.Notification)
@@ -509,9 +578,42 @@ export default function App() {
           keys: value.keys || {},
         },
       });
-      notice("Push enabled on this device");
+      setPushEndpoint(value.endpoint || null);
+      setPushPromptGone(true);
+      dismissPushPrompt();
+      notice("Push enabled on this device — sending a test notification");
+      // So the owner sees, right away, that it actually works — rather than
+      // finding out for the first time when a real alert silently fails to
+      // arrive.
+      try {
+        await api.request("/settings/test-notification", { method: "POST" });
+      } catch (error) {
+        notice("Test notification: " + String(error), true);
+      }
     } catch (error) {
       notice("Push: " + String(error), true);
+    }
+  }
+  // Removes a device's subscription server-side; when it is this browser's
+  // own, also tears down the live PushManager subscription so re-enabling
+  // starts clean instead of handing the server back the same dead endpoint.
+  async function unsubscribePush(endpoint: string) {
+    try {
+      await api.request("/push/subscribe", { method: "DELETE", body: { endpoint } });
+      if (pushEndpoint === endpoint) {
+        try {
+          const registration = await navigator.serviceWorker?.getRegistration();
+          const subscription = await registration?.pushManager.getSubscription();
+          if (subscription && subscription.endpoint === endpoint) await subscription.unsubscribe();
+        } catch {
+          /* server-side removal already succeeded; a stale local subscription
+             object is harmless — the next enable overwrites it */
+        }
+        setPushEndpoint(null);
+      }
+      notice("Unsubscribed");
+    } catch (error) {
+      notice("Unsubscribe: " + String(error), true);
     }
   }
   async function saveToken() {
@@ -716,9 +818,18 @@ export default function App() {
             onMedia={(id) => navigate("#media/" + id)}
             onOpenTerminal={openTerminal}
             onReview={setReview}
+            onMergeReview={setMergeReview}
             onOpenTask={openTask}
             onSwitch={setSwitchSession}
             onNotice={notice}
+            pushPrompt={{
+              show: pushAvail.available && pushEndpoint === null && !pushPromptGone,
+              onEnable: () => void enablePush(),
+              onDismiss: () => {
+                setPushPromptGone(true);
+                dismissPushPrompt();
+              },
+            }}
           />
         )}{" "}
         {view === "media" && (
@@ -759,6 +870,10 @@ export default function App() {
             }
             onNotice={notice}
             onEnablePush={() => void enablePush()}
+            pushAvailable={pushAvail.available}
+            pushUnavailableReason={pushAvail.reason}
+            pushEndpoint={pushEndpoint}
+            onUnsubscribePush={unsubscribePush}
           />
         )}
       </main>
@@ -858,7 +973,7 @@ export default function App() {
             </b>
           </summary>
           <div className="action-menu-panel">
-            {(["media", "deck", "approvals", "targets"] as const).map((tab) => (
+            {(["media", "deck", "approvals", "targets", "evals"] as const).map((tab) => (
               <button
                 key={tab}
                 data-nav-target={tab}
@@ -939,6 +1054,23 @@ export default function App() {
           id={String(review.id)}
           name={review.name}
           onClose={() => setReview(undefined)}
+        />
+      )}{" "}
+      {mergeReview && (
+        <SessionReview
+          api={api}
+          sessionId={mergeReview.id}
+          name={mergeReview.name}
+          onClose={() => setMergeReview(undefined)}
+          onNotice={notice}
+        />
+      )}{" "}
+      {showEvals && (
+        <Evals
+          api={api}
+          projects={projects}
+          onClose={() => setShowEvals(false)}
+          onNotice={notice}
         />
       )}{" "}
       {unauthorized && (

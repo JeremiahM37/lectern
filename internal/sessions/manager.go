@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -36,6 +37,30 @@ type Manager struct {
 	// WorktreeNamespace scopes automatically-created local allocations. Hosted
 	// managers leave it empty to retain historical paths and branch names.
 	WorktreeNamespace string
+	// HookBase is the host part every launched session's LECTERN_HOOK_URL is
+	// built from (see internal/agentevents). Empty falls back to
+	// "http://127.0.0.1:9110" only in the sense that an empty value here
+	// means the caller (app.New) did not set config.Config.HookBase/BaseURL —
+	// production always does.
+	HookBase string
+	// AskPermission, when true, forces every newly launched Claude session
+	// to register the PermissionRequest hook (docs/agent-events.md section
+	// 3), regardless of LaunchOpts.PermissionMode. Never set by app.New
+	// today — the real per-launch/global-default control is
+	// LaunchOpts.PermissionMode, resolved by the API layer from the
+	// request or the "session_permission_mode" setting. This field remains
+	// as a hard operator override (e.g. a future config knob) that cannot
+	// be turned off per launch.
+	AskPermission bool
+
+	// Checks, when set, is told when the screen-derived status moves a
+	// session from busy/working (StatusRunning) to idle (StatusIdle) — see
+	// applyPane in poll.go. This is the fallback trigger for a session's
+	// check command on targets/agents with no lifecycle hooks; a hooked
+	// session's Stop event (internal/agentevents) triggers the same runner
+	// independently, and the runner's own worktree fingerprint is what keeps
+	// the two triggers from ever double-running a check.
+	Checks agentevents.StopListener
 
 	// HandoffTimeout bounds how long we wait for an agent to write its wrap
 	// before giving up and saying so.
@@ -127,6 +152,15 @@ type LaunchOpts struct {
 	// Yolo runs the agent without approval prompts. Defaulted on by the API for
 	// interactive sessions — see Start.Yolo.
 	Yolo bool
+	// PermissionMode is "bypass"|"ask" (docs/agent-events.md section 3),
+	// resolved by the API layer (explicit request field, else the
+	// "session_permission_mode" global default setting) for the primary
+	// interactive-session launch path. Left empty by every other caller
+	// (task takeover, handoff, scratch shells) on purpose: those already
+	// compute Yolo their own way for reasons unrelated to this feature, and
+	// an empty PermissionMode here means "do not additionally register the
+	// PermissionRequest hook for this launch" — it does not change Yolo.
+	PermissionMode string
 	// Scratch asks for a throwaway working directory on the target instead of a
 	// project's repository: an empty room to think in. The directory is a real
 	// git repository, so whatever the work turns into can later be promoted to a
@@ -462,6 +496,25 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		env[k] = v
 	}
 	identityEnv(env, sess.ID)
+	// Agent hooks (docs/agent-events.md section 2): every interactive session
+	// gets a random hook secret and the env an agent's own hooks/statusline
+	// need to call back with it. Generated per launch (including a resume or
+	// relaunch of the same row), so an old token from a previous process can
+	// never be replayed against a new one.
+	hookToken, err := agentevents.NewHookToken()
+	if err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	if err := m.DB.Update("sessions", sess.ID, map[string]any{"hook_token": hookToken}); err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	sess.HookToken = hookToken
+	hookBase := strings.TrimRight(firstNonEmpty(m.HookBase, "http://127.0.0.1:9110"), "/")
+	hookURL := fmt.Sprintf("%s/api/hook/session/%d", hookBase, sess.ID)
+	env[agentevents.EnvHookToken] = hookToken
+	env[agentevents.EnvHookURL] = hookURL
 	envPrefix, err := EnvPrefix(env)
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -479,12 +532,29 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	spec.Env = env
 	if o.Configuration != nil {
 		o.Yolo = config.Yolo
+		if o.PermissionMode == "" {
+			o.PermissionMode = config.PermissionMode
+		}
 	}
+	// askPermission combines the manager-wide default (never set in
+	// production today; kept for a config-driven global switch) with this
+	// launch's explicit choice. It is what actually decides whether the
+	// PermissionRequest hook is registered below, and what gets persisted
+	// as this session's effective permission_mode.
+	askPermission := m.AskPermission || o.PermissionMode == "ask"
 	config.Spec, config.Yolo = spec, o.Yolo
-	if err := m.DB.Update("sessions", sess.ID, map[string]any{"launch_config_json": store.J(config)}); err != nil {
+	if askPermission {
+		config.PermissionMode = "ask"
+	} else {
+		config.PermissionMode = "bypass"
+	}
+	if err := m.DB.Update("sessions", sess.ID, map[string]any{
+		"launch_config_json": store.J(config), "permission_mode": config.PermissionMode,
+	}); err != nil {
 		m.end(sess.ID, StatusDead)
 		return nil, err
 	}
+	sess.PermissionMode = config.PermissionMode
 	if o.OnReserved != nil {
 		if err := o.OnReserved(sess); err != nil {
 			m.end(sess.ID, StatusDead)
@@ -675,6 +745,35 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		if r, err := ex.Run(ctx, envPrefix+"bash -c "+shellq.Quote(probe), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 			m.Log.Warn("could not pre-trust the working directory",
 				"agent", agent, "dir", workdir, "err", err)
+		}
+	}
+
+	// Agent hooks, continued (docs/agent-events.md section 2): the env above
+	// is enough for the target process to know its token and callback URL;
+	// claude and codex additionally need something written to disk and an
+	// extra launch flag pointing at it. Gated on spec.Builtin, not just the
+	// agent name: a custom agent an operator has named "claude" (overriding
+	// the built-in, e.g. a different CLI or a test double) is not
+	// necessarily anything --settings or -c notify=[...] mean something to.
+	// Best-effort like the trust probe above — a target that cannot write
+	// the file still gets to launch, just without hook-driven state (screen
+	// scraping remains the fallback).
+	if spec.Builtin {
+		switch agent {
+		case "claude":
+			install := envPrefix + agentevents.ClaudeSettingsInstallCommand(tmuxName, hookURL, askPermission)
+			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+				m.Log.Warn("could not install claude hooks", "session", sess.ID, "err", err)
+			} else if settingsPath := strings.TrimSpace(r.Stdout); settingsPath != "" {
+				toolArgs = append(toolArgs, "--settings", settingsPath)
+			}
+		case "codex":
+			install := envPrefix + agentevents.CodexNotifyInstallCommand(tmuxName)
+			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+				m.Log.Warn("could not install codex notify hook", "session", sess.ID, "err", err)
+			} else if notifyPath := strings.TrimSpace(r.Stdout); notifyPath != "" {
+				toolArgs = append(toolArgs, codexNotifyArg(notifyPath)...)
+			}
 		}
 	}
 

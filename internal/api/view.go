@@ -16,15 +16,33 @@ type attemptView struct {
 	Result       map[string]any `json:"result"`
 	DiffStat     []any          `json:"diff_stat"`
 	Verify       map[string]any `json:"verify"`
+	// Driver names the internal/drivers.Kind running this attempt (e.g.
+	// "claude-steer"), so the UI can show the steer input only where it will
+	// actually work instead of guessing from agent + permission_mode.
+	Driver string `json:"driver"`
 }
 
-// attemptSummary is one chip in the task sheet's attempt row.
+// attemptSummary is one chip in the task sheet's attempt row — and, once a
+// task has more than one attempt, one card in the Best-of-N compare view.
 type attemptSummary struct {
+	ID       int64  `json:"id"`
 	N        int    `json:"n"`
 	Status   string `json:"status"`
 	Model    string `json:"model"`
 	ExitCode *int   `json:"exit_code"`
 	CostUSD  any    `json:"cost_usd"`
+	// Agent/PermissionMode are the variant's OWN choice when it set one
+	// (store.Attempt.Agent/PermissionMode), falling back to the task's so a
+	// pre-variants task still reports a sensible value.
+	Agent          string         `json:"agent"`
+	PermissionMode string         `json:"permission_mode"`
+	Driver         string         `json:"driver"`
+	StartedAt      *float64       `json:"started_at"`
+	FinishedAt     *float64       `json:"finished_at"`
+	DiffStat       []any          `json:"diff_stat"`
+	Verify         map[string]any `json:"verify"`
+	InputTokens    any            `json:"input_tokens"`
+	OutputTokens   any            `json:"output_tokens"`
 }
 
 // taskView is a task plus everything the UI needs to render its card without a
@@ -69,14 +87,25 @@ func (s *Server) view(task *store.Task) *taskView {
 			// card renderable instead of blanking the whole column
 			DiffStat: store.UnjList(att.DiffStatJSON),
 			Verify:   store.UnjObj(att.VerifyJSON),
+			Driver:   att.Driver,
 		}
 	}
 	out.Attempts = []attemptSummary{}
 	if list, err := s.DB.TaskAttempts(task.ID); err == nil {
 		for _, a := range list {
+			res := store.UnjObj(a.ResultJSON)
 			out.Attempts = append(out.Attempts, attemptSummary{
-				N: a.N, Status: a.Status, Model: a.Model, ExitCode: a.ExitCode,
-				CostUSD: store.UnjObj(a.ResultJSON)["cost_usd"],
+				ID: a.ID, N: a.N, Status: a.Status, Model: a.Model, ExitCode: a.ExitCode,
+				CostUSD:        res["cost_usd"],
+				InputTokens:    res["input_tokens"],
+				OutputTokens:   res["output_tokens"],
+				Agent:          firstNonEmptyStr(a.Agent, task.Agent),
+				PermissionMode: firstNonEmptyStr(a.PermissionMode, task.PermissionMode),
+				Driver:         a.Driver,
+				StartedAt:      a.StartedAt,
+				FinishedAt:     a.FinishedAt,
+				DiffStat:       store.UnjList(a.DiffStatJSON),
+				Verify:         store.UnjObj(a.VerifyJSON),
 			})
 		}
 	}

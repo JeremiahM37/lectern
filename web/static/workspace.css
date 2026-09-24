@@ -91,7 +91,7 @@
   #qb-filter { width:150px; }
 }
 @media(max-width:1023px) {
-  #tabbar>[data-tab=approvals],#tabbar>[data-tab=targets],#tabbar>[data-tab=deck],#tabbar>[data-tab=media] { display:none; }
+  #tabbar>[data-tab=approvals],#tabbar>[data-tab=targets],#tabbar>[data-tab=deck],#tabbar>[data-tab=media],#tabbar>[data-tab=evals] { display:none; }
   #nav-overflow { display:block; flex:1; min-width:0; }
   #nav-overflow>summary { height:100%; flex-direction:column; border:0; border-radius:0; gap:2px; padding:4px; font-size:10.5px; }
   #nav-overflow>summary>span { font-size:24px; line-height:20px; }

@@ -1299,14 +1299,17 @@ func (m *dashboard) View() string {
 	if m.busy {
 		status = "Working… " + status
 	}
-	keys := " Enter attach · S blank shell · / filter · F text search · n new · m actions · ? help · q quit"
+	keys := " Enter attach · S blank shell · / filter · F text search · n new · C closed · m actions · ? help · q quit"
 	if m.selectedGroup() != nil {
 		keys = " Enter fold · [ parent · ] expand · / search · ? help · q quit"
 	}
-	if m.width < 100 && m.selectedGroup() == nil {
-		keys = " Enter attach · S shell · / filter · n new · m actions · ? help · q quit"
+	// C (recently closed) is listed because it is otherwise invisible once
+	// any session is running: the empty-list menu is the only other place it
+	// was offered by name.
+	if m.width < 112 && m.selectedGroup() == nil {
+		keys = " Enter attach · S shell · / filter · n new · C closed · m actions · ? help · q quit"
 	}
-	if m.width < 80 {
+	if m.width < 86 {
 		keys = " Enter attach · / find · ? help · q quit"
 		if m.selectedGroup() != nil {
 			keys = " Enter fold · / find · ? help · q quit"
@@ -1404,7 +1407,7 @@ const dashboardHelp = ` Keyboard shortcuts
  n             New item         e        Rename   u Upload context
  S             Blank persistent shell in a project or on a machine
  P             Launch profiles
-	Q             Agent runners (add custom CLIs)
+ Q             Agent runners (add custom CLIs)
  m             All actions      f        Find and track running agents
  C             Recently closed (sessions)
  h             Full history     v        Review task diff

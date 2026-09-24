@@ -82,6 +82,24 @@ type Task struct {
 	CreatedByAttempt *int64  `json:"created_by_attempt"`
 	CreatedAt        float64 `json:"created_at"`
 	UpdatedAt        float64 `json:"updated_at"`
+	// CheckCommand overrides the project's own VerifyCmd for auto-verify on
+	// this one task, when set — empty means "use the project's", which is
+	// every task that predates this field. It exists for evals: a case's own
+	// check_command needs to run instead of the project default, without
+	// mutating shared project state for the run's duration.
+	CheckCommand string `json:"check_command,omitempty"`
+	// SetupCommand, when set, is run for real by the scheduler in the
+	// attempt's own worktree, on its target, after the worktree is created
+	// and before the agent starts — a non-zero exit fails the attempt and the
+	// agent never runs. Empty (every task that predates this field) skips the
+	// step entirely. It exists for evals: a case's own setup_command used to
+	// be folded into the prompt as an instruction for the agent to run itself;
+	// this is the real host-side pre-step instead.
+	SetupCommand string `json:"setup_command,omitempty"`
+	// SetupTimeoutS bounds how long SetupCommand may run, in seconds. The eval
+	// engine sets it to min(case.timeout_s, 600); zero falls back to a 600s
+	// default inside the scheduler.
+	SetupTimeoutS int `json:"setup_timeout_s,omitempty"`
 }
 
 // Attempt is a single agent run against a task. Retries, follow-ups and the
@@ -113,6 +131,17 @@ type Attempt struct {
 	StrictMCP        int    `json:"-"`
 	MCPSnapshot      int    `json:"-"`
 	LaunchConfigJSON string `json:"-"`
+	// Driver is the internal/drivers.Kind chosen for this attempt at queue
+	// time (e.g. "claude-exec", "claude-steer", "codex-appserver"), so later
+	// workers and the UI can see and reuse the choice without re-deriving it
+	// from the agent name and permission mode.
+	Driver string `json:"driver"`
+	// Agent and PermissionMode let a Best-of-N variant pick its own agent or
+	// gating instead of inheriting the task's; empty means "use the task's"
+	// (see scheduler.effAgent/effPermissionMode), which is what every
+	// pre-existing single-attempt task and model-only A/B dispatch already is.
+	Agent          string `json:"agent,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.
@@ -129,10 +158,18 @@ type Event struct {
 	AttemptN int            `json:"attempt_n"`
 }
 
-// Approval is one tool call a gated agent is blocked on.
+// Approval is one tool call a gated agent is blocked on. It belongs to
+// exactly one of a task attempt (AttemptID) or an interactive session
+// (SessionID) — docs/agent-events.md section 3. Both id fields keep the
+// existing "0 means absent" convention TaskID already used, so nothing that
+// already reads AttemptID as a plain int64 needs to change: the zero value
+// only ever shows up on a session-scoped row, and the DB column underneath
+// it is genuinely NULL there (see migrate_approvals.go) so foreign-key
+// enforcement never sees a false attempt id 0.
 type Approval struct {
 	ID        int64    `json:"id"`
-	AttemptID int64    `json:"attempt_id"`
+	AttemptID int64    `json:"attempt_id,omitempty"`
+	SessionID int64    `json:"session_id,omitempty"`
 	ToolName  string   `json:"tool_name"`
 	InputJSON string   `json:"-"`
 	Status    string   `json:"status"`
@@ -141,10 +178,11 @@ type Approval struct {
 	CreatedAt float64  `json:"created_at"`
 	DecidedAt *float64 `json:"decided_at"`
 
-	Input     map[string]any `json:"input"`
-	TaskID    int64          `json:"task_id,omitempty"`
-	AttemptN  int            `json:"attempt_n,omitempty"`
-	TaskTitle string         `json:"task_title,omitempty"`
+	Input       map[string]any `json:"input"`
+	TaskID      int64          `json:"task_id,omitempty"`
+	AttemptN    int            `json:"attempt_n,omitempty"`
+	TaskTitle   string         `json:"task_title,omitempty"`
+	SessionName string         `json:"session_name,omitempty"`
 }
 
 // Memory is a durable note an agent left for the agents that come after it.
@@ -189,10 +227,131 @@ type Session struct {
 	UpdatedAt            float64  `json:"updated_at"`
 	EndedAt              *float64 `json:"ended_at"`
 
+	// HookToken authenticates POST /api/hook/session/{id}/* (see
+	// internal/agentevents). Never serialized: it is a bearer secret handed to
+	// the target process via LECTERN_HOOK_TOKEN, not something the API repeats
+	// back to a browser.
+	HookToken string `json:"-"`
+	// PermissionMode is this session's resolved launch-time choice, "bypass"
+	// or "ask" (docs/agent-events.md section 3); empty on a row launched
+	// before this column existed, which every reader treats as "bypass".
+	PermissionMode string `json:"permission_mode,omitempty"`
+	// AgentState/StateSource/StateAt/HookSeenAt are the hook-driven lifecycle
+	// signal described in docs/agent-events.md section 2, kept alongside the
+	// older screen-scraped Status. StateSource says who wrote AgentState last
+	// (hook|screen); HookSeenAt is when a hook last reached this session at
+	// all, which is what poll.go's applyPane checks before screen-scraping is
+	// allowed to overwrite AgentState again.
+	AgentState  string   `json:"agent_state,omitempty"`
+	StateSource string   `json:"state_source,omitempty"`
+	StateAt     *float64 `json:"state_at,omitempty"`
+	HookSeenAt  *float64 `json:"hook_seen_at,omitempty"`
+
+	// Usage — latest values only, from the agent's own statusline/rollout.
+	// History lives in usage_daily (see store/usage.go).
+	// ContextUsedPct is the agent's "percent of context window used" —
+	// distinct from the older, screen-scraped ContextPct above ("percent
+	// left until auto-compact"); see the schema comment on context_used_pct.
+	ContextUsedPct *int     `json:"context_used_pct,omitempty"`
+	ContextTokens  *int     `json:"context_tokens,omitempty"`
+	ContextSize    *int     `json:"context_size,omitempty"`
+	CostUSD        *float64 `json:"cost_usd,omitempty"`
+	LinesAdded     *int     `json:"lines_added,omitempty"`
+	LinesRemoved   *int     `json:"lines_removed,omitempty"`
+	Rate5hPct      *int     `json:"rate_5h_pct,omitempty"`
+	Rate5hReset    *float64 `json:"rate_5h_reset,omitempty"`
+	Rate7dPct      *int     `json:"rate_7d_pct,omitempty"`
+	Rate7dReset    *float64 `json:"rate_7d_reset,omitempty"`
+	UsageAt        *float64 `json:"usage_at,omitempty"`
+	// CodexThreadID is the codex rollout session id (see schema.go). Never
+	// serialized: it is an internal handle for the rollout reader, not
+	// something a card needs to render.
+	CodexThreadID string `json:"-"`
+	// PrecompactAt is the last PreCompact hook time, for a brief
+	// "compacting" card warning (see schema.go comment).
+	PrecompactAt *float64 `json:"precompact_at,omitempty"`
+
 	// joined for the UI, which groups sessions by project and names their host
 	ProjectName string `json:"project_name,omitempty"`
 	TargetName  string `json:"target_name,omitempty"`
 	TargetKind  string `json:"target_kind,omitempty"`
+}
+
+// SessionCheck is one run of a session's check command — see internal/checks
+// and schema.go's session_checks table doc comment.
+type SessionCheck struct {
+	ID          int64    `json:"id"`
+	SessionID   int64    `json:"session_id"`
+	Fingerprint string   `json:"-"`
+	Command     string   `json:"command"`
+	Status      string   `json:"status"`
+	ExitCode    *int     `json:"exit_code"`
+	OutputTail  string   `json:"output_tail"`
+	StartedAt   float64  `json:"started_at"`
+	FinishedAt  *float64 `json:"finished_at"`
+	Reason      string   `json:"reason"`
+}
+
+// EvalSuite is a named set of agent test cases against one project.
+type EvalSuite struct {
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	ProjectID   int64   `json:"project_id"`
+	Description string  `json:"description"`
+	CreatedAt   float64 `json:"created_at"`
+}
+
+// EvalCase is one scenario in a suite: a prompt run from base_ref and graded
+// by check_command (falling back to the project's own VerifyCmd when empty).
+type EvalCase struct {
+	ID           int64  `json:"id"`
+	SuiteID      int64  `json:"suite_id"`
+	Name         string `json:"name"`
+	Prompt       string `json:"prompt"`
+	BaseRef      string `json:"base_ref"`
+	CheckCommand string `json:"check_command"`
+	TimeoutS     int    `json:"timeout_s"`
+	SetupCommand string `json:"setup_command"`
+}
+
+// EvalVariant is one agent/model/permission combination a run scores every
+// case against — the same shape a Best-of-N dispatch variant takes.
+type EvalVariant struct {
+	Agent          string `json:"agent"`
+	Model          string `json:"model"`
+	LaunchProfile  string `json:"launch_profile,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// EvalRun is one execution of a suite: cases x variants x repeats.
+type EvalRun struct {
+	ID           int64   `json:"id"`
+	SuiteID      int64   `json:"suite_id"`
+	CreatedAt    float64 `json:"created_at"`
+	Status       string  `json:"status"`
+	VariantsJSON string  `json:"-"`
+	Repeats      int     `json:"repeats"`
+	Notes        string  `json:"notes"`
+}
+
+// EvalResult is one cell of a run's matrix: one case, one variant, one repeat.
+type EvalResult struct {
+	ID              int64    `json:"id"`
+	RunID           int64    `json:"run_id"`
+	CaseID          int64    `json:"case_id"`
+	VariantIdx      int      `json:"variant_idx"`
+	RepeatIdx       int      `json:"repeat_idx"`
+	TaskID          *int64   `json:"task_id"`
+	AttemptID       *int64   `json:"attempt_id"`
+	Status          string   `json:"status"`
+	DurationS       *float64 `json:"duration_s"`
+	CostUSD         *float64 `json:"cost_usd"`
+	InputTokens     *int     `json:"input_tokens"`
+	OutputTokens    *int     `json:"output_tokens"`
+	DiffFiles       *int     `json:"diff_files"`
+	DiffLines       *int     `json:"diff_lines"`
+	CheckRC         *int     `json:"check_rc"`
+	CheckOutputTail string   `json:"check_output_tail"`
 }
 
 // Wrap is one session handoff: the summary an agent wrote for its successor.

@@ -87,6 +87,27 @@ func (s *Server) terminalInfo(w http.ResponseWriter, r *http.Request) {
 		"desktop_command": "ssh -t lectern /usr/local/bin/lectern --hosted-attach attach " + kind + " " + id})
 }
 
+// terminalActivity is the browser's explicit "a person just typed into this
+// session" heartbeat (docs/agent-events.md section 3's alert-suppression
+// rule) — see the doc comment on alerts.Activity for why this endpoint
+// exists instead of snooping the ttyd proxy's bytes. It only means anything
+// for a "session" attachment (task attempts and project shells are not
+// alerted on), and it never fails loudly: a session that no longer exists,
+// or has ended, simply has nothing to record and gets 204 either way — a
+// heartbeat racing a session's teardown must never surface as a terminal
+// error to whoever is just trying to type.
+func (s *Server) terminalActivity(w http.ResponseWriter, r *http.Request) {
+	if s.Activity == nil || r.PathValue("kind") != "session" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err == nil && id > 0 {
+		s.Activity.Touch(id)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 	att, target, err := s.resolveAttachment(r.PathValue("kind"), r.PathValue("id"))
 	if err != nil {

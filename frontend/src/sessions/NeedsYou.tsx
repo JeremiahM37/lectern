@@ -1,12 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Approval, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
+import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
+import { approvalSummary } from "./approval-summary";
 import "./session-home.css";
 
 // What actually wants a person, drawn only from state the server already
 // records: a pending approval, a session that says it is waiting, a session
 // whose setup failed, a task that failed, and work sitting in review. An idle
 // session is left in the list below — quiet is not the same as blocked.
+
+// PushPrompt is the one-time, dismissible "enable phone alerts" nudge shown
+// here when push is available in this browser but this device has never
+// subscribed. App.tsx owns the actual availability check and subscription
+// state (both require live browser APIs); this component only renders what
+// it is handed and reports the two things a person can do with it.
+export interface PushPrompt {
+  show: boolean;
+  onEnable(): void;
+  onDismiss(): void;
+}
 
 interface Props {
   api: SessionsApi;
@@ -19,6 +32,7 @@ interface Props {
   onOpenTask?(id: number): void;
   onChanged?(): void;
   onNotice(text: string, error?: boolean): void;
+  pushPrompt?: PushPrompt;
 }
 
 type Item =
@@ -55,12 +69,16 @@ export function NeedsYou({
   onOpenTask,
   onChanged,
   onNotice,
+  pushPrompt,
 }: Props) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [busy, setBusy] = useState("");
   const [stale, setStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // Which approval's "deny with reason" field is open, keyed by approval id.
+  const [denying, setDenying] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
   useEffect(() => {
     const abort = new AbortController();
     // Attention is derived, never invented: a failed poll hides the row rather
@@ -140,14 +158,16 @@ export function NeedsYou({
     return out.sort((a, b) => RANK[a.reason] - RANK[b.reason]);
   }, [approvals, tasks, rows]);
 
-  async function decide(approval: Approval, decision: "approved" | "denied") {
+  async function decide(approval: Approval, decision: "approved" | "denied", note?: string) {
     setBusy(`approval-${approval.id}`);
     try {
       await api.request(`/approvals/${approval.id}/decision`, {
         method: "POST",
-        body: { decision },
+        body: note ? { decision, note } : { decision },
       });
       setApprovals((old) => old.filter((row) => row.id !== approval.id));
+      setDenying(null);
+      setReason("");
       onChanged?.();
     } catch (error) {
       onNotice(String(error), true);
@@ -156,9 +176,13 @@ export function NeedsYou({
     }
   }
 
+  const showPrompt = !!pushPrompt?.show;
   // Nothing to do, and we know it: stay out of the way. A failed refresh with
-  // no known rows must still say so rather than look like an all-clear.
-  if (!items.length && !stale) return null;
+  // no known rows must still say so rather than look like an all-clear. The
+  // push prompt is the one thing that can keep the section open with zero
+  // items — it is a suggestion, not something that "needs" attention, but it
+  // belongs where a person is already looking.
+  if (!items.length && !stale && !showPrompt) return null;
   const shown = showAll ? items : items.slice(0, CAP);
   return (
     <section
@@ -167,39 +191,71 @@ export function NeedsYou({
       aria-label="Needs you"
       data-stale={stale ? "true" : undefined}
     >
-      <header>
-        <h3>Needs you</h3>
-        {items.length > 0 && <span className="ny-count">{items.length}</span>}
-        {stale && (
-          <span className="ny-stale" id="needs-you-stale" role="status">
-            Couldn’t refresh — showing the last known state
-          </span>
-        )}
-      </header>
-      <ul className="ny-list">
-        {shown.map((item) => (
-          <li
-            className="ny-row"
-            key={item.key}
-            data-reason={item.reason}
-            data-id={item.key}
-            data-stale={stale ? "true" : undefined}
-          >
-            <div className="ny-why">
-              <span className="ny-reason">{REASON[item.reason]}</span>
-              <span className="ny-what">
-                {"approval" in item
-                  ? item.approval.task_title || `Attempt ${item.approval.attempt_id}`
-                  : "session" in item
-                    ? item.session.name
-                    : item.task.title}
+      {showPrompt && (
+        <div className="ny-push-prompt" id="needs-you-push-prompt" role="status">
+          <span>Get a phone alert when a session needs you.</span>
+          <div className="ny-push-prompt-actions">
+            <button className="b ok" id="needs-you-push-enable" onClick={pushPrompt!.onEnable}>
+              Enable phone alerts
+            </button>
+            <button
+              className="b"
+              id="needs-you-push-dismiss"
+              aria-label="Dismiss phone alerts prompt"
+              onClick={pushPrompt!.onDismiss}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {(items.length > 0 || stale) && (
+        <>
+          <header>
+            <h3>Needs you</h3>
+            {items.length > 0 && <span className="ny-count">{items.length}</span>}
+            {stale && (
+              <span className="ny-stale" id="needs-you-stale" role="status">
+                Couldn’t refresh — showing the last known state
               </span>
-              <span className="ny-where">{describe(item)}</span>
-            </div>
-            <div className="ny-actions">{actions(item)}</div>
-          </li>
-        ))}
-      </ul>
+            )}
+          </header>
+          <ul className="ny-list">
+            {shown.map((item) => (
+              <li
+                className="ny-row"
+                key={item.key}
+                data-reason={item.reason}
+                data-id={item.key}
+                data-stale={stale ? "true" : undefined}
+              >
+                <div className="ny-why">
+                  <span className="ny-reason">{REASON[item.reason]}</span>
+                  <span className="ny-what">
+                    {"approval" in item
+                      ? item.approval.session_name ||
+                        item.approval.task_title ||
+                        `Attempt ${item.approval.attempt_id}`
+                      : "session" in item
+                        ? item.session.name
+                        : item.task.title}
+                  </span>
+                  <span className="ny-where">{describe(item)}</span>
+                  {"session" in item && (
+                    <div className="ny-usage">
+                      {item.session.model && <span className="chip">{item.session.model}</span>}
+                      <ContextBadge session={item.session} />
+                      <CostBadge session={item.session} />
+                      <LinesBadge session={item.session} />
+                    </div>
+                  )}
+                </div>
+                <div className="ny-actions">{actions(item)}</div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {items.length > CAP && (
         <button
           type="button"
@@ -216,7 +272,7 @@ export function NeedsYou({
 
   function describe(item: Item) {
     if ("approval" in item)
-      return [item.approval.tool_name, approvalDetail(item.approval)]
+      return [item.approval.tool_name, approvalSummary(item.approval)]
         .filter(Boolean)
         .join(" · ");
     if ("session" in item) {
@@ -228,6 +284,26 @@ export function NeedsYou({
         .join(" · ");
     }
     return [item.task.project_name, item.task.agent].filter(Boolean).join(" · ");
+  }
+
+  // A session approval's deep link opens the session itself, the same way a
+  // "waiting" row's actions do — found from the rows this component was
+  // already handed, so this needs no extra fetch. A row not present here
+  // (rare — the session list and the approval poll are on separate ticks)
+  // degrades to a plain hash link rather than disappearing.
+  function sessionAction(sessionID: number) {
+    const session = rows.find((row) => row.id === sessionID);
+    if (session)
+      return (
+        <button className="b" onClick={() => onShowSession(session)}>
+          Open session
+        </button>
+      );
+    return (
+      <a className="b link-button" href={`#session/${sessionID}`}>
+        Open session
+      </a>
+    );
   }
 
   function taskAction(id: number, label: string) {
@@ -245,23 +321,59 @@ export function NeedsYou({
   function actions(item: Item) {
     if ("approval" in item) {
       const { approval } = item;
+      const isBusy = busy === `approval-${approval.id}`;
+      if (denying === approval.id) {
+        return (
+          <form
+            className="ny-deny-reason"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void decide(approval, "denied", reason.trim() || undefined);
+            }}
+          >
+            <input
+              autoFocus
+              placeholder="Reason (optional)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              aria-label="Reason for denying"
+            />
+            <button className="b" type="submit" disabled={isBusy}>
+              Send
+            </button>
+            <button
+              className="b"
+              type="button"
+              onClick={() => {
+                setDenying(null);
+                setReason("");
+              }}
+            >
+              Cancel
+            </button>
+          </form>
+        );
+      }
       return (
         <>
-          <button
-            className="b ok"
-            disabled={busy === `approval-${approval.id}`}
-            onClick={() => void decide(approval, "approved")}
-          >
+          <button className="b ok" disabled={isBusy} onClick={() => void decide(approval, "approved")}>
             Approve
           </button>
-          <button
-            className="b"
-            disabled={busy === `approval-${approval.id}`}
-            onClick={() => void decide(approval, "denied")}
-          >
+          <button className="b" disabled={isBusy} onClick={() => void decide(approval, "denied")}>
             Deny
           </button>
-          {!!approval.task_id && taskAction(approval.task_id, "Open task")}
+          <button
+            className="b ny-deny-more"
+            disabled={isBusy}
+            onClick={() => {
+              setDenying(approval.id);
+              setReason("");
+            }}
+          >
+            Deny with reason…
+          </button>
+          {!!approval.session_id && sessionAction(approval.session_id)}
+          {!approval.session_id && !!approval.task_id && taskAction(approval.task_id, "Open task")}
         </>
       );
     }
@@ -308,12 +420,3 @@ export function NeedsYou({
   }
 }
 
-function approvalDetail(approval: Approval) {
-  const input = approval.input || {};
-  for (const field of ["command", "path", "file_path", "url", "pattern"]) {
-    const value = input[field];
-    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 90);
-  }
-  const text = JSON.stringify(input);
-  return text && text !== "{}" ? text.slice(0, 90) : "";
-}

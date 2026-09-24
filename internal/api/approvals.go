@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/policy"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -41,6 +42,13 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "approval not pending")
 		return
 	}
+	// Approvals gate a real, unsupervised action; deciding one needs a human
+	// behind it, not just anything that can reach the API. In mode none the
+	// whole control plane is unauthenticated by design, so this is skipped.
+	if principal, _ := auth.FromContext(r.Context()); !s.Auth.CanDecide(principal) {
+		httpError(w, 403, "approval decisions require a signed-in human (tailscale identity or access token)")
+		return
+	}
 	var body decisionIn
 	if err := decodeBody(r, &body); err != nil {
 		httpError(w, 422, "%s", err.Error())
@@ -55,7 +63,12 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "approval not pending")
 		return
 	}
-	if body.AlwaysAllow && body.Decision == "approved" {
+	// "always allow" writes a project policy rule, which only makes sense for
+	// a task attempt's project — a session-scoped approval (AttemptID==0,
+	// see docs/agent-events.md section 3) has no attempt to resolve a
+	// project from, so the checkbox is simply a no-op there rather than an
+	// error.
+	if body.AlwaysAllow && body.Decision == "approved" && row.AttemptID != 0 {
 		if proj, err := s.DB.ProjectForAttempt(row.AttemptID); err == nil {
 			rule := policy.PatternFor(row.ToolName, row.Input)
 			updated := policy.AddRule(policy.Parse(proj.PolicyJSON), rule)

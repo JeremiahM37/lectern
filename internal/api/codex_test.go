@@ -64,12 +64,29 @@ func TestDefaultAgentIsPatchable(t *testing.T) {
 	}
 }
 
-func TestGatedModeRejectedForCodexIncludingViaProjectDefault(t *testing.T) {
+// "default" (gated) permission mode on codex now selects the codex-appserver
+// driver instead of being rejected outright — codex has no PreToolUse
+// equivalent, so before that driver existed there was truly no way to honour
+// it. "plan"/"bypassPermissions" still validate against the built-in codex
+// sandbox mapping, which this exercises stays rejecting nonsense elsewhere.
+func TestGatedModeAcceptedForCodexViaAppServerDriver(t *testing.T) {
 	h := newHarness(t)
 	p := h.project("gatedcodex", obj{"default_agent": "codex"})
+	var task obj
+	h.decode("POST", "/api/tasks",
+		obj{"project_id": p.id(), "title": "gated codex", "permission_mode": "default"}, 201, &task)
+	if task.str("permission_mode") != "default" {
+		t.Fatalf("task: %v", task)
+	}
+}
+
+// "steerable" is claude-only: codex has no streaming-input driver.
+func TestSteerableModeRejectedForCodex(t *testing.T) {
+	h := newHarness(t)
+	p := h.project("steercodex", obj{"default_agent": "codex"})
 	code, body := h.request("POST", "/api/tasks",
-		obj{"project_id": p.id(), "title": "nope", "permission_mode": "default"}, nil)
-	if code != 400 || !strings.Contains(string(body), "gated approvals") {
+		obj{"project_id": p.id(), "title": "nope", "permission_mode": "steerable"}, nil)
+	if code != 400 || !strings.Contains(string(body), "steerable") {
 		t.Fatalf("got %d %s", code, body)
 	}
 }

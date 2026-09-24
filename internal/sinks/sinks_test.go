@@ -107,3 +107,34 @@ func TestLongBodiesTruncated(t *testing.T) {
 		t.Fatal("Discord rejects anything over its message limit")
 	}
 }
+
+// docs/agent-events.md section 3: a session alert's push payload carries
+// kind, session id and a deep link, so the service worker can act on the
+// session without re-parsing the url.
+func TestPushMessageCarriesKindAndSessionID(t *testing.T) {
+	msg := pushMessage("Finished", "demo finished", "/session/7",
+		&Extra{Kind: "idle", SessionID: 7})
+	if msg["kind"] != "idle" {
+		t.Errorf("kind: %v", msg["kind"])
+	}
+	if msg["session_id"] != int64(7) {
+		t.Errorf("session_id: %v", msg["session_id"])
+	}
+	if msg["url"] != "/session/7" {
+		t.Errorf("url: %v", msg["url"])
+	}
+	if _, ok := msg["approval_id"]; ok {
+		t.Error("a non-approval alert must not carry approval_id")
+	}
+}
+
+func TestPushMessageOmitsSessionIDWhenAbsent(t *testing.T) {
+	msg := pushMessage("Approval needed", "Bash: ls", "/#approvals",
+		&Extra{Kind: "approval", ApprovalID: 9})
+	if _, ok := msg["session_id"]; ok {
+		t.Error("a task-attempt approval has no session_id to report")
+	}
+	if msg["approval_id"] != int64(9) {
+		t.Errorf("approval_id: %v", msg["approval_id"])
+	}
+}

@@ -49,6 +49,21 @@ type Sender struct {
 // Enabled reports whether VAPID keys are configured.
 func (s *Sender) Enabled() bool { return s != nil && s.PrivateKey != "" && s.PublicKey != "" }
 
+// GenerateKeyPair mints a fresh P-256 VAPID key pair, in the same base64url
+// raw-scalar (private) / uncompressed-point (public) encoding every other key
+// in this package uses. Used to auto-provision a Sender when no
+// LECTERN_VAPID_PRIVATE/PUBLIC are set — see ResolveKeys.
+func GenerateKeyPair() (privateKey, publicKey string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
+	}
+	d := make([]byte, 32)
+	key.D.FillBytes(d)
+	return base64.RawURLEncoding.EncodeToString(d),
+		base64.RawURLEncoding.EncodeToString(elliptic.Marshal(elliptic.P256(), key.X, key.Y)), nil
+}
+
 // Send delivers one notification. It returns whether the subscription is gone
 // (404/410), so the caller can prune it.
 func (s *Sender) Send(sub Subscription, payload []byte) (gone bool, err error) {

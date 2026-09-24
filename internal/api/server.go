@@ -16,8 +16,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
+	"github.com/JeremiahM37/lectern/v2/internal/alerts"
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -39,11 +43,25 @@ type Server struct {
 	Reg       *executor.Registry
 	Sched     *scheduler.Scheduler
 	Sessions  *sessions.Manager
+	Events    *agentevents.Ingester
+	Checks    *checks.Runner
 	Memory    memory.Provider
 	Terminals *terminal.Manager
 	Push      *push.Sender
 	Cfg       *config.Config
+	Auth      *auth.Resolver
 	Log       *slog.Logger
+	// Activity records recent real terminal input per session, for the
+	// alert-suppression rule in docs/agent-events.md section 3. Nil is safe
+	// (terminalActivity then just has nowhere to record — no suppression,
+	// not a crash); app.New always sets it.
+	Activity *alerts.Activity
+
+	// SummaryGen, when set, replaces the real headless cheap-model call PR
+	// description generation makes (see review.go runSummary). Tests set this
+	// to a stub so a review test never spends a real model token or needs a
+	// real agent binary.
+	SummaryGen func(ctx context.Context, ex executor.Executor, agent, model, prompt string) (string, error)
 
 	streamsOnce   sync.Once
 	streamsCtx    context.Context
@@ -127,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/takeover", s.takeoverTask)
 	mux.HandleFunc("POST /api/tasks/{id}/dispatch", s.dispatchTask)
 	mux.HandleFunc("POST /api/tasks/{id}/followup", s.followupTask)
+	mux.HandleFunc("POST /api/tasks/{id}/steer", s.steerTask)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.completeTask)
 	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.cancelTask)
 	mux.HandleFunc("POST /api/tasks/{id}/commit", s.commitTask)
@@ -137,6 +156,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}/wait", s.waitTask)
 	mux.HandleFunc("GET /api/tasks/{id}/report", s.taskReport)
 	mux.HandleFunc("POST /api/tasks/{id}/integrate", s.integrateTask)
+	mux.HandleFunc("POST /api/tasks/{id}/pick_attempt", s.pickAttemptTask)
+	mux.HandleFunc("POST /api/tasks/{id}/judge", s.judgeTask)
 	mux.HandleFunc("GET /api/tasks/{id}/stream", s.taskStream)
 	mux.HandleFunc("GET /api/stream", s.boardStream)
 	mux.HandleFunc("GET /api/live", s.listLive)
@@ -156,6 +177,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/hook/approval/{id}/decision", s.hookApprovalDecision)
 	mux.HandleFunc("POST /api/hook/tasks", s.hookFileTask)
 	mux.HandleFunc("POST /api/hook/notes", s.hookAddNote)
+	// ---- agent hooks (docs/agent-events.md section 2): per-SESSION bearer
+	// token, not the per-attempt token the approval hooks above use ----
+	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
+	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
 
 	mux.HandleFunc("POST /api/conversation-search", s.startConversationSearch)
 	mux.HandleFunc("GET /api/conversation-search/{search}", s.getConversationSearch)
@@ -171,6 +196,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/launch-profiles/{id}", s.saveLaunchProfile)
 	mux.HandleFunc("DELETE /api/launch-profiles/{id}", s.deleteLaunchProfile)
 	mux.HandleFunc("GET /api/models", s.listModels)
+
+	mux.HandleFunc("GET /api/evals/suites", s.listEvalSuites)
+	mux.HandleFunc("POST /api/evals/suites", s.createEvalSuite)
+	mux.HandleFunc("POST /api/evals/suites/import", s.importEvalSuites)
+	mux.HandleFunc("GET /api/evals/suites/{id}", s.getEvalSuite)
+	mux.HandleFunc("DELETE /api/evals/suites/{id}", s.deleteEvalSuite)
+	mux.HandleFunc("POST /api/evals/suites/{id}/cases", s.createEvalCase)
+	mux.HandleFunc("DELETE /api/evals/cases/{id}", s.deleteEvalCase)
+	mux.HandleFunc("GET /api/evals/suites/{id}/runs", s.listEvalRuns)
+	mux.HandleFunc("POST /api/evals/suites/{id}/runs", s.createEvalRun)
+	mux.HandleFunc("GET /api/evals/runs/{id}", s.getEvalRun)
+	mux.HandleFunc("POST /api/evals/runs/{id}/cancel", s.cancelEvalRun)
+	mux.HandleFunc("GET /api/evals/runs/{id}/compare/{other}", s.compareEvalRuns)
 	mux.HandleFunc("PUT /api/agents", s.putAgents)
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/sessions/recent", s.recentSessions)
@@ -218,6 +256,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/term/{kind}/{id}/files", s.terminalFiles)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/changes", s.terminalChanges)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/file", s.terminalFile)
+	mux.HandleFunc("POST /api/term/{kind}/{id}/activity", s.terminalActivity)
 	// ---- attached terminals (proxied on this origin; see termproxy.go) ----
 	mux.HandleFunc("/term/{kind}/{id}", s.termProxy)
 	mux.HandleFunc("/term/{kind}/{id}/", s.termProxy)
@@ -226,6 +265,7 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- misc ----
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/whoami", s.whoami)
 	mux.HandleFunc("GET /api/delegation", s.getDelegation)
 	mux.HandleFunc("PUT /api/delegation", s.putDelegation)
 	mux.HandleFunc("POST /api/delegation/preset", s.installDelegationPreset)
@@ -243,6 +283,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/templates", s.getTemplates)
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
 	mux.HandleFunc("GET /api/stats", s.stats)
+	mux.HandleFunc("GET /api/usage", s.usageReport)
 	mux.HandleFunc("POST /api/admin/janitor", s.runJanitor)
 	mux.HandleFunc("GET /api/scratch", s.scratchReport)
 	mux.HandleFunc("POST /api/scratch/sweep", s.scratchSweep)
@@ -250,31 +291,58 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scratch/keep", s.scratchKeep)
 	mux.HandleFunc("GET /api/push/vapid", s.vapidKey)
 	mux.HandleFunc("POST /api/push/subscribe", s.subscribePush)
+	mux.HandleFunc("GET /api/push/subscriptions", s.listPushSubscriptions)
+	mux.HandleFunc("DELETE /api/push/subscribe", s.unsubscribePush)
+
+	// ---- review: live diffs, commit/push/PR and inline comments ----
+	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)
+	mux.HandleFunc("POST /api/sessions/{id}/commit", s.commitSession)
+	mux.HandleFunc("POST /api/sessions/{id}/pr-description", s.sessionPRDescription)
+	mux.HandleFunc("POST /api/tasks/{id}/pr-description", s.taskPRDescription)
+	mux.HandleFunc("POST /api/sessions/{id}/review", s.reviewSession)
+	mux.HandleFunc("POST /api/tasks/{id}/review", s.reviewTask)
+
+	// ---- checks: the project verify_cmd/auto-detected .verify.yaml run,
+	// triggered on an agent's Stop and shown on the session's card ----
+	mux.HandleFunc("GET /api/sessions/{id}/checks", s.sessionChecks)
+	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
+	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
 
 	mux.Handle("/", s.staticHandler())
 	return s.withAuth(mux)
 }
 
-// withAuth gates /api behind the bearer token when one is configured.
+// withAuth gates /api and /term/* behind internal/auth: tailscale identity,
+// a bearer token, or nothing at all, depending on the resolved mode (see
+// auth.Resolver, built once at startup in internal/app).
 //
 // /api/hook/* is deliberately exempt: agents authenticate with their own
 // per-attempt token there. That is also the security boundary — in token mode an
 // agent holds ONLY its hook token, so it cannot reach the human decision
 // endpoint to approve its own gated action.
 func (s *Server) withAuth(next http.Handler) http.Handler {
-	if s.Cfg.AuthToken == "" {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) || strings.HasPrefix(p, "/term/") {
-			supplied := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if supplied != s.Cfg.AuthToken && r.URL.Query().Get("token") != s.Cfg.AuthToken {
-				writeJSON(w, 401, map[string]any{"detail": "unauthorized"})
-				return
-			}
+		if !((strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) || strings.HasPrefix(p, "/term/")) {
+			next.ServeHTTP(w, r)
+			return
 		}
-		next.ServeHTTP(w, r)
+		principal, ok := s.Auth.Authenticate(r)
+		if !ok {
+			writeJSON(w, 401, map[string]any{"detail": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
+	})
+}
+
+// whoami reports the caller's own resolved identity — what the PWA shows in
+// Settings, and the first thing worth checking when access looks wrong.
+func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
+	principal, _ := auth.FromContext(r.Context())
+	writeJSON(w, 200, map[string]any{
+		"mode": string(s.Auth.Mode), "kind": principal.Kind,
+		"login": principal.Login, "node": principal.Node, "human": principal.Human,
 	})
 }
 

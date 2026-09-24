@@ -18,6 +18,11 @@ type Config struct {
 	Port    int
 	Host    string
 	BaseURL string // what a target uses to reach the control plane (hook callbacks)
+	// HookBase is the host part an agent's own hooks/statusline call back to
+	// (LECTERN_HOOK_URL is built from it). Defaults to BaseURL; only needs
+	// its own value when a remote target cannot reach the control plane the
+	// same way the operator's browser does.
+	HookBase string
 	// WorktreeNamespace scopes automatically-created local worktrees and
 	// branches to one durable local runtime. Empty preserves hosted behavior.
 	WorktreeNamespace string
@@ -28,13 +33,46 @@ type Config struct {
 
 	AuthToken string // single bearer for the API/PWA; empty = open
 
+	// Auth is LECTERN_AUTH: "", "auto" (default), "none", "token", or
+	// "tailscale" — see internal/auth. TailscaleSocket overrides tailscaled's
+	// LocalAPI socket path; TailscaleUsers/TailscaleTags are comma-separated
+	// allowlists (LECTERN_TAILSCALE_USERS / LECTERN_TAILSCALE_TAGS).
+	Auth            string
+	TailscaleSocket string
+	TailscaleUsers  string
+	TailscaleTags   string
+
+	// TrustServeHeaders is LECTERN_TRUST_SERVE_HEADERS — see its doc comment
+	// on auth.Settings. Off by default: unsafe wherever an untrusted process
+	// (an agent included) can reach this host's loopback interface.
+	TrustServeHeaders bool
+
+	// TLS turns on a second listener bound to this node's tailnet addresses,
+	// so a phone gets a secure context without needing `tailscale serve` to
+	// front it. LECTERN_TLS: "" (off) or "tailscale". TLSPort
+	// (LECTERN_TLS_PORT) is required for it to actually start — "tailscale"
+	// with no port configured is a no-op, same as leaving TLS unset. It is
+	// also auto-enabled when the resolved auth mode is tailscale and TLSPort
+	// is set, so setting just LECTERN_TLS_PORT is enough in the common case.
+	TLS     string
+	TLSPort int
+
 	TickInterval time.Duration
 	// HandoffPoll is how often a session switch checks for the agent's wrap;
 	// zero keeps the session manager's default. Tests shorten it.
 	HandoffPoll    time.Duration
 	ApprovalPoll   time.Duration
 	ApprovalExpire time.Duration
-	JanitorDays    float64
+	// SessionApprovalHold is LECTERN_APPROVAL_HOLD (default 120s): how long a
+	// session's PermissionRequest hook is held open waiting for a phone/UI
+	// decision before the handler answers `{}` and marks the approval
+	// expired, letting the agent fall back to its own terminal prompt
+	// (docs/agent-events.md section 3). Distinct from ApprovalExpire, which
+	// governs the older task-hook long-poll's much longer default (900s) —
+	// a session's hook is one held HTTP request, not a repeated poll loop,
+	// so it needs its own, much shorter budget.
+	SessionApprovalHold time.Duration
+	JanitorDays         float64
 	// ScratchDays is how long an empty, unowned scratch workspace sits idle
 	// before the sweep trashes it (0 disables the sweep); ScratchTrashDays is how
 	// long it stays recoverable after that.
@@ -91,6 +129,12 @@ type Config struct {
 	// MediaPath overrides MediaDir; MediaMaxBytes caps one posted file.
 	MediaPath     string
 	MediaMaxBytes int64
+
+	// CheckTimeout bounds one run of a project's check command
+	// (internal/checks), for both a session's Stop-triggered check and a
+	// task's auto-verify. LECTERN_CHECK_TIMEOUT, seconds; zero means the
+	// package's own 15-minute default (checks.DefaultTimeout).
+	CheckTimeout time.Duration
 }
 
 // DiffDir is where captured patches live — derived from the DB path so each
@@ -155,10 +199,18 @@ func Load() *Config {
 		MediaPath:               os.Getenv("LECTERN_MEDIA_DIR"),
 		MediaMaxBytes:           int64(envFloat("LECTERN_MEDIA_MAX_MB", 1024)) << 20,
 		AuthToken:               os.Getenv("LECTERN_AUTH_TOKEN"),
+		Auth:                    env("LECTERN_AUTH", "auto"),
+		TailscaleSocket:         os.Getenv("LECTERN_TAILSCALE_SOCKET"),
+		TailscaleUsers:          os.Getenv("LECTERN_TAILSCALE_USERS"),
+		TailscaleTags:           os.Getenv("LECTERN_TAILSCALE_TAGS"),
+		TrustServeHeaders:       os.Getenv("LECTERN_TRUST_SERVE_HEADERS") == "1",
+		TLS:                     os.Getenv("LECTERN_TLS"),
+		TLSPort:                 int(envFloat("LECTERN_TLS_PORT", 0)),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
 		HandoffPoll:             envSeconds("LECTERN_HANDOFF_POLL", 0),
 		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),
 		ApprovalExpire:          envSeconds("LECTERN_APPROVAL_EXPIRE", 900),
+		SessionApprovalHold:     envSeconds("LECTERN_APPROVAL_HOLD", 120),
 		JanitorDays:             envFloat("LECTERN_JANITOR_DAYS", 7),
 		ScratchDays:             envFloat("LECTERN_SCRATCH_DAYS", 7),
 		ScratchTrashDays:        envFloat("LECTERN_SCRATCH_TRASH_DAYS", 14),
@@ -179,7 +231,9 @@ func Load() *Config {
 		GrimoireContextMode:     env("LECTERN_GRIMOIRE_CONTEXT_MODE", "project"),
 		GrimoireContextProjects: os.Getenv("LECTERN_GRIMOIRE_CONTEXT_PROJECTS"),
 		SessionPoll:             envSeconds("LECTERN_SESSION_POLL", 3.0),
+		CheckTimeout:            envSeconds("LECTERN_CHECK_TIMEOUT", 900),
 	}
 	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
+	c.HookBase = env("LECTERN_HOOK_BASE", c.BaseURL)
 	return c
 }

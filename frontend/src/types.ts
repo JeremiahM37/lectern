@@ -14,14 +14,28 @@ export interface AttemptView {
   result: Record<string, unknown>;
   diff_stat: unknown[];
   verify: Record<string, unknown>;
+  // driver names the internal/drivers.Kind running this attempt (e.g.
+  // "claude-steer"); the UI uses it to decide whether the steer input
+  // applies, rather than guessing from agent + permission_mode.
+  driver: string;
 }
 
 export interface AttemptSummary {
+  id: number;
   n: number;
   status: string;
   model: string;
   exit_code: number | null;
   cost_usd: unknown;
+  agent: string;
+  permission_mode: string;
+  driver: string;
+  started_at: number | null;
+  finished_at: number | null;
+  diff_stat: { path: string; additions?: number; deletions?: number }[];
+  verify: Record<string, unknown>;
+  input_tokens: unknown;
+  output_tokens: unknown;
 }
 
 export interface Takeover {
@@ -58,6 +72,25 @@ export interface InteractiveWorkspace {
   error?: string;
   repositories?: {name:string;project_id?:number;worktree:InteractiveWorkspace}[];
 }
+// SessionCheckSummary is the badge-sized view of a session's most recent
+// check (internal/checks) — status/finished_at/command, no output.
+export interface SessionCheckSummary {
+  status: "running" | "passed" | "failed" | "error" | "skipped";
+  finished_at: number | null;
+  command: string;
+}
+
+// SessionCheck is one full run of a session's check command, as returned by
+// GET /api/sessions/{id}/checks.
+export interface SessionCheck extends SessionCheckSummary {
+  id: number;
+  session_id: number;
+  exit_code: number | null;
+  output_tail: string;
+  started_at: number;
+  reason: "stop" | "screen" | "manual" | string;
+}
+
 export interface SessionView extends Session {
   launch_profile?: string;
   can_restore: boolean;
@@ -66,6 +99,7 @@ export interface SessionView extends Session {
   uptime_seconds: number;
   handoff_in_flight: boolean;
   wraps: number;
+  last_check?: SessionCheckSummary | null;
 }
 
 export interface Target {
@@ -165,6 +199,9 @@ export interface Event {
   attempt_n: number;
 }
 
+// An approval belongs to exactly one of a task attempt (attempt_id/task_id)
+// or an interactive session (session_id/session_name) —
+// docs/agent-events.md section 3.
 export interface Approval {
   id: number;
   attempt_id: number;
@@ -178,6 +215,8 @@ export interface Approval {
   task_id?: number;
   attempt_n?: number;
   task_title?: string;
+  session_id?: number;
+  session_name?: string;
 }
 
 export interface Memory {
@@ -214,6 +253,81 @@ export interface Session {
   project_name?: string;
   target_name?: string;
   target_kind?: string;
+  // Usage (see internal/store/models.go and docs/agent-events.md's usage
+  // section). context_used_pct is deliberately a SEPARATE field from the
+  // older context_pct above: context_pct is "percent left until
+  // auto-compact" (low is bad); context_used_pct is "percent of the context
+  // window already used", from the agent's own statusline/rollout (high is
+  // bad) — see SessionCard's contextBadge for the one place that renders it.
+  context_used_pct?: number | null;
+  context_tokens?: number | null;
+  context_size?: number | null;
+  cost_usd?: number | null;
+  lines_added?: number | null;
+  lines_removed?: number | null;
+  rate_5h_pct?: number | null;
+  rate_5h_reset?: number | null;
+  rate_7d_pct?: number | null;
+  rate_7d_reset?: number | null;
+  usage_at?: number | null;
+  precompact_at?: number | null;
+  // permission_mode is "bypass" | "ask" (docs/agent-events.md section 3).
+  // Absent on a row from before this field existed, which every reader
+  // treats the same as "bypass".
+  permission_mode?: string;
+}
+
+// GET /api/usage?days=N — see internal/api/usage.go.
+export interface UsageDayBucket {
+  date: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+export interface UsageSplit {
+  key: string;
+  agent?: string;
+  model?: string;
+  project_id?: number | null;
+  project_name?: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+export interface UsageTopSession {
+  id: number;
+  name: string;
+  agent: string;
+  model: string;
+  cost_usd: number;
+}
+export interface UsageTopTask {
+  id: number;
+  title: string;
+  cost_usd: number;
+}
+export interface UsageRateWindow {
+  used_percentage: number;
+  resets_at: number;
+}
+export interface UsageQuota {
+  five_hour: UsageRateWindow;
+  seven_day: UsageRateWindow;
+  at: number;
+  stale: boolean;
+  empty: boolean;
+}
+export interface UsageReport {
+  days: number;
+  generated_at: number;
+  daily: UsageDayBucket[];
+  by_agent_model: UsageSplit[];
+  by_project: UsageSplit[];
+  today_usd: number;
+  week_usd: number;
+  top_sessions: UsageTopSession[];
+  top_tasks: UsageTopTask[];
+  quota: UsageQuota;
 }
 
 export interface Wrap {

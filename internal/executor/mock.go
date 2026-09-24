@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -43,6 +44,7 @@ const MockNumstat = "4\t1\tapp.py\n"
 //	[mock:note]            agent leaves a project note
 //	[mock:approve-verdict] agent ends with VERDICT: APPROVE
 //	[mock:reject-verdict]  agent ends with VERDICT: REQUEST_CHANGES
+//	[mock:judge:N]         agent ends with JUDGE: attempt N (for judge-task tests)
 type Mock struct {
 	mu       sync.Mutex
 	fs       map[string][]byte
@@ -56,6 +58,11 @@ type Mock struct {
 	// HTTP is the client the fake agent uses for hook callbacks. Tests point it
 	// at their httptest server's transport; production demo mode uses the default.
 	HTTP *http.Client
+	// Intercept, when set, runs synchronously at the top of every Run call.
+	// It exists purely as a test seam for controlling timing — e.g. blocking
+	// on a specific command to deterministically create the overlap a
+	// coalescing test needs — and is never set in production code.
+	Intercept func(cmd string)
 }
 
 type mockAgent struct {
@@ -124,6 +131,9 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	m.mu.Lock()
 	m.cmdLog = append(m.cmdLog, cmd)
 	m.mu.Unlock()
+	if m.Intercept != nil {
+		m.Intercept(cmd)
+	}
 
 	switch {
 	case strings.HasPrefix(cmd, "python3 -c ") && strings.Contains(cmd, "os.O_NOFOLLOW"):
@@ -215,6 +225,18 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		delete(m.panes, name)
 		m.mu.Unlock()
 		return Result{0, "", ""}, nil
+	case strings.HasPrefix(cmd, "test -f ") && strings.Contains(cmd, "command -v verify"):
+		// internal/checks' auto-detect probe (".verify.yaml" present + verify on
+		// PATH). Defaults to "not found" so every existing test that doesn't set
+		// verify_cmd keeps seeing no auto-verify; write the marker path via
+		// WriteFile to opt a test into auto-detection deliberately.
+		m.mu.Lock()
+		_, present := m.fs[strings.Fields(cmd)[2]]
+		m.mu.Unlock()
+		if present {
+			return Result{0, "", ""}, nil
+		}
+		return Result{1, "", ""}, nil
 	case strings.Contains(cmd, "diff --numstat"):
 		return Result{0, MockNumstat, ""}, nil
 	case strings.Contains(cmd, "diff --no-color") || gitDiffRe.MatchString(cmd):
@@ -234,18 +256,28 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{1, "", "2 failed, 3 passed"}, nil
 	case strings.Contains(cmd, "mockverify-pass"):
 		return Result{0, "5 passed in 0.1s", ""}, nil
+	case strings.Contains(cmd, "mocksetup-fail"):
+		return Result{1, "", "setup blew up"}, nil
+	case strings.Contains(cmd, "mocksetup-pass"):
+		return Result{0, "setup ok", ""}, nil
 	case strings.Contains(cmd, "git add -A && git commit"):
 		return Result{0, "[lec 1a2b3c4] mock commit", ""}, nil
 	case strings.HasPrefix(cmd, "git") && strings.Contains(cmd, " push "):
 		return Result{0, "branch pushed (mock)", ""}, nil
 	case strings.HasPrefix(cmd, "gh pr create"):
 		return Result{0, "https://github.com/mock/repo/pull/7", ""}, nil
+	case strings.HasPrefix(cmd, "ls "):
+		// Backed by the in-memory fs so evals' "import from repo" (a glob
+		// listing followed by ReadFile) has something real to find, the same
+		// way a real target's directory would.
+		return m.handleLs(cmd), nil
 	}
 	// git worktree add, mkdir, exclude appends, memory links, …
 	return Result{0, "", ""}, nil
 }
 
 var scratchRe = regexp.MustCompile(`mktemp -d "\$root/([^"]+)-XXXXXX"`)
+var judgeRe = regexp.MustCompile(`\[mock:judge:(\d+)\]`)
 var gitDiffRe = regexp.MustCompile(`\bgit\b.*\bdiff\b`)
 
 // ReadFile reads from the fake filesystem.
@@ -265,6 +297,46 @@ func (m *Mock) WriteFile(_ context.Context, path string, data []byte) error {
 	defer m.mu.Unlock()
 	m.fs[path] = append([]byte(nil), data...)
 	return nil
+}
+
+// handleLs answers a plain `ls <glob> <glob> ... [2>/dev/null]` against the
+// fake filesystem — just enough for evals' "import from repo" (list
+// `.lectern/evals/*.yaml`, then ReadFile each) to see files a test wrote
+// through WriteFile, the way a real target's directory would.
+func (m *Mock) handleLs(cmd string) Result {
+	cmd = strings.TrimSuffix(strings.TrimSpace(cmd), "2>/dev/null")
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		return Result{1, "", "ls: missing operand"}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	var matches []string
+	for _, pattern := range fields[1:] {
+		for name := range m.fs {
+			if seen[name] {
+				continue
+			}
+			if ok, _ := path.Match(pattern, name); ok {
+				seen[name] = true
+				matches = append(matches, name)
+			}
+		}
+	}
+	if len(matches) == 0 {
+		return Result{1, "", "ls: no such file or directory"}
+	}
+	sortStrings(matches)
+	return Result{0, strings.Join(matches, "\n") + "\n", ""}
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
 }
 
 // Close cancels every fake agent still running.
@@ -423,6 +495,9 @@ func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
 		result = "Reviewed the diff. VERDICT: REQUEST_CHANGES — rename health() and add a test."
 	case strings.Contains(prompt, "[mock:approve-verdict]"):
 		result = "Reviewed the diff. VERDICT: APPROVE — clean, focused change."
+	case judgeRe.MatchString(prompt):
+		n := firstGroup(judgeRe, prompt)
+		result = "Compared the attempts. JUDGE: attempt " + n + "\nREASON: it passed its check."
 	}
 	m.finish(rt, sid, 0, result)
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
 // gated dispatches a task whose fake agent will ask for permission through the
@@ -102,5 +104,58 @@ func TestDecisionMustBeApprovedOrDenied(t *testing.T) {
 	if code := h.status("POST", "/api/approvals/1/decision",
 		obj{"decision": "maybe"}); code != 400 {
 		t.Fatalf("an invented decision must be rejected, got %d", code)
+	}
+}
+
+// In tailscale mode, a local (loopback, no Tailscale-User-Login / XFF)
+// principal may still use the ordinary API — but deciding an approval needs a
+// human, which a bare loopback caller is not. See internal/auth.Resolver.
+//
+// TailscaleUsers is set explicitly so this never touches a real tailscaled:
+// the node-owner lookup only runs when the allowlist is empty, and this test
+// doesn't care who the tailnet owner is — only that a loopback caller with no
+// tailscale headers resolves to a non-human local principal.
+func TestApprovalDecisionNeedsHumanInTailscaleMode(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Auth = "tailscale"; c.TailscaleUsers = "nobody@example.com" })
+	pid := h.seededProjectID()
+	task := gated(h, pid, "Tailscale-mode gate")
+	appr := h.waitApproval(task.id())
+
+	if code := h.status("GET", "/api/approvals?status=pending", nil); code != 200 {
+		t.Errorf("a local (loopback) caller must still reach ordinary API endpoints: %d", code)
+	}
+	code, body := h.request("POST", fmt.Sprintf("/api/approvals/%d/decision", appr.id()),
+		obj{"decision": "approved"}, nil)
+	if code != 403 {
+		t.Fatalf("a local principal deciding an approval in tailscale mode: got %d, want 403 — %s", code, body)
+	}
+}
+
+// The same board, but with auth off entirely (the single-machine default):
+// the same local principal can decide, because there is no one else it could
+// possibly be.
+func TestApprovalDecisionAllowedByLocalPrincipalInNoneMode(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none" })
+	pid := h.seededProjectID()
+	task := gated(h, pid, "None-mode gate")
+	appr := h.waitApproval(task.id())
+
+	decided := h.post(fmt.Sprintf("/api/approvals/%d/decision", appr.id()), obj{"decision": "approved"}, 200)
+	if decided.str("status") != "approved" {
+		t.Fatalf("decision: %v", decided)
+	}
+}
+
+func TestWhoamiReportsTheResolvedPrincipal(t *testing.T) {
+	h := newHarness(t) // default Config{} host is loopback-safe -> mode none
+	who := h.get("/api/whoami")
+	if who.str("mode") != "none" {
+		t.Fatalf("mode: %v", who)
+	}
+	if who.str("kind") != "local" {
+		t.Fatalf("kind: %v", who)
+	}
+	if who["human"] != true {
+		t.Fatalf("human: %v", who)
 	}
 }

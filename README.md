@@ -425,6 +425,82 @@ curl -X POST .../api/projects -d '{
 > models often reply conversationally instead of acting. The transport works with
 > any model; results depend on the model.
 
+## Auth
+
+`LECTERN_AUTH` picks the gating mode: `auto` (default), `none`, `token`, or
+`tailscale`.
+
+- **`auto`** needs no configuration. A loopback-only listener
+  (`LECTERN_HOST=127.0.0.1`) resolves to `none` — a single-machine install
+  never asks for a login. Otherwise, if tailscaled's LocalAPI answers, it
+  resolves to `tailscale`; otherwise, if `LECTERN_AUTH_TOKEN` is set, `token`;
+  otherwise `none` with a startup warning.
+- **`tailscale`** trusts your tailnet identity — nothing to log into from a
+  device already on the tailnet. By default only the node's own owner is
+  allowed; add more people with `LECTERN_TAILSCALE_USERS` (comma-separated
+  logins) and tagged/service nodes with `LECTERN_TAILSCALE_TAGS`. Being on the
+  tailnet is not by itself authorization — only an allow-listed login or tag
+  gets in. `LECTERN_TAILSCALE_SOCKET` overrides tailscaled's LocalAPI socket
+  (default `/var/run/tailscale/tailscaled.sock`).
+- **`token`** gates every request, including ones from this machine, behind
+  `LECTERN_AUTH_TOKEN` — as a Bearer header, a `lectern_token` cookie, or
+  `?token=` (what the PWA and EventSource use). Use this when tailscale isn't
+  available and you're reachable beyond loopback.
+- **`none`** requires nothing. Fine on a loopback listener; a loud warning is
+  logged if it's ever chosen on a listener that isn't.
+
+A process already running on the machine (the CLI, the MCP server, a
+dispatched agent) always reaches the ordinary API over loopback without a
+token in `none` and `tailscale` mode — the same way your own shell already has
+full access to the box. It can never decide a pending approval, though:
+that needs a real human behind it (a tailnet identity, a token, or `none`
+mode, where there's no one else it could be). `GET /api/whoami` reports how a
+given request resolved; the PWA shows it under Settings → Usage & about.
+
+**Loopback never becomes a human from headers, even in `tailscale` mode.**
+`X-Forwarded-For` and `Tailscale-User-Login` are how `tailscale serve` hands
+Lectern the real client's identity when it proxies from loopback — but
+anything else on the box, including a dispatched agent, can set the same
+headers on a plain `curl` to `127.0.0.1` and would otherwise be able to
+approve its own permission requests. So by default they're ignored on
+loopback and it resolves to the ordinary, non-human local principal instead.
+Set `LECTERN_TRUST_SERVE_HEADERS=1` to restore the header path — **only** if
+this listener is reachable exclusively through `tailscale serve` on this same
+host and nothing untrusted can run a process here.
+
+**A native TLS listener is the better fix for a secure context**, and avoids
+that whole trust question: set `LECTERN_TLS_PORT=8443` (with `LECTERN_AUTH`
+resolving to `tailscale`, or explicitly `LECTERN_TLS=tailscale`) and Lectern
+binds that port directly on this node's tailnet IPs (v4 and v6), fetching its
+TLS certificate from tailscaled's own LocalAPI (`GET
+/localapi/v0/cert/<dnsname>?type=pair`) and refreshing it before it expires.
+Requests there carry the real tailnet peer address, so whois is trustworthy
+with no proxy and no header-trust flag involved. If you previously ran
+`tailscale serve --https=8443 http://127.0.0.1:9110`, replace it with
+`LECTERN_TLS_PORT=8443` and turn `serve` off — Lectern serves that port
+itself now. Plain HTTP on `LECTERN_PORT` (9110) keeps working either way.
+
+### Phone alerts
+
+Web push (approval, waiting-for-input, finished, error, compacting) needs no
+setup: on first start Lectern generates and persists its own VAPID key pair
+(`LECTERN_VAPID_PRIVATE`/`_PUBLIC` still win if you set them, e.g. to share
+one identity across installs). What you do have to do, once per device:
+
+1. **Open Lectern over https.** A browser only exposes push on a secure
+   context — the `LECTERN_TLS_PORT` setup above (or `tailscale serve`) gets
+   you there. On iPhone/iPad, Home Screen installation is also required:
+   Safari does not support web push for a page opened in the ordinary
+   browser tab, only for one added via Share → Add to Home Screen.
+2. Open **Settings → Notifications** and tap **Enable phone alerts**. A test
+   notification is sent immediately so you know it worked. The same tab
+   lists every device that's subscribed and lets you unsubscribe one (a
+   subscription a browser has itself dropped — an uninstalled PWA, for
+   instance — is pruned automatically the next time a push to it 404s/410s).
+   A one-time prompt also appears in the Needs-you area on any device that
+   could subscribe but hasn't yet; "Not now" dismisses it for good on that
+   device.
+
 ## Delegated builds (optional)
 
 **Off by default.** Turn it on and a lead session plans a substantial change
@@ -523,7 +599,9 @@ DESIGN.md            full design doc — architecture, feature catalog, roadmap
 
 Config via env: `LECTERN_PORT` (9110), `LECTERN_DB`, `LECTERN_BASE_URL`
 (URL targets use to reach this server for approval callbacks), `LECTERN_AUTH_TOKEN`
-(optional bearer), `LECTERN_VAPID_PUBLIC`/`_PRIVATE` (web push), `LECTERN_MOCK`.
+(optional bearer), `LECTERN_VAPID_PUBLIC`/`_PRIVATE` (web push — optional; see
+"Phone alerts" above, Lectern generates and persists its own if you don't set
+these), `LECTERN_MOCK`.
 
 ---
 

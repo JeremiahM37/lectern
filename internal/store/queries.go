@@ -176,13 +176,15 @@ func (db *DB) InsertProject(p *Project) (*Project, error) {
 
 const taskCols = `id, project_id, title, prompt, status, priority, labels_json,
 	agent, model, permission_mode, base_branch, parent_task_id, created_by,
-	created_by_attempt, created_at, updated_at`
+	created_by_attempt, created_at, updated_at, check_command, setup_command,
+	setup_timeout_s`
 
 func scanTask(s interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
 	err := s.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Prompt, &t.Status, &t.Priority,
 		&t.LabelsJSON, &t.Agent, &t.Model, &t.PermissionMode, &t.BaseBranch,
-		&t.ParentTaskID, &t.CreatedBy, &t.CreatedByAttempt, &t.CreatedAt, &t.UpdatedAt)
+		&t.ParentTaskID, &t.CreatedBy, &t.CreatedByAttempt, &t.CreatedAt, &t.UpdatedAt,
+		&t.CheckCommand, &t.SetupCommand, &t.SetupTimeoutS)
 	return &t, err
 }
 
@@ -258,12 +260,14 @@ func (db *DB) InsertTask(t *Task) (*Task, error) {
 	now := Now()
 	res, err := db.Exec(`INSERT INTO tasks(project_id, title, prompt, status, priority,
 		labels_json, agent, model, permission_mode, base_branch, parent_task_id,
-		created_by, created_by_attempt, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		created_by, created_by_attempt, created_at, updated_at, check_command,
+		setup_command, setup_timeout_s)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ProjectID, t.Title, t.Prompt, nz(t.Status, "backlog"), t.Priority,
 		nz(t.LabelsJSON, "[]"), nz(t.Agent, "claude"), t.Model,
 		nz(t.PermissionMode, "acceptEdits"), t.BaseBranch, t.ParentTaskID,
-		nz(t.CreatedBy, "user"), t.CreatedByAttempt, now, now)
+		nz(t.CreatedBy, "user"), t.CreatedByAttempt, now, now, t.CheckCommand,
+		t.SetupCommand, t.SetupTimeoutS)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +280,7 @@ func (db *DB) InsertTask(t *Task) (*Task, error) {
 const attemptCols = `id, task_id, n, status, token, prompt, resume_session, model,
 	sandbox_vmid, worktree_path, branch, tmux_session, session_id, log_offset,
 	started_at, finished_at, exit_code, result_json, diff_stat_json, verify_json,
-	mcp_json, strict_mcp, mcp_snapshot, launch_config_json`
+	mcp_json, strict_mcp, mcp_snapshot, launch_config_json, driver, agent, permission_mode`
 
 func scanAttempt(s interface{ Scan(...any) error }) (*Attempt, error) {
 	var a Attempt
@@ -284,7 +288,7 @@ func scanAttempt(s interface{ Scan(...any) error }) (*Attempt, error) {
 		&a.ResumeSession, &a.Model, &a.SandboxVMID, &a.WorktreePath, &a.Branch,
 		&a.TmuxSession, &a.SessionID, &a.LogOffset, &a.StartedAt, &a.FinishedAt,
 		&a.ExitCode, &a.ResultJSON, &a.DiffStatJSON, &a.VerifyJSON, &a.MCPJSON,
-		&a.StrictMCP, &a.MCPSnapshot, &a.LaunchConfigJSON)
+		&a.StrictMCP, &a.MCPSnapshot, &a.LaunchConfigJSON, &a.Driver, &a.Agent, &a.PermissionMode)
 	return &a, err
 }
 
@@ -355,11 +359,13 @@ func (db *DB) InsertAttempt(a *Attempt) (*Attempt, error) {
 	res, err := db.Exec(`INSERT INTO attempts(task_id, n, status, token, prompt,
 		resume_session, model, sandbox_vmid, worktree_path, branch, tmux_session,
 		session_id, log_offset, started_at, finished_at, exit_code, result_json,
-		diff_stat_json, verify_json, mcp_json, strict_mcp, mcp_snapshot, launch_config_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		diff_stat_json, verify_json, mcp_json, strict_mcp, mcp_snapshot, launch_config_json,
+		driver, agent, permission_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.TaskID, a.N, nz(a.Status, "queued"), a.Token, a.Prompt, a.ResumeSession,
 		a.Model, a.SandboxVMID, a.WorktreePath, a.Branch, a.TmuxSession, a.SessionID,
 		a.LogOffset, a.StartedAt, a.FinishedAt, a.ExitCode, nz(a.ResultJSON, "{}"),
-		nz(a.DiffStatJSON, "{}"), nz(a.VerifyJSON, "{}"), nz(a.MCPJSON, "{}"), a.StrictMCP, a.MCPSnapshot, a.LaunchConfigJSON)
+		nz(a.DiffStatJSON, "{}"), nz(a.VerifyJSON, "{}"), nz(a.MCPJSON, "{}"), a.StrictMCP, a.MCPSnapshot, a.LaunchConfigJSON,
+		a.Driver, a.Agent, a.PermissionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -418,33 +424,58 @@ func (db *DB) TaskEvents(taskID int64, afterSeq int64, attemptN *int) ([]*Event,
 
 // ---- approvals --------------------------------------------------------------
 
-const approvalCols = `a.id, a.attempt_id, a.tool_name, a.input_json, a.status,
+const approvalCols = `a.id, a.attempt_id, a.session_id, a.tool_name, a.input_json, a.status,
 	a.decided_by, a.note, a.created_at, a.decided_at`
 
-// Approval fetches one approval by id, joined with its owning task.
-func (db *DB) Approval(id int64) (*Approval, error) {
-	row := db.QueryRow(`SELECT `+approvalCols+`, at.task_id, at.n, t.title
-		FROM approvals a JOIN attempts at ON at.id=a.attempt_id
-		JOIN tasks t ON t.id=at.task_id WHERE a.id=?`, id)
+// scanApproval reads one approvalCols(+joins) row. attempt_id/session_id and
+// everything joined through them are nullable now that an approval can be
+// task- or session-scoped (docs/agent-events.md section 3), so they land in
+// sql.Null* first and only populate the plain-int/string Approval fields
+// (which keep their historical "0/"" means absent" convention) when valid.
+func scanApproval(scan func(...any) error) (*Approval, error) {
 	var ap Approval
-	err := row.Scan(&ap.ID, &ap.AttemptID, &ap.ToolName, &ap.InputJSON, &ap.Status,
+	var attemptID, sessionID, taskID, attemptN sql.NullInt64
+	var taskTitle, sessionName sql.NullString
+	err := scan(&ap.ID, &attemptID, &sessionID, &ap.ToolName, &ap.InputJSON, &ap.Status,
 		&ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt,
-		&ap.TaskID, &ap.AttemptN, &ap.TaskTitle)
+		&taskID, &attemptN, &taskTitle, &sessionName)
+	if err != nil {
+		return nil, err
+	}
+	ap.AttemptID, ap.SessionID = attemptID.Int64, sessionID.Int64
+	ap.TaskID, ap.AttemptN = taskID.Int64, int(attemptN.Int64)
+	ap.TaskTitle, ap.SessionName = taskTitle.String, sessionName.String
+	ap.Input = UnjObj(ap.InputJSON)
+	return &ap, nil
+}
+
+// Approval fetches one approval by id, joined with its owning task or
+// session — whichever of attempt_id/session_id is set (LEFT JOIN: the other
+// side's columns come back NULL, per scanApproval).
+func (db *DB) Approval(id int64) (*Approval, error) {
+	row := db.QueryRow(`SELECT `+approvalCols+`, at.task_id, at.n, t.title, s.name
+		FROM approvals a
+		LEFT JOIN attempts at ON at.id=a.attempt_id
+		LEFT JOIN tasks t ON t.id=at.task_id
+		LEFT JOIN sessions s ON s.id=a.session_id
+		WHERE a.id=?`, id)
+	ap, err := scanApproval(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	ap.Input = UnjObj(ap.InputJSON)
-	return &ap, nil
+	return ap, nil
 }
 
 // ApprovalsByStatus lists approvals in one state, newest first.
 func (db *DB) ApprovalsByStatus(status string) ([]*Approval, error) {
-	rows, err := db.Query(`SELECT `+approvalCols+`, at.task_id, at.n, t.title
-		FROM approvals a JOIN attempts at ON at.id=a.attempt_id
-		JOIN tasks t ON t.id=at.task_id
+	rows, err := db.Query(`SELECT `+approvalCols+`, at.task_id, at.n, t.title, s.name
+		FROM approvals a
+		LEFT JOIN attempts at ON at.id=a.attempt_id
+		LEFT JOIN tasks t ON t.id=at.task_id
+		LEFT JOIN sessions s ON s.id=a.session_id
 		WHERE a.status=? ORDER BY a.created_at DESC LIMIT 200`, status)
 	if err != nil {
 		return nil, err
@@ -452,22 +483,34 @@ func (db *DB) ApprovalsByStatus(status string) ([]*Approval, error) {
 	defer rows.Close()
 	out := []*Approval{}
 	for rows.Next() {
-		var ap Approval
-		if err := rows.Scan(&ap.ID, &ap.AttemptID, &ap.ToolName, &ap.InputJSON,
-			&ap.Status, &ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt,
-			&ap.TaskID, &ap.AttemptN, &ap.TaskTitle); err != nil {
+		ap, err := scanApproval(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		ap.Input = UnjObj(ap.InputJSON)
-		out = append(out, &ap)
+		out = append(out, ap)
 	}
 	return out, rows.Err()
 }
 
-// InsertApproval records a tool call awaiting a decision.
+// InsertApproval records a tool call awaiting a decision, scoped to a task
+// attempt.
 func (db *DB) InsertApproval(attemptID int64, tool, inputJSON string) (int64, error) {
 	res, err := db.Exec(`INSERT INTO approvals(attempt_id, tool_name, input_json,
 		status, created_at) VALUES(?,?,?,'pending',?)`, attemptID, tool, inputJSON, Now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// InsertSessionApproval records a tool call awaiting a decision, scoped to an
+// interactive session's PermissionRequest hook rather than a task attempt
+// (docs/agent-events.md section 3). attempt_id is left NULL — see the
+// package doc on Approval for why that is safe under foreign-key
+// enforcement, unlike a 0 sentinel would be.
+func (db *DB) InsertSessionApproval(sessionID int64, tool, inputJSON string) (int64, error) {
+	res, err := db.Exec(`INSERT INTO approvals(session_id, tool_name, input_json,
+		status, created_at) VALUES(?,?,?,'pending',?)`, sessionID, tool, inputJSON, Now())
 	if err != nil {
 		return 0, err
 	}

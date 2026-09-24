@@ -9,10 +9,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/api"
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -48,9 +52,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	b := bus.New()
-	pushSender := &push.Sender{
-		PrivateKey: cfg.VAPIDPrivateKey, PublicKey: cfg.VAPIDPublicKey,
-		Email: cfg.VAPIDEmail, Log: log,
+	// Phone alerts must work with zero manual setup: when no VAPID env vars
+	// are set, ResolveKeys loads (or, on first start, generates and persists)
+	// a key pair from the database instead of leaving push permanently
+	// disabled — see internal/push/keys.go.
+	pushSender, err := push.ResolveKeys(db, cfg.VAPIDPrivateKey, cfg.VAPIDPublicKey, cfg.VAPIDEmail, log)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
 	notifier := &sinks.Notifier{DB: db, BaseURL: cfg.BaseURL, Push: pushSender, Log: log}
 	br := broker.New(db, b, notifier, cfg.ApprovalExpire)
@@ -70,6 +79,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}, mem, log)
 	sessMgr.WorktreeNamespace = cfg.WorktreeNamespace
 	sessMgr.HandoffPoll = cfg.HandoffPoll
+	// cfg.HookBase already defaults to cfg.BaseURL in config.Load(), but a
+	// hand-built config.Config{} (every test in this repo) does not go
+	// through Load() and leaves both zero — fall back explicitly so a test
+	// harness that sets only BaseURL (to its own ephemeral listener) still
+	// gets a hook callback URL that actually reaches it.
+	sessMgr.HookBase = firstNonEmptyString(cfg.HookBase, cfg.BaseURL)
 	// the agent set is the operator's, read fresh so a change takes effect
 	// without a restart
 	sessMgr.Specs = func() []sessions.Spec { return sessions.ParseSpecs(db.Setting("agents")) }
@@ -102,15 +117,41 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Sessions = sessMgr
 	sched.Memory = mem
 	terms := terminal.NewManager()
+	events := agentevents.New(db, b)
+	activity := alerts.NewActivity()
+	alertWatcher := &alerts.Watcher{DB: db, Notifier: notifier, Activity: activity}
+	// Wired here rather than duplicating the hook-event plumbing: every
+	// session-lifecycle push (docs/agent-events.md section 3) rides the
+	// same ingest path session state itself does.
+	events.OnHookEvent = alertWatcher.HandleHookEvent
+
+	// checksRunner is the one place a project's check command (verify_cmd, or
+	// an auto-detected .verify.yaml) actually runs — for a task's finished
+	// attempt (wired into the scheduler below) and for a session's Stop
+	// event/screen-idle fallback (wired into events.Stop and sessMgr.Checks).
+	// *Runner satisfies agentevents.StopListener structurally; nothing here
+	// imports the other way.
+	checksRunner := checks.New(db, reg, b, notifier, cfg.CheckTimeout, log)
+	sched.Checks = checksRunner
+	sessMgr.Checks = checksRunner
+	events.Stop = checksRunner
+
+	authResolver := auth.New(auth.Settings{
+		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
+		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
+		TrustServeHeaders: cfg.TrustServeHeaders,
+	}, log)
 
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
-		Terminals: terms, Push: pushSender, Cfg: cfg, Log: log,
-		Sessions: sessMgr, Memory: mem,
+		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
+		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due
 	sched.Routines = srv.RunDueRoutines
+	// an eval cell is a task too — same reasoning
+	sched.Evals = srv.RunEvalsTick
 
 	app := &App{Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
@@ -150,6 +191,15 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 	sched.Start()
 	return app, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func cloneArgs(in map[string][]string) map[string][]string {

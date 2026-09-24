@@ -4,9 +4,39 @@ import (
 	"context"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
+
+// agentStateFallbackWindow is the 10 minutes docs/agent-events.md section 2
+// gives a hooked session before the screen is trusted to write agent_state
+// again — long enough that one slow or dropped hook delivery does not flap
+// the state back to a coarser screen guess, short enough that a session whose
+// hooks have genuinely stopped (agent crashed before SessionEnd, target lost
+// the process) is not stuck showing a stale hook-derived state forever.
+const agentStateFallbackWindow = 600 // seconds
+
+// screenAgentState maps the screen-derived status onto agent_state, for when
+// there is no fresher hook signal to prefer. It is necessarily coarser than a
+// real hook: the pane cannot distinguish "waiting for a permission decision"
+// from "waiting for the next prompt", so both screen-derived waits land on
+// waiting_input. ok is false for StatusStarting, which has no useful
+// agent_state guess yet.
+func screenAgentState(status string) (state string, ok bool) {
+	switch status {
+	case StatusRunning:
+		return agentevents.StateWorking, true
+	case StatusWaiting:
+		return agentevents.StateWaitingInput, true
+	case StatusIdle:
+		return agentevents.StateIdle, true
+	case StatusDead:
+		return agentevents.StateEnded, true
+	default:
+		return "", false
+	}
+}
 
 // Poll refreshes every live session's status from its target.
 //
@@ -161,6 +191,7 @@ func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
 			}
 			m.applyPane(s, pane.Text, pane.Missing)
 		}
+		m.pollCodexUsage(ctx, ex, group)
 	}
 }
 
@@ -215,6 +246,19 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 			fields["context_pct"] = *pct
 		}
 	}
+	// Agent hooks (docs/agent-events.md section 2): agent_state is
+	// hook-preferred. The screen is only allowed to write it when no hook has
+	// reached this session in the last 10 minutes (or ever) — status itself
+	// keeps being derived from the pane exactly as before, unconditionally,
+	// so nothing here changes what the UI's primary indicator shows.
+	if screenState, ok := screenAgentState(status); ok {
+		hookFresh := s.HookSeenAt != nil && now-*s.HookSeenAt < agentStateFallbackWindow
+		if !hookFresh && (screenState != s.AgentState || s.StateSource != agentevents.SourceScreen) {
+			fields["agent_state"] = screenState
+			fields["state_source"] = agentevents.SourceScreen
+			fields["state_at"] = now
+		}
+	}
 	changed := status != s.Status || len(fields) > 1
 	fields["status"] = status
 	if err := m.DB.Update("sessions", s.ID, fields); err != nil {
@@ -222,6 +266,15 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	}
 	if !changed {
 		return
+	}
+	// Checks fallback (docs/agent-events.md section 4): a session with no
+	// lifecycle hooks (or whose hooks have gone quiet) never gets a Stop
+	// event, so busy->idle on the screen-derived status is the only signal
+	// it has that a turn just ended. A hooked session's real Stop event
+	// fires this same runner independently through internal/agentevents; the
+	// runner's own fingerprint is what keeps the two from double-running.
+	if m.Checks != nil && s.Status == StatusRunning && status == StatusIdle {
+		m.Checks.OnAgentStop(s.ID)
 	}
 	if fresh, err := m.DB.Session(s.ID); err == nil {
 		m.publish(fresh)

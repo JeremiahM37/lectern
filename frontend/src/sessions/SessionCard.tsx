@@ -1,14 +1,17 @@
 import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
-import type { InteractiveWorkspace, Project, SessionView } from "../types";
+import type { Approval, InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
+import { CheckBadge } from "./CheckBadge";
+import { approvalSummary } from "./approval-summary";
 import {
   isScratchTerminal,
   scratchDefaultName,
   scratchTitle,
 } from "./scratch";
+import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -31,6 +34,10 @@ interface Props {
   onAttach: (session: SessionView) => void;
   onChat: (session: SessionView) => void;
   onReview: (session: SessionView) => void;
+  // Opens the review-and-merge panel (live diff, inline comments, commit/
+  // push/PR) — a different thing from onReview's working-tree file browser.
+  // Optional so existing call sites (and tests) that predate it keep compiling.
+  onMergeReview?: (session: SessionView) => void;
   onHandoff: (session: SessionView) => void;
   onSwitch?: (session: SessionView) => void;
   onGroup: (session: SessionView) => void;
@@ -38,9 +45,14 @@ interface Props {
   onWorkspace: (session: SessionView) => void;
   onArchive: (session: SessionView) => void;
   onDiscover: () => void;
+  // The one pending approval for this session's PermissionRequest hold, if
+  // any (docs/agent-events.md section 3). Optional so existing call sites
+  // and tests that predate the feature keep compiling.
+  approval?: Approval;
 }
 export function SessionCard({
   session: s,
+  approval,
   projects,
   api,
   progressError,
@@ -51,6 +63,7 @@ export function SessionCard({
   onAttach,
   onChat,
   onReview,
+  onMergeReview,
   onHandoff,
   onSwitch,
   onGroup,
@@ -61,6 +74,33 @@ export function SessionCard({
 }: Props) {
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false),
+    [denyReasonOpen, setDenyReasonOpen] = useState(false),
+    [denyReason, setDenyReason] = useState(""),
+    // Optimistic hide: `approval` is a prop from the parent's own poll (a
+    // separate cadence from onRefresh), so a decision here would otherwise
+    // stay visible until that poll's next tick catches up.
+    [resolvedApprovalID, setResolvedApprovalID] = useState<number | null>(null);
+  const activeApproval = approval && approval.id !== resolvedApprovalID ? approval : undefined;
+  async function decideApproval(decision: "approved" | "denied", note?: string) {
+    if (!activeApproval) return;
+    const id = activeApproval.id;
+    setApprovalBusy(true);
+    try {
+      await api.request(`/approvals/${id}/decision`, {
+        method: "POST",
+        body: note ? { decision, note } : { decision },
+      });
+      setResolvedApprovalID(id);
+      setDenyReasonOpen(false);
+      setDenyReason("");
+      await onRefresh();
+    } catch (error) {
+      onNotice(String(error), true);
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
   const setup = s.setup_state === "creating",
     failed = s.setup_state === "failed",
     ended = s.ended_at != null,
@@ -199,6 +239,49 @@ export function SessionCard({
             : "quiet " + duration(s.idle_seconds)}
         </span>
       </div>
+      {activeApproval && (
+        <div className="scard-approval" data-approval-id={activeApproval.id}>
+          <div className="scard-approval-what">
+            <strong>{activeApproval.tool_name}</strong>
+            {approvalSummary(activeApproval) && <code>{approvalSummary(activeApproval)}</code>}
+          </div>
+          {denyReasonOpen ? (
+            <form
+              className="scard-approval-reason"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void decideApproval("denied", denyReason.trim() || undefined);
+              }}
+            >
+              <input
+                autoFocus
+                placeholder="Reason (optional)"
+                value={denyReason}
+                onChange={(e) => setDenyReason(e.target.value)}
+                aria-label="Reason for denying"
+              />
+              <button className="b" type="submit" disabled={approvalBusy}>
+                Send
+              </button>
+              <button className="b" type="button" onClick={() => setDenyReasonOpen(false)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <div className="scard-approval-actions">
+              <button className="b ok" disabled={approvalBusy} onClick={() => void decideApproval("approved")}>
+                Approve
+              </button>
+              <button className="b" disabled={approvalBusy} onClick={() => void decideApproval("denied")}>
+                Deny
+              </button>
+              <button className="b" disabled={approvalBusy} onClick={() => setDenyReasonOpen(true)}>
+                Deny with reason…
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {scratch && scratchPath && (
         <div className="scard-path">
           <code title={scratchPath}>{scratchPath}</code>
@@ -242,22 +325,14 @@ export function SessionCard({
         {s.handoff_in_flight && (
           <span className="chip warn">writing handoff…</span>
         )}
-        {s.context_pct != null && (
-          <span
-            className={`ctxbar ${s.context_pct <= 10 ? "crit" : s.context_pct <= 25 ? "low" : ""}`}
-          >
-            ctx{" "}
-            <i>
-              <b
-                style={{
-                  width: `${Math.max(0, Math.min(100, s.context_pct))}%`,
-                }}
-              />
-            </i>{" "}
-            {s.context_pct}%
-          </span>
-        )}
+        <ContextBadge session={s} />
+        <CostBadge session={s} />
+        <LinesBadge session={s} />
+        <CompactionWarning session={s} />
         {s.group_path && <span className="chip">{s.group_path}</span>}
+        {live && s.agent !== "shell" && (
+          <CheckBadge session={s} api={api} onNotice={onNotice} />
+        )}
       </div>
       <div className="spane">{preview}</div>
       {workspace && (
@@ -378,6 +453,11 @@ export function SessionCard({
               <button className="b" onClick={() => onReview(s)}>
                 Review changes
               </button>
+              {onMergeReview && (
+                <button className="b" onClick={() => onMergeReview(s)}>
+                  Review &amp; merge
+                </button>
+              )}
               <a className="b" href={`lectern://attach/session/${s.id}`}>
                 Open in terminal
               </a>
