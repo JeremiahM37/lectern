@@ -37,6 +37,11 @@ import (
 
 // Server wires every dependency the handlers need.
 type Server struct {
+	autoWG      sync.WaitGroup
+	autoMu      sync.Mutex
+	autoChecked time.Time
+	autoBridges map[string][]*http.Server
+
 	DB       *store.DB
 	Bus      *bus.Bus
 	Broker   *broker.Broker
@@ -108,6 +113,11 @@ type Server struct {
 // Handler builds the full router, including auth and the embedded web app.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/autonomy", s.getAutonomy)
+	mux.HandleFunc("GET /api/autonomy/jobs/{job}/archive", s.downloadAutonomy)
+	mux.HandleFunc("PUT /api/autonomy", s.putAutonomy)
+	mux.HandleFunc("POST /api/autonomy/run", s.startAutonomy)
+	mux.HandleFunc("POST /api/autonomy/stop", s.stopAutonomy)
 
 	// ---- targets ----
 	mux.HandleFunc("GET /api/targets", s.listTargets)
@@ -529,10 +539,16 @@ func (s *Server) sse(w http.ResponseWriter, r *http.Request, channel string) {
 
 // Shutdown releases everything the server owns.
 func (s *Server) Shutdown(ctx context.Context) {
+	s.Sched.Stop()
+	s.autoWG.Wait()
+	s.autoMu.Lock()
+	for id := range s.autoBridges {
+		s.closeAutoBridge(id)
+	}
+	s.autoMu.Unlock()
 	s.liveShutdown()
 	s.DrainStreams()
 	s.Terminals.Shutdown()
-	s.Sched.Stop()
 	s.Notifier.Wait()
 	s.Reg.Reset()
 }

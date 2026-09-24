@@ -157,7 +157,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due
-	sched.Routines = srv.RunDueRoutines
+	sched.Routines = func(ctx context.Context) { srv.RunDueRoutines(ctx); srv.ScheduleAutonomyTick(ctx) }
 	// an eval cell is a task too — same reasoning
 	sched.Evals = srv.RunEvalsTick
 

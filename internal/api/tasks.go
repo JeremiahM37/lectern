@@ -791,6 +791,10 @@ func (s *Server) taskParam(w http.ResponseWriter, r *http.Request) (*store.Task,
 		}
 		return nil, false
 	}
+	if r.Method != "GET" && task.CreatedBy == autoOwner {
+		httpError(w, 409, "Workshop tasks use isolated workers; manage them from Autonomous workshop")
+		return nil, false
+	}
 	if r.Method != "GET" && !strings.HasSuffix(r.URL.Path, "/takeover") {
 		if tr, _ := s.DB.Takeover(task.ID); tr != nil && !(r.Method == "DELETE" && tr.Status == "ready") {
 			httpError(w, 409, "This task is moving to an interactive session; open its session to continue")

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Autonomous workshop · Lectern</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e6edf7;background:#101722;color-scheme:dark;font-synthesis:none}*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:24px}h1,h2,p{margin:0}h1{font-size:clamp(23px,4vw,32px);letter-spacing:-.035em}h2{font-size:17px}p{line-height:1.55}.muted{color:#a6b5c9}.eyebrow{color:#8db8ff;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}header{display:flex;justify-content:space-between;align-items:start;gap:20px;margin-bottom:24px}header p{margin-top:8px;max-width:600px}a{color:#9cc5ff;text-decoration:none}a:hover{text-decoration:underline}.card{background:#172232;border:1px solid #2b3b51;border-radius:16px;padding:22px;margin-bottom:16px}.control{display:flex;align-items:center;justify-content:space-between;gap:18px}.mode{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.badge{display:inline-block;border:1px solid #526078;border-radius:999px;padding:4px 10px;font-size:12px;color:#bfccdd;font-weight:700;white-space:nowrap}.badge.on{color:#89e4be;border-color:#317b61;background:#163b31}.badge.paused{color:#f5d393;border-color:#8e713b;background:#3a3020}.switch{flex-shrink:0;position:relative;width:58px;height:34px;padding:4px;border-radius:22px;border:1px solid #526078;background:#354153;cursor:pointer}.switch:before{content:"";display:block;width:24px;height:24px;border-radius:50%;background:#e6edf7;transition:transform .15s}.switch[aria-checked=true]{background:#3b8069;border-color:#66c6a3}.switch[aria-checked=true]:before{transform:translateX(24px)}button{font:inherit}button:focus-visible,a:focus-visible{outline:3px solid #96c7ff;outline-offset:4px}button:disabled{opacity:.5;cursor:wait}.reason{margin-top:14px;color:#c3d0e3;overflow-wrap:anywhere}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.button{min-height:42px;padding:9px 14px;border:1px solid #415774;border-radius:9px;background:#23374f;color:#e6edf7;cursor:pointer;font-weight:600}.button:hover:not(:disabled){background:#2d4767}.button.stop{border-color:#80514e;background:#392a30;color:#ffd0ca}.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:24px;padding-top:20px;border-top:1px solid #2b3b51}.fact-label{font-size:12px;color:#a6b5c9;margin-bottom:5px}.fact-value{font-size:15px;font-weight:650;overflow-wrap:anywhere}.columns{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}.columns .card{height:100%}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:18px 0}.step{padding:10px 4px;text-align:center;font-size:12px;border-bottom:3px solid #384961;color:#91a3bb}.step.current{color:#c5e0ff;border-color:#81baff}.step.past{color:#a5dcc5;border-color:#3e8e73}.empty{padding:16px 0;color:#a6b5c9;font-size:14px}.detail{margin-top:12px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.item{padding:13px 0;border-top:1px solid #2b3b51;overflow-wrap:anywhere}.item-title{font-weight:600;font-size:14px}.item p{font-size:13px;color:#b0c0d5;margin-top:5px}.task-links{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;margin-top:9px}.quota-row{border-top:1px solid #2b3b51;padding:12px 0;display:flex;justify-content:space-between;gap:10px;font-size:14px}.quota-row span:last-child{text-align:right}.policy{font-size:13px;color:#a6b5c9;margin-top:15px}.history{margin-top:32px}.run{padding:16px 0;border-top:1px solid #2b3b51}.run-head{display:flex;gap:10px;justify-content:space-between;align-items:center}.error{border:1px solid #ba6861;background:#422b30;color:#ffddd8;padding:14px 16px;border-radius:10px;margin-bottom:16px;overflow-wrap:anywhere}.footer{font-size:12px;color:#8b9eb7;margin:20px 0 0}.refresh{font-size:12px;background:transparent;border:0;color:#9cc5ff;cursor:pointer;padding:6px} [hidden]{display:none!important}@media(max-width:650px){main{padding:16px}header{display:block}header>a{display:inline-block;margin-top:12px}.card{padding:17px}.columns{grid-template-columns:1fr}.facts{gap:12px;grid-template-columns:1fr 1fr}.facts>div:last-child{grid-column:1/-1}.fact-value{font-size:14px}.actions .button{flex:1 1 130px}.steps{gap:2px}.control h2{font-size:16px}.history{margin-top:26px}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+body.compact main{padding:8px}body.compact header,body.compact .columns,body.compact .history,body.compact .footer{display:none}body.compact .card{margin-bottom:0;padding:16px}body.compact .facts{margin-top:16px;padding-top:12px}body.compact .actions{margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="eyebrow">Lectern × Grimoire</div><h1>Autonomous workshop</h1><p class="muted">A daily cycle of useful ideas, independent audits, focused work, and a record of what changed.</p></div><a href="/" target="_blank" rel="noopener">Open Lectern ↗</a></header>
+<div id="error" class="error" role="alert" hidden></div>
+<section class="card" aria-labelledby="mode-title">
+<div class="control"><div class="mode"><h2 id="mode-title">Autonomous mode</h2><span id="status" class="badge">Connecting</span></div><button id="toggle" class="switch" role="switch" aria-checked="false" aria-label="Autonomous mode" disabled></button></div>
+<p id="reason" class="reason" aria-live="polite">Checking the workshop and its allowance limits…</p>
+<div class="actions"><button id="run" class="button" disabled>Start today’s cycle</button><button id="stop" class="button stop" disabled>Turn off & stop work</button></div>
+<div class="facts"><div><div class="fact-label">Morning plan</div><div id="schedule" class="fact-value">—</div></div><div><div class="fact-label">Protected allowance</div><div id="reserve" class="fact-value">10% minimum</div></div><div><div class="fact-label">New work threshold</div><div id="threshold" class="fact-value">Checking launch margin</div></div></div>
+<p class="policy">Turning off stops this workshop’s work. Your own terminal sessions stay open.</p>
+</section>
+<div class="columns">
+<section class="card" aria-labelledby="today-title"><div class="section-head"><h2 id="today-title">Today</h2><span id="date" class="muted"></span></div><div class="steps" aria-label="Daily workflow"><div class="step" data-phase="plan">Plan</div><div class="step" data-phase="audit">Audit</div><div class="step" data-phase="build">Build</div><div class="step" data-phase="review">Review</div></div><div id="today"></div><p class="policy">Plans use your projects and Grimoire context. Audit rounds are bounded; unresolved proposals wait instead of consuming the day.</p></section>
+<section class="card" aria-labelledby="allowance-title"><div class="section-head"><h2 id="allowance-title">Allowance guard</h2><button class="refresh" id="refresh">Refresh</button></div><div id="quota"><p class="empty">Waiting for current usage.</p></div><p class="policy">Both session and weekly limits count. Unknown or stale allowance data pauses launches. A launch margin keeps new work away from your protected reserve.</p><p class="policy">Work stays isolated for review. No automatic deployment or changes to production services.</p></section>
+</div>
+<section class="history" aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">Daily record</h2><span class="muted">Plans → outcomes</span></div><div id="history"><p class="empty">Loading the daily record…</p></div></section>
+<p id="updated" class="footer">The server controls schedules, stop requests, and allowance checks.</p>
+</main>
+<script>
+(() => {
+'use strict';
+if (new URLSearchParams(location.search).get('compact') === '1') document.body.classList.add('compact');
+const $ = id => document.getElementById(id);
+let snapshot = null, busy = false, loading = false, errorFromAction = false;
+const list = value => Array.isArray(value) ? value : [];
+const words = value => String(value || '').replace(/[_-]/g, ' ');
+function node(tag, value, className) { const el = document.createElement(tag); if (value != null) el.textContent = String(value); if (className) el.className = className; return el; }
+function number(value, fallback) { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
+async function api(path = '', method = 'GET', body) {
+  const response = await fetch('/api/autonomy' + path, {method, credentials:'same-origin', headers:body === undefined ? {'Accept':'application/json'} : {'Accept':'application/json','Content-Type':'application/json'}, body:body === undefined ? undefined : JSON.stringify(body), signal:AbortSignal.timeout(15000), cache:'no-store'});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(response.status === 403 ? 'Only the owner can change autonomous mode. Open Lectern directly from your signed-in device. ' + (data.error || '') : data.error || 'Workshop request failed (' + response.status + ').');
+  return data;
+}
+function error(message) { $('error').textContent = message; $('error').hidden = !message; }
+function controls() {
+  const ready = !!snapshot && !busy && !loading;
+  $('toggle').disabled = !ready;
+  $('run').disabled = !ready || !snapshot.config?.enabled;
+  $('stop').disabled = !ready;
+  $('refresh').disabled = busy || loading;
+}
+function taskLinks(container, tasks) {
+  const links = node('div', null, 'task-links');
+  for (const task of list(tasks)) {
+    const id = typeof task === 'number' ? task : task.task_id ?? task.id;
+    if (!/^\d+$/.test(String(id))) continue;
+    const link = node('a', (task.title || 'Task #' + id) + ' ↗'); link.href = '/#task/' + id; link.target = '_blank'; link.rel = 'noopener'; links.append(link);
+  }
+  if (links.children.length) container.append(links);
+}
+function outcome(container, run) {
+  if (!run || !Object.keys(run).length) { container.append(node('p', 'No cycle yet. Enable autonomous mode to begin the daily schedule.', 'empty')); return; }
+  if (run.reason || run.summary || run.outcome) container.append(node('p', run.reason || run.summary || run.outcome, 'detail'));
+  const items = list(run.items || run.proposals || run.plan?.items);
+  for (const item of items) {
+    const el = node('div', null, 'item');
+    el.append(node('div', typeof item === 'string' ? item : item.title || item.name || 'Proposal', 'item-title'));
+    if (typeof item === 'object') {
+      if (item.status || item.decision) el.append(node('p', words(item.status || item.decision)));
+      if (item.why || item.reason || item.summary || item.description) el.append(node('p', item.why || item.reason || item.summary || item.description));
+      taskLinks(el, item.tasks || (item.task_id ? [item.task_id] : []));
+    }
+    container.append(el);
+  }
+  for (const assignment of list(run.assignments)) {
+    const job = list(snapshot?.jobs).find(j => j.task_id === assignment.task_id);
+    const report = run.reports?.[assignment.task_id];
+    const row = node('div', null, 'item');
+    row.append(node('div', words(assignment.role) + ' · ' + words(job?.status || (assignment.completed ? 'completed' : 'pending')), 'item-title'));
+    if (report?.reason) row.append(node('p', (report.approve === true ? 'Approved: ' : report.approve === false ? 'Changes needed: ' : '') + report.reason));
+    if (report?.summary || job?.summary) row.append(node('p', report?.summary || job.summary));
+    for (const evidence of list(report?.evidence)) row.append(node('p', evidence));
+    taskLinks(row, [assignment]);
+    // Artifact paths remain server-side; downloads pass the owner identity
+    // check and the server's workspace/status checks on every request.
+    if (job?.artifact_path && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(job.id || '') && !['queued', 'starting', 'running', 'stopping'].includes(job.status)) {
+      const files = node('a', 'Download files');
+      files.href = '/api/autonomy/jobs/' + encodeURIComponent(job.id) + '/archive';
+      files.className = 'task-links';
+      row.append(files);
+    }
+    container.append(row);
+  }
+  taskLinks(container, run.tasks || run.task_ids);
+  if (run.task_id) taskLinks(container, [run.task_id]);
+  if (!container.children.length) container.append(node('p', 'Phase: ' + words(run.phase || 'waiting') + '. Details will appear as work progresses.', 'empty'));
+}
+function quota(data) {
+  const el = $('quota'); el.replaceChildren();
+  const q = data.quota;
+  if (!q) { el.append(node('p', 'Allowance data is unavailable. New work must wait for a fresh reading.', 'empty')); return; }
+  if (q.reason || q.message) el.append(node('p', q.reason || q.message, 'detail'));
+  const providers = list(q.providers);
+  for (const provider of providers) {
+    const age = typeof provider.updated_at === 'number' ? Date.now()/1000 - provider.updated_at : Infinity;
+    const fresh = age >= 0 && age <= 360 && provider.status === 'ok';
+    el.append(node('p', words(provider.id || 'Provider') + ' · ' + (fresh ? 'current reading' : words(provider.status === 'ok' ? 'stale reading' : provider.status || 'unavailable')), 'detail'));
+    for (const bucket of list(provider.buckets)) {
+      for (const window of list(bucket.windows)) {
+        const row = node('div', null, 'quota-row');
+        row.append(node('span', words(bucket.id || '') + ' · ' + (window.label || 'Allowance')));
+        const remain = number(window.remaining_percent, null);
+        const value = node('span', remain === null ? 'Unavailable' : remain.toFixed(0) + '% left' + (fresh ? '' : ' (stale)'));
+        if (typeof window.resets_at === 'number') {
+          const reset = node('small', 'Resets ' + new Date(window.resets_at * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}), 'muted');
+          reset.style.display = 'block'; value.append(reset);
+        }
+        row.append(value); el.append(row);
+      }
+    }
+    if (!list(provider.buckets).length) el.append(node('p', 'No allowance windows available. Launches wait for a fresh reading.', 'empty'));
+  }
+  if (!providers.length) el.append(node('p', 'Allowance data is unavailable. Launches wait for a fresh reading.', 'empty'));
+}
+function render(data) {
+  snapshot = data;
+  const config = data.config || {}, state = data.state || {}, enabled = !!config.enabled;
+  const status = String(data.status || state.phase || 'waiting');
+  const paused = /pause|budget|quota|block|unavailable|error/i.test(status);
+  $('toggle').setAttribute('aria-checked', String(enabled));
+  $('status').textContent = enabled ? paused ? 'ON · ' + words(status) : 'ON' : status === 'error' ? 'OFF · Stop needs attention' : 'OFF';
+  $('status').className = 'badge' + (enabled ? paused ? ' paused' : ' on' : '');
+  $('reason').textContent = data.reason || state.reason || (enabled ? 'The daily cycle is enabled. Work starts only when its checks pass.' : 'The workshop is off. Enable it to plan and work each morning.');
+  const hour = number(config.morning_hour, 8);
+  $('schedule').textContent = String(hour).padStart(2, '0') + ':00 · ' + (config.timezone || 'server timezone');
+  const reserve = Math.max(10, number(config.reserve_percent, 10)), margin = number(config.margin_percent, 0);
+  $('reserve').textContent = reserve + '% · session & weekly';
+  $('threshold').textContent = margin > 0 ? 'Above ' + (reserve + margin) + '% remaining' : 'Above the protected reserve';
+  $('date').textContent = state.date || '';
+  $('run').textContent = 'Start today’s cycle';
+  const phases = ['plan','audit','build','review'];
+  const phase = String(state.phase === 'paused' ? state.resume_phase || '' : state.phase || '');
+  const current = phase.startsWith('plan') || phase === 'revise' ? 0 : /audit|discuss/.test(phase) ? 1 : /build|work|execut/.test(phase) ? 2 : /review|complete|done/.test(phase) ? 3 : -1;
+  for (const step of document.querySelectorAll('.step')) {
+    const index = phases.indexOf(step.dataset.phase); step.className = 'step' + (index === current ? ' current' : index < current ? ' past' : '');
+    if (index === current) step.setAttribute('aria-current', 'step'); else step.removeAttribute('aria-current');
+  }
+  $('today').replaceChildren(); outcome($('today'), state);
+  quota(data);
+  $('history').replaceChildren();
+  for (const run of list(data.runs).slice(0, 60)) {
+    const entry = node('article', null, 'run'), heading = node('div', null, 'run-head');
+    heading.append(node('strong', run.date || 'Daily cycle'), node('span', words(run.phase || run.status || 'recorded'), 'badge')); entry.append(heading); outcome(entry, run); $('history').append(entry);
+  }
+  if (!$('history').children.length) $('history').append(node('p', 'No daily records yet. Plans, decisions, and outcomes will accumulate here.', 'empty'));
+  $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · Refreshes every 15 seconds while visible.';
+  controls();
+}
+async function refresh() {
+  if (loading || busy) return;
+  loading = true; controls();
+  try { render(await api()); if (!errorFromAction) error(''); }
+  catch (err) { error(err.message); $('status').textContent = 'Unavailable'; }
+  finally { loading = false; controls(); }
+}
+async function act(path, method, body) {
+  if (busy || loading) return;
+  busy = true; controls(); error(''); errorFromAction = false;
+  try { await api(path, method, body); render(await api()); }
+  catch (err) { errorFromAction = true; error(err.message); }
+  finally { busy = false; controls(); }
+}
+$('toggle').addEventListener('click', () => snapshot?.config?.enabled ? act('/stop','POST',{}) : act('','PUT',{enabled:true}));
+$('stop').addEventListener('click', () => act('/stop','POST',{}));
+$('run').addEventListener('click', () => act('/run','POST',{}));
+$('refresh').addEventListener('click', () => {errorFromAction = false; refresh();});
+document.addEventListener('visibilitychange', () => {if (!document.hidden) refresh();});
+setInterval(() => {if (!document.hidden) refresh();}, 15000);
+refresh();
+})();
+</script>
+</body>
+</html>
