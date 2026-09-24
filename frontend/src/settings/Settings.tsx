@@ -8,6 +8,8 @@ import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
+import { LaunchProfiles } from "./LaunchProfiles";
+import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
 }
@@ -19,6 +21,8 @@ type Profile = {
   command: string;
   model: string;
   env_json: string;
+  description?: string;
+  instructions?: string;
 };
 interface Stats {
   total_cost_usd: number;
@@ -941,7 +945,8 @@ function Agents({
   onNotice(t: string, e?: boolean): void;
 }) {
   const [editing, setEditing] = useState<Agent | "new">(),
-    [profile, setProfile] = useState<Profile | "new">();
+    [profile, setProfile] = useState<Profile | "new">(),
+    [startersOpen, setStartersOpen] = useState(false);
   return (
     <section>
       <h3>Agent runners</h3>
@@ -978,6 +983,7 @@ function Agents({
       {profiles.map((p) => (
         <article key={p.id}>
           <b>{p.name}</b> · {p.agent} · {p.model}
+          {p.description && <p>{p.description}</p>}
           <button onClick={() => setProfile(p)}>Edit profile</button>
           <button
             onClick={() =>
@@ -991,6 +997,8 @@ function Agents({
         </article>
       ))}
       <button onClick={() => setProfile("new")}>New profile</button>
+      <button onClick={() => setStartersOpen(true)}>Browse starter profiles</button>
+      {startersOpen && <LaunchProfiles api={api} onClose={() => setStartersOpen(false)} onChange={() => void onChanged()} />}
       {editing && (
         <AgentEditor
           api={api}
@@ -1033,6 +1041,8 @@ function ProfileEditor({
     [agent, setAgent] = useState(source?.agent || agents[0]?.name || "claude"),
     [command, setCommand] = useState(source?.command || ""),
     [model, setModel] = useState(source?.model || ""),
+    [description, setDescription] = useState(source?.description || ""),
+    [instructions, setInstructions] = useState(source?.instructions || ""),
     [environment, setEnvironment] = useState(() => {
       try {
         return JSON.stringify(JSON.parse(source?.env_json || "{}"), null, 2);
@@ -1068,6 +1078,8 @@ function ProfileEditor({
             command: command.trim(),
             model: model.trim(),
             env_json: JSON.stringify(parsed),
+            description: description.trim(),
+            instructions: instructions.trim(),
           },
         },
       );
@@ -1101,6 +1113,21 @@ function ProfileEditor({
           ))}
         </select>
       </label>
+      <label>
+        Description
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </label>
+      <label>
+        Workflow instructions
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+        />
+      </label>
+      <p className="lp-hint">{INSTRUCTIONS_HELP}</p>
       <label>
         Command override
         <input value={command} onChange={(e) => setCommand(e.target.value)} />

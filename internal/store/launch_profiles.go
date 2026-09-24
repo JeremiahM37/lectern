@@ -7,20 +7,25 @@ import (
 
 // LaunchProfile holds explicit overrides for future interactive sessions.
 // Environment values are configuration data and must not enter session events.
+// Description and Instructions are the human-facing parts: Instructions is a
+// launch briefing typed to the agent when a session starts, and never a
+// configuration or privilege change.
 type LaunchProfile struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Agent   string `json:"agent"`
-	Command string `json:"command"`
-	Model   string `json:"model"`
-	EnvJSON string `json:"env_json"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Agent        string `json:"agent"`
+	Command      string `json:"command"`
+	Model        string `json:"model"`
+	EnvJSON      string `json:"env_json"`
+	Description  string `json:"description"`
+	Instructions string `json:"instructions"`
 }
 
-const launchProfileCols = `id,name,agent,command,model,env_json`
+const launchProfileCols = `id,name,agent,command,model,env_json,description,instructions`
 
 func scanLaunchProfile(row interface{ Scan(...any) error }) (*LaunchProfile, error) {
 	p := &LaunchProfile{}
-	err := row.Scan(&p.ID, &p.Name, &p.Agent, &p.Command, &p.Model, &p.EnvJSON)
+	err := row.Scan(&p.ID, &p.Name, &p.Agent, &p.Command, &p.Model, &p.EnvJSON, &p.Description, &p.Instructions)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -50,7 +55,7 @@ func (db *DB) LaunchProfiles() ([]*LaunchProfile, error) {
 
 func (db *DB) SaveLaunchProfile(p *LaunchProfile) (*LaunchProfile, error) {
 	if p.ID == 0 {
-		result, err := db.Exec(`INSERT INTO launch_profiles(name,agent,command,model,env_json) VALUES(?,?,?,?,?)`, p.Name, p.Agent, p.Command, p.Model, p.EnvJSON)
+		result, err := db.Exec(`INSERT INTO launch_profiles(name,agent,command,model,env_json,description,instructions) VALUES(?,?,?,?,?,?,?)`, p.Name, p.Agent, p.Command, p.Model, p.EnvJSON, p.Description, p.Instructions)
 		if err != nil {
 			return nil, err
 		}
@@ -60,7 +65,7 @@ func (db *DB) SaveLaunchProfile(p *LaunchProfile) (*LaunchProfile, error) {
 		}
 		return db.LaunchProfile(id)
 	}
-	result, err := db.Exec(`UPDATE launch_profiles SET name=?,agent=?,command=?,model=?,env_json=? WHERE id=?`, p.Name, p.Agent, p.Command, p.Model, p.EnvJSON, p.ID)
+	result, err := db.Exec(`UPDATE launch_profiles SET name=?,agent=?,command=?,model=?,env_json=?,description=?,instructions=? WHERE id=?`, p.Name, p.Agent, p.Command, p.Model, p.EnvJSON, p.Description, p.Instructions, p.ID)
 	if err != nil {
 		return nil, err
 	}

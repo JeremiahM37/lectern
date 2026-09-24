@@ -201,3 +201,16 @@ to add two native Gboard checks using the real Claude renderer (ordinary resize
 and keyboard overlay). They create a disposable third terminal with a private
 config and dummy API key, leave the draft unsent, and capture ADB screenshots.
 The standard nightly run remains independent of an installed Claude binary.
+
+## Diagnosing intermittent device failures
+
+The audit receipt records the browser user agent, browser exceptions and up to
+200 input events from its disposable shell fixture. Failure artifacts include
+an Android logcat tail and an ADB screenshot. The input trace contains only the
+fixture's synthetic text; the audit never attaches to a live user terminal.
+
+On a cold emulator boot, Chrome can exit before its first page is available.
+The fixture retries startup once only when `pidof com.android.chrome` confirms
+that the process is absent, preserving the first exit's logcat and both launch
+outputs. A browser that is still running is not restarted on a CDP timeout.
+Input and layout assertion failures are never retried within an audit run.

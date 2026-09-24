@@ -57,11 +57,24 @@ func (m *dashboard) profileSettingsForm(selected row) tea.Cmd {
 		{Key: "command", Label: "Command override (blank uses agent settings)", Value: str(selected["command"])},
 		{Key: "model", Label: "Default model (optional)", Value: str(selected["model"])},
 		{Key: "env_json", Label: "Environment JSON (overrides project defaults)", Value: env, Multiline: true},
+		{Key: "description", Label: "Description (what this profile is for; shown in lists)", Value: str(selected["description"])},
+		{Key: "instructions", Label: "Instructions — launch briefing typed to the agent when a session starts (multiline)", Value: str(selected["instructions"]), Multiline: true},
 	}
 	return m.openForm("Launch profile — existing sessions keep their settings", fields, func(body map[string]any) tea.Cmd {
 		method, path := "POST", "/launch-profiles"
 		if selected != nil {
 			method, path = "PUT", fmt.Sprintf("/launch-profiles/%s", id(selected))
+		}
+		// Description and instructions are sent even when blank so clearing a
+		// field is an explicit empty value. formBody drops empty fields, so read
+		// the live form values: a key that is absent means "leave the stored
+		// value alone" for older clients, while "" here means "clear it".
+		if m.form != nil {
+			for _, f := range m.form.fields {
+				if f.Key == "description" || f.Key == "instructions" {
+					body[f.Key] = f.Value
+				}
+			}
 		}
 		return m.request("Save launch profile", method, path, body, false)
 	})

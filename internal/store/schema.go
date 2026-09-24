@@ -262,7 +262,9 @@ CREATE TABLE IF NOT EXISTS launch_profiles(
   agent TEXT NOT NULL,
   command TEXT NOT NULL DEFAULT '',
   model TEXT NOT NULL DEFAULT '',
-  env_json TEXT NOT NULL DEFAULT '{}'
+  env_json TEXT NOT NULL DEFAULT '{}',
+  description TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS memories(
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -465,4 +467,6 @@ var migrations = []string{
 	"ALTER TABLE attempts ADD COLUMN agent TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE attempts ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE tasks ADD COLUMN check_command TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE launch_profiles ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE launch_profiles ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
 }

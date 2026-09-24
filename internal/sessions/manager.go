@@ -404,6 +404,14 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	for _, arg := range o.ExtraArgs {
 		spec.Args = append(spec.Args, shellq.Quote(arg))
 	}
+	// The selected profile's launch briefing rides with whatever prime this
+	// launch already has — a project brief, a predecessor's handoff, or nothing.
+	// It is prepended once here, and only here, so a fresh launch and a captured
+	// continuation each deliver it exactly once. Old snapshots simply have no
+	// briefing to deliver.
+	if briefing := profileBriefing(config); briefing != "" {
+		o.Prime = briefing + "\n\n" + o.Prime
+	}
 	recalled := m.automaticContext(ctx, sess, "")
 	if recalled.Unavailable {
 		o.Prime = "Memory unavailable. Continue using the repository and saved handoffs.\n" + o.Prime

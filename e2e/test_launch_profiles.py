@@ -31,6 +31,9 @@ def test_web_profiles_keep_drafts_launch_and_preserve_continuation(page,real_ter
     page.locator('#sess-new').click();page.locator('#ns-name').fill('Profile web session')
     page.locator('#ns-manage-profiles').click();d=page.get_by_role('dialog',name='Launch profiles',exact=True)
     expect(d.locator('.lp-agent')).to_contain_text('codex')
+    briefing = 'PROFILE-BRIEFING proof: keep the user task; literal $(echo unsafe) and single quote \' stay text.'
+    d.get_by_label('Description',exact=True).fill('Focused profile proof')
+    d.get_by_label('Workflow instructions',exact=True).fill(briefing)
     d.get_by_label('Name',exact=True).fill('Work account');d.get_by_label('Agent',exact=True).select_option('codex')
     d.get_by_label('Command override').fill(str(agent));d.get_by_label('Default model').fill('profile-model');d.get_by_label('Environment (JSON)').fill(json.dumps(env))
     def reject(route):
@@ -53,13 +56,18 @@ def test_web_profiles_keep_drafts_launch_and_preserve_continuation(page,real_ter
     with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/sessions')) as response:page.locator('#ns-go').click()
     row=response.value.json();assert response.value.status==201,row
     observed=wait_record(t,1)[0];assert 'explicit-model' in observed['argv'] and observed['home']==env['CODEX_HOME'] and observed['cwd']==str(t['root'])
+    assert sum(arg.count(briefing) for arg in observed['argv']) == 1
     assert row['launch_profile']=='Work account' and 'profile-private-sentinel' not in json.dumps(row)
     search(page,'manage launch profiles').get_by_role('option').click();d=page.get_by_role('dialog',name='Launch profiles',exact=True)
     expect(d.locator('.lp-select')).to_contain_text('Work account');d.locator('.lp-select').select_option(str(profile['id']))
+    d.get_by_label('Workflow instructions',exact=True).fill('EDITED-BRIEFING must not reach a continuation')
     d.get_by_label('Command override').fill('false');d.get_by_role('button',name='Save profile',exact=True).click();expect(d.locator('.lp-status')).to_contain_text('Profile saved')
     page.once('dialog',lambda dialog:dialog.accept());d.get_by_role('button',name='Delete profile',exact=True).click();expect(d.locator('.lp-status')).to_contain_text('Profile deleted');d.get_by_role('button',name='Close',exact=True).click()
     child=t['api'](f"/sessions/{row['id']}/fork",{'conversation_id':cid,'name':'Profile continuation'})
     records=wait_record(t,2);assert any(cid in r['argv'] for r in records)
+    fork_record=next(r for r in records if cid in r['argv'])
+    assert sum(arg.count(briefing) for arg in fork_record['argv']) == 1
+    assert 'EDITED-BRIEFING' not in json.dumps(fork_record)
     assert child['launch_profile']=='Work account' and source.read_bytes()==original and not errors
 
 

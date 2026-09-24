@@ -23,6 +23,8 @@ type LaunchProfile = {
   name: string;
   agent: string;
   model?: string;
+  description?: string;
+  instructions?: string;
 };
 export function NewSession({
   api,
@@ -260,9 +262,16 @@ export function NewSession({
           Manage launch profiles
         </button>
         <div className="subhint" id="ns-profile-hint" role="status">
-          {profile
-            ? `${profile.name} · ${profile.agent}${profile.model ? " · default model: " + profile.model : ""}. Settings are captured when the session starts.`
-            : ""}
+          {profile && (
+            <>
+              {`${profile.name} · ${profile.agent}${profile.model ? " · default model: " + profile.model : ""}. Settings are captured when the session starts.`}
+              {profile.description && (
+                <span className="ns-profile-description">
+                  {profile.description}
+                </span>
+              )}
+            </>
+          )}
         </div>
         <div className="session-field">
           <label htmlFor="ns-agent">Agent</label>

@@ -257,7 +257,10 @@ temporary databases, a separate vault, and a private tmux socket.
   finishes its turn before writing the handoff; this is a fresh conversation with
   a summary, not a transfer of the provider's private conversation state. Saved
   launch profiles expose other configured providers, such as a DeepSeek setup,
-  in the same picker.
+  in the same picker. [Workflow profiles](docs/launch-profiles.md) add editable
+  instructions with four starters: Lean Builder, Reviewed Delivery, Debugging
+  Team, and Research & Plan. Sessions keep their captured briefing when resumed
+  or forked.
 - **Blank rooms** — start any agent CLI in a throwaway git repository with no
   project attached, for work that does not have a name yet. When it turns into
   something, promote it: the directory it has been working in becomes the
