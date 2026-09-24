@@ -24,7 +24,13 @@ def _touch_path(page, points):
 
 def _session_frame(page, session_id):
     suffix = f"/terminal/session/{session_id}"
-    return next(f for f in page.frames if f.url.split("?", 1)[0].endswith(suffix))
+    selector = f'iframe[src="{suffix}"], iframe[src^="{suffix}?"]'
+    # Selecting a tab precedes navigation of its new iframe. Wait for the
+    # terminal's connection rather than snapshotting page.frames too early.
+    expect(page.frame_locator(selector).locator("#connection")).to_have_text(
+        "Connected", timeout=15000
+    )
+    return page.locator(selector).element_handle().content_frame()
 
 
 @pytest.mark.parametrize("width", [320, 390])
@@ -59,6 +65,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
         "aria-selected", "true", timeout=15000
     )
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    _session_frame(page, second["id"])
     panel = page.locator(".terminal-tabpanel:not([hidden]) iframe")
     box = panel.bounding_box()
     assert box and box["width"] > 250 and box["height"] > 300
