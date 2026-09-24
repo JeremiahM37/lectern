@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Approval, SessionView, TaskView } from "../types";
+import type { Approval, DuplicatePromptPair, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { approvalSummary } from "./approval-summary";
@@ -38,7 +38,8 @@ interface Props {
 type Item =
   | { key: string; reason: "approval"; approval: Approval }
   | { key: string; reason: "waiting" | "failed-session" | "stopped-session"; session: SessionView }
-  | { key: string; reason: "failed-task" | "review-task"; task: TaskView };
+  | { key: string; reason: "failed-task" | "review-task"; task: TaskView }
+  | { key: string; reason: "duplicate-work"; pair: DuplicatePromptPair };
 
 const REASON: Record<Item["reason"], string> = {
   approval: "Approval needed",
@@ -47,6 +48,7 @@ const REASON: Record<Item["reason"], string> = {
   "stopped-session": "Session ended",
   "failed-task": "Task failed",
   "review-task": "Ready to review",
+  "duplicate-work": "Possible duplicate work",
 };
 const RANK: Record<Item["reason"], number> = {
   approval: 0,
@@ -55,6 +57,7 @@ const RANK: Record<Item["reason"], number> = {
   "stopped-session": 3,
   "failed-task": 4,
   "review-task": 5,
+  "duplicate-work": 6,
 };
 const CAP = 8;
 
@@ -73,6 +76,7 @@ export function NeedsYou({
 }: Props) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [tasks, setTasks] = useState<TaskView[]>([]);
+  const [duplicates, setDuplicates] = useState<DuplicatePromptPair[]>([]);
   const [busy, setBusy] = useState("");
   const [stale, setStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -87,7 +91,7 @@ export function NeedsYou({
     // rows are kept and marked stale.
     const load = async () => {
       if (document.hidden) return;
-      const [pending, failing, reviewing] = await Promise.allSettled([
+      const [pending, failing, reviewing, dupes] = await Promise.allSettled([
         api.request<Approval[]>("/approvals?status=pending", {
           signal: abort.signal,
         }),
@@ -95,6 +99,13 @@ export function NeedsYou({
           signal: abort.signal,
         }),
         api.request<TaskView[]>("/tasks?status=review", {
+          signal: abort.signal,
+        }),
+        // Cross-agent awareness (docs/agent-events.md point 6): a lighter,
+        // best-effort signal, so its failure does NOT mark the whole section
+        // stale — a homelab running an older lectern build without this
+        // endpoint should not show "couldn't refresh" forever.
+        api.request<DuplicatePromptPair[]>("/awareness/duplicate-prompts", {
           signal: abort.signal,
         }),
       ]);
@@ -109,6 +120,7 @@ export function NeedsYou({
         Array.isArray(reviewing.value)
       )
         setTasks([...failing.value, ...reviewing.value]);
+      if (dupes.status === "fulfilled" && Array.isArray(dupes.value)) setDuplicates(dupes.value);
     };
     void load();
     const timer = window.setInterval(() => void load(), 15000);
@@ -155,8 +167,14 @@ export function NeedsYou({
       out.push({ key: `task-${task.id}`, reason: "failed-task", task });
     for (const task of reviewTasks)
       out.push({ key: `task-${task.id}`, reason: "review-task", task });
+    for (const pair of duplicates)
+      out.push({
+        key: `dup-${pair.session_a_id}-${pair.session_b_id}`,
+        reason: "duplicate-work",
+        pair,
+      });
     return out.sort((a, b) => RANK[a.reason] - RANK[b.reason]);
-  }, [approvals, tasks, rows]);
+  }, [approvals, tasks, duplicates, rows]);
 
   async function decide(approval: Approval, decision: "approved" | "denied", note?: string) {
     setBusy(`approval-${approval.id}`);
@@ -238,7 +256,9 @@ export function NeedsYou({
                         `Attempt ${item.approval.attempt_id}`
                       : "session" in item
                         ? item.session.name
-                        : item.task.title}
+                        : "pair" in item
+                          ? `${item.pair.session_a} & ${item.pair.session_b}`
+                          : item.task.title}
                   </span>
                   <span className="ny-where">{describe(item)}</span>
                   {"session" in item && (
@@ -283,6 +303,8 @@ export function NeedsYou({
         .filter(Boolean)
         .join(" · ");
     }
+    if ("pair" in item)
+      return `Their last prompts overlap ${Math.round(item.pair.score * 100)}% — check they aren't building the same thing`;
     return [item.task.project_name, item.task.agent].filter(Boolean).join(" · ");
   }
 
@@ -291,17 +313,17 @@ export function NeedsYou({
   // already handed, so this needs no extra fetch. A row not present here
   // (rare — the session list and the approval poll are on separate ticks)
   // degrades to a plain hash link rather than disappearing.
-  function sessionAction(sessionID: number) {
+  function sessionAction(sessionID: number, label = "Open session") {
     const session = rows.find((row) => row.id === sessionID);
     if (session)
       return (
         <button className="b" onClick={() => onShowSession(session)}>
-          Open session
+          {label}
         </button>
       );
     return (
       <a className="b link-button" href={`#session/${sessionID}`}>
-        Open session
+        {label}
       </a>
     );
   }
@@ -410,6 +432,14 @@ export function NeedsYou({
           <button className="b" onClick={() => onReview(item.session)}>
             Review
           </button>
+        </>
+      );
+    }
+    if ("pair" in item) {
+      return (
+        <>
+          {sessionAction(item.pair.session_a_id, `Open ${item.pair.session_a}`)}
+          {sessionAction(item.pair.session_b_id, `Open ${item.pair.session_b}`)}
         </>
       );
     }

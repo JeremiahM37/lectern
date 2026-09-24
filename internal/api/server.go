@@ -19,6 +19,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
+	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
@@ -36,15 +37,22 @@ import (
 
 // Server wires every dependency the handlers need.
 type Server struct {
-	DB        *store.DB
-	Bus       *bus.Bus
-	Broker    *broker.Broker
-	Notifier  *sinks.Notifier
-	Reg       *executor.Registry
-	Sched     *scheduler.Scheduler
-	Sessions  *sessions.Manager
-	Events    *agentevents.Ingester
-	Checks    *checks.Runner
+	DB       *store.DB
+	Bus      *bus.Bus
+	Broker   *broker.Broker
+	Notifier *sinks.Notifier
+	Reg      *executor.Registry
+	Sched    *scheduler.Scheduler
+	Sessions *sessions.Manager
+	Events   *agentevents.Ingester
+	Checks   *checks.Runner
+	// Awareness is cross-agent awareness's tracker (internal/awareness,
+	// docs/agent-events.md "Cross-agent awareness"): peer lookups, briefing
+	// text, edit warnings. Nil is safe everywhere it is read (every awareness
+	// call site checks it first) so a build that predates this field, or a
+	// test harness that never sets it, degrades to "no awareness" rather
+	// than a panic.
+	Awareness *awareness.Tracker
 	Memory    memory.Provider
 	Terminals *terminal.Manager
 	Push      *push.Sender
@@ -181,6 +189,12 @@ func (s *Server) Handler() http.Handler {
 	// token, not the per-attempt token the approval hooks above use ----
 	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
+
+	// ---- cross-agent awareness (docs/agent-events.md "Cross-agent
+	// awareness"): normal API auth, unlike the hook group above ----
+	mux.HandleFunc("GET /api/sessions/{id}/peers", s.sessionPeers)
+	mux.HandleFunc("GET /api/awareness/duplicate-prompts", s.awarenessDuplicatePrompts)
+	mux.HandleFunc("GET /api/peers", s.peersByRepoPath)
 
 	mux.HandleFunc("POST /api/conversation-search", s.startConversationSearch)
 	mux.HandleFunc("GET /api/conversation-search/{search}", s.getConversationSearch)

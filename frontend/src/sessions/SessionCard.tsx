@@ -12,6 +12,7 @@ import {
   scratchTitle,
 } from "./scratch";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
+import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -329,6 +330,7 @@ export function SessionCard({
         <CostBadge session={s} />
         <LinesBadge session={s} />
         <CompactionWarning session={s} />
+        <AwarenessOverlapChip session={s} />
         {s.group_path && <span className="chip">{s.group_path}</span>}
         {live && s.agent !== "shell" && (
           <CheckBadge session={s} api={api} onNotice={onNotice} />

@@ -79,7 +79,7 @@ const projectCols = `p.id, p.name, p.target_id, p.repo_path, p.default_base_bran
 	p.workroot_override, p.policy_json, p.verify_cmd, p.keep_worktrees, p.review_gate,
 	p.env_json, p.context_json, p.mcp_json, p.strict_mcp, p.permissions_json,
 	p.setup_cmd, p.gate_matcher, p.default_agent, p.capability_profile, p.default_permission_mode,
-	p.skill_sources_json, p.memory_topic, p.memory_status,
+	p.skill_sources_json, p.memory_topic, p.memory_status, p.repo_key, p.repo_toplevel,
 	p.created_at`
 
 func scanProject(s interface{ Scan(...any) error }, withTarget bool) (*Project, error) {
@@ -88,7 +88,8 @@ func scanProject(s interface{ Scan(...any) error }, withTarget bool) (*Project, 
 		&p.WorkrootOverride, &p.PolicyJSON, &p.VerifyCmd, &p.KeepWorktrees,
 		&p.ReviewGate, &p.EnvJSON, &p.ContextJSON, &p.MCPJSON, &p.StrictMCP,
 		&p.PermissionsJSON, &p.SetupCmd, &p.GateMatcher, &p.DefaultAgent, &p.CapabilityProfile,
-		&p.DefaultPermissionMode, &p.SkillSourcesJSON, &p.MemoryTopic, &p.MemoryStatus, &p.CreatedAt}
+		&p.DefaultPermissionMode, &p.SkillSourcesJSON, &p.MemoryTopic, &p.MemoryStatus,
+		&p.RepoKey, &p.RepoToplevel, &p.CreatedAt}
 	if withTarget {
 		dest = append(dest, &p.TargetName, &p.TargetKind)
 	}

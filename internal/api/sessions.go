@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
@@ -46,6 +47,21 @@ type sessionView struct {
 	// LastCheck summarises the most recent session_checks row (internal/checks)
 	// for the card badge — nil until the session's first check runs.
 	LastCheck *lastCheckView `json:"last_check,omitempty"`
+	// AwarenessOverlap is the "⚠ overlaps #N" card chip's data
+	// (docs/agent-events.md "Cross-agent awareness" point 6): another LIVE
+	// session that touched at least one of the SAME files as this one within
+	// the last 30 minutes. nil for no overlap (the common case) so the field
+	// is absent from most rows rather than cluttering every response.
+	AwarenessOverlap *awarenessOverlapView `json:"awareness_overlap,omitempty"`
+}
+
+// awarenessOverlapView is deliberately tiny: just enough for the chip's
+// label and its tap-to-expand file list. The full peer detail (branch,
+// state, last prompt) is GET /api/sessions/{id}/peers.
+type awarenessOverlapView struct {
+	SessionID int64    `json:"session_id"`
+	Name      string   `json:"name"`
+	Files     []string `json:"files"`
 }
 
 // lastCheckView is the badge-sized summary of a session's most recent check;
@@ -108,7 +124,49 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 	if last, err := s.DB.LatestSessionCheck(row.ID); err == nil && last != nil {
 		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
 	}
+	v.AwarenessOverlap = s.computeAwarenessOverlap(row)
 	return v
+}
+
+// computeAwarenessOverlap finds the first other LIVE session that edited any
+// file THIS session also edited, both within the last 30 minutes
+// (awareness.EditWarnWindow) — the same window PreToolUse's edit warning
+// uses, so the chip and the warning always agree on what counts as "recent".
+// nil (no DB call beyond the cheap self-files lookup) for a session with no
+// resolved repo or no recent edits of its own.
+func (s *Server) computeAwarenessOverlap(row *store.Session) *awarenessOverlapView {
+	if s.Awareness == nil || row.RepoKey == "" || row.RepoKey == awareness.RepoKeyNone {
+		return nil
+	}
+	now := store.Now()
+	since := now - awareness.EditWarnWindow.Seconds()
+	self, err := s.Awareness.RecentFiles(row.ID, since, now)
+	if err != nil || len(self) == 0 {
+		return nil
+	}
+	selfPaths := make(map[string]bool, len(self))
+	for _, f := range self {
+		selfPaths[f.RelPath] = true
+	}
+	peers, err := s.Awareness.Peers(row)
+	if err != nil {
+		return nil
+	}
+	for _, p := range peers {
+		if p.Kind != "session" {
+			continue
+		}
+		var shared []string
+		for _, f := range p.Files {
+			if f.AgeSeconds <= awareness.EditWarnWindow.Seconds() && selfPaths[f.RelPath] {
+				shared = append(shared, f.RelPath)
+			}
+		}
+		if len(shared) > 0 {
+			return &awarenessOverlapView{SessionID: p.SessionID, Name: p.Name, Files: shared}
+		}
+	}
+	return nil
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {

@@ -459,3 +459,153 @@ Claude falls back to its own terminal dialog. Response on decision:
     is no driver for a configured custom CLI (`task-generic` stays on the
     scheduler's existing generic-task tmux path); no auto-close/idle-timeout
     policy for a steerable run left unattended.
+
+## 5. Cross-agent awareness
+
+The owner routinely runs several agents (Claude Code, Codex) against the
+SAME repository at once, in separate worktrees or the same one, and they
+duplicate or collide with each other's work — two agents independently
+building the same feature is the motivating case. This section makes each
+agent aware of what the others are doing, entirely through the SessionStart/
+UserPromptSubmit/PreToolUse hook responses section 2 already wires up, plus
+a read API and an MCP tool for agents that get no context injection.
+
+**repo identity** (`internal/awareness`): a session's `repo_key` is
+`"<target id>:<git common dir>"`, resolved by running `git -C workdir
+rev-parse --path-format=absolute --git-common-dir --show-toplevel` — the
+common dir is identical for every worktree of one repository, so two
+sessions in two different worktrees of the same checkout compare equal, and
+the target id keeps two different hosts with an identical absolute path from
+colliding. `rel_path` (what is actually stored per edit) is the edited
+file's absolute path made relative to THAT session's own `--show-toplevel`
+line, so it also compares equal across worktrees for the same logical file.
+
+This resolution is the only thing in the whole feature allowed to shell out,
+and it NEVER runs on a hook's response path: `Tracker.EnsureRepoKeyAsync`
+kicks off a background goroutine (deduped per session id) the first time an
+awareness-relevant hook fires for a session whose `sessions.repo_key` column
+is still `''`, and the hook responds immediately with whatever is already
+cached — `''` (not resolved yet), the row's real key, or the sentinel
+`"none"` (resolved once, confirmed not a git checkout, never retried). A
+session belonging to a project backfills that project's `projects.repo_key`/
+`repo_toplevel` at no extra git cost, since an attempt's worktree is always
+cut from its project's repository — this is how a RUNNING TASK ATTEMPT
+becomes visible as a peer with zero git calls of its own (matched via
+`ProjectForAttempt(attempt).RepoKey`).
+
+**activity tracking**: `session_file_edits(session_id, repo_key, rel_path,
+at)` keeps exactly one row per `(session_id, rel_path)` (`INSERT ... ON
+CONFLICT DO UPDATE`) from PostToolUse — and, as a lighter "intent" signal,
+from PreToolUse too, for `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
+(`tool_input.file_path`, or `notebook_path` for `NotebookEdit`). Rows older
+than 24h are pruned opportunistically on every write. `sessions.
+last_prompt_excerpt`/`last_prompt_at` hold the latest `UserPromptSubmit`
+`prompt`, clipped to ~200 chars — the "what is this session working on"
+signal a peer summary shows (latest value only, like `pane_tail`; no history
+table, since only "right now" is needed).
+
+**peers** (`Tracker.Peers`): every other LIVE session sharing the calling
+session's `repo_key`, plus every running task attempt whose project shares
+it, each with id/name/agent/branch/agent_state/last prompt excerpt and its
+files edited in the last 60 minutes with ages. Never shells out — every
+`repo_key` it compares is whatever is already cached, which is what keeps it
+safe to call from inside a hook response.
+
+**briefing** (SessionStart/UserPromptSubmit): when there are peers, the hook
+response's body is
+`{"hookSpecificOutput":{"hookEventName":"<event>","additionalContext":"<text>"}}`
+— verified on real Claude Code 2.1.281 to land in the agent's context
+verbatim for both these event names (and for PreToolUse, used below), since
+these hooks are `type:"http"` and the HTTP response body IS the hook
+response. The text lists each peer ("Session #143 'scratch terminals'
+(branch feat/x, working): last asked '…'; edited
+`frontend/src/sessions/SessionCard.tsx` 4m ago, …") and ends with "Coordinate
+before duplicating their work: check their branch or ask the operator.",
+clipped to ~1200 chars. No peers → `{}`, exactly as before this feature.
+UserPromptSubmit re-sends the SAME unchanged text only after
+`sessions.awareness_briefing_at` is ≥30 minutes old — otherwise it hashes the
+rendered text against `sessions.awareness_briefing_hash` and answers `{}`
+when nothing has changed, so a chatty session is not re-briefed every turn.
+
+**edit warning** (PreToolUse, `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
+only): if any OTHER session touched the exact same `rel_path` within the
+last 30 minutes, the response carries advisory `additionalContext` — never a
+denial, never a question, purely informational. The wording depends on
+whether the two sessions share the same `workdir` ("edited X Ns ago in this
+SAME working directory — your changes may collide or be overwritten") or are
+in separate worktrees of the same repository ("edited X Ns ago in a separate
+worktree of this repository — a merge conflict is likely later, not an
+immediate collision"). PreToolUse's existing behaviour (state → `working`,
+approval-hold in `ask` mode, etc.) is unchanged; awareness only adds to the
+response when nothing else already claimed it.
+
+The per-session Claude settings file's `PreToolUse`/`PostToolUse` hooks
+already use `matcher: "*"` (section 2) — a superset of
+`Edit|Write|MultiEdit|NotebookEdit`, so no settings-file change was needed;
+`internal/awareness.FilePathFromToolInput` is what filters to the tracked
+tools before recording or warning.
+
+**for agents with no context injection** (Codex today — section 2's probing
+found no confirmed hooks.json wiring, only the `notify`-driven
+`AgentTurnComplete`, so a codex session never sees PreToolUse/PostToolUse):
+- `GET /api/sessions/{id}/peers` → `{"peers":[...], "self_files":[...]}`,
+  normal API auth. `self_files` is the calling session's own recent edits,
+  included so a caller (or the frontend) can compute "which of MY files did
+  a peer also touch" without a second round trip.
+- `GET /api/peers?common_dir=<path>` matches by the git-common-dir component
+  of `repo_key` alone (any target) — the fallback for a caller with no
+  Lectern session context at all.
+- MCP tool `active_work` (`internal/mcp/tools.go`): with no arguments it
+  resolves the calling session via `LECTERN_SESSION_ID` (the same env every
+  builtin session already carries) and calls the peers endpoint above; with
+  `repo_path`, it instead runs `git -C repo_path rev-parse
+  --path-format=absolute --git-common-dir` LOCALLY (this MCP process's own
+  machine — the one place in `internal/mcp` that shells out at all, since
+  everywhere else it is purely an HTTP client of lectern's own API) and
+  calls `GET /api/peers?common_dir=...`.
+- Not done: no launch-time prime/prompt hint was added for codex sessions.
+  Section 2 found no confirmed project-level hooks.json discovery path to
+  hang a one-line hint off, and codex's only other launch-time text
+  (`-c notify=[...]`) is a shell command, not agent-visible prompt text —
+  there is no existing "launch-time prompt mechanism" for codex this could
+  append to without inventing one, which is out of scope here. A codex
+  session gets awareness exclusively through `active_work` today.
+
+**operator visibility**:
+- Session cards and the Conversation header show a small `⚠ overlaps #N`
+  chip (`AwarenessOverlapChip.tsx`) when another LIVE session touched at
+  least one of THIS session's own recently-edited files (same 30-minute
+  window as the edit warning above) — computed server-side, for free, as
+  part of the ordinary session row (`sessionView.AwarenessOverlap` in
+  `internal/api/sessions.go`), so the chip needs no extra fetch and updates
+  live over the existing session SSE/refresh path. Tapping it expands the
+  shared file list and the peer's name from data already in hand.
+- The Needs-you list gets a "Possible duplicate work" row
+  (`GET /api/awareness/duplicate-prompts`) for any two live sessions in one
+  repo whose last prompts (within the last hour) have Jaccard word-overlap
+  ≥0.5 (`Tracker.DuplicatePrompts`) — a best-effort signal that does not mark
+  the whole Needs-you section stale if it fails, unlike approvals/tasks.
+
+**settings**: `awareness_briefing`, `awareness_edit_warning` (`internal/
+sinks.Keys`), default ON, off only when explicitly set to `"0"` — the same
+convention `alert_*`/`session_permission_mode` already use.
+
+**tests**: `internal/awareness/real_test.go` (real git, two worktrees:
+`repo_key` matches across them and differs across target ids; `rel_path`
+matches across them too; full record→peer→warning path, including the
+same-workdir vs separate-worktree wording); `internal/awareness/
+awareness_test.go` (briefing dedup/TTL, edit-warning window, pruning, MCP
+fallback matching, Jaccard duplicate-prompt detection — all DB-only, no
+git); `internal/api/awareness_test.go` (the hook wire contract: briefing
+appears only with peers and is deduplicated, edit warning same-dir vs
+worktree wording, settings toggle, the peers endpoint's JSON shape);
+`e2e/test_awareness.py` (two real sessions, real hook tokens, a real
+PostToolUse→PreToolUse round trip asserting the actual injected warning
+text, and the overlap chip rendering live with no reload).
+
+**not done**: no MCP tool test (covered indirectly through the HTTP
+endpoints it calls); no frontend unit test for `AwarenessOverlapChip`
+(covered by the e2e test, which exercises it against a real server); no
+`GET /api/awareness/overlaps` board-wide endpoint — the chip's data rides
+free on the existing session list instead, which turned out to need no
+separate endpoint.

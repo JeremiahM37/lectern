@@ -47,17 +47,25 @@ type Project struct {
 	ContextJSON       string `json:"context_json"`
 	// MCPJSON is credential-bearing storage and is exposed only through the
 	// redacted /projects/{id}/mcp endpoint. Never serialize it in a project row.
-	MCPJSON               string  `json:"-"`
-	StrictMCP             int     `json:"strict_mcp"`
-	PermissionsJSON       string  `json:"permissions_json"`
-	GateMatcher           string  `json:"gate_matcher"`
-	DefaultAgent          string  `json:"default_agent"`
-	CapabilityProfile     string  `json:"capability_profile"`
-	DefaultPermissionMode string  `json:"default_permission_mode"`
-	SkillSourcesJSON      string  `json:"skill_sources_json"`
-	MemoryTopic           string  `json:"memory_topic"`
-	MemoryStatus          string  `json:"memory_status"`
-	CreatedAt             float64 `json:"created_at"`
+	MCPJSON               string `json:"-"`
+	StrictMCP             int    `json:"strict_mcp"`
+	PermissionsJSON       string `json:"permissions_json"`
+	GateMatcher           string `json:"gate_matcher"`
+	DefaultAgent          string `json:"default_agent"`
+	CapabilityProfile     string `json:"capability_profile"`
+	DefaultPermissionMode string `json:"default_permission_mode"`
+	SkillSourcesJSON      string `json:"skill_sources_json"`
+	MemoryTopic           string `json:"memory_topic"`
+	MemoryStatus          string `json:"memory_status"`
+	// RepoKey/RepoToplevel are cross-agent awareness's cache (see
+	// internal/awareness and schema.go's session_file_edits comment):
+	// backfilled from the first session in this project to resolve its own
+	// git common dir, so every task attempt of this project can be matched
+	// to a peer session without an extra git call. Never serialized: it is
+	// an internal join key, not something a settings form edits.
+	RepoKey      string  `json:"-"`
+	RepoToplevel string  `json:"-"`
+	CreatedAt    float64 `json:"created_at"`
 
 	// joined for the projects list — the UI names a project's target inline
 	TargetName string `json:"target_name,omitempty"`
@@ -271,10 +279,37 @@ type Session struct {
 	// "compacting" card warning (see schema.go comment).
 	PrecompactAt *float64 `json:"precompact_at,omitempty"`
 
+	// RepoKey/RepoToplevel/AwarenessBriefingHash/AwarenessBriefingAt are
+	// cross-agent awareness's state (internal/awareness, docs/agent-events.md
+	// "Cross-agent awareness"). RepoKey IS serialized (unlike the others,
+	// which are dedup bookkeeping/paths nobody needs) because the frontend
+	// groups live sessions by it client-side to render the "possible
+	// duplicate work" notice without a second board-wide endpoint; it is an
+	// opaque "<target id>:<git common dir>" string, not a credential.
+	RepoKey               string   `json:"repo_key,omitempty"`
+	RepoToplevel          string   `json:"-"`
+	AwarenessBriefingHash string   `json:"-"`
+	AwarenessBriefingAt   *float64 `json:"-"`
+	// LastPromptExcerpt/LastPromptAt are the latest UserPromptSubmit prompt,
+	// clipped to ~200 chars — "what is this session working on" for a peer
+	// summary (internal/awareness).
+	LastPromptExcerpt string   `json:"last_prompt_excerpt,omitempty"`
+	LastPromptAt      *float64 `json:"last_prompt_at,omitempty"`
+
 	// joined for the UI, which groups sessions by project and names their host
 	ProjectName string `json:"project_name,omitempty"`
 	TargetName  string `json:"target_name,omitempty"`
 	TargetKind  string `json:"target_kind,omitempty"`
+}
+
+// SessionFileEdit is the latest edit of one file by one session — see
+// internal/awareness and schema.go's session_file_edits comment.
+type SessionFileEdit struct {
+	ID        int64   `json:"id"`
+	SessionID int64   `json:"session_id"`
+	RepoKey   string  `json:"-"`
+	RelPath   string  `json:"rel_path"`
+	At        float64 `json:"at"`
 }
 
 // SessionCheck is one run of a session's check command — see internal/checks

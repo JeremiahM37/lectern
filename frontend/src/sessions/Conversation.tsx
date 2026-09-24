@@ -19,6 +19,7 @@ import type {
 import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
+import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 interface Attachment {
   name: string;
   path: string;
@@ -723,6 +724,7 @@ export function Conversation({
               <CostBadge session={session} />
               <LinesBadge session={session} />
               <CompactionWarning session={session} />
+              <AwarenessOverlapChip session={session} />
             </div>
           )}
           {kind === "session" && session && (
