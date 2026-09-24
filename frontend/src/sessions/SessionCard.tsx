@@ -492,11 +492,6 @@ export function SessionCard({
               Saved conversations
             </button>
           )}
-          {!scratch && (
-            <button className="b" onClick={rename}>
-              ✎ Rename
-            </button>
-          )}
           {workspace && (
             <>
               {!!workspace.repositories?.length &&
