@@ -54,6 +54,8 @@ def test_new_terminal_picker_opens_a_tracked_shell_in_the_project_folder(page,re
     assert box and box['x']>=-1 and box['x']+box['width']<=viewport['width']+1,box
     row=panel.get_by_role('menuitem').filter(has_text='Picker project')
     expect(row).to_contain_text(str(t['root']))
+    expect(row).to_have_css('display', 'flex')
+    expect(row).to_have_css('flex-direction', 'column')
     # It is searchable, so a long project list is easy to narrow.
     panel.get_by_label('Search projects and machines').fill('Picker project')
     expect(panel.get_by_role('menuitem')).to_have_count(1)
