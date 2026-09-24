@@ -17,7 +17,11 @@ import (
 )
 
 var (
-	permissionModes = []string{"default", "acceptEdits", "plan", "bypassPermissions"}
+	// "steerable" is claude-only: acceptEdits-equivalent permissions (no
+	// PreToolUse gate), launched through the streaming-input driver so a
+	// running task can receive a mid-run message instead of only a
+	// cancel-and-redispatch follow-up. See internal/drivers.Select.
+	permissionModes = []string{"default", "acceptEdits", "plan", "bypassPermissions", "steerable"}
 	capProfiles     = []string{"restricted", "parity"}
 )
 

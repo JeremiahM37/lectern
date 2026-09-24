@@ -162,8 +162,16 @@ func (s *Server) taskAgent(name string) (sessions.Spec, bool) {
 func taskPermissionError(spec sessions.Spec, mode string) error {
 	switch mode {
 	case "default":
-		if !spec.Builtin || spec.Name != "claude" {
+		// claude: hook.py's PreToolUse gate (unchanged). codex: the
+		// codex-appserver driver's approval routing — codex has no
+		// PreToolUse-equivalent hook, so this was rejected outright before
+		// that driver existed; see internal/drivers.Select.
+		if !spec.Builtin || (spec.Name != "claude" && spec.Name != "codex") {
 			return fmt.Errorf("agent %q does not support gated approvals; use acceptEdits/plan", spec.Name)
+		}
+	case "steerable":
+		if !spec.Builtin || spec.Name != "claude" {
+			return fmt.Errorf("agent %q does not support the steerable driver; use claude", spec.Name)
 		}
 	case "plan", "bypassPermissions":
 		if !spec.Builtin {

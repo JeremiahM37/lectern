@@ -66,6 +66,7 @@ function task(id: number, status: string, title: string): TaskView {
             result: {},
             diff_stat: [],
             verify: {},
+            driver: "claude-exec",
           }
         : undefined,
     attempts:

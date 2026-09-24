@@ -47,6 +47,7 @@ export function TaskDetail({
     localStorage.getItem("lec-diffwrap") === "1",
   );
   const [busy, setBusy] = useState(false);
+  const [steerText, setSteerText] = useState("");
   async function load(signal?: AbortSignal, n = attempt) {
     const q = n ? `?attempt_n=${n}` : "";
     const [t, e] = await Promise.all([
@@ -97,6 +98,12 @@ export function TaskDetail({
     } finally {
       setBusy(false);
     }
+  }
+  async function steer() {
+    const text = steerText.trim();
+    if (!text) return;
+    setSteerText("");
+    await act("steer", { text });
   }
   async function pick(n: number) {
     setAttempt(n);
@@ -290,6 +297,26 @@ export function TaskDetail({
           Delete
         </button>
       </div>
+      {task.status === "running" && task.attempt?.driver === "claude-steer" && (
+        <form
+          className="steer-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void steer();
+          }}
+        >
+          <input
+            type="text"
+            className="steer-input"
+            placeholder="Send a message to the running agent…"
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+          />
+          <button className="b ok" type="submit" disabled={busy || !steerText.trim()}>
+            Send
+          </button>
+        </form>
+      )}
       {takeover && (
         <p className="subhint">
           {takeover.status === "ready"

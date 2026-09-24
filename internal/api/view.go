@@ -16,6 +16,10 @@ type attemptView struct {
 	Result       map[string]any `json:"result"`
 	DiffStat     []any          `json:"diff_stat"`
 	Verify       map[string]any `json:"verify"`
+	// Driver names the internal/drivers.Kind running this attempt (e.g.
+	// "claude-steer"), so the UI can show the steer input only where it will
+	// actually work instead of guessing from agent + permission_mode.
+	Driver string `json:"driver"`
 }
 
 // attemptSummary is one chip in the task sheet's attempt row.
@@ -69,6 +73,7 @@ func (s *Server) view(task *store.Task) *taskView {
 			// card renderable instead of blanking the whole column
 			DiffStat: store.UnjList(att.DiffStatJSON),
 			Verify:   store.UnjObj(att.VerifyJSON),
+			Driver:   att.Driver,
 		}
 	}
 	out.Attempts = []attemptSummary{}

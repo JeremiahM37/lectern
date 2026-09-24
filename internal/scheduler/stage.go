@@ -71,6 +71,11 @@ type launchKW struct {
 	Agent        string
 	Env          map[string]string
 	Definition   *agents.TaskDefinition
+	// Prompt is the fully composed prompt this call staged to prompt.md
+	// (memory recall, project notes, context bundle, task footer). A
+	// structured-driver launch needs it verbatim rather than re-reading the
+	// file back, since a standalone drivers.Run caller has no stageRuntime.
+	Prompt string
 }
 
 // EffectiveMCPServers lists the server names this attempt can actually reach, so
@@ -163,6 +168,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	if err := ex.WriteFile(ctx, rt+"/prompt.md", []byte(prompt)); err != nil {
 		return kw, err
 	}
+	kw.Prompt = prompt
 	// task-filing kit: lets the agent put follow-up cards on the board
 	if err := ex.WriteFile(ctx, rt+"/lec.py", hooks.ADK); err != nil {
 		return kw, err
