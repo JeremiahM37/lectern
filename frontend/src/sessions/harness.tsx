@@ -80,6 +80,7 @@ const api: SessionsApi = {
     calls.push([p, o]);
     if (p === "/agents") return [{ name: "claude", builtin: true }];
     if (p === "/launch-profiles") return [];
+    if (p === "/approvals?status=pending") return [];
     if (p === "/models") return { claude: ["sonnet"] };
     if (p === "/sessions/discover")
       return [

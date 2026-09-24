@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Approval, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
+import { approvalSummary } from "./approval-summary";
 import "./session-home.css";
 
 // What actually wants a person, drawn only from state the server already
@@ -61,6 +62,9 @@ export function NeedsYou({
   const [busy, setBusy] = useState("");
   const [stale, setStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // Which approval's "deny with reason" field is open, keyed by approval id.
+  const [denying, setDenying] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
   useEffect(() => {
     const abort = new AbortController();
     // Attention is derived, never invented: a failed poll hides the row rather
@@ -140,14 +144,16 @@ export function NeedsYou({
     return out.sort((a, b) => RANK[a.reason] - RANK[b.reason]);
   }, [approvals, tasks, rows]);
 
-  async function decide(approval: Approval, decision: "approved" | "denied") {
+  async function decide(approval: Approval, decision: "approved" | "denied", note?: string) {
     setBusy(`approval-${approval.id}`);
     try {
       await api.request(`/approvals/${approval.id}/decision`, {
         method: "POST",
-        body: { decision },
+        body: note ? { decision, note } : { decision },
       });
       setApprovals((old) => old.filter((row) => row.id !== approval.id));
+      setDenying(null);
+      setReason("");
       onChanged?.();
     } catch (error) {
       onNotice(String(error), true);
@@ -189,7 +195,9 @@ export function NeedsYou({
               <span className="ny-reason">{REASON[item.reason]}</span>
               <span className="ny-what">
                 {"approval" in item
-                  ? item.approval.task_title || `Attempt ${item.approval.attempt_id}`
+                  ? item.approval.session_name ||
+                    item.approval.task_title ||
+                    `Attempt ${item.approval.attempt_id}`
                   : "session" in item
                     ? item.session.name
                     : item.task.title}
@@ -216,7 +224,7 @@ export function NeedsYou({
 
   function describe(item: Item) {
     if ("approval" in item)
-      return [item.approval.tool_name, approvalDetail(item.approval)]
+      return [item.approval.tool_name, approvalSummary(item.approval)]
         .filter(Boolean)
         .join(" · ");
     if ("session" in item) {
@@ -228,6 +236,26 @@ export function NeedsYou({
         .join(" · ");
     }
     return [item.task.project_name, item.task.agent].filter(Boolean).join(" · ");
+  }
+
+  // A session approval's deep link opens the session itself, the same way a
+  // "waiting" row's actions do — found from the rows this component was
+  // already handed, so this needs no extra fetch. A row not present here
+  // (rare — the session list and the approval poll are on separate ticks)
+  // degrades to a plain hash link rather than disappearing.
+  function sessionAction(sessionID: number) {
+    const session = rows.find((row) => row.id === sessionID);
+    if (session)
+      return (
+        <button className="b" onClick={() => onShowSession(session)}>
+          Open session
+        </button>
+      );
+    return (
+      <a className="b link-button" href={`#session/${sessionID}`}>
+        Open session
+      </a>
+    );
   }
 
   function taskAction(id: number, label: string) {
@@ -245,23 +273,59 @@ export function NeedsYou({
   function actions(item: Item) {
     if ("approval" in item) {
       const { approval } = item;
+      const isBusy = busy === `approval-${approval.id}`;
+      if (denying === approval.id) {
+        return (
+          <form
+            className="ny-deny-reason"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void decide(approval, "denied", reason.trim() || undefined);
+            }}
+          >
+            <input
+              autoFocus
+              placeholder="Reason (optional)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              aria-label="Reason for denying"
+            />
+            <button className="b" type="submit" disabled={isBusy}>
+              Send
+            </button>
+            <button
+              className="b"
+              type="button"
+              onClick={() => {
+                setDenying(null);
+                setReason("");
+              }}
+            >
+              Cancel
+            </button>
+          </form>
+        );
+      }
       return (
         <>
-          <button
-            className="b ok"
-            disabled={busy === `approval-${approval.id}`}
-            onClick={() => void decide(approval, "approved")}
-          >
+          <button className="b ok" disabled={isBusy} onClick={() => void decide(approval, "approved")}>
             Approve
           </button>
-          <button
-            className="b"
-            disabled={busy === `approval-${approval.id}`}
-            onClick={() => void decide(approval, "denied")}
-          >
+          <button className="b" disabled={isBusy} onClick={() => void decide(approval, "denied")}>
             Deny
           </button>
-          {!!approval.task_id && taskAction(approval.task_id, "Open task")}
+          <button
+            className="b ny-deny-more"
+            disabled={isBusy}
+            onClick={() => {
+              setDenying(approval.id);
+              setReason("");
+            }}
+          >
+            Deny with reason…
+          </button>
+          {!!approval.session_id && sessionAction(approval.session_id)}
+          {!approval.session_id && !!approval.task_id && taskAction(approval.task_id, "Open task")}
         </>
       );
     }
@@ -308,12 +372,3 @@ export function NeedsYou({
   }
 }
 
-function approvalDetail(approval: Approval) {
-  const input = approval.input || {};
-  for (const field of ["command", "path", "file_path", "url", "pattern"]) {
-    const value = input[field];
-    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 90);
-  }
-  const text = JSON.stringify(input);
-  return text && text !== "{}" ? text.slice(0, 90) : "";
-}

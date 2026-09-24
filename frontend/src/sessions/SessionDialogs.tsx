@@ -71,6 +71,16 @@ export function NewSession({
       .catch((error) =>
         onNotice("Could not load launch options: " + String(error), true),
       );
+    // The operator's global default (docs/agent-events.md section 3) is
+    // what this dialog's Yolo checkbox opens set to — its own explicit
+    // choice, once touched, is still what actually launches: the request
+    // always sends a concrete `yolo` boolean, never omits it.
+    void api
+      .request<Record<string, string>>("/settings")
+      .then((settings) => {
+        if (settings.session_permission_mode === "ask") setYolo(false);
+      })
+      .catch(() => {});
   }, []);
   useEffect(() => {
     const selected = profiles.find((p) => p.id === profileId);
@@ -390,7 +400,15 @@ export function NewSession({
             ? `${agent} has no way to skip its prompts — it will ask.`
             : yolo
               ? "The agent acts without stopping to ask. You are the supervision."
-              : "The agent stops and asks before it edits or runs anything."}
+              : agent === "claude"
+                ? // Session permission mode (docs/agent-events.md section
+                  // 3): unchecking Yolo is what launches claude in "ask"
+                  // mode, which is also what registers the PermissionRequest
+                  // hook — so this is the same checkbox that used to only
+                  // mean "prompt in the terminal" and now also means "or
+                  // from my phone".
+                  "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
+                : "The agent stops and asks before it edits or runs anything."}
         </div>
         <div className="session-field">
           <label htmlFor="ns-prime">First message (optional)</label>

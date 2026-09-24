@@ -418,33 +418,58 @@ func (db *DB) TaskEvents(taskID int64, afterSeq int64, attemptN *int) ([]*Event,
 
 // ---- approvals --------------------------------------------------------------
 
-const approvalCols = `a.id, a.attempt_id, a.tool_name, a.input_json, a.status,
+const approvalCols = `a.id, a.attempt_id, a.session_id, a.tool_name, a.input_json, a.status,
 	a.decided_by, a.note, a.created_at, a.decided_at`
 
-// Approval fetches one approval by id, joined with its owning task.
-func (db *DB) Approval(id int64) (*Approval, error) {
-	row := db.QueryRow(`SELECT `+approvalCols+`, at.task_id, at.n, t.title
-		FROM approvals a JOIN attempts at ON at.id=a.attempt_id
-		JOIN tasks t ON t.id=at.task_id WHERE a.id=?`, id)
+// scanApproval reads one approvalCols(+joins) row. attempt_id/session_id and
+// everything joined through them are nullable now that an approval can be
+// task- or session-scoped (docs/agent-events.md section 3), so they land in
+// sql.Null* first and only populate the plain-int/string Approval fields
+// (which keep their historical "0/"" means absent" convention) when valid.
+func scanApproval(scan func(...any) error) (*Approval, error) {
 	var ap Approval
-	err := row.Scan(&ap.ID, &ap.AttemptID, &ap.ToolName, &ap.InputJSON, &ap.Status,
+	var attemptID, sessionID, taskID, attemptN sql.NullInt64
+	var taskTitle, sessionName sql.NullString
+	err := scan(&ap.ID, &attemptID, &sessionID, &ap.ToolName, &ap.InputJSON, &ap.Status,
 		&ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt,
-		&ap.TaskID, &ap.AttemptN, &ap.TaskTitle)
+		&taskID, &attemptN, &taskTitle, &sessionName)
+	if err != nil {
+		return nil, err
+	}
+	ap.AttemptID, ap.SessionID = attemptID.Int64, sessionID.Int64
+	ap.TaskID, ap.AttemptN = taskID.Int64, int(attemptN.Int64)
+	ap.TaskTitle, ap.SessionName = taskTitle.String, sessionName.String
+	ap.Input = UnjObj(ap.InputJSON)
+	return &ap, nil
+}
+
+// Approval fetches one approval by id, joined with its owning task or
+// session — whichever of attempt_id/session_id is set (LEFT JOIN: the other
+// side's columns come back NULL, per scanApproval).
+func (db *DB) Approval(id int64) (*Approval, error) {
+	row := db.QueryRow(`SELECT `+approvalCols+`, at.task_id, at.n, t.title, s.name
+		FROM approvals a
+		LEFT JOIN attempts at ON at.id=a.attempt_id
+		LEFT JOIN tasks t ON t.id=at.task_id
+		LEFT JOIN sessions s ON s.id=a.session_id
+		WHERE a.id=?`, id)
+	ap, err := scanApproval(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	ap.Input = UnjObj(ap.InputJSON)
-	return &ap, nil
+	return ap, nil
 }
 
 // ApprovalsByStatus lists approvals in one state, newest first.
 func (db *DB) ApprovalsByStatus(status string) ([]*Approval, error) {
-	rows, err := db.Query(`SELECT `+approvalCols+`, at.task_id, at.n, t.title
-		FROM approvals a JOIN attempts at ON at.id=a.attempt_id
-		JOIN tasks t ON t.id=at.task_id
+	rows, err := db.Query(`SELECT `+approvalCols+`, at.task_id, at.n, t.title, s.name
+		FROM approvals a
+		LEFT JOIN attempts at ON at.id=a.attempt_id
+		LEFT JOIN tasks t ON t.id=at.task_id
+		LEFT JOIN sessions s ON s.id=a.session_id
 		WHERE a.status=? ORDER BY a.created_at DESC LIMIT 200`, status)
 	if err != nil {
 		return nil, err
@@ -452,22 +477,34 @@ func (db *DB) ApprovalsByStatus(status string) ([]*Approval, error) {
 	defer rows.Close()
 	out := []*Approval{}
 	for rows.Next() {
-		var ap Approval
-		if err := rows.Scan(&ap.ID, &ap.AttemptID, &ap.ToolName, &ap.InputJSON,
-			&ap.Status, &ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt,
-			&ap.TaskID, &ap.AttemptN, &ap.TaskTitle); err != nil {
+		ap, err := scanApproval(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		ap.Input = UnjObj(ap.InputJSON)
-		out = append(out, &ap)
+		out = append(out, ap)
 	}
 	return out, rows.Err()
 }
 
-// InsertApproval records a tool call awaiting a decision.
+// InsertApproval records a tool call awaiting a decision, scoped to a task
+// attempt.
 func (db *DB) InsertApproval(attemptID int64, tool, inputJSON string) (int64, error) {
 	res, err := db.Exec(`INSERT INTO approvals(attempt_id, tool_name, input_json,
 		status, created_at) VALUES(?,?,?,'pending',?)`, attemptID, tool, inputJSON, Now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// InsertSessionApproval records a tool call awaiting a decision, scoped to an
+// interactive session's PermissionRequest hook rather than a task attempt
+// (docs/agent-events.md section 3). attempt_id is left NULL — see the
+// package doc on Approval for why that is safe under foreign-key
+// enforcement, unlike a 0 sentinel would be.
+func (db *DB) InsertSessionApproval(sessionID int64, tool, inputJSON string) (int64, error) {
+	res, err := db.Exec(`INSERT INTO approvals(session_id, tool_name, input_json,
+		status, created_at) VALUES(?,?,?,'pending',?)`, sessionID, tool, inputJSON, Now())
 	if err != nil {
 		return 0, err
 	}

@@ -165,6 +165,9 @@ export interface Event {
   attempt_n: number;
 }
 
+// An approval belongs to exactly one of a task attempt (attempt_id/task_id)
+// or an interactive session (session_id/session_name) —
+// docs/agent-events.md section 3.
 export interface Approval {
   id: number;
   attempt_id: number;
@@ -178,6 +181,8 @@ export interface Approval {
   task_id?: number;
   attempt_n?: number;
   task_title?: string;
+  session_id?: number;
+  session_name?: string;
 }
 
 export interface Memory {
@@ -214,6 +219,10 @@ export interface Session {
   project_name?: string;
   target_name?: string;
   target_kind?: string;
+  // permission_mode is "bypass" | "ask" (docs/agent-events.md section 3).
+  // Absent on a row from before this field existed, which every reader
+  // treats the same as "bypass".
+  permission_mode?: string;
 }
 
 export interface Wrap {

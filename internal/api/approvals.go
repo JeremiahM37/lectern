@@ -63,7 +63,12 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "approval not pending")
 		return
 	}
-	if body.AlwaysAllow && body.Decision == "approved" {
+	// "always allow" writes a project policy rule, which only makes sense for
+	// a task attempt's project — a session-scoped approval (AttemptID==0,
+	// see docs/agent-events.md section 3) has no attempt to resolve a
+	// project from, so the checkbox is simply a no-op there rather than an
+	// error.
+	if body.AlwaysAllow && body.Decision == "approved" && row.AttemptID != 0 {
 		if proj, err := s.DB.ProjectForAttempt(row.AttemptID); err == nil {
 			rule := policy.PatternFor(row.ToolName, row.Input)
 			updated := policy.AddRule(policy.Parse(proj.PolicyJSON), rule)

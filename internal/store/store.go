@@ -73,6 +73,11 @@ func Open(path string) (*DB, error) {
 			return nil, fmt.Errorf("migration %q: %w", m, err)
 		}
 	}
+	// Not an ADD COLUMN, so it cannot live in the plain-string list above —
+	// see migrate_approvals.go for why.
+	if err := migrateApprovalsSessionColumn(db.DB); err != nil {
+		return nil, fmt.Errorf("migrate approvals: %w", err)
+	}
 	return db, nil
 }
 

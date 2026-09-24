@@ -63,7 +63,16 @@ type Config struct {
 	HandoffPoll    time.Duration
 	ApprovalPoll   time.Duration
 	ApprovalExpire time.Duration
-	JanitorDays    float64
+	// SessionApprovalHold is LECTERN_APPROVAL_HOLD (default 120s): how long a
+	// session's PermissionRequest hook is held open waiting for a phone/UI
+	// decision before the handler answers `{}` and marks the approval
+	// expired, letting the agent fall back to its own terminal prompt
+	// (docs/agent-events.md section 3). Distinct from ApprovalExpire, which
+	// governs the older task-hook long-poll's much longer default (900s) —
+	// a session's hook is one held HTTP request, not a repeated poll loop,
+	// so it needs its own, much shorter budget.
+	SessionApprovalHold time.Duration
+	JanitorDays         float64
 	// ScratchDays is how long an empty, unowned scratch workspace sits idle
 	// before the sweep trashes it (0 disables the sweep); ScratchTrashDays is how
 	// long it stays recoverable after that.
@@ -195,6 +204,7 @@ func Load() *Config {
 		HandoffPoll:             envSeconds("LECTERN_HANDOFF_POLL", 0),
 		ApprovalPoll:            envSeconds("LECTERN_APPROVAL_POLL", 25),
 		ApprovalExpire:          envSeconds("LECTERN_APPROVAL_EXPIRE", 900),
+		SessionApprovalHold:     envSeconds("LECTERN_APPROVAL_HOLD", 120),
 		JanitorDays:             envFloat("LECTERN_JANITOR_DAYS", 7),
 		ScratchDays:             envFloat("LECTERN_SCRATCH_DAYS", 7),
 		ScratchTrashDays:        envFloat("LECTERN_SCRATCH_TRASH_DAYS", 14),

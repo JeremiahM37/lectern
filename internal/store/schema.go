@@ -110,8 +110,16 @@ CREATE TABLE IF NOT EXISTS events(
   seq INTEGER NOT NULL, ts REAL, type TEXT NOT NULL, payload_json TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_attempt ON events(attempt_id, seq);
+-- attempt_id is nullable (not the historical NOT NULL) so an approval can
+-- belong to a session's PermissionRequest hook instead of a task attempt
+-- (docs/agent-events.md section 3): exactly one of attempt_id/session_id is
+-- set. A database created before this change gets there via
+-- migrateApprovalsSessionColumn in migrate_approvals.go, a one-time table
+-- rebuild — SQLite has no ALTER COLUMN to drop a NOT NULL constraint, so it
+-- cannot be a plain entry in the migrations list below.
 CREATE TABLE IF NOT EXISTS approvals(
-  id INTEGER PRIMARY KEY, attempt_id INTEGER NOT NULL REFERENCES attempts(id),
+  id INTEGER PRIMARY KEY, attempt_id INTEGER REFERENCES attempts(id),
+  session_id INTEGER REFERENCES sessions(id),
   tool_name TEXT NOT NULL, input_json TEXT DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'pending',      -- pending|approved|denied|expired
   decided_by TEXT DEFAULT '', note TEXT DEFAULT '',
@@ -153,6 +161,13 @@ CREATE TABLE IF NOT EXISTS sessions(
   -- hook_token authenticates POST /api/hook/session/{id}/*; it is never
   -- serialized in the session's own JSON.
   hook_token TEXT NOT NULL DEFAULT '',
+  -- permission_mode is this session's resolved launch-time choice —
+  -- "bypass" (today's default, --permission-mode bypassPermissions) or
+  -- "ask" (no bypass flag; the PermissionRequest hook is registered and
+  -- gates every tool call through internal/broker) — docs/agent-events.md
+  -- section 3. Empty on a row launched before this column existed; treated
+  -- as "bypass" everywhere it is read, matching the unchanged default.
+  permission_mode TEXT NOT NULL DEFAULT '',
   -- agent_state is the hook-driven lifecycle signal, distinct from the older
   -- screen-scraped status column: working|waiting_input|waiting_permission|
   -- idle|error|ended. state_source records who wrote it last (hook|screen) so
@@ -343,4 +358,5 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN rate_7d_pct INTEGER",
 	"ALTER TABLE sessions ADD COLUMN rate_7d_reset REAL",
 	"ALTER TABLE sessions ADD COLUMN usage_at REAL",
+	"ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT ''",
 }

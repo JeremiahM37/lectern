@@ -1,6 +1,7 @@
 import { ScratchReview } from "./ScratchReview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  Approval,
   InteractiveWorkspace,
   Project,
   SessionView,
@@ -110,7 +111,18 @@ export function Sessions({
     [search, setSearch] = useState(false),
     [recentOpen, setRecentOpen] = useState(false),
     [errors, setErrors] = useState<Record<number, string>>({}),
-    [clock, setClock] = useState(Date.now());
+    [clock, setClock] = useState(Date.now()),
+    // Pending session-scoped approvals (docs/agent-events.md section 3),
+    // polled separately from NeedsYou's own identical poll: two small
+    // requests to the same cheap endpoint is simpler and safer than
+    // threading a shared cache through both, and each stays independently
+    // correct if the other is ever removed.
+    [approvals, setApprovals] = useState<Approval[]>([]);
+  const approvalBySession = useMemo(() => {
+    const map = new Map<number, Approval>();
+    for (const a of approvals) if (a.session_id) map.set(a.session_id, a);
+    return map;
+  }, [approvals]);
   const generation = useRef(0),
     rowsRef = useRef(rows),
     updated = useRef(Date.now()),
@@ -135,6 +147,33 @@ export function Sessions({
     });
     return () => abort.abort();
   }, [scope, refreshVersion]);
+  useEffect(() => {
+    const abort = new AbortController();
+    const loadApprovals = async () => {
+      if (document.hidden) return;
+      try {
+        const rows = await api.request<Approval[]>("/approvals?status=pending", {
+          signal: abort.signal,
+        });
+        if (!abort.signal.aborted && Array.isArray(rows)) setApprovals(rows);
+      } catch {
+        // A failed poll leaves the last-known approvals in place — same
+        // "never invent an all-clear" rule NeedsYou follows for the same
+        // endpoint.
+      }
+    };
+    void loadApprovals();
+    const timer = window.setInterval(() => void loadApprovals(), 15000);
+    const visible = () => {
+      if (!document.hidden) void loadApprovals();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      abort.abort();
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [api, refreshVersion]);
   useEffect(() => {
     if (externalAction?.version) {
       setSheet(externalAction.kind);
@@ -363,6 +402,7 @@ export function Sessions({
       <SessionCard
         key={session.id}
         session={display}
+        approval={approvalBySession.get(session.id)}
         projects={projects}
         api={api}
         progressError={errors[session.id]}

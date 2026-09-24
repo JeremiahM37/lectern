@@ -18,6 +18,15 @@ import (
 type Ingester struct {
 	DB  *store.DB
 	Bus *bus.Bus
+	// OnHookEvent, when set, is called synchronously at the end of every
+	// IngestEvent — success, no-op (an event that carries no state, like
+	// PreCompact), or an unchanged state — with the raw event name and
+	// body. This is how internal/alerts (docs/agent-events.md section 3)
+	// observes things that never reach the bus as structured session
+	// fields: a PreCompact hook's "trigger" and a Stop hook's
+	// "last_assistant_message". Kept fast: it must never block or slow a
+	// hook response, so a subscriber only ever queues work here.
+	OnHookEvent func(sess *store.Session, event string, body []byte, state string, changed bool)
 }
 
 // New builds an Ingester.
@@ -65,6 +74,17 @@ type notificationProbe struct {
 // their own terminal approval prompt), so it is safe to ship ahead of that
 // worker.
 func (in *Ingester) IngestEvent(s *store.Session, event string, body []byte) (state string, changed bool, err error) {
+	if in.OnHookEvent != nil {
+		// Named returns: this sees whatever state/changed end up being at
+		// whichever return statement below actually runs. Skipped on a DB
+		// error — nothing here was durably recorded, so there is nothing
+		// honest to alert on.
+		defer func() {
+			if err == nil {
+				in.OnHookEvent(s, event, body, state, changed)
+			}
+		}()
+	}
 	notificationType := ""
 	if event == EventNotification && len(body) > 0 {
 		var probe notificationProbe
