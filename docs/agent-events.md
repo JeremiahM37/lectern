@@ -262,6 +262,131 @@ with Approve / Deny actions, and holds the HTTP request until decided or
 Claude falls back to its own terminal dialog. Response on decision:
 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny","message":"..."}}}`.
 
+> **Implementation note (2026-09-23, section 3 worker).**
+>
+> **Alerts** (`internal/alerts`): wired as `agentevents.Ingester.OnHookEvent`
+> (a new synchronous, best-effort callback fired at the end of every
+> `IngestEvent`), not a generic bus subscription — PreCompact's `trigger` and
+> Stop's `last_assistant_message` never reach the bus as structured fields,
+> only the raw hook body, so a bus-only design could not read them. This
+> means alerts only cover **hook-driven** sessions; a session with no hooks
+> at all, or one past poll.go's 10-minute hook-silence fallback window, gets
+> no separate screen-derived alert in this pass. Given every builtin
+> claude/codex session installs hooks at launch (section 2), this covers the
+> overwhelming majority of real sessions; extending it to the screen-scrape
+> path is a reasonable follow-up, not required here.
+>
+> **Deviation**: a `PermissionRequest` event does **not** also fire the
+> generic "needs permission" text alert when the session is in `ask` mode —
+> the approval flow below already sends a dedicated, actionable
+> `kind:"approval"` push (tool name + input summary + Approve/Deny) for that
+> exact tool call, and a second, read-only push for the same event would
+> just double-ping the phone. Claude's `Notification(permission_prompt)`
+> hook — the only signal a **non**-`ask` session's rare permission prompt
+> produces — still gets the generic alert, using its `message` field (there
+> is no discrete tool name on `Notification`, unlike `PermissionRequest`).
+>
+> Per-kind toggles are `alert_waiting_permission` / `alert_waiting_input` /
+> `alert_idle` / `alert_error` / `alert_compacting`, appended to `sinks.Keys`
+> (default ON; `"0"` turns one off) rather than standing up a second settings
+> registry. Per-session cooldown is 60s (`alerts.DefaultCooldown`); the
+> suppress window is exactly the 30s above.
+>
+> **Suppression / "browser typed" signal**: NOT read from the ttyd reverse
+> proxy. `internal/api/termproxy.go`'s `termProxy` hands an `Upgrade` request
+> straight to `net/http/httputil.ReverseProxy`, which hijacks the TCP
+> connection and pipes it byte-for-byte in both directions with no per-frame
+> hook — adding one would mean replacing that proxy with a hand-rolled
+> hijacking implementation across every attachment kind
+> (session/attempt/project/companion shells), which is a lot of surface and
+> regression risk for this alone. Instead, per the contract's own fallback,
+> the terminal page sends an explicit heartbeat: `frontend/src/terminal/
+> engine.ts`'s `input()` — called for every real keystroke, on-screen key,
+> snippet and paste — POSTs `POST /api/term/{kind}/{id}/activity` (only
+> meaningful for `kind==="session"`), recorded in `internal/alerts.Activity`,
+> an in-memory per-session last-input map with no persistence (a restart
+> losing 30s of "just typed" state is immaterial).
+>
+> **Session permission mode**: `sessions.permission_mode` (`""|"bypass"|
+> "ask"`) is resolved once at launch (`internal/sessions/manager.go`'s
+> `askPermission := m.AskPermission || o.PermissionMode == "ask"`) and stored
+> both on the session row and in its `LaunchConfiguration`, so a native
+> continuation of the same session keeps the same mode without the caller
+> re-specifying it. The primary `POST /api/sessions` handler resolves the
+> effective mode as: an explicit `permission_mode` field wins outright; else
+> an explicit legacy `yolo` boolean derives it (`false` → `ask` — this is a
+> **behavior addition**, not a break: "let the agent ask" always meant
+> `yolo:false`, and now that lectern can actually receive and act on that
+> hook, wiring it up here is the feature, not a regression); else the
+> `session_permission_mode` global default setting (`"bypass"` when unset).
+> Internal launch paths that predate this feature and compute their own
+> `Yolo` independently (task takeover, handoff, scratch shells) are left
+> alone: they never set `LaunchOpts.PermissionMode`, so they get exactly
+> their pre-existing behavior (no `PermissionRequest` hook registered),
+> avoiding a surprise multi-minute hold on an automated flow nobody is
+> watching a phone for.
+>
+> **Approvals schema** (docs' "extend it so an approval can belong to a
+> session instead of an attempt, schema append-only"): `approvals` gained a
+> nullable `session_id` column and `attempt_id` was relaxed from `NOT NULL`
+> to nullable — SQLite has no `ALTER COLUMN` to drop a `NOT NULL`
+> constraint, so this is a one-time table rebuild
+> (`internal/store/migrate_approvals.go`, guarded on `PRAGMA table_info`
+> still showing the old `NOT NULL` shape, so it is a no-op on a fresh
+> database and every later boot of an already-migrated one) rather than a
+> plain entry in the `migrations` `[]string` list. Every existing row keeps
+> its id and data; only the new column is added. `store.Approval.AttemptID`/
+> `SessionID` keep the pre-existing "0 means absent" Go-level convention
+> (matching `TaskID`), while the underlying DB column is genuine `NULL` for
+> whichever side does not apply — required for foreign-key correctness,
+> since a `0` sentinel would need a real `attempts.id`/`sessions.id` row 0 to
+> satisfy the FK, which never exists.
+>
+> `broker.CreateForSession`/`WaitOnce` are new, parallel to `Create`/`Wait`:
+> a session's `PermissionRequest` hook is **one held HTTP request**
+> (`internal/api/hooks_agentevents.go`'s `holdSessionPermissionRequest`), not
+> the task hook's long-poll loop, so `WaitOnce` resolves in a single
+> decide-or-timeout window and does not consult the unrelated, much longer
+> `ApprovalExpire` (900s) the task path uses — `LECTERN_APPROVAL_HOLD`
+> (`config.SessionApprovalHold`, default 120s) is its own, independent knob.
+> A `PostToolUse` or `Notification` hook arriving for a session expires any
+> approval still `pending` for it (`broker.ExpireForSession`) — the
+> contract's "if the session's terminal answers first ..., expire it".
+> Deciding a session approval reuses the existing `POST
+> /api/approvals/{id}/decision` endpoint and its human-principal check
+> unchanged; "always allow" (a project policy rule) is a no-op for a
+> session-scoped approval, which has no attempt to resolve a project from.
+>
+> **Frontend**: `NeedsYou.tsx`'s approval row and a new `SessionCard.tsx`
+> banner both show a session approval's tool name, input summary and
+> Approve / Deny / "Deny with reason…" (a shared `approval-summary.ts`
+> renders the input line). `Sessions.tsx` polls `/approvals?status=pending`
+> on its own 15s cadence (separate from `NeedsYou`'s identical poll — two
+> small requests to the same cheap endpoint was judged simpler and more
+> robust than threading a shared cache through both) and passes the
+> per-session row down to `SessionCard`. `service-worker.ts`'s
+> `notificationclick` handler answers an `approve`/`deny` action with a
+> same-origin `fetch` (no bearer token — the phone is authenticated by
+> Tailscale identity, or the `lectern_token` cookie in token mode) and shows
+> a confirmation or failure notification; the decision logic itself lives in
+> a new sibling module, `sw-actions.ts`, purely so it is unit-testable
+> (`sw-actions.test.ts`) — a real `ServiceWorkerGlobalScope` isn't available
+> to a plain Node test, so nothing inside `service-worker.ts` itself ever
+> was. This required upgrading `serviceWorkerPlugin.ts` from a single-file
+> `tsc.transpileModule` call to an `esbuild` bundle (`format:'iife'`): the
+> old approach could not resolve a same-directory `import` at all, and a
+> classic-script service worker cannot use a bare `import` statement either.
+>
+> **Codex**: interactive codex sessions keep their approvals in codex's own
+> UI, as directed — no `PermissionRequest`/hold wiring was added for the
+> `codex` agent name, matching the existing per-agent gate in
+> `internal/api/agent_registry.go`.
+>
+> **Not done in this pass**: alerts for a session that only has
+> screen-derived state (no hooks, or past the 10-minute hook-fallback
+> window); a global "quiet hours" setting (explicitly out of scope per the
+> contract).
+
 ## 4. Checks on stop, review, best-of-N, evals, drivers
 
 - Checks: project setting `check_command` (default: `verify` when the repo has

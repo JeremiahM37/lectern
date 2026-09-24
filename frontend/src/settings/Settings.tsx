@@ -757,6 +757,22 @@ function Notifications({
   const [discord, setDiscord] = useState(String(values.discord_webhook ?? "")),
     [server, setServer] = useState(String(values.ntfy_server ?? "")),
     [topic, setTopic] = useState(String(values.ntfy_topic ?? ""));
+  // Per-kind session-alert toggles (docs/agent-events.md section 3): stored
+  // as "0"/"1" strings, default ON — missing or anything but "0" means the
+  // alert is enabled (internal/alerts.Watcher.enabled).
+  const alertKeys: [string, string][] = [
+    ["alert_waiting_permission", "Needs permission"],
+    ["alert_waiting_input", "Waiting for input"],
+    ["alert_idle", "Finished"],
+    ["alert_error", "Error"],
+    ["alert_compacting", "Compacting"],
+  ];
+  const [alerts, setAlerts] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(alertKeys.map(([key]) => [key, String(values[key] ?? "") !== "0"])),
+  );
+  const [permissionMode, setPermissionMode] = useState(
+    String(values.session_permission_mode ?? "") === "ask" ? "ask" : "bypass",
+  );
   return (
     <article>
       <h3>Notifications</h3>
@@ -798,6 +814,68 @@ function Notifications({
         }
       >
         Send test
+      </button>
+
+      <h4>Session alerts</h4>
+      <p className="subhint">
+        A push when a session needs permission, is waiting for you, finishes, hits an
+        error, or auto-compacts its context. Suppressed for 30s after you type into that
+        session's terminal.
+      </p>
+      {alertKeys.map(([key, label]) => (
+        <label key={key}>
+          <input
+            type="checkbox"
+            checked={alerts[key]}
+            onChange={(e) => setAlerts((old) => ({ ...old, [key]: e.target.checked }))}
+          />{" "}
+          {label}
+        </label>
+      ))}
+      <button
+        id="s-save-alerts"
+        onClick={() =>
+          void api
+            .request("/settings", {
+              method: "PUT",
+              body: Object.fromEntries(
+                alertKeys.map(([key]) => [key, alerts[key] ? "1" : "0"]),
+              ),
+            })
+            .then(() => onNotice("Alert settings saved"))
+        }
+      >
+        Save alerts
+      </button>
+
+      <h4>New session permission mode</h4>
+      <p className="subhint">
+        The default for a new interactive session that does not say otherwise. "Ask"
+        registers the PermissionRequest hook, so a tool call can be approved or denied
+        from the phone; "Bypass" is today's default — the agent runs unattended.
+      </p>
+      <label>
+        <select
+          id="s-permission-mode"
+          value={permissionMode}
+          onChange={(e) => setPermissionMode(e.target.value)}
+        >
+          <option value="bypass">Bypass (no approval prompts)</option>
+          <option value="ask">Ask (approve/deny from the phone)</option>
+        </select>
+      </label>
+      <button
+        id="s-save-permission-mode"
+        onClick={() =>
+          void api
+            .request("/settings", {
+              method: "PUT",
+              body: { session_permission_mode: permissionMode },
+            })
+            .then(() => onNotice("Default permission mode saved"))
+        }
+      >
+        Save default
       </button>
     </article>
   );

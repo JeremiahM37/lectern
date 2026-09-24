@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
+	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
@@ -50,6 +51,11 @@ type Server struct {
 	Cfg       *config.Config
 	Auth      *auth.Resolver
 	Log       *slog.Logger
+	// Activity records recent real terminal input per session, for the
+	// alert-suppression rule in docs/agent-events.md section 3. Nil is safe
+	// (terminalActivity then just has nowhere to record — no suppression,
+	// not a crash); app.New always sets it.
+	Activity *alerts.Activity
 
 	// SummaryGen, when set, replaces the real headless cheap-model call PR
 	// description generation makes (see review.go runSummary). Tests set this
@@ -234,6 +240,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/term/{kind}/{id}/files", s.terminalFiles)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/changes", s.terminalChanges)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/file", s.terminalFile)
+	mux.HandleFunc("POST /api/term/{kind}/{id}/activity", s.terminalActivity)
 	// ---- attached terminals (proxied on this origin; see termproxy.go) ----
 	mux.HandleFunc("/term/{kind}/{id}", s.termProxy)
 	mux.HandleFunc("/term/{kind}/{id}/", s.termProxy)

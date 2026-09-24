@@ -134,10 +134,18 @@ type Event struct {
 	AttemptN int            `json:"attempt_n"`
 }
 
-// Approval is one tool call a gated agent is blocked on.
+// Approval is one tool call a gated agent is blocked on. It belongs to
+// exactly one of a task attempt (AttemptID) or an interactive session
+// (SessionID) — docs/agent-events.md section 3. Both id fields keep the
+// existing "0 means absent" convention TaskID already used, so nothing that
+// already reads AttemptID as a plain int64 needs to change: the zero value
+// only ever shows up on a session-scoped row, and the DB column underneath
+// it is genuinely NULL there (see migrate_approvals.go) so foreign-key
+// enforcement never sees a false attempt id 0.
 type Approval struct {
 	ID        int64    `json:"id"`
-	AttemptID int64    `json:"attempt_id"`
+	AttemptID int64    `json:"attempt_id,omitempty"`
+	SessionID int64    `json:"session_id,omitempty"`
 	ToolName  string   `json:"tool_name"`
 	InputJSON string   `json:"-"`
 	Status    string   `json:"status"`
@@ -146,10 +154,11 @@ type Approval struct {
 	CreatedAt float64  `json:"created_at"`
 	DecidedAt *float64 `json:"decided_at"`
 
-	Input     map[string]any `json:"input"`
-	TaskID    int64          `json:"task_id,omitempty"`
-	AttemptN  int            `json:"attempt_n,omitempty"`
-	TaskTitle string         `json:"task_title,omitempty"`
+	Input       map[string]any `json:"input"`
+	TaskID      int64          `json:"task_id,omitempty"`
+	AttemptN    int            `json:"attempt_n,omitempty"`
+	TaskTitle   string         `json:"task_title,omitempty"`
+	SessionName string         `json:"session_name,omitempty"`
 }
 
 // Memory is a durable note an agent left for the agents that come after it.
@@ -199,6 +208,10 @@ type Session struct {
 	// the target process via LECTERN_HOOK_TOKEN, not something the API repeats
 	// back to a browser.
 	HookToken string `json:"-"`
+	// PermissionMode is this session's resolved launch-time choice, "bypass"
+	// or "ask" (docs/agent-events.md section 3); empty on a row launched
+	// before this column existed, which every reader treats as "bypass".
+	PermissionMode string `json:"permission_mode,omitempty"`
 	// AgentState/StateSource/StateAt/HookSeenAt are the hook-driven lifecycle
 	// signal described in docs/agent-events.md section 2, kept alongside the
 	// older screen-scraped Status. StateSource says who wrote AgentState last

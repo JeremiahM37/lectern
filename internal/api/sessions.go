@@ -217,6 +217,11 @@ type sessionIn struct {
 	// means "the default", which is ON for interactive sessions: you are sitting
 	// in the terminal watching it. Send false to be asked for confirmations.
 	Yolo *bool `json:"yolo"`
+	// PermissionMode is the explicit per-launch override docs/agent-events.md
+	// section 3 asks for: "bypass" or "ask". Empty defers to Yolo when given
+	// (for callers that only know the old field), else to the
+	// "session_permission_mode" global default setting.
+	PermissionMode string `json:"permission_mode"`
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -274,11 +279,32 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// yolo is on unless the caller says otherwise
-	yolo := true
-	if in.Yolo != nil {
-		yolo = *in.Yolo
+	// Session permission mode (docs/agent-events.md section 3): an explicit
+	// request field wins outright; otherwise an explicit legacy `yolo`
+	// derives it (preserving exactly what that field always meant, while
+	// also — new behavior — actually registering the PermissionRequest hook
+	// when it says false, since lectern can now surface what that hook
+	// reports); otherwise the operator's global default setting, "bypass"
+	// when unset. yolo itself is unaffected by any of this beyond what it
+	// always was: "bypass" starts the agent with its approval prompts off.
+	mode := strings.TrimSpace(in.PermissionMode)
+	if mode != "" && mode != "bypass" && mode != "ask" {
+		httpError(w, 400, "permission_mode must be bypass|ask")
+		return
 	}
+	if mode == "" {
+		if in.Yolo != nil {
+			mode = "bypass"
+			if !*in.Yolo {
+				mode = "ask"
+			}
+		} else if strings.TrimSpace(s.DB.Setting("session_permission_mode")) == "ask" {
+			mode = "ask"
+		} else {
+			mode = "bypass"
+		}
+	}
+	yolo := mode != "ask"
 	launch, status := s.Sessions.Launch, 201
 	if in.Background {
 		launch, status = s.Sessions.LaunchBackground, 202
@@ -287,7 +313,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		ProfileID: in.ProfileID,
 		GroupPath: in.GroupPath, Worktree: in.Worktree, ProjectID: in.ProjectID, TargetID: in.TargetID, Name: in.Name,
 		Agent: in.Agent, Model: in.Model, Workdir: in.Workdir,
-		Resume: in.Resume, Prime: prime, Scratch: in.Scratch, Yolo: yolo,
+		Resume: in.Resume, Prime: prime, Scratch: in.Scratch, Yolo: yolo, PermissionMode: mode,
 		// The manager layers project defaults before the selected launch profile.
 	})
 	if err != nil {

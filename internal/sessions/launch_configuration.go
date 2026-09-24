@@ -16,6 +16,11 @@ type LaunchConfiguration struct {
 	Yolo        bool   `json:"yolo"`
 	ProfileID   int64  `json:"profile_id,omitempty"`
 	ProfileName string `json:"profile_name,omitempty"`
+	// PermissionMode records whether this launch registered the
+	// PermissionRequest hook ("ask") or not ("bypass"/empty), so a
+	// continuation of this exact session keeps behaving the same way
+	// without the caller having to know or re-specify it.
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 // ApplyLaunchProfile resolves a named profile before creating a session record.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/api"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
@@ -112,6 +113,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Memory = mem
 	terms := terminal.NewManager()
 	events := agentevents.New(db, b)
+	activity := alerts.NewActivity()
+	alertWatcher := &alerts.Watcher{DB: db, Notifier: notifier, Activity: activity}
+	// Wired here rather than duplicating the hook-event plumbing: every
+	// session-lifecycle push (docs/agent-events.md section 3) rides the
+	// same ingest path session state itself does.
+	events.OnHookEvent = alertWatcher.HandleHookEvent
 
 	// checksRunner is the one place a project's check command (verify_cmd, or
 	// an auto-detected .verify.yaml) actually runs — for a task's finished
@@ -133,7 +140,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
-		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner,
+		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 	}
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due

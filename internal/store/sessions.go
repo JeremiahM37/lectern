@@ -8,7 +8,7 @@ import (
 const sessionCols = `s.id, s.project_id, s.target_id, s.name, s.agent, s.model,
 	s.workdir, s.tmux_session, s.status, s.origin, s.pane_hash, s.pane_tail,
 	s.context_pct, s.last_activity_at, s.created_at, s.updated_at, s.ended_at, s.worktree_json, s.group_path, s.tracking_identity, s.resume_id, s.native_recovery_cid, s.boot_id, s.archived_at, s.launch_config_json, s.setup_state, s.setup_error, s.setup_cancel_requested,
-	s.hook_token, s.agent_state, s.state_source, s.state_at, s.hook_seen_at,
+	s.hook_token, s.permission_mode, s.agent_state, s.state_source, s.state_at, s.hook_seen_at,
 	s.context_used_pct, s.context_tokens, s.context_size, s.cost_usd, s.lines_added, s.lines_removed,
 	s.rate_5h_pct, s.rate_5h_reset, s.rate_7d_pct, s.rate_7d_reset, s.usage_at, s.codex_thread_id, s.precompact_at`
 
@@ -17,7 +17,7 @@ func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, e
 	dest := []any{&s.ID, &s.ProjectID, &s.TargetID, &s.Name, &s.Agent, &s.Model,
 		&s.Workdir, &s.TmuxSession, &s.Status, &s.Origin, &s.PaneHash, &s.PaneTail,
 		&s.ContextPct, &s.LastActivityAt, &s.CreatedAt, &s.UpdatedAt, &s.EndedAt, &s.WorktreeJSON, &s.GroupPath, &s.TrackingIdentity, &s.ResumeID, &s.NativeRecoveryCID, &s.BootID, &s.ArchivedAt, &s.LaunchConfigJSON, &s.SetupState, &s.SetupError, &s.SetupCancelRequested,
-		&s.HookToken, &s.AgentState, &s.StateSource, &s.StateAt, &s.HookSeenAt,
+		&s.HookToken, &s.PermissionMode, &s.AgentState, &s.StateSource, &s.StateAt, &s.HookSeenAt,
 		&s.ContextUsedPct, &s.ContextTokens, &s.ContextSize, &s.CostUSD, &s.LinesAdded, &s.LinesRemoved,
 		&s.Rate5hPct, &s.Rate5hReset, &s.Rate7dPct, &s.Rate7dReset, &s.UsageAt, &s.CodexThreadID, &s.PrecompactAt}
 	if withJoin {

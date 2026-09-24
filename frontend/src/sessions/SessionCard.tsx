@@ -1,10 +1,11 @@
 import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
-import type { InteractiveWorkspace, Project, SessionView } from "../types";
+import type { Approval, InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
 import { CheckBadge } from "./CheckBadge";
+import { approvalSummary } from "./approval-summary";
 import {
   isScratchTerminal,
   scratchDefaultName,
@@ -44,9 +45,14 @@ interface Props {
   onWorkspace: (session: SessionView) => void;
   onArchive: (session: SessionView) => void;
   onDiscover: () => void;
+  // The one pending approval for this session's PermissionRequest hold, if
+  // any (docs/agent-events.md section 3). Optional so existing call sites
+  // and tests that predate the feature keep compiling.
+  approval?: Approval;
 }
 export function SessionCard({
   session: s,
+  approval,
   projects,
   api,
   progressError,
@@ -68,6 +74,33 @@ export function SessionCard({
 }: Props) {
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false),
+    [denyReasonOpen, setDenyReasonOpen] = useState(false),
+    [denyReason, setDenyReason] = useState(""),
+    // Optimistic hide: `approval` is a prop from the parent's own poll (a
+    // separate cadence from onRefresh), so a decision here would otherwise
+    // stay visible until that poll's next tick catches up.
+    [resolvedApprovalID, setResolvedApprovalID] = useState<number | null>(null);
+  const activeApproval = approval && approval.id !== resolvedApprovalID ? approval : undefined;
+  async function decideApproval(decision: "approved" | "denied", note?: string) {
+    if (!activeApproval) return;
+    const id = activeApproval.id;
+    setApprovalBusy(true);
+    try {
+      await api.request(`/approvals/${id}/decision`, {
+        method: "POST",
+        body: note ? { decision, note } : { decision },
+      });
+      setResolvedApprovalID(id);
+      setDenyReasonOpen(false);
+      setDenyReason("");
+      await onRefresh();
+    } catch (error) {
+      onNotice(String(error), true);
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
   const setup = s.setup_state === "creating",
     failed = s.setup_state === "failed",
     ended = s.ended_at != null,
@@ -207,6 +240,49 @@ export function SessionCard({
             : "quiet " + duration(s.idle_seconds)}
         </span>
       </div>
+      {activeApproval && (
+        <div className="scard-approval" data-approval-id={activeApproval.id}>
+          <div className="scard-approval-what">
+            <strong>{activeApproval.tool_name}</strong>
+            {approvalSummary(activeApproval) && <code>{approvalSummary(activeApproval)}</code>}
+          </div>
+          {denyReasonOpen ? (
+            <form
+              className="scard-approval-reason"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void decideApproval("denied", denyReason.trim() || undefined);
+              }}
+            >
+              <input
+                autoFocus
+                placeholder="Reason (optional)"
+                value={denyReason}
+                onChange={(e) => setDenyReason(e.target.value)}
+                aria-label="Reason for denying"
+              />
+              <button className="b" type="submit" disabled={approvalBusy}>
+                Send
+              </button>
+              <button className="b" type="button" onClick={() => setDenyReasonOpen(false)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <div className="scard-approval-actions">
+              <button className="b ok" disabled={approvalBusy} onClick={() => void decideApproval("approved")}>
+                Approve
+              </button>
+              <button className="b" disabled={approvalBusy} onClick={() => void decideApproval("denied")}>
+                Deny
+              </button>
+              <button className="b" disabled={approvalBusy} onClick={() => setDenyReasonOpen(true)}>
+                Deny with reason…
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {scratch && scratchPath && (
         <div className="scard-path">
           <code title={scratchPath}>{scratchPath}</code>
