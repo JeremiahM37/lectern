@@ -77,7 +77,13 @@
   .scard-top b, .scard h3 { font-size: 14.5px; }
   .smeta { gap: 4px; font-size: 11px; margin-top: 4px; }
   .spane { min-height: 0; height: auto; max-height: 58px; padding: 6px 0; font-size: 10.5px; line-height: 1.35; overflow: hidden; }
-  .scard .btnrow { margin-top: 8px; gap: 6px; }
+  /* The desk sheet pins this row to a single line and lets every `.b` shrink
+     to an equal share, so four or five names (Attach, Switch, Rename, Make a
+     project) were squeezed until their labels spilled out of the buttons. A
+     phone wraps the row instead, and each button keeps at least its own text
+     so no primary name is clipped. */
+  .scard .btnrow { flex-wrap: wrap; margin-top: 8px; gap: 6px; }
+  .scard .btnrow > .b { flex: 1 1 auto; min-width: max-content; }
   /* One height across a card's row, set by its primary action. */
   #sesslist .scard .btnrow button, #sesslist .scard .btnrow summary { min-height: 40px; height: 40px; font-size: 12.5px; padding: 0 10px; }
   .session-worktree { margin: 4px 0 6px; font-size: 11px; }

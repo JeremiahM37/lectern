@@ -287,6 +287,28 @@ finally:
                 page.keyboard.type(' CLAUDE-OVERLAY')
                 check_claude('CLAUDE-OVERLAY','claude-overlay-keyboard.png')
                 report['checks'].append('Real Claude input stays above native overlay Gboard')
+                # Simulate an IME that gives Lectern no usable resize or
+                # keyboard geometry, while the real Gboard still covers it.
+                limit=page.evaluate('innerHeight-navigator.virtualKeyboard.boundingRect.height')
+                page.evaluate("""() => {
+                    window.__auditKeyboard = navigator.virtualKeyboard;
+                    Object.defineProperty(navigator, 'virtualKeyboard', {value: undefined, configurable: true});
+                    dispatchEvent(new Event('resize'));
+                }""")
+                expect(claude.locator('body')).not_to_have_class(__import__('re').compile('fitted-viewport'))
+                line=claude.locator('.xterm-rows > div').filter(has_text='CLAUDE-OVERLAY').last
+                page.wait_for_timeout(600)
+                assert line.bounding_box()['y']+line.bounding_box()['height']>limit
+                for _ in range(6):
+                    box=line.bounding_box()
+                    if box['y']+box['height']<=limit:break
+                    device('shell','input','swipe','500','1050','500','550','300')
+                    page.wait_for_timeout(120)
+                box=line.bounding_box()
+                assert box['y']+box['height']<=limit,(box,limit)
+                (out/'claude-manual-prompt-pan.png').write_bytes(device('exec-out','screencap','-p'))
+                report['checks'].append('Claude prompt can be lifted above real Gboard even without keyboard geometry')
+                page.evaluate("Object.defineProperty(navigator, 'virtualKeyboard', {value:window.__auditKeyboard, configurable:true})")
                 claude.locator('#terminal-keyboard').click()
                 page.evaluate('navigator.virtualKeyboard.overlaysContent=false')
             page.close()

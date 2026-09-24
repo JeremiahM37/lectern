@@ -214,3 +214,18 @@ The fixture retries startup once only when `pidof com.android.chrome` confirms
 that the process is absent, preserving the first exit's logcat and both launch
 outputs. A browser that is still running is not restarted on a CDP timeout.
 Input and layout assertion failures are never retried within an audit run.
+
+## Manual room for a covered prompt
+
+While typing on a touch device, dragging upward at the live terminal's bottom
+can lift its screen farther than the last scrollback row. This leaves room to
+see a full-screen Claude prompt even when the keyboard reports neither a smaller
+viewport nor usable keyboard geometry. Dragging back restores the screen; blur
+or a larger terminal viewport clears the offset. Reading retained history keeps
+its own scrolling, and horizontal gestures still select terminal tabs.
+
+The explicit Claude probe includes an opaque-keyboard case: the draft starts
+below the visible area, real touch gestures lift it, further typing stays visible,
+and dragging back/blur restores the normal position. The optional native Android
+Claude audit also hides geometry while real Gboard remains open and captures the
+manually lifted prompt. These tests never submit the Claude draft.

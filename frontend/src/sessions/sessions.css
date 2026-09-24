@@ -246,3 +246,8 @@
 .session-memory-link[data-status="unlinked"] b { color: #ffb86b; }
 .session-memory-heading { margin: 8px 0 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
 
+
+/* Cards can be narrow on a desktop grid too. Keep each action's text inside
+   its border and wrap whole buttons instead of shrinking their labels. */
+#sesslist .scard .btnrow { flex-wrap: wrap; }
+#sesslist .scard .btnrow > .b { flex: 1 1 auto; min-width: max-content; max-width: 100%; }

@@ -6,6 +6,7 @@ interface ScrollOptions {
   // A finger held still. xterm has no touch selection, so the page answers a
   // long press by showing the buffer as text the phone can select natively.
   longPress?: () => void;
+  promptPan?: (pixels: number) => boolean;
   // A deliberate horizontal flick on the terminal body. The same gesture owner
   // that scrolls and turns a long press into text decides it, so a plain shell
   // and a full-screen app with mouse reporting behave alike.
@@ -49,6 +50,7 @@ export function installTerminalScroll({
   autoscrollHost = host,
   historyViewport = () => null,
   longPress,
+  promptPan,
   swipe,
   selection = () => false,
 }: ScrollOptions) {
@@ -192,6 +194,18 @@ export function installTerminalScroll({
         host.setPointerCapture(e.pointerId);
       } catch {}
       const delta = g.y - e.clientY;
+      // At the live bottom, give a focused mobile prompt some extra room.
+      // Keep this inside the vertical gesture owner so it cannot steal swipes.
+      if (promptPan?.(delta)) {
+        g.velocity = 0;
+        g.remainder = 0;
+        g.y = e.clientY;
+        g.x = e.clientX;
+        g.time = now;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       g.velocity = delta / Math.max(1, now - g.time);
       g.remainder += delta;
       const lines = Math.trunc(g.remainder / linePixels());
