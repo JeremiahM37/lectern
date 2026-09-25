@@ -173,6 +173,83 @@ JSONL. Anything not covered falls back to screen state.
 > changes — `MapEventState`/`IngestEvent` already accept every event name
 > above.
 
+> **Correction (2026-09-24/25, codex hooks worker) — hooks.json IS now
+> confirmed, end to end, against codex-cli 0.156.1.** The prior pass's two
+> open questions are answered:
+>
+>   - **Discovery path**: `$CODEX_HOME/hooks.json` (default
+>     `~/.codex/hooks.json`) — a flat file at the CODEX_HOME root, not a
+>     per-project `.codex/hooks.json` and not a `-c hooks...=` override
+>     (no such override exists; `codex --help`/`codex exec --help` have no
+>     flag for it). Confirmed by running `codex exec
+>     --dangerously-bypass-hook-trust` twice against a scratch CODEX_HOME
+>     containing only `auth.json` (copied) and a hand-written `hooks.json` —
+>     no `config.toml` at all — and watching every registered hook fire.
+>     Further confirmed against this machine's own real, pre-existing
+>     `~/.codex/hooks.json` (installed by an unrelated third-party tool,
+>     "aoe") that the file is genuinely global to CODEX_HOME and that
+>     multiple installers coexist under one event via separate array
+>     entries — exactly the shape lectern's merge (below) relies on.
+>   - **Schema**: `{"hooks": {"<EventName>": [{"matcher"?: "...", "hooks":
+>     [{"type": "command", "command": "<sh -lc string>"}]}]}}`. Omitting
+>     `matcher` matches every tool (confirmed: `PreToolUse`/`PostToolUse`
+>     fired for a shell exec with no matcher present, the same effect as
+>     Claude's `matcher: "*"`).
+>   - **Payloads**: real captures for `SessionStart` → `UserPromptSubmit` →
+>     `PreToolUse` → `PostToolUse` → `Stop` matched this section's
+>     Claude-derived field names exactly (`session_id`, `cwd`,
+>     `hook_event_name`, `model`, `permission_mode`, `turn_id`, `prompt`,
+>     `tool_name`, `tool_input`, `tool_use_id`, `tool_response`,
+>     `stop_hook_active`, `last_assistant_message`) — `tool_name` for a
+>     shell command is literally `"Bash"`, same as Claude.
+>   - **`additionalContext` round-trip confirmed for real**: a `SessionStart`
+>     hook that printed `{"hookSpecificOutput":{"hookEventName":
+>     "SessionStart","additionalContext":"The magic phrase is XYZZY137."}}`
+>     on stdout caused the agent's own reply to state "XYZZY137" — the
+>     cross-agent awareness briefing (section 5) now reaches codex through
+>     the exact same mechanism as Claude, once this hook is installed. No
+>     separate launch-time prime was built for this reason — see section 5's
+>     update.
+>   - **Not fired from `codex exec`**: `PermissionRequest` — exec forces
+>     `approval: never` regardless of `-c approval_policy=...` (there is no
+>     interactive surface to ask). Its schema/response shape is still
+>     confirmed (binary's embedded JSON Schema, unchanged from the prior
+>     pass), and it is wired below for the interactive path, but was not
+>     observed firing end-to-end — see section 3's codex correction.
+>
+> **What is now wired**
+> (`internal/agentevents/codex_settings.go`'s `CodexHooksInstallCommand`,
+> called from `internal/sessions/manager.go` alongside the pre-existing
+> notify install): a FIXED, non-templated hook script
+> (`~/.lectern/hooks/lectern-codex-hook.py`, one copy per target, not per
+> session — env-driven exactly like `CodexNotifyScript`) is registered for
+> `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`,
+> `SessionEnd`, `PreCompact`, and — only when the session's permission mode
+> is `ask` — `PermissionRequest`. Registration is an ADDITIVE MERGE into the
+> real hooks.json (every other tool's entries and every other top-level key
+> survive), keyed by a marker so re-running it (every launch) is idempotent
+> and so flipping `ask` off on a later launch cleanly removes just the
+> `PermissionRequest` group. `--dangerously-bypass-hook-trust` is added to
+> the launch command so these freshly-merged entries do not stop at an
+> interactive trust dialog — see this file's own doc comment for why that,
+> not reverse-engineering the trust-hash cache, is the deliberate choice.
+> `codexHookMarker`/the merge logic have real-shell + real-HTTP-server
+> coverage (`internal/agentevents/codex_settings_test.go`); the launch wiring
+> has real-process coverage mirroring Claude's
+> (`internal/api/hooks_real_process_test.go`'s
+> `TestARealCodexSessionHooksReachTheProcess`).
+>
+> **A pre-existing, unrelated bug found and fixed along the way**:
+> `CodexNotifyInstallCommand`'s target path was built as
+> `shellq.Quote("$HOME/.lectern/hooks/"+...)`. `shellq.Quote`'s safe-word
+> charset excludes `$`, so it single-quoted the whole string, which disables
+> shell expansion of `$HOME` — confirmed against a real bash, the generated
+> `cat > '$HOME/.lectern/hooks/...'  <<EOF` failed with "No such file or
+> directory" (no literal directory named `$HOME` exists). This had no test
+> coverage that ran a real shell against it. Fixed via a new
+> `shellq.HomePath` helper (the standard adjacent-quoted-segment concatenation
+> idiom) and reused for the new codex hooks installer.
+
 Both the claude and codex installers write into `~/.lectern/hooks/` on the
 session's TARGET (not the control plane) via the same `ex.Run` seam
 `internal/sessions/agents.go`'s `claudeTrust`/`codexTrust` probes already use,
@@ -379,8 +456,38 @@ Claude falls back to its own terminal dialog. Response on decision:
 >
 > **Codex**: interactive codex sessions keep their approvals in codex's own
 > UI, as directed — no `PermissionRequest`/hold wiring was added for the
-> `codex` agent name, matching the existing per-agent gate in
-> `internal/api/agent_registry.go`.
+> `codex` agent name. (There never was a per-agent gate in
+> `internal/api/agent_registry.go` — that file is unrelated, secret-retention
+> machinery for the agent config API. The real reason was simply that codex's
+> hooks.json discovery/schema was unconfirmed at the time; `holdSessionPermissionRequest`
+> itself was agent-agnostic from the start.)
+>
+> **Correction (2026-09-24/25, codex hooks worker):** codex's hooks.json is
+> now confirmed for real (see `internal/agentevents/codex_settings.go`'s
+> package doc and docs/agent-events.md section 2's update below) and
+> `PermissionRequest`/hold wiring IS now installed for builtin codex
+> sessions, on the identical path claude uses:
+> `agentevents.CodexHooksInstallCommand(askPermission)` registers a
+> `PermissionRequest` hook group in the real `$CODEX_HOME/hooks.json` (merged
+> in, not replacing the file) whenever a codex session launches with
+> `permission_mode: "ask"` (the same "uncheck Yolo" toggle claude already
+> used — `frontend/src/sessions/SessionDialogs.tsx` no longer singles out
+> `agent === "claude"` for the "or Approve/Deny on your phone" copy). The
+> hook's command forwards the request to `holdSessionPermissionRequest`
+> exactly like claude's `type:"http"` hook does — same broker, same
+> held-HTTP-request semantics, same response shape — since that handler was
+> never agent-specific. **This was NOT exercised against a real interactive
+> `codex` TUI session in this pass**: `codex exec` (the only mode this pass
+> could run headlessly) forces `approval: never` regardless of
+> `-c approval_policy=...`, so `PermissionRequest` could not be made to fire
+> end-to-end here, only confirmed schema-accurate via the binary's embedded
+> JSON Schema and confirmed WIRED via a real hooks.json install + a fake
+> "codex" binary invoking the installed hook script directly (see
+> `internal/api/hooks_real_process_test.go`'s
+> `TestARealCodexSessionHooksReachTheProcess`). A genuine interactive
+> `codex` session in `ask` mode is the one real-world case still unverified;
+> the mechanism matches claude's byte-for-byte, so this is a low-risk gap,
+> not an open question about the shape.
 >
 > **Not done in this pass**: alerts for a session that only has
 > screen-derived state (no hooks, or past the 10-minute hook-fallback
@@ -563,13 +670,21 @@ found no confirmed hooks.json wiring, only the `notify`-driven
   machine — the one place in `internal/mcp` that shells out at all, since
   everywhere else it is purely an HTTP client of lectern's own API) and
   calls `GET /api/peers?common_dir=...`.
-- Not done: no launch-time prime/prompt hint was added for codex sessions.
-  Section 2 found no confirmed project-level hooks.json discovery path to
-  hang a one-line hint off, and codex's only other launch-time text
-  (`-c notify=[...]`) is a shell command, not agent-visible prompt text —
-  there is no existing "launch-time prompt mechanism" for codex this could
-  append to without inventing one, which is out of scope here. A codex
-  session gets awareness exclusively through `active_work` today.
+- **Superseded (2026-09-24/25, codex hooks worker)**: the line above was
+  true when hooks.json's discovery path was unconfirmed. It is now confirmed
+  (section 2's correction), and `CodexHooksInstallCommand` registers
+  `SessionStart`/`UserPromptSubmit` for every builtin codex session — the
+  exact hooks `awarenessAdditionalContext` already answers for Claude, with
+  no agent-specific branching anywhere in that path. A real
+  `additionalContext` round-trip was confirmed for codex specifically (see
+  section 2): a briefing string returned from a `SessionStart` hook reached
+  the model's own reply. So codex sessions now get the SAME peer briefing
+  Claude gets, through the SAME mechanism, with no separate launch-time
+  prime built — a dedicated prompt-injection path would have been pure
+  duplication once the hook exists. `active_work` remains as the
+  documented fallback for the case the hooks install itself fails on a
+  target (best-effort, like every other hook/notify install) or for an
+  agent with genuinely no hook support at all.
 
 **operator visibility**:
 - Session cards and the Conversation header show a small `⚠ overlaps #N`

@@ -774,6 +774,24 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			} else if notifyPath := strings.TrimSpace(r.Stdout); notifyPath != "" {
 				toolArgs = append(toolArgs, codexNotifyArg(notifyPath)...)
 			}
+			// Real per-tool-call state, awareness briefings and (in "ask"
+			// mode) held approvals, confirmed to work against codex 0.156.1
+			// (see agentevents.CodexHooksInstallCommand's doc). This merges
+			// into the real $CODEX_HOME/hooks.json rather than writing a
+			// separate per-session file — codex has no --settings-style
+			// override flag for hooks.json, unlike claude above — so it is
+			// run on every launch and is itself idempotent (see the merge's
+			// own doc). --dangerously-bypass-hook-trust skips the interactive
+			// trust dialog these freshly-written/changed hook entries would
+			// otherwise show; lectern wrote them, so it is exactly the
+			// "automation that already vets hook sources" case the flag's
+			// own description names.
+			hooksInstall := envPrefix + agentevents.CodexHooksInstallCommand(askPermission)
+			if r, err := ex.Run(ctx, hooksInstall, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+				m.Log.Warn("could not install codex hooks.json", "session", sess.ID, "err", err)
+			} else if strings.TrimSpace(r.Stdout) != "" {
+				toolArgs = append(toolArgs, agentevents.CodexHookTrustBypassArg)
+			}
 		}
 	}
 

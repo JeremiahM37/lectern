@@ -129,6 +129,10 @@ func newRealRig(t *testing.T) *realRig {
 	if err := os.WriteFile(agentPath, []byte(fakeAgent), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	codexAgentPath := filepath.Join(dir, "fake-codex")
+	if err := os.WriteFile(codexAgentPath, []byte(fakeAgent), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -142,6 +146,7 @@ func newRealRig(t *testing.T) *realRig {
 		ApprovalExpire:   900 * time.Second,
 		JanitorDays:      0, // never sweep mid-test
 		ClaudeBin:        agentPath,
+		CodexBin:         codexAgentPath,
 		BaseURL:          "http://" + ln.Addr().String(),
 		HostClaudeConfig: filepath.Join(dir, "none.json"),
 		ClaudeCredsPath:  filepath.Join(dir, "none.json"),
