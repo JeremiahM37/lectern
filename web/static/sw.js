@@ -1,6 +1,19 @@
 "use strict";
 (() => {
   // src/sw-actions.ts
+  function groupTag(data) {
+    if (data.kind === "approval" && data.approval_id != null) return `approval-${data.approval_id}`;
+    if (data.session_id != null) return `session-${data.session_id}`;
+    return `kind-${data.kind || "general"}`;
+  }
+  function sessionActions(data) {
+    if (data.kind !== "waiting_permission" && data.kind !== "waiting_input") return [];
+    if (data.session_id == null) return [];
+    return [
+      { action: "terminal", title: "\u2328 Open terminal" },
+      { action: "reply", title: "\u{1F4AC} Reply" }
+    ];
+  }
   function buildNotificationPlan(data) {
     const approvalId = data.kind === "approval" ? data.approval_id : void 0;
     return {
@@ -9,13 +22,19 @@
         body: data.body || "",
         icon: "/icon.svg",
         badge: "/icon.svg",
-        data: { url: data.url || "/", approvalId },
+        tag: groupTag(data),
+        renotify: true,
+        vibrate: approvalId != null ? [200, 80, 200, 80, 200] : [120],
+        data: { url: data.url || "/", approvalId, sessionId: data.session_id },
         actions: approvalId != null ? [
           { action: "approve", title: "\u2705 Approve" },
           { action: "deny", title: "\u26D4 Deny" }
-        ] : []
+        ] : sessionActions(data)
       }
     };
+  }
+  function actionURL(action, sessionId) {
+    return `/#session/${sessionId}/${action}`;
   }
   function decisionForAction(action) {
     if (action === "approve") return "approved";
@@ -42,11 +61,26 @@
     return { title: decision === "approved" ? "Approved" : "Denied", body: "Sent from the notification." };
   }
 
+  // src/badge.ts
+  function applyBadge(nav, count) {
+    try {
+      if (count > 0) void nav.setAppBadge?.(count)?.catch(() => {
+      });
+      else void nav.clearAppBadge?.()?.catch(() => {
+      });
+    } catch {
+    }
+  }
+  var ACTIONABLE_KINDS = /* @__PURE__ */ new Set(["approval", "waiting_permission", "waiting_input"]);
+  function needsBadge(kind) {
+    return !!kind && ACTIONABLE_KINDS.has(kind);
+  }
+
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-8ebadf2a9b5a";
+  var CACHE = "lectern-react-7d51df95760e";
   worker.addEventListener("install", (event) => event.waitUntil((async () => {
-    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-JcHIGRdh.js","/react/assets/app-s1znDJX4.css","/react/assets/terminal--ueVzdSu.js","/react/assets/terminal-CewVVPtL.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
+    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-CJWiWG71.js","/react/assets/app-DWthXNZc.css","/react/assets/terminal-Banmt6Cj.js","/react/assets/terminal-BsW0wNtV.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {
@@ -72,6 +106,11 @@
       }
     })());
   });
+  var badgeCount = 0;
+  worker.addEventListener("message", (event) => {
+    const data = event.data;
+    if (data?.type === "lec-badge-count" && typeof data.count === "number") badgeCount = Math.max(0, data.count);
+  });
   worker.addEventListener("push", (event) => {
     let data = {};
     try {
@@ -79,6 +118,10 @@
     } catch {
     }
     const plan = buildNotificationPlan(data);
+    if (needsBadge(data.kind)) {
+      badgeCount += 1;
+      applyBadge(navigator, badgeCount);
+    }
     event.waitUntil(worker.registration.showNotification(plan.title, plan.options));
   });
   function resolveAppURL(raw) {
@@ -110,6 +153,10 @@
         const confirmation = confirmationNotification(decision, ok);
         await worker.registration.showNotification(confirmation.title, { body: confirmation.body, icon: "/icon.svg", badge: "/icon.svg", data: { url: resolveAppURL(data?.url).href } });
       })());
+      return;
+    }
+    if ((event.action === "terminal" || event.action === "reply") && data?.sessionId != null) {
+      event.waitUntil(openApp(resolveAppURL(actionURL(event.action, data.sessionId))));
       return;
     }
     event.waitUntil(openApp(resolveAppURL(data?.url)));
