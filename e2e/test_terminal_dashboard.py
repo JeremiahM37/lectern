@@ -308,9 +308,10 @@ def test_dashboard_restores_group_layout_after_restart(real_terminal):
     finally:d.close()
 
 
-def test_dashboard_mouse_click_attaches_and_returns(real_terminal):
+@pytest.mark.parametrize("outer_tmux", [False, True])
+def test_dashboard_mouse_click_attaches_and_returns(real_terminal, outer_tmux):
     t = real_terminal
-    d = Dashboard(t)
+    d = Dashboard(t, outer_tmux=outer_tmux)
     try:
         d.wait('Real terminal'); d.wait('LIVE')
         for width in (120, 80):
@@ -319,6 +320,14 @@ def test_dashboard_mouse_click_attaches_and_returns(real_terminal):
             x = d.screen.display[y].index('Real terminal') + 1
             # Real SGR mouse down/up, not a mocked dashboard callback.
             d.send(f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m')
+            deadline = time.monotonic() + 12
+            clients = ''
+            while time.monotonic() < deadline:
+                d.pump()
+                clients = subprocess.check_output(['tmux', 'list-clients', '-t', 'terminal-test', '-F', '#{client_name}'], env=t['env'], text=True).strip()
+                if clients:
+                    break
+            assert clients, d.text
             d.wait('$')
             d.send("printf mouse-attached > mouse-proof.txt\r")
             deadline = time.monotonic() + 4

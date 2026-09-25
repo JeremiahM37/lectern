@@ -10,6 +10,10 @@ this page — see the top-level README's Install section.
 
 Run `lectern` in an interactive terminal, or `lectern console`, for the live
 dashboard. It opens on Sessions, groups by project, and refreshes automatically.
+A single left-click on a session row attaches in the current terminal.
+Click a group heading to fold it; use arrows/j/k to select a session for preview
+without attaching. Detach with **Ctrl-b**, then **d**, to click another session.
+Mouse reporting is restored after returning, including inside tmux.
 Use `lectern serve` to start the server explicitly. Existing systemd/container
 launches with no arguments and no terminal still start the server.
 

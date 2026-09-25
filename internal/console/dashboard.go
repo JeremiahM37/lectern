@@ -874,7 +874,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.notice = "Detached. Session keeps running."
 		}
-		return m, tea.Batch(m.refresh(), tea.WindowSize())
+		return m, tea.Batch(m.refresh(), tea.WindowSize(), tea.EnableMouseCellMotion)
 	case tea.KeyMsg:
 		if m.review != nil {
 			return m, m.updateReview(v)
