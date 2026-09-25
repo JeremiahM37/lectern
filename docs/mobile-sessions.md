@@ -52,3 +52,35 @@ the targets where its command and credentials are installed.
 Native keyboard and gesture coverage, limitations, and the nightly audit are
 in [Mobile terminal testing](testing/mobile-terminal.md). The Android fixture is
 disposable and never types into a person's running agent.
+
+## Glanceable home, voice, badges and richer alerts
+
+A **Now** strip sits at the top of Sessions: one chip per live session (working
+/ waiting / done / error) and, when any exist, how many approvals are
+waiting — a tap on either jumps straight there. It is the PWA analogue of a
+native app's Live Activity, since a browser tab cannot keep one on the lock
+screen. The app icon's own **badge** (where the platform supports it) mirrors
+the same count — set from the page on every refresh, and bumped by the
+service worker itself on a push, so it stays roughly right even between page
+loads; it clears the moment nothing needs you.
+
+Wherever there is a text box for a reply — the chat composer and the
+Needs-you "deny with reason" field — a mic button appears if the browser
+supports the Web Speech API and stays hidden if it does not. Interim words
+show up as they are heard and are replaced, never duplicated, once
+recognized; nothing is ever sent on your behalf; you still tap Send.
+
+Notifications for the same session replace each other in the tray instead of
+stacking (grouped by session, or by approval, or by kind for a broadcast like
+a failed check). A session waiting on you gets **Open terminal** and
+**Reply** actions alongside the usual tap-to-open — Reply opens the chat with
+the composer already focused. iOS Safari not yet added to the Home Screen
+gets explicit numbered steps in Settings → Notifications, not just the one
+reason sentence every other unavailable case gets.
+
+The terminal's Tools menu on a phone carries one more, deliberately
+low-profile item: **Report keyboard layout**, which captures the exact
+viewport/keyboard numbers this device is reporting — for pasting into a bug
+report when the phone keyboard covers the prompt in a way no emulator has
+reproduced (see the keyboard-coverage history in
+[Mobile terminal testing](testing/mobile-terminal.md)).

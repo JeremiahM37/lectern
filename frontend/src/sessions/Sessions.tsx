@@ -19,6 +19,7 @@ import { ScratchTerminals } from "./ScratchTerminals";
 import { isScratchTerminal } from "./scratch";
 import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
 import { NeedsYou, type PushPrompt } from "./NeedsYou";
+import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
 import "./sessions.css";
 export interface SessionsApi {
@@ -350,16 +351,31 @@ export function Sessions({
   // A needs-you row for a session that cannot be chatted with (failed setup,
   // gone terminal) points at its card, where recovery lives. Opening the
   // worktree disclosure is how the setup error is already read.
-  function showSession(session: SessionView) {
+  function showSession(session: SessionView, retried?: boolean) {
     const node = document.querySelector<HTMLElement>(
       `[data-session-id="${session.id}"]`,
     );
-    if (!node) return;
+    if (!node) {
+      // The Now strip shows every non-archived session, including ones the
+      // current "Active sessions" scope filters out of the list below (a
+      // finished-but-not-yet-archived "done" chip, chiefly) — widen scope
+      // once so the tap actually has somewhere to land, then give up rather
+      // than polling forever for a row that will never render.
+      if (retried) return;
+      if (scope === "active" && session.status === "dead") setScope("all");
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => showSession(session, true)),
+      );
+      return;
+    }
     node.scrollIntoView();
     const worktree = node.querySelector<HTMLDetailsElement>(
       "details.session-worktree",
     );
     if (worktree) worktree.open = true;
+  }
+  function showApprovals() {
+    document.getElementById("needs-you")?.scrollIntoView();
   }
   async function restoreRecent(session: RecentSession) {
     try {
@@ -480,6 +496,12 @@ export function Sessions({
           + New session
         </button>
       </div>
+      <NowStrip
+        rows={rows}
+        approvalsCount={approvals.length}
+        onShowSession={showSession}
+        onShowApprovals={showApprovals}
+      />
       <input
         id="sess-search"
         className="f"

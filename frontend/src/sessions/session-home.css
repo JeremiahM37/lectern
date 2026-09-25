@@ -219,3 +219,22 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* A clear, unambiguous "still listening" state for a mic button — shared by
+   the chat composer and the Needs-you deny-with-reason field — since this is
+   the moment a person is most likely to be glancing rather than reading. */
+button.mic-recording {
+  background: #b3261e;
+  color: #fff;
+  border-color: #b3261e;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}

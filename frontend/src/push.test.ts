@@ -25,6 +25,16 @@ test("iOS Safari not installed to the Home Screen gets its own explanation", () 
   const got = pushAvailability({ ...FULL, isIOS: true, isStandalone: false });
   assert.equal(got.available, false);
   assert.match(got.reason!, /home screen/i);
+  assert.equal(got.reasonKind, "ios-not-installed");
+});
+
+test("reasonKind tells apart the three ways push can be unavailable", () => {
+  assert.equal(pushAvailability({ ...FULL, isSecureContext: false }).reasonKind, "insecure");
+  assert.equal(
+    pushAvailability({ ...FULL, isIOS: true, isStandalone: false }).reasonKind,
+    "ios-not-installed",
+  );
+  assert.equal(pushAvailability({ ...FULL, hasPushManager: false }).reasonKind, "unsupported");
 });
 
 test("an installed iOS PWA (standalone) is treated as available", () => {
