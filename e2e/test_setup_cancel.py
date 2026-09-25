@@ -21,7 +21,7 @@ def choose_action(dashboard, label, timeout=12):
             start = next(i for i, line in enumerate(lines)
                          if line.strip().startswith('Actions ·'))
             end = next(i for i in range(start + 1, len(lines))
-                       if lines[i].strip().startswith(('Enter attach ·', 'Click attach ·')))
+                       if lines[i].strip().startswith(('Enter attach ·', 'Click attach ·', 'Click/Enter attach ·')))
         except StopIteration:
             continue
         actions = [line.strip() for line in lines[start + 1:end] if line.strip()]

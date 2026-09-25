@@ -255,7 +255,7 @@ func TestNativeWrapWriteModesAndSocketLayout(t *testing.T) {
 func TestNativeWrapWorkspaceUsesOuterPopup(t *testing.T) {
 	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "/tmp/tmux-1000/default,123,0")
 	popup := workspacePopup(plan.clientArgv(), plan.inWorkspace, "Lectern · Ctrl-] m actions")
-	if popup[0] != "tmux" || popup[1] != "display-popup" {
+	if popup[0] != "tmux" || popup[1] != "-S" || popup[3] != "display-popup" {
 		t.Fatalf("no workspace popup: %v", popup)
 	}
 	if popup[len(popup)-2] != "Lectern · Ctrl-] m actions" {

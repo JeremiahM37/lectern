@@ -22,10 +22,11 @@ func attach(cfg *config.Config, args []string) error {
 		return err
 	}
 	return runAttachment(argv, &nativeControls{
-		Kind:  args[0],
-		ID:    args[1],
-		Base:  env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)),
-		Token: cfg.AuthToken,
+		Kind:    args[0],
+		ID:      args[1],
+		Base:    env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port)),
+		Token:   cfg.AuthToken,
+		TabView: os.Getenv("LECTERN_TAB_VIEW") == "1",
 	})
 }
 
@@ -94,7 +95,7 @@ func attachAt(cfg *config.Config, args []string, base, attachHost string, contro
 	if !controls {
 		return runAttachment(argv, nil)
 	}
-	return runAttachment(argv, &nativeControls{Kind: args[0], ID: args[1], Base: base, Token: cfg.AuthToken})
+	return runAttachment(argv, &nativeControls{Kind: args[0], ID: args[1], Base: base, Token: cfg.AuthToken, TabView: os.Getenv("LECTERN_TAB_VIEW") == "1"})
 }
 
 func attachmentCommand(cfg *config.Config, args []string) ([]string, error) {
@@ -204,5 +205,17 @@ func workspacePopup(argv []string, workspace, title string) []string {
 	for i, word := range argv {
 		words[i] = shellq.Quote(word)
 	}
-	return []string{"tmux", "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", title, "env -u TMUX " + strings.Join(words, " ")}
+	return []string{"tmux", "-S", workspaceSocket(workspace), "display-popup", "-E", "-w", "100%", "-h", "100%", "-T", title, "env -u TMUX " + strings.Join(words, " ")}
+}
+
+// TMUX ends with ,server-pid,session-index; socket names themselves may contain commas.
+func workspaceSocket(value string) string {
+	for i := 0; i < 2; i++ {
+		index := strings.LastIndex(value, ",")
+		if index < 0 {
+			break
+		}
+		value = value[:index]
+	}
+	return value
 }

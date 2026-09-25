@@ -28,10 +28,11 @@ const nativeControlsEnv = "LECTERN_NATIVE_CONTROLS"
 // handed only to the private tmux server this client starts and never appears
 // in an argument list, a config file, or the status line.
 type nativeControls struct {
-	Kind  string
-	ID    string
-	Base  string
-	Token string
+	Kind    string
+	ID      string
+	Base    string
+	Token   string
+	TabView bool
 }
 
 func nativeControlsOff() bool {
@@ -251,6 +252,10 @@ func execScriptWithEnv(env []string, argv []string) string {
 }
 
 func (p *nativeWrapPlan) tmuxConfig() string {
+	hint := "#[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
+	if p.controls.TabView {
+		hint = "#[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
+	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
 		// Windows Terminal/xterm translate wheel motion in the alternate screen
@@ -271,7 +276,7 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		// The primary shortcut leads the row so a narrow client clips trailing
 		// text, never the hint itself. The window list is dropped: its text
 		// otherwise crowds the hint out on mobile-width terminals.
-		"set -g status-left '#[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
+		"set -g status-left " + shellq.Quote(hint),
 		"set -g status-right ''",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",

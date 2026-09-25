@@ -114,7 +114,14 @@ def test_menu_and_direct_attach_use_portable_term(real_terminal,tmp_path):
                 until(b'Action:');os.write(master,b'b\n')
                 until(b'Choose:');os.write(master,b'b\n')
                 until(b'Open:');os.write(master,b'q\n')
-            child.wait(timeout=10)
+            # Keep draining the PTY during teardown: tmux can block writing its
+            # final redraw if the reader waits for process exit first.
+            deadline=time.monotonic()+10
+            while child.poll() is None and time.monotonic()<deadline:
+                if select.select([master],[],[],.1)[0]:
+                    try: os.read(master,65536)
+                    except OSError: break
+            child.wait(timeout=2)
             assert child.returncode==0
         finally:
             if child.poll() is None:child.terminate();child.wait(timeout=10)

@@ -111,6 +111,11 @@ type resultMsg struct {
 	notice string
 }
 type attachedMsg struct{ err error }
+type terminalOpenedMsg struct {
+	err  error
+	exit bool
+	id   string
+}
 type promotionPreviewMsg struct {
 	data []byte
 	err  error
@@ -119,6 +124,9 @@ type dashboard struct {
 	focusSessionID                      string
 	client                              *Client
 	attach                              func(string, string) error
+	openTerminal                        func(string, string, bool) error
+	terminalWorkspace                   bool
+	batchOpen                           bool
 	insert                              func(string) error
 	section                             int
 	rows, visible                       []row
@@ -176,7 +184,11 @@ type dashboardFocus struct {
 
 // DashboardOptions selects which dashboard surface to render.
 type DashboardOptions struct {
-	Attach func(string, string) error
+	Attach            func(string, string) error
+	OpenTerminal      func(string, string, bool) error
+	TerminalWorkspace bool
+	BatchOpen         bool
+	InitialSessionID  string
 	// Insert types text into the attached terminal without submitting it. Only
 	// the Ctrl-] controls popup sets it, where a real pane sits underneath.
 	Insert      func(string) error
@@ -192,6 +204,11 @@ type DashboardOptions struct {
 // for pipes and accessibility via console --plain.
 func RunDashboard(c *Client, in io.Reader, out io.Writer, attach func(string, string) error) error {
 	return runDashboard(c, in, out, DashboardOptions{Attach: attach})
+}
+
+// RunDashboardWithOptions enables native attachment and background workspace tabs.
+func RunDashboardWithOptions(c *Client, in io.Reader, out io.Writer, opts DashboardOptions) error {
+	return runDashboard(c, in, out, opts)
 }
 
 // RunControls renders the dashboard without native attachment actions. It is
@@ -222,6 +239,10 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	q.Placeholder = "Search name, project, target, agent…"
 	q.CharLimit = 200
 	m := &dashboard{client: c, attach: opts.Attach, insert: opts.Insert, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
+	m.openTerminal = opts.OpenTerminal
+	m.terminalWorkspace = opts.TerminalWorkspace
+	m.batchOpen = opts.BatchOpen
+	m.focusSessionID = opts.InitialSessionID
 	m.controlOnly = opts.ControlOnly
 	m.popup = opts.Popup
 	if kind := controlsKind(opts.FocusKind); kind != "" && opts.FocusID != "" {
@@ -868,6 +889,16 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.adoptForm(v.rows)
+	case terminalOpenedMsg:
+		m.busy = false
+		if v.err != nil {
+			m.notice = "New terminal: " + clean(v.err.Error())
+		} else if v.exit {
+			return m, tea.Quit
+		} else {
+			m.notice = "Opened session " + v.id + " in a background tab · click its tab to switch"
+		}
+		return m, tea.EnableMouseCellMotion
 	case attachedMsg:
 		if v.err != nil {
 			m.notice = "Attach: " + clean(v.err.Error())
@@ -1070,6 +1101,18 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detailKey = ""
 			m.previewFocus = !m.previewFocus
 			m.updatePreview()
+		case "o":
+			return m, m.attachSelectedTo(false, true)
+		case "b":
+			if m.controlOnly {
+				return m, m.nativeDisabled()
+			}
+			m.batchOpen = !m.batchOpen
+			if m.batchOpen {
+				m.notice = "Batch open ON · Enter/click opens background tabs · b returns to normal attach"
+			} else {
+				m.notice = "Batch open OFF · Enter/click attaches here"
+			}
 		case "enter", "a":
 			if m.selectedGroup() != nil {
 				m.toggleGroup()
@@ -1156,6 +1199,10 @@ func (e attachmentExec) SetStdin(io.Reader)  {}
 func (e attachmentExec) SetStdout(io.Writer) {}
 func (e attachmentExec) SetStderr(io.Writer) {}
 func (m *dashboard) attachSelected(shell bool) tea.Cmd {
+	return m.attachSelectedTo(shell, m.batchOpen && !shell)
+}
+
+func (m *dashboard) attachSelectedTo(shell, newTerminal bool) tea.Cmd {
 	if m.controlOnly {
 		return m.nativeDisabled()
 	}
@@ -1197,6 +1244,22 @@ func (m *dashboard) attachSelected(shell bool) tea.Cmd {
 	// in the repository without creating an agent session.
 	if shell && kind != "project" {
 		kind += "-shell"
+	}
+	if newTerminal {
+		if m.openTerminal == nil {
+			m.notice = "New terminal launcher unavailable"
+			return nil
+		}
+		if m.busy {
+			return nil
+		}
+		open, batch, workspace := m.openTerminal, m.batchOpen, m.terminalWorkspace
+		m.busy = true
+		done := func(err error) tea.Msg { return terminalOpenedMsg{err: err, exit: workspace && err == nil, id: rid} }
+		if workspace {
+			return tea.Exec(attachmentExec{func() error { return open(kind, rid, batch) }}, done)
+		}
+		return func() tea.Msg { return done(open(kind, rid, batch)) }
 	}
 	if m.attach == nil {
 		m.notice = "Native attachment unavailable"
@@ -1250,6 +1313,9 @@ func (m *dashboard) View() string {
 	header := clip(title, m.width) + "\n" + clip(strings.Join(tabs, ""), m.width) + "\n" + clip(m.query.View(), m.width-1) + "\n"
 	group := []string{"project", "target", "none", "named group"}[m.grouping]
 	meta := fmt.Sprintf(" %d/%d items · group: %s", m.matched, len(m.rows), group)
+	if m.batchOpen {
+		meta = " BATCH OPEN · Enter/click → new tab · b to exit"
+	}
 	if m.attention {
 		meta += " · needs attention"
 	}
@@ -1348,7 +1414,22 @@ func (m *dashboard) View() string {
 		keys = " Enter open project shell · / find · m actions · q quit"
 	}
 	if m.section == 0 {
-		keys = strings.Replace(keys, "Enter attach", "Click attach", 1)
+		keys = " Click/Enter attach · o new tab · b batch · / find · ? help · q quit"
+		if m.batchOpen {
+			keys = " Enter/click new tab · b normal · / find · ? help · q quit"
+		}
+		if m.width < 70 {
+			keys = " o new tab · b batch · ? help · q quit"
+		}
+		if m.selectedGroup() != nil {
+			keys = " Enter/click fold · b batch · ? help · q quit"
+		}
+		if m.width < 42 {
+			keys = " o tab · b batch · ? · q quit"
+			if m.selectedGroup() != nil {
+				keys = " Click fold · b batch · q quit"
+			}
+		}
 	}
 	footer := muted.Render(clip(keys, m.width-1)) + "\n" + clip(" "+status, m.width-1)
 	return header + strings.Join(lines, "\n") + "\n" + footer
@@ -1425,6 +1506,8 @@ func (m *dashboard) listView(height int) string {
 const dashboardHelp = ` Keyboard shortcuts
 
  Click session  Attach          Click group  Fold/unfold
+ o             New terminal tab (keep list open)
+ b             Batch-open mode: Enter/click opens background tabs
  ↑/k ↓/j       Select item       Enter/a  Attach (Ctrl-b d returns)
  1–6 / ←→      Change section    Tab/p    Focus list / preview
  /             Fuzzy search     @ ! # &  Search prefix: waiting/running/idle/failed

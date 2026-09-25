@@ -749,3 +749,45 @@ func TestDashboardSessionMouseAttachesOnlyVisibleRows(t *testing.T) {
 		t.Fatal("mouse release attached twice")
 	}
 }
+
+func TestDashboardBackgroundTabsKeepDefaultAttachAndBatchMode(t *testing.T) {
+	m := sampleDashboard()
+	m.attach = func(string, string) error { return nil }
+	opened := 0
+	m.openTerminal = func(kind, id string, batch bool) error {
+		if kind != "session" || id == "" {
+			t.Fatal("wrong target")
+		}
+		opened++
+		return nil
+	}
+	_, cmd := m.Update(key("o"))
+	if cmd == nil {
+		t.Fatal("no background open")
+	}
+	m.Update(cmd())
+	if opened != 1 || m.busy {
+		t.Fatal("open did not complete")
+	}
+	m.Update(key("b"))
+	if !m.batchOpen {
+		t.Fatal("batch toggle")
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("batch Enter ignored")
+	}
+	m.Update(cmd())
+	if opened != 2 {
+		t.Fatal("batch Enter attached in place")
+	}
+	m.Update(key("b"))
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || opened != 2 {
+		t.Fatal("normal Enter changed")
+	}
+	m.controlOnly = true
+	if _, cmd = m.Update(key("o")); cmd != nil {
+		t.Fatal("controls popup opened terminal")
+	}
+}

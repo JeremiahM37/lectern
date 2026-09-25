@@ -339,7 +339,13 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 			return fmt.Errorf("usage: lectern console [--plain]")
 		}
 		if len(args) == 0 && interactiveTerminal() {
-			return console.RunDashboard(c, os.Stdin, os.Stdout, attachClient)
+			return console.RunDashboardWithOptions(c, os.Stdin, os.Stdout, console.DashboardOptions{
+				Attach:            attachClient,
+				OpenTerminal:      func(kind, id string, batch bool) error { return openTerminalTab(base, token, kind, id, batch) },
+				TerminalWorkspace: os.Getenv("TMUX") == "",
+				BatchOpen:         os.Getenv("LECTERN_INITIAL_BATCH") == "true",
+				InitialSessionID:  os.Getenv("LECTERN_INITIAL_SESSION"),
+			})
 		}
 		return console.NewUI(c, os.Stdin, os.Stdout, attachClient).Run()
 	case "api":

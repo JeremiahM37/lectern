@@ -13,7 +13,7 @@ func TestAttachmentInWorkspacePreservesArguments(t *testing.T) {
 		t.Fatalf("outside workspace: %q", got)
 	}
 	got := attachmentInWorkspace(argv, "/tmp/tmux")
-	if got[0] != "tmux" || got[1] != "display-popup" {
+	if got[0] != "tmux" || got[1] != "-S" || got[3] != "display-popup" {
 		t.Fatalf("missing popup: %q", got)
 	}
 	out, err := exec.Command("sh", "-c", got[len(got)-1]).Output()

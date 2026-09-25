@@ -22,6 +22,8 @@ launches with no arguments and no terminal still start the server.
 | ↑/↓ or j/k | Select a session, task, routine, project, target or approval |
 | Click a session | Attach immediately in this terminal; click a group to fold/unfold |
 | Enter | Attach; Ctrl-b then d returns to the same selection |
+| o | Open selected session in a background workspace tab; keep the list visible |
+| b | Toggle batch-open mode: Enter and clicking open background tabs |
 | S | Choose a machine and open a blank persistent shell |
 | / | Fuzzy search names, projects, targets, agent names and paths |
 | @ / ! / # / & at start of search | Waiting / running / idle / failed |
@@ -41,6 +43,29 @@ persistent shell in its repository on the project's machine. No agent is
 launched. You can inspect files and run commands directly; **Ctrl-b**, then
 **d** returns to the project list. A configured tmux `default-command` does
 not replace this shell with an agent launcher.
+
+### Open several terminals quickly
+
+Press **o** on a session to open it in another workspace tab while the session
+list remains visible. Press **b** for batch mode, then select sessions and press
+Enter or click their rows to open several tabs. Press **b** again to restore
+normal Enter/click attachment. Inside a new tab, **Ctrl-]**, then **d** closes
+only that view; its agent keeps running. The mode is clearly displayed and is not saved
+as your next launch's default.
+
+This works locally and through SSH, including Windows Terminal's SSH client.
+These are tabs **inside the terminal workspace**, not desktop OS windows. When
+the dashboard is already in tmux it adds background windows to that workspace
+without changing your tmux settings. Otherwise the first **o**/batch open creates
+a private tmux workspace with a **Sessions** tab. Click the tab bar to switch,
+or use **Ctrl-g n/p** and **Ctrl-g 0** to return to Sessions in that private
+workspace. Enter in normal mode continues to attach in place as before.
+
+Quitting the Sessions dashboard in the private workspace closes its terminal
+views; the underlying agent sessions continue running. Existing tmux workspaces
+keep their background windows when the dashboard exits. No desktop launcher or
+Windows-specific helper is needed; the machine running the dashboard needs tmux,
+as for normal native attachments.
 
 For optional workflow packs, use **Projects → Actions → Workflows (Spec Kit /
 Maestro)**. Choose the provider and pack, then Enable or Disable and save with

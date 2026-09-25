@@ -338,3 +338,78 @@ def test_dashboard_mouse_click_attaches_and_returns(real_terminal, outer_tmux):
         d.quit()
     finally:
         d.close()
+
+
+@pytest.mark.parametrize('outer_tmux', [False, True])
+def test_dashboard_opens_three_background_terminals_without_leaving_list(real_terminal, outer_tmux):
+    t = real_terminal
+    sessions = [(t['id'], 'Real terminal', 'terminal-test')]
+    for label, name in [('Second tab', 'tab-second'), ('Third tab', 'tab-third')]:
+        subprocess.run(['tmux', 'new-session', '-d', '-s', name, '-c', str(t['root']), 'bash --norc'], env=t['env'], check=True)
+        row = t['api']('/sessions/adopt', {'target_id': t['target_id'], 'tmux_session': name, 'name': label,
+                                          'agent': 'shell', 'workdir': str(t['root'])})
+        sessions.append((row['id'], label, name))
+    d = Dashboard(t, outer_tmux=outer_tmux)
+    try:
+        d.wait('Real terminal'); d.wait('LIVE')
+        d.send('/Real terminal\r')
+        if outer_tmux:
+            d.send('o')
+        else:
+            d.send('b'); d.wait('BATCH OPEN'); d.send('\r')
+        if outer_tmux:
+            d.wait('Opened session')
+        else:
+            d.wait('Ctrl-g n/p: tabs')
+        d.wait('Sessions'); d.wait('LIVE')
+        if outer_tmux:
+            d.send('b')
+        d.wait('BATCH OPEN')
+        # Enter in batch mode opens the second session while retaining the list.
+        d.send('/\x01\x0bSecond tab\r'); d.wait('Second tab'); d.send('\r')
+        d.wait(f'Opened session {sessions[1][0]}')
+        # Clicking in batch mode opens the third without attaching in place.
+        d.send('/\x01\x0bThird tab\r'); d.wait('Third tab'); d.pump(.2)
+        y = next(i for i, line in enumerate(d.screen.display) if i >= 4 and 'Third tab' in line)
+        x = d.screen.display[y].index('Third tab') + 1
+        d.send(f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m')
+        d.wait(f'Opened session {sessions[2][0]}')
+        for _, _, target in sessions:
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline:
+                clients = subprocess.check_output(['tmux', 'list-clients', '-t', target, '-F', '#{client_name}'], env=t['env'], text=True).strip()
+                if clients:
+                    break
+                d.pump(.1)
+            assert clients, (target, d.text)
+        assert 'BATCH OPEN' in d.text
+        # Returning to normal mode leaves Enter's original behavior intact.
+        d.send('b'); d.wait('Batch open OFF')
+        d.send('\r')
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            clients = subprocess.check_output(['tmux', 'list-clients', '-t', sessions[2][2], '-F', '#{client_name}'], env=t['env'], text=True).splitlines()
+            if len(clients) >= 2:
+                break
+            d.pump(.1)
+        assert len(clients) >= 2, d.text
+        d.pump(1)
+        d.send('\x02d')
+        d.wait('Detached. Session keeps running.')
+        # Visit a background tab, then close only its client view.
+        prefix = '\x02' if outer_tmux else '\x07'
+        d.send(prefix + '3'); d.wait('Ctrl+] d close tab')
+        d.send('\x1dd'); d.pump(.5)
+        d.send(prefix + '0'); d.wait('Detached. Session keeps running.')
+        assert 'BATCH OPEN' not in d.text
+        subprocess.run(['tmux', 'has-session', '-t', '='+sessions[2][2]], env=t['env'], check=True)
+        if outer_tmux:
+            d.send('q'); d.pump(.5); d.send('\x02d')
+            d.proc.wait(timeout=10)
+            assert d.proc.returncode == 0
+        else:
+            d.quit()
+        for _, _, target in sessions:
+            subprocess.run(['tmux', 'has-session', '-t', '='+target], env=t['env'], check=True)
+    finally:
+        d.close()
