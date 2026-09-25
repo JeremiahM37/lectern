@@ -16,6 +16,7 @@ launches with no arguments and no terminal still start the server.
 | Keys | Action |
 | --- | --- |
 | ↑/↓ or j/k | Select a session, task, routine, project, target or approval |
+| Click a session | Attach immediately in this terminal; click a group to fold/unfold |
 | Enter | Attach; Ctrl-b then d returns to the same selection |
 | S | Choose a machine and open a blank persistent shell |
 | / | Fuzzy search names, projects, targets, agent names and paths |

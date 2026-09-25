@@ -1117,7 +1117,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nativeSearch.viewport, cmd = m.nativeSearch.viewport.Update(v)
 			return m, cmd
 		}
-		if m.form != nil || m.menu || m.help || m.pending != nil {
+		if m.form != nil || m.menu || m.help || m.pending != nil || m.review != nil || m.recentOpen {
 			return m, nil
 		}
 		if v.Button == tea.MouseButtonWheelUp {
@@ -1127,7 +1127,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if v.Button == tea.MouseButtonLeft && v.Action == tea.MouseActionPress {
 			if m.width >= 100 && v.X > m.listWidth()+1 {
 				m.previewFocus = true
-			} else if v.Y >= 4 {
+			} else if v.Y >= 4 && !(m.width < 100 && m.previewFocus) {
 				index := m.rowAt(v.Y - 4)
 				if index < 0 {
 					return m, nil
@@ -1136,7 +1136,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureSelection()
 				m.previewFocus = false
 				m.updatePreview()
-				m.toggleGroup()
+				if m.selectedGroup() != nil {
+					m.toggleGroup()
+				} else if m.section == 0 {
+					return m, m.attachSelected(false)
+				}
 			}
 		}
 	}
@@ -1343,6 +1347,9 @@ func (m *dashboard) View() string {
 	if sections[m.section] == "projects" {
 		keys = " Enter open project shell · / find · m actions · q quit"
 	}
+	if m.section == 0 {
+		keys = strings.Replace(keys, "Enter attach", "Click attach", 1)
+	}
 	footer := muted.Render(clip(keys, m.width-1)) + "\n" + clip(" "+status, m.width-1)
 	return header + strings.Join(lines, "\n") + "\n" + footer
 }
@@ -1417,6 +1424,7 @@ func (m *dashboard) listView(height int) string {
 
 const dashboardHelp = ` Keyboard shortcuts
 
+ Click session  Attach          Click group  Fold/unfold
  ↑/k ↓/j       Select item       Enter/a  Attach (Ctrl-b d returns)
  1–6 / ←→      Change section    Tab/p    Focus list / preview
  /             Fuzzy search     @ ! # &  Search prefix: waiting/running/idle/failed

@@ -306,3 +306,26 @@ def test_dashboard_restores_group_layout_after_restart(real_terminal):
         d.quit()
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)
     finally:d.close()
+
+
+def test_dashboard_mouse_click_attaches_and_returns(real_terminal):
+    t = real_terminal
+    d = Dashboard(t)
+    try:
+        d.wait('Real terminal'); d.wait('LIVE')
+        for width in (120, 80):
+            d.resize(width, 35); d.pump(.3)
+            y = next(i for i, line in enumerate(d.screen.display) if i >= 4 and 'Real terminal' in line)
+            x = d.screen.display[y].index('Real terminal') + 1
+            # Real SGR mouse down/up, not a mocked dashboard callback.
+            d.send(f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m')
+            d.wait('$')
+            d.send("printf mouse-attached > mouse-proof.txt\r")
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline and not (t['root'] / 'mouse-proof.txt').exists():
+                d.pump(.1)
+            assert (t['root'] / 'mouse-proof.txt').read_text() == 'mouse-attached'
+            d.send('\x02d'); d.wait('Detached. Session keeps running.'); d.wait('Real terminal')
+        d.quit()
+    finally:
+        d.close()

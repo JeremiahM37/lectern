@@ -717,3 +717,35 @@ func TestSetupPhaseGuardsAttachmentAndKeepsFailuresInAttention(t *testing.T) {
 		t.Fatal("failed setup vanished from attention view")
 	}
 }
+
+func TestDashboardSessionMouseAttachesOnlyVisibleRows(t *testing.T) {
+	m := sampleDashboard()
+	m.attach = func(string, string) error { return nil }
+	m.width = 120
+	m.height = 35
+	click := tea.MouseMsg{X: 1, Y: 4, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	_, cmd := m.Update(click)
+	if cmd == nil {
+		t.Fatal("session click did not request native attachment")
+	}
+	click.Y = m.height - 1
+	if _, cmd = m.Update(click); cmd != nil {
+		t.Fatal("footer click attached a hidden row")
+	}
+	click.Y = 4
+	m.recentOpen = true
+	if _, cmd = m.Update(click); cmd != nil {
+		t.Fatal("recent overlay attached underlying row")
+	}
+	m.recentOpen = false
+	m.width = 80
+	m.previewFocus = true
+	if _, cmd = m.Update(click); cmd != nil {
+		t.Fatal("narrow preview click attached hidden row")
+	}
+	m.previewFocus = false
+	click.Action = tea.MouseActionRelease
+	if _, cmd = m.Update(click); cmd != nil {
+		t.Fatal("mouse release attached twice")
+	}
+}
