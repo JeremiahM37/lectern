@@ -337,6 +337,51 @@ CREATE TABLE IF NOT EXISTS routines(
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_run_at);
+-- A trigger source is one inbound connection a project watches: GitHub issues/
+-- comments, a Slack workspace, or a Linear team. config_json carries the
+-- non-secret shape (repo, label, mention handle, allowed authors, ...);
+-- secrets_json carries tokens/keys and is never serialized to the API raw —
+-- see internal/api/triggers.go's redaction, the same pattern projects.mcp_json
+-- already uses for MCP server credentials.
+CREATE TABLE IF NOT EXISTS trigger_sources(
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  kind TEXT NOT NULL,                          -- github | slack | linear
+  name TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  secrets_json TEXT NOT NULL DEFAULT '{}',
+  interval_s INTEGER NOT NULL DEFAULT 300,
+  cursor_json TEXT NOT NULL DEFAULT '{}',      -- ETags / since-cursors / GraphQL cursors
+  status TEXT NOT NULL DEFAULT 'unconfigured', -- unconfigured | ok | error
+  last_poll_at REAL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trigger_sources_project ON trigger_sources(project_id);
+-- One row per inbound event a source has ever seen, matched or not — the
+-- dedup ledger (external_id is the source's own event/issue/comment id) and
+-- the "recent events" audit trail the settings UI reads.
+CREATE TABLE IF NOT EXISTS trigger_events(
+  id INTEGER PRIMARY KEY,
+  source_id INTEGER NOT NULL REFERENCES trigger_sources(id),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  external_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',             -- task_created | skipped | ignored
+  reason TEXT NOT NULL DEFAULT '',
+  task_id INTEGER,
+  postback_status TEXT NOT NULL DEFAULT '',    -- '' | sent | error (only once task_id is set)
+  postback_note TEXT NOT NULL DEFAULT '',
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  created_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trigger_events_dedup ON trigger_events(source_id, external_id);
+CREATE INDEX IF NOT EXISTS idx_trigger_events_recent ON trigger_events(project_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_trigger_events_postback ON trigger_events(task_id) WHERE postback_status='';
 CREATE TABLE IF NOT EXISTS workspace_operations(
  id INTEGER PRIMARY KEY,
  session_id INTEGER NOT NULL REFERENCES sessions(id),

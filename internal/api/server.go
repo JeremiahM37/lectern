@@ -33,6 +33,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/triggers"
 	"github.com/JeremiahM37/lectern/v2/web"
 )
 
@@ -52,6 +53,10 @@ type Server struct {
 	Sessions *sessions.Manager
 	Events   *agentevents.Ingester
 	Checks   *checks.Runner
+	// Triggers polls GitHub/Linear and holds Slack's Socket Mode connections
+	// open (internal/triggers). Nil is safe everywhere it is read — a build
+	// or test harness that never sets it simply has no trigger sources.
+	Triggers *triggers.Manager
 	// Awareness is cross-agent awareness's tracker (internal/awareness,
 	// docs/agent-events.md "Cross-agent awareness"): peer lookups, briefing
 	// text, edit warnings. Nil is safe everywhere it is read (every awareness
@@ -304,6 +309,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/routines/{id}", s.patchRoutine)
 	mux.HandleFunc("DELETE /api/routines/{id}", s.deleteRoutine)
 	mux.HandleFunc("POST /api/routines/{id}/run", s.runRoutine)
+
+	// ---- triggers: pick up work from GitHub/Slack/Linear on its own ----
+	mux.HandleFunc("GET /api/projects/{id}/triggers", s.listTriggerSources)
+	mux.HandleFunc("POST /api/projects/{id}/triggers", s.createTriggerSource)
+	mux.HandleFunc("GET /api/projects/{id}/trigger-events", s.listTriggerEvents)
+	mux.HandleFunc("PATCH /api/triggers/{id}", s.patchTriggerSource)
+	mux.HandleFunc("DELETE /api/triggers/{id}", s.deleteTriggerSource)
+	mux.HandleFunc("POST /api/triggers/{id}/test", s.testTriggerSource)
 
 	mux.HandleFunc("GET /api/templates", s.getTemplates)
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)

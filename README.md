@@ -281,6 +281,15 @@ temporary databases, a separate vault, and a private tmux socket.
   the board holds no opinion about which binary runs. Local models use the
   CLI's compatible endpoint variables through a project's `env`. See
   [docs/agents.md](docs/agents.md).
+- **Triggers** — a project can pick up work on its own instead of waiting for a
+  human to dispatch it: a labelled GitHub issue or an @mention on a PR/issue
+  comment, a Slack message or `/lectern` command, or a labelled Linear issue.
+  GitHub and Linear are polled outbound; Slack uses Socket Mode, an outbound
+  websocket — nothing needs an inbound webhook, which matters because Lectern
+  is typically reachable only on a private tailnet. Every source needs an
+  author allowlist and is rate-limited before it can spend a token or run
+  code. Configure sources, test the connection, and read recent events from a
+  project's settings. See [docs/triggers.md](docs/triggers.md).
 - **Control loop** — hook-gated approvals with web-push + Discord/ntfy sinks, an
   always-allow policy engine, follow-ups, auto-verify, reviewer gates, A/B parallel
   attempts, agents that file their own task cards, and shared project memory.
@@ -608,6 +617,7 @@ internal/executor/   local | ssh | pct | sandbox | mock target executors
 internal/agents/     per-agent launch commands and stream parsers
 internal/hooks/      PreToolUse approval hook + agent kit (stdlib Python, embedded)
 internal/store/      SQLite schema and typed row accessors
+internal/triggers/   GitHub/Linear polling + Slack Socket Mode — docs/triggers.md
 frontend/            React + TypeScript browser and terminal workspaces
 web/                 generated assets embedded in the Go binary
 e2e/                 Playwright browser tests

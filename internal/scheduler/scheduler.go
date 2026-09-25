@@ -112,6 +112,12 @@ type Scheduler struct {
 	// itself (Gate, the per-task cancel above) does not depend on this being
 	// set — only the periodic threshold/quota/anomaly alerts do.
 	Budgets func(context.Context)
+	// Triggers polls GitHub/Linear sources that are due, reconciles Slack's
+	// live Socket Mode connections, and posts back any trigger-created
+	// task's outcome (internal/triggers.Manager.Tick). Injected for the same
+	// reason as Routines/Evals — it ends in a task creation, which is the
+	// API layer's job.
+	Triggers func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -212,6 +218,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	if s.Budgets != nil {
 		s.Budgets(ctx)
+	}
+	if s.Triggers != nil {
+		s.Triggers(ctx)
 	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)

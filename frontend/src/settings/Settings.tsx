@@ -4,6 +4,7 @@ import type { Project, Target } from "../types";
 import { AgentEditor, type AgentSpec } from "./AgentEditor";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
+import { Triggers } from "./Triggers";
 import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
@@ -756,6 +757,7 @@ function ProjectCard({
         defaultAgent={p.default_agent}
         onNotice={onNotice}
       />
+      <Triggers api={api} projectId={p.id} onNotice={onNotice} />
       <button
         onClick={() => {
           if (confirm(`Delete ${p.name}?`))
