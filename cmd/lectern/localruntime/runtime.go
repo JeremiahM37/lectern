@@ -551,10 +551,19 @@ func Stop(ctx context.Context) error {
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := healthyEndpoint(ctx, dir); !ok {
+		// The HTTP listener closes before shutdown releases the engine lock.
+		// Wait for completion so an immediate status/restart cannot see an
+		// unreachable engine that is still shutting down.
+		if free, err := localLockFree(dir); err != nil {
+			return err
+		} else if free {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	return errors.New("local runtime did not stop")
 }
