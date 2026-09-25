@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/awareness"
+	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
@@ -363,6 +364,14 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	yolo := mode != "ask"
+	// Budgets (docs/budgets.md): a "stop"-mode overall or per-agent limit at
+	// or over 100% refuses a new interactive session launch outright, same
+	// as it refuses a new task dispatch (internal/api/tasks.go's
+	// dispatchTask) — an already-running session is never touched here.
+	if err := budget.Gate(s.DB, in.Agent); err != nil {
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
 	launch, status := s.Sessions.Launch, 201
 	if in.Background {
 		launch, status = s.Sessions.LaunchBackground, 202

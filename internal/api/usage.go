@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -277,6 +278,12 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 		"top_sessions":   topSessions,
 		"top_tasks":      topTasks,
 		"quota":          s.usageQuota(now),
+		// budgets (docs/budgets.md): live spend/percent/blocked state for
+		// every configured limit — the Usage page's bars and the quota-chip
+		// area both read this rather than a second request to GET
+		// /api/budgets, since a page already loading usage on open needs
+		// both at once.
+		"budgets": budget.BuildStatus(s.DB),
 	})
 }
 

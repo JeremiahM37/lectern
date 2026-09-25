@@ -105,6 +105,13 @@ type Scheduler struct {
 	// lands. Injected for the same reason as Routines — an eval cell IS a
 	// task, and creating/grading tasks is the API layer's job.
 	Evals func(context.Context)
+	// Budgets evaluates spend-limit/quota/anomaly thresholds once per tick
+	// (internal/budget.Checker.Tick) — nil disables the feature's alerts
+	// entirely (every test that builds a Scheduler by hand and never sets
+	// this keeps the pre-existing no-budget-checks behavior). Enforcement
+	// itself (Gate, the per-task cancel above) does not depend on this being
+	// set — only the periodic threshold/quota/anomaly alerts do.
+	Budgets func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -202,6 +209,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	if s.Evals != nil {
 		s.Evals(ctx)
+	}
+	if s.Budgets != nil {
+		s.Budgets(ctx)
 	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)
@@ -736,6 +746,22 @@ func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
 		return err
 	}
 
+	// Per-task budget (docs/budgets.md): a task's own budget_usd, once set,
+	// is a hard cap on that one task — unlike the account/agent-level
+	// daily/weekly limits, there is no separate "mode" to check here, since
+	// setting a specific dollar figure on one task IS the decision to stop
+	// it there. Checked after drainEvents (so att.LiveCostUSD reflects
+	// whatever 'result' event just landed) and before the exit-code check
+	// (an attempt that already finished this tick needs no cancelling).
+	if c.Task.BudgetUSD != nil && *c.Task.BudgetUSD > 0 && att.LiveCostUSD >= *c.Task.BudgetUSD {
+		s.Notifier.Notify("Task budget exhausted",
+			fmt.Sprintf("%q reached its $%.2f budget ($%.2f spent) — cancelling the running attempt",
+				c.Task.Title, *c.Task.BudgetUSD, att.LiveCostUSD),
+			fmt.Sprintf("/tasks/%d", c.Task.ID), &sinks.Extra{Kind: "budget"})
+		s.CancelAttempt(ctx, att)
+		return nil
+	}
+
 	exitRaw, err := ex.ReadFile(ctx, rt+"/exit_code", 0)
 	if err != nil {
 		return err
@@ -811,6 +837,16 @@ func (s *Scheduler) StoreEvents(att *store.Attempt, events []agents.Event) error
 			}
 		case "result":
 			s.DB.Update("attempts", att.ID, map[string]any{"result_json": store.J(ev.Payload)})
+			// live_cost_usd (docs/budgets.md) is what lets a per-task
+			// budget_usd be enforced WHILE an attempt is still running —
+			// result_json above only ever lands in the DB in a form the
+			// budget checker can read once the attempt has already
+			// finished. Claude's own cost_usd is already a running total
+			// for the whole attempt, so this SETS rather than accumulates.
+			if cost, ok := ev.Payload["cost_usd"].(float64); ok && cost > 0 {
+				s.DB.Update("attempts", att.ID, map[string]any{"live_cost_usd": cost})
+				att.LiveCostUSD = cost
+			}
 		}
 		s.Bus.Publish(taskChannel(att.TaskID), "agent_event", map[string]any{
 			"attempt_id": att.ID, "seq": seq, "type": ev.Type, "payload": ev.Payload})

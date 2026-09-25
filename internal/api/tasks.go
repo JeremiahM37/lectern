@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
@@ -40,6 +41,10 @@ type taskIn struct {
 	// the implementation to the delegated-build worker, reviews and integrates
 	// the result into its own worktree. Requires Delegated builds to be on.
 	Orchestrate bool `json:"orchestrate"`
+	// BudgetUSD (docs/budgets.md), when set, caps this one task's own spend —
+	// settable here or overridden at dispatch (dispatchIn.BudgetUSD below).
+	// nil/omitted means no per-task cap.
+	BudgetUSD *float64 `json:"budget_usd"`
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +98,10 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "priority must be 0-4")
 		return
 	}
+	if in.BudgetUSD != nil && *in.BudgetUSD < 0 {
+		httpError(w, 422, "budget_usd must not be negative")
+		return
+	}
 	project, err := s.DB.Project(in.ProjectID)
 	if err != nil {
 		httpError(w, 400, "no such project")
@@ -127,6 +136,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		ProjectID: in.ProjectID, Title: in.Title, Prompt: prompt, Status: "backlog",
 		Priority: priority, LabelsJSON: store.J(labels), Agent: agent,
 		Model: in.Model, PermissionMode: mode, BaseBranch: in.BaseBranch,
+		BudgetUSD: in.BudgetUSD,
 	})
 	if err != nil {
 		respondErr(w, err)
@@ -145,6 +155,9 @@ type taskPatch struct {
 	Model          *string   `json:"model"`
 	PermissionMode *string   `json:"permission_mode"`
 	BaseBranch     *string   `json:"base_branch"`
+	// BudgetUSD (docs/budgets.md): 0 explicitly clears the per-task cap,
+	// omitted leaves it unchanged.
+	BudgetUSD *float64 `json:"budget_usd"`
 }
 
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
@@ -168,12 +181,19 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if p.BudgetUSD != nil && *p.BudgetUSD < 0 {
+		httpError(w, 422, "budget_usd must not be negative")
+		return
+	}
 	fields := map[string]any{}
 	setStr(fields, "title", p.Title)
 	setStr(fields, "prompt", p.Prompt)
 	setStr(fields, "model", p.Model)
 	setStr(fields, "permission_mode", p.PermissionMode)
 	setStr(fields, "base_branch", p.BaseBranch)
+	if p.BudgetUSD != nil {
+		fields["budget_usd"] = *p.BudgetUSD
+	}
 	if p.Priority != nil {
 		fields["priority"] = *p.Priority
 	}
@@ -231,6 +251,10 @@ type dispatchIn struct {
 	// Variants generalises model/model_b to 1..8 attempts, each free to pick
 	// its own agent, model, launch profile and permission mode.
 	Variants []variantIn `json:"variants"`
+	// BudgetUSD (docs/budgets.md), when present, sets or replaces the task's
+	// per-task spend cap at dispatch time — nil leaves whatever the task
+	// already had (set at create, or a previous dispatch) unchanged.
+	BudgetUSD *float64 `json:"budget_usd"`
 }
 
 // resolveVariant fills a variant's agent/model from its named launch profile
@@ -293,6 +317,13 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "%s", err.Error())
 		return
 	}
+	// Budgets (docs/budgets.md): a "stop"-mode overall or per-agent limit at
+	// or over 100% refuses a new dispatch outright, with the exhausted
+	// limit's own message as the refusal text.
+	if err := budget.Gate(s.DB, task.Agent); err != nil {
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
 	var body dispatchIn
 	if err := decodeBody(r, &body); err != nil {
 		httpError(w, 422, "%s", err.Error())
@@ -306,7 +337,14 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "at most %d variants per dispatch", maxDispatchVariants)
 		return
 	}
+	if body.BudgetUSD != nil && *body.BudgetUSD < 0 {
+		httpError(w, 422, "budget_usd must not be negative")
+		return
+	}
 	fields := map[string]any{"status": "queued", "updated_at": store.Now()}
+	if body.BudgetUSD != nil {
+		fields["budget_usd"] = *body.BudgetUSD
+	}
 	if body.PermissionMode != "" {
 		if !oneOf(body.PermissionMode, permissionModes...) {
 			httpError(w, 422, "permission_mode must be one of %v", permissionModes)

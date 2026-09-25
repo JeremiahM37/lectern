@@ -108,6 +108,9 @@ type Task struct {
 	// engine sets it to min(case.timeout_s, 600); zero falls back to a 600s
 	// default inside the scheduler.
 	SetupTimeoutS int `json:"setup_timeout_s,omitempty"`
+	// BudgetUSD (docs/budgets.md) is this task's own spend cap, settable at
+	// create or dispatch time. Nil/0 means "no per-task cap".
+	BudgetUSD *float64 `json:"budget_usd,omitempty"`
 }
 
 // Attempt is a single agent run against a task. Retries, follow-ups and the
@@ -150,6 +153,11 @@ type Attempt struct {
 	// pre-existing single-attempt task and model-only A/B dispatch already is.
 	Agent          string `json:"agent,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
+	// LiveCostUSD (docs/budgets.md) is this attempt's own cumulative cost so
+	// far, updated by the scheduler as it parses streamed 'result' events —
+	// see the column's own comment in store/schema.go for why this exists
+	// separately from ResultJSON, which only ever lands once, at finish.
+	LiveCostUSD float64 `json:"live_cost_usd,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.

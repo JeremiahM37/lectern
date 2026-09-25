@@ -7,7 +7,7 @@
 // small since this chip only reads the `quota` field.
 import { useEffect, useState } from "react";
 import { withToken } from "../api";
-import type { UsageQuota } from "../types";
+import type { BudgetStatus, UsageQuota } from "../types";
 import { formatAge, formatCountdown, quotaClass } from "./usageFormat";
 
 export interface QuotaChipApi {
@@ -16,13 +16,17 @@ export interface QuotaChipApi {
 
 export function QuotaChip({ api }: { api: QuotaChipApi }) {
   const [quota, setQuota] = useState<UsageQuota>();
+  const [budgets, setBudgets] = useState<BudgetStatus>();
   useEffect(() => {
     let cancelled = false;
     const load = () =>
       api
-        .request<{ quota: UsageQuota }>("/usage?days=1")
+        .request<{ quota: UsageQuota; budgets: BudgetStatus }>("/usage?days=1")
         .then((report) => {
-          if (!cancelled) setQuota(report.quota);
+          if (!cancelled) {
+            setQuota(report.quota);
+            setBudgets(report.budgets);
+          }
         })
         .catch(() => {});
     void load();
@@ -42,19 +46,39 @@ export function QuotaChip({ api }: { api: QuotaChipApi }) {
       clearInterval(timer);
     };
   }, [api]);
-  if (!quota || quota.empty) return null;
+  // Budgets (docs/budgets.md): a compact indicator beside the quota chip —
+  // only rendered once at least one limit is actually configured, same
+  // "nothing to show yet" convention the quota chip itself uses.
+  const overallDaily = budgets?.overall.daily;
+  const overallWeekly = budgets?.overall.weekly;
+  const worst = [overallDaily, overallWeekly].filter((p): p is NonNullable<typeof p> => !!p)
+    .sort((a, b) => b.percent - a.percent)[0];
+  const budgetChip = worst && (
+    <span
+      className={`budget-chip${budgets?.any_blocked ? " budget-blocked" : ""}`}
+      title={`Overall budget: $${worst.spent_usd.toFixed(2)} of $${worst.cap_usd.toFixed(2)}`}
+    >
+      ${worst.spent_usd.toFixed(0)}/{worst.cap_usd.toFixed(0)}
+      {budgets?.any_blocked ? " · blocked" : ""}
+    </span>
+  );
+
+  if (!quota || quota.empty) return budgetChip ?? null;
   const stale = quota.stale;
   return (
-    <div className={`quota-chip${stale ? " stale" : ""}`} title={stale ? `Last updated ${formatAge(quota.at)}` : undefined}>
-      <span className={`quota-window ${quotaClass(quota.five_hour.used_percentage)}`}>
-        5h {quota.five_hour.used_percentage}%
-        {quota.five_hour.resets_at ? <small> {formatCountdown(quota.five_hour.resets_at)}</small> : null}
-      </span>
-      <span className={`quota-window ${quotaClass(quota.seven_day.used_percentage)}`}>
-        7d {quota.seven_day.used_percentage}%
-        {quota.seven_day.resets_at ? <small> {formatCountdown(quota.seven_day.resets_at)}</small> : null}
-      </span>
-      {stale && <span className="quota-stale-note">{formatAge(quota.at)}</span>}
-    </div>
+    <>
+      <div className={`quota-chip${stale ? " stale" : ""}`} title={stale ? `Last updated ${formatAge(quota.at)}` : undefined}>
+        <span className={`quota-window ${quotaClass(quota.five_hour.used_percentage)}`}>
+          5h {quota.five_hour.used_percentage}%
+          {quota.five_hour.resets_at ? <small> {formatCountdown(quota.five_hour.resets_at)}</small> : null}
+        </span>
+        <span className={`quota-window ${quotaClass(quota.seven_day.used_percentage)}`}>
+          7d {quota.seven_day.used_percentage}%
+          {quota.seven_day.resets_at ? <small> {formatCountdown(quota.seven_day.resets_at)}</small> : null}
+        </span>
+        {stale && <span className="quota-stale-note">{formatAge(quota.at)}</span>}
+      </div>
+      {budgetChip}
+    </>
   );
 }

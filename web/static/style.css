@@ -368,6 +368,10 @@ button.b:hover { border-color: var(--accent); color: var(--accent-soft); }
   padding: 40px 24px; line-height: 1.7; max-width: 34rem; margin: 0 auto;
 }
 .cap-note { color: var(--amber); margin-top: 5px; font-size: 12px; line-height: 1.5; }
+.budget-blocked-note {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: var(--r); font-size: 12.5px;
+  background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.35); color: var(--red);
+}
 
 /* ---------- sheet (task detail / new task) ---------- */
 #sheet-backdrop {
@@ -758,6 +762,27 @@ textarea.f { min-height: 118px; resize: vertical; line-height: 1.6; }
 .usage-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .usage-top-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
 .usage-top-list li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+
+/* ---- Budgets (Usage page bars, Settings editor, quota-chip area) ---- */
+.usage-budgets { display: flex; flex-direction: column; gap: 8px; }
+.usage-budget-row { display: grid; grid-template-columns: 1fr 1fr 100px; align-items: center; gap: 10px; font-size: 12.5px; }
+.usage-budget-row i { display: block; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; position: relative; }
+.usage-budget-row i b { position: absolute; inset: 0 auto 0 0; background: var(--green); }
+.usage-budget-row.budget-amber i b { background: var(--amber); }
+.usage-budget-row.budget-red i b { background: var(--red); }
+.usage-budget-row.budget-blocked { color: var(--red); }
+.usage-budget-row .budget-label { color: var(--ink-dim); }
+.budget-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  color: var(--ink-dim); padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--panel-2); flex: none;
+}
+.budget-chip.budget-blocked { color: var(--red); border-color: rgba(248,113,113,.45); }
+.budgets-editor { display: flex; flex-direction: column; gap: 14px; }
+.budgets-editor .limit-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.budgets-editor .limit-row label { flex: 1; min-width: 120px; }
+.budgets-editor .per-agent-row { display: flex; gap: 8px; align-items: center; }
+.budgets-editor .per-agent-row .b { flex: none; }
 .usage-error { color: var(--red); }
 .usage-line { display: flex; align-items: center; gap: 8px; padding: 4px 0 0; flex-wrap: wrap; }
 

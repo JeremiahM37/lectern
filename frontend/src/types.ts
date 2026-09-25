@@ -167,6 +167,9 @@ export interface Task {
   created_by_attempt: number | null;
   created_at: number;
   updated_at: number;
+  // budget_usd (docs/budgets.md): this task's own spend cap, settable at
+  // create/dispatch/patch. Absent/0 means no cap.
+  budget_usd?: number | null;
 }
 
 export interface Attempt {
@@ -377,6 +380,40 @@ export interface UsageReport {
   top_sessions: UsageTopSession[];
   top_tasks: UsageTopTask[];
   quota: UsageQuota;
+  budgets: BudgetStatus;
+}
+
+// GET/PUT /api/budgets — see docs/budgets.md.
+export interface BudgetLimit {
+  daily_usd: number;
+  weekly_usd: number;
+  mode: "warn" | "stop";
+}
+export interface BudgetConfig {
+  overall: BudgetLimit;
+  per_agent: Record<string, BudgetLimit>;
+  thresholds: number[];
+  quota_thresholds: number[];
+  anomaly_enabled: boolean;
+  anomaly_multiplier: number;
+}
+export interface BudgetPeriodStatus {
+  cap_usd: number;
+  spent_usd: number;
+  percent: number;
+  blocked: boolean;
+}
+export interface BudgetLimitStatus {
+  label: string;
+  mode: "warn" | "stop";
+  daily?: BudgetPeriodStatus | null;
+  weekly?: BudgetPeriodStatus | null;
+}
+export interface BudgetStatus {
+  config: BudgetConfig;
+  overall: BudgetLimitStatus;
+  per_agent: Record<string, BudgetLimitStatus>;
+  any_blocked: boolean;
 }
 
 export interface Wrap {

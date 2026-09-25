@@ -4,7 +4,7 @@
 // GET /api/usage?days=N (internal/api/usage.go) — see its doc comment for
 // what "combined session+task spend" means.
 import { useEffect, useState } from "react";
-import type { UsageReport } from "../types";
+import type { BudgetLimitStatus, BudgetPeriodStatus, UsageReport } from "../types";
 import { formatAge, formatCost, formatCountdown, formatTokens, quotaClass } from "../sessions/usageFormat";
 
 export interface UsagePanelApi {
@@ -31,8 +31,24 @@ export function UsagePanel({ api }: { api: UsagePanelApi }) {
   if (!report) return <p>Loading usage…</p>;
   const maxDay = Math.max(0.0001, ...report.daily.map((d) => d.cost_usd));
   const quota = report.quota;
+  const budgets = report.budgets;
+  const budgetRows: [string, BudgetLimitStatus][] = budgets
+    ? [["Overall", budgets.overall], ...Object.entries(budgets.per_agent)]
+    : [];
   return (
     <div className="usage-panel">
+      {budgetRows.some(([, l]) => l.daily || l.weekly) && (
+        <section className="usage-budgets" aria-label="Budgets">
+          <h4>Budgets</h4>
+          {budgetRows.map(([label, l]) =>
+            (["daily", "weekly"] as const).map((period) => {
+              const p = l[period];
+              if (!p) return null;
+              return <BudgetRow key={label + period} label={`${label} (${period})`} period={p} />;
+            }),
+          )}
+        </section>
+      )}
       {!quota.empty && (
         <section className="usage-quota" aria-label="Account quota">
           <h4>Account quota</h4>
@@ -148,6 +164,30 @@ export function UsagePanel({ api }: { api: UsagePanelApi }) {
           </ol>
         </section>
       </div>
+    </div>
+  );
+}
+
+// budgetClass mirrors quotaClass's thresholds, plus a hard "blocked" state
+// for a stop-mode limit currently at or over 100%.
+function budgetClass(p: BudgetPeriodStatus): string {
+  if (p.blocked) return "budget-red budget-blocked";
+  if (p.percent >= 90) return "budget-red";
+  if (p.percent >= 75) return "budget-amber";
+  return "";
+}
+
+function BudgetRow({ label, period }: { label: string; period: BudgetPeriodStatus }) {
+  return (
+    <div className={`usage-budget-row ${budgetClass(period)}`}>
+      <span className="budget-label">{label}</span>
+      <i>
+        <b style={{ width: `${Math.max(0, Math.min(100, period.percent))}%` }} />
+      </i>
+      <span>
+        {formatCost(period.spent_usd)} / {formatCost(period.cap_usd)}
+        {period.blocked ? " · blocked" : ""}
+      </span>
     </div>
   );
 }

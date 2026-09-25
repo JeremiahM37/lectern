@@ -43,6 +43,7 @@ export interface BoardApi {
     model?: string;
     permission_mode?: string;
     orchestrate?: boolean;
+    budget_usd?: number;
   }) => Promise<TaskView>;
   taskAction: (
     id: number,

@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
+	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
@@ -160,6 +161,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Routines = func(ctx context.Context) { srv.RunDueRoutines(ctx); srv.ScheduleAutonomyTick(ctx) }
 	// an eval cell is a task too — same reasoning
 	sched.Evals = srv.RunEvalsTick
+	// Budgets (docs/budgets.md): spend-limit/quota/anomaly threshold alerts,
+	// on the scheduler's own tick like Routines/Evals above. Enforcement
+	// (budget.Gate, the per-task cancel in scheduler.poll) needs no wiring —
+	// it reads the DB directly — only the periodic alerts need this.
+	budgetChecker := &budget.Checker{DB: db, Notifier: notifier}
+	sched.Budgets = budgetChecker.Tick
 
 	app := &App{Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
