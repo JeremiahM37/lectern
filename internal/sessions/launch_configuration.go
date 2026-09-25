@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -28,6 +29,11 @@ type LaunchConfiguration struct {
 	// It is text delivered to the agent, never configuration: it cannot change
 	// the spec, environment, model or approvals.
 	ProfileInstructions string `json:"profile_instructions,omitempty"`
+	// Isolation is this launch's sandbox tier (none/bwrap/docker) and network
+	// policy — see internal/isolation. Captured here so a resume/relaunch of
+	// this exact session keeps running the way it started even if the
+	// project's own default changes later.
+	Isolation isolation.Config `json:"isolation,omitempty"`
 }
 
 // profileBriefing renders a captured profile's instructions as a labelled,
@@ -129,5 +135,25 @@ func (m *Manager) launchConfiguration(agent string, projectID *int64, saved *Lau
 		env[k] = v
 	}
 	spec.Env = env
-	return &LaunchConfiguration{Version: 1, Spec: spec}, nil
+	return &LaunchConfiguration{Version: 1, Spec: spec, Isolation: m.projectDefaultIsolation(projectID)}, nil
+}
+
+// projectDefaultIsolation is a fresh launch's starting isolation.Config —
+// overridden by an explicit per-launch choice, and irrelevant to a
+// continuation, which already carries its own captured Isolation. An
+// unreadable or absent default degrades to None rather than failing the
+// launch outright.
+func (m *Manager) projectDefaultIsolation(projectID *int64) isolation.Config {
+	if projectID == nil {
+		return isolation.Config{}
+	}
+	proj, err := m.DB.Project(*projectID)
+	if err != nil {
+		return isolation.Config{}
+	}
+	var cfg isolation.Config
+	if err := json.Unmarshal([]byte(nzs(proj.DefaultIsolationJSON, "{}")), &cfg); err != nil {
+		return isolation.Config{}
+	}
+	return cfg.Normalized()
 }

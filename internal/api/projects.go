@@ -10,6 +10,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
@@ -52,6 +53,19 @@ type projectIn struct {
 	// right setting when a project's blast radius is infrastructure, not a diff.
 	DefaultPermissionMode *string  `json:"default_permission_mode"`
 	SkillSources          []string `json:"skill_sources"`
+	// Isolation is this project's default sandbox tier for a new session or
+	// task launch (internal/isolation) — a launch's own explicit choice
+	// still wins. Absent/nil means none (today's unsandboxed behavior).
+	Isolation *isolation.Config `json:"isolation"`
+}
+
+// isolationJSON encodes a project's default isolation.Config, normalizing
+// nil to "{}" (none) rather than storing a JSON null.
+func isolationJSON(c *isolation.Config) string {
+	if c == nil {
+		return "{}"
+	}
+	return store.J(c.Normalized())
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +104,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "default_permission_mode must be one of %v", permissionModes)
 		return
 	}
+	if in.Isolation != nil {
+		if err := in.Isolation.Validate(); err != nil {
+			httpError(w, 422, "%s", err.Error())
+			return
+		}
+	}
 	if _, err := s.DB.Target(in.TargetID); err != nil {
 		httpError(w, 400, "no such target")
 		return
@@ -109,10 +129,11 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		ContextJSON: store.J(orEmpty(in.ContextPaths)),
 		MCPJSON:     store.J(orEmptyMap(in.MCP)),
 		StrictMCP:   boolInt(in.StrictMCP), PermissionsJSON: permJSON,
-		GateMatcher:       in.GateMatcher,
-		DefaultAgent:      strOr(in.DefaultAgent, "claude"),
-		CapabilityProfile: strOr(in.CapabilityProfile, "restricted"),
-		SkillSourcesJSON:  store.J(orEmpty(in.SkillSources)),
+		GateMatcher:          in.GateMatcher,
+		DefaultAgent:         strOr(in.DefaultAgent, "claude"),
+		CapabilityProfile:    strOr(in.CapabilityProfile, "restricted"),
+		DefaultIsolationJSON: isolationJSON(in.Isolation),
+		SkillSourcesJSON:     store.J(orEmpty(in.SkillSources)),
 	}
 	if in.DefaultPermissionMode != nil {
 		p.DefaultPermissionMode = *in.DefaultPermissionMode
@@ -131,22 +152,23 @@ type projectPatch struct {
 	// Name is patchable because import derives it from the directory, and a
 	// directory name is not always the project's name — /opt/docker is "the
 	// compose stack", not "docker".
-	Name                  *string         `json:"name"`
-	VerifyCmd             *string         `json:"verify_cmd"`
-	DefaultBaseBranch     *string         `json:"default_base_branch"`
-	KeepWorktrees         *bool           `json:"keep_worktrees"`
-	ReviewGate            *bool           `json:"review_gate"`
-	Policy                *map[string]any `json:"policy"`
-	Env                   *map[string]any `json:"env"`
-	ContextPaths          *[]string       `json:"context_paths"`
-	MCP                   *map[string]any `json:"mcp"`
-	StrictMCP             *bool           `json:"strict_mcp"`
-	Permissions           *map[string]any `json:"permissions"`
-	GateMatcher           *string         `json:"gate_matcher"`
-	DefaultAgent          *string         `json:"default_agent"`
-	CapabilityProfile     *string         `json:"capability_profile"`
-	DefaultPermissionMode *string         `json:"default_permission_mode"`
-	SkillSources          *[]string       `json:"skill_sources"`
+	Name                  *string           `json:"name"`
+	VerifyCmd             *string           `json:"verify_cmd"`
+	DefaultBaseBranch     *string           `json:"default_base_branch"`
+	KeepWorktrees         *bool             `json:"keep_worktrees"`
+	ReviewGate            *bool             `json:"review_gate"`
+	Policy                *map[string]any   `json:"policy"`
+	Env                   *map[string]any   `json:"env"`
+	ContextPaths          *[]string         `json:"context_paths"`
+	MCP                   *map[string]any   `json:"mcp"`
+	StrictMCP             *bool             `json:"strict_mcp"`
+	Permissions           *map[string]any   `json:"permissions"`
+	GateMatcher           *string           `json:"gate_matcher"`
+	DefaultAgent          *string           `json:"default_agent"`
+	CapabilityProfile     *string           `json:"capability_profile"`
+	DefaultPermissionMode *string           `json:"default_permission_mode"`
+	SkillSources          *[]string         `json:"skill_sources"`
+	Isolation             *isolation.Config `json:"isolation"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +205,12 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "default_permission_mode must be one of %v", permissionModes)
 		return
 	}
+	if p.Isolation != nil {
+		if err := p.Isolation.Validate(); err != nil {
+			httpError(w, 422, "%s", err.Error())
+			return
+		}
+	}
 	if _, err := s.DB.Project(id); err != nil {
 		httpError(w, 404, "no such project")
 		return
@@ -198,6 +226,9 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	setStr(fields, "setup_cmd", p.SetupCmd)
 	setStr(fields, "capability_profile", p.CapabilityProfile)
 	setStr(fields, "default_permission_mode", p.DefaultPermissionMode)
+	if p.Isolation != nil {
+		fields["default_isolation_json"] = isolationJSON(p.Isolation)
+	}
 	if p.SkillSources != nil {
 		fields["skill_sources_json"] = store.J(orEmpty(*p.SkillSources))
 	}

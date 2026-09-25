@@ -54,9 +54,14 @@ type Project struct {
 	DefaultAgent          string `json:"default_agent"`
 	CapabilityProfile     string `json:"capability_profile"`
 	DefaultPermissionMode string `json:"default_permission_mode"`
-	SkillSourcesJSON      string `json:"skill_sources_json"`
-	MemoryTopic           string `json:"memory_topic"`
-	MemoryStatus          string `json:"memory_status"`
+	// DefaultIsolationJSON is this project's default isolation.Config
+	// (json-encoded) for a new session or task launch — see
+	// internal/isolation. A launch's explicit override still wins; this is
+	// only what a launch gets when it names none.
+	DefaultIsolationJSON string `json:"default_isolation_json"`
+	SkillSourcesJSON     string `json:"skill_sources_json"`
+	MemoryTopic          string `json:"memory_topic"`
+	MemoryStatus         string `json:"memory_status"`
 	// RepoKey/RepoToplevel are cross-agent awareness's cache (see
 	// internal/awareness and schema.go's session_file_edits comment):
 	// backfilled from the first session in this project to resolve its own

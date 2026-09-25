@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS projects(
   default_agent TEXT DEFAULT 'claude',         -- agent used by tasks that don't pick one
   capability_profile TEXT DEFAULT 'restricted',
   default_permission_mode TEXT DEFAULT '',
+  default_isolation_json TEXT DEFAULT '{}',    -- internal/isolation.Config default for new launches
   skill_sources_json TEXT DEFAULT '[]',
   -- repo_key/repo_toplevel (docs/agent-events.md "Cross-agent awareness"):
   -- lazily backfilled from whichever session in this project resolves its
@@ -533,4 +534,6 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN last_prompt_at REAL",
 	"ALTER TABLE projects ADD COLUMN repo_key TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE projects ADD COLUMN repo_toplevel TEXT NOT NULL DEFAULT ''",
+	// Per-agent-process isolation (bwrap/docker) — see internal/isolation.
+	"ALTER TABLE projects ADD COLUMN default_isolation_json TEXT DEFAULT '{}'",
 }

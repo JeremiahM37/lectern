@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
-import type { Project, Target } from "../types";
+import type { IsolationConfig, Project, Target } from "../types";
 import { AgentEditor, type AgentSpec } from "./AgentEditor";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
@@ -506,6 +506,23 @@ function ProjectCard({
   const [setup, setSetup] = useState(p.setup_cmd),
     [profile, setProfile] = useState(p.capability_profile),
     [perm, setPerm] = useState(p.default_permission_mode);
+  // Isolation default (internal/isolation, docs/isolation.md): this
+  // project's sandbox tier for a new session/task that doesn't say
+  // otherwise. default_isolation_json is a raw internal/isolation.Config
+  // JSON string, same pattern as env_json elsewhere in Project.
+  const initialIsolation = (() => {
+    try {
+      return JSON.parse(p.default_isolation_json || "{}") as IsolationConfig;
+    } catch {
+      return {} as IsolationConfig;
+    }
+  })();
+  const [isolationMode, setIsolationMode] = useState<"" | "bwrap" | "docker">(
+      initialIsolation.mode || "",
+    ),
+    [isolationNetwork, setIsolationNetwork] = useState<"allow" | "deny">(
+      initialIsolation.network === "deny" ? "deny" : "allow",
+    );
   const [mcp, setMcp] = useState("{}"),
     [mcpStatus, setMcpStatus] = useState("Loading…"),
     [revision, setRevision] = useState(""),
@@ -564,6 +581,10 @@ function ProjectCard({
         setup_cmd: setup,
         capability_profile: profile,
         default_permission_mode: perm,
+        isolation:
+          isolationMode === ""
+            ? { mode: "" }
+            : { mode: isolationMode, network: isolationNetwork },
       },
     });
     onNotice("Project saved");
@@ -679,6 +700,33 @@ function ProjectCard({
           <option>bypassPermissions</option>
         </select>
       </label>
+      <label>
+        Default isolation
+        <select
+          value={isolationMode}
+          onChange={(e) =>
+            setIsolationMode(e.target.value as typeof isolationMode)
+          }
+        >
+          <option value="">none (today's behavior)</option>
+          <option value="bwrap">bwrap — fast, no daemon</option>
+          <option value="docker">Docker container</option>
+        </select>
+      </label>
+      {isolationMode !== "" && (
+        <label>
+          Default isolation network
+          <select
+            value={isolationNetwork}
+            onChange={(e) =>
+              setIsolationNetwork(e.target.value as typeof isolationNetwork)
+            }
+          >
+            <option value="allow">allow — unrestricted, like today</option>
+            <option value="deny">deny — allowlist proxy only</option>
+          </select>
+        </label>
+      )}
       <label>
         Check command
         <input

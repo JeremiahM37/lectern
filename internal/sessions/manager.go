@@ -15,6 +15,7 @@ import (
 	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -62,6 +63,11 @@ type Manager struct {
 	// the two triggers from ever double-running a check.
 	Checks agentevents.StopListener
 
+	// IsolationProxies holds each isolated session's egress allowlist proxy
+	// (bwrap network=deny only — see internal/isolation) for as long as the
+	// session is running; started in launch, always torn down in end().
+	IsolationProxies *isolation.ProxyRegistry
+
 	// HandoffTimeout bounds how long we wait for an agent to write its wrap
 	// before giving up and saying so.
 	HandoffTimeout time.Duration
@@ -95,7 +101,8 @@ func New(db *store.DB, reg *executor.Registry, b *bus.Bus, l Launcher,
 		mem = memory.None{}
 	}
 	return &Manager{DB: db, Reg: reg, Bus: b, Launcher: l, Memory: mem, Log: log,
-		HandoffTimeout: 4 * time.Minute, handoffs: newHandoffState(), checkpoints: map[int64]context.CancelFunc{}, checkpointGeneration: map[int64]uint64{}}
+		IsolationProxies: isolation.NewProxyRegistry(log),
+		HandoffTimeout:   4 * time.Minute, handoffs: newHandoffState(), checkpoints: map[int64]context.CancelFunc{}, checkpointGeneration: map[int64]uint64{}}
 }
 
 func (m *Manager) publish(s *store.Session) {
@@ -166,6 +173,11 @@ type LaunchOpts struct {
 	// git repository, so whatever the work turns into can later be promoted to a
 	// project and dispatched against without moving anything.
 	Scratch bool
+	// Isolation overrides the project's (or the built-in) default sandbox
+	// tier for this one launch — nil defers to that default entirely. See
+	// internal/isolation. Ignored for a continuation (o.Configuration != nil
+	// already carries the original launch's Isolation forward).
+	Isolation *isolation.Config
 }
 
 // Launch starts an interactive agent and records it. The lifecycle lock spans
@@ -442,6 +454,16 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// edits of the reusable agent or profile settings.
 	config, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration)
 	if err != nil {
+		m.end(sess.ID, "dead")
+		return nil, err
+	}
+	// A per-launch Isolation override applies only to a fresh launch — a
+	// continuation (o.Configuration != nil) keeps exactly what it started
+	// with, which m.launchConfiguration already copied forward.
+	if o.Isolation != nil && o.Configuration == nil {
+		config.Isolation = o.Isolation.Normalized()
+	}
+	if err := isolation.ValidateForTarget(config.Isolation, target.Kind); err != nil {
 		m.end(sess.ID, "dead")
 		return nil, err
 	}
@@ -798,10 +820,25 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.end(sess.ID, StatusDead)
 		return nil, err
 	}
+	// The egress proxy is a live process for the session's whole lifetime,
+	// not just this launch call — it outlives ex.Run below exactly as the
+	// tmux pane it serves does, and m.end() (every stop/kill/dead path)
+	// always tears it down, whether or not one was ever started for this id.
+	var isolationOpts isolation.WrapOpts
+	if config.Isolation.Normalized().Network == isolation.NetworkDeny {
+		allow := append(isolation.DefaultAllowHosts(agent, hookURL), config.Isolation.AllowHosts...)
+		socketPath, proxyErr := m.IsolationProxies.Start(sess.ID, allow)
+		if proxyErr != nil {
+			m.end(sess.ID, StatusDead)
+			return nil, fmt.Errorf("isolation egress proxy: %w", proxyErr)
+		}
+		isolationOpts.ProxySocket = socketPath
+	}
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: firstNonEmpty(o.RecoveryCID, o.ResumeID), ForkID: forkID,
-		Prompt: argPrompt, EnvPrefix: envPrefix, Yolo: o.Yolo, ToolArgs: toolArgs})
+		Prompt: argPrompt, EnvPrefix: envPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		Isolation: config.Isolation, IsolationOpts: isolationOpts})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -991,6 +1028,11 @@ func (m *Manager) end(id int64, status string) {
 	m.mu.Lock()
 	delete(m.contextDelivered, id)
 	m.mu.Unlock()
+	// Always attempted, never just for an isolated session: a no-op when
+	// nothing was ever started for this id, and the one place every
+	// stop/kill/dead-detection path converges, so it is the one place the
+	// egress proxy's lifetime needs to be tied to.
+	m.IsolationProxies.Stop(id)
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
 		"status": status, "ended_at": now, "updated_at": now})
@@ -1082,6 +1124,7 @@ func (m *Manager) Kill(ctx context.Context, id int64) error {
 		}
 		err = m.DB.Update("sessions", id, map[string]any{"status": StatusDead, "ended_at": ended, "updated_at": store.Now()})
 	}
+	m.IsolationProxies.Stop(id)
 	m.lifecycleMu.Unlock()
 	if err != nil {
 		return err

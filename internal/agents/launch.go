@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 )
 
 // Names are the agents lectern knows how to launch.
@@ -78,6 +80,29 @@ type LaunchSpec struct {
 	Definition *TaskDefinition
 	// ExtraArgs are provider-specific flags, already validated by the adapter.
 	ExtraArgs []string
+	// Isolation runs the agent inside a bwrap/docker sandbox — see
+	// internal/isolation. Ignored (never applied) when Sandbox is true: a
+	// cloned container is already the isolation boundary, and wrapping it
+	// again buys nothing.
+	Isolation isolation.Config
+	// IsolationOpts carries what Isolation needs beyond the fields above
+	// (the proxy socket for network=deny).
+	IsolationOpts isolation.WrapOpts
+}
+
+// wrapInvocation applies s.Isolation to one already-built agent invocation
+// (env prefix and all), before the caller adds its own stdio redirection.
+// A sandboxed attempt (s.Sandbox) is never wrapped again.
+func wrapInvocation(s LaunchSpec, invocation string) (string, error) {
+	if s.Sandbox || s.Isolation.Normalized().Mode == isolation.None {
+		return invocation, nil
+	}
+	opts := s.IsolationOpts
+	opts.Workdir = s.Worktree
+	if opts.Agent == "" {
+		opts.Agent = s.Agent
+	}
+	return isolation.Wrap(invocation, s.Isolation, opts)
 }
 
 // EnvPrefix renders the shell prefix of KEY=VAL pairs injected before the agent
@@ -140,7 +165,7 @@ func (l Launcher) Command(s LaunchSpec) (string, error) {
 		return genericTaskCommand(s, prefix, *s.Definition)
 	}
 	if s.Agent == "" || s.Agent == "claude" {
-		return l.claudeCommand(s, prefix), nil
+		return l.claudeCommand(s, prefix)
 	}
 
 	// Codex receives validated additive -c overrides; Gemini has no equivalent
@@ -181,8 +206,12 @@ func (l Launcher) Command(s LaunchSpec) (string, error) {
 	// Both read stdin even with the prompt passed as an argument, and a tmux
 	// pane's stdin never EOFs — without this redirect the agent waits forever on
 	// "Reading additional input from stdin" and the attempt merely looks hung.
-	inner := fmt.Sprintf("cd %s && %s%s < /dev/null > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
-		s.Worktree, prefix, strings.Join(parts, " "), rt, rt, rt)
+	invocation, err := wrapInvocation(s, prefix+strings.Join(parts, " "))
+	if err != nil {
+		return "", err
+	}
+	inner := fmt.Sprintf("cd %s && %s < /dev/null > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
+		s.Worktree, invocation, rt, rt, rt)
 	return "tmux new-session -d -s " + s.TmuxSession + " " + shellQuote(inner), nil
 }
 
@@ -244,6 +273,10 @@ func genericTaskCommand(s LaunchSpec, prefix string, d TaskDefinition) (string, 
 			return "", fmt.Errorf("agent %q: %w", d.Name, err)
 		}
 		invocation = prefix + invocation + " " + strings.Join(args, " ")
+	}
+	invocation, err := wrapInvocation(s, invocation)
+	if err != nil {
+		return "", err
 	}
 	rt := RuntimeDir(s.Worktree)
 	quotedRT := shellQuote(rt)
@@ -346,7 +379,7 @@ func promptTemplateTokens(template string) ([]string, error) {
 	return tokens, nil
 }
 
-func (l Launcher) claudeCommand(s LaunchSpec, prefix string) string {
+func (l Launcher) claudeCommand(s LaunchSpec, prefix string) (string, error) {
 	rt := RuntimeDir(s.Worktree)
 	settings := s.SettingsPath
 	if settings == "" {
@@ -368,9 +401,13 @@ func (l Launcher) claudeCommand(s LaunchSpec, prefix string) string {
 	if s.ResumeSession != "" {
 		parts = append(parts, "--resume", s.ResumeSession)
 	}
-	inner := fmt.Sprintf("cd %s && %s%s > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
-		s.Worktree, prefix, strings.Join(parts, " "), rt, rt, rt)
-	return "tmux new-session -d -s " + s.TmuxSession + " " + shellQuote(inner)
+	invocation, err := wrapInvocation(s, prefix+strings.Join(parts, " "))
+	if err != nil {
+		return "", err
+	}
+	inner := fmt.Sprintf("cd %s && %s > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
+		s.Worktree, invocation, rt, rt, rt)
+	return "tmux new-session -d -s " + s.TmuxSession + " " + shellQuote(inner), nil
 }
 
 func (l Launcher) bin(configured, def string) string {

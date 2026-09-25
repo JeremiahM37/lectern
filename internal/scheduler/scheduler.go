@@ -27,6 +27,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
@@ -644,7 +645,40 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 		StrictMCP:      kw.StrictMCP,
 		ExtraArgs:      kw.ExtraArgs,
 		Definition:     kw.Definition,
+		Isolation:      s.taskIsolation(c.Project, isSandbox),
 	})
+}
+
+// taskIsolation is a queued task's isolation.Config: the project's own
+// default, applied only when the attempt is not already running inside the
+// heavy sandbox tier (that container IS the isolation — see internal/sandbox).
+//
+// network=deny is deliberately clamped to allow here: unlike an interactive
+// session (internal/sessions.Manager, which starts and tears down a proxy
+// tied to the session's own lifecycle) a queued attempt has no equivalent
+// process watching it end, so there is nothing to own that proxy's teardown.
+// Give a task the same filesystem/process containment as a session gets, and
+// leave true network denial to interactive sessions or the sandbox tier
+// until attempts have that lifecycle hook too.
+func (s *Scheduler) taskIsolation(project *store.Project, isSandbox bool) isolation.Config {
+	if isSandbox || project == nil {
+		return isolation.Config{}
+	}
+	raw := strings.TrimSpace(project.DefaultIsolationJSON)
+	if raw == "" {
+		raw = "{}"
+	}
+	var cfg isolation.Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return isolation.Config{}
+	}
+	cfg = cfg.Normalized()
+	if cfg.Network == isolation.NetworkDeny {
+		s.Log.Warn("task isolation: network=deny is not yet supported for queued attempts, using allow",
+			"project", project.Name)
+		cfg.Network = isolation.NetworkAllow
+	}
+	return cfg
 }
 
 func projectEnv(p *store.Project) map[string]string {

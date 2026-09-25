@@ -314,6 +314,22 @@ export function SessionCard({
             {s.launch_profile}
           </span>
         )}
+        {s.isolation?.mode && (
+          <span
+            className="chip info"
+            title={
+              "Running inside " +
+              s.isolation.mode +
+              (s.isolation.network === "deny"
+                ? " with network denied (allowlist proxy only)"
+                : " with network allowed") +
+              " — see docs/isolation.md"
+            }
+          >
+            🔒 {s.isolation.mode}
+            {s.isolation.network === "deny" ? " · net:deny" : ""}
+          </span>
+        )}
         {adopted && (
           <span
             className="chip info"
