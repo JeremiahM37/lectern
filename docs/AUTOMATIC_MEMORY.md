@@ -74,6 +74,10 @@ override the global mode. Explicit MCP calls remain available separately.
 - No forced reflection turn or automatic transcript recording is introduced.
   Provisioning creates an empty note; requested handoffs use its stable topic.
 
+Every delivery above is recorded and readable, and the operator can answer it:
+see [Memory you can see](memory-visibility.md) for what is stored, the API, and
+how a "helpful", "not relevant" or "this is wrong" verdict reaches Grimoire.
+
 Direct keyboard input in an attached terminal does not pass through Lectern's
 send API, and Lectern cannot observe a host's context compaction. For per-prompt
 coverage there, Grimoire ships a native Claude Code/Codex command hook. Install

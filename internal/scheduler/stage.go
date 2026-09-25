@@ -128,6 +128,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	prompt := firstNonEmpty(att.Prompt, c.Task.Prompt, c.Task.Title)
 	if !isReviewer {
 		if recalled := memory.Automatic(ctx, s.Memory, c.Project.Name, prompt, nil, c.Project.MemoryTopic); recalled.Context != "" {
+			s.recordMemoryDelivery(att, c, recalled)
 			prompt = recalled.Context + "\n" + prompt
 		}
 		prompt = memory.ProjectHint(s.Memory, c.Project.Name, c.Project.MemoryTopic) + prompt

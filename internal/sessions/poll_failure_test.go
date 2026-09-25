@@ -14,6 +14,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/testutil"
@@ -163,7 +164,7 @@ func TestRealTmuxBlankPaneIsLiveAndAbsentSessionIsDead(t *testing.T) {
 	if out, err := exec.Command("tmux", "-S", socket, "respawn-pane", "-k", "-t", "="+sess.TmuxSession+":", "--", "bash", "-c", command).CombinedOutput(); err != nil {
 		t.Fatalf("prompt: %s %v", out, err)
 	}
-	m.primeWhenReady(sess.ID, "opening message proof")
+	m.primeWhenReady(sess.ID, "opening message proof", memory.ContextResult{})
 	deadline = time.Now().Add(2 * time.Second)
 	var data []byte
 	for time.Now().Before(deadline) {

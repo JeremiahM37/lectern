@@ -520,6 +520,30 @@ CREATE TABLE IF NOT EXISTS budget_alerts_sent(
   sent_at REAL NOT NULL,
   UNIQUE(scope_key, period_key, threshold)
 );
+-- memory_deliveries (docs/memory-visibility.md) is the delivery log: one row
+-- per time lectern handed an agent project memory, so "what was this session
+-- given" is answerable after the fact and the operator can correct it. Exactly
+-- one of session_id (an interactive session) or task_id (a dispatched attempt,
+-- which also names its attempt_id) identifies the run; both are nullable
+-- because the two delivery paths share one table and neither knows the other's
+-- id. They are deliberately NOT foreign keys: a delivery records something that
+-- HAPPENED, so deleting a session, task or attempt must not erase the record of
+-- the memory that ran there. items_json is the provider's own list of what went
+-- out — id, source path, title and a ~300-character snippet per item — kept
+-- verbatim rather than normalised, because what a store calls a "memory" is the
+-- store's business and lectern only needs to show it back.
+CREATE TABLE IF NOT EXISTS memory_deliveries(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER,
+  task_id INTEGER,
+  attempt_id INTEGER,
+  at REAL NOT NULL,
+  mode TEXT NOT NULL DEFAULT '',
+  bytes INTEGER NOT NULL DEFAULT 0,
+  items_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_memory_deliveries_session ON memory_deliveries(session_id, at);
+CREATE INDEX IF NOT EXISTS idx_memory_deliveries_task ON memory_deliveries(task_id, at);
 `
 
 // migrations are additive: they bring a database created by an older build up to

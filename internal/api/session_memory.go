@@ -8,10 +8,15 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
-// sessionMemory reports what a session's agent wrote to the memory store, read
-// back by the key both sides share. Status says which of several quiet outcomes
-// this is, because "nothing listed" means very different things: the agent
-// wrote nothing, the provider is down, or no provider is configured at all.
+// sessionMemory is GET /api/sessions/{id}/memory. It reports both directions of
+// the session's memory: `deliveries` is what lectern handed THIS session, and
+// `changes` is what the session's agent then wrote back, read by the key both
+// sides share. They are one URL because they are one question — "what is this
+// session's memory" — and they were separate silences before: nobody could see
+// either (docs/memory-visibility.md).
+//
+// Status describes the write-back half only. Deliveries are already recorded
+// rows, so their absence means the agent genuinely was handed nothing.
 func (s *Server) sessionMemory(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -25,7 +30,11 @@ func (s *Server) sessionMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	key := sessions.MemorySessionKey(sess.ID)
 	out := map[string]any{"session": key, "provider": "none", "status": "disabled",
-		"counts": map[string]int{}, "changes": []memory.Change{}}
+		"counts": map[string]int{}, "changes": []memory.Change{},
+		"deliveries": []memory.Delivery{}}
+	if rows, err := s.DB.MemoryDeliveriesForSession(sess.ID, deliveryLimit(r)); err == nil {
+		out["deliveries"] = memoryDeliveries(rows)
+	}
 	provider, ok := s.Memory.(memory.ActivityProvider)
 	if s.Memory == nil || !ok {
 		writeJSON(w, 200, out)

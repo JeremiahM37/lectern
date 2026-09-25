@@ -19,9 +19,19 @@ type ContextScope struct {
 }
 
 type ContextResult struct {
-	Context     string   `json:"context"`
-	Keys        []string `json:"keys"`
-	Unavailable bool     `json:"-"`
+	Context string   `json:"context"`
+	Keys    []string `json:"keys"`
+	// Mode is how the store was searched for this delivery (scoped, all, the
+	// name of a project's managed note). It is recorded alongside the delivery
+	// because "why did the agent see this" is often answered by "what was it
+	// allowed to read" — see docs/memory-visibility.md.
+	Mode string `json:"mode,omitempty"`
+	// Items describe each delivered record for the operator: which record it
+	// was, where it came from, and enough of it to recognise. A store that does
+	// not send them still delivers context; the delivery log then names only
+	// the keys that went out.
+	Items       []Item `json:"items,omitempty"`
+	Unavailable bool   `json:"-"`
 }
 
 type AutomaticProvider interface {
@@ -149,10 +159,26 @@ func (g *Grimoire) AutomaticProject(ctx context.Context, project, topic, query s
 	if response.StatusCode != http.StatusOK {
 		return ContextResult{}, fmt.Errorf("automatic memory: %s", response.Status)
 	}
-	var result ContextResult
-	if err := json.NewDecoder(io.LimitReader(response.Body, 64000)).Decode(&result); err != nil {
+	// Decoded by hand rather than straight into ContextResult: `items` is only
+	// known loosely (the store's own shape, an older shape, or absent
+	// entirely), and an unknown field or an unexpected item shape must degrade
+	// to "no descriptions" rather than fail the delivery.
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 64000))
+	if err != nil {
 		return ContextResult{}, err
 	}
+	var payload struct {
+		Context string          `json:"context"`
+		Keys    []string        `json:"keys"`
+		Mode    string          `json:"mode"`
+		Items   json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ContextResult{}, err
+	}
+	result := ContextResult{Context: payload.Context, Keys: payload.Keys,
+		Mode: firstNonEmpty(payload.Mode, scope.Mode)}
+	result.Items = normalizeItems(payload.Items, result.Keys)
 	if len(result.Context) > budget || len(result.Keys) > 10 {
 		return ContextResult{}, fmt.Errorf("automatic memory exceeded budget")
 	}
