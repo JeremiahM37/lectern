@@ -8,6 +8,7 @@ import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
+import { BudgetsPanel } from "./BudgetsPanel";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
@@ -156,6 +157,7 @@ export function Settings({
             ["projects", "Projects"],
             ["notifications", "Notifications"],
             ["about", "Usage & about"],
+            ["budgets", "Budgets"],
             ["agents", "Agents"],
           ] as const
         ).map(([k, v]) => (
@@ -165,7 +167,7 @@ export function Settings({
             aria-selected={tab === k}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-              const tabs = ["machines", "projects", "notifications", "about", "agents"];
+              const tabs = ["machines", "projects", "notifications", "about", "budgets", "agents"];
               const next = tabs[(tabs.indexOf(k) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
               setTab(next);
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
@@ -225,6 +227,7 @@ export function Settings({
           <Build api={api} />
         </section>
       )}{" "}
+      {tab === "budgets" && <BudgetsPanel api={api} onNotice={onNotice} />}{" "}
       {tab === "agents" && (
         <Agents
           api={api}

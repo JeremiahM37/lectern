@@ -289,6 +289,10 @@ temporary databases, a separate vault, and a private tmux socket.
   your own machine does ([docs/context-parity.md](docs/context-parity.md)).
 - **Ops** — worktree janitor, cost stats, task templates, one-click ttyd terminal
   attach, and an **MCP server** so any MCP client can file and steer tasks.
+- **Budgets** — daily/weekly USD caps (overall and per agent), a per-task
+  spend cap, Claude 5h/7d quota-threshold alerts and a cost-anomaly check,
+  with an opt-in **stop** mode that refuses new dispatches/session launches
+  and cancels a task over its own budget. See [docs/budgets.md](docs/budgets.md).
 
 ## Terminal workflows
 

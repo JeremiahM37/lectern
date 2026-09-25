@@ -51,7 +51,14 @@ CREATE TABLE IF NOT EXISTS tasks(
   created_at REAL, updated_at REAL,
   check_command TEXT NOT NULL DEFAULT '',
   setup_command TEXT NOT NULL DEFAULT '',
-  setup_timeout_s INTEGER NOT NULL DEFAULT 0
+  setup_timeout_s INTEGER NOT NULL DEFAULT 0,
+  -- budget_usd is this one task's own spend cap (docs/budgets.md), settable
+  -- at create or dispatch time. NULL/0 means "no per-task cap" — every task
+  -- that predates this column. Enforcement (stop mode only) cancels a
+  -- running attempt through the normal cancel path once its own
+  -- attempts.live_cost_usd reaches this value; it never blocks dispatch
+  -- itself, since a fresh task has spent nothing yet.
+  budget_usd REAL
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE TABLE IF NOT EXISTS attempts(
@@ -68,7 +75,15 @@ CREATE TABLE IF NOT EXISTS attempts(
   mcp_json TEXT DEFAULT '{}', strict_mcp INTEGER DEFAULT 0,
   mcp_snapshot INTEGER NOT NULL DEFAULT 0,
   launch_config_json TEXT NOT NULL DEFAULT '',
-  driver TEXT NOT NULL DEFAULT ''             -- internal/drivers.Kind chosen for this attempt
+  driver TEXT NOT NULL DEFAULT '',            -- internal/drivers.Kind chosen for this attempt
+  -- live_cost_usd (docs/budgets.md) is this attempt's own cumulative cost SO
+  -- FAR, set (never accumulated — Claude's own "result" cost is already a
+  -- running total) whenever the scheduler parses a streamed 'result' event
+  -- during the run. It is what lets a per-task budget_usd be enforced while
+  -- an attempt is still running, and feeds the cost-anomaly check — neither
+  -- of which the existing result_json (populated only once, at finish) can
+  -- do. Left at 0 for every attempt with no such event yet.
+  live_cost_usd REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_task ON attempts(task_id);
 CREATE TABLE IF NOT EXISTS project_skills(
@@ -443,6 +458,22 @@ CREATE TABLE IF NOT EXISTS session_file_edits(
 );
 CREATE INDEX IF NOT EXISTS idx_session_file_edits_repo ON session_file_edits(repo_key, rel_path);
 CREATE INDEX IF NOT EXISTS idx_session_file_edits_session ON session_file_edits(session_id);
+-- budget_alerts_sent (docs/budgets.md) is what makes a threshold alert fire
+-- exactly once per period: scope_key names WHAT was checked ("overall:daily",
+-- "agent:claude:weekly", "quota:five_hour", "anomaly:session:42", ...),
+-- period_key names WHEN (a calendar date, an ISO week, a quota window's own
+-- resets_at, ...) and threshold is the percentage crossed. The UNIQUE index
+-- is the actual dedup mechanism — internal/budget.Checker does a plain
+-- INSERT OR IGNORE and only notifies when its own insert is the one that
+-- lands, so a restart mid-period never re-sends: the row already survived it.
+CREATE TABLE IF NOT EXISTS budget_alerts_sent(
+  id INTEGER PRIMARY KEY,
+  scope_key TEXT NOT NULL,
+  period_key TEXT NOT NULL,
+  threshold INTEGER NOT NULL,
+  sent_at REAL NOT NULL,
+  UNIQUE(scope_key, period_key, threshold)
+);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -533,4 +564,7 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN last_prompt_at REAL",
 	"ALTER TABLE projects ADD COLUMN repo_key TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE projects ADD COLUMN repo_toplevel TEXT NOT NULL DEFAULT ''",
+	// Budgets (docs/budgets.md).
+	"ALTER TABLE tasks ADD COLUMN budget_usd REAL",
+	"ALTER TABLE attempts ADD COLUMN live_cost_usd REAL NOT NULL DEFAULT 0",
 }

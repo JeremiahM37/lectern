@@ -61,6 +61,11 @@ export function CreateTask({
     [agents, setAgents] = useState<AgentSpec[]>([]),
     [templates, setTemplates] = useState<Template[]>([]),
     [profiles, setProfiles] = useState<LaunchProfile[]>([]),
+    // budget (docs/budgets.md): an optional per-task spend cap, sent at
+    // create. Empty string means "no cap" — kept as a string so the field
+    // can be genuinely blank rather than defaulting to 0.
+    [budget, setBudget] = useState(""),
+    [budgetStatus, setBudgetStatus] = useState<{ any_blocked: boolean }>(),
     [cap, setCap] = useState(""),
     // Orchestrate: the same switch the quick bar has, with the rest of the
     // form choosing the lead instead of the worker.
@@ -87,6 +92,14 @@ export function CreateTask({
       .request<Orchestration>("/delegation")
       .then((v) => setOrchestration(v && typeof v.orchestrate_ready === "boolean" ? v : { orchestrate_ready: false }))
       .catch(() => setOrchestration({ orchestrate_ready: false }));
+    // Budgets (docs/budgets.md): a proactive note when a stop-mode limit is
+    // already exhausted, so the refusal a blocked dispatch gets isn't a
+    // surprise. Best-effort — an unreachable /api/budgets must not block
+    // opening the form.
+    void api
+      .request<{ any_blocked: boolean }>("/budgets")
+      .then(setBudgetStatus)
+      .catch(() => {});
   }, []);
   useEffect(() => {
     if (!project) return;
@@ -116,6 +129,9 @@ export function CreateTask({
       )
     )
       return;
+    const budgetUSD = budget.trim() === "" ? undefined : Number(budget);
+    if (budgetUSD !== undefined && (!Number.isFinite(budgetUSD) || budgetUSD < 0))
+      return onNotice("Budget must be a non-negative number", true);
     try {
       const t = await api.createTask({
         project_id: projectId,
@@ -126,12 +142,13 @@ export function CreateTask({
         model,
         permission_mode: permission,
         ...(orchestrate ? { orchestrate: true } : {}),
+        ...(budgetUSD !== undefined ? { budget_usd: budgetUSD } : {}),
       });
       if (dispatch)
         await api.request(`/tasks/${t.id}/dispatch`, {
           method: "POST",
-          body:
-            variants.length > 0
+          body: {
+            ...(variants.length > 0
               ? {
                   variants: [
                     { agent, model, permission_mode: permission },
@@ -143,7 +160,9 @@ export function CreateTask({
                     })),
                   ],
                 }
-              : {},
+              : {}),
+            ...(budgetUSD !== undefined ? { budget_usd: budgetUSD } : {}),
+          },
         });
       onCreated();
       onClose();
@@ -417,6 +436,24 @@ export function CreateTask({
           <option value={3}>high</option>
         </select>
       </label>
+      <label>
+        Budget (USD) — optional
+        <input
+          id="f-budget"
+          type="number"
+          min="0"
+          step="0.01"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          placeholder="no cap"
+        />
+        <span className="subhint">Cancels this task's own running attempt once it spends this much.</span>
+      </label>
+      {budgetStatus?.any_blocked && (
+        <p id="f-budget-blocked" className="budget-blocked-note">
+          A stop-mode budget is currently exhausted — dispatch may be refused. See Settings → Budgets.
+        </p>
+      )}
       <div className="btnrow">
         <button id="f-save" onClick={() => void create(false)}>Save to backlog</button>
         <button id="f-go" onClick={() => void create(true)}>Dispatch to board</button>

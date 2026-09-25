@@ -308,6 +308,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/usage", s.usageReport)
+	mux.HandleFunc("GET /api/budgets", s.getBudgets)
+	mux.HandleFunc("PUT /api/budgets", s.putBudgets)
 	mux.HandleFunc("POST /api/admin/janitor", s.runJanitor)
 	mux.HandleFunc("GET /api/scratch", s.scratchReport)
 	mux.HandleFunc("POST /api/scratch/sweep", s.scratchSweep)

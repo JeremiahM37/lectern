@@ -9,6 +9,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/awareness"
+	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -85,7 +86,17 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 	// shape Claude/Codex already deliver verbatim to the agent's context —
 	// see agentevents.EventPermissionRequest's reply above for the sibling
 	// use of this shape.
-	if text := s.awarenessAdditionalContext(sess, event, body); text != "" {
+	texts := []string{s.awarenessAdditionalContext(sess, event, body)}
+	// Budgets (docs/budgets.md "Interactive sessions"): a session is never
+	// killed for spend, but the next UserPromptSubmit tells the agent a
+	// "stop"-mode budget is exhausted and asks it to stop and summarise —
+	// the same hookSpecificOutput/additionalContext channel awareness above
+	// already uses, so this rides for free rather than needing its own hook
+	// wiring.
+	if event == agentevents.EventUserPromptSubmit {
+		texts = append(texts, s.budgetAdditionalContext(sess))
+	}
+	if text := joinNonEmpty(texts, "\n\n"); text != "" {
 		writeJSON(w, 200, map[string]any{"hookSpecificOutput": map[string]any{
 			"hookEventName": event, "additionalContext": text,
 		}})
@@ -178,6 +189,33 @@ func (s *Server) awarenessAdditionalContext(sess *store.Session, event string, b
 	default:
 		return ""
 	}
+}
+
+// budgetAdditionalContext is docs/budgets.md's "Interactive sessions"
+// clause: never kills the session, but tells the agent plainly once a
+// "stop"-mode overall or per-agent budget is exhausted, so it can wrap up on
+// its own terms instead of being cut off mid-edit. Checked fresh on every
+// UserPromptSubmit rather than cached — the same reasoning budget.Gate's own
+// doc comment gives for task dispatch and session launch.
+func (s *Server) budgetAdditionalContext(sess *store.Session) string {
+	label, exhausted := budget.ExhaustedLabel(s.DB, sess.Agent)
+	if !exhausted {
+		return ""
+	}
+	return "Budget notice: " + label + ". Please stop what you are doing, " +
+		"summarise your progress and hand off cleanly — do not start new work " +
+		"until the operator raises the limit or a new period begins."
+}
+
+// joinNonEmpty joins only the non-blank strings in parts with sep.
+func joinNonEmpty(parts []string, sep string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 // permissionRequestIn is the input Claude/Codex send a PermissionRequest
