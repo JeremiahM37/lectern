@@ -144,7 +144,7 @@ func (s *Server) autoRepairableArtifacts(a *autoRecord) []map[string]any {
 		if _, err = s.autoRepairContinuation(a, task.ProjectID, j.TaskID); err != nil {
 			continue
 		}
-		rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "review_task_id": review, "rejection": reason, "approved": false})
+		rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "review_task_id": review, "rejection": reason, "approved": false, "review_evidence": "/work/.lectern-review/" + autoFindJob(a, review).ID + "/work", "review_evidence_note": "The trusted controller supplies a separate reviewer snapshot and SHA256 manifest when a fresh audited repair starts; required review files must be verified there before changes."})
 	}
 	return rows
 }

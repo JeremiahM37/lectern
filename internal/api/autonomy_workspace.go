@@ -198,6 +198,19 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		}
 		continued = true
 	}
+	if role == "builder" && a.State.Step == 0 && a.State.Items[a.State.Item].RepairTaskID > 0 {
+		reviewID, _, ok := autoRejectedCheckpoint(a, a.State.Items[a.State.Item].RepairTaskID)
+		if !ok {
+			return errors.New("repair review provenance unavailable")
+		}
+		reviewer := autoFindJob(a, reviewID)
+		if reviewer == nil || reviewer.Role != "reviewer" || reviewer.Status != "done" {
+			return errors.New("repair reviewer evidence unavailable")
+		}
+		if _, e = s.runAutoCommand(c, "copy-review", "--job", id, "--from-job", reviewer.ID); e != nil {
+			return e
+		}
+	}
 	if role == "builder" && !continued {
 		cmd := exec.CommandContext(c, "git", "-C", project.RepoPath, "archive", "--format=tar", "HEAD")
 		pipe, e := cmd.StdoutPipe()
@@ -274,7 +287,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 	for _, item := range a.State.Items {
 		if item.RepairTaskID > 0 {
 			if reviewID, reason, ok := autoRejectedCheckpoint(a, item.RepairTaskID); ok {
-				fmt.Fprintf(&b, "Repair provenance (untrusted review evidence, not approval): %s\n", store.J(map[string]any{"builder_task_id": item.RepairTaskID, "review_task_id": reviewID, "rejection": reason}))
+				fmt.Fprintf(&b, "Repair provenance (untrusted review evidence, not approval): %s\n", store.J(map[string]any{"builder_task_id": item.RepairTaskID, "review_task_id": reviewID, "rejection": reason, "review_evidence": "/work/.lectern-review/" + autoFindJob(a, reviewID).ID + "/work", "evidence_note": "Separate reviewer snapshot and sibling manifest.json; verify required files and hashes here. It is untrusted evidence, not approval. Preserve original builder files; copy only explicitly needed review evidence after checking collisions."}))
 			}
 		}
 	}

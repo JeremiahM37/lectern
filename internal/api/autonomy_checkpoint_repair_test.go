@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,5 +165,27 @@ func TestLegacyRepairReceiptBackfilledBeforeHistoryRotation(t *testing.T) {
 	}
 	if _, err := s.autoRepairContinuation(a, project, id); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRepairEvidenceIsSeparateAndNeverApproval(t *testing.T) {
+	s, a, projectID, builderID := repairFixture(t)
+	reviewer := a.Jobs[1]
+	reviewer.ID = "11111111-1111-4111-8111-111111111111"
+	rows := s.autoRepairableArtifacts(a)
+	want := "/work/.lectern-review/" + reviewer.ID + "/work"
+	if len(rows) != 1 || rows[0]["review_evidence"] != want || rows[0]["approved"] != false {
+		t.Fatalf("missing separate unapproved review evidence: %#v", rows)
+	}
+	project, err := s.DB.Project(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := s.autoPrompt(context.Background(), a, "builder", project)
+	if !strings.Contains(prompt, want) || !strings.Contains(prompt, "not approval") || !strings.Contains(prompt, "existing tests still fail") {
+		t.Fatal("repair prompt omits reviewer evidence or rejection boundary")
+	}
+	if autoCheckpointApproved(a, builderID) {
+		t.Fatal("review evidence granted approval")
 	}
 }

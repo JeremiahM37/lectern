@@ -527,7 +527,7 @@ def prepare(job):
     return {'state': 'prepared', 'work': str(work), 'capacity_bytes': 2 * 1024**3}
 
 
-def copy_job(job, source):
+def copy_job(job, source, review=False):
     destination = job_path(job)
     origin = job_path(source)
     if job == source or (destination / 'job.json').exists():
@@ -536,7 +536,15 @@ def copy_job(job, source):
         raise ValueError('cannot copy a running job')
     dest = ensure_work(destination)
     src = ensure_work(origin)
-    if any(dest.iterdir()):
+    if review:
+        # Never overlay reviewer edits onto the builder's original evidence.
+        evidence = dest / '.lectern-review'
+        if evidence.is_symlink() or (evidence.exists() and not evidence.is_dir()):
+            raise ValueError('review evidence root must be a real directory')
+        if (evidence / source).exists() or (evidence / source).is_symlink():
+            raise ValueError('review evidence destination already exists')
+        dest = evidence / source / 'work'
+    elif any(dest.iterdir()):
         raise ValueError('copy destination must be empty')
     paths = sorted(src.rglob('*'), key=lambda item: len(item.parts))
     if len(paths) > 100000:
@@ -549,10 +557,18 @@ def copy_job(job, source):
         total += regular(item).st_size
     if total > 1900 * 1024**2:
         raise ValueError('snapshot exceeds 1900 MiB')
+    if review:
+        if shutil.disk_usage(ensure_work(destination)).free < total + 64 * 1024**2:
+            raise ValueError('insufficient sandbox space for review evidence')
+        dest.mkdir(parents=True)
+        admin = pwd.getpwnam('admin')
+        for folder in (evidence, evidence / source, dest):
+            os.chown(folder, admin.pw_uid, admin.pw_gid)
     admin = pwd.getpwnam('admin')
+    manifest = []
     for item in paths:
         rel = item.relative_to(src)
-        if rel == Path('autonomy-report.json'):
+        if not review and rel == Path('autonomy-report.json'):
             continue
         target = dest / rel
         kind = item.lstat().st_mode
@@ -566,6 +582,14 @@ def copy_job(job, source):
                 shutil.copyfileobj(read, write)
             target.chmod(item.stat().st_mode & 0o777)
         os.chown(target, admin.pw_uid, admin.pw_gid, follow_symlinks=False)
+        if review:
+            manifest.append({'path': str(rel), 'kind': 'symlink' if stat.S_ISLNK(kind) else 'directory' if stat.S_ISDIR(kind) else 'file',
+                             'sha256': digest_file(target) if stat.S_ISREG(kind) else None,
+                             'link': os.readlink(target) if stat.S_ISLNK(kind) else None})
+    if review:
+        receipt = evidence / source / 'manifest.json'
+        receipt.write_text(json.dumps({'source_job': source, 'purpose': 'untrusted reviewer evidence, not approval', 'files': manifest}, indent=2))
+        os.chown(receipt, admin.pw_uid, admin.pw_gid)
     return {'state': 'copied', 'entries': len(paths), 'bytes': total}
 
 
@@ -615,7 +639,7 @@ def archive(job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['storage', 'compact', 'probe', 'prepare', 'copy', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -657,6 +681,8 @@ def main():
     elif args.command == 'report':
         report(args.job)
         return 0
+    elif args.command == 'copy-review':
+        out = copy_job(args.job, args.from_job, review=True)
     elif args.command == 'copy':
         out = copy_job(args.job, args.from_job)
     elif args.command == 'prepare':

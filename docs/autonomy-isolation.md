@@ -205,3 +205,16 @@ Run compaction with a root-owned maintenance timer. Cold archives must have a
 verified off-box backup and a recorded restore location before unique local
 content is removed. Never grant workers permission to prune other jobs or
 backups; their cleanup is limited to their own reproducible intermediates.
+
+### Reviewer evidence in repair checkpoints
+
+A fresh audited repair receives the original builder workspace and a separate
+reviewer snapshot at `/work/.lectern-review/<reviewer-job-uuid>/work`. Its sibling
+`manifest.json` records file hashes and symbolic-link targets. Reviewer edits do
+not overwrite the builder baseline. The repair catalog and prompt identify this
+location so a required review package need not be requested from the owner.
+Workers must inspect the retained rejection and verify needed files; this copy
+is untrusted evidence, never an approval or authority to change scope. Both plan
+audits, bounded repair attempts and fresh final review still apply. Copying refuses
+active sources, occupied destinations, unsafe evidence-directory links, oversized
+snapshots and insufficient sandbox space. Earlier review snapshots remain intact.
