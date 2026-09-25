@@ -28,6 +28,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
+	"github.com/JeremiahM37/lectern/v2/internal/triggers"
 )
 
 // App owns every long-lived component.
@@ -42,6 +43,7 @@ type App struct {
 	Sessions  *sessions.Manager
 	Memory    memory.Provider
 	Terminals *terminal.Manager
+	Triggers  *triggers.Manager
 	Server    *api.Server
 	Log       *slog.Logger
 }
@@ -149,21 +151,31 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		TrustServeHeaders: cfg.TrustServeHeaders,
 	}, log)
 
+	// triggersMgr polls GitHub/Linear and holds Slack's Socket Mode
+	// connections open (internal/triggers). CreateTask is wired below, once
+	// srv exists, to the same task-creation-plus-dispatch path a human's
+	// "New task" + dispatch button uses.
+	triggersMgr := triggers.New(db, reg, log)
+
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
-		Awareness: awarenessTracker,
+		Awareness: awarenessTracker, Triggers: triggersMgr,
 	}
+	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
 	// only says when one is due
 	sched.Routines = func(ctx context.Context) { srv.RunDueRoutines(ctx); srv.ScheduleAutonomyTick(ctx) }
 	// an eval cell is a task too — same reasoning
 	sched.Evals = srv.RunEvalsTick
+	// a trigger-created task is a task too — same reasoning again; Tick also
+	// reconciles Slack's live sockets and posts back finished tasks
+	sched.Triggers = triggersMgr.Tick
 
 	app := &App{Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
-		Server: srv, Log: log}
+		Triggers: triggersMgr, Server: srv, Log: log}
 
 	if cfg.Mock {
 		if err := app.SeedDemoData(); err != nil {
@@ -242,6 +254,9 @@ func (a *App) Close() {
 	}
 	if a.Sessions != nil {
 		a.Sessions.Close()
+	}
+	if a.Triggers != nil {
+		a.Triggers.StopSlack()
 	}
 	a.Server.Shutdown(context.Background())
 	a.DB.Close()

@@ -105,6 +105,12 @@ type Scheduler struct {
 	// lands. Injected for the same reason as Routines — an eval cell IS a
 	// task, and creating/grading tasks is the API layer's job.
 	Evals func(context.Context)
+	// Triggers polls GitHub/Linear sources that are due, reconciles Slack's
+	// live Socket Mode connections, and posts back any trigger-created
+	// task's outcome (internal/triggers.Manager.Tick). Injected for the same
+	// reason as Routines/Evals — it ends in a task creation, which is the
+	// API layer's job.
+	Triggers func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -202,6 +208,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	if s.Evals != nil {
 		s.Evals(ctx)
+	}
+	if s.Triggers != nil {
+		s.Triggers(ctx)
 	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)
