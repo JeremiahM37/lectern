@@ -251,3 +251,55 @@
    its border and wrap whole buttons instead of shrinking their labels. */
 #sesslist .scard .btnrow { flex-wrap: wrap; }
 #sesslist .scard .btnrow > .b { flex: 1 1 auto; min-width: max-content; max-width: 100%; }
+
+/* Memory you can see (docs/memory-visibility.md): the deliveries section on the
+   session conversation and the task detail, listing what was injected and
+   carrying the operator's verdict back to the store. It reuses the Changed
+   files row pattern so a narrow conversation reads consistently, and every
+   row wraps rather than overflowing at 390px. */
+.conversation-memory { border-top: 1px solid var(--line); font-size: 12px; }
+.conversation-memory > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+.conversation-memory .memory-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 9px; }
+.conversation-memory .sub { margin: 0; color: var(--ink-dim); font-size: 11.5px; overflow-wrap: anywhere; }
+.conversation-memory > .memory-body > .b { align-self: flex-start; }
+.memory-delivery { display: flex; flex-direction: column; gap: 5px; }
+.memory-delivery > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.memory-delivery > header b { font-size: 12px; }
+.memory-summary { color: var(--ink-dim); font-size: 11.5px; overflow-wrap: anywhere; }
+.memory-items { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.memory-items li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid var(--line-2);
+  padding: 4px 0 4px 8px;
+  overflow-wrap: anywhere;
+}
+.memory-items li[data-verdict="helpful"] { border-color: var(--green); }
+.memory-items li[data-verdict="irrelevant"] { border-color: var(--ink-faint); }
+.memory-items li[data-verdict="challenged"] { border-color: var(--amber); }
+.memory-item-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.memory-item-head b { font-size: 12px; overflow-wrap: anywhere; }
+.memory-item-head code { color: var(--cyan); font-size: 11px; overflow-wrap: anywhere; }
+.memory-snippet > summary { cursor: pointer; color: var(--ink-dim); font-size: 11px; }
+.memory-snippet p {
+  margin: 4px 0 0;
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-items small { color: var(--ink-dim); font-size: 11px; }
+.memory-verdict[data-verdict="challenged"] { color: var(--amber); }
+.memory-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.memory-actions .b { min-height: 30px; padding: 0 9px; font-size: 11.5px; }
+/* The task detail is a sheet, not the conversation column: give the section a
+   little air above the timeline. The timeline dot matches the brand violet it
+   shares with memory items elsewhere. */
+.sheet .conversation-memory { margin: 10px 0 2px; }
+.ev.e-memory::before { background: var(--accent-soft); }

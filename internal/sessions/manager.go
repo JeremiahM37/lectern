@@ -870,10 +870,11 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if o.Prime != "" && argPrompt == "" {
 		// the fallback path: wait until the pane settles before typing, rather
 		// than guessing a delay and landing in whatever the CLI put on screen
-		go m.primeWhenReady(sess.ID, o.Prime, recalled.Keys...)
+		go m.primeWhenReady(sess.ID, o.Prime, recalled)
 	}
 	if argPrompt != "" {
 		m.recordContext(sess.ID, recalled)
+		m.recordDelivery(sess.ID, recalled)
 	}
 	// Bind new owned terminals as well as adopted ones to their tmux identity.
 	if identity := captureTrackingIdentity(ctx, ex, tmuxName); identity != "" {
@@ -955,7 +956,7 @@ func scratchSlug(label string) string {
 // Used only where the prompt cannot be an argument. A fixed delay is a race: the
 // paste lands in whatever the CLI is showing at that instant, which is how a
 // primed message once answered codex's self-update prompt.
-func (m *Manager) primeWhenReady(id int64, text string, keys ...string) {
+func (m *Manager) primeWhenReady(id int64, text string, recalled memory.ContextResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	var last string
@@ -994,7 +995,11 @@ func (m *Manager) primeWhenReady(id int64, text string, keys ...string) {
 			if err := m.sendText(ctx, id, text, false); err != nil {
 				m.Log.Warn("priming session failed", "session", id, "err", err)
 			} else {
-				m.recordContext(id, memory.ContextResult{Keys: keys})
+				// The opening message carried the recalled context, so this is
+				// the moment the delivery happened — not the launch that raced
+				// the pane.
+				m.recordContext(id, recalled)
+				m.recordDelivery(id, recalled)
 			}
 			return
 		}
@@ -1092,6 +1097,7 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 	}
 	if automatic {
 		m.recordContext(id, recalled)
+		m.recordDelivery(id, recalled)
 	}
 	return nil
 }

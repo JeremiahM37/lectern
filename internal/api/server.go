@@ -273,6 +273,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/send", s.sendToSession)
 	mux.HandleFunc("POST /api/sessions/{id}/attachments", s.uploadSessionAttachment)
 	mux.HandleFunc("GET /api/sessions/{id}/memory", s.sessionMemory)
+	// ---- memory you can see (docs/memory-visibility.md) ----
+	mux.HandleFunc("GET /api/tasks/{id}/memory", s.taskMemory)
+	mux.HandleFunc("POST /api/memory/items/{id}/feedback", s.memoryItemFeedback)
+	mux.HandleFunc("POST /api/memory/items/{id}/challenge", s.memoryItemChallenge)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal", s.attachSession)
 	mux.HandleFunc("POST /api/sessions/{id}/handoff", s.handoffSession)
 	mux.HandleFunc("GET /api/sessions/{id}/wraps", s.sessionWraps)

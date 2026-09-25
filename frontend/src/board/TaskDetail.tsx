@@ -8,6 +8,11 @@ import { CompareView, type JudgeVerdict } from "./CompareView";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
 import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import {
+  MemorySection,
+  MemoryTimelineEntry,
+  useMemoryDeliveries,
+} from "../sessions/MemoryDeliveries";
 import "./board.css";
 
 export interface TaskDetailApi {
@@ -91,6 +96,10 @@ export function TaskDetail({
     }
   }
   const [steerText, setSteerText] = useState("");
+  // Memory you can see (docs/memory-visibility.md): read once, used twice — the
+  // section below the actions carries the feedback buttons, and the deliveries
+  // themselves are entries on the timeline, where they happened.
+  const memory = useMemoryDeliveries(api, "task", taskId, onNotice, true);
   async function load(signal?: AbortSignal, n = attempt) {
     const q = n ? `?attempt_n=${n}` : "";
     const [t, e] = await Promise.all([
@@ -428,6 +437,7 @@ export function TaskDetail({
           Delete
         </button>
       </div>
+      <MemorySection state={memory} />
       {task.status === "running" && task.attempt?.driver === "claude-steer" && (
         <form
           className="steer-row"
@@ -459,6 +469,17 @@ export function TaskDetail({
       )}
       {!diffOpen ? (
         <div className="tl">
+          {memory.deliveries?.map((delivery) => (
+            <MemoryTimelineEntry
+              key={delivery.id}
+              delivery={delivery}
+              attempt={
+                task.attempts.length > 1
+                  ? task.attempts.find((a) => a.id === delivery.attempt_id)?.n
+                  : undefined
+              }
+            />
+          ))}
           {events.length === 0 && task.prompt && (
             <article className="ev">
               <div className="k">prompt</div>

@@ -20,6 +20,7 @@ import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
+import { MemoryDeliveries } from "./MemoryDeliveries";
 import { useDictation } from "../voice";
 interface Attachment {
   name: string;
@@ -830,6 +831,9 @@ export function Conversation({
             </button>
           </div>
         </details>
+      )}
+      {kind === "session" && (
+        <MemoryDeliveries api={api} kind="session" id={id} onNotice={onNotice} />
       )}
       <div
         id="conversation-log"

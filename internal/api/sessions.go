@@ -504,6 +504,11 @@ func (s *Server) projectBriefWithMemory(ctx context.Context, proj *store.Project
 // previewBrief shows exactly what a new session on this project would be handed.
 // Worth having as its own endpoint: "does this agent actually have the context"
 // should be answerable before you spend a session finding out.
+//
+// This is a lookup, not a delivery, so it is deliberately absent from the
+// memory_deliveries log (docs/memory-visibility.md): nothing here reaches an
+// agent, and recording it would make the log claim a session saw a briefing
+// that was never typed into it.
 func (s *Server) previewBrief(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
