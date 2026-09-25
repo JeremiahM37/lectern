@@ -28,6 +28,11 @@ func autoExtract(r io.Reader, dest string) error {
 		if e != nil {
 			return e
 		}
+		// git archive emits a global PAX commit-id header. It is metadata,
+		// not a filesystem entry; archive/tar has already parsed it.
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
 		name := filepath.Clean(h.Name)
 		if name == "." {
 			continue
@@ -269,7 +274,7 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 	if e != nil {
 		return e
 	}
-	prompt = append(prompt, []byte("\nThis is a budget-paused job resumed in a fresh process. Inspect retained partial work before continuing. Never assume earlier commands completed.\n")...)
+	prompt = append(prompt, []byte("\nThis job is being resumed after an interruption or failed attempt in a fresh process. Inspect retained partial work before continuing. Never assume earlier commands completed.\n")...)
 	if e = os.WriteFile(filepath.Join(autoRoot, id, "prompt.txt"), prompt, 0600); e != nil {
 		return e
 	}

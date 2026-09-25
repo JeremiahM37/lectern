@@ -49,6 +49,9 @@ type autoRecord struct {
 	RequestedDay  string            `json:"requested_day,omitempty"`
 	ProjectID     int64             `json:"project_id"`
 	RememberedDay string            `json:"remembered_day"`
+	RetryCount    int               `json:"retry_count"`
+	RetryDay      string            `json:"retry_day,omitempty"`
+	RetryAt       time.Time         `json:"retry_at,omitempty"`
 }
 
 func (s *Server) loadAuto() (*autoRecord, error) {
@@ -270,7 +273,13 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		a.Reason = a.State.Reason
 		return
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9105/api/agent-usage?autonomous=1", nil)
+	usageURL := "http://127.0.0.1:9105/api/agent-usage"
+	// A paused cycle does not need aggressive provider polling. Its existing
+	// cache/backoff still refreshes, and the quota gate rejects stale samples.
+	if a.State.Phase != autonomy.Paused {
+		usageURL += "?autonomous=1"
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", usageURL, nil)
 	client := &http.Client{Timeout: 25 * time.Second}
 	resp, e := client.Do(req)
 	if e == nil {
@@ -295,9 +304,17 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 				return
 			}
 		} else {
-			a.Status = "paused"
-			a.Reason = a.State.Reason
-			return
+			if !autoRetryReady(a, now) {
+				return
+			}
+			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{"codex", "claude"}, now); e != nil {
+				return
+			}
+			for _, id := range a.State.ActiveTaskIDs() {
+				if j := autoFindJob(a, id); j != nil && j.Status == "failed" {
+					j.Status = "stopped"
+				}
+			}
 		}
 	}
 	a.Status = string(a.State.Phase)

@@ -108,3 +108,10 @@ registries. Only exact subscription-inference hosts retain TLS access. Research
 uses a credential-free GET broker for approved document hosts; redirects and
 query strings are refused. This intentionally limits online dependency installs.
 See isolation documentation for the remaining model-provider trust boundary.
+
+Operational failures retry automatically with persisted 1/5/15-minute backoff,
+then at the next 08:00 local morning after three retries that day. Completed
+planning/audits are retained and failed workers resume in fresh isolated jobs
+with partial files. Unsafe snapshots, corrupt receipts and unknown failure types
+stay blocked. Quota uncertainty always blocks launches independently of retries.
+Git archive global PAX metadata is ignored as metadata, never extracted as a file.

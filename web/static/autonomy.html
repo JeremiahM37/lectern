@@ -133,7 +133,7 @@ function render(data) {
   $('toggle').setAttribute('aria-checked', String(enabled));
   $('status').textContent = enabled ? paused ? 'ON · ' + words(status) : 'ON' : status === 'error' ? 'OFF · Stop needs attention' : 'OFF';
   $('status').className = 'badge' + (enabled ? paused ? ' paused' : ' on' : '');
-  $('reason').textContent = data.reason || state.reason || (enabled ? 'The daily cycle is enabled. Work starts only when its checks pass.' : 'The workshop is off. Enable it to plan and work each morning.');
+  $('reason').textContent = [...new Set([data.reason, state.reason].filter(Boolean))].join(' · ') || (enabled ? 'The daily cycle is enabled. Work starts only when its checks pass.' : 'The workshop is off. Enable it to plan and work each morning.');
   const hour = number(config.morning_hour, 8);
   $('schedule').textContent = String(hour).padStart(2, '0') + ':00 · ' + (config.timezone || 'server timezone');
   const reserve = Math.max(10, number(config.reserve_percent, 10)), margin = number(config.margin_percent, 0);

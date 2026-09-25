@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -329,5 +330,32 @@ func TestAutonomyResearchRejectsWriteSurfaces(t *testing.T) {
 	autoResearch(w, httptest.NewRequest("POST", "/research", nil))
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatal("research writes accepted")
+	}
+}
+
+func TestAutonomyExtractRealGitArchive(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("research snapshot\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-b", "main"}, {"add", "README.md"}, {"commit", "-m", "fixture"}} {
+		if err := autoGit(context.Background(), source, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := exec.Command("git", "-C", source, "archive", "--format=tar", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if err := autoExtract(bytes.NewReader(data), dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "README.md"))
+	if err != nil || string(got) != "research snapshot\n" {
+		t.Fatalf("snapshot missing: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "pax_global_header")); !os.IsNotExist(err) {
+		t.Fatal("metadata extracted as a file")
 	}
 }
