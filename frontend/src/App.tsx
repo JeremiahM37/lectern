@@ -31,6 +31,7 @@ import { requestSwitch, type SwitchRequest } from "./continuity/handoff";
 import { SessionLineage } from "./continuity/SessionLineage";
 import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
 import { envFromWindow, pushAvailability } from "./push";
+import { applyBadge, computeBadgeCount } from "./badge";
 const SWITCH_STORAGE = 'lec-pending-switches';
 const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
 // The Needs-you push prompt is one-time and dismissible: once a person taps
@@ -153,6 +154,9 @@ export default function App() {
       kind: "task" | "session";
       id: number;
       name: string;
+      // Set only by a notification's "Reply" action — focuses the composer
+      // the moment the chat opens instead of waiting for a tap.
+      quickReply?: boolean;
     }>(),
     [review, setReview] = useState<SessionView>(),
     [mergeReview, setMergeReview] = useState<SessionView>(),
@@ -163,7 +167,14 @@ export default function App() {
     // checked yet" — the Needs-you prompt stays hidden until it is, so it
     // never flashes on for a device that turns out to already be subscribed.
     [pushEndpoint, setPushEndpoint] = useState<string | null | undefined>(undefined),
-    [pushPromptGone, setPushPromptGone] = useState(pushPromptDismissed);
+    [pushPromptGone, setPushPromptGone] = useState(pushPromptDismissed),
+    // A notification's "Open terminal"/"Reply" action, waiting for `sessions`
+    // to actually contain that row (it may still be loading on a cold open).
+    [sessionDeepLink, setSessionDeepLink] = useState<{
+      id: number;
+      action: "terminal" | "reply";
+      version: number;
+    }>();
   const pushAvail = useMemo(() => pushAvailability(envFromWindow(window)), []);
   const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
   const saveSwitches = useCallback((next: Record<string,PendingSwitch>)=>{
@@ -309,6 +320,19 @@ export default function App() {
     },
     [api, openTerminal, sessions, notice],
   );
+  // Resolves a pending notification deep link once its session actually
+  // shows up in `sessions` — on a cold open the first refresh may still be
+  // in flight when the hash effect above fires. "reply" opens the same chat
+  // Chat already opens, with the composer auto-focused; "terminal" reuses
+  // attach's existing retry/error handling rather than a second copy.
+  useEffect(() => {
+    if (!sessionDeepLink) return;
+    const session = sessions.find((row) => row.id === sessionDeepLink.id);
+    if (!session) return;
+    if (sessionDeepLink.action === "terminal") void attach(session.id);
+    else setConversation({ kind: "session", id: session.id, name: session.name, quickReply: true });
+    setSessionDeepLink(undefined);
+  }, [sessionDeepLink, sessions, attach]);
   const newTerminal = useCallback(
     async (choice?: { machineID?: number; projectID?: number }) => {
       try {
@@ -385,6 +409,13 @@ export default function App() {
       }
       if (kind === "session") {
         setView("sessions");
+        // A notification's "Open terminal"/"Reply" action (sw-actions.ts
+        // actionURL) lands here as #session/<id>/terminal|reply. A plain
+        // #session/<id> (NeedsYou's fallback link for a row not present in
+        // this browser's own state yet) has no third segment and just picks
+        // the Sessions tab, same as before.
+        if (/^[1-9]\d*$/.test(id || "") && (terminalID === "terminal" || terminalID === "reply"))
+          setSessionDeepLink({ id: Number(id), action: terminalID, version: Date.now() });
         return;
       }
       if (kind && isTab(kind) && opensModal(kind)) {
@@ -553,6 +584,22 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushAvail.available]);
+  // Glanceable count for the app icon's badge (the PWA analogue of a lock-
+  // screen count) — every SSE-driven refresh recomputes it from the same
+  // rows already on screen, and tells the service worker the fresh total so
+  // a later push (which cannot see this state) can bump from a value that
+  // was actually current a moment ago rather than an unbounded guess.
+  useEffect(() => {
+    const waitingSessions = sessions.filter(
+      (session) =>
+        session.status === "waiting" &&
+        session.archived_at == null &&
+        session.ended_at == null,
+    ).length;
+    const count = computeBadgeCount({ approvals: approvals.length, waitingSessions });
+    applyBadge(navigator, count);
+    navigator.serviceWorker?.controller?.postMessage({ type: "lec-badge-count", count });
+  }, [approvals, sessions]);
   async function enablePush() {
     try {
       if (!navigator.serviceWorker || !window.Notification)
@@ -885,6 +932,7 @@ export default function App() {
             onEnablePush={() => void enablePush()}
             pushAvailable={pushAvail.available}
             pushUnavailableReason={pushAvail.reason}
+            pushUnavailableReasonKind={pushAvail.reasonKind}
             pushEndpoint={pushEndpoint}
             onUnsubscribePush={unsubscribePush}
           />

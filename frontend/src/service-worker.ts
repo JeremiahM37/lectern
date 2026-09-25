@@ -16,10 +16,22 @@ worker.addEventListener('fetch',event=>{
   catch{return await cache.match(request)||(request.mode==='navigate'?await cache.match('/'):undefined)||new Response('Lectern is offline',{status:503});}
  })());
 });
-import {buildNotificationPlan,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,type PushData} from './sw-actions';
+import {actionURL,buildNotificationPlan,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,type PushData} from './sw-actions';
+import {applyBadge,needsBadge,type BadgeNavigator} from './badge';
+// The open page tells this worker its last-known badge count on every SSE
+// refresh (postMessage — a worker has no other way to read live app state).
+// A push the worker itself decides is actionable bumps that remembered count
+// by one; the page's own next refresh corrects it exactly either way, so this
+// only has to be approximately right between refreshes, never authoritative.
+let badgeCount=0;
+worker.addEventListener('message',event=>{
+ const data=event.data as {type?:string;count?:number}|undefined;
+ if(data?.type==='lec-badge-count'&&typeof data.count==='number')badgeCount=Math.max(0,data.count);
+});
 worker.addEventListener('push',event=>{
  let data:PushData={};try{data=event.data?.json() as PushData||{};}catch{}
  const plan=buildNotificationPlan(data);
+ if(needsBadge(data.kind)){badgeCount+=1;applyBadge(navigator as unknown as BadgeNavigator,badgeCount);}
  event.waitUntil(worker.registration.showNotification(plan.title,plan.options));
 });
 function resolveAppURL(raw:string|undefined):URL{
@@ -37,8 +49,10 @@ async function openApp(url:URL){
 // docs/agent-events.md section 3: "Handle failure (e.g. 403/expired) with a
 // follow-up notification"). Tapping the notification body (event.action==='')
 // keeps the pre-existing behavior of opening the app at the deep link.
+// "terminal"/"reply" open the app at a hash the router understands, focused
+// on that one session, rather than the raw push URL (see actionURL).
 worker.addEventListener('notificationclick',event=>{
- const data=event.notification.data as {url?:string;approvalId?:number}|undefined;
+ const data=event.notification.data as {url?:string;approvalId?:number;sessionId?:number}|undefined;
  const decision=decisionForAction(event.action);
  event.notification.close();
  if(decision&&data?.approvalId!=null){
@@ -49,6 +63,10 @@ worker.addEventListener('notificationclick',event=>{
    const confirmation=confirmationNotification(decision,ok);
    await worker.registration.showNotification(confirmation.title,{body:confirmation.body,icon:'/icon.svg',badge:'/icon.svg',data:{url:resolveAppURL(data?.url).href}});
   })());
+  return;
+ }
+ if((event.action==='terminal'||event.action==='reply')&&data?.sessionId!=null){
+  event.waitUntil(openApp(resolveAppURL(actionURL(event.action,data.sessionId))));
   return;
  }
  event.waitUntil(openApp(resolveAppURL(data?.url)));

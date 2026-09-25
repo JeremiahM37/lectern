@@ -1,0 +1,70 @@
+.now-strip {
+  margin: 0 0 12px;
+}
+.now-strip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.now-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #333);
+  background: var(--panel, #1b1e24);
+  color: var(--ink);
+  font-size: 13px;
+  white-space: nowrap;
+  min-height: 36px;
+}
+.now-dot {
+  font-size: 11px;
+  line-height: 1;
+}
+.now-name {
+  font-weight: 600;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.now-state {
+  color: var(--ink-dim);
+}
+.now-chip[data-state="waiting"] {
+  border-color: #d9a441;
+}
+.now-chip[data-state="waiting"] .now-dot {
+  color: #d9a441;
+}
+.now-chip[data-state="error"] {
+  border-color: #b3261e;
+}
+.now-chip[data-state="error"] .now-dot {
+  color: #b3261e;
+}
+.now-chip[data-state="working"] .now-dot {
+  color: #3ba55d;
+}
+.now-chip[data-state="done"] .now-dot {
+  color: var(--ink-dim);
+}
+.now-chip.now-approvals {
+  border-color: #b3261e;
+  background: #b3261e22;
+  font-weight: 600;
+}
+.now-chip.now-approvals .now-dot {
+  color: #b3261e;
+}
+
+@media (max-width: 600px) {
+  .now-name {
+    max-width: 100px;
+  }
+}

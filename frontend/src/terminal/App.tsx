@@ -1,5 +1,6 @@
 import { subscribeLayout, subscribeViewport } from "./layout";
 import { applyVisibleHeight, localViewportSlice, virtualKeyboard } from "./viewport";
+import { buildKeyboardReport, formatKeyboardReport, rectSnapshot } from "./keyboard-report";
 import { errorMessage } from "./model";
 import {
   useCallback,
@@ -246,8 +247,9 @@ export function TerminalApp({
   const [notice, setNotice] = useState("");
   const [uploading, setUploading] = useState(0);
   const [dialog, setDialog] = useState<
-    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | null
+    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | "keyboard-report" | null
   >(null);
+  const [keyboardReport, setKeyboardReport] = useState("");
   const [snippets, setSnippets] = useState(loadSnippets);
   const [draft, setDraft] = useState("");
   const [keyboardFocused, setKeyboardFocused] = useState(false);
@@ -357,6 +359,50 @@ export function TerminalApp({
   const showHistory = useCallback((pane: string) => {
     setHistoryPane(pane);
     setDialog("history");
+  }, []);
+  // The "Report keyboard layout" diagnostic (keyboard-report.ts): captures
+  // exactly what this device's viewport/keyboard APIs report, plus where the
+  // key row, Tools toggle and the terminal's real focus target actually are
+  // on screen, for a person to paste back when the covered-input issue shows
+  // up on hardware no emulator has reproduced.
+  const reportKeyboard = useCallback(() => {
+    const named = (selector: string) => {
+      const el = document.querySelector(selector);
+      return el ? rectSnapshot(el.getBoundingClientRect()) : null;
+    };
+    const vv = window.visualViewport;
+    const api = (
+      navigator as Navigator & {
+        virtualKeyboard?: { overlaysContent?: boolean; boundingRect: DOMRectReadOnly };
+      }
+    ).virtualKeyboard;
+    const report = buildKeyboardReport({
+      userAgent: navigator.userAgent,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      visualViewport: vv
+        ? {
+            width: Math.round(vv.width),
+            height: Math.round(vv.height),
+            offsetTop: Math.round(vv.offsetTop),
+            offsetLeft: Math.round(vv.offsetLeft),
+            scale: vv.scale,
+          }
+        : null,
+      virtualKeyboard: api
+        ? { overlaysContent: !!api.overlaysContent, rect: rectSnapshot(api.boundingRect) }
+        : null,
+      elements: {
+        keybar: named("#terminal-keybar"),
+        toolsToggle: named("#terminal-tools-summary"),
+        focusTarget: named(".xterm-helper-textarea"),
+      },
+      fittedHeightVar:
+        document.documentElement.style.getPropertyValue("--lec-visible-height") || null,
+      now: Date.now(),
+    });
+    setKeyboardReport(formatKeyboardReport(report));
+    setDialog("keyboard-report");
   }, []);
   const preview = useCallback((path: string) => {
     setPreviewPath(path);
@@ -962,6 +1008,11 @@ export function TerminalApp({
             >
               Project MCP settings
             </a>
+            {mobile && (
+              <button id="report-keyboard" className="tools-diagnostic" onClick={reportKeyboard}>
+                Report keyboard layout
+              </button>
+            )}
             <button
               id="shell"
               disabled={!info?.shell_url}
@@ -1260,6 +1311,30 @@ export function TerminalApp({
       )}
       {dialog === "desktop" && info && (
         <Desktop info={info} onClose={close} onNotice={setNotice} />
+      )}
+      {dialog === "keyboard-report" && (
+        <Dialog
+          id="keyboard-report-dialog"
+          title="Keyboard layout report"
+          onClose={close}
+          actions={
+            <button
+              onClick={() =>
+                void copyClipboard(keyboardReport, () => {}).then(() =>
+                  setNotice("Copied. Paste it into a message."),
+                )
+              }
+            >
+              Copy
+            </button>
+          }
+        >
+          <p className="dialog-help">
+            The exact numbers this device's browser reports right now — paste this
+            into a message rather than describing what you see.
+          </p>
+          <textarea id="keyboard-report-text" readOnly rows={16} value={keyboardReport} />
+        </Dialog>
       )}
     </>
   );

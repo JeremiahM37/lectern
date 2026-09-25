@@ -22,16 +22,49 @@ export interface NotificationPlan {
     body: string;
     icon: string;
     badge: string;
-    data: { url: string; approvalId?: number };
+    tag: string;
+    renotify: boolean;
+    vibrate: number[];
+    data: { url: string; approvalId?: number; sessionId?: number };
     actions: { action: string; title: string }[];
   };
 }
 
+// groupTag scopes a notification to the session (or approval) it is about,
+// so a new state for the same session REPLACES the old tray entry instead of
+// stacking a second one under it — a stale "needs permission" sitting next
+// to its own later "approved" confirmation is confusing, not informative.
+// Anything with neither a session nor an approval id (a broadcast like
+// "Check failed") falls back to its kind, which still groups repeats of the
+// same broadcast rather than piling one notification per failure.
+function groupTag(data: PushData): string {
+  if (data.kind === "approval" && data.approval_id != null) return `approval-${data.approval_id}`;
+  if (data.session_id != null) return `session-${data.session_id}`;
+  return `kind-${data.kind || "general"}`;
+}
+
+// sessionActions offers a shortcut to the terminal and a quick in-app reply
+// for the two kinds where a session is actually waiting on a person — not a
+// decision, just their attention. Approval keeps its own Approve/Deny pair;
+// Chromium caps visible notification actions at two, so these are only
+// offered where there is no approval to decide.
+function sessionActions(data: PushData): { action: string; title: string }[] {
+  if (data.kind !== "waiting_permission" && data.kind !== "waiting_input") return [];
+  if (data.session_id == null) return [];
+  return [
+    { action: "terminal", title: "⌨ Open terminal" },
+    { action: "reply", title: "💬 Reply" },
+  ];
+}
+
 // buildNotificationPlan turns one push payload into what showNotification
 // needs. Only an "approval" push (one with an approval_id) gets Approve/Deny
-// action buttons — every other kind (waiting_permission, waiting_input,
-// idle, error, compacting) is informational and only opens the session on a
-// body tap.
+// action buttons; a session waiting for permission or input gets Open
+// terminal/Reply instead. Every other kind (idle, error, compacting) is
+// informational and only opens the session on a body tap. Every notification
+// is grouped and set to renotify, so a session's tray entry always reflects
+// its latest state rather than accumulating one per event; approvals also
+// get a distinct, more insistent vibration pattern.
 export function buildNotificationPlan(data: PushData): NotificationPlan {
   const approvalId = data.kind === "approval" ? data.approval_id : undefined;
   return {
@@ -40,16 +73,29 @@ export function buildNotificationPlan(data: PushData): NotificationPlan {
       body: data.body || "",
       icon: "/icon.svg",
       badge: "/icon.svg",
-      data: { url: data.url || "/", approvalId },
+      tag: groupTag(data),
+      renotify: true,
+      vibrate: approvalId != null ? [200, 80, 200, 80, 200] : [120],
+      data: { url: data.url || "/", approvalId, sessionId: data.session_id },
       actions:
         approvalId != null
           ? [
               { action: "approve", title: "✅ Approve" },
               { action: "deny", title: "⛔ Deny" },
             ]
-          : [],
+          : sessionActions(data),
     },
   };
+}
+
+// actionURL builds the deep link for the "Open terminal"/"Reply" actions.
+// It deliberately ignores the push payload's own `url` (a path like
+// "/session/7" the server does not serve as the SPA — only "/" and its hash
+// fragments resolve client-side) and instead builds a hash the app's own
+// router already understands, so both actions always land on the real app
+// regardless of what path the notification's default body tap would use.
+export function actionURL(action: "terminal" | "reply", sessionId: number): string {
+  return `/#session/${sessionId}/${action}`;
 }
 
 export type Decision = "approved" | "denied";

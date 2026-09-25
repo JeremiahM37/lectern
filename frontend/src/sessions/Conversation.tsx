@@ -20,6 +20,7 @@ import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
+import { useDictation } from "../voice";
 interface Attachment {
   name: string;
   path: string;
@@ -45,21 +46,6 @@ interface Row {
   role: "operator" | "agent" | "detail";
   text: string;
   label: string;
-}
-interface Recognition {
-  lang: string;
-  interimResults: boolean;
-  onresult:
-    | ((event: {
-        results: {
-          [index: number]: { [index: number]: { transcript: string } };
-        };
-      }) => void)
-    | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  start(): void;
-  stop(): void;
 }
 interface Changes {
   branch: string;
@@ -113,6 +99,7 @@ export function Conversation({
   onSwitch,
   session,
   onOpenSession,
+  quickReply,
 }: {
   kind: "session" | "task";
   id: number;
@@ -124,6 +111,8 @@ export function Conversation({
   onOpenSession?(session: SessionView): void;
   onAttach?(): void;
   onSwitch?(): void;
+  /** Set when this chat was opened from a notification's Reply action — focuses the composer immediately instead of waiting for a tap. */
+  quickReply?: boolean;
 }) {
   const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
@@ -145,7 +134,6 @@ export function Conversation({
     [sending, setSending] = useState(false),
     [uploading, setUploading] = useState(false),
     [drag, setDrag] = useState(false),
-    [dictating, setDictating] = useState(false),
     [showMergeReview, setShowMergeReview] = useState(false),
     [font, setFont] = useState(() =>
       Math.max(
@@ -171,9 +159,16 @@ export function Conversation({
     files = useRef<HTMLInputElement>(null),
     abort = useRef(new AbortController()),
     takeoverTasks = useRef<number[]>([]),
-    loadingChanges = useRef(false),
-    recognition = useRef<Recognition | undefined>(undefined);
+    loadingChanges = useRef(false);
   current.current = draft;
+  // A notification's Reply action already brought the person to this exact
+  // chat; put the caret in the composer too, rather than making that a
+  // second tap. One-shot: a re-render (a new message arriving, say) must not
+  // steal focus back from something the person is doing elsewhere.
+  useEffect(() => {
+    if (quickReply) requestAnimationFrame(() => input.current?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // A successful read is live; a failed read is offline only when the browser
   // agrees, and stale otherwise. Both are said out loud rather than hidden
   // behind a spinner.
@@ -247,7 +242,7 @@ export function Conversation({
     return () => {
       closed.current = true;
       abort.current.abort();
-      recognition.current?.stop();
+      stopDictation();
       document.body.style.overflow = overflow;
       visualViewport?.removeEventListener("resize", fit);
       visualViewport?.removeEventListener("scroll", fit);
@@ -573,46 +568,21 @@ export function Conversation({
       setError(String(error));
     }
   }
-  const Speech =
-    (
-      window as unknown as {
-        SpeechRecognition?: new () => Recognition;
-        webkitSpeechRecognition?: new () => Recognition;
-      }
-    ).SpeechRecognition ||
-    (window as unknown as { webkitSpeechRecognition?: new () => Recognition })
-      .webkitSpeechRecognition;
+  // Interim words appear in the box as Speech hears them (never duplicated
+  // once finalized) and nothing is ever sent on their own — the person still
+  // reviews and taps Send, exactly as if they had typed it.
+  const {
+    supported: dictationSupported,
+    dictating,
+    toggle: toggleDictation,
+    stop: stopDictation,
+  } = useDictation({
+    onChange: (text) => change((old) => ({ ...old, text, request_id: uid() })),
+    onNotice,
+  });
   function dictate() {
-    if (!Speech) return;
-    if (dictating) {
-      recognition.current?.stop();
-      return;
-    }
-    const listener = new Speech();
-    recognition.current = listener;
-    listener.lang = navigator.language;
-    listener.interimResults = false;
-    listener.onresult = (event) => {
-      const text = event.results[0]?.[0]?.transcript;
-      if (text)
-        change((old) => ({
-          ...old,
-          text: old.text + (old.text ? " " : "") + text,
-          request_id: uid(),
-        }));
-      input.current?.focus();
-    };
-    listener.onend = () => setDictating(false);
-    listener.onerror = () => {
-      setDictating(false);
-      onNotice("Dictation could not start. Check microphone permission.", true);
-    };
-    try {
-      listener.start();
-      setDictating(true);
-    } catch (error) {
-      onNotice(String(error), true);
-    }
+    toggleDictation(draft.text);
+    input.current?.focus();
   }
   const hint =
     kind === "session"
@@ -1112,14 +1082,14 @@ export function Conversation({
           )}
           <button
             type="button"
-            className="b"
+            className={dictating ? "b mic-recording" : "b"}
             id="conversation-mic"
-            aria-label="Dictate message"
-            hidden={!Speech}
+            aria-label={dictating ? "Stop dictating" : "Dictate message"}
+            hidden={!dictationSupported}
             aria-pressed={dictating}
             onClick={dictate}
           >
-            🎙
+            {dictating ? "🔴 Listening…" : "🎙"}
           </button>
           <button
             type="submit"

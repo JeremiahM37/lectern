@@ -39,4 +39,13 @@ def test_react_settings_push_availability(browser):
    y.locator('#push-enabled-hint').wait_for()
    y.locator('#push-devices').get_by_text('this device').wait_for()
    assert y.locator('#s-enable-push').count()==0
+   # iOS Safari, not yet added to the Home Screen: explicit numbered steps,
+   # not just the one-sentence reason, and no enable button (subscribing
+   # would fail until the page is installed).
+   z=context.new_page();z.goto(base+'?push=ios');z.get_by_role('tab',name='Notifications').click()
+   z.locator('#push-unavailable-reason').wait_for()
+   steps=z.locator('#push-ios-steps li')
+   assert steps.count()==5
+   assert 'Add to Home Screen' in (steps.nth(1).inner_text())
+   assert z.locator('#s-enable-push').count()==0
  finally:p.terminate();p.wait()

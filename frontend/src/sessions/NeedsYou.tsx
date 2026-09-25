@@ -3,6 +3,7 @@ import type { Approval, DuplicatePromptPair, SessionView, TaskView } from "../ty
 import type { SessionsApi } from "./Sessions";
 import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { approvalSummary } from "./approval-summary";
+import { useDictation } from "../voice";
 import "./session-home.css";
 
 // What actually wants a person, drawn only from state the server already
@@ -83,6 +84,10 @@ export function NeedsYou({
   // Which approval's "deny with reason" field is open, keyed by approval id.
   const [denying, setDenying] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+  const { supported: dictationSupported, dictating, toggle: toggleDictation } = useDictation({
+    onChange: setReason,
+    onNotice,
+  });
   useEffect(() => {
     const abort = new AbortController();
     // Attention is derived, never invented: a failed poll hides the row rather
@@ -360,6 +365,18 @@ export function NeedsYou({
               onChange={(e) => setReason(e.target.value)}
               aria-label="Reason for denying"
             />
+            {dictationSupported && (
+              <button
+                type="button"
+                className={dictating ? "b mic-recording" : "b"}
+                id="needs-you-deny-mic"
+                aria-label={dictating ? "Stop dictating" : "Dictate reason"}
+                aria-pressed={dictating}
+                onClick={() => toggleDictation(reason)}
+              >
+                {dictating ? "🔴" : "🎙"}
+              </button>
+            )}
             <button className="b" type="submit" disabled={isBusy}>
               Send
             </button>

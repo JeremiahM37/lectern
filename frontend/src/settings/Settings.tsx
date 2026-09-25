@@ -70,6 +70,7 @@ export function Settings({
   onEnablePush,
   pushAvailable = true,
   pushUnavailableReason,
+  pushUnavailableReasonKind,
   pushEndpoint,
   onUnsubscribePush,
   initialSection = "machines",
@@ -89,6 +90,9 @@ export function Settings({
   // showing the control rather than an unexplained "unavailable" state.
   pushAvailable?: boolean;
   pushUnavailableReason?: string;
+  // "ios-not-installed" gets step-by-step Home Screen instructions instead
+  // of just the one-sentence reason — see push.ts's PushUnavailableReason.
+  pushUnavailableReasonKind?: "insecure" | "ios-not-installed" | "unsupported";
   // This device's current subscription endpoint: undefined while unknown,
   // null once known to have none, or the endpoint string once subscribed.
   pushEndpoint?: string | null;
@@ -208,6 +212,7 @@ export function Settings({
           onEnablePush={onEnablePush}
           pushAvailable={pushAvailable}
           pushUnavailableReason={pushUnavailableReason}
+          pushUnavailableReasonKind={pushUnavailableReasonKind}
           pushEndpoint={pushEndpoint}
           onUnsubscribePush={onUnsubscribePush}
           onNotice={onNotice}
@@ -825,6 +830,7 @@ function Notifications({
   onEnablePush,
   pushAvailable = true,
   pushUnavailableReason,
+  pushUnavailableReasonKind,
   pushEndpoint,
   onUnsubscribePush,
   onNotice,
@@ -834,6 +840,7 @@ function Notifications({
   onEnablePush(): void;
   pushAvailable?: boolean;
   pushUnavailableReason?: string;
+  pushUnavailableReasonKind?: "insecure" | "ios-not-installed" | "unsupported";
   pushEndpoint?: string | null;
   onUnsubscribePush?(endpoint: string): void;
   onNotice(t: string, e?: boolean): void;
@@ -871,9 +878,29 @@ function Notifications({
       <h3>Notifications</h3>
       <div className="push-status">
         {!pushAvailable ? (
-          <p className="subhint" id="push-unavailable-reason">
-            {pushUnavailableReason || "Push notifications are not available in this browser."}
-          </p>
+          <>
+            <p className="subhint" id="push-unavailable-reason">
+              {pushUnavailableReason || "Push notifications are not available in this browser."}
+            </p>
+            {pushUnavailableReasonKind === "ios-not-installed" && (
+              <ol className="push-ios-steps" id="push-ios-steps">
+                <li>
+                  Tap the <strong>Share</strong> icon in Safari's toolbar.
+                </li>
+                <li>
+                  Scroll down and tap <strong>Add to Home Screen</strong>.
+                </li>
+                <li>
+                  Tap <strong>Add</strong> in the top-right corner.
+                </li>
+                <li>Open Lectern from its new Home Screen icon, not from Safari.</li>
+                <li>
+                  Come back here (Settings → Notifications) and tap{" "}
+                  <strong>Enable phone alerts</strong>.
+                </li>
+              </ol>
+            )}
+          </>
         ) : pushEndpoint ? (
           <p className="subhint" id="push-enabled-hint">
             Phone alerts are on for this device.

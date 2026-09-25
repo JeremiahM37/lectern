@@ -157,10 +157,11 @@ const api: SettingsApi = {
     return {};
   }) as SettingsApi["request"],
 };
-// ?push=unavailable | ?push=subscribed drive the two other scenarios the e2e
-// suite exercises against this fixture (real subscribe/getSubscription is not
-// reliably scriptable headless — see frontend/e2e coverage notes in
-// e2e/test_react_settings.py). Default is "available, not yet subscribed".
+// ?push=unavailable | ?push=ios | ?push=subscribed drive the three other
+// scenarios the e2e suite exercises against this fixture (real
+// subscribe/getSubscription is not reliably scriptable headless — see
+// frontend/e2e coverage notes in e2e/test_react_settings.py). Default is
+// "available, not yet subscribed".
 const pushMode = new URLSearchParams(location.search).get("push");
 let pushDevices: { id: number; endpoint: string; created_at: number }[] =
   pushMode === "subscribed"
@@ -174,8 +175,17 @@ createRoot(document.getElementById("root")!).render(
       calls.push(["push"]);
       pushDevices = [...pushDevices, { id: 1, endpoint: "https://push.example/this-device", created_at: 2 }];
     }}
-    pushAvailable={pushMode !== "unavailable"}
-    pushUnavailableReason={pushMode === "unavailable" ? "Open Lectern over https to enable alerts." : undefined}
+    pushAvailable={pushMode !== "unavailable" && pushMode !== "ios"}
+    pushUnavailableReason={
+      pushMode === "unavailable"
+        ? "Open Lectern over https to enable alerts."
+        : pushMode === "ios"
+          ? "On iPhone/iPad, add Lectern to the Home Screen first (Share → Add to Home Screen), then enable alerts from there."
+          : undefined
+    }
+    pushUnavailableReasonKind={
+      pushMode === "unavailable" ? "insecure" : pushMode === "ios" ? "ios-not-installed" : undefined
+    }
     pushEndpoint={pushMode === "subscribed" ? "https://push.example/this-device" : null}
     onUnsubscribePush={(endpoint) => {
       calls.push(["unsubscribe", endpoint]);

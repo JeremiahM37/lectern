@@ -31,10 +31,16 @@ export function envFromWindow(win: Window & typeof globalThis): PushEnv {
   };
 }
 
+export type PushUnavailableReason = "insecure" | "ios-not-installed" | "unsupported";
+
 export interface PushAvailability {
   available: boolean;
   /** One sentence explaining why not, and what to do about it. Unset when available. */
   reason?: string;
+  // Machine-readable form of `reason`, for a UI that wants to render more
+  // than one sentence — the iOS Home Screen steps, specifically — without
+  // parsing prose. Unset when available.
+  reasonKind?: PushUnavailableReason;
 }
 
 // pushAvailability checks the conditions in the order a person would actually
@@ -44,15 +50,24 @@ export interface PushAvailability {
 // until the page is installed), then generic feature support.
 export function pushAvailability(env: PushEnv): PushAvailability {
   if (!env.isSecureContext)
-    return { available: false, reason: "Open Lectern over https to enable alerts." };
+    return {
+      available: false,
+      reason: "Open Lectern over https to enable alerts.",
+      reasonKind: "insecure",
+    };
   if (env.isIOS && !env.isStandalone)
     return {
       available: false,
       reason:
         "On iPhone/iPad, add Lectern to the Home Screen first (Share → Add to Home Screen), then enable alerts from there.",
+      reasonKind: "ios-not-installed",
     };
   if (!env.hasServiceWorker || !env.hasPushManager || !env.hasNotification)
-    return { available: false, reason: "This browser does not support push notifications." };
+    return {
+      available: false,
+      reason: "This browser does not support push notifications.",
+      reasonKind: "unsupported",
+    };
   return { available: true };
 }
 

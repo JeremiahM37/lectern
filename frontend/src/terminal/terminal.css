@@ -529,6 +529,25 @@ footer {
 .action-menu-panel > button:hover {
   background: #273247;
 }
+/* Tucked deliberately below everything else in Tools: a diagnostic for the
+   owner to reach for when asked, not something a person taps by accident. */
+.action-menu-panel > button.tools-diagnostic {
+  font-size: 12px;
+  color: #8b96ab;
+  border-top: 1px solid #3a465a33;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+#keyboard-report-text {
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre;
+}
+.dialog-help {
+  font-size: 13px;
+  color: #8b96ab;
+}
 body.embedded nav {
   overflow: visible;
   padding: 6px 10px;
