@@ -81,7 +81,8 @@ for attempt in range(30):
         time.sleep(.1)
 else:
     raise AssertionError('local proxy listener did not become ready')
-for url,expected in [('https://example.com','200'),
+for url,expected in [('http://example.com','403'),
+                     ('http://api.github.com/','403'),
                      ('http://127.0.0.1:9110/','403'),
                      ('http://100.100.100.100/','403'),
                      ('http://[::1]/','403'),('http://localhost/','403')]:
@@ -89,7 +90,7 @@ for url,expected in [('https://example.com','200'),
                            '--max-time','15','--noproxy','','--proxy',
                            'http://127.0.0.1:18080',url],capture_output=True,text=True)
     assert result.returncode==0 and result.stdout==expected, (url,result.stdout,result.stderr)
-print(json.dumps({'network_selftest':'PASS','public_https':True,
+print(json.dumps({'network_selftest':'PASS','arbitrary_public_http_blocked':True,
                   'private_ipv4_ipv6_cgnat_dns_blocked':True}),flush=True)
 """
 

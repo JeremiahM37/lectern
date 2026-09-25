@@ -68,6 +68,10 @@ func autoPublicDial(ctx context.Context, network, address string) (net.Conn, err
 }
 func autoProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
+		if !autoInferenceDestination(r.Host) {
+			http.Error(w, "external publishing is disabled; use the read-only research bridge", 403)
+			return
+		}
 		dst, e := autoPublicDial(r.Context(), "tcp", r.Host)
 		if e != nil {
 			http.Error(w, "destination denied or unavailable", 403)
@@ -98,34 +102,77 @@ func autoProxy(w http.ResponseWriter, r *http.Request) {
 		}()
 		return
 	}
-	if r.URL.Scheme != "http" || r.URL.Host == "" {
-		http.Error(w, "absolute public HTTP URL required", 400)
+	http.Error(w, "direct web requests are disabled; use the read-only research bridge", 403)
+}
+
+// Only the subscription inference services may use opaque TLS tunnels.
+// Repository hosts, registries, social sites and arbitrary upload endpoints
+// are deliberately absent. No wildcard or suffix matching.
+func autoInferenceDestination(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || port != "443" {
+		return false
+	}
+	switch host {
+	case "chatgpt.com", "api.openai.com", "api.anthropic.com":
+		return true
+	}
+	return false
+}
+
+// Research is fetched by the controller, without worker-supplied credentials,
+// cookies, bodies, methods or redirects. Only known reading surfaces are offered.
+func autoResearchURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.Fragment != "" || len(raw) > 2048 {
+		return nil, errors.New("an approved HTTPS reading URL is required")
+	}
+	switch u.Host {
+	case "raw.githubusercontent.com", "docs.python.org", "go.dev", "pkg.go.dev", "developer.mozilla.org", "arxiv.org", "export.arxiv.org", "en.wikipedia.org", "docs.anthropic.com", "code.claude.com", "platform.openai.com":
+	default:
+		return nil, errors.New("research host is not approved")
+	}
+	if u.RawQuery != "" {
+		return nil, errors.New("research query strings are disabled")
+	}
+	return u, nil
+}
+
+func autoResearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "read only", 405)
 		return
 	}
-	out := r.Clone(r.Context())
-	out.RequestURI = ""
-	out.Header.Del("Proxy-Authorization")
-	out.Header.Del("Proxy-Connection")
-	out.Header.Del("Connection")
+	u, err := autoResearchURL(r.URL.Query().Get("url"))
+	if err != nil {
+		http.Error(w, err.Error(), 403)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		http.Error(w, "invalid URL", 400)
+		return
+	}
 	transport := &http.Transport{DialContext: autoPublicDial, DisableKeepAlives: true, ResponseHeaderTimeout: 20 * time.Second}
 	defer transport.CloseIdleConnections()
-	res, e := transport.RoundTrip(out)
-	if e != nil {
-		http.Error(w, "destination denied or unavailable", 403)
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "research unavailable", 502)
 		return
 	}
 	defer res.Body.Close()
-	for k, vs := range res.Header {
-		if strings.EqualFold(k, "Connection") {
-			continue
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
+	if res.StatusCode != 200 {
+		http.Error(w, "research source did not return a document (redirects are refused)", 502)
+		return
 	}
-	w.WriteHeader(res.StatusCode)
-	_, _ = io.Copy(w, res.Body)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = io.Copy(w, io.LimitReader(res.Body, 2<<20))
 }
+
 func (s *Server) ensureAutoBridges(j *autoJob) error {
 	if s.autoBridges == nil {
 		s.autoBridges = map[string][]*http.Server{}
@@ -180,15 +227,46 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
-	case "/history":
+	case "/research":
+		autoResearch(w, r)
+		return
+	case "/history", "/backlog", "/artifacts":
 		a, e := s.loadAuto()
 		if e != nil {
 			http.Error(w, "history unavailable", 503)
 			return
 		}
-		rows := a.Runs
-		if len(rows) > 30 {
-			rows = rows[len(rows)-30:]
+		if r.URL.Path == "/backlog" {
+			if a.State == nil {
+				writeJSON(w, 200, []any{})
+			} else {
+				writeJSON(w, 200, a.State.Backlog)
+			}
+			return
+		}
+		if r.URL.Path == "/artifacts" {
+			rows := []map[string]any{}
+			for i := len(a.Jobs) - 1; i >= 0 && len(rows) < 60; i-- {
+				j := a.Jobs[i]
+				if j.Role != "builder" || j.Status != "done" || !autoCheckpointApproved(a, j.TaskID) {
+					continue
+				}
+				task, e := s.DB.Task(j.TaskID)
+				if e != nil {
+					continue
+				}
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model})
+			}
+			writeJSON(w, 200, rows)
+			return
+		}
+		rows := []map[string]any{}
+		start := len(a.Runs) - 20
+		if start < 0 {
+			start = 0
+		}
+		for _, run := range a.Runs[start:] {
+			rows = append(rows, map[string]any{"date": run.Date, "cycle": run.Cycle, "phase": run.Phase, "reason": run.Reason, "items": run.Items, "assignments": run.Assignments})
 		}
 		writeJSON(w, 200, rows)
 		return
