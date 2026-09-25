@@ -43,3 +43,18 @@
   #board .col.mobile-on { display: flex; width: 100%; min-width: 0; }
   .sheet { width: 100vw; max-height: 92dvh; border-radius: 16px 16px 0 0; }
 }
+
+/* First-machine setup stays inset and readable on narrow screens. */
+.machine-sheet {
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  margin: auto;
+  border-radius: 16px;
+}
+.machine-sheet form { min-width: 0; }
+.machine-sheet input, .machine-sheet select { width: 100%; min-width: 0; }
+@media (max-width: 600px) {
+  .machine-sheet { padding: 14px; font-size: 14px; }
+  .machine-sheet .sheet-head { top: -14px; }
+  .machine-sheet .sub { font-size: 12px; }
+}

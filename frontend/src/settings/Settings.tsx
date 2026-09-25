@@ -309,9 +309,9 @@ function TargetEditor({ api, onClose, onChanged }: {
   const [kind, setKind] = useState("ssh");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  return <Modal className="sheet" aria-label="Add machine" onCancel={onClose}>
-    <button type="button" onClick={onClose} aria-label="Close">×</button>
-    <h2>Add machine</h2>
+  return <Modal className="sheet machine-sheet" aria-label="Add machine" onCancel={onClose}>
+    <div className="sheet-head"><h2>Add machine</h2>
+    <button type="button" onClick={onClose} aria-label="Close">×</button></div>
     <form onSubmit={async (event) => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);

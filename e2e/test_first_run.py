@@ -115,6 +115,8 @@ def test_first_run_checklist_shows_with_no_dead_end(blank_page, blank_server):
     page.get_by_role("button", name="Add machine", exact=True).click()
     dialog = page.get_by_role("dialog", name="Add machine", exact=True)
     expect(dialog).to_be_visible()
+    bounds = dialog.bounding_box()
+    assert bounds["x"] >= 10 and bounds["x"] + bounds["width"] <= page.viewport_size["width"] - 10, bounds
     dialog.get_by_label("Machine name").fill("first-run-machine")
     dialog.get_by_label("Connection").select_option("local")
     dialog.get_by_role("button", name="Save machine").click()
