@@ -1,5 +1,13 @@
 # Use Lectern from a terminal
 
+On a brand-new install, run `lectern up` first: it starts a private local
+runtime, detects the agent CLIs on PATH, offers to register the current git
+repository as a project, and opens the result in your browser instead of the
+terminal dashboard below. `lectern doctor` checks tmux, git, your agents'
+credentials, the configured port, auth mode, TLS and push keys, printing a fix
+next to anything that needs one. Both are independent of everything else on
+this page — see the top-level README's Install section.
+
 Run `lectern` in an interactive terminal, or `lectern console`, for the live
 dashboard. It opens on Sessions, groups by project, and refreshes automatically.
 Use `lectern serve` to start the server explicitly. Existing systemd/container
