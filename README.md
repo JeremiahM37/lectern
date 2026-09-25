@@ -344,7 +344,11 @@ temporary databases, a separate vault, and a private tmux socket.
   mode, permission mappings and provider env, and it appears in the picker —
   the board holds no opinion about which binary runs. Local models use the
   CLI's compatible endpoint variables through a project's `env`. See
-  [docs/agents.md](docs/agents.md).
+  [docs/agents.md](docs/agents.md). Any agent that speaks the **Agent Client
+  Protocol** (Zed's claude-code-acp/codex-acp, Gemini CLI's
+  `--experimental-acp`, or your own) gets a live timeline, mid-run steering
+  and gated approvals with no backend code at all — just an `acp` command in
+  its definition. See [docs/acp.md](docs/acp.md).
 - **Triggers** — a project can pick up work on its own instead of waiting for a
   human to dispatch it: a labelled GitHub issue or an @mention on a PR/issue
   comment, a Slack message or `/lectern` command, or a labelled Linear issue.

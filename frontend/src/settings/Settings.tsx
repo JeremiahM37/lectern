@@ -239,6 +239,7 @@ export function Settings({
           api={api}
           agents={agents}
           profiles={profiles}
+          targets={targets}
           onChanged={load}
           onNotice={onNotice}
         />
@@ -1091,12 +1092,14 @@ function Agents({
   api,
   agents,
   profiles,
+  targets,
   onChanged,
   onNotice,
 }: {
   api: SettingsApi;
   agents: Agent[];
   profiles: Profile[];
+  targets: Target[];
   onChanged(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
@@ -1160,6 +1163,7 @@ function Agents({
           api={api}
           source={editing === "new" ? undefined : editing}
           all={agents}
+          targets={targets}
           onClose={() => setEditing(undefined)}
           onSaved={onChanged}
           onNotice={onNotice}

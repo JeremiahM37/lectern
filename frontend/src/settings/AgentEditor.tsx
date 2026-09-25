@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import type { SettingsApi } from "./Settings";
+import type { Target } from "../types";
 export interface AgentSpec {
   name: string;
   command: string;
@@ -19,6 +20,37 @@ export interface AgentSpec {
     output_mode?: string;
     permission_args?: Record<string, JsonValue>;
   };
+  // acp makes a background task on this agent run through the Agent Client
+  // Protocol (agentclientprotocol.com) instead of `task` above — mutually
+  // exclusive with it. See docs/acp.md.
+  acp?: {
+    command?: string;
+    args?: string[];
+    env?: Record<string, JsonValue>;
+  };
+}
+// targetHasBinary reports whether any target's last probe found `key` — used
+// to grey out an ACP preset whose binary nothing has confirmed yet, rather
+// than letting the operator save a runner that can only fail at dispatch.
+// Unprobed (empty info_json) is treated as "unknown", not "missing" — a
+// fresh target with no check run yet must not permanently greyed-out every
+// preset.
+export function targetHasBinary(targets: Target[], key: string): boolean | undefined {
+  if (targets.length === 0) return undefined;
+  let probed = false;
+  for (const t of targets) {
+    if (!t.info_json) continue;
+    let info: Record<string, JsonValue>;
+    try {
+      info = JSON.parse(t.info_json);
+    } catch {
+      continue;
+    }
+    if (!(key in info)) continue;
+    probed = true;
+    if (info[key]) return true;
+  }
+  return probed ? false : undefined;
 }
 function args(v: string, label: string) {
   if (!v.trim()) return [];
@@ -60,6 +92,7 @@ export function AgentEditor({
   api,
   source,
   all,
+  targets,
   onClose,
   onSaved,
   onNotice,
@@ -67,6 +100,7 @@ export function AgentEditor({
   api: SettingsApi;
   source?: AgentSpec;
   all: AgentSpec[];
+  targets?: Target[];
   onClose(): void;
   onSaved(): void;
   onNotice(t: string, e?: boolean): void;
@@ -96,6 +130,19 @@ export function AgentEditor({
     [permissions, setPermissions] = useState(
       JSON.stringify(source?.task?.permission_args || {}, null, 2),
     ),
+    // acp and task are mutually exclusive non-interactive invocations (see
+    // docs/acp.md); acpOn defaults from whichever the loaded spec actually
+    // has, so an existing task-backed agent is never silently switched.
+    [acpOn, setAcpOn] = useState(Boolean(source?.acp)),
+    [acpCommand, setAcpCommand] = useState(source?.acp?.command || ""),
+    [acpArgs, setAcpArgs] = useState(
+      JSON.stringify(source?.acp?.args || [], null, 2),
+    ),
+    [acpEnvironment, setAcpEnvironment] = useState(
+      Object.entries(source?.acp?.env || {})
+        .map(([k, v]) => `${k}=${typeof v === "object" ? "••••" : String(v)}`)
+        .join("\n"),
+    ),
     [busy, setBusy] = useState(false),
     [status, setStatus] = useState("");
   function preset(v: string) {
@@ -116,7 +163,38 @@ export function AgentEditor({
       setTaskCommand("aider");
       setTaskPrompt("--message {prompt}");
     }
+    if (v === "claude-code-acp") {
+      setName("claude-code-acp");
+      setCommand("claude-code-acp");
+      setTaskOn(false);
+      setAcpOn(true);
+      setAcpCommand("npx");
+      setAcpArgs(JSON.stringify(["-y", "@zed-industries/claude-code-acp"], null, 2));
+    }
+    if (v === "codex-acp") {
+      setName("codex-acp");
+      setCommand("codex-acp");
+      setTaskOn(false);
+      setAcpOn(true);
+      setAcpCommand("npx");
+      setAcpArgs(JSON.stringify(["-y", "@zed-industries/codex-acp"], null, 2));
+    }
+    if (v === "gemini-acp") {
+      setName("gemini-acp");
+      setCommand("gemini");
+      setTaskOn(false);
+      setAcpOn(true);
+      setAcpCommand("gemini");
+      setAcpArgs(JSON.stringify(["--experimental-acp"], null, 2));
+    }
   }
+  // A preset needing npx (both Zed adapters) is disabled until a target has
+  // actually confirmed it; the gemini-acp preset needs `gemini` itself,
+  // since there is no npm-packaged adapter for it. `undefined` (never
+  // probed) is left enabled rather than blocked — the operator may be
+  // adding the very first target.
+  const npxAvailable = targetHasBinary(targets || [], "npx"),
+    geminiAvailable = targetHasBinary(targets || [], "gemini");
   async function save() {
     if (!name.trim() || !command.trim())
       throw Error("Name and command are required.");
@@ -144,15 +222,26 @@ export function AgentEditor({
       env: env(environment, { ...source?.env, ...(providerURL.trim() ? { OPENAI_BASE_URL: providerURL.trim() } : {}) }),
     };
     delete spec.builtin;
-    if (taskOn)
-      spec.task = {
-        command: taskCommand.trim() || spec.command,
-        args: args(taskArgs, "Task arguments"),
-        prompt_template: taskPrompt.trim(),
-        output_mode: taskOutput,
-        permission_args: permissionArgs as Record<string, JsonValue>,
+    if (acpOn) {
+      if (!acpCommand.trim()) throw Error("ACP command is required.");
+      spec.acp = {
+        command: acpCommand.trim(),
+        args: args(acpArgs, "ACP arguments"),
+        env: env(acpEnvironment, source?.acp?.env),
       };
-    else delete spec.task;
+      delete spec.task;
+    } else {
+      delete spec.acp;
+      if (taskOn)
+        spec.task = {
+          command: taskCommand.trim() || spec.command,
+          args: args(taskArgs, "Task arguments"),
+          prompt_template: taskPrompt.trim(),
+          output_mode: taskOutput,
+          permission_args: permissionArgs as Record<string, JsonValue>,
+        };
+      else delete spec.task;
+    }
     const custom = all
       .filter((x) => !x.builtin && x.name !== source?.name)
       .map((x) => {
@@ -195,6 +284,15 @@ export function AgentEditor({
             <option value="custom">Custom runner</option>
             <option value="opencode">OpenCode</option>
             <option value="aider">Aider</option>
+            <option value="claude-code-acp" disabled={npxAvailable === false}>
+              Claude Code (ACP){npxAvailable === false ? " — npx not detected on any target" : ""}
+            </option>
+            <option value="codex-acp" disabled={npxAvailable === false}>
+              Codex (ACP){npxAvailable === false ? " — npx not detected on any target" : ""}
+            </option>
+            <option value="gemini-acp" disabled={geminiAvailable === false}>
+              Gemini CLI (ACP){geminiAvailable === false ? " — gemini not detected on any target" : ""}
+            </option>
           </select>
         </label>
       )}
@@ -249,11 +347,18 @@ export function AgentEditor({
         <input
           type="checkbox"
           checked={taskOn}
+          disabled={acpOn}
           onChange={(e) => setTaskOn(e.target.checked)}
         />{" "}
         Enable background tasks for this agent
       </label>
-      {taskOn && (
+      {acpOn && (
+        <p className="agent-dialog-status">
+          Disabled while ACP is enabled below — a background task is either a
+          plain command or an ACP agent, never both.
+        </p>
+      )}
+      {taskOn && !acpOn && (
         <>
           <label>
             Task command
@@ -293,6 +398,56 @@ export function AgentEditor({
             <textarea
               value={permissions}
               onChange={(e) => setPermissions(e.target.value)}
+            />
+          </label>
+        </>
+      )}
+      <label>
+        <input
+          type="checkbox"
+          checked={acpOn}
+          disabled={taskOn}
+          onChange={(e) => setAcpOn(e.target.checked)}
+        />{" "}
+        Use the Agent Client Protocol (ACP) instead of a task command
+      </label>
+      {taskOn && !acpOn && (
+        <p className="agent-dialog-status">
+          Disabled while background tasks are enabled above.
+        </p>
+      )}
+      {acpOn && (
+        <>
+          <p className="agent-dialog-status">
+            Every permission mode is supported automatically — ACP carries
+            its own gated approvals. See{" "}
+            <a href="https://agentclientprotocol.com" target="_blank" rel="noreferrer">
+              agentclientprotocol.com
+            </a>
+            .
+          </p>
+          <label>
+            ACP command
+            <input
+              aria-label="ACP command"
+              value={acpCommand}
+              onChange={(e) => setAcpCommand(e.target.value)}
+            />
+          </label>
+          <label>
+            ACP arguments (one per line; JSON array accepted)
+            <textarea
+              aria-label="ACP arguments (one per line; JSON array accepted)"
+              value={acpArgs}
+              onChange={(e) => setAcpArgs(e.target.value)}
+            />
+          </label>
+          <label>
+            ACP environment (KEY=value lines; existing values are masked and retained)
+            <textarea
+              aria-label="ACP environment (KEY=value lines; existing values are masked and retained)"
+              value={acpEnvironment}
+              onChange={(e) => setAcpEnvironment(e.target.value)}
             />
           </label>
         </>

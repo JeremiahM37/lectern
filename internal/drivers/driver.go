@@ -46,8 +46,19 @@ const (
 	KindCodexExec      = "codex-exec"
 	KindCodexAppServer = "codex-appserver"
 	KindGemini         = "gemini-exec"
+	// KindACP is a configured custom agent that speaks the Agent Client
+	// Protocol (agentclientprotocol.com) — Zed's claude-code-acp/codex-acp
+	// adapters, Gemini CLI's --experimental-acp, or any other ACP agent.
+	// Unlike KindGeneric it IS a structured driver (see acp.go): it gets
+	// live timeline events, mid-run steering and gated approvals for free,
+	// the same way codex-appserver does for codex. Select() never returns
+	// this on its own — a configured agent's TaskDefinition.ACP being set is
+	// what chooses it, checked by the caller (scheduler.go) before falling
+	// back to Select, since Select's (agent, builtin) signature has no way to
+	// see a custom agent's definition.
+	KindACP = "acp"
 	// KindGeneric is a configured custom CLI (agents.TaskDefinition, not
-	// Builtin). No driver implements it yet — the scheduler's existing
+	// Builtin, and with no ACP definition either). The scheduler's existing
 	// generic-task tmux path (agents.Launcher.Command's genericTaskCommand
 	// branch) keeps handling those attempts directly, unchanged. It is a
 	// legal Select() answer so the attempt record is still honest about what
@@ -106,6 +117,12 @@ type Spec struct {
 	MCPConfig      string
 	StrictMCP      bool
 	Prompt         string
+
+	// ACPArgs are the fixed command-line arguments for the acp driver's agent
+	// process (agents.ACPDefinition.Args — e.g. nothing for
+	// "npx -y @zed-industries/claude-code-acp", or ["--experimental-acp"] for
+	// gemini). Bin carries the command itself; unused by every other driver.
+	ACPArgs []string
 
 	// Driver overrides Select's answer. Run(...) uses it when set; StartFor
 	// callers (the scheduler) already know the kind and pass it directly.
@@ -204,6 +221,8 @@ func StartFor(kind string, ctx context.Context, ex executor.Executor, spec Spec)
 		return claudeSteerDriver{}.Start(ctx, ex, spec)
 	case KindCodexAppServer:
 		return codexAppServerDriver{}.Start(ctx, ex, spec)
+	case KindACP:
+		return acpDriver{}.Start(ctx, ex, spec)
 	case KindClaudeExec:
 		return execDriver{Agent: "claude"}.Start(ctx, ex, spec)
 	case KindCodexExec:

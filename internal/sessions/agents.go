@@ -64,9 +64,32 @@ type Spec struct {
 	// Task is optional because a configured CLI may be interactive-only. Its
 	// command/args are independent from the interactive invocation above.
 	Task *TaskSpec `json:"task,omitempty"`
+	// ACP, when set, makes a background task on this agent run through
+	// internal/drivers' ACP client driver (Agent Client Protocol,
+	// agentclientprotocol.com) instead of the generic Task invocation above —
+	// Task and ACP are mutually exclusive ways to give an agent a
+	// non-interactive capability, and ACP is picked automatically whenever
+	// it is set (see internal/drivers.KindACP, internal/agents.ACPDefinition).
+	// It gets a configured CLI the same live timeline, mid-run steering and
+	// gated approvals codex-appserver already gives codex, with no per-CLI
+	// backend code: any binary that speaks ACP on stdio qualifies. Presets
+	// for Zed's claude-code-acp/codex-acp adapters and Gemini CLI's
+	// --experimental-acp are offered in Settings → Agents but are not
+	// pre-registered here — see docs/acp.md.
+	ACP *ACPSpec `json:"acp,omitempty"`
 	// Builtin marks the three that ship with lectern, so the UI can show which
 	// are yours.
 	Builtin bool `json:"builtin,omitempty"`
+}
+
+// ACPSpec is the ACP invocation for a configured agent: the command to spawn
+// (it speaks JSON-RPC over its own stdio — see internal/drivers/acp.go),
+// e.g. Command:"npx" Args:["-y","@zed-industries/claude-code-acp"], or
+// Command:"gemini" Args:["--experimental-acp"] once gemini is on PATH.
+type ACPSpec struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // TaskSpec describes a configured CLI's non-interactive one-shot command.
@@ -243,6 +266,19 @@ func ValidateSpecs(raw string) error {
 			for _, mode := range []string{"plan", "bypassPermissions"} {
 				if args, ok := c.Task.PermissionArgs[mode]; ok && !TaskPermissionArgsConfigured(args) {
 					return fmt.Errorf("agent %q: permission_args.%s must contain a non-empty flag", name, mode)
+				}
+			}
+		}
+		if c.ACP != nil {
+			if c.Task != nil {
+				return fmt.Errorf("agent %q: task and acp are mutually exclusive non-interactive invocations", name)
+			}
+			if strings.TrimSpace(c.ACP.Command) == "" {
+				return fmt.Errorf("agent %q: acp.command is required", name)
+			}
+			for k := range c.ACP.Env {
+				if !validEnvName(k) {
+					return fmt.Errorf("agent %q: invalid acp env var name %q", name, k)
 				}
 			}
 		}

@@ -50,6 +50,22 @@ type TaskDefinition struct {
 	ResumeArgs     []string            `json:"resume_args,omitempty"`
 	Env            map[string]string   `json:"env,omitempty"`
 	Builtin        bool                `json:"builtin,omitempty"`
+	// ACP, when set, means this agent's non-interactive invocation is an
+	// Agent Client Protocol (agentclientprotocol.com) process rather than a
+	// plain-text/JSONL CLI: internal/drivers.KindACP drives it instead of
+	// the generic task path, and PromptTemplate/OutputMode/PermissionArgs
+	// above are ignored (the protocol carries the prompt and permission
+	// decisions itself). See internal/drivers/acp.go.
+	ACP *ACPDefinition `json:"acp,omitempty"`
+}
+
+// ACPDefinition is a custom agent's ACP invocation: the command to spawn (an
+// ACP agent speaks JSON-RPC over its own stdio, same as codex app-server),
+// e.g. Command:"npx" Args:["-y","@zed-industries/claude-code-acp"].
+type ACPDefinition struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // TaskLaunchConfig is the immutable, private snapshot attached to a queued
