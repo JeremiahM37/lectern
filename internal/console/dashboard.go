@@ -111,6 +111,12 @@ type resultMsg struct {
 	notice string
 }
 type attachedMsg struct{ err error }
+type batchOpenedMsg struct {
+	err  error
+	exit bool
+	ids  []string
+}
+
 type terminalOpenedMsg struct {
 	err  error
 	exit bool
@@ -125,6 +131,8 @@ type dashboard struct {
 	client                              *Client
 	attach                              func(string, string) error
 	openTerminal                        func(string, string, bool) error
+	openBatch                           func([]string) error
+	batchSelected                       map[string]bool
 	terminalWorkspace                   bool
 	batchOpen                           bool
 	insert                              func(string) error
@@ -186,6 +194,7 @@ type dashboardFocus struct {
 type DashboardOptions struct {
 	Attach            func(string, string) error
 	OpenTerminal      func(string, string, bool) error
+	OpenBatch         func([]string) error
 	TerminalWorkspace bool
 	BatchOpen         bool
 	InitialSessionID  string
@@ -240,6 +249,8 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	q.CharLimit = 200
 	m := &dashboard{client: c, attach: opts.Attach, insert: opts.Insert, width: 100, height: 30, query: q, preview: viewport.New(50, 20), groupingBySection: map[string]int{}}
 	m.openTerminal = opts.OpenTerminal
+	m.openBatch = opts.OpenBatch
+	m.batchSelected = map[string]bool{}
 	m.terminalWorkspace = opts.TerminalWorkspace
 	m.batchOpen = opts.BatchOpen
 	m.focusSessionID = opts.InitialSessionID
@@ -889,6 +900,20 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.adoptForm(v.rows)
+	case batchOpenedMsg:
+		m.busy = false
+		if v.err != nil {
+			m.notice = "Open terminals: " + clean(v.err.Error())
+		} else {
+			for _, id := range v.ids {
+				delete(m.batchSelected, id)
+			}
+			m.notice = fmt.Sprintf("Opened %d terminals", len(v.ids))
+			if v.exit {
+				return m, tea.Quit
+			}
+		}
+		return m, tea.EnableMouseCellMotion
 	case terminalOpenedMsg:
 		m.busy = false
 		if v.err != nil {
@@ -896,7 +921,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if v.exit {
 			return m, tea.Quit
 		} else {
-			m.notice = "Opened session " + v.id + " in a background tab · click its tab to switch"
+			m.notice = "Opened session " + v.id + " in a new terminal"
 		}
 		return m, tea.EnableMouseCellMotion
 	case attachedMsg:
@@ -1076,7 +1101,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filter()
 			m.savePreferences()
 		case " ":
-			m.toggleGroup()
+			if m.batchOpen && m.section == 0 && m.selectedGroup() == nil {
+				m.toggleBatchSelection()
+			} else {
+				m.toggleGroup()
+			}
 		case "[":
 			m.collapseGroup()
 		case "]":
@@ -1107,13 +1136,21 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.controlOnly {
 				return m, m.nativeDisabled()
 			}
+			if m.section != 0 {
+				m.notice = "Select sessions in the Sessions section (1)"
+				return m, nil
+			}
 			m.batchOpen = !m.batchOpen
+			m.batchSelected = map[string]bool{}
 			if m.batchOpen {
-				m.notice = "Batch open ON · Enter/click opens background tabs · b returns to normal attach"
+				m.notice = "Batch select · click/Space selects · Enter opens selected terminals · b cancels"
 			} else {
 				m.notice = "Batch open OFF · Enter/click attaches here"
 			}
 		case "enter", "a":
+			if m.batchOpen && m.section == 0 {
+				return m, m.openSelectedBatch()
+			}
 			if m.selectedGroup() != nil {
 				m.toggleGroup()
 				return m, nil
@@ -1167,7 +1204,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.preview.LineUp(3)
 		} else if v.Button == tea.MouseButtonWheelDown {
 			m.preview.LineDown(3)
-		} else if v.Button == tea.MouseButtonLeft && v.Action == tea.MouseActionPress {
+		} else if (v.Button == tea.MouseButtonLeft || v.Button == tea.MouseButtonRight) && v.Action == tea.MouseActionPress {
 			if m.width >= 100 && v.X > m.listWidth()+1 {
 				m.previewFocus = true
 			} else if v.Y >= 4 && !(m.width < 100 && m.previewFocus) {
@@ -1182,6 +1219,13 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedGroup() != nil {
 					m.toggleGroup()
 				} else if m.section == 0 {
+					if v.Button == tea.MouseButtonRight {
+						return m, m.attachSelectedTo(false, true)
+					}
+					if m.batchOpen {
+						m.toggleBatchSelection()
+						return m, nil
+					}
 					return m, m.attachSelected(false)
 				}
 			}
@@ -1199,7 +1243,7 @@ func (e attachmentExec) SetStdin(io.Reader)  {}
 func (e attachmentExec) SetStdout(io.Writer) {}
 func (e attachmentExec) SetStderr(io.Writer) {}
 func (m *dashboard) attachSelected(shell bool) tea.Cmd {
-	return m.attachSelectedTo(shell, m.batchOpen && !shell)
+	return m.attachSelectedTo(shell, false)
 }
 
 func (m *dashboard) attachSelectedTo(shell, newTerminal bool) tea.Cmd {
@@ -1314,7 +1358,7 @@ func (m *dashboard) View() string {
 	group := []string{"project", "target", "none", "named group"}[m.grouping]
 	meta := fmt.Sprintf(" %d/%d items · group: %s", m.matched, len(m.rows), group)
 	if m.batchOpen {
-		meta = " BATCH OPEN · Enter/click → new tab · b to exit"
+		meta = fmt.Sprintf(" BATCH SELECT · %d selected · click/Space selects · Enter opens", len(m.batchSelected))
 	}
 	if m.attention {
 		meta += " · needs attention"
@@ -1414,18 +1458,18 @@ func (m *dashboard) View() string {
 		keys = " Enter open project shell · / find · m actions · q quit"
 	}
 	if m.section == 0 {
-		keys = " Click/Enter attach · o new tab · b batch · / find · ? help · q quit"
+		keys = " Click/Enter attach · o/right-click new terminal · b select · / find · ? help · q quit"
 		if m.batchOpen {
-			keys = " Enter/click new tab · b normal · / find · ? help · q quit"
+			keys = " Click/Space select · Enter open selected · b cancel · q quit"
 		}
-		if m.width < 70 {
-			keys = " o new tab · b batch · ? help · q quit"
+		if m.width < 100 {
+			keys = " o terminal · b select · ? help · q quit"
 		}
 		if m.selectedGroup() != nil {
 			keys = " Enter/click fold · b batch · ? help · q quit"
 		}
 		if m.width < 42 {
-			keys = " o tab · b batch · ? · q quit"
+			keys = " o term · b select · ? · q quit"
 			if m.selectedGroup() != nil {
 				keys = " Click fold · b batch · q quit"
 			}
@@ -1481,7 +1525,21 @@ func (m *dashboard) listView(height int) string {
 		if i == m.selected {
 			line = "› " + oneLine(name(r))
 		}
+		if m.batchOpen && m.section == 0 {
+			marker := "[ ] "
+			if m.batchSelected[id(r)] {
+				marker = "[x] "
+			}
+			prefix := "  "
+			if i == m.selected {
+				prefix = "› "
+			}
+			line = prefix + marker + oneLine(name(r))
+		}
 		line = clip(line, w)
+		if m.batchOpen && m.batchSelected[id(r)] && i != m.selected {
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true).Render(line)
+		}
 		if i == m.selected {
 			line = chosen.Render(line + strings.Repeat(" ", max(0, w-ansi.StringWidth(line))))
 		}
@@ -1506,8 +1564,8 @@ func (m *dashboard) listView(height int) string {
 const dashboardHelp = ` Keyboard shortcuts
 
  Click session  Attach          Click group  Fold/unfold
- o             New terminal tab (keep list open)
- b             Batch-open mode: Enter/click opens background tabs
+ o / right-click  Open a new terminal (keep list open)
+ b             Select sessions: click/Space marks; Enter opens selected
  ↑/k ↓/j       Select item       Enter/a  Attach (Ctrl-b d returns)
  1–6 / ←→      Change section    Tab/p    Focus list / preview
  /             Fuzzy search     @ ! # &  Search prefix: waiting/running/idle/failed
@@ -1533,3 +1591,50 @@ const dashboardHelp = ` Keyboard shortcuts
  Grouping and folded groups are remembered for this server on this device.
 
  Press any key to close help.`
+
+func (m *dashboard) toggleBatchSelection() {
+	if m.busy || m.controlOnly || m.section != 0 || m.selectedGroup() != nil || m.selected < 0 || m.selected >= len(m.visible) {
+		return
+	}
+	r := m.visible[m.selected]
+	if r["ended_at"] != nil || r["setup_state"] == "creating" || r["setup_state"] == "failed" {
+		m.notice = "Select a ready, live session"
+		return
+	}
+	if m.batchSelected == nil {
+		m.batchSelected = map[string]bool{}
+	}
+	key := id(r)
+	if m.batchSelected[key] {
+		delete(m.batchSelected, key)
+	} else {
+		m.batchSelected[key] = true
+	}
+}
+func (m *dashboard) openSelectedBatch() tea.Cmd {
+	if m.busy || m.controlOnly {
+		return nil
+	}
+	ids := []string{}
+	// Use refreshed rows, including selected rows outside the current search.
+	for _, r := range m.rows {
+		if m.batchSelected[id(r)] && r["ended_at"] == nil && r["setup_state"] != "creating" && r["setup_state"] != "failed" {
+			ids = append(ids, id(r))
+		}
+	}
+	if len(ids) == 0 {
+		m.notice = "Select sessions with click or Space first"
+		return nil
+	}
+	if m.openBatch == nil {
+		m.notice = "Terminal launcher unavailable"
+		return nil
+	}
+	open, workspace := m.openBatch, m.terminalWorkspace
+	m.busy = true
+	done := func(err error) tea.Msg { return batchOpenedMsg{err: err, exit: workspace && err == nil, ids: ids} }
+	if workspace {
+		return tea.Exec(attachmentExec{func() error { return open(ids) }}, done)
+	}
+	return func() tea.Msg { return done(open(ids)) }
+}

@@ -352,28 +352,24 @@ def test_dashboard_opens_three_background_terminals_without_leaving_list(real_te
     d = Dashboard(t, outer_tmux=outer_tmux)
     try:
         d.wait('Real terminal'); d.wait('LIVE')
-        d.send('/Real terminal\r')
-        if outer_tmux:
-            d.send('o')
-        else:
-            d.send('b'); d.wait('BATCH OPEN'); d.send('\r')
+        d.send('/Real terminal\r'); d.send('o')
         if outer_tmux:
             d.wait('Opened session')
         else:
             d.wait('Ctrl-g n/p: tabs')
         d.wait('Sessions'); d.wait('LIVE')
-        if outer_tmux:
-            d.send('b')
-        d.wait('BATCH OPEN')
-        # Enter in batch mode opens the second session while retaining the list.
-        d.send('/\x01\x0bSecond tab\r'); d.wait('Second tab'); d.send('\r')
-        d.wait(f'Opened session {sessions[1][0]}')
-        # Clicking in batch mode opens the third without attaching in place.
+        d.send('b'); d.wait('BATCH SELECT')
+        # Selection is separate from launching, including across filtered rows.
+        d.send('/\x01\x0bSecond tab\r'); d.wait('Second tab'); d.send(' ')
+        d.wait('[x] Second tab'); d.wait('1 selected')
         d.send('/\x01\x0bThird tab\r'); d.wait('Third tab'); d.pump(.2)
         y = next(i for i, line in enumerate(d.screen.display) if i >= 4 and 'Third tab' in line)
         x = d.screen.display[y].index('Third tab') + 1
         d.send(f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m')
-        d.wait(f'Opened session {sessions[2][0]}')
+        d.wait('[x] Third tab'); d.wait('2 selected')
+        for _, _, target in sessions[1:]:
+            assert not subprocess.check_output(['tmux', 'list-clients', '-t', target, '-F', '#{client_name}'], env=t['env'], text=True).strip()
+        d.send('\r'); d.wait('Opened 2 terminals')
         for _, _, target in sessions:
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
@@ -382,7 +378,7 @@ def test_dashboard_opens_three_background_terminals_without_leaving_list(real_te
                     break
                 d.pump(.1)
             assert clients, (target, d.text)
-        assert 'BATCH OPEN' in d.text
+        assert 'BATCH SELECT' in d.text
         # Returning to normal mode leaves Enter's original behavior intact.
         d.send('b'); d.wait('Batch open OFF')
         d.send('\r')
@@ -401,7 +397,7 @@ def test_dashboard_opens_three_background_terminals_without_leaving_list(real_te
         d.send(prefix + '3'); d.wait('Ctrl+] d close tab')
         d.send('\x1dd'); d.pump(.5)
         d.send(prefix + '0'); d.wait('Detached. Session keeps running.')
-        assert 'BATCH OPEN' not in d.text
+        assert 'BATCH SELECT' not in d.text
         subprocess.run(['tmux', 'has-session', '-t', '='+sessions[2][2]], env=t['env'], check=True)
         if outer_tmux:
             d.send('q'); d.pump(.5); d.send('\x02d')

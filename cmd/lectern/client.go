@@ -342,7 +342,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 			return console.RunDashboardWithOptions(c, os.Stdin, os.Stdout, console.DashboardOptions{
 				Attach:            attachClient,
 				OpenTerminal:      func(kind, id string, batch bool) error { return openTerminalTab(base, token, kind, id, batch) },
-				TerminalWorkspace: os.Getenv("TMUX") == "",
+				OpenBatch:         func(ids []string) error { return openTerminalBatch(base, token, ids) },
+				TerminalWorkspace: os.Getenv("TMUX") == "" && !desktopTerminalAvailable(),
 				BatchOpen:         os.Getenv("LECTERN_INITIAL_BATCH") == "true",
 				InitialSessionID:  os.Getenv("LECTERN_INITIAL_SESSION"),
 			})

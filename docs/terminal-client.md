@@ -22,8 +22,8 @@ launches with no arguments and no terminal still start the server.
 | ↑/↓ or j/k | Select a session, task, routine, project, target or approval |
 | Click a session | Attach immediately in this terminal; click a group to fold/unfold |
 | Enter | Attach; Ctrl-b then d returns to the same selection |
-| o | Open selected session in a background workspace tab; keep the list visible |
-| b | Toggle batch-open mode: Enter and clicking open background tabs |
+| o / right-click | Open selected session in a new terminal window; keep the list visible |
+| b | Select multiple sessions: click/Space marks them, Enter opens all selected |
 | S | Choose a machine and open a blank persistent shell |
 | / | Fuzzy search names, projects, targets, agent names and paths |
 | @ / ! / # / & at start of search | Waiting / running / idle / failed |
@@ -46,26 +46,27 @@ not replace this shell with an agent launcher.
 
 ### Open several terminals quickly
 
-Press **o** on a session to open it in another workspace tab while the session
-list remains visible. Press **b** for batch mode, then select sessions and press
-Enter or click their rows to open several tabs. Press **b** again to restore
-normal Enter/click attachment. Inside a new tab, **Ctrl-]**, then **d** closes
-only that view; its agent keeps running. The mode is clearly displayed and is not saved
-as your next launch's default.
+Press **o** or right-click a session to open a separate terminal window while
+keeping the dashboard open. On Linux desktops Lectern launches Kitty, Konsole,
+Alacritty, GNOME Terminal or xterm. The desktop client may connect to a remote
+Lectern server; each new window attaches through its configured SSH connection.
 
-This works locally and through SSH, including Windows Terminal's SSH client.
-These are tabs **inside the terminal workspace**, not desktop OS windows. When
-the dashboard is already in tmux it adds background windows to that workspace
-without changing your tmux settings. Otherwise the first **o**/batch open creates
-a private tmux workspace with a **Sessions** tab. Click the tab bar to switch,
-or use **Ctrl-g n/p** and **Ctrl-g 0** to return to Sessions in that private
-workspace. Enter in normal mode continues to attach in place as before.
+Press **b** to select several sessions. Click or press **Space** to toggle each
+checkbox: selected rows show **[x]**, and the header counts the selections.
+Selections survive searching/filtering. **Enter** opens one terminal per selected
+session, then clears the successfully completed selection. **b** cancels selection
+mode. Ordinary Enter and left-click still attach in place outside selection mode.
+Right-click always opens just that session immediately.
 
-Quitting the Sessions dashboard in the private workspace closes its terminal
-views; the underlying agent sessions continue running. Existing tmux workspaces
-keep their background windows when the dashboard exits. No desktop launcher or
-Windows-specific helper is needed; the machine running the dashboard needs tmux,
-as for normal native attachments.
+A terminal launched on a server through plain SSH cannot create desktop windows
+on your laptop without a client-side launcher. When no desktop display is available,
+Lectern uses tmux workspace tabs instead: a private workspace uses **Ctrl-g n/p**
+and **Ctrl-g 0** for Sessions, or adds windows to an existing tmux workspace.
+Use the locally installed desktop client for separate laptop terminal windows.
+
+**Ctrl-] d** closes an attached view without stopping its agent. Closing a desktop
+window or quitting the dashboard leaves the other desktop windows and agents running.
+Quitting a private tmux workspace closes its views but preserves underlying agents.
 
 For optional workflow packs, use **Projects → Actions → Workflows (Spec Kit /
 Maestro)**. Choose the provider and pack, then Enable or Disable and save with

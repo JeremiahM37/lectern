@@ -19,6 +19,9 @@ func openTerminalTab(base, token, kind, id string, batch bool) error {
 	if err := validateTerminal([]string{kind, id}, false); err != nil {
 		return err
 	}
+	if desktopTerminalAvailable() {
+		return openDesktopTerminal(base, token, kind, id)
+	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("terminal tabs need tmux: %w", err)
@@ -89,7 +92,7 @@ func createTerminalTab(tmux string, prefix []string, target, executable, base, t
 	return nil
 }
 
-func runTerminalWorkspace(tmux, executable, base, token, kind, id string, batch bool) error {
+func runTerminalWorkspace(tmux, executable, base, token, kind, id string, batch bool, moreIDs ...string) error {
 	dir, err := os.MkdirTemp("", "lectern-workspace-")
 	if err != nil {
 		return err
@@ -129,8 +132,36 @@ func runTerminalWorkspace(tmux, executable, base, token, kind, id string, batch 
 	if err = createTerminalTab(tmux, []string{"-S", socket}, "workspace", executable, base, token, kind, id); err != nil {
 		return err
 	}
+	for _, next := range moreIDs {
+		if err = createTerminalTab(tmux, []string{"-S", socket}, "workspace", executable, base, token, kind, next); err != nil {
+			return err
+		}
+	}
 	attach := exec.Command(tmux, "-S", socket, "attach-session", "-t", "workspace")
 	attach.Env = portableTerm(withoutEnv(os.Environ(), "TMUX"), terminfoDirs())
 	attach.Stdin, attach.Stdout, attach.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return attach.Run()
+}
+
+func openTerminalBatch(base, token string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if !desktopTerminalAvailable() && os.Getenv("TMUX") == "" {
+		tmux, err := exec.LookPath("tmux")
+		if err != nil {
+			return err
+		}
+		executable, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		return runTerminalWorkspace(tmux, executable, base, token, "session", ids[0], false, ids[1:]...)
+	}
+	for i, id := range ids {
+		if err := openTerminalTab(base, token, "session", id, false); err != nil {
+			return fmt.Errorf("opened %d of %d terminals: %w", i, len(ids), err)
+		}
+	}
+	return nil
 }

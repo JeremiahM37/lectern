@@ -769,9 +769,17 @@ func TestDashboardBackgroundTabsKeepDefaultAttachAndBatchMode(t *testing.T) {
 	if opened != 1 || m.busy {
 		t.Fatal("open did not complete")
 	}
+	m.openBatch = func(ids []string) error { opened += len(ids); return nil }
 	m.Update(key("b"))
 	if !m.batchOpen {
 		t.Fatal("batch toggle")
+	}
+	m.Update(key(" "))
+	if len(m.batchSelected) != 1 {
+		t.Fatal("selection not marked")
+	}
+	if opened != 1 {
+		t.Fatal("selecting opened a terminal early")
 	}
 	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -789,5 +797,34 @@ func TestDashboardBackgroundTabsKeepDefaultAttachAndBatchMode(t *testing.T) {
 	m.controlOnly = true
 	if _, cmd = m.Update(key("o")); cmd != nil {
 		t.Fatal("controls popup opened terminal")
+	}
+}
+
+func TestBatchSelectionAndRightClickAreIndependent(t *testing.T) {
+	m := sampleDashboard()
+	m.width = 120
+	m.height = 35
+	opened := 0
+	m.openTerminal = func(kind, id string, batch bool) error { opened++; return nil }
+	m.Update(key("b"))
+	click := tea.MouseMsg{X: 2, Y: 4, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	if _, cmd := m.Update(click); cmd != nil {
+		t.Fatal("selection launched early")
+	}
+	if len(m.batchSelected) != 1 || !strings.Contains(m.View(), "[x]") {
+		t.Fatal("missing visible selection")
+	}
+	click.Button = tea.MouseButtonRight
+	_, cmd := m.Update(click)
+	if cmd == nil {
+		t.Fatal("right click ignored")
+	}
+	m.Update(cmd())
+	if opened != 1 || len(m.batchSelected) != 1 {
+		t.Fatal("right click modified selection")
+	}
+	click.Action = tea.MouseActionRelease
+	if _, cmd = m.Update(click); cmd != nil {
+		t.Fatal("release opened twice")
 	}
 }
