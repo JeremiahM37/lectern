@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/replay"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -108,7 +111,7 @@ func (s *Server) tickEvalRun(ctx context.Context, run *store.EvalRun, limit int)
 			allTerminal = false
 			continue
 		}
-		s.gradeEvalResult(res, task)
+		s.gradeEvalResult(run, res, task)
 	}
 
 	if run.Status == "running" {
@@ -256,7 +259,14 @@ func (s *Server) evalCellTimedOut(ctx context.Context, res *store.EvalResult, c 
 // otherwise the case's check_command result decides pass/fail, falling back
 // to the attempt's own success when no check ran at all (nothing configured
 // on the case OR the project).
-func (s *Server) gradeEvalResult(res *store.EvalResult, task *store.Task) {
+//
+// For a replay case (docs/replay-evals.md) that reaches a terminal
+// pass/fail, this also scores the attempt against the case's reference diff
+// (internal/replay.Score) and, when the run opted in (run.WithJudge), spawns
+// a headless judge to compare them — see dispatchEvalJudge and
+// scheduler.applyEvalJudgeVerdict, which records the verdict back onto this
+// same row once the judge task finishes.
+func (s *Server) gradeEvalResult(run *store.EvalRun, res *store.EvalResult, task *store.Task) {
 	fields := map[string]any{}
 	att, err := s.DB.LatestAttempt(task.ID)
 	if err != nil {
@@ -319,7 +329,86 @@ func (s *Server) gradeEvalResult(res *store.EvalResult, task *store.Task) {
 		// nothing to check against — the agent's own success is the signal
 		fields["status"] = "passed"
 	}
+
+	// Replay scoring: an ordinary case has no ReferenceDiff, so this is a
+	// no-op for every eval that isn't a replay suite.
+	c, cerr := s.DB.EvalCase(res.CaseID)
+	var attemptDiff string
+	if cerr == nil && c.IsReplay && c.ReferenceDiff != "" {
+		if raw, rerr := os.ReadFile(filepath.Join(s.Cfg.DiffDir(),
+			fmt.Sprintf("attempt-%d.patch", att.ID))); rerr == nil {
+			attemptDiff = string(raw)
+			sim := replay.Score(attemptDiff, c.ReferenceDiff)
+			fields["similarity_files"] = sim.FileOverlap
+			fields["similarity_lines"] = sim.LineOverlap
+			fields["size_ratio"] = sim.SizeRatio
+		}
+	}
 	s.DB.Update("eval_results", res.ID, fields)
+
+	if run.WithJudge && attemptDiff != "" {
+		s.dispatchEvalJudge(res, c, task, attemptDiff)
+	}
+}
+
+// buildEvalJudgePrompt hands a headless judge exactly what it needs to
+// answer one question — does this attempt solve the same problem the
+// reference diff solves — mirroring bestofn.go's buildJudgePrompt (same
+// "show the diffs, ask for one final line" shape) but comparing an attempt
+// against a stored reference instead of ranking sibling attempts.
+func buildEvalJudgePrompt(caseName, prompt, referenceDiff, attemptDiff string) string {
+	var b strings.Builder
+	b.WriteString("You are judging whether an AI agent's attempt at a task reproduces the same fix as " +
+		"a known-good reference solution.\n\n")
+	fmt.Fprintf(&b, "TASK (%s): %s\n\n", caseName, prompt)
+	b.WriteString("=== REFERENCE DIFF (accepted, known-good) ===\n```diff\n" + clip(referenceDiff, 6000) + "\n```\n\n")
+	b.WriteString("=== ATTEMPT DIFF ===\n```diff\n" + clip(attemptDiff, 6000) + "\n```\n\n")
+	b.WriteString("Does the ATTEMPT solve the same problem as the REFERENCE? Judge by intent and outcome, " +
+		"not exact code shape — different variable names, ordering, or an equally valid alternative " +
+		"approach all still count as solving the same problem. Your FINAL line must be exactly one of:\n" +
+		"EVAL_JUDGE: MATCH\nEVAL_JUDGE: NO_MATCH\nfollowed by a short REASON on the next line.")
+	return b.String()
+}
+
+// dispatchEvalJudge spawns a headless judge comparing a finished replay
+// cell's attempt diff against its case's reference diff. It is best-effort:
+// an unusable judge_agent setting is logged and skipped rather than failing
+// the grading that already committed — a run without a working judge
+// configured should still finish with pass/fail and similarity scores.
+// scheduler.applyEvalJudgeVerdict records the verdict once the judge task
+// completes.
+func (s *Server) dispatchEvalJudge(res *store.EvalResult, c *store.EvalCase, task *store.Task, attemptDiff string) {
+	agent := firstNonEmptyStr(s.DB.Setting("judge_agent"), "claude")
+	model := firstNonEmptyStr(s.DB.Setting("judge_model"), "haiku")
+	if !s.knownAgent(agent) {
+		s.Log.Warn("eval judge skipped: unknown judge_agent", "agent", agent)
+		return
+	}
+	spec, exists := s.taskAgent(agent)
+	if !exists {
+		s.Log.Warn("eval judge skipped: judge_agent has no non-interactive task definition", "agent", agent)
+		return
+	}
+	if err := taskPermissionError(spec, "plan"); err != nil {
+		s.Log.Warn("eval judge skipped: judge agent cannot run read-only", "agent", agent, "err", err)
+		return
+	}
+	prompt := buildEvalJudgePrompt(c.Name, c.Prompt, c.ReferenceDiff, attemptDiff)
+	jtask, err := s.DB.InsertTask(&store.Task{
+		ProjectID: task.ProjectID, Title: clip("Eval judge: "+c.Name, 90),
+		Prompt: prompt, Status: "queued", Agent: agent, Model: model, PermissionMode: "plan",
+		CreatedBy: "eval-judge", ParentTaskID: &task.ID,
+	})
+	if err != nil {
+		s.Log.Error("eval judge: could not file judge task", "err", err)
+		return
+	}
+	if _, err := s.Sched.CreateAttempt(jtask, scheduler.AttemptOpts{}); err != nil {
+		s.Log.Error("eval judge: could not create attempt", "err", err)
+		return
+	}
+	s.DB.Update("eval_results", res.ID, map[string]any{"judge_status": "queued"})
+	s.Bus.Publish("board", "task", jtask)
 }
 
 // cancelEvalRunNow stops a run immediately: every attempt still live is

@@ -85,7 +85,7 @@ func (s *Server) getEvalSuite(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"suite": suite, "cases": cases})
+	writeJSON(w, 200, map[string]any{"suite": suite, "cases": replayCaseViews(cases)})
 }
 
 func (s *Server) deleteEvalSuite(w http.ResponseWriter, r *http.Request) {
@@ -238,9 +238,10 @@ func (s *Server) importEvalSuites(w http.ResponseWriter, r *http.Request) {
 // ---- runs -------------------------------------------------------------------
 
 type evalRunIn struct {
-	Variants []variantIn `json:"variants"`
-	Repeats  int         `json:"repeats"`
-	Notes    string      `json:"notes"`
+	Variants  []variantIn `json:"variants"`
+	Repeats   int         `json:"repeats"`
+	Notes     string      `json:"notes"`
+	WithJudge bool        `json:"with_judge"`
 }
 
 const maxEvalRepeats = 10
@@ -299,6 +300,7 @@ func (s *Server) createEvalRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := s.DB.InsertEvalRun(&store.EvalRun{
 		SuiteID: suite.ID, Status: "queued", VariantsJSON: store.J(resolved), Repeats: in.Repeats, Notes: in.Notes,
+		WithJudge: in.WithJudge,
 	})
 	if err != nil {
 		respondErr(w, err)
@@ -359,7 +361,7 @@ func (s *Server) evalRunView(run *store.EvalRun) (map[string]any, error) {
 	var variants []store.EvalVariant
 	_ = json.Unmarshal([]byte(run.VariantsJSON), &variants)
 	return map[string]any{
-		"run": run, "suite": suite, "cases": cases, "variants": variants,
+		"run": run, "suite": suite, "cases": replayCaseViews(cases), "variants": variants,
 		"results": results, "leaderboard": evals.Leaderboard(results),
 	}, nil
 }

@@ -41,6 +41,39 @@ func TestLeaderboardComputesPassRateDurationCostAndTokensPerVariant(t *testing.T
 	}
 }
 
+func TestLeaderboardComputesReplaySimilarityAndJudgeMatchRate(t *testing.T) {
+	matched, unmatched := 1, 0
+	results := []*store.EvalResult{
+		// variant 0: a "good" replay cell, judged a match
+		{VariantIdx: 0, Status: "passed", SimilarityFiles: f(1), SimilarityLines: f(0.8), SizeRatio: f(1.1),
+			JudgeStatus: "done", JudgeMatch: &matched},
+		// variant 0: a second replay cell, judge still queued — must not count toward JudgeMatchRate yet
+		{VariantIdx: 0, Status: "passed", SimilarityFiles: f(0.5), SimilarityLines: f(0.4), SizeRatio: f(0.9),
+			JudgeStatus: "queued"},
+		// variant 1: a "bad" replay cell, judged no-match
+		{VariantIdx: 1, Status: "failed", SimilarityFiles: f(0), SimilarityLines: f(0), SizeRatio: f(3),
+			JudgeStatus: "done", JudgeMatch: &unmatched},
+		// variant 1: an ordinary (non-replay) cell with nothing to score — must not dilute the means
+		{VariantIdx: 1, Status: "passed"},
+	}
+	board := Leaderboard(results)
+	v0, v1 := board[0], board[1]
+
+	if v0.ScoredCount != 2 || v0.MeanSimilarityFiles != 0.75 {
+		t.Errorf("variant 0 similarity: %+v", v0)
+	}
+	if v0.JudgedCount != 1 || v0.JudgeMatchRate != 1 {
+		t.Errorf("variant 0 judge: %+v", v0)
+	}
+
+	if v1.ScoredCount != 1 || v1.MeanSimilarityFiles != 0 || v1.MeanSizeRatio != 3 {
+		t.Errorf("variant 1 similarity (must ignore the unscored ordinary cell): %+v", v1)
+	}
+	if v1.JudgedCount != 1 || v1.JudgeMatchRate != 0 {
+		t.Errorf("variant 1 judge: %+v", v1)
+	}
+}
+
 func TestLeaderboardEmptyInputIsEmptyNotNilPanic(t *testing.T) {
 	if board := Leaderboard(nil); len(board) != 0 {
 		t.Fatalf("expected no rows, got %+v", board)

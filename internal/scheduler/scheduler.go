@@ -1029,6 +1029,8 @@ func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, no
 			s.applyReviewVerdict(task, result)
 		case "judge":
 			s.applyJudgeVerdict(task, result)
+		case "eval-judge":
+			s.applyEvalJudgeVerdict(task, result)
 		default:
 			s.maybeSpawnReviewer(ctx, task, att)
 		}
@@ -1149,6 +1151,45 @@ func (s *Scheduler) applyJudgeVerdict(rtask *store.Task, result map[string]any) 
 			fmt.Sprintf("/#task/%d", parent.ID), nil)
 	}
 	// the judge card served its purpose — off the board, same as a reviewer's
+	s.setTaskStatus(rtask.ID, "done")
+}
+
+// evalJudgeRe pulls a replay eval judge's verdict out of its final message.
+// Prompted for exactly (see api.buildEvalJudgePrompt): "EVAL_JUDGE: MATCH" or
+// "EVAL_JUDGE: NO_MATCH" on its own line — the same "one line, one regex"
+// contract judgeRe/verdictRe already use.
+var evalJudgeRe = regexp.MustCompile(`(?i)EVAL_JUDGE:\s*(MATCH|NO_MATCH)`)
+
+// applyEvalJudgeVerdict records a replay eval judge's verdict onto the
+// eval_results row its parent task (the cell dispatchEvalCell created) owns
+// — the equivalent of applyJudgeVerdict/applyReviewVerdict's "verdict task
+// completes, look up ParentTaskID, write the answer, retire the verdict
+// card" shape, except the answer lands on an eval_results row (found via
+// EvalResultByTaskID) instead of an attempt's result_json, since that is
+// where a replay cell's scoring lives for the run/leaderboard views.
+func (s *Scheduler) applyEvalJudgeVerdict(rtask *store.Task, result map[string]any) {
+	text, _ := result["result"].(string)
+	match := "unclear"
+	if m := evalJudgeRe.FindAllStringSubmatch(text, -1); len(m) > 0 {
+		match = strings.ToLower(m[len(m)-1][1])
+	}
+	if rtask.ParentTaskID != nil {
+		if res, err := s.DB.EvalResultByTaskID(*rtask.ParentTaskID); err == nil {
+			fields := map[string]any{"judge_status": "done", "judge_reason": clipEnd(text, 1500)}
+			switch match {
+			case "match":
+				fields["judge_match"] = 1
+			case "no_match":
+				fields["judge_match"] = 0
+			}
+			s.DB.Update("eval_results", res.ID, fields)
+			if run, rerr := s.DB.EvalRun(res.RunID); rerr == nil {
+				s.Bus.Publish("board", "eval_run", run)
+			}
+		}
+	}
+	// the judge card served its purpose — off the board, same as a
+	// best-of-N judge or reviewer.
 	s.setTaskStatus(rtask.ID, "done")
 }
 
