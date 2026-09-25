@@ -68,12 +68,15 @@ func (db *DB) DeleteEvalSuite(id int64) error {
 
 // ---- eval cases -----------------------------------------------------------
 
-const evalCaseCols = `id, suite_id, name, prompt, base_ref, check_command, timeout_s, setup_command`
+const evalCaseCols = `id, suite_id, name, prompt, base_ref, check_command, timeout_s, setup_command,
+	is_replay, source_pr_number, reference_diff`
 
 func scanEvalCase(s interface{ Scan(...any) error }) (*EvalCase, error) {
 	var c EvalCase
+	var isReplay int
 	err := s.Scan(&c.ID, &c.SuiteID, &c.Name, &c.Prompt, &c.BaseRef, &c.CheckCommand,
-		&c.TimeoutS, &c.SetupCommand)
+		&c.TimeoutS, &c.SetupCommand, &isReplay, &c.SourcePRNumber, &c.ReferenceDiff)
+	c.IsReplay = isReplay != 0
 	return &c, err
 }
 
@@ -106,9 +109,14 @@ func (db *DB) InsertEvalCase(c *EvalCase) (*EvalCase, error) {
 	if c.TimeoutS <= 0 {
 		c.TimeoutS = 900
 	}
+	isReplay := 0
+	if c.IsReplay {
+		isReplay = 1
+	}
 	res, err := db.Exec(`INSERT INTO eval_cases(suite_id, name, prompt, base_ref, check_command,
-		timeout_s, setup_command) VALUES(?,?,?,?,?,?,?)`,
-		c.SuiteID, c.Name, c.Prompt, c.BaseRef, c.CheckCommand, c.TimeoutS, c.SetupCommand)
+		timeout_s, setup_command, is_replay, source_pr_number, reference_diff) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		c.SuiteID, c.Name, c.Prompt, c.BaseRef, c.CheckCommand, c.TimeoutS, c.SetupCommand,
+		isReplay, c.SourcePRNumber, c.ReferenceDiff)
 	if err != nil {
 		return nil, err
 	}
@@ -123,11 +131,13 @@ func (db *DB) DeleteEvalCase(id int64) error {
 
 // ---- eval runs --------------------------------------------------------------
 
-const evalRunCols = `id, suite_id, created_at, status, variants_json, repeats, notes`
+const evalRunCols = `id, suite_id, created_at, status, variants_json, repeats, notes, with_judge`
 
 func scanEvalRun(s interface{ Scan(...any) error }) (*EvalRun, error) {
 	var r EvalRun
-	err := s.Scan(&r.ID, &r.SuiteID, &r.CreatedAt, &r.Status, &r.VariantsJSON, &r.Repeats, &r.Notes)
+	var withJudge int
+	err := s.Scan(&r.ID, &r.SuiteID, &r.CreatedAt, &r.Status, &r.VariantsJSON, &r.Repeats, &r.Notes, &withJudge)
+	r.WithJudge = withJudge != 0
 	return &r, err
 }
 
@@ -163,9 +173,13 @@ func (db *DB) InsertEvalRun(r *EvalRun) (*EvalRun, error) {
 	if r.Repeats <= 0 {
 		r.Repeats = 1
 	}
-	res, err := db.Exec(`INSERT INTO eval_runs(suite_id, created_at, status, variants_json, repeats, notes)
-		VALUES(?,?,?,?,?,?)`, r.SuiteID, r.CreatedAt, nz(r.Status, "queued"), nz(r.VariantsJSON, "[]"),
-		r.Repeats, r.Notes)
+	withJudge := 0
+	if r.WithJudge {
+		withJudge = 1
+	}
+	res, err := db.Exec(`INSERT INTO eval_runs(suite_id, created_at, status, variants_json, repeats, notes, with_judge)
+		VALUES(?,?,?,?,?,?,?)`, r.SuiteID, r.CreatedAt, nz(r.Status, "queued"), nz(r.VariantsJSON, "[]"),
+		r.Repeats, r.Notes, withJudge)
 	if err != nil {
 		return nil, err
 	}
@@ -176,18 +190,32 @@ func (db *DB) InsertEvalRun(r *EvalRun) (*EvalRun, error) {
 // ---- eval results -----------------------------------------------------------
 
 const evalResultCols = `id, run_id, case_id, variant_idx, repeat_idx, task_id, attempt_id, status,
-	duration_s, cost_usd, input_tokens, output_tokens, diff_files, diff_lines, check_rc, check_output_tail`
+	duration_s, cost_usd, input_tokens, output_tokens, diff_files, diff_lines, check_rc, check_output_tail,
+	similarity_files, similarity_lines, size_ratio, judge_status, judge_match, judge_reason`
 
 func scanEvalResult(s interface{ Scan(...any) error }) (*EvalResult, error) {
 	var r EvalResult
 	err := s.Scan(&r.ID, &r.RunID, &r.CaseID, &r.VariantIdx, &r.RepeatIdx, &r.TaskID, &r.AttemptID,
 		&r.Status, &r.DurationS, &r.CostUSD, &r.InputTokens, &r.OutputTokens, &r.DiffFiles,
-		&r.DiffLines, &r.CheckRC, &r.CheckOutputTail)
+		&r.DiffLines, &r.CheckRC, &r.CheckOutputTail,
+		&r.SimilarityFiles, &r.SimilarityLines, &r.SizeRatio, &r.JudgeStatus, &r.JudgeMatch, &r.JudgeReason)
 	return &r, err
 }
 
 func (db *DB) EvalResult(id int64) (*EvalResult, error) {
 	r, err := scanEvalResult(db.QueryRow(`SELECT `+evalResultCols+` FROM eval_results WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return r, err
+}
+
+// EvalResultByTaskID finds the cell one dispatched task belongs to — used by
+// scheduler.applyEvalJudgeVerdict to find its way back from a headless
+// judge task's ParentTaskID (the cell's own task id) to the eval_results row
+// its verdict gets recorded on.
+func (db *DB) EvalResultByTaskID(taskID int64) (*EvalResult, error) {
+	r, err := scanEvalResult(db.QueryRow(`SELECT `+evalResultCols+` FROM eval_results WHERE task_id=?`, taskID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

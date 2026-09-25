@@ -14,17 +14,32 @@ func terminal(status string) bool {
 }
 
 // VariantStats is one row of a run's per-variant leaderboard.
+//
+// The MeanSimilarity*/MeanSizeRatio/JudgeMatchRate fields are replay-eval
+// columns (docs/replay-evals.md): they average only over cells that
+// actually carry a score (a replay case's cell that reached a terminal
+// status past "error"/"timeout" — see gradeEvalResult), so a suite mixing
+// ordinary and replay cases, or a run still in flight, doesn't get diluted
+// by cells with nothing to average. JudgeMatchRate is likewise a fraction of
+// only the cells a judge actually finished (JudgedCount), not of Total —
+// the judge is optional and runs asynchronously after grading.
 type VariantStats struct {
-	VariantIdx       int     `json:"variant_idx"`
-	Total            int     `json:"total"`
-	Passed           int     `json:"passed"`
-	Failed           int     `json:"failed"`
-	Errored          int     `json:"errored"`
-	PassRate         float64 `json:"pass_rate"`
-	MeanDurationS    float64 `json:"mean_duration_s"`
-	TotalCostUSD     float64 `json:"total_cost_usd"`
-	MeanInputTokens  float64 `json:"mean_input_tokens"`
-	MeanOutputTokens float64 `json:"mean_output_tokens"`
+	VariantIdx          int     `json:"variant_idx"`
+	Total               int     `json:"total"`
+	Passed              int     `json:"passed"`
+	Failed              int     `json:"failed"`
+	Errored             int     `json:"errored"`
+	PassRate            float64 `json:"pass_rate"`
+	MeanDurationS       float64 `json:"mean_duration_s"`
+	TotalCostUSD        float64 `json:"total_cost_usd"`
+	MeanInputTokens     float64 `json:"mean_input_tokens"`
+	MeanOutputTokens    float64 `json:"mean_output_tokens"`
+	MeanSimilarityFiles float64 `json:"mean_similarity_files"`
+	MeanSimilarityLines float64 `json:"mean_similarity_lines"`
+	MeanSizeRatio       float64 `json:"mean_size_ratio"`
+	ScoredCount         int     `json:"scored_count"`
+	JudgeMatchRate      float64 `json:"judge_match_rate"`
+	JudgedCount         int     `json:"judged_count"`
 }
 
 // Leaderboard aggregates a run's results per variant, ordered by variant
@@ -61,6 +76,12 @@ func Leaderboard(results []*store.EvalResult) []VariantStats {
 	sumOut := map[int]float64{}
 	nDuration := map[int]int{}
 	nTokens := map[int]int{}
+	sumSimFiles := map[int]float64{}
+	sumSimLines := map[int]float64{}
+	sumSizeRatio := map[int]float64{}
+	nScored := map[int]int{}
+	nJudged := map[int]int{}
+	nJudgeMatch := map[int]int{}
 	for _, r := range results {
 		if r.DurationS != nil {
 			sumDuration[r.VariantIdx] += *r.DurationS
@@ -74,6 +95,25 @@ func Leaderboard(results []*store.EvalResult) []VariantStats {
 				sumOut[r.VariantIdx] += float64(*r.OutputTokens)
 			}
 			nTokens[r.VariantIdx]++
+		}
+		// A replay cell's scores land together (see gradeEvalResult), so
+		// SimilarityFiles alone is a reliable "was this cell scored at all"
+		// signal without needing a separate IsReplay flag on the result row.
+		if r.SimilarityFiles != nil {
+			sumSimFiles[r.VariantIdx] += *r.SimilarityFiles
+			if r.SimilarityLines != nil {
+				sumSimLines[r.VariantIdx] += *r.SimilarityLines
+			}
+			if r.SizeRatio != nil {
+				sumSizeRatio[r.VariantIdx] += *r.SizeRatio
+			}
+			nScored[r.VariantIdx]++
+		}
+		if r.JudgeStatus == "done" {
+			nJudged[r.VariantIdx]++
+			if r.JudgeMatch != nil && *r.JudgeMatch != 0 {
+				nJudgeMatch[r.VariantIdx]++
+			}
 		}
 	}
 	out := make([]VariantStats, 0, len(order))
@@ -89,6 +129,16 @@ func Leaderboard(results []*store.EvalResult) []VariantStats {
 		if n := nTokens[idx]; n > 0 {
 			st.MeanInputTokens = sumIn[idx] / float64(n)
 			st.MeanOutputTokens = sumOut[idx] / float64(n)
+		}
+		if n := nScored[idx]; n > 0 {
+			st.MeanSimilarityFiles = sumSimFiles[idx] / float64(n)
+			st.MeanSimilarityLines = sumSimLines[idx] / float64(n)
+			st.MeanSizeRatio = sumSizeRatio[idx] / float64(n)
+			st.ScoredCount = n
+		}
+		if n := nJudged[idx]; n > 0 {
+			st.JudgeMatchRate = float64(nJudgeMatch[idx]) / float64(n)
+			st.JudgedCount = n
 		}
 		out = append(out, st)
 	}

@@ -351,15 +351,27 @@ type EvalSuite struct {
 
 // EvalCase is one scenario in a suite: a prompt run from base_ref and graded
 // by check_command (falling back to the project's own VerifyCmd when empty).
+//
+// IsReplay/SourcePRNumber/ReferenceDiff are set only for a "replay eval"
+// case built from the project's own merged-PR history (docs/replay-evals.md,
+// internal/replay) — an ordinary hand-written or YAML-imported case leaves
+// all three at their zero value. ReferenceDiff is intentionally excluded
+// from JSON (it can be large, and every response that lists cases would
+// otherwise carry it); the API layer computes a split, display-ready
+// ReferenceFiles view only where a case is actually being shown (see
+// internal/api/evals.go's replayCaseView).
 type EvalCase struct {
-	ID           int64  `json:"id"`
-	SuiteID      int64  `json:"suite_id"`
-	Name         string `json:"name"`
-	Prompt       string `json:"prompt"`
-	BaseRef      string `json:"base_ref"`
-	CheckCommand string `json:"check_command"`
-	TimeoutS     int    `json:"timeout_s"`
-	SetupCommand string `json:"setup_command"`
+	ID             int64  `json:"id"`
+	SuiteID        int64  `json:"suite_id"`
+	Name           string `json:"name"`
+	Prompt         string `json:"prompt"`
+	BaseRef        string `json:"base_ref"`
+	CheckCommand   string `json:"check_command"`
+	TimeoutS       int    `json:"timeout_s"`
+	SetupCommand   string `json:"setup_command"`
+	IsReplay       bool   `json:"is_replay"`
+	SourcePRNumber int    `json:"source_pr_number,omitempty"`
+	ReferenceDiff  string `json:"-"`
 }
 
 // EvalVariant is one agent/model/permission combination a run scores every
@@ -372,6 +384,13 @@ type EvalVariant struct {
 }
 
 // EvalRun is one execution of a suite: cases x variants x repeats.
+//
+// WithJudge opts a run into spawning a headless judge (the same machinery
+// internal/api/bestofn.go's judgeTask uses, judge_agent/judge_model
+// settings) over every replay cell once it finishes, comparing the
+// attempt's diff against its case's reference diff — see
+// internal/scheduler's applyEvalJudgeVerdict. It has no effect on a case
+// that isn't a replay case (no reference diff to compare against).
 type EvalRun struct {
 	ID           int64   `json:"id"`
 	SuiteID      int64   `json:"suite_id"`
@@ -380,9 +399,14 @@ type EvalRun struct {
 	VariantsJSON string  `json:"-"`
 	Repeats      int     `json:"repeats"`
 	Notes        string  `json:"notes"`
+	WithJudge    bool    `json:"with_judge"`
 }
 
-// EvalResult is one cell of a run's matrix: one case, one variant, one repeat.
+// EvalResult is one cell of a run's matrix: one case, one variant, one
+// repeat. The Similarity*/SizeRatio/Judge* fields are populated only for a
+// replay case's cell (see internal/replay.Score and gradeEvalResult in
+// internal/api/evals_engine.go); they stay nil/empty for an ordinary case,
+// which has no reference diff to score against.
 type EvalResult struct {
 	ID              int64    `json:"id"`
 	RunID           int64    `json:"run_id"`
@@ -400,6 +424,12 @@ type EvalResult struct {
 	DiffLines       *int     `json:"diff_lines"`
 	CheckRC         *int     `json:"check_rc"`
 	CheckOutputTail string   `json:"check_output_tail"`
+	SimilarityFiles *float64 `json:"similarity_files"`
+	SimilarityLines *float64 `json:"similarity_lines"`
+	SizeRatio       *float64 `json:"size_ratio"`
+	JudgeStatus     string   `json:"judge_status"`
+	JudgeMatch      *int     `json:"judge_match"` // nil = not judged, 0 = no_match, 1 = match
+	JudgeReason     string   `json:"judge_reason"`
 }
 
 // Wrap is one session handoff: the summary an agent wrote for its successor.

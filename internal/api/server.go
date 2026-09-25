@@ -231,6 +231,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/evals/suites", s.listEvalSuites)
 	mux.HandleFunc("POST /api/evals/suites", s.createEvalSuite)
 	mux.HandleFunc("POST /api/evals/suites/import", s.importEvalSuites)
+	mux.HandleFunc("POST /api/evals/replay/preview", s.previewReplaySuite)
+	mux.HandleFunc("POST /api/evals/replay/suites", s.createReplaySuite)
 	mux.HandleFunc("GET /api/evals/suites/{id}", s.getEvalSuite)
 	mux.HandleFunc("DELETE /api/evals/suites/{id}", s.deleteEvalSuite)
 	mux.HandleFunc("POST /api/evals/suites/{id}/cases", s.createEvalCase)

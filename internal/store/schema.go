@@ -639,4 +639,20 @@ var migrations = []string{
 	"ALTER TABLE attempts ADD COLUMN live_cost_usd REAL NOT NULL DEFAULT 0",
 	// Per-agent-process isolation (bwrap/docker) — see internal/isolation.
 	"ALTER TABLE projects ADD COLUMN default_isolation_json TEXT DEFAULT '{}'",
+	// Replay evals (docs/replay-evals.md, internal/replay): a case built
+	// from the project's own merged-PR history carries the PR it came from
+	// and the PR's own accepted diff as scoring ground truth. A run can opt
+	// into a headless judge over every replay cell (with_judge); the judge's
+	// verdict and the attempt/reference similarity scores land on the cell's
+	// own eval_results row — see gradeEvalResult and applyEvalJudgeVerdict.
+	"ALTER TABLE eval_cases ADD COLUMN is_replay INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE eval_cases ADD COLUMN source_pr_number INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE eval_cases ADD COLUMN reference_diff TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE eval_runs ADD COLUMN with_judge INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE eval_results ADD COLUMN similarity_files REAL",
+	"ALTER TABLE eval_results ADD COLUMN similarity_lines REAL",
+	"ALTER TABLE eval_results ADD COLUMN size_ratio REAL",
+	"ALTER TABLE eval_results ADD COLUMN judge_status TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE eval_results ADD COLUMN judge_match INTEGER",
+	"ALTER TABLE eval_results ADD COLUMN judge_reason TEXT NOT NULL DEFAULT ''",
 }

@@ -41,6 +41,9 @@ fix printed next to anything that's off.
   its own worktree while a lead reviews, corrects and integrates its diff.
 - **Eval suites on your own repo.** `eval/capability` runs the real agent loop
   against a simulated homelab — no production side effects, model-agnostic.
+  [Replay evals](docs/replay-evals.md) build a suite straight from a project's
+  own merged-PR history, so "which agent/model is best for MY repo" is
+  ground-truthed against what actually shipped instead of a hand-written prompt.
 - **Agents aware of each other.** Cross-agent awareness lets a session see
   what a peer session is doing in the same repository.
 - **Self-hosted, MIT.** One static binary, your infrastructure, your choice of

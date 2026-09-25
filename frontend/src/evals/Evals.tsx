@@ -28,6 +28,28 @@ interface Case {
   check_command: string;
   timeout_s: number;
   setup_command: string;
+  is_replay: boolean;
+  source_pr_number?: number;
+  reference_files?: { path: string; patch: string }[];
+}
+// ReplayCandidate mirrors internal/replay.Candidate's API shape
+// (replayCandidateViews in internal/api/replay.go): one PR from the
+// project's merged history, either accepted (with a preview of the case it
+// would become) or skipped with why.
+interface ReplayCandidateCase {
+  name: string;
+  prompt: string;
+  base_ref: string;
+  check_command: string;
+  matched_tests: string[] | null;
+}
+interface ReplayCandidate {
+  pr_number: number;
+  title: string;
+  accepted: boolean;
+  skip_reason: string;
+  changed_lines: number;
+  case?: ReplayCandidateCase;
 }
 interface Run {
   id: number;
@@ -56,6 +78,12 @@ interface Result {
   check_output_tail: string;
   diff_files: number | null;
   diff_lines: number | null;
+  similarity_files: number | null;
+  similarity_lines: number | null;
+  size_ratio: number | null;
+  judge_status: string;
+  judge_match: number | null;
+  judge_reason: string;
 }
 interface VariantStats {
   variant_idx: number;
@@ -68,6 +96,12 @@ interface VariantStats {
   total_cost_usd: number;
   mean_input_tokens: number;
   mean_output_tokens: number;
+  mean_similarity_files: number;
+  mean_similarity_lines: number;
+  mean_size_ratio: number;
+  scored_count: number;
+  judge_match_rate: number;
+  judged_count: number;
 }
 interface RunView {
   run: Run;
@@ -136,6 +170,13 @@ export function Evals({
     { agent: "claude", model: "", permissionMode: "" },
   ]);
   const [repeats, setRepeats] = useState(1);
+  const [withJudge, setWithJudge] = useState(false);
+  const [showReplayImport, setShowReplayImport] = useState(false);
+  const [replayN, setReplayN] = useState(20);
+  const [replayMaxLines, setReplayMaxLines] = useState(400);
+  const [replayName, setReplayName] = useState("");
+  const [replayBusy, setReplayBusy] = useState(false);
+  const [replayPreview, setReplayPreview] = useState<{ source: string; candidates: ReplayCandidate[] }>();
   const [compareWith, setCompareWith] = useState<Set<number>>(new Set());
   const [comparison, setComparison] = useState<{
     a: number;
@@ -210,6 +251,48 @@ export function Evals({
     }
   }
 
+  // previewReplay is "New replay suite from merged PRs" step 1: run the
+  // whole import pipeline against the project's merged-PR history and show
+  // every candidate — accepted or skipped, with why — before anything is
+  // persisted.
+  async function previewReplay() {
+    if (!projectId) return;
+    setReplayBusy(true);
+    try {
+      setReplayPreview(
+        await api.request<{ source: string; candidates: ReplayCandidate[] }>("/evals/replay/preview", {
+          method: "POST",
+          body: { project_id: projectId, n: replayN, max_changed_lines: replayMaxLines },
+        }),
+      );
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setReplayBusy(false);
+    }
+  }
+
+  async function createReplaySuiteFromPreview() {
+    if (!replayName.trim()) return onNotice("Name required", true);
+    setReplayBusy(true);
+    try {
+      const result = await api.request<{ suite: Suite }>("/evals/replay/suites", {
+        method: "POST",
+        body: { project_id: projectId, n: replayN, max_changed_lines: replayMaxLines, name: replayName.trim() },
+      });
+      setReplayName("");
+      setReplayPreview(undefined);
+      setShowReplayImport(false);
+      await loadSuites(projectId);
+      await openSuite(result.suite.id);
+      onNotice("Replay suite created");
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setReplayBusy(false);
+    }
+  }
+
   async function addCase() {
     if (!suiteID) return;
     if (!newCase.name.trim() || !newCase.prompt.trim())
@@ -244,6 +327,7 @@ export function Evals({
             permission_mode: v.permissionMode,
           })),
           repeats,
+          with_judge: withJudge,
         },
       });
       setRuns(await api.request<Run[]>(`/evals/suites/${suiteID}/runs`));
@@ -353,7 +437,106 @@ export function Evals({
             <button id="ev-import-repo" className="b" disabled={busy} onClick={() => void importFromRepo()}>
               Import from repo (.lectern/evals/*.yaml)
             </button>
+            <button
+              id="ev-replay-import-open"
+              className="b"
+              disabled={busy}
+              onClick={() => setShowReplayImport((v) => !v)}
+            >
+              + New replay suite from merged PRs
+            </button>
           </div>
+          {showReplayImport && (
+            <div className="ev-replay-import">
+              <p className="subhint">
+                Builds cases from the project's own last N merged PRs, so a run answers "which
+                agent/model is best for MY repository" against ground truth instead of a hand-written
+                prompt. See docs/replay-evals.md.
+              </p>
+              <div className="ev-replay-form">
+                <label>
+                  PRs to consider
+                  <input
+                    id="ev-replay-n"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={replayN}
+                    onChange={(e) => setReplayN(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Max changed lines
+                  <input
+                    id="ev-replay-max-lines"
+                    type="number"
+                    min={1}
+                    value={replayMaxLines}
+                    onChange={(e) => setReplayMaxLines(Number(e.target.value))}
+                  />
+                </label>
+                <button id="ev-replay-preview" className="b" disabled={replayBusy} onClick={() => void previewReplay()}>
+                  Preview
+                </button>
+              </div>
+              {replayPreview && (
+                <>
+                  <p className="subhint">
+                    Source: {replayPreview.source === "gh" ? "gh CLI" : "git log (gh unavailable)"} ·{" "}
+                    {replayPreview.candidates.filter((c) => c.accepted).length} of{" "}
+                    {replayPreview.candidates.length} PRs would be imported
+                  </p>
+                  <div className="ev-candidate-list">
+                    {replayPreview.candidates.map((c) => (
+                      <article
+                        key={c.pr_number}
+                        className={`ev-candidate-row ${c.accepted ? "ev-candidate-ok" : "ev-candidate-skip"}`}
+                      >
+                        <span className={`ev-badge ${c.accepted ? "ev-pass" : "ev-queued"}`}>
+                          {c.accepted ? "included" : "skipped"}
+                        </span>
+                        <div>
+                          <b>
+                            PR #{c.pr_number}: {c.title}
+                          </b>
+                          <span className="subhint">
+                            {c.accepted
+                              ? `${c.changed_lines} changed lines${
+                                  c.case?.matched_tests?.length
+                                    ? ` · tests: ${c.case.matched_tests.join(", ")}`
+                                    : ""
+                                }`
+                              : c.skip_reason}
+                          </span>
+                        </div>
+                      </article>
+                    ))}
+                    {replayPreview.candidates.length === 0 && (
+                      <p className="subhint">No merged PRs found for this project.</p>
+                    )}
+                  </div>
+                  <div className="ev-new-suite">
+                    <label>
+                      Suite name
+                      <input
+                        id="ev-replay-name"
+                        value={replayName}
+                        onChange={(e) => setReplayName(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      id="ev-replay-create"
+                      className="b ok"
+                      disabled={replayBusy || !replayPreview.candidates.some((c) => c.accepted)}
+                      onClick={() => void createReplaySuiteFromPreview()}
+                    >
+                      + Create suite from {replayPreview.candidates.filter((c) => c.accepted).length} PR(s)
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div className="ev-suite-list">
             {suites.map((s) => (
               <article key={s.id} className="ev-suite-row" onClick={() => void openSuite(s.id)}>
@@ -399,7 +582,9 @@ export function Evals({
             {cases.map((c) => (
               <article key={c.id} className="ev-case-row">
                 <div>
-                  <b>{c.name}</b>
+                  <b>
+                    {c.is_replay && <span className="ev-badge ev-queued">PR #{c.source_pr_number}</span>} {c.name}
+                  </b>
                   <span className="subhint">
                     {c.check_command || "no check command (falls back to project verify)"}
                   </span>
@@ -579,6 +764,13 @@ export function Evals({
               onChange={(e) => setRepeats(Number(e.target.value))}
             />
           </label>
+          {cases.some((c) => c.is_replay) && (
+            <label className="ev-with-judge">
+              <input type="checkbox" checked={withJudge} onChange={(e) => setWithJudge(e.target.checked)} />
+              Run judge (compares each replay cell's diff against its reference — uses the
+              judge_agent/judge_model setting)
+            </label>
+          )}
           <button id="ev-run-suite" className="b ok" disabled={busy || cases.length === 0} onClick={() => void startRun()}>
             ▶ Run suite
           </button>
@@ -649,7 +841,52 @@ export function Evals({
                 </button>
               </header>
               {openCell.check_output_tail && <pre className="ev-check-output">{openCell.check_output_tail}</pre>}
-              {cellDiff && <DiffViewer files={cellDiff.files} stats={cellDiff.stats} wrap={false} />}
+              {(() => {
+                const openCellCase = cases.find((c) => c.id === openCell.case_id);
+                const isReplay = openCellCase?.is_replay;
+                return (
+                  <>
+                    {isReplay && (
+                      <div className="ev-similarity-row">
+                        {openCell.similarity_files != null && (
+                          <span className="ev-badge ev-queued">
+                            files match: {Math.round(openCell.similarity_files * 100)}%
+                          </span>
+                        )}
+                        {openCell.similarity_lines != null && (
+                          <span className="ev-badge ev-queued">
+                            lines match: {Math.round(openCell.similarity_lines * 100)}%
+                          </span>
+                        )}
+                        {openCell.size_ratio != null && (
+                          <span className="ev-badge ev-queued">size ratio: {openCell.size_ratio.toFixed(2)}x</span>
+                        )}
+                        {openCell.judge_status === "done" && (
+                          <span className={`ev-badge ${openCell.judge_match ? "ev-pass" : "ev-fail"}`}>
+                            judge: {openCell.judge_match ? "match" : "no match"}
+                          </span>
+                        )}
+                        {openCell.judge_status === "queued" && (
+                          <span className="ev-badge ev-running">judge: pending</span>
+                        )}
+                      </div>
+                    )}
+                    {openCell.judge_reason && <p className="subhint">{openCell.judge_reason}</p>}
+                    {cellDiff && (
+                      <>
+                        <h4>Attempt diff</h4>
+                        <DiffViewer files={cellDiff.files} stats={cellDiff.stats} wrap={false} />
+                      </>
+                    )}
+                    {isReplay && openCellCase?.reference_files && openCellCase.reference_files.length > 0 && (
+                      <>
+                        <h4>Reference diff (PR #{openCellCase.source_pr_number})</h4>
+                        <DiffViewer files={openCellCase.reference_files} stats={[]} wrap={false} />
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -662,6 +899,8 @@ export function Evals({
                 <th>Mean duration</th>
                 <th>Total cost</th>
                 <th>Mean tokens</th>
+                {runView.leaderboard.some((r) => r.scored_count > 0) && <th>Similarity to reference</th>}
+                {runView.leaderboard.some((r) => r.judged_count > 0) && <th>Matches reference</th>}
               </tr>
             </thead>
             <tbody>
@@ -682,6 +921,19 @@ export function Evals({
                       {row.mean_input_tokens ? Math.round(row.mean_input_tokens) : 0}in/
                       {row.mean_output_tokens ? Math.round(row.mean_output_tokens) : 0}out
                     </td>
+                    {runView.leaderboard.some((r) => r.scored_count > 0) && (
+                      <td>
+                        {row.scored_count
+                          ? `${Math.round(row.mean_similarity_files * 100)}% files / ` +
+                            `${Math.round(row.mean_similarity_lines * 100)}% lines`
+                          : "—"}
+                      </td>
+                    )}
+                    {runView.leaderboard.some((r) => r.judged_count > 0) && (
+                      <td>
+                        {row.judged_count ? `${Math.round(row.judge_match_rate * 100)}% (${row.judged_count})` : "—"}
+                      </td>
+                    )}
                   </tr>
                 );
               })}

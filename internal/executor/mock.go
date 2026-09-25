@@ -45,6 +45,7 @@ const MockNumstat = "4\t1\tapp.py\n"
 //	[mock:approve-verdict] agent ends with VERDICT: APPROVE
 //	[mock:reject-verdict]  agent ends with VERDICT: REQUEST_CHANGES
 //	[mock:judge:N]         agent ends with JUDGE: attempt N (for judge-task tests)
+//	[mock:eval-judge:match|no-match]  agent ends with EVAL_JUDGE: MATCH|NO_MATCH (replay eval judge tests)
 type Mock struct {
 	mu       sync.Mutex
 	fs       map[string][]byte
@@ -278,6 +279,7 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 
 var scratchRe = regexp.MustCompile(`mktemp -d "\$root/([^"]+)-XXXXXX"`)
 var judgeRe = regexp.MustCompile(`\[mock:judge:(\d+)\]`)
+var evalJudgeRe = regexp.MustCompile(`\[mock:eval-judge:(match|no-match)\]`)
 var gitDiffRe = regexp.MustCompile(`\bgit\b.*\bdiff\b`)
 
 // ReadFile reads from the fake filesystem.
@@ -498,6 +500,9 @@ func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
 	case judgeRe.MatchString(prompt):
 		n := firstGroup(judgeRe, prompt)
 		result = "Compared the attempts. JUDGE: attempt " + n + "\nREASON: it passed its check."
+	case evalJudgeRe.MatchString(prompt):
+		verdict := strings.ToUpper(strings.ReplaceAll(firstGroup(evalJudgeRe, prompt), "-", "_"))
+		result = "Compared against the reference diff. EVAL_JUDGE: " + verdict + "\nREASON: mock verdict."
 	}
 	m.finish(rt, sid, 0, result)
 }

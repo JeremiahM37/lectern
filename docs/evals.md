@@ -13,6 +13,12 @@ real agent run, a real diff, and a real check, not a simulation. Eval-generated
 tasks carry the label `eval` and `created_by: "eval"` so they don't clutter the
 normal board; open them from the Agent tests page (More → Agent tests) instead.
 
+A case can also be built automatically from a project's own merged-PR
+history instead of hand-written — see [Replay evals](replay-evals.md) for
+"New replay suite from merged PRs", which grades against the PR's own
+accepted diff as ground truth and adds similarity/judge scoring on top of
+pass/fail.
+
 ## Defining a suite
 
 ### In the UI
