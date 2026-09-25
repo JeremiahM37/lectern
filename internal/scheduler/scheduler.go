@@ -271,6 +271,19 @@ func effPermissionMode(c *runCtx, att *store.Attempt) string {
 	return firstNonEmpty(att.PermissionMode, c.Task.PermissionMode)
 }
 
+// selectDriver picks the driver kind for a queued attempt. An ACP-configured
+// custom agent always gets drivers.KindACP, regardless of permission mode —
+// the protocol's own session/request_permission covers every Lectern
+// permission mode (see acpDriver.Start's doc comment), unlike
+// drivers.Select's (agent, builtin) signature, which has no way to see a
+// custom agent's definition and so cannot make this choice itself.
+func selectDriver(cfg agents.TaskLaunchConfig, permissionMode string) string {
+	if cfg.Definition.ACP != nil {
+		return drivers.KindACP
+	}
+	return drivers.Select(cfg.Agent, cfg.Definition.Builtin, permissionMode)
+}
+
 func (s *Scheduler) contextFor(att *store.Attempt) (*runCtx, error) {
 	task, err := s.DB.Task(att.TaskID)
 	if err != nil {
@@ -379,7 +392,7 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	s.Creds.Provision(ctx, ex, c.Target.Kind, c.Target.Name, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
-	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer {
+	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer || kind == drivers.KindACP {
 		return s.launchDriver(ctx, att, c, ex, wt, branch, sess, launchKW, kind)
 	}
 	cmd, err := s.buildLaunch(att, c, wt, sess, false, launchKW)
@@ -439,6 +452,13 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 		spec.Bin = s.Launcher.ClaudeBin
 	case "codex":
 		spec.Bin = s.Launcher.CodexBin
+	}
+	if kind == drivers.KindACP && kw.Definition != nil && kw.Definition.ACP != nil {
+		spec.Bin = kw.Definition.ACP.Command
+		spec.ACPArgs = kw.Definition.ACP.Args
+		for k, v := range kw.Definition.ACP.Env {
+			spec.Env[k] = v
+		}
 	}
 	run, err := drivers.StartFor(kind, ctx, ex, spec)
 	if err != nil {
@@ -1224,7 +1244,7 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 		return nil, err
 	}
 	att.LaunchConfigJSON = store.J(launchConfig)
-	att.Driver = drivers.Select(launchConfig.Agent, launchConfig.Definition.Builtin, effPermissionMode(c, att))
+	att.Driver = selectDriver(launchConfig, effPermissionMode(c, att))
 	return s.DB.InsertAttempt(att)
 }
 

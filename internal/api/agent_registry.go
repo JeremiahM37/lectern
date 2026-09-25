@@ -22,7 +22,12 @@ func isAgentSecretEnv(key string) bool {
 	return agentSecretKey.MatchString(key) || agentOpaqueConfigKey.MatchString(key)
 }
 
-func (s *Server) agentMarker(name, key string) map[string]any {
+// field distinguishes WHICH env map a marker belongs to — "env" (agent-wide)
+// or "acp.env" (internal/sessions.ACPSpec.Env) — so a marker minted for one
+// can never be replayed to unlock a value that lives in the other; it is
+// folded into the HMAC input, not just a map key, precisely so a client
+// cannot forge that separation itself.
+func (s *Server) agentMarker(name, field, key string) map[string]any {
 	s.agentMu.Lock()
 	defer s.agentMu.Unlock()
 	if len(s.agentKey) == 0 {
@@ -32,7 +37,7 @@ func (s *Server) agentMarker(name, key string) map[string]any {
 		}
 	}
 	h := hmac.New(sha256.New, s.agentKey)
-	_, _ = h.Write([]byte("agent-retention\x00" + name + "\x00" + key))
+	_, _ = h.Write([]byte("agent-retention\x00" + name + "\x00" + field + "\x00" + key))
 	return map[string]any{agentRetentionKey: hex.EncodeToString(h.Sum(nil))}
 }
 
@@ -45,22 +50,41 @@ func agentMarkerValue(value any) (string, bool) {
 	return token, ok && token != ""
 }
 
-func (s *Server) restoreAgentMarker(value any, prior map[string]string, name, key string) (any, error) {
+func (s *Server) restoreAgentMarker(value any, prior map[string]string, name, field, key string) (any, error) {
 	token, ok := agentMarkerValue(value)
 	if !ok {
 		return value, nil
 	}
-	expected := s.agentMarker(name, key)[agentRetentionKey].(string)
+	expected := s.agentMarker(name, field, key)[agentRetentionKey].(string)
 	old, exists := prior[key]
 	if token != expected || !exists {
-		return nil, fmt.Errorf("secret retention token for %s.%s is invalid or expired; reload agent settings", name, key)
+		return nil, fmt.Errorf("secret retention token for %s.%s.%s is invalid or expired; reload agent settings", name, field, key)
 	}
 	return old, nil
 }
 
+// maskEnvView masks credential-shaped values of one env map for an HTTP
+// response, sharing isAgentSecretEnv's detection with agentConfigWithRetainedSecrets
+// so a value that round-trips masked here is exactly the one accepted back
+// as a retention marker there.
+func (s *Server) maskEnvView(name, field string, raw map[string]string) map[string]any {
+	out := make(map[string]any, len(raw))
+	for key, value := range raw {
+		if isAgentSecretEnv(key) {
+			out[key] = s.agentMarker(name, field, key)
+		} else {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 // agentViews are deliberately built from the stored specs rather than by
 // mutating them: launchers always receive the real environment, while HTTP
-// clients receive a typed marker for credential-shaped values.
+// clients receive a typed marker for credential-shaped values — both the
+// agent-wide `env` and, when set, `acp.env` (internal/sessions.ACPSpec.Env is
+// exactly as capable of holding a provider credential as the agent-wide one,
+// e.g. an ANTHROPIC_API_KEY scoped to a hosted ACP proxy).
 func (s *Server) agentViews(specs []sessions.Spec) []map[string]any {
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
@@ -70,19 +94,36 @@ func (s *Server) agentViews(specs []sessions.Spec) []map[string]any {
 			continue
 		}
 		if len(spec.Env) != 0 {
-			env := make(map[string]any, len(spec.Env))
-			for key, value := range spec.Env {
-				if isAgentSecretEnv(key) {
-					env[key] = s.agentMarker(spec.Name, key)
-				} else {
-					env[key] = value
-				}
+			view["env"] = s.maskEnvView(spec.Name, "env", spec.Env)
+		}
+		if spec.ACP != nil && len(spec.ACP.Env) != 0 {
+			if acpView, ok := view["acp"].(map[string]any); ok {
+				acpView["env"] = s.maskEnvView(spec.Name, "acp.env", spec.ACP.Env)
 			}
-			view["env"] = env
 		}
 		out = append(out, view)
 	}
 	return out
+}
+
+// restoreEnvEntry rewrites one already-decoded env map in place, resolving
+// any retention marker back to its stored value and rejecting a literal
+// placeholder string sent by a client that meant to keep a secret but
+// dropped the typed marker (see isAgentSecretPlaceholder).
+func (s *Server) restoreEnvEntry(env map[string]any, prior map[string]string, name, field string) error {
+	for key, value := range env {
+		restored, err := s.restoreAgentMarker(value, prior, name, field, key)
+		if err != nil {
+			return err
+		}
+		if isAgentSecretEnv(key) {
+			if literal, ok := restored.(string); ok && isAgentSecretPlaceholder(literal) {
+				return fmt.Errorf("agent %s.%s.%s uses a secret placeholder string; send the typed retention marker returned by GET /api/agents", name, field, key)
+			}
+		}
+		env[key] = restored
+	}
+	return nil
 }
 
 func (s *Server) agentConfigWithRetainedSecrets(body string) (string, error) {
@@ -92,33 +133,34 @@ func (s *Server) agentConfigWithRetainedSecrets(body string) (string, error) {
 	}
 	old := s.agentSpecs()
 	oldEnv := make(map[string]map[string]string, len(old))
+	oldACPEnv := make(map[string]map[string]string, len(old))
 	for _, spec := range old {
 		if spec.Env != nil {
 			oldEnv[spec.Name] = spec.Env
 		}
+		if spec.ACP != nil && spec.ACP.Env != nil {
+			oldACPEnv[spec.Name] = spec.ACP.Env
+		}
 	}
 	for _, entry := range entries {
 		name, _ := entry["name"].(string)
-		rawEnv, exists := entry["env"]
-		if !exists {
-			continue
+		if rawEnv, exists := entry["env"]; exists {
+			if env, ok := rawEnv.(map[string]any); ok {
+				if err := s.restoreEnvEntry(env, oldEnv[name], name, "env"); err != nil {
+					return "", err
+				}
+			} // else: ValidateSpecs supplies the actionable type error.
 		}
-		env, ok := rawEnv.(map[string]any)
-		if !ok {
-			continue // ValidateSpecs supplies the actionable type error.
-		}
-		prior := oldEnv[name]
-		for key, value := range env {
-			restored, err := s.restoreAgentMarker(value, prior, name, key)
-			if err != nil {
-				return "", err
-			}
-			if isAgentSecretEnv(key) {
-				if literal, ok := restored.(string); ok && isAgentSecretPlaceholder(literal) {
-					return "", fmt.Errorf("agent %s.%s uses a secret placeholder string; send the typed retention marker returned by GET /api/agents", name, key)
+		if rawACP, exists := entry["acp"]; exists {
+			if acp, ok := rawACP.(map[string]any); ok {
+				if rawEnv, exists := acp["env"]; exists {
+					if env, ok := rawEnv.(map[string]any); ok {
+						if err := s.restoreEnvEntry(env, oldACPEnv[name], name, "acp.env"); err != nil {
+							return "", err
+						}
+					}
 				}
 			}
-			env[key] = restored
 		}
 	}
 	normalized, err := json.Marshal(entries)
@@ -153,13 +195,27 @@ func (s *Server) knownAgentNames() []string {
 
 func (s *Server) taskAgent(name string) (sessions.Spec, bool) {
 	spec, ok := sessions.Find(s.agentSpecs(), name)
-	if !ok || (!spec.Builtin && spec.Task == nil) {
+	if !ok || (!spec.Builtin && spec.Task == nil && spec.ACP == nil) {
 		return sessions.Spec{}, false
 	}
 	return spec, true
 }
 
+// taskPermissionError rejects a permission mode a dispatch cannot honour
+// before an attempt is ever queued.
+//
+// An ACP agent (spec.ACP != nil) is deliberately exempt from every branch
+// below: internal/drivers.acpDriver routes session/request_permission
+// through the same broker codex-appserver uses for EVERY Lectern permission
+// mode — "default" gates every call, "bypassPermissions" auto-selects the
+// protocol's own allow_always option, and "plan"/"acceptEdits" fall back to
+// the same auto-allow as bypass (the protocol has no separate notion of
+// those two — see docs/acp.md) — so unlike a generic Task-backed custom CLI,
+// there is no missing capability to reject here.
 func taskPermissionError(spec sessions.Spec, mode string) error {
+	if spec.ACP != nil {
+		return nil
+	}
 	switch mode {
 	case "default":
 		// claude: hook.py's PreToolUse gate (unchanged). codex: the

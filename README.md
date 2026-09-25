@@ -280,7 +280,11 @@ temporary databases, a separate vault, and a private tmux socket.
   mode, permission mappings and provider env, and it appears in the picker —
   the board holds no opinion about which binary runs. Local models use the
   CLI's compatible endpoint variables through a project's `env`. See
-  [docs/agents.md](docs/agents.md).
+  [docs/agents.md](docs/agents.md). Any agent that speaks the **Agent Client
+  Protocol** (Zed's claude-code-acp/codex-acp, Gemini CLI's
+  `--experimental-acp`, or your own) gets a live timeline, mid-run steering
+  and gated approvals with no backend code at all — just an `acp` command in
+  its definition. See [docs/acp.md](docs/acp.md).
 - **Control loop** — hook-gated approvals with web-push + Discord/ntfy sinks, an
   always-allow policy engine, follow-ups, auto-verify, reviewer gates, A/B parallel
   attempts, agents that file their own task cards, and shared project memory.

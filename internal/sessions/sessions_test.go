@@ -492,6 +492,9 @@ func TestValidateSpecsRejectsWhatCannotLaunch(t *testing.T) {
 		`[{"name":"a","command":"a","task":{"prompt_template":"{prompt}","permission_args":{"plan":[]}}}]`,                // empty capability
 		`[{"name":"a","command":"a","task":{"prompt_template":"{prompt}","permission_args":{"bypassPermissions":[""]}}}]`, // blank flag
 		`{"name":"a"}`, // not a list
+		`[{"name":"a","command":"a","acp":{"command":""}}]`,                                          // acp with no command
+		`[{"name":"a","command":"a","acp":{"command":"npx","env":{"BAD-NAME":"1"}}}]`,                // hostile acp env key
+		`[{"name":"a","command":"a","acp":{"command":"npx"},"task":{"prompt_template":"{prompt}"}}]`, // task and acp both set
 	} {
 		if err := ValidateSpecs(bad); err == nil {
 			t.Errorf("should have been rejected: %s", bad)
@@ -499,6 +502,9 @@ func TestValidateSpecsRejectsWhatCannotLaunch(t *testing.T) {
 	}
 	if err := ValidateSpecs(`[{"name":"aider","command":"aider"}]`); err != nil {
 		t.Errorf("valid definition rejected: %v", err)
+	}
+	if err := ValidateSpecs(`[{"name":"claude-code-acp","command":"claude-code-acp","acp":{"command":"npx","args":["-y","@zed-industries/claude-code-acp"]}}]`); err != nil {
+		t.Errorf("valid acp definition rejected: %v", err)
 	}
 	if err := ValidateSpecs(""); err != nil {
 		t.Errorf("empty is valid: %v", err)

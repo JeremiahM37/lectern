@@ -64,6 +64,11 @@ func Probe(ctx context.Context, ex Executor) (map[string]any, error) {
 		{"claude", "claude --version"},
 		{"codex", "codex --version"},
 		{"gemini", "gemini --version"},
+		// npx is not itself an agent — it is what runs the npm-packaged ACP
+		// adapters (claude-code-acp, codex-acp). Probed so Settings → Agents
+		// can tell the operator whether an npx-based ACP preset can actually
+		// run on a target before they save it (see AgentEditor.tsx).
+		{"npx", "npx --version"},
 		{"python3", "python3 --version"},
 		{"disk_free", "df -h --output=avail / | tail -1"},
 	}

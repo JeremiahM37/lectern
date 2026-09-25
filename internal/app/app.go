@@ -98,20 +98,30 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 				out[resolved.Name] = agents.TaskDefinition{Name: resolved.Name, Builtin: true}
 				continue
 			}
-			if resolved.Task == nil {
+			if resolved.Task == nil && resolved.ACP == nil {
 				continue
 			}
-			command := resolved.Task.Command
-			if command == "" {
-				command = resolved.Command
+			def := agents.TaskDefinition{Name: resolved.Name, ModelFlag: resolved.ModelFlag, Env: cloneStringMap(resolved.Env)}
+			if resolved.Task != nil {
+				command := resolved.Task.Command
+				if command == "" {
+					command = resolved.Command
+				}
+				def.Command = command
+				def.Args = append([]string(nil), resolved.Task.Args...)
+				def.PromptTemplate = resolved.Task.PromptTemplate
+				def.OutputMode = resolved.Task.OutputMode
+				def.PermissionArgs = cloneArgs(resolved.Task.PermissionArgs)
+				def.ResumeArgs = append([]string(nil), resolved.Task.ResumeArgs...)
 			}
-			out[resolved.Name] = agents.TaskDefinition{
-				Name: resolved.Name, Command: command, Args: append([]string(nil), resolved.Task.Args...),
-				ModelFlag: resolved.ModelFlag, PromptTemplate: resolved.Task.PromptTemplate, OutputMode: resolved.Task.OutputMode,
-				PermissionArgs: cloneArgs(resolved.Task.PermissionArgs),
-				ResumeArgs:     append([]string(nil), resolved.Task.ResumeArgs...),
-				Env:            cloneStringMap(resolved.Env),
+			if resolved.ACP != nil {
+				def.ACP = &agents.ACPDefinition{
+					Command: resolved.ACP.Command,
+					Args:    append([]string(nil), resolved.ACP.Args...),
+					Env:     cloneStringMap(resolved.ACP.Env),
+				}
 			}
+			out[resolved.Name] = def
 		}
 		return out
 	}

@@ -15,7 +15,10 @@ const target = {
   max_concurrent: 2,
   sandbox: 0,
   status: "online",
-  info_json: "{}",
+  // npx was probed and not found (exercises AgentEditor's "disabled until
+  // the binary exists" ACP presets); gemini was never probed at all (stays
+  // enabled — "unknown" is not "missing").
+  info_json: '{"git":"2.43","npx":null}',
   context_json: "{}",
   memory_dir: "",
   command_prefix: "",

@@ -191,3 +191,25 @@ One trap worth inheriting: both codex and gemini read stdin even when the prompt
 is passed as an argument, and a tmux pane's stdin never reaches EOF — so the
 launcher redirects `< /dev/null`. Without it the agent waits forever and the
 attempt looks alive but never moves.
+
+## ACP agents (any CLI, no backend code)
+
+A third way to give a configured agent a non-interactive capability: `acp`
+instead of `task`.
+
+```json
+{
+  "name": "claude-code-acp",
+  "command": "claude-code-acp",
+  "acp": {"command": "npx", "args": ["-y", "@zed-industries/claude-code-acp"]}
+}
+```
+
+`acp` and `task` are mutually exclusive — an agent is either a plain-text/JSONL
+CLI (`task`) or an Agent Client Protocol agent (`acp`), never both. Unlike
+`task`, `acp` needs no `prompt_template`, `output_mode` or `permission_args`:
+the protocol carries the prompt and every permission decision itself, so a
+task dispatched on an `acp` agent supports **every** Lectern permission mode
+(`default`, `acceptEdits`, `plan`, `bypassPermissions`) with no capability
+mapping to configure. See [docs/acp.md](acp.md) for the protocol, the mapping
+onto Lectern's timeline, and its limits.
