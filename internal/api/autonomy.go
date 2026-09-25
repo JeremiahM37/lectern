@@ -32,26 +32,33 @@ type autoJob struct {
 	ID           string    `json:"id"`
 	TaskID       int64     `json:"task_id"`
 	Role         string    `json:"role"`
+	Model        string    `json:"model,omitempty"`
 	Provider     string    `json:"provider"`
 	Status       string    `json:"status"`
 	ArtifactPath string    `json:"artifact_path"`
 	Summary      string    `json:"summary,omitempty"`
 	StartedAt    time.Time `json:"started_at"`
+	Approved     bool      `json:"approved,omitempty"`
+	ReviewTaskID int64     `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
-	Config        autonomy.Config   `json:"config"`
-	State         *autonomy.State   `json:"state"`
-	Runs          []*autonomy.State `json:"runs"`
-	Jobs          []*autoJob        `json:"jobs"`
-	Status        string            `json:"status"`
-	Reason        string            `json:"reason"`
-	Quota         autonomy.Usage    `json:"quota"`
-	RequestedDay  string            `json:"requested_day,omitempty"`
-	ProjectID     int64             `json:"project_id"`
-	RememberedDay string            `json:"remembered_day"`
-	RetryCount    int               `json:"retry_count"`
-	RetryDay      string            `json:"retry_day,omitempty"`
-	RetryAt       time.Time         `json:"retry_at,omitempty"`
+	Config             autonomy.Config   `json:"config"`
+	State              *autonomy.State   `json:"state"`
+	Runs               []*autonomy.State `json:"runs"`
+	Jobs               []*autoJob        `json:"jobs"`
+	Status             string            `json:"status"`
+	Reason             string            `json:"reason"`
+	Quota              autonomy.Usage    `json:"quota"`
+	RequestedDay       string            `json:"requested_day,omitempty"`
+	ProjectID          int64             `json:"project_id"`
+	RememberedDay      string            `json:"remembered_day"`
+	RetryCount         int               `json:"retry_count"`
+	RetryDay           string            `json:"retry_day,omitempty"`
+	RetryAt            time.Time         `json:"retry_at,omitempty"`
+	NextCycleAt        time.Time         `json:"next_cycle_at,omitempty"`
+	NextCycleScheduled bool              `json:"next_cycle_scheduled"`
+	RememberedCycle    string            `json:"remembered_cycle,omitempty"`
+	StrategyDay        string            `json:"strategy_day,omitempty"`
 }
 
 func (s *Server) loadAuto() (*autoRecord, error) {
@@ -108,7 +115,7 @@ func (s *Server) putAutonomy(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Config.Enabled = true
 		a.Status = "waiting"
-		a.Reason = "Daily planning at 08:00 America/Denver"
+		a.Reason = "Continuous work enabled; independent review between milestones"
 	} else {
 		a.Config.Enabled = false
 		if e = s.saveAuto(a); e != nil {
@@ -140,7 +147,7 @@ func (s *Server) startAutonomy(w http.ResponseWriter, r *http.Request) {
 	}
 	loc, _ := time.LoadLocation(a.Config.Timezone)
 	a.RequestedDay = time.Now().In(loc).Format("2006-01-02")
-	if a.State != nil && a.State.Date == a.RequestedDay && a.State.Phase == autonomy.Complete {
+	if !a.Config.Continuous && a.State != nil && a.State.Date == a.RequestedDay && a.State.Phase == autonomy.Complete {
 		httpError(w, 409, "today's cycle is complete; the next plan is tomorrow")
 		return
 	}
@@ -249,28 +256,19 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			s.Log.Error("autonomy persistence", "err", e)
 		}
 	}()
-	loc, _ := time.LoadLocation(a.Config.Timezone)
 	now := time.Now()
-	day := now.In(loc).Format("2006-01-02")
-	if a.State == nil || (a.State.Phase == autonomy.Complete && a.State.Date != day) {
-		if now.In(loc).Hour() < a.Config.MorningHour && a.RequestedDay != day {
+	if a.State != nil && a.State.Phase == autonomy.Complete {
+		s.rememberAuto(ctx, a)
+	}
+	if autoCycleDue(a, now) {
+		if e = s.archiveAutoCycle(a); e != nil {
+			a.Status = "paused"
+			a.Reason = "Cycle archive unavailable: " + e.Error()
 			return
 		}
-		if a.State != nil {
-			a.Runs = append(a.Runs, a.State)
-			if len(a.Runs) > 90 {
-				a.Runs = a.Runs[len(a.Runs)-90:]
-			}
-		}
-		a.State, _ = autonomy.NewState(day)
+		autoNewCycle(a, now)
 	}
-	if a.State == nil {
-		return
-	}
-	if a.State.Phase == autonomy.Complete {
-		s.rememberAuto(ctx, a)
-		a.Status = "complete"
-		a.Reason = a.State.Reason
+	if a.State == nil || a.State.Phase == autonomy.Complete {
 		return
 	}
 	usageURL := "http://127.0.0.1:9105/api/agent-usage"
@@ -290,9 +288,10 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			e = json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(&a.Quota)
 		}
 	}
+	requiredProvider := ""
 	if e == nil {
 		now = time.Now()
-		e = autonomy.QuotaGate(a.Config, a.Quota.Providers, []string{"codex", "claude"}, now)
+		requiredProvider, e = s.autoQuotaProvider(a, now)
 	}
 	if e != nil {
 		s.stopAutoJobs(ctx, a, "Budget pause: "+e.Error())
@@ -300,14 +299,14 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	}
 	if a.State.Phase == autonomy.Paused {
 		if strings.HasPrefix(a.State.Reason, "Budget pause:") || strings.Contains(a.State.Reason, "by you") || a.State.Reason == "Autonomous mode is off" {
-			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{"codex", "claude"}, now); e != nil {
+			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{requiredProvider}, now); e != nil {
 				return
 			}
 		} else {
 			if !autoRetryReady(a, now) {
 				return
 			}
-			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{"codex", "claude"}, now); e != nil {
+			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{requiredProvider}, now); e != nil {
 				return
 			}
 			for _, id := range a.State.ActiveTaskIDs() {
@@ -396,6 +395,14 @@ func autoFindJob(a *autoRecord, id int64) *autoJob {
 	return nil
 }
 func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
+	if j.Status == "prepared" { // Also permit a safe provider change before any process exists.
+		provider, model, err := s.autoRoute(a, j.Role, time.Now())
+		if err != nil {
+			return err
+		}
+		j.Provider = provider
+		j.Model = model
+	}
 	// Persist intent before side effects. start is idempotent for this UUID.
 	if e := s.ensureAutoBridges(j); e != nil {
 		return e
@@ -404,12 +411,13 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if e := s.saveAuto(a); e != nil {
 		return e
 	}
-	model := "" // The installed CLI's subscription default, no paid API fallback.
+
+	model := j.Model
 	if _, e := s.runAutoCommand(ctx, "start", "--job", j.ID, "--provider", j.Provider, "--model", model, "--prompt", filepath.Join(autoRoot, j.ID, "prompt.txt")); e != nil {
 		return e
 	}
 	j.Status = "running"
-	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "running"})
+	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "running", "agent": j.Provider, "model": j.Model})
 	return nil
 }
 func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
@@ -461,7 +469,29 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		_ = s.DB.InsertEvent(att.ID, int64(len(events)+1), "text", store.J(map[string]any{"text": report}))
 	}
+	if j.Role == "reviewer" {
+		var verdict autonomy.Verdict
+		if json.Unmarshal([]byte(report), &verdict) == nil && verdict.Approve != nil && *verdict.Approve {
+			for i := len(a.State.Assignments) - 1; i >= 0; i-- {
+				as := a.State.Assignments[i]
+				if as.Role == "builder" && as.Item == a.State.Item && as.Step == a.State.Step && as.Completed {
+					if builder := autoFindJob(a, as.TaskID); builder != nil {
+						builder.Approved = true
+						builder.ReviewTaskID = j.TaskID
+					}
+					break
+				}
+			}
+		}
+	}
 	a.State = &next
+	if j.Role == "planner" {
+		loc, _ := time.LoadLocation(a.Config.Timezone)
+		local := time.Now().In(loc)
+		if local.Hour() >= a.Config.MorningHour {
+			a.StrategyDay = local.Format("2006-01-02")
+		}
+	}
 	status := "done"
 	if j.Role == "builder" {
 		status = "review"
@@ -471,14 +501,16 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	return nil
 }
 func (s *Server) rememberAuto(ctx context.Context, a *autoRecord) {
-	if a.RememberedDay == a.State.Date || s.Memory == nil {
+	key := fmt.Sprintf("%s-%d", a.State.Date, a.State.Cycle)
+	if a.RememberedCycle == key || s.Memory == nil {
 		return
 	}
 	// Only controller-authored identifiers/status enter shared memory. Agent
 	// reports remain in isolated artifacts, avoiding accidental secret writes.
-	text := fmt.Sprintf("Autonomous experiment %s: phase=%s; %d proposals, %d role tasks. Reports and artifacts are on Lectern /autonomy.html. No production deployments or publishing.", a.State.Date, a.State.Phase, len(a.State.Items), len(a.State.Assignments))
-	if e := s.Memory.Remember(ctx, memory.Entry{Project: autoOwner, Topic: autoOwner, Session: "autonomy-" + a.State.Date, Agent: "lectern", Category: "checkpoint", Text: text}); e == nil {
+	text := fmt.Sprintf("Autonomous experiment %s cycle %d: phase=%s; %d proposals, %d role tasks. Reports and artifacts are on Lectern /autonomy.html. No production deployments or publishing.", a.State.Date, a.State.Cycle, a.State.Phase, len(a.State.Items), len(a.State.Assignments))
+	if e := s.Memory.Remember(ctx, memory.Entry{Project: autoOwner, Topic: autoOwner, Session: "autonomy-" + key, Agent: "lectern", Category: "checkpoint", Text: text}); e == nil {
 		a.RememberedDay = a.State.Date
+		a.RememberedCycle = key
 	} else {
 		a.Reason = "Grimoire handoff pending: " + e.Error()
 	}

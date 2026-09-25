@@ -1,25 +1,41 @@
 # Autonomous workshop
 
-An opt-in daily experiment, off by default. Open `/autonomy.html` (or its compact
-home-dashboard embed). Only the authenticated owner can enable, start or stop
-it; a local agent cannot grant itself autonomy. All writes to live services,
-publishing, purchases and outside messages remain outside this experiment.
+An opt-in continuous workshop, enabled by default in configuration but initially
+OFF. Open `/autonomy.html` (or its compact home-dashboard embed). Only the
+authenticated owner can enable, start or stop it; a local agent cannot grant
+itself autonomy. All writes to live services, publishing, purchases and outside
+messages remain outside this experiment.
 
-At 08:00 America/Denver the planner searches Grimoire, checks Lectern projects,
-active tasks and previous daily records, then proposes zero to three small,
-useful tasks. Existing projects and new research both fit; new research uses the
-`autonomous-experiment` project. Two fresh auditors independently evaluate the
-plan; neither sees the other's verdict. Both must approve. At most two revision
-rounds prevent endless debate. Each item gets an isolated builder and then an
-independent reviewer inspecting a copy of its actual files. Rejected or failed
-work remains available, never silently deployed. One role runs at a time.
+The morning strategic review runs at the first planning checkpoint after 08:00
+America/Denver, without interrupting an active worker. It searches Grimoire,
+checks Lectern projects, active tasks, saved artifacts and prior cycle records,
+then refreshes a persistent, ranked backlog. The backlog favors ambitious,
+high-value projects with strong leads, affordable next steps, novelty and clear
+reasons. It may include long-running research contributions and homelab fixes;
+the planner chooses work that can make useful progress within the current
+budget. A cycle is a bounded interval, not a cap on the project's scope. Later
+cycles continue from retained files, reports and explicit checkpoints.
+
+Workers must request a checkpoint before major architecture, direction, resource
+or experiment decisions. The controller blocks the next builder step until
+two independent decision reviews complete. A decision request pauses for
+separate reviewers to assess the proposal and its evidence; reviewers do not
+see each other's verdict. Auditors also independently evaluate plans, with both
+required to approve and at most two revision rounds. Strong leads and affordable
+execution are preferred over spending a cycle on weak or speculative work.
+Selected work runs in an isolated builder, followed by an independent reviewer
+inspecting a copy of its actual files. Rejected or failed work remains available,
+never silently deployed. One role runs at a time. The daily record can contain
+multiple numbered cycles and carries backlog and decision audit history forward.
 
 ## Budget and stop behavior
 
 The controller reads the existing normalized Claude/Codex usage collector.
-While autonomous work is enabled it requests healthy snapshots every 30 seconds;
-provider failure/429 backoff is preserved. Both providers must have usable quota
-telemetry. All advertised account/model windows apply, including scoped limits.
+While work is active the controller polls every 30 seconds; the usage collector
+refreshes healthy provider snapshots every 120 seconds and preserves failure/429
+backoff. New work can use either provider with healthy allowance; a running job
+always checks its own provider. All advertised account/model windows apply,
+including scoped limits.
 Codex plans reporting only a weekly window are supported. Claude needs weekly
 and session coverage. Missing, stale, invalid or reset-past data pauses work.
 
@@ -33,15 +49,16 @@ There is no paid API fallback or automatic reset-credit purchase.
 OFF is persisted before worker cancellation. Only owned UUID service cgroups
 are stopped; existing interactive sessions are untouched. Files are retained.
 Budget pauses resume with fresh quota in a new process using the saved partial
-workspace. Failures need the owner's Start-today retry, preventing automatic
-failure loops. Completed days are not replayed, even across service restarts.
+workspace. Failures use persisted retry backoff and then wait for the next eligible cycle,
+preventing tight failure loops. The morning strategic review continues to
+re-rank work using accumulated artifacts and cycle history.
 
 ## Evidence and recovery
 
 Lectern stores each role as a task receipt and its normalized output as events;
 the deterministic controller owns its execution. General task dispatch,
 takeover and integration endpoints cannot run those receipts outside the
-sandbox. Daily records retain proposals, verdicts, report evidence and job IDs.
+sandbox. Daily records retain cycle numbers, the ranked backlog, decision requests and audits, proposals, verdicts, report evidence and job IDs.
 Authenticated Download-files links export only a job's workspace. Human
 promotion is deliberately separate from autonomous building.
 
@@ -86,14 +103,15 @@ Initial commissioning (2026-09-24): real no-model isolation, public HTTPS,
 private IPv4/IPv6/CGNAT/localhost rejection, socket replacement in a live worker,
 heartbeat expiry, copy/report/export preservation all passed. Claude's live
 Fable weekly allowance was already 1% remaining; no Claude generation was used
-to test the experiment. Real model-driven daily output quality therefore still
-needs observation after quota resets. The mode ships OFF.
+to test the experiment. Subsequent commissioning completed a real five-role cycle; long-term output
+quality still requires observation. Continuous scheduling defaults to enabled in configuration; upgrading preserves
+the owner’s existing ON/OFF choice.
 
 A real Codex worker also passed a minimal file-write/report smoke test. This
 exercised its companion execution binary inside the same sandbox. Claude uses
-proxy-side DNS (`CLAUDE_CODE_PROXY_RESOLVES_HOSTS=1`); generation was not tested
-while below reserve. A crash between runner metadata creation and unit start
-pauses safely for inspection; use Start today to retry with a fresh job.
+proxy-side DNS (`CLAUDE_CODE_PROXY_RESOLVES_HOSTS=1`); generation was not tested while below reserve. A later real Luna worker passed
+the same isolated file-writing and report test. A crash between runner metadata creation and unit start
+uses persisted operational retry backoff and resumes with a fresh job.
 
 ## Publication consent
 
@@ -110,8 +128,15 @@ query strings are refused. This intentionally limits online dependency installs.
 See isolation documentation for the remaining model-provider trust boundary.
 
 Operational failures retry automatically with persisted 1/5/15-minute backoff,
-then at the next 08:00 local morning after three retries that day. Completed
+then wait for the next eligible cycle after three retries in one day. Completed
 planning/audits are retained and failed workers resume in fresh isolated jobs
 with partial files. Unsafe snapshots, corrupt receipts and unknown failure types
 stay blocked. Quota uncertainty always blocks launches independently of retries.
 Git archive global PAX metadata is ignored as metadata, never extracted as a file.
+
+Continuous cycles wait one minute between useful batches (15 minutes after an
+empty plan). Routine builders use an available Luna model or Claude Sonnet;
+planning and independent reviews use Astra or Claude Opus. Audited expert tasks
+may use a strong builder. Approved artifact receipts remain usable beyond the
+90-cycle dashboard history; full cycle records are archived locally and backed
+up. Only independently approved builder artifacts can seed another cycle.

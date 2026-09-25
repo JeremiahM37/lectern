@@ -230,15 +230,43 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 	case "/research":
 		autoResearch(w, r)
 		return
-	case "/history":
+	case "/history", "/backlog", "/artifacts":
 		a, e := s.loadAuto()
 		if e != nil {
 			http.Error(w, "history unavailable", 503)
 			return
 		}
-		rows := a.Runs
-		if len(rows) > 30 {
-			rows = rows[len(rows)-30:]
+		if r.URL.Path == "/backlog" {
+			if a.State == nil {
+				writeJSON(w, 200, []any{})
+			} else {
+				writeJSON(w, 200, a.State.Backlog)
+			}
+			return
+		}
+		if r.URL.Path == "/artifacts" {
+			rows := []map[string]any{}
+			for i := len(a.Jobs) - 1; i >= 0 && len(rows) < 60; i-- {
+				j := a.Jobs[i]
+				if j.Role != "builder" || j.Status != "done" || !autoCheckpointApproved(a, j.TaskID) {
+					continue
+				}
+				task, e := s.DB.Task(j.TaskID)
+				if e != nil {
+					continue
+				}
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model})
+			}
+			writeJSON(w, 200, rows)
+			return
+		}
+		rows := []map[string]any{}
+		start := len(a.Runs) - 20
+		if start < 0 {
+			start = 0
+		}
+		for _, run := range a.Runs[start:] {
+			rows = append(rows, map[string]any{"date": run.Date, "cycle": run.Cycle, "phase": run.Phase, "reason": run.Reason, "items": run.Items, "assignments": run.Assignments})
 		}
 		writeJSON(w, 200, rows)
 		return

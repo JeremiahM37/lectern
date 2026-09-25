@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	Enabled           bool    `json:"enabled"`
+	Continuous        bool    `json:"continuous"`
 	Timezone          string  `json:"timezone"`
 	MorningHour       int     `json:"morning_hour"`
 	ReservePercent    float64 `json:"reserve_percent"`
@@ -25,7 +26,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Timezone: "America/Denver", MorningHour: 8, ReservePercent: 10, MarginPercent: 5, MaxRevisionRounds: 2, MaxItemsPerDay: 3}
+	return Config{Continuous: true, Timezone: "America/Denver", MorningHour: 8, ReservePercent: 10, MarginPercent: 5, MaxRevisionRounds: 2, MaxItemsPerDay: 3}
 }
 
 func (c Config) Validate() error {
@@ -42,7 +43,7 @@ func (c Config) Validate() error {
 		return errors.New("reserve must be at least 10%, margin at least 5%, sum below 100%")
 	}
 	if c.MaxRevisionRounds < 0 || c.MaxRevisionRounds > 2 || c.MaxItemsPerDay < 1 || c.MaxItemsPerDay > 3 {
-		return errors.New("at most two revision rounds and one to three daily items are allowed")
+		return errors.New("at most two revision rounds and one to three items per cycle are allowed")
 	}
 	return nil
 }
@@ -144,50 +145,88 @@ func QuotaGate(c Config, providers []ProviderUsage, required []string, now time.
 type Phase string
 
 const (
-	Plan     Phase = "plan"
-	Audit    Phase = "audit"
-	Revise   Phase = "revise"
-	Build    Phase = "build"
-	Review   Phase = "review"
-	Complete Phase = "complete"
-	Paused   Phase = "paused"
+	Plan          Phase = "plan"
+	Audit         Phase = "audit"
+	Revise        Phase = "revise"
+	Build         Phase = "build"
+	DecisionAudit Phase = "decision_audit"
+	Review        Phase = "review"
+	Complete      Phase = "complete"
+	Paused        Phase = "paused"
 )
 
 type Proposal struct {
-	ProjectID  int64    `json:"project_id"`
-	Title      string   `json:"title"`
-	Why        string   `json:"why"`
-	Acceptance []string `json:"acceptance"`
+	ProjectID      int64    `json:"project_id"`
+	ContinueTaskID int64    `json:"continue_task_id,omitempty"`
+	Title          string   `json:"title"`
+	Why            string   `json:"why"`
+	Acceptance     []string `json:"acceptance"`
+	Ambition       string   `json:"ambition,omitempty"`
+	Novelty        string   `json:"novelty,omitempty"`
+	Score          int      `json:"score,omitempty"`
+	Expert         bool     `json:"expert,omitempty"`
 }
 type PlanReport struct {
-	Items []Proposal `json:"items"`
+	Items   []Proposal `json:"items"`
+	Backlog []Proposal `json:"backlog,omitempty"`
 }
 type Verdict struct {
 	Approve *bool  `json:"approve"`
 	Reason  string `json:"reason"`
 }
 type BuildReport struct {
-	Summary  string   `json:"summary"`
-	Evidence []string `json:"evidence"`
+	Summary  string            `json:"summary"`
+	Evidence []string          `json:"evidence"`
+	Decision *DecisionProposal `json:"decision,omitempty"`
 }
+type DecisionProposal struct {
+	Title        string   `json:"title"`
+	Rationale    string   `json:"rationale"`
+	Alternatives []string `json:"alternatives"`
+	Risks        []string `json:"risks"`
+}
+
+func validateDecision(d DecisionProposal) error {
+	if strings.TrimSpace(d.Title) == "" || strings.TrimSpace(d.Rationale) == "" || len(d.Alternatives) == 0 || len(d.Risks) == 0 {
+		return errors.New("decision needs title, rationale, alternatives, and risks")
+	}
+	for _, option := range d.Alternatives {
+		if strings.TrimSpace(option) == "" {
+			return errors.New("decision has an empty alternative")
+		}
+	}
+	for _, risk := range d.Risks {
+		if strings.TrimSpace(risk) == "" {
+			return errors.New("decision has an empty risk")
+		}
+	}
+	return nil
+}
+
 type Assignment struct {
 	TaskID    int64  `json:"task_id"`
 	Role      string `json:"role"`
 	Round     int    `json:"round"`
 	Item      int    `json:"item"`
+	Step      int    `json:"step"`
 	Completed bool   `json:"completed"`
 }
 type State struct {
-	Date        string                    `json:"date"`
-	Phase       Phase                     `json:"phase"`
-	ResumePhase Phase                     `json:"resume_phase,omitempty"`
-	Reason      string                    `json:"reason,omitempty"`
-	Revision    int                       `json:"revision"`
-	Item        int                       `json:"item"`
-	Items       []Proposal                `json:"items"`
-	Assignments []Assignment              `json:"assignments"`
-	Audits      map[string]Verdict        `json:"audits"`
-	Reports     map[int64]json.RawMessage `json:"reports"`
+	Date           string                    `json:"date"`
+	Phase          Phase                     `json:"phase"`
+	ResumePhase    Phase                     `json:"resume_phase,omitempty"`
+	Reason         string                    `json:"reason,omitempty"`
+	Revision       int                       `json:"revision"`
+	Cycle          int                       `json:"cycle"`
+	Item           int                       `json:"item"`
+	Step           int                       `json:"step"`
+	Items          []Proposal                `json:"items"`
+	Backlog        []Proposal                `json:"backlog,omitempty"`
+	Decision       *DecisionProposal         `json:"decision,omitempty"`
+	DecisionAudits map[string]Verdict        `json:"decision_audits,omitempty"`
+	Assignments    []Assignment              `json:"assignments"`
+	Audits         map[string]Verdict        `json:"audits"`
+	Reports        map[int64]json.RawMessage `json:"reports"`
 }
 
 func NewState(date string) (*State, error) {
@@ -208,6 +247,8 @@ func (s *State) NeededRoles() []string {
 		roles = []string{"auditor_a", "auditor_b"}
 	case Build:
 		roles = []string{"builder"}
+	case DecisionAudit:
+		roles = []string{"decision_a", "decision_b"}
 	case Review:
 		roles = []string{"reviewer"}
 	}
@@ -215,7 +256,7 @@ func (s *State) NeededRoles() []string {
 	for _, role := range roles {
 		exists := false
 		for _, a := range s.Assignments {
-			if a.Role == role && a.Round == s.Revision && a.Item == s.Item {
+			if a.Role == role && a.Round == s.Revision && a.Item == s.Item && a.Step == s.Step {
 				exists = true
 			}
 		}
@@ -237,7 +278,7 @@ func (s *State) RegisterTask(role string, id int64) error {
 	}
 	for _, r := range s.NeededRoles() {
 		if r == role {
-			s.Assignments = append(s.Assignments, Assignment{TaskID: id, Role: role, Round: s.Revision, Item: s.Item})
+			s.Assignments = append(s.Assignments, Assignment{TaskID: id, Role: role, Round: s.Revision, Item: s.Item, Step: s.Step})
 			return nil
 		}
 	}
@@ -323,7 +364,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		return errors.New("unowned task")
 	}
 	a := s.Assignments[idx]
-	if a.Completed || a.Round != s.Revision || a.Item != s.Item {
+	if a.Completed || a.Round != s.Revision || a.Item != s.Item || a.Step != s.Step {
 		return errors.New("duplicate or obsolete report")
 	}
 	switch a.Role {
@@ -335,13 +376,17 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		if err := decodeStrict(raw, &r); err != nil {
 			return err
 		}
-		if r.Items == nil || len(r.Items) > c.MaxItemsPerDay {
-			return errors.New("plan must contain items array within daily cap")
+		if r.Items == nil || len(r.Items) > c.MaxItemsPerDay || len(r.Backlog) > 12 {
+			return errors.New("plan needs items array within cycle cap and at most 12 backlog proposals")
 		}
 		seen := map[string]bool{}
-		for _, p := range r.Items {
+		for index, p := range append(append([]Proposal(nil), r.Items...), r.Backlog...) {
+			// A selected milestone may also appear in the persistent backlog.
+			if index == len(r.Items) {
+				seen = map[string]bool{}
+			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if p.ProjectID <= 0 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || len(p.Acceptance) == 0 || seen[key] {
+			if p.ProjectID <= 0 || p.ContinueTaskID < 0 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || len(p.Acceptance) == 0 || seen[key] {
 				return errors.New("invalid or duplicate proposal")
 			}
 			for _, v := range p.Acceptance {
@@ -352,6 +397,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			seen[key] = true
 		}
 		s.Items = r.Items
+		s.Backlog = r.Backlog
 		s.Audits = map[string]Verdict{}
 		s.Phase = Audit
 		if len(r.Items) == 0 {
@@ -400,7 +446,49 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				return errors.New("empty evidence")
 			}
 		}
-		s.Phase = Review
+		if r.Decision != nil {
+			if err := validateDecision(*r.Decision); err != nil {
+				return err
+			}
+			if s.Step >= 4 {
+				s.Phase = Complete
+				s.Reason = "Decision audit bounded after four rounds"
+			} else {
+				s.Decision = r.Decision
+				s.DecisionAudits = map[string]Verdict{}
+				s.Phase = DecisionAudit
+			}
+		} else {
+			s.Phase = Review
+		}
+	case "decision_a", "decision_b":
+		if s.Phase != DecisionAudit || s.Decision == nil {
+			return errors.New("unexpected decision audit report")
+		}
+		var v Verdict
+		if err := decodeStrict(raw, &v); err != nil {
+			return err
+		}
+		if v.Approve == nil || strings.TrimSpace(v.Reason) == "" {
+			return errors.New("decision audit needs explicit approval and reason")
+		}
+		if s.DecisionAudits == nil {
+			s.DecisionAudits = map[string]Verdict{}
+		}
+		s.DecisionAudits[a.Role] = v
+		if len(s.DecisionAudits) == 2 {
+			s.Step++
+			if !*s.DecisionAudits["decision_a"].Approve || !*s.DecisionAudits["decision_b"].Approve {
+				if s.Step >= 4 {
+					s.Phase = Complete
+					s.Reason = "Decision audit agreement not reached within four rounds"
+				} else {
+					s.Phase = Build
+				}
+			} else {
+				s.Phase = Build
+			}
+		}
 	case "reviewer":
 		if s.Phase != Review {
 			return errors.New("unexpected review report")
@@ -417,6 +505,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			s.Reason = "Build review rejected: " + v.Reason
 		} else {
 			s.Item++
+			s.Step = 0
+			s.Decision = nil
+			s.DecisionAudits = nil
 			if s.Item >= len(s.Items) {
 				s.Phase = Complete
 			} else {
@@ -449,7 +540,7 @@ func (s *State) Resume(c Config, providers []ProviderUsage, required []string, n
 		return err
 	}
 	switch s.ResumePhase {
-	case Plan, Audit, Revise, Build, Review:
+	case Plan, Audit, Revise, Build, DecisionAudit, Review:
 		s.Phase = s.ResumePhase
 		s.ResumePhase = ""
 		s.Reason = ""
