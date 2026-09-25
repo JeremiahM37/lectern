@@ -34,6 +34,14 @@ func autoRetryReady(a *autoRecord, now time.Time) bool {
 	}
 	loc, _ := time.LoadLocation(a.Config.Timezone)
 	day := now.In(loc).Format("2006-01-02")
+	// Failures in a completed cycle must not exhaust recovery for every later
+	// cycle that day. A legacy record gets one bounded recovery window too.
+	scope := fmt.Sprintf("%s/%d", a.State.Date, a.State.Cycle)
+	if a.RetryScope != scope {
+		a.RetryScope = scope
+		a.RetryCount = 0
+		a.RetryAt = time.Time{}
+	}
 	if a.RetryDay != day {
 		a.RetryDay = day
 		a.RetryCount = 0
@@ -47,7 +55,7 @@ func autoRetryReady(a *autoRecord, now time.Time) bool {
 			a.RetryAt = now.Add(delays[a.RetryCount])
 		}
 	}
-	a.Reason = fmt.Sprintf("%s · Automatic retry at %s (%d/3 retries used today)", a.State.Reason, a.RetryAt.In(loc).Format("Jan 2 15:04 MST"), a.RetryCount)
+	a.Reason = fmt.Sprintf("%s · Automatic retry at %s (%d/3 retries used for this cycle today)", a.State.Reason, a.RetryAt.In(loc).Format("Jan 2 15:04 MST"), a.RetryCount)
 	if now.Before(a.RetryAt) {
 		return false
 	}

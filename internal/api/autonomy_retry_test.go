@@ -63,3 +63,28 @@ func TestStorageRecoveryOnlyMatchesCapacityInterlocks(t *testing.T) {
 		}
 	}
 }
+
+func TestOperationalRetryBudgetIsBoundedPerCycle(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	state, _ := autonomy.NewState("2026-09-25")
+	state.Cycle = 62
+	state.Pause("Worker failed; artifacts retained for inspection")
+	a := &autoRecord{Config: autonomy.DefaultConfig(), State: state, RetryDay: "2026-09-25", RetryCount: 4, RetryAt: now.Add(24 * time.Hour)}
+	if autoRetryReady(a, now) || a.RetryCount != 0 || !a.RetryAt.Equal(now.Add(time.Minute)) {
+		t.Fatal("legacy exhausted budget did not receive bounded recovery")
+	}
+	a.RetryCount = 3
+	a.RetryAt = time.Time{}
+	if autoRetryReady(a, now) || a.RetryAt.Sub(now) < time.Hour {
+		t.Fatal("same cycle bypassed cap")
+	}
+	a.State.Cycle++
+	if autoRetryReady(a, now) || a.RetryCount != 0 || !a.RetryAt.Equal(now.Add(time.Minute)) {
+		t.Fatal("older cycle exhausted new cycle recovery")
+	}
+	a.RetryScope = "older"
+	a.State.Reason = "Missing job receipt; manual inspection required"
+	if autoRetryReady(a, now) || a.RetryScope != "older" {
+		t.Fatal("unsafe state migrated")
+	}
+}

@@ -103,4 +103,63 @@ class ReviewEvidenceTests(unittest.TestCase):
     with self.assertRaises(ValueError):r.copy_job(destination,source,review=True)
    self.assertFalse((root/'outside').exists())
 
+class AuthTests(unittest.TestCase):
+ def fixture(self, age=0, expiry=7200):
+  import base64,datetime,json,time
+  now=time.time()
+  claims=base64.urlsafe_b64encode(json.dumps({'exp':now+expiry}).encode()).decode().rstrip('=')
+  return {'auth_mode':'chatgpt','last_refresh':datetime.datetime.fromtimestamp(now-age,datetime.timezone.utc).isoformat(),
+          'tokens':{'access_token':'header.'+claims+'.signature','refresh_token':'private-refresh'}}
+ def test_freshness_boundaries(self):
+  self.assertTrue(r.codex_auth_fresh(self.fixture()))
+  for auth in [self.fixture(age=7*86400), self.fixture(age=-60), self.fixture(expiry=1200), {},
+               dict(self.fixture(),auth_mode='apikey'),dict(self.fixture(),last_refresh='bad')]:
+   self.assertFalse(r.codex_auth_fresh(auth))
+ def test_snapshot_refreshes_host_only_and_strips_rotation_credential(self):
+  import json,os
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);auth=root/'auth.json';auth.write_text(json.dumps(self.fixture(age=8*86400)))
+   def refresh():auth.write_text(json.dumps(self.fixture()))
+   real_stat=os.fstat
+   def trusted(fd):
+    s=real_stat(fd);return SimpleNamespace(st_mode=s.st_mode,st_nlink=s.st_nlink,st_uid=0)
+   with patch.object(r,'AUTH',{'codex':auth}),patch.object(r,'AUTH_LOCK',root/'lock'),patch.object(r.os,'fstat',side_effect=trusted),patch.object(r,'refresh_codex_auth',side_effect=refresh) as call:
+    snapshot=json.loads(r.codex_auth_snapshot());self.assertEqual(call.call_count,1)
+    self.assertEqual(snapshot['tokens']['refresh_token'],'')
+    self.assertEqual(json.loads(auth.read_text())['tokens']['refresh_token'],'private-refresh')
+    r.codex_auth_snapshot();self.assertEqual(call.call_count,1)
+ def test_refresh_without_persistence_fails_closed(self):
+  import json,os
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);auth=root/'auth.json';auth.write_text(json.dumps(self.fixture(age=8*86400)))
+   original=auth.read_bytes();real_stat=os.fstat
+   def trusted(fd):
+    s=real_stat(fd);return SimpleNamespace(st_mode=s.st_mode,st_nlink=s.st_nlink,st_uid=0)
+   with patch.object(r,'AUTH',{'codex':auth}),patch.object(r,'AUTH_LOCK',root/'lock'),patch.object(r.os,'fstat',side_effect=trusted),patch.object(r,'refresh_codex_auth'):
+    with self.assertRaisesRegex(RuntimeError,'did not persist'):r.codex_auth_snapshot()
+   self.assertEqual(auth.read_bytes(),original)
+ def test_real_protocol_success_and_sanitized_failure(self):
+  import subprocess,sys
+  real_popen=subprocess.Popen
+  for fails in (False,True):
+   script="""import sys,json
+for line in sys.stdin:
+ req=json.loads(line)
+ if req.get('id')==1:
+  print(json.dumps({'id':1,'result':{}}),flush=True)
+ if req.get('id')==2:
+  assert req['method']=='account/read' and req['params']['refreshToken'] is True
+  print(json.dumps({'id':2,FIELD:VALUE}),flush=True)
+""".replace('FIELD',repr('error' if fails else 'result')).replace('VALUE',repr({'message':'PRIVATE-TOKEN'} if fails else {'account':{'type':'chatgpt'}}))
+   def launch(command,**kwargs):
+    self.assertEqual(command[:3],['/usr/sbin/runuser','-u','admin'])
+    return real_popen([sys.executable,'-c',script],**kwargs)
+   with patch.object(r.subprocess,'Popen',side_effect=launch):
+    if fails:
+     with self.assertRaises(RuntimeError) as error:r.refresh_codex_auth()
+     self.assertNotIn('PRIVATE-TOKEN',str(error.exception))
+    else:r.refresh_codex_auth()
+
 if __name__=='__main__':unittest.main()

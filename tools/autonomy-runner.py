@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 """Privileged launcher. Install root-owned; never expose _execute via sudoers."""
 import argparse
+import base64
 import ctypes
+import datetime
 import fcntl
 import hashlib
 import tempfile
@@ -11,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import pwd
+import selectors
 import shutil
 import shlex
 import stat
@@ -23,6 +26,7 @@ import uuid
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
+AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
 STORAGE_LIMIT = 200 * 1024**3
 UID = GID = 65534
 DENY = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10',
@@ -33,6 +37,101 @@ AUTH = {'codex': Path('/home/admin/.codex/auth.json'),
         'claude': Path('/home/admin/.claude/.credentials.json')}
 BIN = {'codex': Path('/home/admin/.local/bin/codex'),
        'claude': Path('/home/admin/.local/bin/claude')}
+
+def codex_auth_fresh(auth, now=None):
+    """Scheduling hint only; Codex/provider still authenticate the actual token."""
+    now = time.time() if now is None else now
+    try:
+        refreshed = datetime.datetime.fromisoformat(auth['last_refresh'].replace('Z', '+00:00')).timestamp()
+        token = auth['tokens']['access_token']
+        claims = json.loads(base64.urlsafe_b64decode(token.split('.')[1] + '==='))
+        return (auth.get('auth_mode') == 'chatgpt' and
+                0 <= now - refreshed < 6 * 86400 and claims['exp'] > now + 3600)
+    except (ValueError, TypeError, KeyError, IndexError):
+        return False
+
+def refresh_codex_auth():
+    """Ask the trusted CLI, as admin, to refresh its own managed login.
+
+    No worker output or worker credential file ever flows back to the host.
+    Account responses can contain personal data: never include them in errors.
+    This performs account maintenance only, without starting a model turn.
+    """
+    command = ['/usr/sbin/runuser', '-u', 'admin', '--', '/usr/bin/env',
+               'HOME=/home/admin', 'CODEX_HOME=/home/admin/.codex',
+               str(BIN['codex'].resolve(strict=True)), 'app-server', '--stdio']
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, env={'PATH': '/usr/bin:/bin'})
+    deadline = time.monotonic() + 20
+    pending = bytearray()
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ)
+    def send(message):
+        proc.stdin.write((json.dumps(message) + '\n').encode()); proc.stdin.flush()
+    def receive(expected):
+        while time.monotonic() < deadline:
+            while b'\n' in pending:
+                line, _, rest = pending.partition(b'\n'); pending[:] = rest
+                reply = json.loads(line)
+                if reply.get('id') == expected:
+                    if 'error' in reply or 'result' not in reply:
+                        raise RuntimeError('Codex login refresh failed; host login requires attention')
+                    return reply['result']
+            if not selector.select(max(0, deadline - time.monotonic())):
+                break
+            chunk = os.read(proc.stdout.fileno(), 8192)
+            if not chunk:
+                break
+            pending.extend(chunk)
+            if len(pending) > 1024 * 1024:
+                raise RuntimeError('Codex login refresh response exceeded limit')
+        raise RuntimeError('Codex login refresh timed out or exited')
+    try:
+        send({'id': 1, 'method': 'initialize', 'params': {
+            'clientInfo': {'name': 'lectern-auth-preflight', 'version': '1.0'}}})
+        receive(1)
+        send({'method': 'initialized'})
+        send({'id': 2, 'method': 'account/read', 'params': {'refreshToken': True}})
+        account = receive(2).get('account')
+        if not isinstance(account, dict) or account.get('type') != 'chatgpt':
+            raise RuntimeError('Codex workshop requires a managed ChatGPT login')
+    finally:
+        selector.close()
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill(); proc.wait()
+        proc.stdin.close(); proc.stdout.close()
+
+def codex_auth_snapshot():
+    # Serialize workshop refreshes. Codex owns persistence and recovery against
+    # concurrent native clients; never implement a second refresh-token writer.
+    fd = os.open(AUTH_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+            raise ValueError('untrusted workshop authentication lock')
+        deadline = time.monotonic() + 8
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Codex login refresh lock timed out')
+                time.sleep(.1)
+        auth = json.loads(AUTH['codex'].read_text())
+        if not codex_auth_fresh(auth):
+            refresh_codex_auth()
+            auth = json.loads(AUTH['codex'].read_text())
+        if not codex_auth_fresh(auth):
+            raise RuntimeError('Codex login refresh did not persist fresh managed credentials')
+        # Workers need only the current access token, never the capability to
+        # rotate the host's refresh token. Their lifetime is at most 30 minutes.
+        auth['tokens']['refresh_token'] = ''
+        return json.dumps(auth)
+    finally:
+        os.close(fd)
 
 SELFTEST = r"""
 import os, pathlib, socket, json
@@ -320,6 +419,7 @@ def start(args):
         if previous['state'] == 'running':
             return previous
         raise ValueError('job UUID has already been used; preserve it and prepare a fresh UUID')
+    auth_snapshot = codex_auth_snapshot() if args.provider == 'codex' else None
     work = ensure_work(p)
     # Symlinks are data inside a private mount namespace. Never follow them
     # while inspecting or changing ownership; hardlinks/special files are refused.
@@ -346,7 +446,10 @@ def start(args):
             shared_binary(helper, assets / 'codex-code-mode-host')
             (assets / 'codex-code-mode-host').chmod(0o555)
         (assets / 'agent').chmod(0o555)
-        shutil.copyfile(AUTH[args.provider], assets / 'auth')
+        if auth_snapshot is not None:
+            (assets / 'auth').write_text(auth_snapshot)
+        else:
+            shutil.copyfile(AUTH[args.provider], assets / 'auth')
         (assets / 'auth').chmod(0o444)
     shutil.copyfile(p / 'prompt.txt', assets / 'prompt.txt')
     (assets / 'prompt.txt').chmod(0o444)

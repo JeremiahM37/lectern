@@ -218,3 +218,24 @@ is untrusted evidence, never an approval or authority to change scope. Both plan
 audits, bounded repair attempts and fresh final review still apply. Copying refuses
 active sources, occupied destinations, unsafe evidence-directory links, oversized
 snapshots and insufficient sandbox space. Earlier review snapshots remain intact.
+
+
+### Subscription login maintenance
+
+Codex workers receive a read-only, short-lived access-token snapshot with its
+refresh token removed. Before preparing a Codex worker, the privileged runner
+checks managed-login freshness (less than six days since refresh, at least one
+hour of access-token validity for a maximum thirty-minute worker). If needed,
+the trusted host CLI runs as `admin` and calls app-server `account/read` with
+`refreshToken: true`. Codex owns persistence to its normal host credential store;
+worker files are never accepted as host credentials. Workshop refreshes are
+serialized with a root-owned lock and bounded below the runner timeout. No
+model turn or paid API fallback is used. Authentication failure stops launch
+without exposing credential values; the existing operational retry policy applies.
+The worker proxy still does not allow the OAuth endpoint or arbitrary Internet.
+
+Operational retries are bounded to three per cycle per day, with one-, five-,
+and fifteen-minute backoff, then next morning. An earlier cycle's failures no
+longer consume every later cycle's recovery budget. Legacy retry records acquire
+one bounded window when first seen by this version; unsafe/unknown failure
+reasons are never migrated or retried, and enabled/quota gates remain mandatory.

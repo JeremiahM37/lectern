@@ -60,6 +60,7 @@ type autoRecord struct {
 	ProjectID          int64             `json:"project_id"`
 	RememberedDay      string            `json:"remembered_day"`
 	RetryCount         int               `json:"retry_count"`
+	RetryScope         string            `json:"retry_scope,omitempty"`
 	RetryDay           string            `json:"retry_day,omitempty"`
 	RetryAt            time.Time         `json:"retry_at,omitempty"`
 	NextCycleAt        time.Time         `json:"next_cycle_at,omitempty"`
