@@ -20,6 +20,7 @@ import type { SessionsApi } from "./Sessions";
 import { SessionReview } from "../review/SessionReview";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
+import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
 interface Attachment {
   name: string;
@@ -695,6 +696,7 @@ export function Conversation({
               <LinesBadge session={session} />
               <CompactionWarning session={session} />
               <AwarenessOverlapChip session={session} />
+              <SessionClaims session={session} request={api.request} onNotice={onNotice} />
             </div>
           )}
           {kind === "session" && session && (

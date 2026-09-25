@@ -2,7 +2,7 @@ export { ApiError, authToken, createClient, withToken } from './api/client';
 export type { ClientOptions, JsonValue, RequestOptions } from './api/client';
 
 import { createClient, type ClientOptions, type JsonValue } from './api/client';
-import type { Approval, Project, SessionView, Target, TaskView } from './types';
+import type { Approval, Claim, Project, SessionView, Target, TaskView } from './types';
 
 // Keep these return contracts tied to the Go response structs. Unknown nested
 // provider payloads must be narrowed at their display boundary.
@@ -46,5 +46,26 @@ export function createDeckApi(options: ClientOptions = {}) {
     patchProject: (id:number, body:Record<string,JsonValue>) => request<Project>(`/projects/${id}`,{method:'PATCH',body}),
     settings: () => request<Record<string,JsonValue>>('/settings'),
     saveSettings: (body:Record<string,JsonValue>) => request<Record<string,JsonValue>>('/settings',{method:'PUT',body}),
+    // Claim board (docs/claims.md): a shared, vendor-neutral record of who is
+    // doing what in a repository. filter narrows by exactly one of repo_key/
+    // project_id/session_id/attempt_id; omit for the whole board.
+    claims: (filter: { repo_key?: string; project_id?: number; session_id?: number; attempt_id?: number } = {}, signal?: AbortSignal) => {
+      const query = new URLSearchParams();
+      for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== '') query.set(k, String(v));
+      return request<Claim[]>(`/claims${query.size ? `?${query}` : ''}`, { signal });
+    },
+    createClaim: (body: {
+      repo_key?: string; project_id?: number; session_id?: number; attempt_id?: number;
+      scope_kind: 'task' | 'paths' | 'topic'; scope?: string; paths?: string[];
+      holder?: string; intent?: string; ttl_minutes?: number;
+    }) => request<Claim>('/claims', { method: 'POST', body: body as unknown as Record<string, JsonValue> }),
+    releaseClaim: (id: number) => request<{ released: boolean }>(`/claims/${id}`, { method: 'DELETE' }),
+    extendClaim: (id: number, ttlMinutes?: number) =>
+      request<Claim>(`/claims/${id}/extend`, { method: 'POST', body: { ttl_minutes: ttlMinutes ?? 0 } }),
+    claimsTopicOverlap: (params: { project_id?: number; repo_key?: string; text: string }, signal?: AbortSignal) => {
+      const query = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') query.set(k, String(v));
+      return request<Claim[]>(`/claims/topic-overlap?${query}`, { signal });
+    },
   };
 }

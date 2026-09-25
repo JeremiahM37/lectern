@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Project, TaskView } from "../types";
+import type { Claim, Project, TaskView } from "../types";
 import type { BoardApi } from "./Board";
 import { Modal } from "../sessions/Modal";
+import { claimScopeLabel } from "../claims/ClaimsPanel";
+import "../claims/claims.css";
 import "./board.css";
 
 type AgentSpec = {
@@ -70,7 +72,11 @@ export function CreateTask({
     // Orchestrate: the same switch the quick bar has, with the rest of the
     // form choosing the lead instead of the worker.
     [orchestrate, setOrchestrate] = useState(false),
-    [orchestration, setOrchestration] = useState<Orchestration>();
+    [orchestration, setOrchestration] = useState<Orchestration>(),
+    // Claim board (docs/claims.md point 4c): warn before launch if the
+    // prompt looks like an active topic claim someone else already has —
+    // advisory only, never blocks the dispatch.
+    [overlaps, setOverlaps] = useState<Claim[]>([]);
   const project = projects.find((p) => p.id === projectId);
   const eligible = useMemo(
     () => agents.filter((a) => a.builtin || a.task),
@@ -117,6 +123,27 @@ export function CreateTask({
       )
       .catch(() => setCap(""));
   }, [projectId]);
+  useEffect(() => {
+    const text = `${title} ${prompt}`.trim();
+    if (!projectId || text.length < 8) {
+      setOverlaps([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api
+        .request<Claim[]>(
+          `/claims/topic-overlap?project_id=${projectId}&text=${encodeURIComponent(text)}`,
+          { signal: controller.signal },
+        )
+        .then(setOverlaps)
+        .catch(() => {});
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [projectId, title, prompt]);
   async function create(dispatch: boolean, chat = false) {
     if (!title.trim()) return onNotice("Title required", true);
     const usesFable =
@@ -255,6 +282,20 @@ export function CreateTask({
           placeholder="Describe intent. Be specific about files, behavior, and how to verify."
         />
       </label>
+      {overlaps.length > 0 && (
+        <div className="claims-overlap-warning" id="new-task-claim-overlap" role="status">
+          ⚠ This looks like it might already be claimed:
+          <ul>
+            {overlaps.map((c) => (
+              <li key={c.id}>
+                <b>{c.holder}</b>{c.agent ? ` (${c.agent})` : ""} — {claimScopeLabel(c)}
+                {c.intent && <> — “{c.intent}”</>}
+              </li>
+            ))}
+          </ul>
+          Check their work or ask the operator before dispatching.
+        </div>
+      )}
       <label>
         Permissions
         <select

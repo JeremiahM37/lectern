@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Project, TaskView } from "../types";
+import type { Claim, Project, TaskView } from "../types";
 import type { JsonValue } from "../api";
 import { CreateTask } from "./CreateTask";
 import { Routines } from "./Routines";
 import { TaskDetail } from "./TaskDetail";
+import { ClaimsPanel } from "../claims/ClaimsPanel";
 import { QuotaChip } from "../sessions/QuotaChip";
 import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
@@ -52,8 +53,27 @@ export interface BoardApi {
   ) => Promise<unknown>;
   request: <T>(
     path: string,
-    options?: { method?: string; body?: JsonValue },
+    options?: { method?: string; body?: JsonValue; signal?: AbortSignal },
   ) => Promise<T>;
+  // Claim board (docs/claims.md) — see ClaimsPanel.
+  claims: (
+    filter?: { repo_key?: string; project_id?: number; session_id?: number; attempt_id?: number },
+    signal?: AbortSignal,
+  ) => Promise<Claim[]>;
+  createClaim: (body: {
+    repo_key?: string;
+    project_id?: number;
+    session_id?: number;
+    attempt_id?: number;
+    scope_kind: "task" | "paths" | "topic";
+    scope?: string;
+    paths?: string[];
+    holder?: string;
+    intent?: string;
+    ttl_minutes?: number;
+  }) => Promise<Claim>;
+  releaseClaim: (id: number) => Promise<{ released: boolean }>;
+  extendClaim: (id: number, ttlMinutes?: number) => Promise<Claim>;
 }
 export interface BoardProps {
   api: BoardApi;
@@ -94,7 +114,7 @@ export function Board({
     [mobilePinned, setMobilePinned] = useState(false),
     [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 700px)").matches),
     [showDone, setShowDone] = useState(false),
-    [sheet, setSheet] = useState<"new" | "routines" | number>(),
+    [sheet, setSheet] = useState<"new" | "routines" | "claims" | number>(),
     // The quick bar has two modes. Dispatch is the classic one-agent task;
     // Orchestrate hands the description to a lead that plans it, has the
     // delegated-build worker build it, reviews and integrates. The choice is
@@ -331,6 +351,7 @@ export function Board({
         <QuotaChip api={api} />
         <div className="btnrow">
           <button id="qb-routines" onClick={() => setSheet("routines")}>Routines</button>
+          <button id="qb-claims" onClick={() => setSheet("claims")}>Claims</button>
           {/* A phone has the floating button under the thumb; one is enough. */}
           <button className="wide-only-control" onClick={() => setSheet("new")}>
             + New task
@@ -438,6 +459,14 @@ export function Board({
           onClose={() => setSheet(undefined)}
           onTask={(t) => setSheet(t.id)}
           onChanged={() => void refresh()}
+          onNotice={onNotice}
+        />
+      )}
+      {sheet === "claims" && (
+        <ClaimsPanel
+          api={api}
+          projects={projects}
+          onClose={() => setSheet(undefined)}
           onNotice={onNotice}
         />
       )}
