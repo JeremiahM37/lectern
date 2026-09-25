@@ -1458,20 +1458,20 @@ func (m *dashboard) View() string {
 		keys = " Enter open project shell · / find · m actions · q quit"
 	}
 	if m.section == 0 {
-		keys = " Click/Enter attach · o/right-click new terminal · b select · / find · ? help · q quit"
+		keys = " n new session · Enter attach · o/right-click new terminal · b select · / find · ? help · q quit"
 		if m.batchOpen {
 			keys = " Click/Space select · Enter open selected · b cancel · q quit"
 		}
 		if m.width < 100 {
-			keys = " o terminal · b select · ? help · q quit"
+			keys = " n new · o terminal · b select · ? help · q quit"
 		}
 		if m.selectedGroup() != nil {
-			keys = " Enter/click fold · b batch · ? help · q quit"
+			keys = " n new · Enter/click fold · b batch · ? help · q quit"
 		}
-		if m.width < 42 {
-			keys = " o term · b select · ? · q quit"
+		if m.width < 60 {
+			keys = " n new · o term · b select · ? · q quit"
 			if m.selectedGroup() != nil {
-				keys = " Click fold · b batch · q quit"
+				keys = " n new · fold · b batch · ? · q quit"
 			}
 		}
 	}

@@ -828,3 +828,14 @@ func TestBatchSelectionAndRightClickAreIndependent(t *testing.T) {
 		t.Fatal("release opened twice")
 	}
 }
+
+func TestNewSessionShortcutVisibleWithoutHelp(t *testing.T) {
+	for _, width := range []int{40, 80, 120} {
+		m := sampleDashboard()
+		m.width, m.height = width, 30
+		view := ansi.Strip(m.View())
+		if !strings.Contains(view, "n new") {
+			t.Fatalf("new-session shortcut hidden at width %d", width)
+		}
+	}
+}
