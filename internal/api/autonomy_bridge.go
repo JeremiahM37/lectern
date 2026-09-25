@@ -230,7 +230,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 	case "/research":
 		autoResearch(w, r)
 		return
-	case "/history", "/backlog", "/artifacts":
+	case "/history", "/backlog", "/artifacts", "/repairable":
 		a, e := s.loadAuto()
 		if e != nil {
 			http.Error(w, "history unavailable", 503)
@@ -242,6 +242,10 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 			} else {
 				writeJSON(w, 200, a.State.Backlog)
 			}
+			return
+		}
+		if r.URL.Path == "/repairable" {
+			writeJSON(w, 200, s.autoRepairableArtifacts(a))
 			return
 		}
 		if r.URL.Path == "/artifacts" {

@@ -29,20 +29,24 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	ReportError   string    `json:"report_error,omitempty"`
-	ReportRepairs int       `json:"report_repairs,omitempty"`
-	ReportRetryAt time.Time `json:"report_retry_at,omitempty"`
-	ID            string    `json:"id"`
-	TaskID        int64     `json:"task_id"`
-	Role          string    `json:"role"`
-	Model         string    `json:"model,omitempty"`
-	Provider      string    `json:"provider"`
-	Status        string    `json:"status"`
-	ArtifactPath  string    `json:"artifact_path"`
-	Summary       string    `json:"summary,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
-	Approved      bool      `json:"approved,omitempty"`
-	ReviewTaskID  int64     `json:"review_task_id,omitempty"`
+	ReportError         string    `json:"report_error,omitempty"`
+	ReportRepairs       int       `json:"report_repairs,omitempty"`
+	ReportRetryAt       time.Time `json:"report_retry_at,omitempty"`
+	ID                  string    `json:"id"`
+	TaskID              int64     `json:"task_id"`
+	Role                string    `json:"role"`
+	Model               string    `json:"model,omitempty"`
+	Provider            string    `json:"provider"`
+	Status              string    `json:"status"`
+	ArtifactPath        string    `json:"artifact_path"`
+	Summary             string    `json:"summary,omitempty"`
+	StartedAt           time.Time `json:"started_at"`
+	Rejected            bool      `json:"rejected,omitempty"`
+	ReviewReason        string    `json:"review_reason,omitempty"`
+	RepairAttemptTaskID int64     `json:"repair_attempt_task_id,omitempty"`
+	RepairSourceTaskID  int64     `json:"repair_source_task_id,omitempty"`
+	Approved            bool      `json:"approved,omitempty"`
+	ReviewTaskID        int64     `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
 	Config             autonomy.Config   `json:"config"`
@@ -301,6 +305,9 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	if a.State.Phase == autonomy.Paused {
+		if s.recoverRejectedContinuation(a) {
+			return
+		}
 		if s.recoverAutoReport(ctx, a, now) {
 			return
 		}
@@ -461,6 +468,11 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if e = next.ApplyReport(a.Config, j.TaskID, []byte(report)); e != nil {
 		return &autoReportError{e}
 	}
+	if j.Role == "planner" {
+		if e = s.validateAutoSources(a, next.Items); e != nil {
+			return &autoReportError{e}
+		}
+	}
 	if e = s.snapshotAutoJob(ctx, j); e != nil {
 		return e
 	}
@@ -485,12 +497,14 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	}
 	if j.Role == "reviewer" {
 		var verdict autonomy.Verdict
-		if json.Unmarshal([]byte(report), &verdict) == nil && verdict.Approve != nil && *verdict.Approve {
+		if json.Unmarshal([]byte(report), &verdict) == nil && verdict.Approve != nil {
 			for i := len(a.State.Assignments) - 1; i >= 0; i-- {
 				as := a.State.Assignments[i]
-				if as.Role == "builder" && as.Item == a.State.Item && as.Step == a.State.Step && as.Completed {
+				if as.Role == "builder" && as.Item == a.State.Item && as.Step == a.State.Step && as.Round == a.State.Revision && as.Completed {
 					if builder := autoFindJob(a, as.TaskID); builder != nil {
-						builder.Approved = true
+						builder.Approved = *verdict.Approve
+						builder.Rejected = !*verdict.Approve
+						builder.ReviewReason = verdict.Reason
 						builder.ReviewTaskID = j.TaskID
 					}
 					break

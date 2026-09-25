@@ -157,6 +157,7 @@ const (
 
 type Proposal struct {
 	ProjectID      int64    `json:"project_id"`
+	RepairTaskID   int64    `json:"repair_task_id,omitempty"`
 	ContinueTaskID int64    `json:"continue_task_id,omitempty"`
 	Title          string   `json:"title"`
 	Why            string   `json:"why"`
@@ -386,8 +387,8 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if p.ProjectID <= 0 || p.ContinueTaskID < 0 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
-				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative continue_task_id and a unique title within its list", index)
+			if p.ProjectID <= 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || (p.ContinueTaskID > 0 && p.RepairTaskID > 0) || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
+				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative mutually exclusive continue_task_id/repair_task_id and a unique title within its list", index)
 			}
 			if index < len(r.Items) && len(p.Acceptance) == 0 {
 				return fmt.Errorf("items[%d].acceptance needs at least one concrete criterion", index)

@@ -139,7 +139,8 @@ empty plan). Routine builders use an available Luna model or Claude Sonnet;
 planning and independent reviews use Astra or Claude Opus. Audited expert tasks
 may use a strong builder. Approved artifact receipts remain usable beyond the
 90-cycle dashboard history; full cycle records are archived locally and backed
-up. Only independently approved builder artifacts can seed another cycle.
+up. Only independently approved builder artifacts can seed an ordinary continuation.
+Rejected artifacts have the separate repair path below, without gaining approval.
 
 ## Report remediation
 
@@ -154,3 +155,32 @@ unsafe snapshots, state corruption or storage failures by relaxing controls.
 Legacy paused reports are revalidated after deployment, permitting recovery
 without another model call when the validator itself was wrong. Future backlog
 ideas need acceptance criteria only when selected for execution.
+
+
+## Rejected checkpoint repair
+
+`continue_task_id` accepts only approved checkpoints from `/artifacts`.
+`repair_task_id` instead selects an owned, completed builder checkpoint with an
+explicit rejected **final review**, listed separately at `/repairable`. The two
+fields are mutually exclusive. Unreviewed work and rejected major decisions
+cannot use this path. The source project and exact reviewer/checkpoint identity
+must match; rejection reasons remain available after history rotation.
+
+A new plan and both independent plan audits must approve the repair before the
+controller copies its files into a fresh sandbox. Auditors and builders receive
+the old rejection as evidence. The repair grants no approval: major decisions
+still require both decision reviewers and the repaired result needs a fresh
+final review. Rejected work remains excluded from `/artifacts`.
+
+Repairs are capped by the configured revision limit across the entire repair
+lineage. Intermediate decision checkpoints and resumed workers retain the same
+repair-attempt identity, so they neither reset nor consume the limit twice.
+Invalid selected source IDs are caught during planner report validation and use
+the existing bounded report-correction path instead of pausing during launch.
+
+A legacy cycle paused specifically because it selected an explicitly rejected
+checkpoint as an approved continuation is abandoned with its evidence retained,
+then automatically replanned after the normal cooldown. Its old plan is never
+silently rewritten into a repair authorization. Disabled mode, uncertain quota,
+active workers and corrupt/missing receipts do not take this recovery path.
+Publication restrictions and quota reserves are unchanged.

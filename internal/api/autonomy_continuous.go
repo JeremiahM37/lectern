@@ -92,13 +92,15 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 				continue
 			}
 			var verdict autonomy.Verdict
-			if json.Unmarshal(a.State.Reports[as.TaskID], &verdict) != nil || verdict.Approve == nil || !*verdict.Approve {
+			if json.Unmarshal(a.State.Reports[as.TaskID], &verdict) != nil || verdict.Approve == nil {
 				continue
 			}
 			for _, builder := range a.State.Assignments {
 				if builder.Role == "builder" && builder.Completed && builder.Item == as.Item && builder.Round == as.Round && builder.Step == as.Step {
 					if job := autoFindJob(a, builder.TaskID); job != nil {
-						job.Approved = true
+						job.Approved = *verdict.Approve
+						job.Rejected = !*verdict.Approve
+						job.ReviewReason = verdict.Reason
 						job.ReviewTaskID = as.TaskID
 					}
 				}
@@ -106,6 +108,14 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 		}
 		a.Runs = append(a.Runs, a.State)
 		if len(a.Runs) > 90 {
+			// Backfill legacy rejections before removing their only in-memory evidence.
+			for _, expired := range a.Runs[:len(a.Runs)-90] {
+				for _, as := range expired.Assignments {
+					if as.Role == "builder" && as.Completed {
+						autoRejectedCheckpoint(a, as.TaskID)
+					}
+				}
+			}
 			a.Runs = a.Runs[len(a.Runs)-90:]
 		}
 	}
