@@ -435,6 +435,19 @@ func localHandler(next http.Handler, token, instance string, stop func() error) 
 	return mux
 }
 
+// Peek reports the local runtime's endpoint, token included, if one is
+// already healthy — without starting one. Unlike StatusOf (whose Endpoint
+// has the token stripped for safe display), a caller here is about to make
+// authenticated requests, e.g. `lectern doctor`'s live checks. It never
+// starts a new engine; that's Ensure's job.
+func Peek(ctx context.Context) (Endpoint, bool) {
+	dir, err := stateDir(false)
+	if err != nil {
+		return Endpoint{}, false
+	}
+	return healthyEndpoint(ctx, dir)
+}
+
 func StatusOf(ctx context.Context) (Status, error) {
 	dir, err := stateDir(false)
 	if err != nil {

@@ -4,6 +4,8 @@
 // Usage:
 //
 //	lectern            run the control plane
+//	lectern up         start a private local runtime, register a target/project, open the browser
+//	lectern doctor     check tmux/git/agents/auth/TLS/push/hooks and print fixes
 //	lectern mcp        speak MCP on stdio against a running control plane
 //	lectern version    print the version
 package main
@@ -98,6 +100,18 @@ func main() {
 			return
 		case "local":
 			if err := localCommand(cfg, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		case "up":
+			if err := upCommand(cfg, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		case "doctor":
+			if err := doctorCommand(cfg, os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}

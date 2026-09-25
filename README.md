@@ -2,10 +2,7 @@
 
 # Lectern
 
-**Mission control for AI coding agents — on your own infrastructure.**
-Describe a task from your phone. An agent picks it up on a box you own, works in an
-isolated git worktree inside tmux, streams every step live, pings you for approvals,
-and hands you a reviewable diff.
+**Dispatch AI coding agents onto machines you own — and approve their work from your phone.**
 
 <!-- badges -->
 ![status](https://img.shields.io/badge/status-v2.3.0-8b5cf6)
@@ -15,9 +12,57 @@ and hands you a reviewable diff.
 ![binary](https://img.shields.io/badge/deploy-single%20binary-8b5cf6)
 ![PWA](https://img.shields.io/badge/PWA-mobile--first-19c37d)
 
+<!-- TODO: record a short demo GIF (install → `lectern up` → dispatch → phone approval) and drop it here as docs/screenshots/demo.gif -->
 ![Lectern board](docs/screenshots/board-current.png)
 
 </div>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh
+lectern up
+```
+
+That's it. `lectern up` starts Lectern on this machine, detects the agent CLIs
+you already have installed (Claude Code, Codex, Gemini, …), offers to register
+the current directory as a project if it's a git repo, and opens your browser
+to a checklist instead of an empty board. Run `lectern doctor` any time to
+check tmux, git, your agents' auth, ports, TLS and push notifications, with a
+fix printed next to anything that's off.
+
+## Why Lectern
+
+- **Any agent.** Claude Code, Codex and Gemini ship built in; the adapter seam
+  is small enough to add your own CLI, including a fully local model.
+- **Your machines.** Not just this laptop — SSH into anything, or use a
+  Proxmox LXC (`pct`, no SSH needed) or an ephemeral sandbox container.
+- **Approve from your phone.** Web-push, Discord or ntfy notifications with
+  inline approve/deny, and a mobile-first PWA for the whole control loop.
+- **Best-of-N with a judge.** Delegated builds (opt-in) run a cheap worker in
+  its own worktree while a lead reviews, corrects and integrates its diff.
+- **Eval suites on your own repo.** `eval/capability` runs the real agent loop
+  against a simulated homelab — no production side effects, model-agnostic.
+- **Agents aware of each other.** Cross-agent awareness lets a session see
+  what a peer session is doing in the same repository.
+- **Self-hosted, MIT.** One static binary, your infrastructure, your choice of
+  model provider — nothing about your code leaves a box you control unless
+  your chosen agent's own model call does.
+
+### How it compares
+
+A working comparison, not a marketing one: only claims checked against each
+project's own README/docs (as of this writing) are here, and anything that
+couldn't be verified says so instead of guessing.
+
+| | Hosting | License | Agents | Where it runs | Phone control |
+|---|---|---|---|---|---|
+| **Lectern** | self-hosted (your box) | MIT | Claude Code, Codex, Gemini built in + any CLI via adapter | local, SSH, Proxmox `pct`/sandbox | web-push/Discord/ntfy approvals, mobile PWA |
+| agent-deck (upstream) | self-hosted | — | same lineage as Lectern's core | same | Lectern renamed from this project at v2.3 and has since added the mobile PWA, Grimoire memory and delegated builds below — not independently tracked here |
+| [Claude Squad](https://github.com/smtg-ai/claude-squad) | self-hosted | AGPL-3.0 | Claude Code, Codex, Gemini, Aider | local machine only (tmux + git worktrees) | none |
+| [Conductor](https://conductor.build) | vendor app, macOS only | proprietary | Claude Code, Codex, Cursor | local (Mac) only | not documented |
+| [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) | self-hosted | Apache-2.0 | 10+ CLIs (Claude Code, Codex, Gemini, Copilot, Cursor, OpenCode, …) | VS Code Remote/SSH links for editing, not for running the agent itself | not documented — and the project's own README states it is sunsetting |
+| [OpenHands](https://github.com/All-Hands-AI/OpenHands) | self-hosted | MIT | OpenHands + Claude Code + Codex + Gemini + any ACP-compatible agent | local, remote, and cloud backends | not documented as of this writing |
+| Claude Code on the web | Anthropic-hosted | proprietary | Claude only | Anthropic's own sandboxes | iOS app, explicitly an "early preview" |
+| Codex app / cloud | OpenAI-hosted | proprietary | OpenAI models only | OpenAI's own infra | unverified — could not confirm current details from public docs |
 
 Lectern is a self-hosted kanban board that dispatches AI coding agents onto
 **your** machines — anything you can SSH into, from a spare laptop or a VPS to a
@@ -107,13 +152,25 @@ The installers verify the archive against the release's `checksums.txt`.
 Running agents on a machine needs `git` and `tmux` there; on Windows the
 binary is the client (`mcp`, `post`, `sessions`, `tasks`…) for a Lectern
 server elsewhere, since the control plane itself needs tmux (use WSL to host
-it). Then:
+it). Then, on a single machine:
+
+```bash
+lectern up                # start it, detect your agents, open the browser
+```
+
+or run the control plane explicitly (what `lectern up` starts under the hood):
 
 ```bash
 lectern serve            # → http://localhost:9110
 ```
 
+`lectern up --service` also installs a per-user systemd unit on Linux (or a
+launchd LaunchAgent on macOS) so it survives a reboot.
+
 ## Quick start
+
+`lectern up` (above) is the fastest path on one machine. For a shared/hosted
+deployment instead:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d    # → http://localhost:9110

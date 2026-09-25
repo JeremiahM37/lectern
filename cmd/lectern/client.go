@@ -119,6 +119,9 @@ func promoteError(err error) error {
 const clientHelp = `Lectern — web and terminal control
 
   lectern                         Open the dashboard in an interactive terminal
+  lectern up                      One command: start it, register a project, open the browser
+  lectern up --service            Also install a systemd user unit (macOS: launchd)
+  lectern doctor                  Check tmux/git/agents/auth/TLS/push/hooks; print fixes
   lectern local                   Start/use a private local runtime, then open the dashboard
   lectern local status            Show local runtime status without starting it
   lectern local stop              Stop the local runtime (active tasks are refused)

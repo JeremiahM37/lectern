@@ -296,6 +296,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- misc ----
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/whoami", s.whoami)
+	mux.HandleFunc("GET /api/onboarding", s.onboardingStatus)
 	mux.HandleFunc("GET /api/delegation", s.getDelegation)
 	mux.HandleFunc("PUT /api/delegation", s.putDelegation)
 	mux.HandleFunc("POST /api/delegation/preset", s.installDelegationPreset)

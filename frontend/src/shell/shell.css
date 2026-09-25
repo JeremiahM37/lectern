@@ -7,7 +7,7 @@
 .token-dialog {
   max-width: 30rem;
   width: calc(100% - 2rem);
-  background: var(--surface, #111827);
+  background: var(--panel, #131829);
   color: var(--ink, #eee);
   border: 1px solid var(--line, #374151);
   border-radius: 14px;
@@ -93,5 +93,93 @@
 @media (max-width: 1023px) {
   #view button:not([class]) {
     min-height: 44px;
+  }
+}
+.first-run {
+  max-width: 34rem;
+  margin: 24px auto;
+  padding: 20px;
+  background: var(--panel, #131829);
+  border: 1px solid var(--line, #374151);
+  border-radius: var(--r-lg, 14px);
+  color: var(--ink, #eee);
+}
+.first-run h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+}
+.first-run-sub {
+  margin: 0 0 16px;
+  color: var(--ink-dim, #97a2bd);
+  font-size: 0.92rem;
+}
+.first-run-error {
+  margin: 0 0 12px;
+  color: var(--amber, #fbbf24);
+  font-size: 0.88rem;
+}
+.first-run-checklist {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.first-run-checklist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--panel-2, #1f2937);
+  border: 1px solid var(--line-2, #374151);
+  min-width: 0;
+}
+.first-run-checklist li.ok {
+  border-color: var(--green, #34d399);
+}
+.first-run-mark {
+  font-weight: 700;
+  width: 1.2em;
+  flex: none;
+  text-align: center;
+}
+.first-run-checklist li.ok .first-run-mark {
+  color: var(--green, #34d399);
+}
+.first-run-checklist li.pending .first-run-mark {
+  color: var(--ink-dim, #97a2bd);
+}
+.first-run-label {
+  font-weight: 600;
+}
+.first-run-detail {
+  color: var(--ink-dim, #97a2bd);
+  font-size: 0.85rem;
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.first-run-cta {
+  width: 100%;
+  min-height: 48px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: var(--r-lg, 14px);
+  border: 0;
+  background: var(--accent, #8b5cf6);
+  color: #fff;
+  cursor: pointer;
+}
+.first-run-hint {
+  margin: 12px 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-dim, #97a2bd);
+}
+@media (max-width: 420px) {
+  .first-run {
+    margin: 12px;
+    padding: 16px;
+    max-width: none;
   }
 }

@@ -21,6 +21,7 @@ import { SessionReview } from "./review/SessionReview";
 import { Evals } from "./evals/Evals";
 import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
 import { Palette, type Command } from "./shell/Palette";
+import { FirstRun } from "./shell/FirstRun";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
@@ -780,6 +781,14 @@ export default function App() {
         </div>
       </header>
       <main id="view" hidden={view === "terminals"}>
+        {version > 0 && projects.length === 0 && sessions.length === 0 && (
+          <FirstRun
+            request={api.request}
+            hasProject={projects.length > 0}
+            hasSession={sessions.length > 0}
+            onStartSession={() => sessionCommand("new")}
+          />
+        )}
         {view === "board" && (
           <Board
             api={api}
