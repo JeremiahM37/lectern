@@ -177,6 +177,111 @@ var tools = []tool{
 		},
 	},
 	{
+		Name: "claim_work",
+		Description: "Claim a piece of work in this repository so other agents (Claude Code, Codex, ACP " +
+			"agents) — and humans — see you're on it instead of duplicating it. scope_kind is `task` " +
+			"(scope is a task id you're picking up), `paths` (scope is one or more path globs, e.g. " +
+			"'frontend/src/sessions/**'), or `topic` (scope is a short free-text description, e.g. " +
+			"'rename button in session card'). Call active_work / list_claims first to check nobody is " +
+			"already on it. The claim expires in ttl_minutes (default 120) unless you keep working — " +
+			"activity renews it automatically — and release_work ends it early.",
+		Schema: obj(map[string]any{
+			"scope_kind":  str("task | paths | topic"),
+			"scope":       str("a task id (scope_kind=task) or a short topic (scope_kind=topic); omit for scope_kind=paths"),
+			"paths":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "one or more path globs, only for scope_kind=paths, e.g. ['frontend/src/sessions/**']"},
+			"intent":      str("what you're doing, shown to anyone who sees this claim"),
+			"ttl_minutes": num("minutes before this claim auto-expires if you go idle (default 120)"),
+		}, "scope_kind"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			sid := mediapost.SessionID()
+			if sid == 0 {
+				return nil, fmt.Errorf("no LECTERN_SESSION_ID in this environment; claim_work needs a Lectern session to attribute the claim to")
+			}
+			body := map[string]any{
+				"session_id": sid, "scope_kind": argStr(args, "scope_kind"),
+				"scope": argStr(args, "scope"), "intent": argStr(args, "intent"),
+				"ttl_minutes": argInt(args, "ttl_minutes"),
+			}
+			if raw, ok := args["paths"].([]any); ok {
+				paths := make([]string, 0, len(raw))
+				for _, p := range raw {
+					if str, ok := p.(string); ok {
+						paths = append(paths, str)
+					}
+				}
+				body["paths"] = paths
+			}
+			return s.api("POST", "/claims", body)
+		},
+	},
+	{
+		Name: "release_work",
+		Description: "Release a claim you made with claim_work — call this as soon as you're done with " +
+			"that work, don't wait for it to expire. Give claim_id for one specific claim, or all:true to " +
+			"release every claim your session currently holds.",
+		Schema: obj(map[string]any{
+			"claim_id": num("id of the claim to release (from claim_work's result or list_claims)"),
+			"all":      flag("release every claim this session holds instead of one"),
+		}),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			if argBool(args, "all", false) {
+				sid := mediapost.SessionID()
+				if sid == 0 {
+					return nil, fmt.Errorf("no LECTERN_SESSION_ID in this environment; pass claim_id instead")
+				}
+				mine, err := s.list(fmt.Sprintf("/claims?session_id=%d", sid))
+				if err != nil {
+					return nil, err
+				}
+				released := 0
+				for _, c := range mine {
+					id, _ := c["id"].(float64)
+					if id == 0 {
+						continue
+					}
+					if _, err := s.api("DELETE", fmt.Sprintf("/claims/%d", int64(id)), nil); err == nil {
+						released++
+					}
+				}
+				return map[string]any{"released": released}, nil
+			}
+			id := argInt(args, "claim_id")
+			if id == 0 {
+				return nil, fmt.Errorf("give claim_id, or all:true to release every claim this session holds")
+			}
+			return s.api("DELETE", fmt.Sprintf("/claims/%d", id), nil)
+		},
+	},
+	{
+		Name: "list_claims",
+		Description: "List active claims — what other agents (and humans) have already claimed. With no " +
+			"arguments, lists claims in the repository of the session you're running in; pass repo (a " +
+			"repo_key, from active_work's peer data) to check a different one, or omit both to see every " +
+			"active claim on the whole board.",
+		Schema: obj(map[string]any{
+			"repo": str("a repo_key to filter to, e.g. from active_work's result; omit to use your own session's repo"),
+		}),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			path := "/claims"
+			repo := argStr(args, "repo")
+			if repo == "" {
+				if sid := mediapost.SessionID(); sid != 0 {
+					if sess, err := s.object(fmt.Sprintf("/sessions/%d", sid)); err == nil {
+						repo, _ = sess["repo_key"].(string)
+					}
+				}
+			}
+			if repo != "" {
+				path += "?repo_key=" + url.QueryEscape(repo)
+			}
+			rows, err := s.list(path)
+			if err != nil {
+				return nil, err
+			}
+			return rows, nil
+		},
+	},
+	{
 		Name:        "board_summary",
 		Description: "Current board state: task counts per column and the pending approval count.",
 		Schema:      obj(map[string]any{}),

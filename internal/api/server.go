@@ -25,6 +25,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
+	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -65,6 +66,10 @@ type Server struct {
 	// test harness that never sets it, degrades to "no awareness" rather
 	// than a panic.
 	Awareness *awareness.Tracker
+	// Claims is the Claim board's tracker (internal/claims, docs/claims.md):
+	// create/release/extend, overlap queries, and the briefing/warning text.
+	// Nil is safe everywhere it is read, same convention as Awareness.
+	Claims    *claims.Tracker
 	Memory    memory.Provider
 	Terminals *terminal.Manager
 	Push      *push.Sender
@@ -219,6 +224,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/peers", s.sessionPeers)
 	mux.HandleFunc("GET /api/awareness/duplicate-prompts", s.awarenessDuplicatePrompts)
 	mux.HandleFunc("GET /api/peers", s.peersByRepoPath)
+
+	// ---- claim board (docs/claims.md): normal API auth ----
+	mux.HandleFunc("GET /api/claims", s.listClaims)
+	mux.HandleFunc("POST /api/claims", s.createClaim)
+	mux.HandleFunc("DELETE /api/claims/{id}", s.releaseClaim)
+	mux.HandleFunc("POST /api/claims/{id}/extend", s.extendClaim)
+	mux.HandleFunc("GET /api/claims/topic-overlap", s.claimsTopicOverlap)
 
 	mux.HandleFunc("POST /api/conversation-search", s.startConversationSearch)
 	mux.HandleFunc("GET /api/conversation-search/{search}", s.getConversationSearch)

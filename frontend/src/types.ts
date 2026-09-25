@@ -347,6 +347,28 @@ export interface DuplicatePromptPair {
   score: number;
 }
 
+// Claim board (docs/claims.md): a shared, vendor-neutral record of who is
+// doing what in a repository. GET/POST/DELETE /api/claims, POST
+// /api/claims/{id}/extend, GET /api/claims/topic-overlap.
+export interface Claim {
+  id: number;
+  repo_key: string;
+  scope_kind: "task" | "paths" | "topic";
+  // scope is the task id, a JSON-encoded array of path globs (scope_kind
+  // "paths"), or free topic text — parse with parseClaimPaths for "paths".
+  scope: string;
+  holder: string;
+  holder_kind: "session" | "attempt" | "human" | "";
+  session_id?: number;
+  attempt_id?: number;
+  agent?: string;
+  intent: string;
+  auto: boolean;
+  created_at: number;
+  expires_at: number;
+  released_at?: number | null;
+}
+
 // GET /api/usage?days=N — see internal/api/usage.go.
 export interface UsageDayBucket {
   date: string;

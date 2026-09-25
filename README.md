@@ -45,7 +45,10 @@ fix printed next to anything that's off.
   own merged-PR history, so "which agent/model is best for MY repo" is
   ground-truthed against what actually shipped instead of a hand-written prompt.
 - **Agents aware of each other.** Cross-agent awareness lets a session see
-  what a peer session is doing in the same repository.
+  what a peer session is doing in the same repository, and the **Claim
+  board** lets it say what it's about to do — claimed automatically or with
+  one MCP call, shown in every peer's briefing and edit warnings, always
+  advisory. See [docs/claims.md](docs/claims.md).
 - **Self-hosted, MIT.** One static binary, your infrastructure, your choice of
   model provider — nothing about your code leaves a box you control unless
   your chosen agent's own model call does.

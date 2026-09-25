@@ -40,6 +40,10 @@ var Keys = []string{
 	// reason the alert_* keys above are — one settings registry, not two.
 	// Same "default ON, off only when explicitly '0'" convention.
 	"awareness_briefing", "awareness_edit_warning",
+	// Claim board (docs/claims.md): same registry, same reasoning, same
+	// "default ON, off only when explicitly '0'" convention. claims_auto_paths
+	// is the "first PostToolUse edit on a path gets an implicit claim" toggle.
+	"claims_briefing", "claims_edit_warning", "claims_auto_paths",
 }
 
 // Payload is one outbound notification, already addressed and rendered.

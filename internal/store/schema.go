@@ -504,6 +504,39 @@ CREATE TABLE IF NOT EXISTS session_file_edits(
 );
 CREATE INDEX IF NOT EXISTS idx_session_file_edits_repo ON session_file_edits(repo_key, rel_path);
 CREATE INDEX IF NOT EXISTS idx_session_file_edits_session ON session_file_edits(session_id);
+-- claims is the Claim board (docs/claims.md): a shared, vendor-neutral record
+-- of who is doing what in a repository, so agents from different vendors (and
+-- humans) coordinate instead of duplicating work. scope_kind is
+-- task|paths|topic; scope holds the matching payload — a task id, a JSON
+-- array of path globs, or a short free-text topic. Exactly one of
+-- session_id/attempt_id is set for an agent-held claim; both are NULL for a
+-- human's own claim (holder_kind='human', holder=their login). auto marks an
+-- implicit claim internal/claims created on the agent's behalf (the
+-- first-edit paths claim, a task's own scope claim) rather than one an agent
+-- or human asked for by name — the UI can filter these out without treating
+-- them as less real. released_at NULL means active; a row is never deleted,
+-- only released, so the board keeps a short history.
+CREATE TABLE IF NOT EXISTS claims(
+  id INTEGER PRIMARY KEY,
+  repo_key TEXT NOT NULL,
+  scope_kind TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  holder TEXT NOT NULL,
+  holder_kind TEXT NOT NULL DEFAULT '',
+  session_id INTEGER REFERENCES sessions(id),
+  attempt_id INTEGER REFERENCES attempts(id),
+  agent TEXT NOT NULL DEFAULT '',
+  intent TEXT NOT NULL DEFAULT '',
+  auto INTEGER NOT NULL DEFAULT 0,
+  ttl_seconds REAL NOT NULL DEFAULT 7200,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL,
+  released_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_claims_repo ON claims(repo_key);
+CREATE INDEX IF NOT EXISTS idx_claims_session ON claims(session_id);
+CREATE INDEX IF NOT EXISTS idx_claims_attempt ON claims(attempt_id);
+CREATE INDEX IF NOT EXISTS idx_claims_active ON claims(released_at, expires_at);
 -- budget_alerts_sent (docs/budgets.md) is what makes a threshold alert fire
 -- exactly once per period: scope_key names WHAT was checked ("overall:daily",
 -- "agent:claude:weekly", "quota:five_hour", "anomaly:session:42", ...),

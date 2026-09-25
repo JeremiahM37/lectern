@@ -119,6 +119,13 @@ type Scheduler struct {
 	// reason as Routines/Evals — it ends in a task creation, which is the
 	// API layer's job.
 	Triggers func(context.Context)
+	// Claims sweeps the Claim board (internal/claims.Tracker.Sweep,
+	// docs/claims.md): releases claims whose TTL lapsed, whose task attempt
+	// finished, or whose session ended without a clean SessionEnd hook. Nil
+	// disables the periodic sweep entirely — every test that builds a
+	// Scheduler by hand and never sets this keeps the pre-existing
+	// no-claims behavior, same convention as Budgets/Triggers above.
+	Claims func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -222,6 +229,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	if s.Triggers != nil {
 		s.Triggers(ctx)
+	}
+	if s.Claims != nil {
+		s.Claims(ctx)
 	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)

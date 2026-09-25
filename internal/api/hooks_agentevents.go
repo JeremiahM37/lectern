@@ -80,13 +80,22 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 		s.holdSessionPermissionRequest(w, r, sess, body)
 		return
 	}
+	// Claim board (docs/claims.md): a session ending releases everything it
+	// still holds immediately, rather than waiting for the sweep's dead-
+	// session catch-all. Side effect only — SessionEnd never carries
+	// additionalContext back to an agent that is already gone.
+	if event == agentevents.EventSessionEnd && s.Claims != nil {
+		if _, err := s.Claims.ReleaseAllForSession(sess.ID); err != nil {
+			s.Log.Warn("claims: could not release on session end", "session", sess.ID, "err", err)
+		}
+	}
 	// Cross-agent awareness (docs/agent-events.md "Cross-agent awareness"):
 	// SessionStart/UserPromptSubmit get a peer briefing, PreToolUse gets an
 	// overwrite/conflict warning. Both ride the SAME `hookSpecificOutput`
 	// shape Claude/Codex already deliver verbatim to the agent's context —
 	// see agentevents.EventPermissionRequest's reply above for the sibling
 	// use of this shape.
-	texts := []string{s.awarenessAdditionalContext(sess, event, body)}
+	texts := []string{s.awarenessAdditionalContext(sess, event, body), s.claimsAdditionalContext(sess, event, body)}
 	// Budgets (docs/budgets.md "Interactive sessions"): a session is never
 	// killed for spend, but the next UserPromptSubmit tells the agent a
 	// "stop"-mode budget is exhausted and asks it to stop and summarise —

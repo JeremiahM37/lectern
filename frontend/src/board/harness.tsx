@@ -181,8 +181,32 @@ const api: BoardApi = {
         files: [{ path: "a.ts", patch: "@@ -1 +1 @@\n-old\n+new" }],
       };
     if (path.endsWith("/run")) return { tasks: [{}], failed: [] };
+    if (path.startsWith("/claims")) return [];
     return {};
   }) as BoardApi["request"],
+  claims: async (filter) => {
+    calls.push(["claims", filter]);
+    return [];
+  },
+  createClaim: async (body) => {
+    calls.push(["createClaim", body]);
+    return {
+      id: 1, repo_key: "1:/repo", scope_kind: body.scope_kind, scope: body.scope ?? "",
+      holder: body.holder ?? "operator", holder_kind: "human", intent: body.intent ?? "",
+      auto: false, created_at: 1, expires_at: 2,
+    };
+  },
+  releaseClaim: async (id) => {
+    calls.push(["releaseClaim", id]);
+    return { released: true };
+  },
+  extendClaim: async (id) => {
+    calls.push(["extendClaim", id]);
+    return {
+      id, repo_key: "1:/repo", scope_kind: "topic", scope: "", holder: "operator",
+      holder_kind: "human", intent: "", auto: false, created_at: 1, expires_at: 3,
+    };
+  },
 };
 createRoot(document.getElementById("root")!).render(
   <Board

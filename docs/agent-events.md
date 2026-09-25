@@ -724,3 +724,15 @@ endpoints it calls); no frontend unit test for `AwarenessOverlapChip`
 `GET /api/awareness/overlaps` board-wide endpoint — the chip's data rides
 free on the existing session list instead, which turned out to need no
 separate endpoint.
+
+> **Addition (2026-09-24, Claim board worker):** cross-agent awareness makes
+> peers *visible*; it does not give an agent a way to *say* what it is about
+> to do. **`internal/claims`** builds that on top of this section's own
+> repo-key resolution and hook-response plumbing: a shared, vendor-neutral
+> record of who is doing what in a repository (`task`/`paths`/`topic`
+> scope), claimed explicitly via the `claim_work`/`release_work`/
+> `list_claims` MCP tools or automatically (a session's first tracked edit,
+> a task's own scope on dispatch), advisory only — it rides the SAME
+> SessionStart/UserPromptSubmit briefing and PreToolUse edit-warning hook
+> responses this section wires up, never a separate mechanism. Full
+> contract, model, enforcement points and settings: **`docs/claims.md`**.
