@@ -9,7 +9,7 @@ def test_react_sessions_fixture(browser):
    try:urllib.request.urlopen('http://127.0.0.1:4188/react/sessions-harness.html');break
    except Exception:time.sleep(.1)
   with browser.new_context() as context:
-   page=context.new_page();page.goto('http://127.0.0.1:4188/react/sessions-harness.html');page.get_by_text('Main work').wait_for()
+   page=context.new_page();page.goto('http://127.0.0.1:4188/react/sessions-harness.html');page.get_by_label('Sessions and projects').get_by_text('Main work').wait_for()
    page.get_by_text('⌨ Attach').click();page.wait_for_function("calls.some(x=>x[0]==='terminal')")
    page.get_by_text('Chat').click();page.get_by_text('Live terminal text').wait_for();page.locator('#conversation-input').fill('continue');page.get_by_text('Send',exact=True).click();page.wait_for_function("calls.some(x=>String(x[0]).endsWith('/send'))");page.get_by_role('button',name='Close conversation').click()
    page.locator('.scard .action-menu>summary').click();page.get_by_text('⇥ Handoff').click();page.locator('#ho-mode').select_option('note');page.locator('#ho-go').click();page.wait_for_function("calls.some(x=>String(x[0]).endsWith('/handoff'))")

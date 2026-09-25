@@ -353,7 +353,7 @@ export function AgentEditor({
         Enable background tasks for this agent
       </label>
       {acpOn && (
-        <p className="agent-dialog-status">
+        <p className="sub">
           Disabled while ACP is enabled below — a background task is either a
           plain command or an ACP agent, never both.
         </p>
@@ -412,13 +412,13 @@ export function AgentEditor({
         Use the Agent Client Protocol (ACP) instead of a task command
       </label>
       {taskOn && !acpOn && (
-        <p className="agent-dialog-status">
+        <p className="sub">
           Disabled while background tasks are enabled above.
         </p>
       )}
       {acpOn && (
         <>
-          <p className="agent-dialog-status">
+          <p className="sub">
             Every permission mode is supported automatically — ACP carries
             its own gated approvals. See{" "}
             <a href="https://agentclientprotocol.com" target="_blank" rel="noreferrer">
