@@ -330,6 +330,10 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			a.State.Pause("Missing job receipt; manual inspection required")
 			return
 		}
+		if j.ReportRepairs > 0 && j.ReportError != "" {
+			a.Status = "repairing_report"
+			a.Reason = "Automatically correcting the report using retained work"
+		}
 		if j.Status == "stopped" {
 			if e = s.resumeAutoJob(ctx, a, j); e != nil {
 				a.State.Pause(e.Error())
