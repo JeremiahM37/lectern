@@ -11,6 +11,10 @@ options:
     viewport: [1280, 800]
 
 steps:
+  - name: workshop storage preservation regressions
+    actions:
+      - shell: python3 tools/test_autonomy_storage.py
+
   - name: go, frontend and browser suites pass
     actions:
       - shell:

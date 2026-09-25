@@ -55,3 +55,11 @@ func autoRetryReady(a *autoRecord, now time.Time) bool {
 	a.RetryAt = time.Time{}
 	return true
 }
+
+// Match only runner capacity interlocks, not unrelated operational or safety errors.
+func autoStoragePause(reason string) bool {
+	if !strings.HasPrefix(reason, "runner prepare:") {
+		return false
+	}
+	return strings.Contains(reason, "retained job storage exceeds") || strings.Contains(reason, "less than 20 GiB backing-volume free space")
+}

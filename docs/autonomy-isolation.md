@@ -84,7 +84,7 @@ its route allowlist must remain read-only/scoped. The runner cannot validate the
 host proxy's implementation, so adversarial destination tests are required.
 
 The workspace has a hard 2 GiB capacity. New jobs are refused below 20 GiB host
-free space or when retained job images use 50 GiB of physical storage. Images
+free space or when retained job images use 200 GiB of physical storage. Images
 and loop mounts are retained deliberately, including cancelled jobs; an explicit
 archive workflow is required before reclaiming them. Private temporary files
 count against the memory limit. The script alone does not enforce the user's
@@ -148,7 +148,7 @@ alive for a bounded cancellation/heartbeat test.
 `archive --job UUID` streams a gzip tar of completed `work` only; it does not
 include sibling assets, credentials, logs or metadata. Links are archived as
 links, special files are refused, and privilege bits/owners are stripped. Treat
-archives as untrusted and use a safe extractor. The 50 GiB retention interlock
+archives as untrusted and use a safe extractor. The 200 GiB retention interlock
 counts physical blocks of images **and** binaries/logs/metadata, excluding the
 mounted workspace to avoid counting the image twice.
 
@@ -183,3 +183,25 @@ recursively chown job images or worker mounts. This directory is persistent and
 already covered by the workshop backup. Do not use systemd-tmpfiles here: this
 host's admin-owned /mnt/bulk followed by the root-owned workshop parent triggers
 its unsafe ownership-transition check.
+
+
+## Storage maintenance
+
+`storage` reports physical allocation, the 200 GiB retention ceiling and backing
+filesystem free space. The independent 20 GiB minimum-free guard remains active.
+A paused enabled controller probes this interlock and retries once capacity is
+healthy, even if the ordinary daily retry budget was exhausted; quota and peer
+review requirements still apply.
+
+`compact` shares identical read-only agent executables for completed jobs via a
+root-owned SHA256-addressed `binary-cache` beside `jobs`. It skips active units,
+checks ownership, permissions and content, and atomically replaces duplicates
+with hardlinks. Every original path and byte remains available. New workers use
+the same cache automatically. Workspaces, images, prompts, reports, logs, review
+evidence and credentials are not removed. Physical accounting counts hardlinks
+once across jobs and cache. This is lossless deduplication, not artifact expiry.
+
+Run compaction with a root-owned maintenance timer. Cold archives must have a
+verified off-box backup and a recorded restore location before unique local
+content is removed. Never grant workers permission to prune other jobs or
+backups; their cleanup is limited to their own reproducible intermediates.

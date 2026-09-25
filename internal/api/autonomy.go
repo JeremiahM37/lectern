@@ -316,6 +316,17 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 				return
 			}
 		} else {
+			// Storage can recover independently of an exhausted daily retry
+			// budget. Probe real capacity; never bypass quota or safety gates.
+			if autoStoragePause(a.State.Reason) {
+				out, probeErr := s.runAutoCommand(ctx, "storage")
+				var capacity struct {
+					Ready bool `json:"ready"`
+				}
+				if probeErr == nil && json.Unmarshal(out, &capacity) == nil && capacity.Ready {
+					a.RetryAt = now
+				}
+			}
 			if !autoRetryReady(a, now) {
 				return
 			}

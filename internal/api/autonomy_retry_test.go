@@ -50,3 +50,16 @@ func TestAutonomyRetryNeverReclassifiesSafetyFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestStorageRecoveryOnlyMatchesCapacityInterlocks(t *testing.T) {
+	for _, reason := range []string{`runner prepare: {"error":"retained job storage exceeds 50 GiB; archive before continuing"}`, `runner prepare: {"error":"retained job storage exceeds 200 GiB; archive before continuing"}`, `runner prepare: less than 20 GiB backing-volume free space`} {
+		if !autoStoragePause(reason) {
+			t.Fatal(reason)
+		}
+	}
+	for _, reason := range []string{"Invalid worker report:", "runner prepare: unsafe image", "Budget pause: quota", "Stopped by you"} {
+		if autoStoragePause(reason) {
+			t.Fatal(reason)
+		}
+	}
+}

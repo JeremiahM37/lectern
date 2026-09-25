@@ -2,6 +2,9 @@
 """Privileged launcher. Install root-owned; never expose _execute via sudoers."""
 import argparse
 import ctypes
+import fcntl
+import hashlib
+import tempfile
 import ipaddress
 import json
 import os
@@ -19,6 +22,8 @@ import uuid
 
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
+ASSET_CACHE = ROOT.parent / 'binary-cache'
+STORAGE_LIMIT = 200 * 1024**3
 UID = GID = 65534
 DENY = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10',
         '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16', '224.0.0.0/4',
@@ -334,11 +339,11 @@ def start(args):
         with binary.open('rb') as f:
             if f.read(4) != b'\x7fELF':
                 raise ValueError('provider must be the native ELF CLI, not a host wrapper')
-        shutil.copyfile(binary, assets / 'agent')
+        shared_binary(binary, assets / 'agent')
         if args.provider == 'codex':
             helper = binary.parent / 'codex-code-mode-host'
             regular(helper)
-            shutil.copyfile(helper, assets / 'codex-code-mode-host')
+            shared_binary(helper, assets / 'codex-code-mode-host')
             (assets / 'codex-code-mode-host').chmod(0o555)
         (assets / 'agent').chmod(0o555)
         shutil.copyfile(AUTH[args.provider], assets / 'auth')
@@ -380,12 +385,110 @@ def status(job):
         return {'state': 'running', 'exit_code': None}
     return {'state': 'failed', 'exit_code': int(props.get('ExecMainStatus', '1')) or 1}
 
+def digest_file(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def immutable_asset(path):
+    st = path.lstat()
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o222:
+        raise ValueError('unsafe shared binary: ' + str(path))
+    return st
+
+
+def shared_binary(source, target):
+    """Keep every job path and byte, sharing only immutable executable content."""
+    ASSET_CACHE.mkdir(mode=0o755, exist_ok=True)
+    st = ASSET_CACHE.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ValueError('unsafe binary cache directory')
+    fd = os.open(ASSET_CACHE / '.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        digest = digest_file(source)
+        cached = ASSET_CACHE / digest
+        if cached.exists() or cached.is_symlink():
+            immutable_asset(cached)
+            if digest_file(cached) != digest:
+                raise ValueError('shared binary checksum mismatch')
+        else:
+            fd, temporary = tempfile.mkstemp(dir=ASSET_CACHE, prefix='.copy-')
+            os.close(fd)
+            temporary = Path(temporary)
+            try:
+                shutil.copyfile(source, temporary)
+                if digest_file(temporary) != digest:
+                    raise ValueError('source binary changed during copy')
+                temporary.chmod(0o555)
+                os.replace(temporary, cached)
+            finally:
+                temporary.unlink(missing_ok=True)
+        if target.exists():
+            immutable_asset(target)
+            if digest_file(target) != digest:
+                raise ValueError('destination binary changed during compaction')
+            if target.stat().st_ino == cached.stat().st_ino:
+                return
+        temporary = target.with_name('.shared-' + str(uuid.uuid4()))
+        try:
+            os.link(cached, temporary, follow_symlinks=False)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def compact_assets():
+    before = allocated_storage()
+    compacted = 0
+    shared_inodes = set()
+    if ASSET_CACHE.exists():
+        for cached in ASSET_CACHE.iterdir():
+            if len(cached.name) == 64 and all(c in '0123456789abcdef' for c in cached.name):
+                st = immutable_asset(cached)
+                if digest_file(cached) != cached.name:
+                    raise ValueError('shared binary checksum mismatch')
+                shared_inodes.add((st.st_dev, st.st_ino))
+    for candidate in sorted(ROOT.iterdir()):
+        try:
+            p = job_path(candidate.name)
+        except ValueError:
+            continue
+        if not (p / 'result.json').is_file() and not (p / 'stopped').is_file():
+            continue
+        state = run(['/usr/bin/systemctl', 'show', unit(p.name), '--property=ActiveState', '--value']).stdout.strip()
+        if state in ('active', 'activating', 'deactivating'):
+            continue
+        assets = p / 'assets'
+        if not assets.exists():
+            continue
+        st = assets.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+            raise ValueError('unsafe job assets directory')
+        for name in ('agent', 'codex-code-mode-host'):
+            path = assets / name
+            if path.exists() or path.is_symlink():
+                st = immutable_asset(path)
+                if (st.st_dev, st.st_ino) in shared_inodes:
+                    continue
+                shared_binary(path, path)
+                compacted += 1
+    return {'files_compacted': compacted, 'bytes_reclaimed': max(0, before - allocated_storage())}
+
+
+def storage_status():
+    used = allocated_storage()
+    free = shutil.disk_usage(ROOT).free
+    return {'ready': used < STORAGE_LIMIT and free >= 20 * 1024**3,
+            'allocated_bytes': used, 'limit_bytes': STORAGE_LIMIT, 'free_bytes': free}
+
+
 def allocated_storage():
     # The image already accounts for mounted work. Include binaries, logs and
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in os.walk(ROOT, followlinks=False):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE) for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:
@@ -402,8 +505,8 @@ def prepare(job):
     if shutil.disk_usage(ROOT).free < 20 * 1024**3:
         raise RuntimeError('less than 20 GiB backing-volume free space')
     allocated = allocated_storage()
-    if allocated >= 50 * 1024**3:
-        raise RuntimeError('retained job storage exceeds 50 GiB; archive before continuing')
+    if allocated >= STORAGE_LIMIT:
+        raise RuntimeError('retained job storage exceeds 200 GiB; archive before continuing')
     if p.exists():
         raise ValueError('job already exists; choose a new UUID')
     p.mkdir(mode=0o750)
@@ -512,7 +615,7 @@ def archive(job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['probe', 'prepare', 'copy', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['storage', 'compact', 'probe', 'prepare', 'copy', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -524,7 +627,11 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'probe':
+    if args.command == 'storage':
+        out = storage_status()
+    elif args.command == 'compact':
+        out = compact_assets()
+    elif args.command == 'probe':
         # Actual per-job BPF query remains mandatory before the CLI can execute.
         for path in ['/usr/bin/bwrap', '/usr/bin/socat', '/usr/bin/systemd-run',
                      '/usr/sbin/mkfs.ext4', '/usr/sbin/losetup', INSTALL,

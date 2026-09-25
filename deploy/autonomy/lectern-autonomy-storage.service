@@ -1,0 +1,17 @@
+[Unit]
+Description=Deduplicate completed Lectern workshop runtime binaries without deleting results
+RequiresMountsFor=/mnt/bulk
+ConditionPathIsDirectory=/mnt/bulk/lectern-autonomy/jobs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/lectern-autonomy-runner compact
+User=root
+Nice=10
+CPUQuota=25%
+IOWeight=10
+MemoryMax=512M
+TimeoutStartSec=10min
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/mnt/bulk/lectern-autonomy
