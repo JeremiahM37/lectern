@@ -40,6 +40,12 @@ type VariantStats struct {
 	ScoredCount         int     `json:"scored_count"`
 	JudgeMatchRate      float64 `json:"judge_match_rate"`
 	JudgedCount         int     `json:"judged_count"`
+	// CostPerPass (docs/outcomes.md) is TotalCostUSD / Passed — this
+	// variant's total spend divided by how many cells actually passed, so a
+	// cheap variant that mostly fails does not look efficient. Omitted (zero
+	// value) when nothing passed, so the UI can render "—" instead of a
+	// divide-by-zero artifact.
+	CostPerPass float64 `json:"cost_per_pass,omitempty"`
 }
 
 // Leaderboard aggregates a run's results per variant, ordered by variant
@@ -139,6 +145,9 @@ func Leaderboard(results []*store.EvalResult) []VariantStats {
 		if n := nJudged[idx]; n > 0 {
 			st.JudgeMatchRate = float64(nJudgeMatch[idx]) / float64(n)
 			st.JudgedCount = n
+		}
+		if st.Passed > 0 {
+			st.CostPerPass = st.TotalCostUSD / float64(st.Passed)
 		}
 		out = append(out, st)
 	}

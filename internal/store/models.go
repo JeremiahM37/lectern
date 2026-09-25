@@ -308,6 +308,11 @@ type Session struct {
 	// summary (internal/awareness).
 	LastPromptExcerpt string   `json:"last_prompt_excerpt,omitempty"`
 	LastPromptAt      *float64 `json:"last_prompt_at,omitempty"`
+	// OtelActiveAt (docs/outcomes.md) is when this session's Claude Code OTLP
+	// exporter last reported in. Non-nil is the precedence signal: once set,
+	// IngestStatusline stops booking its own usage_daily deltas for this
+	// session (the exact OTel numbers own that job from here on).
+	OtelActiveAt *float64 `json:"otel_active_at,omitempty"`
 
 	// joined for the UI, which groups sessions by project and names their host
 	ProjectName string `json:"project_name,omitempty"`

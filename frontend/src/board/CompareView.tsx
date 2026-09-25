@@ -21,6 +21,15 @@ function checkBadge(a: AttemptSummary): string {
   return "no check run";
 }
 
+// costPerPass is this one attempt's own $/pass (docs/outcomes.md): its cost
+// divided by 1 when its check passed, "—" when the check failed/never ran or
+// the cost is unknown — never a divide-by-zero artifact.
+function costPerPass(a: AttemptSummary): string {
+  const passed = a.verify && Object.keys(a.verify).length > 0 && a.verify.rc === 0;
+  if (!passed || a.cost_usd == null) return "—";
+  return `$${Number(a.cost_usd).toFixed(3)}`;
+}
+
 function diffSummary(a: AttemptSummary): string {
   if (!a.diff_stat.length) return "no diff yet";
   let add = 0,
@@ -100,6 +109,8 @@ export function CompareView({
                 {(a.input_tokens != null || a.output_tokens != null) &&
                   ` · ${String(a.input_tokens ?? 0)}in/${String(a.output_tokens ?? 0)}out`}
               </dd>
+              <dt>$/pass</dt>
+              <dd>{costPerPass(a)}</dd>
               <dt>Diff</dt>
               <dd>{diffSummary(a)}</dd>
             </dl>

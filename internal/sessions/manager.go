@@ -537,6 +537,18 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	hookURL := fmt.Sprintf("%s/api/hook/session/%d", hookBase, sess.ID)
 	env[agentevents.EnvHookToken] = hookToken
 	env[agentevents.EnvHookURL] = hookURL
+	// Cost per outcome (docs/outcomes.md): only Claude Code ships an OTLP
+	// exporter of its own today, and only when the operator has not opted
+	// out (default on, see OTelOptOutSetting). Reuses this same session's
+	// hook token — one secret per session, not a second one to mint and
+	// rotate — and its own hook base, so a remote target that already routes
+	// hookURL correctly needs no extra network config for telemetry either.
+	if agent == "claude" && m.DB.Setting(agentevents.OTelOptOutSetting) != "0" {
+		otelBase := fmt.Sprintf("%s/api/hook/otel/session/%d", hookBase, sess.ID)
+		for k, v := range agentevents.OTelEnv(otelBase, hookToken, agentevents.OTelResourceSessionKey, sess.ID) {
+			env[k] = v
+		}
+	}
 	envPrefix, err := EnvPrefix(env)
 	if err != nil {
 		m.end(sess.ID, "dead")

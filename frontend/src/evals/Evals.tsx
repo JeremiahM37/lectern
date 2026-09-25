@@ -102,6 +102,7 @@ interface VariantStats {
   scored_count: number;
   judge_match_rate: number;
   judged_count: number;
+  cost_per_pass?: number;
 }
 interface RunView {
   run: Run;
@@ -898,6 +899,7 @@ export function Evals({
                 <th>Pass rate</th>
                 <th>Mean duration</th>
                 <th>Total cost</th>
+                <th>$/pass</th>
                 <th>Mean tokens</th>
                 {runView.leaderboard.some((r) => r.scored_count > 0) && <th>Similarity to reference</th>}
                 {runView.leaderboard.some((r) => r.judged_count > 0) && <th>Matches reference</th>}
@@ -917,6 +919,7 @@ export function Evals({
                     </td>
                     <td>{row.mean_duration_s ? `${row.mean_duration_s.toFixed(1)}s` : "—"}</td>
                     <td>${row.total_cost_usd.toFixed(3)}</td>
+                    <td>{row.cost_per_pass ? `$${row.cost_per_pass.toFixed(3)}` : "—"}</td>
                     <td>
                       {row.mean_input_tokens ? Math.round(row.mean_input_tokens) : 0}in/
                       {row.mean_output_tokens ? Math.round(row.mean_output_tokens) : 0}out

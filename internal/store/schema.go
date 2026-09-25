@@ -544,6 +544,55 @@ CREATE TABLE IF NOT EXISTS memory_deliveries(
 );
 CREATE INDEX IF NOT EXISTS idx_memory_deliveries_session ON memory_deliveries(session_id, at);
 CREATE INDEX IF NOT EXISTS idx_memory_deliveries_task ON memory_deliveries(task_id, at);
+-- otel_attempt_usage (docs/outcomes.md): the latest Claude Code OTLP metrics
+-- reading for one headless task attempt. Unlike usage_daily's session path,
+-- an attempt's process lifetime is short and one-shot, so there is no delta
+-- baseline to track — every export simply overwrites this row with the
+-- freshest cumulative totals the attempt's own OTel SDK has reported.
+-- internal/outcomes reads this ahead of attempts.result_json's cost_usd when
+-- a row exists (see docs/outcomes.md "Precedence").
+CREATE TABLE IF NOT EXISTS otel_attempt_usage(
+  attempt_id INTEGER PRIMARY KEY REFERENCES attempts(id),
+  model TEXT NOT NULL DEFAULT '',
+  cost_usd REAL NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  lines_added INTEGER NOT NULL DEFAULT 0,
+  lines_removed INTEGER NOT NULL DEFAULT 0,
+  pull_requests INTEGER NOT NULL DEFAULT 0,
+  commits INTEGER NOT NULL DEFAULT 0,
+  updated_at REAL NOT NULL
+);
+-- outcome_facts (docs/outcomes.md, "Cost per outcome"): one row per finished
+-- task attempt or long-lived session, recomputed on every GET /api/outcomes
+-- call from attempts/tasks/session_checks/eval_results/otel_attempt_usage —
+-- this table is a cache of that derivation, not its own source of truth, so
+-- a stale or missing row self-heals on the next read rather than needing a
+-- migration or a backfill job. scope+ref_id is what "one row per attempt or
+-- session" keys on; date/agent/model/project_id are the group-by dimensions
+-- GET /api/outcomes offers.
+CREATE TABLE IF NOT EXISTS outcome_facts(
+  id INTEGER PRIMARY KEY,
+  scope TEXT NOT NULL,             -- 'attempt' | 'session'
+  ref_id INTEGER NOT NULL,
+  date TEXT NOT NULL,              -- UTC yyyy-mm-dd the outcome finished/was last observed on
+  task_id INTEGER,
+  project_id INTEGER,
+  agent TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  cost_usd REAL NOT NULL DEFAULT 0,
+  cost_source TEXT NOT NULL DEFAULT '',   -- otel|result_json|statusline|estimated|''
+  check_passed INTEGER,            -- NULL unknown, 0 fail, 1 pass
+  accepted INTEGER NOT NULL DEFAULT 0,   -- merged/picked/integrated (attempts only)
+  lines_kept INTEGER,              -- diff stat of the ACCEPTED change only
+  eval_pass INTEGER,               -- NULL if this ref never ran through an eval
+  time_to_pass_s REAL,
+  updated_at REAL NOT NULL,
+  UNIQUE(scope, ref_id)
+);
+CREATE INDEX IF NOT EXISTS idx_outcome_facts_date ON outcome_facts(date);
+CREATE INDEX IF NOT EXISTS idx_outcome_facts_agent_model ON outcome_facts(agent, model);
+CREATE INDEX IF NOT EXISTS idx_outcome_facts_project ON outcome_facts(project_id);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -655,4 +704,9 @@ var migrations = []string{
 	"ALTER TABLE eval_results ADD COLUMN judge_status TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE eval_results ADD COLUMN judge_match INTEGER",
 	"ALTER TABLE eval_results ADD COLUMN judge_reason TEXT NOT NULL DEFAULT ''",
+	// Cost per outcome (docs/outcomes.md): set the first time a session's
+	// OTLP exporter reports in, so IngestStatusline knows to stop booking
+	// usage_daily deltas of its own once the exact OTel numbers are flowing —
+	// see the precedence rule in agentevents.IngestStatusline.
+	"ALTER TABLE sessions ADD COLUMN otel_active_at REAL",
 }

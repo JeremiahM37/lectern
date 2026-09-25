@@ -206,6 +206,13 @@ func (s *Server) Handler() http.Handler {
 	// token, not the per-attempt token the approval hooks above use ----
 	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
+	// ---- cost per outcome (docs/outcomes.md): Claude Code's own OTLP/HTTP
+	// JSON exporter, pointed here by agentevents.OTelEnv for both interactive
+	// sessions and headless task attempts ----
+	mux.HandleFunc("POST /api/hook/otel/session/{id}/v1/metrics", s.hookSessionOTelMetrics)
+	mux.HandleFunc("POST /api/hook/otel/session/{id}/v1/logs", s.hookSessionOTelLogs)
+	mux.HandleFunc("POST /api/hook/otel/attempt/{id}/v1/metrics", s.hookAttemptOTelMetrics)
+	mux.HandleFunc("POST /api/hook/otel/attempt/{id}/v1/logs", s.hookAttemptOTelLogs)
 
 	// ---- cross-agent awareness (docs/agent-events.md "Cross-agent
 	// awareness"): normal API auth, unlike the hook group above ----
@@ -332,6 +339,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/usage", s.usageReport)
 	mux.HandleFunc("GET /api/budgets", s.getBudgets)
 	mux.HandleFunc("PUT /api/budgets", s.putBudgets)
+	mux.HandleFunc("GET /api/outcomes", s.getOutcomes)
+	mux.HandleFunc("GET /api/model-prices", s.getModelPrices)
+	mux.HandleFunc("PUT /api/model-prices", s.putModelPrices)
 	mux.HandleFunc("POST /api/admin/janitor", s.runJanitor)
 	mux.HandleFunc("GET /api/scratch", s.scratchReport)
 	mux.HandleFunc("POST /api/scratch/sweep", s.scratchSweep)

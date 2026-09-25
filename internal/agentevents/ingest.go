@@ -198,13 +198,26 @@ func (in *Ingester) IngestStatusline(s *store.Session, body []byte) error {
 	// resumed session whose counters start over) is dropped to zero rather
 	// than subtracted — this package cannot tell "context shrank" from
 	// "counter reset" and must not invent negative usage either way.
-	costDelta := deltaFloat(s.CostUSD, p.Cost.TotalCostUSD)
-	bookedInput, bookedOutput, err := in.DB.UsageDailySessionTotals(s.ID)
-	if err != nil {
-		return err
+	// Precedence (docs/outcomes.md): once this session's OTLP exporter has
+	// reported in even once, otel_active_at is set and stays set — from then
+	// on OTel owns cost_usd/lines_added/lines_removed/model and every
+	// usage_daily booking for this session, so the statusline tick that still
+	// arrives every render must not also book its own (necessarily less
+	// exact) numbers on top. It keeps updating everything OTel does not
+	// cover — context window and account-wide rate limits — unconditionally.
+	otelActive := s.OtelActiveAt != nil
+
+	var costDelta float64
+	var inputDelta, outputDelta int
+	if !otelActive {
+		costDelta = deltaFloat(s.CostUSD, p.Cost.TotalCostUSD)
+		bookedInput, bookedOutput, err := in.DB.UsageDailySessionTotals(s.ID)
+		if err != nil {
+			return err
+		}
+		inputDelta = deltaInt(&bookedInput, p.ContextWindow.TotalInputTokens)
+		outputDelta = deltaInt(&bookedOutput, p.ContextWindow.TotalOutputTokens)
 	}
-	inputDelta := deltaInt(&bookedInput, p.ContextWindow.TotalInputTokens)
-	outputDelta := deltaInt(&bookedOutput, p.ContextWindow.TotalOutputTokens)
 
 	model := p.Model.ID
 	fields := map[string]any{
@@ -214,35 +227,48 @@ func (in *Ingester) IngestStatusline(s *store.Session, body []byte) error {
 		"context_used_pct": p.ContextWindow.UsedPercentage,
 		"context_tokens":   p.ContextWindow.TotalInputTokens,
 		"context_size":     p.ContextWindow.ContextWindowSize,
-		"cost_usd":         p.Cost.TotalCostUSD,
-		"lines_added":      p.Cost.TotalLinesAdded,
-		"lines_removed":    p.Cost.TotalLinesRemoved,
 		"rate_5h_pct":      p.RateLimits.FiveHour.UsedPercentage,
 		"rate_5h_reset":    p.RateLimits.FiveHour.ResetsAt,
 		"rate_7d_pct":      p.RateLimits.SevenDay.UsedPercentage,
 		"rate_7d_reset":    p.RateLimits.SevenDay.ResetsAt,
 	}
-	if model != "" {
-		fields["model"] = model
+	if !otelActive {
+		fields["cost_usd"] = p.Cost.TotalCostUSD
+		fields["lines_added"] = p.Cost.TotalLinesAdded
+		fields["lines_removed"] = p.Cost.TotalLinesRemoved
+		if model != "" {
+			fields["model"] = model
+		}
 	}
 	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
 		return err
 	}
 
-	date := time.Now().UTC().Format("2006-01-02")
-	if err := in.DB.UpsertUsageDelta(date, s.ID, s.Agent, model, costDelta, inputDelta, outputDelta); err != nil {
-		return err
-	}
-
 	// Account-wide rate limits (Claude's are per-account, not per-session):
 	// keep the latest snapshot in settings so a surface with no single
-	// session in view can still show it.
+	// session in view can still show it. Unconditional — OTel carries no
+	// equivalent of this, so the statusline stays the only source for it
+	// even once a session's OTel precedence has taken over cost/tokens.
 	rl, _ := json.Marshal(map[string]any{
 		"five_hour": map[string]any{"used_percentage": p.RateLimits.FiveHour.UsedPercentage, "resets_at": p.RateLimits.FiveHour.ResetsAt},
 		"seven_day": map[string]any{"used_percentage": p.RateLimits.SevenDay.UsedPercentage, "resets_at": p.RateLimits.SevenDay.ResetsAt},
 		"at":        now,
 	})
 	_ = in.DB.SetSetting("rate_limits", string(rl))
+
+	if otelActive {
+		fresh, ferr := in.DB.Session(s.ID)
+		if ferr != nil {
+			return nil
+		}
+		in.publishSession(fresh)
+		return nil
+	}
+
+	date := time.Now().UTC().Format("2006-01-02")
+	if err := in.DB.UpsertUsageDelta(date, s.ID, s.Agent, model, costDelta, inputDelta, outputDelta); err != nil {
+		return err
+	}
 
 	fresh, ferr := in.DB.Session(s.ID)
 	if ferr != nil {

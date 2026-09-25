@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/ctxbundle"
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
@@ -301,6 +302,21 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		} else if !r.OK() {
 			s.Log.Warn("memory link refused", "attempt", att.ID,
 				"detail", firstNonEmpty(r.Stderr, r.Stdout))
+		}
+	}
+
+	// Cost per outcome (docs/outcomes.md): same opt-out and same reasoning as
+	// the interactive session path (internal/sessions.Manager.launch) — only
+	// Claude Code ships an OTLP exporter today, and this reuses the
+	// attempt's existing hook token (att.Token, already an agent-facing
+	// bearer secret) rather than minting a second one.
+	if agent == "claude" && s.DB.Setting(agentevents.OTelOptOutSetting) != "0" {
+		otelBase := fmt.Sprintf("%s/api/hook/otel/attempt/%d", s.Cfg.BaseURL, att.ID)
+		if kw.Env == nil {
+			kw.Env = map[string]string{}
+		}
+		for k, v := range agentevents.OTelEnv(otelBase, att.Token, agentevents.OTelResourceAttemptKey, att.ID) {
+			kw.Env[k] = v
 		}
 	}
 

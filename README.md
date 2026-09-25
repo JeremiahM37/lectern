@@ -373,6 +373,11 @@ temporary databases, a separate vault, and a private tmux socket.
   spend cap, Claude 5h/7d quota-threshold alerts and a cost-anomaly check,
   with an opt-in **stop** mode that refuses new dispatches/session launches
   and cancels a task over its own budget. See [docs/budgets.md](docs/budgets.md).
+- **Cost per outcome** — ties every dollar to what it produced: exact
+  OpenTelemetry cost/token telemetry from Claude Code sessions and task
+  attempts, $ per passing check, $ per accepted change, $ per 100 kept
+  lines, passes per $10 and median time-to-passing-check, per agent/model/
+  project. See [docs/outcomes.md](docs/outcomes.md).
 - **Agent2Agent** — Lectern is discoverable and drivable as a remote agent over
   the A2A protocol v1.0 (JSON-RPC 2.0): a public Agent Card at
   `/.well-known/agent-card.json` and an interface at `/a2a/v1` that files,
