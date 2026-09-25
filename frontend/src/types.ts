@@ -434,6 +434,43 @@ export interface BudgetStatus {
   any_blocked: boolean;
 }
 
+// GET /api/outcomes?days=N&group=agent|model|project — see docs/outcomes.md.
+export interface OutcomeRow {
+  key: string;
+  label: string;
+  attempts: number;
+  sessions: number;
+  cost_usd: number;
+  checked: number;
+  passed: number;
+  accepted: number;
+  lines_kept: number;
+  eval_total: number;
+  eval_passed: number;
+  partial: boolean;
+  estimated: boolean;
+  cost_per_pass?: number;
+  cost_per_accepted?: number;
+  cost_per_100_lines?: number;
+  passes_per_10usd?: number;
+  median_time_to_pass_s?: number;
+}
+export interface OutcomesReport {
+  days: number;
+  group: "agent" | "model" | "project";
+  generated_at: number;
+  rows: OutcomeRow[];
+}
+
+// GET/PUT /api/model-prices — see docs/outcomes.md "Estimates".
+export interface ModelPrice {
+  input_per_1m: number;
+  output_per_1m: number;
+}
+export interface ModelPriceConfig {
+  prices: Record<string, ModelPrice>;
+}
+
 export interface Wrap {
   id: number;
   session_id: number;

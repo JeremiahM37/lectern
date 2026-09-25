@@ -8,6 +8,12 @@ check, all delivered through the existing push/Discord/ntfy `sinks.Notifier`
 (see `docs/agent-events.md` section 3) rather than a second notification
 path.
 
+Budgets answer "how much did we spend" and "stop us before we spend too
+much." They deliberately do not answer "was the spend worth it" — that is
+[docs/outcomes.md](docs/outcomes.md), which ties the same `usage_daily`/
+`attempts` history (plus exact OTel telemetry where available) to what each
+dollar actually produced.
+
 Package: `internal/budget`. Store helpers: `internal/store/budget.go`.
 Enforcement lives where dispatch/launch actually happen
 (`internal/api/tasks.go`, `internal/api/sessions.go`,

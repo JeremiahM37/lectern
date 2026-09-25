@@ -34,10 +34,25 @@ func TestLeaderboardComputesPassRateDurationCostAndTokensPerVariant(t *testing.T
 	if v0.MeanInputTokens != 150 || v0.MeanOutputTokens != 75 {
 		t.Errorf("variant 0 mean tokens: %+v", v0)
 	}
+	if v0.CostPerPass < 0.29999 || v0.CostPerPass > 0.30001 { // 0.3 total / 1 pass
+		t.Errorf("variant 0 cost per pass: %v", v0.CostPerPass)
+	}
 	// variant 1 has 3 total rows but only 2 terminal — pass rate is over the
 	// terminal ones, and Total still reports every row seen
 	if v1.Total != 3 || v1.Passed != 2 || v1.PassRate != 1 {
 		t.Errorf("variant 1: %+v", v1)
+	}
+	if v1.CostPerPass < 0.09999 || v1.CostPerPass > 0.10001 { // 0.2 total / 2 passes
+		t.Errorf("variant 1 cost per pass: %v", v1.CostPerPass)
+	}
+}
+
+func TestLeaderboardCostPerPassOmittedWhenNothingPassed(t *testing.T) {
+	board := Leaderboard([]*store.EvalResult{
+		{VariantIdx: 0, Status: "failed", CostUSD: f(1.0)},
+	})
+	if len(board) != 1 || board[0].CostPerPass != 0 {
+		t.Errorf("a variant with zero passes must report cost_per_pass 0, not a divide-by-zero artifact: %+v", board)
 	}
 }
 

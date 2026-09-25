@@ -68,6 +68,7 @@ interface VariantStats {
   total_cost_usd: number;
   mean_input_tokens: number;
   mean_output_tokens: number;
+  cost_per_pass?: number;
 }
 interface RunView {
   run: Run;
@@ -661,6 +662,7 @@ export function Evals({
                 <th>Pass rate</th>
                 <th>Mean duration</th>
                 <th>Total cost</th>
+                <th>$/pass</th>
                 <th>Mean tokens</th>
               </tr>
             </thead>
@@ -678,6 +680,7 @@ export function Evals({
                     </td>
                     <td>{row.mean_duration_s ? `${row.mean_duration_s.toFixed(1)}s` : "—"}</td>
                     <td>${row.total_cost_usd.toFixed(3)}</td>
+                    <td>{row.cost_per_pass ? `$${row.cost_per_pass.toFixed(3)}` : "—"}</td>
                     <td>
                       {row.mean_input_tokens ? Math.round(row.mean_input_tokens) : 0}in/
                       {row.mean_output_tokens ? Math.round(row.mean_output_tokens) : 0}out

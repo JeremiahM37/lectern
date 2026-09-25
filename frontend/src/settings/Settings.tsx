@@ -9,6 +9,7 @@ import { Delegation } from "./Delegation";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
+import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
@@ -229,6 +230,8 @@ export function Settings({
             </p>
           )}
           <UsagePanel api={api} />
+          <h3>Outcomes</h3>
+          <OutcomesPanel api={api} />
           <Whoami api={api} />
           <Build api={api} />
         </section>
