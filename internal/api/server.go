@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/a2a"
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/alerts"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
@@ -334,6 +335,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
 	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
 
+	// ---- A2A: the agent-to-agent surface (protocol v1.0, JSON-RPC 2.0) ----
+	// The card is public metadata and sits outside the auth gate; the method
+	// endpoint is gated exactly like /api (see withAuth).
+	mux.HandleFunc("GET "+a2a.CardPath, s.a2aAgentCard)
+	mux.HandleFunc("POST "+a2a.InterfacePath, s.a2aRPC)
+
 	mux.Handle("/", s.staticHandler())
 	return s.withAuth(mux)
 }
@@ -349,7 +356,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if !((strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) || strings.HasPrefix(p, "/term/")) {
+		gated := (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) ||
+			strings.HasPrefix(p, "/term/") || strings.HasPrefix(p, a2a.InterfacePath)
+		if !gated {
 			next.ServeHTTP(w, r)
 			return
 		}

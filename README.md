@@ -293,6 +293,11 @@ temporary databases, a separate vault, and a private tmux socket.
   spend cap, Claude 5h/7d quota-threshold alerts and a cost-anomaly check,
   with an opt-in **stop** mode that refuses new dispatches/session launches
   and cancels a task over its own budget. See [docs/budgets.md](docs/budgets.md).
+- **Agent2Agent** — Lectern is discoverable and drivable as a remote agent over
+  the A2A protocol v1.0 (JSON-RPC 2.0): a public Agent Card at
+  `/.well-known/agent-card.json` and an interface at `/a2a/v1` that files,
+  follows and cancels tasks. So an orchestrator that speaks A2A — not just one
+  that speaks Lectern's REST API — can drive it. See [docs/a2a.md](docs/a2a.md).
 
 ## Terminal workflows
 
@@ -597,6 +602,7 @@ themselves if `git` or `tmux` is missing.
 ```
 cmd/lectern/       the binary
 internal/api/        REST + hook endpoints, SSE streams, embedded PWA
+internal/a2a/        A2A protocol v1.0 types — Agent Card and task states
 internal/scheduler/  promotes queued attempts, tails running ones, finalises
 internal/executor/   local | ssh | pct | sandbox | mock target executors
 internal/agents/     per-agent launch commands and stream parsers
