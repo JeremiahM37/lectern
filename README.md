@@ -331,6 +331,13 @@ temporary databases, a separate vault, and a private tmux socket.
   `command_prefix` handles hosts whose SSH lands somewhere other than the work —
   `wsl -e bash -lc "echo {b64} | base64 -d | bash"` makes a Windows box with its
   toolchain in WSL an ordinary target.
+- **Isolation** — an optional per-session/task sandbox tier alongside the
+  `sandbox` target's full container clone: **bwrap** (Linux, no daemon,
+  sub-second) or **Docker**, with the working directory and the agent's own
+  auth mounted read-write and the rest of `$HOME` hidden. Set per project or
+  per launch; `network: deny` routes egress through a built-in allowlist
+  proxy. See [docs/isolation.md](docs/isolation.md) for the threat model and
+  honest limits.
 - **Agents** — Claude Code, Codex and Gemini ship built in. Sessions take **any
   CLI**, and tasks/routines can use any configured CLI with a declared batch
   `task` definition: define it in `PUT /api/agents` with its commands, output

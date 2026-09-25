@@ -103,6 +103,20 @@ export interface SessionView extends Session {
   // AwarenessOverlap is the card chip's data (docs/agent-events.md
   // "Cross-agent awareness" point 6) — see AwarenessOverlapChip.tsx.
   awareness_overlap?: { session_id: number; name: string; files: string[] } | null;
+  // Isolation is this session's actual running sandbox tier — the card's
+  // isolation badge (see internal/isolation and docs/isolation.md). Absent
+  // or mode:"" means unsandboxed, which is every session predating this.
+  isolation?: IsolationConfig;
+}
+
+// IsolationConfig mirrors internal/isolation.Config: a session or task's
+// per-agent-process sandbox choice. mode:"" (or the field absent) is "none"
+// — today's unsandboxed default. See docs/isolation.md.
+export interface IsolationConfig {
+  mode?: "" | "bwrap" | "docker";
+  network?: "" | "allow" | "deny";
+  docker_image?: string;
+  allow_hosts?: string[];
 }
 
 export interface Target {
@@ -144,6 +158,10 @@ export interface Project {
   default_agent: string;
   capability_profile: string;
   default_permission_mode: string;
+  // default_isolation_json is a raw internal/isolation.Config JSON string
+  // (same pattern as env_json/context_json above) — this project's default
+  // sandbox tier for a new session or task launch. "{}" means none.
+  default_isolation_json: string;
   skill_sources_json: string;
   created_at: number;
   target_name?: string;

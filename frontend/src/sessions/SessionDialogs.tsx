@@ -72,6 +72,11 @@ export function NewSession({
     [yolo, setYolo] = useState(true),
     [prime, setPrime] = useState(""),
     [isolated, setIsolated] = useState(false),
+    // Sandbox isolation (internal/isolation, docs/isolation.md) — distinct
+    // from `isolated` above, which is the git-worktree checkout, not a
+    // process sandbox. "" means "use the project's default".
+    [sandboxMode, setSandboxMode] = useState<"" | "none" | "bwrap" | "docker">(""),
+    [sandboxNetwork, setSandboxNetwork] = useState<"allow" | "deny">("allow"),
     [base, setBase] = useState(""),
     [branch, setBranch] = useState(""),
     [extra, setExtra] = useState<RepositorySelection[]>([]),
@@ -194,6 +199,15 @@ export function NewSession({
           brief: mode === "brief",
           yolo,
           prime: prime.trim(),
+          // null means "use the project's (or built-in) default"; "none" is
+          // an explicit opt-out even when that default is sandboxed.
+          isolation:
+            sandboxMode === ""
+              ? null
+              : {
+                  mode: sandboxMode === "none" ? "" : sandboxMode,
+                  network: sandboxNetwork,
+                },
         },
       });
       // Only a session that actually started counts as a recent project.
@@ -501,6 +515,41 @@ export function NewSession({
                     // my phone", for both agents.
                     "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
                   : "The agent stops and asks before it edits or runs anything."}
+          </div>
+          <label htmlFor="ns-isolation">Isolation</label>
+          <select
+            id="ns-isolation"
+            value={sandboxMode}
+            onChange={(e) => setSandboxMode(e.target.value as typeof sandboxMode)}
+          >
+            <option value="">Project default</option>
+            <option value="none">None (today's behavior)</option>
+            <option value="bwrap">bwrap — fast, no daemon</option>
+            <option value="docker">Docker container</option>
+          </select>
+          {(sandboxMode === "bwrap" || sandboxMode === "docker") && (
+            <>
+              <label htmlFor="ns-isolation-network">Network</label>
+              <select
+                id="ns-isolation-network"
+                value={sandboxNetwork}
+                onChange={(e) =>
+                  setSandboxNetwork(e.target.value as typeof sandboxNetwork)
+                }
+              >
+                <option value="allow">Allow — unrestricted, like today</option>
+                <option value="deny">
+                  Deny — allowlist proxy only (see docs/isolation.md)
+                </option>
+              </select>
+            </>
+          )}
+          <div className="subhint" id="ns-isolation-hint">
+            {sandboxMode === "bwrap"
+              ? "Runs the agent inside bubblewrap: its own filesystem view, this project's directory and its own auth read-write, the rest of $HOME hidden."
+              : sandboxMode === "docker"
+                ? "Runs the agent inside a disposable Docker container with the same mounts."
+                : ""}
           </div>
           <div className="session-field">
             <label htmlFor="ns-prime">First message (optional)</label>

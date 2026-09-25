@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -54,6 +55,11 @@ type sessionView struct {
 	// the last 30 minutes. nil for no overlap (the common case) so the field
 	// is absent from most rows rather than cluttering every response.
 	AwarenessOverlap *awarenessOverlapView `json:"awareness_overlap,omitempty"`
+	// Isolation is this session's actual running sandbox tier (from its
+	// captured launch configuration, not any later project default change)
+	// — the board's isolation badge. Omitted (mode "") for an unsandboxed
+	// session, which is every session predating this feature.
+	Isolation isolation.Config `json:"isolation,omitempty"`
 }
 
 // awarenessOverlapView is deliberately tiny: just enough for the chip's
@@ -102,6 +108,7 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 		var cfg sessions.LaunchConfiguration
 		if json.Unmarshal([]byte(row.LaunchConfigJSON), &cfg) == nil {
 			v.LaunchProfile = cfg.ProfileName
+			v.Isolation = cfg.Isolation
 		}
 	}
 	if wraps, err := s.DB.SessionWraps(row.ID); err == nil {
@@ -281,6 +288,11 @@ type sessionIn struct {
 	// (for callers that only know the old field), else to the
 	// "session_permission_mode" global default setting.
 	PermissionMode string `json:"permission_mode"`
+	// Isolation overrides the project's (or the built-in) default sandbox
+	// tier for this one launch — see internal/isolation. Absent means "use
+	// the default"; {"mode":""} explicitly launches unsandboxed even when
+	// the project's default is not.
+	Isolation *isolation.Config `json:"isolation"`
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -292,6 +304,12 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	if in.Agent != "" {
 		if _, ok := sessions.Find(s.agentSpecs(), in.Agent); !ok {
 			httpError(w, 422, "unknown agent %q — define it in /api/agents", in.Agent)
+			return
+		}
+	}
+	if in.Isolation != nil {
+		if err := in.Isolation.Validate(); err != nil {
+			httpError(w, 422, "%s", err.Error())
 			return
 		}
 	}
@@ -382,6 +400,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Agent: in.Agent, Model: in.Model, Workdir: in.Workdir,
 		Resume: in.Resume, Prime: prime, Scratch: in.Scratch, Yolo: yolo, PermissionMode: mode,
 		// The manager layers project defaults before the selected launch profile.
+		Isolation: in.Isolation,
 	})
 	if err != nil {
 		httpError(w, 409, "%s", err.Error())

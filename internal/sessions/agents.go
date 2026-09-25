@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -356,6 +357,13 @@ type Start struct {
 	// ToolArgs are provider-specific configuration flags supplied by the
 	// project. They are quoted here because they may contain MCP secrets.
 	ToolArgs []string
+	// Isolation runs the agent inside a bwrap/docker sandbox instead of
+	// directly on the target — see internal/isolation. The zero value keeps
+	// today's unsandboxed behavior.
+	Isolation isolation.Config
+	// IsolationOpts carries what Isolation needs beyond the fields above
+	// (the proxy socket for network=deny). Ignored when Isolation is none.
+	IsolationOpts isolation.WrapOpts
 }
 
 // LaunchCommand builds the tmux command that starts one interactive session.
@@ -385,8 +393,26 @@ func (s Spec) LaunchCommand(o Start) string {
 	if o.Prompt != "" && s.PromptArg {
 		parts = append(parts, shellq.Quote(o.Prompt))
 	}
-	inner := fmt.Sprintf("cd %s && %s%s; exec bash",
-		shellq.Quote(o.Workdir), o.EnvPrefix, strings.Join(parts, " "))
+	agentInvocation := o.EnvPrefix + strings.Join(parts, " ")
+	if o.Isolation.Normalized().Mode != isolation.None {
+		wrapOpts := o.IsolationOpts
+		wrapOpts.Workdir = o.Workdir
+		if wrapOpts.Agent == "" {
+			wrapOpts.Agent = s.Name
+		}
+		wrapped, err := isolation.Wrap(agentInvocation, o.Isolation, wrapOpts)
+		if err != nil {
+			// Unreachable in practice: the manager validates and resolves
+			// Isolation (including the proxy socket for network=deny)
+			// before ever building a Start. Fail loudly rather than
+			// silently launching unsandboxed if that ever changes.
+			agentInvocation = "echo " + shellq.Quote("lectern: could not build the isolation sandbox: "+err.Error()) + " >&2; exit 97"
+		} else {
+			agentInvocation = wrapped
+		}
+	}
+	inner := fmt.Sprintf("cd %s && %s; exec bash",
+		shellq.Quote(o.Workdir), agentInvocation)
 	setupEnv := ""
 	if o.SetupToken != "" {
 		setupEnv = " -e " + shellq.Quote("LECTERN_SETUP_TOKEN="+o.SetupToken)

@@ -24,6 +24,7 @@ const project = {
   default_agent: "claude",
   capability_profile: "full",
   default_permission_mode: "acceptEdits",
+  default_isolation_json: "{}",
   skill_sources_json: "[]",
   created_at: 1,
 } satisfies Project;

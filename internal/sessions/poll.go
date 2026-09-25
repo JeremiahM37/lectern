@@ -210,6 +210,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		// Keep any target allocation for inspection; do not launch twice.
 		now := store.Now()
 		if err := m.DB.Update("sessions", s.ID, map[string]any{"setup_state": "failed", "setup_error": "Setup was interrupted; inspect the workspace before retrying", "status": StatusDead, "ended_at": now, "updated_at": now}); err == nil {
+			m.IsolationProxies.Stop(s.ID)
 			if fresh, err := m.DB.Session(s.ID); err == nil {
 				m.publish(fresh)
 			}
@@ -275,6 +276,9 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	// runner's own fingerprint is what keeps the two from double-running.
 	if m.Checks != nil && s.Status == StatusRunning && status == StatusIdle {
 		m.Checks.OnAgentStop(s.ID)
+	}
+	if status == StatusDead && s.Status != StatusDead {
+		m.IsolationProxies.Stop(s.ID)
 	}
 	if fresh, err := m.DB.Session(s.ID); err == nil {
 		m.publish(fresh)
