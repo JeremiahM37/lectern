@@ -538,3 +538,15 @@ leaves manual selection available. A new Claude conversation can be identified
 before it has saved any readable messages; it becomes readable after persistence.
 Older active terminals are checked through their current pane without changing
 their tracking metadata. Renamed Codex binaries may require manual selection.
+
+
+### Find commands without memorizing shortcuts
+
+The dashboard footer keeps **n new** and **m actions** visible, including in
+narrow terminals. Press **m**, then **/** to search actions by name. Try
+`past conversation` to search saved conversation text, `running agents` to find
+and track agents, or `closed` to reopen previous work. **Enter** runs the
+matching action; arrow keys browse results. **Esc** leaves the search, then
+closes the menu. Existing shortcuts remain available, including **/** to filter
+the current list, **f** to discover running agents, and **F** to search past
+conversation text. The footer distinguishes those two searches.

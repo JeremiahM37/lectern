@@ -409,3 +409,23 @@ def test_dashboard_opens_three_background_terminals_without_leaving_list(real_te
             subprocess.run(['tmux', 'has-session', '-t', '='+target], env=t['env'], check=True)
     finally:
         d.close()
+
+
+def test_actions_are_discoverable_and_searchable_in_real_terminal(real_terminal):
+    d = Dashboard(real_terminal)
+    try:
+        d.wait('Real terminal')
+        for width in (120, 80, 40):
+            d.resize(width, 30)
+            d.wait('n new'); d.wait('m actions'); d.wait('f '); d.wait('F ')
+        d.resize(120, 35)
+        d.send('m/PAST conversation')
+        d.wait('Search past saved conversation text')
+        d.send('\r'); d.wait('Search saved conversations'); d.wait('Conversation text')
+        d.send('\x1b'); d.pump(.3)
+        d.send('m/running agents'); d.wait('Find and track running agents')
+        d.send('\x1b'); d.pump(.3)
+        d.send('\x1b'); d.pump(.3)
+        d.quit()
+    finally:
+        d.close()

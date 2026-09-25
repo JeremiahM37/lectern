@@ -162,6 +162,8 @@ type dashboard struct {
 	detailKey, detailTitle, detail      string
 	help, menu                          bool
 	menuIndex                           int
+	menuQuery                           string
+	menuSearching                       bool
 	form                                *dashboardForm
 	pending                             *dashboardAction
 	busy                                bool
@@ -440,7 +442,7 @@ func (m *dashboard) ensureSelection() {
 		m.offset = m.selected
 	}
 	m.offset = max(0, min(m.offset, m.selected))
-	for m.offset < m.selected && m.rowsHeight(m.offset, m.selected+1) > max(3, m.height-8) {
+	for m.offset < m.selected && m.rowsHeight(m.offset, m.selected+1) > max(3, m.height-9) {
 		m.offset++
 	}
 }
@@ -544,7 +546,7 @@ func (m *dashboard) layout() {
 		w = m.width - m.listWidth() - 5
 	}
 	m.preview.Width = max(10, w)
-	m.preview.Height = max(3, m.height-11)
+	m.preview.Height = max(3, m.height-12)
 	if m.form != nil {
 		m.form.editor.SetWidth(max(10, m.width-10))
 	}
@@ -938,10 +940,10 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A terminal read can contain several ordinary keystrokes. Process them
 		// in order, allowing '/' to focus search before its following text.
 		// Bracketed paste outside an input is data, never a command sequence.
-		if v.Paste && !m.searching && m.form == nil {
+		if v.Paste && !m.searching && !m.menuSearching && m.form == nil {
 			return m, nil
 		}
-		if len(v.Runes) > 1 && !m.searching && m.form == nil {
+		if len(v.Runes) > 1 && !m.searching && !m.menuSearching && m.form == nil {
 			var cmds []tea.Cmd
 			for _, r := range v.Runes {
 				_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -985,9 +987,43 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if m.menu {
-			list := m.actions()
+			list := m.filteredActions()
+			m.menuIndex = max(0, min(m.menuIndex, len(list)-1))
+			if m.menuSearching {
+				switch v.String() {
+				case "esc":
+					m.menuSearching = false
+					m.menuQuery = ""
+				case "enter":
+					m.menuSearching = false
+					if len(list) > 0 {
+						m.menu = false
+						m.menuQuery = ""
+						return m, m.choose(list[0])
+					}
+				case "down", "up":
+					m.menuSearching = false
+				case "backspace":
+					r := []rune(m.menuQuery)
+					if len(r) > 0 {
+						m.menuQuery = string(r[:len(r)-1])
+					}
+				default:
+					if v.Type == tea.KeyRunes && len([]rune(m.menuQuery)) < 200 {
+						m.menuQuery += string(v.Runes)
+					}
+					if v.Type == tea.KeySpace {
+						m.menuQuery += " "
+					}
+				}
+				m.menuIndex = 0
+				return m, nil
+			}
 			switch v.String() {
+			case "/":
+				m.menuSearching = true
 			case "esc", "q":
+				m.menuQuery = ""
 				if m.popup {
 					return m, tea.Quit
 				}
@@ -1170,6 +1206,8 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.newShellForm()
 		case "m":
+			m.menuQuery = ""
+			m.menuSearching = false
 			m.menu = true
 			m.menuIndex = 0
 		case "n":
@@ -1369,7 +1407,7 @@ func (m *dashboard) View() string {
 		meta += " · includes ended"
 	}
 	header += muted.Render(clip(meta, m.width)) + "\n"
-	bodyHeight := max(3, m.height-8)
+	bodyHeight := max(3, m.height-9)
 	var body string
 	switch {
 	case m.form != nil:
@@ -1379,9 +1417,15 @@ func (m *dashboard) View() string {
 	case m.help:
 		body = dashboardHelp
 	case m.menu:
-		list := m.actions()
-		start := max(0, m.menuIndex-bodyHeight+4)
-		lines := []string{" Actions · ↑↓ choose · Enter run · Esc close", ""}
+		list := m.filteredActions()
+		start := max(0, min(m.menuIndex, len(list)-1)-bodyHeight+4)
+		lines := []string{" Actions · / search · ↑↓ choose · Enter run · Esc close", ""}
+		if m.menuQuery != "" || m.menuSearching {
+			lines[1] = " Search actions: " + m.menuQuery
+		}
+		if len(list) == 0 {
+			lines = append(lines, " No matching actions. / to edit search · Esc close")
+		}
 		for i := start; i < len(list) && len(lines) < bodyHeight; i++ {
 			s := "  " + list[i].Label
 			if i == m.menuIndex {
@@ -1432,50 +1476,33 @@ func (m *dashboard) View() string {
 	if m.busy {
 		status = "Working… " + status
 	}
-	keys := " Enter attach · S blank shell · / filter · F text search · n new · C closed · m actions · ? help · q quit"
-	if m.selectedGroup() != nil {
-		keys = " Enter fold · [ parent · ] expand · / search · ? help · q quit"
-	}
-	// C (recently closed) is listed because it is otherwise invisible once
-	// any session is running: the empty-list menu is the only other place it
-	// was offered by name.
-	if m.width < 112 && m.selectedGroup() == nil {
-		keys = " Enter attach · S shell · / filter · n new · C closed · m actions · ? help · q quit"
-	}
-	if m.width < 86 {
-		keys = " Enter attach · / find · ? help · q quit"
-		if m.selectedGroup() != nil {
-			keys = " Enter fold · / find · ? help · q quit"
+	keys := " n new · Enter open · / filter · m actions · ? help · q quit"
+	more := " m actions: search, history, settings and more"
+	if m.section == 0 {
+		keys = " n new session · Enter attach · o new terminal · b select · m actions · q quit"
+		more = " / filter list · f find running agents · F search past conversations · C recently closed · ? help"
+		if m.width < 100 {
+			keys = " n new · Enter attach · o terminal · m actions · q quit"
+			more = " / filter · f find agents · F search history · C closed · ? help"
 		}
-	}
-	if m.width < 42 {
-		keys = " Enter attach · / find · q quit"
 		if m.selectedGroup() != nil {
-			keys = " Enter fold · / find · q quit"
+			keys = " n new · Enter fold · b select · m actions · q quit"
+		}
+		if m.batchOpen {
+			keys = " Space select · Enter open selected · b cancel · m actions · q quit"
 		}
 	}
 	if sections[m.section] == "projects" {
-		keys = " Enter open project shell · / find · m actions · q quit"
+		keys = " n new · Enter open project shell · / filter · m actions · q quit"
 	}
-	if m.section == 0 {
-		keys = " n new session · Enter attach · o/right-click new terminal · b select · / find · ? help · q quit"
+	if m.width < 60 {
+		keys = " n new · m actions · ? help · q quit"
+		more = " / filter · f agents · F history"
 		if m.batchOpen {
-			keys = " Click/Space select · Enter open selected · b cancel · q quit"
-		}
-		if m.width < 100 {
-			keys = " n new · o terminal · b select · ? help · q quit"
-		}
-		if m.selectedGroup() != nil {
-			keys = " n new · Enter/click fold · b batch · ? help · q quit"
-		}
-		if m.width < 60 {
-			keys = " n new · o term · b select · ? · q quit"
-			if m.selectedGroup() != nil {
-				keys = " n new · fold · b batch · ? · q quit"
-			}
+			more = " Space select · Enter open · b cancel"
 		}
 	}
-	footer := muted.Render(clip(keys, m.width-1)) + "\n" + clip(" "+status, m.width-1)
+	footer := muted.Render(clip(keys, m.width-1)) + "\n" + muted.Render(clip(more, m.width-1)) + "\n" + clip(" "+status, m.width-1)
 	return header + strings.Join(lines, "\n") + "\n" + footer
 }
 func (m *dashboard) listView(height int) string {

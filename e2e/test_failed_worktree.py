@@ -49,7 +49,7 @@ def test_terminal_can_remove_failed_worktree_from_ended_session(real_terminal):
     try:
         d.wait('Real terminal');d.send('z');d.wait('Failed terminal setup');d.send('/Failed terminal setup\r')
         d.wait('TUI SETUP FAILURE');d.send('m');d.wait('Remove worktree (keep branch)')
-        # Destructive actions stay last; menu movement clamps at its boundary.
-        d.send('j'*20+'\r');d.wait('Changed, untracked or ignored');d.send('y');d.wait('Remove worktree (keep branch) completed')
+        # Find the named action without depending on how many other actions exist.
+        d.send('/remove worktree\r');d.wait('Changed, untracked or ignored');d.send('y');d.wait('Remove worktree (keep branch) completed')
         assert not dest.exists();git('rev-parse','tui-failed-setup');d.quit()
     finally:d.close()

@@ -75,6 +75,31 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 		return nil
 	}
 	switch a.Operation {
+	case "new":
+		return m.newForm()
+	case "new-terminal":
+		return m.attachSelectedTo(false, true)
+	case "batch-terminals":
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+		return cmd
+	case "api":
+		return m.apiForm()
+	case "refresh":
+		return m.refresh()
+	case "discover":
+		return m.discover()
+	case "search-history":
+		return m.nativeSearchForm()
+	case "filter-list":
+		m.searching = true
+		return m.query.Focus()
+	case "settings":
+		return m.settingsForm()
+	case "usage":
+		return m.readResource("Usage", "/stats")
+	case "help":
+		m.help = true
+		return nil
 	case "recent-sessions":
 		return m.loadRecentSessions()
 	case "extend-workspace":
@@ -172,28 +197,64 @@ func (m *dashboard) actions() []dashboardAction {
 // terminal. A controls popup omits these so it cannot attach inside itself.
 func nativeTerminalAction(operation string) bool {
 	switch operation {
-	case "attach", "shell", "blank-shell":
+	case "attach", "shell", "blank-shell", "new-terminal", "batch-terminals":
 		return true
 	}
 	return false
 }
-func (m *dashboard) allActions() []dashboardAction {
-	actions := m.rowActions()
-	profile := dashboardAction{Label: "Manage launch profiles", Operation: "launch-profiles"}
-	agents := dashboardAction{Label: "Manage agent runners", Operation: "agents"}
-	blankShell := dashboardAction{Label: "Open blank shell", Operation: "blank-shell"}
-	if len(actions) == 0 {
-		if sections[m.section] == "sessions" {
-			return []dashboardAction{blankShell, profile, {Label: "Recently closed", Operation: "recent-sessions"}}
+func (m *dashboard) filteredActions() []dashboardAction {
+	list := m.actions()
+	words := strings.Fields(strings.ToLower(m.menuQuery))
+	if len(words) == 0 {
+		return list
+	}
+	var filtered []dashboardAction
+	for _, a := range list {
+		match := true
+		for _, word := range words {
+			if !strings.Contains(strings.ToLower(a.Label), word) {
+				match = false
+				break
+			}
 		}
-		return []dashboardAction{profile}
+		if match {
+			filtered = append(filtered, a)
+		}
 	}
-	// Keep attachment first and destructive actions last.
-	last := actions[len(actions)-1]
-	if sections[m.section] == "sessions" {
-		return append(actions[:len(actions)-1], agents, profile, blankShell, dashboardAction{Label: "Recently closed", Operation: "recent-sessions"}, last)
+	return filtered
+}
+
+func (m *dashboard) allActions() []dashboardAction {
+	common := []dashboardAction{
+		{Label: "New item in this section (n)", Operation: "new"},
+		{Label: "Filter current list by name, project or agent (/)", Operation: "filter-list"},
+		{Label: "Find and track running agents (f)", Operation: "discover"},
+		{Label: "Search past saved conversation text across targets (F)", Operation: "search-history"},
+		{Label: "Recently closed sessions — reopen previous work (C)", Operation: "recent-sessions"},
+		{Label: "Open blank persistent shell (S)", Operation: "blank-shell"},
+		{Label: "Manage launch profiles (P)", Operation: "launch-profiles"},
+		{Label: "Manage agent runners (Q)", Operation: "agents"},
+		{Label: "Settings (7)", Operation: "settings"},
+		{Label: "Full API explorer (9)", Operation: "api"},
+		{Label: "Refresh current list (r)", Operation: "refresh"},
+		{Label: "Usage and token statistics (8)", Operation: "usage"},
+		{Label: "Keyboard shortcuts and help (?)", Operation: "help"},
 	}
-	return append(actions[:len(actions)-1], agents, profile, last)
+	if m.section == 0 {
+		common[0].Label = "New session (n)"
+		common = append(common, dashboardAction{Label: "Open selected session in a new terminal (o)", Operation: "new-terminal"}, dashboardAction{Label: "Select multiple sessions to open in new terminals (b)", Operation: "batch-terminals"})
+	}
+	actions := m.rowActions()
+	// Keep the selected item's actions first and destructive actions last.
+	var safe, dangerous []dashboardAction
+	for _, a := range actions {
+		if a.Warning != "" {
+			dangerous = append(dangerous, a)
+		} else {
+			safe = append(safe, a)
+		}
+	}
+	return append(append(safe, common...), dangerous...)
 }
 func (m *dashboard) rowActions() []dashboardAction {
 	if m.selectedGroup() != nil {

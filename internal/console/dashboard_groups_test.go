@@ -87,7 +87,7 @@ func TestDashboardUngroupedIdentityAndTreeMouseGeometry(t *testing.T) {
 			m.selected = selected
 			m.ensureSelection()
 			y := m.rowsHeight(m.offset, selected)
-			if m.rowAt(y) != selected || y+m.rowHeight(selected) > max(3, height-8) {
+			if m.rowAt(y) != selected || y+m.rowHeight(selected) > max(3, height-9) {
 				t.Fatal("selected row not visible/clickable", height, selected)
 			}
 		}

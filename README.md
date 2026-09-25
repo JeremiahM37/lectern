@@ -428,8 +428,10 @@ See [Terminal workspace](docs/terminal-workspace.md).
 Run `lectern console` on your server to manage sessions, tasks, routines,
 projects, targets, approvals and settings. Install the client on your computer
 to run `lectern` directly from your terminal. In the live dashboard, use
-arrow keys to select a session and Enter to attach; `m` opens actions and `?`
-shows shortcuts. Use `lectern console --plain` for the line-oriented menu.
+arrow keys to select a session and Enter to attach. The footer shows common
+actions, including `n` for a new session. Press `m`, then `/`, and type a command
+name such as “running agents” or “past conversation”; Enter runs the matching
+action. You can also browse with the arrow keys. `?` lists all shortcuts. Use `lectern console --plain` for the line-oriented menu.
 Press **Ctrl+B**, then **D** to detach and return to the menu without stopping
 the session. Skip the menus with `lectern attach session ID`.
 

@@ -839,3 +839,65 @@ func TestNewSessionShortcutVisibleWithoutHelp(t *testing.T) {
 		}
 	}
 }
+
+func TestActionSearchFindsGlobalCommandsAndRunsSelection(t *testing.T) {
+	m := sampleDashboard()
+	m.rows, m.visible = nil, nil
+	m.Update(key("m"))
+	m.Update(key("/"))
+	for _, r := range "PAST conversation" {
+		m.Update(key(string(r)))
+	}
+	list := m.filteredActions()
+	if len(list) != 1 || list[0].Operation != "search-history" {
+		t.Fatalf("search history missing: %+v", list)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.menu || m.form == nil {
+		t.Fatal("Enter did not open the conversation search form")
+	}
+}
+
+func TestActionSearchEmptyAndEscapePreserveDashboard(t *testing.T) {
+	m := sampleDashboard()
+	m.Update(key("m"))
+	m.Update(key("/"))
+	for _, r := range "nonexistent-command" {
+		m.Update(key(string(r)))
+	}
+	if !strings.Contains(m.View(), "No matching actions") {
+		t.Fatal("missing empty result guidance")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.menu {
+		t.Fatal("empty result executed an action")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.menu {
+		t.Fatal("Escape did not close actions")
+	}
+}
+
+func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
+	for _, width := range []int{40, 80, 120} {
+		m := sampleDashboard()
+		m.width = width
+		view := ansi.Strip(m.View())
+		for _, hint := range []string{"n new", "m actions", "f ", "F ", "q quit"} {
+			if !strings.Contains(view, hint) {
+				t.Fatalf("width %d missing %q", width, hint)
+			}
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if ansi.StringWidth(line) > width {
+				t.Fatalf("width %d overflow: %q", width, line)
+			}
+		}
+	}
+	m := sampleDashboard()
+	m.menuQuery = "running agents"
+	actions := m.filteredActions()
+	if len(actions) != 1 || actions[0].Operation != "discover" {
+		t.Fatal("running-agent discovery missing from actions")
+	}
+}
