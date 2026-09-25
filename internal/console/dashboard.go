@@ -1483,7 +1483,7 @@ func (m *dashboard) View() string {
 		more = " / filter list · f find running agents · F search past conversations · C recently closed · ? help"
 		if m.width < 100 {
 			keys = " n new · Enter attach · o terminal · m actions · q quit"
-			more = " / filter · f find agents · F search history · C closed · ? help"
+			more = " / filter · f find agents · F search history · C recently closed · ? help"
 		}
 		if m.selectedGroup() != nil {
 			keys = " n new · Enter fold · b select · m actions · q quit"
