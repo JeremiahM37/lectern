@@ -429,13 +429,17 @@ func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, erro
 		return nil, err
 	}
 	if len(variants) == 0 {
-		if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{}); err != nil {
+		att, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{})
+		if err != nil {
 			return nil, err
 		}
+		s.autoClaimTaskScope(fresh, att)
 		if body.ModelB != "" {
-			if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB}); err != nil {
+			attB, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB})
+			if err != nil {
 				return nil, err
 			}
+			s.autoClaimTaskScope(fresh, attB)
 		}
 	} else {
 		for _, v := range variants {
@@ -446,9 +450,11 @@ func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, erro
 			if v.permission != fresh.PermissionMode {
 				opts.PermissionMode = v.permission
 			}
-			if _, err := s.Sched.CreateAttempt(fresh, opts); err != nil {
+			att, err := s.Sched.CreateAttempt(fresh, opts)
+			if err != nil {
 				return nil, err
 			}
+			s.autoClaimTaskScope(fresh, att)
 		}
 	}
 	fresh, _ = s.DB.Task(task.ID)

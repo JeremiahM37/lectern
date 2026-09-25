@@ -217,6 +217,66 @@ func (t *Tracker) resolveSession(ctx context.Context, sessionID, targetID int64,
 	}
 }
 
+// ResolveNow synchronously resolves (and persists) a session's repo_key,
+// unlike EnsureRepoKeyAsync — safe ONLY from a normal API handler, never a
+// hook response path (see the package doc). internal/api/claims.go's
+// session-scoped claim creation is the first caller: a claim needs its
+// repo_key at the moment it is made, and creating one is an explicit request,
+// not a hook Claude/Codex is waiting on a fast reply to.
+func (t *Tracker) ResolveNow(ctx context.Context, sess *store.Session) (repoKey, toplevel string, ok bool) {
+	if sess.RepoKey != "" {
+		return sess.RepoKey, sess.RepoToplevel, sess.RepoKey != RepoKeyNone
+	}
+	target, err := t.DB.Target(sess.TargetID)
+	if err != nil {
+		return "", "", false
+	}
+	ex, err := t.Reg.For(target)
+	if err != nil {
+		return "", "", false
+	}
+	key, top, ok := ResolveRepoKey(ctx, ex, sess.TargetID, sess.Workdir)
+	if !ok {
+		_ = t.DB.Update("sessions", sess.ID, map[string]any{"repo_key": RepoKeyNone})
+		return "", "", false
+	}
+	if err := t.DB.Update("sessions", sess.ID, map[string]any{"repo_key": key, "repo_toplevel": top}); err != nil {
+		t.Log.Warn("awareness: could not record repo key", "session", sess.ID, "err", err)
+		return "", "", false
+	}
+	sess.RepoKey, sess.RepoToplevel = key, top
+	return key, top, true
+}
+
+// ResolveProjectRepoKey synchronously resolves (and persists) a PROJECT's
+// repo_key directly from its own target/repo_path, independent of any
+// session — for a caller (claim creation "for" a project, or a human's
+// "claim for me") that has no session context to resolve through. Same
+// hook-response restriction as ResolveNow.
+func (t *Tracker) ResolveProjectRepoKey(ctx context.Context, proj *store.Project) (repoKey, toplevel string, ok bool) {
+	if proj.RepoKey != "" {
+		return proj.RepoKey, proj.RepoToplevel, true
+	}
+	target, err := t.DB.Target(proj.TargetID)
+	if err != nil {
+		return "", "", false
+	}
+	ex, err := t.Reg.For(target)
+	if err != nil {
+		return "", "", false
+	}
+	key, top, ok := ResolveRepoKey(ctx, ex, proj.TargetID, proj.RepoPath)
+	if !ok {
+		return "", "", false
+	}
+	if err := t.DB.Update("projects", proj.ID, map[string]any{"repo_key": key, "repo_toplevel": top}); err != nil {
+		t.Log.Warn("awareness: could not record project repo key", "project", proj.ID, "err", err)
+		return "", "", false
+	}
+	proj.RepoKey, proj.RepoToplevel = key, top
+	return key, top, true
+}
+
 // RecordEdit stores the latest edit time for a tracked-tool file path
 // against this session's repo, then opportunistically prunes rows older
 // than EditRetention (docs/agent-events.md: "pruning rows older than 24h").

@@ -325,6 +325,29 @@ type SessionFileEdit struct {
 	At        float64 `json:"at"`
 }
 
+// Claim is one entry on the Claim board (docs/claims.md, docs/agent-events.md
+// "Cross-agent awareness"): a vendor-neutral record of who is doing what in a
+// repository, so agents from different vendors — and humans — coordinate
+// instead of duplicating work. See schema.go's claims table comment for the
+// column-by-column contract.
+type Claim struct {
+	ID         int64    `json:"id"`
+	RepoKey    string   `json:"repo_key"`
+	ScopeKind  string   `json:"scope_kind"`
+	Scope      string   `json:"scope"`
+	Holder     string   `json:"holder"`
+	HolderKind string   `json:"holder_kind"`
+	SessionID  *int64   `json:"session_id,omitempty"`
+	AttemptID  *int64   `json:"attempt_id,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
+	Intent     string   `json:"intent"`
+	Auto       bool     `json:"auto"`
+	CreatedAt  float64  `json:"created_at"`
+	ExpiresAt  float64  `json:"expires_at"`
+	ReleasedAt *float64 `json:"released_at,omitempty"`
+	TTLSeconds float64  `json:"-"`
+}
+
 // SessionCheck is one run of a session's check command — see internal/checks
 // and schema.go's session_checks table doc comment.
 type SessionCheck struct {

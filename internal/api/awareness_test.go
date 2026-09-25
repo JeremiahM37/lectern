@@ -16,6 +16,20 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
+// disableClaimsForAwarenessTest turns off the Claim board's own hook-response
+// side effects (docs/claims.md) so this file's assertions stay about
+// awareness alone — claims_auto_paths in particular would otherwise create
+// an automatic claim on a PostToolUse edit these tests make, and its own
+// PreToolUse edit-warning/briefing text would then show up alongside (or
+// instead of) the awareness text these tests are actually checking.
+func disableClaimsForAwarenessTest(t *testing.T, h *harness) {
+	t.Helper()
+	if code, resp := h.request("PUT", "/api/settings",
+		obj{"claims_briefing": "0", "claims_edit_warning": "0", "claims_auto_paths": "0"}, nil); code != 200 {
+		t.Fatalf("PUT settings: got %d: %s", code, resp)
+	}
+}
+
 func setSessionRepo(t *testing.T, h *harness, id int64, repoKey, toplevel, workdir string) {
 	t.Helper()
 	fields := map[string]any{"repo_key": repoKey, "repo_toplevel": toplevel}
@@ -64,6 +78,7 @@ func TestSessionPeersEndpointEmptyWithNoAwareness(t *testing.T) {
 func TestAwarenessBriefingOnSessionStartAndDedup(t *testing.T) {
 	h := newHarness(t)
 	pid := h.seededProjectID()
+	disableClaimsForAwarenessTest(t, h)
 	a := h.session(obj{"project_id": pid, "name": "agent-a", "agent": "claude"})
 	b := h.session(obj{"project_id": pid, "name": "agent-b", "agent": "codex"})
 	setSessionRepo(t, h, a.id(), "1:/repo/.git", "/repo", "/repo")
@@ -137,6 +152,7 @@ func TestAwarenessNoBriefingWithoutPeers(t *testing.T) {
 func TestAwarenessEditWarningSameDirVsWorktree(t *testing.T) {
 	h := newHarness(t)
 	pid := h.seededProjectID()
+	disableClaimsForAwarenessTest(t, h)
 	a := h.session(obj{"project_id": pid, "name": "writer", "agent": "claude"})
 	b := h.session(obj{"project_id": pid, "name": "other-worktree", "agent": "codex"})
 	c := h.session(obj{"project_id": pid, "name": "same-dir", "agent": "claude"})
@@ -198,6 +214,7 @@ func TestAwarenessEditWarningSameDirVsWorktree(t *testing.T) {
 func TestAwarenessSettingsToggleOff(t *testing.T) {
 	h := newHarness(t)
 	pid := h.seededProjectID()
+	disableClaimsForAwarenessTest(t, h)
 	a := h.session(obj{"project_id": pid, "name": "a", "agent": "claude"})
 	b := h.session(obj{"project_id": pid, "name": "b", "agent": "claude"})
 	setSessionRepo(t, h, a.id(), "1:/repo/.git", "/repo", "/repo")

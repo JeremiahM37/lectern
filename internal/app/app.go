@@ -19,6 +19,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
+	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -156,6 +157,12 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// the background repo-key resolution the hook handlers kick off.
 	awarenessTracker := awareness.New(db, reg, log)
 
+	// claimsTracker is the Claim board's whole backend (internal/claims,
+	// docs/claims.md): create/release/extend, overlap queries, briefing/
+	// warning text and the periodic sweep. Wired alongside awarenessTracker
+	// since claims lean on awareness's repo-key resolution.
+	claimsTracker := claims.New(db, log)
+
 	authResolver := auth.New(auth.Settings{
 		Mode: cfg.Auth, Host: cfg.Host, Token: cfg.AuthToken, Socket: cfg.TailscaleSocket,
 		AllowedUsersCSV: cfg.TailscaleUsers, AllowedTagsCSV: cfg.TailscaleTags,
@@ -172,7 +179,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
-		Awareness: awarenessTracker, Triggers: triggersMgr,
+		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
 	}
 	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
@@ -189,6 +196,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// a trigger-created task is a task too — same reasoning again; Tick also
 	// reconciles Slack's live sockets and posts back finished tasks
 	sched.Triggers = triggersMgr.Tick
+	// Claim board sweep (docs/claims.md): releases lapsed-TTL, finished-
+	// attempt and dead-session claims once per tick.
+	sched.Claims = func(context.Context) {
+		if _, err := claimsTracker.Sweep(); err != nil {
+			log.Warn("claims sweep failed", "err", err)
+		}
+	}
 
 	app := &App{Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
