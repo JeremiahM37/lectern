@@ -40,6 +40,22 @@ Add a test with any behaviour change. A new execution path should also be
 exercised against a real target at least once — the mock suite has (twice) masked
 bugs that only surfaced on real infrastructure (see `DESIGN.md` §10).
 
+## Safety rules for contributors and agents
+
+- **Never run tmux kill commands on a host that runs Lectern.**
+  `tmux kill-server`, `kill-session`, `kill-window`, `kill-pane`,
+  `detach-client -a`, `respawn-pane`/`respawn-window` and `pkill`/`killall tmux`
+  end the operator's live agent sessions, and cannot be undone.
+- **Run tmux and other real-process tests only through
+  `tools/run-isolated-tests.sh`**, which uses a private tmux server inside a
+  bubblewrap namespace. Real-process tests fail closed without it.
+- **A committed guard hook enforces the first rule for Claude Code**:
+  `.claude/settings.json` registers `tools/claude-guard/block-host-tmux-kill.py`
+  as a `PreToolUse` hook on Bash. Test it with
+  `python3 tools/claude-guard/test_guard.py`.
+- **Why:** `docs/known-failure-modes.md` lists the failures this repository has
+  already hit — both of the above among them — with the cause and the fix.
+
 ## Architecture
 
 `DESIGN.md` is the source of truth — read §4 (architecture) and §3 (vocabulary)
