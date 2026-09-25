@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -410,13 +411,41 @@ func (s *Server) staticHandler() http.Handler {
 	files := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
-		if r.URL.Path == "/" {
+		if r.URL.Path == "/" || appRoute(sub, r) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(web.IndexHTML)
 			return
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// appRoute reports whether a request is for one of the web app's own
+// client-side routes (/session/7, /task/3, ...) rather than a file. The app
+// navigates with the History API, so a reload, a bookmark, or a push
+// notification's deep link arrives here as a path no file has; without this
+// the server answered 404 and a tapped alert opened an error page. Only GET
+// and HEAD, only paths with no file extension, and only when no such file
+// exists, so a genuinely missing asset still 404s.
+func appRoute(assets fs.FS, r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := strings.TrimPrefix(r.URL.Path, "/")
+	if p == "" || strings.Contains(path.Base(p), ".") {
+		return false
+	}
+	// API-shaped paths keep their 404: a client asking for an unknown
+	// endpoint must not get an HTML page back.
+	for _, prefix := range []string{"api/", "term/", "a2a/", ".well-known/", "static/"} {
+		if strings.HasPrefix(p+"/", prefix) || strings.HasPrefix(p, prefix) {
+			return false
+		}
+	}
+	if _, err := fs.Stat(assets, p); err == nil {
+		return false
+	}
+	return true
 }
 
 // ---- shared helpers ----------------------------------------------------------
