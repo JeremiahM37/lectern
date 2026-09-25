@@ -145,6 +145,15 @@ const api: SettingsApi = {
       pushDevices = pushDevices.filter((d) => d.endpoint !== endpoint);
       return { ok: true };
     }
+    if (p === "/projects/1/check-command")
+      return {
+        command: "go test ./...",
+        source: "config",
+      };
+    if (p === "/projects/1/triggers")
+      return [];
+    if (p === "/projects/1/trigger-events")
+      return [];
     return {};
   }) as SettingsApi["request"],
 };
