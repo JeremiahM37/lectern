@@ -40,6 +40,39 @@ type taskIn struct {
 	// the implementation to the delegated-build worker, reviews and integrates
 	// the result into its own worktree. Requires Delegated builds to be on.
 	Orchestrate bool `json:"orchestrate"`
+	// createdBy overrides InsertTask's "user" default for the caller that is
+	// not a person. It is unexported because it is not part of the REST
+	// request body — the PWA and the CLI always file as "user"; A2A's
+	// SendMessage sets "a2a" so the board, and A2A's own ListTasks, can tell
+	// which tasks arrived over the protocol.
+	createdBy string
+}
+
+// taskRequestError is a failure from the shared create/dispatch/cancel bodies
+// below, carrying the HTTP status the REST handlers report. It exists so
+// A2A's JSON-RPC surface can file, queue and cancel a task through exactly the
+// code the REST API uses and still map the failure onto a JSON-RPC error
+// instead of an HTTP one.
+type taskRequestError struct {
+	status int
+	msg    string
+}
+
+func (e *taskRequestError) Error() string { return e.msg }
+
+func requestErr(status int, format string, args ...any) error {
+	return &taskRequestError{status: status, msg: fmt.Sprintf(format, args...)}
+}
+
+// respondTaskErr reports a shared-path failure, or falls back to respondErr
+// for the storage errors that path can also return.
+func respondTaskErr(w http.ResponseWriter, err error) {
+	var re *taskRequestError
+	if errors.As(err, &re) {
+		httpError(w, re.status, "%s", re.msg)
+		return
+	}
+	respondErr(w, err)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
@@ -73,30 +106,40 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
-	if in.Title == "" {
-		httpError(w, 422, "title is required")
+	task, err := s.buildTask(in)
+	if err != nil {
+		respondTaskErr(w, err)
 		return
+	}
+	writeJSON(w, 201, s.view(task))
+}
+
+// buildTask is createTask's body without the HTTP plumbing: validate the
+// request, insert the task and announce it on the board. It is shared with
+// A2A's SendMessage (internal/api/a2a.go) so a task that arrives over the
+// protocol is validated — known agent, permission mode, the project's own
+// defaults — by the identical code rather than by a second implementation
+// that could drift from it.
+func (s *Server) buildTask(in taskIn) (*store.Task, error) {
+	if in.Title == "" {
+		return nil, requestErr(422, "title is required")
 	}
 	if in.Agent != nil && !s.knownAgent(*in.Agent) {
-		httpError(w, 422, "agent must be one of %v", s.knownAgentNames())
-		return
+		return nil, requestErr(422, "agent must be one of %v", s.knownAgentNames())
 	}
 	if in.PermissionMode != nil && !oneOf(*in.PermissionMode, permissionModes...) {
-		httpError(w, 422, "permission_mode must be one of %v", permissionModes)
-		return
+		return nil, requestErr(422, "permission_mode must be one of %v", permissionModes)
 	}
 	priority := 2
 	if in.Priority != nil {
 		priority = *in.Priority
 	}
 	if priority < 0 || priority > 4 {
-		httpError(w, 422, "priority must be 0-4")
-		return
+		return nil, requestErr(422, "priority must be 0-4")
 	}
 	project, err := s.DB.Project(in.ProjectID)
 	if err != nil {
-		httpError(w, 400, "no such project")
-		return
+		return nil, requestErr(400, "no such project")
 	}
 	agent := strOr(in.Agent, orDefault(project.DefaultAgent, "claude"))
 	labels := orEmpty(in.Labels)
@@ -104,8 +147,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if in.Orchestrate {
 		lead, err := s.orchestrationLead(project, in.Agent, in.Model)
 		if err != nil {
-			httpError(w, 400, "%s", err)
-			return
+			return nil, requestErr(400, "%s", err)
 		}
 		agent, in.Model = lead.agent, lead.model
 		if !delegation.IsLead(labels) {
@@ -114,26 +156,24 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		prompt = delegation.LeadPrompt(project.Name, firstNonEmptyStr(strings.TrimSpace(in.Prompt), in.Title), lead.cycles)
 	}
 	if _, ok := s.taskAgent(agent); !ok {
-		httpError(w, 422, "agent %q has no non-interactive task definition; configure agent.task or use it for sessions only", agent)
-		return
+		return nil, requestErr(422, "agent %q has no non-interactive task definition; configure agent.task or use it for sessions only", agent)
 	}
 	mode := strOr(in.PermissionMode, orDefault(project.DefaultPermissionMode, "acceptEdits"))
 	spec, _ := s.taskAgent(agent)
 	if err := taskPermissionError(spec, mode); err != nil {
-		httpError(w, 400, "%s", err)
-		return
+		return nil, requestErr(400, "%s", err)
 	}
 	task, err := s.DB.InsertTask(&store.Task{
 		ProjectID: in.ProjectID, Title: in.Title, Prompt: prompt, Status: "backlog",
 		Priority: priority, LabelsJSON: store.J(labels), Agent: agent,
 		Model: in.Model, PermissionMode: mode, BaseBranch: in.BaseBranch,
+		CreatedBy: in.createdBy,
 	})
 	if err != nil {
-		respondErr(w, err)
-		return
+		return nil, err
 	}
 	s.Bus.Publish("board", "task", task)
-	writeJSON(w, 201, s.view(task))
+	return task, nil
 }
 
 type taskPatch struct {
@@ -285,41 +325,47 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if task.Status == "done" {
-		httpError(w, 409, "send a follow-up message to continue a completed task")
-		return
-	}
-	if err := state.Check(task.Status, "queued"); err != nil {
-		httpError(w, 409, "%s", err.Error())
-		return
-	}
 	var body dispatchIn
 	if err := decodeBody(r, &body); err != nil {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
-	if len(body.Variants) > 0 && body.ModelB != "" {
-		httpError(w, 422, "use either variants or model_b, not both")
+	fresh, err := s.queueTask(task, body)
+	if err != nil {
+		respondTaskErr(w, err)
 		return
 	}
+	writeJSON(w, 200, s.view(fresh))
+}
+
+// queueTask is dispatchTask's body without the HTTP plumbing: check the task
+// can be queued at all, validate the dispatch (including every variant) before
+// touching the database, then create the attempt(s). Shared with A2A's
+// SendMessage so a queued task is queued by one implementation.
+func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, error) {
+	if task.Status == "done" {
+		return nil, requestErr(409, "send a follow-up message to continue a completed task")
+	}
+	if err := state.Check(task.Status, "queued"); err != nil {
+		return nil, requestErr(409, "%s", err.Error())
+	}
+	if len(body.Variants) > 0 && body.ModelB != "" {
+		return nil, requestErr(422, "use either variants or model_b, not both")
+	}
 	if len(body.Variants) > maxDispatchVariants {
-		httpError(w, 422, "at most %d variants per dispatch", maxDispatchVariants)
-		return
+		return nil, requestErr(422, "at most %d variants per dispatch", maxDispatchVariants)
 	}
 	fields := map[string]any{"status": "queued", "updated_at": store.Now()}
 	if body.PermissionMode != "" {
 		if !oneOf(body.PermissionMode, permissionModes...) {
-			httpError(w, 422, "permission_mode must be one of %v", permissionModes)
-			return
+			return nil, requestErr(422, "permission_mode must be one of %v", permissionModes)
 		}
 		spec, exists := s.taskAgent(task.Agent)
 		if !exists {
-			httpError(w, 422, "agent %q has no non-interactive task definition", task.Agent)
-			return
+			return nil, requestErr(422, "agent %q has no non-interactive task definition", task.Agent)
 		}
 		if err := taskPermissionError(spec, body.PermissionMode); err != nil {
-			httpError(w, 400, "%s", err)
-			return
+			return nil, requestErr(400, "%s", err)
 		}
 		fields["permission_mode"] = body.PermissionMode
 	}
@@ -334,30 +380,25 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 	for _, v := range body.Variants {
 		agent, model, permission, verr := s.resolveVariant(v, task.Agent, orDefault(body.PermissionMode, task.PermissionMode))
 		if verr != nil {
-			httpError(w, 422, "%s", verr.Error())
-			return
+			return nil, requestErr(422, "%s", verr.Error())
 		}
 		variants = append(variants, resolved{agent, model, permission})
 	}
 
 	if err := s.DB.Update("tasks", task.ID, fields); err != nil {
-		respondErr(w, err)
-		return
+		return nil, err
 	}
 	fresh, err := s.DB.Task(task.ID)
 	if err != nil {
-		respondErr(w, err)
-		return
+		return nil, err
 	}
 	if len(variants) == 0 {
 		if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{}); err != nil {
-			respondErr(w, err)
-			return
+			return nil, err
 		}
 		if body.ModelB != "" {
 			if _, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB}); err != nil {
-				respondErr(w, err)
-				return
+				return nil, err
 			}
 		}
 	} else {
@@ -370,14 +411,13 @@ func (s *Server) dispatchTask(w http.ResponseWriter, r *http.Request) {
 				opts.PermissionMode = v.permission
 			}
 			if _, err := s.Sched.CreateAttempt(fresh, opts); err != nil {
-				respondErr(w, err)
-				return
+				return nil, err
 			}
 		}
 	}
 	fresh, _ = s.DB.Task(task.ID)
 	s.Bus.Publish("board", "task", fresh)
-	writeJSON(w, 200, s.view(fresh))
+	return fresh, nil
 }
 
 type followupIn struct {
@@ -505,21 +545,34 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if task.Status != "queued" && task.Status != "running" {
-		httpError(w, 409, "cannot cancel from %s", task.Status)
+	fresh, err := s.cancelTaskRecord(r.Context(), task)
+	if err != nil {
+		respondTaskErr(w, err)
 		return
+	}
+	writeJSON(w, 200, s.view(fresh))
+}
+
+// cancelTaskRecord is cancelTask's body without the HTTP plumbing, shared with
+// A2A's CancelTask so both surfaces stop an attempt the same way: through the
+// scheduler, so the agent process and its worktree are released, with the
+// direct status write only as the fallback for a task that has no live
+// attempt row to cancel.
+func (s *Server) cancelTaskRecord(ctx context.Context, task *store.Task) (*store.Task, error) {
+	if task.Status != "queued" && task.Status != "running" {
+		return nil, requestErr(409, "cannot cancel from %s", task.Status)
 	}
 	att, err := s.DB.OneAttemptWhere(
 		"task_id=? AND status IN ('queued','running') ORDER BY n DESC", task.ID)
 	if err == nil {
-		s.Sched.CancelAttempt(r.Context(), att)
+		s.Sched.CancelAttempt(ctx, att)
 	} else {
 		s.DB.Update("tasks", task.ID, map[string]any{
 			"status": "cancelled", "updated_at": store.Now()})
 	}
 	fresh, _ := s.DB.Task(task.ID)
 	s.Bus.Publish("board", "task", fresh)
-	writeJSON(w, 200, s.view(fresh))
+	return fresh, nil
 }
 
 // deleteTask removes a task and every trace of it: attempts, events, approvals,

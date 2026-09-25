@@ -67,15 +67,31 @@ func (s *Server) taskReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	att, err := s.DB.LatestAttempt(task.ID)
-	if err != nil {
+	att, report := s.latestAttemptReport(task.ID)
+	if att == nil {
 		writeJSON(w, 200, map[string]any{"report": "", "attempt": nil})
 		return
 	}
-	rows, err := s.DB.TaskEvents(task.ID, 0, &att.N)
+	writeJSON(w, 200, map[string]any{
+		"report": report, "attempt": att.N, "status": task.Status, "exit_code": att.ExitCode,
+		"branch": att.Branch, "worktree_path": att.WorktreePath,
+		"diff_stat": store.UnjList(att.DiffStatJSON), "verify": store.UnjObj(att.VerifyJSON),
+	})
+}
+
+// latestAttemptReport returns a task's newest attempt and the last thing that
+// attempt said in its transcript — the worker's completion report, when it
+// followed its brief. The attempt is nil when the task has never run. Shared
+// by the REST report endpoint and A2A's GetTask artifact so both read the same
+// text out of the same events.
+func (s *Server) latestAttemptReport(taskID int64) (*store.Attempt, string) {
+	att, err := s.DB.LatestAttempt(taskID)
 	if err != nil {
-		respondErr(w, err)
-		return
+		return nil, ""
+	}
+	rows, err := s.DB.TaskEvents(taskID, 0, &att.N)
+	if err != nil {
+		return att, ""
 	}
 	report := ""
 	for _, ev := range rows {
@@ -86,11 +102,7 @@ func (s *Server) taskReport(w http.ResponseWriter, r *http.Request) {
 			report = t
 		}
 	}
-	writeJSON(w, 200, map[string]any{
-		"report": report, "attempt": att.N, "status": task.Status, "exit_code": att.ExitCode,
-		"branch": att.Branch, "worktree_path": att.WorktreePath,
-		"diff_stat": store.UnjList(att.DiffStatJSON), "verify": store.UnjObj(att.VerifyJSON),
-	})
+	return att, report
 }
 
 // integrateTask merges the latest attempt's branch into a working tree the
