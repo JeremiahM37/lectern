@@ -1,51 +1,44 @@
 package main
 
 import (
+	"encoding/xml"
 	"strings"
 	"testing"
 )
 
 func TestSystemdUnitContent(t *testing.T) {
-	unit := systemdUnit("/home/me/.local/bin/lectern", "/home/me/.local/share/lectern/lectern.db")
-	for _, want := range []string{
-		"ExecStart=/home/me/.local/bin/lectern serve",
-		"Environment=LECTERN_HOST=127.0.0.1",
-		"Environment=LECTERN_PORT=9110",
-		"Environment=LECTERN_DB=/home/me/.local/share/lectern/lectern.db",
-		"WantedBy=default.target",
-		"Restart=on-failure",
-	} {
+	t.Setenv("PATH", "/opt/agent tools:/usr/bin")
+	unit := systemdUnit("/home/me/agent tools/lectern", "/home/me/state/lectern/local")
+	for _, want := range []string{`ExecStart="/home/me/agent tools/lectern" local supervise`, `"XDG_STATE_HOME=/home/me/state"`, `"PATH=/opt/agent tools:/usr/bin"`, "KillMode=process", "Restart=on-failure"} {
 		if !strings.Contains(unit, want) {
-			t.Errorf("unit missing %q:\n%s", want, unit)
+			t.Errorf("missing %q: %s", want, unit)
 		}
 	}
+	if strings.Contains(unit, "LECTERN_DB") || strings.Contains(unit, "9110") {
+		t.Fatal("service must reuse local runtime state and endpoint")
+	}
 }
-
 func TestLaunchdPlistContent(t *testing.T) {
-	plist := launchdPlist("/opt/homebrew/bin/lectern", "/Users/me/Library/Application Support/lectern/lectern.db", "/Users/me/Library/Application Support/lectern/service.log")
-	for _, want := range []string{
-		"<string>/opt/homebrew/bin/lectern</string>",
-		"<string>serve</string>",
-		"<key>LECTERN_HOST</key>",
-		"<string>127.0.0.1</string>",
-		"RunAtLoad",
-		"KeepAlive",
-	} {
+	t.Setenv("PATH", "/opt/tools&agents:/usr/bin")
+	plist := launchdPlist("/opt/tools&agents/lectern", "/Users/me/state/lectern/local", "/tmp/service.log")
+	var parsed any
+	if err := xml.Unmarshal([]byte(plist), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"tools&amp;agents", "<string>supervise</string>", "XDG_STATE_HOME", "/Users/me/state", "AbandonProcessGroup"} {
 		if !strings.Contains(plist, want) {
-			t.Errorf("plist missing %q:\n%s", want, plist)
+			t.Errorf("missing %q: %s", want, plist)
 		}
 	}
 }
-
-func TestServiceStateDirIsUnderXDGDataHome(t *testing.T) {
+func TestServiceStateDirUsesLocalRuntime(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", dir)
+	t.Setenv("XDG_STATE_HOME", dir)
 	got, err := serviceStateDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := dir + "/lectern"
-	if got != want {
-		t.Errorf("serviceStateDir() = %q, want %q", got, want)
+	if got != dir+"/lectern/local" {
+		t.Fatalf("wrong board: %s", got)
 	}
 }

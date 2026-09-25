@@ -26,6 +26,7 @@ func (s *Server) onboardingStatus(w http.ResponseWriter, r *http.Request) {
 		"agents":   onboard.DetectAgents(s.Cfg.ClaudeBin, s.Cfg.CodexBin, s.Cfg.GeminiBin),
 		"tmux":     onboard.CheckTmux(),
 		"git":      onboard.CheckGit(),
+		"python":   onboard.CheckPython(),
 		"projects": len(projects),
 		"sessions": len(sessions),
 		"mock":     s.Cfg.Mock,

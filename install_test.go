@@ -86,7 +86,7 @@ func TestInstallShAgainstFakeReleaseServer(t *testing.T) {
 		if _, err := os.Stat(installed); err != nil {
 			t.Fatalf("lectern was not installed at %s: %v\noutput:\n%s", installed, err, out)
 		}
-		if !strings.Contains(out, "'lectern up'") {
+		if !strings.Contains(out, "'"+filepath.Join(installDir, "lectern")+" up'") {
 			t.Errorf("install.sh should end with one clear next step naming `lectern up`:\n%s", out)
 		}
 		if !strings.Contains(out, "vTEST") {

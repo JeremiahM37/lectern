@@ -102,6 +102,8 @@ func doctorCommand(cfg *config.Config, args []string) error {
 	}
 	var checks []doctorCheck
 
+	python := onboard.CheckPython()
+	checks = append(checks, check("python3", python.OK, python.Detail, python.Fix))
 	tmux := onboard.CheckTmux()
 	checks = append(checks, check("tmux", tmux.OK, tmux.Detail, tmux.Fix))
 	git := onboard.CheckGit()

@@ -51,6 +51,9 @@ func upCommand(cfg *config.Config, args []string) error {
 			return fmt.Errorf("usage: lectern up [--service] [--no-browser]")
 		}
 	}
+	if os.Getenv("LECTERN_API") != "" || os.Getenv("AGENTDECK_API") != "" {
+		return errors.New("up starts a local board, but a remote API is configured; run `lectern` to connect to it, or unset LECTERN_API and AGENTDECK_API to start locally")
+	}
 	binary, err := os.Executable()
 	if err != nil {
 		return err
@@ -106,6 +109,7 @@ func upCommand(cfg *config.Config, args []string) error {
 type onboardingStatus struct {
 	Agents   []onboard.AgentCheck `json:"agents"`
 	Tmux     onboard.EnvCheck     `json:"tmux"`
+	Python   onboard.EnvCheck     `json:"python"`
 	Git      onboard.EnvCheck     `json:"git"`
 	Projects int                  `json:"projects"`
 	Sessions int                  `json:"sessions"`
@@ -144,6 +148,9 @@ func printOnboardingSummary(s *onboardingStatus) {
 	}
 	if !s.Tmux.OK {
 		fmt.Printf("tmux: %s — %s\n", s.Tmux.Detail, s.Tmux.Fix)
+	}
+	if !s.Python.OK {
+		fmt.Printf("python3: %s — %s\n", s.Python.Detail, s.Python.Fix)
 	}
 	if !s.Git.OK {
 		fmt.Printf("git: %s — %s\n", s.Git.Detail, s.Git.Fix)

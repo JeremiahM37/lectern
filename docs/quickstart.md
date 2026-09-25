@@ -19,8 +19,10 @@ Lectern server manages local or SSH targets.
 ## 1. Run the control plane
 
 ```bash
+(cd frontend && npm ci && npm run build)
+python3 frontend/scripts/stage.py
 go build -o lectern ./cmd/lectern
-./lectern                       # http://<host>:9110
+LECTERN_HOST=127.0.0.1 ./lectern serve  # http://localhost:9110
 ```
 
 One static binary — the PWA, the agent-side hook scripts and a pure-Go SQLite
@@ -29,7 +31,7 @@ driver are all embedded in it.
 Try it with fake agents first (no infrastructure needed):
 
 ```bash
-LECTERN_MOCK=1 ./lectern
+LECTERN_HOST=127.0.0.1 LECTERN_MOCK=1 ./lectern serve
 ```
 
 ## 2. Register a target

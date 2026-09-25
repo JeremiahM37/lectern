@@ -59,7 +59,8 @@ tar xzf "$tmp/$archive" -C "$tmp"
 dir="${LECTERN_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$dir"
 if [ -w "$dir" ]; then
-  install -m 755 "$tmp/$name" "$dir/$name"
+  install -m 755 "$tmp/$name" "$dir/.$name.next"
+  mv -f "$dir/.$name.next" "$dir/$name"
 else
   echo "Installing to $dir needs sudo."
   sudo install -m 755 "$tmp/$name" "$dir/$name"
@@ -75,6 +76,7 @@ esac
 # of a trip to search engine + docs.
 distro_install() {
   pkg="$1"
+  if [ "$pkg" = python3 ] && { [ "$os" = darwin ] || command -v pacman >/dev/null 2>&1; }; then pkg=python; fi
   if [ "$os" = darwin ]; then
     if command -v brew >/dev/null 2>&1; then echo "  brew install $pkg"
     else echo "  install Homebrew (https://brew.sh), then: brew install $pkg"; fi
@@ -103,9 +105,15 @@ if ! command -v git >/dev/null 2>&1; then
   missing="$missing git"
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is missing — terminal and session helpers need it:"
+  distro_install python3
+  missing="$missing python3"
+fi
+
 echo ""
 if [ -n "$missing" ]; then
-  echo "Next: install the missing tool(s) above (${missing# }), then run '$name up'."
+  echo "Next: install the missing tool(s) above (${missing# }), then run '$dir/$name up'."
 else
-  echo "Next: run '$name up' — it starts Lectern, opens your browser, and gets you to a first session."
+  echo "Next: run '$dir/$name up' — it starts Lectern, opens your browser, and gets you to a first session."
 fi

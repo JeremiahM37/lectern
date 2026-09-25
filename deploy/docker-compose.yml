@@ -6,16 +6,15 @@ services:
     container_name: lectern
     restart: unless-stopped
     ports:
-      - "9110:9110"
-      - "7710-7730:7710-7730"     # ttyd terminal-attach range
+      - "${LECTERN_BIND:-127.0.0.1}:9110:9110"
     volumes:
       - lectern-data:/data
       # SSH key(s) used to reach targets (read-only)
-      - ~/.ssh:/root/.ssh:ro
+      # - ./ssh:/data/home/.ssh:ro
     environment:
       # URL targets use to call back for approvals — set to a host reachable FROM targets
-      LECTERN_BASE_URL: "http://YOUR-SERVER-IP:9110"
-      # LECTERN_AUTH_TOKEN: "change-me"
+      LECTERN_BASE_URL: "${LECTERN_BASE_URL:-http://localhost:9110}"
+      LECTERN_AUTH_TOKEN: "${LECTERN_AUTH_TOKEN:-}"
       # LECTERN_VAPID_PUBLIC: ""
       # LECTERN_VAPID_PRIVATE: ""
 

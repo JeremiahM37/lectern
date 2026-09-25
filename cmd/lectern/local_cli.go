@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
@@ -29,6 +31,12 @@ func localCommand(cfg *config.Config, args []string) error {
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Print(clientHelp)
 		return nil
+	}
+	if args[0] == "supervise" {
+		if len(args) != 1 {
+			return errors.New("usage: lectern local supervise")
+		}
+		return superviseLocal(cfg)
 	}
 	if args[0] == "status" || args[0] == "stop" {
 		if len(args) != 1 {
@@ -91,3 +99,30 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 }
 
 func localMCPCommand(cfg *config.Config) error { return localClientCommand(cfg, "mcp", nil) }
+
+// Stopping the supervisor leaves sessions and the runtime intact. The service
+// adopts that runtime on restart; after reboot Ensure creates it from the same DB.
+func superviseLocal(cfg *config.Config) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	binary, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	for {
+		startCtx, done := context.WithTimeout(ctx, 25*time.Second)
+		_, err := localruntime.Ensure(startCtx, binary, cfg)
+		done()
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("supervise local runtime: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Second):
+		}
+	}
+}

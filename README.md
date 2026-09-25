@@ -17,6 +17,9 @@
 
 </div>
 
+**Release note:** the `up` workflow below is in this checkout, but is not in
+v2.3.1. Until the next release is published, use the [source installer](docs/local.md).
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh
 lectern up
@@ -151,11 +154,11 @@ the same tagged release.
 | **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 \| iex` |
 | **Scoop** (Windows) | `scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern` |
 | **Debian / Ubuntu**, **Fedora / RHEL** | the `.deb` / `.rpm` on the [latest release](https://github.com/JeremiahM37/lectern/releases/latest) |
-| **Docker** | `docker run -d -p 9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
+| **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
 | **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
 
 The installers verify the archive against the release's `checksums.txt`.
-Running agents on a machine needs `git` and `tmux` there; on Windows the
+Running agents on a machine needs `git`, `tmux`, and `python3` there; on Windows the
 binary is the client (`mcp`, `post`, `sessions`, `tasks`…) for a Lectern
 server elsewhere, since the control plane itself needs tmux (use WSL to host
 it). Then, on a single machine:
@@ -164,14 +167,17 @@ it). Then, on a single machine:
 lectern up                # start it, detect your agents, open the browser
 ```
 
-or run the control plane explicitly (what `lectern up` starts under the hood):
+For a separately configured hosted control plane (its own database and targets):
 
 ```bash
 lectern serve            # → http://localhost:9110
 ```
 
 `lectern up --service` also installs a per-user systemd unit on Linux (or a
-launchd LaunchAgent on macOS) so it survives a reboot.
+launchd LaunchAgent on macOS). It supervises the same local board and preserves
+your CLI PATH. Linux requires `loginctl enable-linger "$USER"` for startup
+before login; macOS starts at login. Stop the service before `lectern local stop`
+if you want the runtime to remain stopped.
 
 ## Quick start
 
@@ -181,6 +187,12 @@ deployment instead:
 ```bash
 docker compose -f deploy/docker-compose.yml up -d    # → http://localhost:9110
 ```
+
+Docker stores its database and container-local home/workspaces in `/data`.
+It does not include agent CLIs or inherit host credentials. Choose **Add your
+first machine** to register an SSH target with your existing agents, or add a
+local target to open a shell inside the container. See [Docker and remote setup](docs/docker.md)
+for access tokens, SSH keys, persistence, and restart behavior.
 
 For a terminal-only workspace on the same computer as your agent, install the
 standalone local command. It needs no hosted server, SSH alias, or Grimoire:

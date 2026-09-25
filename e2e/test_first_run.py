@@ -90,7 +90,7 @@ def test_first_run_checklist_shows_with_no_dead_end(blank_page, blank_server):
     expect(checklist).to_be_visible()
     expect(checklist).to_contain_text("Get started")
     for label in (
-        "Agent CLI detected",
+        "Agent CLI on this server",
         "tmux ready",
         "git ready",
         "A project",
@@ -102,7 +102,7 @@ def test_first_run_checklist_shows_with_no_dead_end(blank_page, blank_server):
     # every width this suite tests, including the narrowest phone.
     cta = checklist.locator(".first-run-cta")
     expect(cta).to_be_visible()
-    expect(cta).to_have_text("Start your first session")
+    expect(cta).to_have_text("Add your first machine")
     box = cta.bounding_box()
     viewport = page.viewport_size
     assert box is not None
@@ -111,8 +111,20 @@ def test_first_run_checklist_shows_with_no_dead_end(blank_page, blank_server):
     # No dead end: pressing it always opens a real, usable dialog — whatever
     # agent CLIs are or aren't installed on the machine running this test.
     cta.click()
-    dialog = page.get_by_role("dialog", name="New session", exact=True)
+    expect(page).to_have_url(blank_server + "/#targets")
+    page.get_by_role("button", name="Add machine", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Add machine", exact=True)
     expect(dialog).to_be_visible()
+    dialog.get_by_label("Machine name").fill("first-run-machine")
+    dialog.get_by_label("Connection").select_option("local")
+    dialog.get_by_role("button", name="Save machine").click()
+    expect(dialog).not_to_be_visible()
+    expect(checklist.locator(".first-run-cta")).to_have_text("Start your first session")
+    checklist.locator(".first-run-cta").click()
+    expect(page.get_by_role("dialog", name="New session", exact=True)).to_be_visible()
+    targets = page.request.get(blank_server + "/api/targets").json()
+    target = next(t for t in targets if t["name"] == "first-run-machine")
+    assert page.request.delete(blank_server + f"/api/targets/{target['id']}").ok
 
 
 def test_first_run_checklist_hides_once_something_exists(blank_page, blank_server):

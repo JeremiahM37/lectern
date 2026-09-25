@@ -13,7 +13,11 @@ permissions:
   packages: write   # push the container image to ghcr
 
 jobs:
+  first-install:
+    uses: ./.github/workflows/first-install.yml
+
   binaries:
+    needs: first-install
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -57,6 +61,7 @@ jobs:
           mkdir -p /tmp/relcheck && tar xzf dist/lectern_linux_amd64.tar.gz -C /tmp/relcheck
           cd /tmp/relcheck
           ./lectern version
+          ./lectern up --help
           LECTERN_MOCK=1 LECTERN_PORT=19110 LECTERN_DB=$PWD/check.db HOME=$PWD ./lectern serve &
           for _ in $(seq 1 30); do curl -sf localhost:19110/api/health >/dev/null && break; sleep 1; done
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:19110/)" = 200
@@ -85,6 +90,7 @@ jobs:
           /tmp/instcheck/lectern version | grep -q "${GITHUB_REF_NAME#v}"
 
   image:
+    needs: first-install
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

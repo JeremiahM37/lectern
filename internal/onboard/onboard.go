@@ -112,3 +112,7 @@ func envEmpty(key string) bool {
 	v, ok := os.LookupEnv(key)
 	return !ok || v == ""
 }
+
+func CheckPython() EnvCheck {
+	return checkBinary("python3", "python3", "install Python 3 — session and terminal helpers need it")
+}

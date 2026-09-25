@@ -833,6 +833,8 @@ export default function App() {
             request={api.request}
             hasProject={projects.length > 0}
             hasSession={sessions.length > 0}
+            hasTarget={targets.length > 0}
+            onSetupTarget={() => settings("machines")}
             onStartSession={() => sessionCommand("new")}
           />
         )}

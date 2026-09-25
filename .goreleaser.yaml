@@ -51,7 +51,7 @@ nfpms:
     formats: [deb, rpm]
     bindir: /usr/local/bin
     # tmux runs the sessions and git the worktrees; ssh reaches remote targets.
-    dependencies: [git, tmux]
+    dependencies: [git, tmux, python3]
     recommends: [openssh-client]
     contents:
       - src: deploy/lectern.service
@@ -77,6 +77,7 @@ homebrew_casks:
     dependencies:
       - formula: git
       - formula: tmux
+      - formula: python
     hooks:
       post:
         # An unsigned binary downloaded by brew carries the quarantine flag;
@@ -130,7 +131,7 @@ release:
     curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh   # Linux, macOS
     brew install JeremiahM37/tap/lectern                                                   # Homebrew
     scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern   # Windows
-    docker run -p 9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:{{ .Version }}
+    docker run -p 127.0.0.1:9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:{{ .Version }}
     go install github.com/JeremiahM37/lectern/v2/cmd/lectern@{{ .Tag }}
     ```
 

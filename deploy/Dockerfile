@@ -10,7 +10,7 @@ RUN npm run build
 # Build the control plane, then ship a single static binary.
 FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
 ARG TARGETOS TARGETARCH
-ARG VERSION=""
+ARG VERSION="dev"
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM debian:bookworm-slim
 # git and tmux drive the LOCAL target; openssh-client reaches remote ones
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git tmux openssh-client curl ca-certificates \
+    git tmux python3 openssh-client curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ttyd powers one-click terminal attach (optional but recommended)
@@ -36,18 +36,20 @@ ARG TARGETARCH
 RUN case "$TARGETARCH" in amd64) t=x86_64 ;; arm64) t=aarch64 ;; *) t="" ;; esac; \
     [ -z "$t" ] || { curl -fsSL -o /usr/local/bin/ttyd \
     "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.$t" \
-    && chmod +x /usr/local/bin/ttyd; } || true
+    && chmod +x /usr/local/bin/ttyd; }
 
 COPY --from=build /out/lectern /usr/local/bin/lectern
 
 # NOTE: runs as root deliberately — the container drives targets over SSH with
 # keys bind-mounted from the host (see deploy/docker-compose.yml) and manages
 # tmux sessions for the `local` target. Harden by scoping the mounted key.
-ENV LECTERN_DB=/data/lectern.db
+ENV LECTERN_DB=/data/lectern.db HOME=/data/home
+RUN mkdir -p /data/home && chmod 700 /data/home
+WORKDIR /data
 VOLUME /data
 EXPOSE 9110
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
-  CMD curl -fsS "http://127.0.0.1:${LECTERN_PORT:-9110}/api/health" || exit 1
+  CMD curl -fsS -H "Authorization: Bearer ${LECTERN_AUTH_TOKEN}" "http://127.0.0.1:${LECTERN_PORT:-9110}/api/health" || exit 1
 
-CMD ["lectern"]
+CMD ["lectern", "serve"]

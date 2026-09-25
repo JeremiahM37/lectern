@@ -261,10 +261,13 @@ function Targets({
   onChanged(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
+  const [adding, setAdding] = useState(false);
   const [commands,setCommands]=useState<Target>();
   const [checks, setChecks] = useState<Record<number, string>>({});
   return (
     <div className="settings-grid">
+      <button type="button" onClick={() => setAdding(true)}>Add machine</button>
+      {adding && <TargetEditor api={api} onClose={() => setAdding(false)} onChanged={onChanged} />}
       {rows.map((t) => (
         <article className="rowcard" key={t.id}>
           <h3>{t.name}</h3>
@@ -300,6 +303,50 @@ function Targets({
     </div>
   );
 }
+function TargetEditor({ api, onClose, onChanged }: {
+  api: SettingsApi; onClose(): void; onChanged(): Promise<void>;
+}) {
+  const [kind, setKind] = useState("ssh");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return <Modal className="sheet" aria-label="Add machine" onCancel={onClose}>
+    <button type="button" onClick={onClose} aria-label="Close">×</button>
+    <h2>Add machine</h2>
+    <form onSubmit={async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      setBusy(true); setError("");
+      try {
+        await api.request("/targets", { method: "POST", body: {
+          name: String(data.get("name") || "").trim(), kind,
+          ...(kind === "ssh" ? {
+            host: String(data.get("host") || "").trim(),
+            user: String(data.get("user") || "").trim(),
+            port: Number(data.get("port") || 22),
+            key_path: String(data.get("key_path") || "").trim(),
+          } : {}),
+        }});
+        await onChanged(); onClose();
+      } catch (e) { setError(String(e)); } finally { setBusy(false); }
+    }}>
+      <label>Machine name<input name="name" required maxLength={100} /></label>
+      <label>Connection<select value={kind} onChange={(e) => setKind(e.target.value)}>
+        <option value="ssh">Remote machine (SSH)</option>
+        <option value="local">This server</option>
+      </select></label>
+      {kind === "ssh" ? <>
+        <label>Hostname<input name="host" required placeholder="server.example" /></label>
+        <label>SSH user<input name="user" required autoComplete="username" /></label>
+        <label>SSH port<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
+        <label>SSH key path<input name="key_path" placeholder="~/.ssh/id_ed25519" /></label>
+        <p className="sub">The key must exist on the Lectern server. Install Git, tmux, Python 3 and your agent CLI on the remote machine, then sign in there.</p>
+      </> : <p className="sub">Runs on the Lectern server. In Docker this means inside the container. A blank shell needs no agent login.</p>}
+      {error && <p role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>{busy ? "Adding…" : "Save machine"}</button>
+    </form>
+  </Modal>;
+}
+
 function Projects({
   api,
   rows,

@@ -15,12 +15,15 @@ interface OnboardingStatus {
   agents: AgentCheck[];
   tmux: EnvCheck;
   git: EnvCheck;
+  python?: EnvCheck;
 }
 
 export interface FirstRunProps {
   request: <T>(path: string) => Promise<T>;
   hasProject: boolean;
   hasSession: boolean;
+  hasTarget: boolean;
+  onSetupTarget: () => void;
   onStartSession: () => void;
 }
 
@@ -32,7 +35,7 @@ type Item = { label: string; ok: boolean; detail?: string };
 // the moment either exists, the ordinary board/sessions views take over and
 // this never shows again. Every row that can be wrong carries its own fix;
 // the one thing it asks you to do is the same button, always available.
-export function FirstRun({ request, hasProject, hasSession, onStartSession }: FirstRunProps) {
+export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTarget, onStartSession }: FirstRunProps) {
   const [status, setStatus] = useState<OnboardingStatus>();
   const [error, setError] = useState("");
 
@@ -53,8 +56,9 @@ export function FirstRun({ request, hasProject, hasSession, onStartSession }: Fi
   const agentsFound = (status?.agents || []).filter((a) => a.found);
   const agentsOK = agentsFound.length > 0;
   const items: Item[] = [
+    { label: "A machine", ok: hasTarget, detail: hasTarget ? undefined : "add this machine or an SSH target in Settings" },
     {
-      label: "Agent CLI detected",
+      label: "Agent CLI on this server",
       ok: agentsOK,
       detail: agentsOK
         ? agentsFound.map((a) => a.name).join(", ")
@@ -70,6 +74,7 @@ export function FirstRun({ request, hasProject, hasSession, onStartSession }: Fi
       ok: !!status?.git.ok,
       detail: status?.git.ok ? status.git.detail : status?.git.fix,
     },
+    { label: "Python 3 ready", ok: !!status?.python?.ok, detail: status?.python?.ok ? status.python.detail : status?.python?.fix },
     { label: "A project", ok: hasProject, detail: hasProject ? undefined : "optional — a blank room works with no project" },
     { label: "First session", ok: hasSession },
   ];
@@ -97,12 +102,12 @@ export function FirstRun({ request, hasProject, hasSession, onStartSession }: Fi
           </li>
         ))}
       </ul>
-      <button type="button" className="first-run-cta" onClick={onStartSession}>
-        Start your first session
+      <button type="button" className="first-run-cta" onClick={hasTarget ? onStartSession : onSetupTarget}>
+        {hasTarget ? "Start your first session" : "Add your first machine"}
       </button>
       <p className="first-run-hint">
-        No agent detected yet? Install one, then reload — or start a session anyway and pick
-        it from the list once it's on PATH.
+        For SSH machines, install and sign in to your agent CLI on that machine. Docker does
+        not inherit host tools or logins. You can also open a blank shell without an agent.
       </p>
     </section>
   );

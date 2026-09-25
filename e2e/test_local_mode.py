@@ -412,3 +412,47 @@ def test_explicit_api_stays_remote(local_binary, tmp_path):
         assert seen == ["/api/sessions"]
     finally:
         server.shutdown()
+
+
+def test_service_supervisor_reuses_board_and_recovers_engine(local_binary, tmp_path):
+    binary, _ = local_binary
+    env = _local_env(tmp_path, Path('/bin/false'))
+    Path(env['HOME']).mkdir(parents=True, exist_ok=True)
+    up = subprocess.run([binary, 'up', '--no-browser'], env=env, cwd=tmp_path,
+                        capture_output=True, text=True, timeout=30)
+    assert up.returncode == 0, up.stderr
+    before = _json_command(binary, env, 'status')['endpoint']
+    targets = _json_command(binary, env, 'api', 'GET', '/targets')
+    supervisor = subprocess.Popen([binary, 'local', 'supervise'], env=env,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        time.sleep(1)
+        assert supervisor.poll() is None
+        assert _json_command(binary, env, 'status')['endpoint']['pid'] == before['pid']
+        # An ordinary stop of this isolated engine is healed by the service.
+        _run(binary, env, 'stop')
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            status = _json_command(binary, env, 'status')
+            if status.get('endpoint', {}).get('pid') not in (None, before['pid']):
+                break
+            time.sleep(.2)
+        assert status['state'] == 'running', status
+        assert status['endpoint']['pid'] != before['pid']
+        assert status['endpoint']['url'] == before['url']
+        assert _json_command(binary, env, 'api', 'GET', '/targets') == targets
+    finally:
+        supervisor.terminate()
+        supervisor.wait(timeout=10)
+        _run(binary, env, 'stop', check=False)
+
+
+def test_up_does_not_silently_ignore_remote_api(local_binary, tmp_path):
+    binary, _ = local_binary
+    env = _local_env(tmp_path, Path('/bin/false'))
+    env['LECTERN_API'] = 'http://remote.invalid:9110'
+    result = subprocess.run([binary, 'up', '--no-browser'], env=env, cwd=tmp_path,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0
+    assert 'remote API is configured' in result.stderr
+    assert not (tmp_path / 'state/lectern/local/endpoint.json').exists()
