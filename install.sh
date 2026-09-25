@@ -50,7 +50,10 @@ curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
 want=$(grep " $archive\$" "$tmp/checksums.txt" | cut -d' ' -f1)
 if command -v sha256sum >/dev/null 2>&1; then got=$(sha256sum "$tmp/$archive" | cut -d' ' -f1)
 else got=$(shasum -a 256 "$tmp/$archive" | cut -d' ' -f1); fi
-[ -n "$want" ] && [ "$want" = "$got" ] || { echo "checksum mismatch for $archive" >&2; exit 1; }
+if [ -z "$want" ] || [ "$want" != "$got" ]; then
+  echo "checksum mismatch for $archive" >&2
+  exit 1
+fi
 tar xzf "$tmp/$archive" -C "$tmp"
 
 dir="${LECTERN_INSTALL_DIR:-$HOME/.local/bin}"
