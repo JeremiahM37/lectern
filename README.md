@@ -56,7 +56,7 @@ couldn't be verified says so instead of guessing.
 | | Hosting | License | Agents | Where it runs | Phone control |
 |---|---|---|---|---|---|
 | **Lectern** | self-hosted (your box) | MIT | Claude Code, Codex, Gemini built in + any CLI via adapter | local, SSH, Proxmox `pct`/sandbox | web-push/Discord/ntfy approvals, mobile PWA |
-| agent-deck (upstream) | self-hosted | — | same lineage as Lectern's core | same | Lectern renamed from this project at v2.3 and has since added the mobile PWA, Grimoire memory and delegated builds below — not independently tracked here |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | self-hosted | MIT | Claude Code, Codex, Gemini and other CLIs | local, SSH remotes, Docker sandboxes | Telegram/Slack/ntfy bots |
 | [Claude Squad](https://github.com/smtg-ai/claude-squad) | self-hosted | AGPL-3.0 | Claude Code, Codex, Gemini, Aider | local machine only (tmux + git worktrees) | none |
 | [Conductor](https://conductor.build) | vendor app, macOS only | proprietary | Claude Code, Codex, Cursor | local (Mac) only | not documented |
 | [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) | self-hosted | Apache-2.0 | 10+ CLIs (Claude Code, Codex, Gemini, Copilot, Cursor, OpenCode, …) | VS Code Remote/SSH links for editing, not for running the agent itself | not documented — and the project's own README states it is sunsetting |
