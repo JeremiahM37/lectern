@@ -76,8 +76,20 @@ func TestSessionPermissionModeRejectsUnknownValue(t *testing.T) {
 // askSession launches an "ask"-mode session and returns it plus its hook token.
 func askSession(t *testing.T, h *harness, name string) (obj, string) {
 	t.Helper()
+	return askSessionAgent(t, h, name, "claude")
+}
+
+// askSessionAgent is askSession with the agent parametrized, so the hold/
+// decide path below can be proven identical for codex — hookSessionEvent's
+// PermissionRequest branch (internal/api/hooks_agentevents.go) never
+// branches on which agent produced the event, and this is the one place
+// that assertion is checked end to end for codex specifically, alongside
+// the real-process proof that codex's own installed hook script reaches
+// this same endpoint (internal/api/hooks_real_process_test.go).
+func askSessionAgent(t *testing.T, h *harness, name, agent string) (obj, string) {
+	t.Helper()
 	pid := h.seededProjectID()
-	sess := h.session(obj{"project_id": pid, "name": name, "agent": "claude", "permission_mode": "ask"})
+	sess := h.session(obj{"project_id": pid, "name": name, "agent": agent, "permission_mode": "ask"})
 	return sess, hookToken(t, h, sess.id())
 }
 
@@ -266,4 +278,49 @@ func TestSessionApprovalDecisionNeedsHumanInTailscaleMode(t *testing.T) {
 	// The rejected decision leaves the approval pending; let the hold's own
 	// timeout resolve the still-running goroutine rather than leaking it.
 	<-results
+}
+
+// TestPermissionRequestHeldThenApprovedReturnsAllowForCodex is
+// TestPermissionRequestHeldThenApprovedReturnsAllow's codex twin: the whole
+// hold/approve/decide path (internal/broker + hookSessionEvent) has no
+// agent-specific branch anywhere in it, and this is the direct proof for
+// codex — complementing the real installed-hook-script proof in
+// internal/api/hooks_real_process_test.go and the schema/wiring proof in
+// docs/agent-events.md's codex hooks correction.
+func TestPermissionRequestHeldThenApprovedReturnsAllowForCodex(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.SessionApprovalHold = 5 * time.Second })
+	sess, tok := askSessionAgent(t, h, "codex-ask-allow", "codex")
+	results := postPermissionRequest(h, sess.id(), tok, "Bash", map[string]any{"command": "echo hi from codex"})
+
+	appr := waitPendingSessionApproval(t, h, sess.id())
+	if appr.str("tool_name") != "Bash" {
+		t.Fatalf("approval tool_name = %v", appr)
+	}
+	decided := h.post(fmt.Sprintf("/api/approvals/%d/decision", appr.id()), obj{"decision": "approved"}, 200)
+	if decided.str("status") != "approved" {
+		t.Fatalf("decide: %v", decided)
+	}
+
+	select {
+	case r := <-results:
+		if r.code != 200 {
+			t.Fatalf("hook response code = %d: %s", r.code, r.body)
+		}
+		var out struct {
+			HookSpecificOutput struct {
+				HookEventName string `json:"hookEventName"`
+				Decision      struct {
+					Behavior string `json:"behavior"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(r.body, &out); err != nil {
+			t.Fatalf("response not JSON: %s", r.body)
+		}
+		if out.HookSpecificOutput.HookEventName != "PermissionRequest" || out.HookSpecificOutput.Decision.Behavior != "allow" {
+			t.Fatalf("hook response = %s", r.body)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the held hook never returned after being decided")
+	}
 }

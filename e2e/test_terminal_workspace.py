@@ -50,7 +50,11 @@ def real_terminal(tmp_path, request):
         subprocess.run(['tmux','set-option','-g','terminal-overrides',',*:smcup@:rmcup@'],env=env,check=True)
     if options.get('agent_script'):
         agent = tmp_path/'test-agent'; agent.write_text(options['agent_script']); agent.chmod(0o755)
-        env['LECTERN_CLAUDE_BIN'] = str(agent); env['LECTERN_TICK'] = '0.1'
+        # agent_script_agent lets a caller point the stub at LECTERN_CODEX_BIN
+        # instead of LECTERN_CLAUDE_BIN (default, unchanged) — see
+        # test_session_permission_request.py's codex-parametrized approval test.
+        bin_env = 'LECTERN_CODEX_BIN' if options.get('agent_script_agent') == 'codex' else 'LECTERN_CLAUDE_BIN'
+        env[bin_env] = str(agent); env['LECTERN_TICK'] = '0.1'
     if options.get('controllable_stop'):
         tools = tmp_path/'tools'; tools.mkdir()
         wrapper = tools/'tmux'

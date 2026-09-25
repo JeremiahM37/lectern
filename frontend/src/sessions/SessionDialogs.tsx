@@ -490,13 +490,15 @@ export function NewSession({
               ? `${agent} has no way to skip its prompts — it will ask.`
               : yolo
                 ? "The agent acts without stopping to ask. You are the supervision."
-                : agent === "claude"
+                : agent === "claude" || agent === "codex"
                   ? // Session permission mode (docs/agent-events.md section
-                    // 3): unchecking Yolo is what launches claude in "ask"
-                    // mode, which is also what registers the PermissionRequest
-                    // hook — so this is the same checkbox that used to only
-                    // mean "prompt in the terminal" and now also means "or
-                    // from my phone".
+                    // 3): unchecking Yolo is what launches claude/codex in
+                    // "ask" mode, which is also what registers the
+                    // PermissionRequest hook (confirmed real for codex
+                    // 0.156.1 — see agentevents.CodexHooksInstallCommand) —
+                    // so this is the same checkbox that used to only mean
+                    // "prompt in the terminal" and now also means "or from
+                    // my phone", for both agents.
                     "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
                   : "The agent stops and asks before it edits or runs anything."}
           </div>

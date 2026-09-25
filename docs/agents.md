@@ -6,11 +6,20 @@ Code's settings and permission rules), so the run
 protocol — worktree, tmux, events file, exit code — is identical whichever agent
 you pick.
 
-| Agent | Status | Gated approvals | Session resume | Credentials pushed to remote targets |
+| Agent | Status | Gated approvals (interactive session) | Session resume | Credentials pushed to remote targets |
 |---|---|---|---|---|
 | `claude` | first-class | ✅ | ✅ | `~/.claude/.credentials.json` |
-| `codex` | first-class | ❌ | ✅ | `~/.codex/auth.json` |
+| `codex` | first-class | ✅ (hooks.json, confirmed against 0.156.1) | ✅ | `~/.codex/auth.json` |
 | `gemini` | experimental | ❌ | ❌ | — |
+
+An **interactive session's** "ask" permission mode holds an approval on your
+phone for both claude and codex, via each CLI's own hook mechanism — see
+docs/agent-events.md sections 2 and 3 for how codex's was confirmed and
+wired. This is a different mechanism from the **background task** "gated"
+mode in the table below, which is driver-specific (see
+[context-parity.md](context-parity.md) and docs/agent-events.md section 4 for
+`codex-appserver`, the one task driver that does support gated codex
+approvals via JSON-RPC rather than a hook).
 
 ## Choosing one
 

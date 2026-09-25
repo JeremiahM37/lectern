@@ -188,6 +188,75 @@ func installCommandWasRun(h *harness) bool {
 	return false
 }
 
+// TestCodexHookInstallGatedOnBuiltinSpec is TestHookInstallGatedOnBuiltinSpec's
+// codex twin: agentevents.CodexHooksInstallCommand's own heredoc marker
+// (ADKCODEXHOOKINSTALL) must be attempted for a real builtin codex launch and
+// must NOT be attempted for a custom agent that merely reuses the name
+// "codex" (same spec.Builtin gate manager.go already applies to the
+// pre-existing notify install, immediately above the hooks.json install in
+// the source).
+func TestCodexHookInstallGatedOnBuiltinSpec(t *testing.T) {
+	h := newHarness(t)
+	pid := h.seededProjectID()
+
+	h.session(obj{"project_id": pid, "name": "codex-builtin", "agent": "codex"})
+	found := false
+	for _, cmd := range h.mock().CmdLog() {
+		if strings.Contains(cmd, "ADKCODEXHOOKINSTALL") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("the built-in codex spec should have attempted the hooks.json install")
+	}
+
+	h.decode("PUT", "/api/agents", []obj{{
+		"name": "codex", "command": "continuity-agent.py", "model_flag": "--model", "prompt_arg": true,
+	}}, 200, nil)
+	before := len(h.mock().CmdLog())
+	h.session(obj{"project_id": pid, "name": "codex-overridden", "agent": "codex"})
+	for _, cmd := range h.mock().CmdLog()[before:] {
+		if strings.Contains(cmd, "ADKCODEXHOOKINSTALL") {
+			t.Fatal("a custom agent merely named \"codex\" must not get the hooks.json installer run against it")
+		}
+	}
+}
+
+// TestCodexHookInstallRegistersPermissionRequestOnlyWhenAsked checks the
+// generated install command carries a PermissionRequest event group (per
+// agentevents.CodexHooksInstallCommand's own contract) only when the session
+// launches with permission_mode "ask" — same "uncheck Yolo" semantics as
+// claude, verified here at the wire-command level since the mock executor
+// cannot run the real python merge (that is covered for real in
+// internal/agentevents/codex_settings_test.go).
+func TestCodexHookInstallRegistersPermissionRequestOnlyWhenAsked(t *testing.T) {
+	h := newHarness(t)
+	pid := h.seededProjectID()
+
+	h.session(obj{"project_id": pid, "name": "codex-bypass", "agent": "codex", "permission_mode": "bypass"})
+	bypassHasPermissionRequest := false
+	for _, cmd := range h.mock().CmdLog() {
+		if strings.Contains(cmd, "ADKCODEXHOOKINSTALL") && strings.Contains(cmd, `python3 - 1 `) {
+			bypassHasPermissionRequest = true
+		}
+	}
+	if bypassHasPermissionRequest {
+		t.Fatal("a bypass-mode codex session's install command should pass ask=0, not ask=1")
+	}
+
+	h.session(obj{"project_id": pid, "name": "codex-ask", "agent": "codex", "permission_mode": "ask"})
+	askInstallSeen := false
+	for _, cmd := range h.mock().CmdLog() {
+		if strings.Contains(cmd, "ADKCODEXHOOKINSTALL") && strings.Contains(cmd, `python3 - 1 `) {
+			askInstallSeen = true
+		}
+	}
+	if !askInstallSeen {
+		t.Fatal("an ask-mode codex session should run the installer with ask=1")
+	}
+}
+
 func TestHookSessionEventUnknownNameIsAcceptedAndIgnored(t *testing.T) {
 	h := newHarness(t)
 	pid := h.seededProjectID()
