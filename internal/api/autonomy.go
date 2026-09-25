@@ -29,17 +29,20 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	ID           string    `json:"id"`
-	TaskID       int64     `json:"task_id"`
-	Role         string    `json:"role"`
-	Model        string    `json:"model,omitempty"`
-	Provider     string    `json:"provider"`
-	Status       string    `json:"status"`
-	ArtifactPath string    `json:"artifact_path"`
-	Summary      string    `json:"summary,omitempty"`
-	StartedAt    time.Time `json:"started_at"`
-	Approved     bool      `json:"approved,omitempty"`
-	ReviewTaskID int64     `json:"review_task_id,omitempty"`
+	ReportError   string    `json:"report_error,omitempty"`
+	ReportRepairs int       `json:"report_repairs,omitempty"`
+	ReportRetryAt time.Time `json:"report_retry_at,omitempty"`
+	ID            string    `json:"id"`
+	TaskID        int64     `json:"task_id"`
+	Role          string    `json:"role"`
+	Model         string    `json:"model,omitempty"`
+	Provider      string    `json:"provider"`
+	Status        string    `json:"status"`
+	ArtifactPath  string    `json:"artifact_path"`
+	Summary       string    `json:"summary,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	Approved      bool      `json:"approved,omitempty"`
+	ReviewTaskID  int64     `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
 	Config             autonomy.Config   `json:"config"`
@@ -298,6 +301,9 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	if a.State.Phase == autonomy.Paused {
+		if s.recoverAutoReport(ctx, a, now) {
+			return
+		}
 		if strings.HasPrefix(a.State.Reason, "Budget pause:") || strings.Contains(a.State.Reason, "by you") || a.State.Reason == "Autonomous mode is off" {
 			if e = a.State.Resume(a.Config, a.Quota.Providers, []string{requiredProvider}, now); e != nil {
 				return
@@ -370,6 +376,10 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		if e = s.finishAutoJob(ctx, a, j); e != nil {
 			j.Status = "failed"
 			_ = s.snapshotAutoJob(ctx, j)
+			var reportErr *autoReportError
+			if errors.As(e, &reportErr) && autoReportRepairable(reportErr.Error()) {
+				j.ReportError = reportErr.Error()
+			}
 			a.State.Pause("Invalid worker report: " + e.Error())
 			a.Reason = a.State.Reason
 			return
@@ -445,7 +455,7 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	var next autonomy.State
 	_ = json.Unmarshal([]byte(store.J(a.State)), &next)
 	if e = next.ApplyReport(a.Config, j.TaskID, []byte(report)); e != nil {
-		return e
+		return &autoReportError{e}
 	}
 	if e = s.snapshotAutoJob(ctx, j); e != nil {
 		return e

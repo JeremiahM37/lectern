@@ -176,3 +176,17 @@ def test_workshop_only_finished_artifacts_offer_downloads(page):
     state["jobs"][0]["id"] = "../untrusted"
     page.get_by_role("button", name="Refresh", exact=True).click()
     expect(page.get_by_role("link", name="Download files")).to_have_count(0)
+
+
+def test_workshop_report_repair_shows_automatic_recovery(page):
+    state = snapshot()
+    state['config']['enabled'] = True
+    state['status'] = 'repairing_report'
+    state['state']['phase'] = 'paused'
+    state['state']['resume_phase'] = 'plan'
+    state['reason'] = 'Automatic report repair 1/2 scheduled: items[0].acceptance needs a criterion'
+    mock_api(page, state)
+    page.goto(BASE + '/autonomy.html')
+    expect(page.locator('#status')).to_have_text('ON · Repairing report')
+    expect(page.locator('#reason')).to_contain_text('Automatic report repair 1/2')
+    expect(page.locator('#toggle')).to_have_attribute('aria-checked', 'true')

@@ -140,3 +140,17 @@ planning and independent reviews use Astra or Claude Opus. Audited expert tasks
 may use a strong builder. Approved artifact receipts remain usable beyond the
 90-cycle dashboard history; full cycle records are archived locally and backed
 up. Only independently approved builder artifacts can seed another cycle.
+
+## Report remediation
+
+Malformed worker reports have their own recovery path. The controller retains
+files, records the precise validator error, and schedules up to two correction
+attempts (30/60-second backoff), each in a fresh sandbox under the same quota,
+role and review rules. The prompt asks for report correction from existing
+evidence, not repeated implementation or invented success. After two failed
+repairs the cycle is explicitly abandoned with artifacts retained; continuous
+mode plans a new cycle without approving the failed work. This does not repair
+unsafe snapshots, state corruption or storage failures by relaxing controls.
+Legacy paused reports are revalidated after deployment, permitting recovery
+without another model call when the validator itself was wrong. Future backlog
+ideas need acceptance criteria only when selected for execution.

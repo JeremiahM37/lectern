@@ -336,3 +336,19 @@ func TestStrictReportsAndPause(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBacklogIdeasNeedAcceptanceOnlyWhenSelected(t *testing.T) {
+	s, _ := NewState("2026-09-24")
+	s.RegisterTask("planner", 1)
+	idea := `{"project_id":27,"title":"Future research","why":"Promising","score":89}`
+	if err := s.ApplyReport(enabled(), 1, []byte(`{"items":[`+idea+`],"backlog":[]}`)); err == nil || !strings.Contains(err.Error(), "items[0].acceptance") {
+		t.Fatalf("missing selected acceptance not diagnosed: %v", err)
+	}
+	selected := `{"project_id":27,"title":"Current milestone","why":"Useful","acceptance":["Run regression"]}`
+	if err := s.ApplyReport(enabled(), 1, []byte(`{"items":[`+selected+`],"backlog":[`+idea+`]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if s.Phase != Audit || len(s.Backlog) != 1 {
+		t.Fatal("backlog not retained or audit bypassed")
+	}
+}

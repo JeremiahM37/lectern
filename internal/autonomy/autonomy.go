@@ -386,8 +386,11 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if p.ProjectID <= 0 || p.ContinueTaskID < 0 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || len(p.Acceptance) == 0 || seen[key] {
-				return errors.New("invalid or duplicate proposal")
+			if p.ProjectID <= 0 || p.ContinueTaskID < 0 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
+				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative continue_task_id and a unique title within its list", index)
+			}
+			if index < len(r.Items) && len(p.Acceptance) == 0 {
+				return fmt.Errorf("items[%d].acceptance needs at least one concrete criterion", index)
 			}
 			for _, v := range p.Acceptance {
 				if strings.TrimSpace(v) == "" {

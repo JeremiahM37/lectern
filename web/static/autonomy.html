@@ -155,7 +155,7 @@ function render(data) {
   const status = String(data.status || state.phase || 'waiting');
   const paused = /pause|budget|quota|block|unavailable|error/i.test(status);
   $('toggle').setAttribute('aria-checked', String(enabled));
-  $('status').textContent = enabled ? paused ? 'ON · ' + words(status) : 'ON' : status === 'error' ? 'OFF · Stop needs attention' : 'OFF';
+  $('status').textContent = enabled ? status === 'repairing_report' ? 'ON · Repairing report' : paused ? 'ON · ' + words(status) : 'ON' : status === 'error' ? 'OFF · Stop needs attention' : 'OFF';
   $('status').className = 'badge' + (enabled ? paused ? ' paused' : ' on' : '');
   $('reason').textContent = [...new Set([data.reason, state.reason].filter(Boolean))].join(' · ') || (enabled ? (continuous ? 'Continuous cycles are enabled. Work starts only when the checks pass.' : 'The workshop is enabled for manually started cycles. Work starts only when the checks pass.') : 'The workshop is off. Enable it for a morning strategic review and ' + (continuous ? 'continuous cycles.' : 'manually started cycles.'));
   const hour = number(config.morning_hour, 8);

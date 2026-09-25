@@ -266,7 +266,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 		for _, p := range s.autoProjects() {
 			fmt.Fprintf(&b, "%d: %s\n", p.ID, p.Name)
 		}
-		b.WriteString("Maintain up to12 ranked backlog opportunities (score0..100, ambition, novelty with sources). Select one to three concrete NEXT MILESTONES, not three entirely new projects. Explain target users, why existing alternatives fall short, validation evidence, long-term roadmap and next experiment in why/acceptance. Prefer continuing promising work using continue_task_id. Reserve expert:true for difficult work that needs a stronger builder and justify it for auditors; otherwise a smaller worker executes. If ideas are uncertain, propose an evidence-gathering research milestone rather than another generic planning loop. Zero items is allowed only with a substantive reason to avoid wasting quota. Write /work/autonomy-report.json exactly: {\"items\":[{\"project_id\":1,\"title\":\"...\",\"why\":\"...\",\"acceptance\":[\"...\"],\"continue_task_id\":0,\"score\":80,\"ambition\":\"...\",\"novelty\":\"...\",\"expert\":false}],\"backlog\":[]}.\n")
+		b.WriteString("Backlog entries use the same proposal fields, but acceptance is optional until selected in items. Every selected item MUST have a nonempty acceptance array. Maintain up to12 ranked backlog opportunities (score0..100, ambition, novelty with sources). Select one to three concrete NEXT MILESTONES, not three entirely new projects. Explain target users, why existing alternatives fall short, validation evidence, long-term roadmap and next experiment in why/acceptance. Prefer continuing promising work using continue_task_id. Reserve expert:true for difficult work that needs a stronger builder and justify it for auditors; otherwise a smaller worker executes. If ideas are uncertain, propose an evidence-gathering research milestone rather than another generic planning loop. Zero items is allowed only with a substantive reason to avoid wasting quota. Write /work/autonomy-report.json exactly: {\"items\":[{\"project_id\":1,\"title\":\"...\",\"why\":\"...\",\"acceptance\":[\"...\"],\"continue_task_id\":0,\"score\":80,\"ambition\":\"...\",\"novelty\":\"...\",\"expert\":false}],\"backlog\":[]}.\n")
 	} else if role == "auditor_a" || role == "auditor_b" {
 		b.WriteString("Independently audit relevance to Jeremiah, novelty versus existing tools, testability, scope, resource use, risk, and duplication with ongoing tasks. Approve only a useful and feasible entire plan; otherwise give specific revisions. Write /work/autonomy-report.json exactly {\"approve\":true,\"reason\":\"...\"}.\n")
 	} else if strings.HasPrefix(role, "decision_") {
@@ -298,11 +298,18 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 	if e != nil {
 		return e
 	}
+	if old.ReportError != "" {
+		prompt = append(prompt, []byte(autoReportRepairPrompt(old.ReportError))...)
+	}
 	prompt = append(prompt, []byte("\nThis job is being resumed after an interruption or failed attempt in a fresh process. Inspect retained partial work before continuing. Never assume earlier commands completed.\n")...)
 	if e = os.WriteFile(filepath.Join(autoRoot, id, "prompt.txt"), prompt, 0600); e != nil {
 		return e
 	}
 	j := *old
+	if old.ReportError != "" {
+		j.ReportRepairs++
+		j.ReportRetryAt = time.Time{}
+	}
 	j.ID = id
 	j.Status = "prepared"
 	j.ArtifactPath = filepath.Join(autoRoot, id, "work")
