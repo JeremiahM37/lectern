@@ -15,6 +15,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -295,6 +296,36 @@ func (s *Server) object(path string) (map[string]any, error) {
 	}
 	m, _ := raw.(map[string]any)
 	return m, nil
+}
+
+// validAgentName checks a name against the live registry (GET /api/agents)
+// before a tool call ever reaches POST /sessions, so a typo comes back as
+// "have: claude, codex, gemini, …" instead of the generic "define it in
+// /api/agents" a raw 422 from the session endpoint gives — the same courtesy
+// create_task already gives an unknown project name.
+//
+// A registry that cannot be listed at all is not this check's problem to
+// report: it returns nil rather than an error, and lets the actual dispatch
+// below surface whatever is really wrong. This also means a name really is
+// only ever rejected here when the registry was successfully read and
+// genuinely does not contain it — never as a side effect of the listing
+// call itself failing.
+func (s *Server) validAgentName(name string) error {
+	rows, err := s.list("/agents")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, row := range rows {
+		if n, _ := row["name"].(string); n != "" {
+			names = append(names, n)
+			if n == name {
+				return nil
+			}
+		}
+	}
+	sort.Strings(names)
+	return fmt.Errorf("unknown agent %q — have: %s", name, strings.Join(names, ", "))
 }
 
 // ReportWebEndpoint records this web connector's public MCP URL with the

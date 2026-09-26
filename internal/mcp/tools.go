@@ -736,8 +736,12 @@ var tools = []tool{
 			if chosen != 1 {
 				return nil, fmt.Errorf("give exactly one of project, workdir, or scratch:true")
 			}
+			agentName := orDefault(argStr(args, "agent"), "claude")
+			if err := s.validAgentName(agentName); err != nil {
+				return nil, err
+			}
 			body := map[string]any{
-				"agent": orDefault(argStr(args, "agent"), "claude"),
+				"agent": agentName,
 				"name":  argStr(args, "name"),
 				"model": argStr(args, "model"),
 				"yolo":  argBool(args, "yolo", true),

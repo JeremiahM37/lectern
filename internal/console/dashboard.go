@@ -97,7 +97,14 @@ type recentMsg struct {
 }
 type refsMsg struct {
 	projects, targets, agents, profiles []row
-	err                                 error
+	// agentMenuOrder is GET /agents/menu's shown/ordered agent names — the
+	// same list web pickers show before "More agents…". The TUI's own
+	// agent select is already just a scrollable list (never the "long
+	// dropdown" problem this order exists to solve on the web/mobile
+	// surfaces), so instead of hiding anything it simply sorts shown agents
+	// to the top in the saved order and leaves the rest below them.
+	agentMenuOrder []string
+	err            error
 }
 type tickMsg time.Time
 type resultMsg struct {
@@ -168,6 +175,7 @@ type dashboard struct {
 	pending                             *dashboardAction
 	busy                                bool
 	projects, targets, agents, profiles []row
+	agentMenuOrder                      []string
 	recentRows                          []row
 	recentOpen                          bool
 	recentSelected                      int
@@ -307,6 +315,19 @@ func (m *dashboard) references() tea.Cmd {
 				out.err = e
 				break
 			}
+		}
+		if out.err == nil {
+			if b, e := c.JSON("GET", "/agents/menu", nil); e == nil {
+				var menu struct {
+					Agents []string `json:"agents"`
+				}
+				if json.Unmarshal(b, &menu) == nil {
+					out.agentMenuOrder = menu.Agents
+				}
+			}
+			// A menu fetch failure is not fatal to references() as a whole —
+			// the agent select still works, just unordered, exactly as it
+			// did before this field existed.
 		}
 		return out
 	}
@@ -761,6 +782,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.projects = v.projects
 		m.targets = v.targets
 		m.agents = v.agents
+		m.agentMenuOrder = v.agentMenuOrder
 		m.profiles = v.profiles
 		if v.err != nil {
 			m.notice = "Reference lists: " + clean(v.err.Error())

@@ -13,21 +13,38 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/console"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
-// agentQuickVerbs are the first-class one-command agent launchers — `lectern
-// claude [args...]` / `lectern codex [args...]` — that create or reuse a
-// tracked interactive session for the current directory and attach the
-// terminal to it, matching Happy's `happy claude`. They are dispatched
-// exactly like the other client verbs in main.go (explicit LECTERN_API vs.
-// the private local runtime) and share the same console.Client/attach
-// plumbing; kept in their own set only so the whole estate of names can be
-// checked for collisions in one place (see TestAgentQuickVerbsNeverShadow in
-// main_test.go). Only claude and codex are first-class: a truly generic
-// `lectern <agent-name>` would need a network round trip against the agent
-// registry before main.go could even tell a launch request from a typo,
-// which is not "cheap" for the common case of a mistyped subcommand.
-var agentQuickVerbs = map[string]bool{"claude": true, "codex": true}
+// agentQuickVerbs are the one-command agent launchers built into this binary
+// — `lectern claude [args...]`, `lectern codex [args...]`, `lectern gemini
+// [args...]` — that create or reuse a tracked interactive session for the
+// current directory and attach the terminal to it, matching Happy's `happy
+// claude`. They are dispatched exactly like the other client verbs in
+// main.go (explicit LECTERN_API vs. the private local runtime) and share the
+// same console.Client/attach plumbing; kept in their own set so the whole
+// estate of names can be checked for collisions in one place (see
+// TestAgentQuickVerbsNeverShadow in main_test.go).
+//
+// This set is deliberately just sessions.Builtins() rather than every name
+// in the operator's live registry: those three are known at compile time, so
+// main.go's dispatch table lookup for them costs nothing — no different from
+// checking membership in clientVerbs. A custom agent added in Settings →
+// Agents is not in this set (main.go cannot know its name ahead of time),
+// but `lectern <that-name>` still works: an arg that matches neither this
+// set, clientVerbs nor any other subcommand falls through to
+// client.go's clientCommandAt, which checks it against the live registry
+// before giving up — one network round trip, paid only for a name this
+// binary did not already recognise (a custom agent, or a genuine typo).
+var agentQuickVerbs = builtinAgentQuickVerbs()
+
+func builtinAgentQuickVerbs() map[string]bool {
+	out := make(map[string]bool)
+	for _, b := range sessions.Builtins() {
+		out[b.Name] = true
+	}
+	return out
+}
 
 // agentQuickOpts is the documented subset of extra arguments a one-command
 // launch accepts. The session API (internal/api/sessions.go's sessionIn) has

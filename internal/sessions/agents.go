@@ -3,6 +3,7 @@ package sessions
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"reflect"
 	"sort"
 	"strings"
@@ -614,6 +615,108 @@ func (s Spec) TrustProbe(dir string) string {
 	}
 	cmd := strings.ReplaceAll(currentTrustCommand(s.TrustCommand), "{dir}", shellq.Quote(dir))
 	return strings.ReplaceAll(cmd, "{dir_raw}", dir)
+}
+
+// Installed reports whether this spec's own binary resolves on PATH for
+// wherever this process runs — there is no per-target remote exec path in
+// this codebase (yet) to check instead, so "the lectern host" is the only
+// answer this can give. A Task or ACP backend that shells out to a different
+// binary (e.g. npx) is not checked here.
+func (s Spec) Installed() bool {
+	bin := s.Command
+	if fields := strings.Fields(bin); len(fields) > 0 {
+		bin = fields[0]
+	}
+	if bin == "" {
+		return false
+	}
+	_, err := exec.LookPath(bin)
+	return err == nil
+}
+
+// Capability names a feature a session/task picker might offer. Kept as
+// exported string constants (not an unexported iota) because they double as
+// the JSON keys in CapabilityState maps returned to the frontend and TUI.
+type Capability string
+
+const (
+	CapResume     Capability = "resume"
+	CapForkTo     Capability = "fork"
+	CapModel      Capability = "model"
+	CapModelsList Capability = "models_list"
+	CapYolo       Capability = "yolo"
+	CapACP        Capability = "acp"
+	CapTask       Capability = "task"
+)
+
+// CapabilityState is whether one Capability is available for a Spec, and —
+// when it is not — a short, name-specific reason a picker can show instead
+// of a disabled control with no explanation ("Resume isn't available for
+// Aider") rather than a plain grey-out nobody can act on.
+type CapabilityState struct {
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// capabilityLabels are the human-readable feature names capabilityReason
+// substitutes into "<Feature> isn't available for <Agent>".
+var capabilityLabels = map[Capability]string{
+	CapResume:     "Resume",
+	CapForkTo:     "Fork",
+	CapModel:      "Model selection",
+	CapModelsList: "Listing models",
+	CapYolo:       "Yolo / auto-approve",
+	CapACP:        "The Agent Client Protocol",
+	CapTask:       "Background tasks",
+}
+
+func (s Spec) displayName() string {
+	if s.Name == "" {
+		return "this agent"
+	}
+	return s.Name
+}
+
+func capabilityReason(feature Capability, agent string) string {
+	label := capabilityLabels[feature]
+	if label == "" {
+		label = string(feature)
+	}
+	return fmt.Sprintf("%s isn't available for %s", label, agent)
+}
+
+// Capabilities reports, for every capability a picker might offer, whether
+// this spec supports it — driven almost entirely by which registry fields
+// are populated, so a capability degrades the moment the corresponding field
+// is empty rather than needing separate bookkeeping. Task and ACP being
+// mutually exclusive non-interactive backends (see ACPSpec's doc comment)
+// means CapTask and CapACP can never both report Available for a non-builtin
+// spec, but a picker offering "background work" only needs to check whether
+// either is true.
+//
+// CapTask is the one exception to "driven by fields": a built-in is always
+// task-capable even with neither field set, because claude and codex get
+// their non-interactive backend from Go code (hook.py's gate, the
+// codex-appserver driver — see taskPermissionError in internal/api) rather
+// than from Spec.Task/Spec.ACP, exactly as internal/api's taskAgent already
+// treats Builtin as sufficient on its own.
+func (s Spec) Capabilities() map[Capability]CapabilityState {
+	name := s.displayName()
+	state := func(available bool, feature Capability) CapabilityState {
+		if available {
+			return CapabilityState{Available: true}
+		}
+		return CapabilityState{Reason: capabilityReason(feature, name)}
+	}
+	return map[Capability]CapabilityState{
+		CapResume:     state(len(s.ResumeArgs) > 0 || len(s.ResumeIDArgs) > 0, CapResume),
+		CapForkTo:     state(len(s.ForkArgs) > 0, CapForkTo),
+		CapModel:      state(s.ModelFlag != "", CapModel),
+		CapModelsList: state(s.ModelsCommand != "", CapModelsList),
+		CapYolo:       state(len(s.YoloArgs) > 0, CapYolo),
+		CapACP:        state(s.ACP != nil, CapACP),
+		CapTask:       state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
+	}
 }
 
 // TaskOutputModeKnown says whether a custom agent's task output can be

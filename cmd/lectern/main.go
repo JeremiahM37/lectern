@@ -186,8 +186,26 @@ func main() {
 			fmt.Println(version.Version)
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (try: --help)\n", os.Args[1])
-			os.Exit(2)
+			// Not a subcommand this binary knows about at compile time — it
+			// might be a custom agent registered in Settings → Agents beyond
+			// the built-ins already in agentQuickVerbs (claude/codex/gemini,
+			// handled above at zero extra cost). Hand it to the same
+			// client/local dispatch every other verb uses; clientCommandAt's
+			// own default case checks it against the live registry and turns
+			// a genuine typo into "unknown command" from there — one network
+			// round trip, paid only for a name this switch did not already
+			// recognise.
+			var dispatchErr error
+			if explicitRemote {
+				dispatchErr = clientCommand(cfg, arg, os.Args[2:])
+			} else {
+				dispatchErr = localCommand(cfg, append([]string{arg}, os.Args[2:]...))
+			}
+			if dispatchErr != nil {
+				fmt.Fprintln(os.Stderr, dispatchErr)
+				os.Exit(2)
+			}
+			return
 		}
 	}
 

@@ -541,3 +541,54 @@ func TestSendToSessionGrimoireUnreachableDegradesGracefully(t *testing.T) {
 		t.Fatalf("unexpected sent text: %q", sentText)
 	}
 }
+
+// TestStartSessionValidatesAgentAgainstTheRegistry proves start_session
+// checks `agent` against the live registry (GET /api/agents) and, on an
+// unknown name, fails with the valid names listed — before ever reaching
+// POST /sessions — rather than relying on that endpoint's generic "define it
+// in /api/agents" 422.
+func TestStartSessionValidatesAgentAgainstTheRegistry(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/agents", jsonHandler(200, []map[string]any{
+		{"name": "claude", "builtin": true},
+		{"name": "codex", "builtin": true},
+		{"name": "aider", "command": "aider"},
+	}))
+	mux.HandleFunc("GET /api/projects", jsonHandler(200, []map[string]any{{"id": 5.0, "name": "proj"}}))
+	posted := false
+	mux.HandleFunc("POST /api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		posted = true
+		jsonHandler(201, map[string]any{"id": 1.0, "name": "s"})(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	s := New(srv.URL, "")
+
+	_, err := s.call("start_session", map[string]any{
+		"project": "proj", "prompt": "x", "agent": "not-a-real-agent",
+	})
+	if err == nil {
+		t.Fatal("expected an error for an unregistered agent name")
+	}
+	if !strings.Contains(err.Error(), "not-a-real-agent") {
+		t.Fatalf("error should name the bad value: %v", err)
+	}
+	for _, want := range []string{"claude", "codex", "aider"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should list valid agent names (missing %q): %v", want, err)
+		}
+	}
+	if posted {
+		t.Fatal("POST /api/sessions must not be reached for an invalid agent name")
+	}
+
+	// A registered custom agent must still work.
+	if _, err := s.call("start_session", map[string]any{
+		"project": "proj", "prompt": "x", "agent": "aider",
+	}); err != nil {
+		t.Fatalf("a registered agent name should be accepted: %v", err)
+	}
+	if !posted {
+		t.Fatal("expected POST /api/sessions to be reached for a valid agent")
+	}
+}

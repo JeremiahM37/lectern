@@ -328,7 +328,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 	var data []byte
 	var err error
 	switch command {
-	case "claude", "codex":
+	case "claude", "codex", "gemini":
 		return agentQuickCommand(cfg, command, args, base, token, local)
 	case "shell":
 		return shellCommandAt(cfg, args, base, token, local)
@@ -426,7 +426,14 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		}
 		data, err = c.JSON("GET", path, nil)
 	default:
-		return fmt.Errorf("unknown client command")
+		// Not one of the fixed verbs above — check whether it names a live
+		// agent in the registry (anything an operator added in Settings →
+		// Agents beyond claude/codex/gemini, which are handled directly
+		// above) before calling it unknown. See dynamicAgentQuick.
+		if ok, lookupErr := dynamicAgentQuick(c, command); lookupErr == nil && ok {
+			return agentQuickCommand(cfg, command, args, base, token, local)
+		}
+		return fmt.Errorf("unknown command %q — not a lectern subcommand or a registered agent name (see 'lectern agent list')", command)
 	}
 	if err != nil {
 		return err
@@ -443,6 +450,32 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 // agentCommand makes the runner registry discoverable without requiring users
 // to hand craft an API request. A save replaces the custom definitions exactly
 // as the Settings → Agents editor does; JSON can be read from a file or stdin.
+// dynamicAgentQuick reports whether name is a live agent in the registry
+// (GET /agents) — the check that lets `lectern <name>` work for a custom
+// agent registered in Settings → Agents, one this binary could not have
+// known about at compile time the way it knows claude/codex/gemini. Only
+// ever consulted for a word that matched nothing else main.go or this
+// switch already recognises, so a mistyped built-in subcommand still fails
+// immediately and a mistyped agent name fails after exactly one round trip.
+func dynamicAgentQuick(c *console.Client, name string) (bool, error) {
+	data, err := c.JSON("GET", "/agents", nil)
+	if err != nil {
+		return false, err
+	}
+	var rows []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func agentCommand(c *console.Client, args []string) ([]byte, error) {
 	if len(args) < 1 || len(args) > 2 {
 		return nil, fmt.Errorf("usage: lectern agent list | save JSON|@file|-")
