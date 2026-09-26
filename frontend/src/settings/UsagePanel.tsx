@@ -101,7 +101,15 @@ export function UsagePanel({ api }: { api: UsagePanelApi }) {
                     {row.agent}
                     {row.model ? ` · ${row.model}` : ""}
                   </td>
-                  <td>{formatCost(row.cost_usd)}</td>
+                  <td>
+                    {formatCost(row.cost_usd)}
+                    {(row.estimated_usd ?? 0) > 0 && (
+                      <span className="sub" title="Includes spend estimated from the model price table">
+                        {" "}
+                        (~{formatCost(row.estimated_usd ?? 0)} est.)
+                      </span>
+                    )}
+                  </td>
                   <td className="sub">
                     {formatTokens(row.input_tokens)} in / {formatTokens(row.output_tokens)} out
                   </td>

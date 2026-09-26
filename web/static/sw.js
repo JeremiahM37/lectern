@@ -78,9 +78,9 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-1e6cc2b55f21";
+  var CACHE = "lectern-react-c38b2bc72a93";
   worker.addEventListener("install", (event) => event.waitUntil((async () => {
-    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-DDASAeId.css","/react/assets/app-RBF_9_0B.js","/react/assets/terminal-Banmt6Cj.js","/react/assets/terminal-BsW0wNtV.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
+    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-DDASAeId.css","/react/assets/app-DyV9hfFt.js","/react/assets/terminal-Banmt6Cj.js","/react/assets/terminal-BsW0wNtV.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

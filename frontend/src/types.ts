@@ -385,6 +385,7 @@ export interface UsageSplit {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
+  estimated_usd?: number;
 }
 export interface UsageTopSession {
   id: number;

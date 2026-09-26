@@ -768,4 +768,8 @@ var migrations = []string{
 	// usage_daily deltas of its own once the exact OTel numbers are flowing —
 	// see the precedence rule in agentevents.IngestStatusline.
 	"ALTER TABLE sessions ADD COLUMN otel_active_at REAL",
+	// Budgets (docs/budgets.md): the part of cost_usd that was estimated from
+	// the model price table rather than reported (interactive Codex), so the
+	// Usage page can label it.
+	"ALTER TABLE usage_daily ADD COLUMN estimated_usd REAL NOT NULL DEFAULT 0",
 }

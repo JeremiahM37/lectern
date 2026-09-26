@@ -84,10 +84,12 @@ export function isStale(atSeconds: number | null | undefined, nowSeconds = Date.
 
 // ResultUsage is what a task attempt's result payload (attempts.result_json,
 // via internal/agents/parse.go's enriched "result" event) can carry. Every
-// field is optional: a codex attempt has no cost, an older attempt has none
-// of the newer context fields, and both are legitimate, not malformed.
+// field is optional: a codex attempt has no cost unless the model price table
+// estimated one (costEstimated), an older attempt has none of the newer
+// context fields, and both are legitimate, not malformed.
 export interface ResultUsage {
   costUSD?: number;
+  costEstimated?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   contextTokens?: number;
@@ -112,7 +114,15 @@ export function resultUsage(result: Record<string, unknown> | null | undefined):
   const contextSize = num(result.context_size);
   const contextPct =
     contextTokens != null && contextSize ? Math.min(100, Math.round((contextTokens / contextSize) * 100)) : undefined;
-  return { costUSD, inputTokens, outputTokens, contextTokens, contextSize, contextPct };
+  const costEstimated = costUSD != null && result.cost_source === "estimated";
+  return { costUSD, costEstimated, inputTokens, outputTokens, contextTokens, contextSize, contextPct };
+}
+
+// formatResultCost renders an attempt's cost, marking a price-table estimate
+// as approximate ("~$0.12 est.") so it is never read as a reported figure.
+export function formatResultCost(u: ResultUsage): string {
+  if (u.costUSD == null) return "";
+  return u.costEstimated ? `~${formatCost(u.costUSD)} est.` : formatCost(u.costUSD);
 }
 
 // formatAge renders "3m ago" / "2h ago" for a dimmed, stale reading.

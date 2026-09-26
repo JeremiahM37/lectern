@@ -143,6 +143,10 @@ cumulative reading. `internal/outcomes.Rebuild` reads this ahead of
    (`internal/outcomes/prices.go`, settings key `model_prices`). A fresh
    install estimates nothing: an unconfigured model's cost is reported as
    unknown (`cost_source: ""`), never silently invented.
+   A model with no entry falls back to the agent's name, so pricing `codex`
+   covers Codex runs that report no model. For Codex the scheduler already
+   writes this estimate into `result_json` while the attempt runs (see
+   [budgets](budgets.md)); it keeps its `estimated` label here.
 
 Once a session's OTel exporter has reported in even once,
 `IngestStatusline` **stops** booking its own `usage_daily` deltas and

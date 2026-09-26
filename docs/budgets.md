@@ -128,14 +128,32 @@ already exists in the database, so nothing resends. Rows older than 90 days
 are pruned opportunistically (nothing ever needs to know a long-past
 period's alerts were sent).
 
-## Codex has no cost figure
+## Codex spend is estimated
 
-`internal/agents/parse.go`'s `normalizeCodex` reports `cost_usd: nil` by
-design (codex does not expose a dollar figure) — a per-agent `codex` budget,
-or a per-task budget on a codex task, can track tokens but will never see
-real spend cross its cap through the normal path. This is a real limitation
-of the upstream data, not a gap in this feature; document it to whoever
-configures a codex-scoped limit.
+Codex reports tokens but no dollar figure. When the operator has priced it in
+the model price table (`GET`/`PUT /api/model-prices`, the same table
+[outcomes](outcomes.md) uses), Lectern estimates the spend and treats it as
+spend everywhere a budget looks:
+
+- **Tasks.** Before a Codex `result` event is stored, the scheduler prices its
+  token usage (`internal/outcomes.EstimateResult`) and writes `cost_usd` plus
+  `cost_source: "estimated"` into the event and `attempts.result_json`. That
+  also sets `live_cost_usd`, so a per-task `budget_usd` cancels the attempt the
+  same way it does for Claude, and finished attempts count toward per-agent
+  and overall limits.
+- **Interactive sessions.** Each Codex token delta read from the rollout
+  (`agentevents.IngestCodexUsage`) is priced and booked into `usage_daily`,
+  with the estimated part also recorded in `usage_daily.estimated_usd`.
+
+The price is looked up by model name first, then by the agent name (`codex`),
+because a Codex run on its default model reports no model. Codex counts cached
+input inside its input tokens and the table has a single input rate, so the
+estimate prices cached input at the full rate and can run high.
+
+Estimates are always labelled: the board and task detail show `~$0.12 est.`,
+the Usage page shows the estimated part next to each agent/model total, and
+outcomes flag the row as estimated. With no price configured nothing is
+estimated, and a Codex budget still sees no spend.
 
 ## UI
 
@@ -161,6 +179,11 @@ configures a codex-scoped limit.
   period; a fresh `Checker` (simulated restart) does not resend; a new
   period can alert again; quota thresholds; anomaly detection (and that
   disabling it does nothing).
+- `internal/api/codex_cost_test.go` — a Codex `turn.completed` result is
+  left uncosted without a price, then estimated and labelled once `codex` is
+  priced; `live_cost_usd`, a codex stop budget, the Usage page's
+  `estimated_usd` and the outcome fact all see it; an interactive Codex
+  session's rollout usage is priced into `usage_daily`.
 - `internal/api/budgets_test.go` — `GET`/`PUT /api/budgets`; stop mode blocks
   dispatch and session launch while warn mode does not; a per-agent limit
   blocks only that agent; a per-task budget cancels a running attempt

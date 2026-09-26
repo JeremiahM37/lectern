@@ -27,6 +27,9 @@ type usageSplit struct {
 	CostUSD      float64 `json:"cost_usd"`
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
+	// EstimatedUSD is the part of CostUSD priced from the model price table
+	// for an agent that reports tokens only (Codex) — docs/budgets.md.
+	EstimatedUSD float64 `json:"estimated_usd,omitempty"`
 }
 
 type usageTopSession struct {
@@ -104,7 +107,7 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 	}
 	byAgentModel := map[string]*usageSplit{}
 	byProject := map[string]*usageSplit{}
-	addUsage := func(date, agent, model string, projectID *int64, cost float64, in, out int64) {
+	addUsage := func(date, agent, model string, projectID *int64, cost, estimated float64, in, out int64) {
 		if date < cutoffDate {
 			return
 		}
@@ -120,6 +123,7 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 			byAgentModel[amKey] = am
 		}
 		am.CostUSD += cost
+		am.EstimatedUSD += estimated
 		am.InputTokens += in
 		am.OutputTokens += out
 
@@ -136,6 +140,7 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 			byProject[pKey] = pr
 		}
 		pr.CostUSD += cost
+		pr.EstimatedUSD += estimated
 		pr.InputTokens += in
 		pr.OutputTokens += out
 	}
@@ -152,7 +157,7 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 
 	// Session usage: usage_daily rows are already deltas, one per (date,
 	// session, agent, model) — see internal/store/usage.go.
-	rows, err := s.DB.Query(`SELECT ud.date, ud.agent, ud.model, ud.cost_usd,
+	rows, err := s.DB.Query(`SELECT ud.date, ud.agent, ud.model, ud.cost_usd, ud.estimated_usd,
 		ud.input_tokens, ud.output_tokens, sess.project_id
 		FROM usage_daily ud LEFT JOIN sessions sess ON sess.id = ud.session_id
 		WHERE ud.session_id IS NOT NULL AND ud.date >= ?`, cutoffDate)
@@ -162,13 +167,13 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 	}
 	for rows.Next() {
 		var date, agent, model string
-		var cost float64
+		var cost, estimated float64
 		var in, out int64
 		var projectID *int64
-		if err := rows.Scan(&date, &agent, &model, &cost, &in, &out, &projectID); err != nil {
+		if err := rows.Scan(&date, &agent, &model, &cost, &estimated, &in, &out, &projectID); err != nil {
 			continue
 		}
-		addUsage(date, agent, model, projectID, cost, in, out)
+		addUsage(date, agent, model, projectID, cost, estimated, in, out)
 		// usage_daily has no per-row timestamp, only a date bucket, so
 		// today/week spend approximates "today" and "this week" by date
 		// rather than exact seconds — fine at day granularity.
@@ -201,10 +206,14 @@ func (s *Server) usageReport(w http.ResponseWriter, r *http.Request) {
 		}
 		result := store.UnjObj(resultJSON)
 		cost, _ := result["cost_usd"].(float64)
+		estimated := 0.0
+		if result["cost_source"] == "estimated" {
+			estimated = cost
+		}
 		in, out := resultUsageTokens(result)
 		date := time.Unix(int64(finishedAt), 0).UTC().Format("2006-01-02")
 		pid := projectID
-		addUsage(date, agent, model, &pid, cost, in, out)
+		addUsage(date, agent, model, &pid, cost, estimated, in, out)
 		addSpend(date, finishedAt, cost)
 	}
 	rows.Close()
@@ -303,7 +312,10 @@ func resultUsageTokens(result map[string]any) (input, output int64) {
 		out, _ := result["output_tokens"].(float64)
 		return int64(ct), int64(out)
 	}
-	return 0, 0
+	// Codex's flat shape (internal/agents.normalizeCodex).
+	in, _ := result["input_tokens"].(float64)
+	out, _ := result["output_tokens"].(float64)
+	return int64(in), int64(out)
 }
 
 // usageQuota reads the account-wide rate_limits setting (written by

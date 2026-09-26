@@ -99,12 +99,17 @@ func rebuildAttempts(db *store.DB, cutoff float64) error {
 			// that reported tokens but no cost_usd at all (Codex-style) must
 			// still be eligible for the price-table estimate below, not get
 			// stuck reporting a silent $0.
+			// The scheduler may already have estimated it while the attempt
+			// ran (so a budget could see it); keep that label.
 			if cost > 0 {
 				costSource = "result_json"
+				if result["cost_source"] == "estimated" {
+					costSource = "estimated"
+				}
 			}
 		}
 		if costSource == "" && (inTok > 0 || outTok > 0) {
-			if est, ok := prices.Estimate(model, inTok, outTok); ok {
+			if est, ok := prices.EstimateFor(agent, model, inTok, outTok); ok {
 				cost, costSource = est, "estimated"
 			}
 		}
@@ -269,7 +274,10 @@ func resultUsage(result map[string]any) (cost float64, input, output int64) {
 		out, _ := result["output_tokens"].(float64)
 		return cost, int64(ct), int64(out)
 	}
-	return cost, 0, 0
+	// Codex's flat shape (internal/agents.normalizeCodex).
+	in, _ := result["input_tokens"].(float64)
+	out, _ := result["output_tokens"].(float64)
+	return cost, int64(in), int64(out)
 }
 
 // verifyPassed reads attempts.verify_json's {"rc":N} shape (internal/checks.
