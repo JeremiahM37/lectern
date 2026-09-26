@@ -19,20 +19,12 @@ with `ffmpeg` (`palettegen`/`paletteuse`) and optimized with
 | `terminal-dashboard.gif` | 680 KB | 1100x667 | 10.8s | The `lectern` terminal dashboard: arrowing through the session list updates the live preview pane; right-clicking a session opens a new terminal window attached to it while the dashboard stays open; pressing `b` enters multi-select, clicking two more sessions and pressing Enter opens both in new windows. |
 | `projects-shell.gif` | 279 KB | 1100x667 | 11.0s | The dashboard's Projects section (key `4`): selecting a project and pressing Enter opens a persistent shell in its repository (`git log --oneline` runs for real against the demo's `infra` git repo); `Ctrl-b d` detaches back to the project list with "Detached. Session keeps running." |
 | `recently-closed.gif` | 999 KB | 1100x688 | 12.2s | Web UI, Sessions: ending a `claude` session via its **More → End** menu, opening **Recently closed**, and pressing **Resume** — the session comes back active with its real conversation continuing (`> Let shoppers apply a coupon...` / `Read(src/checkout/Cart.tsx)` still there). |
-| `switch-agent.gif` | 1.5 MB | 1100x773 | ~16s | Web UI: opening a `claude` session's **Switch** dialog, picking Codex's default model, and watching the handoff run (Saving context → Starting Codex → Ready). Lectern creates a linked sibling session rather than mutating the original in place, so the result is two cards pointing at each other — `Push notifications  Codex →` on the original, `← Push notification…  Clau…` on the new one. A ~13s wait while the dialog probes each agent's real model list was cut with a jump cut. |
+| `switch-agent.gif` | 1.1 MB | 1100x773 | 15.8s | Web UI: opening a `claude` session's **Switch** dialog, picking Codex's default model, and watching the handoff run (Saving context → Starting Codex → Ready) into a live embedded terminal for the new Codex session — a "Switched. The original session is still available in Sessions." toast confirms it, and the tab shows the `← Push notification…  Clau…` link back to the original. A ~13s wait while the dialog probes each agent's real model list was cut with a jump cut. |
 | `any-agent.gif` | 1.2 MB | 1100x688 | 17.9s | Web UI, Settings → Agents: the starter-template catalog (OpenCode, Aider, Goose, Cursor, …) fills in a runner's fields with one click; saving adds it to Agent runners; toggling "Show in menus" moves it out of "Hidden from menus"; the New Session picker's Agent dropdown then offers it. A ~14s wait while the demo's fake CLI is probed for real (it doesn't answer fast) was cut with a jump cut; nothing was faked. |
 | `phone.gif` | 840 KB | 390x844 | 17.0s | Mobile-emulated web UI: opening a `claude` session's Chat, which now renders real structured tool **cards** (🔍 Search, ✏️ file edit, ⌘ Terminal) instead of raw terminal text, typing a message, sending it, watching the stand-in's reply stream in, then returning to the session list where the card shows "working" live. |
 
 A small red dot follows the mouse in the web-UI recordings so clicks are easy
 to follow; it's injected via `addInitScript` and never part of the real UI.
-
-Two of the web-UI shots (`any-agent.gif`, `switch-agent.gif`) hit a real,
-harmless side effect of this desk's setup: the Switch dialog's "open the new
-session" step fails with `ApiError: ttyd is not installed on the control
-plane` (this LXC has no `ttyd`), surfaced as a small toast that clears itself
-within a couple of seconds. It's left in `switch-agent.gif` where it briefly
-overlaps mid-clip — it's real footage, not degrading the actual handoff
-demonstration, and the end state is clean.
 
 ## Previously skipped, now recorded
 
@@ -41,7 +33,13 @@ the stand-in agents couldn't produce the real CLI behavior (on-disk
 conversation history, a written handoff) those features read. The stand-ins
 were upgraded to actually register sessions, write real transcripts, and
 answer a handoff request, so both now record honestly against the real code
-paths — nothing here is faked or scripted around.
+paths — nothing here is faked or scripted around. `switch-agent.gif` also
+needed `ttyd` installed on the desk (`/usr/local/bin/ttyd`, on the
+`lectern-demo` service's `PATH`) — without it, the new session Switch opens
+failed to attach a live terminal and surfaced `ApiError: ttyd is not
+installed on the control plane` toasts. With `ttyd` present the new Codex
+session opens cleanly with no error toasts anywhere in the clip (checked
+across 5+ frames spanning the whole recording).
 
 ## Reproducing
 
