@@ -823,4 +823,7 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN otel_commits INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE outcome_facts ADD COLUMN pull_requests INTEGER",
 	"ALTER TABLE outcome_facts ADD COLUMN commits INTEGER",
+	// Interactive Gemini MCP (docs/context-parity.md): what a session wrote
+	// into its Lectern workspace's .gemini/settings.json, for cleanup at end.
+	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 }

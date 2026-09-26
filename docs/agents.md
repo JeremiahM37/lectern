@@ -156,8 +156,10 @@ including when the declaration is empty. Interactive OpenCode, Qwen Code and
 GitHub Copilot CLI sessions get the servers through one private file their CLI
 reads beside the user's own config, and every ACP agent's tasks (including
 Gemini CLI, OpenCode, Goose, Kimi and Cline over ACP) get them in ACP
-`session/new`. Interactive Gemini CLI sessions, Aider, Amp, Cursor, Crush and
-non-ACP custom tasks get no automatic translation; see
+`session/new`. Interactive Gemini CLI sessions get them merged into
+`.gemini/settings.json` only in a Lectern-created worktree or scratch workspace,
+never in the project's own checkout. Aider, Amp, Cursor, Crush and non-ACP
+custom tasks get no automatic translation; see
 [context-parity.md](context-parity.md#mcp-servers) for which agent gets what.
 
 Project skills (Agent Skills `SKILL.md` directories) are linked into

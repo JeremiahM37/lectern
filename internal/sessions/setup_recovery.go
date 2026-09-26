@@ -82,7 +82,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 	}
 	if !matched {
 		m.saveSetupRecovery(row.ID, map[string]any{"setup_state": "failed", "setup_error": "A terminal uses this setup's name, but its ownership could not be verified. It was left untouched; inspect it before restoring tracking.", "status": StatusDead, "ended_at": store.Now(), "end_reason": EndFailed})
-		m.IsolationProxies.Stop(row.ID)
+		m.releaseSessionResources(row.ID)
 		return
 	}
 	identity := captureTrackingIdentity(ctx, ex, row.TmuxSession)
