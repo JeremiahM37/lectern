@@ -29,6 +29,10 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
+	DocumentationStopped bool                      `json:"documentation_stopped,omitempty"`
+	DocumentationCopies  []autoDocumentationCopy   `json:"documentation_copies,omitempty"`
+	DocumentationRoot    int64                     `json:"documentation_root,omitempty"`
+	Documentation        *autoDocumentationReceipt `json:"documentation,omitempty"`
 	// A paid runner-start cooldown belongs only to this interrupted launch.
 	LaunchRetryPaid     bool                 `json:"launch_retry_paid,omitempty"`
 	RecoveryCheckAt     time.Time            `json:"recovery_check_at,omitempty"`
@@ -55,26 +59,28 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
-	DeferredRuns       []*autonomy.State `json:"deferred_runs,omitempty"`
-	CycleSequence      int               `json:"cycle_sequence,omitempty"`
-	Config             autonomy.Config   `json:"config"`
-	State              *autonomy.State   `json:"state"`
-	Runs               []*autonomy.State `json:"runs"`
-	Jobs               []*autoJob        `json:"jobs"`
-	Status             string            `json:"status"`
-	Reason             string            `json:"reason"`
-	Quota              autonomy.Usage    `json:"quota"`
-	RequestedDay       string            `json:"requested_day,omitempty"`
-	ProjectID          int64             `json:"project_id"`
-	RememberedDay      string            `json:"remembered_day"`
-	RetryCount         int               `json:"retry_count"`
-	RetryScope         string            `json:"retry_scope,omitempty"`
-	RetryDay           string            `json:"retry_day,omitempty"`
-	RetryAt            time.Time         `json:"retry_at,omitempty"`
-	NextCycleAt        time.Time         `json:"next_cycle_at,omitempty"`
-	NextCycleScheduled bool              `json:"next_cycle_scheduled"`
-	RememberedCycle    string            `json:"remembered_cycle,omitempty"`
-	StrategyDay        string            `json:"strategy_day,omitempty"`
+	DocumentationPins         map[int64]*autoDocumentationReservation `json:"documentation_pins,omitempty"`
+	DocumentationReservations map[int64]*autoDocumentationReservation `json:"documentation_reservations,omitempty"`
+	DeferredRuns              []*autonomy.State                       `json:"deferred_runs,omitempty"`
+	CycleSequence             int                                     `json:"cycle_sequence,omitempty"`
+	Config                    autonomy.Config                         `json:"config"`
+	State                     *autonomy.State                         `json:"state"`
+	Runs                      []*autonomy.State                       `json:"runs"`
+	Jobs                      []*autoJob                              `json:"jobs"`
+	Status                    string                                  `json:"status"`
+	Reason                    string                                  `json:"reason"`
+	Quota                     autonomy.Usage                          `json:"quota"`
+	RequestedDay              string                                  `json:"requested_day,omitempty"`
+	ProjectID                 int64                                   `json:"project_id"`
+	RememberedDay             string                                  `json:"remembered_day"`
+	RetryCount                int                                     `json:"retry_count"`
+	RetryScope                string                                  `json:"retry_scope,omitempty"`
+	RetryDay                  string                                  `json:"retry_day,omitempty"`
+	RetryAt                   time.Time                               `json:"retry_at,omitempty"`
+	NextCycleAt               time.Time                               `json:"next_cycle_at,omitempty"`
+	NextCycleScheduled        bool                                    `json:"next_cycle_scheduled"`
+	RememberedCycle           string                                  `json:"remembered_cycle,omitempty"`
+	StrategyDay               string                                  `json:"strategy_day,omitempty"`
 }
 
 func (s *Server) loadAuto() (*autoRecord, error) {
@@ -214,12 +220,19 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 	return out, nil
 }
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
+	var stopErrors []string
 	for _, j := range a.Jobs {
+		if autoDocumentationStopPending(j) {
+			if _, err := s.runAutoCommand(ctx, "completion-stop", "--job", j.ID); err != nil {
+				stopErrors = append(stopErrors, "Documentary stop: "+err.Error())
+			} else {
+				j.DocumentationStopped = true
+			}
+		}
 		if (j.Status == "prepared" || j.Status == "deferred") && j.Recovery != nil {
 			if _, err := s.runAutoCommand(ctx, "dependencies-stop", "--job", j.ID); err != nil {
-				a.Reason = "Stop needs attention: " + err.Error()
-				a.Status = "error"
-				return
+				stopErrors = append(stopErrors, err.Error())
+				continue
 			}
 			s.closeAutoBridge(j.ID)
 			if j.Status == "deferred" {
@@ -230,9 +243,8 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 		}
 		if j.Status == "running" || j.Status == "starting" {
 			if _, e := s.runAutoCommand(ctx, "stop", "--job", j.ID); e != nil {
-				a.Reason = "Stop needs attention: " + e.Error()
-				a.Status = "error"
-				return
+				stopErrors = append(stopErrors, e.Error())
+				continue
 			}
 			s.closeAutoBridge(j.ID)
 			j.Status = "stopped"
@@ -250,10 +262,15 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 	if !a.Config.Enabled {
 		a.Status = "off"
 	}
+	if len(stopErrors) > 0 {
+		a.Status = "error"
+		a.Reason = "Stop needs attention: " + strings.Join(stopErrors, "; ")
+	}
 }
 
 // RunAutonomyTick is called by the scheduler. It owns only its persisted job
 // UUIDs, never interactive sessions or arbitrary tmux/process IDs.
+
 func (s *Server) RunAutonomyTick(ctx context.Context) {
 	if !s.autoMu.TryLock() {
 		return
@@ -270,7 +287,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	}
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
 		for _, j := range a.Jobs {
-			if j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
+			if autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 				_ = s.saveAuto(a)
 				break
@@ -390,6 +407,11 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		}
 		if j.Status == "stopped" {
 			if e = s.resumeAutoJob(ctx, a, j); e != nil {
+				if errors.Is(e, errAutoArtifactPending) {
+					a.Status = "preserving_artifacts"
+					a.Reason = e.Error()
+					return
+				}
 				a.State.Pause(e.Error())
 				a.Reason = e.Error()
 			}
@@ -459,6 +481,11 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			return
 		}
 		if e = s.finishAutoJob(ctx, a, j); e != nil {
+			if errors.Is(e, errAutoArtifactPending) {
+				a.Status = "reconstructing_documentation"
+				a.Reason = e.Error()
+				return
+			}
 			j.Status = "failed"
 			_ = s.snapshotAutoJob(ctx, j)
 			var reportErr *autoReportError
@@ -490,6 +517,18 @@ func autoFindJob(a *autoRecord, id int64) *autoJob {
 	return nil
 }
 func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
+	if j.Status == "prepared" && len(j.DocumentationCopies) > 0 {
+		ready, e := s.pollAutoDocumentationCopies(ctx, a, j)
+		if e != nil || !ready {
+			return e
+		}
+	}
+	if j.Status == "prepared" && j.DocumentationRoot > 0 {
+		ready, err := s.prepareAutoDocumentation(ctx, a, j)
+		if err != nil || !ready {
+			return err
+		}
+	}
 	if j.Status == "prepared" { // Also permit a safe provider change before any process exists.
 		provider, model, err := s.autoRoute(a, j.Role, time.Now())
 		if err != nil {
@@ -589,10 +628,21 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if r, err := s.runAutoCommand(ctx, "report", "--job", j.ID); err == nil {
 		report = string(r)
 	}
-	var next autonomy.State
-	_ = json.Unmarshal([]byte(store.J(a.State)), &next)
-	if e = next.ApplyReport(a.Config, j.TaskID, []byte(report)); e != nil {
+	next, reportValidation := autoValidateWorkerReport(a, j, []byte(report))
+	if e = reportValidation; e != nil {
+		if j.DocumentationRoot > 0 && j.Role == "builder" && strings.Contains(e.Error(), "documentary completion cannot authorize") {
+			s.rejectAutoDocumentation(ctx, a, j, "Documentary submission failed: "+e.Error())
+			return nil
+		}
 		return &autoReportError{e}
+	}
+	if j.DocumentationRoot > 0 && j.Role == "builder" {
+		if e = s.finishAutoDocumentation(ctx, a, j); e != nil {
+			return e
+		}
+		if j.Status == "done" {
+			return nil
+		}
 	}
 	if j.Role == "planner" {
 		if e = s.pinAutoSources(ctx, a, next.Items); e != nil {
@@ -633,6 +683,13 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 						builder.Rejected = !verdict.AcceptsWork()
 						builder.ReviewReason = verdict.Reason
 						builder.ReviewTaskID = j.TaskID
+						if r := a.DocumentationReservations[builder.DocumentationRoot]; r != nil {
+							if builder.Approved {
+								r.Outcome = "approved"
+							} else {
+								r.Outcome = "rejected"
+							}
+						}
 					}
 					break
 				}
@@ -681,4 +738,16 @@ func autoUUID() string {
 func (s *Server) ScheduleAutonomyTick(ctx context.Context) {
 	s.autoWG.Add(1)
 	go func() { defer s.autoWG.Done(); s.RunAutonomyTick(ctx) }()
+}
+
+// Validate a transport report without advancing the durable assignment. Documentary
+// reconstruction follows only valid transport; bounded report correction retains
+// the original admission and does not freeze an unusable candidate receipt.
+func autoValidateWorkerReport(a *autoRecord, j *autoJob, report []byte) (autonomy.State, error) {
+	var next autonomy.State
+	if err := json.Unmarshal([]byte(store.J(a.State)), &next); err != nil {
+		return next, err
+	}
+	err := next.ApplyReport(a.Config, j.TaskID, report)
+	return next, err
 }

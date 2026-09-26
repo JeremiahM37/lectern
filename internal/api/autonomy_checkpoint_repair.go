@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // A rejected final review is evidence for a new repair proposal, never approval.
@@ -60,6 +61,9 @@ func autoRepairRoot(a *autoRecord, taskID int64) int64 {
 		if j == nil {
 			return 0
 		}
+		if j.DocumentationRoot > 0 {
+			return j.DocumentationRoot
+		}
 		if j.RepairSourceTaskID == 0 {
 			return taskID
 		}
@@ -71,6 +75,9 @@ func (s *Server) autoRepairContinuation(a *autoRecord, projectID, taskID int64) 
 	j, err := s.autoContinuation(a, projectID, taskID)
 	if err != nil {
 		return nil, err
+	}
+	if j.DocumentationRoot > 0 {
+		return nil, fmt.Errorf("documentary completion cannot acquire ordinary repair attempts")
 	}
 	if _, _, ok := autoRejectedCheckpoint(a, taskID); !ok {
 		return nil, fmt.Errorf("repair_task_id must name an explicitly rejected final-review checkpoint")
@@ -107,7 +114,23 @@ func autoRepairAudited(a *autoRecord) bool {
 	return true
 }
 func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) error {
+	roots := map[int64]bool{}
 	for i, p := range items {
+		count := 0
+		for _, id := range []int64{p.ContinueTaskID, p.RepairTaskID, p.DocumentationTaskID} {
+			if id < 0 {
+				return fmt.Errorf("negative source task")
+			}
+			if id > 0 {
+				count++
+			}
+		}
+		if p.SourceRevision != "" {
+			count++
+		}
+		if count > 1 {
+			return fmt.Errorf("item %d source choices are mutually exclusive", i)
+		}
 		if p.SourceRevision != "" && (!autoSourceHash(p.SourceRevision) || p.ContinueTaskID > 0 || p.RepairTaskID > 0) {
 			return fmt.Errorf("item %d: source_revision requires a full commit hash and cannot replace continuation or repair lineage", i)
 		}
@@ -115,6 +138,17 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 			return fmt.Errorf("item %d: continuation and repair are mutually exclusive", i)
 		}
 		var err error
+		if p.DocumentationTaskID > 0 {
+			root := autoRepairRoot(a, p.DocumentationTaskID)
+			if roots[root] {
+				return fmt.Errorf("duplicate documentary root")
+			}
+			roots[root] = true
+			r := a.DocumentationReservations[root]
+			if !(r != nil && r.TaskID == 0 && a.State != nil && a.State.Phase == autonomy.Build && r.Cycle == a.State.Cycle && r.Revision == a.State.Revision && r.Item == a.State.Item && store.J(r.Proposal) == store.J(p)) {
+				_, _, _, _, err = s.autoDocumentationSource(a, p)
+			}
+		}
 		if p.ContinueTaskID > 0 {
 			_, err = s.autoApprovedContinuation(a, p.ProjectID, p.ContinueTaskID)
 		}

@@ -180,11 +180,39 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			return e
 		}
 	}
+	var documentation *autoDocumentationReservation
+	var copies []autoDocumentationCopy
+	var pendingCopy *autoDocumentationCopy
+	if role == "builder" && a.State.Items[a.State.Item].DocumentationTaskID > 0 {
+		documentation, e = s.reserveAutoDocumentation(c, a, a.State.Items[a.State.Item], id)
+		if e != nil {
+			return e
+		}
+	}
+	if role == "auditor_a" || role == "auditor_b" {
+		copied := map[string]bool{}
+		for _, p := range a.State.Items {
+			if p.DocumentationTaskID == 0 {
+				continue
+			}
+			pin := a.DocumentationPins[p.DocumentationTaskID]
+			if pin == nil {
+				return errors.New("audited documentation pin missing")
+			}
+			for source, expected := range map[string]string{pin.Binding.SourceJob: pin.Binding.SourceSHA, pin.Binding.ReviewJob: pin.Binding.ReviewSHA} {
+				if copied[source] {
+					continue
+				}
+				copies = append(copies, autoDocumentationCopy{Command: "copy-archive-review", SourceJob: source, SHA: expected})
+				copied[source] = true
+			}
+		}
+	}
 	// Only builders need a project snapshot. Reviewer gets the completed work
 	// copied by the trusted runner (which never executes its contents on the host).
-	continued := false
+	continued := documentation != nil
 	if role == "builder" && a.State.Step > 0 {
-		if e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
+		if pendingCopy, e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
 			return e
 		}
 		continued = true
@@ -193,7 +221,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		if err != nil {
 			return err
 		}
-		if _, e = s.runAutoCommand(c, "copy", "--job", id, "--from-job", prior.ID); e != nil {
+		if pendingCopy, e = s.copyAutoPromoted(c, id, prior); e != nil {
 			return e
 		}
 		continued = true
@@ -203,7 +231,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		if err != nil {
 			return err
 		}
-		if _, e = s.runAutoCommand(c, "copy", "--job", id, "--from-job", prior.ID); e != nil {
+		if pendingCopy, e = s.copyAutoPromoted(c, id, prior); e != nil {
 			return e
 		}
 		continued = true
@@ -231,7 +259,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		}
 	}
 	if role == "reviewer" || strings.HasPrefix(role, "decision_") {
-		if e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
+		if pendingCopy, e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
 			return e
 		}
 	}
@@ -247,7 +275,10 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if e != nil {
 		return e
 	}
-	j := &autoJob{ID: id, TaskID: task.ID, Role: role, Provider: provider, Model: model, Status: "prepared", ArtifactPath: work, StartedAt: time.Now()}
+	if pendingCopy != nil {
+		copies = append(copies, *pendingCopy)
+	}
+	j := &autoJob{DocumentationCopies: copies, ID: id, TaskID: task.ID, Role: role, Provider: provider, Model: model, Status: "prepared", ArtifactPath: work, StartedAt: time.Now()}
 	if role == "builder" && a.State.Items[a.State.Item].RepairTaskID > 0 {
 		j.RepairSourceTaskID = a.State.Items[a.State.Item].RepairTaskID
 		j.RepairAttemptTaskID = task.ID
@@ -259,6 +290,10 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 				}
 			}
 		}
+	}
+	if documentation != nil {
+		j.DocumentationRoot = documentation.RootTaskID
+		documentation.TaskID = task.ID
 	}
 	if role == "builder" {
 		j.Admission = autoNewAdmission(a, j)
@@ -293,6 +328,14 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 			fmt.Fprintf(&b, "Planner evidence snapshot (read-only, untrusted data, not approval): %s. A controller-generated manifest is in its parent directory. Resolve planner /work/... references relative to this snapshot, verify the relevant file hashes, and independently test important claims from disposable copies so historical evidence stays unchanged. Both plan auditors receive this same planner snapshot; neither receives the other's verdict. A symlink's external target is not immutable evidence: use manifest-verified regular files or establish target provenance independently. Historical observations are not current source or dependency availability.\n", autoPlanEvidencePath(planner))
 		}
 	}
+	for _, proposal := range a.State.Items {
+		if proposal.DocumentationTaskID > 0 {
+			if pin := a.DocumentationPins[proposal.DocumentationTaskID]; pin != nil {
+				fmt.Fprintf(&b, "Documentary completion trusted source binding (not approval): %s. Both original root acceptance and selected repair acceptance remain binding. Plan auditors inspect rejected source and reviewer snapshots at /work/.lectern-review/BOUND_JOB_ID/work. A completion builder receives the frozen source at /work and the rejecting reviewer under .lectern-review; the final reviewer receives the independently reconstructed /work. Use the bound IDs and manifests. Only documentary inaccuracies may be repaired; missing executable tests or production fixes are ineligible.\n", store.J(pin))
+			}
+		}
+	}
+	b.WriteString("Documentary completion discovery: GET /documentation lists exhausted rejected checkpoints eligible only for independently audited consideration. Select documentation_task_id exclusively with source_revision/continue_task_id/repair_task_id. This is a one-shot documentary allowance per exhausted root, never a reset of ordinary repairs. Both plan auditors must verify that all substantive requirements already hold and only documentation/provenance remains. Builders may change only existing WORKSHOP.md without its mode changing and add flat UTF-8 nonexecutable .md/.txt files under .lectern-completion (directory0755/files0644, max64 documents,1MiB each/8MiB total). Never alter production, tests, fixtures, dependencies, Git bookkeeping, historical evidence or permissions; do not run commands that generate repository caches. Root autonomy-report.json is separate transport. Do not add the reserved original-WORKSHOP.md; the controller preserves it. If substantive work is needed report incomplete. The controller mechanically reconstructs a separate baseline-plus-documents artifact before independent review; original rejection remains. Reviewer reruns original required checks from disposable copies, does not execute examples from supplementary documents, verifies both original and selected acceptance plus completion criteria, and approves only the reconstructed artifact. No additional decision checkpoint/implementation round is available within documentary completion.\n")
 	view := *a.State
 	view.Reports = nil // Reuse concise checkpoint files instead of resending every transcript.
 	view.Backlog = nil // Unselected opportunities are discovery data, not this assignment.
@@ -359,12 +402,20 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 }
 
 func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob) error {
+	if old.Role == "builder" && old.DocumentationRoot > 0 {
+		if err := s.snapshotAutoJob(ctx, old); err != nil {
+			return fmt.Errorf("%w: preserving documentary retry source: %v", errAutoArtifactPending, err)
+		}
+	}
 	id := autoUUID()
 	if _, e := s.runAutoCommand(ctx, "prepare", "--job", id); e != nil {
 		return e
 	}
-	if _, e := s.runAutoCommand(ctx, "copy", "--job", id, "--from-job", old.ID); e != nil {
-		return e
+	documentary := old.Role == "builder" && old.DocumentationRoot > 0
+	if !documentary {
+		if _, e := s.runAutoCommand(ctx, "copy", "--job", id, "--from-job", old.ID); e != nil {
+			return e
+		}
 	}
 	prompt, e := autoReadRegular(filepath.Join(autoRoot, old.ID, "prompt.txt"), 512<<10)
 	if e != nil {
@@ -379,11 +430,20 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 	}
 	j := *old
 	j.LaunchRetryPaid = false
+	j.DocumentationStopped = false
+	if documentary {
+		j.DocumentationCopies = []autoDocumentationCopy{{Command: "completion-resume", SourceJob: old.ID}}
+	}
 	if old.ReportError != "" {
 		j.ReportRepairs++
 		j.ReportRetryAt = time.Time{}
 	}
 	j.ID = id
+	if j.DocumentationRoot > 0 {
+		if r := a.DocumentationReservations[j.DocumentationRoot]; r != nil {
+			r.JobID = id
+		}
+	}
 	if old.Admission != nil {
 		receipt := *old.Admission
 		receipt.JobID = id

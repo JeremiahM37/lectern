@@ -1339,11 +1339,809 @@ def snapshot_execute(job):
             dependency_receipt(stage, {'state': 'waiting', 'reason': str(exc)[:500], 'retry_at': time.time()+300})
             raise
 
+# Documentary completion is a separate derived artifact. It never rewrites a
+# builder's archive or retroactively grants approval to its rejected lineage.
+OVERLAY_CLI = '/usr/local/bin/lectern'
+COMPLETION_MAX_BYTES = 1900 * 1024**2
+
+
+class CompletionOverlayViolation(ValueError):
+    pass
+
+
+def completion_stage(job, create=False):
+    stage = job_path(job) / 'completion'
+    if create:
+        stage.mkdir(mode=0o700, exist_ok=True)
+    st = stage.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
+        raise ValueError('unsafe completion state directory')
+    return stage
+
+
+def completion_json(path):
+    info = regular(path)
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022 or info.st_size > 256 * 1024:
+        raise ValueError('unsafe completion receipt')
+    return json.loads(path.read_text())
+
+
+def completion_write(path, value):
+    temp = path.with_suffix('.tmp')
+    if temp.exists() or temp.is_symlink():
+        regular(temp); temp.unlink()
+    write_new(temp, json.dumps(value, sort_keys=True), 0o600)
+    with temp.open('rb') as stream:
+        os.fsync(stream.fileno())
+    os.replace(temp, path)
+    fd = os.open(path.parent, os.O_DIRECTORY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+
+
+def completion_paths(source):
+    root_info = source.lstat()
+    if not stat.S_ISDIR(root_info.st_mode) or root_info.st_mode & 0o7000:
+        raise ValueError('completion root must be an ordinary directory')
+    paths = sorted(source.rglob('*'), key=lambda p: (len(p.parts), str(p)))
+    if len(paths) > 100000:
+        raise ValueError('completion snapshot exceeds 100000 entries')
+    total = 0
+    for item in paths:
+        info = item.lstat()
+        if info.st_mode & 0o7000:
+            raise ValueError('completion special permission bits are forbidden')
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        total += regular(item).st_size
+        if total > COMPLETION_MAX_BYTES:
+            raise ValueError('completion snapshot exceeds 1900 MiB')
+    return paths
+
+
+def completion_copy(source, destination, omit_report=False):
+    paths = completion_paths(source)
+    if destination.exists():
+        if destination.is_symlink() or not destination.is_dir() or any(destination.iterdir()):
+            raise ValueError('completion copy destination must be absent or empty')
+    else:
+        destination.mkdir(mode=0o700)
+    for item in paths:
+        rel = item.relative_to(source)
+        if omit_report and rel == Path('autonomy-report.json'):
+            continue
+        target = destination / rel
+        if item.is_dir():
+            target.mkdir(mode=0o700)
+        else:
+            source_info = regular(item)
+            with item.open('rb') as src, target.open('xb') as dest:
+                shutil.copyfileobj(src, dest)
+            if target.stat().st_size != source_info.st_size:
+                raise ValueError('completion input changed during copying')
+            target.chmod(source_info.st_mode & 0o777)
+    for item in reversed(paths):
+        if item.is_dir():
+            (destination / item.relative_to(source)).chmod(item.stat().st_mode & 0o777)
+    destination.chmod(source.stat().st_mode & 0o777)
+
+
+def completion_inspect(path):
+    result = subprocess.run([OVERLAY_CLI, 'autonomy-overlay-inspect', str(path)], capture_output=True, text=True, timeout=300)
+    if result.returncode == 2:
+        raise ValueError('invalid completion tree: ' + result.stderr[-400:])
+    if result.returncode:
+        raise RuntimeError('completion tree inspector unavailable: ' + result.stderr[-400:])
+    value = json.loads(result.stdout)
+    digest = value.get('tree_sha256', '')
+    if len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+        raise RuntimeError('completion tree inspector returned invalid digest')
+    return digest
+
+
+def completion_binding(stage):
+    try:
+        binding = completion_json(stage / 'baseline.json')
+        if binding.get('policy') != 'documentary-v1' or completion_inspect(stage / 'baseline') != binding.get('baseline_sha256'):
+            raise ValueError('frozen completion baseline identity changed')
+        job_path(binding['source_job'])
+        return binding
+    except (ValueError, KeyError) as exc:
+        raise RuntimeError('trusted completion baseline unavailable: ' + str(exc)) from exc
+
+
+def completion_extract_archive(source, destination, allow_stopped=False):
+    origin = job_path(source)
+    allowed_states = ('done', 'failed', 'stopped') if allow_stopped else ('done',)
+    if status(source)['state'] not in allowed_states:
+        raise ValueError('completion source must be an eligible stopped worker')
+    archive = origin / 'artifact.tar.gz'
+    try:
+        expected_identity = archive_identity(source)['sha256']
+    except ValueError as exc:
+        raise RuntimeError('trusted archive receipt invalid') from exc
+    digest = digest_file(archive)
+    if expected_identity != digest:
+        raise RuntimeError('completion source archive checksum mismatch')
+    if destination.exists():
+        if destination.is_symlink() or not destination.is_dir() or any(destination.iterdir()):
+            raise ValueError('archive extraction destination must be empty')
+    else:
+        destination.mkdir(parents=True, mode=0o700)
+    seen, directories, total = set(), [], 0
+    with tarfile.open(archive, 'r:gz') as tar:
+        for member in tar:
+            parts = Path(member.name).parts
+            if not parts or parts[0] != 'work' or member.name != '/'.join(parts) or '..' in parts or '\\' in member.name:
+                raise CompletionOverlayViolation('invalid path in completion source archive')
+            if member.name in seen or len(seen) >= 100000:
+                raise CompletionOverlayViolation('duplicate or excessive completion archive entries')
+            seen.add(member.name)
+            if member.mode & ~0o777 or not (member.isdir() or member.isfile()):
+                raise CompletionOverlayViolation('completion source archive contains links/special files or modes')
+            target = destination.joinpath(*parts[1:])
+            if len(parts) == 1:
+                if not member.isdir():
+                    raise CompletionOverlayViolation('archive root must be a directory')
+            elif member.isdir():
+                target.mkdir(mode=0o700)
+            else:
+                total += member.size
+                if total > COMPLETION_MAX_BYTES or member.size < 0:
+                    raise CompletionOverlayViolation('completion source archive exceeds size limit')
+                with tar.extractfile(member) as src, target.open('xb') as out:
+                    shutil.copyfileobj(src, out)
+                if target.stat().st_size != member.size:
+                    raise CompletionOverlayViolation('truncated completion source archive')
+                target.chmod(member.mode)
+            if member.isdir():
+                directories.append((target, member.mode))
+    if 'work' not in seen:
+        raise CompletionOverlayViolation('completion archive lacks work root')
+    for directory, mode in reversed(directories):
+        directory.chmod(mode)
+    if digest_file(archive) != digest:
+        raise RuntimeError('completion source archive changed during extraction')
+    return digest
+
+
+def copy_archive_review(job, source):
+    """Give a plan auditor exact exported evidence rather than mutable work."""
+    destination = job_path(job)
+    job_path(source)
+    if job == source or (destination / 'job.json').exists():
+        raise ValueError('archive review evidence requires a fresh prepared job')
+    stage = completion_stage(job, create=True)
+    identity = archive_identity(source)['sha256']
+    expected = {'source_job': source, 'source_archive_sha256': identity}
+    intent = stage / ('archive-review-' + source + '-intent.json')
+    published = stage / ('archive-review-' + source + '-ready.json')
+    with intent.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        work = ensure_work(destination)
+        evidence_root = work / '.lectern-review'
+        if evidence_root.is_symlink() or (evidence_root.exists() and not evidence_root.is_dir()):
+            raise ValueError('unsafe archive review evidence root')
+        evidence = evidence_root / source
+        if published.exists():
+            receipt = completion_json(published)
+            if receipt.get('source_archive_sha256') != identity or receipt.get('source_job') != source:
+                raise RuntimeError('archive review source identity changed')
+            if completion_inspect(evidence / 'work') != receipt.get('evidence_tree_sha256'):
+                raise RuntimeError('published archived review evidence changed')
+            return receipt
+        if intent.exists():
+            if completion_json(intent) != expected:
+                raise RuntimeError('partial archive review source identity changed')
+            if evidence.is_symlink():
+                raise RuntimeError('linked partial archive review evidence')
+            if evidence.exists():
+                shutil.rmtree(evidence)
+        else:
+            if evidence.exists() or evidence.is_symlink():
+                raise ValueError('archive review evidence already exists')
+            completion_write(intent, expected)
+        copied = evidence / 'work'
+        digest = completion_extract_archive(source, copied)
+        if digest != identity:
+            raise RuntimeError('archive changed during review copy')
+        manifest = []
+        for item in completion_paths(copied):
+            manifest.append({'path': str(item.relative_to(copied)),
+                'kind': 'directory' if item.is_dir() else 'file',
+                'sha256': None if item.is_dir() else digest_file(item), 'link': None})
+        (evidence / 'manifest.json').write_text(json.dumps({'source_job': source,
+            'source_archive_sha256': digest, 'purpose': 'untrusted archived evidence, not approval', 'files': manifest}, indent=2))
+        tree_hash = completion_inspect(copied)
+        admin = pwd.getpwnam('admin')
+        for item in (evidence_root, evidence, *evidence.rglob('*')):
+            os.chown(item, admin.pw_uid, admin.pw_gid)
+        receipt = dict(expected, state='copied', evidence_tree_sha256=tree_hash)
+        completion_write(published, receipt)
+        return receipt
+
+
+def archive_identity(job):
+    """Cheap root receipt identity; consumers still hash bytes before using them."""
+    origin = job_path(job)
+    state = origin / 'artifact-state'
+    info = state.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise RuntimeError('unsafe artifact receipt directory')
+    receipt = completion_json(state / 'receipt.json')
+    archive = regular(origin / 'artifact.tar.gz')
+    digest = receipt.get('sha256', '')
+    if receipt.get('state') != 'ready' or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+        raise RuntimeError('trusted artifact identity is unavailable')
+    if archive.st_uid != os.geteuid() or archive.st_mode & 0o022 or archive.st_size <= 0:
+        raise RuntimeError('unsafe artifact metadata')
+    if 'bytes' in receipt and receipt['bytes'] != archive.st_size:
+        raise RuntimeError('artifact size differs from trusted receipt')
+    return {'state': 'ready', 'sha256': digest}
+
+
+def completion_copy_unit(job, source, kind):
+    job_path(job); job_path(source)
+    if kind == 'resume':
+        return 'lectern-completion-resume-' + job + '.service'
+    if kind == 'derived':
+        return 'lectern-completion-copy-derived-' + job + '.service'
+    if kind == 'archive':
+        return 'lectern-completion-copy-archive-' + job + '-' + source + '.service'
+    raise ValueError('unknown completion copy kind')
+
+
+def completion_copy_receipt(stage, source, kind):
+    if kind == 'resume':
+        return stage / 'copy-resume.json'
+    if kind == 'derived':
+        return stage / 'copy-derived.json'
+    if kind == 'archive':
+        job_path(source)
+        return stage / ('copy-archive-' + source + '.json')
+    raise ValueError('unknown completion copy kind')
+
+
+def completion_copy_status(job, source, kind):
+    destination = job_path(job)
+    job_path(source)
+    if job == source or (destination / 'job.json').exists():
+        raise ValueError('completion copy needs a fresh distinct job')
+    stage = completion_stage(job, create=True)
+    path = completion_copy_receipt(stage, source, kind)
+    with path.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        receipt = completion_json(path) if path.exists() else {}
+        if receipt.get('copy_source_job', source) != source:
+            raise ValueError('completion copy source cannot change')
+        if completion_service_active(completion_copy_unit(job, source, kind)):
+            return {'state': 'copying', 'copy_source_job': source}
+        if receipt.get('state') == 'copied':
+            return receipt
+        if receipt.get('state') == 'copying':
+            receipt = dict(receipt, state='waiting', reason='copy interrupted; reserved destination retained', retry_at=time.time()+60)
+            completion_write(path, receipt)
+        if receipt.get('retry_at', 0) > time.time():
+            return receipt
+        request = {'state': 'copying', 'copy_source_job': source}
+        try:
+            completion_launch_capacity()
+            completion_write(path, request)
+            command = {'derived': '_copy-derived', 'archive': '_copy-archive-review', 'resume': '_completion-resume'}[kind]
+            run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+completion_copy_unit(job, source, kind),
+                 '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G', '--property=CPUQuota=200%',
+                 '--property=TasksMax=32', '--property=KillMode=control-group', '--property=UMask=0077',
+                 INSTALL, command, '--job', job, '--from-job', source])
+            return request
+        except Exception as exc:
+            receipt = dict(request, state='waiting', reason=str(exc)[-500:], retry_at=time.time()+60)
+            completion_write(path, receipt)
+            return receipt
+
+
+def completion_copy_execute(job, source, kind):
+    stage = completion_stage(job)
+    path = completion_copy_receipt(stage, source, kind)
+    with ARTIFACT_LOCK.open('a') as global_lock:
+        fcntl.flock(global_lock, fcntl.LOCK_EX)
+        try:
+            completion_capacity()
+            operation = {'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
+            receipt = operation(job, source)
+            completion_write(path, dict(receipt, copy_source_job=source))
+            return 0
+        except Exception as exc:
+            completion_write(path, {'state': 'waiting', 'copy_source_job': source,
+                'reason': str(exc)[-500:], 'retry_at': time.time()+60})
+            return 1
+
+
+def completion_prepare_commit(stage, work, binding):
+    # The frozen baseline is an identity record, not a readiness commit. Finish
+    # ownership on every reconciliation before publishing launch readiness.
+    admin = pwd.getpwnam('admin')
+    for item in (work, *work.rglob('*')):
+        os.chown(item, admin.pw_uid, admin.pw_gid)
+    receipt = dict(binding, state='ready')
+    completion_write(stage / 'prepare-receipt.json', receipt)
+    return receipt
+
+
+def completion_prepare(job, source, reviewer):
+    destination = job_path(job)
+    job_path(source); job_path(reviewer)
+    if len({job, source, reviewer}) != 3 or (destination / 'job.json').exists():
+        raise ValueError('completion baseline needs fresh destination and distinct source/reviewer')
+    stage = completion_stage(job, create=True)
+    with ARTIFACT_LOCK.open('a') as global_lock, (stage / 'prepare.lock').open('a') as lock:
+        fcntl.flock(global_lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        completion_capacity()
+        if (stage / 'baseline.json').exists():
+            binding = completion_binding(stage)
+            if binding['source_job'] != source or binding.get('review_job') != reviewer:
+                raise ValueError('completion source/reviewer binding cannot change')
+            if completion_inspect(ensure_work(destination)) != binding['baseline_sha256']:
+                raise RuntimeError('prepared work changed before completion launch')
+            return completion_prepare_commit(stage, ensure_work(destination), binding)
+        work = ensure_work(destination)
+        intent_path = stage / 'preparation.json'
+        regular(job_path(source) / 'artifact.tar.gz')
+        regular(job_path(reviewer) / 'artifact.tar.gz')
+        intent = {'source_job': source, 'review_job': reviewer,
+                  'source_archive_sha256': digest_file(job_path(source) / 'artifact.tar.gz'),
+                  'review_archive_sha256': digest_file(job_path(reviewer) / 'artifact.tar.gz')}
+        if intent_path.exists():
+            if completion_json(intent_path) != intent:
+                raise RuntimeError('completion preparation source identity changed')
+            # This exact fresh destination was reserved before our first write;
+            # it has never run. Only our reproducible partial preparation is reset.
+            for entry in work.iterdir():
+                if entry.is_symlink():
+                    raise RuntimeError('linked partial preparation path')
+                if entry.is_dir(): shutil.rmtree(entry)
+                else: regular(entry); entry.unlink()
+            if (stage / 'baseline').exists():
+                shutil.rmtree(stage / 'baseline')
+        else:
+            if any(work.iterdir()):
+                raise ValueError('completion preparation requires empty work')
+            completion_write(intent_path, intent)
+        source_hash = completion_extract_archive(source, work)
+        if source_hash != intent['source_archive_sha256']:
+            raise RuntimeError('source archive changed during preparation')
+        prior = work / 'autonomy-report.json'
+        if prior.exists() or prior.is_symlink():
+            if regular(prior).st_size > 128*1024:
+                raise ValueError('inherited completion report exceeds 128 KiB')
+            saved = work / '.lectern-reports' / source
+            saved.mkdir(parents=True)
+            prior.rename(saved / 'autonomy-report.json')
+            (saved / 'manifest.json').write_text(json.dumps({'source_job': source,
+                'purpose': 'untrusted prior report evidence, not current submission or approval',
+                'original_path': 'autonomy-report.json',
+                'preserved_path': str((saved / 'autonomy-report.json').relative_to(work)),
+                'sha256': digest_file(saved / 'autonomy-report.json')}, indent=2))
+        evidence = work / '.lectern-review' / reviewer
+        if evidence.exists() or evidence.is_symlink():
+            raise ValueError('reviewer evidence destination already exists')
+        review_work = evidence / 'work'
+        review_hash = completion_extract_archive(reviewer, review_work)
+        if review_hash != intent['review_archive_sha256']:
+            raise RuntimeError('review archive changed during preparation')
+        manifest = []
+        for item in completion_paths(review_work):
+            manifest.append({'path': str(item.relative_to(review_work)),
+                             'kind': 'directory' if item.is_dir() else 'file',
+                             'sha256': None if item.is_dir() else digest_file(item), 'link': None})
+        (evidence / 'manifest.json').write_text(json.dumps({'source_job': reviewer,
+            'source_archive_sha256': review_hash, 'purpose': 'untrusted reviewer evidence, not approval', 'files': manifest}, indent=2))
+        baseline = stage / 'baseline'
+        completion_copy(work, baseline)
+        baseline_hash = completion_inspect(baseline)
+        if completion_inspect(work) != baseline_hash:
+            raise ValueError('prepared workspace changed while freezing baseline')
+        binding = {'policy': 'documentary-v1', 'source_job': source, 'review_job': reviewer,
+                   'source_archive_sha256': source_hash, 'review_archive_sha256': review_hash,
+                   'baseline_sha256': baseline_hash}
+        completion_write(stage / 'baseline.json', binding)
+        return completion_prepare_commit(stage, work, binding)
+
+
+def completion_prepare_unit(job):
+    job_path(job)
+    return 'lectern-completion-prepare-' + job + '.service'
+
+
+def completion_prepare_status(job, source, reviewer):
+    destination = job_path(job)
+    job_path(source); job_path(reviewer)
+    if len({job, source, reviewer}) != 3 or (destination / 'job.json').exists():
+        raise ValueError('completion preparation needs a fresh distinct job')
+    stage = completion_stage(job, create=True)
+    with (stage / 'prepare-start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if completion_service_active(completion_prepare_unit(job)):
+            return {'state': 'preparing'}
+        path = stage / 'prepare-receipt.json'
+        receipt = completion_json(path) if path.exists() else {}
+        if receipt.get('state') == 'ready':
+            binding = completion_json(stage / 'baseline.json')
+            if binding.get('source_job') != source or binding.get('review_job') != reviewer or receipt != dict(binding, state='ready'):
+                raise RuntimeError('completion preparation binding mismatch')
+            return receipt
+        if receipt.get('source_job', source) != source or receipt.get('review_job', reviewer) != reviewer:
+            raise ValueError('completion preparation request cannot change')
+        if receipt.get('state') == 'preparing':
+            receipt = dict(receipt, state='waiting', reason='preparation interrupted; reserved destination retained', retry_at=time.time()+60)
+            completion_write(path, receipt)
+        if receipt.get('retry_at', 0) > time.time():
+            return receipt
+        request = {'state': 'preparing', 'source_job': source, 'review_job': reviewer}
+        try:
+            completion_launch_capacity()
+            completion_write(path, request)
+            run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+completion_prepare_unit(job),
+                 '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G', '--property=CPUQuota=200%',
+                 '--property=TasksMax=32', '--property=KillMode=control-group', '--property=UMask=0077',
+                 INSTALL, '_completion-prepare', '--job', job, '--from-job', source, '--review-job', reviewer])
+            return request
+        except Exception as exc:
+            receipt = dict(request, state='waiting', reason=str(exc)[-500:], retry_at=time.time()+60)
+            completion_write(path, receipt)
+            return receipt
+
+
+def completion_prepare_execute(job, source, reviewer):
+    stage = completion_stage(job)
+    try:
+        completion_prepare(job, source, reviewer)
+        return 0
+    except Exception as exc:
+        completion_write(stage / 'prepare-receipt.json', {'state': 'waiting', 'source_job': source,
+            'review_job': reviewer, 'reason': str(exc)[-500:], 'retry_at': time.time()+60})
+        return 1
+
+
+def completion_unit(job):
+    job_path(job)
+    return 'lectern-completion-' + job + '.service'
+
+
+def completion_service_active(name):
+    result = subprocess.run(['/usr/bin/systemctl', 'show', name, '--property=ActiveState'], capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError('completion validator unit state unavailable')
+    values = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+    state = values.get('ActiveState')
+    if state not in ('inactive', 'failed', 'active', 'activating', 'deactivating', 'reloading'):
+        raise RuntimeError('completion validator unit state uncertain')
+    return state in ('active', 'activating', 'deactivating', 'reloading')
+
+
+def completion_active(job):
+    return completion_service_active(completion_unit(job))
+
+
+def completion_stop(job):
+    """Cancel only this job's bounded documentary helpers, retaining all state."""
+    names = [completion_prepare_unit(job), completion_unit(job)]
+    stage = job_path(job) / 'completion'
+    if stage.exists():
+        stage = completion_stage(job)
+        for path in sorted(stage.glob('copy-*.json')):
+            receipt = completion_json(path)
+            source = receipt.get('copy_source_job')
+            if path.name == 'copy-resume.json':
+                names.append(completion_copy_unit(job, source, 'resume'))
+            elif path.name == 'copy-derived.json':
+                names.append(completion_copy_unit(job, source, 'derived'))
+            elif path.name.startswith('copy-archive-'):
+                job_path(source)
+                if path.name != 'copy-archive-' + source + '.json':
+                    raise RuntimeError('completion copy cancellation identity mismatch')
+                names.append(completion_copy_unit(job, source, 'archive'))
+    for name in names:
+        if completion_service_active(name):
+            run(['/usr/bin/systemctl', 'stop', name])
+        if completion_service_active(name):
+            raise RuntimeError('completion helper did not stop: ' + name)
+    # Preparing/running receipts intentionally survive. Next enabled poll sees
+    # the inactive unit and schedules recovery without consuming another grant.
+    return {'state': 'stopped'}
+
+
+def completion_launch_capacity():
+    # Keep controller polls bounded: full retained-tree accounting is done by
+    # the worker under ARTIFACT_LOCK before it writes any new copied data.
+    if shutil.disk_usage(ROOT).free < 26*1024**3:
+        raise RuntimeError('completion helper needs 6 GiB above the 20 GiB free-space floor')
+
+
+def completion_capacity():
+    capacity = storage_status()
+    if not capacity['ready'] or capacity['free_bytes'] < 26*1024**3 or capacity['allocated_bytes'] > STORAGE_LIMIT-6*1024**3:
+        raise RuntimeError('completion reconstruction needs 6 GiB storage headroom above the 20 GiB floor')
+
+
+def completion_ready(stage):
+    binding = completion_binding(stage)
+    receipt = completion_json(stage / 'receipt.json')
+    if receipt.get('state') != 'ready':
+        raise ValueError('derived completion artifact is not ready')
+    archive = stage.parent / 'completion-artifact.tar.gz'
+    info = regular(archive)
+    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+        raise RuntimeError('unsafe published completion archive')
+    if receipt.get('source_archive_sha256') != binding['source_archive_sha256'] or receipt.get('baseline_sha256') != binding['baseline_sha256']:
+        raise ValueError('derived completion source binding mismatch')
+    if digest_file(archive) != receipt.get('derived_archive_sha256') or completion_inspect(stage / 'derived/work') != receipt.get('derived_tree_sha256'):
+        raise ValueError('derived completion artifact checksum mismatch')
+    return receipt
+
+
+def completion_reconstruct(job):
+    stage = completion_stage(job)
+    if status(job)['state'] != 'done':
+        raise ValueError('completion reconstruction requires a completed worker')
+    with (stage / 'start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if completion_active(job):
+            return {'state': 'running'}
+        receipt = completion_json(stage / 'receipt.json') if (stage / 'receipt.json').exists() else {}
+        if receipt.get('state') == 'ready':
+            binding = completion_json(stage / 'baseline.json')
+            if receipt.get('baseline_sha256') != binding.get('baseline_sha256') or receipt.get('source_archive_sha256') != binding.get('source_archive_sha256'):
+                raise RuntimeError('trusted completion receipt binding mismatch')
+            return receipt
+        if receipt.get('state') == 'rejected':
+            return receipt
+        if receipt.get('state') == 'running':
+            receipt = {'state': 'waiting', 'reason': 'validator interrupted; original workspace retained', 'retry_at': time.time()+60}
+            completion_write(stage / 'receipt.json', receipt)
+        if receipt.get('retry_at', 0) > time.time():
+            return receipt
+        completion_launch_capacity()
+        completion_write(stage / 'receipt.json', {'state': 'running'})
+        try:
+            run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+completion_unit(job),
+                 '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G', '--property=CPUQuota=200%',
+                 '--property=TasksMax=32', '--property=KillMode=control-group', '--property=UMask=0077',
+                 INSTALL, '_completion-reconstruct', '--job', job])
+        except Exception as exc:
+            completion_write(stage / 'receipt.json', {'state': 'waiting', 'reason': str(exc)[-400:], 'retry_at': time.time()+60})
+            raise
+        return {'state': 'running'}
+
+
+def completion_transport(stage, work, name='submission.json'):
+    report = work / 'autonomy-report.json'
+    if report.exists() or report.is_symlink():
+        if regular(report).st_size > 128*1024:
+            raise CompletionOverlayViolation('completion report exceeds 128 KiB')
+        target = stage / name
+        if target.exists():
+            if target.read_bytes() != report.read_bytes():
+                raise RuntimeError('completion submission changed after freezing')
+        else:
+            with target.open('xb') as stream:
+                stream.write(report.read_bytes())
+            target.chmod(0o600)
+
+
+def completion_publish(job, stage, receipt):
+    """Publish one readable immutable archive; keep baseline and state private."""
+    binding = completion_binding(stage)
+    if any(receipt.get(key) != value for key, value in binding.items()):
+        raise RuntimeError('completion publication baseline binding changed')
+    if completion_inspect(stage / 'derived/work') != receipt.get('derived_tree_sha256'):
+        raise RuntimeError('completion publication tree changed')
+    target = job_path(job) / 'completion-artifact.tar.gz'
+    private = stage / 'derived/artifact.tar.gz'
+    if target.exists() or target.is_symlink():
+        info = regular(target)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022 or digest_file(target) != receipt.get('derived_archive_sha256'):
+            raise RuntimeError('published completion archive conflicts with durable intent')
+    else:
+        regular(private)
+        if digest_file(private) != receipt.get('derived_archive_sha256'):
+            raise RuntimeError('completion publication source checksum mismatch')
+        os.chown(private, 0, pwd.getpwnam('admin').pw_gid)
+        private.chmod(0o440)
+        os.replace(private, target)
+        fd = os.open(target.parent, os.O_DIRECTORY)
+        try: os.fsync(fd)
+        finally: os.close(fd)
+    completion_write(stage / 'receipt.json', receipt)
+    return receipt
+
+
+def completion_execute(job):
+    stage = completion_stage(job)
+    with ARTIFACT_LOCK.open('a') as global_lock, (stage / 'execute.lock').open('a') as lock:
+        fcntl.flock(global_lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (stage / 'receipt.json').exists():
+            previous = completion_json(stage / 'receipt.json')
+            if previous.get('state') == 'ready':
+                # Published derived evidence is never reset/rebuilt on a later
+                # integrity or inspector failure; retain the original receipt.
+                completion_ready(stage)
+                return 0
+            if previous.get('state') == 'rejected':
+                return 2
+        try:
+            if status(job)['state'] != 'done':
+                raise RuntimeError('completion builder is not completed')
+            completion_capacity()
+            binding = completion_binding(stage)
+            publication = stage / 'publication.json'
+            if publication.exists():
+                completion_publish(job, stage, completion_json(publication))
+                return 0
+            if (job_path(job) / 'completion-artifact.tar.gz').exists():
+                raise RuntimeError('completion archive exists without publication intent')
+            candidate, derived = stage / 'candidate', stage / 'derived'
+            # Only controller-owned, unpublished scratch is discarded on retry.
+            for scratch in (candidate, derived):
+                if scratch.is_symlink():
+                    raise ValueError('linked completion scratch')
+                if scratch.exists():
+                    shutil.rmtree(scratch)
+            candidate_archive_hash = completion_extract_archive(job, candidate)
+            completion_transport(stage, candidate)
+            # Only the copied current report is transport, never inherited files.
+            current_report = candidate / 'autonomy-report.json'
+            if current_report.exists():
+                regular(current_report); current_report.unlink()
+            derived.mkdir(mode=0o700)
+            result = subprocess.run([OVERLAY_CLI, 'autonomy-overlay', str(stage / 'baseline'), str(candidate), str(derived / 'work')], capture_output=True, text=True, timeout=480)
+            if result.returncode == 2:
+                raise CompletionOverlayViolation('documentary overlay rejected: ' + result.stderr[-400:])
+            if result.returncode:
+                raise RuntimeError('documentary validator failed operationally: ' + result.stderr[-400:])
+            overlay = json.loads(result.stdout)
+            if overlay.get('policy') != binding['policy'] or overlay.get('baseline_sha256') != binding['baseline_sha256'] or overlay.get('derived_sha256') != completion_inspect(derived / 'work'):
+                raise RuntimeError('documentary validator receipt identity mismatch')
+            archive = derived / 'artifact.tar.gz'
+            def safe_member(member):
+                if not (member.isfile() or member.isdir()):
+                    raise ValueError('derived artifact contains a link or special file')
+                member.uid = member.gid = 0
+                member.uname = member.gname = ''
+                return member
+            with archive.open('xb') as raw:
+                with gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=1, mtime=0) as compressed:
+                    with tarfile.open(fileobj=compressed, mode='w|', dereference=False) as out:
+                        out.add(derived / 'work', arcname='work', recursive=True, filter=safe_member)
+                raw.flush(); os.fsync(raw.fileno())
+            archive.chmod(0o400)
+            receipt = dict(binding, state='ready', candidate_archive_sha256=candidate_archive_hash, derived_archive_sha256=digest_file(archive),
+                           derived_tree_sha256=overlay['derived_sha256'], overlay=overlay)
+            completion_write(stage / 'publication.json', receipt)
+            completion_publish(job, stage, receipt)
+            return 0
+        except CompletionOverlayViolation as exc:
+            completion_write(stage / 'receipt.json', {'state': 'rejected', 'reason': str(exc)[-500:]})
+            return 2
+        except Exception as exc:
+            completion_write(stage / 'receipt.json', {'state': 'waiting', 'reason': str(exc)[-500:], 'retry_at': time.time()+60})
+            return 1
+
+
+def completion_copy_derived(job, source):
+    destination = job_path(job)
+    job_path(source)
+    if job == source or (destination / 'job.json').exists():
+        raise ValueError('derived review requires a fresh prepared destination')
+    if completion_active(source):
+        raise RuntimeError('derived artifact is still being reconstructed')
+    source_stage = completion_stage(source)
+    receipt = completion_ready(source_stage)
+    destination_stage = completion_stage(job, create=True)
+    expected = dict(receipt, builder_job=source)
+    with (destination_stage / 'review-copy.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        work = ensure_work(destination)
+        published = destination_stage / 'review-source.json'
+        if published.exists():
+            if completion_json(published) != expected or completion_inspect(work) != receipt['derived_tree_sha256']:
+                raise RuntimeError('derived reviewer source binding changed')
+            return dict(receipt, state='copied')
+        intent = destination_stage / 'review-copy.json'
+        if intent.exists():
+            if completion_json(intent) != expected:
+                raise RuntimeError('derived reviewer preparation source changed')
+            for entry in work.iterdir():
+                if entry.is_symlink():
+                    raise RuntimeError('linked partial reviewer preparation')
+                if entry.is_dir(): shutil.rmtree(entry)
+                else: regular(entry); entry.unlink()
+        else:
+            if any(work.iterdir()):
+                raise ValueError('derived review destination must be empty')
+            completion_write(intent, expected)
+        completion_copy(source_stage / 'derived/work', work)
+        if completion_inspect(work) != receipt['derived_tree_sha256']:
+            raise RuntimeError('derived review copy checksum mismatch')
+        admin = pwd.getpwnam('admin')
+        for item in (work, *work.rglob('*')):
+            os.chown(item, admin.pw_uid, admin.pw_gid)
+        # Separate from reviewer evidence and never grants builder capability.
+        completion_write(published, expected)
+        return dict(receipt, state='copied')
+
+
+def completion_resume(job, source):
+    destination, origin = job_path(job), job_path(source)
+    if job == source or (destination / 'job.json').exists() or status(source)['state'] == 'running':
+        raise ValueError('completion resume needs a stopped builder and fresh destination')
+    if completion_active(source):
+        raise ValueError('cannot resume a builder with active reconstruction')
+    source_stage = completion_stage(source)
+    if (source_stage / 'receipt.json').exists():
+        raise ValueError('reconstruction has begun; retry validation instead of the model')
+    binding = completion_binding(source_stage)
+    archive_hash = archive_identity(source)['sha256']
+    stage = completion_stage(job, create=True)
+    expected = dict(binding, resume_source_job=source, resume_archive_sha256=archive_hash)
+    intent = stage / 'resume-intent.json'
+    published = stage / 'resume-ready.json'
+    with (stage / 'resume.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        work = ensure_work(destination)
+        if published.exists():
+            receipt = completion_json(published)
+            if any(receipt.get(key) != value for key, value in expected.items()):
+                raise RuntimeError('published resume source binding changed')
+            if completion_binding(stage) != binding or completion_inspect(work) != receipt.get('resumed_tree_sha256'):
+                raise RuntimeError('published resume workspace or baseline changed')
+            return receipt
+        if intent.exists():
+            if completion_json(intent) != expected:
+                raise RuntimeError('partial resume source binding changed')
+            for entry in work.iterdir():
+                if entry.is_symlink():
+                    raise RuntimeError('linked partial resume workspace')
+                if entry.is_dir(): shutil.rmtree(entry)
+                else: regular(entry); entry.unlink()
+            baseline = stage / 'baseline'
+            if baseline.is_symlink():
+                raise RuntimeError('linked partial resume baseline')
+            if baseline.exists(): shutil.rmtree(baseline)
+        else:
+            if any(work.iterdir()) or (stage / 'baseline').exists() or (stage / 'baseline.json').exists():
+                raise ValueError('completion resume destination must be fresh')
+            completion_write(intent, expected)
+        # Resume exactly the stopped builder's verified raw export. Mutable
+        # leftovers can never drift between operational retry UUIDs.
+        actual = completion_extract_archive(source, work, allow_stopped=True)
+        if actual != archive_hash:
+            raise RuntimeError('resume source archive identity changed')
+        completion_transport(stage, work, name='resume-submission.json')
+        # This is the same admitted task, including bounded report-schema repair.
+        # Keep malformed/current report bytes visible at the documented path;
+        # final reconstruction excludes only that root transport file.
+        completion_copy(source_stage / 'baseline', stage / 'baseline')
+        if completion_inspect(stage / 'baseline') != binding['baseline_sha256']:
+            raise RuntimeError('resumed completion baseline checksum mismatch')
+        work_hash = completion_inspect(work)
+        admin = pwd.getpwnam('admin')
+        for item in (work, *work.rglob('*')):
+            os.chown(item, admin.pw_uid, admin.pw_gid)
+        completion_write(stage / 'baseline.json', binding)
+        completion_write(stage / 'prepare-receipt.json', dict(binding, state='ready'))
+        receipt = dict(expected, state='copied', resumed_tree_sha256=work_hash)
+        completion_write(published, receipt)
+        return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
+    parser.add_argument('--review-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
     parser.add_argument('--model')
     parser.add_argument('--network-selftest', action='store_true', help='selftest through the real scoped public egress proxy')
@@ -1353,7 +2151,31 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'dependencies':
+    if args.command == 'archive-identity':
+        out = archive_identity(args.job)
+    elif args.command == '_copy-derived':
+        return completion_copy_execute(args.job, args.from_job, 'derived')
+    elif args.command == '_copy-archive-review':
+        return completion_copy_execute(args.job, args.from_job, 'archive')
+    elif args.command == 'copy-archive-review':
+        out = completion_copy_status(args.job, args.from_job, 'archive')
+    elif args.command == 'completion-stop':
+        out = completion_stop(args.job)
+    elif args.command == 'completion-prepare':
+        out = completion_prepare_status(args.job, args.from_job, args.review_job)
+    elif args.command == '_completion-prepare':
+        return completion_prepare_execute(args.job, args.from_job, args.review_job)
+    elif args.command == 'completion-reconstruct':
+        out = completion_reconstruct(args.job)
+    elif args.command == '_completion-reconstruct':
+        return completion_execute(args.job)
+    elif args.command == 'copy-derived':
+        out = completion_copy_status(args.job, args.from_job, 'derived')
+    elif args.command == 'completion-resume':
+        out = completion_copy_status(args.job, args.from_job, 'resume')
+    elif args.command == '_completion-resume':
+        return completion_copy_execute(args.job, args.from_job, 'resume')
+    elif args.command == 'dependencies':
         out = dependency_status(args.job)
     elif args.command == 'dependencies-stop':
         key = go_dependency_key(ensure_work(job_path(args.job)))

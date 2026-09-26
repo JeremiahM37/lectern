@@ -16,6 +16,14 @@ steps:
       - shell: python3 tools/test_autonomy_storage.py
       - shell: python3 tools/test_provision_python_test_bundle.py
       - shell: python3 tools/test_autonomy_launch.py
+      - shell:
+          cmd: |
+            set -eu
+            completion_test_dir=$(mktemp -d /tmp/lectern-completion-verify.XXXXXX)
+            trap 'rm -rf "$completion_test_dir"' EXIT
+            go build -o "$completion_test_dir/lectern" ./cmd/lectern
+            LECTERN_OVERLAY_TEST_CLI="$completion_test_dir/lectern" python3 tools/test_autonomy_completion.py
+          timeout: 180
 
   - name: go, frontend and browser suites pass
     actions:

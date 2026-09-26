@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"io"
@@ -263,6 +265,14 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, rows)
 		return
+	case "/documentation":
+		a, err := s.loadAuto()
+		if err != nil {
+			http.Error(w, "documentation catalog unavailable", 503)
+			return
+		}
+		writeJSON(w, 200, s.autoDocumentationCatalog(a))
+		return
 	case "/test-runtime":
 		writeJSON(w, 200, autoPythonTestRuntime(filepath.Join(filepath.Dir(autoRoot), "dependencies", "python")))
 		return
@@ -332,7 +342,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					continue
 				}
-				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID)})
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID), "documentation": j.Documentation})
 			}
 			writeJSON(w, 200, rows)
 			return
@@ -469,6 +479,13 @@ func (s *Server) downloadAutonomy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := filepath.Join(autoRoot, found.ID, "artifact.tar.gz")
+	if found.DocumentationRoot > 0 {
+		if found.Documentation == nil || found.Documentation.State != "ready" || !autoHash256(found.Documentation.DerivedSHA) {
+			httpError(w, 409, "documentary derived artifact unavailable")
+			return
+		}
+		path = filepath.Join(autoRoot, found.ID, "completion-artifact.tar.gz")
+	}
 	fd, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if e != nil {
 		respondErr(w, e)
@@ -480,6 +497,12 @@ func (s *Server) downloadAutonomy(w http.ResponseWriter, r *http.Request) {
 	if e != nil || !st.Mode().IsRegular() || st.Size() == 0 {
 		httpError(w, 503, "artifact unavailable")
 		return
+	}
+	if found.DocumentationRoot > 0 {
+		if e = autoVerifyDerivedDownload(f, found.Documentation.DerivedSHA); e != nil {
+			httpError(w, 503, "derived artifact identity mismatch")
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", "attachment; filename=workshop-"+found.ID+".tar.gz")
@@ -519,3 +542,15 @@ type autoLimitedConn struct {
 }
 
 func (c *autoLimitedConn) Close() error { e := c.Conn.Close(); c.once.Do(c.release); return e }
+
+func autoVerifyDerivedDownload(f *os.File, want string) error {
+	h := sha256.New()
+	if _, e := io.Copy(h, f); e != nil {
+		return e
+	}
+	if hex.EncodeToString(h.Sum(nil)) != want {
+		return errors.New("derived digest mismatch")
+	}
+	_, e := f.Seek(0, io.SeekStart)
+	return e
+}

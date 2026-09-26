@@ -363,12 +363,56 @@ including historical evidence supplied to repairs. Run experiments from disposab
 copies. A symlink's external target is not protected by that read-only mount:
 validate regular-file hashes or establish the target's provenance separately.
 
-A documentary overlay validator also exists in `internal/autonomy`. It can
-reconstruct a frozen source tree plus bounded Markdown/text corrections while
-preserving the original WORKSHOP document. This is a validation primitive only:
-there is currently no scheduler allowance for exhausted documentary repairs.
-Reservation, admission and reconstructed-review integration must be implemented
-before that capability can launch work. It grants no approval or public consent.
+### Documentary completion after exhausted repairs
+
+`/documentation` lists rejected checkpoints for consideration when their ordinary
+repair allowance is exhausted. A planner may select `documentation_task_id`,
+exclusively with source/continuation/repair selectors. Catalog presence does not
+establish that the work is complete: both independent plan auditors must inspect
+the exact rejected source and reviewer archives and establish that only
+documentary corrections remain. Missing executable regression tests, dependencies
+or production changes are outside this capability.
+
+The controller pins source and review archive hashes before the plan audits. It
+retains both the original root acceptance criteria and the selected repair's
+criteria, separately from the new completion criteria. A durable reservation
+allows one documentary attempt per exhausted root; operational restarts retain
+that reservation. It neither resets ordinary repair counts nor changes the
+original rejection into approval.
+
+The runner prepares from verified archives and freezes a separate baseline.
+Only content changes to existing `WORKSHOP.md` and flat nonexecutable UTF-8
+`.md`/`.txt` files in `.lectern-completion` are permitted. Limits are 64 documents,
+1 MiB each and 8 MiB total. Existing modes and all other inherited files must
+remain unchanged. The current root `autonomy-report.json` is transport retained
+separately; historical reports, test output, manifests and Git files are not
+excluded from validation. `.lectern-completion/original-WORKSHOP.md` is reserved
+for the controller's preserved original.
+
+Before final review, the controller reconstructs a separate artifact from the
+frozen baseline and validated documents. Production files come from the baseline,
+including when a candidate temporarily edited and restored them. Reviewers use
+that reconstructed artifact and rerun substantive checks in disposable copies;
+they must not execute examples from the new documents. Continuations, downloads
+and integration receipts use the same derived artifact identity. The raw candidate
+and rejected source archives remain available as historical evidence.
+
+Preparation and reconstruction are bounded background operations with persisted
+receipts. An interrupted operation resumes its reserved work; readiness is
+published only after workspace ownership is usable. A forbidden candidate change
+is a substantive rejection, while infrastructure failures retain evidence for
+operational recovery. Cancellation stops the job's recovery helpers and preserves
+their receipts. These mechanisms grant no public, destructive, production
+deployment or core-policy authority.
+
+### Escalation after repeated review failures
+
+Ordinary builders retain economical routing. When an original build and its
+repair have both been independently rejected, the next permitted repair uses
+the expert model tier. This changes model selection only: the audited proposal,
+remaining repair allowance, independent review and fresh quota reserve checks
+are unchanged. Process failures, report-schema retries, missing dependencies and
+pending reviews alone do not trigger escalation.
 
 ### Offline Python test tooling
 
