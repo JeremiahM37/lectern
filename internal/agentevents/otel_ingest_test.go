@@ -206,3 +206,33 @@ func TestIngestOTelLogsForAttemptAdds(t *testing.T) {
 		t.Errorf("tokens = %d/%d, want 20/10", row.InputTokens, row.OutputTokens)
 	}
 }
+
+// PR/commit counters keep the highest cumulative reading: a later export
+// never double counts, and a resumed process restarting at zero cannot lower
+// what the session already shipped.
+func TestIngestOTelMetricsKeepsPullRequestAndCommitCounts(t *testing.T) {
+	db, in, sess := newTestSession(t)
+	body := func(prs, commits int) []byte {
+		return []byte(`{"resourceMetrics":[{"scopeMetrics":[{"metrics":[
+			{"name":"claude_code.pull_request.count","sum":{"dataPoints":[{"attributes":[],"asInt":"` + strconv.Itoa(prs) + `"}]}},
+			{"name":"claude_code.commit.count","sum":{"dataPoints":[{"attributes":[],"asInt":"` + strconv.Itoa(commits) + `"}]}}
+		]}]}]}`)
+	}
+	read := func() (prs, commits int64) {
+		t.Helper()
+		if err := db.QueryRow(`SELECT otel_pull_requests, otel_commits FROM sessions WHERE id=?`, sess.ID).Scan(&prs, &commits); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	for _, step := range []struct{ prs, commits, wantPRs, wantCommits int }{
+		{1, 2, 1, 2}, {1, 3, 1, 3}, {0, 0, 1, 3},
+	} {
+		if err := in.IngestOTelMetrics(sess, body(step.prs, step.commits)); err != nil {
+			t.Fatal(err)
+		}
+		if prs, commits := read(); prs != int64(step.wantPRs) || commits != int64(step.wantCommits) {
+			t.Fatalf("after %+v: got %d PRs / %d commits", step, prs, commits)
+		}
+	}
+}

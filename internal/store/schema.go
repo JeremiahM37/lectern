@@ -772,4 +772,11 @@ var migrations = []string{
 	// the model price table rather than reported (interactive Codex), so the
 	// Usage page can label it.
 	"ALTER TABLE usage_daily ADD COLUMN estimated_usd REAL NOT NULL DEFAULT 0",
+	// Cost per outcome (docs/outcomes.md): Claude Code's OTel PR/commit
+	// counters. Sessions keep the highest cumulative reading seen; facts copy
+	// it (NULL = no OTel reading, so "none shipped" and "unknown" differ).
+	"ALTER TABLE sessions ADD COLUMN otel_pull_requests INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE sessions ADD COLUMN otel_commits INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE outcome_facts ADD COLUMN pull_requests INTEGER",
+	"ALTER TABLE outcome_facts ADD COLUMN commits INTEGER",
 }

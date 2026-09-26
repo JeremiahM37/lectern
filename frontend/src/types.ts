@@ -470,6 +470,8 @@ export interface OutcomeRow {
   lines_kept: number;
   eval_total: number;
   eval_passed: number;
+  pull_requests?: number;
+  commits?: number;
   partial: boolean;
   estimated: boolean;
   cost_per_pass?: number;

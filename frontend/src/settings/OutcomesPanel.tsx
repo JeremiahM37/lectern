@@ -137,6 +137,7 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
                 <th>{group === "agent" ? "Agent" : group === "model" ? "Model" : "Project"}</th>
                 <th>Passed</th>
                 <th>Accepted</th>
+                <th title="Pull requests / commits reported by Claude Code's OpenTelemetry counters">PRs / commits</th>
                 {COLUMNS.map((c) => (
                   <th key={c.key}>
                     <button
@@ -174,6 +175,9 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
                     {r.checked ? `${r.passed}/${r.checked}` : "—"}
                   </td>
                   <td>{r.accepted || "—"}</td>
+                  <td className="outcomes-shipped">
+                    {r.pull_requests == null && r.commits == null ? "—" : `${r.pull_requests ?? 0} / ${r.commits ?? 0}`}
+                  </td>
                   <td>{formatCost(r.cost_usd)}</td>
                   <td>{fmtCost(r.cost_per_pass)}</td>
                   <td>{fmtCost(r.cost_per_accepted)}</td>
@@ -184,7 +188,7 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="sub">
+                  <td colSpan={10} className="sub">
                     Nothing yet.
                   </td>
                 </tr>
@@ -194,7 +198,8 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
         </div>
         <p className="sub">
           Costs prefer exact OpenTelemetry figures, then the agent's own reported cost, then a configured per-model
-          token estimate — rows marked "partial" or "estimated" are not fully measured. See docs/outcomes.md.
+          token estimate — rows marked "partial" or "estimated" are not fully measured. PRs / commits come from
+          Claude Code's OpenTelemetry counters; "—" means nothing in the row reported them. See docs/outcomes.md.
         </p>
       </section>
     </div>

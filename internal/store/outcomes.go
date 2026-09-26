@@ -21,7 +21,11 @@ type OutcomeFact struct {
 	LinesKept   *int64
 	EvalPass    *bool
 	TimeToPassS *float64
-	UpdatedAt   float64
+	// PullRequests/Commits come from Claude Code's OTel counters; nil when
+	// the attempt or session never reported OTel metrics.
+	PullRequests *int64
+	Commits      *int64
+	UpdatedAt    float64
 }
 
 // UpsertOutcomeFact writes or replaces the one fact row for (scope, ref_id).
@@ -33,18 +37,19 @@ func (db *DB) UpsertOutcomeFact(f *OutcomeFact) error {
 	evalPass := nullableBool(f.EvalPass)
 	_, err := db.Exec(`INSERT INTO outcome_facts(scope, ref_id, date, task_id, project_id,
 			agent, model, cost_usd, cost_source, check_passed, accepted, lines_kept,
-			eval_pass, time_to_pass_s, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			eval_pass, time_to_pass_s, pull_requests, commits, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(scope, ref_id) DO UPDATE SET
 			date = excluded.date, task_id = excluded.task_id, project_id = excluded.project_id,
 			agent = excluded.agent, model = excluded.model, cost_usd = excluded.cost_usd,
 			cost_source = excluded.cost_source, check_passed = excluded.check_passed,
 			accepted = excluded.accepted, lines_kept = excluded.lines_kept,
 			eval_pass = excluded.eval_pass, time_to_pass_s = excluded.time_to_pass_s,
+			pull_requests = excluded.pull_requests, commits = excluded.commits,
 			updated_at = excluded.updated_at`,
 		f.Scope, f.RefID, f.Date, f.TaskID, f.ProjectID, f.Agent, f.Model, f.CostUSD,
 		f.CostSource, checkPassed, boolToInt(f.Accepted), f.LinesKept, evalPass,
-		f.TimeToPassS, f.UpdatedAt)
+		f.TimeToPassS, f.PullRequests, f.Commits, f.UpdatedAt)
 	return err
 }
 
@@ -52,7 +57,8 @@ func (db *DB) UpsertOutcomeFact(f *OutcomeFact) error {
 // yyyy-mm-dd string, inclusive) — the read half of GET /api/outcomes.
 func (db *DB) OutcomeFactsSince(cutoffDate string) ([]*OutcomeFact, error) {
 	rows, err := db.Query(`SELECT id, scope, ref_id, date, task_id, project_id, agent, model,
-			cost_usd, cost_source, check_passed, accepted, lines_kept, eval_pass, time_to_pass_s, updated_at
+			cost_usd, cost_source, check_passed, accepted, lines_kept, eval_pass, time_to_pass_s,
+			pull_requests, commits, updated_at
 		FROM outcome_facts WHERE date >= ?`, cutoffDate)
 	if err != nil {
 		return nil, err
@@ -65,7 +71,7 @@ func (db *DB) OutcomeFactsSince(cutoffDate string) ([]*OutcomeFact, error) {
 		var accepted int
 		if err := rows.Scan(&f.ID, &f.Scope, &f.RefID, &f.Date, &f.TaskID, &f.ProjectID,
 			&f.Agent, &f.Model, &f.CostUSD, &f.CostSource, &checkPassed, &accepted,
-			&f.LinesKept, &evalPass, &f.TimeToPassS, &f.UpdatedAt); err != nil {
+			&f.LinesKept, &evalPass, &f.TimeToPassS, &f.PullRequests, &f.Commits, &f.UpdatedAt); err != nil {
 			continue
 		}
 		f.CheckPassed = intToBool(checkPassed)

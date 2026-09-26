@@ -85,7 +85,10 @@ func rebuildAttempts(db *store.DB, cutoff float64) error {
 		var cost float64
 		var inTok, outTok int64
 		costSource := ""
+		var pullRequests, commits *int64
 		if otel, ok := otelByAttempt[r.id]; ok {
+			prs, cms := otel.PullRequests, otel.Commits
+			pullRequests, commits = &prs, &cms
 			cost, inTok, outTok = otel.CostUSD, otel.InputTokens, otel.OutputTokens
 			if otel.Model != "" {
 				model = otel.Model
@@ -141,7 +144,8 @@ func rebuildAttempts(db *store.DB, cutoff float64) error {
 			Scope: "attempt", RefID: r.id, Date: date, TaskID: &tid, ProjectID: &pid,
 			Agent: agent, Model: model, CostUSD: cost, CostSource: costSource,
 			CheckPassed: checkPassed, Accepted: accepted, LinesKept: linesKept,
-			EvalPass: evalPass, TimeToPassS: timeToPass, UpdatedAt: store.Now(),
+			EvalPass: evalPass, TimeToPassS: timeToPass,
+			PullRequests: pullRequests, Commits: commits, UpdatedAt: store.Now(),
 		}
 		if err := db.UpsertOutcomeFact(fact); err != nil {
 			return err
@@ -151,16 +155,19 @@ func rebuildAttempts(db *store.DB, cutoff float64) error {
 }
 
 func rebuildSessions(db *store.DB, cutoff float64) error {
+	// A session is an outcome when it ran a check, or when Claude Code's OTel
+	// counters say it opened a PR or made a commit.
 	rows, err := db.Query(`SELECT s.id, s.agent, s.model, s.project_id, s.cost_usd,
-			s.created_at, s.updated_at, s.otel_active_at,
-			c.status, c.finished_at
+			s.created_at, s.updated_at, s.otel_active_at, s.otel_pull_requests, s.otel_commits,
+			COALESCE(c.status, ''), c.finished_at
 		FROM sessions s
-		JOIN (
+		LEFT JOIN (
 			SELECT session_id, status, finished_at,
 				ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) rn
 			FROM session_checks
 		) c ON c.session_id = s.id AND c.rn = 1
-		WHERE s.updated_at >= ?`, cutoff)
+		WHERE s.updated_at >= ?
+			AND (c.session_id IS NOT NULL OR s.otel_pull_requests > 0 OR s.otel_commits > 0)`, cutoff)
 	if err != nil {
 		return err
 	}
@@ -177,12 +184,13 @@ func rebuildSessions(db *store.DB, cutoff float64) error {
 		costUSD                     *float64
 		createdAt, updatedAt        float64
 		otelActiveAt, checkFinished *float64
+		pullRequests, commits       int64
 	}
 	var sessionRows []sessionRow
 	for rows.Next() {
 		var r sessionRow
 		if err := rows.Scan(&r.id, &r.agent, &r.model, &r.projectID, &r.costUSD, &r.createdAt, &r.updatedAt,
-			&r.otelActiveAt, &r.checkStatus, &r.checkFinished); err != nil {
+			&r.otelActiveAt, &r.pullRequests, &r.commits, &r.checkStatus, &r.checkFinished); err != nil {
 			rows.Close()
 			return err
 		}
@@ -222,10 +230,16 @@ func rebuildSessions(db *store.DB, cutoff float64) error {
 			f := false
 			checkPassed = &f
 		}
+		var pullRequests, commits *int64
+		if otelActiveAt != nil {
+			prs, cms := r.pullRequests, r.commits
+			pullRequests, commits = &prs, &cms
+		}
 		fact := &store.OutcomeFact{
 			Scope: "session", RefID: id, Date: date, ProjectID: projectID,
 			Agent: agent, Model: model, CostUSD: cost, CostSource: costSource,
-			CheckPassed: checkPassed, TimeToPassS: timeToPass, UpdatedAt: store.Now(),
+			CheckPassed: checkPassed, TimeToPassS: timeToPass,
+			PullRequests: pullRequests, Commits: commits, UpdatedAt: store.Now(),
 		}
 		if err := db.UpsertOutcomeFact(fact); err != nil {
 			return err
