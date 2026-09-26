@@ -66,12 +66,25 @@ function Todos({ input }: { input: Record<string, unknown> }) {
   );
 }
 
-function PrettyArgs({ input }: { input: Record<string, unknown> }) {
-  if (!Object.keys(input).length) return null;
+// Fields already shown in the card's title/subtitle (describe.ts) — repeating
+// them in a JSON dump underneath would be exactly the "raw blob" this
+// registry replaces, just moved one tap deeper.
+const SURFACED_FIELDS: Partial<Record<ToolCategory, string[]>> = {
+  read: ["file_path", "notebook_path"],
+  search: ["pattern"],
+  web: ["url", "query"],
+  task: ["description", "prompt"],
+  question: ["question", "header"],
+};
+
+function PrettyArgs({ input, category }: { input: Record<string, unknown>; category: ToolCategory }) {
+  const omit = SURFACED_FIELDS[category] ?? [];
+  const rest = Object.fromEntries(Object.entries(input).filter(([key]) => !omit.includes(key)));
+  if (!Object.keys(rest).length) return null;
   return (
     <details className="tool-args">
       <summary>Arguments</summary>
-      <pre>{JSON.stringify(input, null, 2)}</pre>
+      <pre>{JSON.stringify(rest, null, 2)}</pre>
     </details>
   );
 }
@@ -88,48 +101,73 @@ function Output({ card }: { card: ToolCard }) {
   );
 }
 
-export function ToolCardView({ card }: { card: ToolCard }) {
+/** The icon+title(+subtitle+status) row, shared by the collapsible card
+ * (as its <summary>) and the always-open approval card (which has nothing
+ * to collapse — you have to see it to decide). */
+export function ToolCardHeader({ card }: { card: ToolCard }) {
+  const summary = describeTool(card.name, card.input);
+  return (
+    <>
+      <span className="tool-icon" aria-hidden="true">
+        {ICON[summary.category]}
+      </span>
+      <span className="tool-title">{summary.title}</span>
+      {summary.subtitle && <span className="tool-sep">·</span>}
+      {summary.subtitle && <span className="tool-subtitle">{summary.subtitle}</span>}
+      {card.status === "running" && (
+        <span className="tool-spinner" aria-label="running">
+          …
+        </span>
+      )}
+      {card.status === "done" && card.isError && (
+        <span className="tool-fail" aria-label="failed">
+          ✕
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The command/diff/args/output body, independent of whether it sits inside
+ * a collapsed <details> or is shown outright (an approval). */
+export function ToolCardBody({ card }: { card: ToolCard }) {
   const summary = describeTool(card.name, card.input);
   const isEdit = summary.category === "edit" && card.name !== "TodoWrite";
   return (
+    <div className="tool-body">
+      {summary.category === "todo" ? (
+        <Todos input={card.input} />
+      ) : isEdit ? (
+        <DiffViewer files={editDiffFiles(card.name, card.input)} stats={[]} wrap />
+      ) : summary.category === "terminal" ? (
+        <>
+          <pre className="tool-command">
+            {typeof card.input.command === "string"
+              ? card.input.command
+              : Array.isArray(card.input.command)
+                ? card.input.command.join(" ")
+                : summary.title}
+          </pre>
+          <Output card={card} />
+        </>
+      ) : (
+        <>
+          <PrettyArgs input={card.input} category={summary.category} />
+          <Output card={card} />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function ToolCardView({ card }: { card: ToolCard }) {
+  const summary = describeTool(card.name, card.input);
+  return (
     <details className="tool-card" data-category={summary.category}>
       <summary>
-        <span className="tool-icon" aria-hidden="true">
-          {ICON[summary.category]}
-        </span>
-        <span className="tool-title">{summary.title}</span>
-        {summary.subtitle && <span className="tool-sep">·</span>}
-        {summary.subtitle && <span className="tool-subtitle">{summary.subtitle}</span>}
-        {card.status === "running" && <span className="tool-spinner" aria-label="running">…</span>}
-        {card.status === "done" && card.isError && (
-          <span className="tool-fail" aria-label="failed">
-            ✕
-          </span>
-        )}
+        <ToolCardHeader card={card} />
       </summary>
-      <div className="tool-body">
-        {summary.category === "todo" ? (
-          <Todos input={card.input} />
-        ) : isEdit ? (
-          <DiffViewer files={editDiffFiles(card.name, card.input)} stats={[]} wrap />
-        ) : summary.category === "terminal" ? (
-          <>
-            <pre className="tool-command">
-              {typeof card.input.command === "string"
-                ? card.input.command
-                : Array.isArray(card.input.command)
-                  ? card.input.command.join(" ")
-                  : summary.title}
-            </pre>
-            <Output card={card} />
-          </>
-        ) : (
-          <>
-            <PrettyArgs input={card.input} />
-            <Output card={card} />
-          </>
-        )}
-      </div>
+      <ToolCardBody card={card} />
     </details>
   );
 }

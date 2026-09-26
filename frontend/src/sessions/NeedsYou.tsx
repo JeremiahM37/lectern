@@ -170,12 +170,20 @@ export function NeedsYou({
     return out.sort((a, b) => RANK[a.reason] - RANK[b.reason]);
   }, [approvals, tasks, duplicates, rows]);
 
-  async function decide(approval: Approval, decision: "approved" | "denied", note?: string) {
+  async function decide(
+    approval: Approval,
+    decision: "approved" | "denied",
+    opts?: { note?: string; forSession?: boolean },
+  ) {
     setBusy(`approval-${approval.id}`);
     try {
       await api.request(`/approvals/${approval.id}/decision`, {
         method: "POST",
-        body: note ? { decision, note } : { decision },
+        body: {
+          decision,
+          ...(opts?.note ? { note: opts.note } : {}),
+          ...(opts?.forSession ? { for_session: true } : {}),
+        },
       });
       setApprovals((old) => old.filter((row) => row.id !== approval.id));
       setDenying(null);
@@ -355,7 +363,7 @@ export function NeedsYou({
             className="ny-deny-reason"
             onSubmit={(e) => {
               e.preventDefault();
-              void decide(approval, "denied", reason.trim() || undefined);
+              void decide(approval, "denied", { note: reason.trim() || undefined });
             }}
           >
             <input
@@ -398,6 +406,19 @@ export function NeedsYou({
           <button className="b ok" disabled={isBusy} onClick={() => void decide(approval, "approved")}>
             Approve
           </button>
+          {/* Only a session-scoped approval has a session for the rule to
+              live against for the rest of — a task attempt's approval has
+              no persistent session, so there is nothing "this session"
+              could mean. */}
+          {!!approval.session_id && (
+            <button
+              className="b"
+              disabled={isBusy}
+              onClick={() => void decide(approval, "approved", { forSession: true })}
+            >
+              Allow for session
+            </button>
+          )}
           <button className="b" disabled={isBusy} onClick={() => void decide(approval, "denied")}>
             Deny
           </button>

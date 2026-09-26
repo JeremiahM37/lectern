@@ -23,6 +23,10 @@ import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { MemoryDeliveries } from "./MemoryDeliveries";
 import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
+import { ApprovalCard, type ApprovalDecisionOptions } from "./ApprovalCard";
+import { Markdown } from "./markdown";
+import { buildChatCards, type ConversationItem } from "./tool-views/chatCards";
+import { ToolCardView } from "./tool-views/ToolCard";
 interface Attachment {
   name: string;
   path: string;
@@ -53,6 +57,13 @@ interface Changes {
   branch: string;
   files: { path: string; status: string; working: boolean; staged: boolean }[];
   repositories?: { id: number; name: string }[];
+  truncated: boolean;
+}
+/** GET /sessions/{id}/conversation/live's wire shape. */
+interface LivePage {
+  conversation_id: string;
+  items: ConversationItem[];
+  cursor: number;
   truncated: boolean;
 }
 const uid = () =>
@@ -149,7 +160,15 @@ export function Conversation({
     }),
     [isRenaming, setIsRenaming] = useState(false),
     [renamingValue, setRenamingValue] = useState(name),
-    [currentName, setCurrentName] = useState(name);
+    [currentName, setCurrentName] = useState(name),
+    // Structured chat (docs/mobile-sessions.md "Chat cards"): the default
+    // view for a session whose native conversation log can be located.
+    // "terminal" is the raw pane view, one tap away and the automatic
+    // fallback once the structured read 409s (an agent without a JSONL/
+    // rollout reader, or a shell tracked session).
+    [liveItems, setLiveItems] = useState<ConversationItem[]>([]),
+    [liveUnavailable, setLiveUnavailable] = useState(false),
+    [viewMode, setViewMode] = useState<"cards" | "terminal">("cards");
   const current = useRef(draft),
     closed = useRef(false),
     busy = useRef(false),
@@ -161,7 +180,10 @@ export function Conversation({
     files = useRef<HTMLInputElement>(null),
     abort = useRef(new AbortController()),
     takeoverTasks = useRef<number[]>([]),
-    loadingChanges = useRef(false);
+    loadingChanges = useRef(false),
+    liveConversationId = useRef<string | undefined>(undefined),
+    liveCursor = useRef<string | undefined>(undefined),
+    liveItemsAccum = useRef<ConversationItem[]>([]);
   current.current = draft;
   // A notification's Reply action already brought the person to this exact
   // chat; put the caret in the composer too, rather than making that a
@@ -251,6 +273,43 @@ export function Conversation({
       window.removeEventListener("resize", fit);
     };
   }, []);
+  // Polls GET /sessions/{id}/conversation/live for the structured turn
+  // stream. Re-resolves the active conversation on every call (the cost
+  // /reader already pays for its own tmux read) and only carries the byte
+  // cursor over when the resolved conversation still matches what the last
+  // call returned — dropping it otherwise so a resumed/forked session
+  // starts its cards fresh instead of reading the wrong file's offsets.
+  // Failure (409: unsupported agent, sandboxed session, nothing
+  // identifiable) marks the stream unavailable, which switches the render
+  // below to the terminal-text fallback without the person doing anything.
+  async function refreshLive() {
+    if (closed.current) return;
+    try {
+      const params = new URLSearchParams();
+      if (liveCursor.current) params.set("since", liveCursor.current);
+      if (liveConversationId.current) params.set("last_cid", liveConversationId.current);
+      const qs = params.toString();
+      const data = await api.request<LivePage>(
+        `/sessions/${id}/conversation/live${qs ? `?${qs}` : ""}`,
+        { signal: abort.current.signal },
+      );
+      if (closed.current) return;
+      // A server (or, in the sessions-harness fixture, a stub api.request)
+      // that doesn't recognize this path still resolves with `{}` rather
+      // than rejecting — treat that the same as a real 409, not as an empty
+      // but valid conversation, or buildChatCards would be fed a hole.
+      if (typeof data.conversation_id !== "string" || !Array.isArray(data.items))
+        throw new Error("malformed conversation/live response");
+      if (data.conversation_id !== liveConversationId.current) liveItemsAccum.current = [];
+      liveConversationId.current = data.conversation_id;
+      liveCursor.current = String(data.cursor);
+      liveItemsAccum.current = liveItemsAccum.current.concat(data.items);
+      setLiveItems(liveItemsAccum.current);
+      setLiveUnavailable(false);
+    } catch {
+      if (!closed.current) setLiveUnavailable(true);
+    }
+  }
   async function refresh() {
     if (closed.current || busy.current || document.hidden) return;
     busy.current = true;
@@ -268,19 +327,24 @@ export function Conversation({
         setSessionAgent(data.session.agent);
         setUnavailable(data.ended || data.session.status === "dead");
         setSessionText(data.text || "Waiting for agent output…");
-        if (takeoverTasks.current.length) {
-          const pending = await api
-            .request<Approval[]>("/approvals?status=pending", {
-              signal: abort.current.signal,
-            })
-            .catch(() => []);
-          if (closed.current) return;
-          setApprovals(
-            (Array.isArray(pending) ? pending : []).filter(
-              (row) => !!row.task_id && takeoverTasks.current.includes(row.task_id),
-            ),
-          );
-        }
+        void refreshLive();
+        // A session's own PermissionRequest approvals (session_id set,
+        // no task) belong here too, not only the ones inherited from a
+        // task this session took over — this chat is where a person
+        // actually is when the agent asks.
+        const pending = await api
+          .request<Approval[]>("/approvals?status=pending", {
+            signal: abort.current.signal,
+          })
+          .catch(() => []);
+        if (closed.current) return;
+        setApprovals(
+          (Array.isArray(pending) ? pending : []).filter(
+            (row) =>
+              row.session_id === id ||
+              (!!row.task_id && takeoverTasks.current.includes(row.task_id)),
+          ),
+        );
       } else {
         const [next, events, messages, pending] = await Promise.all([
           api.request<TaskView>(`/tasks/${id}`, {
@@ -559,11 +623,19 @@ export function Conversation({
       if (!closed.current) setSending(false);
     }
   }
-  async function decide(approval: Approval, decision: "approved" | "denied") {
+  async function decide(
+    approval: Approval,
+    decision: "approved" | "denied",
+    opts?: ApprovalDecisionOptions,
+  ) {
     try {
       await api.request(`/approvals/${approval.id}/decision`, {
         method: "POST",
-        body: { decision },
+        body: {
+          decision,
+          ...(opts?.forSession ? { for_session: true } : {}),
+          ...(opts?.note ? { note: opts.note } : {}),
+        },
       });
       void refresh();
     } catch (error) {
@@ -624,6 +696,7 @@ export function Conversation({
     setRenamingValue(currentName);
     setIsRenaming(false);
   }
+  const chatCards = kind === "session" ? buildChatCards(liveItems) : [];
   return (
     <Modal
       id="conversation"
@@ -720,9 +793,21 @@ export function Conversation({
       <div className="reader-controls">
         <span>
           {kind === "session"
-            ? "Live output · last 500 lines"
+            ? viewMode === "cards" && !liveUnavailable
+              ? "Chat"
+              : "Live output · last 500 lines"
             : "Task conversation"}
         </span>
+        {kind === "session" && !liveUnavailable && (
+          <button
+            type="button"
+            className="b"
+            id="conversation-view-toggle"
+            onClick={() => setViewMode((old) => (old === "cards" ? "terminal" : "cards"))}
+          >
+            {viewMode === "cards" ? "Terminal text" : "Chat cards"}
+          </button>
+        )}
         <button
           className="b"
           id="reader-smaller"
@@ -883,7 +968,34 @@ export function Conversation({
                 <div className="reader-text">{draft.text}</div>
               </article>
             )}
-            <pre className="session-reader">{sessionText || "Loading…"}</pre>
+            {viewMode === "cards" && !liveUnavailable ? (
+              <div id="conversation-cards">
+                {chatCards.length === 0 && (
+                  <p className="sub" id="conversation-cards-empty">
+                    Waiting for the conversation to start…
+                  </p>
+                )}
+                {chatCards.map((card) =>
+                  card.kind === "tool" ? (
+                    <ToolCardView key={card.id} card={card} />
+                  ) : card.kind === "thinking" ? (
+                    <details key={card.id} className="reader-message thinking" data-event={card.id}>
+                      <summary>Thinking</summary>
+                      <div className="reader-text">{card.text}</div>
+                    </details>
+                  ) : (
+                    <article key={card.id} className={`reader-message ${card.role}`}>
+                      <div className="reader-speaker">{card.role === "user" ? "You" : "Agent"}</div>
+                      <div className="reader-text">
+                        <Markdown text={card.text} />
+                      </div>
+                    </article>
+                  ),
+                )}
+              </div>
+            ) : (
+              <pre className="session-reader">{sessionText || "Loading…"}</pre>
+            )}
           </>
         ) : (
           rows.map((row) =>
@@ -907,31 +1019,15 @@ export function Conversation({
       </div>
       <div id="conversation-approvals">
         {approvals.map((approval) => (
-          <div key={approval.id} className="reader-approval">
-            <strong>Approval needed: {approval.tool_name}</strong>
-            <pre>{JSON.stringify(approval.input)}</pre>
-            <button
-              className="b"
-              onClick={() => void decide(approval, "approved")}
-            >
-              Approve
-            </button>
-            <button
-              className="b"
-              onClick={() => void decide(approval, "denied")}
-            >
-              Deny
-            </button>
-            {!!approval.task_id && (
-              <a
-                className="b link-button"
-                href={`#task/${approval.task_id}`}
-                onClick={onClose}
-              >
-                Open task
-              </a>
-            )}
-          </div>
+          <ApprovalCard
+            key={approval.id}
+            approval={approval}
+            onDecide={(decision, opts) => decide(approval, decision, opts)}
+            onOpenTask={(taskId) => {
+              onClose();
+              location.hash = `#task/${taskId}`;
+            }}
+          />
         ))}
       </div>
       <form
