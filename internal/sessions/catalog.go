@@ -54,10 +54,10 @@ func Catalog() []CatalogPreset {
 		{
 			Spec: Spec{Name: "opencode", Command: "opencode",
 				ModelFlag: "--model", ResumeArgs: []string{"--continue"},
-				ResumeIDArgs: []string{"--session", "{id}"},
-				YoloArgs:     []string{"--auto"},
+				ResumeIDArgs:  []string{"--session", "{id}"},
+				YoloArgs:      []string{"--auto"},
 				ModelsCommand: "{bin} models",
-				ACP:          &ACPSpec{Command: "opencode", Args: []string{"acp"}}},
+				ACP:           &ACPSpec{Command: "opencode", Args: []string{"acp"}}},
 			DisplayName: "OpenCode",
 			Description: "Terminal coding agent from the OpenCode/SST team. `--auto` approves permissions " +
 				"that are not explicitly denied, which is close to but not identical to a full bypass.",
@@ -168,18 +168,6 @@ func Catalog() []CatalogPreset {
 			InstallHint: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
 			Source:      "https://moonshotai.github.io/kimi-code/en/guides/getting-started ; https://github.com/MoonshotAI/kimi-code",
 			Unverified:  []string{"model_flag", "yolo_args", "prompt_arg"},
-			VerifiedAt:  "2026-09-26",
-		},
-		{
-			Spec: Spec{Name: "openhands", Command: "openhands"},
-			DisplayName: "OpenHands CLI",
-			Description: "All-Hands-AI's OpenHands has moved to an Agent Server/Agent Canvas architecture; its " +
-				"README documents driving OpenHands and other agents via ACP from an editor, but does not " +
-				"document a simple standalone CLI invocation for OpenHands itself as the agent being launched — " +
-				"verify the current install and invocation before relying on this preset.",
-			InstallHint: "see https://docs.openhands.dev — no confirmed single-binary CLI install command found",
-			Source:      "https://github.com/OpenHands/OpenHands README",
-			Unverified:  []string{"command", "model_flag", "resume_args", "yolo_args", "prompt_arg"},
 			VerifiedAt:  "2026-09-26",
 		},
 		{

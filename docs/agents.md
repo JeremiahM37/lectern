@@ -28,7 +28,7 @@ from `GET /api/agents/catalog` (`internal/sessions/catalog.go`), not a
 hardcoded list: `custom-agent` presets can be added there without touching
 this frontend. Presets ship for Gemini CLI's ACP mode, OpenCode, Aider, Goose,
 Amp, Cursor Agent CLI (`cursor-agent`), GitHub Copilot CLI, Qwen Code, Crush,
-Kimi Code CLI, OpenHands, Cline CLI, plus the Zed ACP adapters for Claude Code
+Kimi Code CLI, Cline CLI, plus the Zed ACP adapters for Claude Code
 and Codex — on top of "Custom command…" for anything else. Picking one
 pre-fills every field this form has (command, model flag, resume/fork
 arguments, yolo flag, model-catalog command, task or ACP backend); nothing is
@@ -306,7 +306,6 @@ citation if it matters for your use case):
 | Qwen Code | `-p` (task) | unverified | — | `--yolo` (confirmed in source) | — (HTTP/SSE `qwen serve`, not stdio) |
 | Crush | `crush run` (task) | task-only | last + by-id | `--yolo` | — |
 | Kimi Code CLI | `-p` (task, unwired — see below) | unverified | last (`-c`) | unverified | ✅ `kimi acp` |
-| OpenHands | unverified | unverified | unverified | unverified | ecosystem role unclear — see catalog entry |
 | Cline CLI | positional (`-i "prompt"`) | `--model` | unverified | `--yolo` | ✅ `cline --acp` |
 
 A preset with ACP support leaves its `task` field empty on purpose — ACP

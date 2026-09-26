@@ -40,7 +40,7 @@ dashboard required, and it's still on your phone the moment you detach.
 
 - **Any agent.** Claude Code, Codex and Gemini ship built in; Settings →
   Agents' catalog adds OpenCode, Aider, Goose, Amp, Cursor Agent CLI, GitHub
-  Copilot CLI, Qwen Code, Crush, Kimi Code CLI, OpenHands and Cline in one
+  Copilot CLI, Qwen Code, Crush, Kimi Code CLI and Cline in one
   click, or add a fully custom CLI — see [docs/agents.md](docs/agents.md).
 - **Your machines.** Not just this laptop — SSH into anything, or use a
   Proxmox LXC (`pct`, no SSH needed) or an ephemeral sandbox container.
