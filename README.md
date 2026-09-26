@@ -32,6 +32,10 @@ to a checklist instead of an empty board. Run `lectern doctor` any time to
 check tmux, git, your agents' auth, ports, TLS and push notifications, with a
 fix printed next to anything that's off.
 
+In any folder: `lectern claude` (or `lectern codex`) starts or reuses a
+tracked session for that directory and attaches you to it immediately — no
+dashboard required, and it's still on your phone the moment you detach.
+
 ## Why Lectern
 
 - **Any agent.** Claude Code, Codex and Gemini ship built in; the adapter seam

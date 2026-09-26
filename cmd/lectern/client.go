@@ -119,6 +119,10 @@ func promoteError(err error) error {
 const clientHelp = `Lectern — web and terminal control
 
   lectern                         Open the dashboard in an interactive terminal
+  lectern claude [--model M] [--resume] [--new|--attach]
+  lectern codex [--model M] [--resume] [--new|--attach]
+                                    One command, any folder: start/reuse a tracked
+                                    session here and attach to it (see below)
   lectern up                      One command: start it, register a project, open the browser
   lectern up --service            Also install a systemd user unit (macOS: launchd)
   lectern doctor                  Check tmux/git/agents/auth/TLS/push/hooks; print fixes
@@ -154,7 +158,21 @@ const clientHelp = `Lectern — web and terminal control
 
 KIND: session, attempt, project (upload also accepts task).
 API paths can omit /api. JSON goes to stdout; errors go to stderr.
+
+lectern claude / lectern codex: run in any folder to start (or reuse) a
+tracked session for that directory and attach immediately — no dashboard
+required. Name is the folder's basename, plus its git branch when there is
+one ("lectern · main"). The project is auto-detected when the folder is
+inside a registered project's repo. If a live session already exists for the
+same agent and folder, an interactive terminal asks to attach to it
+(default yes); --new always starts fresh, --attach always reuses (and errors
+if there is nothing to reuse); a non-interactive caller defaults to reuse.
+Detaching (Ctrl-b d) returns to your shell; the session keeps running and is
+reachable from the dashboard and your phone.
 Examples:
+  lectern claude
+  lectern codex --resume
+  lectern claude --model opus --new
   lectern api GET /sessions
   lectern api POST /tasks/12/takeover '{}'
   lectern api PATCH /routines/3 '{"enabled":false}'
@@ -310,6 +328,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 	var data []byte
 	var err error
 	switch command {
+	case "claude", "codex":
+		return agentQuickCommand(cfg, command, args, base, token, local)
 	case "shell":
 		return shellCommandAt(cfg, args, base, token, local)
 	case "promote":

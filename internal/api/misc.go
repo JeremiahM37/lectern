@@ -41,6 +41,8 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "mock": s.Cfg.Mock, "version": version.Version, "build": version.Current(),
 		"tasks":    counts,
 		"sessions": live, "sessions_waiting": waiting,
+		// the address a phone should open, when the tailnet TLS listener is up
+		"phone_url": s.PhoneURL,
 		// flat, always-present counts so dashboard widgets (the Homepage
 		// customapi tile) can map fields that never disappear when a column
 		// empties out

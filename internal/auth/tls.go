@@ -102,6 +102,9 @@ type TLSListenerConfig struct {
 	// this node has both) on the requested port.
 	Addrs []string
 	TLS   *tls.Config
+	// DNSName is the certificate's name — what a phone on the tailnet types
+	// (with the port) to reach this listener.
+	DNSName string
 }
 
 // TLSListenerConfig resolves this node's tailnet addresses and DNS name from
@@ -128,7 +131,8 @@ func (a *Resolver) TLSListenerConfig(ctx context.Context, port int) (*TLSListene
 	}
 	cache := NewCertCache(a.localAPI, dnsName, a.log)
 	return &TLSListenerConfig{
-		Addrs: addrs,
-		TLS:   &tls.Config{GetCertificate: cache.GetCertificate},
+		Addrs:   addrs,
+		TLS:     &tls.Config{GetCertificate: cache.GetCertificate},
+		DNSName: dnsName,
 	}, nil
 }
