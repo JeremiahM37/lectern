@@ -1,3 +1,5 @@
+// First, so a relayed terminal's requests use the tunnel (relay/boot.ts).
+import "../relay/boot";
 import {createClient} from "../api/client";
 import { errorMessage } from "./model";
 import { useEffect, useRef, useState } from "react";

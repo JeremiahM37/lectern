@@ -37,6 +37,9 @@ func (s *Server) pairingEnabled() bool {
 // tells operators to enable pairing themselves rather than relying on this
 // to catch every case.
 func untrustedOrigin(r *http.Request) bool {
+	if p, _ := auth.FromContext(r.Context()); p.Kind == auth.KindRelayDevice {
+		return false // end-to-end encrypted, not an exposed path
+	}
 	loopback, tailscale := auth.ClassifyRemote(r.RemoteAddr)
 	return !loopback && !tailscale
 }

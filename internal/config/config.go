@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -55,6 +56,16 @@ type Config struct {
 	// an operator opts in deliberately rather than getting it from a bare
 	// upgrade.
 	DevicePairing bool
+
+	// RelayURL (LECTERN_RELAY_URL) turns on the end-to-end encrypted relay:
+	// Lectern connects out to this relay and serves paired phones through it
+	// (internal/relay/host, docs/relay.md). RelayHostSecret
+	// (LECTERN_RELAY_HOST_SECRET) must match the relay's. RelayShellURL
+	// (LECTERN_RELAY_SHELL_URL) is the origin a phone installs the app from
+	// when pairing; empty means whatever origin Settings was opened on.
+	RelayURL        string
+	RelayHostSecret string
+	RelayShellURL   string
 
 	// TLS turns on a second listener bound to this node's tailnet addresses,
 	// so a phone gets a secure context without needing `tailscale serve` to
@@ -218,6 +229,9 @@ func Load() *Config {
 		TailscaleTags:           os.Getenv("LECTERN_TAILSCALE_TAGS"),
 		TrustServeHeaders:       os.Getenv("LECTERN_TRUST_SERVE_HEADERS") == "1",
 		DevicePairing:           os.Getenv("LECTERN_DEVICE_PAIRING") == "1",
+		RelayURL:                strings.TrimSpace(os.Getenv("LECTERN_RELAY_URL")),
+		RelayHostSecret:         strings.TrimSpace(os.Getenv("LECTERN_RELAY_HOST_SECRET")),
+		RelayShellURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("LECTERN_RELAY_SHELL_URL")), "/"),
 		TLS:                     os.Getenv("LECTERN_TLS"),
 		TLSPort:                 int(envFloat("LECTERN_TLS_PORT", 0)),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),

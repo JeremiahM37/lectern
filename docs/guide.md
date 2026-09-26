@@ -676,6 +676,13 @@ with no proxy and no header-trust flag involved. If you previously ran
 `LECTERN_TLS_PORT=8443` and turn `serve` off — Lectern serves that port
 itself now. Plain HTTP on `LECTERN_PORT` (9110) keeps working either way.
 
+**A phone with no Tailscale** has two options.
+[remote-access.md](remote-access.md) pairs it through your own HTTPS tunnel.
+[relay.md](relay.md) pairs it through an end-to-end encrypted relay (`lectern
+relay` on any small server, then `LECTERN_RELAY_URL` and
+`LECTERN_RELAY_HOST_SECRET` here): no inbound port, and the relay cannot read
+anything it carries.
+
 ### Phone alerts
 
 Web push (approval, waiting-for-input, finished, error, compacting, usage

@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts src/relay/*.test.ts",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/addon-search": "0.15.0",
     "@xterm/addon-web-links": "0.11.0",

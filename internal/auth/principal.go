@@ -20,6 +20,12 @@ const (
 	// owner's own Principal at mint time — because the whole point of pairing
 	// is that the paired device IS the owner, reachable without Tailscale.
 	KindDevice = "device"
+	// KindRelayDevice is a phone paired over the end-to-end encrypted relay
+	// (internal/relay/host, docs/relay.md). Like KindDevice it carries the
+	// minting owner's identity. It only ever comes from a tunnel connection
+	// that completed a Noise handshake with a paired device key; see
+	// WithTunnel.
+	KindRelayDevice = "relay-device"
 )
 
 // Principal is the resolved identity of one request.

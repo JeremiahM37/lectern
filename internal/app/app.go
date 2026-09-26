@@ -28,6 +28,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
+	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
@@ -220,7 +221,18 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
-		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker,
+		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
+	}
+	if cfg.RelayURL != "" {
+		if cfg.RelayHostSecret == "" {
+			log.Error("LECTERN_RELAY_URL is set but LECTERN_RELAY_HOST_SECRET is not; the relay stays off")
+		} else {
+			// The relay serves Lectern's own handler, auth middleware
+			// included, to each paired phone (docs/relay.md).
+			srv.Relay = relayhost.New(relayhost.Config{
+				URL: cfg.RelayURL, Secret: cfg.RelayHostSecret, Store: srv.RelayStore, Handler: srv.Handler(), Log: log,
+			})
+		}
 	}
 	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
@@ -319,8 +331,20 @@ func cloneStringMap(in map[string]string) map[string]string {
 // Handler is the HTTP handler for this app.
 func (a *App) Handler() http.Handler { return a.Server.Handler() }
 
+// StartRelay connects to the end-to-end encrypted relay when one is
+// configured. It returns at once; the connection retries in the background
+// until Close.
+func (a *App) StartRelay() {
+	if a.Server.Relay != nil {
+		go a.Server.Relay.Run(context.Background())
+	}
+}
+
 // Close stops the scheduler and releases the database.
 func (a *App) Close() {
+	if a.Server.Relay != nil {
+		a.Server.Relay.Close()
+	}
 	if a.Sched != nil {
 		a.Sched.Stop()
 	}
