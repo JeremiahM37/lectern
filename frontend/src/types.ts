@@ -46,8 +46,27 @@ export interface Takeover {
   error: string;
 }
 
+// CIWatchView is the CI loop's watch of a task's or session's pull request
+// (internal/ciloop, docs/ci-loop.md). label is the card text, computed
+// server-side so every surface says the same thing.
+export interface CIWatchView {
+  id: number;
+  task_id?: number;
+  session_id?: number;
+  pr_url: string;
+  state: "pending" | "failing" | "passed" | "capped" | "merged" | "closed" | "none" | "error" | "stalled";
+  attempts: number;
+  max_attempts: number;
+  failing: string[];
+  detail?: string;
+  label: string;
+  active: boolean;
+  updated_at: number;
+}
+
 export interface TaskView extends Task {
   takeover?: Takeover;
+  ci?: CIWatchView | null;
   labels: string[];
   project_name: string;
   target_name: string;
@@ -100,6 +119,7 @@ export interface SessionView extends Session {
   handoff_in_flight: boolean;
   wraps: number;
   last_check?: SessionCheckSummary | null;
+  ci?: CIWatchView | null;
   // AwarenessOverlap is the card chip's data (docs/agent-events.md
   // "Cross-agent awareness" point 6) — see AwarenessOverlapChip.tsx.
   awareness_overlap?: { session_id: number; name: string; files: string[] } | null;
@@ -163,6 +183,9 @@ export interface Project {
   // sandbox tier for a new session or task launch. "{}" means none.
   default_isolation_json: string;
   skill_sources_json: string;
+  // CI-aware PR loop opt-in and fix-request cap (docs/ci-loop.md).
+  ci_loop?: number;
+  ci_max_attempts?: number;
   created_at: number;
   target_name?: string;
   target_kind?: string;

@@ -1,6 +1,9 @@
 package api
 
-import "github.com/JeremiahM37/lectern/v2/internal/store"
+import (
+	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
+)
 
 // attemptView is the latest attempt as the board renders it.
 type attemptView struct {
@@ -58,6 +61,9 @@ type taskView struct {
 	TargetKind  string           `json:"target_kind"`
 	Attempt     *attemptView     `json:"attempt,omitempty"`
 	Attempts    []attemptSummary `json:"attempts"`
+	// CI is the CI loop's watch of this task's pull request (docs/ci-loop.md);
+	// absent when no PR is being, or was, watched.
+	CI *ciloop.View `json:"ci,omitempty"`
 }
 
 // view assembles a task's full board representation.
@@ -90,6 +96,7 @@ func (s *Server) view(task *store.Task) *taskView {
 			Driver:   att.Driver,
 		}
 	}
+	out.CI = s.latestCI("task_id", task.ID)
 	out.Attempts = []attemptSummary{}
 	if list, err := s.DB.TaskAttempts(task.ID); err == nil {
 		for _, a := range list {

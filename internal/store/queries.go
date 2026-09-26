@@ -81,7 +81,7 @@ const projectCols = `p.id, p.name, p.target_id, p.repo_path, p.default_base_bran
 	p.setup_cmd, p.gate_matcher, p.default_agent, p.capability_profile, p.default_permission_mode,
 	p.default_isolation_json,
 	p.skill_sources_json, p.memory_topic, p.memory_status, p.repo_key, p.repo_toplevel,
-	p.created_at`
+	p.ci_loop, p.ci_max_attempts, p.created_at`
 
 func scanProject(s interface{ Scan(...any) error }, withTarget bool) (*Project, error) {
 	var p Project
@@ -90,7 +90,7 @@ func scanProject(s interface{ Scan(...any) error }, withTarget bool) (*Project, 
 		&p.ReviewGate, &p.EnvJSON, &p.ContextJSON, &p.MCPJSON, &p.StrictMCP,
 		&p.PermissionsJSON, &p.SetupCmd, &p.GateMatcher, &p.DefaultAgent, &p.CapabilityProfile,
 		&p.DefaultPermissionMode, &p.DefaultIsolationJSON, &p.SkillSourcesJSON, &p.MemoryTopic, &p.MemoryStatus,
-		&p.RepoKey, &p.RepoToplevel, &p.CreatedAt}
+		&p.RepoKey, &p.RepoToplevel, &p.CILoop, &p.CIMaxAttempts, &p.CreatedAt}
 	if withTarget {
 		dest = append(dest, &p.TargetName, &p.TargetKind)
 	}
@@ -161,14 +161,16 @@ func (db *DB) InsertProject(p *Project) (*Project, error) {
 		review_gate, env_json, context_json, mcp_json, strict_mcp, permissions_json,
 		setup_cmd, gate_matcher, default_agent, capability_profile, default_permission_mode,
 		default_isolation_json,
-		skill_sources_json, memory_topic, memory_status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		skill_sources_json, memory_topic, memory_status, ci_loop, ci_max_attempts,
+		created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.Name, p.TargetID, p.RepoPath, nz(p.DefaultBaseBranch, "main"),
 		p.WorkrootOverride, nz(p.PolicyJSON, "{}"), p.VerifyCmd, p.KeepWorktrees,
 		p.ReviewGate, nz(p.EnvJSON, "{}"), nz(p.ContextJSON, "[]"), nz(p.MCPJSON, "{}"),
 		p.StrictMCP, nz(p.PermissionsJSON, "{}"), p.SetupCmd, p.GateMatcher,
 		nz(p.DefaultAgent, "claude"), nz(p.CapabilityProfile, "restricted"),
 		p.DefaultPermissionMode, nz(p.DefaultIsolationJSON, "{}"),
-		nz(p.SkillSourcesJSON, "[]"), p.MemoryTopic, p.MemoryStatus, Now())
+		nz(p.SkillSourcesJSON, "[]"), p.MemoryTopic, p.MemoryStatus, p.CILoop,
+		ciMaxAttempts(p.CIMaxAttempts), Now())
 	if err != nil {
 		return nil, err
 	}

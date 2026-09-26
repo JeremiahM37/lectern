@@ -397,6 +397,11 @@ temporary databases, a separate vault, and a private tmux socket.
   author allowlist and is rate-limited before it can spend a token or run
   code. Configure sources, test the connection, and read recent events from a
   project's settings. See [docs/triggers.md](triggers.md).
+- **CI loop** — opt a project in and a PR Lectern opens is watched through the
+  target's own `gh`; when checks fail, the failing jobs and a trimmed,
+  redacted log tail go back to the owning agent with a request to fix and
+  push, up to a cap (default 3), with a phone push on green or give-up. See
+  [docs/ci-loop.md](ci-loop.md).
 - **Control loop** — hook-gated approvals with web-push + Discord/ntfy sinks, an
   always-allow policy engine, follow-ups, auto-verify, reviewer gates, A/B parallel
   attempts, agents that file their own task cards, and shared project memory.

@@ -57,7 +57,15 @@ type projectIn struct {
 	// task launch (internal/isolation) — a launch's own explicit choice
 	// still wins. Absent/nil means none (today's unsandboxed behavior).
 	Isolation *isolation.Config `json:"isolation"`
+	// CILoop opts the project into the CI-aware PR loop (docs/ci-loop.md);
+	// CIMaxAttempts caps its fix requests per PR (default 3).
+	CILoop        bool `json:"ci_loop"`
+	CIMaxAttempts *int `json:"ci_max_attempts"`
 }
+
+// validCIMaxAttempts bounds the cap: at least one fix request, and few
+// enough that a flaky suite cannot keep an agent busy all day.
+func validCIMaxAttempts(n *int) bool { return n == nil || (*n >= 1 && *n <= 10) }
 
 // isolationJSON encodes a project's default isolation.Config, normalizing
 // nil to "{}" (none) rather than storing a JSON null.
@@ -110,6 +118,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !validCIMaxAttempts(in.CIMaxAttempts) {
+		httpError(w, 422, "ci_max_attempts must be between 1 and 10")
+		return
+	}
 	if _, err := s.DB.Target(in.TargetID); err != nil {
 		httpError(w, 400, "no such target")
 		return
@@ -134,6 +146,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		CapabilityProfile:    strOr(in.CapabilityProfile, "restricted"),
 		DefaultIsolationJSON: isolationJSON(in.Isolation),
 		SkillSourcesJSON:     store.J(orEmpty(in.SkillSources)),
+		CILoop:               boolInt(in.CILoop),
+	}
+	if in.CIMaxAttempts != nil {
+		p.CIMaxAttempts = *in.CIMaxAttempts
 	}
 	if in.DefaultPermissionMode != nil {
 		p.DefaultPermissionMode = *in.DefaultPermissionMode
@@ -169,6 +185,8 @@ type projectPatch struct {
 	DefaultPermissionMode *string           `json:"default_permission_mode"`
 	SkillSources          *[]string         `json:"skill_sources"`
 	Isolation             *isolation.Config `json:"isolation"`
+	CILoop                *bool             `json:"ci_loop"`
+	CIMaxAttempts         *int              `json:"ci_max_attempts"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +229,10 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !validCIMaxAttempts(p.CIMaxAttempts) {
+		httpError(w, 422, "ci_max_attempts must be between 1 and 10")
+		return
+	}
 	if _, err := s.DB.Project(id); err != nil {
 		httpError(w, 404, "no such project")
 		return
@@ -235,6 +257,10 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	setBool(fields, "keep_worktrees", p.KeepWorktrees)
 	setBool(fields, "review_gate", p.ReviewGate)
 	setBool(fields, "strict_mcp", p.StrictMCP)
+	setBool(fields, "ci_loop", p.CILoop)
+	if p.CIMaxAttempts != nil {
+		fields["ci_max_attempts"] = *p.CIMaxAttempts
+	}
 	setJSON(fields, "policy_json", p.Policy)
 	setJSON(fields, "env_json", p.Env)
 	setJSON(fields, "mcp_json", p.MCP)

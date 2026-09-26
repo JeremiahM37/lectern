@@ -15,6 +15,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/awareness"
 	"github.com/JeremiahM37/lectern/v2/internal/budget"
+	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -49,6 +50,9 @@ type sessionView struct {
 	// LastCheck summarises the most recent session_checks row (internal/checks)
 	// for the card badge — nil until the session's first check runs.
 	LastCheck *lastCheckView `json:"last_check,omitempty"`
+	// CI is the CI loop's watch of this session's pull request
+	// (docs/ci-loop.md); absent when there is none.
+	CI *ciloop.View `json:"ci,omitempty"`
 	// AwarenessOverlap is the "⚠ overlaps #N" card chip's data
 	// (docs/agent-events.md "Cross-agent awareness" point 6): another LIVE
 	// session that touched at least one of the SAME files as this one within
@@ -132,6 +136,7 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 	if last, err := s.DB.LatestSessionCheck(row.ID); err == nil && last != nil {
 		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
 	}
+	v.CI = s.latestCI("session_id", row.ID)
 	v.AwarenessOverlap = s.computeAwarenessOverlap(row)
 	return v
 }

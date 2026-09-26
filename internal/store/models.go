@@ -68,9 +68,13 @@ type Project struct {
 	// git common dir, so every task attempt of this project can be matched
 	// to a peer session without an extra git call. Never serialized: it is
 	// an internal join key, not something a settings form edits.
-	RepoKey      string  `json:"-"`
-	RepoToplevel string  `json:"-"`
-	CreatedAt    float64 `json:"created_at"`
+	RepoKey      string `json:"-"`
+	RepoToplevel string `json:"-"`
+	// CILoop opts this project into the CI-aware PR loop (docs/ci-loop.md);
+	// CIMaxAttempts caps the fix requests it sends per pull request.
+	CILoop        int     `json:"ci_loop"`
+	CIMaxAttempts int     `json:"ci_max_attempts"`
+	CreatedAt     float64 `json:"created_at"`
 
 	// joined for the projects list — the UI names a project's target inline
 	TargetName string `json:"target_name,omitempty"`

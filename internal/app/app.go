@@ -19,6 +19,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/budget"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
+	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
@@ -183,12 +184,26 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// "New task" + dispatch button uses.
 	triggersMgr := triggers.New(db, reg, log)
 
+	// ciWatcher is the CI-aware PR loop (internal/ciloop, docs/ci-loop.md):
+	// PRs opened by the commit button or a trigger postback are armed here,
+	// polled on the scheduler's tick, and failures are sent back to the
+	// owning session (typed in) or task (a follow-up message).
+	ciWatcher := ciloop.New(db, reg, b, notifier, sessMgr, log)
+	sched.CI = ciWatcher.Tick
+	triggersMgr.PROpened = func(task *store.Task, projectID, targetID int64, branch, url string) {
+		taskID, pid := task.ID, projectID
+		if _, err := ciWatcher.Arm(ciloop.Owner{TaskID: &taskID, ProjectID: &pid,
+			TargetID: targetID, Branch: branch}, url, false); err != nil && err != ciloop.ErrNotEnabled {
+			log.Warn("ci loop: arming trigger PR failed", "task", task.ID, "err", err)
+		}
+	}
+
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
-		Pairing: pairingStore,
+		Pairing: pairingStore, CILoop: ciWatcher,
 	}
 	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler

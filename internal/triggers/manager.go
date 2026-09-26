@@ -36,6 +36,10 @@ type Manager struct {
 	// CreateTask makes (and dispatches) a task for a project. See NewTaskSpec.
 	CreateTask func(project *store.Project, spec NewTaskSpec) (*store.Task, error)
 
+	// PROpened is told about every pull request a postback opens, so the CI
+	// loop (internal/ciloop) can watch it. Nil is fine: nothing is watched.
+	PROpened func(task *store.Task, projectID, targetID int64, branch, url string)
+
 	// HTTP is the client Linear's GraphQL polling and Slack's REST calls use.
 	// Tests point it at an httptest server.
 	HTTP *http.Client

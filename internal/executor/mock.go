@@ -267,6 +267,11 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{0, "branch pushed (mock)", ""}, nil
 	case strings.HasPrefix(cmd, "gh pr create"):
 		return Result{0, "https://github.com/mock/repo/pull/7", ""}, nil
+	// the CI loop's reads (internal/ciloop): an open PR whose one check passed
+	case strings.HasPrefix(cmd, "gh pr view"):
+		return Result{0, `{"state":"OPEN","headRefOid":"0123456789abcdef0123456789abcdef01234567"}`, ""}, nil
+	case strings.HasPrefix(cmd, "gh pr checks"):
+		return Result{0, "mock-ci\tpass\t12s\thttps://github.com/mock/repo/actions/runs/1/job/1\t\n", ""}, nil
 	case strings.HasPrefix(cmd, "ls "):
 		// Backed by the in-memory fs so evals' "import from repo" (a glob
 		// listing followed by ReadFile) has something real to find, the same

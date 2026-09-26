@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -286,7 +287,6 @@ func (s *Server) commitTask(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
-	_ = proj
 	ex, err := s.Reg.For(target)
 	if err != nil {
 		respondErr(w, err)
@@ -300,8 +300,11 @@ func (s *Server) commitTask(w http.ResponseWriter, r *http.Request) {
 		respondGitErr(w, err)
 		return
 	}
+	taskID, projectID := task.ID, proj.ID
+	ci := s.armCIFromSteps(ciloop.Owner{TaskID: &taskID, ProjectID: &projectID,
+		TargetID: target.ID, Branch: att.Branch}, steps)
 	s.Bus.Publish(fmt.Sprintf("task:%d", task.ID), "git", map[string]any{"steps": steps})
-	writeJSON(w, 200, map[string]any{"steps": steps})
+	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci})
 }
 
 // refuseOnBaseBranch is the safety net a task attempt gets for free by always
@@ -322,6 +325,9 @@ func refuseOnBaseBranch(branch, base string) error {
 // sessionCommitTarget is where and on what branch a session's commit runs.
 type sessionCommitTarget struct {
 	dir, branch, base string
+	// projectID is the project the committed repository belongs to — for a
+	// grouped workspace, the chosen repository's, not the session's.
+	projectID *int64
 }
 
 // resolveSessionCommitTarget mirrors sessionRepoDiffs' repository resolution,
@@ -348,10 +354,12 @@ func (s *Server) resolveSessionCommitTarget(ctx context.Context, ex executor.Exe
 		}
 		return sessionCommitTarget{
 			dir: match.Worktree.Path, branch: match.Worktree.Branch,
-			base: resolveBaseRef(match.Worktree.Base, s.projectOrNil(match.ProjectID)),
+			base:      resolveBaseRef(match.Worktree.Base, s.projectOrNil(match.ProjectID)),
+			projectID: match.ProjectID,
 		}, nil
 	case hasPlan:
-		return sessionCommitTarget{dir: plan.Path, branch: plan.Branch, base: resolveBaseRef(plan.Base, proj)}, nil
+		return sessionCommitTarget{dir: plan.Path, branch: plan.Branch, base: resolveBaseRef(plan.Base, proj),
+			projectID: row.ProjectID}, nil
 	default:
 		if row.Workdir == "" || !worktree.IsGitRepo(ctx, ex, row.Workdir) {
 			return sessionCommitTarget{}, errNotGitRepo
@@ -360,6 +368,7 @@ func (s *Server) resolveSessionCommitTarget(ctx context.Context, ex executor.Exe
 			executor.RunOpts{Timeout: 15})
 		return sessionCommitTarget{
 			dir: row.Workdir, branch: strings.TrimSpace(r.Stdout), base: resolveBaseRef("", proj),
+			projectID: row.ProjectID,
 		}, nil
 	}
 }
@@ -404,8 +413,11 @@ func (s *Server) commitSession(w http.ResponseWriter, r *http.Request) {
 		respondGitErr(w, err)
 		return
 	}
+	sessionID := row.ID
+	ci := s.armCIFromSteps(ciloop.Owner{SessionID: &sessionID, ProjectID: target.projectID,
+		TargetID: row.TargetID, Branch: target.branch}, steps)
 	s.Bus.Publish(fmt.Sprintf("session:%d", row.ID), "git", map[string]any{"steps": steps})
-	writeJSON(w, 200, map[string]any{"steps": steps})
+	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci})
 }
 
 // ---- PR description generation (shared by tasks and sessions) -------------

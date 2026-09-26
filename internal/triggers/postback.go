@@ -130,6 +130,9 @@ func (m *Manager) postbackGitHub(ctx context.Context, src *store.TriggerSource, 
 		return postGitHubComment(ctx, ex, repo, issueNum,
 			fmt.Sprintf("Lectern finished the work (task #%d) but could not open a pull request: %s\n\n%s", task.ID, prErr.Error(), summary))
 	}
+	if m.PROpened != nil {
+		m.PROpened(task, project.ID, project.TargetID, att.Branch, url)
+	}
 	return postGitHubComment(ctx, ex, repo, issueNum, fmt.Sprintf("Opened %s\n\n%s", url, summary))
 }
 

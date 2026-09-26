@@ -1081,6 +1081,13 @@ func (m *Manager) SendText(ctx context.Context, id int64, text string) error {
 	return m.sendText(ctx, id, text, true)
 }
 
+// SendNotice types a machine-originated message (a CI failure report, say)
+// into a session. Unlike SendText it adds no recalled memory context: the
+// message is not the operator's prompt, so recall keyed on it is noise.
+func (m *Manager) SendNotice(ctx context.Context, id int64, text string) error {
+	return m.sendText(ctx, id, text, false)
+}
+
 func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic bool) error {
 	m.sendMu.Lock()
 	defer m.sendMu.Unlock()

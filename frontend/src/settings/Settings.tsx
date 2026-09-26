@@ -606,6 +606,8 @@ function ProjectCard({
     [setupStatus, setSetupStatus] = useState(""),
     [checkCmd, setCheckCmd] = useState(p.verify_cmd),
     [checkStatus, setCheckStatus] = useState(""),
+    [ciLoop, setCiLoop] = useState(Boolean(p.ci_loop)),
+    [ciMax, setCiMax] = useState(p.ci_max_attempts || 3),
     [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
   function loadCheckCommand() {
     api
@@ -655,6 +657,13 @@ function ProjectCard({
     });
     onNotice("Project saved");
     await onChanged();
+  }
+  // The CI loop settings save as they change, like the capability picker.
+  function saveCI(body: { ci_loop?: boolean; ci_max_attempts?: number }) {
+    void api
+      .request(`/projects/${p.id}`, { method: "PATCH", body })
+      .then(() => onNotice("CI loop setting saved"))
+      .catch((error) => onNotice(String(error), true));
   }
   async function saveSetup() {
     try {
@@ -815,6 +824,33 @@ function ProjectCard({
               ? `Check command: auto-detected: ${autoDetect.command}`
               : "Check command: none configured, and no .verify.yaml found on the target")}
       </p>
+      <label>
+        <input
+          type="checkbox"
+          aria-label="Fix CI failures automatically"
+          checked={ciLoop}
+          onChange={(e) => {
+            setCiLoop(e.target.checked);
+            saveCI({ ci_loop: e.target.checked });
+          }}
+        />{" "}
+        Fix CI failures automatically — when a PR opened here fails its checks,
+        send the failing jobs to the agent and ask it to push a fix
+      </label>
+      {ciLoop && (
+        <label>
+          Fix attempts per PR
+          <input
+            type="number"
+            aria-label="Fix attempts per PR"
+            min={1}
+            max={10}
+            value={ciMax}
+            onChange={(e) => setCiMax(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
+            onBlur={() => saveCI({ ci_max_attempts: ciMax })}
+          />
+        </label>
+      )}
       <label>
         New worktree setup command
         <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />

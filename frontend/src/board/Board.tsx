@@ -6,6 +6,7 @@ import { Routines } from "./Routines";
 import { TaskDetail } from "./TaskDetail";
 import { ClaimsPanel } from "../claims/ClaimsPanel";
 import { QuotaChip } from "../sessions/QuotaChip";
+import { CIChip } from "../review/CIChip";
 import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
@@ -322,6 +323,7 @@ export function Board({
                     </>
                   );
                 })()}
+                <CIChip ci={task.ci} />
                 {typeof task.attempt?.verify?.cmd === "string" && <span className={`chip ${task.attempt.verify.rc === 0 ? "ds" : "bad"}`}>{task.attempt.verify.rc === 0 ? "✓ verified" : "✗ verify"}</span>}
                 {task.priority >= 3 && (
                   <span className="chip warn">▲ high</span>

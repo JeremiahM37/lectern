@@ -126,6 +126,11 @@ type Scheduler struct {
 	// Scheduler by hand and never sets this keeps the pre-existing
 	// no-claims behavior, same convention as Budgets/Triggers above.
 	Claims func(context.Context)
+	// CI polls the pull requests the CI-aware PR loop is watching
+	// (internal/ciloop.Watcher.Tick, docs/ci-loop.md). Each poll runs on its
+	// own goroutine, so a slow `gh` never holds up this tick. Nil disables
+	// the loop, same convention as Claims above.
+	CI func(context.Context)
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -232,6 +237,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	if s.Claims != nil {
 		s.Claims(ctx)
+	}
+	if s.CI != nil {
+		s.CI(ctx)
 	}
 	s.DeliverMessages(ctx)
 	s.promoteQueued(ctx)

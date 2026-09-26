@@ -794,6 +794,8 @@ textarea.f { min-height: 118px; resize: vertical; line-height: 1.6; }
 .check-chip.check-failed,
 .check-chip.check-error   { color: var(--red); border-color: rgba(248,113,113,.32); background: rgba(248,113,113,.07); }
 .check-chip.check-skipped { color: var(--ink-faint); }
+/* CI loop status chip (docs/ci-loop.md) — a link to the pull request */
+a.ci-chip { text-decoration: none; }
 .check-run { color: var(--ink-dim); cursor: pointer; }
 .check-detail {
   flex-basis: 100%; margin-top: 4px; background: var(--bg);

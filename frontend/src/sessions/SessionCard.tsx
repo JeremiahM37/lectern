@@ -5,6 +5,7 @@ import type { Approval, InteractiveWorkspace, Project, SessionView } from "../ty
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
 import { CheckBadge } from "./CheckBadge";
+import { CIChip } from "../review/CIChip";
 import { approvalSummary } from "./approval-summary";
 import {
   isScratchTerminal,
@@ -355,6 +356,7 @@ export function SessionCard({
         {live && s.agent !== "shell" && (
           <CheckBadge session={s} api={api} onNotice={onNotice} />
         )}
+        <CIChip ci={s.ci} />
       </div>
       <div className="spane">{preview}</div>
       {workspace && (

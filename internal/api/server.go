@@ -25,6 +25,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
+	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
@@ -59,6 +60,9 @@ type Server struct {
 	Sessions *sessions.Manager
 	Events   *agentevents.Ingester
 	Checks   *checks.Runner
+	// CILoop watches the pull requests Lectern opens (internal/ciloop,
+	// docs/ci-loop.md). Nil is safe: nothing is armed.
+	CILoop *ciloop.Watcher
 	// Triggers polls GitHub/Linear and holds Slack's Socket Mode connections
 	// open (internal/triggers). Nil is safe everywhere it is read — a build
 	// or test harness that never sets it simply has no trigger sources.
@@ -423,6 +427,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/checks", s.sessionChecks)
 	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
 	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
+	mux.HandleFunc("POST /api/tasks/{id}/ci", s.armTaskCI)
+	mux.HandleFunc("POST /api/sessions/{id}/ci", s.armSessionCI)
 
 	// ---- A2A: the agent-to-agent surface (protocol v1.0, JSON-RPC 2.0) ----
 	// The card is public metadata and sits outside the auth gate; the method

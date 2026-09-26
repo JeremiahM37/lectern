@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS projects(
   -- worktree is always cut from this same repository.
   repo_key TEXT NOT NULL DEFAULT '',
   repo_toplevel TEXT NOT NULL DEFAULT '',
+  -- ci_loop opts a project into the CI-aware PR loop (internal/ciloop,
+  -- docs/ci-loop.md); ci_max_attempts caps the fix requests per PR.
+  ci_loop INTEGER NOT NULL DEFAULT 0,
+  ci_max_attempts INTEGER NOT NULL DEFAULT 3,
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS tasks(
@@ -436,6 +440,36 @@ CREATE TABLE IF NOT EXISTS session_checks(
   reason TEXT NOT NULL DEFAULT ''           -- stop|screen|manual
 );
 CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_id, id DESC);
+-- ci_watches is one pull request the CI loop (internal/ciloop) is watching
+-- for its owner: a task or a session, never both. attempts counts the fix
+-- requests sent; asked_sha is the head commit the latest one was about, so a
+-- failure is reported once per push. project_id/target_id carry no foreign
+-- key on purpose: deleting either must not fail on a finished watch.
+CREATE TABLE IF NOT EXISTS ci_watches(
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+  project_id INTEGER,
+  target_id INTEGER NOT NULL,
+  branch TEXT NOT NULL DEFAULT '',
+  pr_url TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL DEFAULT 'pending',     -- pending|failing|passed|capped|merged|closed|error|stalled
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  head_sha TEXT NOT NULL DEFAULT '',
+  asked_sha TEXT NOT NULL DEFAULT '',
+  failing_json TEXT NOT NULL DEFAULT '[]',
+  detail TEXT NOT NULL DEFAULT '',
+  errors INTEGER NOT NULL DEFAULT 0,
+  interval_s REAL NOT NULL DEFAULT 0,
+  next_poll_at REAL NOT NULL DEFAULT 0,
+  last_change_at REAL NOT NULL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ci_watches_due ON ci_watches(state, next_poll_at);
+CREATE INDEX IF NOT EXISTS idx_ci_watches_task ON ci_watches(task_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_ci_watches_session ON ci_watches(session_id, id DESC);
 -- Agent test suites ("evals"): a suite is a set of cases, each run through
 -- Best-of-N's machinery — a case x variant x repeat cell is one task attempt
 -- in its own worktree, graded by the case's own check_command.
@@ -768,4 +802,7 @@ var migrations = []string{
 	// usage_daily deltas of its own once the exact OTel numbers are flowing —
 	// see the precedence rule in agentevents.IngestStatusline.
 	"ALTER TABLE sessions ADD COLUMN otel_active_at REAL",
+	// CI-aware PR loop (docs/ci-loop.md).
+	"ALTER TABLE projects ADD COLUMN ci_loop INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE projects ADD COLUMN ci_max_attempts INTEGER NOT NULL DEFAULT 3",
 }

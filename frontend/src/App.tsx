@@ -498,6 +498,7 @@ export default function App() {
       "media_deleted",
       "live",
       "session.check",
+      "ci",
     ])
       stream.addEventListener(event, update);
     stream.addEventListener("session_handoff", (event) => {
