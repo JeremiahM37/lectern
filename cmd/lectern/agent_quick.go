@@ -297,6 +297,20 @@ func agentQuickCommand(cfg *config.Config, agentName string, args []string, base
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "Session #%d %q — also on your phone at %s/#session/%d\n",
-		sess.ID, sess.Name, strings.TrimRight(base, "/"), sess.ID)
+		sess.ID, sess.Name, strings.TrimRight(phoneBase(c, base), "/"), sess.ID)
 	return attachAgentSession(cfg, base, token, local, sess.ID)
+}
+
+// phoneBase is the dashboard origin to print for a phone: the server's tailnet
+// HTTPS address when it has one (a loopback or LAN API base is not reachable
+// from a phone), else the API base itself.
+func phoneBase(c *console.Client, base string) string {
+	var health struct {
+		PhoneURL string `json:"phone_url"`
+	}
+	if data, err := c.JSON("GET", "/health", nil); err == nil &&
+		json.Unmarshal(data, &health) == nil && strings.TrimSpace(health.PhoneURL) != "" {
+		return health.PhoneURL
+	}
+	return base
 }

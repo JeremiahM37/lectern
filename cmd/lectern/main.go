@@ -268,6 +268,7 @@ func startTLSListener(cfg *config.Config, a *app.App, log *slog.Logger) *http.Se
 			continue
 		}
 		started++
+		a.Server.PhoneURL = "https://" + tlsCfg.DNSName + ":" + strconv.Itoa(cfg.TLSPort)
 		log.Info("lectern tailnet TLS listener", "addr", listenAddr)
 		go func(ln net.Listener) {
 			if err := tlsSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

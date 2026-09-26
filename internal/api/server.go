@@ -41,6 +41,9 @@ import (
 
 // Server wires every dependency the handlers need.
 type Server struct {
+	// PhoneURL is the tailnet HTTPS origin (real certificate) once that
+	// listener is up — the address to hand a phone. Empty otherwise.
+	PhoneURL    string
 	autoWG      sync.WaitGroup
 	autoMu      sync.Mutex
 	autoChecked time.Time

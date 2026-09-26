@@ -314,3 +314,24 @@ func TestSessionDisplayNameWithoutGitFallsBackToBasename(t *testing.T) {
 		t.Errorf("name = %q, want %q", name, filepath.Base(dir))
 	}
 }
+
+// A loopback API base is useless to a phone; the server's tailnet HTTPS
+// address, when it reports one, is what gets printed.
+func TestPhoneBasePrefersServerPhoneURL(t *testing.T) {
+	for _, tc := range []struct{ reported, want string }{
+		{"https://box.tail.ts.net:8443", "https://box.tail.ts.net:8443"},
+		{"", "BASE"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":true,"phone_url":"` + tc.reported + `"}`))
+		}))
+		want := tc.want
+		if want == "BASE" {
+			want = srv.URL
+		}
+		if got := phoneBase(console.New(srv.URL, ""), srv.URL); got != want {
+			t.Errorf("reported %q: phoneBase = %q, want %q", tc.reported, got, want)
+		}
+		srv.Close()
+	}
+}
