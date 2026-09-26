@@ -68,8 +68,10 @@ Lectern tells you plainly when a CLI can't do something.
 
 ### Nothing gets lost
 
-- **Recently closed** brings back a session you closed by mistake, with its
-  conversation.
+- **Restore** brings back anything that ended: closed, archived, crashed, or
+  cut off by a reboot, with its conversation when one was saved. Ending a
+  session offers **Undo**, an agent that exits shows **Revive**, and
+  `lectern restore` does the same from any terminal.
 - Sessions stay grouped by project and machine.
 - Lectern finds and adopts Claude and Codex sessions you started outside it.
 - Every saved Claude and Codex conversation on your machines is searchable,
@@ -87,9 +89,11 @@ The same control loop runs in an installable phone app:
   feedback**, from the app or straight from the notification.
 - **Voice mode** lets you talk to your agent and approve out loud, using only
   the browser's free speech engine.
-- No Tailscale? **Pair a phone** with a one-time code over any HTTPS tunnel.
+- No Tailscale? Run **`lectern relay`** on any small server and pair a phone
+  by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
+  WireGuard); the relay only passes sealed frames and never serves app code.
 
-→ [Mobile sessions](docs/mobile-sessions.md) · [Remote access](docs/remote-access.md)
+→ [Mobile sessions](docs/mobile-sessions.md) · [Relay](docs/relay.md) · [Remote access](docs/remote-access.md)
 
 ![Lectern on a phone](docs/media/phone.gif)
 
@@ -97,6 +101,13 @@ The same control loop runs in an installable phone app:
 
 - **A board of tasks:** dispatch work to any machine, each task in its own git
   worktree, and review the diff or open a PR when it's done.
+- **CI loop:** when a PR's checks fail, Lectern sends the failing jobs and a
+  trimmed log back to the agent that wrote the code, up to 3 tries, and pings
+  your phone when it goes green. → [CI loop](docs/ci-loop.md)
+- **Usage limits:** when Claude, Codex or Gemini hits its limit, the card and
+  your phone show when it resets. Lectern can resume the same agent after the
+  reset, or hand the work to another agent in the same workspace.
+  → [Rate limits](docs/rate-limits.md)
 - **Best-of-N with a judge, and delegated builds:** a cheap worker builds and a
   lead reviews and integrates.
 - **Replay evals:** find out which agent or model is best *for your repo*,
@@ -109,32 +120,47 @@ The same control loop runs in an installable phone app:
   stops.
 - **Runs anywhere:** your laptop, anything reachable over SSH, a Proxmox
   container, or an ephemeral sandbox. One static binary, MIT licensed.
+- **Scales:** one Lectern process ran 250 concurrent sessions across 4
+  targets with 65 MB of memory; approvals round-trip in about 7 ms.
+  → [Benchmark](docs/benchmarks/scale.md)
 
 ## How it compares
 
 ✓ yes · ◐ partly · ✗ no · ? couldn't verify. Every cell is checked against each
-project's own docs, with sources listed in [docs/comparison.md](docs/comparison.md).
+project's own docs or source, with sources in [docs/comparison.md](docs/comparison.md).
+Corrections are welcome.
 
-| | Lectern | Happy | Claude Squad | Vibe Kanban | agent-deck | Conductor | Claude Code app |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Start and manage sessions from a claude.ai chat | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ | ? |
-| Terminal dashboard across machines, open many at once | ✓ | ? | ◐ | ✗ | ◐ | ✗ | ✗ |
-| Switch a live session to another agent, keeping context | ✓ | ◐ | ✗ | ✗ | ✗ | ? | ◐ |
-| Agents on your own machines: SSH, Proxmox, sandboxes | ✓ | ✗ | ✗ | ✗ | ◐ | ◐ | ◐ |
-| Approve, deny or reply straight from the phone notification | ✓ | ◐ | ✗ | ✗ | ◐ | ◐ | ◐ |
-| Allow once / for this session / deny with feedback | ✓ | ◐ | ✗ | ◐ | ◐ | ◐ | ◐ |
-| Free voice mode with spoken approvals | ✓ | ◐ paid | ✗ | ? | ? | ? | ✗ |
-| Task board with worktrees, diff review and PRs | ✓ | ◐ | ◐ | ✓ | ✗ | ◐ | ✓ |
-| Best-of-N with a judge, and delegated builds | ✓ | ✗ | ✗ | ? | ? | ? | ◐ |
-| Evals replayed from your own merged PRs | ✓ | ? | ✗ | ? | ? | ✗ | ✗ |
-| Agents aware of each other (claim board) | ✓ | ✗ | ✗ | ? | ? | ✗ | ◐ |
-| Adopts agent sessions you started elsewhere | ✓ | ◐ | ✗ | ? | ? | ? | ✗ |
-| Self-hosted and open source | ✓ MIT | ✓ MIT | ✓ AGPL | ✓ Apache | ✓ MIT | ✗ | ✗ |
+| | Lectern | Orca | HAPI | Agent Orchestrator | Agent of Empires | Happy | Vibe Kanban | Conductor |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Start and manage sessions from a claude.ai or ChatGPT chat | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Terminal dashboard across machines, open many at once | ✓ | ◐ | ◐ | ✗ | ◐ | ? | ✗ | ✗ |
+| Switch a live session to another agent, keeping context | ✓ | ? | ? | ✓ | ◐ | ◐ | ✗ | ? |
+| Agents on your own machines: SSH, Proxmox, sandboxes | ✓ | ◐ | ◐ | ◐ | ◐ | ✗ | ✗ | ◐ |
+| Approve, deny or reply from the phone notification | ✓ | ◐ | ✓ | ◐ | ◐ | ◐ | ✗ | ◐ |
+| Allow once / for this session / deny with feedback | ✓ | ◐ | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Free voice mode with spoken approvals | ✓ | ◐ | ◐ paid | ◐ | ◐ | ◐ paid | ? | ? |
+| End-to-end encrypted relay, no VPN needed | ✓ | ✓ | ✓ | ◐ | ◐ | ✓ | ◐ | ? |
+| Task board with worktrees, diff review and PRs | ✓ | ✓ | ◐ | ✓ | ◐ | ◐ | ✓ | ◐ |
+| Best-of-N with a judge, and delegated builds | ✓ | ◐ | ◐ | ◐ | ◐ | ✗ | ? | ? |
+| Evals replayed from your own merged PRs | ✓ | ? | ? | ? | ? | ? | ? | ✗ |
+| Agents aware of each other (claim board) | ✓ | ◐ | ✓ | ◐ | ? | ✗ | ? | ✗ |
+| Adopts agent sessions you started elsewhere | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ | ? | ? |
+| MCP server so other agents can drive it | ✓ | ✗ | ◐ | ✗ | ✗ | ◐ | ✓ | ✓ |
+| Native iOS / Android apps | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
+| Self-hosted and open source | ✓ MIT | ✓ MIT | ✓ AGPL | ✓ Apache | ✓ MIT | ✓ MIT | ✓ Apache | ✗ |
 
 **Where others are ahead:**
-- Happy's relay is end-to-end encrypted, and it ships native App Store and Play Store apps. Lectern relies on Tailscale, or on pairing over your own HTTPS tunnel.
-- Conductor, which is hosted and proprietary, also drives sessions from claude.ai and ChatGPT.
-- agent-deck matches Lectern's cost and quota tracking.
+- Orca, HAPI, Agent Orchestrator and Happy ship native phone apps. Lectern is an
+  installable web app; on iPhone that means no Approve/Deny buttons on the
+  notification itself.
+- Orca (30+), Agent Orchestrator (28) and Agent of Empires (about 20) list more
+  agents out of the box. Lectern has 3 built in, a catalog of 10 more, and any
+  CLI as a custom agent.
+- Orca swaps to another account when one hits its usage limit. Lectern waits
+  for the reset or hands off to a different agent.
+- Agent of Empires has a plugin system and a multi-user edition with SSO.
+- Conductor, which is hosted and proprietary, also drives sessions from
+  claude.ai and ChatGPT.
 
 ## Install
 
