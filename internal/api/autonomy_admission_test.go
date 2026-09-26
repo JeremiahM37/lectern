@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
 )
@@ -88,5 +89,60 @@ func TestExplicitIncompleteReceiptCannotBePromotedByLegacyApproval(t *testing.T)
 	}
 	if _, err := s.autoApprovedContinuation(a, project, source); err == nil {
 		t.Fatal("incomplete artifact continued as accepted")
+	}
+}
+
+func TestNewCycleDoesNotOverwriteExplicitReviewReceipt(t *testing.T) {
+	_, a, _, source := repairFixture(t)
+	j := autoFindJob(a, source)
+	reviewID := a.Jobs[1].TaskID
+	a.State = a.Runs[0]
+	a.State.Reports[reviewID] = json.RawMessage(`{"approve":true,"reason":"legacy honest stop"}`)
+	j.ReviewTaskID = reviewID
+	j.ReviewOutcome = "incomplete"
+	j.ReviewReason = "Inspected retained evidence: experiment not completed"
+	j.Approved = false
+	autoNewCycle(a, time.Now())
+	if j.Approved || j.ReviewOutcome != "incomplete" || j.ReviewReason != "Inspected retained evidence: experiment not completed" {
+		t.Fatalf("legacy history replaced explicit receipt: %+v", j)
+	}
+	if autoCheckpointApproved(a, source) {
+		t.Fatal("incomplete checkpoint promoted at cycle rotation")
+	}
+}
+
+func TestNewCycleMigratesMissingReviewReceiptAcrossReload(t *testing.T) {
+	for _, tc := range []struct {
+		name, report, outcome string
+		approved              bool
+	}{
+		{"legacy approval", `{"approve":true,"reason":"verified"}`, "", true},
+		{"completed approval", `{"outcome":"completed","approve":true,"reason":"verified"}`, "completed", true},
+		{"incomplete is not approval", `{"outcome":"incomplete","approve":true,"reason":"verified"}`, "incomplete", false},
+		{"rejected", `{"outcome":"incomplete","approve":false,"reason":"verified"}`, "incomplete", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, a, _, source := repairFixture(t)
+			reviewID := a.Jobs[1].TaskID
+			a.State = a.Runs[0]
+			a.State.Reports[reviewID] = json.RawMessage(tc.report)
+			autoNewCycle(a, time.Now())
+			// Receipt must outlive both retained history and a service restart.
+			a.Runs = nil
+			if err := s.saveAuto(a); err != nil {
+				t.Fatal(err)
+			}
+			a, err := s.loadAuto()
+			if err != nil {
+				t.Fatal(err)
+			}
+			j := autoFindJob(a, source)
+			if j.ReviewTaskID != reviewID || j.ReviewOutcome != tc.outcome || j.ReviewReason != "verified" || j.Approved != tc.approved || j.Rejected == tc.approved {
+				t.Fatalf("wrong migrated receipt: %+v", j)
+			}
+			if autoCheckpointApproved(a, source) != tc.approved {
+				t.Fatal("artifact eligibility changed after history removal and reload")
+			}
+		})
 	}
 }

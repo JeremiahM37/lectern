@@ -86,7 +86,8 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 			next.Cycle = 2
 		}
 		next.Backlog = append([]autonomy.Proposal(nil), a.State.Backlog...)
-		// Migrate approvals from legacy states before their history rotates out.
+		// Fill missing receipts from legacy states before history rotates out.
+		// Never replace an existing review receipt with older report fields.
 		for _, as := range a.State.Assignments {
 			if as.Role != "reviewer" || !as.Completed {
 				continue
@@ -97,7 +98,7 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 			}
 			for _, builder := range a.State.Assignments {
 				if builder.Role == "builder" && builder.Completed && builder.Item == as.Item && builder.Round == as.Round && builder.Step == as.Step {
-					if job := autoFindJob(a, builder.TaskID); job != nil {
+					if job := autoFindJob(a, builder.TaskID); job != nil && job.ReviewTaskID == 0 {
 						job.Approved = verdict.AcceptsWork()
 						job.ReviewOutcome = verdict.Outcome
 						job.Rejected = !verdict.AcceptsWork()
