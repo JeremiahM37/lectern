@@ -53,6 +53,16 @@ vault paths (from `search_notes`/`list_notes` on the Grimoire MCP tools),
 fetched and re-uploaded as attachments so the agent can read them the same
 way as any other file, without needing its own Grimoire access.
 
+`inline_files` is the chat-friendly alternative to `files`: an array of
+`{name, content, encoding}`, for a document pasted into or uploaded to the
+conversation rather than sitting on this machine's disk. It works over
+stdio too, but it's the *only* way to hand over a file on the [web connector
+transport](web-connector.md) (`lectern mcp --http`) — that caller has no
+filesystem of Lectern's to point `files` at, so `files` is refused there
+outright, with a clear error naming `inline_files` instead. Up to 10 files,
+5 MiB each after decoding; `encoding` is `"text"` (default) or `"base64"`
+for binary content.
+
 ## `send_to_session`
 
 `session` is a session id, or its exact/unique name. A name that matches more

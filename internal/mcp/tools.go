@@ -152,6 +152,11 @@ var tools = []tool{
 		}),
 		Run: func(s *Server, args map[string]any) (any, error) {
 			repoPath := argStr(args, "repo_path")
+			if s.Remote && repoPath != "" {
+				return nil, fmt.Errorf("repo_path is a path on the machine Lectern's MCP server runs on, " +
+					"which the web connector does not read on a remote caller's behalf; omit it and this " +
+					"tool will use your Lectern session's own repository instead")
+			}
 			var result map[string]any
 			var err error
 			if repoPath != "" {
@@ -682,22 +687,32 @@ var tools = []tool{
 		Description: "Start a NEW interactive Lectern session — for 'start a session that builds this' out of a " +
 			"brainstorm. Give exactly one of project (a name, see list_projects), workdir (an absolute path), or " +
 			"scratch:true (a throwaway blank room). `prompt` is the build instruction, typed into the agent once " +
-			"it is ready. Optionally hand it what the brainstorm produced: `context` (markdown you write, e.g. the " +
-			"design that came out of the conversation), `files` (absolute local paths on the machine this MCP " +
-			"server runs on), and `notes` (Grimoire note paths). When context is given it is also saved as a " +
-			"Grimoire note by default (save_context_to_grimoire), so the brief outlives this one session. Use this " +
-			"for an interactive session someone will watch and steer; for unattended queued work use create_task " +
-			"or delegate_build instead. Takes longer than a plain launch when files/notes/context are given: it " +
-			"waits for the session to finish starting before it can attach anything.",
+			"it is ready. Optionally hand it what the brainstorm produced: put anything derived from the " +
+			"conversation itself in `context` (markdown you write, e.g. the design that came out of the " +
+			"discussion) — do NOT use files/inline_files for that, they are for documents, not prose you already " +
+			"have in hand. `inline_files` attaches pasted or uploaded documents by content (name, content, " +
+			"encoding \"text\" or \"base64\" — up to 10 files, 5 MiB each decoded): use this over the web " +
+			"connector, or whenever the file lives in the chat rather than on disk. `files` (absolute local paths) " +
+			"only works when this MCP server and the caller share a filesystem — it is refused over the web " +
+			"connector. `notes` attaches existing Grimoire note paths. When context is given it is also saved as " +
+			"a Grimoire note by default (save_context_to_grimoire), so the brief outlives this one session. Use " +
+			"this for an interactive session someone will watch and steer; for unattended queued work use " +
+			"create_task or delegate_build instead. Takes longer than a plain launch when anything is attached: " +
+			"it waits for the session to finish starting before it can attach anything.",
 		Schema: obj(map[string]any{
-			"agent":                    str("agent to run, e.g. claude, codex (default claude)"),
-			"project":                  str("project NAME to run in (see list_projects) — exactly one of project/workdir/scratch"),
-			"workdir":                  str("absolute path to run in instead of a registered project"),
-			"scratch":                  flag("start a blank throwaway room instead of project/workdir"),
-			"name":                     str("session name; also used as the Grimoire brief's title when context is saved"),
-			"prompt":                   str("the build instruction — what the agent should do"),
-			"context":                  str("markdown context to hand the agent, e.g. the design worked out in the brainstorm"),
-			"files":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach"},
+			"agent":   str("agent to run, e.g. claude, codex (default claude)"),
+			"project": str("project NAME to run in (see list_projects) — exactly one of project/workdir/scratch"),
+			"workdir": str("absolute path to run in instead of a registered project"),
+			"scratch": flag("start a blank throwaway room instead of project/workdir"),
+			"name":    str("session name; also used as the Grimoire brief's title when context is saved"),
+			"prompt":  str("the build instruction — what the agent should do"),
+			"context": str("markdown context to hand the agent, e.g. the design worked out in the brainstorm — put conversation-derived specs here, not in a file"),
+			"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach; only when this MCP server shares a filesystem with the caller — refused over the web connector, use inline_files instead"},
+			"inline_files": map[string]any{"type": "array", "items": obj(map[string]any{
+				"name":     str("filename, e.g. 'spec.md' or 'screenshot.png'"),
+				"content":  str("the file's content"),
+				"encoding": str("\"text\" (default) or \"base64\" for binary content"),
+			}, "name", "content"), "description": "pasted or chat-uploaded documents to attach by content — up to 10 files, 5 MiB each decoded; this is how the web connector hands over files"},
 			"notes":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Grimoire note paths to attach"},
 			"save_context_to_grimoire": flag("save `context` as a Grimoire note tagged lectern,brief (default true when context is given)"),
 			"model":                    str("model override"),
@@ -742,10 +757,13 @@ var tools = []tool{
 			}
 
 			context := argStr(args, "context")
-			files := stringSlice(args["files"])
+			files, inlineFiles, err := s.resolveAttachArgs(args)
+			if err != nil {
+				return nil, err
+			}
 			notes := stringSlice(args["notes"])
 
-			if context == "" && len(files) == 0 && len(notes) == 0 {
+			if context == "" && len(files) == 0 && len(inlineFiles) == 0 && len(notes) == 0 {
 				// Nothing to attach: let the ordinary launch prime the agent
 				// straight away instead of paying for a create/poll/send round
 				// trip it doesn't need.
@@ -770,7 +788,7 @@ var tools = []tool{
 				return nil, err
 			}
 
-			attachedFiles, err := s.attachContext(id, context, files, notes)
+			attachedFiles, err := s.attachContext(id, context, files, notes, inlineFiles)
 			if err != nil {
 				return nil, fmt.Errorf("session #%d is running but attaching context failed: %w", id, err)
 			}
@@ -800,14 +818,23 @@ var tools = []tool{
 		Description: "Send a message — and optionally files/context/Grimoire notes — into an ALREADY-RUNNING " +
 			"interactive Lectern session: for 'give my open session working on X this file'. `session` is a " +
 			"session id or its exact/unique name (see list_sessions); an unknown or ambiguous name errors with " +
-			"the candidates it matched. Set interrupt:true to press Escape first when the agent is mid-turn and " +
-			"this needs to interrupt it now rather than queue behind whatever it is doing. Refused for a session " +
-			"that has ended — start_session for a new one instead.",
+			"the candidates it matched. Put conversation-derived specs in `context`, and hand over pasted or " +
+			"chat-uploaded documents with `inline_files` (name, content, encoding \"text\" or \"base64\") — this " +
+			"is how the web connector attaches files, since it has no local filesystem of its own. `files` " +
+			"(absolute local paths) only works when this MCP server shares a filesystem with the caller and is " +
+			"refused over the web connector. Set interrupt:true to press Escape first when the agent is mid-turn " +
+			"and this needs to interrupt it now rather than queue behind whatever it is doing. Refused for a " +
+			"session that has ended — start_session for a new one instead.",
 		Schema: obj(map[string]any{
-			"session":                  str("session id, or its exact/unique name"),
-			"message":                  str("what to say — required unless files/notes/context are given"),
-			"context":                  str("markdown context to hand the agent"),
-			"files":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach"},
+			"session": str("session id, or its exact/unique name"),
+			"message": str("what to say — required unless files/inline_files/notes/context are given"),
+			"context": str("markdown context to hand the agent — put conversation-derived specs here, not in a file"),
+			"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach; only when this MCP server shares a filesystem with the caller — refused over the web connector, use inline_files instead"},
+			"inline_files": map[string]any{"type": "array", "items": obj(map[string]any{
+				"name":     str("filename, e.g. 'spec.md' or 'screenshot.png'"),
+				"content":  str("the file's content"),
+				"encoding": str("\"text\" (default) or \"base64\" for binary content"),
+			}, "name", "content"), "description": "pasted or chat-uploaded documents to attach by content — up to 10 files, 5 MiB each decoded; this is how the web connector hands over files"},
 			"notes":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Grimoire note paths to attach"},
 			"save_context_to_grimoire": flag("also save `context` as a Grimoire note tagged lectern,brief (default false here)"),
 			"interrupt":                flag("press Escape before sending, to interrupt a turn in progress (default false)"),
@@ -824,17 +851,20 @@ var tools = []tool{
 			}
 			message := argStr(args, "message")
 			context := argStr(args, "context")
-			files := stringSlice(args["files"])
+			files, inlineFiles, err := s.resolveAttachArgs(args)
+			if err != nil {
+				return nil, err
+			}
 			notes := stringSlice(args["notes"])
-			if strings.TrimSpace(message) == "" && context == "" && len(files) == 0 && len(notes) == 0 {
-				return nil, fmt.Errorf("give message, or files/notes/context to attach")
+			if strings.TrimSpace(message) == "" && context == "" && len(files) == 0 && len(inlineFiles) == 0 && len(notes) == 0 {
+				return nil, fmt.Errorf("give message, or files/inline_files/notes/context to attach")
 			}
 			if argBool(args, "interrupt", false) {
 				if _, err := s.api("POST", fmt.Sprintf("/sessions/%d/send", id), map[string]any{"key": "escape"}); err != nil {
 					return nil, fmt.Errorf("could not interrupt session #%d: %w", id, err)
 				}
 			}
-			attachedFiles, err := s.attachContext(id, context, files, notes)
+			attachedFiles, err := s.attachContext(id, context, files, notes, inlineFiles)
 			if err != nil {
 				return nil, err
 			}
