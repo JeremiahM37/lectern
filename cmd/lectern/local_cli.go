@@ -18,7 +18,7 @@ import (
 var localClientCommands = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true, "expose": true, "skill": true,
-	"attach": true, "mcp": true, "promote": true, "controls": true,
+	"attach": true, "mcp": true, "promote": true, "controls": true, "restore": true,
 	// claude/codex/gemini are the one-command agent launchers built into this
 	// binary (cmd/lectern/agent_quick.go); `lectern local claude` forces one
 	// onto this machine's local runtime the same way it does for every other
