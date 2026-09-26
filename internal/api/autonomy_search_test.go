@@ -108,3 +108,77 @@ func TestRepositorySearchRejectsOverridesAndBoundsCalls(t *testing.T) {
 		t.Fatal("budget did not recover")
 	}
 }
+
+func TestIssueSearchFixedScopeAndUnicodeExcerpts(t *testing.T) {
+	body := strings.Repeat("🙂", 4001)
+	payload, _ := json.Marshal(map[string]any{"total_count": 2, "incomplete_results": true, "items": []any{
+		map[string]any{"title": "Existing discussion", "number": 42, "html_url": "https://github.com/example/tool/issues/42", "body": body, "comments": 7, "state": "closed"},
+		map[string]any{"title": "Related change", "number": 43, "html_url": "https://github.com/example/tool/pull/43", "body": nil, "pull_request": map[string]any{"url": "https://api.github.com/repos/example/tool/pulls/43"}},
+	}})
+	client := &http.Client{Transport: autoSearchTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "GET" || r.URL.Scheme != "https" || r.URL.Host != "api.github.com" || r.URL.Path != "/search/issues" || r.URL.Query().Get("q") != "repo:example/tool extraction" || r.URL.Query().Get("per_page") != "10" || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" || r.Body != nil {
+			t.Fatalf("unsafe issue request: %#v", r)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(payload))), Header: make(http.Header)}, nil
+	})}
+	req := httptest.NewRequest("GET", "/research/issues?q=repo%3Aexample%2Ftool+extraction", nil)
+	req.Header.Set("Authorization", "secret")
+	req.Header.Set("Cookie", "secret")
+	w := httptest.NewRecorder()
+	serveAutoRepositorySearch(w, req, client, &autoSearchBudget{})
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var out struct {
+		Provider   string `json:"provider"`
+		Incomplete bool   `json:"incomplete_results"`
+		Results    []struct {
+			Body      string `json:"body_excerpt"`
+			Truncated bool   `json:"body_truncated"`
+			PR        bool   `json:"is_pull_request"`
+			Comments  int    `json:"comments_count"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Provider != "github_public_issues" || !out.Incomplete || len(out.Results) != 2 || len([]rune(out.Results[0].Body)) != 4000 || !out.Results[0].Truncated || out.Results[0].PR || out.Results[0].Comments != 7 || !out.Results[1].PR || out.Results[1].Truncated {
+		t.Fatalf("bad evidence projection: %+v", out)
+	}
+}
+func TestIssueSearchSharesBudgetAndRejectsMalformedResults(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: autoSearchTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"total_count":1,"incomplete_results":false,"items":[{}]}`)), Header: make(http.Header)}, nil
+	})}
+	b := &autoSearchBudget{}
+	for i := 0; i < 3; i++ {
+		b.allow(time.Now())
+	} // prior repository searches share this same budget
+	w := httptest.NewRecorder()
+	serveAutoRepositorySearch(w, httptest.NewRequest("GET", "/research/issues?q=x", nil), client, b)
+	if w.Code != 502 || strings.Contains(w.Body.String(), `"results"`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	serveAutoRepositorySearch(w, httptest.NewRequest("GET", "/research/search?q=x", nil), client, b)
+	if w.Code != 429 || calls != 1 {
+		t.Fatal(w.Code, calls)
+	}
+	for _, target := range []string{"/research/issues?q=x&url=http://localhost", "/research/issues?q=x&kind=other", "/research/issues?q=x&q=y"} {
+		w = httptest.NewRecorder()
+		serveAutoRepositorySearch(w, httptest.NewRequest("GET", target, nil), client, &autoSearchBudget{})
+		if w.Code != 400 {
+			t.Fatal(w.Code, target)
+		}
+	}
+	if calls != 1 {
+		t.Fatal("invalid override reached provider")
+	}
+	w = httptest.NewRecorder()
+	serveAutoRepositorySearch(w, httptest.NewRequest("GET", "/research/private?q=x", nil), client, &autoSearchBudget{})
+	if w.Code != 404 || calls != 1 {
+		t.Fatal(w.Code, calls)
+	}
+}
