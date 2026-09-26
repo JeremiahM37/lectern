@@ -34,6 +34,7 @@ var toolScope = map[string]string{
 	// gated by scope, because an approval decision must come from the human.
 	"start_session":   oauth.ScopeWrite,
 	"send_to_session": oauth.ScopeWrite,
+	"end_session":     oauth.ScopeWrite,
 	"create_task":     oauth.ScopeWrite,
 	"delegate_build":  oauth.ScopeWrite,
 	"complete_task":   oauth.ScopeWrite,
