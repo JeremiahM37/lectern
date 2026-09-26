@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -600,6 +601,272 @@ var tools = []tool{
 			}
 			if t, ok := done.(map[string]any); ok {
 				out["status"] = t["status"]
+			}
+			return out, nil
+		},
+	},
+	{
+		Name: "list_sessions",
+		Description: "See interactive Lectern sessions across every project: name, agent, status (running, " +
+			"waiting for input, idle, dead), which project and workdir, and when each last did anything. Call " +
+			"this before start_session to check whether one already exists for what you want to hand work to — " +
+			"send_to_session then gives it more context or instructions instead of starting a duplicate. This is " +
+			"the interactive board (a person or agent sitting in a terminal); list_tasks is the separate " +
+			"queued/backlog board.",
+		Schema: obj(map[string]any{
+			"query":         str("optional substring to filter by, matched against name, project, workdir and agent (case-insensitive)"),
+			"include_ended": flag("include ended/dead sessions too (default false: only live ones)"),
+		}),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			projects, err := s.list("/projects")
+			if err != nil {
+				return nil, err
+			}
+			projectNames := map[float64]string{}
+			for _, p := range projects {
+				if id, ok := p["id"].(float64); ok {
+					projectNames[id], _ = p["name"].(string)
+				}
+			}
+			includeEnded := argBool(args, "include_ended", false)
+			path := "/sessions"
+			if includeEnded {
+				path += "?all=true"
+			}
+			rows, err := s.list(path)
+			if err != nil {
+				return nil, err
+			}
+			q := strings.ToLower(strings.TrimSpace(argStr(args, "query")))
+			type scored struct {
+				row     map[string]any
+				updated float64
+			}
+			var matches []scored
+			for _, r := range rows {
+				status, _ := r["status"].(string)
+				if !includeEnded && (status == "dead" || r["ended_at"] != nil) {
+					continue
+				}
+				name, _ := r["name"].(string)
+				agent, _ := r["agent"].(string)
+				workdir, _ := r["workdir"].(string)
+				project := ""
+				if pid, ok := r["project_id"].(float64); ok {
+					project = projectNames[pid]
+				}
+				if q != "" {
+					hay := strings.ToLower(name + " " + agent + " " + workdir + " " + project)
+					if !strings.Contains(hay, q) {
+						continue
+					}
+				}
+				updated, _ := r["updated_at"].(float64)
+				matches = append(matches, scored{updated: updated, row: map[string]any{
+					"id": r["id"], "name": name, "agent": agent, "status": status,
+					"project": project, "workdir": workdir,
+					"updated_at": r["updated_at"], "last_activity_at": r["last_activity_at"],
+					"waiting_for_input": status == "waiting",
+				}})
+			}
+			sort.Slice(matches, func(i, j int) bool { return matches[i].updated > matches[j].updated })
+			out := make([]map[string]any, 0, len(matches))
+			for _, m := range matches {
+				out = append(out, m.row)
+			}
+			return out, nil
+		},
+	},
+	{
+		Name: "start_session",
+		Description: "Start a NEW interactive Lectern session — for 'start a session that builds this' out of a " +
+			"brainstorm. Give exactly one of project (a name, see list_projects), workdir (an absolute path), or " +
+			"scratch:true (a throwaway blank room). `prompt` is the build instruction, typed into the agent once " +
+			"it is ready. Optionally hand it what the brainstorm produced: `context` (markdown you write, e.g. the " +
+			"design that came out of the conversation), `files` (absolute local paths on the machine this MCP " +
+			"server runs on), and `notes` (Grimoire note paths). When context is given it is also saved as a " +
+			"Grimoire note by default (save_context_to_grimoire), so the brief outlives this one session. Use this " +
+			"for an interactive session someone will watch and steer; for unattended queued work use create_task " +
+			"or delegate_build instead. Takes longer than a plain launch when files/notes/context are given: it " +
+			"waits for the session to finish starting before it can attach anything.",
+		Schema: obj(map[string]any{
+			"agent":                    str("agent to run, e.g. claude, codex (default claude)"),
+			"project":                  str("project NAME to run in (see list_projects) — exactly one of project/workdir/scratch"),
+			"workdir":                  str("absolute path to run in instead of a registered project"),
+			"scratch":                  flag("start a blank throwaway room instead of project/workdir"),
+			"name":                     str("session name; also used as the Grimoire brief's title when context is saved"),
+			"prompt":                   str("the build instruction — what the agent should do"),
+			"context":                  str("markdown context to hand the agent, e.g. the design worked out in the brainstorm"),
+			"files":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach"},
+			"notes":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Grimoire note paths to attach"},
+			"save_context_to_grimoire": flag("save `context` as a Grimoire note tagged lectern,brief (default true when context is given)"),
+			"model":                    str("model override"),
+			"yolo":                     flag("run without approval prompts (default true, matching the UI default)"),
+			"brief":                    flag("prepend the project's Grimoire memory briefing (default true)"),
+		}, "prompt"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			prompt := strings.TrimSpace(argStr(args, "prompt"))
+			if prompt == "" {
+				return nil, fmt.Errorf("prompt is required: the build instruction the agent should start on")
+			}
+			projectName := argStr(args, "project")
+			workdir := argStr(args, "workdir")
+			scratch := argBool(args, "scratch", false)
+			chosen := 0
+			for _, on := range []bool{projectName != "", workdir != "", scratch} {
+				if on {
+					chosen++
+				}
+			}
+			if chosen != 1 {
+				return nil, fmt.Errorf("give exactly one of project, workdir, or scratch:true")
+			}
+			body := map[string]any{
+				"agent": orDefault(argStr(args, "agent"), "claude"),
+				"name":  argStr(args, "name"),
+				"model": argStr(args, "model"),
+				"yolo":  argBool(args, "yolo", true),
+				"brief": argBool(args, "brief", true),
+			}
+			switch {
+			case projectName != "":
+				proj, err := s.resolveProjectByName(projectName)
+				if err != nil {
+					return nil, err
+				}
+				body["project_id"] = proj["id"]
+			case workdir != "":
+				body["workdir"] = workdir
+			default:
+				body["scratch"] = true
+			}
+
+			context := argStr(args, "context")
+			files := stringSlice(args["files"])
+			notes := stringSlice(args["notes"])
+
+			if context == "" && len(files) == 0 && len(notes) == 0 {
+				// Nothing to attach: let the ordinary launch prime the agent
+				// straight away instead of paying for a create/poll/send round
+				// trip it doesn't need.
+				body["prime"] = prompt
+				raw, err := s.api("POST", "/sessions", body)
+				if err != nil {
+					return nil, err
+				}
+				sess, _ := raw.(map[string]any)
+				return startSessionResult(sess, nil, "", ""), nil
+			}
+
+			raw, err := s.api("POST", "/sessions", body)
+			if err != nil {
+				return nil, err
+			}
+			sess, _ := raw.(map[string]any)
+			id := int64(sess["id"].(float64))
+
+			ready, err := s.pollSessionReady(id)
+			if err != nil {
+				return nil, err
+			}
+
+			attachedFiles, err := s.attachContext(id, context, files, notes)
+			if err != nil {
+				return nil, fmt.Errorf("session #%d is running but attaching context failed: %w", id, err)
+			}
+
+			notePath, grimoireErr := "", ""
+			if context != "" && argBool(args, "save_context_to_grimoire", true) {
+				title := argStr(args, "name")
+				if title == "" {
+					title = summarize(prompt, 8)
+				}
+				if p, err := createGrimoireNote(title+" — brief", context, []string{"lectern", "brief"}); err != nil {
+					grimoireErr = err.Error()
+				} else {
+					notePath = p
+				}
+			}
+
+			text := composeMessage(prompt, attachedFiles)
+			if _, err := s.api("POST", fmt.Sprintf("/sessions/%d/send", id), map[string]any{"text": text}); err != nil {
+				return nil, fmt.Errorf("session #%d is running and context is attached, but sending the prompt failed: %w", id, err)
+			}
+			return startSessionResult(ready, attachedFiles, notePath, grimoireErr), nil
+		},
+	},
+	{
+		Name: "send_to_session",
+		Description: "Send a message — and optionally files/context/Grimoire notes — into an ALREADY-RUNNING " +
+			"interactive Lectern session: for 'give my open session working on X this file'. `session` is a " +
+			"session id or its exact/unique name (see list_sessions); an unknown or ambiguous name errors with " +
+			"the candidates it matched. Set interrupt:true to press Escape first when the agent is mid-turn and " +
+			"this needs to interrupt it now rather than queue behind whatever it is doing. Refused for a session " +
+			"that has ended — start_session for a new one instead.",
+		Schema: obj(map[string]any{
+			"session":                  str("session id, or its exact/unique name"),
+			"message":                  str("what to say — required unless files/notes/context are given"),
+			"context":                  str("markdown context to hand the agent"),
+			"files":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "absolute local file paths to attach"},
+			"notes":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Grimoire note paths to attach"},
+			"save_context_to_grimoire": flag("also save `context` as a Grimoire note tagged lectern,brief (default false here)"),
+			"interrupt":                flag("press Escape before sending, to interrupt a turn in progress (default false)"),
+		}, "session"),
+		Run: func(s *Server, args map[string]any) (any, error) {
+			sess, err := s.resolveSessionRef(argStr(args, "session"))
+			if err != nil {
+				return nil, err
+			}
+			id := int64(sess["id"].(float64))
+			status, _ := sess["status"].(string)
+			if status == "dead" || sess["ended_at"] != nil {
+				return nil, fmt.Errorf("session #%d (%v) has ended; nothing to send to — use start_session for a new one", id, sess["name"])
+			}
+			message := argStr(args, "message")
+			context := argStr(args, "context")
+			files := stringSlice(args["files"])
+			notes := stringSlice(args["notes"])
+			if strings.TrimSpace(message) == "" && context == "" && len(files) == 0 && len(notes) == 0 {
+				return nil, fmt.Errorf("give message, or files/notes/context to attach")
+			}
+			if argBool(args, "interrupt", false) {
+				if _, err := s.api("POST", fmt.Sprintf("/sessions/%d/send", id), map[string]any{"key": "escape"}); err != nil {
+					return nil, fmt.Errorf("could not interrupt session #%d: %w", id, err)
+				}
+			}
+			attachedFiles, err := s.attachContext(id, context, files, notes)
+			if err != nil {
+				return nil, err
+			}
+			notePath, grimoireErr := "", ""
+			if context != "" && argBool(args, "save_context_to_grimoire", false) {
+				title, _ := sess["name"].(string)
+				if title == "" {
+					title = summarize(message, 8)
+				}
+				if p, err := createGrimoireNote(title+" — brief", context, []string{"lectern", "brief"}); err != nil {
+					grimoireErr = err.Error()
+				} else {
+					notePath = p
+				}
+			}
+			text := composeMessage(message, attachedFiles)
+			if _, err := s.api("POST", fmt.Sprintf("/sessions/%d/send", id), map[string]any{"text": text}); err != nil {
+				return nil, err
+			}
+			out := map[string]any{"sent": true, "session_id": id, "name": sess["name"]}
+			if len(attachedFiles) > 0 {
+				paths := make([]string, 0, len(attachedFiles))
+				for _, f := range attachedFiles {
+					paths = append(paths, f.Path)
+				}
+				out["attached_paths"] = paths
+			}
+			if notePath != "" {
+				out["grimoire_note"] = notePath
+			}
+			if grimoireErr != "" {
+				out["grimoire_error"] = grimoireErr
 			}
 			return out, nil
 		},

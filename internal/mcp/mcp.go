@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -199,6 +200,47 @@ func (s *Server) apiWithClient(client *http.Client, method, path string, body an
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]any{}, nil
 	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// upload posts one file as a multipart/form-data body under field "file",
+// matching what internal/api/attachments.go's uploadAttachment expects. It is
+// the one non-JSON call this client makes, so it does not go through api/
+// apiWithClient — everything else about error handling and auth matches them.
+func (s *Server) upload(path, filename string, r io.Reader) (map[string]any, error) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(part, r); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", s.API+"/api"+path, &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if s.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.Token)
+	}
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("lectern unreachable at %s: %w", s.API, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("POST %s: %s — %s", path, resp.Status, strings.TrimSpace(string(raw)))
+	}
+	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
