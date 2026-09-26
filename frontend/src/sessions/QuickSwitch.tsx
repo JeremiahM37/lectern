@@ -24,10 +24,14 @@ type Agent = { name: string; model_flag?: string };
 type Profile = { id: number; name: string; agent: string; model: string };
 export const sessionModelLabel = (s: SessionView) => s.launch_profile || s.model || agentLabel(s.agent);
 
-export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
+// mode="restore" reuses the same picker to reopen a closed session in another
+// agent: onChoose receives the choice instead of a live handoff starting.
+export function QuickSwitch({api, session, onClose, onStarted, onProfiles, mode = 'switch', onChoose}: {
   api: SessionsApi; session: SessionView; onClose(): void;
-  onStarted(session: SessionView, afterWrap: number, request: SwitchRequest): void; onProfiles(): void;
+  onStarted?(session: SessionView, afterWrap: number, request: SwitchRequest): void; onProfiles?(): void;
+  mode?: 'switch' | 'restore'; onChoose?(request: SwitchRequest): Promise<void>;
 }) {
+  const restoring = mode === 'restore';
   const [agents, setAgents] = useState<Agent[]>([]), [models, setModels] = useState<Record<string,string[]>>({});
   const [profiles, setProfiles] = useState<Profile[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false), [customAgent, setCustomAgent] = useState(session.agent), [customModel, setCustomModel] = useState('');
@@ -69,8 +73,9 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
     if(busy) return;
     setBusy(true); setError('');
     try {
+      if (onChoose) { await onChoose(request); onClose(); return; }
       const result = await requestSwitch(api, session.id, request);
-      onStarted(session,result.after_wrap_id,request); onClose();
+      onStarted?.(session,result.after_wrap_id,request); onClose();
     } catch(e) {setError(String(e)); setBusy(false);}
   }
   // A favorite stores an identity, not a frozen launch: if the provider behind
@@ -90,10 +95,12 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
     const on = !!favored(entry.agent, entry.model, entry.profile);
     return <button type="button" className="switch-fav" aria-pressed={on} aria-label={on?`Remove ${label} from favorites`:`Add ${label} to favorites`} onClick={()=>updateFavorites(toggleFavorite(favorites, entry))}>{on?'★':'☆'}</button>;
   };
-  return <Modal id="sheet" className="sheet quick-switch" aria-label="Switch agent" onCancel={()=>{if(!busy)onClose();}}>
-    <div className="sheet-head"><h2>Switch agent</h2><button className="x" aria-label="Close switcher" disabled={busy} onClick={onClose}>✕</button></div>
-    <p className="sub">Current: <b>{sessionModelLabel(session)}</b>. Pick the next agent or model.</p>
-    <p className="sub">It gets a handoff in the same workspace and opens here when ready. Your original session stays available in Sessions.</p>
+  return <Modal id="sheet" className="sheet quick-switch" aria-label={restoring?'Restore in another agent':'Switch agent'} onCancel={()=>{if(!busy)onClose();}}>
+    <div className="sheet-head"><h2>{restoring?'Restore in another agent':'Switch agent'}</h2><button className="x" aria-label="Close switcher" disabled={busy} onClick={onClose}>✕</button></div>
+    <p className="sub">{restoring?'Was':'Current'}: <b>{sessionModelLabel(session)}</b>. Pick the next agent or model.</p>
+    {restoring
+      ? <p className="sub">It starts in the same folder with the closed session's last handoff, or the end of its conversation, as context. Native conversations do not carry across agents.</p>
+      : <p className="sub">It gets a handoff in the same workspace and opens here when ready. Your original session stays available in Sessions.</p>}
     {error && <p role="alert">{error} {!agents.length&&<button className="b" onClick={()=>void load()}>Retry</button>}</p>}
     {loading && <p role="status">Loading agents…</p>}
     {!!favorites.length && <section aria-label="Favorites"><h3>Favorites</h3><div className="switch-favorites">{favorites.map(f=>{
@@ -115,6 +122,6 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
     {overflowAgents.length>0 && <button type="button" className="b switch-more" disabled={busy} onClick={()=>setShowAllAgents(true)}>More agents…</button>}
     {showAllAgents && <AllAgentsPicker agents={overflowAgents} onClose={()=>setShowAllAgents(false)} onPick={(name)=>{void choose({agent:name,model:'',profile:0,destination:describeSwitch(name,'')});}} />}
     {!!agents.length&&<details className="switch-custom"><summary>Another model…</summary><label className="f" htmlFor="switch-agent">Agent</label><select className="f" id="switch-agent" value={customAgent} onChange={e=>setCustomAgent(e.target.value)}>{agents.filter(a=>a.model_flag).map(a=><option key={a.name} value={a.name}>{agentLabel(a.name)}</option>)}</select><label className="f" htmlFor="switch-model">Model ID</label><input className="f" id="switch-model" value={customModel} onChange={e=>setCustomModel(e.target.value)} placeholder="Exact model ID supported by this agent"/><button className="b" disabled={busy||!customModel.trim()||!agents.find(a=>a.name===customAgent)?.model_flag} onClick={()=>void choose({agent:customAgent,model:customModel.trim(),profile:0,destination:describeSwitch(customAgent,customModel.trim())})}>Switch model</button></details>}
-    <button className="b switch-providers" disabled={busy} onClick={onProfiles}>Add or manage a provider…</button>
+    {onProfiles && <button className="b switch-providers" disabled={busy} onClick={onProfiles}>Add or manage a provider…</button>}
   </Modal>;
 }

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Approval,
   InteractiveWorkspace,
+  NoticeAction,
   Project,
   SessionView,
   Target,
@@ -17,7 +18,9 @@ import { SessionCard } from "./SessionCard";
 import { SessionGroups, type GroupMode } from "./SessionGroups";
 import { ScratchTerminals } from "./ScratchTerminals";
 import { isScratchTerminal } from "./scratch";
-import { RecentlyClosed, type RecentSession } from "./RecentlyClosed";
+import { RestorePanel } from "./RestorePanel";
+import { NeedsHistory, reopenSession, type ReopenChoice } from "./restore";
+import { QuickSwitch } from "./QuickSwitch";
 import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
@@ -42,7 +45,7 @@ export interface SessionsProps {
   onMergeReview?(session: SessionView): void;
   onSwitch?(session: SessionView): void;
   onOpenTask?(id: number): void;
-  onNotice(message: string, error?: boolean): void;
+  onNotice(message: string, error?: boolean, action?: NoticeAction): void;
   refreshVersion?: number;
   action?: { kind: "new" | "discover"; version: number };
   onActionConsumed?: () => void;
@@ -114,6 +117,8 @@ export function Sessions({
     }>(),
     [search, setSearch] = useState(false),
     [recentOpen, setRecentOpen] = useState(false),
+    [restoreElsewhere, setRestoreElsewhere] = useState<SessionView>(),
+    [restoringAll, setRestoringAll] = useState(false),
     [errors, setErrors] = useState<Record<number, string>>({}),
     [clock, setClock] = useState(Date.now()),
     // Pending session-scoped approvals (docs/agent-events.md section 3),
@@ -377,38 +382,52 @@ export function Sessions({
   function showApprovals() {
     document.getElementById("needs-you")?.scrollIntoView();
   }
-  async function restoreRecent(session: RecentSession) {
+  // reopen is the single restore path: Restore rows, Undo toasts, the
+  // interrupted banner and the "Other agent…" picker all end here. The server
+  // decides what reopening means for the record; a record without a bound
+  // conversation opens the history picker instead.
+  async function reopen(
+    session: SessionView,
+    choice: ReopenChoice = {},
+    options: { attach?: boolean; quiet?: boolean } = {},
+  ) {
     try {
-      const restored = await api.request<SessionView>(
-        `/sessions/${session.id}/restore`,
-        { method: "POST", body: {} },
-      );
+      const result = await reopenSession(api, session.id, choice);
       setRecentOpen(false);
       await refreshAll();
-      await attach(restored, true);
-      onNotice(`Tracking restored for ${restored.name || session.name}`);
+      if (options.attach !== false && result.session.agent !== "shell")
+        await attach(result.session, true);
+      if (!options.quiet) onNotice(result.message);
+      return true;
     } catch (error) {
-      onNotice(String(error), true);
+      if (error instanceof NeedsHistory) {
+        onNotice(`${error.message}.`);
+        setHistory(session);
+      } else onNotice(String(error), true);
+      return false;
     }
   }
-  async function resumeRecent(session: RecentSession) {
-    try {
-      const resumed = await api.request<SessionView>(
-        `/sessions/${session.id}/resume-recent`,
-        { method: "POST", body: { name: session.name } },
-      );
-      setRecentOpen(false);
-      await refreshAll();
-      await attach(resumed, true);
-      onNotice(`Resumed ${resumed.name || session.name}`);
-    } catch (error) {
-      const status =
-        typeof error === "object" && error !== null && "status" in error
-          ? error.status
-          : undefined;
-      if (status === 404 || status === 409) setHistory(session);
-      else onNotice(String(error), true);
-    }
+  // Offered as a toast right after a card closes a session. Undo reopens the
+  // same record through the same path, without taking over the current view.
+  function closed(session: SessionView, text: string) {
+    onNotice(text, false, {
+      label: "Undo",
+      run: () => void reopen(session, {}, { attach: false }),
+    });
+  }
+  const interrupted = rows.filter(
+    (session) => session.status === "interrupted" && !session.ended_at,
+  );
+  async function restoreInterrupted() {
+    setRestoringAll(true);
+    let restored = 0;
+    for (const session of interrupted)
+      if (await reopen(session, {}, { attach: false, quiet: true })) restored++;
+    setRestoringAll(false);
+    onNotice(
+      `Restored ${restored} of ${interrupted.length} interrupted session${interrupted.length === 1 ? "" : "s"}.`,
+      restored < interrupted.length,
+    );
   }
   function render(session: SessionView) {
     const elapsed = Math.max(0, (clock - updated.current) / 1000),
@@ -441,6 +460,8 @@ export function Sessions({
         onGroup={setGroupSession}
         onHistory={setHistory}
         onWorkspace={setWorkspaceSession}
+        onRestore={(session) => void reopen(session)}
+        onClosed={closed}
         onArchive={(session) => {
           void api
             .request<{ text: string; note: string }>(
@@ -488,14 +509,37 @@ export function Sessions({
           className="b"
           id="sess-recent"
           aria-expanded={recentOpen}
+          aria-label="Restore closed sessions"
           onClick={() => setRecentOpen((open) => !open)}
         >
-          Recently closed
+          ↺ Restore
         </button>
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
           + New session
         </button>
       </div>
+      {interrupted.length > 0 && (
+        <div className="restore-banner" role="status">
+          <span>
+            {interrupted.length === 1
+              ? "1 session was"
+              : `${interrupted.length} sessions were`}{" "}
+            interrupted by a restart and could not be reopened automatically.
+          </span>
+          <button
+            className="b ok"
+            id="restore-interrupted"
+            disabled={restoringAll}
+            onClick={() => void restoreInterrupted()}
+          >
+            {restoringAll
+              ? "Restoring…"
+              : interrupted.length === 1
+                ? "Restore it"
+                : `Restore ${interrupted.length}`}
+          </button>
+        </div>
+      )}
       <NowStrip
         rows={rows}
         approvalsCount={approvals.length}
@@ -546,13 +590,31 @@ export function Sessions({
       </label>
       </div>
       {recentOpen && (
-        <RecentlyClosed
+        <RestorePanel
           api={api}
           onNotice={onNotice}
           refreshVersion={refreshVersion}
-          onRestore={restoreRecent}
-          onResume={resumeRecent}
-          onHistory={(session) => setHistory(session)}
+          onReopen={async (session) => {
+            await reopen(session);
+          }}
+          onElsewhere={setRestoreElsewhere}
+        />
+      )}
+      {restoreElsewhere && (
+        <QuickSwitch
+          api={api}
+          session={restoreElsewhere}
+          mode="restore"
+          onClose={() => setRestoreElsewhere(undefined)}
+          onChoose={async (request) => {
+            const source = restoreElsewhere;
+            const ok = await reopen(source, {
+              agent: request.agent,
+              model: request.model,
+              profile_id: request.profile,
+            });
+            if (!ok) throw new Error("Restore failed; the closed session is unchanged.");
+          }}
         />
       )}
       {/* One id wraps both sections: nothing that already points at #sesslist

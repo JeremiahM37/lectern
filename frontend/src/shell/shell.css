@@ -4,6 +4,27 @@
 #toasts {
   pointer-events: none;
 }
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.toast.has-action > span {
+  flex: 1;
+  min-width: 0;
+}
+.toast-action {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--accent, #7aa2f7);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent, #7aa2f7);
+  font-weight: 600;
+  cursor: pointer;
+}
 .token-dialog {
   max-width: 30rem;
   width: calc(100% - 2rem);

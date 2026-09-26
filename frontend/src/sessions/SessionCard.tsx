@@ -46,6 +46,10 @@ interface Props {
   onWorkspace: (session: SessionView) => void;
   onArchive: (session: SessionView) => void;
   onDiscover: () => void;
+  // onRestore reopens a session a restart interrupted; onClosed offers Undo
+  // after this card ends, archives or stops tracking one. Both optional.
+  onRestore?: (session: SessionView) => void;
+  onClosed?: (session: SessionView, text: string) => void;
   // The one pending approval for this session's PermissionRequest hold, if
   // any (docs/agent-events.md section 3). Optional so existing call sites
   // and tests that predate the feature keep compiling.
@@ -72,6 +76,8 @@ export function SessionCard({
   onWorkspace,
   onArchive,
   onDiscover,
+  onRestore,
+  onClosed,
 }: Props) {
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
@@ -112,7 +118,8 @@ export function SessionCard({
     // "Shell · <target>" cards are told apart. An explicit rename still wins.
     scratchPath = scratch ? s.workdir || s.workspace?.path || "" : "",
     cardTitle = scratch ? scratchTitle(s) : s.name,
-    live = !ended && s.status !== "dead" && !setup && !failed,
+    interrupted = !ended && s.status === "interrupted",
+    live = !ended && s.status !== "dead" && !interrupted && !setup && !failed,
     // A blank shell is a terminal, not a conversation: chat would be a worse
     // way to drive it, so the card keeps the terminal as its one action.
     chatReady = live && s.agent !== "shell",
@@ -167,8 +174,35 @@ export function SessionCard({
         "Project created. The session keeps running.",
       );
   }
+  // Ending, archiving and stopping tracking all offer Undo, which reopens
+  // this record: its conversation, its tracking or its archive come back.
+  async function close(
+    path: string,
+    method: string,
+    body: { [key: string]: boolean } | undefined,
+    text: string,
+  ) {
+    try {
+      await api.request(path, { method, body });
+      if (onClosed) onClosed(s, text);
+      else onNotice(text);
+      await onRefresh();
+    } catch (error) {
+      onNotice(String(error), true);
+    }
+  }
   function end(kill: boolean) {
-    void run(`/sessions/${s.id}${kill ? "?kill=true" : ""}`, "DELETE");
+    if (s.status === "dead") {
+      void run(`/sessions/${s.id}`, "DELETE");
+      return;
+    }
+    const name = cardTitle || "session";
+    void close(
+      `/sessions/${s.id}${kill ? "?kill=true" : ""}`,
+      "DELETE",
+      undefined,
+      adopted && !kill ? `Stopped tracking “${name}”. It keeps running.` : `Ended “${name}”.`,
+    );
   }
   // Rename only the tracked label; the directory and process stay untouched.
   function rename() {
@@ -432,6 +466,11 @@ export function SessionCard({
             </button>
           </>
         )}
+        {interrupted && onRestore && (
+          <button className="b ok grow restore-interrupted" onClick={() => onRestore(s)}>
+            ↺ Restore
+          </button>
+        )}
         {live && (
           <>
             <button
@@ -641,11 +680,11 @@ export function SessionCard({
                     `Stop "${s.name}" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.`,
                   )
                 )
-                  void action(
-                    "archive",
+                  void close(
+                    `/sessions/${s.id}/archive`,
                     "POST",
                     { stop: true },
-                    "Session stopped and archived.",
+                    `Stopped and archived “${cardTitle || "session"}”.`,
                   );
               }}
             >

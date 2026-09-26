@@ -1,7 +1,9 @@
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  // payload is the parsed JSON error body, for endpoints that return more than
+  // a detail string (reopen says when the history picker is needed).
+  constructor(public readonly status: number, message: string, public readonly payload?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
@@ -43,14 +45,15 @@ export function createClient(options: ClientOptions = {}) {
     });
     if (!response.ok) {
       let message = response.statusText || `Request failed (${response.status})`;
+      let payload: unknown;
       try {
-        const payload: unknown = await response.json();
+        payload = await response.json();
         if (typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string') {
           message = payload.detail;
         }
       } catch { /* Proxies can return HTML errors. Preserve the HTTP failure. */ }
       if (response.status === 401) options.onUnauthorized?.();
-      throw new ApiError(response.status, message);
+      throw new ApiError(response.status, message, payload);
     }
     // Endpoint contracts specify null for an empty successful response.
     return (response.status === 204 ? null : await response.json()) as T;

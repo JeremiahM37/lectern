@@ -533,3 +533,9 @@ export interface Media {
   created_at: number;
   session_name?: string;
 }
+
+// One action a toast can offer, such as Undo right after closing a session.
+export interface NoticeAction {
+  label: string;
+  run(): void | Promise<void>;
+}
