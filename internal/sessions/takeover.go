@@ -115,16 +115,35 @@ func (m *Manager) PrepareTakeover(ctx context.Context, ex executor.Executor, tas
 			mcpJSON = project.MCPJSON
 		}
 		mcp := store.UnjObj(mcpJSON)
-		if len(mcp) > 0 {
+		adapter, adapted := agents.MCPAdapterFor(task.Agent)
+		switch {
+		case len(mcp) == 0:
+		case task.Agent == "codex":
 			codexArgs, codexErr := agents.CodexMCPArgs(mcp)
 			if codexErr != nil {
 				return LaunchOpts{}, codexErr
 			}
 			extraArgs = append(extraArgs, codexArgs...)
+		case adapted:
+			args, mcpEnv, adaptErr := m.installAdapterMCP(ctx, ex, att.ID, env, adapter, mcp)
+			if adaptErr != nil {
+				return LaunchOpts{}, adaptErr
+			}
+			extraArgs = append(extraArgs, args...)
+			if len(mcpEnv) > 0 {
+				withMCP := map[string]string{}
+				for k, v := range env {
+					withMCP[k] = v
+				}
+				for k, v := range mcpEnv {
+					withMCP[k] = v
+				}
+				env = withMCP
+			}
 		}
 	}
 	if task.Agent != "claude" && task.Agent != "" && att.StrictMCP != 0 {
-		return LaunchOpts{}, fmt.Errorf("strict_mcp is unsupported for Codex additive configuration")
+		return LaunchOpts{}, fmt.Errorf("strict_mcp is unsupported for %s additive configuration", task.Agent)
 	}
 	return LaunchOpts{ProjectID: &project.ID, TargetID: project.TargetID, Name: task.Title, Agent: task.Agent,
 		Model: firstNonEmpty(att.Model, task.Model), Workdir: att.WorktreePath, ResumeID: resumeID, Prime: prime,

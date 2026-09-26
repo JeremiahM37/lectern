@@ -487,6 +487,7 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 	if kind == drivers.KindACP && kw.Definition != nil && kw.Definition.ACP != nil {
 		spec.Bin = kw.Definition.ACP.Command
 		spec.ACPArgs = kw.Definition.ACP.Args
+		spec.MCPServers = kw.ACPMCPServers
 		for k, v := range kw.Definition.ACP.Env {
 			spec.Env[k] = v
 		}

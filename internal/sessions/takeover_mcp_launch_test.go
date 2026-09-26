@@ -93,3 +93,57 @@ func TestTakeoverLaunchUsesCapturedMCPInsteadOfCurrentProject(t *testing.T) {
 		})
 	}
 }
+
+// Takeover of a background run keeps its captured MCP declaration for the
+// agents with an MCP adapter, and never hands Codex overrides to an agent
+// that has none (Gemini).
+func TestPrepareTakeoverTranslatesCapturedMCPPerAgent(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	target, err := db.InsertTarget(&store.Target{Name: "takeover", Kind: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := db.InsertProject(&store.Project{Name: "p", TargetID: target.ID, RepoPath: "/mock/repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := executor.NewRegistry(true, 0)
+	m := New(db, reg, bus.New(), Launcher{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.Specs = func() []Spec {
+		return append(Builtins(), Spec{Name: "opencode", Command: "opencode"}, Spec{Name: "copilot", Command: "copilot"})
+	}
+	ex, err := reg.For(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	att := &store.Attempt{ID: 9, WorktreePath: "/mock/repo", MCPSnapshot: 1,
+		MCPJSON: `{"old_tools":{"command":"old-mcp"}}`}
+	for _, tc := range []struct {
+		agent   string
+		env     string
+		args    []string
+		noCodex bool
+	}{
+		{agent: "opencode", env: "OPENCODE_CONFIG"},
+		{agent: "copilot", args: []string{"--additional-mcp-config", "@/tmp/lectern-mcp-state/lectern/mcp/mock/mcp.json"}},
+		{agent: "gemini", noCodex: true},
+	} {
+		opts, err := m.PrepareTakeover(context.Background(), ex, &store.Task{Agent: tc.agent, Title: "t"}, project, att, map[string]string{})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.agent, err)
+		}
+		if tc.env != "" && opts.Env[tc.env] != "/tmp/lectern-mcp-state/lectern/mcp/mock/mcp.json" {
+			t.Fatalf("%s: takeover env should name the private MCP file: %v", tc.agent, opts.Env)
+		}
+		if tc.args != nil && strings.Join(opts.ExtraArgs, " ") != strings.Join(tc.args, " ") {
+			t.Fatalf("%s: takeover args = %v, want %v", tc.agent, opts.ExtraArgs, tc.args)
+		}
+		if tc.noCodex && len(opts.ExtraArgs) != 0 {
+			t.Fatalf("%s must not receive another agent's MCP arguments: %v", tc.agent, opts.ExtraArgs)
+		}
+	}
+}
