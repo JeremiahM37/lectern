@@ -3,6 +3,7 @@ package api
 import (
 	"archive/tar"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -411,32 +412,28 @@ func autoMkdirAll(root, dir string) error {
 	return nil
 }
 
+var errAutoArtifactPending = errors.New("artifact export pending")
+
+// The fixed runner owns a restart-safe systemd exporter. Polling never holds
+// the controller lock while compressing, and partial files are not published.
 func (s *Server) snapshotAutoJob(ctx context.Context, j *autoJob) error {
-	path := filepath.Join(autoRoot, j.ID, "artifact.tar.gz")
-	if st, e := os.Lstat(path); e == nil && st.Mode().IsRegular() && st.Size() > 0 {
+	raw, err := s.runAutoCommand(ctx, "snapshot", "--job", j.ID)
+	if err != nil {
+		return err
+	}
+	var receipt struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	}
+	if err = json.Unmarshal(raw, &receipt); err != nil {
+		return err
+	}
+	switch receipt.State {
+	case "ready":
 		return nil
+	case "exporting", "waiting":
+		return fmt.Errorf("%w: %s", errAutoArtifactPending, receipt.Reason)
+	default:
+		return errors.New("invalid artifact export receipt")
 	}
-	c, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-	f, e := os.CreateTemp(filepath.Dir(path), "artifact-*.tmp")
-	if e != nil {
-		return e
-	}
-	temp := f.Name()
-	defer os.Remove(temp)
-	cmd := exec.CommandContext(c, "sudo", "-n", autoRunner, "archive", "--job", j.ID)
-	cmd.Stdout = f
-	e = cmd.Run()
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	if e != nil {
-		return e
-	}
-	if syncErr != nil {
-		return syncErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(temp, path)
 }

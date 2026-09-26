@@ -17,16 +17,33 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-def _unused_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+# Reserve the session fixtures until launch. bind(0) then close at import
+# allowed parallel browser/client traffic to claim that ephemeral port while
+# the binary built, failing an entire worker with EADDRINUSE.
+_PORT_RESERVATIONS = {}
+def _unused_port(reserve=False) -> int:
+    import random
+    port_range = Path('/proc/sys/net/ipv4/ip_local_port_range')
+    low, high = map(int, port_range.read_text().split()) if port_range.exists() else (32768, 65535)
+    candidates = [p for p in range(10240, 65536) if not low <= p <= high]
+    random.shuffle(candidates)
+    for port in candidates:
+        sock = socket.socket()
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            sock.close()
+            continue
+        if reserve:
+            _PORT_RESERVATIONS[port] = sock
+        else:
+            sock.close()
+        return port
+    raise RuntimeError("no non-ephemeral fixture port available")
 
 
-PORT = _unused_port()
-AUTH_PORT = _unused_port()
-while AUTH_PORT == PORT:
-    AUTH_PORT = _unused_port()
+PORT = _unused_port(reserve=True)
+AUTH_PORT = _unused_port(reserve=True)
 BASE = f"http://127.0.0.1:{PORT}"
 AUTH_BASE = f"http://127.0.0.1:{AUTH_PORT}"
 _BUILD_DIR = tempfile.TemporaryDirectory(prefix="lec-e2e-build-")
@@ -119,8 +136,12 @@ def _start(port: int, extra_env: dict):
            **OUTSIDE_WORLD,
            **extra_env}
     startup_log = Path(tmp) / "server.log"
+    binary = _binary()
     with startup_log.open("wb") as log:
-        proc = subprocess.Popen([_binary()], cwd=ROOT, env=env,
+        reserved = _PORT_RESERVATIONS.pop(port, None)
+        if reserved is not None:
+            reserved.close()
+        proc = subprocess.Popen([binary], cwd=ROOT, env=env,
                                 stdout=log, stderr=subprocess.STDOUT)
     for _ in range(100):
         if proc.poll() is not None:

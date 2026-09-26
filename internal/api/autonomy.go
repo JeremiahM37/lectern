@@ -86,8 +86,7 @@ func (s *Server) loadAuto() (*autoRecord, error) {
 }
 func (s *Server) saveAuto(a *autoRecord) error { return s.DB.SetSetting(autoKey, store.J(a)) }
 func (s *Server) getAutonomy(w http.ResponseWriter, r *http.Request) {
-	s.autoMu.Lock()
-	defer s.autoMu.Unlock()
+	// Settings are atomic JSON snapshots; readers must not wait for worker I/O.
 	a, e := s.loadAuto()
 	if e != nil {
 		respondErr(w, e)
@@ -331,6 +330,9 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	if a.State.Phase == autonomy.Paused {
+		if s.recoverLegacyArtifactTimeout(ctx, a, requiredProvider, now) {
+			return
+		}
 		if s.recoverRejectedContinuation(a) {
 			return
 		}
@@ -411,6 +413,18 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			return
 		}
 		if st.State == "running" {
+			return
+		}
+		// Persist preservation intent before invoking the external exporter. OFF
+		// skips this state; a restart polls it rather than relaunching the model.
+		j.Status = "exporting"
+		if e = s.saveAuto(a); e != nil {
+			a.Reason = "State persistence: " + e.Error()
+			return
+		}
+		if e = s.snapshotAutoJob(ctx, j); e != nil {
+			a.Status = "preserving_artifacts"
+			a.Reason = "Preserving completed worker artifacts: " + e.Error()
 			return
 		}
 		if st.State != "done" || st.ExitCode == nil || *st.ExitCode != 0 {

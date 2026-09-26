@@ -208,3 +208,18 @@ The legacy `/backlog` endpoint still returns the full current backlog. Exact-key
 lookup searches current, deferred and retained in-memory cycles; an old key may
 return404 after history rotates out, even though archived reports remain retained.
 It never substitutes another similarly titled opportunity for missing content.
+
+## Completed workspace preservation
+
+Completed workers enter a persisted `exporting` state before their reports are
+applied. A UUID-scoped systemd exporter preserves the complete workspace under a
+10-minute, 512 MiB, one-CPU limit, using per-job locks and atomic publication.
+The original workspace remains intact on every failure. Interrupted exports retry
+preservation with backoff; they do not rerun the model or consume report repairs.
+Status reads use the latest committed controller snapshot without waiting for
+compression. OFF leaves bounded evidence preservation running, retains the pending
+assignment, and prevents further agent work. Restart reconciles the existing unit
+and published archive. Downloads use the published archive, not a second export.
+Other controller I/O can still delay mutations; this removes the archive-duration
+lock specifically. Legacy two-minute archive timeouts are recovered only when the
+original worker exited successfully and its report passes the unchanged validation.

@@ -278,4 +278,61 @@ class DependencyRecoveryTests(unittest.TestCase):
    with self.assertRaises(ValueError):r.dependency_status('ignored')
    work.assert_not_called()
 
-if __name__=='__main__':unittest.main()
+
+class ArtifactTests(unittest.TestCase):
+ def setUp(self):
+  import uuid
+  self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+  self.root=Path(self.tmp.name); self.job=str(uuid.uuid4());self.p=self.root/self.job;self.p.mkdir();self.work=self.p/'work';self.work.mkdir()
+  for name,value in [('ROOT',self.root),('ARTIFACT_LOCK',self.root/'global.lock')]:
+   patcher=patch.object(r,name,value);patcher.start();self.addCleanup(patcher.stop)
+  for name,value in [('status',{'state':'done','exit_code':0}),('ensure_work',self.work),('storage_status',{'ready':True,'free_bytes':100*1024**3,'allocated_bytes':0})]:
+   patcher=patch.object(r,name,return_value=value);patcher.start();self.addCleanup(patcher.stop)
+  patcher=patch.object(r.os,'chown');patcher.start();self.addCleanup(patcher.stop)
+ def test_lossless_atomic_export_and_idempotence(self):
+  import tarfile,hashlib
+  data=b'original evidence\x00'*10000;(self.work/'evidence').write_bytes(data)
+  (self.work/'link').symlink_to('/outside/never-follow')
+  self.assertEqual(r.snapshot_execute(self.job),0)
+  target=self.p/'artifact.tar.gz'
+  original=target.read_bytes()
+  with tarfile.open(target) as archive:
+   self.assertEqual(archive.extractfile('work/evidence').read(),data)
+   self.assertEqual(archive.getmember('work/link').linkname,'/outside/never-follow')
+  import json
+  receipt=json.loads((self.p/'artifact-state/receipt.json').read_text())
+  self.assertEqual(receipt['sha256'],hashlib.sha256(original).hexdigest())
+  self.assertFalse((self.p/'artifact-state/archive.tmp').exists())
+  (self.work/'evidence').write_bytes(b'later host change')
+  r.snapshot_execute(self.job)
+  self.assertEqual(target.read_bytes(),original)
+  self.assertEqual(r.snapshot(self.job),{'state':'ready'})
+ def test_failure_retains_workspace_and_never_publishes_partial(self):
+  import json
+  (self.work/'evidence').write_text('keep me')
+  with patch.object(r.tarfile,'open',side_effect=OSError('simulated disk failure')):
+   with self.assertRaises(OSError):r.snapshot_execute(self.job)
+  self.assertFalse((self.p/'artifact.tar.gz').exists())
+  self.assertEqual((self.work/'evidence').read_text(),'keep me')
+  receipt=json.loads((self.p/'artifact-state/receipt.json').read_text())
+  self.assertEqual(receipt['state'],'waiting')
+  self.assertGreater(receipt['retry_at'],r.time.time())
+  r.snapshot_execute(self.job)
+  self.assertTrue((self.p/'artifact.tar.gz').is_file())
+ def test_restart_reconciles_unit_and_backs_off_interruption(self):
+  from types import SimpleNamespace
+  stage=r.snapshot_stage(self.job);r.dependency_receipt(stage,{'state':'exporting'})
+  with patch.object(r.subprocess,'run',return_value=SimpleNamespace(stdout='active')):
+   self.assertEqual(r.snapshot(self.job)['state'],'exporting')
+  with patch.object(r.subprocess,'run',return_value=SimpleNamespace(stdout='inactive')),patch.object(r,'run') as start:
+   self.assertEqual(r.snapshot(self.job)['state'],'waiting')
+   start.assert_not_called()
+  r.dependency_receipt(stage,{'state':'waiting','retry_at':0})
+  with patch.object(r.subprocess,'run',return_value=SimpleNamespace(stdout='inactive')),patch.object(r,'storage_status',return_value={'ready':True,'free_bytes':100*1024**3,'allocated_bytes':0}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=100*1024**3)),patch.object(r,'allocated_storage',return_value=0),patch.object(r,'run') as start:
+   self.assertEqual(r.snapshot(self.job)['state'],'exporting')
+   cmd=start.call_args.args[0]
+   self.assertIn('--property=KillMode=control-group',cmd)
+   self.assertIn('--property=RuntimeMaxSec=600',cmd)
+   self.assertEqual(cmd[-3:],['_snapshot','--job',self.job])
+
+if __name__ == "__main__": unittest.main()
