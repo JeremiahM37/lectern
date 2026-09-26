@@ -2,7 +2,8 @@ import { RepositoryPicker, type RepositorySelection } from "./RepositoryPicker";
 import { LaunchProfiles } from "../settings/LaunchProfiles";
 import { Modal } from "./Modal";
 import { useEffect, useState } from "react";
-import type { Project, SessionView, Target } from "../types";
+import type { Claim, Project, SessionView, Target } from "../types";
+import { claimScopeLabel } from "../claims/ClaimsPanel";
 import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import {
@@ -84,7 +85,8 @@ export function NewSession({
     [extra, setExtra] = useState<RepositorySelection[]>([]),
     [busy, setBusy] = useState(false),
     [agentMenu, setAgentMenu] = useState<string[]>([]),
-    [showAllAgents, setShowAllAgents] = useState(false);
+    [showAllAgents, setShowAllAgents] = useState(false),
+    [overlaps, setOverlaps] = useState<Claim[]>([]);
   useEffect(() => {
     void Promise.all([
       api.request<Agent[]>("/agents"),
@@ -156,6 +158,30 @@ export function NewSession({
   useEffect(() => {
     if (!yoloSupported) setYolo(false);
   }, [yoloSupported]);
+  // Same advisory topic check the New task dialog runs (docs/claims.md):
+  // warn before launch when the name or first message resembles work another
+  // session has claimed in this project's repository. Never blocks.
+  useEffect(() => {
+    const text = `${name} ${prime}`.trim();
+    if (!project || text.length < 8) {
+      setOverlaps([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api
+        .request<Claim[]>(
+          `/claims/topic-overlap?project_id=${project}&text=${encodeURIComponent(text)}`,
+          { signal: controller.signal },
+        )
+        .then(setOverlaps)
+        .catch(() => {});
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [project, name, prime]);
   const selectedProject = projects.find((row) => row.id === project) ?? null;
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
@@ -594,6 +620,20 @@ export function NewSession({
             />
           </div>
         </details>
+        {overlaps.length > 0 && (
+          <div className="claims-overlap-warning" id="new-session-claim-overlap" role="status">
+            ⚠ This looks like it might already be claimed:
+            <ul>
+              {overlaps.map((c) => (
+                <li key={c.id}>
+                  <b>{c.holder}</b>{c.agent ? ` (${c.agent})` : ""} — {claimScopeLabel(c)}
+                  {c.intent && <> — “{c.intent}”</>}
+                </li>
+              ))}
+            </ul>
+            Check their work or ask the operator before starting.
+          </div>
+        )}
         <div className="session-launch-actions">
           <div
             className="ns-launch-summary"
