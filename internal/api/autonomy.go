@@ -29,6 +29,8 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
+	// A paid runner-start cooldown belongs only to this interrupted launch.
+	LaunchRetryPaid     bool                 `json:"launch_retry_paid,omitempty"`
 	RecoveryCheckAt     time.Time            `json:"recovery_check_at,omitempty"`
 	Recovery            *autoRecoveryReceipt `json:"recovery,omitempty"`
 	ReviewOutcome       string               `json:"review_outcome,omitempty"`
@@ -355,6 +357,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 					a.RetryAt = now
 				}
 			}
+			launchRetry := strings.HasPrefix(a.State.Reason, "runner start:")
 			if !autoRetryReady(a, now) {
 				return
 			}
@@ -362,8 +365,13 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 				return
 			}
 			for _, id := range a.State.ActiveTaskIDs() {
-				if j := autoFindJob(a, id); j != nil && j.Status == "failed" {
-					j.Status = "stopped"
+				if j := autoFindJob(a, id); j != nil {
+					if launchRetry && j.Status == "starting" {
+						j.LaunchRetryPaid = true
+					}
+					if j.Status == "failed" {
+						j.Status = "stopped"
+					}
 				}
 			}
 		}
@@ -413,7 +421,15 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			return
 		}
 		if st.State == "running" {
+			j.LaunchRetryPaid = false
 			return
+		}
+		if st.State != "done" && st.State != "failed" && st.State != "stopped" {
+			s.stopAutoJobs(ctx, a, "Invalid runner status")
+			return
+		}
+		if st.State == "done" {
+			j.LaunchRetryPaid = false
 		}
 		// Persist preservation intent before invoking the external exporter. OFF
 		// skips this state; a restart polls it rather than relaunching the model.
@@ -428,8 +444,15 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			return
 		}
 		if st.State != "done" || st.ExitCode == nil || *st.ExitCode != 0 {
+			if j.LaunchRetryPaid && (st.State == "failed" || st.State == "stopped") {
+				// Export succeeded. Persist credit consumption and stopped together;
+				// the next tick rechecks quota before preparing a fresh UUID.
+				j.LaunchRetryPaid = false
+				j.Status = "stopped"
+				_ = s.DB.Update("tasks", id, map[string]any{"status": "backlog"})
+				return
+			}
 			j.Status = "failed"
-			_ = s.snapshotAutoJob(ctx, j)
 			a.State.Pause("Worker failed; artifacts retained for inspection")
 			a.Reason = a.State.Reason
 			_ = s.DB.Update("tasks", id, map[string]any{"status": "failed"})
@@ -522,14 +545,19 @@ func autoReconcileLaunch(j *autoJob, raw []byte) (bool, error) {
 	}
 	switch receipt.State {
 	case "unused":
+		j.LaunchRetryPaid = false
 		return false, nil
 	case "launching":
 		return true, nil // retain starting; the original launcher still holds its lock
 	case "running":
+		j.LaunchRetryPaid = false
 		j.Status = "running"
 		return true, nil
 	case "consumed":
 		if receipt.WorkerState == "done" || receipt.WorkerState == "failed" || receipt.WorkerState == "stopped" {
+			if receipt.WorkerState == "done" {
+				j.LaunchRetryPaid = false
+			}
 			// The existing polling/export/report path preserves evidence, then
 			// normal operational recovery resumes the same task in a fresh UUID.
 			j.Status = "running"
