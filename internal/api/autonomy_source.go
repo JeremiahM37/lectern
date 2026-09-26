@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -169,4 +170,26 @@ func autoSourceTree(ctx context.Context, dir, revision string) (string, error) {
 		return "", errors.New("source tree unavailable")
 	}
 	return tree, nil
+}
+
+// The destination is a newly prepared empty workspace. Every archived file
+// came from the pinned commit, including tracked files that now match ignores.
+// Continuations and repairs preserve their original Git history elsewhere.
+func autoSnapshotSource(ctx context.Context, dir, revision, dest string) error {
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 0 {
+		return errors.New("fresh source snapshot requires an empty workspace")
+	}
+	if err := autoArchiveSource(ctx, dir, revision, dest); err != nil {
+		return err
+	}
+	for _, args := range [][]string{{"init", "-b", "main"}, {"add", "--force", "."}, {"commit", "--allow-empty", "-m", "Source snapshot"}} {
+		if err := autoGit(ctx, dest, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }

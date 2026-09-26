@@ -217,16 +217,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		if revision == "" {
 			revision = "HEAD"
 		} // already-audited pre-upgrade plans only
-		if e = autoArchiveSource(c, project.RepoPath, revision, work); e != nil {
-			return e
-		}
-		if e = autoGit(c, work, "init", "-b", "main"); e != nil {
-			return e
-		}
-		if e = autoGit(c, work, "add", "."); e != nil {
-			return e
-		}
-		if e = autoGit(c, work, "commit", "--allow-empty", "-m", "Source snapshot"); e != nil {
+		if e = autoSnapshotSource(c, project.RepoPath, revision, work); e != nil {
 			return e
 		}
 	}
