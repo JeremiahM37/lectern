@@ -19,7 +19,7 @@ with `ffmpeg` (`palettegen`/`paletteuse`) and optimized with
 | `terminal-dashboard.gif` | 680 KB | 1100x667 | 10.8s | The `lectern` terminal dashboard: arrowing through the session list updates the live preview pane; right-clicking a session opens a new terminal window attached to it while the dashboard stays open; pressing `b` enters multi-select, clicking two more sessions and pressing Enter opens both in new windows. |
 | `projects-shell.gif` | 279 KB | 1100x667 | 11.0s | The dashboard's Projects section (key `4`): selecting a project and pressing Enter opens a persistent shell in its repository (`git log --oneline` runs for real against the demo's `infra` git repo); `Ctrl-b d` detaches back to the project list with "Detached. Session keeps running." |
 | `recently-closed.gif` | 999 KB | 1100x688 | 12.2s | Web UI, Sessions: ending a `claude` session via its **More → End** menu, opening **Recently closed**, and pressing **Resume** — the session comes back active with its real conversation continuing (`> Let shoppers apply a coupon...` / `Read(src/checkout/Cart.tsx)` still there). |
-| `switch-agent.gif` | 1.1 MB | 1100x773 | 15.8s | Web UI: opening a `claude` session's **Switch** dialog, picking Codex's default model, and watching the handoff run (Saving context → Starting Codex → Ready) into a live embedded terminal for the new Codex session — a "Switched. The original session is still available in Sessions." toast confirms it, and the tab shows the `← Push notification…  Clau…` link back to the original. A ~13s wait while the dialog probes each agent's real model list was cut with a jump cut. |
+| `switch-agent.gif` | 1.0 MB | 1100x773 | 15.7s | Web UI: opening a `claude` session's **Switch** dialog, picking Codex's default model, and watching the handoff run (Saving context → Starting Codex → Ready) into a live embedded terminal for the new Codex session — a "Switched. The original session is still available in Sessions." toast confirms it, and the tab shows the `← Push notification…  Clau…` link back to the original. The embedded terminal renders real UTF-8 (✻, ●, ↳, ✓, the box-drawing corners, the em dash in "Done — changes") correctly. A ~13s wait while the dialog probes each agent's real model list was cut with a jump cut. |
 | `any-agent.gif` | 1.2 MB | 1100x688 | 17.9s | Web UI, Settings → Agents: the starter-template catalog (OpenCode, Aider, Goose, Cursor, …) fills in a runner's fields with one click; saving adds it to Agent runners; toggling "Show in menus" moves it out of "Hidden from menus"; the New Session picker's Agent dropdown then offers it. A ~14s wait while the demo's fake CLI is probed for real (it doesn't answer fast) was cut with a jump cut; nothing was faked. |
 | `phone.gif` | 840 KB | 390x844 | 17.0s | Mobile-emulated web UI: opening a `claude` session's Chat, which now renders real structured tool **cards** (🔍 Search, ✏️ file edit, ⌘ Terminal) instead of raw terminal text, typing a message, sending it, watching the stand-in's reply stream in, then returning to the session list where the card shows "working" live. |
 
@@ -37,9 +37,17 @@ paths — nothing here is faked or scripted around. `switch-agent.gif` also
 needed `ttyd` installed on the desk (`/usr/local/bin/ttyd`, on the
 `lectern-demo` service's `PATH`) — without it, the new session Switch opens
 failed to attach a live terminal and surfaced `ApiError: ttyd is not
-installed on the control plane` toasts. With `ttyd` present the new Codex
-session opens cleanly with no error toasts anywhere in the clip (checked
-across 5+ frames spanning the whole recording).
+installed on the control plane` toasts. It then needed `LANG=C.UTF-8
+LC_ALL=C.UTF-8` added to `lectern-demo.service`'s `Environment=` — without a
+UTF-8 locale, tmux (and the ttyd client attached to it) substituted every
+non-ASCII byte with `_`, turning `●`/`↳`/the box corners/the em dash into
+underscores. Both are fixed now: the new Codex session opens cleanly with the
+real glyphs intact and no error toasts anywhere in the clip (checked across
+5+ frames spanning the whole recording). Getting the locale fix to actually
+take required a full tmux server restart — the running tmux server keeps the
+environment it was started with, so a locale change to the service doesn't
+reach already-open sessions until every pane exits and the server itself
+exits, letting the next session spawn a fresh server under the new env.
 
 ## Reproducing
 
