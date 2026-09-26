@@ -157,6 +157,7 @@ const (
 
 type Proposal struct {
 	ProjectID      int64    `json:"project_id"`
+	SourceRevision string   `json:"source_revision,omitempty"`
 	RepairTaskID   int64    `json:"repair_task_id,omitempty"`
 	ContinueTaskID int64    `json:"continue_task_id,omitempty"`
 	Title          string   `json:"title"`

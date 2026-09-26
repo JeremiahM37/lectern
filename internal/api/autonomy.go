@@ -483,7 +483,7 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		return &autoReportError{e}
 	}
 	if j.Role == "planner" {
-		if e = s.validateAutoSources(a, next.Items); e != nil {
+		if e = s.pinAutoSources(ctx, a, next.Items); e != nil {
 			return &autoReportError{e}
 		}
 	}

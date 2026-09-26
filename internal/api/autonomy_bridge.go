@@ -277,6 +277,14 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, rows)
 		return
+	case "/source":
+		row, err := s.autoSourceContext(r.Context(), r.URL.Query().Get("project_id"))
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, 200, row)
+		return
 	case "/projects":
 		rows := []map[string]any{}
 		for _, p := range s.autoProjects() {

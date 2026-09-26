@@ -108,6 +108,9 @@ func autoRepairAudited(a *autoRecord) bool {
 }
 func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) error {
 	for i, p := range items {
+		if p.SourceRevision != "" && (!autoSourceHash(p.SourceRevision) || p.ContinueTaskID > 0 || p.RepairTaskID > 0) {
+			return fmt.Errorf("item %d: source_revision requires a full commit hash and cannot replace continuation or repair lineage", i)
+		}
 		if p.ContinueTaskID > 0 && p.RepairTaskID > 0 {
 			return fmt.Errorf("item %d: continuation and repair are mutually exclusive", i)
 		}
