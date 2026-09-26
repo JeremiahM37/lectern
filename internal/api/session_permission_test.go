@@ -324,3 +324,82 @@ func TestPermissionRequestHeldThenApprovedReturnsAllowForCodex(t *testing.T) {
 		t.Fatal("the held hook never returned after being decided")
 	}
 }
+
+// TestSessionApprovalForSessionSkipsFutureHold covers decideApproval's new
+// ForSession flag end to end: approve once with for_session:true, then prove
+// a second identical PermissionRequest never even creates a pending row —
+// the hook gets "allow" straight from holdSessionPermissionRequest's
+// short-circuit, not from a second decision.
+func TestSessionApprovalForSessionSkipsFutureHold(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.SessionApprovalHold = 5 * time.Second })
+	sess, tok := askSession(t, h, "ask-for-session")
+	first := postPermissionRequest(h, sess.id(), tok, "Bash", map[string]any{"command": "git status"})
+	appr := waitPendingSessionApproval(t, h, sess.id())
+	decided := h.post(fmt.Sprintf("/api/approvals/%d/decision", appr.id()),
+		obj{"decision": "approved", "for_session": true}, 200)
+	if decided.str("status") != "approved" {
+		t.Fatalf("decide: %v", decided)
+	}
+	select {
+	case r := <-first:
+		if r.code != 200 || !strings.Contains(string(r.body), `"behavior":"allow"`) {
+			t.Fatalf("first hold response = %d %s", r.code, r.body)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first held hook never returned")
+	}
+
+	// Same tool, same command's first token: must not create a second
+	// pending approval, and must resolve to allow immediately.
+	second := postPermissionRequest(h, sess.id(), tok, "Bash", map[string]any{"command": "git status --short"})
+	select {
+	case r := <-second:
+		var out struct {
+			HookSpecificOutput struct {
+				Decision struct {
+					Behavior string `json:"behavior"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(r.body, &out); err != nil {
+			t.Fatalf("response not JSON: %s", r.body)
+		}
+		if out.HookSpecificOutput.Decision.Behavior != "allow" {
+			t.Fatalf("second hold response = %s, want an immediate allow", r.body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second call held instead of being short-circuited — the session rule did not match")
+	}
+	for _, a := range h.pendingApprovals() {
+		if int64(a.num("session_id")) == sess.id() {
+			t.Fatalf("a session-rule match must not create a new pending approval: %v", a)
+		}
+	}
+}
+
+// TestSessionApprovalForSessionDoesNotLeakAcrossSessions proves the rule is
+// scoped to the session it was granted on, not global to the tool.
+func TestSessionApprovalForSessionDoesNotLeakAcrossSessions(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.SessionApprovalHold = 5 * time.Second })
+	granted, tok1 := askSession(t, h, "ask-session-a")
+	other, tok2 := askSession(t, h, "ask-session-b")
+
+	first := postPermissionRequest(h, granted.id(), tok1, "Read", map[string]any{"file_path": "/etc/hosts"})
+	appr := waitPendingSessionApproval(t, h, granted.id())
+	h.post(fmt.Sprintf("/api/approvals/%d/decision", appr.id()), obj{"decision": "approved", "for_session": true}, 200)
+	<-first
+
+	results := postPermissionRequest(h, other.id(), tok2, "Read", map[string]any{"file_path": "/etc/hosts"})
+	// The other session's identical call must still go through the normal
+	// hold — it gets its own pending approval rather than an immediate allow.
+	waitPendingSessionApproval(t, h, other.id())
+	h.post(fmt.Sprintf("/api/approvals/%d/decision", waitPendingSessionApproval(t, h, other.id()).id()), obj{"decision": "denied"}, 200)
+	select {
+	case r := <-results:
+		if !strings.Contains(string(r.body), `"behavior":"deny"`) {
+			t.Fatalf("other session's own decision should apply, got %s", r.body)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the other session's hold never returned")
+	}
+}

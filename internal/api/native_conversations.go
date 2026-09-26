@@ -83,6 +83,120 @@ func (s *Server) nativeConversations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
 }
+// liveConversationData runs conversation_live.py on the target: same
+// security posture as nativeConversationData (paths resolved and checked on
+// the target, never trusted from HTTP), but it reads ONE already-identified
+// conversation forward from a byte cursor instead of paging an
+// operator-chosen one backward from the end.
+func (s *Server) liveConversationData(r *http.Request, row *store.Session, cid, since string) (map[string]json.RawMessage, error) {
+	if row.Agent != "codex" && row.Agent != "claude" {
+		return nil, fmt.Errorf("structured chat is supported for Claude and Codex; use terminal text for this agent")
+	}
+	if !path.IsAbs(row.Workdir) {
+		return nil, fmt.Errorf("workspace unavailable")
+	}
+	target, err := s.DB.Target(row.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	if target.Kind == "sandbox" {
+		return nil, fmt.Errorf("structured chat unavailable for this sandbox session")
+	}
+	ex, err := s.Reg.For(target)
+	if err != nil {
+		return nil, err
+	}
+	config, err := s.Sessions.SessionLaunchConfiguration(row)
+	if err != nil {
+		return nil, err
+	}
+	prefix, err := sessions.EnvPrefix(config.Spec.Env)
+	if err != nil {
+		return nil, err
+	}
+	cmd := prefix + "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.ConversationLiveScript) + " " +
+		shellq.Quote(row.Agent) + " " + shellq.Quote(row.Workdir) + " " + shellq.Quote(cid) + " " + shellq.Quote(since)
+	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 20})
+	var out map[string]json.RawMessage
+	if err != nil || json.Unmarshal([]byte(result.Stdout), &out) != nil {
+		return nil, fmt.Errorf("could not read structured chat on this target")
+	}
+	if !result.OK() {
+		var message string
+		json.Unmarshal(out["error"], &message)
+		return nil, fmt.Errorf("%s", message)
+	}
+	return out, nil
+}
+
+// resolveLiveCID finds the session's currently active native conversation,
+// exactly the way the saved-conversation picker's "current" field does
+// (nativeConversationData's identity-verified reader for a running session,
+// s.boundNativeCID's recovery binding for an ended one) — reused rather than
+// re-implemented, since a wrong guess here would silently show the wrong
+// agent's history in the chat.
+func (s *Server) resolveLiveCID(r *http.Request, row *store.Session) (string, error) {
+	listOut, err := s.nativeConversationData(r, row, "")
+	if err != nil {
+		return "", err
+	}
+	var current struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	_ = json.Unmarshal(listOut["current"], &current)
+	if current.ID != "" {
+		return current.ID, nil
+	}
+	cid, err := s.boundNativeCID(r, row)
+	if err != nil {
+		return "", fmt.Errorf("no active conversation could be identified for this session")
+	}
+	return cid, nil
+}
+
+// liveConversation is GET /api/sessions/{id}/conversation/live?cid=&since= —
+// the structured, incrementally-pollable turn stream behind the Chat view's
+// tool cards.
+//
+// An explicit `cid` reads that exact conversation forward from `since`
+// (used by tests, and by a phone that already knows which conversation it
+// is following). Without one, the active conversation is re-resolved on
+// every call — the same cost profile /reader already pays for its tmux
+// read — and `since` only carries over when the caller's remembered
+// `last_cid` still matches what was just resolved; if the session has moved
+// to a different conversation underneath it, `since` is dropped rather than
+// trusted against a file it was never read from, and reading restarts from
+// a recent tail.
+func (s *Server) liveConversation(w http.ResponseWriter, r *http.Request) {
+	row, ok := s.sessionParam(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	cid := q.Get("cid")
+	since := q.Get("since")
+	if cid == "" {
+		resolved, err := s.resolveLiveCID(r, row)
+		if err != nil {
+			httpError(w, 409, "%s", err)
+			return
+		}
+		if last := q.Get("last_cid"); last != "" && last != resolved {
+			since = ""
+		}
+		cid = resolved
+	}
+	out, err := s.liveConversationData(r, row, cid, since)
+	if err != nil {
+		httpError(w, 409, "%s", err)
+		return
+	}
+	out["conversation_id"], _ = json.Marshal(cid)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, out)
+}
+
 func (s *Server) forkConversation(w http.ResponseWriter, r *http.Request) {
 	row, ok := s.sessionParam(w, r)
 	if !ok {

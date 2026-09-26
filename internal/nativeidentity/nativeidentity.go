@@ -12,3 +12,6 @@ var RecordsScript string
 
 //go:embed conversations.py
 var ConversationsScript string
+
+//go:embed conversation_live.py
+var ConversationLiveScript string
