@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import type { SettingsApi } from "./Settings";
@@ -11,7 +11,11 @@ export interface AgentSpec {
   model_flag?: string;
   prompt_arg?: boolean;
   resume_args?: string[];
+  resume_id_args?: string[];
+  fork_args?: string[];
   yolo_args?: string[];
+  models_command?: string;
+  trust_command?: string;
   env?: Record<string, JsonValue>;
   task?: {
     command?: string;
@@ -28,6 +32,22 @@ export interface AgentSpec {
     args?: string[];
     env?: Record<string, JsonValue>;
   };
+}
+// CatalogPreset mirrors internal/sessions.CatalogPreset's JSON shape — a
+// popular third-party CLI's starter Spec plus how much of it was actually
+// verified against the vendor's own docs (see that Go type's doc comment for
+// what Unverified means). Settings → Agents fetches these from
+// GET /api/agents/catalog for the "Add from catalog" starter list, replacing
+// what used to be a handful of presets hardcoded in this file.
+export interface CatalogPreset extends AgentSpec {
+  display_name: string;
+  description: string;
+  install_hint: string;
+  source: string;
+  unverified?: string[];
+  verified_at: string;
+  installed: boolean;
+  added: boolean;
 }
 // targetHasBinary reports whether any target's last probe found `key` — used
 // to grey out an ACP preset whose binary nothing has confirmed yet, rather
@@ -114,10 +134,19 @@ export function AgentEditor({
     [resume, setResume] = useState(
       JSON.stringify(source?.resume_args || [], null, 2),
     ),
+    [resumeID, setResumeID] = useState(
+      JSON.stringify(source?.resume_id_args || [], null, 2),
+    ),
+    [forkArgs, setForkArgs] = useState(
+      JSON.stringify(source?.fork_args || [], null, 2),
+    ),
+    [modelsCommand, setModelsCommand] = useState(source?.models_command || ""),
+    [trustCommand, setTrustCommand] = useState(source?.trust_command || ""),
     [yolo, setYolo] = useState(
       JSON.stringify(source?.yolo_args || [], null, 2),
     ),
     [environment, setEnvironment] = useState(envText(source)),
+    [catalog, setCatalog] = useState<CatalogPreset[]>([]),
     [taskOn, setTaskOn] = useState(Boolean(source?.task)),
     [taskCommand, setTaskCommand] = useState(source?.task?.command || ""),
     [taskArgs, setTaskArgs] = useState(
@@ -144,48 +173,61 @@ export function AgentEditor({
         .join("\n"),
     ),
     [busy, setBusy] = useState(false),
-    [status, setStatus] = useState("");
+    [status, setStatus] = useState(""),
+    [presetChoice, setPresetChoice] = useState("custom");
+  useEffect(() => {
+    if (source) return; // catalog only matters for "Add agent"
+    api
+      .request<CatalogPreset[]>("/agents/catalog")
+      .then(setCatalog)
+      .catch(() => setCatalog([]));
+  }, []);
+  // preset fills every field this form has from one catalog entry — the
+  // whole point of GET /api/agents/catalog is that Settings never hardcodes
+  // a CLI's flags itself, so a researched preset (and any future one added
+  // server-side) shows up here with zero frontend changes.
   function preset(v: string) {
-    if (v === "opencode") {
-      setName("opencode");
-      setCommand("opencode");
-      setModelFlag("--model");
-      setTaskOn(true);
-      setTaskCommand("opencode");
-      setTaskPrompt("run {prompt}");
-    }
-    if (v === "aider") {
-      setName("aider");
-      setCommand("aider");
-      setModelFlag("--model");
-      setEnvironment("OPENAI_API_BASE=");
-      setTaskOn(true);
-      setTaskCommand("aider");
-      setTaskPrompt("--message {prompt}");
-    }
-    if (v === "claude-code-acp") {
-      setName("claude-code-acp");
-      setCommand("claude-code-acp");
-      setTaskOn(false);
+    if (v === "custom") return;
+    const p = catalog.find((c) => c.name === v);
+    if (!p) return;
+    setName(p.name);
+    setCommand(p.command);
+    setFixed(JSON.stringify(p.args || [], null, 2));
+    setModelFlag(p.model_flag || "");
+    setPromptArg(Boolean(p.prompt_arg));
+    setResume(JSON.stringify(p.resume_args || [], null, 2));
+    setResumeID(JSON.stringify(p.resume_id_args || [], null, 2));
+    setForkArgs(JSON.stringify(p.fork_args || [], null, 2));
+    setYolo(JSON.stringify(p.yolo_args || [], null, 2));
+    setModelsCommand(p.models_command || "");
+    setTrustCommand(p.trust_command || "");
+    setEnvironment(
+      Object.entries(p.env || {})
+        .map(([k, v2]) => `${k}=${String(v2)}`)
+        .join("\n"),
+    );
+    if (p.acp) {
       setAcpOn(true);
-      setAcpCommand("npx");
-      setAcpArgs(JSON.stringify(["-y", "@zed-industries/claude-code-acp"], null, 2));
-    }
-    if (v === "codex-acp") {
-      setName("codex-acp");
-      setCommand("codex-acp");
       setTaskOn(false);
-      setAcpOn(true);
-      setAcpCommand("npx");
-      setAcpArgs(JSON.stringify(["-y", "@zed-industries/codex-acp"], null, 2));
-    }
-    if (v === "gemini-acp") {
-      setName("gemini-acp");
-      setCommand("gemini");
-      setTaskOn(false);
-      setAcpOn(true);
-      setAcpCommand("gemini");
-      setAcpArgs(JSON.stringify(["--experimental-acp"], null, 2));
+      setAcpCommand(p.acp.command || "");
+      setAcpArgs(JSON.stringify(p.acp.args || [], null, 2));
+      setAcpEnvironment(
+        Object.entries(p.acp.env || {})
+          .map(([k, v2]) => `${k}=${String(v2)}`)
+          .join("\n"),
+      );
+    } else {
+      setAcpOn(false);
+      if (p.task) {
+        setTaskOn(true);
+        setTaskCommand(p.task.command || "");
+        setTaskArgs(JSON.stringify(p.task.args || [], null, 2));
+        setTaskPrompt(p.task.prompt_template || "");
+        setTaskOutput(p.task.output_mode || "plain");
+        setPermissions(JSON.stringify(p.task.permission_args || {}, null, 2));
+      } else {
+        setTaskOn(false);
+      }
     }
   }
   // A preset needing npx (both Zed adapters) is disabled until a target has
@@ -218,7 +260,11 @@ export function AgentEditor({
       model_flag: modelFlag.trim(),
       prompt_arg: promptArg,
       resume_args: args(resume, "Resume arguments"),
+      resume_id_args: args(resumeID, "Resume-by-ID arguments"),
+      fork_args: args(forkArgs, "Fork arguments"),
       yolo_args: args(yolo, "Yolo arguments"),
+      models_command: modelsCommand.trim(),
+      trust_command: trustCommand.trim(),
       env: env(environment, { ...source?.env, ...(providerURL.trim() ? { OPENAI_BASE_URL: providerURL.trim() } : {}) }),
     };
     delete spec.builtin;
@@ -279,23 +325,75 @@ export function AgentEditor({
       </button>
       {!source && (
         <label>
-          Starter template
-          <select onChange={(e) => preset(e.target.value)}>
+          Starter template (catalog — one click, then edit anything below)
+          <select
+            value={presetChoice}
+            onChange={(e) => {
+              setPresetChoice(e.target.value);
+              preset(e.target.value);
+            }}
+          >
             <option value="custom">Custom runner</option>
-            <option value="opencode">OpenCode</option>
-            <option value="aider">Aider</option>
-            <option value="claude-code-acp" disabled={npxAvailable === false}>
-              Claude Code (ACP){npxAvailable === false ? " — npx not detected on any target" : ""}
-            </option>
-            <option value="codex-acp" disabled={npxAvailable === false}>
-              Codex (ACP){npxAvailable === false ? " — npx not detected on any target" : ""}
-            </option>
-            <option value="gemini-acp" disabled={geminiAvailable === false}>
-              Gemini CLI (ACP){geminiAvailable === false ? " — gemini not detected on any target" : ""}
-            </option>
+            {catalog
+              .filter((p) => !p.added)
+              .map((p) => {
+                // The two Zed adapter presets need npx, not their own
+                // placeholder Command; gemini-acp needs `gemini` itself.
+                // Everything else's Installed() already checked the CLI
+                // this preset actually launches.
+                const needsBinary =
+                  p.name === "claude-code-acp" || p.name === "codex-acp"
+                    ? "npx"
+                    : p.name === "gemini-acp"
+                      ? "gemini"
+                      : "";
+                const targetKnown = needsBinary
+                  ? targetHasBinary(targets || [], needsBinary)
+                  : undefined;
+                // Only the two Zed npx adapters are ever actually disabled:
+                // their launch definitively fails without npx on whatever
+                // target runs them. A plain preset's own `installed` is
+                // host-local (there is no per-target remote check), so it is
+                // shown as a hint, never used to block a starter template —
+                // the CLI may well be installed on a different target.
+                const disabled = needsBinary ? targetKnown === false : false;
+                const reason = needsBinary
+                  ? targetKnown === false
+                    ? ` — ${needsBinary} not detected on any target`
+                    : ""
+                  : !p.installed
+                    ? " — not installed on this host"
+                    : "";
+                return (
+                  <option key={p.name} value={p.name} disabled={disabled}>
+                    {p.display_name}
+                    {reason}
+                  </option>
+                );
+              })}
           </select>
         </label>
       )}
+      {!source &&
+        presetChoice !== "custom" &&
+        (() => {
+          const p = catalog.find((c) => c.name === presetChoice);
+          if (!p) return null;
+          return (
+            <p className="sub agent-preset-hint">
+              {p.description}
+              {p.unverified && p.unverified.length > 0 && (
+                <>
+                  {" "}
+                  <b>Unverified fields (best guess, check before relying on
+                  them):</b> {p.unverified.join(", ")}.
+                </>
+              )}
+              {" "}Source: {p.source} (checked {p.verified_at}).
+              {!p.installed && <> Install: <code>{p.install_hint}</code></>}
+            </p>
+          );
+        })()}
       <label>
         Name
         <input value={name} onChange={(e) => setName(e.target.value)} />
@@ -328,8 +426,24 @@ export function AgentEditor({
         Opening prompt is a positional argument
       </label>
       <label>
-        Resume arguments
+        Resume arguments (resume the CLI's own last conversation)
         <textarea value={resume} onChange={(e) => setResume(e.target.value)} />
+      </label>
+      <label>
+        Resume-by-ID arguments (JSON array; {"{id}"}/{"{dir}"} substituted — blank if unsupported)
+        <textarea value={resumeID} onChange={(e) => setResumeID(e.target.value)} />
+      </label>
+      <label>
+        Fork arguments (JSON array; {"{id}"}/{"{dir}"} substituted — blank if unsupported)
+        <textarea value={forkArgs} onChange={(e) => setForkArgs(e.target.value)} />
+      </label>
+      <label>
+        Model catalog command (optional; {"{bin}"} is the resolved binary)
+        <input value={modelsCommand} onChange={(e) => setModelsCommand(e.target.value)} />
+      </label>
+      <label>
+        Trust command (optional; {"{dir}"} is the working directory)
+        <input value={trustCommand} onChange={(e) => setTrustCommand(e.target.value)} />
       </label>
       <label>
         Yolo arguments

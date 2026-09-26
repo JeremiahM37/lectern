@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { SessionView } from '../types';
 import type { SessionsApi } from './Sessions';
 import { Modal } from './Modal';
+import { fetchAgentMenu, splitAgentMenu } from '../agents/menu';
+import { AllAgentsPicker } from '../agents/AllAgentsPicker';
 import {
   agentLabel,
   describeSwitch,
@@ -30,6 +32,8 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
   const [profiles, setProfiles] = useState<Profile[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false), [customAgent, setCustomAgent] = useState(session.agent), [customModel, setCustomModel] = useState('');
   const [favorites, setFavorites] = useState<Favorite[]>(loadFavorites);
+  const [agentMenu, setAgentMenu] = useState<string[]>([]);
+  const [showAllAgents, setShowAllAgents] = useState(false);
   async function load() {
     setLoading(true); setError('');
     try {
@@ -37,7 +41,15 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
       setAgents(a); setModels(m); setProfiles(p.map(({id,name,agent,model})=>({id,name,agent,model})));
     } catch(e) { setError(String(e)); } finally { setLoading(false); }
   }
-  useEffect(()=>{void load();},[]);
+  useEffect(()=>{void load(); void fetchAgentMenu(api).then(setAgentMenu);},[]);
+  // The session's own current agent always gets a section, even when it has
+  // since dropped out of the shown-agents menu — otherwise the "Current"
+  // marker on its model would have nowhere to render.
+  const { shown: shownAgents, more: moreAgents } = splitAgentMenu(agents, agentMenu);
+  const sectionAgents = shownAgents.some(a=>a.name===session.agent)
+    ? shownAgents
+    : [...shownAgents, ...agents.filter(a=>a.name===session.agent)];
+  const overflowAgents = moreAgents.filter(a=>a.name!==session.agent);
   function updateFavorites(next: Favorite[]) { setFavorites(next); saveFavorites(next); }
   const favored = (agent: string, model: string, profile: number) =>
     favorites.find(f=>f.profile===profile&&(profile!==0||(f.agent===agent&&f.model===model)));
@@ -95,11 +107,13 @@ export function QuickSwitch({api, session, onClose, onStarted, onProfiles}: {
       const entry: Favorite = {agent:p.agent,model:p.model,profile:p.id,label:p.name};
       return <div className="switch-choice-wrap" key={p.id}><button className="b switch-choice" disabled={busy} onClick={()=>void choose({agent:p.agent,model:p.model,profile:p.id,destination:p.name})}><strong>{p.name}</strong><small>{agentLabel(p.agent)}{p.model?' · '+p.model:''}</small></button>{star(entry,p.name)}</div>;
     })}</div></section>}
-    {agents.map(a=><section key={a.name} aria-label={agentLabel(a.name)}><h3>{agentLabel(a.name)}</h3><div className="switch-options">{['',...(a.model_flag?models[a.name]||[]:[])].map(model=>{
+    {sectionAgents.map(a=><section key={a.name} aria-label={agentLabel(a.name)}><h3>{agentLabel(a.name)}</h3><div className="switch-options">{['',...(a.model_flag?models[a.name]||[]:[])].map(model=>{
       const current=!session.launch_profile&&a.name===session.agent&&model===session.model;
       const entry: Favorite = {agent:a.name,model,profile:0,label:describeSwitch(a.name,model)};
       return <div className="switch-choice-wrap" key={model||'default'}><button className="b switch-choice" disabled={busy||current} aria-current={current?'true':undefined} onClick={()=>void choose({agent:a.name,model,profile:0,destination:entry.label})}><strong>{model||'Default model'}</strong>{current&&<small>Current</small>}</button>{star(entry,entry.label)}</div>;
     })}</div></section>)}
+    {overflowAgents.length>0 && <button type="button" className="b switch-more" disabled={busy} onClick={()=>setShowAllAgents(true)}>More agents…</button>}
+    {showAllAgents && <AllAgentsPicker agents={overflowAgents} onClose={()=>setShowAllAgents(false)} onPick={(name)=>{void choose({agent:name,model:'',profile:0,destination:describeSwitch(name,'')});}} />}
     {!!agents.length&&<details className="switch-custom"><summary>Another model…</summary><label className="f" htmlFor="switch-agent">Agent</label><select className="f" id="switch-agent" value={customAgent} onChange={e=>setCustomAgent(e.target.value)}>{agents.filter(a=>a.model_flag).map(a=><option key={a.name} value={a.name}>{agentLabel(a.name)}</option>)}</select><label className="f" htmlFor="switch-model">Model ID</label><input className="f" id="switch-model" value={customModel} onChange={e=>setCustomModel(e.target.value)} placeholder="Exact model ID supported by this agent"/><button className="b" disabled={busy||!customModel.trim()||!agents.find(a=>a.name===customAgent)?.model_flag} onClick={()=>void choose({agent:customAgent,model:customModel.trim(),profile:0,destination:describeSwitch(customAgent,customModel.trim())})}>Switch model</button></details>}
     <button className="b switch-providers" disabled={busy} onClick={onProfiles}>Add or manage a provider…</button>
   </Modal>;

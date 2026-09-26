@@ -3,6 +3,8 @@ import type { Claim, Project, TaskView } from "../types";
 import type { BoardApi } from "./Board";
 import { Modal } from "../sessions/Modal";
 import { claimScopeLabel } from "../claims/ClaimsPanel";
+import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
+import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import "../claims/claims.css";
 import "./board.css";
 
@@ -76,12 +78,21 @@ export function CreateTask({
     // Claim board (docs/claims.md point 4c): warn before launch if the
     // prompt looks like an active topic claim someone else already has —
     // advisory only, never blocks the dispatch.
-    [overlaps, setOverlaps] = useState<Claim[]>([]);
+    [overlaps, setOverlaps] = useState<Claim[]>([]),
+    [agentMenu, setAgentMenu] = useState<string[]>([]),
+    [showAllAgents, setShowAllAgents] = useState(false),
+    [showAllVariantAgents, setShowAllVariantAgents] = useState<number | null>(null);
   const project = projects.find((p) => p.id === projectId);
   const eligible = useMemo(
     () => agents.filter((a) => a.builtin || a.task),
     [agents],
   );
+  const { shown: shownAgents, more: moreAgents } = useMemo(() => {
+    const pool = eligible.length
+      ? eligible
+      : [{ name: "claude" }, { name: "codex" }, { name: "gemini" }];
+    return splitAgentMenu(pool, agentMenu);
+  }, [eligible, agentMenu]);
   useEffect(() => {
     void Promise.all([
       api.request<AgentSpec[]>("/agents"),
@@ -94,6 +105,7 @@ export function CreateTask({
         setProfiles(p);
       })
       .catch(() => {});
+    void fetchAgentMenu(api).then(setAgentMenu);
     void api
       .request<Orchestration>("/delegation")
       .then((v) => setOrchestration(v && typeof v.orchestrate_ready === "boolean" ? v : { orchestrate_ready: false }))
@@ -317,9 +329,9 @@ export function CreateTask({
       </label>
       <fieldset id="f-agent" data-value={agent}>
         <legend>Agent</legend>
-        {(eligible.length
-          ? eligible
-          : [{ name: "claude" }, { name: "codex" }, { name: "gemini" }]
+        {(shownAgents.some((a) => a.name === agent)
+          ? shownAgents
+          : [...shownAgents, ...moreAgents.filter((a) => a.name === agent)]
         ).map((a) => (
           <button
             type="button"
@@ -337,7 +349,22 @@ export function CreateTask({
             {a.name === "claude" ? "Claude Code" : a.name === "codex" ? "Codex" : a.name}
           </button>
         ))}
+        {moreAgents.length > 0 && (
+          <button type="button" id="f-agent-more" onClick={() => setShowAllAgents(true)}>
+            More agents…
+          </button>
+        )}
       </fieldset>
+      {showAllAgents && (
+        <AllAgentsPicker
+          agents={moreAgents}
+          onPick={(name) => {
+            setAgent(name);
+            if (name !== "claude" && permission === "default") setPermission("acceptEdits");
+          }}
+          onClose={() => setShowAllAgents(false)}
+        />
+      )}
       <label>
         Model
         <input
@@ -406,6 +433,10 @@ export function CreateTask({
                   value={v.agent}
                   onChange={(e) => {
                     const val = e.target.value;
+                    if (val === "__more__") {
+                      setShowAllVariantAgents(v.key);
+                      return;
+                    }
                     setVariants((list) =>
                       list.map((x) =>
                         x.key === v.key ? { ...x, agent: val } : x,
@@ -414,15 +445,31 @@ export function CreateTask({
                   }}
                 >
                   <option value="">same agent ({agent})</option>
-                  {(eligible.length
-                    ? eligible
-                    : [{ name: "claude" }, { name: "codex" }, { name: "gemini" }]
+                  {(v.agent && !shownAgents.some((a) => a.name === v.agent)
+                    ? [...shownAgents, ...moreAgents.filter((a) => a.name === v.agent)]
+                    : shownAgents
                   ).map((a) => (
                     <option key={a.name} value={a.name}>
                       {a.name}
                     </option>
                   ))}
+                  {moreAgents.length > 0 && (
+                    <option value="__more__">More agents…</option>
+                  )}
                 </select>
+                {showAllVariantAgents === v.key && (
+                  <AllAgentsPicker
+                    agents={moreAgents}
+                    onPick={(name) =>
+                      setVariants((list) =>
+                        list.map((x) =>
+                          x.key === v.key ? { ...x, agent: name } : x,
+                        ),
+                      )
+                    }
+                    onClose={() => setShowAllVariantAgents(null)}
+                  />
+                )}
                 <input
                   placeholder="model"
                   value={v.model}

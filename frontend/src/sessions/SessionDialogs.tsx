@@ -3,6 +3,8 @@ import { LaunchProfiles } from "../settings/LaunchProfiles";
 import { Modal } from "./Modal";
 import { useEffect, useState } from "react";
 import type { Project, SessionView, Target } from "../types";
+import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
+import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import {
   orderProjectsByRecency,
   readProjectPreference,
@@ -80,7 +82,9 @@ export function NewSession({
     [base, setBase] = useState(""),
     [branch, setBranch] = useState(""),
     [extra, setExtra] = useState<RepositorySelection[]>([]),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [agentMenu, setAgentMenu] = useState<string[]>([]),
+    [showAllAgents, setShowAllAgents] = useState(false);
   useEffect(() => {
     void Promise.all([
       api.request<Agent[]>("/agents"),
@@ -105,6 +109,7 @@ export function NewSession({
         if (settings.session_permission_mode === "ask") setYolo(false);
       })
       .catch(() => {});
+    void fetchAgentMenu(api).then(setAgentMenu);
   }, []);
   useEffect(() => {
     const selected = profiles.find((p) => p.id === profileId);
@@ -315,13 +320,42 @@ export function NewSession({
             id="ns-agent"
             value={agent}
             disabled={profileId > 0}
-            onChange={(e) => setAgent(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === "__more__") {
+                setShowAllAgents(true);
+                return;
+              }
+              setAgent(e.target.value);
+            }}
           >
-            {(agents.length ? agents : [{ name: "claude" }]).map((a) => (
-              <option key={a.name}>{a.name}</option>
-            ))}
+            {(() => {
+              const all = agents.length ? agents : [{ name: "claude" }];
+              const { shown, more } = splitAgentMenu(all, agentMenu);
+              const options = shown.some((a) => a.name === agent)
+                ? shown
+                : [...shown, ...all.filter((a) => a.name === agent)];
+              return (
+                <>
+                  {options.map((a) => (
+                    <option key={a.name} value={a.name}>
+                      {a.name}
+                    </option>
+                  ))}
+                  {more.length > 0 && (
+                    <option value="__more__">More agents…</option>
+                  )}
+                </>
+              );
+            })()}
           </select>
         </div>
+        {showAllAgents && (
+          <AllAgentsPicker
+            agents={agents}
+            onPick={setAgent}
+            onClose={() => setShowAllAgents(false)}
+          />
+        )}
         {profile && (
           <div className="subhint" id="ns-agent-profile">
             Locked to {profile.agent} by the “{profile.name}” launch profile —
@@ -693,12 +727,15 @@ export function Handoff({
     [model, setModel] = useState(""),
     [kill, setKill] = useState(true),
     [agents, setAgents] = useState<Agent[]>([]),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [agentMenu, setAgentMenu] = useState<string[]>([]),
+    [showAllAgents, setShowAllAgents] = useState(false);
   useEffect(() => {
     void api
       .request<Agent[]>("/agents")
       .then(setAgents)
       .catch(() => setAgents([{ name: session.agent }]));
+    void fetchAgentMenu(api).then(setAgentMenu);
   }, []);
   const spec = agents.find((row) => row.name === agent),
     modelEnabled = !spec || !!spec.model_flag;
@@ -766,15 +803,43 @@ export function Handoff({
           className="f"
           id="ho-agent"
           value={agent}
-          onChange={(event) => setAgent(event.target.value)}
+          onChange={(event) => {
+            if (event.target.value === "__more__") {
+              setShowAllAgents(true);
+              return;
+            }
+            setAgent(event.target.value);
+          }}
         >
-          {agents.map((row) => (
-            <option key={row.name} value={row.name}>
-              {row.name}
-              {row.name === session.agent ? " — same agent, clean context" : ""}
-            </option>
-          ))}
+          {(() => {
+            const { shown, more } = splitAgentMenu(agents, agentMenu);
+            const options = shown.some((a) => a.name === agent)
+              ? shown
+              : [...shown, ...agents.filter((a) => a.name === agent)];
+            return (
+              <>
+                {options.map((row) => (
+                  <option key={row.name} value={row.name}>
+                    {row.name}
+                    {row.name === session.agent
+                      ? " — same agent, clean context"
+                      : ""}
+                  </option>
+                ))}
+                {more.length > 0 && (
+                  <option value="__more__">More agents…</option>
+                )}
+              </>
+            );
+          })()}
         </select>
+        {showAllAgents && (
+          <AllAgentsPicker
+            agents={agents}
+            onPick={setAgent}
+            onClose={() => setShowAllAgents(false)}
+          />
+        )}
         <div className="subhint" id="ho-agent-hint">
           {agent !== session.agent
             ? `The work moves to ${agent}. It starts fresh, knowing only what the handoff says.`
