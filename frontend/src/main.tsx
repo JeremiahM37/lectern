@@ -1,7 +1,13 @@
+// First: when this device is paired over the encrypted relay, every request
+// to this Lectern must go through the tunnel from the very first one.
+import { relayTunnel } from "./relay/boot";
 import {flushSync} from "react-dom";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import Pair from "./pairing/Pair";
+import RelayPair from "./relay/RelayPair";
+import { RelayBanner } from "./relay/RelayBanner";
+import "./relay/relay.css";
 import "../../web/static/style.css";
 import "../../web/static/conversation.css";
 import "../../web/static/workspace.css";
@@ -19,6 +25,7 @@ import "./shell/mobile.css";
 // root entirely: no board fetches, no SSE, nothing that assumes an
 // authenticated session before the exchange has even happened.
 const root = createRoot(document.getElementById("root")!);
+const path = window.location.pathname;
 flushSync(() =>
-  root.render(window.location.pathname === "/pair" ? <Pair /> : <App />),
+  root.render(path === "/pair" ? <Pair /> : path === "/relay-pair" ? <RelayPair /> : <><RelayBanner tunnel={relayTunnel} /><App /></>),
 );

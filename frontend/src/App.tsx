@@ -198,6 +198,9 @@ export default function App() {
     () =>
       createDeckApi({
         onUnauthorized: () => {
+          // Over the encrypted relay there is no token to type: a 401 means
+          // this device was revoked, which the relay banner explains.
+          if (window.__lecternRelay) return;
           // A device that was paired (frontend/src/pairing/Pair.tsx sets this
           // non-secret marker on success — the credential itself is an
           // HttpOnly cookie this code can't see) and has no static token
