@@ -479,6 +479,16 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if e := s.ensureAutoBridges(j); e != nil {
 		return e
 	}
+	if j.Status == "starting" {
+		raw, err := s.runAutoCommand(ctx, "launch-state", "--job", j.ID)
+		if err != nil {
+			return err
+		}
+		wait, err := autoReconcileLaunch(j, raw)
+		if err != nil || wait {
+			return err
+		}
+	}
 	ready, err := s.recoverAutoPrerequisites(ctx, a, j)
 	if err != nil {
 		return err
@@ -499,6 +509,36 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "running", "agent": j.Provider, "model": j.Model})
 	return nil
 }
+
+// Only the locked privileged runner can distinguish an unused UUID from an
+// interrupted launch. A timeout or missing unit alone cannot authorize a retry.
+func autoReconcileLaunch(j *autoJob, raw []byte) (bool, error) {
+	var receipt struct {
+		State       string `json:"state"`
+		WorkerState string `json:"worker_state"`
+	}
+	if json.Unmarshal(raw, &receipt) != nil {
+		return false, errors.New("Invalid runner status: launch-state JSON")
+	}
+	switch receipt.State {
+	case "unused":
+		return false, nil
+	case "launching":
+		return true, nil // retain starting; the original launcher still holds its lock
+	case "running":
+		j.Status = "running"
+		return true, nil
+	case "consumed":
+		if receipt.WorkerState == "done" || receipt.WorkerState == "failed" || receipt.WorkerState == "stopped" {
+			// The existing polling/export/report path preserves evidence, then
+			// normal operational recovery resumes the same task in a fresh UUID.
+			j.Status = "running"
+			return true, nil
+		}
+	}
+	return false, errors.New("Invalid runner status: unknown launch-state")
+}
+
 func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
 	raw, e := autoReadRegular(filepath.Join(autoRoot, j.ID, "output.jsonl"), 32<<20)
 	if e != nil {
