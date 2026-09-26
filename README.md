@@ -21,7 +21,7 @@ lectern up          # starts Lectern, finds your agent CLIs, opens the dashboard
 lectern claude      # or: lectern codex, lectern opencode, … in any folder
 ```
 
-## What only Lectern does
+## What makes Lectern different
 
 ### Start work from an ordinary chat
 
@@ -108,6 +108,32 @@ The same control loop runs in an installable phone app:
   stops.
 - **Runs anywhere:** your laptop, anything reachable over SSH, a Proxmox
   container, or an ephemeral sandbox. One static binary, MIT licensed.
+
+## How it compares
+
+✓ yes · ◐ partly · ✗ no · ? couldn't verify. Every cell is checked against each
+project's own docs, with sources listed in [docs/comparison.md](docs/comparison.md).
+
+| | Lectern | Happy | Claude Squad | Vibe Kanban | agent-deck | Conductor | Claude Code app |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Start and manage sessions from a claude.ai chat | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ | ? |
+| Terminal dashboard across machines, open many at once | ✓ | ? | ◐ | ✗ | ◐ | ✗ | ✗ |
+| Switch a live session to another agent, keeping context | ✓ | ◐ | ✗ | ✗ | ✗ | ? | ◐ |
+| Agents on your own machines: SSH, Proxmox, sandboxes | ✓ | ✗ | ✗ | ✗ | ◐ | ◐ | ◐ |
+| Approve, deny or reply straight from the phone notification | ✓ | ◐ | ✗ | ✗ | ◐ | ◐ | ◐ |
+| Allow once / for this session / deny with feedback | ✓ | ◐ | ✗ | ◐ | ◐ | ◐ | ◐ |
+| Free voice mode with spoken approvals | ✓ | ◐ paid | ✗ | ? | ? | ? | ✗ |
+| Task board with worktrees, diff review and PRs | ✓ | ◐ | ◐ | ✓ | ✗ | ◐ | ✓ |
+| Best-of-N with a judge, and delegated builds | ✓ | ✗ | ✗ | ? | ? | ? | ◐ |
+| Evals replayed from your own merged PRs | ✓ | ? | ✗ | ? | ? | ✗ | ✗ |
+| Agents aware of each other (claim board) | ✓ | ✗ | ✗ | ? | ? | ✗ | ◐ |
+| Adopts agent sessions you started elsewhere | ✓ | ◐ | ✗ | ? | ? | ? | ✗ |
+| Self-hosted and open source | ✓ MIT | ✓ MIT | ✓ AGPL | ✓ Apache | ✓ MIT | ✗ | ✗ |
+
+**Where others are ahead:**
+- Happy's relay is end-to-end encrypted, and it ships native App Store and Play Store apps. Lectern relies on Tailscale, or on pairing over your own HTTPS tunnel.
+- Conductor, which is hosted and proprietary, also drives sessions from claude.ai and ChatGPT.
+- agent-deck matches Lectern's cost and quota tracking.
 
 ## Install
 
