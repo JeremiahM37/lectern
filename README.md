@@ -52,6 +52,12 @@ fix printed next to anything that's off.
   board** lets it say what it's about to do — claimed automatically or with
   one MCP call, shown in every peer's briefing and edit warnings, always
   advisory. See [docs/claims.md](docs/claims.md).
+- **Hand off a brainstorm.** From a Claude Code or Codex chat with no Lectern
+  session of its own, `start_session`/`send_to_session`/`list_sessions` on
+  the `lectern` MCP server let "start a session that builds this" or "give my
+  open session this file" work straight from that conversation, files and
+  freeform context included, with Grimoire as the durable brief. See
+  [docs/sessions-mcp.md](docs/sessions-mcp.md).
 - **Self-hosted, MIT.** One static binary, your infrastructure, your choice of
   model provider — nothing about your code leaves a box you control unless
   your chosen agent's own model call does.
