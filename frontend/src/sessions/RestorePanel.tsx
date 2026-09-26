@@ -105,7 +105,14 @@ export function RestorePanel({
                   data-session-id={session.id}
                 >
                   <div className="recent-details">
-                    <strong>{session.name || "Unnamed session"}</strong>
+                    <strong>
+                      {session.name || "Unnamed session"}
+                      {session.likely_match && (
+                        <span className="restore-likely" title="Matched by folder, agent and time">
+                          likely match
+                        </span>
+                      )}
+                    </strong>
                     <span>
                       {session.reason_label} ·{" "}
                       {session.agent === "shell"

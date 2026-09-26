@@ -14,12 +14,14 @@ import "./now-strip.css";
 const LABEL: Record<NowState, string> = {
   working: "Working",
   waiting: "Wants you",
+  exited: "Agent exited",
   done: "Done",
   error: "Error",
 };
 const DOT: Record<NowState, string> = {
   working: "●",
   waiting: "◆",
+  exited: "↻",
   done: "○",
   error: "✕",
 };

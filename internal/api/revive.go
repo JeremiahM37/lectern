@@ -34,8 +34,14 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 	cid, err := s.boundNativeCID(r, row)
 	if err != nil && row.AgentExitedAt != nil {
 		// The agent already exited and nothing was saved to resume: start it
-		// again in the same folder, primed with its last handoff if any.
-		if err := s.Sessions.Kill(r.Context(), row.ID); err != nil {
+		// again in the same folder, primed with its last handoff if any. An
+		// adopted terminal is the operator's own shell, so it is released and
+		// left open rather than closed.
+		stop := s.Sessions.Kill
+		if row.Origin == "discovered" {
+			stop = s.Sessions.Release
+		}
+		if err := stop(r.Context(), row.ID); err != nil {
 			respondErr(w, err)
 			return
 		}

@@ -50,6 +50,8 @@ interface Props {
   // onRestore reopens a session a restart interrupted; onClosed offers Undo
   // after this card ends, archives or stops tracking one. Both optional.
   onRestore?: (session: SessionView) => void;
+  // onRevive restarts an agent that exited and left its terminal at a shell.
+  onRevive?: (session: SessionView) => void;
   onClosed?: (session: SessionView, text: string) => void;
   // The one pending approval for this session's PermissionRequest hold, if
   // any (docs/agent-events.md section 3). Optional so existing call sites
@@ -78,6 +80,7 @@ export function SessionCard({
   onArchive,
   onDiscover,
   onRestore,
+  onRevive,
   onClosed,
 }: Props) {
   const [progress, setProgress] = useState(""),
@@ -120,6 +123,7 @@ export function SessionCard({
     scratchPath = scratch ? s.workdir || s.workspace?.path || "" : "",
     cardTitle = scratch ? scratchTitle(s) : s.name,
     interrupted = !ended && s.status === "interrupted",
+    agentExited = !ended && !!s.agent_exited_at,
     live = !ended && s.status !== "dead" && !interrupted && !setup && !failed,
     // A blank shell is a terminal, not a conversation: chat would be a worse
     // way to drive it, so the card keeps the terminal as its one action.
@@ -230,6 +234,8 @@ export function SessionCard({
       ? "setup failed"
       : archived
         ? "archived"
+        : agentExited
+          ? "agent exited"
         : ended
           ? s.status === "dead"
             ? "ended"
@@ -467,6 +473,11 @@ export function SessionCard({
               {s.setup_cancel_requested ? "Retry cancellation" : "Cancel setup"}
             </button>
           </>
+        )}
+        {agentExited && onRevive && (
+          <button className="b ok grow revive-agent" onClick={() => onRevive(s)}>
+            ↻ Revive
+          </button>
         )}
         {interrupted && onRestore && (
           <button className="b ok grow restore-interrupted" onClick={() => onRestore(s)}>

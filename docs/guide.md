@@ -366,7 +366,10 @@ temporary databases, a separate vault, and a private tmux socket.
   nothing was saved. **Other agent…** continues it in a different agent or
   model, primed with its last handoff or the end of its conversation. Ending a
   session shows **Undo**. After a restart, sessions with a saved conversation
-  come back on their own; the rest get a one-tap banner. Terminal: `C`, `U`;
+  come back on their own and are listed in a dismissible notice; the rest get
+  a one-tap banner. An agent that quits to a shell prompt reads **agent
+  exited**, with **↻ Revive**. A lost adopted session is matched to its likely
+  conversation by folder and time when exactly one fits. Terminal: `C`, `U`;
   CLI: `lectern restore [query]`; chat: `restore_session`.
 - **Blank rooms** — start any agent CLI in a throwaway git repository with no
   project attached, for work that does not have a name yet. When it turns into

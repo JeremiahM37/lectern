@@ -72,6 +72,7 @@ launches with no arguments and no terminal still start the server.
 | Q | Manage agent runners (add custom CLIs) |
 | h / v / u | Read retained history / review a task diff / upload context |
 | C / U | Restore list (closed, archived, interrupted) / undo: reopen the session closed last |
+| R | Revive a session whose agent exited to a shell prompt |
 | f | Find running agents and add one to tracking by name |
 | 7 / 8 / 9 | Settings / usage / full API |
 | ? / q | Help / quit without stopping agents |
@@ -495,12 +496,31 @@ fails. A record another session already continued is not listed again.
   `profile_id` or `name`. A 409 with `needs_history: true` means pick a
   conversation from the history picker.
 
+**An agent that exits but leaves its terminal open** (the pane drops to a shell
+prompt) is shown as **agent exited**, not idle — on its card, in the Now strip,
+in the terminal view and in the dashboard. Lectern checks each pane's root
+process about every ten seconds: a Lectern launch runs the agent under
+`bash -c "…; exec bash"`, so a bare `bash` there means the agent returned. For
+an adopted session it looks for a shell in the foreground and no agent left on
+the terminal. **↻ Revive** (web, phone terminal, `R` in the dashboard,
+`POST /api/sessions/{id}/revive`) resumes the saved conversation in a new
+terminal, or starts the agent fresh in the same folder when none was saved.
+An adopted session's shell is yours, so Revive releases it and leaves it open
+instead of closing it.
+
 After a host restart, a Lectern-launched session with a bound conversation is
-relaunched with it automatically on the next poll. Sessions it cannot bring back
+relaunched with it automatically on the next poll. Sessions then shows
+**Relaunched N sessions after a restart**, naming each one, until you dismiss it
+(`GET /api/sessions/relaunched`, `POST /api/sessions/relaunched/dismiss`); the
+dashboard shows the same line once when it opens. Sessions it cannot bring back
 (shells, agents without a saved conversation, or a failed relaunch) stay
 **interrupted**: their cards show **↺ Restore**, and Sessions shows a banner that
 restores them all. Adopted sessions you started yourself are not relaunched; they
-appear in the list as exited.
+appear in the list as exited. When one ends, Lectern looks for the single saved
+Claude/Codex conversation in its folder whose last write falls within five
+minutes before, to two minutes after, the session's last observed activity, and
+that no other session holds. If exactly one qualifies, Restore offers **Resume**
+marked *likely match*; if none or several do, it keeps **Choose history**.
 
 ## Saved native conversations and forks
 

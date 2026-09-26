@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,5 +130,32 @@ func TestALostAdoptedSessionResumesItsLikelyConversation(t *testing.T) {
 	}
 	if out := h.reopen(other.ID, obj{}, 409); out["needs_history"] != true {
 		t.Fatalf("ambiguous: %#v", out)
+	}
+}
+
+func TestRevivingAnAdoptedExitedAgentLeavesTheShellOpen(t *testing.T) {
+	h := newHarness(t)
+	row := h.post("/api/sessions/adopt", obj{"target_id": h.firstTargetID(), "tmux_session": "legacy-claude", "workdir": "/mock/demo-app"}, 201)
+	h.setRow(row.id(), map[string]any{"created_at": store.Now() - 120, "status": "idle"})
+	h.App.Sessions.SetAgentProbeInterval(time.Millisecond)
+	h.mock().ExitPaneAgent("legacy-claude")
+	ctx := context.Background()
+	h.waitUntil("the adopted agent's exit to be noticed", func() bool {
+		h.App.Sessions.Poll(ctx)
+		return h.sessionByID(row.id())["agent_exited_at"] != nil
+	})
+	var next obj
+	h.decode("POST", fmt.Sprintf("/api/sessions/%d/revive", row.id()), obj{}, 201, &next)
+	old, _ := h.App.DB.Session(row.id())
+	if old.EndReason != sessions.EndReleased {
+		t.Fatalf("the operator's shell should be released, not closed: %q", old.EndReason)
+	}
+	for _, cmd := range h.mock().CmdLog() {
+		if strings.Contains(cmd, "kill-session") && strings.Contains(cmd, "legacy-claude") {
+			t.Fatalf("revive closed the adopted terminal: %s", cmd)
+		}
+	}
+	if next.id() == row.id() || next.str("agent") != "claude" {
+		t.Fatalf("revive: %#v", next)
 	}
 }
