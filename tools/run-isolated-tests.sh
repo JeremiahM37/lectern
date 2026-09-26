@@ -17,7 +17,7 @@ source_dir=$(readlink -f "${1:-$(dirname "${BASH_SOURCE[0]}")/..}")
 }
 
 mode=${ADK_TEST_MODE:-all}
-case "$mode" in go|e2e|frontend|all|smoke|android) ;; *) echo "ADK_TEST_MODE must be go, e2e, frontend, all, smoke, or android" >&2; exit 2 ;; esac
+case "$mode" in go|e2e|frontend|all|smoke|android|stress) ;; *) echo "ADK_TEST_MODE must be go, e2e, frontend, all, smoke, android, or stress" >&2; exit 2 ;; esac
 
 command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 command -v go >/dev/null || { echo "go is required" >&2; exit 2; }
@@ -145,6 +145,14 @@ if [[ $mode == android ]]; then
   bwrap_args+=(--ro-bind "$android_sdk" /opt/android-sdk --bind "$android_artifacts" /artifacts)
 else
   bwrap_args+=(--unshare-net)
+fi
+
+# The scale benchmark (tools/stress) writes its results to one host directory;
+# nothing else in the namespace is writable from outside.
+if [[ $mode == stress ]]; then
+  stress_out=$(readlink -m "${ADK_STRESS_OUT:?ADK_STRESS_OUT is required in stress mode}")
+  mkdir -p "$stress_out"
+  bwrap_args+=(--bind "$stress_out" /out)
 fi
 
 # A CI-created venv may point at a hosted-toolcache Python installation whose
@@ -308,6 +316,21 @@ case "$mode" in
   e2e) inner+=("[[ -x /opt/venv/bin/python ]] || { echo \"Python venv is required for e2e mode\" >&2; exit 2; }; $e2e_test_cmd") ;;
   android) inner+=('GOMAXPROCS=2 go build -o /tmp/lectern-audit ./cmd/lectern && /opt/venv/bin/python tools/android-audit-fixture.py') ;;
   frontend) inner+=("$frontend_test_cmd") ;;
+  stress)
+    stress_cmd='set -euo pipefail
+      GOMAXPROCS=4 go build -o /tmp/lectern ./cmd/lectern
+      GOMAXPROCS=4 go build -o /tmp/lectern-stress ./tools/stress
+      GOMAXPROCS=4 go test -c -o /tmp/console.test ./internal/console
+      /tmp/lectern-stress -lectern /tmp/lectern -console-test /tmp/console.test -out /out'
+    if [[ -n ${ADK_STRESS_ARGS:-} ]]; then
+      read -r -a stress_args <<<"$ADK_STRESS_ARGS"
+      for arg in "${stress_args[@]}"; do
+        printf -v quoted ' %q' "$arg"
+        stress_cmd+="$quoted"
+      done
+    fi
+    inner+=("$stress_cmd")
+    ;;
   all) inner+=("set -e; $go_test_cmd; $frontend_test_cmd; cd /src; [[ -x /opt/venv/bin/python ]] || { echo \"Python venv is required for e2e mode\" >&2; exit 2; }; $e2e_test_cmd") ;;
 esac
 
