@@ -163,6 +163,12 @@ readings.
 Lectern ships no built-in prices for any model, Claude's included (Claude
 reports its own cost), so Codex spend appears only once a price is set.
 
+Prices are edited in **Settings → Budgets → Model prices** (input, optional
+cached input, output, USD per 1M tokens; negative rates are refused). It lists
+every agent/model that reported tokens without a cost in the last 30 days and
+highlights the unpriced ones, e.g. "Codex spend isn't shown until you set a
+price for gpt-5-codex". `GET /api/model-prices` returns the same list as `seen`.
+
 Estimates are always labelled: the board and task detail show `~$0.12 est.`,
 the Usage page shows the estimated part next to each agent/model total, and
 outcomes flag the row as estimated. With no price configured nothing is
@@ -171,7 +177,7 @@ estimated, and a Codex budget still sees no spend.
 ## UI
 
 - **Settings → Budgets**: edit the overall and per-agent limits, mode and
-  thresholds.
+  thresholds, and the model price table used for Codex estimates.
 - **Usage page**: a bar per configured limit (daily/weekly, spend vs cap,
   colored by percent), reusing `GET /api/usage`'s embedded `budgets` field —
   no second request.
@@ -203,7 +209,8 @@ estimated, and a Codex budget still sees no spend.
   blocks only that agent; a per-task budget cancels a running attempt
   through the normal cancel path; the interactive-session budget note (never
   killed); `budget_usd` settable at create/dispatch/patch.
-- `e2e/test_budgets.py` — a real server, a tiny overall daily limit, real
+- `e2e/test_budgets.py` — the model price editor flags unpriced Codex
+  usage, refuses a negative rate and saves input/cached/output; and a real server, a tiny overall daily limit, real
   spend posted through the same session statusline hook fixture
   `e2e/test_usage_view.py` uses, and the Settings Budgets UI showing the
   resulting blocked state live.

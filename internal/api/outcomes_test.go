@@ -112,3 +112,36 @@ func TestModelPricesGetPutRoundtripAndValidation(t *testing.T) {
 		t.Errorf("a negative rate should be rejected, got %d", code)
 	}
 }
+
+// GET /api/model-prices lists agents/models that used tokens without a
+// reported cost, flagged by whether the table prices them yet.
+func TestModelPricesListsSeenTokenOnlyModels(t *testing.T) {
+	h := newHarness(t)
+	db := h.App.DB
+	task, _ := db.InsertTask(&store.Task{ProjectID: h.seededProjectID(), Title: "c", Agent: "codex", Model: "gpt-5-codex", Status: "done"})
+	now := store.Now()
+	if _, err := db.InsertAttempt(&store.Attempt{TaskID: task.ID, N: 1, Status: "done", FinishedAt: &now,
+		ResultJSON: `{"cost_usd":null,"input_tokens":1000,"output_tokens":10}`}); err != nil {
+		t.Fatal(err)
+	}
+	claude, _ := db.InsertTask(&store.Task{ProjectID: h.seededProjectID(), Title: "k", Agent: "claude", Status: "done"})
+	db.InsertAttempt(&store.Attempt{TaskID: claude.ID, N: 1, Status: "done", FinishedAt: &now,
+		ResultJSON: `{"cost_usd":0.5,"usage":{"input_tokens":10,"output_tokens":5}}`})
+	seen := func(body obj) []any {
+		list, _ := body["seen"].([]any)
+		return list
+	}
+	got := seen(h.get("/api/model-prices"))
+	if len(got) != 1 {
+		t.Fatalf("only the token-only codex usage should be listed: %v", got)
+	}
+	row := obj(got[0].(map[string]any))
+	if row.str("agent") != "codex" || row.str("model") != "gpt-5-codex" || row["priced"] != false || row.num("tokens") != 1010 {
+		t.Fatalf("seen row: %v", row)
+	}
+	var saved obj
+	h.decode("PUT", "/api/model-prices", obj{"prices": obj{"codex": obj{"input_per_1m": 1.25, "output_per_1m": 10}}}, 200, &saved)
+	if row := obj(seen(saved)[0].(map[string]any)); row["priced"] != true {
+		t.Fatalf("pricing the agent name should cover its models: %v", row)
+	}
+}

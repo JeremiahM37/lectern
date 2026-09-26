@@ -1,0 +1,15 @@
+.mp-grid { display: grid; gap: 6px; margin: 8px 0; }
+.mp-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.6fr) repeat(3, minmax(4.5rem, 1fr)) auto;
+  gap: 6px;
+  align-items: center;
+}
+.mp-row input { width: 100%; min-width: 0; box-sizing: border-box; }
+.mp-head { font-size: 0.8em; opacity: 0.75; }
+.model-price-missing { grid-template-columns: 1fr auto; border: 1px dashed var(--amber); border-radius: 6px; padding: 6px 8px; }
+@media (max-width: 560px) {
+  .mp-head { display: none; }
+  .mp-row:not(.model-price-missing) { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
+  .mp-row:not(.model-price-missing) > :first-child { grid-column: 1 / -1; }
+}

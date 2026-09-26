@@ -10,6 +10,8 @@ the New Session sheet — this test is about the budgets surfaces, not about
 that sheet, which test_usage_view.py already covers end to end.
 """
 import json
+import sqlite3
+import time
 import urllib.request
 
 from playwright.sync_api import expect
@@ -132,3 +134,47 @@ def test_warn_mode_does_not_block_dispatch(browser, usage_server):
 
 
 
+
+
+def test_model_price_editor_highlights_unpriced_codex_and_saves(browser, usage_server):
+    """Codex usage with no price is called out; setting input/cached/output in
+    Settings → Budgets saves through /api/model-prices and clears the notice.
+    A negative rate is refused before saving."""
+    base, db_path = usage_server
+    projects = json.load(urllib.request.urlopen(base + "/api/projects", timeout=10))
+    conn = sqlite3.connect(str(db_path))
+    try:
+        now = time.time()
+        cur = conn.execute(
+            "INSERT INTO tasks(project_id, title, status, agent, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (projects[0]["id"], "codex work", "done", "codex", "gpt-5-codex", now, now),
+        )
+        conn.execute(
+            "INSERT INTO attempts(task_id, n, status, started_at, finished_at, result_json) VALUES (?,1,'done',?,?,?)",
+            (cur.lastrowid, now - 30, now, json.dumps({"input_tokens": 120000, "cached_input_tokens": 100000, "output_tokens": 3000})),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(base)
+    _tab(page, "targets")
+    page.locator('[data-settings="budgets"]').click()
+    panel = page.locator("#model-prices")
+    notice = panel.locator("#model-prices-unpriced")
+    expect(notice).to_contain_text("Codex spend isn't shown until you set a price for gpt-5-codex", timeout=10000)
+    panel.get_by_role("button", name="Set price").click()
+    panel.get_by_label("gpt-5-codex input per 1M").fill("-1")
+    panel.get_by_label("gpt-5-codex output per 1M").fill("10")
+    expect(panel.get_by_role("alert")).to_contain_text("0 or more")
+    expect(panel.locator("#model-prices-save")).to_be_disabled()
+    panel.get_by_label("gpt-5-codex input per 1M").fill("1.25")
+    panel.get_by_label("gpt-5-codex cached per 1M").fill("0.125")
+    panel.locator("#model-prices-save").click()
+    expect(notice).to_have_count(0, timeout=10000)
+    saved = json.load(urllib.request.urlopen(base + "/api/model-prices", timeout=10))
+    assert saved["prices"]["gpt-5-codex"] == {"input_per_1m": 1.25, "output_per_1m": 10, "cached_input_per_1m": 0.125}
+    assert saved["seen"][0]["priced"] is True
+    context.close()

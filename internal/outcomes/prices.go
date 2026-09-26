@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -160,4 +162,70 @@ func EstimateResult(prices PriceConfig, agent, model string, payload map[string]
 	payload["cost_usd"] = usd
 	payload["cost_source"] = "estimated"
 	return true
+}
+
+// SeenModel is one agent/model that reported token usage but no dollar figure
+// of its own in the window: the entries a price table is for. Priced says
+// whether the current table covers it (by model, or by agent name).
+type SeenModel struct {
+	Agent  string `json:"agent"`
+	Model  string `json:"model"`
+	Tokens int64  `json:"tokens"`
+	Priced bool   `json:"priced"`
+}
+
+// SeenTokenOnlyModels lists agent/model pairs from sessions (usage_daily) and
+// finished task attempts since cutoff (unix seconds) whose usage carried
+// tokens but no reported cost — an estimate, or nothing. Most tokens first.
+func SeenTokenOnlyModels(db *store.DB, cutoff float64) ([]SeenModel, error) {
+	type key struct{ agent, model string }
+	totals := map[key]int64{}
+	date := time.Unix(int64(cutoff), 0).UTC().Format("2006-01-02")
+	rows, err := db.Query(`SELECT agent, model, SUM(input_tokens + output_tokens) FROM usage_daily
+		WHERE session_id IS NOT NULL AND date >= ? AND cost_usd - estimated_usd <= 0
+		GROUP BY agent, model HAVING SUM(input_tokens + output_tokens) > 0`, date)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k key
+		var n int64
+		if rows.Scan(&k.agent, &k.model, &n) == nil {
+			totals[k] += n
+		}
+	}
+	rows.Close()
+	rows, err = db.Query(`SELECT t.agent, COALESCE(NULLIF(a.model,''), t.model), a.result_json
+		FROM attempts a JOIN tasks t ON t.id = a.task_id
+		WHERE a.finished_at IS NOT NULL AND a.finished_at >= ? AND a.result_json != '{}'`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k key
+		var raw string
+		if rows.Scan(&k.agent, &k.model, &raw) != nil {
+			continue
+		}
+		result := store.UnjObj(raw)
+		cost, in, out := resultUsage(result)
+		if (cost > 0 && result["cost_source"] != "estimated") || in+out == 0 {
+			continue
+		}
+		totals[k] += in + out
+	}
+	rows.Close()
+	prices := LoadPrices(db)
+	out := make([]SeenModel, 0, len(totals))
+	for k, n := range totals {
+		_, priced := prices.EstimateTokens(k.agent, k.model, Tokens{Input: 1})
+		out = append(out, SeenModel{Agent: k.agent, Model: k.model, Tokens: n, Priced: priced})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tokens != out[j].Tokens {
+			return out[i].Tokens > out[j].Tokens
+		}
+		return out[i].Agent+out[i].Model < out[j].Agent+out[j].Model
+	})
+	return out, nil
 }
