@@ -44,8 +44,10 @@ def _unused_port(reserve=False) -> int:
 
 PORT = _unused_port(reserve=True)
 AUTH_PORT = _unused_port(reserve=True)
+PAIRING_PORT = _unused_port(reserve=True)
 BASE = f"http://127.0.0.1:{PORT}"
 AUTH_BASE = f"http://127.0.0.1:{AUTH_PORT}"
+PAIRING_BASE = f"http://127.0.0.1:{PAIRING_PORT}"
 _BUILD_DIR = tempfile.TemporaryDirectory(prefix="lec-e2e-build-")
 
 PHONE = {"width": 390, "height": 844}
@@ -183,6 +185,24 @@ def auth_server():
         yield AUTH_BASE
     finally:
         _stop(proc, AUTH_PORT)
+
+
+@pytest.fixture(scope="session")
+def pairing_server():
+    """A third server with a bearer token AND device pairing on, so /pair's
+    unauthenticated exchange is provably the only other way in (test_device_pairing.py)."""
+    # LECTERN_AUTH=token explicitly: this host may have a real tailscaled
+    # running, and auto-detection would otherwise resolve to tailscale mode —
+    # which trusts any loopback caller (every request Playwright makes) as
+    # KindLocal, defeating the whole point of this fixture. See "The loopback
+    # trap" in docs/remote-access.md — the exact mistake it warns about.
+    proc = _start(PAIRING_PORT, {
+        "LECTERN_AUTH": "token", "LECTERN_AUTH_TOKEN": "pairsecret123", "LECTERN_DEVICE_PAIRING": "1",
+    })
+    try:
+        yield PAIRING_BASE
+    finally:
+        _stop(proc, PAIRING_PORT)
 
 
 @pytest.fixture(scope="session")
