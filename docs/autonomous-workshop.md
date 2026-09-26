@@ -188,3 +188,23 @@ then automatically replanned after the normal cooldown. Its old plan is never
 silently rewritten into a repair authorization. Disabled mode, uncertain quota,
 active workers and corrupt/missing receipts do not take this recovery path.
 Publication restrictions and quota reserves are unchanged.
+
+## Planning context and retained backlog
+
+Planners receive a compact backlog discovery index instead of repeatedly carrying
+all historical blocker prose. Builders, reviewers and decision auditors receive
+the full selected plan and its acceptance criteria, without unrelated backlog
+entries. This changes context delivery, not the stored proposals or reports.
+
+`/backlog?view=index` returns explicitly incomplete previews, lineage identifiers
+and a content-keyed `details_uri`. Before selecting or rejecting an opportunity
+based on a preview, read `/backlog?key=KEY`: it returns the exact full proposal,
+including constraints omitted by the preview. This instruction does not establish
+eligibility or approval. Current source/ownership checks and independent audits
+still apply. Planner rewrites must retain distinct constraints/evidence while
+replacing repeated cycle-status narration with the current prerequisite.
+
+The legacy `/backlog` endpoint still returns the full current backlog. Exact-key
+lookup searches current, deferred and retained in-memory cycles; an old key may
+return404 after history rotates out, even though archived reports remain retained.
+It never substitutes another similarly titled opportunity for missing content.

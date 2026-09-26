@@ -261,6 +261,23 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Path == "/backlog" {
+			if key := r.URL.Query().Get("key"); key != "" {
+				p, ok := autoBacklogDetail(a, key)
+				if !ok {
+					http.Error(w, "exact backlog entry unavailable", 404)
+					return
+				}
+				writeJSON(w, 200, p)
+				return
+			}
+			if r.URL.Query().Get("view") == "index" {
+				if a.State == nil {
+					writeJSON(w, 200, []any{})
+				} else {
+					writeJSON(w, 200, autoBacklogIndex(a.State.Backlog))
+				}
+				return
+			}
 			if a.State == nil {
 				writeJSON(w, 200, []any{})
 			} else {
