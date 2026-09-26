@@ -392,6 +392,8 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	if o.KillOld {
 		if err := m.Kill(ctx, sess.ID); err != nil {
 			m.Log.Warn("could not retire the old session", "session", sess.ID, "err", err)
+		} else if res.Session != nil {
+			_ = m.DB.Update("sessions", sess.ID, map[string]any{"end_reason": EndHandedOff})
 		}
 	}
 	if res.Session != nil {

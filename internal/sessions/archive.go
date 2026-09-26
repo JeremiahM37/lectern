@@ -115,7 +115,11 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 		if current.EndedAt != nil {
 			ended = *current.EndedAt
 		}
-		err = m.DB.Update("sessions", id, map[string]any{"archived_at": now, "archive_text": snapshot, "ended_at": ended, "status": StatusDead, "updated_at": now})
+		fields := map[string]any{"archived_at": now, "archive_text": snapshot, "ended_at": ended, "status": StatusDead, "updated_at": now}
+		if current.EndedAt == nil {
+			fields["end_reason"] = EndStopped
+		}
+		err = m.DB.Update("sessions", id, fields)
 	}
 	if err != nil {
 		return nil, err

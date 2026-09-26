@@ -10,6 +10,18 @@ import (
 
 const StatusInterrupted = "interrupted"
 
+// End reasons recorded in sessions.end_reason. Restore uses them to say what
+// happened to a session and what reopening it brings back.
+const (
+	EndStopped   = "stopped"    // ended from Lectern: End, Kill, Stop and archive
+	EndExited    = "exited"     // the terminal went away on its own
+	EndReleased  = "released"   // tracking stopped; the process was left running
+	EndHandedOff = "handed_off" // retired after a handoff started its successor
+	EndDismissed = "dismissed"  // a dead card was dismissed
+	EndFailed    = "failed"     // the launch or its setup never completed
+	EndRestart   = "restart"    // lost to a host restart and replaced on reopen
+)
+
 func (m *Manager) recoverAfterBoot(ctx context.Context, target *store.Target, ex executor.Executor, rows []*store.Session, boot string) {
 	if boot == "" {
 		return

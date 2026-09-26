@@ -247,6 +247,11 @@ type Session struct {
 	CreatedAt            float64  `json:"created_at"`
 	UpdatedAt            float64  `json:"updated_at"`
 	EndedAt              *float64 `json:"ended_at"`
+	// EndReason says how the record ended: stopped (someone ended it),
+	// exited (its process went away on its own), released (tracking stopped,
+	// process left running), handed_off, dismissed or failed (a launch that
+	// never started). Empty on rows that ended before this column existed.
+	EndReason string `json:"end_reason,omitempty"`
 
 	// HookToken authenticates POST /api/hook/session/{id}/* (see
 	// internal/agentevents). Never serialized: it is a bearer secret handed to
