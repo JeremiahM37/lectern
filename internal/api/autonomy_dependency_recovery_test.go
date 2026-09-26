@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -260,4 +261,122 @@ func TestDeferredReviewerResumesSameAuditedLineageAfterRecovery(t *testing.T) {
 	if a.State.Cycle <= 42 {
 		t.Fatal("resuming old cycle reused a newer cycle number", a.State.Cycle)
 	}
+}
+
+// Runs the actual controller persistence/deferral/poll/resumption path against
+// the installed runner. Only this disposable capability's timer timestamps are
+// advanced; real failed downloads, verification and unchanged source are checked.
+func TestDependencyRecoveryDeferredControllerReal(t *testing.T) {
+	if os.Getenv("LECTERN_RECOVERY_TEST_RUNNER") != autoRunner {
+		t.Skip("requires explicitly selected installed runner")
+	}
+	s, a, _, _ := repairFixture(t)
+	jobID := autoUUID()
+	command := func(args ...string) []byte {
+		t.Helper()
+		out, e := exec.Command("sudo", append([]string{"-n", autoRunner}, args...)...).CombinedOutput()
+		if e != nil {
+			t.Fatalf("%v: %v %s", args, e, out)
+		}
+		return out
+	}
+	command("prepare", "--job", jobID)
+	dir := filepath.Join(autoRoot, jobID)
+	mod := []byte("module example.org/controller-recovery-" + jobID + "\n\ngo 1.23.0\nrequire github.com/google/uuid v1.6.0\n")
+	if e := os.WriteFile(filepath.Join(dir, "work/go.mod"), mod, 0600); e != nil {
+		t.Fatal(e)
+	}
+	j := &autoJob{ID: jobID, TaskID: 1001, Role: "reviewer", Status: "prepared"}
+	a.Jobs = append(a.Jobs, j)
+	a.State.Phase = autonomy.Review
+	a.State.Cycle = 101
+	a.State.Assignments = []autonomy.Assignment{{TaskID: 1000, Role: "builder", Completed: true}, {TaskID: j.TaskID, Role: "reviewer", ReportVersion: 2}}
+	originalAudits := store.J(a.State.Audits)
+	listener, e := net.Listen("unix", filepath.Join(dir, "dependency.sock"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Chmod(filepath.Join(dir, "dependency.sock"), 0666); e != nil {
+		t.Fatal(e)
+	}
+	outage := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "controlled registry outage", 503) })}
+	s.autoBridges = map[string][]*http.Server{jobID: {outage}}
+	go outage.Serve(listener)
+	defer s.closeAutoBridge(jobID)
+	advance := func(cooldown bool) {
+		t.Helper()
+		// Trusted test fixture paths only; never touch production receipts or state.
+		path := filepath.Join(filepath.Dir(autoRoot), "dependencies", "recovery-"+j.Recovery.Key, "receipt.json")
+		code := "import json,pathlib,sys;p=pathlib.Path(sys.argv[1]);d=json.loads(p.read_text());d['retry_at']=0;d['started_at']-=21601 if sys.argv[2]=='cooldown' else 0;p.write_text(json.dumps(d))"
+		mode := "retry"
+		if cooldown {
+			mode = "cooldown"
+		}
+		if out, e := exec.Command("sudo", "-n", "python3", "-c", code, path, mode).CombinedOutput(); e != nil {
+			t.Fatal(e, string(out))
+		}
+	}
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) && j.Status != "deferred" {
+		ready, err := s.recoverAutoPrerequisites(context.Background(), a, j)
+		if err != nil || ready {
+			t.Fatal("failed prerequisite incorrectly admitted", ready, err)
+		}
+		if j.Recovery.State == "waiting" || j.Recovery.State == "failed" {
+			advance(false)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if j.Status != "deferred" || j.Recovery.Attempts != 3 || len(a.DeferredRuns) != 1 {
+		t.Fatalf("not durably deferred after actual failures: %+v", j)
+	}
+	a, e = s.loadAuto()
+	if e != nil {
+		t.Fatal(e)
+	}
+	j = autoFindJob(a, 1001)
+	if len(a.DeferredRuns) != 1 || a.DeferredRuns[0].Phase != autonomy.Review || a.DeferredRuns[0].Assignments[1].Completed {
+		t.Fatal("restart lost unfinished review")
+	}
+	if autoResumeRecovered(a) {
+		t.Fatal("failed prerequisite resumed after restart")
+	}
+	advance(true)
+	// Deferral closed the outage socket. Normal polling recreates the real
+	// read-only broker and actually downloads/verifies the missing module.
+	deadline = time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) && j.Recovery.State != "verified" {
+		j.RecoveryCheckAt = time.Time{}
+		s.pollDeferredPrerequisites(context.Background(), a, time.Now())
+		if e = s.saveAuto(a); e != nil {
+			t.Fatal(e)
+		}
+		if j.Recovery.State == "failed" || j.Recovery.State == "unavailable" {
+			t.Fatal("recovered registry still failed", j.Recovery)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if j.Recovery.State != "verified" {
+		t.Fatal("controller did not verify recovered prerequisite", j.Recovery)
+	}
+	a, e = s.loadAuto()
+	if e != nil {
+		t.Fatal(e)
+	}
+	a.State.Phase = autonomy.Complete
+	if !autoResumeRecovered(a) {
+		t.Fatal("verified deferred assignment not resumed")
+	}
+	if a.State.Cycle != 101 || a.State.Phase != autonomy.Review || store.J(a.State.Audits) != originalAudits || a.State.Assignments[1].TaskID != 1001 || a.State.Assignments[1].Completed {
+		t.Fatal("resumption replaced original review or audits")
+	}
+	j = autoFindJob(a, 1001)
+	if j.Status != "prepared" || j.Approved || j.Rejected {
+		t.Fatal("preflight fabricated a review verdict or failed to prepare the retained job")
+	}
+	got, e := os.ReadFile(filepath.Join(dir, "work/go.mod"))
+	if e != nil || !bytes.Equal(got, mod) {
+		t.Fatal("recovery modified source inputs")
+	}
+	t.Log("PASS three real failures -> persisted deferred reviewer -> reload -> timed probe -> real verified bundle -> same audited review resumes; no model calls", jobID)
 }

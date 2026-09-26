@@ -344,7 +344,10 @@ packages still need separately supported remediation capabilities.
 
 Opt-in real verification: install a root-owned candidate runner, setting its
 `INSTALL` to that candidate path, then run
-`LECTERN_RECOVERY_TEST_RUNNER=/absolute/candidate go test ./internal/api -run '^TestDependencyRecovery(Cancellation)?Real$' -v`.
+`LECTERN_RECOVERY_TEST_RUNNER=/absolute/candidate go test ./internal/api -run '^TestDependencyRecovery(Cancellation|DeferredController)?Real$' -v`.
 This creates disposable jobs, downloads a public module, consumes the resulting
-cache offline, and cancels a controlled download. It calls no model API or tmux.
+cache offline, and cancels a controlled download. With the installed runner, it
+also forces three real download failures, reloads persisted deferred state, and
+verifies resumption after registry recovery. Only retry/cooldown timestamps in
+the disposable fixture are accelerated. It calls no model API or tmux.
 Ordinary project verification skips these host integration tests.
