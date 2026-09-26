@@ -330,6 +330,13 @@ func newWithClient(mode Mode, la LocalAPI, s Settings, log *slog.Logger) *Resolv
 // together because the token and tailnet-allowlist checks answer both
 // questions at once.
 func (a *Resolver) Authenticate(r *http.Request) (Principal, bool) {
+	// A relayed request is exactly the paired device that sent it, or
+	// nothing. It must never fall through to the rules below: its
+	// connection is in-process, and in mode none that would make even a
+	// revoked device the owner.
+	if resolve, ok := tunnelFrom(r.Context()); ok {
+		return resolve()
+	}
 	if tok := extractToken(r); tok != "" && tokensEqual(tok, a.token) {
 		return Principal{Kind: KindToken, Human: true}, true
 	}

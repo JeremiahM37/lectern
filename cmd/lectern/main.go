@@ -246,6 +246,7 @@ func main() {
 	}()
 
 	tlsSrv := startTLSListener(cfg, a, log)
+	a.StartRelay()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

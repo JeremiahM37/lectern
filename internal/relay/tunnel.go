@@ -72,12 +72,20 @@ type WSOpen struct {
 	URL       string   `json:"u"`
 	Host      string   `json:"host,omitempty"`
 	Protocols []string `json:"p,omitempty"`
+	Header    Header   `json:"h,omitempty"`
 }
 
 // WSOpened confirms a WSOpen.
 type WSOpened struct {
 	Protocol string `json:"p,omitempty"`
 }
+
+// WebSocket messages larger than MaxChunk span several frames. The first
+// payload byte of FrameWSText/FrameWSBinary says whether more follow.
+const (
+	WSFinal byte = 0
+	WSMore  byte = 1
+)
 
 // WSClose ends a tunnelled WebSocket.
 type WSClose struct {

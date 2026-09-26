@@ -652,6 +652,40 @@ CREATE TABLE IF NOT EXISTS pairing_devices(
   paired_at REAL NOT NULL,
   last_seen_at REAL NOT NULL
 );
+-- End-to-end encrypted relay (internal/relay/host, docs/relay.md). The host's
+-- own keys (one row), pending pairings (code and route token hashed, like
+-- pairing_codes) and paired relay devices, identified by their X25519 public
+-- key. The device's private key never leaves the phone.
+CREATE TABLE IF NOT EXISTS relay_identity(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  route_key BLOB NOT NULL,
+  noise_private BLOB NOT NULL,
+  noise_public BLOB NOT NULL,
+  shell_key BLOB NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS relay_pairings(
+  code_hash TEXT PRIMARY KEY,
+  route_hash TEXT NOT NULL,
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  owner_human INTEGER NOT NULL DEFAULT 0,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS relay_devices(
+  id INTEGER PRIMARY KEY,
+  public_key TEXT UNIQUE NOT NULL,
+  route_hash TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  owner_human INTEGER NOT NULL DEFAULT 0,
+  paired_at REAL NOT NULL,
+  last_seen_at REAL NOT NULL
+);
 `
 
 // migrations are additive: they bring a database created by an older build up to
