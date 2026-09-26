@@ -11,6 +11,8 @@
 # driver can compute the round trip.
 log_dir=__STRESS_LOG_DIR__
 interval=__STRESS_APPROVAL_EVERY__
+# 1: redraw a clock every second, so every status poll sees the pane change
+heartbeat=__STRESS_HEARTBEAT__
 settings=""
 prev=""
 for arg in "$@"; do
@@ -32,8 +34,15 @@ post() {  # post EVENT JSON MAXTIME -> prints body
 
 printf '\033[1mClaude Code (stress stand-in)\033[0m  %s\n\n' "$name"
 [ -n "$hook_base" ] && post SessionStart '{"hook_event_name":"SessionStart","source":"startup"}' 8 >/dev/null
+nap() {  # sleep $1 whole seconds, redrawing the clock each second if asked
+  if [ "$heartbeat" = 1 ]; then
+    for ((i = 0; i < $1; i++)); do printf '\r❯ %(%T)T ' -1; sleep 1; done
+  else
+    sleep "$1"
+  fi
+}
 # spread the first request across one interval so N agents do not all ask at once
-sleep "$(awk -v s="$RANDOM" -v i="$interval" 'BEGIN{printf "%.2f", (s%1000)/1000*i}')"
+nap $((RANDOM % (interval > 0 ? interval : 1)))
 seq=0
 while true; do
   seq=$((seq+1))
@@ -61,6 +70,6 @@ except Exception: print("none")' 2>/dev/null)
     post Stop '{"hook_event_name":"Stop"}' 8 >/dev/null
   fi
   printf '  ⎿ %s: %s\n\n❯ ' "$cmd" "${decision:-no hook}"
-  sleep "$interval"
+  nap "$interval"
   printf '\n'
 done

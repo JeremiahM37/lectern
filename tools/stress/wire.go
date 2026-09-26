@@ -79,11 +79,23 @@ func streamSSE(base, path string, stop <-chan struct{}, fn func(sseEvent)) error
 // output arrives. It is a deliberately minimal RFC 6455 client: text frames
 // out, any frames in.
 func ttydFirstOutput(base, termPath string, timeout time.Duration) (time.Duration, error) {
+	d, conn, _, err := ttydOpen(base, termPath, timeout)
+	if err != nil {
+		return 0, err
+	}
+	writeFrame(conn, 0x8, nil)
+	conn.Close()
+	return d, nil
+}
+
+// ttydOpen is ttydFirstOutput leaving the connection open, for holding a
+// terminal the way an open browser tab does.
+func ttydOpen(base, termPath string, timeout time.Duration) (time.Duration, net.Conn, *bufio.Reader, error) {
 	start := time.Now()
 	deadline := start.Add(timeout)
 	resp, err := (&http.Client{Timeout: timeout}).Get(base + termPath + "token")
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
 	var tok struct {
 		Token string `json:"token"`
@@ -91,14 +103,19 @@ func ttydFirstOutput(base, termPath string, timeout time.Duration) (time.Duratio
 	err = json.NewDecoder(resp.Body).Decode(&tok)
 	resp.Body.Close()
 	if err != nil {
-		return 0, fmt.Errorf("terminal token: %w", err)
+		return 0, nil, nil, fmt.Errorf("terminal token: %w", err)
 	}
 	u, _ := url.Parse(base + termPath + "ws")
 	conn, err := net.DialTimeout("tcp", u.Host, timeout)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	defer conn.Close()
+	ok := false
+	defer func() {
+		if !ok {
+			conn.Close()
+		}
+	}()
 	conn.SetDeadline(deadline)
 	keyRaw := make([]byte, 16)
 	rand.Read(keyRaw)
@@ -109,15 +126,15 @@ func ttydFirstOutput(base, termPath string, timeout time.Duration) (time.Duratio
 	br := bufio.NewReader(conn)
 	status, err := br.ReadString('\n')
 	if err != nil {
-		return 0, fmt.Errorf("websocket handshake: %w", err)
+		return 0, nil, nil, fmt.Errorf("websocket handshake: %w", err)
 	}
 	if !strings.Contains(status, " 101 ") {
-		return 0, fmt.Errorf("websocket handshake: %s", strings.TrimSpace(status))
+		return 0, nil, nil, fmt.Errorf("websocket handshake: %s", strings.TrimSpace(status))
 	}
 	for {
 		line, err := br.ReadString('\n')
 		if err != nil {
-			return 0, err
+			return 0, nil, nil, err
 		}
 		if line == "\r\n" {
 			break
@@ -125,21 +142,22 @@ func ttydFirstOutput(base, termPath string, timeout time.Duration) (time.Duratio
 	}
 	init, _ := json.Marshal(map[string]any{"AuthToken": tok.Token, "columns": 120, "rows": 40})
 	if err := writeFrame(conn, 0x1, init); err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
 	for {
 		op, payload, err := readFrame(br)
 		if err != nil {
-			return 0, fmt.Errorf("waiting for output: %w", err)
+			return 0, nil, nil, fmt.Errorf("waiting for output: %w", err)
 		}
 		if op == 0x8 {
-			return 0, fmt.Errorf("terminal closed before any output")
+			return 0, nil, nil, fmt.Errorf("terminal closed before any output")
 		}
 		// ttyd prefixes output with '0'; titles and preferences use other codes
 		if (op == 0x1 || op == 0x2) && len(payload) > 1 && payload[0] == '0' {
 			d := time.Since(start)
-			writeFrame(conn, 0x8, nil)
-			return d, nil
+			conn.SetDeadline(time.Time{})
+			ok = true
+			return d, conn, br, nil
 		}
 	}
 }

@@ -41,6 +41,9 @@ type options struct {
 	sseClients, attachSamples, launchParallel  int
 	cpuCores                                   int
 	plainDirs                                  bool
+	hangAt                                     time.Duration
+	holdTerminals                              int
+	terminalPorts                              string
 }
 
 func main() {
@@ -59,6 +62,9 @@ func main() {
 	flag.IntVar(&o.attachSamples, "attach-samples", 10, "sessions to open a web terminal on, per tier")
 	flag.IntVar(&o.launchParallel, "launch-parallel", 8, "concurrent session launches")
 	flag.BoolVar(&o.plainDirs, "plain-dirs", false, "run agents in plain directories instead of worktrees of one git repository per target")
+	flag.DurationVar(&o.hangAt, "hang-at", 0, "freeze the first SSH target this far into the window (0: never) and measure the others' status freshness")
+	flag.IntVar(&o.holdTerminals, "hold-terminals", 0, "open this many web terminals at once, keep them all open, and count how many stay connected")
+	flag.StringVar(&o.terminalPorts, "terminal-ports", "", "LECTERN_TERMINAL_PORTS for the instance under test (LO-HI)")
 	flag.IntVar(&o.cpuCores, "cpu-cores", 0, "CPU quota of the namespace, recorded in the report (run.sh sets it)")
 	flag.Parse()
 	for _, t := range strings.Split(tiers, ",") {
@@ -78,7 +84,7 @@ func main() {
 		"tiers": o.tiers, "ssh_targets": o.sshTargets, "window_s": o.window.Seconds(),
 		"approval_every_s": o.approvalEvery.Seconds(), "sse_clients": o.sseClients,
 		"attach_samples": o.attachSamples, "launch_parallel": o.launchParallel,
-		"plain_dirs": o.plainDirs,
+		"plain_dirs": o.plainDirs, "hang_at_s": o.hangAt.Seconds(), "hold_terminals": o.holdTerminals, "terminal_ports": o.terminalPorts,
 	}}
 	if o.cpuCores > 0 {
 		report.Host["cpu_quota_cores"] = o.cpuCores
@@ -142,6 +148,9 @@ type TierResult struct {
 	AttachErrors   []string `json:"attach_errors,omitempty"`
 
 	TUI json.RawMessage `json:"tui,omitempty"`
+
+	Hang *HangResult `json:"unreachable_target,omitempty"`
+	Hold *HoldResult `json:"held_terminals,omitempty"`
 
 	Usage      Usage          `json:"lectern_process"`
 	Teardown   Stats          `json:"session_delete"`
@@ -320,9 +329,27 @@ func runTier(o options, n int) (res TierResult, err error) {
 	res.ActiveAtStart = t.countActive(ids, "")
 
 	// Steady-state window.
+	var hw *hangWatch
+	mine := map[int64]bool{}
+	for _, id := range ids {
+		mine[id] = true
+	}
+	healthy := ids
+	if o.hangAt > 0 && len(t.fixture) > 0 {
+		hw = &hangWatch{target: "ssh-1"}
+		healthy = t.idsNotOn(ids, hw.target)
+	}
 	appr.open()
 	samp := startSampler(t.cmd.Process.Pid)
-	windowEnd := time.Now().Add(o.window)
+	windowStart := time.Now()
+	windowEnd := windowStart.Add(o.window)
+	if hw != nil {
+		go func() {
+			time.Sleep(time.Until(windowStart.Add(o.hangAt)))
+			log.Printf("freezing %s", hw.target)
+			hw.freeze(t.fixture[0].Process.Pid)
+		}()
+	}
 	var wg sync.WaitGroup
 	list := &series{}
 	var listBytes, listErrs atomic.Int64
@@ -337,6 +364,9 @@ func runTier(o options, n int) (res TierResult, err error) {
 			} else {
 				list.add(d)
 				listBytes.Store(int64(len(body)))
+				if hw != nil {
+					hw.observe(time.Now(), body, mine)
+				}
 			}
 			time.Sleep(250 * time.Millisecond)
 		}
@@ -358,13 +388,28 @@ func runTier(o options, n int) (res TierResult, err error) {
 	}()
 	// Terminal attach and the TUI run inside the window so they see the load.
 	time.Sleep(o.window / 4)
-	res.AttachPost, res.AttachFirstOut, res.AttachTotal, res.AttachErrors = t.attach(ids)
+	res.AttachPost, res.AttachFirstOut, res.AttachTotal, res.AttachErrors = t.attach(healthy)
+	if o.holdTerminals > 0 {
+		res.Hold = t.holdTerminals(healthy, o.holdTerminals)
+	}
 	res.TUI = t.tui()
 	wg.Wait()
 	for time.Now().Before(windowEnd) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	res.Usage = samp.finish()
+	if hw != nil {
+		hw.resume(t.fixture[0].Process.Pid)
+		for limit := time.Now().Add(90 * time.Second); time.Now().Before(limit); time.Sleep(250 * time.Millisecond) {
+			if code, body, _, err := t.do("GET", "/api/sessions", nil); err == nil && code == 200 {
+				hw.observe(time.Now(), body, mine)
+			}
+			if r := hw.result(); r.SecondsToRecover >= 0 {
+				break
+			}
+		}
+		res.Hang = hw.result()
+	}
 	appr.close()
 	res.ActiveAtEnd = t.countActive(ids, "")
 	res.List, res.ListBytes, res.ListErrors = list.stats(), int(listBytes.Load()), int(listErrs.Load())
@@ -396,8 +441,13 @@ func runTier(o options, n int) (res TierResult, err error) {
 func (t *tier) start() error {
 	logDir := filepath.Join(t.dir, "agent-logs")
 	os.MkdirAll(logDir, 0o755)
+	heartbeat := "0"
+	if t.o.hangAt > 0 {
+		heartbeat = "1"
+	}
 	agent := strings.NewReplacer("__STRESS_LOG_DIR__", logDir,
-		"__STRESS_APPROVAL_EVERY__", strconv.Itoa(int(t.o.approvalEvery.Seconds()))).Replace(fakeClaude)
+		"__STRESS_APPROVAL_EVERY__", strconv.Itoa(int(t.o.approvalEvery.Seconds())),
+		"__STRESS_HEARTBEAT__", heartbeat).Replace(fakeClaude)
 	agentPath := filepath.Join(t.dir, "claude")
 	if err := os.WriteFile(agentPath, []byte(agent), 0o755); err != nil {
 		return err
@@ -459,6 +509,9 @@ func (t *tier) start() error {
 		"LECTERN_SCRATCH_ROOT="+filepath.Join(t.dir, "scratch"),
 		"LECTERN_BASE_URL="+t.base,
 	)
+	if t.o.terminalPorts != "" {
+		cmd.Env = append(cmd.Env, "LECTERN_TERMINAL_PORTS="+t.o.terminalPorts)
+	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -604,6 +657,29 @@ func (t *tier) countActive(ids []int64, want string) int {
 	return n
 }
 
+// idsNotOn returns the launched sessions that are not on the named target.
+func (t *tier) idsNotOn(ids []int64, targetName string) []int64 {
+	_, body, _, err := t.do("GET", "/api/sessions", nil)
+	if err != nil {
+		return ids
+	}
+	var rows []listRow
+	json.Unmarshal(body, &rows)
+	on := map[int64]bool{}
+	for _, r := range rows {
+		if r.TargetName == targetName {
+			on[r.ID] = true
+		}
+	}
+	var out []int64
+	for _, id := range ids {
+		if !on[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // attach opens a web terminal on a sample of sessions spread over targets.
 func (t *tier) attach(ids []int64) (post, first, total Stats, errs []string) {
 	ps, fs, ts := &series{}, &series{}, &series{}
@@ -719,6 +795,7 @@ func (t *tier) teardown() {
 	}
 	for _, f := range t.fixture {
 		if f.Process != nil {
+			f.Process.Signal(syscall.SIGCONT) // a frozen fixture cannot act on SIGTERM
 			f.Process.Signal(syscall.SIGTERM)
 			f.Wait()
 		}
