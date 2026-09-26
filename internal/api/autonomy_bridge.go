@@ -263,6 +263,9 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, rows)
 		return
+	case "/test-runtime":
+		writeJSON(w, 200, autoPythonTestRuntime(filepath.Join(filepath.Dir(autoRoot), "dependencies", "python")))
+		return
 	case "/dependencies":
 		writeJSON(w, 200, autoDependencyCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies", "go")))
 		return

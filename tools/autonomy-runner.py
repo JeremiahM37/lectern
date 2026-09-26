@@ -300,6 +300,7 @@ def bwrap(p, provider, assets, work, bridges):
                 '--setenv', 'GOTOOLCHAIN', 'local', '--setenv', 'GOENV', 'off',
                 '--setenv', 'GOWORK', 'off',
                 '--setenv', 'PATH', '/usr/local/go/bin:/usr/bin:/bin']
+    cmd += python_test_runtime_mount()
     cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
             '--tmpfs', '/home', '--dir', '/home/agent', '--dir', '/etc',
             '--ro-bind', '/etc/ssl/certs', '/etc/ssl/certs',
@@ -713,6 +714,78 @@ def storage_status():
     free = shutil.disk_usage(ROOT).free
     return {'ready': used < STORAGE_LIMIT and free >= 20 * 1024**3,
             'allocated_bytes': used, 'limit_bytes': STORAGE_LIMIT, 'free_bytes': free}
+
+
+def python_test_runtime_mount():
+    # Optional tooling must not prevent unrelated workers from launching. An
+    # invalid bundle is never mounted; its unavailability is explicit in-worker.
+    try:
+        bundle = python_test_bundle()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+        return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'unavailable',
+                '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_REASON', reason[:200]]
+    if bundle is None:
+        return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'not_provisioned']
+    return ['--ro-bind', str(bundle / 'site-packages'), '/opt/python-test',
+            '--ro-bind', str(bundle / 'manifest.json'), '/opt/python-test-runtime.json',
+            '--setenv', 'PYTHONPATH', '/opt/python-test',
+            '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
+            '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
+
+
+def python_test_bundle():
+    root = DEPENDENCIES / 'python'
+    active = root / 'active.json'
+    if not active.exists() and not active.is_symlink():
+        return None
+    def trusted(path, directory=False):
+        st = path.lstat()
+        expected = stat.S_ISDIR(st.st_mode) if directory else stat.S_ISREG(st.st_mode)
+        if not expected or st.st_uid != 0 or st.st_mode & (0o022 if directory else 0o222):
+            raise ValueError('unsafe Python runtime path')
+        return st
+    for path in (DEPENDENCIES, root): trusted(path, True)
+    if trusted(active).st_size > 1024: raise ValueError('oversized Python runtime selection')
+    key = json.loads(active.read_text()).get('key', '')
+    if len(key) != 64 or any(c not in '0123456789abcdef' for c in key):
+        raise ValueError('invalid Python runtime key')
+    bundle = root / key
+    site = bundle / 'site-packages'
+    trusted(bundle, True); trusted(site, True)
+    manifest = bundle / 'manifest.json'
+    if trusted(manifest).st_size > 2 * 1024**2: raise ValueError('oversized Python runtime manifest')
+    data = json.loads(manifest.read_text())
+    identity = dict(data); identity.pop('key', None)
+    actual = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if data.get('key') != key or actual != key or data.get('kind') != 'python-test-runtime' or data.get('schema_version') != 1 or data.get('checksum_verified') is not True:
+        raise ValueError('Python runtime provenance mismatch')
+    if data.get('runtime_family') != 'python' + '.'.join(map(str, sys.version_info[:2])):
+        raise ValueError('Python runtime interpreter mismatch')
+    if set(data.get('packages', {})) != {'pytest', 'pluggy', 'iniconfig', 'packaging', 'pygments'}:
+        raise ValueError('unexpected Python runtime packages')
+    rows = data.get('files', [])
+    if not rows or len(rows) > 10000: raise ValueError('Python runtime file limit')
+    seen = set(); total = 0
+    for row in rows:
+        name = row['path']; parts = name.split('/')
+        if not name or name.startswith('/') or any(p in ('', '.', '..') for p in parts) or '\\' in name or name in seen:
+            raise ValueError('unsafe Python runtime member')
+        seen.add(name); item = site / name
+        for parent in item.parents:
+            if parent == site: break
+            trusted(parent, True)
+        st = trusted(item)
+        total += st.st_size
+        if total > 64 * 1024**2 or st.st_size != row['size'] or digest_file(item) != row['sha256']:
+            raise ValueError('Python runtime content mismatch')
+    actual_files = set()
+    for item in site.rglob('*'):
+        if item.is_dir() and not item.is_symlink(): trusted(item, True)
+        else:
+            trusted(item); actual_files.add(item.relative_to(site).as_posix())
+    if actual_files != seen: raise ValueError('unlisted Python runtime content')
+    return bundle
 
 
 def go_dependency_key(work):

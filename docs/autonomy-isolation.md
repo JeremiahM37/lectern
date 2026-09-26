@@ -369,3 +369,28 @@ preserving the original WORKSHOP document. This is a validation primitive only:
 there is currently no scheduler allowance for exhausted documentary repairs.
 Reservation, admission and reconstructed-review integration must be implemented
 before that capability can launch work. It grants no approval or public consent.
+
+### Offline Python test tooling
+
+`tools/provision-python-test-bundle.py` builds a fixed pytest runtime from the
+trusted installed verification environment, checking installed RECORD hashes
+without importing package code or accessing the network. Only pytest, pluggy,
+iniconfig, packaging and pygments are copied. This proves consistency with that
+local environment, not independent registry authenticity. The immutable bundle
+has a content-addressed key, per-file hashes and read-only files. A root-owned
+`dependencies/python/active.json` selects it; workers cannot select host paths.
+
+The runner verifies ownership, manifest identity, interpreter family and every
+file before mounting it read-only. `python3 -m pytest` uses this runtime through
+PYTHONPATH. `/test-runtime` advertises provisioned versions; the worker's
+`LECTERN_PYTHON_TEST_RUNTIME_STATUS` and `/opt/python-test-runtime.json` describe
+what was actually mounted. Invalid optional tooling is omitted with an explicit
+reason, so a Python upgrade cannot stop unrelated Go or planning work. Existing
+workers retain their launch environment. This does not supply Django, project
+requirements, browser dependencies or arbitrary installation rights.
+
+Reversible technical choices in isolated private work are delegated. Material
+tradeoffs still use independent decision audits; explicit user decisions and
+public/destructive/core-policy boundaries remain binding. Unclear access policy
+permits investigation and conservative candidates without widening privileges
+or exposing additional data; it does not imply permission to apply to production.

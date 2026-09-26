@@ -372,4 +372,48 @@ class ReadOnlyEvidenceTests(unittest.TestCase):
  def test_no_evidence_keeps_ordinary_workspace(self):
   with tempfile.TemporaryDirectory() as tmp:self.assertEqual(r.review_evidence_mount(tmp),[])
 
+class PythonRuntimeTests(unittest.TestCase):
+ def setUp(self):
+  import os, json, hashlib, sys
+  self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+  self.dependencies=self.root/'dependencies';self.dependencies.mkdir();self.catalog=self.dependencies/'python';self.catalog.mkdir()
+  self.data={'schema_version':1,'kind':'python-test-runtime','runtime_family':'python'+'.'.join(map(str,sys.version_info[:2])),'checksum_verified':True,'packages':dict.fromkeys(['pytest','pluggy','iniconfig','packaging','pygments'],'test'),'files':[{'path':'pytest.py','size':4,'sha256':hashlib.sha256(b'test').hexdigest()}]}
+  self.key=hashlib.sha256(json.dumps(self.data,sort_keys=True,separators=(',',':')).encode()).hexdigest();self.data['key']=self.key
+  self.bundle=self.catalog/self.key;self.bundle.mkdir();self.site=self.bundle/'site-packages';self.site.mkdir()
+  (self.site/'pytest.py').write_bytes(b'test');(self.site/'pytest.py').chmod(0o444)
+  (self.bundle/'manifest.json').write_text(json.dumps(self.data));(self.bundle/'manifest.json').chmod(0o444)
+  (self.catalog/'active.json').write_text(json.dumps({'key':self.key}));(self.catalog/'active.json').chmod(0o444)
+  p=patch.object(r,'DEPENDENCIES',self.dependencies);p.start();self.addCleanup(p.stop)
+  # Model trusted root provisioning without requiring privilege in the unit suite.
+  original=Path.lstat
+  def owned(path):
+   st=original(path);fields=list(st);fields[4]=0;return os.stat_result(fields)
+  p=patch.object(Path,'lstat',owned);p.start();self.addCleanup(p.stop)
+ def test_verified_bundle_selected_and_tamper_refused(self):
+  self.assertEqual(r.python_test_bundle(),self.bundle)
+  file=self.site/'pytest.py';file.chmod(0o644);file.write_bytes(b'evil');file.chmod(0o444)
+  with self.assertRaises(ValueError):r.python_test_bundle()
+ def test_unlisted_and_writable_files_refused(self):
+  extra=self.site/'injected.py';extra.write_text('bad');extra.chmod(0o444)
+  with self.assertRaises(ValueError):r.python_test_bundle()
+  extra.unlink();(self.site/'pytest.py').chmod(0o644)
+  with self.assertRaises(ValueError):r.python_test_bundle()
+ def test_symlink_member_refused(self):
+  file=self.site/'pytest.py';file.unlink();file.symlink_to('/etc/passwd')
+  with self.assertRaises(ValueError):r.python_test_bundle()
+ def test_pointer_escape_and_identity_mismatch_refused(self):
+  import json
+  active=self.catalog/'active.json';active.chmod(0o644);active.write_text('{"key":"../../escape"}');active.chmod(0o444)
+  with self.assertRaises(ValueError):r.python_test_bundle()
+  active.chmod(0o644);active.write_text(json.dumps({'key':self.key}));active.chmod(0o444)
+  manifest=self.bundle/'manifest.json';manifest.chmod(0o644);self.data['runtime_family']='python0.0';manifest.write_text(json.dumps(self.data));manifest.chmod(0o444)
+  with self.assertRaises(ValueError):r.python_test_bundle()
+ def test_invalid_optional_bundle_does_not_block_unrelated_work(self):
+  with patch.object(r,'python_test_bundle',side_effect=ValueError('Python runtime interpreter mismatch')):
+   args=r.python_test_runtime_mount()
+  self.assertNotIn('--ro-bind',args);self.assertNotIn('PYTHONPATH',args)
+  self.assertIn('unavailable',args);self.assertIn('Python runtime interpreter mismatch',args)
+ def test_absent_is_not_claimed_available(self):
+  (self.catalog/'active.json').unlink();self.assertIsNone(r.python_test_bundle())
+
 if __name__ == "__main__": unittest.main()
