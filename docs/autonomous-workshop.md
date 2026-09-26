@@ -261,3 +261,9 @@ existing cap; exhaustion completes without a build. OFF/quota gates and repair
 lineage rules remain unchanged. In-flight legacy planners can submit their old
 schema, but their empty reports still receive both audits, with missing evidence
 visible to the auditors. Historical completed cycles are not rewritten.
+
+### Fresh repository discovery
+
+Workers can query `GET /research/search?q=...` on their existing read-only bridge. The controller searches GitHub public repository metadata using a fixed unauthenticated GET endpoint, returns at most ten results, and permits four calls per minute shared across workers. It forwards no worker credentials, headers or bodies and refuses redirects. Queries are limited to 300 bytes. Provider errors, malformed/oversized responses and rate limits are explicit failures, never successful empty searches. `incomplete_results` is preserved.
+
+Results include query, upstream status, retrieval time and a hash of the original response. These are unsigned metadata, not independently verifiable receipts; saved worker copies can be changed, and the hash does not cover the projected result JSON. Auditors should repeat important searches and inspect primary source files through `/research`. This is repository discovery, not comprehensive web/literature search and not evidence of novelty or feasibility. General Grimoire search configuration is unchanged.
