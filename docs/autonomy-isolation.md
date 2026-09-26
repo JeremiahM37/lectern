@@ -351,3 +351,21 @@ also forces three real download failures, reloads persisted deferred state, and
 verifies resumption after registry recovery. Only retry/cooldown timestamps in
 the disposable fixture are accelerated. It calls no model API or tmux.
 Ordinary project verification skips these host integration tests.
+
+### Planner evidence for plan audits
+
+Plan auditors receive a separate snapshot of the completed planner for their
+exact revision, item and step, at `.lectern-review/PLANNER_JOB/work`, with a
+controller-generated file manifest in its parent directory. Both auditors get
+the same planner evidence; their verdicts and working directories are not shared.
+The runner mounts `.lectern-review` read-only for all new and resumed workers,
+including historical evidence supplied to repairs. Run experiments from disposable
+copies. A symlink's external target is not protected by that read-only mount:
+validate regular-file hashes or establish the target's provenance separately.
+
+A documentary overlay validator also exists in `internal/autonomy`. It can
+reconstruct a frozen source tree plus bounded Markdown/text corrections while
+preserving the original WORKSHOP document. This is a validation primitive only:
+there is currently no scheduler allowance for exhausted documentary repairs.
+Reservation, admission and reconstructed-review integration must be implemented
+before that capability can launch work. It grants no approval or public consent.

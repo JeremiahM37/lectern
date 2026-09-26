@@ -335,4 +335,41 @@ class ArtifactTests(unittest.TestCase):
    self.assertIn('--property=RuntimeMaxSec=600',cmd)
    self.assertEqual(cmd[-3:],['_snapshot','--job',self.job])
 
+class ReadOnlyEvidenceTests(unittest.TestCase):
+ def test_both_auditors_receive_same_planner_files_and_manifest(self):
+  import uuid, os, json
+  from types import SimpleNamespace
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);source=str(uuid.uuid4());a=str(uuid.uuid4());b=str(uuid.uuid4())
+   for job in (source,a,b):(root/job/'work').mkdir(parents=True)
+   (root/source/'work'/'proof.txt').write_text('specific planner observation')
+   (root/source/'work'/'autonomy-report.json').write_text('{"items":[]}')
+   with patch.object(r,'ROOT',root),patch.object(r,'ensure_work',side_effect=lambda p:p/'work'),patch.object(r,'status',return_value={'state':'done'}),patch.object(r.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid())):
+    r.copy_job(a,source,review=True)
+    (root/a/'work'/'autonomy-report.json').write_text('AUDITOR A PRIVATE VERDICT')
+    r.copy_job(b,source,review=True)
+   first=root/a/'work/.lectern-review'/source;second=root/b/'work/.lectern-review'/source
+   self.assertEqual((first/'manifest.json').read_bytes(),(second/'manifest.json').read_bytes())
+   self.assertEqual((second/'work/proof.txt').read_text(),'specific planner observation')
+   self.assertEqual((second/'work/autonomy-report.json').read_text(),'{"items":[]}')
+   self.assertFalse((root/b/'work/autonomy-report.json').exists())
+ def test_snapshot_is_readable_but_not_replaceable_in_real_namespace(self):
+  import subprocess, sys
+  with tempfile.TemporaryDirectory() as tmp:
+   work=Path(tmp)/'work';work.mkdir();evidence=work/'.lectern-review';evidence.mkdir()
+   (evidence/'finding.txt').write_text('retained planner evidence')
+   args=r.review_evidence_mount(work)
+   command=['bwrap','--unshare-all','--die-with-parent','--ro-bind','/usr','/usr','--ro-bind','/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--bind',str(work),'/work']+args+['--','/usr/bin/python3','-c',
+    "from pathlib import Path; p=Path('/work/.lectern-review/finding.txt'); assert p.read_text()=='retained planner evidence'; Path('/work/probe.txt').write_text('writable'); failures=0\nfor op in [lambda:p.write_text('tamper'),lambda:p.unlink(),lambda:p.chmod(0o777),lambda:Path('/work/.lectern-review').rename('/work/moved')]:\n try:op()\n except OSError:failures+=1\nassert failures==4,failures"]
+   result=subprocess.run(command,capture_output=True,text=True,timeout=10)
+   self.assertEqual(result.returncode,0,result.stderr)
+   self.assertEqual((evidence/'finding.txt').read_text(),'retained planner evidence')
+   self.assertEqual((work/'probe.txt').read_text(),'writable')
+ def test_mount_refuses_symlink_root(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   work=Path(tmp);(work/'.lectern-review').symlink_to('/tmp')
+   with self.assertRaises(ValueError):r.review_evidence_mount(work)
+ def test_no_evidence_keeps_ordinary_workspace(self):
+  with tempfile.TemporaryDirectory() as tmp:self.assertEqual(r.review_evidence_mount(tmp),[])
+
 if __name__ == "__main__": unittest.main()

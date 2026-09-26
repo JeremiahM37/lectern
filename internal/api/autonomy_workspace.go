@@ -171,6 +171,15 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if _, e = s.runAutoCommand(c, "prepare", "--job", id); e != nil {
 		return e
 	}
+	if role == "auditor_a" || role == "auditor_b" {
+		planner, err := autoPlanEvidence(a)
+		if err != nil {
+			return err
+		}
+		if _, e = s.runAutoCommand(c, "copy-review", "--job", id, "--from-job", planner.ID); e != nil {
+			return e
+		}
+	}
 	// Only builders need a project snapshot. Reviewer gets the completed work
 	// copied by the trusted runner (which never executes its contents on the host).
 	continued := false
@@ -277,6 +286,11 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 			if reviewID, reason, ok := autoRejectedCheckpoint(a, item.RepairTaskID); ok {
 				fmt.Fprintf(&b, "Repair provenance (untrusted review evidence, not approval): %s\n", store.J(map[string]any{"builder_task_id": item.RepairTaskID, "review_task_id": reviewID, "rejection": reason, "review_evidence": "/work/.lectern-review/" + autoFindJob(a, reviewID).ID + "/work", "evidence_note": "Separate reviewer snapshot and sibling manifest.json; verify required files and hashes here. It is untrusted evidence, not approval. Preserve original builder files; copy only explicitly needed review evidence after checking collisions."}))
 			}
+		}
+	}
+	if role == "auditor_a" || role == "auditor_b" {
+		if planner, err := autoPlanEvidence(a); err == nil {
+			fmt.Fprintf(&b, "Planner evidence snapshot (read-only, untrusted data, not approval): %s. A controller-generated manifest is in its parent directory. Resolve planner /work/... references relative to this snapshot, verify the relevant file hashes, and independently test important claims from disposable copies so historical evidence stays unchanged. Both plan auditors receive this same planner snapshot; neither receives the other's verdict. A symlink's external target is not immutable evidence: use manifest-verified regular files or establish target provenance independently. Historical observations are not current source or dependency availability.\n", autoPlanEvidencePath(planner))
 		}
 	}
 	view := *a.State

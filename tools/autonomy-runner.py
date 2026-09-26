@@ -272,6 +272,14 @@ def properties():
             'IPAddressDeny=' + ' '.join(addresses()), 'UMask=0077',
             'LimitFSIZE=268435456']
 
+def review_evidence_mount(work):
+    evidence = Path(work) / '.lectern-review'
+    if evidence.is_symlink() or (evidence.exists() and not evidence.is_dir()):
+        raise ValueError('review evidence root must be a real directory')
+    if evidence.exists():
+        return ['--ro-bind', str(evidence), '/work/.lectern-review']
+    return []
+
 def bwrap(p, provider, assets, work, bridges):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
@@ -301,6 +309,7 @@ def bwrap(p, provider, assets, work, bridges):
             '--ro-bind', str(assets / 'nsswitch.conf'), '/etc/nsswitch.conf',
                         '--ro-bind', str(assets / 'prompt.txt'), '/prompt.txt',
             '--bind', str(work), '/work', '--chdir', '/work']
+    cmd += review_evidence_mount(work)
     cmd += ['--ro-bind', str(bridges), '/bridges',
             '--symlink', '/bridges/network.sock', '/network.sock',
             '--symlink', '/bridges/bridge.sock', '/bridge.sock']
