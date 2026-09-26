@@ -133,6 +133,13 @@ func main() {
 			}
 			return
 		case "mcp":
+			if hasFlag(os.Args[2:], "--http") {
+				if err := mcpHTTPCommand(cfg); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				return
+			}
 			if !explicitRemote {
 				if err := localMCPCommand(cfg); err != nil {
 					os.Exit(1)

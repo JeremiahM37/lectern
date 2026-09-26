@@ -12,6 +12,8 @@ package mcp
 // message — see attachContext/pollSessionReady below.
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path"
@@ -25,6 +27,107 @@ import (
 // maxLocalAttachment mirrors internal/api/attachments.go's maxAttachmentSize:
 // there is no point staging a read past what the server will accept.
 const maxLocalAttachment = 25 << 20
+
+// maxInlineFileBytes is the decoded-size ceiling for one inline_files entry.
+// Kept well under maxLocalAttachment and the HTTP transport's own
+// MaxRequestBytes (16 MiB, see http.go): an inline file travels inside the
+// tool call's own JSON-RPC request body — a chat model pasting or attaching
+// a document, not streaming one off disk — so a much tighter per-file cap
+// keeps one call from consuming the whole request budget.
+const maxInlineFileBytes = 5 << 20
+
+// maxInlineFiles bounds how many inline_files entries one call may carry.
+const maxInlineFiles = 10
+
+// inlineFileArg is one element of the inline_files argument to
+// start_session/send_to_session: a chat-uploaded or pasted document, given
+// as {name, content, encoding}. This is the chat-friendly counterpart to
+// `files` (a path on the machine this MCP process runs on, refused for a
+// remote caller — see Server.Remote): claude.ai has no filesystem of
+// Lectern's to point at, so it hands over the bytes themselves.
+type inlineFileArg struct {
+	Name     string
+	Content  string
+	Encoding string // "text" (default) or "base64"
+}
+
+// parseInlineFiles decodes the inline_files JSON argument's shape and
+// validates the count; each entry's content is decoded lazily by
+// decodeInline, at attach time, so a bad entry is reported against the file
+// it belongs to rather than failing the whole batch up front for a size
+// nobody has computed yet.
+func parseInlineFiles(v any) ([]inlineFileArg, error) {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil, nil
+	}
+	if len(arr) > maxInlineFiles {
+		return nil, fmt.Errorf("inline_files has %d entries, over the limit of %d", len(arr), maxInlineFiles)
+	}
+	out := make([]inlineFileArg, 0, len(arr))
+	for i, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("inline_files[%d] must be an object with name/content/encoding", i)
+		}
+		f := inlineFileArg{
+			Name:     strings.TrimSpace(argStr(m, "name")),
+			Content:  argStr(m, "content"),
+			Encoding: strings.TrimSpace(argStr(m, "encoding")),
+		}
+		if f.Name == "" {
+			return nil, fmt.Errorf("inline_files[%d] is missing name", i)
+		}
+		if f.Encoding == "" {
+			f.Encoding = "text"
+		}
+		if f.Encoding != "text" && f.Encoding != "base64" {
+			return nil, fmt.Errorf("inline_files[%d] (%s): encoding must be \"text\" or \"base64\", got %q", i, f.Name, f.Encoding)
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// decodeInline turns one inline_files entry into bytes, enforcing the
+// decoded-size limit after decoding — base64 hides the real size until then.
+func decodeInline(f inlineFileArg) ([]byte, error) {
+	if f.Encoding == "base64" {
+		data, err := base64.StdEncoding.DecodeString(f.Content)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid base64: %w", f.Name, err)
+		}
+		if len(data) > maxInlineFileBytes {
+			return nil, fmt.Errorf("%s is %d bytes decoded, over the %d MiB inline_files limit", f.Name, len(data), maxInlineFileBytes>>20)
+		}
+		return data, nil
+	}
+	data := []byte(f.Content)
+	if len(data) > maxInlineFileBytes {
+		return nil, fmt.Errorf("%s is %d bytes, over the %d MiB inline_files limit", f.Name, len(data), maxInlineFileBytes>>20)
+	}
+	return data, nil
+}
+
+// resolveAttachArgs reads the files/inline_files arguments common to
+// start_session and send_to_session, refusing the local `files` parameter
+// for a remote (web-connector) caller: a Server built for the HTTP
+// transport has Remote set, and "local" for that process means the machine
+// Lectern's MCP server itself runs on, which a remote caller has no access
+// to and must not be able to make this process read from.
+func (s *Server) resolveAttachArgs(args map[string]any) (files []string, inline []inlineFileArg, err error) {
+	files = stringSlice(args["files"])
+	if s.Remote && len(files) > 0 {
+		return nil, nil, fmt.Errorf("files is a list of paths on the machine Lectern's MCP server runs on; " +
+			"the web connector has no access to that filesystem and cannot read them on your behalf — use " +
+			"inline_files instead (name, content, and encoding \"text\" or \"base64\")")
+	}
+	inline, err = parseInlineFiles(args["inline_files"])
+	if err != nil {
+		return nil, nil, err
+	}
+	return files, inline, nil
+}
 
 // pollInterval/sessionReadyTimeout are vars, not consts, purely so tests can
 // shrink them — production always sees 2s/180s.
@@ -89,11 +192,11 @@ type attached struct {
 	NotePath string // set only for kind "note": the Grimoire vault path it came from
 }
 
-// attachContext uploads local files, an inline context blob, and Grimoire
-// notes to a session, in that order, stopping at the first failure — a
-// partial attach is reported precisely (which ones landed) rather than
-// silently retried or hidden.
-func (s *Server) attachContext(sessionID int64, context string, files, notes []string) ([]attached, error) {
+// attachContext uploads local files, inline (chat-provided) files, an inline
+// context blob, and Grimoire notes to a session, in that order, stopping at
+// the first failure — a partial attach is reported precisely (which ones
+// landed) rather than silently retried or hidden.
+func (s *Server) attachContext(sessionID int64, context string, files, notes []string, inline []inlineFileArg) ([]attached, error) {
 	dest := fmt.Sprintf("/sessions/%d/attachments", sessionID)
 	var out []attached
 	for _, f := range files {
@@ -108,6 +211,22 @@ func (s *Server) attachContext(sessionID int64, context string, files, notes []s
 		fh.Close()
 		if err != nil {
 			return out, fmt.Errorf("attaching %s: %w", f, err)
+		}
+		p, _ := resp["path"].(string)
+		out = append(out, attached{Path: p})
+	}
+	for _, f := range inline {
+		data, err := decodeInline(f)
+		if err != nil {
+			return out, err
+		}
+		name := path.Base(f.Name)
+		if name == "" || name == "." || name == "/" {
+			name = "attachment"
+		}
+		resp, err := s.upload(dest, name, bytes.NewReader(data))
+		if err != nil {
+			return out, fmt.Errorf("attaching %s: %w", f.Name, err)
 		}
 		p, _ := resp["path"].(string)
 		out = append(out, attached{Path: p})

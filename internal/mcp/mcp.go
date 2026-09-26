@@ -18,17 +18,40 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/oauth"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 // protocolVersion is the MCP revision this server implements.
 const protocolVersion = "2024-11-05"
 
-// Server speaks JSON-RPC over stdio and forwards to an lectern API.
+// Server speaks JSON-RPC — over stdio, or (see http.go) over the Streamable
+// HTTP web-connector transport — and forwards to an lectern API.
 type Server struct {
 	API   string
 	Token string
 	HTTP  *http.Client
+
+	// Remote is true only for a Server built for the HTTP web-connector
+	// transport (cmd/lectern's `lectern mcp --http`), never for the stdio
+	// path. Tools that would read an arbitrary path on the machine this
+	// process runs on — the local `files` parameter to start_session/
+	// send_to_session, and active_work's repo_path — check this and refuse,
+	// because a web-connector caller supplies no local filesystem of its
+	// own: "local" here means the machine running THIS process, which for a
+	// remote caller is not under its control.
+	Remote bool
+
+	// InboundToken is a static bearer accepted by the HTTP transport
+	// (LECTERN_MCP_TOKEN), independent of OAuth. Unset means no static
+	// bearer is configured; see http.go's checkAuth.
+	InboundToken string
+
+	// OAuth, when set, is the authorization server backing the HTTP
+	// transport's bearer tokens — see internal/oauth and
+	// cmd/lectern/mcp_http.go. Nil means the HTTP transport (if used at all)
+	// accepts only InboundToken.
+	OAuth *oauth.Handler
 }
 
 // New builds a server pointed at an lectern instance.
@@ -75,7 +98,7 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue // a malformed frame is the client's problem, not fatal here
 		}
-		resp, send := s.handle(req)
+		resp, send := s.handleRequest(req)
 		if !send {
 			continue // a notification gets no reply
 		}
@@ -86,7 +109,10 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	return scanner.Err()
 }
 
-func (s *Server) handle(req request) (response, bool) {
+// handleRequest dispatches one JSON-RPC request/notification. Shared by both
+// transports: the stdio loop above, and the HTTP transport's handle()
+// wrapper in http.go.
+func (s *Server) handleRequest(req request) (response, bool) {
 	resp := response{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
