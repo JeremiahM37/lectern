@@ -240,18 +240,20 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
     card = page.locator(".scard", has_text="Waiting agent")
-    expect(card.locator(".sstate")).to_contain_text("wants you", timeout=25000)
+    expect(card.locator(".sstate")).to_contain_text("Needs you", timeout=25000)
     page.reload()
 
     needs = page.locator("#needs-you")
     expect(needs).to_be_visible(timeout=25000)
-    assert needs.bounding_box()["y"] < page.locator("#sesslist").bounding_box()["y"]
+    # The sessions lead the page; the panel follows them.
+    assert page.locator("#sesslist").bounding_box()["y"] < needs.bounding_box()["y"]
 
     approval = needs.locator('.ny-row[data-reason="approval"]')
     expect(approval).to_contain_text("Approval needed")
     expect(approval).to_contain_text("Gated deploy")
-    expect(needs.locator('.ny-row[data-reason="waiting"]')).to_contain_text("Waiting agent")
-    expect(needs.locator('.ny-row[data-reason="waiting"]')).to_contain_text("Wants you")
+    # A waiting session is marked on its own card, not repeated as a row.
+    expect(needs.locator('.ny-row[data-reason="waiting"]')).to_have_count(0)
+    expect(card.locator(".sstate-needs")).to_have_text("Needs you")
     expect(needs.locator('.ny-row[data-reason="failed-task"]')).to_contain_text("Crashed run")
     # Board tasks in review are one link to the Board, never a row each —
     # they used to bury the sessions that actually wait on you.
@@ -262,9 +264,7 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     approval.get_by_role("button", name="Approve", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]')).to_have_count(0, timeout=20000)
 
-    needs.locator('.ny-row[data-reason="waiting"]').get_by_role(
-        "button", name="Chat", exact=True
-    ).click()
+    card.get_by_role("button", name="Chat", exact=True).click()
     expect(page.locator("#conversation")).to_be_visible()
     page.locator("#conversation-close").click()
 
@@ -359,9 +359,11 @@ def test_needs_you_keeps_the_last_rows_and_says_when_it_cannot_refresh(page, ser
     assert needs.get_attribute("data-stale") is None
 
 
-def test_needs_you_caps_a_long_list_behind_a_toggle(page, server):
-    # Waiting sessions, not gated tasks: a mock target runs at most four agents
-    # at once, so nine tasks would sit queued instead of asking for a person.
+def test_waiting_sessions_are_marked_on_their_cards_not_listed_twice(page, server):
+    # Nine sessions waiting on you used to become nine Needs-you rows above
+    # the cards they described. Each card now carries its own badge, and the
+    # panel (which only holds approvals, failed tasks and the review link)
+    # does not repeat them.
     for i in range(9):
         page.request.post(
             server + "/api/sessions",
@@ -369,17 +371,11 @@ def test_needs_you_caps_a_long_list_behind_a_toggle(page, server):
         )
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
-    needs = page.locator("#needs-you")
-    toggle = page.locator("#needs-you-toggle")
-    rows = needs.locator(".ny-row")
-    expect(toggle).to_contain_text("Show all 9", timeout=30000)
-    expect(rows).to_have_count(8)
-    toggle.click()
-    expect(rows).to_have_count(9)
-    expect(toggle).to_contain_text("Show fewer")
-    assert toggle.get_attribute("aria-expanded") == "true"
-    toggle.click()
-    expect(rows).to_have_count(8)
+    badges = page.locator(".scard .sstate-needs")
+    expect(badges).to_have_count(9, timeout=30000)
+    expect(badges.first).to_have_text("Needs you")
+    expect(page.locator('#needs-you .ny-row[data-reason="waiting"]')).to_have_count(0)
+    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
 
 
 def test_named_session_can_be_renamed_without_replacing_its_terminal(page, real_terminal):

@@ -142,16 +142,6 @@ export function NeedsYou({
 
   const items = useMemo<Item[]>(() => {
     const failedTasks = tasks.filter((task) => task.status === "failed");
-    const approvalTasks = new Set(
-      approvals.map((approval) => approval.task_id).filter((id): id is number => !!id),
-    );
-    // A session that took over a task which is now asking for approval is
-    // covered by that approval; one row, not two descriptions of the same wait.
-    const covered = new Set(
-      tasks
-        .filter((task) => task.takeover?.session_id && approvalTasks.has(task.id))
-        .map((task) => task.takeover!.session_id!),
-    );
     const out: Item[] = approvals.map((approval) => ({
       key: `approval-${approval.id}`,
       reason: "approval",
@@ -161,8 +151,10 @@ export function NeedsYou({
       if (session.archived_at != null || session.ended_at != null) continue;
       if (session.setup_state === "failed") {
         out.push({ key: `session-${session.id}`, reason: "failed-session", session });
-      } else if (session.status === "waiting" && !covered.has(session.id)) {
-        out.push({ key: `session-${session.id}`, reason: "waiting", session });
+      } else if (session.status === "waiting") {
+        // Marked on the session's own card ("Needs you"), which leads the
+        // page; a second row here only pushed the sessions further down.
+        continue;
       } else if (session.status === "dead" && session.origin !== "discovered") {
         out.push({ key: `session-${session.id}`, reason: "stopped-session", session });
       }

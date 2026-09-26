@@ -555,22 +555,6 @@ export function Sessions({
           onHistory={(session) => setHistory(session)}
         />
       )}
-      <NeedsYou
-        api={api}
-        rows={rows}
-        refreshVersion={refreshVersion}
-        onChat={(session) => {
-          onConversation?.(session);
-          setConversation(session);
-        }}
-        onAttach={(session) => void attach(session)}
-        onReview={onReview}
-        onShowSession={showSession}
-        onOpenTask={onOpenTask}
-        onChanged={() => void load()}
-        onNotice={onNotice}
-        pushPrompt={pushPrompt}
-      />
       {/* One id wraps both sections: nothing that already points at #sesslist
           breaks, while each list is labelled on its own. */}
       <div id="sesslist">
@@ -614,6 +598,25 @@ export function Sessions({
           render={render}
         />
       </div>
+      {/* Below the sessions, not above them: a session that wants you is
+          marked on its own card, and what is left here — approvals, failed
+          tasks, the review queue — should not push the sessions down. */}
+      <NeedsYou
+        api={api}
+        rows={rows}
+        refreshVersion={refreshVersion}
+        onChat={(session) => {
+          onConversation?.(session);
+          setConversation(session);
+        }}
+        onAttach={(session) => void attach(session)}
+        onReview={onReview}
+        onShowSession={showSession}
+        onOpenTask={onOpenTask}
+        onChanged={() => void load()}
+        onNotice={onNotice}
+        pushPrompt={pushPrompt}
+      />
       {sheet === "new" && (
         <NewSession
           api={api}

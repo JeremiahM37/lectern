@@ -26,7 +26,7 @@ def test_now_strip_shows_a_waiting_session_and_the_approval_count(page, server):
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
     card = page.locator(".scard", has_text="Waiting agent")
-    expect(card.locator(".sstate")).to_contain_text("wants you", timeout=25000)
+    expect(card.locator(".sstate")).to_contain_text("Needs you", timeout=25000)
     # Same settle-then-reload as the equivalent Needs-you test — the mock
     # task's approval lands over SSE, but a reload is the deterministic way
     # to prove the strip reflects a fresh full load, not just a live event.

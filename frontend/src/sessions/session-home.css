@@ -251,3 +251,19 @@ button.mic-recording {
     opacity: 0.72;
   }
 }
+
+/* A session waiting on you says so on its own card; the Needs-you panel no
+   longer repeats it, and sits below the sessions. */
+.sstate.sstate-needs {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  color: var(--amber);
+  font-weight: 600;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}

@@ -233,7 +233,11 @@ export function SessionCard({
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
         <span className="nm">{cardTitle}</span>
-        <span className="sstate">{status}</span>
+        {status === "wants you" ? (
+          <span className="sstate sstate-needs">Needs you</span>
+        ) : (
+          <span className="sstate">{status}</span>
+        )}
         <span className="sidle">
           {s.status === "dead" || setup
             ? ""
