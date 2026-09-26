@@ -66,6 +66,27 @@ func (db *DB) SessionFileEditsFor(sessionID int64, since float64) ([]*SessionFil
 	return out, rows.Err()
 }
 
+// SessionFileEditsSince returns every session's file edits at or after
+// `since`, newest first — one query for a whole session list's overlap chips
+// (awareness.Overlaps) instead of one per row and peer.
+func (db *DB) SessionFileEditsSince(since float64) ([]*SessionFileEdit, error) {
+	rows, err := db.Query(`SELECT id, session_id, repo_key, rel_path, at
+		FROM session_file_edits WHERE at>=? ORDER BY at DESC`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*SessionFileEdit{}
+	for rows.Next() {
+		e, err := scanSessionFileEdit(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // PruneSessionFileEdits deletes edit records older than `before` — run
 // opportunistically on every write (internal/awareness), matching the
 // "plain SQL, homelab scale" philosophy elsewhere in this store rather than

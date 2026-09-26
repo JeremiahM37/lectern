@@ -95,6 +95,10 @@ type recentSessionView struct {
 }
 
 func (s *Server) sessionView(row *store.Session) *sessionView {
+	return s.sessionViewWith(row, s.computeAwarenessOverlap(row))
+}
+
+func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapView) *sessionView {
 	v := &sessionView{
 		Session:         row,
 		CanRestore:      row.EndedAt != nil && row.Origin == "discovered" && row.Status != sessions.StatusDead && row.TrackingIdentity != "",
@@ -137,49 +141,60 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
 	}
 	v.CI = s.latestCI("session_id", row.ID)
-	v.AwarenessOverlap = s.computeAwarenessOverlap(row)
+	v.AwarenessOverlap = overlap
 	return v
+}
+
+// sessionViews renders a list of rows, computing the overlap chips for all
+// of them at once rather than through sessionView's per-row lookup.
+func (s *Server) sessionViews(rows []*store.Session) []*sessionView {
+	overlaps := s.awarenessOverlaps(rows)
+	out := make([]*sessionView, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, s.sessionViewWith(row, overlaps[row.ID]))
+	}
+	return out
 }
 
 // computeAwarenessOverlap finds the first other LIVE session that edited any
 // file THIS session also edited, both within the last 30 minutes
 // (awareness.EditWarnWindow) — the same window PreToolUse's edit warning
 // uses, so the chip and the warning always agree on what counts as "recent".
-// nil (no DB call beyond the cheap self-files lookup) for a session with no
-// resolved repo or no recent edits of its own.
+// nil for a session with no resolved repo or no recent edits of its own.
 func (s *Server) computeAwarenessOverlap(row *store.Session) *awarenessOverlapView {
-	if s.Awareness == nil || row.RepoKey == "" || row.RepoKey == awareness.RepoKeyNone {
+	return s.awarenessOverlaps([]*store.Session{row})[row.ID]
+}
+
+// awarenessOverlaps computes the overlap chip for a whole list of rows with
+// two queries in total (recent edits, live sessions), however many rows and
+// peers there are. See awareness.Overlaps for why this is not done per row.
+func (s *Server) awarenessOverlaps(rows []*store.Session) map[int64]*awarenessOverlapView {
+	if s.Awareness == nil {
 		return nil
 	}
-	now := store.Now()
-	since := now - awareness.EditWarnWindow.Seconds()
-	self, err := s.Awareness.RecentFiles(row.ID, since, now)
-	if err != nil || len(self) == 0 {
+	resolved := false
+	for _, row := range rows {
+		if row.RepoKey != "" && row.RepoKey != awareness.RepoKeyNone {
+			resolved = true
+			break
+		}
+	}
+	if !resolved {
 		return nil
 	}
-	selfPaths := make(map[string]bool, len(self))
-	for _, f := range self {
-		selfPaths[f.RelPath] = true
+	edits, err := s.DB.SessionFileEditsSince(store.Now() - awareness.EditWarnWindow.Seconds())
+	if err != nil || len(edits) == 0 {
+		return nil
 	}
-	peers, err := s.Awareness.Peers(row)
+	live, err := s.DB.LiveSessions()
 	if err != nil {
 		return nil
 	}
-	for _, p := range peers {
-		if p.Kind != "session" {
-			continue
-		}
-		var shared []string
-		for _, f := range p.Files {
-			if f.AgeSeconds <= awareness.EditWarnWindow.Seconds() && selfPaths[f.RelPath] {
-				shared = append(shared, f.RelPath)
-			}
-		}
-		if len(shared) > 0 {
-			return &awarenessOverlapView{SessionID: p.SessionID, Name: p.Name, Files: shared}
-		}
+	out := map[int64]*awarenessOverlapView{}
+	for id, o := range awareness.Overlaps(rows, live, edits) {
+		out[id] = &awarenessOverlapView{SessionID: o.SessionID, Name: o.Name, Files: o.Files}
 	}
-	return nil
+	return out
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +206,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	out := make([]*sessionView, 0, len(rows))
+	keep := make([]*store.Session, 0, len(rows))
 	for _, row := range rows {
 		if setupFailures && !all && row.EndedAt != nil && row.SetupState != "failed" {
 			continue
@@ -199,9 +214,9 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		if (row.ArchivedAt != nil) != archived {
 			continue
 		}
-		out = append(out, s.sessionView(row))
+		keep = append(keep, row)
 	}
-	writeJSON(w, 200, out)
+	writeJSON(w, 200, s.sessionViews(keep))
 }
 
 func (s *Server) recentSessions(w http.ResponseWriter, r *http.Request) {
@@ -219,9 +234,10 @@ func (s *Server) recentSessions(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	overlaps := s.awarenessOverlaps(rows)
 	out := make([]*recentSessionView, 0, len(rows))
 	for _, row := range rows {
-		view := s.sessionView(row)
+		view := s.sessionViewWith(row, overlaps[row.ID])
 		out = append(out, &recentSessionView{
 			sessionView:      view,
 			Released:         row.Origin == "discovered" && row.Status != sessions.StatusDead,

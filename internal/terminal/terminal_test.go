@@ -3,12 +3,15 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -343,5 +346,50 @@ func TestSSHAttachPreservesPortWrapperAndQuotedWorkingDirectory(t *testing.T) {
 	got, err = AttachArgv(att, &store.Target{Kind: "ssh", Host: "desktop", CommandPrefix: `wsl -e bash -lc "echo {b64} | base64 -d | bash"`})
 	if err != nil || strings.Contains(got[len(got)-1], "touch bad") {
 		t.Fatalf("unencoded wrapper: %v %v", got, err)
+	}
+}
+
+// Attach returns as soon as the new ttyd accepts connections instead of
+// sleeping a fixed 300ms, which was nearly all of an attach's latency.
+func TestAttachReturnsOnceTheTerminalListens(t *testing.T) {
+	m, _ := fakeManager(t)
+	var listeners []net.Listener
+	t.Cleanup(func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	})
+	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, l)
+		cmd := exec.Command("sleep", "30")
+		return cmd, cmd.Start()
+	}
+	start := time.Now()
+	if _, err := m.Attach(context.Background(), Attachment{Key: "session:1", TmuxSession: "lec-s1"}, target("local")); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took >= BindWait {
+		t.Fatalf("attach waited %v for a terminal that was already listening", took)
+	}
+}
+
+// A ttyd that dies before it listens is reported, and its port released,
+// rather than handed to the browser as a dead terminal.
+func TestAttachReportsATerminalThatExits(t *testing.T) {
+	m, _ := fakeManager(t)
+	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+		cmd := exec.Command("false")
+		return cmd, cmd.Start()
+	}
+	_, err := m.Attach(context.Background(), Attachment{Key: "session:2", TmuxSession: "lec-s2"}, target("local"))
+	if err == nil || !strings.Contains(err.Error(), "exited immediately") {
+		t.Fatalf("got %v", err)
+	}
+	if _, ok := m.PortFor("session:2"); ok {
+		t.Fatal("a terminal that never started kept its port")
 	}
 }
