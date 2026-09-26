@@ -14,13 +14,14 @@ import (
 
 func TestRecentSessionsLoadsAndRendersHumanLabels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/sessions/recent" || r.URL.Query().Get("limit") != "30" {
+		if r.URL.Path != "/api/sessions/restorable" || r.URL.Query().Get("limit") != "100" {
 			t.Fatalf("recent request: %s", r.URL.String())
 		}
 		json.NewEncoder(w).Encode([]row{{
 			"id": float64(9), "name": "Closed UI", "project_name": "Lectern",
 			"agent": "codex", "ended_at": float64(time.Now().Add(-2 * time.Hour).Unix()),
-			"can_resume_recent": true,
+			"reason_label": "Exited on its own", "action": "resume", "action_label": "Resume",
+			"preview": "the parser fix is merged",
 		}})
 	}))
 	defer srv.Close()
@@ -36,10 +37,11 @@ func TestRecentSessionsLoadsAndRendersHumanLabels(t *testing.T) {
 	}
 	m = model.(*dashboard)
 	view := m.View()
-	if !strings.Contains(view, "Closed UI") || !strings.Contains(view, "Lectern") || !strings.Contains(view, "codex") || !strings.Contains(view, "closed 2h") {
+	if !strings.Contains(view, "Closed UI") || !strings.Contains(view, "Lectern") || !strings.Contains(view, "codex") || !strings.Contains(view, "2h") ||
+		!strings.Contains(view, "Exited on its own") || !strings.Contains(view, "Resume — “the parser fix is merged”") {
 		t.Fatalf("recent view omitted human labels:\n%s", view)
 	}
-	if strings.Contains(view, "can_resume_recent") || strings.Contains(view, "ended_at") {
+	if strings.Contains(view, "action_label") || strings.Contains(view, "ended_at") {
 		t.Fatalf("recent view leaked API field names:\n%s", view)
 	}
 }
@@ -62,7 +64,7 @@ func TestRecentSessionsFallbackUsesNativeHistoryPicker(t *testing.T) {
 
 	m := sampleDashboard()
 	m.client = New(srv.URL, "")
-	m.recentRows = []row{{"id": float64(9), "name": "Closed UI", "ended_at": float64(time.Now().Unix()), "can_resume_recent": false}}
+	m.recentRows = []row{{"id": float64(9), "name": "Closed UI", "ended_at": float64(time.Now().Unix()), "action": "history", "action_label": "Choose history"}}
 	m.recentOpen = true
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.recentOpen || !m.busy {
@@ -98,5 +100,72 @@ func TestRecentSessionsShortcutIsAvailableOnlyInSessions(t *testing.T) {
 	m.section = 1
 	if _, cmd := m.Update(key("C")); cmd != nil {
 		t.Fatal("C should be a sessions-only shortcut")
+	}
+}
+
+func TestRestoreSearchFiltersByLastMessage(t *testing.T) {
+	m := sampleDashboard()
+	m.recentOpen = true
+	m.recentRows = []row{
+		{"id": float64(1), "name": "One", "preview": "fix the parser"},
+		{"id": float64(2), "name": "Two", "preview": "write docs"},
+	}
+	m.Update(key("/"))
+	for _, r := range "docs" {
+		m.Update(key(string(r)))
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.recentSearching || len(m.recentVisible()) != 1 || name(m.recentSelectedRow()) != "Two" {
+		t.Fatalf("search did not filter: searching=%v visible=%v", m.recentSearching, m.recentVisible())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !m.recentOpen || len(m.recentVisible()) != 2 {
+		t.Fatal("Esc should clear the search before closing the view")
+	}
+}
+
+func TestRestoreEnterReopensAndAttaches(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Method + " " + r.URL.Path
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"session": map[string]any{"id": float64(12)}, "message": "Resumed its saved conversation."})
+	}))
+	defer srv.Close()
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	m.recentOpen = true
+	m.recentRows = []row{{"id": float64(9), "name": "Closed", "action": "resume", "action_label": "Resume"}}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(cmd())
+	if got != "POST /api/sessions/9/reopen" || m.recentOpen || m.focusSessionID != "12" || !m.attachAfterRefresh || m.notice != "Resumed its saved conversation." {
+		t.Fatalf("reopen: got=%q open=%v focus=%q attach=%v notice=%q", got, m.recentOpen, m.focusSessionID, m.attachAfterRefresh, m.notice)
+	}
+}
+
+func TestUndoReopensTheNewestClosedSessionWithoutAttaching(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.RequestURI())
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode([]row{{"id": float64(7), "name": "Just closed", "action": "resume"}})
+			return
+		}
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"session": map[string]any{"id": float64(8)}, "message": "Resumed its saved conversation."})
+	}))
+	defer srv.Close()
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	_, cmd := m.Update(key("U"))
+	if cmd == nil {
+		t.Fatal("U did not schedule an undo")
+	}
+	m.Update(cmd())
+	if strings.Join(calls, ",") != "GET /api/sessions/restorable?limit=1,POST /api/sessions/7/reopen" {
+		t.Fatalf("undo requests: %v", calls)
+	}
+	if m.focusSessionID != "8" || m.attachAfterRefresh || m.notice != "Resumed its saved conversation." {
+		t.Fatalf("undo result: focus=%q attach=%v notice=%q", m.focusSessionID, m.attachAfterRefresh, m.notice)
 	}
 }
