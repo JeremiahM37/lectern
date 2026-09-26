@@ -29,24 +29,25 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	ReportError         string    `json:"report_error,omitempty"`
-	ReportRepairs       int       `json:"report_repairs,omitempty"`
-	ReportRetryAt       time.Time `json:"report_retry_at,omitempty"`
-	ID                  string    `json:"id"`
-	TaskID              int64     `json:"task_id"`
-	Role                string    `json:"role"`
-	Model               string    `json:"model,omitempty"`
-	Provider            string    `json:"provider"`
-	Status              string    `json:"status"`
-	ArtifactPath        string    `json:"artifact_path"`
-	Summary             string    `json:"summary,omitempty"`
-	StartedAt           time.Time `json:"started_at"`
-	Rejected            bool      `json:"rejected,omitempty"`
-	ReviewReason        string    `json:"review_reason,omitempty"`
-	RepairAttemptTaskID int64     `json:"repair_attempt_task_id,omitempty"`
-	RepairSourceTaskID  int64     `json:"repair_source_task_id,omitempty"`
-	Approved            bool      `json:"approved,omitempty"`
-	ReviewTaskID        int64     `json:"review_task_id,omitempty"`
+	Admission           *autoAdmission `json:"admission,omitempty"`
+	ReportError         string         `json:"report_error,omitempty"`
+	ReportRepairs       int            `json:"report_repairs,omitempty"`
+	ReportRetryAt       time.Time      `json:"report_retry_at,omitempty"`
+	ID                  string         `json:"id"`
+	TaskID              int64          `json:"task_id"`
+	Role                string         `json:"role"`
+	Model               string         `json:"model,omitempty"`
+	Provider            string         `json:"provider"`
+	Status              string         `json:"status"`
+	ArtifactPath        string         `json:"artifact_path"`
+	Summary             string         `json:"summary,omitempty"`
+	StartedAt           time.Time      `json:"started_at"`
+	Rejected            bool           `json:"rejected,omitempty"`
+	ReviewReason        string         `json:"review_reason,omitempty"`
+	RepairAttemptTaskID int64          `json:"repair_attempt_task_id,omitempty"`
+	RepairSourceTaskID  int64          `json:"repair_source_task_id,omitempty"`
+	Approved            bool           `json:"approved,omitempty"`
+	ReviewTaskID        int64          `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
 	Config             autonomy.Config   `json:"config"`

@@ -253,3 +253,18 @@ content under the same key is a conflict and is never overwritten. These are
 controller-authored operational receipts, not fact-extraction prompts. Existing
 agent fact memories continue using their normal memory API. Each cycle has a
 bounded-size note, so remembering a new cycle does not re-embed a growing log.
+
+### Current assignments versus future repair availability
+
+Each newly prepared builder receives a durable controller admission receipt via
+`GET /assignment` on its own `bridge.sock`. Identity comes from the socket, not
+query parameters. The receipt retains the audited proposal, job/task identity,
+and repair-attempt identity across controller restarts and history rotation.
+It permits only the reserved isolated assignment; it never approves an artifact,
+publication, deployment, or another repair attempt. Legacy jobs without a receipt
+return 404 rather than reconstructing permission from an exhausted catalog.
+
+`/repairable` is a catalog for **future** proposals. Reserving the last attempt
+removes its source from that catalog without revoking the current assignment.
+Final reviewers must judge completion against the planned acceptance criteria;
+an honestly reported blocked stop is not successful completion.

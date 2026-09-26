@@ -189,7 +189,7 @@ func (s *Server) ensureAutoBridges(j *autoJob) error {
 			}
 		}
 	}()
-	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoReadBridge} {
+	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID)} {
 		dir := filepath.Join(autoRoot, j.ID, "bridges")
 		if e := os.MkdirAll(dir, 0755); e != nil {
 			return e
