@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,18 @@ func isLoopbackIP(ip string) bool {
 	return parsed != nil && parsed.IsLoopback()
 }
 
+// ClassifyRemote reports whether an http.Request.RemoteAddr is loopback or a
+// tailnet address — the two "this is basically local" cases every mode
+// already trusts to some degree. Exported for callers outside this package
+// that want to warn about the third case (docs/remote-access.md's "Add a
+// Settings hint when the request arrives over a non-tailnet, non-loopback
+// origin"), without duplicating the address classification this package
+// already owns.
+func ClassifyRemote(remoteAddr string) (loopback, tailscale bool) {
+	host := hostOf(remoteAddr)
+	return isLoopbackIP(host), isTailscaleIP(host)
+}
+
 func hostOf(remoteAddr string) string {
 	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		return host
@@ -68,13 +81,58 @@ func firstForwarded(r *http.Request) string {
 }
 
 func extractToken(r *http.Request) string {
-	if v := r.Header.Get("Authorization"); strings.HasPrefix(v, "Bearer ") {
-		return strings.TrimPrefix(v, "Bearer ")
+	if v := bearerToken(r); v != "" {
+		return v
 	}
 	if c, err := r.Cookie("lectern_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
 	return r.URL.Query().Get("token")
+}
+
+// bearerToken reads only the Authorization header, with no cookie or query
+// fallback — the one form a non-browser API client can send.
+func bearerToken(r *http.Request) string {
+	if v := r.Header.Get("Authorization"); strings.HasPrefix(v, "Bearer ") {
+		return strings.TrimPrefix(v, "Bearer ")
+	}
+	return ""
+}
+
+// deviceCookieName is the paired-device credential's own cookie, deliberately
+// distinct from "lectern_token" (the static LECTERN_AUTH_TOKEN cookie) so the
+// two never collide and each can be reasoned about on its own.
+const deviceCookieName = "lectern_device"
+
+// DeviceLookup resolves a paired device's raw token to the principal it
+// authenticates as. Implemented by internal/pairing and wired in via
+// SetDeviceLookup — this package stays decoupled from storage, the same
+// pattern LocalAPI uses for tailscaled.
+type DeviceLookup interface {
+	LookupDevice(ctx context.Context, rawToken string) (Principal, bool)
+}
+
+// csrfSafe reports whether a state-changing request authenticated by a
+// cookie may proceed. SameSite=Strict already keeps the device cookie out of
+// a genuine cross-site request; this is defense in depth against a same-site
+// subdomain or a browser that gets SameSite wrong; a state-changing request
+// with no Origin/Referer at all is refused rather than assumed safe.
+func csrfSafe(r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = r.Header.Get("Referer")
+	}
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 func tokensEqual(a, b string) bool {
@@ -145,6 +203,28 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+
+	devMu   sync.RWMutex
+	devices DeviceLookup
+}
+
+// SetDeviceLookup wires device-pairing authentication into the resolver.
+// Called once at startup, after internal/pairing.Store exists, from
+// internal/app — a setter rather than a Settings field because the resolver
+// is otherwise built from plain config values, and the device store is a
+// live object with its own database handle. Safe to call with nil (device
+// pairing off, or not yet configured): Authenticate simply never finds a
+// paired device.
+func (a *Resolver) SetDeviceLookup(d DeviceLookup) {
+	a.devMu.Lock()
+	defer a.devMu.Unlock()
+	a.devices = d
+}
+
+func (a *Resolver) deviceLookup() DeviceLookup {
+	a.devMu.RLock()
+	defer a.devMu.RUnlock()
+	return a.devices
 }
 
 // New resolves the mode once at startup (probing tailscaled if the mode is
@@ -220,6 +300,33 @@ func newWithClient(mode Mode, la LocalAPI, s Settings, log *slog.Logger) *Resolv
 func (a *Resolver) Authenticate(r *http.Request) (Principal, bool) {
 	if tok := extractToken(r); tok != "" && tokensEqual(tok, a.token) {
 		return Principal{Kind: KindToken, Human: true}, true
+	}
+	// A paired device authenticates the same way in every mode — that is the
+	// whole point: it is how a phone with no Tailscale and no static token
+	// reaches a Lectern that would otherwise refuse it outright (mode token)
+	// or never see it as human (mode tailscale, loopback). Checked before the
+	// mode-specific rules below, but after the static token, which always
+	// wins if both happen to be presented.
+	if devices := a.deviceLookup(); devices != nil {
+		if header := bearerToken(r); header != "" {
+			// An API client presenting its device token as a bearer, not a
+			// cookie: no browser is involved, so the cookie-only CSRF check
+			// below does not apply.
+			if p, ok := devices.LookupDevice(r.Context(), header); ok {
+				return p, true
+			}
+		} else if c, err := r.Cookie(deviceCookieName); err == nil && c.Value != "" {
+			if p, ok := devices.LookupDevice(r.Context(), c.Value); ok {
+				if !csrfSafe(r) {
+					// SameSite=Strict already stops a genuine cross-site
+					// request from attaching this cookie; a state-changing
+					// request that gets here anyway with no matching
+					// Origin/Referer is refused rather than trusted.
+					return Principal{}, false
+				}
+				return p, true
+			}
+		}
 	}
 	if a.Mode == ModeNone {
 		// Single-machine, no-login-ever mode: everyone who reaches the
