@@ -29,28 +29,32 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	ReviewOutcome       string         `json:"review_outcome,omitempty"`
-	Admission           *autoAdmission `json:"admission,omitempty"`
-	ReportError         string         `json:"report_error,omitempty"`
-	ReportRepairs       int            `json:"report_repairs,omitempty"`
-	ReportRetryAt       time.Time      `json:"report_retry_at,omitempty"`
-	ID                  string         `json:"id"`
-	TaskID              int64          `json:"task_id"`
-	Role                string         `json:"role"`
-	Model               string         `json:"model,omitempty"`
-	Provider            string         `json:"provider"`
-	Status              string         `json:"status"`
-	ArtifactPath        string         `json:"artifact_path"`
-	Summary             string         `json:"summary,omitempty"`
-	StartedAt           time.Time      `json:"started_at"`
-	Rejected            bool           `json:"rejected,omitempty"`
-	ReviewReason        string         `json:"review_reason,omitempty"`
-	RepairAttemptTaskID int64          `json:"repair_attempt_task_id,omitempty"`
-	RepairSourceTaskID  int64          `json:"repair_source_task_id,omitempty"`
-	Approved            bool           `json:"approved,omitempty"`
-	ReviewTaskID        int64          `json:"review_task_id,omitempty"`
+	RecoveryCheckAt     time.Time            `json:"recovery_check_at,omitempty"`
+	Recovery            *autoRecoveryReceipt `json:"recovery,omitempty"`
+	ReviewOutcome       string               `json:"review_outcome,omitempty"`
+	Admission           *autoAdmission       `json:"admission,omitempty"`
+	ReportError         string               `json:"report_error,omitempty"`
+	ReportRepairs       int                  `json:"report_repairs,omitempty"`
+	ReportRetryAt       time.Time            `json:"report_retry_at,omitempty"`
+	ID                  string               `json:"id"`
+	TaskID              int64                `json:"task_id"`
+	Role                string               `json:"role"`
+	Model               string               `json:"model,omitempty"`
+	Provider            string               `json:"provider"`
+	Status              string               `json:"status"`
+	ArtifactPath        string               `json:"artifact_path"`
+	Summary             string               `json:"summary,omitempty"`
+	StartedAt           time.Time            `json:"started_at"`
+	Rejected            bool                 `json:"rejected,omitempty"`
+	ReviewReason        string               `json:"review_reason,omitempty"`
+	RepairAttemptTaskID int64                `json:"repair_attempt_task_id,omitempty"`
+	RepairSourceTaskID  int64                `json:"repair_source_task_id,omitempty"`
+	Approved            bool                 `json:"approved,omitempty"`
+	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
+	DeferredRuns       []*autonomy.State `json:"deferred_runs,omitempty"`
+	CycleSequence      int               `json:"cycle_sequence,omitempty"`
 	Config             autonomy.Config   `json:"config"`
 	State              *autonomy.State   `json:"state"`
 	Runs               []*autonomy.State `json:"runs"`
@@ -210,6 +214,19 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 }
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
 	for _, j := range a.Jobs {
+		if (j.Status == "prepared" || j.Status == "deferred") && j.Recovery != nil {
+			if _, err := s.runAutoCommand(ctx, "dependencies-stop", "--job", j.ID); err != nil {
+				a.Reason = "Stop needs attention: " + err.Error()
+				a.Status = "error"
+				return
+			}
+			s.closeAutoBridge(j.ID)
+			if j.Status == "deferred" {
+				j.Recovery.State = "waiting"
+			} else {
+				j.Recovery = nil
+			}
+		}
 		if j.Status == "running" || j.Status == "starting" {
 			if _, e := s.runAutoCommand(ctx, "stop", "--job", j.ID); e != nil {
 				a.Reason = "Stop needs attention: " + e.Error()
@@ -252,7 +269,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	}
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
 		for _, j := range a.Jobs {
-			if j.Status == "running" || j.Status == "starting" {
+			if j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 				_ = s.saveAuto(a)
 				break
@@ -276,9 +293,11 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			a.Reason = "Cycle archive unavailable: " + e.Error()
 			return
 		}
-		autoNewCycle(a, now)
+		if !autoResumeRecovered(a) {
+			autoNewCycle(a, now)
+		}
 	}
-	if a.State == nil || a.State.Phase == autonomy.Complete {
+	if a.State == nil || (a.State.Phase == autonomy.Complete && len(a.DeferredRuns) == 0) {
 		return
 	}
 	usageURL := "http://127.0.0.1:9105/api/agent-usage"
@@ -305,6 +324,10 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	}
 	if e != nil {
 		s.stopAutoJobs(ctx, a, "Budget pause: "+e.Error())
+		return
+	}
+	s.pollDeferredPrerequisites(ctx, a, now)
+	if a.State.Phase == autonomy.Complete {
 		return
 	}
 	if a.State.Phase == autonomy.Paused {
@@ -441,6 +464,13 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	// Persist intent before side effects. start is idempotent for this UUID.
 	if e := s.ensureAutoBridges(j); e != nil {
 		return e
+	}
+	ready, err := s.recoverAutoPrerequisites(ctx, a, j)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		return nil
 	}
 	j.Status = "starting"
 	if e := s.saveAuto(a); e != nil {

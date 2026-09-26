@@ -240,4 +240,42 @@ class DependencyTests(unittest.TestCase):
    work=Path(tmp)/'work';work.mkdir();(work/'go.mod').write_text('module fixture\n');(work/'go.sum').write_text('')
    self.assertIsNone(r.go_dependency_bundle(work))
 
+
+class DependencyRecoveryTests(unittest.TestCase):
+ def test_interrupted_format_is_not_published_and_next_attempt_recovers(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   stage=Path(tmp)
+   with patch.object(r,'run',side_effect=RuntimeError('interrupted mkfs')):
+    with self.assertRaises(RuntimeError):r.dependency_volume(stage)
+   self.assertFalse((stage/'work.ext4').exists())
+   old=list(stage.glob('.initializing-*'));self.assertEqual(len(old),1)
+   with patch.object(r,'run') as format_disk:
+    image=r.dependency_volume(stage)
+    self.assertNotEqual(format_disk.call_args.args[0][-1],str(old[0]))
+   self.assertEqual(image.stat().st_size,2*1024**3)
+   with patch.object(r,'run') as format_disk:
+    self.assertEqual(r.dependency_volume(stage),image);format_disk.assert_not_called()
+
+ def test_missing_sum_is_a_distinct_recoverable_input(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   work=Path(tmp);self.assertIsNone(r.go_dependency_key(work))
+   (work/'go.mod').write_text('module example.org/new\n')
+   missing=r.go_dependency_key(work);self.assertEqual(len(missing),64)
+   (work/'go.sum').write_bytes(b'<MISSING>')
+   self.assertNotEqual(missing,r.go_dependency_key(work))
+   (work/'go.sum').write_bytes(b'')
+   self.assertNotEqual(missing,r.go_dependency_key(work))
+ def test_existing_bundle_does_not_start_a_provisioner(self):
+  import uuid
+  with tempfile.TemporaryDirectory() as tmp:
+   job=Path(tmp)/str(uuid.uuid4());job.mkdir();work=job/'work';work.mkdir()
+   (work/'go.mod').write_text('module fixture\n')
+   with patch.object(r,'job_path',return_value=job), patch.object(r,'ensure_work',return_value=work), patch.object(r,'status',return_value={'state':'failed'}), patch.object(r,'go_dependency_bundle',return_value=Path('/verified')), patch.object(r,'run') as launch:
+    result=r.dependency_status(job.name)
+    self.assertEqual(result['state'],'verified');launch.assert_not_called()
+ def test_live_worker_never_has_inputs_provisioned_underneath_it(self):
+  with patch.object(r,'job_path',return_value=Path('/unused')), patch.object(r,'status',return_value={'state':'running'}), patch.object(r,'ensure_work') as work:
+   with self.assertRaises(ValueError):r.dependency_status('ignored')
+   work.assert_not_called()
+
 if __name__=='__main__':unittest.main()

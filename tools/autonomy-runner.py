@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import pwd
+import resource
 import selectors
 import shutil
 import shlex
@@ -602,7 +603,9 @@ def go_dependency_key(work):
     for name in ('go.mod', 'go.sum'):
         path = work / name
         if not path.exists() and not path.is_symlink():
-            return None
+            if name == 'go.mod': return None
+            parts.append(b'go.sum-absent\0')
+            continue
         st = regular(path)
         if st.st_size > 4 * 1024**2:
             raise ValueError('dependency input too large')
@@ -617,7 +620,7 @@ def go_dependency_bundle(work):
     bundle = DEPENDENCIES / 'go' / key
     if not bundle.exists() and not bundle.is_symlink():
         return None
-    # Only a trusted administrator provisions bundles. No host module cache or
+    # Only trusted fixed tooling or an administrator provisions bundles. No host module cache or
     # worker-selected path is exposed; immutable content is verified at install.
     for path in (DEPENDENCIES, DEPENDENCIES / 'go', bundle, bundle / 'mod'):
         st = path.lstat()
@@ -632,6 +635,243 @@ def go_dependency_bundle(work):
         raise ValueError('dependency bundle provenance mismatch')
     return bundle
 
+
+
+# This is trusted, fixed tooling, not a model-selected command. Only module
+# metadata enters its filesystem; source code and host credentials never do.
+DEPENDENCY_FETCH = r"""
+import json, os, subprocess, time
+from pathlib import Path
+proxy = subprocess.Popen(['/usr/bin/socat', 'TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork', 'UNIX-CONNECT:/dependency.sock'])
+try:
+    time.sleep(.2)
+    go = '/usr/local/go/bin/go'
+    meta = json.loads(subprocess.check_output([go, 'mod', 'edit', '-json'], text=True))
+    for entry in meta.get('Replace') or []:
+        if not entry['New'].get('Version'):
+            raise RuntimeError('local replacement requires a separate source prerequisite')
+    Path('/fetch/mod').mkdir(exist_ok=True)
+    subprocess.run([go, 'mod', 'download', 'all'], check=True)
+    subprocess.run([go, 'mod', 'verify'], check=True)
+    Path('/fetch/verified.json').write_text(json.dumps({'module': meta['Module']['Path'],
+        'go_version': subprocess.check_output([go, 'version'], text=True).strip()}))
+finally:
+    proxy.terminate()
+"""
+
+
+def dependency_state_path(key):
+    return DEPENDENCIES / ('recovery-' + key)
+
+
+def dependency_receipt(stage, value):
+    target = stage / 'receipt.json'
+    tmp = stage / 'receipt.tmp'
+    with tmp.open('w') as out:
+        json.dump(value, out)
+        out.flush(); os.fsync(out.fileno())
+    tmp.chmod(0o644)
+    os.replace(tmp, target)
+
+
+def dependency_status(job):
+    p = job_path(job)
+    # Never inspect changing inputs or prepare dependencies for a running agent.
+    if status(job)['state'] == 'running':
+        raise ValueError('dependency preflight requires a stopped worker')
+    work = ensure_work(p)
+    key = go_dependency_key(work)
+    if key is None:
+        return {'state': 'not_applicable', 'capability': 'go_modules'}
+    if go_dependency_bundle(work) is not None:
+        return {'state': 'verified', 'capability': 'go_modules', 'key': key}
+    for directory in (DEPENDENCIES, DEPENDENCIES / 'go'):
+        if not directory.exists():
+            directory.mkdir(mode=0o755); directory.chmod(0o755)
+    for path in (DEPENDENCIES, DEPENDENCIES / 'go'):
+        st = path.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            raise ValueError('unsafe dependency recovery directory')
+    stage = dependency_state_path(key)
+    stage.mkdir(mode=0o755, exist_ok=True)
+    st = stage.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+        raise ValueError('unsafe dependency recovery stage')
+    (stage / 'heartbeat').touch()
+    # Serialize starts across controller retries and exact-input consumers.
+    with (stage / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        receipt = json.loads((stage / 'receipt.json').read_text()) if (stage / 'receipt.json').exists() else {}
+        name = 'lectern-dependencies-' + key + '.service'
+        active = subprocess.run(['/usr/bin/systemctl', 'is-active', name], capture_output=True, text=True).stdout.strip()
+        if active in ('active', 'activating', 'deactivating'):
+            return dict(receipt, state='recovering')
+        if receipt.get('state') == 'recovering':
+            receipt.update(state='failed', reason='provisioner exited before verification', retry_at=time.time()+900)
+            dependency_receipt(stage, receipt)
+        # A fresh installed toolchain is a verified environment change. A
+        # timed cooldown permits network outages to recover without a human;
+        # neither path reruns model work or declares the dependency fixed.
+        environment = digest_file(Path('/usr/local/go/bin/go'))
+        if receipt.get('attempts', 0) >= 3:
+            if receipt.get('environment') == environment and time.time()-receipt.get('started_at',0) < 6*3600:
+                return dict(receipt, state='unavailable')
+            receipt['attempts'] = 0
+            receipt['retry_at'] = 0
+        if receipt.get('retry_at', 0) > time.time():
+            return dict(receipt, state='waiting')
+        if not storage_status()['ready'] or shutil.disk_usage(ROOT).free < 24*1024**3 or allocated_storage() > STORAGE_LIMIT-4*1024**3:
+            return {'state': 'unavailable', 'capability': 'go_modules', 'key': key,
+                    'reason': 'dependency recovery needs 4 GiB headroom above the storage floor'}
+        inputs = stage / 'inputs'
+        inputs.mkdir(mode=0o755, exist_ok=True)
+        for filename in ('go.mod', 'go.sum'):
+            # The original exact bytes key the bundle, even if Go adds sums in
+            # its disposable staging directory. Never rewrite the source tree.
+            if not (work / filename).exists(): continue
+            data = (work / filename).read_bytes()
+            dest = inputs / filename
+            if dest.exists() and dest.read_bytes() != data:
+                raise ValueError('dependency input changed since admission')
+            dest.write_bytes(data); dest.chmod(0o444)
+        if go_dependency_key(inputs) != key:
+            raise ValueError('dependency input changed while reading')
+        receipt = {'state': 'recovering', 'capability': 'go_modules', 'key': key,
+                   'source_job': job, 'attempts': receipt.get('attempts', 0)+1,
+                   'started_at': time.time(), 'environment': environment, 'requirement': 'verified offline Go module bundle for exact source inputs'}
+        dependency_receipt(stage, receipt)
+        command = ['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+name,
+                   '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G',
+                   '--property=MemorySwapMax=0', '--property=CPUQuota=200%',
+                   '--property=TasksMax=128', '--property=KillMode=control-group',
+                   '--property=PrivateMounts=yes', '--property=UMask=0077',
+                   INSTALL, '_dependencies', '--job', job]
+        run(command)
+        return receipt
+
+
+def dependency_volume(stage):
+    image = stage / 'work.ext4'
+    (stage / 'work').mkdir(exist_ok=True)
+    if image.exists():
+        return image
+    # A kill during formatting leaves only an unpublished disposable image.
+    # Never mistake it for a successfully initialized recovery volume.
+    temporary = stage / ('.initializing-' + str(uuid.uuid4()))
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.ftruncate(fd, 2*1024**3)
+        run(['/usr/sbin/mkfs.ext4', '-q', '-F', str(temporary)])
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.rename(temporary, image)
+    directory = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+    return image
+
+
+def dependency_execute(job):
+    # Reserve one provisioner for the whole controller. The 4 GiB headroom
+    # accounts for its bounded image plus final cache, not N concurrent copies.
+    key = go_dependency_key(ensure_work(job_path(job)))
+    stage = dependency_state_path(key)
+    with (DEPENDENCIES / '.provision.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            receipt = json.loads((stage / 'receipt.json').read_text())
+            receipt.update(state='waiting', reason='another prerequisite is being provisioned', retry_at=time.time()+30,
+                           attempts=max(0,receipt.get('attempts',1)-1))
+            dependency_receipt(stage,receipt)
+            return 0
+        return dependency_execute_locked(job)
+
+
+def dependency_execute_locked(job):
+    p = job_path(job)
+    key = go_dependency_key(ensure_work(p))
+    current = Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+    if key is None or not current.endswith('/lectern-dependencies-' + key + '.service'):
+        raise ValueError('dependency execution outside matching cgroup')
+    stage = dependency_state_path(key)
+    receipt = json.loads((stage / 'receipt.json').read_text())
+    try:
+        # A separate bounded disk, never the agent's workspace or a host cache.
+        dependency_volume(stage)
+        fetch = ensure_work(stage)
+        for filename in ('go.mod', 'go.sum'):
+            if (stage / 'inputs' / filename).exists():
+                shutil.copyfile(stage / 'inputs' / filename, fetch / filename)
+        for path in (fetch, fetch / 'go.mod', fetch / 'go.sum'):
+            if path.exists(): os.chown(path, UID, GID)
+        # Stage protected paths for the unprivileged bwrap process in this
+        # service's private mount namespace, as for ordinary workshop workers.
+        run(['/usr/bin/mount', '--make-rprivate', '/'])
+        run(['/usr/bin/mount', '-t', 'tmpfs', '-o', 'mode=0755,size=16m,nosuid,nodev', 'dependency-staging', '/tmp'])
+        Path('/tmp/fetch').mkdir()
+        run(['/usr/bin/mount', '--bind', str(fetch), '/tmp/fetch'])
+        Path('/tmp/dependency.sock').touch()
+        sock = p / 'dependency.sock'
+        if not stat.S_ISSOCK(sock.lstat().st_mode):
+            raise ValueError('dependency bridge must be a socket')
+        run(['/usr/bin/mount', '--bind', str(sock), '/tmp/dependency.sock'])
+        cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-all', '--cap-drop', 'ALL',
+               '--clearenv', '--tmpfs', '/', '--ro-bind', '/usr', '/usr']
+        for path in ('/lib', '/lib64', '/bin'):
+            if Path(path).exists(): cmd += ['--ro-bind', path, path]
+        cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/etc',
+                '--bind', '/tmp/fetch', '/fetch', '--ro-bind', '/tmp/dependency.sock', '/dependency.sock',
+                '--chdir', '/fetch']
+        for name, value in {'HOME':'/tmp', 'PATH':'/usr/local/go/bin:/usr/bin:/bin',
+                'GOMODCACHE':'/fetch/mod', 'GOCACHE':'/tmp/build', 'GOPATH':'/fetch/gopath',
+                'GOPROXY':'http://127.0.0.1:18080', 'GOSUMDB':'sum.golang.org',
+                'GONOSUMDB':'', 'GONOPROXY':'', 'GOPRIVATE':'', 'GOVCS':'*:off',
+                'GOTOOLCHAIN':'local', 'GOENV':'off', 'GOWORK':'off', 'GOTELEMETRY':'off'}.items():
+            cmd += ['--setenv', name, value]
+        cmd += ['--', '/usr/bin/python3', '-c', DEPENDENCY_FETCH]
+        def drop():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (256*1024**2,256*1024**2))
+            os.setgroups([]); os.setgid(GID); os.setuid(UID)
+        with (stage / 'fetch.log').open('w') as log:
+            result = subprocess.Popen(cmd, preexec_fn=drop, close_fds=True, stdout=log, stderr=log)
+            deadline = time.monotonic()+570
+            while result.poll() is None:
+                fresh = 0 <= time.time()-(stage/'heartbeat').stat().st_mtime < 60
+                if not fresh or time.monotonic()>deadline:
+                    raise RuntimeError('dependency controller heartbeat expired or provisioning timed out')
+                time.sleep(1)
+        if result.returncode:
+            raise RuntimeError('offline module provisioning failed; retained fetch.log contains evidence')
+        verified = json.loads((fetch / 'verified.json').read_text())
+        # The trusted downloader has exited. Reject links and special files
+        # before transferring its verified cache into an immutable bundle.
+        paths = [fetch / 'mod', *(fetch / 'mod').rglob('*')]
+        for path in paths:
+            st = path.lstat()
+            if not stat.S_ISDIR(st.st_mode): regular(path)
+        bundle = DEPENDENCIES / 'go' / key
+        pending = DEPENDENCIES / 'go' / ('.'+key)
+        # Each installation attempt has a fresh controller-owned directory.
+        # An interrupted copy is never confused with a verified bundle.
+        pending = pending.with_name(pending.name + '-' + str(uuid.uuid4()))
+        pending.mkdir(mode=0o755)
+        shutil.copytree(fetch / 'mod', pending / 'mod')
+        manifest = dict(verified, key=key, checksum_verified=True, source_job=job,
+                        verification='go mod download all with public sumdb; go mod verify',
+                        go_mod_sha256=digest_file(stage/'inputs/go.mod'), go_sum_sha256=digest_file(stage/'inputs/go.sum') if (stage/'inputs/go.sum').exists() else None)
+        (pending / 'manifest.json').write_text(json.dumps(manifest))
+        for path in [pending, *pending.rglob('*')]:
+            os.chown(path, 0, 0); path.chmod(0o555 if path.is_dir() else 0o444)
+        os.rename(pending, bundle)
+        if go_dependency_bundle(stage / 'inputs') != bundle:
+            raise ValueError('dependency bundle post-install verification failed')
+        receipt.update(state='verified', verified_at=time.time(), evidence=manifest)
+    except Exception as exc:
+        receipt.update(state='failed', reason=str(exc), retry_at=time.time()+900)
+    dependency_receipt(stage, receipt)
+    return 0 if receipt['state'] == 'verified' else 1
 
 def allocated_storage():
     # The image already accounts for mounted work. Include binaries, logs and
@@ -820,7 +1060,7 @@ def archive(job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -832,7 +1072,19 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'storage':
+    if args.command == 'dependencies':
+        out = dependency_status(args.job)
+    elif args.command == 'dependencies-stop':
+        key = go_dependency_key(ensure_work(job_path(args.job)))
+        if key is not None:
+            name = 'lectern-dependencies-' + key + '.service'
+            active = subprocess.run(['/usr/bin/systemctl', 'is-active', name], capture_output=True, text=True).stdout.strip()
+            if active in ('active', 'activating', 'deactivating'):
+                run(['/usr/bin/systemctl', 'stop', name])
+        out = {'state': 'stopped'}
+    elif args.command == '_dependencies':
+        return dependency_execute(args.job)
+    elif args.command == 'storage':
         out = storage_status()
     elif args.command == 'compact':
         out = compact_assets()

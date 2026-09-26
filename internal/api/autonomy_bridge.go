@@ -189,12 +189,15 @@ func (s *Server) ensureAutoBridges(j *autoJob) error {
 			}
 		}
 	}()
-	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID)} {
+	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch} {
 		dir := filepath.Join(autoRoot, j.ID, "bridges")
 		if e := os.MkdirAll(dir, 0755); e != nil {
 			return e
 		}
 		path := filepath.Join(dir, name)
+		if name == "dependency.sock" {
+			path = filepath.Join(autoRoot, j.ID, name)
+		}
 		if st, e := os.Lstat(path); e == nil {
 			if st.Mode()&os.ModeSocket == 0 {
 				return errors.New("bridge path is not a socket")
@@ -227,6 +230,24 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/requirements":
+		a, err := s.loadAuto()
+		if err != nil {
+			http.Error(w, "requirements unavailable", 503)
+			return
+		}
+		rows := []map[string]any{}
+		seen := map[string]bool{}
+		for i := len(a.Jobs) - 1; i >= 0 && len(rows) < 60; i-- {
+			j := a.Jobs[i]
+			if j.Recovery == nil || j.Recovery.Key == "" || seen[j.Recovery.Key] {
+				continue
+			}
+			seen[j.Recovery.Key] = true
+			rows = append(rows, map[string]any{"task_id": j.TaskID, "prerequisite": j.Recovery, "summary": j.Summary})
+		}
+		writeJSON(w, 200, rows)
+		return
 	case "/dependencies":
 		writeJSON(w, 200, autoDependencyCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies", "go")))
 		return

@@ -35,7 +35,7 @@ func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
 // Bind identity to the controller-created socket, never a worker query parameter.
 func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/assignment" {
+		if r.URL.Path != "/assignment" && r.URL.Path != "/prerequisite" {
 			s.autoReadBridge(w, r)
 			return
 		}
@@ -49,6 +49,10 @@ func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 			return
 		}
 		for _, j := range a.Jobs {
+			if r.URL.Path == "/prerequisite" && j.ID == jobID {
+				writeJSON(w, http.StatusOK, j.Recovery)
+				return
+			}
 			if j.ID == jobID && j.Admission != nil && j.Admission.JobID == jobID && j.Admission.TaskID == j.TaskID {
 				w.Header().Set("Cache-Control", "no-store")
 				writeJSON(w, http.StatusOK, j.Admission)

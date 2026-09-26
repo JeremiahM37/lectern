@@ -293,7 +293,8 @@ a successful outcome.
 ### Offline Go dependencies
 
 The runner can mount a provisioned, root-owned dependency bundle selected by the
-SHA256 of `go.mod + NUL separators + go.sum` (see `go_dependency_key`). Bundles
+exact-input SHA256 defined by `go_dependency_key` (a missing `go.sum` has a
+distinct identity). Bundles
 live under `dependencies/go/<key>/` beside the jobs directory; `mod/` is a public
 Go module cache and `manifest.json` records the key, module, source project/task,
 Go version, verification, file count and size. The cache and manifest are mounted
@@ -312,4 +313,38 @@ rename. Do not provision from worker-suggested commands, mount the administrator
 cache, or grant arbitrary registry/VCS/network access. Dependency changes require a
 new verified bundle. `/dependencies` lets planners discover available bundles;
 its listing is informational, while runner ownership and exact-input checks govern
-mounting. Absent bundles leave the existing environment unchanged.
+mounting.
+
+The controller now provisions missing bundles automatically before source workers
+start. The fixed provisioner receives only copies of module metadata and a
+separate read-only registry socket. It runs no project code or install hooks,
+has no host credentials/cache, and cannot make arbitrary network connections.
+The broker permits GETs for the Go module protocol at `proxy.golang.org`, public
+checksum data at `sum.golang.org`, and validated public Google-storage redirects.
+Downloaded content passes Go checksum verification before atomic installation.
+
+A provisioner has a separate 2 GiB image, 2 GiB memory limit, two-core quota and
+10-minute lifetime. A global lock serializes provisioning; admission reserves
+4 GiB above the 20 GiB free-space floor and the 200 GiB retained-data ceiling.
+OFF/quota cancellation stops its own cgroup. A key-scoped controller heartbeat
+expires after 60 seconds. Formatting and bundle publication survive interrupted
+attempts without treating partial files as verified content.
+
+Recovery receipts persist the exact input key, required capability, attempts,
+reason, source job, toolchain identity and verification. Three attempts use
+15-minute backoff; a changed compiler or six-hour cooldown permits a new bounded
+probe. Models do not run against an unchanged failed prerequisite. Up to sixteen
+admitted cycles can be deferred while other work proceeds. The controller polls
+these requirements without model turns and resumes the original assignment after
+verification at a checkpoint boundary. Audits, pending reviewers, source pins
+and repair reservations survive deferral; no approval or rejection is invented.
+`/requirements` exposes retained prerequisite states and `/prerequisite` is bound
+to a worker socket. Local replacements, unavailable toolchains and non-Go
+packages still need separately supported remediation capabilities.
+
+Opt-in real verification: install a root-owned candidate runner, setting its
+`INSTALL` to that candidate path, then run
+`LECTERN_RECOVERY_TEST_RUNNER=/absolute/candidate go test ./internal/api -run '^TestDependencyRecovery(Cancellation)?Real$' -v`.
+This creates disposable jobs, downloads a public module, consumes the resulting
+cache offline, and cancels a controlled download. It calls no model API or tmux.
+Ordinary project verification skips these host integration tests.

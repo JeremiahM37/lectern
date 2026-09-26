@@ -118,11 +118,13 @@ def _start(port: int, extra_env: dict):
            "TMUX_TMPDIR": str(private_tmux),
            **OUTSIDE_WORLD,
            **extra_env}
-    proc = subprocess.Popen([_binary()], cwd=ROOT, env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    startup_log = Path(tmp) / "server.log"
+    with startup_log.open("wb") as log:
+        proc = subprocess.Popen([_binary()], cwd=ROOT, env=env,
+                                stdout=log, stderr=subprocess.STDOUT)
     for _ in range(100):
         if proc.poll() is not None:
-            raise RuntimeError(f"server exited with {proc.returncode} before listening on {port}")
+            raise RuntimeError(f"server exited with {proc.returncode} before listening on {port}:\n{startup_log.read_text(errors='replace')[-16000:]}")
         if _port_open(port):
             break
         time.sleep(0.1)

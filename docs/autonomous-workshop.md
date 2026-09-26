@@ -124,11 +124,15 @@ approval path. A human-directed session may publish only after receiving consent
 The worker proxy now blocks general external connections, including GitHub and
 registries. Only exact subscription-inference hosts retain TLS access. Research
 uses a credential-free GET broker for approved document hosts; redirects and
-query strings are refused. This intentionally limits online dependency installs.
+query strings are refused. Workers cannot install packages over the network.
+A separate fixed provisioner now supplies verified offline Go module bundles;
+failed prerequisites retain their admitted assignments for bounded automatic
+recovery while other work proceeds. See `/requirements` for the recorded state.
 See isolation documentation for the remaining model-provider trust boundary.
 
 Operational failures retry automatically with persisted 1/5/15-minute backoff,
-then wait for the next eligible cycle after three retries in one day. Completed
+then retry every 15 minutes in continuous mode (daily mode waits for its next
+eligible cycle). Completed
 planning/audits are retained and failed workers resume in fresh isolated jobs
 with partial files. Unsafe snapshots, corrupt receipts and unknown failure types
 stay blocked. Quota uncertainty always blocks launches independently of retries.

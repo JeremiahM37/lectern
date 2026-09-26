@@ -121,6 +121,16 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 			a.Runs = a.Runs[len(a.Runs)-90:]
 		}
 	}
+	// Resuming an older deferred cycle must not reuse newer cycle numbers.
+	for _, state := range append(append([]*autonomy.State{}, a.Runs...), a.DeferredRuns...) {
+		if state.Cycle > a.CycleSequence {
+			a.CycleSequence = state.Cycle
+		}
+	}
+	if next.Cycle <= a.CycleSequence {
+		next.Cycle = a.CycleSequence + 1
+	}
+	a.CycleSequence = next.Cycle
 	a.State = next
 	a.NextCycleScheduled = false
 	a.NextCycleAt = time.Time{}
