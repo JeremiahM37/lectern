@@ -68,3 +68,24 @@ func TestFilterToolsByScope(t *testing.T) {
 		t.Fatalf("a token with both scopes should see every non-excluded tool, got %d of %d", len(full), len(all))
 	}
 }
+
+// Every tool must be classified (or deliberately web-excluded): an
+// unclassified tool falls back to the write scope, which is safe but almost
+// certainly not what its author meant.
+func TestEveryToolHasAWebScope(t *testing.T) {
+	for _, tl := range tools {
+		if webExcluded[tl.Name] {
+			continue
+		}
+		if _, ok := toolScope[tl.Name]; !ok {
+			t.Errorf("tool %q has no entry in toolScope", tl.Name)
+		}
+	}
+}
+
+func TestUnclassifiedToolNeedsWriteScope(t *testing.T) {
+	need, ok := scopeFor("some_future_tool")
+	if !ok || need != oauth.ScopeWrite {
+		t.Fatalf("scopeFor(unknown) = %q, %v; want write scope", need, ok)
+	}
+}

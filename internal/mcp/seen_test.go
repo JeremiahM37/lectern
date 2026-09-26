@@ -16,7 +16,7 @@ func TestInitializeReportsClientSeen(t *testing.T) {
 	_, base := newTestApp(t)
 	s := New(base, "")
 
-	resp, send := s.handle(request{
+	resp, send := s.handleRequest(request{
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`1`),
 		Method:  "initialize",
@@ -57,7 +57,7 @@ func TestInitializeIgnoresMissingClientInfo(t *testing.T) {
 	_, base := newTestApp(t)
 	s := New(base, "")
 	// No clientInfo at all — must not panic, and must still answer normally.
-	resp, send := s.handle(request{
+	resp, send := s.handleRequest(request{
 		JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize", Params: json.RawMessage(`{}`),
 	})
 	if !send || resp.Error != nil {

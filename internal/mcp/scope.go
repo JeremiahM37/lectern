@@ -58,8 +58,13 @@ var webExcluded = map[string]bool{
 // scopeFor reports the scope a tool needs, and whether it is classified at
 // all — every entry in Tools() other than webExcluded must be.
 func scopeFor(name string) (string, bool) {
-	s, ok := toolScope[name]
-	return s, ok
+	if s, ok := toolScope[name]; ok {
+		return s, true
+	}
+	// Fail closed: a tool nobody classified (a new one, or a typo in this
+	// table) needs the write scope rather than slipping past a read-only
+	// token. TestEveryToolHasAWebScope keeps the table complete.
+	return oauth.ScopeWrite, true
 }
 
 // filterToolsByScope keeps only the tools granted covers, after webExcluded
