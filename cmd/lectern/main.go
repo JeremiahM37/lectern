@@ -7,6 +7,7 @@
 //	lectern up         start a private local runtime, register a target/project, open the browser
 //	lectern doctor     check tmux/git/agents/auth/TLS/push/hooks and print fixes
 //	lectern mcp        speak MCP on stdio against a running control plane
+//	lectern relay      run an end-to-end encrypted relay for phones (docs/relay.md)
 //	lectern version    print the version
 package main
 
@@ -51,7 +52,7 @@ var clientVerbs = map[string]bool{
 // win — so a test asserts the sets are disjoint.
 var reservedVerbs = map[string]bool{
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true,
-	"mcp": true, "version": true, "--version": true, "-v": true,
+	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -179,6 +180,12 @@ func main() {
 			// stdio belongs to the protocol here — logs would corrupt the stream
 			api := env("LECTERN_API", "http://127.0.0.1:"+strconv.Itoa(cfg.Port))
 			if err := mcp.New(api, cfg.AuthToken).Serve(os.Stdin, os.Stdout); err != nil {
+				os.Exit(1)
+			}
+			return
+		case "relay":
+			if err := relayCommand(os.Args[2:], os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 			return
