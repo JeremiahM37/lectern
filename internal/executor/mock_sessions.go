@@ -31,6 +31,33 @@ type mockPane struct {
 	// discovery joins on.
 	psArgs string
 	busy   bool
+	// limit, while set, is the usage-limit message the pane answers every
+	// message with instead of working (see SetPaneLimit).
+	limit string
+}
+
+// SetPaneLimit scripts a usage limit for an interactive session: the message
+// is printed now, and every message sent while it is set is answered with it
+// again. An empty message lifts the limit, so the next message is worked on.
+func (m *Mock) SetPaneLimit(sess, message string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pane, ok := m.panes[sess]
+	if !ok {
+		return false
+	}
+	pane.limit = message
+	if message != "" {
+		pane.busy = false
+		pane.lines = append(pane.lines, "  ⎿  "+message, "", "❯ ")
+	}
+	return true
+}
+
+// PaneText is the current text of a scripted pane.
+func (m *Mock) PaneText(sess string) string {
+	text, _ := m.capture(sess)
+	return text
 }
 
 var (
@@ -116,6 +143,12 @@ func (m *Mock) handleSendText(cmd string) Result {
 	}
 
 	m.mu.Lock()
+	if pane.limit != "" {
+		// Limited: the CLI takes the message and refuses it at once.
+		pane.lines = append(pane.lines, "❯ "+firstLine(text), "  ⎿  "+pane.limit, "", "❯ ")
+		m.mu.Unlock()
+		return Result{0, "", ""}
+	}
 	pane.lines = append(pane.lines, "❯ "+firstLine(text), "", "✻ Working… (esc to interrupt)")
 	pane.busy = true
 	m.mu.Unlock()

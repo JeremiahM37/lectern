@@ -64,6 +64,9 @@ type Extra struct {
 	// message) can act on the session directly rather than parsing it back
 	// out of the deep-link URL.
 	SessionID int64
+	// LimitID, when set, is the usage-limit hold (internal/limits) the push
+	// is about; the service worker's one-tap choices post to it.
+	LimitID int64
 }
 
 // Notifier owns the sink fan-out.
@@ -185,6 +188,9 @@ func pushMessage(title, body, urlPath string, extra *Extra) map[string]any {
 		}
 		if extra.SessionID != 0 {
 			msg["session_id"] = extra.SessionID
+		}
+		if extra.LimitID != 0 {
+			msg["limit_id"] = extra.LimitID
 		}
 	}
 	return msg

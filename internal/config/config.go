@@ -69,7 +69,11 @@ type Config struct {
 	TickInterval time.Duration
 	// HandoffPoll is how often a session switch checks for the agent's wrap;
 	// zero keeps the session manager's default. Tests shorten it.
-	HandoffPoll    time.Duration
+	HandoffPoll time.Duration
+	// LimitSettle is how long a usage-limit resume nudge has to show a result
+	// before it is judged (docs/rate-limits.md); zero keeps the default.
+	// Tests shorten it.
+	LimitSettle    time.Duration
 	ApprovalPoll   time.Duration
 	ApprovalExpire time.Duration
 	// SessionApprovalHold is LECTERN_APPROVAL_HOLD (default 120s): how long a

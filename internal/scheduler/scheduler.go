@@ -28,6 +28,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/outcomes"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
@@ -132,6 +133,12 @@ type Scheduler struct {
 	// own goroutine, so a slow `gh` never holds up this tick. Nil disables
 	// the loop, same convention as Claims above.
 	CI func(context.Context)
+	// Limits advances usage-limit holds (internal/limits.Tracker.Tick): the
+	// resume nudge, verification and handoffs. It runs right after the
+	// session poll so it always sees the freshest panes. Nil disables it.
+	Limits func(context.Context)
+	// LimitTiming overrides limits.DefaultTiming for requeued tasks (tests).
+	LimitTiming limits.Timing
 
 	mu              sync.Mutex
 	pollErrors      map[int64]int
@@ -223,6 +230,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	if s.Sessions != nil && store.Now()-s.lastSessionPoll >= s.Cfg.SessionPoll.Seconds() {
 		s.lastSessionPoll = store.Now()
 		s.Sessions.Poll(ctx)
+	}
+	if s.Limits != nil {
+		s.Limits(ctx)
 	}
 	if s.Routines != nil {
 		s.Routines(ctx)
@@ -352,7 +362,8 @@ func (s *Scheduler) attemptExecutor(att *store.Attempt, target *store.Target) (e
 
 func (s *Scheduler) promoteQueued(ctx context.Context) {
 	rows, err := s.DB.Query(`SELECT a.id FROM attempts a JOIN tasks t ON t.id=a.task_id
-		WHERE a.status='queued' AND t.id NOT IN (SELECT task_id FROM task_takeovers) ORDER BY t.priority DESC, a.id`)
+		WHERE a.status='queued' AND t.id NOT IN (SELECT task_id FROM task_takeovers)
+		AND (a.not_before IS NULL OR a.not_before <= ?) ORDER BY t.priority DESC, a.id`, store.Now())
 	if err != nil {
 		return
 	}
@@ -916,6 +927,7 @@ func (s *Scheduler) StoreEvents(att *store.Attempt, events []agents.Event) error
 		if err := s.DB.InsertEvent(att.ID, seq, ev.Type, store.J(ev.Payload)); err != nil {
 			return err
 		}
+		s.noticeLimit(att, ev)
 		switch ev.Type {
 		case "init":
 			if sid, _ := ev.Payload["session_id"].(string); sid != "" {
@@ -1047,6 +1059,9 @@ func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, no
 		"status": status, "finished_at": store.Now(), "exit_code": rc,
 		"result_json": store.J(result)})
 	s.clearPollError(att.ID)
+	if s.limitStopped(ctx, att, rc, result) {
+		return
+	}
 
 	task, err := s.DB.Task(att.TaskID)
 	if err != nil {
@@ -1373,6 +1388,9 @@ type AttemptOpts struct {
 	// model-only-A/B behavior unchanged.
 	Agent          string
 	PermissionMode string
+	// NotBefore holds the attempt in the queue until then — a task requeued
+	// for its provider's usage-limit reset (docs/rate-limits.md).
+	NotBefore *float64
 }
 
 // CreateAttempt queues attempt N+1 for a task.
@@ -1399,6 +1417,7 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
 		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
 		Branch: o.Branch, Model: o.Model, Agent: o.Agent, PermissionMode: o.PermissionMode,
+		NotBefore: o.NotBefore,
 	}
 	c := &runCtx{Task: task, Project: project}
 	launchConfig, err := s.taskLaunchConfig(att, c)

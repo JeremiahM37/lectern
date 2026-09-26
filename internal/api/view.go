@@ -64,12 +64,16 @@ type taskView struct {
 	// CI is the CI loop's watch of this task's pull request (docs/ci-loop.md);
 	// absent when no PR is being, or was, watched.
 	CI *ciloop.View `json:"ci,omitempty"`
+	// Limit is the usage-limit hold that stopped this task, while it still
+	// matters (docs/rate-limits.md).
+	Limit *limitView `json:"limit,omitempty"`
 }
 
 // view assembles a task's full board representation.
 func (s *Server) view(task *store.Task) *taskView {
 	out := &taskView{Task: task, Labels: []string{}, ProjectName: "?", TargetName: "?"}
 	out.Takeover, _ = s.DB.Takeover(task.ID)
+	out.Limit = s.taskLimit(task.ID)
 	if labels := store.UnjStrings(task.LabelsJSON); labels != nil {
 		out.Labels = labels
 	}

@@ -688,6 +688,52 @@ CREATE TABLE IF NOT EXISTS pairing_devices(
   paired_at REAL NOT NULL,
   last_seen_at REAL NOT NULL
 );
+-- limit_holds (internal/limits, docs/rate-limits.md): one row per time an
+-- agent was stopped by its provider's usage limit. Exactly one of session_id
+-- (a live session) or attempt_id (a headless task attempt, with its task_id)
+-- is set. state is the whole lifecycle — waiting/resuming/handing_off while
+-- open, then resumed/cleared/handed_off/requeued/redispatched/failed/
+-- gave_up/dismissed once resolved_at is set. Every automatic action is a
+-- compare-and-swap on state, so a restart can never repeat a nudge or a
+-- handoff: the row, not process memory, records that it already happened.
+CREATE TABLE IF NOT EXISTS limit_holds(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER,
+  task_id INTEGER,
+  attempt_id INTEGER,
+  agent TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  pattern TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  detected_at REAL NOT NULL,
+  reset_at REAL,
+  policy TEXT NOT NULL DEFAULT 'notify',
+  state TEXT NOT NULL DEFAULT 'waiting',
+  due_at REAL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  nudged_at REAL,
+  reset_notified_at REAL,
+  resolved_at REAL,
+  successor_id INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_holds_open_session
+  ON limit_holds(session_id) WHERE resolved_at IS NULL AND session_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_holds_open_attempt
+  ON limit_holds(attempt_id) WHERE resolved_at IS NULL AND attempt_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_limit_holds_task ON limit_holds(task_id);
+CREATE INDEX IF NOT EXISTS idx_limit_holds_session ON limit_holds(session_id);
+-- limit_policies: what to do when a limit is hit — scope 'global' (id 0),
+-- 'project' or 'session'. The narrowest scope that has a row wins.
+CREATE TABLE IF NOT EXISTS limit_policies(
+  scope TEXT NOT NULL,
+  scope_id INTEGER NOT NULL,
+  policy_json TEXT NOT NULL,
+  updated_at REAL NOT NULL,
+  PRIMARY KEY(scope, scope_id)
+);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -823,4 +869,7 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN otel_commits INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE outcome_facts ADD COLUMN pull_requests INTEGER",
 	"ALTER TABLE outcome_facts ADD COLUMN commits INTEGER",
+	// Usage-limit continuity (docs/rate-limits.md): an attempt requeued until
+	// its provider's limit resets is queued now but not promoted before this.
+	"ALTER TABLE attempts ADD COLUMN not_before REAL",
 }

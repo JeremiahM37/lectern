@@ -75,6 +75,41 @@ export interface TaskView extends Task {
   target_kind: string;
   attempt?: AttemptView;
   attempts: AttemptSummary[];
+  // The usage-limit hold that stopped this task, while it still matters
+  // (docs/rate-limits.md).
+  limit?: LimitHold | null;
+}
+
+// LimitHold is one usage-limit stop (internal/limits, docs/rate-limits.md).
+export interface LimitHold {
+  id: number;
+  session_id?: number;
+  task_id?: number;
+  attempt_id?: number;
+  agent: string;
+  source: string;
+  pattern: string;
+  message: string;
+  detected_at: number;
+  reset_at?: number | null;
+  policy: "notify" | "wait" | "handoff";
+  state: string;
+  due_at?: number | null;
+  tries: number;
+  nudged_at?: number | null;
+  resolved_at?: number | null;
+  successor_id?: number | null;
+  note?: string;
+  // fallback names where "Hand off" goes under the effective policy.
+  fallback?: string;
+  policy_scope: string;
+}
+
+export interface LimitPolicy {
+  mode: "notify" | "wait" | "handoff";
+  fallback_agent?: string;
+  fallback_model?: string;
+  fallback_profile_id?: number;
 }
 
 export interface InteractiveWorkspace {
@@ -127,6 +162,8 @@ export interface SessionView extends Session {
   // isolation badge (see internal/isolation and docs/isolation.md). Absent
   // or mode:"" means unsandboxed, which is every session predating this.
   isolation?: IsolationConfig;
+  // The open usage-limit hold, when the agent is stopped by its limit.
+  limit?: LimitHold | null;
 }
 
 // IsolationConfig mirrors internal/isolation.Config: a session or task's

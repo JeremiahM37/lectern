@@ -425,6 +425,14 @@ temporary databases, a separate vault, and a private tmux socket.
   spend cap, Claude 5h/7d quota-threshold alerts and a cost-anomaly check,
   with an opt-in **stop** mode that refuses new dispatches/session launches
   and cancels a task over its own budget. See [docs/budgets.md](budgets.md).
+- **Usage limits** — when Claude, Codex, Gemini or a CLI that prints their
+  messages is stopped by its usage limit, the card says so with the reset time
+  ("Limit — resumes 3:41pm") and the phone gets a push with **Resume at
+  reset** / **Hand off**. Per project or session, Lectern can instead wait and
+  resume the same agent after the reset (verifying it really resumed, never
+  twice, even across a restart) or hand the work to a fallback agent in the
+  same workspace at once. Tasks are requeued for the reset or re-dispatched
+  the same way. See [docs/rate-limits.md](rate-limits.md).
 - **Cost per outcome** — ties every dollar to what it produced: exact
   OpenTelemetry cost/token telemetry from Claude Code sessions and task
   attempts, $ per passing check, $ per accepted change, $ per 100 kept
@@ -670,7 +678,8 @@ itself now. Plain HTTP on `LECTERN_PORT` (9110) keeps working either way.
 
 ### Phone alerts
 
-Web push (approval, waiting-for-input, finished, error, compacting) needs no
+Web push (approval, waiting-for-input, finished, error, compacting, usage
+limit) needs no
 setup: on first start Lectern generates and persists its own VAPID key pair
 (`LECTERN_VAPID_PRIVATE`/`_PUBLIC` still win if you set them, e.g. to share
 one identity across installs). What you do have to do, once per device:

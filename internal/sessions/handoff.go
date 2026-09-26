@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -175,7 +177,11 @@ type HandoffOpts struct {
 	ProfileID int64
 	// QuickSwitch treats an empty model as the destination's default.
 	QuickSwitch bool
-	launch      *LaunchOpts
+	// Continue primes the successor to carry on with the work rather than
+	// report and wait — used when a usage limit, not the operator, is the
+	// reason for the switch (docs/rate-limits.md).
+	Continue bool
+	launch   *LaunchOpts
 }
 
 // HandoffResult reports what a wrap produced.
@@ -223,6 +229,15 @@ func (m *Manager) StartHandoff(id int64, o HandoffOpts) error {
 		m.finishHandoff(id, "")
 	}()
 	return nil
+}
+
+// StartLimitHandoff moves a session stopped by its usage limit to another
+// agent or model in the same workspace. The limited agent cannot write a
+// handoff, so runHandoff builds one from what Lectern captured (limitWrap).
+// The original session is kept; its hold is resolved once the successor runs.
+func (m *Manager) StartLimitHandoff(id int64, agent, model string, profileID int64) error {
+	return m.StartHandoff(id, HandoffOpts{Successor: true, Agent: agent, Model: model,
+		ProfileID: profileID, QuickSwitch: true, Continue: true})
 }
 
 // InFlight reports whether a session currently has a wrap being written.
@@ -297,40 +312,15 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	if err != nil {
 		return err
 	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
-		return err
-	}
-	path := fmt.Sprintf("/tmp/lectern-handoff-%d-%s.md", sess.ID, hex.EncodeToString(nonce))
-	// clear any wrap left by an earlier handoff on this session, or we would
-	// happily "capture" the previous one and call it current
-	if _, err := ex.Run(ctx, "rm -f "+path, executor.RunOpts{Timeout: 20}); err != nil {
-		return err
-	}
-	if err := m.SendText(ctx, sess.ID, HandoffPrompt(path)); err != nil {
-		return err
-	}
-
-	deadline := time.Now().Add(m.HandoffTimeout)
+	// A session stopped by its usage limit cannot answer the wrap request;
+	// asking would only time out. Hand over what Lectern can see instead.
 	var wrap string
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(m.handoffPoll()):
-		}
-		raw, err := ex.ReadFile(ctx, path, 0)
-		if err == nil {
-			if completed, ok := completedHandoff(raw, path); ok {
-				wrap = completed
-				break
-			}
-		}
+	hold, _ := m.DB.OpenLimitHoldForSession(sess.ID)
+	if hold.Open() {
+		wrap = m.limitWrap(ctx, sess, ex, hold)
+	} else if wrap, err = m.requestWrap(ctx, sess, ex); err != nil {
+		return err
 	}
-	if wrap == "" {
-		return fmt.Errorf("the agent did not write a handoff within %s", m.HandoffTimeout)
-	}
-	ex.Run(ctx, "rm -f "+path, executor.RunOpts{Timeout: 20})
 
 	projectName := sess.ProjectName
 	wrapID, err := m.DB.InsertWrap(&store.Wrap{
@@ -342,11 +332,12 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	res := HandoffResult{WrapID: wrapID, Summary: wrap}
 
 	// the wrap goes into project memory too, so a DISPATCHED task on this
-	// project starts from the same state an interactive session would
-	if sess.ProjectID != nil {
+	// project starts from the same state an interactive session would. A
+	// limit capture is mostly a screen dump, not knowledge, so it stays out.
+	if sess.ProjectID != nil && !hold.Open() {
 		m.DB.InsertNote(*sess.ProjectID, "Session handoff: "+clipRunes(wrap, 900), nil)
 	}
-	if m.Memory != nil && m.Memory.Available(ctx) {
+	if m.Memory != nil && !hold.Open() && m.Memory.Available(ctx) {
 		topic := ""
 		if sess.ProjectID != nil {
 			if project, err := m.DB.Project(*sess.ProjectID); err == nil {
@@ -371,6 +362,9 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	// same work, which is the obvious reason to keep both, was impossible.
 	if o.Successor {
 		prime := ResumePrompt(projectName, wrap, m.projectPrime(ctx, projectName))
+		if o.Continue {
+			prime = LimitResumePrompt(projectName, wrap, m.projectPrime(ctx, projectName))
+		}
 		launch := o.launch
 		if launch == nil {
 			resolved, err := m.handoffLaunch(sess, o)
@@ -387,6 +381,9 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 		}
 		res.Session = next
 		m.setHandoffSuccessor(sess.ID, next.ID)
+		if hold.Open() {
+			m.resolveLimitHandoff(hold.ID, next.ID)
+		}
 	}
 	// A failed successor must never cost the operator the original session.
 	if o.KillOld {
@@ -405,6 +402,120 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 	m.Log.Info("session wrapped", "session", sess.ID, "wrap", wrapID,
 		"successor", res.Session != nil, "remembered", res.Remembered)
 	return nil
+}
+
+// limitWrap is the handoff for a session its usage limit has stopped: the
+// limit itself, what the agent was last asked, and the end of its screen.
+// Together with the unchanged workspace that is what the successor needs to
+// pick the work up. If the CLI is counting down to continue by itself, that is
+// cancelled, so two agents never end up working in one workspace.
+func (m *Manager) limitWrap(ctx context.Context, sess *store.Session, ex executor.Executor, hold *store.LimitHold) string {
+	pane := sess.PaneTail
+	cmd := fmt.Sprintf("printf '%%s' %s; tmux capture-pane -p -t %s -S -200 -J",
+		shellq.Quote(PollDelimiter+sess.TmuxSession+"\n"), shellq.Quote("="+sess.TmuxSession+":"))
+	if r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 15}); err == nil && r.OK() {
+		if text := ParsePoll(r.Stdout)[sess.TmuxSession]; strings.TrimSpace(text) != "" {
+			pane = text
+		}
+	}
+	if hit, ok := limits.DetectTail(pane, limits.TailLines, time.Now()); ok && hit.SelfResume {
+		if err := m.SendKey(ctx, sess.ID, "Escape"); err != nil {
+			m.Log.Warn("could not cancel the CLI's own limit wait", "session", sess.ID, "err", err)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "WHERE WE ARE: the previous %s session", sess.Agent)
+	if sess.Model != "" {
+		fmt.Fprintf(&b, " (%s)", sess.Model)
+	}
+	fmt.Fprintf(&b, " was stopped by its usage limit: %q. It could not write its own handoff; "+
+		"this was captured by Lectern instead.\n", hold.Message)
+	if prompt := strings.TrimSpace(sess.LastPromptExcerpt); prompt != "" {
+		fmt.Fprintf(&b, "\nLAST REQUEST it was working on: %s\n", prompt)
+	}
+	fmt.Fprintf(&b, "\nSTATE: the workspace %s is exactly as it left it, including uncommitted work. "+
+		"Check git status and the recent diff before changing anything.\n", sess.Workdir)
+	tail := strings.TrimSpace(pane)
+	if r := []rune(tail); len(r) > 6000 {
+		tail = string(r[len(r)-6000:])
+	}
+	fmt.Fprintf(&b, "\nEND OF ITS SCREEN:\n```\n%s\n```", tail)
+	return b.String()
+}
+
+// requestWrap asks the agent to write its handoff and waits for it.
+func (m *Manager) requestWrap(ctx context.Context, sess *store.Session, ex executor.Executor) (string, error) {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	path := fmt.Sprintf("/tmp/lectern-handoff-%d-%s.md", sess.ID, hex.EncodeToString(nonce))
+	// clear any wrap left by an earlier handoff on this session, or we would
+	// happily "capture" the previous one and call it current
+	if _, err := ex.Run(ctx, "rm -f "+path, executor.RunOpts{Timeout: 20}); err != nil {
+		return "", err
+	}
+	if err := m.SendText(ctx, sess.ID, HandoffPrompt(path)); err != nil {
+		return "", err
+	}
+
+	deadline := time.Now().Add(m.HandoffTimeout)
+	var wrap string
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(m.handoffPoll()):
+		}
+		raw, err := ex.ReadFile(ctx, path, 0)
+		if err == nil {
+			if completed, ok := completedHandoff(raw, path); ok {
+				wrap = completed
+				break
+			}
+		}
+	}
+	if wrap == "" {
+		return "", fmt.Errorf("the agent did not write a handoff within %s", m.HandoffTimeout)
+	}
+	ex.Run(ctx, "rm -f "+path, executor.RunOpts{Timeout: 20})
+	return wrap, nil
+}
+
+// resolveLimitHandoff closes the predecessor's usage-limit hold once its
+// successor is running, whether the limit policy or the operator's own switch
+// started the handoff. The hold's own compare-and-swap keeps a racing resume
+// from also acting on it.
+func (m *Manager) resolveLimitHandoff(holdID, successorID int64) {
+	fields := func() map[string]any {
+		return map[string]any{"state": limits.StateHandedOff, "resolved_at": store.Now(), "successor_id": successorID}
+	}
+	for _, from := range []string{limits.StateHandingOff, limits.StateWaiting} {
+		if ok, _ := m.DB.TransitionLimitHold(holdID, from, fields()); ok {
+			return
+		}
+	}
+}
+
+// LimitResumePrompt primes a successor that takes over because its
+// predecessor hit a usage limit: unlike ResumePrompt, it should carry on.
+func LimitResumePrompt(projectName, wrap, priming string) string {
+	var b strings.Builder
+	b.WriteString("You are taking over work on ")
+	if projectName != "" {
+		b.WriteString(projectName)
+	} else {
+		b.WriteString("this project")
+	}
+	b.WriteString(" from another agent that was stopped by its usage limit. Lectern captured this:\n\n---\n")
+	b.WriteString(strings.TrimSpace(wrap))
+	b.WriteString("\n---\n")
+	if strings.TrimSpace(priming) != "" {
+		b.WriteString("\n" + strings.TrimSpace(priming) + "\n")
+	}
+	b.WriteString("\nConfirm the state of the workspace (git status, the recent diff), then continue " +
+		"the task it was working on. If what it was doing is unclear, say what you found and stop.")
+	return b.String()
 }
 
 // projectPrime pulls what the memory provider knows about a project, so a fresh

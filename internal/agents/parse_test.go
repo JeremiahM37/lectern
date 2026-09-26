@@ -247,3 +247,35 @@ func TestTruncateBoundsAPayload(t *testing.T) {
 		t.Fatalf("truncation must be visible, got %v", out)
 	}
 }
+
+// Claude's stream reports a usage-limit stop as a rate_limit_event whose
+// status is "rejected" (shape from Claude Code 2.1.283's SDK message builder);
+// only that one tick reaches the timeline, for internal/limits to read.
+func TestRejectedRateLimitEventIsKept(t *testing.T) {
+	lines := []string{
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1790200800,"rateLimitType":"five_hour"}}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790200800,"rateLimitType":"five_hour","isUsingOverage":false},"uuid":"u","session_id":"s"}`,
+		`{"type":"result","subtype":"success","is_error":true,"result":"You've hit your session limit · resets 3pm (UTC)","session_id":"s"}`,
+	}
+	events, _ := ParseStreamLines("claude", strings.Join(lines, "\n")+"\n")
+	eq(t, types(events), []string{"rate_limit", "result"})
+	if events[0].Payload["resets_at"] != float64(1790200800) || events[0].Payload["rate_limit_type"] != "five_hour" {
+		t.Fatalf("rate_limit payload: %v", events[0].Payload)
+	}
+	if events[1].Payload["is_error"] != true {
+		t.Fatalf("result lost is_error: %v", events[1].Payload)
+	}
+}
+
+// codex exec --json reports a stopped turn as "error" / "turn.failed".
+func TestCodexErrorsReachTheTimeline(t *testing.T) {
+	lines := []string{
+		`{"type":"error","message":"You've hit your usage limit. Try again at 3:40 PM."}`,
+		`{"type":"turn.failed","error":{"message":"You've hit your usage limit. Try again at 3:40 PM."}}`,
+	}
+	events, _ := ParseStreamLines("codex", strings.Join(lines, "\n")+"\n")
+	eq(t, types(events), []string{"error", "error"})
+	if !strings.HasPrefix(events[1].Payload["message"].(string), "You've hit your usage limit.") {
+		t.Fatalf("turn.failed message: %v", events[1].Payload)
+	}
+}

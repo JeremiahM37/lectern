@@ -14,6 +14,7 @@ export interface PushData {
   kind?: string;
   approval_id?: number;
   session_id?: number;
+  limit_id?: number;
 }
 
 export interface NotificationPlan {
@@ -25,7 +26,7 @@ export interface NotificationPlan {
     tag: string;
     renotify: boolean;
     vibrate: number[];
-    data: { url: string; approvalId?: number; sessionId?: number };
+    data: { url: string; approvalId?: number; sessionId?: number; limitId?: number };
     actions: { action: string; title: string }[];
   };
 }
@@ -39,6 +40,7 @@ export interface NotificationPlan {
 // same broadcast rather than piling one notification per failure.
 function groupTag(data: PushData): string {
   if (data.kind === "approval" && data.approval_id != null) return `approval-${data.approval_id}`;
+  if (data.limit_id != null) return `limit-${data.limit_id}`;
   if (data.session_id != null) return `session-${data.session_id}`;
   return `kind-${data.kind || "general"}`;
 }
@@ -55,6 +57,50 @@ function sessionActions(data: PushData): { action: string; title: string }[] {
     { action: "terminal", title: "⌨ Open terminal" },
     { action: "reply", title: "💬 Reply" },
   ];
+}
+
+// limitActions are the one-tap choices on a usage-limit push
+// (docs/rate-limits.md): resume the same agent when its limit resets, or hand
+// the work to the configured fallback now. Only the "limit" kind — a hold
+// still waiting on a decision — carries them.
+function limitActions(data: PushData): { action: string; title: string }[] {
+  if (data.kind !== "limit" || data.limit_id == null) return [];
+  return [
+    { action: "limit_wait", title: "⏳ Resume at reset" },
+    { action: "limit_handoff", title: "↪ Hand off" },
+  ];
+}
+
+// limitChoiceForAction maps a notification action to the choice it posts, or
+// null for anything that is not a limit choice.
+export function limitChoiceForAction(action: string): "wait" | "handoff" | null {
+  if (action === "limit_wait") return "wait";
+  if (action === "limit_handoff") return "handoff";
+  return null;
+}
+
+export function limitChoiceURL(limitId: number): string {
+  return `/api/limits/${limitId}/choose`;
+}
+
+export function limitChoiceRequestInit(choice: "wait" | "handoff"): RequestInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ action: choice }),
+  };
+}
+
+export function limitConfirmation(choice: "wait" | "handoff", ok: boolean): { title: string; body: string } {
+  if (!ok)
+    return {
+      title: choice === "wait" ? "Could not schedule the resume" : "Could not hand off",
+      body: "Open lectern to choose from the session instead.",
+    };
+  return choice === "wait"
+    ? { title: "Resume scheduled", body: "Lectern will continue it after the limit resets." }
+    : { title: "Handing off", body: "The fallback agent is taking over in the same workspace." };
 }
 
 // buildNotificationPlan turns one push payload into what showNotification
@@ -76,14 +122,16 @@ export function buildNotificationPlan(data: PushData): NotificationPlan {
       tag: groupTag(data),
       renotify: true,
       vibrate: approvalId != null ? [200, 80, 200, 80, 200] : [120],
-      data: { url: data.url || "/", approvalId, sessionId: data.session_id },
+      data: { url: data.url || "/", approvalId, sessionId: data.session_id, limitId: data.limit_id },
       actions:
         approvalId != null
           ? [
               { action: "approve", title: "✅ Approve" },
               { action: "deny", title: "⛔ Deny" },
             ]
-          : sessionActions(data),
+          : data.kind === "limit"
+            ? limitActions(data)
+            : sessionActions(data),
     },
   };
 }

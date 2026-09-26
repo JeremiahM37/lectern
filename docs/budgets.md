@@ -14,6 +14,11 @@ much." They deliberately do not answer "was the spend worth it" — that is
 `attempts` history (plus exact OTel telemetry where available) to what each
 dollar actually produced.
 
+A provider's own usage limit (Claude's 5-hour and weekly windows, Codex and
+Gemini quotas) is a different stop: the Claude quota alerts below warn as it
+fills, and [docs/rate-limits.md](rate-limits.md) covers what happens once it
+stops an agent — wait for the reset and resume, or hand off.
+
 Package: `internal/budget`. Store helpers: `internal/store/budget.go`.
 Enforcement lives where dispatch/launch actually happen
 (`internal/api/tasks.go`, `internal/api/sessions.go`,

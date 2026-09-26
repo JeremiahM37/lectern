@@ -1,3 +1,4 @@
+import { LimitChip } from "../limits/LimitBanner";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Claim, Project, TaskView } from "../types";
 import type { JsonValue } from "../api";
@@ -333,6 +334,7 @@ export function Board({
                   <span className="chip warn">▲ high</span>
                 )}
                 {task.agent && task.agent !== "claude" && <span className="chip tgt">{task.agent}</span>}
+                {task.limit && <LimitChip hold={task.limit} />}
                 {task.labels?.includes("orchestrated") && <span className="chip orch">✦ orchestrated</span>}
                 {task.attempts.length > 1 && (
                   <span className="chip info">⑂ ×{task.attempts.length}</span>
