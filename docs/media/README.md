@@ -4,53 +4,57 @@ All captures use the disposable demo instance (fake projects `acme-api`,
 `storefront-web`, `mobile-app`, `infra`; scripted stand-in `claude`/`codex`/
 `gemini` binaries that print a believable session and answer typed input with
 a short canned reply — no real model calls, no real credentials, no personal
-data). Recorded on the homelab's "agent desk" (Xvfb + openbox), terminal shots
-via `ffmpeg -f x11grab` driven by `xdotool`, web-UI shots via `playwright-core`
-headless Chromium with `recordVideo`, then converted to GIF with
-`ffmpeg` (`palettegen`/`paletteuse`) and optimized with
+data). The `claude` stand-in registers itself like real Claude Code
+(`~/.claude/sessions/<pid>.json`) and writes a real Claude-format JSONL
+transcript, so Lectern's own history/handoff/resume code paths run for real
+against it — that's what makes `recently-closed.gif` and `switch-agent.gif`
+possible below. Recorded on the homelab's "agent desk" (Xvfb + openbox),
+terminal shots via `ffmpeg -f x11grab` driven by `xdotool`, web-UI shots via
+`playwright-core` headless Chromium with `recordVideo`, then converted to GIF
+with `ffmpeg` (`palettegen`/`paletteuse`) and optimized with
 `gifsicle -O3 --lossy=60 --colors 128`.
 
 | File | Size | Dimensions | Duration | Shows |
 |---|---|---|---|---|
-| `terminal-dashboard.gif` | 612 KB | 1100x667 | 10.8s | The `lectern` terminal dashboard: arrowing through the session list updates the live preview pane; right-clicking a session opens a new terminal window attached to it while the dashboard stays open; pressing `b` enters multi-select, clicking two more sessions and pressing Enter opens both in new windows. |
+| `terminal-dashboard.gif` | 680 KB | 1100x667 | 10.8s | The `lectern` terminal dashboard: arrowing through the session list updates the live preview pane; right-clicking a session opens a new terminal window attached to it while the dashboard stays open; pressing `b` enters multi-select, clicking two more sessions and pressing Enter opens both in new windows. |
 | `projects-shell.gif` | 279 KB | 1100x667 | 11.0s | The dashboard's Projects section (key `4`): selecting a project and pressing Enter opens a persistent shell in its repository (`git log --oneline` runs for real against the demo's `infra` git repo); `Ctrl-b d` detaches back to the project list with "Detached. Session keeps running." |
+| `recently-closed.gif` | 999 KB | 1100x688 | 12.2s | Web UI, Sessions: ending a `claude` session via its **More → End** menu, opening **Recently closed**, and pressing **Resume** — the session comes back active with its real conversation continuing (`> Let shoppers apply a coupon...` / `Read(src/checkout/Cart.tsx)` still there). |
+| `switch-agent.gif` | 1.5 MB | 1100x773 | ~16s | Web UI: opening a `claude` session's **Switch** dialog, picking Codex's default model, and watching the handoff run (Saving context → Starting Codex → Ready). Lectern creates a linked sibling session rather than mutating the original in place, so the result is two cards pointing at each other — `Push notifications  Codex →` on the original, `← Push notification…  Clau…` on the new one. A ~13s wait while the dialog probes each agent's real model list was cut with a jump cut. |
 | `any-agent.gif` | 1.2 MB | 1100x688 | 17.9s | Web UI, Settings → Agents: the starter-template catalog (OpenCode, Aider, Goose, Cursor, …) fills in a runner's fields with one click; saving adds it to Agent runners; toggling "Show in menus" moves it out of "Hidden from menus"; the New Session picker's Agent dropdown then offers it. A ~14s wait while the demo's fake CLI is probed for real (it doesn't answer fast) was cut with a jump cut; nothing was faked. |
-| `phone.gif` | 705 KB | 390x844 | 14.5s | Mobile-emulated web UI: the Sessions home screen with "NEEDS YOU" badges, opening a session's Chat, typing a message, sending it, and watching the stand-in agent's scripted reply stream in, then returning to the session list where the card now shows "working" live. |
+| `phone.gif` | 840 KB | 390x844 | 17.0s | Mobile-emulated web UI: opening a `claude` session's Chat, which now renders real structured tool **cards** (🔍 Search, ✏️ file edit, ⌘ Terminal) instead of raw terminal text, typing a message, sending it, watching the stand-in's reply stream in, then returning to the session list where the card shows "working" live. |
 
-A small red dot follows the mouse in the web-UI recordings (`any-agent.gif`,
-`phone.gif`) so clicks are easy to follow; it's injected via `addInitScript`
-and never part of the real UI.
+A small red dot follows the mouse in the web-UI recordings so clicks are easy
+to follow; it's injected via `addInitScript` and never part of the real UI.
 
-## Shots that were planned but skipped (not faked)
+Two of the web-UI shots (`any-agent.gif`, `switch-agent.gif`) hit a real,
+harmless side effect of this desk's setup: the Switch dialog's "open the new
+session" step fails with `ApiError: ttyd is not installed on the control
+plane` (this LXC has no `ttyd`), surfaced as a small toast that clears itself
+within a couple of seconds. It's left in `switch-agent.gif` where it briefly
+overlaps mid-clip — it's real footage, not degrading the actual handoff
+demonstration, and the end state is clean.
 
-Two shots from the original list depend on behavior the demo's scripted
-stand-in agents cannot produce, so they were skipped rather than faked:
+## Previously skipped, now recorded
 
-- **`recently-closed.gif`** — Ending a session and reopening it via
-  "Recently closed" routes entirely through **"Choose history" → resume a
-  saved conversation**, which reads the real Claude/Codex CLI's own on-disk
-  conversation history. The stand-in binaries never write that history, so
-  the dialog always reports "No saved conversations found in this workspace."
-  The underlying Lectern feature is real; the fixture just can't produce the
-  history file it depends on.
-- **`switch-agent.gif`** — Switching a session's agent (e.g. Claude → Codex)
-  asks the *current* agent to write a structured handoff before starting the
-  new one. The stand-ins don't understand that handoff protocol, so the
-  "Switching…" progress panel never advances past "Saving context" — it was
-  observed stuck for 4+ minutes before the server times it out and reports
-  "Handoff failed: the agent did not write a handoff within 4m0s." Also real
-  behavior, just not something a snappy demo GIF could show honestly with
-  this fixture.
+`recently-closed.gif` and `switch-agent.gif` were originally skipped because
+the stand-in agents couldn't produce the real CLI behavior (on-disk
+conversation history, a written handoff) those features read. The stand-ins
+were upgraded to actually register sessions, write real transcripts, and
+answer a handoff request, so both now record honestly against the real code
+paths — nothing here is faked or scripted around.
 
 ## Reproducing
 
 The desk's demo instance runs as `lectern-demo` (systemd) on
 `127.0.0.1:9500` inside the agent-desk LXC, DB at
-`/home/agent/demo/data/lectern.db`. After any experimentation, reset with:
+`/home/agent/demo/data/lectern.db`. Since the `claude` stand-in also writes
+into `~/.claude/sessions/` and `~/.claude/projects/` (so real history/resume
+code runs against it), a full reset needs those cleared too:
 
 ```sh
 systemctl stop lectern-demo
 rm -f /home/agent/demo/data/lectern.db*
+rm -rf /home/agent/.claude/sessions /home/agent/.claude/projects
 systemctl start lectern-demo
 python3 /home/agent/demo/seed_demo.py
 ```
