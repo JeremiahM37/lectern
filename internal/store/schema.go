@@ -733,6 +733,7 @@ CREATE TABLE IF NOT EXISTS limit_policies(
   policy_json TEXT NOT NULL,
   updated_at REAL NOT NULL,
   PRIMARY KEY(scope, scope_id)
+);
 -- End-to-end encrypted relay (internal/relay/host, docs/relay.md). The host's
 -- own keys (one row), pending pairings (code and route token hashed, like
 -- pairing_codes) and paired relay devices, identified by their X25519 public
