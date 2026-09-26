@@ -28,7 +28,11 @@ const (
 	// maxRequestBody caps one tunnelled request body (attachments included).
 	maxRequestBody = 64 << 20
 	// maxWSMessage caps one reassembled WebSocket message either way.
-	maxWSMessage = 4 << 20
+	maxWSMessage = 1 << 20
+	// maxBuffered caps what one device can make the host hold in memory at
+	// once, across all its streams: request bodies not yet handed to Lectern
+	// plus WebSocket messages not yet written.
+	maxBuffered = 96 << 20
 	// inboxDepth is how many undelivered frames a device may have queued at
 	// the host before it is disconnected.
 	inboxDepth = 1024
@@ -69,7 +73,20 @@ type session struct {
 
 	mu      sync.Mutex
 	streams map[uint32]*stream
+
+	buffered atomic.Int64
 }
+
+// reserve claims n bytes of the device's buffer budget.
+func (s *session) reserve(n int) bool {
+	if s.buffered.Add(int64(n)) > maxBuffered {
+		s.buffered.Add(-int64(n))
+		return false
+	}
+	return true
+}
+
+func (s *session) release(n int) { s.buffered.Add(-int64(n)) }
 
 func newSession(h *Host, conn uint32, routeHash string) *session {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -286,9 +303,10 @@ type stream struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	head    relay.RequestHead
-	body    bytes.Buffer
-	started bool
+	head        relay.RequestHead
+	body        bytes.Buffer
+	started     bool
+	releaseOnce sync.Once
 
 	// WebSocket streams: messages from the device, reassembled, queued for
 	// the writer goroutine.
@@ -328,6 +346,16 @@ func (s *session) endStream(id uint32) {
 	s.mu.Unlock()
 	if st != nil {
 		st.cancel()
+		st.releaseOnce.Do(func() { s.release(st.body.Len()) })
+		for st.ws {
+			select {
+			case m := <-st.out:
+				s.release(len(m.data))
+				continue
+			default:
+			}
+			break
+		}
 	}
 }
 
@@ -365,7 +393,7 @@ func (s *session) dispatch(f relay.Frame) bool {
 		if st.started {
 			return false
 		}
-		if st.body.Len()+len(f.Payload) > maxRequestBody {
+		if st.body.Len()+len(f.Payload) > maxRequestBody || !s.reserve(len(f.Payload)) {
 			s.endStream(f.Stream)
 			_ = s.sendJSON(relay.FrameResponse, f.Stream, relay.ResponseHead{Status: http.StatusRequestEntityTooLarge})
 			_ = s.send(relay.FrameResponseEnd, f.Stream, nil)
@@ -413,9 +441,14 @@ func (s *session) dispatch(f relay.Frame) bool {
 		if f.Payload[0] == relay.WSFinal {
 			msg := wsMessage{binary: st.partTyp == relay.FrameWSBinary, data: st.partial}
 			st.partial = nil
+			if !s.reserve(len(msg.data)) {
+				s.endStream(f.Stream)
+				return true
+			}
 			select {
 			case st.out <- msg:
 			default:
+				s.release(len(msg.data))
 				s.endStream(f.Stream) // the device is sending faster than the terminal reads
 			}
 		}
@@ -530,6 +563,7 @@ func (s *session) serveWS(st *stream, open relay.WSOpen) {
 			case <-st.ctx.Done():
 				return
 			case m := <-st.out:
+				s.release(len(m.data))
 				if m.close != nil {
 					code := websocket.StatusCode(m.close.Code)
 					if code < 1000 || code >= 5000 || code == 1005 || code == 1006 {
