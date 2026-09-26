@@ -163,6 +163,9 @@ type Attempt struct {
 	// see the column's own comment in store/schema.go for why this exists
 	// separately from ResultJSON, which only ever lands once, at finish.
 	LiveCostUSD float64 `json:"live_cost_usd,omitempty"`
+	// NotBefore holds a queued attempt back until its provider's usage limit
+	// has reset (docs/rate-limits.md); nil promotes it as soon as a slot frees.
+	NotBefore *float64 `json:"not_before,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.

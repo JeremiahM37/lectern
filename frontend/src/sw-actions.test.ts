@@ -6,8 +6,7 @@ import {
   confirmationNotification,
   decisionForAction,
   decisionRequestInit,
-  decisionURL,
-} from "./sw-actions";
+  decisionURL, limitChoiceForAction, limitChoiceURL, limitChoiceRequestInit, limitConfirmation } from "./sw-actions";
 
 test("an approval push gets Approve/Deny action buttons and the approval id", () => {
   const plan = buildNotificationPlan({
@@ -110,4 +109,20 @@ test("confirmationNotification reports success and failure distinctly", () => {
   const failed = confirmationNotification("approved", false);
   assert.match(failed.title.toLowerCase(), /could not approve/);
   assert.match(failed.body, /open lectern/i);
+});
+
+test("a usage-limit push offers resume-at-reset and hand-off", () => {
+  const plan = buildNotificationPlan({ title: "Usage limit", body: "api hit its usage limit", kind: "limit", session_id: 4, limit_id: 12 });
+  assert.deepEqual(plan.options.actions.map((a) => a.action), ["limit_wait", "limit_handoff"]);
+  assert.equal(plan.options.tag, "limit-12");
+  assert.equal(plan.options.data.limitId, 12);
+  assert.equal(limitChoiceForAction("limit_wait"), "wait");
+  assert.equal(limitChoiceForAction("limit_handoff"), "handoff");
+  assert.equal(limitChoiceForAction("approve"), null);
+  assert.equal(limitChoiceURL(12), "/api/limits/12/choose");
+  assert.equal(limitChoiceRequestInit("handoff").body, JSON.stringify({ action: "handoff" }));
+  assert.equal(limitConfirmation("wait", false).title, "Could not schedule the resume");
+  // a follow-up ("Resumed") is informational only
+  const resumed = buildNotificationPlan({ title: "Resumed", body: "…", kind: "limit_resumed", session_id: 4, limit_id: 12 });
+  assert.deepEqual(resumed.options.actions, []);
 });

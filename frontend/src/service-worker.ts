@@ -16,7 +16,7 @@ worker.addEventListener('fetch',event=>{
   catch{return await cache.match(request)||(request.mode==='navigate'?await cache.match('/'):undefined)||new Response('Lectern is offline',{status:503});}
  })());
 });
-import {actionURL,buildNotificationPlan,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,type PushData} from './sw-actions';
+import {actionURL,buildNotificationPlan,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,limitChoiceForAction,limitChoiceRequestInit,limitChoiceURL,limitConfirmation,type PushData} from './sw-actions';
 import {applyBadge,needsBadge,type BadgeNavigator} from './badge';
 // The open page tells this worker its last-known badge count on every SSE
 // refresh (postMessage — a worker has no other way to read live app state).
@@ -52,9 +52,20 @@ async function openApp(url:URL){
 // "terminal"/"reply" open the app at a hash the router understands, focused
 // on that one session, rather than the raw push URL (see actionURL).
 worker.addEventListener('notificationclick',event=>{
- const data=event.notification.data as {url?:string;approvalId?:number;sessionId?:number}|undefined;
+ const data=event.notification.data as {url?:string;approvalId?:number;sessionId?:number;limitId?:number}|undefined;
  const decision=decisionForAction(event.action);
  event.notification.close();
+ const limitChoice=limitChoiceForAction(event.action);
+ if(limitChoice&&data?.limitId!=null){
+  const limitId=data.limitId;
+  event.waitUntil((async()=>{
+   let ok=false;
+   try{const resp=await fetch(limitChoiceURL(limitId),limitChoiceRequestInit(limitChoice));ok=resp.ok;}catch{ok=false;}
+   const confirmation=limitConfirmation(limitChoice,ok);
+   await worker.registration.showNotification(confirmation.title,{body:confirmation.body,icon:'/icon.svg',badge:'/icon.svg',data:{url:resolveAppURL(data?.url).href}});
+  })());
+  return;
+ }
  if(decision&&data?.approvalId!=null){
   const approvalId=data.approvalId;
   event.waitUntil((async()=>{

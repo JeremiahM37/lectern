@@ -285,7 +285,7 @@ const attemptCols = `id, task_id, n, status, token, prompt, resume_session, mode
 	sandbox_vmid, worktree_path, branch, tmux_session, session_id, log_offset,
 	started_at, finished_at, exit_code, result_json, diff_stat_json, verify_json,
 	mcp_json, strict_mcp, mcp_snapshot, launch_config_json, driver, agent, permission_mode,
-	live_cost_usd`
+	live_cost_usd, not_before`
 
 func scanAttempt(s interface{ Scan(...any) error }) (*Attempt, error) {
 	var a Attempt
@@ -294,7 +294,7 @@ func scanAttempt(s interface{ Scan(...any) error }) (*Attempt, error) {
 		&a.TmuxSession, &a.SessionID, &a.LogOffset, &a.StartedAt, &a.FinishedAt,
 		&a.ExitCode, &a.ResultJSON, &a.DiffStatJSON, &a.VerifyJSON, &a.MCPJSON,
 		&a.StrictMCP, &a.MCPSnapshot, &a.LaunchConfigJSON, &a.Driver, &a.Agent, &a.PermissionMode,
-		&a.LiveCostUSD)
+		&a.LiveCostUSD, &a.NotBefore)
 	return &a, err
 }
 
@@ -366,12 +366,12 @@ func (db *DB) InsertAttempt(a *Attempt) (*Attempt, error) {
 		resume_session, model, sandbox_vmid, worktree_path, branch, tmux_session,
 		session_id, log_offset, started_at, finished_at, exit_code, result_json,
 		diff_stat_json, verify_json, mcp_json, strict_mcp, mcp_snapshot, launch_config_json,
-		driver, agent, permission_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		driver, agent, permission_mode, not_before) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.TaskID, a.N, nz(a.Status, "queued"), a.Token, a.Prompt, a.ResumeSession,
 		a.Model, a.SandboxVMID, a.WorktreePath, a.Branch, a.TmuxSession, a.SessionID,
 		a.LogOffset, a.StartedAt, a.FinishedAt, a.ExitCode, nz(a.ResultJSON, "{}"),
 		nz(a.DiffStatJSON, "{}"), nz(a.VerifyJSON, "{}"), nz(a.MCPJSON, "{}"), a.StrictMCP, a.MCPSnapshot, a.LaunchConfigJSON,
-		a.Driver, a.Agent, a.PermissionMode)
+		a.Driver, a.Agent, a.PermissionMode, a.NotBefore)
 	if err != nil {
 		return nil, err
 	}

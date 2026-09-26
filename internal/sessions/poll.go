@@ -265,6 +265,9 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	if err := m.DB.Update("sessions", s.ID, fields); err != nil {
 		return
 	}
+	if !missing {
+		m.Limits.ObservePane(s, pane, HasBusyMarker(pane))
+	}
 	if !changed {
 		return
 	}

@@ -1,0 +1,16 @@
+/* Usage-limit banner (docs/rate-limits.md): same shape as a pending approval,
+   in a calmer blue — nothing is wrong, the agent is just out of quota. */
+.limit-banner {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 9px;
+  background: rgba(96, 165, 250, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.limit-banner-what { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.limit-banner-what span { font-size: 11.5px; color: var(--ink-dim); }
+.limit-banner-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.limit-chip { white-space: nowrap; }

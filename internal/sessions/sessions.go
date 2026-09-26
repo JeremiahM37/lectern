@@ -179,6 +179,19 @@ func DeriveStatus(pane, prevHash string) string {
 	return StatusIdle
 }
 
+// HasBusyMarker reports whether the bottom of a pane shows the agent working
+// ("esc to interrupt"), as opposed to DeriveStatus's broader "running", which
+// also counts any pane change.
+func HasBusyMarker(pane string) bool {
+	tail := lastLines(strings.TrimRightFunc(pane, unicode.IsSpace), 12)
+	for _, m := range busyMarkers {
+		if strings.Contains(tail, m) {
+			return true
+		}
+	}
+	return false
+}
+
 func lastNonEmptyLine(s string) string {
 	lines := strings.Split(s, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {

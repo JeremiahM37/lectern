@@ -14,6 +14,7 @@ import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
 import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
+import { LimitPolicyEditor } from "./LimitPolicy";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
@@ -242,7 +243,12 @@ export function Settings({
           <Build api={api} />
         </section>
       )}{" "}
-      {tab === "budgets" && <BudgetsPanel api={api} onNotice={onNotice} />}{" "}
+      {tab === "budgets" && (
+        <>
+          <BudgetsPanel api={api} onNotice={onNotice} />
+          <LimitPolicyEditor api={api} onNotice={onNotice} />
+        </>
+      )}{" "}
       {tab === "agents" && (
         <Agents
           api={api}
@@ -853,6 +859,7 @@ function ProjectCard({
         Claude strict MCP replacement
       </label>
       <button className="project-mcp-save" onClick={() => void saveMCP()}>Save MCP settings</button>
+      <LimitPolicyEditor api={api} projectId={p.id} onNotice={onNotice} />
       <Skills
         api={api}
         projectId={p.id}

@@ -60,6 +60,9 @@ type sessionView struct {
 	// — the board's isolation badge. Omitted (mode "") for an unsandboxed
 	// session, which is every session predating this feature.
 	Isolation isolation.Config `json:"isolation,omitempty"`
+	// Limit is this session's open usage-limit hold (docs/rate-limits.md):
+	// the card's "Limit — resumes 3:40pm" and its one-tap choices.
+	Limit *limitView `json:"limit,omitempty"`
 }
 
 // awarenessOverlapView is deliberately tiny: just enough for the chip's
@@ -133,6 +136,9 @@ func (s *Server) sessionView(row *store.Session) *sessionView {
 		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
 	}
 	v.AwarenessOverlap = s.computeAwarenessOverlap(row)
+	if row.EndedAt == nil {
+		v.Limit = s.sessionLimit(row.ID)
+	}
 	return v
 }
 

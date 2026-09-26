@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -73,6 +74,10 @@ type Manager struct {
 	HandoffTimeout time.Duration
 	// HandoffPoll overrides HandoffPollInterval when positive.
 	HandoffPoll time.Duration
+
+	// Limits sees every pane capture so a usage-limit stop is noticed
+	// (internal/limits, docs/rate-limits.md). Nil disables detection.
+	Limits *limits.Tracker
 
 	lifecycleMu               sync.Mutex
 	pollMu                    sync.Mutex
@@ -1112,6 +1117,13 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 		m.recordDelivery(id, recalled)
 	}
 	return nil
+}
+
+// SendNudge types text into a session exactly as given, without the
+// automatic memory context SendText prepends: the usage-limit resume
+// (internal/limits) must be able to find its own words in the pane.
+func (m *Manager) SendNudge(ctx context.Context, id int64, text string) error {
+	return m.sendText(ctx, id, text, false)
 }
 
 // SendKey presses one allowlisted key in a session — Escape to interrupt a turn,

@@ -13,6 +13,7 @@ import {
 } from "./scratch";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
+import { LimitBanner } from "../limits/LimitBanner";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -286,6 +287,15 @@ export function SessionCard({
             </div>
           )}
         </div>
+      )}
+      {live && s.limit && (
+        <LimitBanner
+          hold={s.limit}
+          api={api}
+          onRefresh={onRefresh}
+          onNotice={onNotice}
+          onPickAgent={onSwitch ? () => onSwitch(s) : undefined}
+        />
       )}
       {scratch && scratchPath && (
         <div className="scard-path">

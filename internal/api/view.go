@@ -58,12 +58,16 @@ type taskView struct {
 	TargetKind  string           `json:"target_kind"`
 	Attempt     *attemptView     `json:"attempt,omitempty"`
 	Attempts    []attemptSummary `json:"attempts"`
+	// Limit is the usage-limit hold that stopped this task, while it still
+	// matters (docs/rate-limits.md).
+	Limit *limitView `json:"limit,omitempty"`
 }
 
 // view assembles a task's full board representation.
 func (s *Server) view(task *store.Task) *taskView {
 	out := &taskView{Task: task, Labels: []string{}, ProjectName: "?", TargetName: "?"}
 	out.Takeover, _ = s.DB.Takeover(task.ID)
+	out.Limit = s.taskLimit(task.ID)
 	if labels := store.UnjStrings(task.LabelsJSON); labels != nil {
 		out.Labels = labels
 	}

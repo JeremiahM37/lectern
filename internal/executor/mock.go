@@ -39,6 +39,7 @@ const MockNumstat = "4\t1\tapp.py\n"
 //
 //	[mock:approval]        agent requests a hook approval mid-run (real HTTP)
 //	[mock:fail]            agent exits non-zero
+//	[mock:limit]           agent is stopped by its usage limit (Claude's real rejected rate_limit_event + limit result)
 //	[mock:slow]            agent takes ~3x longer
 //	[mock:subtask]         agent files a follow-up card through the task hook
 //	[mock:note]            agent leaves a project note
@@ -484,6 +485,22 @@ func (m *Mock) runAgent(ctx context.Context, sess, wt string) {
 		return
 	}
 
+	// A continuation Lectern writes after a limit quotes the task, marker and
+	// all; it is the next window, so it is not limited again.
+	if strings.Contains(prompt, "[mock:limit]") && !strings.Contains(prompt, "stopped by its usage limit") {
+		reset := time.Now().Add(time.Hour).Unix()
+		m.append(events, map[string]any{"type": "rate_limit_event", "rate_limit_info": map[string]any{
+			"status": "rejected", "resetsAt": reset, "rateLimitType": "five_hour",
+			"unifiedRateLimitFallbackAvailable": false, "isUsingOverage": false},
+			"uuid": "rl-1", "session_id": sid})
+		m.append(events, map[string]any{"type": "result", "subtype": "success", "is_error": true,
+			"total_cost_usd": 0.0012, "duration_ms": 900, "num_turns": 1, "session_id": sid,
+			"result": "You've hit your session limit · resets " + time.Unix(reset, 0).UTC().Format("3:04pm") + " (UTC)"})
+		m.mu.Lock()
+		m.fs[rt+"/exit_code"] = []byte("1\n")
+		m.mu.Unlock()
+		return
+	}
 	if strings.Contains(prompt, "[mock:fail]") {
 		m.append(events, map[string]any{"type": "assistant", "message": map[string]any{
 			"content": []any{map[string]any{"type": "text",

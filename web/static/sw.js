@@ -3,6 +3,7 @@
   // src/sw-actions.ts
   function groupTag(data) {
     if (data.kind === "approval" && data.approval_id != null) return `approval-${data.approval_id}`;
+    if (data.limit_id != null) return `limit-${data.limit_id}`;
     if (data.session_id != null) return `session-${data.session_id}`;
     return `kind-${data.kind || "general"}`;
   }
@@ -13,6 +14,37 @@
       { action: "terminal", title: "\u2328 Open terminal" },
       { action: "reply", title: "\u{1F4AC} Reply" }
     ];
+  }
+  function limitActions(data) {
+    if (data.kind !== "limit" || data.limit_id == null) return [];
+    return [
+      { action: "limit_wait", title: "\u23F3 Resume at reset" },
+      { action: "limit_handoff", title: "\u21AA Hand off" }
+    ];
+  }
+  function limitChoiceForAction(action) {
+    if (action === "limit_wait") return "wait";
+    if (action === "limit_handoff") return "handoff";
+    return null;
+  }
+  function limitChoiceURL(limitId) {
+    return `/api/limits/${limitId}/choose`;
+  }
+  function limitChoiceRequestInit(choice) {
+    return {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ action: choice })
+    };
+  }
+  function limitConfirmation(choice, ok) {
+    if (!ok)
+      return {
+        title: choice === "wait" ? "Could not schedule the resume" : "Could not hand off",
+        body: "Open lectern to choose from the session instead."
+      };
+    return choice === "wait" ? { title: "Resume scheduled", body: "Lectern will continue it after the limit resets." } : { title: "Handing off", body: "The fallback agent is taking over in the same workspace." };
   }
   function buildNotificationPlan(data) {
     const approvalId = data.kind === "approval" ? data.approval_id : void 0;
@@ -25,11 +57,11 @@
         tag: groupTag(data),
         renotify: true,
         vibrate: approvalId != null ? [200, 80, 200, 80, 200] : [120],
-        data: { url: data.url || "/", approvalId, sessionId: data.session_id },
+        data: { url: data.url || "/", approvalId, sessionId: data.session_id, limitId: data.limit_id },
         actions: approvalId != null ? [
           { action: "approve", title: "\u2705 Approve" },
           { action: "deny", title: "\u26D4 Deny" }
-        ] : sessionActions(data)
+        ] : data.kind === "limit" ? limitActions(data) : sessionActions(data)
       }
     };
   }
@@ -78,9 +110,9 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-e4ba7cee9d2e";
+  var CACHE = "lectern-react-13735a59c62e";
   worker.addEventListener("install", (event) => event.waitUntil((async () => {
-    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-BCqWUKWT.js","/react/assets/app-DDASAeId.css","/react/assets/terminal-Banmt6Cj.js","/react/assets/terminal-BsW0wNtV.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
+    await (await caches.open(CACHE)).addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/app-BM-LPw15.css","/react/assets/app-DtR5yRkS.js","/react/assets/terminal-Banmt6Cj.js","/react/assets/terminal-BsW0wNtV.css","/react/assets/viewport-DR5PCwew.css","/react/assets/viewport-HNwDtZFI.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {
@@ -140,6 +172,22 @@
     const data = event.notification.data;
     const decision = decisionForAction(event.action);
     event.notification.close();
+    const limitChoice = limitChoiceForAction(event.action);
+    if (limitChoice && data?.limitId != null) {
+      const limitId = data.limitId;
+      event.waitUntil((async () => {
+        let ok = false;
+        try {
+          const resp = await fetch(limitChoiceURL(limitId), limitChoiceRequestInit(limitChoice));
+          ok = resp.ok;
+        } catch {
+          ok = false;
+        }
+        const confirmation = limitConfirmation(limitChoice, ok);
+        await worker.registration.showNotification(confirmation.title, { body: confirmation.body, icon: "/icon.svg", badge: "/icon.svg", data: { url: resolveAppURL(data?.url).href } });
+      })());
+      return;
+    }
     if (decision && data?.approvalId != null) {
       const approvalId = data.approvalId;
       event.waitUntil((async () => {
