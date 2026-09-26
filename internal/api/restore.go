@@ -25,6 +25,9 @@ type restorePlan struct {
 	Action      string `json:"action"` // resume|track|relaunch|shell|handoff|history|fresh
 	ActionLabel string `json:"action_label"`
 	Note        string `json:"note"`
+	// LikelyMatch marks a resume of an adopted session's conversation that
+	// was matched by folder, agent and time rather than bound at launch.
+	LikelyMatch bool `json:"likely_match,omitempty"`
 }
 
 type restorableView struct {
@@ -97,6 +100,9 @@ func (s *Server) planRestore(row *store.Session) restorePlan {
 		p.Action, p.ActionLabel, p.Note = "shell", "New shell here", "Opens a new shell in the same folder. Shell scrollback is not restored."
 	case resumable && !(row.Origin == "discovered" && row.Status != sessions.StatusDead):
 		p.Action, p.ActionLabel, p.Note = "resume", "Resume", "Continues the saved conversation. Its terminal scrollback is not restored."
+	case row.ResumeGuess != "" && row.Origin == "discovered" && row.Status == sessions.StatusDead:
+		p.Action, p.ActionLabel, p.Note = "resume", "Resume", "Continues the one conversation in its folder that was last written when this session was last active. If it is not the right one, pick another from Saved conversations."
+		p.LikelyMatch = true
 	case wrap:
 		p.Action, p.ActionLabel, p.Note = "handoff", "Continue from handoff", "Starts a new session primed with its last handoff."
 	case row.Agent == "claude" || row.Agent == "codex":
@@ -299,6 +305,14 @@ func (s *Server) reopenSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan := s.planRestore(row)
+	if plan.Action == "history" && row.Origin == "discovered" {
+		// A lost adopted session may still be matched now, if it ended before
+		// matching existed or the target was unreachable at the time.
+		if cid := s.Sessions.MatchLostAdopted(r.Context(), row.ID); cid != "" {
+			row.ResumeGuess = cid
+			plan = s.planRestore(row)
+		}
+	}
 	if plan.Action == "history" {
 		needsHistory(w, "no conversation is bound to this record; choose one from its saved conversations")
 		return
@@ -332,6 +346,11 @@ func (s *Server) reopenSession(w http.ResponseWriter, r *http.Request) {
 		message = "Tracking restored; its terminal kept running."
 	case "resume":
 		cid, bindErr := s.boundNativeCID(r, row)
+		if bindErr != nil && plan.LikelyMatch {
+			if _, err := s.nativeConversationData(r, row, row.ResumeGuess); err == nil {
+				cid, bindErr = row.ResumeGuess, nil
+			}
+		}
 		if bindErr != nil {
 			if row.EndedAt == nil {
 				// The restart took the terminal and the transcript cannot be
@@ -350,6 +369,9 @@ func (s *Server) reopenSession(w http.ResponseWriter, r *http.Request) {
 			next, err = s.Sessions.ResumeConversation(r.Context(), row.ID, cid, firstNonEmptyStr(name, row.Name))
 		}
 		message = "Resumed its saved conversation."
+		if plan.LikelyMatch {
+			message = "Resumed the conversation matched to it by folder and time. If it is the wrong one, pick another from Saved conversations."
+		}
 	case "relaunch":
 		prime := ""
 		message = "Started again in the same folder. No conversation was saved, so it starts fresh."
@@ -465,4 +487,37 @@ func transcriptExcerpt(messages []struct{ Role, Text string }) string {
 		kept[i], kept[j] = kept[j], kept[i]
 	}
 	return "Last messages of the previous conversation, oldest first:\n\n" + strings.Join(kept, "\n\n")
+}
+
+// Sessions restart recovery relaunched on its own, for the "Relaunched N
+// sessions after restart" notice. Dismissing hides the current ones; a later
+// restart shows its own.
+const relaunchDismissedKey = "relaunch_notice_dismissed_at"
+
+// GET /api/sessions/relaunched
+func (s *Server) relaunchedSessions(w http.ResponseWriter, r *http.Request) {
+	since, _ := strconv.ParseFloat(s.DB.Setting(relaunchDismissedKey), 64)
+	if week := store.Now() - 7*24*3600; since < week {
+		since = week
+	}
+	rows, err := s.DB.RelaunchedSessions(since)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	out := make([]*sessionView, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, s.sessionView(row))
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, out)
+}
+
+// POST /api/sessions/relaunched/dismiss
+func (s *Server) dismissRelaunched(w http.ResponseWriter, r *http.Request) {
+	if err := s.DB.SetSetting(relaunchDismissedKey, strconv.FormatFloat(store.Now(), 'f', 3, 64)); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"dismissed": true})
 }

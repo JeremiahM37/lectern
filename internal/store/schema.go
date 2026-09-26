@@ -178,6 +178,9 @@ CREATE TABLE IF NOT EXISTS sessions(
   last_activity_at REAL, created_at REAL, updated_at REAL, ended_at REAL,
   end_reason TEXT NOT NULL DEFAULT '',
   reopened_as INTEGER,
+  agent_exited_at REAL,
+  relaunched_at REAL,
+  resume_guess TEXT NOT NULL DEFAULT '',
   native_recovery_cid TEXT NOT NULL DEFAULT '',
   boot_id TEXT NOT NULL DEFAULT '',
   tracking_identity TEXT NOT NULL DEFAULT '',
@@ -906,4 +909,11 @@ var migrations = []string{
 	// Usage-limit continuity (docs/rate-limits.md): an attempt requeued until
 	// its provider's limit resets is queued now but not promoted before this.
 	"ALTER TABLE attempts ADD COLUMN not_before REAL",
+	// When the agent in a still-open terminal exited (store.Session.AgentExitedAt).
+	"ALTER TABLE sessions ADD COLUMN agent_exited_at REAL",
+	// When restart recovery relaunched this session (store.Session.RelaunchedAt).
+	"ALTER TABLE sessions ADD COLUMN relaunched_at REAL",
+	// The likely conversation of an adopted session that was lost
+	// (store.Session.ResumeGuess).
+	"ALTER TABLE sessions ADD COLUMN resume_guess TEXT NOT NULL DEFAULT ''",
 }

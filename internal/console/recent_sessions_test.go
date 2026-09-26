@@ -169,3 +169,53 @@ func TestUndoReopensTheNewestClosedSessionWithoutAttaching(t *testing.T) {
 		t.Fatalf("undo result: focus=%q attach=%v notice=%q", m.focusSessionID, m.attachAfterRefresh, m.notice)
 	}
 }
+
+func TestAnExitedAgentShowsAndRevivesWithR(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Method + " " + r.URL.Path
+		w.WriteHeader(201)
+		json.NewEncoder(w).Encode(map[string]any{"id": float64(5), "name": "Alpha UI"})
+	}))
+	defer srv.Close()
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	m.width, m.height = 120, 30
+	m.rows[0]["agent_exited_at"] = float64(1)
+	m.filter()
+	for i, r := range m.visible {
+		if id(r) == "1" {
+			m.selected = i
+		}
+	}
+	if !strings.Contains(m.View(), "agent exited") {
+		t.Fatalf("an exited agent must not read as its screen status:\n%s", m.View())
+	}
+	m.Update(key("R"))
+	if m.pending == nil || m.pending.Label != reviveLabel {
+		t.Fatal("R should ask before reviving")
+	}
+	_, cmd := m.Update(key("y"))
+	m.Update(cmd())
+	if got != "POST /api/sessions/1/revive" || m.focusSessionID != "5" || !m.attachAfterRefresh {
+		t.Fatalf("revive: got=%q focus=%q attach=%v", got, m.focusSessionID, m.attachAfterRefresh)
+	}
+	m.selected = 1 - m.selected
+	m.Update(key("R"))
+	if m.pending != nil || !strings.Contains(m.notice, "still running") {
+		t.Fatalf("R on a running agent: pending=%v notice=%q", m.pending, m.notice)
+	}
+}
+
+func TestRelaunchNoticeShowsOncePerRun(t *testing.T) {
+	m := sampleDashboard()
+	m.Update(refsMsg{relaunched: []row{{"id": float64(3), "name": "came back"}}})
+	if !strings.Contains(m.notice, "Relaunched 1 session(s) after a restart: came back") {
+		t.Fatalf("notice: %q", m.notice)
+	}
+	m.notice = ""
+	m.Update(refsMsg{relaunched: []row{{"id": float64(3), "name": "came back"}}})
+	if m.notice != "" {
+		t.Fatal("the relaunch notice repeated")
+	}
+}

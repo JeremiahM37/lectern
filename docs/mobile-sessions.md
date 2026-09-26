@@ -39,7 +39,11 @@ grouped by project with a search box. Each row shows why it closed, its last
 message and what one tap will do — usually **Resume**, which continues the saved
 conversation. **Other agent…** continues it with a different agent or model.
 Ending a session from its card shows an **Undo** toast for ten seconds, and
-sessions a restart interrupted get a banner that restores them in one tap. See
+sessions a restart interrupted get a banner that restores them in one tap.
+Sessions a restart brought back on their own are listed in a dismissible
+**Relaunched N sessions** notice. A card whose agent quit to a shell prompt says
+**agent exited** and offers **↻ Revive**; the terminal view shows the same
+prompt. See
 [Restoring sessions](terminal-client.md#restoring-sessions).
 
 **Switch agent or model** offers discovered models, saved provider profiles and

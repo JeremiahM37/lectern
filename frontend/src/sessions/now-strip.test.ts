@@ -70,3 +70,10 @@ test("nowItems ranks waiting first, then error, then working, then done", () => 
     ["waiting", "error", "working", "done"],
   );
 });
+
+test("an agent that exited to a shell is its own state, not waiting", () => {
+  assert.equal(sessionNowState(session({ status: "waiting", agent_exited_at: 1 })), "exited");
+  assert.equal(sessionNowState(session({ status: "dead", agent_exited_at: 1, ended_at: 2 })), "done");
+  const items = nowItems([session({ id: 1, status: "running" }), session({ id: 2, status: "idle", agent_exited_at: 5 })]);
+  assert.equal(items[0]?.id, 2);
+});

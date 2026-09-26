@@ -283,6 +283,28 @@ export function TerminalApp({
   useEffect(() => {
     if (!state?.unresponsive) setUnresponsiveDismissed(false);
   }, [state?.unresponsive]);
+  // An agent that exited leaves this terminal at a shell prompt. The server's
+  // probe notices; the terminal asks every ten seconds while it is visible.
+  const [agentExited, setAgentExited] = useState(false);
+  const [exitDismissed, setExitDismissed] = useState(false);
+  useEffect(() => {
+    if (kind !== "session") return;
+    let stopped = false;
+    const check = async () => {
+      if (document.hidden) return;
+      try {
+        const response = await request(`/api/sessions/${encodeURIComponent(id)}`);
+        const row = (await response.json()) as { agent_exited_at?: number | null; ended_at?: number | null };
+        if (!stopped) setAgentExited(!!row.agent_exited_at && !row.ended_at);
+      } catch {}
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 10000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [kind, id]);
+  useEffect(() => {
+    if (!agentExited) setExitDismissed(false);
+  }, [agentExited]);
   async function revive() {
     setReviving(true);
     try {
@@ -1160,6 +1182,20 @@ export function TerminalApp({
               </button>
             )}
             <button onClick={() => setUnresponsiveDismissed(true)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+      {agentExited && !exitDismissed && !(state?.unresponsive && !unresponsiveDismissed) && (
+        <div id="agent-exited" role="alert">
+          <p>
+            <b>The agent exited.</b> This terminal is at a shell prompt. Revive starts the agent again here,
+            resuming its conversation when one was saved.
+          </p>
+          <div className="unresponsive-actions">
+            <button className="primary" disabled={reviving} onClick={() => void revive()}>
+              {reviving ? "Reviving…" : "↻ Revive"}
+            </button>
+            <button onClick={() => setExitDismissed(true)}>Dismiss</button>
           </div>
         </div>
       )}

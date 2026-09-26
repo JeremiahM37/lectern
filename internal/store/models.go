@@ -259,6 +259,14 @@ type Session struct {
 	// process left running), handed_off, dismissed or failed (a launch that
 	// never started). Empty on rows that ended before this column existed.
 	EndReason string `json:"end_reason,omitempty"`
+	// AgentExitedAt is set while the agent has exited but its terminal is
+	// still open at a shell prompt; nil while the agent runs.
+	AgentExitedAt *float64 `json:"agent_exited_at,omitempty"`
+	// RelaunchedAt is when restart recovery last relaunched this session.
+	RelaunchedAt *float64 `json:"relaunched_at,omitempty"`
+	// ResumeGuess is the conversation a lost adopted session most likely had:
+	// the only one in its folder last written when it was last active.
+	ResumeGuess string `json:"-"`
 
 	// HookToken authenticates POST /api/hook/session/{id}/* (see
 	// internal/agentevents). Never serialized: it is a bearer secret handed to

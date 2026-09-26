@@ -334,6 +334,11 @@ export interface Session {
   created_at: number;
   updated_at: number;
   ended_at: number | null;
+  end_reason?: string;
+  // Set while the agent has exited but its terminal is open at a shell.
+  agent_exited_at?: number | null;
+  // When restart recovery last relaunched this session.
+  relaunched_at?: number | null;
   project_name?: string;
   target_name?: string;
   target_kind?: string;

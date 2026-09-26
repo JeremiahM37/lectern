@@ -12,7 +12,7 @@ const sessionCols = `s.id, s.project_id, s.target_id, s.name, s.agent, s.model,
 	s.context_used_pct, s.context_tokens, s.context_size, s.cost_usd, s.lines_added, s.lines_removed,
 	s.rate_5h_pct, s.rate_5h_reset, s.rate_7d_pct, s.rate_7d_reset, s.usage_at, s.codex_thread_id, s.precompact_at,
 	s.repo_key, s.repo_toplevel, s.awareness_briefing_hash, s.awareness_briefing_at,
-	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at, s.end_reason`
+	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at, s.end_reason, s.agent_exited_at, s.relaunched_at, s.resume_guess`
 
 func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, error) {
 	var s Session
@@ -23,7 +23,7 @@ func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, e
 		&s.ContextUsedPct, &s.ContextTokens, &s.ContextSize, &s.CostUSD, &s.LinesAdded, &s.LinesRemoved,
 		&s.Rate5hPct, &s.Rate5hReset, &s.Rate7dPct, &s.Rate7dReset, &s.UsageAt, &s.CodexThreadID, &s.PrecompactAt,
 		&s.RepoKey, &s.RepoToplevel, &s.AwarenessBriefingHash, &s.AwarenessBriefingAt,
-		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt, &s.EndReason}
+		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt, &s.EndReason, &s.AgentExitedAt, &s.RelaunchedAt, &s.ResumeGuess}
 	if withJoin {
 		var projectName sql.NullString
 		dest = append(dest, &projectName, &s.TargetName, &s.TargetKind)
@@ -179,6 +179,27 @@ func (db *DB) ConversationRefs() ([]ConversationRef, error) {
 			}
 		}
 		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+// RelaunchedSessions lists sessions restart recovery relaunched after since,
+// newest first.
+func (db *DB) RelaunchedSessions(since float64) ([]*Session, error) {
+	rows, err := db.Query(`SELECT `+sessionCols+`, p.name, t.name, t.kind `+
+		sessionJoin+` WHERE s.relaunched_at IS NOT NULL AND s.relaunched_at > ?
+		ORDER BY s.relaunched_at DESC, s.id DESC LIMIT 100`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Session{}
+	for rows.Next() {
+		s, err := scanSession(rows, true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }

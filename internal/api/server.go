@@ -309,6 +309,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/sessions/recent", s.recentSessions)
 	mux.HandleFunc("GET /api/sessions/restorable", s.restorableSessions)
+	mux.HandleFunc("GET /api/sessions/relaunched", s.relaunchedSessions)
+	mux.HandleFunc("POST /api/sessions/relaunched/dismiss", s.dismissRelaunched)
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("POST /api/shells", s.createShell)
 	mux.HandleFunc("GET /api/sessions/discover", s.discoverSessions)

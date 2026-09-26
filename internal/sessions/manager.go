@@ -91,6 +91,8 @@ type Manager struct {
 	workspaceCancelDeliveries map[int64]bool
 	setupLaunching            map[int64]bool
 	handoffs                  *handoffState // switches in flight and how far they have got
+	agentProbedAt             map[int64]time.Time
+	agentProbeEvery           time.Duration
 	checkpointMu              sync.Mutex
 	checkpoints               map[int64]context.CancelFunc
 	checkpointGeneration      map[int64]uint64
@@ -900,7 +902,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.end(sess.ID, "dead")
 		return nil, executor.Errf("tmux launch failed: %s", strings.TrimSpace(r.Stderr))
 	}
-	m.DB.Update("sessions", sess.ID, map[string]any{"status": StatusStarting, "ended_at": nil})
+	m.DB.Update("sessions", sess.ID, map[string]any{"status": StatusStarting, "ended_at": nil, "agent_exited_at": nil})
 	if o.Prime != "" && argPrompt == "" {
 		// the fallback path: wait until the pane settles before typing, rather
 		// than guessing a delay and landing in whatever the CLI put on screen

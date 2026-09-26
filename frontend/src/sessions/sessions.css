@@ -341,3 +341,21 @@
    shares with memory items elsewhere. */
 .sheet .conversation-memory { margin: 10px 0 2px; }
 .ev.e-memory::before { background: var(--accent-soft); }
+.relaunch-notice { border-color: var(--line, #33384a); }
+.relaunch-notice .linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent, #7aa2f7);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.restore-likely {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line, #33384a);
+  border-radius: 6px;
+  font-size: 11px;
+  font-style: normal;
+}
