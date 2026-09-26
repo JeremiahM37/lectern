@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -49,40 +48,14 @@ func readProc(pid int) procTimes {
 	return t
 }
 
-// commCPU sums CPU seconds of every process in this PID namespace whose comm
-// matches one of names (tmux servers, ttyd, the SSH fixture).
-func commCPU(names ...string) map[string]float64 {
-	out := map[string]float64{}
-	entries, _ := os.ReadDir("/proc")
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		comm, err := os.ReadFile(filepath.Join("/proc", e.Name(), "comm"))
-		if err != nil {
-			continue
-		}
-		c := strings.TrimSpace(string(comm))
-		for _, n := range names {
-			if strings.HasPrefix(c, n) {
-				t := readProc(pid)
-				out[n] += t.self
-			}
-		}
-	}
-	return out
-}
-
 // Usage is what a sampler saw over a measurement window.
 type Usage struct {
-	CPUAvgPct       float64            `json:"cpu_avg_pct"`
-	CPUPeakPct      float64            `json:"cpu_peak_pct"`
-	CPUWithChildren float64            `json:"cpu_avg_pct_incl_children"`
-	RSSAvgMB        float64            `json:"rss_avg_mb"`
-	RSSPeakMB       float64            `json:"rss_peak_mb"`
-	OtherCPUPct     map[string]float64 `json:"other_cpu_avg_pct"`
-	Seconds         float64            `json:"seconds"`
+	CPUAvgPct       float64 `json:"cpu_avg_pct"`
+	CPUPeakPct      float64 `json:"cpu_peak_pct"`
+	CPUWithChildren float64 `json:"cpu_avg_pct_incl_children"`
+	RSSAvgMB        float64 `json:"rss_avg_mb"`
+	RSSPeakMB       float64 `json:"rss_peak_mb"`
+	Seconds         float64 `json:"seconds"`
 }
 
 // sampler records one process's CPU and RSS once a second. CPU is in percent
@@ -100,9 +73,7 @@ func startSampler(pid int) *sampler {
 }
 
 func (s *sampler) run() {
-	others := []string{"tmux", "ttyd", "python3", "curl", "bash", "sleep"}
 	start, startT := readProc(s.pid), time.Now()
-	startOther := commCPU(others...)
 	prev, prevT := start, startT
 	var peak, rssSum, rssPeak float64
 	n := 0
@@ -113,20 +84,13 @@ func (s *sampler) run() {
 		case <-s.stop:
 			end, endT := readProc(s.pid), time.Now()
 			el := endT.Sub(startT).Seconds()
-			u := Usage{Seconds: round(el), CPUPeakPct: round(peak), RSSPeakMB: round(rssPeak), OtherCPUPct: map[string]float64{}}
+			u := Usage{Seconds: round(el), CPUPeakPct: round(peak), RSSPeakMB: round(rssPeak)}
 			if el > 0 && end.ok {
 				u.CPUAvgPct = round((end.self - start.self) / el * 100)
 				u.CPUWithChildren = round(((end.self + end.children) - (start.self + start.children)) / el * 100)
 			}
 			if n > 0 {
 				u.RSSAvgMB = round(rssSum / float64(n))
-			}
-			// Short-lived processes that exited during the window are not
-			// counted here, so this undercounts curl/python3/bash; it is a
-			// floor, reported only to show where the rest of the CPU went.
-			endOther := commCPU(others...)
-			for _, k := range others {
-				u.OtherCPUPct[k] = round(max(0, endOther[k]-startOther[k]) / el * 100)
 			}
 			s.done <- u
 			return
@@ -150,18 +114,4 @@ func (s *sampler) run() {
 func (s *sampler) finish() Usage {
 	close(s.stop)
 	return <-s.done
-}
-
-// syncOnce is a tiny helper so several goroutines can report the first error.
-type firstErr struct {
-	mu  sync.Mutex
-	err error
-}
-
-func (f *firstErr) set(err error) {
-	f.mu.Lock()
-	if f.err == nil {
-		f.err = err
-	}
-	f.mu.Unlock()
 }
