@@ -19,15 +19,17 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import DESKTOP, PHONE, ROOT, _binary, _port_open, _start, _stop, _unused_port
+from test_terminal_workspace import real_terminal  # noqa: F401 (fixture)
 
 OWNER_TOKEN = "relayowner-" + secrets.token_hex(8)
 HOST_SECRET = secrets.token_hex(32)
 TITLE = "Relay gated deploy " + secrets.token_hex(4)
 
 
-@pytest.fixture(scope="module")
-def relay_stack():
-    relay_port = _unused_port()
+TERMINAL_RELAY_PORT = _unused_port()
+
+
+def _start_relay(relay_port):
     log = Path(tempfile.mkdtemp(prefix="lec-relay-")) / "relay.log"
     with log.open("wb") as out:
         relay = subprocess.Popen([_binary(), "relay", "--listen", f"127.0.0.1:{relay_port}"], cwd=ROOT,
@@ -35,11 +37,32 @@ def relay_stack():
                                  stdout=out, stderr=subprocess.STDOUT)
     for _ in range(100):
         if _port_open(relay_port):
-            break
+            return relay
         time.sleep(0.1)
-    else:
-        relay.kill()
-        raise RuntimeError("relay did not start: " + log.read_text(errors="replace"))
+    relay.kill()
+    raise RuntimeError("relay did not start: " + log.read_text(errors="replace"))
+
+
+def _watch_relay_frames(page, relay_port, frames):
+    def watch(ws):
+        if f":{relay_port}/" in ws.url:
+            ws.on("framesent", lambda payload: frames.append(("sent", payload)))
+            ws.on("framereceived", lambda payload: frames.append(("received", payload)))
+    page.on("websocket", watch)
+
+
+def _assert_no_plaintext(frames, needles):
+    assert len(frames) > 10, f"only {len(frames)} relay frames seen"
+    for direction, payload in frames:
+        raw = payload.encode() if isinstance(payload, str) else payload
+        for needle in needles:
+            assert needle.encode() not in raw, f"relay saw {needle!r} in a {direction} frame"
+
+
+@pytest.fixture(scope="module")
+def relay_stack():
+    relay_port = _unused_port()
+    relay = _start_relay(relay_port)
     port = _unused_port()
     # LECTERN_AUTH=token: the phone must get nothing over plain HTTP, so the
     # only way it can work at all is the relay (see test_device_pairing.py
@@ -85,12 +108,7 @@ def test_approval_round_trip_over_the_relay(browser, relay_stack):
     phone_ctx = browser.new_context(viewport=PHONE)
     phone = phone_ctx.new_page()
     frames = []
-
-    def watch(ws):
-        if f":{relay_port}/" in ws.url:
-            ws.on("framesent", lambda payload: frames.append(("sent", payload)))
-            ws.on("framereceived", lambda payload: frames.append(("received", payload)))
-    phone.on("websocket", watch)
+    _watch_relay_frames(phone, relay_port, frames)
     try:
         owner.goto(base)
         owner.evaluate(f"localStorage.setItem('lec-token', '{OWNER_TOKEN}')")
@@ -152,11 +170,7 @@ def test_approval_round_trip_over_the_relay(browser, relay_stack):
         assert verdict["ok"] is False and "does not match" in verdict["error"], verdict
 
         # Everything crossed the relay, and none of it was readable there.
-        assert len(frames) > 20, f"only {len(frames)} relay frames seen"
-        for direction, payload in frames:
-            raw = payload.encode() if isinstance(payload, str) else payload
-            for needle in (TITLE, "rm -rf build", "/api/", "approved", "relay-device", "Relay test phone", "mock:approval"):
-                assert needle.encode() not in raw, f"relay saw {needle!r} in a {direction} frame"
+        _assert_no_plaintext(frames, (TITLE, "rm -rf build", "/api/", "approved", "relay-device", "Relay test phone", "mock:approval"))
 
         # The owner sees the device and revokes it; the phone is cut off.
         owner.reload()
@@ -183,3 +197,50 @@ def test_relay_serves_no_pages_or_scripts(relay_stack):
             raise AssertionError(f"relay served {path}")
         except urllib.error.HTTPError as err:
             assert err.code == 404 and err.read() == b"", path
+
+
+@pytest.fixture(scope="module")
+def terminal_relay():
+    relay = _start_relay(TERMINAL_RELAY_PORT)
+    try:
+        yield TERMINAL_RELAY_PORT
+    finally:
+        relay.terminate()
+        relay.wait(timeout=10)
+
+
+@pytest.mark.parametrize("real_terminal", [{"env": {
+    "LECTERN_RELAY_URL": f"ws://127.0.0.1:{TERMINAL_RELAY_PORT}", "LECTERN_RELAY_HOST_SECRET": HOST_SECRET}}], indirect=True)
+def test_a_real_terminal_over_the_relay(browser, terminal_relay, real_terminal):
+    """The terminal's WebSocket (ttyd behind /term/) runs through the tunnel."""
+    t = real_terminal
+    for _ in range(100):
+        if t["api"]("/relay").get("connected"):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("Lectern never reached the relay")
+    minted = t["api"]("/relay/pair", {})
+    ctx = browser.new_context(viewport=PHONE)
+    phone = ctx.new_page()
+    frames = []
+    _watch_relay_frames(phone, terminal_relay, frames)
+    sockets = []
+    phone.on("websocket", lambda ws: sockets.append(ws.url))
+    marker = "RELAY-TERMINAL-" + secrets.token_hex(4)
+    try:
+        phone.goto(t["url"] + "/relay-pair#p=" + minted["fragment"])
+        phone.click("#relay-pair-submit")
+        expect(phone.locator("#conn-label")).to_have_text("LIVE", timeout=20000)
+        phone.goto(f"{t['url']}/terminal/session/{t['id']}")
+        expect(phone.locator("#connection")).to_have_text("Connected", timeout=20000)
+        expect(phone.locator("#agent-terminal .xterm-screen")).to_contain_text("$", timeout=10000)
+        phone.locator("#agent-terminal").click()
+        phone.keyboard.type("echo " + marker, delay=1)
+        phone.keyboard.press("Enter")
+        expect(phone.locator("#agent-terminal .xterm-screen")).to_contain_text(marker, timeout=10000)
+        _assert_no_plaintext(frames, (marker, "/term/", "echo "))
+        # The terminal never opened a socket to Lectern itself: only the relay.
+        assert sockets and all(f":{terminal_relay}/" in u for u in sockets), sockets
+    finally:
+        ctx.close()
