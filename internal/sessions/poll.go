@@ -209,7 +209,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		// A persisted reservation without this process's worker was interrupted.
 		// Keep any target allocation for inspection; do not launch twice.
 		now := store.Now()
-		if err := m.DB.Update("sessions", s.ID, map[string]any{"setup_state": "failed", "setup_error": "Setup was interrupted; inspect the workspace before retrying", "status": StatusDead, "ended_at": now, "updated_at": now}); err == nil {
+		if err := m.DB.Update("sessions", s.ID, map[string]any{"setup_state": "failed", "setup_error": "Setup was interrupted; inspect the workspace before retrying", "status": StatusDead, "ended_at": now, "updated_at": now, "end_reason": EndFailed}); err == nil {
 			m.IsolationProxies.Stop(s.ID)
 			if fresh, err := m.DB.Session(s.ID); err == nil {
 				m.publish(fresh)
@@ -229,6 +229,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		}
 		status = StatusDead
 		fields["ended_at"] = now
+		fields["end_reason"] = EndExited
 	} else {
 		status = DeriveStatus(pane, s.PaneHash)
 		hash := Hash(pane)

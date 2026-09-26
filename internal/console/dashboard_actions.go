@@ -131,6 +131,8 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 		return nil
 	case "recent-sessions":
 		return m.loadRecentSessions()
+	case "undo-close":
+		return m.undoLastClose()
 	case "extend-workspace":
 		return m.extendWorkspaceForm()
 	case "cancel-extension":
@@ -259,7 +261,8 @@ func (m *dashboard) allActions() []dashboardAction {
 		{Label: "Filter current list by name, project or agent (/)", Operation: "filter-list"},
 		{Label: "Find and track running agents (f)", Operation: "discover"},
 		{Label: "Search past saved conversation text across targets (F)", Operation: "search-history"},
-		{Label: "Recently closed sessions — reopen previous work (C)", Operation: "recent-sessions"},
+		{Label: "Restore closed, archived or interrupted sessions (C)", Operation: "recent-sessions"},
+		{Label: "Undo: reopen the session closed last (U)", Operation: "undo-close"},
 		{Label: "Open blank persistent shell (S)", Operation: "blank-shell"},
 		{Label: "Manage launch profiles (P)", Operation: "launch-profiles"},
 		{Label: "Manage agent runners (Q)", Operation: "agents"},

@@ -1059,7 +1059,11 @@ func (m *Manager) specs() []Spec {
 	return m.Specs()
 }
 
-func (m *Manager) end(id int64, status string) {
+func (m *Manager) end(id int64, status string) { m.endWith(id, status, EndFailed) }
+
+// endWith is end with an explicit end_reason; end itself serves the launch
+// paths, where an early end always means the launch failed.
+func (m *Manager) endWith(id int64, status, reason string) {
 	m.mu.Lock()
 	delete(m.contextDelivered, id)
 	m.mu.Unlock()
@@ -1070,7 +1074,7 @@ func (m *Manager) end(id int64, status string) {
 	m.IsolationProxies.Stop(id)
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
-		"status": status, "ended_at": now, "updated_at": now})
+		"status": status, "ended_at": now, "updated_at": now, "end_reason": reason})
 }
 
 // ---- driving -----------------------------------------------------------------
@@ -1165,7 +1169,11 @@ func (m *Manager) Kill(ctx context.Context, id int64) error {
 		if current.EndedAt != nil {
 			ended = *current.EndedAt
 		}
-		err = m.DB.Update("sessions", id, map[string]any{"status": StatusDead, "ended_at": ended, "updated_at": store.Now()})
+		fields := map[string]any{"status": StatusDead, "ended_at": ended, "updated_at": store.Now()}
+		if current.EndedAt == nil {
+			fields["end_reason"] = EndStopped
+		}
+		err = m.DB.Update("sessions", id, fields)
 	}
 	m.IsolationProxies.Stop(id)
 	m.lifecycleMu.Unlock()
@@ -1236,7 +1244,7 @@ func (m *Manager) Release(ctx context.Context, id int64) error {
 			status = StatusDead
 		}
 		now := store.Now()
-		return m.DB.Update("sessions", id, map[string]any{"status": status, "ended_at": now, "updated_at": now, "tracking_identity": identity})
+		return m.DB.Update("sessions", id, map[string]any{"status": status, "ended_at": now, "updated_at": now, "tracking_identity": identity, "end_reason": EndReleased})
 	}()
 	if err != nil {
 		return err
@@ -1255,7 +1263,7 @@ func (m *Manager) Dismiss(id int64) error {
 	if err != nil {
 		return err
 	}
-	m.end(sess.ID, StatusDead)
+	m.endWith(sess.ID, StatusDead, EndDismissed)
 	m.Bus.Publish("board", "session_dismissed", map[string]any{"id": id})
 	return nil
 }

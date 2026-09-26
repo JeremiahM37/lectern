@@ -176,6 +176,8 @@ CREATE TABLE IF NOT EXISTS sessions(
   pane_hash TEXT DEFAULT '', pane_tail TEXT DEFAULT '',
   context_pct INTEGER,                      -- parsed from the agent's own footer
   last_activity_at REAL, created_at REAL, updated_at REAL, ended_at REAL,
+  end_reason TEXT NOT NULL DEFAULT '',
+  reopened_as INTEGER,
   native_recovery_cid TEXT NOT NULL DEFAULT '',
   boot_id TEXT NOT NULL DEFAULT '',
   tracking_identity TEXT NOT NULL DEFAULT '',
@@ -805,4 +807,9 @@ var migrations = []string{
 	// CI-aware PR loop (docs/ci-loop.md).
 	"ALTER TABLE projects ADD COLUMN ci_loop INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE projects ADD COLUMN ci_max_attempts INTEGER NOT NULL DEFAULT 3",
+	// How a session ended (store.Session.EndReason), so Restore can tell a
+	// session someone stopped from one that exited or was cut off by a restart.
+	"ALTER TABLE sessions ADD COLUMN end_reason TEXT NOT NULL DEFAULT ''",
+	// The session a Restore started in this record's place.
+	"ALTER TABLE sessions ADD COLUMN reopened_as INTEGER",
 }

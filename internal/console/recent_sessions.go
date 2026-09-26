@@ -9,6 +9,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// The Restore view (C) lists what GET /sessions/restorable offers — closed,
+// archived, exited and restart-interrupted sessions — and Enter runs each
+// row's own action through POST /sessions/ID/reopen. U reopens the newest one
+// without opening the list: undo for the session just closed.
+
+const restoreLabel = "Restore session"
+
 func (m *dashboard) loadRecentSessions() tea.Cmd {
 	if m.busy || sections[m.section] != "sessions" {
 		return nil
@@ -16,7 +23,7 @@ func (m *dashboard) loadRecentSessions() tea.Cmd {
 	m.busy = true
 	c := m.client
 	return func() tea.Msg {
-		b, err := c.JSON("GET", "/sessions/recent?limit=30", nil)
+		b, err := c.JSON("GET", "/sessions/restorable?limit=100", nil)
 		var rows []row
 		if err == nil {
 			err = json.Unmarshal(b, &rows)
@@ -28,13 +35,16 @@ func (m *dashboard) loadRecentSessions() tea.Cmd {
 func recentClosedAge(r row) string {
 	ended, ok := r["ended_at"].(float64)
 	if !ok || ended <= 0 {
-		return "closed recently"
+		ended, ok = r["updated_at"].(float64)
+	}
+	if !ok || ended <= 0 {
+		return "recently"
 	}
 	age := time.Since(time.Unix(int64(ended), 0))
 	if age < time.Minute {
-		return "closed just now"
+		return "just now"
 	}
-	return fmt.Sprintf("closed %s ago", shortAge(age))
+	return shortAge(age) + " ago"
 }
 
 func shortAge(age time.Duration) string {
@@ -50,19 +60,67 @@ func shortAge(age time.Duration) string {
 func recentLabel(r row) string {
 	project := str(r["project_name"])
 	if project == "" {
-		project = "Unassigned"
+		project = "No project"
 	}
 	agent := str(r["agent"])
 	if agent == "" {
 		agent = "unknown agent"
 	}
-	return oneLine(strings.Join([]string{project, agent, recentClosedAge(r)}, " · "))
+	parts := []string{project, agent}
+	if reason := str(r["reason_label"]); reason != "" {
+		parts = append(parts, reason)
+	}
+	return oneLine(strings.Join(append(parts, recentClosedAge(r)), " · "))
+}
+
+func recentAction(r row) string {
+	if label := str(r["action_label"]); label != "" {
+		return label
+	}
+	return "Choose history"
+}
+
+// recentVisible applies the Restore view's own filter: every word must appear
+// in the name, project, agent, folder, reason or last message.
+func (m *dashboard) recentVisible() []row {
+	terms := strings.Fields(strings.ToLower(m.recentQuery))
+	if len(terms) == 0 {
+		return m.recentRows
+	}
+	out := []row{}
+	for _, r := range m.recentRows {
+		haystack := strings.ToLower(strings.Join([]string{name(r), str(r["project_name"]), str(r["agent"]),
+			str(r["model"]), str(r["workdir"]), str(r["group_path"]), str(r["reason_label"]), str(r["preview"])}, " "))
+		match := true
+		for _, term := range terms {
+			if !strings.Contains(haystack, term) {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (m *dashboard) recentView(height int) string {
-	lines := []string{" Recently closed · ↑↓ choose · Enter resume · h choose history · Esc back", ""}
-	if len(m.recentRows) == 0 {
-		lines = append(lines, " No recently closed sessions.")
+	head := " Restore · ↑↓ choose · Enter restore · h history · / search · Esc back"
+	if m.recentSearching || m.recentQuery != "" {
+		head = " Restore · search: " + m.recentQuery
+		if m.recentSearching {
+			head += "▏ (Enter done)"
+		}
+	}
+	lines := []string{head, ""}
+	visible := m.recentVisible()
+	if len(visible) == 0 {
+		if m.recentQuery != "" {
+			lines = append(lines, " No closed session matches.")
+		} else {
+			lines = append(lines, " Nothing to restore.")
+		}
 		return strings.Join(lines, "\n")
 	}
 	visibleRows := max(1, (height-2)/3)
@@ -70,37 +128,35 @@ func (m *dashboard) recentView(height int) string {
 	if m.recentSelected >= visibleRows {
 		start = m.recentSelected - visibleRows + 1
 	}
-	end := min(len(m.recentRows), start+visibleRows)
+	end := min(len(visible), start+visibleRows)
 	if start > 0 {
 		lines = append(lines, " …")
 	}
 	for i := start; i < end; i++ {
-		r := m.recentRows[i]
+		r := visible[i]
 		label := "  " + oneLine(name(r))
 		if i == m.recentSelected {
 			label = "› " + oneLine(name(r))
 			label = chosen.Render(label)
 		}
-		lines = append(lines, clip(label, m.width-2), clip("  "+recentLabel(r), m.width-2))
-		operation := "Choose history"
-		if r["released"] == true && r["can_restore"] == true {
-			operation = "Restore tracking"
-		} else if r["can_resume_recent"] == true {
-			operation = "Resume"
+		operation := recentAction(r)
+		if preview := str(r["preview"]); preview != "" {
+			operation += " — “" + oneLine(preview) + "”"
 		}
-		lines = append(lines, clip("  "+operation, m.width-2))
+		lines = append(lines, clip(label, m.width-2), clip("  "+recentLabel(r), m.width-2), clip("  "+operation, m.width-2))
 	}
-	if end < len(m.recentRows) {
+	if end < len(visible) {
 		lines = append(lines, " …")
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (m *dashboard) recentSelectedRow() row {
-	if m.recentSelected < 0 || m.recentSelected >= len(m.recentRows) {
+	visible := m.recentVisible()
+	if m.recentSelected < 0 || m.recentSelected >= len(visible) {
 		return nil
 	}
-	return m.recentRows[m.recentSelected]
+	return visible[m.recentSelected]
 }
 
 func (m *dashboard) resumeRecentSelected() tea.Cmd {
@@ -108,15 +164,57 @@ func (m *dashboard) resumeRecentSelected() tea.Cmd {
 	if r == nil {
 		return nil
 	}
-	if r["released"] == true && r["can_restore"] == true {
-		m.recentPending = r
-		return m.request("Restore tracking", "POST", "/sessions/"+id(r)+"/restore", map[string]any{}, false)
-	}
-	if r["can_resume_recent"] != true {
+	if str(r["action"]) == "history" {
 		return m.recentHistory(r)
 	}
 	m.recentPending = r
-	return m.request("Resume recently closed", "POST", "/sessions/"+id(r)+"/resume-recent", map[string]any{"name": name(r)}, false)
+	return m.request(restoreLabel, "POST", "/sessions/"+id(r)+"/reopen", map[string]any{}, false)
+}
+
+// undoLastClose reopens the newest restorable session: U right after closing
+// one brings it back without opening the list.
+func (m *dashboard) undoLastClose() tea.Cmd {
+	if m.busy || sections[m.section] != "sessions" {
+		return nil
+	}
+	m.busy = true
+	c, key := m.client, m.key()
+	return func() tea.Msg {
+		b, err := c.JSON("GET", "/sessions/restorable?limit=1", nil)
+		var rows []row
+		if err == nil {
+			err = json.Unmarshal(b, &rows)
+		}
+		if err != nil {
+			return resultMsg{label: restoreLabel, err: err, key: key}
+		}
+		if len(rows) == 0 {
+			return resultMsg{label: restoreLabel, err: fmt.Errorf("nothing to restore"), key: key}
+		}
+		if str(rows[0]["action"]) == "history" {
+			return undoMsg{row: rows[0], history: true}
+		}
+		data, err := c.JSON("POST", "/sessions/"+id(rows[0])+"/reopen", map[string]any{})
+		return undoMsg{row: rows[0], result: resultMsg{label: restoreLabel, data: data, err: err, key: key}}
+	}
+}
+
+type undoMsg struct {
+	row     row
+	history bool
+	result  resultMsg
+}
+
+// restoredSession reads the session a reopen returned, and its message.
+func restoredSession(data []byte) (string, string) {
+	var out struct {
+		Session row    `json:"session"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(data, &out) != nil {
+		return "", ""
+	}
+	return id(out.Session), out.Message
 }
 
 func (m *dashboard) recentHistorySelected() tea.Cmd {

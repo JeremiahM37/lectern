@@ -32,6 +32,7 @@ import { SessionLineage } from "./continuity/SessionLineage";
 import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
 import { envFromWindow, pushAvailability } from "./push";
 import { applyBadge, computeBadgeCount } from "./badge";
+import type { NoticeAction } from "./types";
 const SWITCH_STORAGE = 'lec-pending-switches';
 const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
 // The Needs-you push prompt is one-time and dismissible: once a person taps
@@ -136,7 +137,7 @@ export default function App() {
     [authVersion, setAuthVersion] = useState(0),
     [authError, setAuthError] = useState(""),
     [toasts, setToasts] = useState<
-      { id: number; text: string; error: boolean }[]
+      { id: number; text: string; error: boolean; action?: NoticeAction }[]
     >([]),
     [openTaskId, setOpenTaskId] = useState<number>(),
     [newTaskVersion, setNewTaskVersion] = useState(0),
@@ -186,12 +187,14 @@ export default function App() {
     refreshGeneration = useRef(0),
     viewRef = useRef(view);
   viewRef.current = view;
-  const notice = useCallback((text: string, error = false) => {
+  // A toast can carry one action (Undo after closing a session). It stays
+  // long enough to be reached on a phone, and taking the action dismisses it.
+  const notice = useCallback((text: string, error = false, action?: NoticeAction) => {
     const id = ++toastCounter.current;
-    setToasts((old) => [...old, { id, text, error }]);
+    setToasts((old) => [...old, { id, text, error, action }]);
     window.setTimeout(
       () => setToasts((old) => old.filter((row) => row.id !== id)),
-      4200,
+      action ? 10000 : 4200,
     );
   }, []);
   const api = useMemo(
@@ -1082,8 +1085,20 @@ export default function App() {
       </nav>
       <div id="toasts" aria-live="polite">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.error ? "err" : ""}`}>
-            {toast.text}
+          <div key={toast.id} className={`toast ${toast.error ? "err" : ""}${toast.action ? " has-action" : ""}`}>
+            <span>{toast.text}</span>
+            {toast.action && (
+              <button
+                className="toast-action"
+                onClick={() => {
+                  const action = toast.action!;
+                  setToasts((old) => old.filter((row) => row.id !== toast.id));
+                  void action.run();
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

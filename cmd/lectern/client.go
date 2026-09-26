@@ -136,6 +136,8 @@ const clientHelp = `Lectern — web and terminal control
   lectern attach KIND ID          Join tmux (Ctrl-b d returns to console)
   lectern controls [KIND ID]      Lectern actions without opening another terminal
   lectern promote SESSION-ID      Bind a running conversation to a project
+  lectern restore [QUERY|ID]      List or reopen closed, archived or interrupted sessions
+                                    (--last, --agent A, --model M, --no-attach)
   lectern api METHOD /path [JSON|@file|-]
   lectern upload KIND ID FILE     Add a local file as agent context
   lectern files KIND ID [PATH]    Browse files on the agent's machine
@@ -334,6 +336,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return shellCommandAt(cfg, args, base, token, local)
 	case "promote":
 		return promoteCommand(c, args)
+	case "restore":
+		return restoreCommand(cfg, args, base, token, local, os.Stdout, interactiveTerminal())
 	case "controls":
 		return controlsCommand(c, args)
 	case "console", "tui":

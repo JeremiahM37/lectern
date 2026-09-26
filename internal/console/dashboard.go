@@ -116,6 +116,8 @@ type resultMsg struct {
 	// notice, when set, replaces the default "<label> completed" message so an
 	// action can report what it actually did to the terminal.
 	notice string
+	// noAttach keeps a restored session in the list instead of attaching.
+	noAttach bool
 }
 type attachedMsg struct{ err error }
 type batchOpenedMsg struct {
@@ -180,6 +182,8 @@ type dashboard struct {
 	recentOpen                          bool
 	recentSelected                      int
 	recentPending                       row
+	recentQuery                         string
+	recentSearching                     bool
 	attachAfterRefresh                  bool
 	// controlOnly hides the actions that open another native terminal, so the
 	// controls popup cannot nest an attachment inside itself. popup marks the
@@ -768,14 +772,29 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case undoMsg:
+		m.busy = false
+		if v.history {
+			m.notice = "The last closed session has no bound conversation; choose one from its history"
+			return m, m.recentHistory(v.row)
+		}
+		if v.result.err != nil && (v.row["agent"] == "claude" || v.row["agent"] == "codex") {
+			if httpErr, ok := v.result.err.(*HTTPError); ok && httpErr.Status == 409 && str(v.row["action"]) == "resume" {
+				return m, m.recentHistory(v.row)
+			}
+		}
+		// Undo brings the session back to the list without attaching to it.
+		v.result.noAttach = true
+		return m.Update(v.result)
 	case recentMsg:
 		m.busy = false
 		if v.err != nil {
-			m.notice = "Recently closed: " + clean(v.err.Error())
+			m.notice = "Restore: " + clean(v.err.Error())
 			return m, nil
 		}
 		m.recentRows = v.rows
 		m.recentSelected = 0
+		m.recentQuery, m.recentSearching = "", false
 		m.recentOpen = true
 		return m, nil
 	case refsMsg:
@@ -803,10 +822,13 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			if v.label == "Resume recently closed" && m.recentPending != nil {
-				if httpErr, ok := v.err.(*HTTPError); ok && (httpErr.Status == 404 || httpErr.Status == 409) {
-					r := m.recentPending
-					m.recentPending = nil
+			if v.label == restoreLabel && m.recentPending != nil {
+				// A resume whose conversation cannot be found falls back to
+				// the history picker, as the server's needs_history says.
+				r := m.recentPending
+				m.recentPending = nil
+				if httpErr, ok := v.err.(*HTTPError); ok && httpErr.Status == 409 && (str(r["action"]) == "resume" || str(r["action"]) == "history") &&
+					(r["agent"] == "claude" || r["agent"] == "codex") {
 					return m, m.recentHistory(r)
 				}
 			}
@@ -831,13 +853,15 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.form = nil
 		m.pending = nil
-		if v.label == "Resume recently closed" || v.label == "Restore tracking" {
+		if v.label == restoreLabel {
 			m.recentPending = nil
 			m.recentOpen = false
-			var resumed row
-			if json.Unmarshal(v.data, &resumed) == nil && id(resumed) != "" {
-				m.focusSessionID = id(resumed)
-				m.attachAfterRefresh = true
+			if restored, message := restoredSession(v.data); restored != "" {
+				m.focusSessionID = restored
+				m.attachAfterRefresh = !v.noAttach
+				if message != "" {
+					v.notice = message
+				}
 			}
 		}
 		if v.notice != "" {
@@ -1064,14 +1088,40 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.recentOpen && m.recentSearching {
+			switch v.Type {
+			case tea.KeyEnter, tea.KeyEsc:
+				m.recentSearching = false
+				if v.Type == tea.KeyEsc {
+					m.recentQuery = ""
+				}
+			case tea.KeyBackspace:
+				if r := []rune(m.recentQuery); len(r) > 0 {
+					m.recentQuery = string(r[:len(r)-1])
+				}
+			case tea.KeySpace:
+				m.recentQuery += " "
+			case tea.KeyRunes:
+				m.recentQuery += string(v.Runes)
+			}
+			m.recentSelected = 0
+			return m, nil
+		}
 		if m.recentOpen {
 			switch v.String() {
 			case "esc", "backspace", "q", "C":
+				if m.recentQuery != "" && v.String() == "esc" {
+					m.recentQuery = ""
+					m.recentSelected = 0
+					return m, nil
+				}
 				m.recentOpen = false
+			case "/":
+				m.recentSearching = true
 			case "up", "k":
 				m.recentSelected = max(0, m.recentSelected-1)
 			case "down", "j":
-				m.recentSelected = min(len(m.recentRows)-1, m.recentSelected+1)
+				m.recentSelected = min(len(m.recentVisible())-1, m.recentSelected+1)
 			case "enter", "a":
 				return m, m.resumeRecentSelected()
 			case "h", "H":
@@ -1090,6 +1140,8 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.savedConversations()
 		case "C":
 			return m, m.loadRecentSessions()
+		case "U":
+			return m, m.undoLastClose()
 		case "O":
 			return m, m.olderNative()
 		case "?":
@@ -1502,10 +1554,10 @@ func (m *dashboard) View() string {
 	more := " m actions: search, history, settings and more"
 	if m.section == 0 {
 		keys = " n new session · Enter attach · o new terminal · b select · m actions · q quit"
-		more = " / filter list · f find running agents · F search past conversations · C recently closed · ? help"
+		more = " / filter list · f find running agents · F search past conversations · C restore · ? help"
 		if m.width < 100 {
 			keys = " n new · Enter attach · o terminal · m actions · q quit"
-			more = " / filter · f find agents · F search history · C recently closed · ? help"
+			more = " / filter · f find agents · F search history · C restore · ? help"
 		}
 		if m.selectedGroup() != nil {
 			keys = " n new · Enter fold · b select · m actions · q quit"
@@ -1626,7 +1678,8 @@ const dashboardHelp = ` Keyboard shortcuts
  P             Launch profiles
  Q             Agent runners (add custom CLIs)
  m             All actions      f        Find and track running agents
- C             Recently closed (sessions)
+ C             Restore closed, archived or interrupted sessions
+ U             Undo: reopen the session closed last
  h             Full history     v        Review task diff
  F             Search saved conversation text across targets
  H             Saved conversations / fork   O Earlier saved messages

@@ -12,7 +12,7 @@ const sessionCols = `s.id, s.project_id, s.target_id, s.name, s.agent, s.model,
 	s.context_used_pct, s.context_tokens, s.context_size, s.cost_usd, s.lines_added, s.lines_removed,
 	s.rate_5h_pct, s.rate_5h_reset, s.rate_7d_pct, s.rate_7d_reset, s.usage_at, s.codex_thread_id, s.precompact_at,
 	s.repo_key, s.repo_toplevel, s.awareness_briefing_hash, s.awareness_briefing_at,
-	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at`
+	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at, s.end_reason`
 
 func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, error) {
 	var s Session
@@ -23,7 +23,7 @@ func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, e
 		&s.ContextUsedPct, &s.ContextTokens, &s.ContextSize, &s.CostUSD, &s.LinesAdded, &s.LinesRemoved,
 		&s.Rate5hPct, &s.Rate5hReset, &s.Rate7dPct, &s.Rate7dReset, &s.UsageAt, &s.CodexThreadID, &s.PrecompactAt,
 		&s.RepoKey, &s.RepoToplevel, &s.AwarenessBriefingHash, &s.AwarenessBriefingAt,
-		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt}
+		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt, &s.EndReason}
 	if withJoin {
 		var projectName sql.NullString
 		dest = append(dest, &projectName, &s.TargetName, &s.TargetKind)
@@ -117,6 +117,86 @@ func (db *DB) RecentClosedSessions(limit int) ([]*Session, error) {
 			return nil, err
 		}
 		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// RestorableSessions returns every record Restore can offer, newest first:
+// ended ones (archived included) except launches that never started, and live
+// rows a restart left interrupted. A row from before end_reason existed that
+// never showed a screen or bound a conversation is a launch that never
+// started, and is left out too.
+func (db *DB) RestorableSessions(limit int) ([]*Session, error) {
+	if limit < 1 {
+		return []*Session{}, nil
+	}
+	rows, err := db.Query(`SELECT `+sessionCols+`, p.name, t.name, t.kind `+
+		sessionJoin+` WHERE (s.ended_at IS NOT NULL AND s.end_reason<>'failed' AND s.setup_state<>'failed'
+			AND NOT (s.end_reason='' AND s.archived_at IS NULL AND s.pane_hash='' AND s.resume_id='' AND s.native_recovery_cid=''))
+		OR (s.ended_at IS NULL AND s.status='interrupted')
+		ORDER BY COALESCE(s.ended_at, s.updated_at) DESC, s.id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Session{}
+	for rows.Next() {
+		s, err := scanSession(rows, true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// ConversationRef is a session's bound native conversation, for telling which
+// closed records a later session already continued.
+type ConversationRef struct {
+	ID, TargetID int64
+	Agent        string
+	CIDs         []string
+}
+
+// ConversationRefs lists every session with a bound native conversation.
+func (db *DB) ConversationRefs() ([]ConversationRef, error) {
+	rows, err := db.Query(`SELECT id, target_id, agent, resume_id, native_recovery_cid FROM sessions
+		WHERE resume_id<>'' OR native_recovery_cid<>''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ConversationRef{}
+	for rows.Next() {
+		var ref ConversationRef
+		var resume, native string
+		if err := rows.Scan(&ref.ID, &ref.TargetID, &ref.Agent, &resume, &native); err != nil {
+			return nil, err
+		}
+		for _, cid := range []string{native, resume} {
+			if cid != "" {
+				ref.CIDs = append(ref.CIDs, cid)
+			}
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+// ReopenedAs maps each record Restore replaced to the session it started.
+func (db *DB) ReopenedAs() (map[int64]int64, error) {
+	rows, err := db.Query(`SELECT id, reopened_as FROM sessions WHERE reopened_as IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int64{}
+	for rows.Next() {
+		var id, next int64
+		if err := rows.Scan(&id, &next); err != nil {
+			return nil, err
+		}
+		out[id] = next
 	}
 	return out, rows.Err()
 }

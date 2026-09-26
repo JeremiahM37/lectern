@@ -357,6 +357,17 @@ temporary databases, a separate vault, and a private tmux socket.
   instructions with four starters: Lean Builder, Reviewed Delivery, Debugging
   Team, and Research & Plan. Sessions keep their captured briefing when resumed
   or forked.
+- **Restore** — **Sessions → ↺ Restore** lists everything that can come back:
+  sessions you ended, archived ones, ones that exited on their own, and ones a
+  host restart interrupted. Rows are grouped by project, searchable by name,
+  folder or last message, and say what reopening does before you press it:
+  resume the saved Claude/Codex conversation, track a still-running terminal
+  again, open a new shell in a closed shell's folder, or start fresh when
+  nothing was saved. **Other agent…** continues it in a different agent or
+  model, primed with its last handoff or the end of its conversation. Ending a
+  session shows **Undo**. After a restart, sessions with a saved conversation
+  come back on their own; the rest get a one-tap banner. Terminal: `C`, `U`;
+  CLI: `lectern restore [query]`; chat: `restore_session`.
 - **Blank rooms** — start any agent CLI in a throwaway git repository with no
   project attached, for work that does not have a name yet. When it turns into
   something, promote it: the directory it has been working in becomes the
