@@ -173,10 +173,22 @@ func (s *Server) lecternPath() string {
 	if err != nil {
 		return "lectern"
 	}
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		resolved = p
 	}
-	return p
+	// Releases live in versioned directories and the stable name on PATH is
+	// repointed at each upgrade, so registering the resolved release path
+	// would break every client at the next upgrade. Prefer the PATH entry
+	// whenever it leads to this same binary.
+	if onPath, err := exec.LookPath("lectern"); err == nil {
+		if target, err := filepath.EvalSymlinks(onPath); err == nil && target == resolved {
+			if abs, err := filepath.Abs(onPath); err == nil {
+				return abs
+			}
+		}
+	}
+	return resolved
 }
 
 // firstNonEmptyLine picks the first line of a CLI's own status output worth

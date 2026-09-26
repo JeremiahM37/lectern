@@ -390,3 +390,21 @@ func TestMCPClientSeenRejectsEmptyName(t *testing.T) {
 		t.Fatalf("blank client_name must 400, got %d", w.Code)
 	}
 }
+
+// A client registered with a versioned release path breaks at the next
+// upgrade; when the stable name on PATH leads to this binary, use that.
+func TestLecternPathPrefersStableNameOnPath(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "lectern")
+	if err := os.Symlink(self, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if got := (&Server{}).lecternPath(); got != link {
+		t.Fatalf("lecternPath() = %q, want the stable PATH entry %q", got, link)
+	}
+}
