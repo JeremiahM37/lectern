@@ -399,6 +399,36 @@ temporary databases, a separate vault, and a private tmux socket.
   follows and cancels tasks. So an orchestrator that speaks A2A — not just one
   that speaks Lectern's REST API — can drive it. See [docs/a2a.md](docs/a2a.md).
 
+## Connect your AI tools
+
+Settings has a "Connect your AI tools" card that gets each MCP client — Claude
+Code, Codex, Claude Desktop, Cursor, VS Code, or claude.ai/ChatGPT — to
+`lectern mcp` by whatever path it genuinely supports, and shows whether it
+worked:
+
+- **Claude Code and Codex, on the machine running Lectern**: a true one
+  click. The card runs the client's own `claude mcp add` / `codex mcp add`
+  command as the Lectern service user and shows the client's own connected/
+  not-connected status (`claude mcp get lectern` / `codex mcp get lectern`).
+  Since installing writes your own agent config, this needs your signed-in
+  identity — the same gate task approvals and autonomous mode use — not an
+  automated caller.
+- **Claude Code and Codex, on a different machine**: flip "This computer is
+  not the Lectern host" for a copyable command with `LECTERN_API` pointed at
+  this browser's own origin, e.g.
+  `claude mcp add --scope user lectern -e LECTERN_API=https://your-lectern -- lectern mcp`.
+- **Claude Desktop**: a copyable `mcpServers` JSON snippet for Settings →
+  Developer → Edit Config.
+- **Cursor and VS Code**: a real one-click MCP install deep link.
+- **claude.ai / ChatGPT (web)**: these need a public HTTPS MCP endpoint,
+  which Lectern does not expose by default, so the card explains that and
+  links to claude.ai's own connectors page rather than faking a button.
+
+Once a client actually talks to `lectern mcp`, the card shows "connected ·
+used N ago" — recorded from the MCP `initialize` handshake's `clientInfo`,
+best-effort and fire-and-forget so a slow or unreachable API never delays a
+client's connection.
+
 ## Terminal workflows
 
 ### Rich terminal workspace

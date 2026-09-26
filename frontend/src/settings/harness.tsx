@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Settings, type SettingsApi } from "./Settings";
+import type { MCPClientInfo } from "./ConnectTools";
+import "./connect-tools.css";
 const calls: unknown[] = [];
 Object.assign(window, { calls });
 const target = {
@@ -48,9 +50,83 @@ const project = {
   skill_sources_json: "[]",
   created_at: 1,
 };
+let mcpClients: MCPClientInfo[] = [
+  {
+    id: "claude-code",
+    name: "Claude Code (CLI)",
+    installed: false,
+    detail: "Not connected yet",
+    can_install: true,
+    lectern_path: "/opt/lectern/lectern",
+    command: "claude mcp add --scope user lectern -- /opt/lectern/lectern mcp",
+    remote_command:
+      "claude mcp add --scope user lectern -e LECTERN_API=__LECTERN_API__ -- lectern mcp",
+    last_seen: null as { name: string; version: string; at: number } | null,
+  },
+  {
+    id: "codex",
+    name: "Codex (CLI)",
+    installed: true,
+    detail: "enabled: true",
+    can_install: true,
+    lectern_path: "/opt/lectern/lectern",
+    command: "codex mcp add lectern -- /opt/lectern/lectern mcp",
+    remote_command: "codex mcp add lectern --env LECTERN_API=__LECTERN_API__ -- lectern mcp",
+    last_seen: { name: "codex", version: "1.0.0", at: Math.floor(Date.now() / 1000) - 120 },
+  },
+  {
+    id: "claude-desktop",
+    name: "Claude Desktop",
+    installed: null,
+    detail: "Settings → Developer → Edit Config, then paste the snippet below.",
+    can_install: false,
+    lectern_path: "/opt/lectern/lectern",
+    last_seen: null,
+  },
+  {
+    id: "cursor",
+    name: "Cursor",
+    installed: null,
+    detail: "One-click install via Cursor's MCP deep link.",
+    can_install: false,
+    lectern_path: "/opt/lectern/lectern",
+    last_seen: null,
+  },
+  {
+    id: "vscode",
+    name: "VS Code",
+    installed: null,
+    detail: "One-click install via VS Code's MCP deep link.",
+    can_install: false,
+    lectern_path: "/opt/lectern/lectern",
+    last_seen: null,
+  },
+  {
+    id: "web-connectors",
+    name: "claude.ai / ChatGPT (web)",
+    installed: null,
+    detail: "These need a public HTTPS MCP endpoint, which Lectern does not expose by default.",
+    can_install: false,
+    external_url: "https://claude.ai/customize/connectors",
+    last_seen: null,
+  },
+];
 const api: SettingsApi = {
   request: (async (p: string, o?: unknown) => {
     calls.push([p, o]);
+    if (p === "/mcp-clients") return mcpClients;
+    if (p.startsWith("/mcp-clients/") && p.endsWith("/install")) {
+      const id = p.split("/")[2];
+      if (id === "claude-code") {
+        mcpClients = mcpClients.map((c) =>
+          c.id === "claude-code"
+            ? { ...c, installed: true, last_seen: { name: "claude-code", version: "2.0.0", at: Math.floor(Date.now() / 1000) } }
+            : c,
+        );
+        return { ok: true, output: "lectern added to /root/.claude.json" };
+      }
+      return { ok: false, output: "codex: command not found" };
+    }
     if (p === "/targets") return [target];
     if (p === "/projects") return [project];
     if (p === "/settings")

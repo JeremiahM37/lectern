@@ -94,6 +94,7 @@ func (s *Server) handle(req request) (response, bool) {
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "lectern", "version": version.Version},
 		}
+		s.reportClientSeen(req.Params)
 	case "tools/list":
 		resp.Result = map[string]any{"tools": toolSchemas()}
 	case "tools/call":
@@ -128,6 +129,31 @@ func (s *Server) handle(req request) (response, bool) {
 		resp.Error = &rpcError{Code: -32601, Message: "unknown method " + req.Method}
 	}
 	return resp, true
+}
+
+// reportClientSeen tells the Lectern this server talks to which MCP client
+// just said hello, so the Settings "Connect your AI tools" card can show
+// "Claude Code connected · used 2 min ago" instead of a plain button. It is
+// pure telemetry for a UI nicety: best-effort, short timeout, every error
+// swallowed, and run in the background so a slow or unreachable API never
+// delays the initialize response an MCP client is waiting on.
+func (s *Server) reportClientSeen(rawParams json.RawMessage) {
+	var params struct {
+		ClientInfo struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"clientInfo"`
+	}
+	if err := json.Unmarshal(rawParams, &params); err != nil || params.ClientInfo.Name == "" {
+		return
+	}
+	go func() {
+		client := &http.Client{Timeout: 5 * time.Second}
+		_, _ = s.apiWithClient(client, "POST", "/mcp-clients/seen", map[string]any{
+			"client_name":    params.ClientInfo.Name,
+			"client_version": params.ClientInfo.Version,
+		})
+	}()
 }
 
 // ---- the HTTP client --------------------------------------------------------
