@@ -44,6 +44,8 @@ type Fact struct {
 // findable later. Every field here is operational context lectern already has
 // and a memory store otherwise never learns.
 type Entry struct {
+	// Key requests an immutable, retry-safe checkpoint instead of inferred facts.
+	Key      string
 	Project  string
 	Topic    string
 	Session  string
@@ -306,6 +308,9 @@ func (g *Grimoire) recallFacts(ctx context.Context, project string, limit int) (
 
 // Remember stores a fact with lectern's operational provenance attached.
 func (g *Grimoire) Remember(ctx context.Context, e Entry) error {
+	if e.Key != "" {
+		return g.rememberCheckpoint(ctx, e)
+	}
 	topic := e.Topic
 	if topic == "" {
 		topic = e.Project

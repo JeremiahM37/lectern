@@ -548,7 +548,7 @@ func (s *Server) rememberAuto(ctx context.Context, a *autoRecord) {
 	// Only controller-authored identifiers/status enter shared memory. Agent
 	// reports remain in isolated artifacts, avoiding accidental secret writes.
 	text := fmt.Sprintf("Autonomous experiment %s cycle %d: phase=%s; %d proposals, %d role tasks. Reports and artifacts are on Lectern /autonomy.html. No production deployments or publishing.", a.State.Date, a.State.Cycle, a.State.Phase, len(a.State.Items), len(a.State.Assignments))
-	if e := s.Memory.Remember(ctx, memory.Entry{Project: autoOwner, Topic: autoOwner, Session: "autonomy-" + key, Agent: "lectern", Category: "checkpoint", Text: text}); e == nil {
+	if e := s.Memory.Remember(ctx, memory.Entry{Key: "autonomy-" + key, Project: autoOwner, Topic: autoOwner, Session: "autonomy-" + key, Agent: "lectern", Category: "checkpoint", Text: text}); e == nil {
 		a.RememberedDay = a.State.Date
 		a.RememberedCycle = key
 	} else {

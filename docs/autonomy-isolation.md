@@ -242,3 +242,14 @@ no longer consume every later cycle's recovery budget. Existing overnight delays
 in continuous mode are shortened to a one-minute recovery window once. Legacy retry records acquire
 one bounded window when first seen by this version; unsafe/unknown failure
 reasons are never migrated or retried, and enabled/quota gates remain mandatory.
+
+
+### Retry-safe Grimoire handoffs
+
+Completed cycles use a deterministic note path under `checkpoints/lectern/` keyed
+by project and cycle. The controller reads before creating: an identical durable
+note is success even if the original POST timed out during indexing; different
+content under the same key is a conflict and is never overwritten. These are
+controller-authored operational receipts, not fact-extraction prompts. Existing
+agent fact memories continue using their normal memory API. Each cycle has a
+bounded-size note, so remembering a new cycle does not re-embed a growing log.
