@@ -334,14 +334,24 @@ func (in *Ingester) IngestCodexUsage(s *store.Session, usage *CodexUsage) error 
 	}
 
 	date := time.Now().UTC().Format("2006-01-02")
+	// Price the cumulative reading (so cached input keeps its own rate) and
+	// book only what is not already booked for this session.
 	estimate := 0.0
 	priceModel := usage.Model
 	if priceModel == "" {
 		priceModel = s.Model
 	}
 	if inputDelta > 0 || outputDelta > 0 {
-		if usd, ok := outcomes.LoadPrices(in.DB).EstimateFor(s.Agent, priceModel, int64(inputDelta), int64(outputDelta)); ok {
-			estimate = usd
+		total, ok := outcomes.LoadPrices(in.DB).EstimateTokens(s.Agent, priceModel, outcomes.Tokens{
+			Input: int64(usage.InputTokens), CachedInput: int64(usage.CachedInput), Output: int64(usage.OutputTokens)})
+		if ok {
+			booked, err := in.DB.UsageDailySessionEstimated(s.ID)
+			if err != nil {
+				return err
+			}
+			if total > booked {
+				estimate = total - booked
+			}
 		}
 	}
 	if err := in.DB.UpsertEstimatedUsageDelta(date, s.ID, s.Agent, usage.Model, estimate, inputDelta, outputDelta); err != nil {

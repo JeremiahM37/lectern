@@ -40,6 +40,13 @@ func (db *DB) UpsertEstimatedUsageDelta(date string, sessionID int64, agent, mod
 	return err
 }
 
+// UsageDailySessionEstimated sums the estimated cost already booked for a
+// session, the baseline a cumulative price estimate is diffed against.
+func (db *DB) UsageDailySessionEstimated(sessionID int64) (usd float64, err error) {
+	err = db.QueryRow(`SELECT COALESCE(SUM(estimated_usd),0) FROM usage_daily WHERE session_id=?`, sessionID).Scan(&usd)
+	return
+}
+
 // UsageDailySessionTotals sums every usage_daily row ever booked for a
 // session (across all dates), so a delta source with no cumulative field of
 // its own — Claude's statusline reports request-footprint, not a running

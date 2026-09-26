@@ -236,10 +236,11 @@ func normalizeCodex(raw map[string]any) []Event {
 		return nil
 	case "turn.completed":
 		usage, _ := raw["usage"].(map[string]any)
-		var tokens, inputTokens any
+		var tokens, inputTokens, cachedInput any
 		if usage != nil {
 			tokens = usage["output_tokens"]
 			inputTokens = usage["input_tokens"]
+			cachedInput = usage["cached_input_tokens"]
 		}
 		// codex has no cost figure in this event (unlike Claude's
 		// total_cost_usd). The scheduler fills in an estimate from the
@@ -248,7 +249,8 @@ func normalizeCodex(raw map[string]any) []Event {
 		return []Event{{"result", map[string]any{
 			"subtype": "success", "cost_usd": nil, "num_turns": nil,
 			"duration_ms": nil, "result": "", "session_id": "",
-			"tokens": tokens, "output_tokens": tokens, "input_tokens": inputTokens}}}
+			"tokens": tokens, "output_tokens": tokens, "input_tokens": inputTokens,
+			"cached_input_tokens": cachedInput}}}
 	case "item.started", "item.completed":
 		item, _ := raw["item"].(map[string]any)
 		if item == nil {

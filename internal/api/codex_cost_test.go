@@ -124,3 +124,46 @@ func TestCodexSessionUsageEstimatedFromPriceTable(t *testing.T) {
 		t.Fatalf("codex budget spend should include the estimate, got %v %v", spend, err)
 	}
 }
+
+// Codex reports cached input as part of its input tokens; with a cached rate
+// configured, that part is billed at it, for tasks and interactive sessions.
+func TestCodexCachedInputBilledAtCachedRate(t *testing.T) {
+	h := newHarness(t)
+	db := h.App.DB
+	pid := h.seededProjectID()
+	cached := 0.125
+	if _, err := outcomes.SavePrices(db, outcomes.PriceConfig{Prices: map[string]outcomes.ModelPrice{
+		"codex": {InputPer1M: 1.25, OutputPer1M: 10, CachedInputPer1M: &cached}}}); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := db.InsertTask(&store.Task{ProjectID: pid, Title: "cached", Agent: "codex", Status: "running"})
+	att, _ := db.InsertAttempt(&store.Attempt{TaskID: task.ID, N: 1, Status: "running"})
+	events, _ := agents.ParseStreamLines("codex",
+		`{"type":"turn.completed","usage":{"input_tokens":1000000,"cached_input_tokens":800000,"output_tokens":100000}}`+"\n")
+	if err := h.App.Sched.StoreEvents(att, events); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := db.Attempt(att.ID)
+	want := 0.2*1.25 + 0.8*0.125 + 0.1*10
+	if d := fresh.LiveCostUSD - want; d > 1e-9 || d < -1e-9 {
+		t.Fatalf("task estimate %v, want %v", fresh.LiveCostUSD, want)
+	}
+
+	sess := h.session(obj{"project_id": pid, "name": "codex cached", "agent": "codex"})
+	row, _ := db.Session(sess.id())
+	in := agentevents.New(db, h.App.Bus)
+	// Two cumulative readings: the second books only the difference.
+	for _, u := range []agentevents.CodexUsage{
+		{InputTokens: 1_000_000, CachedInput: 800_000, OutputTokens: 100_000},
+		{InputTokens: 2_000_000, CachedInput: 1_600_000, OutputTokens: 200_000},
+	} {
+		u := u
+		if err := in.IngestCodexUsage(row, &u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	booked, err := db.UsageDailySessionEstimated(row.ID)
+	if err != nil || booked-2*want > 1e-9 || booked-2*want < -1e-9 {
+		t.Fatalf("session estimate %v, want %v (%v)", booked, 2*want, err)
+	}
+}

@@ -147,8 +147,16 @@ spend everywhere a budget looks:
 
 The price is looked up by model name first, then by the agent name (`codex`),
 because a Codex run on its default model reports no model. Codex counts cached
-input inside its input tokens and the table has a single input rate, so the
-estimate prices cached input at the full rate and can run high.
+input inside its input tokens and reports how much of it was cached; an entry's
+optional `cached_input_per_1m` bills that part at the cached rate, for example
+`{"prices":{"codex":{"input_per_1m":1.25,"cached_input_per_1m":0.125,"output_per_1m":10}}}`.
+Without it, cached input is billed at the full input rate and the estimate runs
+high. Interactive sessions price the rollout's cumulative totals and book only
+the difference from what is already booked, so the cached split holds across
+readings.
+
+Lectern ships no built-in prices for any model, Claude's included (Claude
+reports its own cost), so Codex spend appears only once a price is set.
 
 Estimates are always labelled: the board and task detail show `~$0.12 est.`,
 the Usage page shows the estimated part next to each agent/model total, and
@@ -183,7 +191,8 @@ estimated, and a Codex budget still sees no spend.
   left uncosted without a price, then estimated and labelled once `codex` is
   priced; `live_cost_usd`, a codex stop budget, the Usage page's
   `estimated_usd` and the outcome fact all see it; an interactive Codex
-  session's rollout usage is priced into `usage_daily`.
+  session's rollout usage is priced into `usage_daily`; cached input is billed
+  at `cached_input_per_1m` for both.
 - `internal/api/budgets_test.go` — `GET`/`PUT /api/budgets`; stop mode blocks
   dispatch and session launch while warn mode does not; a per-agent limit
   blocks only that agent; a per-task budget cancels a running attempt

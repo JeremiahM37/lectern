@@ -514,6 +514,7 @@ export interface OutcomesReport {
 export interface ModelPrice {
   input_per_1m: number;
   output_per_1m: number;
+  cached_input_per_1m?: number;
 }
 export interface ModelPriceConfig {
   prices: Record<string, ModelPrice>;
