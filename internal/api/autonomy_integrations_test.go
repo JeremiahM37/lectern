@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"net/http/httptest"
 	"os"
@@ -183,5 +184,47 @@ func TestIntegrationConcurrentDuplicatesAppendOnce(t *testing.T) {
 	rows, err := s.autoIntegrations()
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+}
+
+func TestIntegrationBridgeExposesReceiptsWithoutChangingReview(t *testing.T) {
+	s, a, in, report, _ := integrationFixture(t)
+	receipt, err := s.validateAutoIntegration(context.Background(), a, in, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.recordAutoIntegration(receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.saveAuto(a); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.autoReadBridge(w, httptest.NewRequest("GET", "/integrations", nil))
+	var rows []autoIntegration
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &rows) != nil || len(rows) != 1 || rows[0].RemainingScope != in.RemainingScope {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// An integrated rejected task does not enter the approved artifact catalog.
+	w = httptest.NewRecorder()
+	s.autoReadBridge(w, httptest.NewRequest("GET", "/artifacts", nil))
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Fatal("integration laundered approval", w.Body.String())
+	}
+	a.Jobs[0].Rejected = false
+	a.Jobs[0].Approved = true
+	a.Jobs[0].ReviewTaskID = 987
+	a.Jobs = append(a.Jobs, &autoJob{TaskID: 987, Role: "reviewer", Status: "done"})
+	if err = s.saveAuto(a); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	s.autoReadBridge(w, httptest.NewRequest("GET", "/artifacts", nil))
+	var artifacts []map[string]json.RawMessage
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &artifacts) != nil || len(artifacts) != 1 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if json.Unmarshal(artifacts[0]["private_integrations"], &rows) != nil || len(rows) != 1 || rows[0].ID != receipt.ID {
+		t.Fatal("missing integration annotation")
 	}
 }
