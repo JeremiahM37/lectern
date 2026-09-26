@@ -252,9 +252,12 @@ func execScriptWithEnv(env []string, argv []string) string {
 }
 
 func (p *nativeWrapPlan) tmuxConfig() string {
-	hint := "#[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
+	// Sending a file is the most-used control, so it gets its own one-chord
+	// key and leads the row. Ctrl+\ is free in shells, Claude Code and Codex
+	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
+	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
 	if p.controls.TabView {
-		hint = "#[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
+		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
@@ -269,9 +272,10 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -T prefix C-] send-prefix",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
+		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",
 		"set -g status-position top",
-		"set -g status-left-length 44",
+		"set -g status-left-length 72",
 		"set -g status-style fg=colour252,bg=colour236",
 		// The primary shortcut leads the row so a narrow client clips trailing
 		// text, never the hint itself. The window list is dropped: its text

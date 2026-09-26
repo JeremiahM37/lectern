@@ -60,6 +60,9 @@ func TestNativeWrapConfigBindings(t *testing.T) {
 		"bind-key -T prefix C-] send-prefix",
 		"bind-key -T prefix m display-popup",
 		"bind-key -T prefix u display-popup",
+		// Sending a file is one chord, bound in the root table, and opens the
+		// same upload popup as Ctrl+] u.
+		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(plan.uploadScript),
 		"status-left",
 	} {
 		if !strings.Contains(plan.conf, want) {
@@ -434,10 +437,10 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
 	for _, want := range []string{
 		"set -g status-position top",
-		"set -g status-left-length 44",
+		"set -g status-left-length 72",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-left '#[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
+		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
 	} {
 		if !strings.Contains(plan.conf, want) {
 			t.Errorf("config is missing %q:\n%s", want, plan.conf)

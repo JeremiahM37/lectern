@@ -141,13 +141,14 @@ directory and removes it when the attachment ends.
 
 | Keys while attached | Action |
 | --- | --- |
+| Ctrl+\ | Send a file from this machine to the agent as context (one chord) |
 | Ctrl+] then m | Open Lectern actions for this attachment |
-| Ctrl+] then u | Upload a file from this machine as context |
+| Ctrl+] then u | Same file sender as Ctrl+\ |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
 
-The top status line keeps **Ctrl+] m** visible while you are attached, including
+The top status line keeps **Ctrl+\\ send file** and **Ctrl+] m** visible while you are attached, including
 in narrow terminals. Direct SSH launchers also get this bar from the server;
 updated clients that provide their own controls mark the connection to avoid
 a second wrapper. Update an older installed native client and reattach to use
@@ -169,7 +170,7 @@ line.
 When the upload finishes, the popup types the stored **remote** path back into
 the attached terminal, shell-quoted, without pressing Enter — the same behavior
 as the browser's **Attach files** action. This holds whether the upload was
-opened with the `Ctrl-] u` shortcut or chosen from the `Ctrl-] m` controls
+opened with `Ctrl+\` (or `Ctrl-] u`) or chosen from the `Ctrl-] m` controls
 menu. The path refers to the agent's workspace on its target, so it stays
 usable wherever the agent is running; submit it yourself when your prompt is
 ready. If the client cannot reach the attached pane, or the path cannot be
