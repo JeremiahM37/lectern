@@ -74,8 +74,15 @@ type Manager struct {
 	// HandoffPoll overrides HandoffPollInterval when positive.
 	HandoffPoll time.Duration
 
+	// TargetPollTimeout and PollWait override DefaultTargetPollTimeout and
+	// DefaultPollWait when positive (see reach.go).
+	TargetPollTimeout time.Duration
+	PollWait          time.Duration
+
 	lifecycleMu               sync.Mutex
 	pollMu                    sync.Mutex
+	reachOnce                 sync.Once
+	reachState                *reachTracker
 	workspaceMu               sync.Mutex
 	workspaceUses             map[*workspaceUse]bool
 	sendMu                    sync.Mutex

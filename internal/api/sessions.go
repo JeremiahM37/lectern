@@ -59,6 +59,9 @@ type sessionView struct {
 	// the last 30 minutes. nil for no overlap (the common case) so the field
 	// is absent from most rows rather than cluttering every response.
 	AwarenessOverlap *awarenessOverlapView `json:"awareness_overlap,omitempty"`
+	// TargetReach is set while this session's machine is not answering the
+	// status poll: its status is the last one seen, not a current one.
+	TargetReach *sessions.TargetReach `json:"target_reach,omitempty"`
 	// Isolation is this session's actual running sandbox tier (from its
 	// captured launch configuration, not any later project default change)
 	// — the board's isolation badge. Omitted (mode "") for an unsandboxed
@@ -142,6 +145,11 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 	}
 	v.CI = s.latestCI("session_id", row.ID)
 	v.AwarenessOverlap = overlap
+	if row.EndedAt == nil {
+		if reach := s.Sessions.Reach(row.TargetID); reach.Unreachable {
+			v.TargetReach = &reach
+		}
+	}
 	return v
 }
 

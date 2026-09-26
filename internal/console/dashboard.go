@@ -27,6 +27,12 @@ func str(v any) string {
 	return fmt.Sprint(v)
 }
 func id(r row) string { return str(r["id"]) }
+
+// unreachable reports a session whose machine is not answering the status poll.
+func unreachable(r row) bool {
+	reach, _ := r["target_reach"].(map[string]any)
+	return reach["unreachable"] == true
+}
 func name(r row) string {
 	for _, k := range []string{"name", "title", "tool_name", "tmux_session"} {
 		if s := str(r[k]); s != "" {
@@ -601,6 +607,9 @@ func (m *dashboard) updatePreview() {
 		switch sections[m.section] {
 		case "sessions":
 			content = fmt.Sprintf("%s\n%s · %s · %s\n%s\n\n%s", name(r), str(r["agent"]), str(r["status"]), str(r["target_name"]), str(r["workdir"]), str(r["pane_tail"]))
+			if unreachable(r) {
+				content = str(r["target_name"]) + " is not answering; this is the last status seen.\n" + content
+			}
 			if label := str(r["launch_profile"]); label != "" {
 				content = "Launch profile: " + label + "\n" + content
 			}
@@ -1615,6 +1624,9 @@ func (m *dashboard) listView(height int) string {
 		}
 		if r["setup_state"] == "failed" {
 			s = "setup failed"
+		}
+		if unreachable(r) {
+			s = "unreachable · " + s
 		}
 		if sections[m.section] == "routines" {
 			s = str(r["schedule"])

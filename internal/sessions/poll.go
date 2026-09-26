@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
@@ -46,9 +47,14 @@ func screenAgentState(status string) (state string, ok bool) {
 // changed, because "quiet for 40 minutes" is the number an operator acts on.
 func (m *Manager) Poll(ctx context.Context) {
 	m.pollMu.Lock()
-	defer m.pollMu.Unlock()
 	m.RecoverWorkspaceOperations(ctx)
-	m.poll(ctx, nil)
+	groups := m.pollGroups(ctx, nil)
+	m.pollMu.Unlock()
+	wait := m.PollWait
+	if wait <= 0 {
+		wait = DefaultPollWait
+	}
+	m.pollTargets(ctx, groups, wait)
 }
 
 // PrepareStartup performs the fast, local part of restart reconciliation before
@@ -71,28 +77,36 @@ func (m *Manager) PrepareStartup() error {
 // lets the scheduler perform the remote poll asynchronously.
 func (m *Manager) Startup(ctx context.Context) error {
 	m.pollMu.Lock()
-	defer m.pollMu.Unlock()
 	m.RecoverWorkspaceOperations(ctx)
 	live, err := m.DB.LiveSessions()
 	if err != nil {
+		m.pollMu.Unlock()
 		return err
 	}
 	m.startCheckpointsForLiveRows(live)
-	m.poll(ctx, nil)
+	groups := m.pollGroups(ctx, nil)
+	m.pollMu.Unlock()
+	// every target's own timeout bounds this
+	m.pollTargets(ctx, groups, 0)
 	return nil
 }
 
-// Action refreshes visit only the affected target, not every machine in the fleet.
+// Action refreshes visit only the affected target, not every machine in the
+// fleet, and wait for it.
 func (m *Manager) pollTarget(ctx context.Context, targetID int64) {
 	m.pollMu.Lock()
-	defer m.pollMu.Unlock()
-	m.poll(ctx, &targetID)
+	groups := m.pollGroups(ctx, &targetID)
+	m.pollMu.Unlock()
+	for id, group := range groups {
+		m.pollOneTarget(ctx, id, group, false)
+	}
 }
 
-func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
+// pollGroups reads the live sessions worth polling, grouped by target.
+func (m *Manager) pollGroups(ctx context.Context, onlyTarget *int64) map[int64][]*store.Session {
 	live, err := m.DB.LiveSessions()
 	if err != nil || len(live) == 0 {
-		return
+		return nil
 	}
 	// The manager may have been constructed after the agents were launched (for
 	// example, the service restarted). Ensure those rows receive the same native
@@ -121,78 +135,174 @@ func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
 		}
 		byTarget[s.TargetID] = append(byTarget[s.TargetID], s)
 	}
-	for targetID, group := range byTarget {
-		target, err := m.DB.Target(targetID)
-		if err != nil {
+	return byTarget
+}
+
+// pollTargets polls every target on its own worker, at most
+// MaxConcurrentTargetPolls at once, and waits up to wait (0 = until all are
+// done) for them. A target whose previous poll has not finished, or that is
+// backing off after failures, is skipped this round; the others are not
+// held up by it.
+func (m *Manager) pollTargets(ctx context.Context, groups map[int64][]*store.Session, wait time.Duration) {
+	r := m.reach()
+	done := make(chan struct{}, len(groups))
+	started := 0
+	for id, group := range groups {
+		if !r.begin(id, time.Now()) {
 			continue
 		}
-		ex, err := m.Reg.For(target)
-		if err != nil {
-			continue
-		}
-		boot, known := ProbeBootID(ctx, ex)
-		if known {
-			m.recoverAfterBoot(ctx, target, ex, group, boot)
-			// Recovery may have ended a row or replaced its tmux process. Do not
-			// apply the pre-recovery snapshot to stale pointers: that can mark a
-			// freshly relaunched session dead immediately.
-			fresh, ferr := m.DB.LiveSessions()
-			if ferr != nil {
-				continue
+		started++
+		go func(id int64, group []*store.Session) {
+			defer func() { done <- struct{}{} }()
+			select {
+			case r.sem <- struct{}{}:
+			case <-ctx.Done():
+				r.release(id)
+				return
 			}
-			group = group[:0]
-			for _, candidate := range fresh {
-				if candidate.TargetID == targetID && candidate.SetupState != "creating" && candidate.Status != StatusInterrupted {
-					group = append(group, candidate)
-				}
-			}
-			if len(group) == 0 {
-				continue
-			}
-		}
-		names := make([]string, 0, len(group))
-		for _, s := range group {
-			names = append(names, s.TmuxSession)
-		}
-		r, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 45})
-		if err != nil || !r.OK() {
-			// an unreachable target is not evidence a session died; leave the
-			// rows alone and try again next tick
-			m.Log.Debug("session poll failed", "target", target.Name, "err", err, "exit_code", r.RC)
-			continue
-		}
-		panes, complete := ParsePollSnapshot(r.Stdout, names)
-		if !complete {
-			m.Log.Debug("incomplete session poll", "target", target.Name)
-			continue
-		}
-		for _, s := range group {
-			pane := panes[s.TmuxSession]
-			if pane.Failed {
-				continue
-			}
-			// A successful missing-pane result cannot distinguish a reboot from
-			// a dead process while the target's boot identity is unavailable.
-			// Keep a Lectern-owned row recoverable until a known boot probe
-			// establishes that decision.
-			if !known && pane.Missing && s.Origin == "lectern" && s.BootID != "" {
-				continue
-			}
-			// Older Lectern rows may predate boot checkpoints. Bind one only
-			// after a known boot and a live, identity-bound pane are observed;
-			// a missing pane must remain unresolved until a later probe.
-			if known && s.BootID == "" && !pane.Missing && s.Origin == "lectern" && validTrackingIdentity(s.TrackingIdentity) {
-				identity, identityErr := ProbeTrackingIdentity(ctx, ex, s.TmuxSession)
-				if identityErr == nil && identity == s.TrackingIdentity {
-					if err := m.DB.Update("sessions", s.ID, map[string]any{"boot_id": boot, "updated_at": store.Now()}); err == nil {
-						s.BootID = boot
-					}
-				}
-			}
-			m.applyPane(s, pane.Text, pane.Missing)
-		}
-		m.pollCodexUsage(ctx, ex, group)
+			defer func() { <-r.sem }()
+			m.pollOneTarget(ctx, id, group, true)
+		}(id, group)
 	}
+	var timeout <-chan time.Time
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+	for i := 0; i < started; i++ {
+		select {
+		case <-done:
+		case <-timeout:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// pollOneTarget runs one target's poll under its own timeout and records
+// whether the target answered. round is true when pollTargets claimed the
+// target (begin) for this call; an action refresh polls without a claim, but
+// never at the same time as a round, because both hold the target's lock.
+func (m *Manager) pollOneTarget(ctx context.Context, targetID int64, group []*store.Session, round bool) {
+	r := m.reach()
+	st := r.state(targetID)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	timeout := m.TargetPollTimeout
+	if timeout <= 0 {
+		timeout = DefaultTargetPollTimeout
+	}
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// A poll that is slow to answer shows as unreachable before it times out.
+	slow := time.AfterFunc(UnreachableAfter, func() { m.publishReach(targetID) })
+	started := time.Now()
+	errText := m.pollTargetGroup(tctx, targetID, group)
+	slow.Stop()
+	if r.finish(targetID, started, time.Now(), errText, round) {
+		if errText != "" {
+			m.Log.Warn("target unreachable; its sessions keep their last status", "target", targetID, "err", errText)
+		} else {
+			m.Log.Info("target reachable again", "target", targetID)
+		}
+		m.publishReach(targetID)
+	}
+}
+
+// publishReach tells clients a target's reachability changed; the board
+// refetches its sessions, whose rows carry the new state.
+func (m *Manager) publishReach(targetID int64) {
+	if m.Bus == nil {
+		return
+	}
+	m.Bus.Publish("board", "target_reach", map[string]any{"target_id": targetID, "reach": m.Reach(targetID)})
+}
+
+// pollTargetGroup polls one target's sessions and returns why the target
+// could not be read, or "" when it answered.
+func (m *Manager) pollTargetGroup(ctx context.Context, targetID int64, group []*store.Session) string {
+	target, err := m.DB.Target(targetID)
+	if err != nil {
+		return "" // the target was deleted; nothing to report about it
+	}
+	ex, err := m.Reg.For(target)
+	if err != nil {
+		return err.Error()
+	}
+	boot, known := ProbeBootID(ctx, ex)
+	if ctx.Err() != nil {
+		return "not answering"
+	}
+	if known {
+		m.recoverAfterBoot(ctx, target, ex, group, boot)
+		// Recovery may have ended a row or replaced its tmux process. Do not
+		// apply the pre-recovery snapshot to stale pointers: that can mark a
+		// freshly relaunched session dead immediately.
+		fresh, ferr := m.DB.LiveSessions()
+		if ferr != nil {
+			return ""
+		}
+		group = group[:0]
+		for _, candidate := range fresh {
+			if candidate.TargetID == targetID && candidate.SetupState != "creating" && candidate.Status != StatusInterrupted {
+				group = append(group, candidate)
+			}
+		}
+		if len(group) == 0 {
+			return ""
+		}
+	}
+	names := make([]string, 0, len(group))
+	for _, s := range group {
+		names = append(names, s.TmuxSession)
+	}
+	r, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 45})
+	if err != nil || !r.OK() {
+		// an unreachable target is not evidence a session died; leave the
+		// rows alone and try again after a backoff
+		m.Log.Debug("session poll failed", "target", target.Name, "err", err, "exit_code", r.RC)
+		if err != nil {
+			if ctx.Err() != nil {
+				return "not answering"
+			}
+			return err.Error()
+		}
+		return fmt.Sprintf("status poll failed (exit %d)", r.RC)
+	}
+	panes, complete := ParsePollSnapshot(r.Stdout, names)
+	if !complete {
+		m.Log.Debug("incomplete session poll", "target", target.Name)
+		return "incomplete status poll"
+	}
+	for _, s := range group {
+		pane := panes[s.TmuxSession]
+		if pane.Failed {
+			continue
+		}
+		// A successful missing-pane result cannot distinguish a reboot from
+		// a dead process while the target's boot identity is unavailable.
+		// Keep a Lectern-owned row recoverable until a known boot probe
+		// establishes that decision.
+		if !known && pane.Missing && s.Origin == "lectern" && s.BootID != "" {
+			continue
+		}
+		// Older Lectern rows may predate boot checkpoints. Bind one only
+		// after a known boot and a live, identity-bound pane are observed;
+		// a missing pane must remain unresolved until a later probe.
+		if known && s.BootID == "" && !pane.Missing && s.Origin == "lectern" && validTrackingIdentity(s.TrackingIdentity) {
+			identity, identityErr := ProbeTrackingIdentity(ctx, ex, s.TmuxSession)
+			if identityErr == nil && identity == s.TrackingIdentity {
+				if err := m.DB.Update("sessions", s.ID, map[string]any{"boot_id": boot, "updated_at": store.Now()}); err == nil {
+					s.BootID = boot
+				}
+			}
+		}
+		m.applyPane(s, pane.Text, pane.Missing)
+	}
+	m.pollCodexUsage(ctx, ex, group)
+	return ""
 }
 
 // applyPane folds one capture into a session row, publishing only on a real
