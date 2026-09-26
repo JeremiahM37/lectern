@@ -5,6 +5,7 @@
 **Run every coding agent you use — Claude Code, Codex, Gemini, OpenCode, Aider, Cursor and more —
 on machines you own, and drive them from your terminal, your phone, or a claude.ai chat.**
 
+![version](https://img.shields.io/badge/version-2.3.0-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
 ![PWA](https://img.shields.io/badge/phone-PWA-19c37d)
