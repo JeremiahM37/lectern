@@ -141,6 +141,11 @@ func (br *Broker) SessionRuleAllows(sessionID int64, toolName string, toolInput 
 // project-wide "always allow": scoped to one session's lifetime, held only
 // in memory, and gone the moment ClearSessionRules runs (session end).
 func (br *Broker) AllowForSession(sessionID int64, toolName string, toolInput map[string]any) {
+	if !policy.BroadenableForSession(toolName, toolInput) {
+		// "sudo …", "bash -c …" and the like: the one approval still
+		// stands, but no session-wide rule is remembered for it.
+		return
+	}
 	rule := policy.PatternFor(toolName, toolInput)
 	br.mu.Lock()
 	defer br.mu.Unlock()

@@ -15,6 +15,22 @@ export interface ApprovalDecisionOptions {
 
 type Busy = "once" | "session" | "deny" | null;
 
+// Mirrors internal/policy BroadenableForSession: a remembered session rule
+// matches a Bash command by its first word, so for a wrapper (sudo, bash -c,
+// env, …) or a path/assignment it would allow far more than this one command.
+const WRAPPERS = new Set([
+  "sudo", "doas", "su", "env", "exec", "eval", "bash", "sh", "zsh", "dash", "fish",
+  "xargs", "nohup", "timeout", "nice", "time", "command", "python", "python3", "node", "perl", "ruby",
+]);
+
+/** The label for "allow for this session", or null when that scope would be too broad. */
+export function sessionScopeLabel(tool: string, input: Record<string, unknown>): string | null {
+  if (tool !== "Bash") return `Allow ${tool} this session`;
+  const first = String(input.command ?? "").trim().split(/\s+/)[0] || "";
+  if (!first || WRAPPERS.has(first) || /[/=$`(]/.test(first)) return null;
+  return `Allow “${first} …” commands this session`;
+}
+
 export function ApprovalCard({
   approval,
   onDecide,
@@ -37,6 +53,7 @@ export function ApprovalCard({
     status: "pending",
   };
   const decided = approval.status !== "pending";
+  const sessionLabel = sessionScopeLabel(approval.tool_name, approval.input || {});
 
   async function act(which: Busy, decision: "approved" | "denied", opts?: ApprovalDecisionOptions) {
     if (busy || decided) return;
@@ -65,14 +82,14 @@ export function ApprovalCard({
           {/* Only a session-scoped approval has a session to remember the
               rule against — a task attempt's approval has no persistent
               session, so there is nothing "for later this session" to be. */}
-          {!!approval.session_id && (
+          {!!approval.session_id && sessionLabel && (
             <button
               type="button"
               className="b"
               disabled={busy !== null}
               onClick={() => void act("session", "approved", { forSession: true })}
             >
-              {busy === "session" ? "Allowing…" : "Allow for this session"}
+              {busy === "session" ? "Allowing…" : sessionLabel}
             </button>
           )}
           {!denying ? (

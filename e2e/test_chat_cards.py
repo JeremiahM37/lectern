@@ -215,7 +215,8 @@ def test_approval_shows_the_command_and_allow_for_session_answers_the_next_call(
     expect(approval).not_to_contain_text('"command"')
     expect(approval.get_by_role("button", name="Allow once", exact=True)).to_be_visible()
     expect(approval.get_by_role("button", name="Deny…", exact=True)).to_be_visible()
-    allow_for_session = approval.get_by_role("button", name="Allow for this session", exact=True)
+    # The button names exactly what it will allow for the rest of the session.
+    allow_for_session = approval.get_by_role("button", name="Allow “git …” commands this session", exact=True)
     expect(allow_for_session).to_be_visible()
     allow_for_session.click()
     expect(page.locator(".approval-card")).to_have_count(0, timeout=20000)
