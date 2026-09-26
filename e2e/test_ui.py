@@ -1,4 +1,5 @@
 """Browser flows: the whole operator loop, on both a phone and a desktop."""
+import re
 import time
 import pytest
 from playwright.sync_api import expect
@@ -599,7 +600,13 @@ def test_switching_tabs_updates_the_hash(page, server):
 
 
 def test_any_agent_can_be_defined_and_picked(page, server):
-    """The board should not hold an opinion about which CLI is in the terminal."""
+    """The board should not hold an opinion about which CLI is in the terminal.
+
+    A brand-new custom agent is not one of the shown-by-default built-ins
+    (Settings -> Agents' "Show in menus", default = installed built-ins), so
+    it is reachable through "More agents…" rather than as a direct option —
+    it is still fully definable and pickable, just one click further in.
+    """
     page.request.put(f"{server}/api/agents", data=[
         {"name": "aider", "command": "aider", "model_flag": "--model",
          "prompt_arg": True},
@@ -609,10 +616,15 @@ def test_any_agent_can_be_defined_and_picked(page, server):
     # the agent list is fetched, so wait for it rather than racing it
     expect(page.locator("#ns-agent option")).to_have_count(4, timeout=10000)
     options = page.locator("#ns-agent option").all_inner_texts()
-    assert any("aider" in o for o in options), options
     assert any("claude" in o for o in options), options
+    assert any("More agents" in o for o in options), options
+    assert not any(o == "aider" for o in options), options
 
-    page.select_option("#ns-agent", "aider")
+    page.select_option("#ns-agent", label="More agents…")
+    picker = page.get_by_role("dialog", name="All agents", exact=True)
+    expect(picker).to_be_visible()
+    picker.get_by_role("button", name=re.compile("^aider")).click()
+    expect(picker).not_to_be_visible()
     open_advanced(page)
     page.fill("#ns-name", "local agent")
     page.click("#ns-go")

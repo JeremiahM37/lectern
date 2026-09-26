@@ -901,3 +901,37 @@ func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
 		t.Fatal("running-agent discovery missing from actions")
 	}
 }
+
+// TestSortByAgentMenuOrdersShownAgentsFirst proves the create-session/task
+// form's agent picker surfaces GET /agents/menu's shown agents in the saved
+// order before everything else, without dropping any agent — the TUI's
+// select is a scrollable list already, so nothing needs a separate "More
+// agents…" step the way a web dropdown does.
+func TestSortByAgentMenuOrdersShownAgentsFirst(t *testing.T) {
+	m := newDashboard(New("http://unused", ""), nil)
+	agents := []choice{{"aider", "aider"}, {"claude", "claude"}, {"codex", "codex"}, {"gemini", "gemini"}}
+	m.agentMenuOrder = []string{"codex", "claude"}
+	got := m.sortByAgentMenu(agents)
+	want := []string{"codex", "claude", "aider", "gemini"}
+	if len(got) != len(want) {
+		t.Fatalf("expected all %d agents preserved, got %d: %#v", len(want), len(got), got)
+	}
+	for i, w := range want {
+		if got[i].Value != w {
+			t.Fatalf("position %d: got %q want %q (%#v)", i, got[i].Value, w, got)
+		}
+	}
+}
+
+// TestSortByAgentMenuNoOpWhenMenuUnset leaves the original order untouched
+// when the menu has never been fetched or saved — a stricter guarantee than
+// "any order is fine" so a nil menu can never look like it silently
+// reshuffled something.
+func TestSortByAgentMenuNoOpWhenMenuUnset(t *testing.T) {
+	m := newDashboard(New("http://unused", ""), nil)
+	agents := []choice{{"claude", "claude"}, {"codex", "codex"}}
+	got := m.sortByAgentMenu(agents)
+	if got[0].Value != "claude" || got[1].Value != "codex" {
+		t.Fatalf("expected unchanged order, got %#v", got)
+	}
+}

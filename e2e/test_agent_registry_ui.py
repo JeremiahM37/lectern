@@ -9,6 +9,7 @@ from session_sheet import open_advanced
 import json
 import os
 import pty
+import re
 import select
 import subprocess
 import time
@@ -93,7 +94,14 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     open_advanced(sheet)
     sheet.get_by_label("Name", exact=True).fill("Local proof session")
     sheet.locator("#ns-project").select_option(str(project["id"]))
-    sheet.get_by_label("Agent", exact=True).select_option("local-proof")
+    # local-proof is a brand-new custom agent, not a shown-by-default
+    # built-in, so it is reached through "More agents…" rather than as a
+    # direct option (Settings -> Agents' "Show in menus").
+    sheet.get_by_label("Agent", exact=True).select_option(label="More agents…")
+    picker = page.get_by_role("dialog", name="All agents", exact=True)
+    expect(picker).to_be_visible()
+    picker.get_by_role("button", name=re.compile("^local-proof")).click()
+    expect(picker).not_to_be_visible()
     sheet.get_by_label("Model", exact=True).fill("local-model")
     sheet.get_by_label("First message (optional)", exact=True).fill("hello custom runner")
     sheet.locator("#ns-go").click()

@@ -3,6 +3,7 @@ package console
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,34 @@ import (
 )
 
 type choice struct{ Label, Value string }
+
+// sortByAgentMenu moves shown agents (m.agentMenuOrder, from GET
+// /agents/menu — the same order every web/mobile picker uses) to the front
+// of an agent choice list, in that order, leaving every other agent after
+// them rather than dropping them: the TUI's select is already a scrollable
+// list, not the long-dropdown problem the web "shown agents" menu exists to
+// solve, so there is no "More agents…" step to build here — just a sensible
+// default ordering.
+func (m *dashboard) sortByAgentMenu(agents []choice) []choice {
+	if len(m.agentMenuOrder) == 0 {
+		return agents
+	}
+	rank := make(map[string]int, len(m.agentMenuOrder))
+	for i, name := range m.agentMenuOrder {
+		rank[name] = i
+	}
+	out := make([]choice, len(agents))
+	copy(out, agents)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, iok := rank[out[i].Value]
+		rj, jok := rank[out[j].Value]
+		if iok && jok {
+			return ri < rj
+		}
+		return iok && !jok
+	})
+	return out
+}
 type field struct {
 	Key, Label, Value   string
 	Options             []choice
@@ -757,7 +786,7 @@ func (m *dashboard) newForm() tea.Cmd {
 	agents := []choice{}
 	taskCapable := kind == "tasks" || kind == "routines"
 	for _, a := range m.agents {
-		if taskCapable && a["builtin"] != true && a["task"] == nil {
+		if taskCapable && a["builtin"] != true && a["task"] == nil && a["acp"] == nil {
 			continue
 		}
 		value := str(a["id"])
@@ -769,6 +798,7 @@ func (m *dashboard) newForm() tea.Cmd {
 	if len(agents) == 0 {
 		agents = []choice{{"Codex", "codex"}, {"Claude", "claude"}}
 	}
+	agents = m.sortByAgentMenu(agents)
 	agent := optionField("agent", "Agent", "codex", agents, true)
 	var fields []field
 	switch kind {

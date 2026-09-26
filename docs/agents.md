@@ -21,6 +21,71 @@ mode in the table below, which is driver-specific (see
 `codex-appserver`, the one task driver that does support gated codex
 approvals via JSON-RPC rather than a hook).
 
+## Catalog: one-click presets for popular CLIs
+
+Settings → **Agents** → **Add agent** offers a "Starter template" populated
+from `GET /api/agents/catalog` (`internal/sessions/catalog.go`), not a
+hardcoded list: `custom-agent` presets can be added there without touching
+this frontend. Presets ship for Gemini CLI's ACP mode, OpenCode, Aider, Goose,
+Amp, Cursor Agent CLI (`cursor-agent`), GitHub Copilot CLI, Qwen Code, Crush,
+Kimi Code CLI, Cline CLI, plus the Zed ACP adapters for Claude Code
+and Codex — on top of "Custom command…" for anything else. Picking one
+pre-fills every field this form has (command, model flag, resume/fork
+arguments, yolo flag, model-catalog command, task or ACP backend); nothing is
+saved until you do.
+
+Every preset is honest about how it was researched: each carries a `source`
+(the exact docs page or repository read), a `verified_at` date, and an
+`unverified` list naming any field that is a best guess rather than a
+confirmed fact — Settings shows all three under the template picker. **Never
+trust an `unverified` field as documented behavior** — re-check the cited
+source before relying on it, especially if `verified_at` has aged. A preset
+that documents real [ACP](acp.md) support (opencode, goose, kimi, cline) gets
+an `acp` block in addition to its normal interactive fields, since ACP only
+ever replaces the `task` backend for headless work — interactive sessions
+stay tmux-based exactly like every other agent.
+
+`GET /api/agents/catalog` also reports `installed` (whether the preset's own
+binary resolves on `PATH` for the lectern host — there is no per-target
+remote check in this codebase) and `added` (whether an agent by that name is
+already registered, so "Add" can grey it out instead of inviting a
+collision).
+
+## Capability degradation
+
+`GET /api/agents` and `GET /api/agents/capabilities` report, per agent, a
+`capabilities` map keyed by `resume`, `fork`, `model`, `models_list`, `yolo`,
+`acp` and `task` (`internal/sessions.Spec.Capabilities`). Each entry is
+`{"available": true}` or `{"available": false, "reason": "<Feature> isn't
+available for <Agent>"}` — driven by which registry fields are populated, so
+a picker can grey out a Resume button with an explanatory reason ("Resume isn't
+available for Aider") instead of a disabled control nobody can explain, or a
+button that silently does nothing. `task` is available for any built-in
+(claude/codex/gemini get their non-interactive backend from Go code, not from
+`task`/`acp`) or for a custom/catalog agent with either field set.
+
+## Shown agents ("More agents…")
+
+Every agent picker — new session, Switch, task create/quick-dispatch,
+best-of-N, delegate, and the terminal dashboard's own forms — reads
+`GET /api/agents/menu` (`{"agents": ["claude", "codex", …]}`) and renders that
+ordered list first, with a **More agents…** entry that opens the full
+registry instead of growing into a long dropdown. `PUT /api/agents/menu`
+saves the shown/ordered list from Settings → Agents' "Show in menus" toggle
+and up/down reorder controls; an unknown name is rejected outright. The
+default, before anything is saved, is **installed built-ins** — the built-in
+agents (claude/codex/gemini) whose binary resolves on `PATH`, or every
+built-in if none are installed (so a fresh box never shows an empty picker).
+A newly added catalog or custom agent is **not** shown by default; toggle it
+on in Settings once you want it in every picker. This is one shared ordering,
+not a per-account preference — Lectern has no multi-user model for this
+setting, the same as the `agents` setting itself.
+
+The web pickers show this order in a native `<select>`/button list plus a
+"More agents…" entry that opens a small picker of every registered agent; the
+terminal dashboard's own agent select is already a scrollable list, so it
+sorts shown agents to the top instead of hiding anything.
+
 ## Choosing one
 
 The web Settings → **Agents** page is the place to add a runner. **Add agent**
@@ -222,3 +287,54 @@ task dispatched on an `acp` agent supports **every** Lectern permission mode
 (`default`, `acceptEdits`, `plan`, `bypassPermissions`) with no capability
 mapping to configure. See [docs/acp.md](acp.md) for the protocol, the mapping
 onto Lectern's timeline, and its limits.
+
+## Catalog capability matrix
+
+Verified against each vendor's own README/docs/source as of 2026-09-26 (see
+`internal/sessions/catalog.go` for exact citations and any fields left
+unverified — do not treat a ✅ below as fact without checking the source
+citation if it matters for your use case):
+
+| Preset | Initial prompt | Model flag | Resume | Yolo / auto-approve | ACP |
+|---|---|---|---|---|---|
+| OpenCode | typed in (interactive) | `--model` | last + by-id | `--auto` | ✅ `opencode acp` |
+| Aider | typed in / `--message` (task) | `--model` | automatic (no flag) | `--yes` | — |
+| Goose | typed in | unverified | `--resume` | `GOOSE_MODE=auto` env var | ✅ `goose acp` |
+| Amp | `-x`/`--execute` (task) | unverified | unverified | unverified | — |
+| Cursor Agent CLI | positional argument | `--model` | last + by-id | `--force`/`--yolo` | documented as a "hidden" advanced mode, not wired |
+| GitHub Copilot CLI | `-p` (task) | unverified | last only (`--continue`) | `--allow-all`/`--yolo` | — |
+| Qwen Code | `-p` (task) | unverified | — | `--yolo` (confirmed in source) | — (HTTP/SSE `qwen serve`, not stdio) |
+| Crush | `crush run` (task) | task-only | last + by-id | `--yolo` | — |
+| Kimi Code CLI | `-p` (task, unwired — see below) | unverified | last (`-c`) | unverified | ✅ `kimi acp` |
+| Cline CLI | positional (`-i "prompt"`) | `--model` | unverified | `--yolo` | ✅ `cline --acp` |
+
+A preset with ACP support leaves its `task` field empty on purpose — ACP
+already covers headless work, and the two backends are mutually exclusive.
+
+## `lectern <agent>` for any registered agent
+
+`lectern claude`, `lectern codex` and `lectern gemini` (the three built-ins)
+resolve to a one-command session launch/attach at zero extra cost — they are
+known at compile time, exactly like any other fixed subcommand. Any other
+name — a custom or catalog agent you added in Settings — still works the same
+way: an argument that matches no fixed subcommand falls through to a registry
+check (`GET /api/agents`) before being reported as an unknown command, so
+`lectern aider` (once `aider` is registered) behaves identically to `lectern
+claude`. Existing subcommands always win: `console`, `attach`, `mcp`, and
+every other name main.go or `lectern local` already claims can never be
+shadowed by an agent of the same name (see `TestUnknownVerbCollisionSafety`
+in `cmd/lectern/agent_dynamic_test.go`) — an agent registered under one of
+those names is simply unreachable via this one-command shortcut, though it
+still works everywhere else (the web UI, the MCP `start_session` tool,
+`POST /api/sessions`). A genuine typo still fails as "unknown command", just
+after one round trip to the registry instead of none.
+
+## MCP `start_session` agent validation
+
+The `start_session` MCP tool's `agent` parameter (default `claude`) is
+checked against the live registry before it ever reaches `POST /sessions`: an
+unregistered name fails with `unknown agent "X" — have: claude, codex, gemini,
+…`, listing every currently valid name, rather than the generic 422 the
+session endpoint itself gives. If the registry cannot be listed at all (a
+transient failure), the check is skipped rather than failing the tool call —
+the dispatch below still validates and reports whatever is actually wrong.

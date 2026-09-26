@@ -196,6 +196,28 @@ const api: SettingsApi = {
           env: { API_KEY: { __lectern_retained: "token" } },
         },
       ];
+    if (p === "/agents/menu") return { agents: ["claude"] };
+    // Mirrors the three ACP presets internal/sessions.Catalog() ships
+    // (docs/acp.md) — enough for test_acp_agent_registry.py's disabled-state
+    // and prefill assertions without duplicating the whole Go catalog here.
+    if (p === "/agents/catalog")
+      return [
+        {
+          name: "claude-code-acp", display_name: "Claude Code (ACP)", command: "claude-code-acp",
+          acp: { command: "npx", args: ["-y", "@zed-industries/claude-code-acp"] },
+          installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
+        },
+        {
+          name: "codex-acp", display_name: "Codex (ACP)", command: "codex-acp",
+          acp: { command: "npx", args: ["-y", "@zed-industries/codex-acp"] },
+          installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
+        },
+        {
+          name: "gemini-acp", display_name: "Gemini CLI (ACP)", command: "gemini",
+          acp: { command: "gemini", args: ["--experimental-acp"] },
+          installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
+        },
+      ];
     if (p === "/launch-profiles")
       return [
         {

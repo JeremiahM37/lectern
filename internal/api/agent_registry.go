@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -241,4 +243,183 @@ func taskPermissionError(spec sessions.Spec, mode string) error {
 		}
 	}
 	return nil
+}
+
+// ---- agent catalog & shown-agent menu (Settings → Agents "Add from
+// catalog", and the "shown agents" list every picker reads before falling
+// back to "More agents…") ----
+
+// agentMenuSettingKey is the DB.Setting key for the ordered list of agent
+// names pickers show first. There is no multi-user model in this codebase —
+// Lectern is a single-operator control plane — so, exactly like the
+// "agents" setting itself, this is one shared ordering rather than a
+// per-account preference.
+const agentMenuSettingKey = "agent_menu"
+
+// agentCatalogView is one sessions.CatalogPreset plus whether its binary is
+// on PATH for this host, and whether an agent by the same name is already
+// registered — so Settings can grey out "Add" for one already added instead
+// of letting an operator create a second definition under the same name.
+func (s *Server) agentCatalogView(specs []sessions.Spec) []map[string]any {
+	already := map[string]bool{}
+	for _, spec := range specs {
+		already[spec.Name] = true
+	}
+	catalog := sessions.Catalog()
+	out := make([]map[string]any, 0, len(catalog))
+	for _, preset := range catalog {
+		raw, err := json.Marshal(preset)
+		if err != nil {
+			continue
+		}
+		var view map[string]any
+		if json.Unmarshal(raw, &view) != nil {
+			continue
+		}
+		view["installed"] = preset.Installed()
+		view["added"] = already[preset.Name]
+		out = append(out, view)
+	}
+	return out
+}
+
+func (s *Server) listAgentCatalog(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, s.agentCatalogView(s.agentSpecs()))
+}
+
+// agentCapabilities is GET /api/agents/capabilities: name -> {capabilities,
+// installed, builtin}. Deliberately a separate endpoint from GET
+// /api/agents rather than extra fields folded into that response: the
+// frontend keeps the agents list it fetches from GET /api/agents around and
+// re-sends it (minus "builtin") as the custom-agent array on PUT
+// /api/agents, so any computed field added there would round-trip straight
+// back — and an untouched builtin carrying it would stop comparing equal in
+// NormalizeBuiltinEntries, silently turning it into a persisted custom
+// override.
+func (s *Server) agentCapabilities(w http.ResponseWriter, r *http.Request) {
+	specs := s.agentSpecs()
+	out := make(map[string]map[string]any, len(specs))
+	for _, spec := range specs {
+		out[spec.Name] = map[string]any{
+			"capabilities": spec.Capabilities(),
+			"installed":    spec.Installed(),
+			"builtin":      spec.Builtin,
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, out)
+}
+
+// defaultAgentMenu is "installed built-ins" — what a fresh install shows in
+// every picker before Settings → Agents has ever been touched. If none of
+// the built-ins are installed (a fresh box with none of claude/codex/gemini
+// on PATH yet, or a test/CI environment) every built-in is shown anyway
+// rather than leaving pickers empty.
+// defaultAgentMenu matches by the built-in agents' fixed NAMES
+// (sessions.Builtins()), not by whether the CURRENTLY registered spec under
+// that name still carries Builtin:true. Overriding a built-in by name (a
+// corrected command, a local stub for testing) is meant to be a transparent
+// swap — see ParseSpecs's own doc comment — and that transparency has to
+// extend to which agents default to shown, or saving any override of
+// claude/codex/gemini would silently evict it from every picker.
+func defaultAgentMenu(specs []sessions.Spec) []string {
+	builtinNames := map[string]bool{}
+	for _, b := range sessions.Builtins() {
+		builtinNames[b.Name] = true
+	}
+	var installed, named []string
+	for _, spec := range specs {
+		if !builtinNames[spec.Name] {
+			continue
+		}
+		named = append(named, spec.Name)
+		if spec.Installed() {
+			installed = append(installed, spec.Name)
+		}
+	}
+	if len(installed) > 0 {
+		return installed
+	}
+	return named
+}
+
+// agentMenu is the ordered list of agent names a picker shows before "More
+// agents…". A name for an agent since removed from the registry is dropped
+// rather than surfaced as an entry that would 422 the moment it is chosen.
+func (s *Server) agentMenu() []string {
+	specs := s.agentSpecs()
+	known := map[string]bool{}
+	for _, spec := range specs {
+		known[spec.Name] = true
+	}
+	raw := strings.TrimSpace(s.DB.Setting(agentMenuSettingKey))
+	if raw == "" {
+		return defaultAgentMenu(specs)
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(raw), &names); err != nil {
+		return defaultAgentMenu(specs)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if known[name] && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return defaultAgentMenu(specs)
+	}
+	return out
+}
+
+func (s *Server) getAgentMenu(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"agents": s.agentMenu()})
+}
+
+// putAgentMenu replaces the shown/ordered agent list — Settings → Agents'
+// toggle-and-reorder control. An unknown name is rejected outright rather
+// than silently dropped, so a typo fails loudly at save time exactly like an
+// unknown agent name anywhere else in the registry.
+func (s *Server) putAgentMenu(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Agents []string `json:"agents"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	specs := s.agentSpecs()
+	known := map[string]bool{}
+	for _, spec := range specs {
+		known[spec.Name] = true
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(body.Agents))
+	for _, name := range body.Agents {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		if !known[name] {
+			httpError(w, 422, "unknown agent %q — define it in /api/agents first", name)
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	if err := s.DB.SetSetting(agentMenuSettingKey, string(encoded)); err != nil {
+		respondErr(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"agents": out})
 }

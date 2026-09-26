@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { IsolationConfig, Project, Target } from "../types";
 import { AgentEditor, type AgentSpec } from "./AgentEditor";
+import { fetchAgentMenu, saveAgentMenu } from "../agents/menu";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
 import { Triggers } from "./Triggers";
@@ -1162,9 +1163,101 @@ function Agents({
 }) {
   const [editing, setEditing] = useState<Agent | "new">(),
     [profile, setProfile] = useState<Profile | "new">(),
-    [startersOpen, setStartersOpen] = useState(false);
+    [startersOpen, setStartersOpen] = useState(false),
+    [menu, setMenu] = useState<string[]>([]),
+    [menuBusy, setMenuBusy] = useState(false);
+  useEffect(() => {
+    void fetchAgentMenu(api).then(setMenu);
+  }, [agents.map((a) => a.name).join(",")]);
+  async function persistMenu(next: string[]) {
+    setMenu(next);
+    setMenuBusy(true);
+    try {
+      const saved = await saveAgentMenu(api, next);
+      setMenu(saved);
+    } catch (e) {
+      onNotice(String(e), true);
+    } finally {
+      setMenuBusy(false);
+    }
+  }
+  function toggleShown(name: string, shown: boolean) {
+    void persistMenu(shown ? [...menu, name] : menu.filter((n) => n !== name));
+  }
+  function move(name: string, dir: -1 | 1) {
+    const i = menu.indexOf(name);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= menu.length) return;
+    const next = [...menu];
+    const a = next[i],
+      b = next[j];
+    if (a === undefined || b === undefined) return;
+    next[i] = b;
+    next[j] = a;
+    void persistMenu(next);
+  }
+  const hidden = agents.filter((a) => !menu.includes(a.name));
   return (
     <section>
+      <h3>Show in menus</h3>
+      <p className="sub">
+        New session, Switch, task/best-of-N and other agent pickers show
+        these agents first, in this order, with a “More agents…” entry for
+        everything else — so adding a dozen catalog agents never turns a
+        picker into a long scroll.
+      </p>
+      <ul className="agent-menu-order" aria-label="Shown agents">
+        {menu.map((name, i) => (
+          <li key={name}>
+            <label>
+              <input
+                type="checkbox"
+                checked
+                disabled={menuBusy}
+                onChange={() => toggleShown(name, false)}
+              />{" "}
+              {name}
+            </label>
+            <button
+              type="button"
+              aria-label={`Move ${name} up`}
+              disabled={menuBusy || i === 0}
+              onClick={() => move(name, -1)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              aria-label={`Move ${name} down`}
+              disabled={menuBusy || i === menu.length - 1}
+              onClick={() => move(name, 1)}
+            >
+              ↓
+            </button>
+          </li>
+        ))}
+      </ul>
+      {hidden.length > 0 && (
+        <>
+          <p className="sub">Hidden from menus (reachable via “More agents…”):</p>
+          <ul className="agent-menu-hidden" aria-label="Hidden agents">
+            {hidden.map((a) => (
+              <li key={a.name}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled={menuBusy}
+                    onChange={() => toggleShown(a.name, true)}
+                  />{" "}
+                  {a.name}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <h3>Agent runners</h3>
       {agents.map((a) => (
         <article className="agent-card" key={a.name}>
