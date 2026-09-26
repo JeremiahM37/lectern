@@ -285,3 +285,27 @@ or automatic report repair. New assignment requirements survive restart. Durable
 review receipts preserve explicit non-completion even when older retained prose
 contains an approval boolean. Original reports are never rewritten to manufacture
 a successful outcome.
+
+### Offline Go dependencies
+
+The runner can mount a provisioned, root-owned dependency bundle selected by the
+SHA256 of `go.mod + NUL separators + go.sum` (see `go_dependency_key`). Bundles
+live under `dependencies/go/<key>/` beside the jobs directory; `mod/` is a public
+Go module cache and `manifest.json` records the key, module, source project/task,
+Go version, verification, file count and size. The cache and manifest are mounted
+read-only. The worker uses a private build cache, `GOPROXY=off`, `GOSUMDB=off`,
+`GOTOOLCHAIN=local`, and the installed Go compiler. The bundle is included in
+retained-storage accounting. No host home/module cache or credentials are mounted.
+
+Provision from reviewed repository dependency files in a clean temporary GOPATH:
+`GOENV=off GOWORK=off GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org
+GOSUMDB=sum.golang.org go mod download all`, then `go mod verify`. Explicitly clear
+GOPRIVATE/GONOSUMDB/GONOPROXY overrides. Preserve the ORIGINAL input bytes for the
+bundle key: downloading can add transitive sums to the staging copy. Check the
+selected worker's original inputs match. Install only regular files/directories,
+root-owned and unwritable to workers, with a verified manifest and atomic directory
+rename. Do not provision from worker-suggested commands, mount the administrator's
+cache, or grant arbitrary registry/VCS/network access. Dependency changes require a
+new verified bundle. `/dependencies` lets planners discover available bundles;
+its listing is informational, while runner ownership and exact-input checks govern
+mounting. Absent bundles leave the existing environment unchanged.

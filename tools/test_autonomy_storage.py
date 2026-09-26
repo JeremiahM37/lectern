@@ -14,6 +14,7 @@ class StorageTests(unittest.TestCase):
   self.cache=patch.object(r,'ASSET_CACHE',self.root/'cache');self.cache.start();self.addCleanup(self.cache.stop)
   self.jobs=patch.object(r,'ROOT',self.root/'jobs');self.jobs.start();self.addCleanup(self.jobs.stop)
   r.ROOT.mkdir()
+  dep=patch.object(r,'DEPENDENCIES',self.root/'dependencies');dep.start();self.addCleanup(dep.stop)
  def test_lossless_sharing_and_accounting(self):
   source=self.root/'source';source.write_bytes(b'ELF fixture'*10000)
   a=r.ROOT/'a';a.mkdir();b=r.ROOT/'b';b.mkdir()
@@ -161,5 +162,22 @@ for line in sys.stdin:
      with self.assertRaises(RuntimeError) as error:r.refresh_codex_auth()
      self.assertNotIn('PRIVATE-TOKEN',str(error.exception))
     else:r.refresh_codex_auth()
+
+
+class DependencyTests(unittest.TestCase):
+ def test_exact_inputs_and_symlink_rejection(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   work=Path(tmp);self.assertIsNone(r.go_dependency_key(work))
+   (work/'go.mod').write_text('module fixture\n');(work/'go.sum').write_text('checksum\n')
+   first=r.go_dependency_key(work)
+   self.assertEqual(first,r.go_dependency_key(work))
+   (work/'go.sum').write_text('different\n')
+   self.assertNotEqual(first,r.go_dependency_key(work))
+   (work/'go.sum').unlink();(work/'go.sum').symlink_to(work/'go.mod')
+   with self.assertRaises(ValueError):r.go_dependency_key(work)
+ def test_bundle_missing_does_not_grant_network_or_host_cache(self):
+  with tempfile.TemporaryDirectory() as tmp, patch.object(r,'DEPENDENCIES',Path(tmp)/'dependencies'):
+   work=Path(tmp)/'work';work.mkdir();(work/'go.mod').write_text('module fixture\n');(work/'go.sum').write_text('')
+   self.assertIsNone(r.go_dependency_bundle(work))
 
 if __name__=='__main__':unittest.main()

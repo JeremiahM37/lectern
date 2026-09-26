@@ -26,6 +26,7 @@ import uuid
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
+DEPENDENCIES = ROOT.parent / 'dependencies'
 AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
 STORAGE_LIMIT = 200 * 1024**3
 UID = GID = 65534
@@ -277,6 +278,16 @@ def bwrap(p, provider, assets, work, bridges):
     for path in ('/lib', '/lib64', '/bin', '/sbin'):
         if Path(path).exists():
             cmd += ['--ro-bind', path, path]
+    bundle = go_dependency_bundle(Path(work))
+    if bundle is not None:
+        cmd += ['--ro-bind', str(bundle / 'mod'), '/opt/go-modules',
+                '--ro-bind', str(bundle / 'manifest.json'), '/opt/go-dependencies.json',
+                '--setenv', 'GOMODCACHE', '/opt/go-modules',
+                '--setenv', 'GOPATH', '/tmp/go', '--setenv', 'GOCACHE', '/tmp/go-build',
+                '--setenv', 'GOPROXY', 'off', '--setenv', 'GOSUMDB', 'off',
+                '--setenv', 'GOTOOLCHAIN', 'local', '--setenv', 'GOENV', 'off',
+                '--setenv', 'GOWORK', 'off',
+                '--setenv', 'PATH', '/usr/local/go/bin:/usr/bin:/bin']
     cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
             '--tmpfs', '/home', '--dir', '/home/agent', '--dir', '/etc',
             '--ro-bind', '/etc/ssl/certs', '/etc/ssl/certs',
@@ -586,12 +597,48 @@ def storage_status():
             'allocated_bytes': used, 'limit_bytes': STORAGE_LIMIT, 'free_bytes': free}
 
 
+def go_dependency_key(work):
+    parts = []
+    for name in ('go.mod', 'go.sum'):
+        path = work / name
+        if not path.exists() and not path.is_symlink():
+            return None
+        st = regular(path)
+        if st.st_size > 4 * 1024**2:
+            raise ValueError('dependency input too large')
+        parts.append(name.encode() + b'\0' + path.read_bytes())
+    return hashlib.sha256(b'\0'.join(parts)).hexdigest()
+
+
+def go_dependency_bundle(work):
+    key = go_dependency_key(work)
+    if key is None:
+        return None
+    bundle = DEPENDENCIES / 'go' / key
+    if not bundle.exists() and not bundle.is_symlink():
+        return None
+    # Only a trusted administrator provisions bundles. No host module cache or
+    # worker-selected path is exposed; immutable content is verified at install.
+    for path in (DEPENDENCIES, DEPENDENCIES / 'go', bundle, bundle / 'mod'):
+        st = path.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            raise ValueError('unsafe dependency bundle directory')
+    manifest = bundle / 'manifest.json'
+    st = regular(manifest)
+    if st.st_uid != 0 or st.st_mode & 0o222 or st.st_size > 65536:
+        raise ValueError('unsafe dependency manifest')
+    data = json.loads(manifest.read_text())
+    if data.get('key') != key or data.get('checksum_verified') is not True:
+        raise ValueError('dependency bundle provenance mismatch')
+    return bundle
+
+
 def allocated_storage():
     # The image already accounts for mounted work. Include binaries, logs and
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE) for row in os.walk(root, followlinks=False)):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES) for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:

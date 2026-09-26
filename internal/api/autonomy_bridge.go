@@ -227,6 +227,9 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/dependencies":
+		writeJSON(w, 200, autoDependencyCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies", "go")))
+		return
 	case "/research":
 		autoResearch(w, r)
 		return
