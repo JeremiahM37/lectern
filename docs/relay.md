@@ -143,9 +143,13 @@ only for the pairing. The PWA and its service worker are installed from that
 origin, and after pairing the origin can go away. The phone keeps working
 over the relay.
 
-**3. The service worker pins the shell.** After pairing, the service worker
-stops using the network for the app shell. Navigations and assets are served
-only from its cache. A new shell is accepted only when:
+**3. The service worker pins the shell.** Pairing starts by pinning: the
+phone stores the shell key from the QR code, and the service worker fetches
+every file the host's signed manifest lists and checks it. If the app on
+that origin is not exactly the build this Lectern signed, pairing stops
+before any key is registered. From then on the service worker never uses the
+network for the app shell: navigations and assets come only from its cache.
+A new shell is accepted only when:
 
 - the host's `shell-manifest.json` carries an Ed25519 signature that verifies
   against the shell key pinned at pairing (`sk` in the QR code), and
@@ -194,6 +198,24 @@ detected, but availability is not protected.
   you do not recognise.
 - Metadata analysis, as listed above.
 
+## Known limits
+
+- **Shell updates.** A phone that only ever reaches Lectern through the relay
+  keeps the shell it was paired with. It picks up a new version (verified as
+  above) the next time it can reach its install origin. Delivering signed
+  shell updates over the tunnel itself is not built yet.
+- **Notification buttons.** Approve/Deny on a push notification needs a
+  Lectern window open on the phone, because only a page holds the tunnel.
+  With none open the notification reports that the decision failed; tapping
+  it opens the app.
+- **Media and downloads** (images, video, file downloads) go through the
+  service worker, which hands them to an open page to fetch over the tunnel.
+- **Device key storage.** The phone's X25519 private key is kept in the
+  browser's IndexedDB for that origin. Anyone who can use that browser
+  profile can use the key; revoke a lost phone from Settings.
+- **One relay URL.** `LECTERN_RELAY_URL` is also what the QR code tells the
+  phone, so both sides must reach the relay at the same address.
+
 ## Relay hardening
 
 - **Not an open proxy.** The relay never dials anything. It only forwards
@@ -207,16 +229,39 @@ detected, but availability is not protected.
 - **Device admission.** A device must present a route token whose SHA-256
   the host registered for that channel within 10 seconds of connecting.
   Pairing tokens are single use and expire. Nothing is forwarded before this.
-- **Limits.** Frame size cap (128 KiB), per-connection rate limit
+- **Limits.** Frame size cap (64 KiB), per-connection rate limit
   (256 KiB/s, burst 2 MiB), a bounded per-device send queue (a slow device is
   disconnected rather than stalling everyone), connection caps per IP, per
   channel and in total, and a per-IP connection-rate limit.
+
+## Compared with Happy
+
+Happy (github.com/slopus/happy, `docs/encryption.md`, `docs/api.md`) is the
+prior art we read. Its server is a store as well as a relay: clients
+encrypt fields (NaCl `secretbox`, or AES-256-GCM under per-session data keys
+wrapped with `box`) and the server keeps the ciphertext. Pairing a terminal
+works by the terminal posting a fresh public key, shown as a QR code; an
+already signed-in phone encrypts the account's secret to that key and posts
+it back through the server. Every device then shares one account secret.
+
+Lectern differs where its situation differs:
+
+- The host is the only store, so the relay keeps nothing and can be run by
+  anyone, even someone you do not trust.
+- Each phone has its own key, revocable on its own, instead of a shared
+  account secret. Revoking one phone does not mean re-keying the others.
+- Every connection runs a fresh Noise handshake, so recorded traffic stays
+  unreadable even if a key leaks later. Content encrypted under one
+  long-lived secret has no such property.
+- Happy's web app is served by Happy. Lectern's shell comes from your own
+  host and is pinned (see above).
 
 ## Setup
 
 ### 1. Run a relay
 
-On any machine both sides can reach, typically a small VPS:
+On any machine both sides can reach, typically a small VPS (this is the
+owner's choice; Lectern never starts or exposes one on its own):
 
 ```sh
 export LECTERN_RELAY_HOST_SECRET="$(openssl rand -hex 32)"   # keep this
