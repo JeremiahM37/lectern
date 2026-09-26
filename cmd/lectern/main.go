@@ -51,6 +51,7 @@ var clientVerbs = map[string]bool{
 // would be silently shadowed by an existing subcommand — which must always
 // win — so a test asserts the sets are disjoint.
 var reservedVerbs = map[string]bool{
+	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true,
 	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
@@ -60,6 +61,9 @@ var reservedVerbs = map[string]bool{
 }
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "autonomy-overlay" || os.Args[1] == "autonomy-overlay-inspect") {
+		os.Exit(autonomyOverlayCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
 
