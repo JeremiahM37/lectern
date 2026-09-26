@@ -390,8 +390,9 @@ prefix or `pct` cannot forward, because their loopback is not the SSH host's.
 
 ## Project skills
 
-Claude and Codex can discover skills on the selected target and attach them to a
-project. Configure additional target-local source directories with the project
+Claude Code, Codex, Gemini CLI, Qwen Code, OpenCode and GitHub Copilot CLI can
+discover skills on the selected target and attach them to a project (the
+`--agent` names are `claude`, `codex`, `gemini`, `qwen`, `opencode`, `copilot`). Configure additional target-local source directories with the project
 API; repository skills are discovered by walking up from the project's Git root:
 
 ```sh
@@ -403,9 +404,16 @@ lectern skill detach 7 12
 ```
 
 The web and terminal dashboards provide the same discovery and attach/detach
-actions. Sources are read on the target and linked into `.claude/skills` or
-`.agents/skills` in the project and any selected worktree; source files are not
-copied. Detach removes only links proven to be Lectern-owned. Native
+actions. Sources are read on the target and linked into `.claude/skills` (Claude)
+or the shared `.agents/skills` (every other supported agent) in the project and
+any selected worktree; source files are not copied. Discovery also lists each
+agent's own user skill directories (`~/.gemini/skills`, `~/.qwen/skills`,
+`~/.config/opencode/skills`, `~/.copilot/skills`, and `~/.agents/skills`).
+Gemini CLI 0.61, Qwen Code 0.24, OpenCode 1.18 and Copilot CLI 1.0.88 were each
+checked to load a symlinked skill from `.agents/skills`. Other catalog agents
+(Aider, Goose, Amp, Cursor, Crush, Kimi, Cline) are refused: Lectern has not
+confirmed a skills directory they read, so it does not write files they would
+ignore. Custom agents get skills only when saved under one of the names above. Detach removes only links proven to be Lectern-owned. Native
 repository skills and changed or foreign destinations are preserved.
 
 `api` writes JSON to stdout and failures to stderr with a nonzero exit code.

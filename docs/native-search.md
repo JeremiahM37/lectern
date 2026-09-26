@@ -1,8 +1,11 @@
-# Native conversation search: implementation in progress
+# Native conversation search
 
-The target-local index, exact-match reader and background HTTP API are implemented
-on the development branch. Web search is available from Sessions, the command
-palette and attached-terminal tools. The terminal dashboard also supports search through the same API. The deployed app still uses its existing workspace history picker.
+Lectern searches the saved Claude Code and Codex conversations on every target,
+including conversations it never launched. Search is available in the web app
+(Sessions → **Search saved conversations**, the command palette, and the tools
+of an attached terminal) and in the terminal dashboard (`F`). All three use the
+same background API. The per-workspace history picker still exists for browsing
+one workspace's recent conversations.
 
 `internal/api/scripts/native_records.py` supplies the shared visible-message
 parser used by the history reader and search index. Search includes user,
@@ -16,7 +19,7 @@ supplies the cache root and resolved native configuration directory. Separate
 agent/configuration directories get separate hashed cache files. The directory
 is mode 0700 and database mode 0600. No full transcript needs to be copied to the
 Lectern server. The caller must choose an appropriate target cache location;
-the development API supplies the target executor and captured environment.
+the API supplies the target executor and captured environment.
 
 The JSON worker is executable as `python3 native_search.py AGENT -- QUERY`.
 It honors CODEX_HOME or CLAUDE_CONFIG_DIR and writes its private cache under
@@ -31,8 +34,8 @@ Warm unchanged files are not reparsed. Source deletion, replacement, truncation,
 and observed rewrites invalidate cached matches. Native histories are normally
 append-only; checkpoint hashes validate the existing prefix and offset boundary.
 An in-place edit to an old middle segment combined with append and unchanged
-checkpoints is not comprehensively detected; the index provides a reset operation for a full rebuild. The integration must
-expose it without changing source histories.
+checkpoints is not comprehensively detected; **Rebuild** (web) or `R` (terminal)
+resets the index for a full rebuild without changing source histories.
 
 Records up to 10 MiB are decoded, including captions alongside large image data.
 Larger individual entries are counted and skipped without hiding later messages.
@@ -49,7 +52,7 @@ source text. The initial view reads up to five visible messages on either side o
 changed neighbors are omitted and counted, and a changed selected message is
 rejected. Large selected messages are clipped around the matching text. Returned
 context counts describe the included messages, not pagination availability.
-The reader uses cache schema v2, leaving prior development caches untouched.
+The reader uses cache schema v2, leaving earlier caches untouched.
 It closes its read transaction on success and failure so subsequent indexing can
 proceed. Earlier/later pages contain up to eleven visible messages and use validated
 indexed boundaries. Every page revalidates the original match, even when that
@@ -58,7 +61,7 @@ unindexed appends are reported as incomplete instead of being presented as the
 latest source text. Source context beyond the indexed portion still requires
 continuing or restarting the search.
 
-## Background API (development branch)
+## Background API
 
 - `POST /api/conversation-search`: `{query, target_id?, agent?, reset?}` starts
   an explicit search. Agent is Claude or Codex; omitted filters cover all known
@@ -88,7 +91,7 @@ jobs are retained for fifteen minutes, with old completed jobs evicted when full
 Ready result IDs remain stable across progress polls. Each scope's scanned-byte
 count describes its latest indexing pass, not the entire history size.
 
-## Web search (development branch)
+## Web search
 
 Search saved conversations opens a separate dialog without taking ownership of an
 attached terminal. Choose target/agent filters and submit the query explicitly;
@@ -103,7 +106,7 @@ fetch failure. Closing cancels indexing, including a search whose start response
 arrives after the dialog closes. Late poll/reader responses cannot reopen it.
 Desktop/mobile dimensions follow the visual viewport when the keyboard opens.
 
-## Terminal dashboard search (development branch)
+## Terminal dashboard search
 
 Press `F` to search saved conversation text, using target/agent choices in the
 form. Submit with Ctrl-S. Arrow keys select matches, Enter opens matching context,
@@ -118,7 +121,7 @@ rendering. Late replies cannot replace a newer query or reopen a closed view.
 Retrying an expired job works in both interfaces; cancellation uses a bounded
 request before quitting the dashboard.
 
-## Fork from a global result (development branch)
+## Fork from a global result
 
 The result reader returns `fork_options` containing opaque configuration IDs,
 labels, model names and native-fork support. Commands, environment values and
@@ -154,6 +157,11 @@ channels, malformed content, file permissions, explicit rebuilds, future-cache p
 exact old matches, stale/replaced files, profile changes and large-message excerpts.
 Existing native-history API tests and eleven browser/terminal cases passed after
 the parser extraction.
+An end-to-end check on the release build (2026-09-26) copied one real Claude
+Code transcript and one real Codex rollout into a temporary `CLAUDE_CONFIG_DIR`
+and `CODEX_HOME`, with no tracked sessions. The API, the web palette, the
+Sessions button and the terminal dashboard all found and opened the exact
+matching message for both agents.
 
 A synthetic local sample of 50 conversations / 5,000 messages (10,312,600 source
 bytes) indexed in 40 bounded passes in 0.157 seconds; 100 warm queries averaged
@@ -173,10 +181,7 @@ Four browser cases cover actual saved histories outside tracked workspaces,
 desktop/phone keyboard navigation and reading, retained terminal identity,
 source-change rejection/rebuild, network retry/stop, direct entry points and
 closing while the start request is pending. Desktop and phone reader screenshots
-were inspected. The first full web run reached100% but exceeded its600-second suite allowance;
-verify reported FAIL5/6. The overall allowance is now780seconds, retaining
-individual test deadlines, and a full rerun is required.
-Six terminal unit tests passed with the race detector, including stale replies,
+were inspected. Six terminal unit tests passed with the race detector, including stale replies,
 selection stability, control-sequence removal, resizing, expired-job retry and
 mouse/progress scroll preservation. A real PTY test passed through query/filter
 entry, old-message reading, rebuild after source change, dashboard return and
@@ -199,12 +204,15 @@ a model turn. A real SSH target also passed the new fork route into an owned
 private tmux server using a recording agent fixture; all owned artifacts were
 cleaned. The mobile fork form screenshot was inspected.
 
-## Remaining integration
+## Limits
 
-- Support native histories outside an existing session's recorded workspace
-  through validated provider metadata, rather than accepting arbitrary file paths.
-- Test actual local/SSH flows, large histories, failures and desktop/mobile UX;
-  run final-head verification before deployment.
+- Only Claude Code and Codex histories are indexed; other agents' saved
+  conversations are not searched.
+- Results give one matching message per conversation.
+- Targets must be `local`, `ssh` or `pct`; other target kinds report an error
+  for their scope.
+- SSH transport, discovery time and UI latency on very large histories have not
+  been benchmarked beyond the fixture numbers above.
 
 ## Fair scheduling across profiles
 

@@ -53,9 +53,9 @@ import (
 //     {readTextFile,writeTextFile}, terminal:bool}, clientInfo?}. result:
 //     {protocolVersion, agentCapabilities, agentInfo?, authMethods}.
 //   - session/new params: {cwd (absolute, required), mcpServers (required
-//     array, may be empty — this driver never translates Lectern's project
-//     MCP declaration for a custom ACP agent, matching the existing "no
-//     automatic MCP translation" rule for any non-built-in agent)}. result:
+//     array, may be empty — the project's MCP declaration translated by
+//     agents.ACPMCPServers; http/sse entries are sent only when initialize's
+//     agentCapabilities.mcpCapabilities advertises that transport)}. result:
 //     {sessionId}.
 //   - session/prompt params: {sessionId, prompt:[{type:"text",text}]}.
 //     UNLIKE codex's turn/start, this call's RESPONSE is the turn's own
@@ -182,21 +182,27 @@ func (acpDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) (Ha
 			executor.RunOpts{Timeout: 20})
 	}
 
-	if _, err := run.request(ctx, "initialize", map[string]any{
+	initRaw, err := run.request(ctx, "initialize", map[string]any{
 		"protocolVersion": acpProtocolVersion,
 		"clientCapabilities": map[string]any{
 			"fs":       map[string]any{"readTextFile": true, "writeTextFile": true},
 			"terminal": false,
 		},
 		"clientInfo": map[string]any{"name": "lectern", "version": "1"},
-	}, spec.handshakeTimeout()); err != nil {
+	}, spec.handshakeTimeout())
+	if err != nil {
 		kill()
 		return nil, fmt.Errorf("acp initialize handshake failed: %w", err)
+	}
+	mcpServers, err := acpSessionMCP(initRaw, spec.MCPServers)
+	if err != nil {
+		kill()
+		return nil, err
 	}
 
 	sessRaw, err := run.request(ctx, "session/new", map[string]any{
 		"cwd":        spec.Worktree,
-		"mcpServers": []any{},
+		"mcpServers": mcpServers,
 	}, acpRequestTimeout)
 	if err != nil {
 		kill()
@@ -944,4 +950,33 @@ func (r *acpRun) watchExit(ctx context.Context) {
 		r.result = Result{ExitCode: rc, SessionID: sessionID, Err: errMsg}
 		return
 	}
+}
+
+// acpSessionMCP checks the project's translated MCP servers against the
+// transports the agent advertised in initialize. stdio is always supported;
+// http and sse are optional (agentCapabilities.mcpCapabilities). An agent
+// that cannot reach a declared server fails the attempt rather than running
+// with fewer tools than the project asked for.
+func acpSessionMCP(initRaw json.RawMessage, servers []any) ([]any, error) {
+	if len(servers) == 0 {
+		return []any{}, nil
+	}
+	var init struct {
+		AgentCapabilities struct {
+			MCPCapabilities struct {
+				HTTP bool `json:"http"`
+				SSE  bool `json:"sse"`
+			} `json:"mcpCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	_ = json.Unmarshal(initRaw, &init)
+	caps := init.AgentCapabilities.MCPCapabilities
+	for _, raw := range servers {
+		entry, _ := raw.(map[string]any)
+		kind, _ := entry["type"].(string)
+		if (kind == "http" && !caps.HTTP) || (kind == "sse" && !caps.SSE) {
+			return nil, fmt.Errorf("acp agent does not support %s MCP servers (project server %v)", kind, entry["name"])
+		}
+	}
+	return servers, nil
 }

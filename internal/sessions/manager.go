@@ -724,6 +724,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// Materialize only Lectern-owned runtime files; Codex receives additive
 	// -c overrides so its normal CODEX_HOME remains intact.
 	var toolArgs []string
+	mcpEnvPrefix := ""
 	if project != nil {
 		mcp := store.UnjObj(project.MCPJSON)
 		if agent == "claude" && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
@@ -770,6 +771,22 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 					return nil, err
 				}
 			}
+		} else if adapter, ok := agentcfg.MCPAdapterFor(agent); ok && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
+			// OpenCode, Qwen Code and Copilot CLI read one extra private file
+			// alongside the user's own MCP config (see MCPAdapterFor).
+			if project.StrictMCP != 0 {
+				m.end(sess.ID, StatusDead)
+				return nil, fmt.Errorf("strict_mcp is unsupported for %s additive configuration", agent)
+			}
+			args, mcpEnv, mcpErr := m.installAdapterMCP(ctx, ex, sess.ID, env, adapter, mcp)
+			if mcpErr == nil {
+				mcpEnvPrefix, mcpErr = EnvPrefix(mcpEnv)
+			}
+			if mcpErr != nil {
+				m.end(sess.ID, StatusDead)
+				return nil, mcpErr
+			}
+			toolArgs = args
 		}
 	}
 	// answer the CLI's "do you trust this folder?" before it can ask: starting an
@@ -867,7 +884,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: firstNonEmpty(o.RecoveryCID, o.ResumeID), ForkID: forkID,
-		Prompt: argPrompt, EnvPrefix: envPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		Prompt: argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
@@ -1282,4 +1299,40 @@ func (m *Manager) resolve(id int64) (*store.Session, executor.Executor, error) {
 		return nil, nil, err
 	}
 	return sess, ex, nil
+}
+
+// installAdapterMCP writes a translated project MCP declaration to a private
+// runtime file on the target and returns how the agent is pointed at it:
+// launch arguments and/or an environment variable naming the file.
+func (m *Manager) installAdapterMCP(ctx context.Context, ex executor.Executor, id int64, env map[string]string,
+	adapter agentcfg.MCPAdapter, mcp map[string]any) ([]string, map[string]string, error) {
+	raw, err := adapter.Payload(mcp)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce, err := interactiveMCPNonce()
+	if err != nil {
+		return nil, nil, err
+	}
+	stateEnv, err := agentcfg.MCPStateEnvPrefix(env)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommand(agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
+	if err != nil || !result.OK() {
+		return nil, nil, fmt.Errorf("could not secure interactive MCP runtime")
+	}
+	path, err := agentcfg.PrivateMCPPath(result.Stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	var args []string
+	for _, arg := range adapter.Args {
+		args = append(args, strings.ReplaceAll(arg, "{path}", path))
+	}
+	var vars map[string]string
+	if adapter.EnvVar != "" {
+		vars = map[string]string{adapter.EnvVar: path}
+	}
+	return args, vars, nil
 }

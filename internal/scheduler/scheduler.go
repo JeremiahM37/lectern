@@ -29,6 +29,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/outcomes"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
@@ -494,6 +495,7 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 	if kind == drivers.KindACP && kw.Definition != nil && kw.Definition.ACP != nil {
 		spec.Bin = kw.Definition.ACP.Command
 		spec.ACPArgs = kw.Definition.ACP.Args
+		spec.MCPServers = kw.ACPMCPServers
 		for k, v := range kw.Definition.ACP.Env {
 			spec.Env[k] = v
 		}
@@ -908,6 +910,9 @@ func (s *Scheduler) StoreEvents(att *store.Attempt, events []agents.Event) error
 	}
 	for _, ev := range events {
 		seq++
+		if ev.Type == "result" {
+			s.estimateResultCost(att, ev.Payload)
+		}
 		if err := s.DB.InsertEvent(att.ID, seq, ev.Type, store.J(ev.Payload)); err != nil {
 			return err
 		}
@@ -933,6 +938,25 @@ func (s *Scheduler) StoreEvents(att *store.Attempt, events []agents.Event) error
 			"attempt_id": att.ID, "seq": seq, "type": ev.Type, "payload": ev.Payload})
 	}
 	return nil
+}
+
+// estimateResultCost prices a result that reported tokens but no dollars
+// (Codex) from the operator's model price table, before it is stored, so
+// live_cost_usd, per-task and per-agent budgets and the usage totals all see
+// the spend. The payload is labelled cost_source:"estimated". Nothing is
+// estimated without a configured price (docs/budgets.md).
+func (s *Scheduler) estimateResultCost(att *store.Attempt, payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	agent, model := att.Agent, att.Model
+	if agent == "" || model == "" {
+		if task, err := s.DB.Task(att.TaskID); err == nil {
+			agent = firstNonEmpty(agent, task.Agent)
+			model = firstNonEmpty(model, task.Model)
+		}
+	}
+	outcomes.EstimateResult(outcomes.LoadPrices(s.DB), agent, model, payload)
 }
 
 func (s *Scheduler) captureAndFinalize(ctx context.Context, att *store.Attempt, c *runCtx, rc int) error {

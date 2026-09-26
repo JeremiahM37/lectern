@@ -151,9 +151,9 @@ const clientHelp = `Lectern — web and terminal control
   lectern live list | lectern live stop ID
   lectern agent list
   lectern agent save JSON|@file|-
-  lectern skill list PROJECT [--agent claude|codex]
-  lectern skill attached PROJECT [--agent claude|codex]
-  lectern skill attach PROJECT SKILL_ID [--agent claude|codex]
+  lectern skill list PROJECT [--agent AGENT]
+  lectern skill attached PROJECT [--agent AGENT]
+  lectern skill attach PROJECT SKILL_ID [--agent AGENT]
   lectern skill detach PROJECT ATTACHMENT_ID
   lectern mcp                     MCP on standard input/output
   lectern version
@@ -544,7 +544,7 @@ func skillCommand(c *console.Client, args []string) ([]byte, error) {
 		}
 	case "attach":
 		if len(args) < 3 {
-			return nil, fmt.Errorf("usage: lectern skill attach PROJECT SKILL_ID [--agent claude|codex]")
+			return nil, fmt.Errorf("usage: lectern skill attach PROJECT SKILL_ID [--agent AGENT]")
 		}
 		method = "POST"
 		path = "/api/projects/" + url.PathEscape(project) + "/skills"

@@ -10,6 +10,7 @@ import {
   quotaClass,
   isStale,
   formatAge,
+  formatResultCost,
   resultUsage,
 } from "./usageFormat";
 
@@ -113,4 +114,14 @@ test("formatAge renders seconds/minutes/hours/days", () => {
   assert.equal(formatAge(now - 7200, now), "2h ago");
   assert.equal(formatAge(now - 172800, now), "2d ago");
   assert.equal(formatAge(null, now), "");
+});
+
+test("resultUsage marks a price-table estimate and formatResultCost labels it", () => {
+  const est = resultUsage({ cost_usd: 0.1234, cost_source: "estimated", input_tokens: 1000, output_tokens: 10 });
+  assert.equal(est.costEstimated, true);
+  assert.match(formatResultCost(est), /^~\$.* est\.$/);
+  const real = resultUsage({ cost_usd: 0.5 });
+  assert.equal(real.costEstimated, false);
+  assert.doesNotMatch(formatResultCost(real), /est/);
+  assert.equal(formatResultCost(resultUsage({ input_tokens: 5 })), "");
 });

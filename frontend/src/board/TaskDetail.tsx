@@ -7,7 +7,7 @@ import { CommentTray } from "../review/CommentTray";
 import { CompareView, type JudgeVerdict } from "./CompareView";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
-import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import {
   MemorySection,
   MemoryTimelineEntry,
@@ -260,7 +260,11 @@ export function TaskDetail({
         if (u.costUSD == null && u.outputTokens == null && u.contextPct == null) return null;
         return (
           <div className="usage-line">
-            {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+            {u.costUSD != null && (
+                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                          {formatResultCost(u)}
+                        </span>
+                      )}
             {u.costUSD == null && u.outputTokens != null && (
               <span className="chip">{formatTokens(u.outputTokens)} tok</span>
             )}

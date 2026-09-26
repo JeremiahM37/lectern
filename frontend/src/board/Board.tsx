@@ -7,7 +7,7 @@ import { TaskDetail } from "./TaskDetail";
 import { ClaimsPanel } from "../claims/ClaimsPanel";
 import { QuotaChip } from "../sessions/QuotaChip";
 import { CIChip } from "../review/CIChip";
-import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
 type QuickMode = "dispatch" | "orchestrate";
@@ -308,7 +308,11 @@ export function Board({
                   const u = resultUsage(task.attempt?.result);
                   return (
                     <>
-                      {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+                      {u.costUSD != null && (
+                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                          {formatResultCost(u)}
+                        </span>
+                      )}
                       {u.costUSD == null && u.outputTokens != null && (
                         <span className="chip">{formatTokens(u.outputTokens)} tok</span>
                       )}

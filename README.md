@@ -72,7 +72,8 @@ Lectern tells you plainly when a CLI can't do something.
   conversation.
 - Sessions stay grouped by project and machine.
 - Lectern finds and adopts Claude and Codex sessions you started outside it.
-- Every conversation is searchable.
+- Every saved Claude and Codex conversation on your machines is searchable,
+  including ones Lectern never launched.
 
 ![Restoring a recently closed session](docs/media/recently-closed.gif)
 

@@ -13,6 +13,17 @@ interface Attachment {
   entry_name?: string;
   source_id?: string;
 }
+// Agents whose CLI reads Agent Skills; mirrors internal/skills.SupportedAgents.
+// Claude Code reads .claude/skills, the rest the shared .agents/skills.
+const SKILL_PROVIDERS: [string, string][] = [
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["gemini", "Gemini CLI"],
+  ["qwen", "Qwen Code"],
+  ["opencode", "OpenCode"],
+  ["copilot", "GitHub Copilot CLI"],
+];
+
 export function Skills({
   api,
   projectId,
@@ -29,7 +40,7 @@ export function Skills({
   onSourceText(v: string): void;
 }) {
   const [agent, setAgent] = useState(
-      defaultAgent === "codex" ? "codex" : "claude",
+      SKILL_PROVIDERS.some(([name]) => name === defaultAgent) ? defaultAgent : "claude",
     ),
     [catalog, setCatalog] = useState<Skill[]>([]),
     [attached, setAttached] = useState<Attachment[]>([]),
@@ -118,8 +129,11 @@ export function Skills({
           value={agent}
           onChange={(e) => setAgent(e.target.value)}
         >
-          <option value="claude">Claude Code</option>
-          <option value="codex">Codex</option>
+          {SKILL_PROVIDERS.map(([name, label]) => (
+            <option key={name} value={name}>
+              {label}
+            </option>
+          ))}
         </select>
       </label>
       <button className="skills-reload" disabled={busy} onClick={() => void load()}>

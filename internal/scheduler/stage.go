@@ -72,6 +72,9 @@ type launchKW struct {
 	Agent        string
 	Env          map[string]string
 	Definition   *agents.TaskDefinition
+	// ACPMCPServers is the project MCP declaration translated for an ACP
+	// agent's session/new (agents.ACPMCPServers).
+	ACPMCPServers []any
 	// Prompt is the fully composed prompt this call staged to prompt.md
 	// (memory recall, project notes, context bundle, task footer). A
 	// structured-driver launch needs it verbatim rather than re-reading the
@@ -197,8 +200,12 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 			kw.Env[k] = v
 		}
 	}
-	if !launchConfig.Definition.Builtin && (len(mcp) > 0 || c.Project.StrictMCP != 0) {
-		return kw, fmt.Errorf("agent %q has no MCP capability mapping; configure MCP flags in its task definition or use a built-in agent", agent)
+	acp := launchConfig.Definition.ACP != nil
+	if acp && c.Project.StrictMCP != 0 {
+		return kw, fmt.Errorf("strict_mcp is unsupported for ACP agents: session servers are added to the agent's own")
+	}
+	if !launchConfig.Definition.Builtin && !acp && (len(mcp) > 0 || c.Project.StrictMCP != 0) {
+		return kw, fmt.Errorf("agent %q has no MCP capability mapping; configure MCP flags in its task definition, use an ACP agent, or use a built-in agent", agent)
 	}
 	// Snapshot the complete project launch policy before branching by agent.
 	// Takeover must continue the attempt even if the project is edited later;
@@ -209,6 +216,14 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		"mcp_snapshot": 1,
 	}); err != nil {
 		return kw, err
+	}
+	if acp && len(mcp) > 0 {
+		// ACP carries MCP servers in session/new itself (internal/drivers/acp.go).
+		servers, _, _, err := agents.ACPMCPServers(mcp)
+		if err != nil {
+			return kw, err
+		}
+		kw.ACPMCPServers = servers
 	}
 	if agent == "codex" && c.Project.StrictMCP != 0 {
 		return kw, fmt.Errorf("strict_mcp is unsupported for Codex additive configuration")

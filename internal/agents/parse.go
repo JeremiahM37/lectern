@@ -241,10 +241,10 @@ func normalizeCodex(raw map[string]any) []Event {
 			tokens = usage["output_tokens"]
 			inputTokens = usage["input_tokens"]
 		}
-		// codex has no per-turn cost figure in this event (unlike Claude's
-		// total_cost_usd) — cost is unknown for codex by design, per
-		// docs/agent-events.md's "cost unknown for codex -> show tokens
-		// instead of $".
+		// codex has no cost figure in this event (unlike Claude's
+		// total_cost_usd). The scheduler fills in an estimate from the
+		// operator's model price table when one is configured, labelled
+		// cost_source:"estimated" (internal/outcomes.EstimateResult).
 		return []Event{{"result", map[string]any{
 			"subtype": "success", "cost_usd": nil, "num_turns": nil,
 			"duration_ms": nil, "result": "", "session_id": "",

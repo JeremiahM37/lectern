@@ -1,6 +1,10 @@
 package drivers
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestSelect(t *testing.T) {
 	cases := []struct {
@@ -26,5 +30,26 @@ func TestSelect(t *testing.T) {
 				t.Errorf("Select(%q, %v, %q) = %q, want %q", c.agent, c.builtin, c.permissionMode, got, c.want)
 			}
 		})
+	}
+}
+
+// Project MCP servers go into ACP session/new only over transports the agent
+// advertised; a remote server the agent cannot reach fails the attempt.
+func TestACPSessionMCPChecksAdvertisedTransports(t *testing.T) {
+	stdio := map[string]any{"name": "ops", "command": "x", "args": []string{}, "env": []any{}}
+	web := map[string]any{"type": "http", "name": "web", "url": "https://x", "headers": []any{}}
+	none := json.RawMessage(`{"protocolVersion":1,"agentCapabilities":{}}`)
+	httpOK := json.RawMessage(`{"protocolVersion":1,"agentCapabilities":{"mcpCapabilities":{"http":true}}}`)
+	if got, err := acpSessionMCP(none, nil); err != nil || len(got) != 0 {
+		t.Fatalf("no servers must send an empty list, got %v %v", got, err)
+	}
+	if got, err := acpSessionMCP(none, []any{stdio}); err != nil || len(got) != 1 {
+		t.Fatalf("stdio is always supported, got %v %v", got, err)
+	}
+	if _, err := acpSessionMCP(none, []any{stdio, web}); err == nil || !strings.Contains(err.Error(), "http") {
+		t.Fatalf("an http server without the capability must fail, got %v", err)
+	}
+	if got, err := acpSessionMCP(httpOK, []any{stdio, web}); err != nil || len(got) != 2 {
+		t.Fatalf("an advertised http transport must pass both servers, got %v %v", got, err)
 	}
 }

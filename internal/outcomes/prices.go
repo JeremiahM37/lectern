@@ -94,3 +94,41 @@ func (c PriceConfig) Estimate(model string, inputTokens, outputTokens int64) (us
 	}
 	return float64(inputTokens)/1e6*p.InputPer1M + float64(outputTokens)/1e6*p.OutputPer1M, true
 }
+
+// EstimateFor is Estimate with one fallback: when model has no entry (or is
+// empty, as it is for a Codex run on its default model), the agent's own
+// name is tried as a key, so an operator can price "codex" once without
+// naming every model it might pick.
+func (c PriceConfig) EstimateFor(agent, model string, inputTokens, outputTokens int64) (usd float64, ok bool) {
+	if model != "" {
+		if usd, ok := c.Estimate(model, inputTokens, outputTokens); ok {
+			return usd, true
+		}
+	}
+	if agent == "" {
+		return 0, false
+	}
+	return c.Estimate(agent, inputTokens, outputTokens)
+}
+
+// EstimateResult fills in an estimated cost on one normalised result event
+// payload that reported tokens but no dollar figure (Codex's turn.completed).
+// It sets cost_usd and cost_source:"estimated" in place and reports whether
+// it did. A payload that already carries a real cost, has no tokens, or whose
+// agent/model has no configured price is left untouched.
+func EstimateResult(prices PriceConfig, agent, model string, payload map[string]any) bool {
+	if cost, ok := payload["cost_usd"].(float64); ok && cost > 0 {
+		return false
+	}
+	_, in, out := resultUsage(payload)
+	if in == 0 && out == 0 {
+		return false
+	}
+	usd, ok := prices.EstimateFor(agent, model, in, out)
+	if !ok {
+		return false
+	}
+	payload["cost_usd"] = usd
+	payload["cost_source"] = "estimated"
+	return true
+}

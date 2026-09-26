@@ -281,3 +281,289 @@ func tomlString(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// mcpServerMap returns the project declaration's server map, accepting both
+// a bare mapping and a full {"mcpServers": {...}} document.
+func mcpServerMap(mcp map[string]any) (map[string]map[string]any, []string, error) {
+	if inner, ok := mcp["mcpServers"].(map[string]any); ok {
+		mcp = inner
+	}
+	servers := map[string]map[string]any{}
+	names := make([]string, 0, len(mcp))
+	for name, raw := range mcp {
+		cfg, ok := raw.(map[string]any)
+		if !ok || name == "" {
+			return nil, nil, fmt.Errorf("MCP server %q must be a named object", name)
+		}
+		servers[name] = cfg
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return servers, names, nil
+}
+
+// mcpTransport classifies one Claude-format server: "stdio" (command),
+// "http" or "sse" (url). Fields other than the ones every translation below
+// can carry are rejected rather than silently dropped.
+func mcpTransport(name string, cfg map[string]any) (string, error) {
+	for key := range cfg {
+		switch key {
+		case "type", "transport", "command", "args", "env", "url", "headers":
+		default:
+			return "", fmt.Errorf("MCP server %q field %q has no translation for this agent", name, key)
+		}
+	}
+	kind := str(cfg["type"])
+	if kind == "" {
+		kind = str(cfg["transport"])
+	}
+	switch {
+	case str(cfg["command"]) != "" && (kind == "" || kind == "stdio"):
+		return "stdio", nil
+	case str(cfg["url"]) != "" && (kind == "http" || kind == "streamable-http" || kind == ""):
+		return "http", nil
+	case str(cfg["url"]) != "" && kind == "sse":
+		return "sse", nil
+	}
+	return "", fmt.Errorf("MCP server %q needs a command (stdio) or a url with type http or sse", name)
+}
+
+func mcpStrings(name, field string, v any) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q field %q must be a list of strings", name, field)
+	}
+	out := make([]string, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("MCP server %q field %q must be a list of strings", name, field)
+		}
+		out[i] = s
+	}
+	return out, nil
+}
+
+func mcpStringMap(name, field string, v any) (map[string]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q field %q must be an object of strings", name, field)
+	}
+	out := make(map[string]string, len(m))
+	for k, item := range m {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("MCP server %q field %q must be an object of strings", name, field)
+		}
+		out[k] = s
+	}
+	return out, nil
+}
+
+// MCPAdapter says how a project's MCP declaration reaches an interactive
+// agent other than Claude and Codex. Each writes a private runtime file (see
+// MCPInstallCommand) that the CLI reads in addition to the user's own config,
+// so strict_mcp cannot be expressed and is rejected.
+type MCPAdapter struct {
+	// Payload translates the Claude-format declaration into the file the
+	// CLI reads.
+	Payload func(mcp map[string]any) ([]byte, error)
+	// EnvVar, when set, is the environment variable that names the file.
+	EnvVar string
+	// Args, when set, are launch arguments naming the file ({path} replaced).
+	Args []string
+}
+
+// MCPAdapterFor returns the translation for agent, by Lectern agent name.
+// Each was checked against the CLI itself (docs/context-parity.md):
+//   - opencode: OPENCODE_CONFIG names an extra config file merged between
+//     the global and project configs; servers live under "mcp".
+//   - qwen: QWEN_CODE_SYSTEM_DEFAULTS_PATH names the lowest-precedence
+//     settings file; mcpServers is shallow-merged with the user's own.
+//   - copilot: --additional-mcp-config @file augments ~/.copilot/mcp-config.json
+//     for the session and reads the Claude document as is.
+//
+// Gemini CLI has no equivalent: its system settings files are ignored unless
+// their directory is owned by root, so a per-session file is not possible.
+func MCPAdapterFor(agent string) (MCPAdapter, bool) {
+	switch agent {
+	case "opencode":
+		return MCPAdapter{Payload: OpenCodeMCPPayload, EnvVar: "OPENCODE_CONFIG"}, true
+	case "qwen":
+		return MCPAdapter{Payload: QwenMCPPayload, EnvVar: "QWEN_CODE_SYSTEM_DEFAULTS_PATH"}, true
+	case "copilot":
+		return MCPAdapter{Payload: CopilotMCPPayload, Args: []string{"--additional-mcp-config", "@{path}"}}, true
+	}
+	return MCPAdapter{}, false
+}
+
+// OpenCodeMCPPayload writes an OpenCode config containing only "mcp".
+func OpenCodeMCPPayload(mcp map[string]any) ([]byte, error) {
+	servers, names, err := mcpServerMap(mcp)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	for _, name := range names {
+		cfg := servers[name]
+		kind, err := mcpTransport(name, cfg)
+		if err != nil {
+			return nil, err
+		}
+		entry := map[string]any{"enabled": true}
+		if kind == "stdio" {
+			args, err := mcpStrings(name, "args", cfg["args"])
+			if err != nil {
+				return nil, err
+			}
+			env, err := mcpStringMap(name, "env", cfg["env"])
+			if err != nil {
+				return nil, err
+			}
+			entry["type"] = "local"
+			entry["command"] = append([]string{str(cfg["command"])}, args...)
+			if len(env) > 0 {
+				entry["environment"] = env
+			}
+		} else {
+			headers, err := mcpStringMap(name, "headers", cfg["headers"])
+			if err != nil {
+				return nil, err
+			}
+			entry["type"] = "remote"
+			entry["url"] = str(cfg["url"])
+			if len(headers) > 0 {
+				entry["headers"] = headers
+			}
+		}
+		out[name] = entry
+	}
+	return json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "mcp": out})
+}
+
+// QwenMCPPayload writes a Qwen Code settings file containing only
+// mcpServers. Qwen reads streamable HTTP from httpUrl and SSE from url.
+func QwenMCPPayload(mcp map[string]any) ([]byte, error) {
+	servers, names, err := mcpServerMap(mcp)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	for _, name := range names {
+		cfg := servers[name]
+		kind, err := mcpTransport(name, cfg)
+		if err != nil {
+			return nil, err
+		}
+		entry := map[string]any{}
+		switch kind {
+		case "stdio":
+			args, err := mcpStrings(name, "args", cfg["args"])
+			if err != nil {
+				return nil, err
+			}
+			env, err := mcpStringMap(name, "env", cfg["env"])
+			if err != nil {
+				return nil, err
+			}
+			entry["command"] = str(cfg["command"])
+			if len(args) > 0 {
+				entry["args"] = args
+			}
+			if len(env) > 0 {
+				entry["env"] = env
+			}
+		case "http":
+			entry["httpUrl"] = str(cfg["url"])
+		case "sse":
+			entry["url"] = str(cfg["url"])
+		}
+		if kind != "stdio" {
+			headers, err := mcpStringMap(name, "headers", cfg["headers"])
+			if err != nil {
+				return nil, err
+			}
+			if len(headers) > 0 {
+				entry["headers"] = headers
+			}
+		}
+		out[name] = entry
+	}
+	return json.Marshal(map[string]any{"mcpServers": out})
+}
+
+// CopilotMCPPayload validates the declaration and writes the Claude-format
+// document, which Copilot CLI's --additional-mcp-config reads directly.
+func CopilotMCPPayload(mcp map[string]any) ([]byte, error) {
+	servers, names, err := mcpServerMap(mcp)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		if _, err := mcpTransport(name, servers[name]); err != nil {
+			return nil, err
+		}
+	}
+	return MCPPayload(mcp)
+}
+
+// ACPMCPServers translates the declaration into ACP session/new mcpServers
+// entries (agentclientprotocol.com, "Session Setup"): stdio servers carry no
+// type and list env as name/value pairs; http and sse servers carry type and
+// name/value headers. needHTTP/needSSE tell the caller which optional
+// transports the agent must advertise in mcpCapabilities.
+func ACPMCPServers(mcp map[string]any) (out []any, needHTTP, needSSE bool, err error) {
+	servers, names, err := mcpServerMap(mcp)
+	if err != nil {
+		return nil, false, false, err
+	}
+	pairs := func(m map[string]string) []any {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		list := make([]any, 0, len(keys))
+		for _, k := range keys {
+			list = append(list, map[string]any{"name": k, "value": m[k]})
+		}
+		return list
+	}
+	out = []any{}
+	for _, name := range names {
+		cfg := servers[name]
+		kind, err := mcpTransport(name, cfg)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if kind == "stdio" {
+			args, err := mcpStrings(name, "args", cfg["args"])
+			if err != nil {
+				return nil, false, false, err
+			}
+			env, err := mcpStringMap(name, "env", cfg["env"])
+			if err != nil {
+				return nil, false, false, err
+			}
+			if args == nil {
+				args = []string{}
+			}
+			out = append(out, map[string]any{"name": name, "command": str(cfg["command"]), "args": args, "env": pairs(env)})
+			continue
+		}
+		headers, err := mcpStringMap(name, "headers", cfg["headers"])
+		if err != nil {
+			return nil, false, false, err
+		}
+		needHTTP = needHTTP || kind == "http"
+		needSSE = needSSE || kind == "sse"
+		out = append(out, map[string]any{"type": kind, "name": name, "url": str(cfg["url"]), "headers": pairs(headers)})
+	}
+	return out, needHTTP, needSSE, nil
+}
