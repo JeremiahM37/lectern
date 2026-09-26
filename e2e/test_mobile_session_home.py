@@ -253,8 +253,11 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     expect(needs.locator('.ny-row[data-reason="waiting"]')).to_contain_text("Waiting agent")
     expect(needs.locator('.ny-row[data-reason="waiting"]')).to_contain_text("Wants you")
     expect(needs.locator('.ny-row[data-reason="failed-task"]')).to_contain_text("Crashed run")
-    expect(needs.locator('.ny-row[data-reason="review-task"]')).to_contain_text("Ready work")
-    expect(needs.locator('.ny-row[data-reason="review-task"]').get_by_role("button", name="Review", exact=True)).to_be_enabled()
+    # Board tasks in review are one link to the Board, never a row each —
+    # they used to bury the sessions that actually wait on you.
+    expect(needs.locator('.ny-row[data-reason="review-task"]')).to_have_count(0)
+    review_link = needs.locator("#needs-you-review-link")
+    expect(review_link).to_contain_text("1 task ready to review")
 
     approval.get_by_role("button", name="Approve", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]')).to_have_count(0, timeout=20000)
@@ -271,7 +274,8 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     ]
     assert heights and min(heights) >= 36, heights
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
-    needs.locator('.ny-row[data-reason="review-task"]', has_text="Ready work").get_by_role("button", name="Review", exact=True).click()
+    review_link.click()
+    page.locator(".card.s-review", has_text="Ready work").click()
     expect(page.locator("#sheet .statpill")).to_have_text("review")
 
 

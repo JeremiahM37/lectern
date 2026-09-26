@@ -141,7 +141,6 @@ export function NeedsYou({
   }, [api, refreshVersion]);
 
   const items = useMemo<Item[]>(() => {
-    const reviewTasks = tasks.filter((task) => task.status === "review");
     const failedTasks = tasks.filter((task) => task.status === "failed");
     const approvalTasks = new Set(
       approvals.map((approval) => approval.task_id).filter((id): id is number => !!id),
@@ -170,8 +169,6 @@ export function NeedsYou({
     }
     for (const task of failedTasks)
       out.push({ key: `task-${task.id}`, reason: "failed-task", task });
-    for (const task of reviewTasks)
-      out.push({ key: `task-${task.id}`, reason: "review-task", task });
     for (const pair of duplicates)
       out.push({
         key: `dup-${pair.session_a_id}-${pair.session_b_id}`,
@@ -199,13 +196,18 @@ export function NeedsYou({
     }
   }
 
+  // Board tasks sitting in review are not sessions and do not wait on you in
+  // the way a blocked session does; with an autonomous workshop producing a
+  // steady stream of them they buried the few sessions that did. They get one
+  // line that leads to the Board's Review column instead of a row each.
+  const reviewCount = tasks.filter((task) => task.status === "review").length;
   const showPrompt = !!pushPrompt?.show;
   // Nothing to do, and we know it: stay out of the way. A failed refresh with
   // no known rows must still say so rather than look like an all-clear. The
   // push prompt is the one thing that can keep the section open with zero
   // items — it is a suggestion, not something that "needs" attention, but it
   // belongs where a person is already looking.
-  if (!items.length && !stale && !showPrompt) return null;
+  if (!items.length && !stale && !showPrompt && !reviewCount) return null;
   const shown = showAll ? items : items.slice(0, CAP);
   return (
     <section
@@ -291,6 +293,12 @@ export function NeedsYou({
         >
           {showAll ? "Show fewer" : `Show all ${items.length}`}
         </button>
+      )}
+      {reviewCount > 0 && (
+        <a className="ny-review-link" id="needs-you-review-link" href="#board">
+          {reviewCount} {reviewCount === 1 ? "task" : "tasks"} ready to review
+          <span aria-hidden="true"> → Board</span>
+        </a>
       )}
     </section>
   );

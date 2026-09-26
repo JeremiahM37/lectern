@@ -74,6 +74,19 @@
 }
 .ny-toggle { margin-top: 8px; }
 
+/* Board tasks in review: one quiet line under the list instead of a row each. */
+.ny-review-link {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 13px;
+  text-decoration: none;
+}
+.ny-review-link:hover,
+.ny-review-link:focus-visible { color: var(--accent); }
+
 /* The "deny with reason" inline form replaces the row's action buttons —
    same flex-wrap rules as .ny-actions so it still fits at 390px. */
 .ny-deny-reason { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; }
