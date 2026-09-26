@@ -93,3 +93,8 @@
 #conversation-upload-status:empty { display:none; }
 #conversation-compose.file-drag { outline:2px dashed #9c85fa; outline-offset:-3px; }
 .compose-actions { flex-wrap:wrap; }
+
+/* Grimoire recall Lectern prepended to a message: folded away by default. */
+.recall-context { margin: 0 0 8px; font-size: 12px; color: var(--ink-dim); }
+.recall-context summary { cursor: pointer; }
+.recall-context pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 11px; }

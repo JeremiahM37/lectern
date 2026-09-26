@@ -1,5 +1,6 @@
 import "./conversation-react.css";
 import "./session-home.css";
+import { splitRecall } from "./recall";
 import { SessionLineage } from "../continuity/SessionLineage";
 import { CheckBadge } from "./CheckBadge";
 import { Modal } from "./Modal";
@@ -469,7 +470,9 @@ export function Conversation({
   useLayoutEffect(() => {
     if (follow.current && log.current)
       log.current.scrollTop = log.current.scrollHeight;
-  }, [rows, sessionText]);
+    // liveItems too: the structured chat cards are what most sessions show,
+    // and a chat should open at its latest message, not its first.
+  }, [rows, sessionText, liveItems]);
   async function upload(selected: File[]) {
     if (
       uploadingRef.current ||
@@ -986,9 +989,7 @@ export function Conversation({
                   ) : (
                     <article key={card.id} className={`reader-message ${card.role}`}>
                       <div className="reader-speaker">{card.role === "user" ? "You" : "Agent"}</div>
-                      <div className="reader-text">
-                        <Markdown text={card.text} />
-                      </div>
+                      <MessageText role={card.role} text={card.text} />
                     </article>
                   ),
                 )}
@@ -1219,5 +1220,23 @@ export function Conversation({
         </p>
       </form>
     </Modal>
+  );
+}
+
+
+function MessageText({ role, text }: { role: string; text: string }) {
+  const { recall, rest } = role === "user" ? splitRecall(text) : { recall: [], rest: text };
+  return (
+    <div className="reader-text">
+      {recall.length > 0 && (
+        <details className="recall-context">
+          <summary>
+            Context from Grimoire · {recall.length} {recall.length === 1 ? "fact" : "facts"}
+          </summary>
+          <pre>{recall.join("\n")}</pre>
+        </details>
+      )}
+      {rest && <Markdown text={rest} />}
+    </div>
   );
 }
