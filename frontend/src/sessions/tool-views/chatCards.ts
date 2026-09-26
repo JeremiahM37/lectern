@@ -39,8 +39,10 @@ export interface ToolCard {
   output?: string;
   isError?: boolean;
   outputTruncated?: boolean;
-  /** "running" until a correlated tool_result arrives, then "done". */
-  status: "running" | "done";
+  /** "running" until a correlated tool_result arrives, then "done".
+   * "pending" is a third state only ApprovalCard uses — a call that has
+   * not even been dispatched yet, so there is no "running" to claim. */
+  status: "running" | "done" | "pending";
 }
 export type ChatCard = TextCard | ThinkingCard | ToolCard;
 

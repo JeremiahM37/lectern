@@ -34,7 +34,7 @@ export function ApprovalCard({
     id: `approval-${approval.id}`,
     name: approval.tool_name,
     input: approval.input || {},
-    status: "running",
+    status: "pending",
   };
   const decided = approval.status !== "pending";
 

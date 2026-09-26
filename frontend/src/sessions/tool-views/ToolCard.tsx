@@ -4,7 +4,7 @@
 // no extra state, and <summary> is a real block-level tap target on a
 // phone); one tap expands. See docs/mobile-sessions.md for the design.
 import { DiffViewer } from "../../review/DiffViewer";
-import type { FilePatch } from "../../review/types";
+import type { FilePatch, FileStat } from "../../review/types";
 import { describeTool, type ToolCategory } from "./describe";
 import { buildMultiEditPatch, buildNewFilePatch, buildReplacePatch, parseCodexPatch } from "./patch";
 import type { ToolCard } from "./chatCards";
@@ -44,6 +44,22 @@ function editDiffFiles(name: string, input: Record<string, unknown>): FilePatch[
   }
   // Edit / GeminiEdit
   return [{ path, patch: buildReplacePatch(path, str(input.old_string) ?? "", str(input.new_string) ?? "") }];
+}
+
+// We build these patches ourselves, so the +N/-N counts don't have to be
+// "?" the way an unknown remote diff's would — one pass over the lines we
+// already generated.
+function statsFor(files: FilePatch[]): FileStat[] {
+  return files.map((file) => {
+    let additions = 0;
+    let deletions = 0;
+    for (const line of file.patch.split("\n")) {
+      if (line.startsWith("+++") || line.startsWith("---")) continue;
+      if (line.startsWith("+")) additions++;
+      else if (line.startsWith("-")) deletions++;
+    }
+    return { path: file.path, additions, deletions };
+  });
 }
 
 function Todos({ input }: { input: Record<string, unknown> }) {
@@ -90,6 +106,7 @@ function PrettyArgs({ input, category }: { input: Record<string, unknown>; categ
 }
 
 function Output({ card }: { card: ToolCard }) {
+  if (card.status === "pending") return null;
   if (card.status === "running") return <p className="sub tool-running">Running…</p>;
   if (card.output == null) return null;
   return (
@@ -138,7 +155,10 @@ export function ToolCardBody({ card }: { card: ToolCard }) {
       {summary.category === "todo" ? (
         <Todos input={card.input} />
       ) : isEdit ? (
-        <DiffViewer files={editDiffFiles(card.name, card.input)} stats={[]} wrap />
+        (() => {
+          const files = editDiffFiles(card.name, card.input);
+          return <DiffViewer files={files} stats={statsFor(files)} wrap />;
+        })()
       ) : summary.category === "terminal" ? (
         <>
           <pre className="tool-command">
