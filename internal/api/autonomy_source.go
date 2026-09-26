@@ -142,7 +142,7 @@ func (s *Server) autoSourceContext(ctx context.Context, id, requestedRevision st
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"project_id": p.ID, "source_revision": revision, "source_tree": tree,
+	return map[string]any{"project_id": p.ID, "source_revision": revision, "source_tree": tree, "working_tree_activity": autoSourceActivity(ctx, p.RepoPath),
 		"tree_scope": "Git tree of the resolved source commit. Snapshot commit IDs normally differ. Matching trees corroborate paths, blobs and executable bits only within the same Git object format. Export attributes or ignored tracked files can change an archived snapshot tree; mismatch is diagnostic, not a new admission gate.",
 		"scope":      "Committed source only; uncommitted files are excluded. This is provenance, not ownership clearance, checkpoint approval, or permission to repeat rejected work. New milestones require both plan audits; retain continuation/repair lineage for existing work."}, nil
 }
