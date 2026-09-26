@@ -44,6 +44,107 @@ def native_record(row, agent, limit=64000):
     return dict(role=role, text=body if limit is None else body[:limit], truncated=limit is not None and len(body)>limit, timestamp=row.get('timestamp', ''))
 
 
+def _text_block(role, kind, text, limit, timestamp):
+    if not isinstance(text, str) or not text.strip(): return None
+    return dict(role=role, kind=kind, text=text[:limit], truncated=len(text) > limit, timestamp=timestamp)
+
+
+def _codex_reasoning_text(payload):
+    # Codex rollouts carry a reasoning item's visible text as a list of
+    # summary blocks; fall back to a raw content list on older shapes.
+    for key in ('summary', 'content'):
+        blocks = payload.get(key)
+        if isinstance(blocks, list):
+            parts = [b.get('text', '') for b in blocks if isinstance(b, dict) and isinstance(b.get('text'), str)]
+            if parts: return '\n'.join(parts)
+    return ''
+
+
+def structured_records(row, agent, limit=64000):
+    """Decode one JSONL row into zero or more structured chat turns, same
+    shape regardless of agent: {role, kind, timestamp, ...}. kind is one of
+    text/thinking/tool_use/tool_result. Unlike native_record (which flattens
+    everything to a single display string for the plain-text reader), this
+    keeps tool_use input and tool_result output as separate, still-typed
+    fields so the phone can render a card instead of a JSON dump. Private
+    reasoning is now surfaced too (as kind='thinking', collapsed by the
+    client) rather than silently dropped."""
+    out = []
+    ts = row.get('timestamp', '')
+    if agent == 'codex':
+        p = row.get('payload', {})
+        if not isinstance(p, dict) or row.get('type') != 'response_item': return out
+        kind = p.get('type')
+        channel = p.get('channel')
+        if kind == 'reasoning':
+            text = _codex_reasoning_text(p)
+            item = _text_block('assistant', 'thinking', text, limit, ts)
+            if item: out.append(item)
+            return out
+        if channel not in (None, '', 'final', 'commentary'): return out
+        if kind == 'message':
+            role = p.get('role')
+            for block in p.get('content') if isinstance(p.get('content'), list) else []:
+                if not isinstance(block, dict): continue
+                if block.get('type') in ('text', 'input_text', 'output_text'):
+                    item = _text_block(role, 'text', block.get('text', ''), limit, ts)
+                    if item: out.append(item)
+        elif kind in ('function_call', 'custom_tool_call'):
+            raw = p.get('arguments', p.get('input', {}))
+            out.append(dict(role='assistant', kind='tool_use', timestamp=ts,
+                             tool_name=str(p.get('name', 'Tool')), tool_use_id=str(p.get('call_id', p.get('id', ''))),
+                             input=_as_input(raw)))
+        elif kind in ('function_call_output', 'custom_tool_call_output'):
+            text = str(p.get('output', ''))
+            out.append(dict(role='tool', kind='tool_result', timestamp=ts,
+                             tool_use_id=str(p.get('call_id', p.get('id', ''))),
+                             output=text[:limit], truncated=len(text) > limit, is_error=bool(p.get('is_error'))))
+    else:
+        if row.get('type') not in ('user', 'assistant') or row.get('isSidechain'): return out
+        msg = row.get('message', {})
+        if not isinstance(msg, dict): return out
+        role, body = msg.get('role'), msg.get('content')
+        if isinstance(body, str):
+            item = _text_block(role, 'text', body, limit, ts)
+            if item: out.append(item)
+        elif isinstance(body, list):
+            for block in body:
+                if not isinstance(block, dict): continue
+                bkind = block.get('type')
+                if bkind in ('text', 'input_text', 'output_text'):
+                    item = _text_block(role, 'text', block.get('text', ''), limit, ts)
+                    if item: out.append(item)
+                elif bkind == 'thinking':
+                    item = _text_block('assistant', 'thinking', block.get('thinking', block.get('text', '')), limit, ts)
+                    if item: out.append(item)
+                elif bkind == 'tool_use':
+                    out.append(dict(role='assistant', kind='tool_use', timestamp=ts,
+                                     tool_name=str(block.get('name', 'Tool')), tool_use_id=str(block.get('id', '')),
+                                     input=_as_input(block.get('input', {}))))
+                elif bkind == 'tool_result':
+                    text = content(block.get('content', ''))
+                    out.append(dict(role='tool', kind='tool_result', timestamp=ts,
+                                     tool_use_id=str(block.get('tool_use_id', '')),
+                                     output=text[:limit], truncated=len(text) > limit, is_error=bool(block.get('is_error'))))
+                elif bkind in ('image', 'input_image'):
+                    item = _text_block(role, 'text', '[Image attachment]', limit, ts)
+                    if item: out.append(item)
+    return out
+
+
+def _as_input(raw):
+    # Tool input arrives as a dict already, or (some codex shapes) a JSON
+    # string; either way the client wants an object it can render field by
+    # field, never a string it has to re-parse.
+    if isinstance(raw, dict): return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict): return parsed
+        except (ValueError, TypeError): pass
+    return dict(value=raw) if raw not in (None, '') else {}
+
+
 def native_metadata(file, agent, workspace=None, max_bytes=LIMIT):
     cid = cwd = title = ''
     codex_header_seen = False

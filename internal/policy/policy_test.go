@@ -93,3 +93,26 @@ func TestParseTolerates(t *testing.T) {
 		t.Error("a corrupt policy must fail closed, not open")
 	}
 }
+
+func TestBroadenableForSession(t *testing.T) {
+	cmd := func(c string) map[string]any { return map[string]any{"command": c} }
+	for c, want := range map[string]bool{
+		"npm test":                 true,
+		"go test ./...":            true,
+		"sudo systemctl restart x": false,
+		"bash -c 'rm -rf /'":       false,
+		"env FOO=1 make":           false,
+		"xargs rm":                 false,
+		"python3 -c 'print(1)'":    false,
+		"./scripts/deploy.sh":      false,
+		"FOO=bar make":             false,
+		"":                         false,
+	} {
+		if got := BroadenableForSession("Bash", cmd(c)); got != want {
+			t.Errorf("Bash %q: got %v, want %v", c, got, want)
+		}
+	}
+	if !BroadenableForSession("Edit", map[string]any{"file_path": "x"}) {
+		t.Error("non-Bash tools are scoped by tool name and always broadenable")
+	}
+}

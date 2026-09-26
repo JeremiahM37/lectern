@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/policy"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -24,14 +25,15 @@ type Broker struct {
 	// for the operator.
 	ExpireAfter time.Duration
 
-	mu      sync.Mutex
-	waiters map[int64]chan struct{}
+	mu           sync.Mutex
+	waiters      map[int64]chan struct{}
+	sessionRules map[int64]policy.Policy
 }
 
 // New builds a broker.
 func New(db *store.DB, b *bus.Bus, n *sinks.Notifier, expireAfter time.Duration) *Broker {
 	return &Broker{DB: db, Bus: b, Notifier: n, ExpireAfter: expireAfter,
-		waiters: map[int64]chan struct{}{}}
+		waiters: map[int64]chan struct{}{}, sessionRules: map[int64]policy.Policy{}}
 }
 
 func (br *Broker) waiter(id int64) chan struct{} {
@@ -114,6 +116,49 @@ func (br *Broker) CreateForSession(sessionID int64, toolName string, toolInput m
 	br.Notifier.Notify("Permission needed", toolName+": "+summarize(toolName, toolInput),
 		fmt.Sprintf("/session/%d", sessionID), &sinks.Extra{Kind: "approval", ApprovalID: id})
 	return id, nil
+}
+
+// SessionRuleAllows reports whether an earlier "allow for this session"
+// decision already covers this exact tool call. It reuses internal/policy's
+// project-rule matcher (Bash matches on the command's first token, other
+// tools match wholesale) rather than inventing a second pattern language —
+// the only difference from a project's "always allow" is where the rule
+// lives: in memory, keyed by session, cleared at ClearSessionRules rather
+// than persisted to a project row.
+func (br *Broker) SessionRuleAllows(sessionID int64, toolName string, toolInput map[string]any) bool {
+	br.mu.Lock()
+	rules, ok := br.sessionRules[sessionID]
+	br.mu.Unlock()
+	if !ok {
+		return false
+	}
+	return policy.Matches(rules, toolName, toolInput)
+}
+
+// AllowForSession records that this tool (or, for Bash, this exact command's
+// first token) should no longer interrupt this one session. It is the
+// "Allow for this session" graduation between a single approval and a
+// project-wide "always allow": scoped to one session's lifetime, held only
+// in memory, and gone the moment ClearSessionRules runs (session end).
+func (br *Broker) AllowForSession(sessionID int64, toolName string, toolInput map[string]any) {
+	if !policy.BroadenableForSession(toolName, toolInput) {
+		// "sudo …", "bash -c …" and the like: the one approval still
+		// stands, but no session-wide rule is remembered for it.
+		return
+	}
+	rule := policy.PatternFor(toolName, toolInput)
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	br.sessionRules[sessionID] = policy.AddRule(br.sessionRules[sessionID], rule)
+}
+
+// ClearSessionRules forgets a session's "allow for this session" rules. A
+// session id is never reused, but nothing frees the entry otherwise, so this
+// is called when a session ends to keep the map from growing unbounded.
+func (br *Broker) ClearSessionRules(sessionID int64) {
+	br.mu.Lock()
+	delete(br.sessionRules, sessionID)
+	br.mu.Unlock()
 }
 
 // WaitOnce blocks for exactly one decide-or-timeout window and returns

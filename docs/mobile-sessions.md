@@ -53,6 +53,46 @@ Native keyboard and gesture coverage, limitations, and the nightly audit are
 in [Mobile terminal testing](testing/mobile-terminal.md). The Android fixture is
 disposable and never types into a person's running agent.
 
+## Chat cards and graduated approvals
+
+Chat for a live session defaults to **structured cards**, not a dump of the
+tmux pane. The server locates the session's own Claude JSONL or Codex rollout
+file — the same identity-verified reader the saved-conversation picker
+already uses, reused rather than reimplemented — and decodes it into typed
+turns (assistant/user text as light markdown, a collapsed **Thinking** entry
+for private reasoning, and one card per tool call) instead of the flattened
+display string the plain-text history reader produces. The phone polls
+`GET /sessions/{id}/conversation/live` and only asks for what was appended
+since its last look; **Terminal text** is one tap away in the same controls
+row, and is what a session falls back to automatically if its log can't be
+found (a shell-tracked session, an agent without a reader, or a sandboxed
+session) — nothing more to do, the toggle itself simply isn't offered.
+
+Every tool call collapses to a title and, on a phone, one tap away: Read/
+Edit/Write/MultiEdit show the file path and, for an edit, a real diff (the
+same renderer the session review diff uses); Bash and Codex's `exec_command`
+show the command and its output; Grep/Glob show the pattern; WebFetch/
+WebSearch show the host or query; TodoWrite renders as a checklist; a
+sub-agent `Task` shows its description; an MCP tool's `mcp__server__tool`
+wire name becomes "server · tool"; Codex's `apply_patch` gets the same diff
+treatment, split per file. A tool this registry doesn't specifically know
+still gets a real card — name plus collapsed, pretty-printed arguments —
+never a raw JSON blob.
+
+**Approvals are graduated**, in the chat and in Needs you: **Allow once**
+decides just this call; **Allow for this session** (session-scoped
+approvals only — a task attempt's approval has no persistent session for
+the rule to outlive) tells the broker to stop asking for this same tool, or
+this exact Bash command's first token, for the rest of the session, entirely
+in memory and forgotten when the session ends; **Deny with feedback** opens
+a note that is sent back to the agent as the hook's denial message. The
+approval's command or diff renders through the same tool-view registry as a
+chat card, never `JSON.stringify(approval.input)`. Claude and Codex
+interactive sessions share one PermissionRequest hook path end to end, so
+"Allow for this session" behaves identically for both; it has nothing to do
+with Codex's separate app-server driver, which only ever backs a scheduled
+task attempt, never an interactive chat.
+
 ## Glanceable home, voice, badges and richer alerts
 
 A **Now** strip sits at the top of Sessions: one chip per live session (working

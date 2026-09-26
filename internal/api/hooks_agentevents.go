@@ -80,6 +80,11 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 		s.holdSessionPermissionRequest(w, r, sess, body)
 		return
 	}
+	// A session's own rules map is never freed otherwise (a session id is
+	// never reused, but nothing else drops the entry).
+	if event == agentevents.EventSessionEnd {
+		s.Broker.ClearSessionRules(sess.ID)
+	}
 	// Claim board (docs/claims.md): a session ending releases everything it
 	// still holds immediately, rather than waiting for the sweep's dead-
 	// session catch-all. Side effect only — SessionEnd never carries
@@ -250,6 +255,18 @@ func (s *Server) holdSessionPermissionRequest(w http.ResponseWriter, r *http.Req
 	_ = json.Unmarshal(body, &in)
 	if in.ToolInput == nil {
 		in.ToolInput = map[string]any{}
+	}
+	// "Allow for this session" (decideApproval's ForSession flag) short-
+	// circuits every later matching call in the SAME session without ever
+	// creating a row or paging anyone — the point of that button is that the
+	// operator does not get asked again this session, not that the ask gets
+	// answered faster.
+	if s.Broker.SessionRuleAllows(sess.ID, in.ToolName, in.ToolInput) {
+		writeJSON(w, 200, map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName": agentevents.EventPermissionRequest,
+			"decision":      map[string]any{"behavior": "allow"},
+		}})
+		return
 	}
 	id, err := s.Broker.CreateForSession(sess.ID, in.ToolName, in.ToolInput)
 	if err != nil {

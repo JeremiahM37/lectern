@@ -34,6 +34,12 @@ type decisionIn struct {
 	Decision    string `json:"decision"`
 	Note        string `json:"note"`
 	AlwaysAllow bool   `json:"always_allow"`
+	// ForSession is the session-scoped twin of AlwaysAllow: "don't ask again
+	// for this tool (or this Bash command's first token) for the rest of
+	// THIS session" rather than for the whole project forever. Meaningful
+	// only for a session-scoped approval (SessionID != 0); a no-op on a task
+	// attempt's approval, same as AlwaysAllow is a no-op on AttemptID==0.
+	ForSession bool `json:"for_session"`
 }
 
 func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +80,13 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 			updated := policy.AddRule(policy.Parse(proj.PolicyJSON), rule)
 			s.DB.Update("projects", proj.ID, map[string]any{"policy_json": store.J(updated)})
 		}
+	}
+	// "Allow for this session" only makes sense for a session-scoped
+	// approval (a task attempt's approval has no persistent session to
+	// remember the rule against) — same shape as the AlwaysAllow guard
+	// above, just keyed on SessionID instead of AttemptID.
+	if body.ForSession && body.Decision == "approved" && row.SessionID != 0 {
+		s.Broker.AllowForSession(row.SessionID, row.ToolName, row.Input)
 	}
 	writeJSON(w, 200, row)
 }

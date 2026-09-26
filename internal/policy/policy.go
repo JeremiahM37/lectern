@@ -53,6 +53,32 @@ func PatternFor(toolName string, input map[string]any) Rule {
 	return Rule{Tool: toolName}
 }
 
+// wrapperCommands run whatever follows them, so their first token says
+// nothing about what executes: a rule for "sudo" or "bash" would allow every
+// command at all.
+var wrapperCommands = map[string]bool{
+	"sudo": true, "doas": true, "su": true, "env": true, "exec": true, "eval": true,
+	"bash": true, "sh": true, "zsh": true, "dash": true, "fish": true,
+	"xargs": true, "nohup": true, "timeout": true, "nice": true, "time": true, "command": true,
+	"python": true, "python3": true, "node": true, "perl": true, "ruby": true,
+}
+
+// BroadenableForSession reports whether "allow for the rest of this session"
+// is a sensible scope for this call. For Bash it is the command's first
+// token; a wrapper, or a path-qualified or empty command, would make that
+// rule far broader than the one command the person saw, so it is refused.
+func BroadenableForSession(toolName string, input map[string]any) bool {
+	if toolName != "Bash" {
+		return true
+	}
+	fields := strings.Fields(strings.TrimSpace(asString(input["command"])))
+	if len(fields) == 0 {
+		return false
+	}
+	first := fields[0]
+	return !wrapperCommands[first] && !strings.ContainsAny(first, "/=$`(")
+}
+
 // Matches reports whether a policy already permits this call.
 func Matches(p Policy, toolName string, input map[string]any) bool {
 	for _, rule := range p.Allow {
