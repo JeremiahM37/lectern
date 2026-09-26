@@ -268,3 +268,20 @@ return 404 rather than reconstructing permission from an exhausted catalog.
 removes its source from that catalog without revoking the current assignment.
 Final reviewers must judge completion against the planned acceptance criteria;
 an honestly reported blocked stop is not successful completion.
+
+### Outcomes are separate from report validity
+
+New builder/reviewer assignments use report version 2, persisted on the assignment.
+Builders declare `completed`, `blocked`, `incomplete`, or `decision` for a major
+choice awaiting audits. Final reviewers declare `completed`, `blocked`, or
+`incomplete`. An approval requires both a completed review outcome and a completed
+builder report. Valid blocked reports are retained and independently reviewed;
+they cannot become approved continuation artifacts. A fully executed experiment
+with a negative result may satisfy its milestone: completion is not a demand for
+a positive scientific result.
+
+Existing assignments keep their original schema, including after interruption
+or automatic report repair. New assignment requirements survive restart. Durable
+review receipts preserve explicit non-completion even when older retained prose
+contains an approval boolean. Original reports are never rewritten to manufacture
+a successful outcome.

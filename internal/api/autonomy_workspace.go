@@ -278,6 +278,9 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if e = a.State.RegisterTask(role, task.ID); e != nil {
 		return e
 	}
+	if role == "builder" || role == "reviewer" {
+		a.State.Assignments[len(a.State.Assignments)-1].ReportVersion = 2
+	}
 	if e = s.saveAuto(a); e != nil {
 		return e
 	}
@@ -329,10 +332,10 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 	} else if strings.HasPrefix(role, "decision_") {
 		b.WriteString("Independently review the pending major decision BEFORE its execution. Inspect actual checkpoint files. Challenge assumptions, alternatives, resource cost, novelty, failure modes and scope. Do not accept the proposer's confidence as evidence. Approval authorizes only the described isolated step, never publication/live-service access. Return {\"approve\":true,\"reason\":\"evidence and conditions\"} in /work/autonomy-report.json.\n")
 	} else if role == "builder" {
-		b.WriteString("Before a major architecture/direction/model/resource change or expensive experiment: STOP at the boundary and submit a decision checkpoint instead of executing it. Preserve files and write {\"summary\":\"checkpoint\",\"evidence\":[\"...\"],\"decision\":{\"title\":\"specific proposed decision\",\"rationale\":\"why and expected impact\",\"alternatives\":[\"...\"],\"risks\":[\"...\"]}} to /work/autonomy-report.json and exit. Two independent reviewers must approve before continuation. If decision_audits reject it, revise or choose an alternative; rejection is never permission. Routine implementation inside an already-reviewed scope needs no extra debate. Never self-approve.\n")
-		fmt.Fprintf(&b, "Implement only item %d: %s. This is an isolated snapshot or retained checkpoint, never the live tree. Inspect WORKSHOP.md and any decision verdicts before acting. Preserve reproducible code and tests. Write /work/autonomy-report.json exactly {\"summary\":\"...\",\"evidence\":[\"commands actually run and outcomes, artifact paths\"]}.\n", a.State.Item, store.J(a.State.Items[a.State.Item]))
+		b.WriteString("Before a major architecture/direction/model/resource change or expensive experiment: STOP at the boundary and submit a decision checkpoint instead of executing it. Preserve files and write {\"outcome\":\"decision\",\"summary\":\"checkpoint\",\"evidence\":[\"...\"],\"decision\":{\"title\":\"specific proposed decision\",\"rationale\":\"why and expected impact\",\"alternatives\":[\"...\"],\"risks\":[\"...\"]}} to /work/autonomy-report.json and exit. Two independent reviewers must approve before continuation. If decision_audits reject it, revise or choose an alternative; rejection is never permission. Routine implementation inside an already-reviewed scope needs no extra debate. Never self-approve.\n")
+		fmt.Fprintf(&b, "Choose one outcome: completed when the milestone is fulfilled, blocked when an external prerequisite prevents it, incomplete for unfinished work. Decision checkpoints use outcome=decision. Implement only item %d: %s. This is an isolated snapshot or retained checkpoint, never the live tree. Inspect WORKSHOP.md and any decision verdicts before acting. Preserve reproducible code and tests. Write /work/autonomy-report.json exactly {\"outcome\":\"completed|blocked|incomplete\",\"summary\":\"...\",\"evidence\":[\"commands actually run and outcomes, artifact paths\"]}.\n", a.State.Item, store.J(a.State.Items[a.State.Item]))
 	} else {
-		b.WriteString("Inspect and test the builder's actual files in /work independently against the acceptance criteria. You may run tests and investigate; do not approve based on its prose alone. Reject unsupported claims or unsafe work. An honest blocked or incomplete stop does not satisfy acceptance criteria: approve=false unless the planned milestone itself was completed with evidence. Do not approve merely because the builder accurately described its inability to proceed. Write /work/autonomy-report.json exactly {\"approve\":true,\"reason\":\"specific commands and observed results\"}.\n")
+		b.WriteString("Inspect and test the builder's actual files in /work independently against the acceptance criteria. You may run tests and investigate; do not approve based on its prose alone. Reject unsupported claims or unsafe work. An honest blocked or incomplete stop does not satisfy acceptance criteria: approve=false unless the planned milestone itself was completed with evidence. Do not approve merely because the builder accurately described its inability to proceed. Write /work/autonomy-report.json exactly {\"outcome\":\"completed|blocked|incomplete\",\"approve\":true,\"reason\":\"specific commands and observed results\"}. Choose one outcome value. approve=true requires outcome=completed and completed builder work. For blocked/incomplete work use approve=false; this preserves evidence without promoting it. A completed experiment with negative results can be completed work if the predeclared experimental milestone was fully performed.\n")
 	}
 	if s.Memory != nil {
 		facts, e := s.Memory.Recall(ctx, p.Name, 8)
@@ -368,6 +371,11 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 		j.ReportRetryAt = time.Time{}
 	}
 	j.ID = id
+	if old.Admission != nil {
+		receipt := *old.Admission
+		receipt.JobID = id
+		j.Admission = &receipt
+	}
 	j.Status = "prepared"
 	j.ArtifactPath = filepath.Join(autoRoot, id, "work")
 	j.StartedAt = time.Now()

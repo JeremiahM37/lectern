@@ -172,10 +172,12 @@ type PlanReport struct {
 	Backlog []Proposal `json:"backlog,omitempty"`
 }
 type Verdict struct {
+	Outcome string `json:"outcome,omitempty"`
 	Approve *bool  `json:"approve"`
 	Reason  string `json:"reason"`
 }
 type BuildReport struct {
+	Outcome  string            `json:"outcome,omitempty"`
 	Summary  string            `json:"summary"`
 	Evidence []string          `json:"evidence"`
 	Decision *DecisionProposal `json:"decision,omitempty"`
@@ -205,12 +207,13 @@ func validateDecision(d DecisionProposal) error {
 }
 
 type Assignment struct {
-	TaskID    int64  `json:"task_id"`
-	Role      string `json:"role"`
-	Round     int    `json:"round"`
-	Item      int    `json:"item"`
-	Step      int    `json:"step"`
-	Completed bool   `json:"completed"`
+	ReportVersion int    `json:"report_version,omitempty"`
+	TaskID        int64  `json:"task_id"`
+	Role          string `json:"role"`
+	Round         int    `json:"round"`
+	Item          int    `json:"item"`
+	Step          int    `json:"step"`
+	Completed     bool   `json:"completed"`
 }
 type State struct {
 	Date           string                    `json:"date"`
@@ -442,6 +445,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		if err := decodeStrict(raw, &r); err != nil {
 			return err
 		}
+		if err := validateBuildOutcome(r, a.ReportVersion); err != nil {
+			return err
+		}
 		if strings.TrimSpace(r.Summary) == "" || len(r.Evidence) == 0 {
 			return errors.New("build report requires summary and evidence")
 		}
@@ -503,6 +509,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		}
 		if v.Approve == nil || strings.TrimSpace(v.Reason) == "" {
 			return errors.New("review needs approval and reason")
+		}
+		if err := s.validateReviewOutcome(v, a); err != nil {
+			return err
 		}
 		if !*v.Approve {
 			s.Phase = Complete

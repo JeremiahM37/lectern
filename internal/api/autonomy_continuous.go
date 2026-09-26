@@ -98,8 +98,9 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 			for _, builder := range a.State.Assignments {
 				if builder.Role == "builder" && builder.Completed && builder.Item == as.Item && builder.Round == as.Round && builder.Step == as.Step {
 					if job := autoFindJob(a, builder.TaskID); job != nil {
-						job.Approved = *verdict.Approve
-						job.Rejected = !*verdict.Approve
+						job.Approved = verdict.AcceptsWork()
+						job.ReviewOutcome = verdict.Outcome
+						job.Rejected = !verdict.AcceptsWork()
 						job.ReviewReason = verdict.Reason
 						job.ReviewTaskID = as.TaskID
 					}
@@ -214,6 +215,9 @@ func (s *Server) autoContinuation(a *autoRecord, projectID, taskID int64) (*auto
 // Cross-cycle reuse is stricter than the within-cycle review/decision copies:
 // only an explicitly approved final review can promote a builder checkpoint.
 func autoCheckpointApproved(a *autoRecord, taskID int64) bool {
+	if j := autoFindJob(a, taskID); j != nil && j.ReviewOutcome != "" && j.ReviewOutcome != "completed" {
+		return false
+	}
 	if job := autoFindJob(a, taskID); job != nil && job.Approved && job.ReviewTaskID > 0 {
 		if reviewer := autoFindJob(a, job.ReviewTaskID); reviewer != nil && reviewer.Role == "reviewer" && reviewer.Status == "done" {
 			return true
@@ -233,7 +237,7 @@ func autoCheckpointApproved(a *autoRecord, taskID int64) bool {
 					continue
 				}
 				var verdict autonomy.Verdict
-				if json.Unmarshal(state.Reports[reviewer.TaskID], &verdict) == nil && verdict.Approve != nil && *verdict.Approve {
+				if json.Unmarshal(state.Reports[reviewer.TaskID], &verdict) == nil && verdict.AcceptsWork() {
 					return true
 				}
 			}

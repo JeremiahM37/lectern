@@ -67,3 +67,26 @@ func TestAdmissionRequiresCurrentAuditsAndBuilder(t *testing.T) {
 		t.Fatal("missing independent audit admitted")
 	}
 }
+
+func TestExplicitIncompleteReceiptCannotBePromotedByLegacyApproval(t *testing.T) {
+	s, a, project, source := repairFixture(t)
+	j := autoFindJob(a, source)
+	j.Approved = true
+	j.ReviewTaskID = a.Jobs[1].TaskID
+	j.ReviewOutcome = "incomplete"
+	// Retained legacy prose once said approve=true for an honest stop.
+	a.Runs[0].Reports[j.ReviewTaskID] = json.RawMessage(`{"approve":true,"reason":"honest incomplete stop"}`)
+	if err := s.saveAuto(a); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.loadAuto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if autoCheckpointApproved(a, source) {
+		t.Fatal("incomplete receipt promoted by legacy bool")
+	}
+	if _, err := s.autoApprovedContinuation(a, project, source); err == nil {
+		t.Fatal("incomplete artifact continued as accepted")
+	}
+}

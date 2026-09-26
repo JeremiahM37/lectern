@@ -29,6 +29,7 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
+	ReviewOutcome       string         `json:"review_outcome,omitempty"`
 	Admission           *autoAdmission `json:"admission,omitempty"`
 	ReportError         string         `json:"report_error,omitempty"`
 	ReportRepairs       int            `json:"report_repairs,omitempty"`
@@ -515,8 +516,9 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 				as := a.State.Assignments[i]
 				if as.Role == "builder" && as.Item == a.State.Item && as.Step == a.State.Step && as.Round == a.State.Revision && as.Completed {
 					if builder := autoFindJob(a, as.TaskID); builder != nil {
-						builder.Approved = *verdict.Approve
-						builder.Rejected = !*verdict.Approve
+						builder.Approved = verdict.AcceptsWork()
+						builder.ReviewOutcome = verdict.Outcome
+						builder.Rejected = !verdict.AcceptsWork()
 						builder.ReviewReason = verdict.Reason
 						builder.ReviewTaskID = j.TaskID
 					}
