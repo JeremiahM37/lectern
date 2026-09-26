@@ -89,9 +89,17 @@ def roots(a):
    add('repo:'+os.path.realpath(cur),os.path.join(cur,'.claude' if agent=='claude' else '.agents','skills'))
    if os.path.realpath(cur)==os.path.realpath(gr): break
    cur=os.path.dirname(cur)
- if agent=='claude': add('claude-user',os.path.join(os.environ.get('CLAUDE_CONFIG_DIR',os.path.expanduser('~/.claude')),'skills'))
+ h=os.path.expanduser
+ if agent=='claude': add('claude-user',os.path.join(os.environ.get('CLAUDE_CONFIG_DIR',h('~/.claude')),'skills'))
  elif agent=='codex':
-  add('codex-user',os.path.expanduser('~/.agents/skills')); add('codex-system','/etc/codex/skills')
+  add('codex-user',h('~/.agents/skills')); add('codex-system','/etc/codex/skills')
+ elif agent=='gemini': add('gemini-user',h('~/.gemini/skills')); add('agents-user',h('~/.agents/skills'))
+ elif agent=='qwen': add('qwen-user',h('~/.qwen/skills')); add('agents-user',h('~/.agents/skills'))
+ elif agent=='copilot': add('copilot-user',h('~/.copilot/skills')); add('agents-user',h('~/.agents/skills'))
+ elif agent=='opencode':
+  cfg=os.environ.get('XDG_CONFIG_HOME') or h('~/.config')
+  for d in ('skills','skill'): add('opencode-user-'+d,os.path.join(cfg,'opencode',d))
+  add('agents-user',h('~/.agents/skills'))
  import hashlib
  for p in a.get('configured',[]): add('configured:'+hashlib.sha256(os.path.realpath(p).encode()).hexdigest()[:12],p)
  return out
@@ -171,12 +179,35 @@ func run(ctx context.Context, ex executor.Executor, in map[string]any) (map[stri
 	return out, nil
 }
 
-func supported(agent string) bool { return agent == "claude" || agent == "codex" }
+// agentSkillsDirs are the agents whose CLI reads Agent Skills (SKILL.md
+// directories). Claude Code reads .claude/skills; every other agent here reads
+// the shared .agents/skills project directory, confirmed against each CLI
+// (docs/context-parity.md, "Skills"). Keyed by Lectern's agent name, so a
+// catalog agent saved under a different name does not get skills.
+var agentSkillsDirs = map[string]string{
+	"claude":   ".claude",
+	"codex":    ".agents",
+	"gemini":   ".agents",
+	"qwen":     ".agents",
+	"opencode": ".agents",
+	"copilot":  ".agents",
+}
+
+// Supported reports whether project skills can be attached for agent.
+func Supported(agent string) bool { _, ok := agentSkillsDirs[agent]; return ok }
+
+// SupportedAgents lists the agents project skills can be attached for.
+func SupportedAgents() []string {
+	return []string{"claude", "codex", "gemini", "qwen", "opencode", "copilot"}
+}
+
+func supported(agent string) bool { return Supported(agent) }
 func rel(agent, name string) string {
-	if agent == "claude" {
-		return filepath.Join(".claude", "skills", name)
+	dir := agentSkillsDirs[agent]
+	if dir == "" {
+		dir = ".agents"
 	}
-	return filepath.Join(".agents", "skills", name)
+	return filepath.Join(dir, "skills", name)
 }
 func configured(p *store.Project) []string {
 	var x []string
@@ -189,7 +220,7 @@ func configured(p *store.Project) []string {
 
 func Discover(ctx context.Context, ex executor.Executor, p *store.Project, agent string) ([]Skill, error) {
 	if !supported(agent) {
-		return nil, fmt.Errorf("skills are unsupported for agent %q", agent)
+		return nil, fmt.Errorf("skills are unsupported for agent %q (supported: %s)", agent, strings.Join(SupportedAgents(), ", "))
 	}
 	repo := ""
 	sources := []string{}

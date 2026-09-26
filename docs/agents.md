@@ -155,6 +155,12 @@ enforce `strict_mcp`; Codex receives additive overrides and rejects `strict_mcp`
 including when the declaration is empty. Gemini and custom agents receive no
 automatic MCP translation unless their custom launch definition supplies it.
 
+Project skills (Agent Skills `SKILL.md` directories) are linked into
+`.claude/skills` for Claude and into the shared `.agents/skills` for Codex,
+Gemini CLI, Qwen Code, OpenCode and GitHub Copilot CLI. Other agents have no
+confirmed skills directory and are refused; see
+[terminal-client.md](terminal-client.md#project-skills).
+
 Project MCP is managed from PWA project settings, the terminal dashboard's MCP
 action, or `PUT /api/projects/ID/mcp` through the CLI API. Responses redact
 credential values; the target-side runtime document is private to its session or

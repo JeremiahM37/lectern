@@ -1140,6 +1140,20 @@ func (m *dashboard) mcpSettingsLoaded(data []byte, path string) tea.Cmd {
 	})
 }
 
+// skillProviderChoices mirrors internal/skills.SupportedAgents: the agents
+// whose CLI reads Agent Skills.
+var skillProviderChoices = []choice{{"Claude Code", "claude"}, {"Codex", "codex"}, {"Gemini CLI", "gemini"},
+	{"Qwen Code", "qwen"}, {"OpenCode", "opencode"}, {"GitHub Copilot CLI", "copilot"}}
+
+func skillProviderKnown(agent string) bool {
+	for _, c := range skillProviderChoices {
+		if c.Value == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // skillsSettingsForm keeps discovery and attachment records visible in the
 // terminal. Skill IDs remain target-local; the dashboard only submits the
 // selected provider and ID back to the dedicated endpoints.
@@ -1152,7 +1166,7 @@ func (m *dashboard) skillsSettingsForm() tea.Cmd {
 	c := m.client
 	projectID := id(r)
 	agent := str(r["default_agent"])
-	if agent != "claude" && agent != "codex" {
+	if !skillProviderKnown(agent) {
 		agent = "claude"
 	}
 	path := "/projects/" + projectID + "/skills"
@@ -1234,7 +1248,7 @@ func (m *dashboard) skillsSettingsLoaded(msg skillsLoadedMsg) tea.Cmd {
 		sources = strings.Join(sourceList, "\n")
 	}
 	return m.openForm("Project skills — target-local catalog", []field{
-		optionField("agent", "Provider", envelope.Agent, []choice{{"Claude Code", "claude"}, {"Codex", "codex"}}, true),
+		optionField("agent", "Provider", envelope.Agent, skillProviderChoices, true),
 		optionField("operation", "Operation", "attach", []choice{{"Attach discovered skill", "attach"}, {"Detach attached skill", "detach"}, {"Save target directories", "sources"}}, true),
 		optionField("skill_id", "Skill (name · source)", skillChoices[0].Value, skillChoices, false),
 		optionField("attachment_id", "Attachment (name · source)", attachmentChoices[0].Value, attachmentChoices, false),
