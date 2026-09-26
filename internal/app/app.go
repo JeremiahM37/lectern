@@ -24,6 +24,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
@@ -169,6 +170,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		TrustServeHeaders: cfg.TrustServeHeaders,
 	}, log)
 
+	// pairingStore is wired into the resolver regardless of whether pairing
+	// is currently enabled (pairing.Enabled checks env+setting at request
+	// time) — this lets Settings → Devices turn it on live, with no
+	// restart, rather than only at startup.
+	pairingStore := pairing.New(db)
+	authResolver.SetDeviceLookup(pairingStore)
+
 	// triggersMgr polls GitHub/Linear and holds Slack's Socket Mode
 	// connections open (internal/triggers). CreateTask is wired below, once
 	// srv exists, to the same task-creation-plus-dispatch path a human's
@@ -180,6 +188,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
+		Pairing: pairingStore,
 	}
 	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler

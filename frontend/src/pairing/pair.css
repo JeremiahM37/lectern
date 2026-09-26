@@ -1,0 +1,65 @@
+/* The standalone /pair page — reachable with no auth at all, so it gets its
+   own minimal stylesheet rather than pulling in the whole app shell's CSS. */
+.pair-page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: var(--bg, #0b0e14);
+  color: var(--ink, #e7ebf3);
+}
+.pair-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pair-card h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+.pair-card p {
+  margin: 0;
+  color: var(--ink-dim, #97a2bd);
+  font-size: 0.92rem;
+}
+.pair-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pair-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--ink-dim, #97a2bd);
+}
+.pair-card input {
+  font-size: 1rem;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #262c3d);
+  background: var(--bg-alt, #12151f);
+  color: var(--ink, #e7ebf3);
+}
+.pair-card button {
+  font-size: 1rem;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent, #5b8cff);
+  color: #fff;
+  cursor: pointer;
+}
+.pair-card button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.pair-error {
+  color: var(--amber, #fbbf24);
+  font-size: 0.85rem;
+  margin: 0;
+}

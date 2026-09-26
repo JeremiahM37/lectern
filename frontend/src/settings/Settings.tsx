@@ -7,6 +7,7 @@ import { Workflows } from "./Workflows";
 import { Triggers } from "./Triggers";
 import { Delegation } from "./Delegation";
 import { ConnectTools } from "./ConnectTools";
+import { Devices } from "./Devices";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
@@ -164,6 +165,7 @@ export function Settings({
             ["machines", "Targets"],
             ["projects", "Projects"],
             ["notifications", "Notifications"],
+            ["devices", "Devices"],
             ["about", "Usage & about"],
             ["budgets", "Budgets"],
             ["agents", "Agents"],
@@ -175,7 +177,7 @@ export function Settings({
             aria-selected={tab === k}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-              const tabs = ["machines", "projects", "notifications", "about", "budgets", "agents"];
+              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "agents"];
               const next = tabs[(tabs.indexOf(k) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
               setTab(next);
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
@@ -221,6 +223,7 @@ export function Settings({
           onNotice={onNotice}
         />
       )}{" "}
+      {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (
         <section>
           <h3>Spend</h3>
@@ -1114,7 +1117,9 @@ function Whoami({ api }: { api: SettingsApi }) {
       ? `tailscale · ${w.login}${w.node ? ` (${w.node})` : ""}`
       : w.kind === "token"
         ? "access token"
-        : "local (no login needed)";
+        : w.kind === "device"
+          ? `paired device${w.login ? ` · ${w.login}` : ""}`
+          : "local (no login needed)";
   return (
     <article id="whoami">
       <h3>Signed in</h3>

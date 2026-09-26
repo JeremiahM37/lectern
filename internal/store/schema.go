@@ -626,6 +626,32 @@ CREATE TABLE IF NOT EXISTS outcome_facts(
 CREATE INDEX IF NOT EXISTS idx_outcome_facts_date ON outcome_facts(date);
 CREATE INDEX IF NOT EXISTS idx_outcome_facts_agent_model ON outcome_facts(agent, model);
 CREATE INDEX IF NOT EXISTS idx_outcome_facts_project ON outcome_facts(project_id);
+-- Device pairing (internal/pairing, docs/remote-access.md): lets a phone with
+-- no Tailscale reach Lectern through an ordinary public tunnel. A code is
+-- single-use and short-lived, minted only by an already-authenticated owner;
+-- exchanging it mints a device token that authenticates as that owner from
+-- then on. Both the code and the token are stored hashed, matching
+-- internal/oauth's convention — this table never holds a value that
+-- authenticates anyone on its own.
+CREATE TABLE IF NOT EXISTS pairing_codes(
+  code_hash TEXT PRIMARY KEY,
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pairing_devices(
+  id INTEGER PRIMARY KEY,
+  token_hash TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  paired_at REAL NOT NULL,
+  last_seen_at REAL NOT NULL
+);
 `
 
 // migrations are additive: they bring a database created by an older build up to

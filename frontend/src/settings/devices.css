@@ -1,0 +1,79 @@
+/* Settings → Devices ("Pair a phone"). Reuses the shared .subhint/.b tokens
+   from web/static/style.css; this file only adds pairing-specific layout. */
+.devices-panel h4 {
+  margin: 18px 0 8px;
+}
+.pairing-hint {
+  border: 1px solid var(--amber, #fbbf24);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--amber, #fbbf24);
+}
+.devices-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.devices-idle {
+  margin: 10px 0;
+}
+.devices-idle input {
+  width: 6em;
+  margin-left: 8px;
+}
+.pairing-mint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--border, #262c3d);
+  border-radius: 10px;
+}
+.pairing-qr {
+  flex: 0 0 auto;
+  border-radius: 6px;
+}
+.pairing-mint-code {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.pairing-code-text {
+  display: block;
+  font-size: 1.1rem;
+  letter-spacing: 0.03em;
+  word-break: break-all;
+  margin: 6px 0;
+}
+.device-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border, #262c3d);
+}
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .pairing-mint {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}

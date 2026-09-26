@@ -195,7 +195,31 @@ export default function App() {
     );
   }, []);
   const api = useMemo(
-    () => createDeckApi({ onUnauthorized: () => setUnauthorized(true) }),
+    () =>
+      createDeckApi({
+        onUnauthorized: () => {
+          // A device that was paired (frontend/src/pairing/Pair.tsx sets this
+          // non-secret marker on success — the credential itself is an
+          // HttpOnly cookie this code can't see) and has no static token
+          // configured: a 401 here means the device was revoked, so the fix
+          // is re-pairing, not typing an access token that was never issued
+          // to it. See docs/remote-access.md.
+          if (!authToken()) {
+            let paired = false;
+            try {
+              paired = localStorage.getItem("lec-paired") === "1";
+            } catch {}
+            if (paired) {
+              try {
+                localStorage.removeItem("lec-paired");
+              } catch {}
+              window.location.href = "/pair";
+              return;
+            }
+          }
+          setUnauthorized(true);
+        },
+      }),
     [],
   );
   const navigate = useCallback((hash: string) => {
@@ -744,6 +768,7 @@ export default function App() {
       ["machines", "Targets", "ssh remote local machines"],
       ["projects", "Projects", "repositories workspaces"],
       ["notifications", "Notifications", "alerts push"],
+      ["devices", "Devices", "pair phone tunnel qr code pairing"],
       ["about", "Usage and about", "settings version costs"],
       ["agents", "Agents", "agent runners commands custom providers models"],
     ].map(([name, title, keywords]) => ({

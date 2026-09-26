@@ -29,6 +29,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
@@ -79,6 +80,11 @@ type Server struct {
 	Cfg       *config.Config
 	Auth      *auth.Resolver
 	Log       *slog.Logger
+	// Pairing is device pairing's store (internal/pairing, pairing.go in
+	// this package) — nil is safe everywhere it is read (pairingEnabled
+	// treats a nil Pairing as "off"), so a build or test harness that never
+	// wires one simply never offers /pair.
+	Pairing *pairing.Store
 	// Activity records recent real terminal input per session, for the
 	// alert-suppression rule in docs/agent-events.md section 3. Nil is safe
 	// (terminalActivity then just has nowhere to record — no suppression,
@@ -388,6 +394,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/push/subscriptions", s.listPushSubscriptions)
 	mux.HandleFunc("DELETE /api/push/subscribe", s.unsubscribePush)
 
+	// ---- device pairing (internal/pairing): a phone with no Tailscale,
+	// paired through a public tunnel. exchange is the one unauthenticated
+	// write here — see its exemption in withAuth below and pairing.go's own
+	// doc comment. Everything else is owner-only (requireOwner). ----
+	mux.HandleFunc("POST /api/pair/mint", s.mintPairingCode)
+	mux.HandleFunc("POST /api/pair/exchange", s.exchangePairingCode)
+	mux.HandleFunc("GET /api/pair/devices", s.listPairedDevices)
+	mux.HandleFunc("DELETE /api/pair/devices/{id}", s.revokePairedDevice)
+	mux.HandleFunc("GET /api/pair/settings", s.getPairingSettings)
+	mux.HandleFunc("PUT /api/pair/settings", s.putPairingSettings)
+
 	// ---- review: live diffs, commit/push/PR and inline comments ----
 	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)
 	mux.HandleFunc("POST /api/sessions/{id}/commit", s.commitSession)
@@ -420,10 +437,16 @@ func (s *Server) Handler() http.Handler {
 // per-attempt token there. That is also the security boundary — in token mode an
 // agent holds ONLY its hook token, so it cannot reach the human decision
 // endpoint to approve its own gated action.
+//
+// /api/pair/exchange is exempt for a different reason: it is the ONE
+// endpoint an unpaired device can reach with no credential at all, by
+// design — see pairing.go's doc comment. Every other /api/pair/* route
+// (mint, list, revoke, settings) stays gated and additionally requires
+// CanDecide (requireOwner), same as an approval decision.
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		gated := (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/")) ||
+		gated := (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/") && p != "/api/pair/exchange") ||
 			strings.HasPrefix(p, "/term/") || strings.HasPrefix(p, a2a.InterfacePath)
 		if !gated {
 			next.ServeHTTP(w, r)

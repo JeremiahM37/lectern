@@ -47,6 +47,15 @@ type Config struct {
 	// (an agent included) can reach this host's loopback interface.
 	TrustServeHeaders bool
 
+	// DevicePairing is LECTERN_DEVICE_PAIRING=1 — turns on internal/pairing
+	// (Settings → Devices, "Pair a phone" / /pair) regardless of what the
+	// "pairing_enabled" setting says; see pairing.Enabled. Off by default:
+	// it is a second, always-available way into the API (a paired device
+	// authenticates in every auth mode, see auth.Resolver.Authenticate), so
+	// an operator opts in deliberately rather than getting it from a bare
+	// upgrade.
+	DevicePairing bool
+
 	// TLS turns on a second listener bound to this node's tailnet addresses,
 	// so a phone gets a secure context without needing `tailscale serve` to
 	// front it. LECTERN_TLS: "" (off) or "tailscale". TLSPort
@@ -204,6 +213,7 @@ func Load() *Config {
 		TailscaleUsers:          os.Getenv("LECTERN_TAILSCALE_USERS"),
 		TailscaleTags:           os.Getenv("LECTERN_TAILSCALE_TAGS"),
 		TrustServeHeaders:       os.Getenv("LECTERN_TRUST_SERVE_HEADERS") == "1",
+		DevicePairing:           os.Getenv("LECTERN_DEVICE_PAIRING") == "1",
 		TLS:                     os.Getenv("LECTERN_TLS"),
 		TLSPort:                 int(envFloat("LECTERN_TLS_PORT", 0)),
 		TickInterval:            envSeconds("LECTERN_TICK", 2.0),
