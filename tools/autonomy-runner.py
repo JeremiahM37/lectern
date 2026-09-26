@@ -740,6 +740,37 @@ def copy_job(job, source, review=False):
         receipt = evidence / source / 'manifest.json'
         receipt.write_text(json.dumps({'source_job': source, 'purpose': 'untrusted reviewer evidence, not approval', 'files': manifest}, indent=2))
         os.chown(receipt, admin.pw_uid, admin.pw_gid)
+    else:
+        # Do not populate the next worker's submission path with a stale report.
+        # Preserve its exact bytes separately so inherited checksum evidence can
+        # still be checked without rewriting the original manifest.
+        prior = src / 'autonomy-report.json'
+        if prior.exists() or prior.is_symlink():
+            st = regular(prior)
+            if st.st_size > 128 * 1024:
+                raise ValueError('inherited report exceeds 128 KiB')
+            reports = dest / '.lectern-reports'
+            if reports.is_symlink() or (reports.exists() and not reports.is_dir()):
+                raise ValueError('inherited report root must be a real directory')
+            reports.mkdir(exist_ok=True)
+            saved = reports / source
+            if saved.exists() or saved.is_symlink():
+                raise ValueError('inherited report destination already exists')
+            saved.mkdir()
+            data = prior.read_bytes()
+            if len(data) > 128 * 1024:
+                raise ValueError('inherited report grew past 128 KiB')
+            report_copy = saved / 'autonomy-report.json'
+            with report_copy.open('xb') as out:
+                out.write(data)
+            receipt = saved / 'manifest.json'
+            receipt.write_text(json.dumps({'source_job': source,
+                'purpose': 'untrusted prior report evidence, not current submission or approval',
+                'original_path': 'autonomy-report.json',
+                'preserved_path': str(report_copy.relative_to(dest)),
+                'sha256': hashlib.sha256(data).hexdigest()}, indent=2))
+            for entry in (reports, saved, report_copy, receipt):
+                os.chown(entry, admin.pw_uid, admin.pw_gid)
     return {'state': 'copied', 'entries': len(paths), 'bytes': total}
 
 

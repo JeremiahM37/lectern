@@ -104,6 +104,66 @@ class ReviewEvidenceTests(unittest.TestCase):
     with self.assertRaises(ValueError):r.copy_job(destination,source,review=True)
    self.assertFalse((root/'outside').exists())
 
+class ReportHandoffTests(unittest.TestCase):
+ def fixture(self):
+  import uuid,os
+  from types import SimpleNamespace
+  temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+  root=Path(temp.name);source=str(uuid.uuid4());destination=str(uuid.uuid4())
+  for job in (source,destination):(root/job/'work').mkdir(parents=True)
+  for mocked in (patch.object(r,'ROOT',root),patch.object(r,'ensure_work',side_effect=lambda p:p/'work'),patch.object(r,'status',return_value={'state':'done'}),patch.object(r.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid()))):
+   mocked.start();self.addCleanup(mocked.stop)
+  return root,source,destination
+ def test_exact_prior_report_preserved_without_stale_submission(self):
+  import json,hashlib,uuid
+  root,source,destination=self.fixture();src=root/source/'work';dst=root/destination/'work'
+  original=b'{ "outcome": "incomplete", "summary": "honest stop" }\n'
+  (src/'autonomy-report.json').write_bytes(original)
+  manifest=hashlib.sha256(original).hexdigest()+'  /work/autonomy-report.json\n'
+  (src/'SHA256SUMS').write_text(manifest)
+  r.copy_job(destination,source)
+  self.assertFalse((dst/'autonomy-report.json').exists())
+  with self.assertRaises(FileNotFoundError):r.report(destination)
+  saved=dst/'.lectern-reports'/source
+  self.assertEqual((saved/'autonomy-report.json').read_bytes(),original)
+  receipt=json.loads((saved/'manifest.json').read_text())
+  self.assertEqual(receipt['sha256'],hashlib.sha256(original).hexdigest())
+  self.assertEqual(receipt['original_path'],'autonomy-report.json')
+  self.assertEqual((dst/receipt['preserved_path']).read_bytes(),original)
+  self.assertEqual((dst/'SHA256SUMS').read_text(),manifest)
+  self.assertEqual((src/'autonomy-report.json').read_bytes(),original)
+  later=str(uuid.uuid4());(root/later/'work').mkdir(parents=True)
+  (dst/'autonomy-report.json').write_text('{"outcome":"ready_for_review"}')
+  r.copy_job(later,destination)
+  history=root/later/'work/.lectern-reports'
+  self.assertEqual((history/source/'autonomy-report.json').read_bytes(),original)
+  self.assertEqual((history/destination/'autonomy-report.json').read_text(),'{"outcome":"ready_for_review"}')
+  self.assertFalse((root/later/'work/autonomy-report.json').exists())
+ def test_reserved_root_symlink_cannot_write_outside_copy(self):
+  root,source,destination=self.fixture();src=root/source/'work';outside=root/'outside';outside.mkdir()
+  (src/'autonomy-report.json').write_text('{}')
+  (src/'.lectern-reports').symlink_to(outside)
+  with self.assertRaises(ValueError):r.copy_job(destination,source)
+  self.assertEqual(list(outside.iterdir()),[])
+ def test_prior_report_symlink_refused(self):
+  root,source,destination=self.fixture();outside=root/'secret';outside.write_text('not evidence')
+  (root/source/'work/autonomy-report.json').symlink_to(outside)
+  with self.assertRaises(ValueError):r.copy_job(destination,source)
+  self.assertEqual(outside.read_text(),'not evidence')
+ def test_reserved_source_collision_is_not_overwritten(self):
+  root,source,destination=self.fixture();src=root/source/'work'
+  (src/'autonomy-report.json').write_text('{}')
+  reserved=src/'.lectern-reports'/source;reserved.mkdir(parents=True)
+  (reserved/'original.txt').write_text('retained evidence')
+  with self.assertRaises(ValueError):r.copy_job(destination,source)
+  self.assertEqual((reserved/'original.txt').read_text(),'retained evidence')
+ def test_legacy_copy_without_report_still_works(self):
+  root,source,destination=self.fixture()
+  (root/source/'work/code.txt').write_text('checkpoint')
+  r.copy_job(destination,source)
+  self.assertEqual((root/destination/'work/code.txt').read_text(),'checkpoint')
+  self.assertFalse((root/destination/'work/.lectern-reports').exists())
+
 class AuthTests(unittest.TestCase):
  def fixture(self, age=0, expiry=7200):
   import base64,datetime,json,time
