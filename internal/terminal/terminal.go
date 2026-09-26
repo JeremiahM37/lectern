@@ -19,10 +19,13 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
-// Port range handed out to attached terminals.
+// Default port range handed out to attached terminals: one port per open
+// terminal, so this is how many can be open at once. It was 7710–7730, and the
+// 22nd terminal silently closed the oldest even while someone was using it.
+// LECTERN_TERMINAL_PORTS overrides it (Manager.PortLo/PortHi).
 const (
 	PortLo = 7710
-	PortHi = 7730
+	PortHi = 7909
 )
 
 // TTYDArgs builds ttyd's command line.
@@ -77,8 +80,9 @@ func (m *Manager) PortFor(key string) (int, bool) {
 	return s.port, true
 }
 
-// ErrNoPorts means every terminal port in the range is taken.
-var ErrNoPorts = errors.New("no free terminal ports")
+// ErrNoPorts means every terminal port in the range is taken by a terminal
+// someone is viewing, so none can be retired to make room.
+var ErrNoPorts = errors.New("every web terminal port is in use by an open terminal; close one and try again")
 
 // Attachment is whatever you want a terminal on: a task's attempt, or an
 // interactive session. Both are just a tmux session on a target, which is why
@@ -105,6 +109,14 @@ func (a Attachment) IsShell() bool { return a.Workdir != "" }
 type Manager struct {
 	mu    sync.Mutex
 	procs map[string]*session
+	// viewers counts open browser connections per attachment, kept apart
+	// from procs so a viewer that connects while its ttyd is being respawned
+	// is already counted.
+	viewers    map[string]int
+	lastViewed map[string]time.Time
+
+	// PortLo and PortHi override the default port range when both are set.
+	PortLo, PortHi int
 
 	// Spawn is the process launcher. Tests replace it; production shells out.
 	Spawn func(port int, basePath string, argv []string) (*exec.Cmd, error)
@@ -116,12 +128,14 @@ type session struct {
 	port    int
 	cmd     *exec.Cmd
 	started time.Time
+	exited  chan struct{} // closed when cmd has exited; nil for a test double never started
 }
 
 // NewManager builds a terminal manager wired to the real ttyd binary.
 func NewManager() *Manager {
 	return &Manager{
-		procs:    map[string]*session{},
+		procs:   map[string]*session{},
+		viewers: map[string]int{}, lastViewed: map[string]time.Time{},
 		LookPath: exec.LookPath,
 		Spawn: func(port int, basePath string, argv []string) (*exec.Cmd, error) {
 			cmd := exec.Command("ttyd", TTYDArgs(port, basePath, argv)...)
@@ -209,13 +223,20 @@ func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
 
 // Attach spawns (or reuses) a ttyd for an attachment and returns its port.
 func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target) (int, error) {
+	port, _, err := m.AttachWithNotice(ctx, a, target)
+	return port, err
+}
+
+// AttachWithNotice is Attach, also naming the idle terminal it retired to make
+// room, if any ("" when none), so the caller can tell the user.
+func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *store.Target) (int, string, error) {
 	m.reap()
 	if _, err := m.LookPath("ttyd"); err != nil {
-		return 0, errors.New("ttyd is not installed on the control plane")
+		return 0, "", errors.New("ttyd is not installed on the control plane")
 	}
 	argv, err := AttachArgv(a, target)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	// The reservation is taken under the same lock that reads the map, so two
@@ -226,12 +247,12 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 	if s, ok := m.procs[a.Key]; ok {
 		port := s.port
 		m.mu.Unlock()
-		return port, nil
+		return port, "", nil
 	}
-	port, err := m.freePortLocked()
+	port, retired, err := m.freePortLocked()
 	if err != nil {
 		m.mu.Unlock()
-		return 0, err
+		return 0, "", err
 	}
 	m.procs[a.Key] = &session{port: port, started: time.Now()} // reserved, not yet running
 	m.mu.Unlock()
@@ -239,10 +260,11 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 	cmd, err := m.Spawn(port, a.BasePath(), argv)
 	if err != nil {
 		m.release(a.Key)
-		return 0, fmt.Errorf("ttyd failed to start: %w", err)
+		return 0, "", fmt.Errorf("ttyd failed to start: %w", err)
 	}
-	exited := make(chan struct{})
+	var exited chan struct{}
 	if cmd.Process != nil { // test doubles may hand back a command never started
+		exited = make(chan struct{})
 		go func() { _ = cmd.Wait(); close(exited) }()
 	}
 	// Wait until it is listening, for at most the fixed 300ms this used to
@@ -253,14 +275,14 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 		select {
 		case <-exited:
 			m.release(a.Key)
-			return 0, errors.New("ttyd exited immediately")
+			return 0, "", errors.New("ttyd exited immediately")
 		default:
 		}
 	}
 	m.mu.Lock()
-	m.procs[a.Key] = &session{port: port, cmd: cmd, started: time.Now()}
+	m.procs[a.Key] = &session{port: port, cmd: cmd, started: time.Now(), exited: exited}
 	m.mu.Unlock()
-	return port, nil
+	return port, retired, nil
 }
 
 // BindWait is the longest Attach waits for a fresh ttyd to start listening.
@@ -312,46 +334,113 @@ func (m *Manager) reap() {
 // freePortLocked picks a port not already reserved here and not answering on
 // the loopback interface. The caller must hold m.mu, which is what makes the
 // choice and the reservation atomic.
-func (m *Manager) freePortLocked() (int, error) {
+//
+// When the range is full it retires the least recently used terminal that
+// nobody has open, and names it; the tmux session behind it is untouched and
+// its URL respawns it on the next visit. A terminal someone is viewing is
+// never retired: with every port viewed, the attach is refused instead.
+func (m *Manager) freePortLocked() (int, string, error) {
 	used := map[int]bool{}
 	for _, s := range m.procs {
 		used[s.port] = true
 	}
-	for port := PortLo; port <= PortHi; port++ {
+	lo, hi := m.portRange()
+	for port := lo; port <= hi; port++ {
 		if used[port] {
 			continue
 		}
 		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 			200*time.Millisecond)
 		if err != nil {
-			return port, nil // nothing listening: the port is ours
+			return port, "", nil // nothing listening: the port is ours
 		}
 		conn.Close()
 	}
-	// Terminals no longer exit on their own when the last viewer leaves, so the
-	// range can fill with ones nobody is looking at. Rather than refuse to
-	// attach, retire the oldest: re-attaching to it costs one click and the tmux
-	// session behind it is untouched either way.
-	if key, s := m.oldestLocked(); s != nil {
+	if key, s := m.idlestLocked(); s != nil {
 		if s.cmd != nil && s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
+			// The port is handed straight to a new ttyd: wait until the old
+			// one has let go of it, or the new one cannot bind, and the bind
+			// check would find the dying one still answering.
+			if s.exited != nil {
+				select {
+				case <-s.exited:
+				case <-time.After(2 * time.Second):
+				}
+			}
 		}
 		delete(m.procs, key)
-		return s.port, nil
+		return s.port, key, nil
 	}
-	return 0, ErrNoPorts
+	return 0, "", ErrNoPorts
 }
 
-// oldestLocked returns the longest-running terminal. Caller holds m.mu.
-func (m *Manager) oldestLocked() (string, *session) {
-	var oldestKey string
-	var oldest *session
+// ParsePortRange reads "LO-HI" (LECTERN_TERMINAL_PORTS).
+func ParsePortRange(v string) (int, int, bool) {
+	a, b, found := strings.Cut(strings.TrimSpace(v), "-")
+	lo, err1 := strconv.Atoi(strings.TrimSpace(a))
+	hi, err2 := strconv.Atoi(strings.TrimSpace(b))
+	if !found || err1 != nil || err2 != nil || lo < 1024 || hi > 65535 || hi < lo {
+		return 0, 0, false
+	}
+	return lo, hi, true
+}
+
+func (m *Manager) portRange() (int, int) {
+	if m.PortLo > 0 && m.PortHi >= m.PortLo {
+		return m.PortLo, m.PortHi
+	}
+	return PortLo, PortHi
+}
+
+// idlestLocked returns the running terminal with no viewers that was used
+// least recently. Caller holds m.mu.
+func (m *Manager) idlestLocked() (string, *session) {
+	var idleKey string
+	var idle *session
+	var idleAt time.Time
 	for key, s := range m.procs {
-		if oldest == nil || s.started.Before(oldest.started) {
-			oldestKey, oldest = key, s
+		if s.cmd == nil || m.viewers[key] > 0 {
+			continue // still starting, or someone has it open
+		}
+		at := s.started
+		if seen := m.lastViewed[key]; seen.After(at) {
+			at = seen
+		}
+		if idle == nil || at.Before(idleAt) {
+			idleKey, idle, idleAt = key, s, at
 		}
 	}
-	return oldestKey, oldest
+	return idleKey, idle
+}
+
+// Viewing records one open browser connection to an attachment's terminal
+// until the returned func is called. The proxy calls it for each websocket.
+func (m *Manager) Viewing(key string) (done func()) {
+	m.mu.Lock()
+	if m.viewers == nil {
+		m.viewers, m.lastViewed = map[string]int{}, map[string]time.Time{}
+	}
+	m.viewers[key]++
+	m.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			if m.viewers[key]--; m.viewers[key] <= 0 {
+				delete(m.viewers, key)
+			}
+			m.lastViewed[key] = time.Now()
+			m.mu.Unlock()
+		})
+	}
+}
+
+// Viewers reports how many browser connections an attachment has open.
+func (m *Manager) Viewers(key string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.viewers[key]
 }
 
 // Shutdown terminates every attached terminal.

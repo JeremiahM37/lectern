@@ -135,6 +135,11 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Sessions = sessMgr
 	sched.Memory = mem
 	terms := terminal.NewManager()
+	if lo, hi, ok := terminal.ParsePortRange(cfg.TerminalPorts); ok {
+		terms.PortLo, terms.PortHi = lo, hi
+	} else if cfg.TerminalPorts != "" {
+		log.Warn("ignoring LECTERN_TERMINAL_PORTS; expected LO-HI", "value", cfg.TerminalPorts)
+	}
 	events := agentevents.New(db, b)
 	activity := alerts.NewActivity()
 	alertWatcher := &alerts.Watcher{DB: db, Notifier: notifier, Activity: activity}

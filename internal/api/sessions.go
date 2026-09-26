@@ -715,7 +715,7 @@ func (s *Server) attachSession(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	port, err := s.Terminals.Attach(r.Context(), terminal.Attachment{
+	port, retired, err := s.Terminals.AttachWithNotice(r.Context(), terminal.Attachment{
 		Key:         fmt.Sprintf("session:%d", row.ID),
 		TmuxSession: row.TmuxSession,
 	}, target)
@@ -725,9 +725,9 @@ func (s *Server) attachSession(w http.ResponseWriter, r *http.Request) {
 	}
 	// url is what the UI opens: same-origin, so it works through nginx, over the
 	// tailnet, and on a phone. port stays for older clients and for debugging.
-	writeJSON(w, 200, map[string]any{"port": port,
+	writeJSON(w, 200, withRetiredNotice(map[string]any{"port": port,
 		"url":          fmt.Sprintf("/term/session/%d/", row.ID),
-		"tmux_session": row.TmuxSession})
+		"tmux_session": row.TmuxSession}, retired))
 }
 
 // deleteSession stops tracking a session, and kills its process ONLY when

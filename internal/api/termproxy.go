@@ -32,9 +32,18 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	// A browser holding the terminal open keeps it from being retired to
+	// make room for another; count it before the lookup below so it cannot
+	// be retired in between.
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		defer s.Terminals.Viewing(att.Key)()
+	}
 	// Attach reuses a live terminal for this attachment and starts one when
 	// there is none, so a reconnect after a restart heals itself
-	port, err := s.Terminals.Attach(r.Context(), att, target)
+	port, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
+	if retired != "" {
+		s.Log.Info("retired an idle terminal to make room", "retired", retired, "for", att.Key)
+	}
 	if err != nil {
 		s.Log.Info("terminal could not be started", "attachment", att.Key, "err", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -142,4 +151,16 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 		}, target, nil
 	}
 	return terminal.Attachment{}, nil, fmt.Errorf("not a terminal")
+}
+
+// withRetiredNotice tells the user, in an attach response, which idle terminal
+// was closed to make room for this one.
+func withRetiredNotice(out map[string]any, retired string) map[string]any {
+	if retired == "" {
+		return out
+	}
+	kind, id, _ := strings.Cut(retired, ":")
+	out["retired"] = retired
+	out["notice"] = fmt.Sprintf("Closed the idle terminal for %s %s to make room (no browser had it open); it reopens when you visit it.", strings.TrimSuffix(kind, "-shell"), id)
+	return out
 }

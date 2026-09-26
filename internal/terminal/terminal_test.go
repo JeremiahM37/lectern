@@ -144,49 +144,77 @@ func TestPortsAreReturnedWhenTerminalsAreShutDown(t *testing.T) {
 
 // Terminals no longer exit when their last viewer leaves, so the range can fill
 // with ones nobody is looking at. Refusing to attach at that point would make
-// the board unusable until a restart, so the oldest is retired instead — the
-// tmux session behind it is untouched, and re-attaching costs one click.
-func TestAFullRangeRetiresTheOldestTerminal(t *testing.T) {
+// the board unusable until a restart, so the least recently used idle one is
+// retired instead — the tmux session behind it is untouched, and re-attaching
+// costs one click — and the caller is told which.
+func TestAFullRangeRetiresTheIdlestTerminal(t *testing.T) {
 	m, _ := fakeManager(t)
-	var first string
-	got := 0
-	for i := 0; i <= PortHi-PortLo; i++ {
-		key := fmt.Sprintf("attempt:%d", i)
-		if _, err := m.Attach(context.Background(),
-			Attachment{Key: key}, target("local")); err != nil {
-			break
+	m.PortLo, m.PortHi = 7950, 7952
+	for i := 0; i < 3; i++ {
+		if _, retired, err := m.AttachWithNotice(context.Background(),
+			Attachment{Key: fmt.Sprintf("attempt:%d", i)}, target("local")); err != nil || retired != "" {
+			t.Fatalf("attach %d: retired %q, %v", i, retired, err)
 		}
-		if first == "" {
-			first = key
-		}
-		got++
 	}
-	if got == 0 {
-		t.Fatal("could not allocate a single terminal")
+	// attempt:0 is the oldest, but someone looked at it more recently than 1
+	m.Viewing("attempt:0")()
+	port, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: "one-too-many"}, target("local"))
+	if err != nil {
+		t.Fatalf("a full range refused a new terminal instead of making room: %v", err)
+	}
+	if port < 7950 || port > 7952 {
+		t.Errorf("port %d is outside the range", port)
+	}
+	if retired != "attempt:1" {
+		t.Fatalf("retired %q, want the least recently used idle terminal attempt:1", retired)
 	}
 	m.mu.Lock()
 	held := len(m.procs)
 	m.mu.Unlock()
+	if held != 3 {
+		t.Errorf("the range holds %d terminals, want 3", held)
+	}
+}
 
-	// one more than the range holds must still succeed
-	port, err := m.Attach(context.Background(),
-		Attachment{Key: "one-too-many"}, target("local"))
-	if err != nil {
-		t.Fatalf("a full range refused a new terminal instead of making room: %v", err)
+// A terminal someone has open in a browser is never closed to make room; when
+// every one is open, the new attach is refused with a reason instead.
+func TestAViewedTerminalIsNeverRetired(t *testing.T) {
+	m, _ := fakeManager(t)
+	m.PortLo, m.PortHi = 7960, 7961
+	var done []func()
+	for i := 0; i < 2; i++ {
+		key := fmt.Sprintf("session:%d", i)
+		done = append(done, m.Viewing(key))
+		if _, err := m.Attach(context.Background(), Attachment{Key: key}, target("local")); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if port < PortLo || port > PortHi {
-		t.Errorf("port %d is outside the range", port)
+	if _, _, err := m.AttachWithNotice(context.Background(), Attachment{Key: "session:9"}, target("local")); err != ErrNoPorts {
+		t.Fatalf("got %v, want ErrNoPorts while every terminal is being viewed", err)
 	}
-	m.mu.Lock()
-	nowHeld := len(m.procs)
-	_, oldestStillThere := m.procs[first]
-	m.mu.Unlock()
+	for _, key := range []string{"session:0", "session:1"} {
+		if _, ok := m.PortFor(key); !ok {
+			t.Fatalf("%s was closed while being viewed", key)
+		}
+	}
+	// once a viewer leaves, its terminal can make room again
+	done[1]()
+	if _, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: "session:9"}, target("local")); err != nil || retired != "session:1" {
+		t.Fatalf("retired %q, %v", retired, err)
+	}
+	if m.Viewers("session:0") != 1 || m.Viewers("session:1") != 0 {
+		t.Fatal("viewer counts drifted")
+	}
+}
 
-	if nowHeld > held {
-		t.Errorf("the range grew from %d to %d instead of recycling", held, nowHeld)
+func TestParsePortRange(t *testing.T) {
+	if lo, hi, ok := ParsePortRange(" 8000-8099 "); !ok || lo != 8000 || hi != 8099 {
+		t.Fatalf("got %d %d %v", lo, hi, ok)
 	}
-	if got > PortHi-PortLo && oldestStillThere {
-		t.Errorf("the oldest terminal (%s) was not the one retired", first)
+	for _, bad := range []string{"", "8000", "9000-8000", "80-90", "a-b"} {
+		if _, _, ok := ParsePortRange(bad); ok {
+			t.Errorf("%q parsed", bad)
+		}
 	}
 }
 
@@ -391,5 +419,45 @@ func TestAttachReportsATerminalThatExits(t *testing.T) {
 	}
 	if _, ok := m.PortFor("session:2"); ok {
 		t.Fatal("a terminal that never started kept its port")
+	}
+}
+
+// Retiring a terminal hands its port straight to the new one, so the old
+// process must be gone first: otherwise the new ttyd cannot bind, and the
+// readiness check finds the dying one still answering and returns a terminal
+// that closes at once.
+func TestARetiredTerminalFreesItsPortBeforeReuse(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is needed to stand in for ttyd")
+	}
+	m, _ := fakeManager(t)
+	m.PortLo, m.PortHi = 7970, 7970
+	// a stand-in ttyd that really binds its port and exits if it cannot
+	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+		cmd := exec.Command("python3", "-c", fmt.Sprintf(
+			"import socket,time\ns=socket.socket()\ns.bind(('127.0.0.1',%d))\ns.listen()\ntime.sleep(30)", port))
+		return cmd, cmd.Start()
+	}
+	if _, err := m.Attach(context.Background(), Attachment{Key: "session:1"}, target("local")); err != nil {
+		t.Fatal(err)
+	}
+	for i := 2; i <= 4; i++ {
+		key := fmt.Sprintf("session:%d", i)
+		_, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: key}, target("local"))
+		if err != nil {
+			t.Fatalf("attach %s after retiring: %v", key, err)
+		}
+		if retired != fmt.Sprintf("session:%d", i-1) {
+			t.Fatalf("retired %q", retired)
+		}
+		m.mu.Lock()
+		s := m.procs[key]
+		m.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-s.exited:
+			t.Fatalf("%s's terminal exited: it could not bind the retired terminal's port", key)
+		default:
+		}
 	}
 }

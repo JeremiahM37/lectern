@@ -469,3 +469,61 @@ func sendWSText(conn net.Conn, payload string) error {
 	_, err := conn.Write(frame)
 	return err
 }
+
+// A browser holding a terminal's websocket open counts as a viewer for as
+// long as the connection lasts, which is what keeps that terminal from being
+// retired to make room for another.
+func TestTerminalWebsocketCountsAsAViewer(t *testing.T) {
+	h := newHarness(t)
+	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
+	var listeners []net.Listener
+	t.Cleanup(func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	})
+	// a stand-in ttyd that accepts and then says nothing, like an open terminal
+	h.App.Terminals.Spawn = func(port int, _ string, _ []string) (*exec.Cmd, error) {
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, l)
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				go io.Copy(io.Discard, c)
+			}
+		}()
+		cmd := exec.Command("sleep", "30")
+		return cmd, cmd.Start()
+	}
+	t.Cleanup(h.App.Terminals.Shutdown)
+	sess := h.session(obj{"project_id": h.seededProjectID()})
+	key := fmt.Sprintf("session:%d", sess.id())
+
+	u, _ := url.Parse(h.URL)
+	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(conn, "GET /term/session/%d/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", sess.id(), u.Host)
+	deadline := time.Now().Add(5 * time.Second)
+	for h.App.Terminals.Viewers(key) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("an open terminal websocket was not counted as a viewer")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	conn.Close()
+	for h.App.Terminals.Viewers(key) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a closed websocket still counts as a viewer")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
