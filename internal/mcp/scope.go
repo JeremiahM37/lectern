@@ -35,6 +35,7 @@ var toolScope = map[string]string{
 	"start_session":   oauth.ScopeWrite,
 	"send_to_session": oauth.ScopeWrite,
 	"end_session":     oauth.ScopeWrite,
+	"restore_session": oauth.ScopeWrite,
 	"create_task":     oauth.ScopeWrite,
 	"delegate_build":  oauth.ScopeWrite,
 	"complete_task":   oauth.ScopeWrite,
