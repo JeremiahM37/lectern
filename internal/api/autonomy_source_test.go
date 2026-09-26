@@ -48,7 +48,7 @@ func commitSource(t *testing.T, dir, text string) {
 func TestSourcePinSurvivesHeadChangeAndExcludesUncommittedFiles(t *testing.T) {
 	s, p, dir := sourceFixture(t)
 	ctx := context.Background()
-	row, err := s.autoSourceContext(ctx, strconv.FormatInt(p.ID, 10))
+	row, err := s.autoSourceContext(ctx, strconv.FormatInt(p.ID, 10), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,5 +189,164 @@ func TestSourcePinTravelsThroughBothAuditsAndAdmission(t *testing.T) {
 	}
 	if w.Code != 200 || receipt.Proposal.SourceRevision != pin || len(receipt.PlanAudits) != 2 {
 		t.Fatal("persisted admission lost source/audits", w.Body.String())
+	}
+}
+
+func TestSourceHistoricalTreeCorroboration(t *testing.T) {
+	s, p, dir := sourceFixture(t)
+	ctx := context.Background()
+	id := strconv.FormatInt(p.ID, 10)
+	original, err := s.autoSourceContext(ctx, id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := original["source_revision"].(string)
+	snapshot := t.TempDir()
+	if err := autoArchiveSource(ctx, dir, pin, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-b", "main"}, {"add", "."}, {"-c", "commit.gpgSign=false", "commit", "-m", "Source snapshot"}} {
+		if err := autoGit(ctx, snapshot, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapRev, err := autoSourceRevision(ctx, snapshot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapTree, err := autoSourceTree(ctx, snapshot, snapRev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapRev == pin || snapTree != original["source_tree"] {
+		t.Fatal("fresh commit must differ while source tree matches")
+	}
+	commitSource(t, dir, "advanced")
+	historical, err := s.autoSourceContext(ctx, id, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.autoSourceContext(ctx, id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historical["source_tree"] != snapTree || historical["source_revision"] != pin || current["source_revision"] == pin {
+		t.Fatal("historical lookup drifted with HEAD")
+	}
+	for _, rev := range []string{"", "%zz", pin + "&source_revision=" + pin, "HEAD", pin[:12], strings.Repeat("g", 40), strings.Repeat("0", 40)} {
+		w := httptest.NewRecorder()
+		s.autoReadBridge(w, httptest.NewRequest("GET", "/source?project_id="+id+"&source_revision="+rev, nil))
+		if w.Code != 400 {
+			t.Fatalf("revision %q accepted: %d", rev, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	s.autoReadBridge(w, httptest.NewRequest("GET", "/source?project_id="+id+"&source_revision="+pin, nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), snapTree) {
+		t.Fatalf("historical bridge failed: %s", w.Body.String())
+	}
+}
+
+func TestSourceExportDifferenceIsDiagnostic(t *testing.T) {
+	s, p, dir := sourceFixture(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("sample.txt export-ignore\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"-c", "commit.gpgSign=false", "commit", "-m", "Export policy"}} {
+		if err := autoGit(ctx, dir, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row, err := s.autoSourceContext(ctx, strconv.FormatInt(p.ID, 10), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if err := autoArchiveSource(ctx, dir, row["source_revision"].(string), dest); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-b", "main"}, {"add", "."}, {"-c", "commit.gpgSign=false", "commit", "-m", "Snapshot"}} {
+		if err := autoGit(ctx, dest, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rev, err := autoSourceRevision(ctx, dest, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := autoSourceTree(ctx, dest, rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree == row["source_tree"] {
+		t.Fatal("export-ignore fixture did not differ")
+	}
+	if !strings.Contains(row["tree_scope"].(string), "diagnostic, not a new admission gate") {
+		t.Fatal("missing diagnostic limitation")
+	}
+	items := []autonomy.Proposal{{ProjectID: p.ID, SourceRevision: row["source_revision"].(string)}}
+	if err := s.pinAutoSources(ctx, &autoRecord{}, items); err != nil {
+		t.Fatalf("export policy blocked valid source admission: %v", err)
+	}
+}
+
+func TestSourceSnapshotRetainsTrackedIgnoredFiles(t *testing.T) {
+	_, _, dir := sourceFixture(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", "gamarr"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{".gitignore": "gamarr\n*.private\n", "cmd/gamarr/main.go": "package main\nfunc main() {}\n"} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"add", "--force", ".gitignore", "cmd/gamarr/main.go"}, {"commit", "-m", "Tracked entry point despite binary ignore"}} {
+		if err := autoGit(ctx, dir, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pin, err := autoSourceRevision(ctx, dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := autoSourceTree(ctx, dir, pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secret.private"), []byte("uncommitted"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	commitSource(t, dir, "later HEAD")
+	dest := t.TempDir()
+	if err := autoSnapshotSource(ctx, dir, pin, dest); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := autoSourceRevision(ctx, dest, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := autoSourceTree(ctx, dest, snap)
+	if err != nil || tree != expected {
+		t.Fatalf("snapshot lost committed source: tree %s want %s err %v", tree, expected, err)
+	}
+	data, err := autoSourceCommand(ctx, dest, "show", "HEAD:cmd/gamarr/main.go").Output()
+	if err != nil || !strings.Contains(string(data), "func main()") {
+		t.Fatal("entry point unavailable to baseline inspection", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "secret.private")); !os.IsNotExist(err) {
+		t.Fatal("uncommitted file leaked")
+	}
+	occupied := t.TempDir()
+	if err := os.WriteFile(filepath.Join(occupied, "prior.private"), []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := autoSnapshotSource(ctx, dir, pin, occupied); err == nil {
+		t.Fatal("nonempty workspace accepted")
+	}
+	body, _ := os.ReadFile(filepath.Join(occupied, "prior.private"))
+	if string(body) != "preserve" {
+		t.Fatal("existing workspace changed")
 	}
 }
