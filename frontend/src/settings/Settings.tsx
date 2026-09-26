@@ -477,7 +477,7 @@ function Projects({
             open) · {usage[p.id]?.sessions || 0} sessions
           </p>
           <div className="pjmain"><div className="pjname">{p.name}</div><div className="pjmeta">{p.target_name}</div><div className="pjpath">{p.repo_path}</div></div>
-          <button aria-label={`Shell in ${p.name}`} onClick={(e) => { e.stopPropagation(); void api.request<{url:string}>(`/projects/${p.id}/terminal`, {method:"POST"}).then((r) => onOpenTerminal(r.url, p.name)).catch((error) => onNotice(String(error), true)); }}>⌨</button>
+          <button aria-label={`Shell in ${p.name}`} onClick={(e) => { e.stopPropagation(); void api.request<{url:string;notice?:string}>(`/projects/${p.id}/terminal`, {method:"POST"}).then((r) => { onOpenTerminal(r.url, p.name); if (r.notice) onNotice(r.notice); }).catch((error) => onNotice(String(error), true)); }}>⌨</button>
         </div>
       ))}
       </div>

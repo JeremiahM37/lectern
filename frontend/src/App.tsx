@@ -287,8 +287,9 @@ export default function App() {
     if (!current || completingSwitches.current.has(source)) return;
     completingSwitches.current.add(source);
     try {
-      const response = await api.request<{url:string}>(`/sessions/${next.id}/terminal`,{method:'POST'});
+      const response = await api.request<{url:string;notice?:string}>(`/sessions/${next.id}/terminal`,{method:'POST'});
       openTerminal(response.url,next.name);
+      if (response.notice) notice(response.notice);
       terminals.close(`/terminal/session/${source}`);
       const remaining = {...switching.current}; delete remaining[String(source)]; saveSwitches(remaining);
       notice('Switched. The original session is still available in Sessions.');
@@ -336,11 +337,12 @@ export default function App() {
   const attach = useCallback(
     async (id: number) => {
       try {
-        const response = await api.request<{ url: string }>(
+        const response = await api.request<{ url: string; notice?: string }>(
           `/sessions/${id}/terminal`,
           { method: "POST" },
         );
         openTerminal(response.url, sessions.find((row) => row.id === id)?.name);
+        if (response.notice) notice(response.notice);
       } catch (error) {
         notice(String(error), true);
       }
@@ -378,11 +380,12 @@ export default function App() {
         // A shell that really opened is what makes the project recent; a
         // failed creation must not reorder anyone's picker.
         if (choice?.projectID) rememberRecentProject(choice.projectID);
-        const response = await api.request<{ url: string }>(
+        const response = await api.request<{ url: string; notice?: string }>(
           `/sessions/${shell.id}/terminal`,
           { method: "POST" },
         );
         openTerminal(response.url, shell.name);
+        if (response.notice) notice(response.notice);
       } catch (error) {
         notice(String(error), true);
       }
@@ -502,6 +505,7 @@ export default function App() {
       "live",
       "session.check",
       "ci",
+      "target_reach",
     ])
       stream.addEventListener(event, update);
     stream.addEventListener("session_handoff", (event) => {

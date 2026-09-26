@@ -410,10 +410,13 @@ export function TaskDetail({
             className="b"
             onClick={() =>
               void api
-                .request<{ url: string }>(`/tasks/${task.id}/terminal`, {
+                .request<{ url: string; notice?: string }>(`/tasks/${task.id}/terminal`, {
                   method: "POST",
                 })
-                .then((r) => onTerminal(r.url, task.title))
+                .then((r) => {
+                  onTerminal(r.url, task.title);
+                  if (r.notice) onNotice(r.notice);
+                })
                 .catch((e) => onNotice(String(e), true))
             }
           >
