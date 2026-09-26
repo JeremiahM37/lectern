@@ -1,0 +1,58 @@
+/* "Connect your AI tools" card (Settings, and a compact link from FirstRun).
+   Reuses the shared .rowcard/.btnrow/.subhint/.b tokens from web/static/style.css;
+   this file only adds the grid layout and the copyable-command blocks. */
+.connect-tools {
+  margin: 0 0 20px;
+}
+.connect-remote-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-dim, #97a2bd);
+  margin: 8px 0 14px;
+}
+.connect-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.connect-client {
+  min-width: 0;
+}
+.connect-status {
+  overflow-wrap: anywhere;
+}
+.connect-result {
+  font-size: 12.5px;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+.connect-result.ok {
+  color: var(--green, #34d399);
+}
+.connect-result.err {
+  color: var(--amber, #fbbf24);
+}
+.connect-snippet {
+  margin-top: 10px;
+  min-width: 0;
+}
+.connect-snippet pre {
+  margin: 0 0 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.connect-deeplink {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+@media (max-width: 480px) {
+  .connect-tools-grid {
+    grid-template-columns: 1fr;
+  }
+}

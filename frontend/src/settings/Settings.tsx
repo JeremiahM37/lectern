@@ -6,6 +6,7 @@ import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
 import { Triggers } from "./Triggers";
 import { Delegation } from "./Delegation";
+import { ConnectTools } from "./ConnectTools";
 import { Modal } from "../sessions/Modal";
 import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
@@ -155,6 +156,7 @@ export function Settings({
         <h2>Settings</h2>
         <p>Machines, projects and preferences in one place.</p>
       </header>
+      <ConnectTools api={api} onNotice={onNotice} />
       <Delegation api={api} agents={agents} projects={projects} onNotice={onNotice} onChanged={load} />
       <nav role="tablist">
         {(

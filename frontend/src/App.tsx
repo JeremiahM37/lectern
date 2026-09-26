@@ -836,6 +836,7 @@ export default function App() {
             hasTarget={targets.length > 0}
             onSetupTarget={() => settings("machines")}
             onStartSession={() => sessionCommand("new")}
+            onOpenConnectTools={() => settings("machines")}
           />
         )}
         {view === "board" && (

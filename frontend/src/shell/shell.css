@@ -176,6 +176,23 @@
   font-size: 0.82rem;
   color: var(--ink-dim, #97a2bd);
 }
+.first-run-connect-link {
+  display: block;
+  width: 100%;
+  margin: 14px 0 0;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed var(--line-2, #374151);
+  border-radius: var(--r, 10px);
+  color: var(--ink-dim, #97a2bd);
+  font-size: 0.85rem;
+  text-align: center;
+  cursor: pointer;
+}
+.first-run-connect-link:hover {
+  color: var(--ink, #eee);
+  border-color: var(--accent, #8b5cf6);
+}
 @media (max-width: 420px) {
   .first-run {
     margin: 12px;

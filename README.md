@@ -52,6 +52,12 @@ fix printed next to anything that's off.
   board** lets it say what it's about to do — claimed automatically or with
   one MCP call, shown in every peer's briefing and edit warnings, always
   advisory. See [docs/claims.md](docs/claims.md).
+- **Hand off a brainstorm.** From a Claude Code or Codex chat with no Lectern
+  session of its own, `start_session`/`send_to_session`/`list_sessions` on
+  the `lectern` MCP server let "start a session that builds this" or "give my
+  open session this file" work straight from that conversation, files and
+  freeform context included, with Grimoire as the durable brief. See
+  [docs/sessions-mcp.md](docs/sessions-mcp.md).
 - **Self-hosted, MIT.** One static binary, your infrastructure, your choice of
   model provider — nothing about your code leaves a box you control unless
   your chosen agent's own model call does.
@@ -398,6 +404,36 @@ temporary databases, a separate vault, and a private tmux socket.
   `/.well-known/agent-card.json` and an interface at `/a2a/v1` that files,
   follows and cancels tasks. So an orchestrator that speaks A2A — not just one
   that speaks Lectern's REST API — can drive it. See [docs/a2a.md](docs/a2a.md).
+
+## Connect your AI tools
+
+Settings has a "Connect your AI tools" card that gets each MCP client — Claude
+Code, Codex, Claude Desktop, Cursor, VS Code, or claude.ai/ChatGPT — to
+`lectern mcp` by whatever path it genuinely supports, and shows whether it
+worked:
+
+- **Claude Code and Codex, on the machine running Lectern**: a true one
+  click. The card runs the client's own `claude mcp add` / `codex mcp add`
+  command as the Lectern service user and shows the client's own connected/
+  not-connected status (`claude mcp get lectern` / `codex mcp get lectern`).
+  Since installing writes your own agent config, this needs your signed-in
+  identity — the same gate task approvals and autonomous mode use — not an
+  automated caller.
+- **Claude Code and Codex, on a different machine**: flip "This computer is
+  not the Lectern host" for a copyable command with `LECTERN_API` pointed at
+  this browser's own origin, e.g.
+  `claude mcp add --scope user lectern -e LECTERN_API=https://your-lectern -- lectern mcp`.
+- **Claude Desktop**: a copyable `mcpServers` JSON snippet for Settings →
+  Developer → Edit Config.
+- **Cursor and VS Code**: a real one-click MCP install deep link.
+- **claude.ai / ChatGPT (web)**: these need a public HTTPS MCP endpoint,
+  which Lectern does not expose by default, so the card explains that and
+  links to claude.ai's own connectors page rather than faking a button.
+
+Once a client actually talks to `lectern mcp`, the card shows "connected ·
+used N ago" — recorded from the MCP `initialize` handshake's `clientInfo`,
+best-effort and fire-and-forget so a slow or unreachable API never delays a
+client's connection.
 
 ## Terminal workflows
 

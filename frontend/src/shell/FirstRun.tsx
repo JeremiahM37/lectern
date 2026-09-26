@@ -25,6 +25,10 @@ export interface FirstRunProps {
   hasTarget: boolean;
   onSetupTarget: () => void;
   onStartSession: () => void;
+  // Opens Settings, where the full "Connect your AI tools" card lives (see
+  // ConnectTools.tsx). Optional so the standalone first-run harness/tests
+  // that predate this link keep working with no prop supplied.
+  onOpenConnectTools?: () => void;
 }
 
 type Item = { label: string; ok: boolean; detail?: string };
@@ -35,7 +39,7 @@ type Item = { label: string; ok: boolean; detail?: string };
 // the moment either exists, the ordinary board/sessions views take over and
 // this never shows again. Every row that can be wrong carries its own fix;
 // the one thing it asks you to do is the same button, always available.
-export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTarget, onStartSession }: FirstRunProps) {
+export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTarget, onStartSession, onOpenConnectTools }: FirstRunProps) {
   const [status, setStatus] = useState<OnboardingStatus>();
   const [error, setError] = useState("");
 
@@ -109,6 +113,11 @@ export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTa
         For SSH machines, install and sign in to your agent CLI on that machine. Docker does
         not inherit host tools or logins. You can also open a blank shell without an agent.
       </p>
+      {onOpenConnectTools && (
+        <button type="button" className="first-run-connect-link" onClick={onOpenConnectTools}>
+          Connect Claude Code, Codex, or another AI tool to this Lectern →
+        </button>
+      )}
     </section>
   );
 }

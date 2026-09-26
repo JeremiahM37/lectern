@@ -120,6 +120,20 @@ type Server struct {
 	repoMu       sync.Mutex
 	repoCache    map[int64]float64
 	repoCachedAt time.Time
+
+	// MCPClientRunner, when set, replaces the real exec.CommandContext call
+	// mcp_clients.go makes to run a client's own `mcp add`/`mcp get`
+	// subcommand. Tests always set this — the suite must never run a real
+	// claude/codex binary and mutate the operator's own agent config. nil
+	// means "really exec it" (see mcpRunner).
+	MCPClientRunner mcpClientRunnerFunc
+	// LecternPath, when set, overrides the resolved lectern binary path
+	// mcp_clients.go reports and uses to build install commands. Tests set
+	// this to a fixed value instead of the test binary's own os.Executable().
+	LecternPath string
+	// mcpClientsMu guards read-modify-write access to the mcp_clients_seen
+	// settings row.
+	mcpClientsMu sync.Mutex
 }
 
 // Handler builds the full router, including auth and the embedded web app.
@@ -332,6 +346,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test-notification", s.testNotification)
+	// ---- connect-your-tools card: wiring an MCP client to this Lectern ----
+	mux.HandleFunc("GET /api/mcp-clients", s.listMCPClients)
+	mux.HandleFunc("POST /api/mcp-clients/{id}/install", s.installMCPClient)
+	mux.HandleFunc("POST /api/mcp-clients/seen", s.mcpClientSeen)
 	// ---- routines: a saved job, one button, optionally scheduled ----
 	mux.HandleFunc("GET /api/routines", s.listRoutines)
 	mux.HandleFunc("POST /api/routines", s.createRoutine)
