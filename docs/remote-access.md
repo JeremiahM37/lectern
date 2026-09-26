@@ -41,8 +41,7 @@ implementation notes.
      `tailscale funnel 9110` exposes the same port publicly with a real
      Let's Encrypt certificate, no second daemon needed.
 3. **Set `LECTERN_AUTH` explicitly — do not leave it on `auto`/`tailscale`.**
-   This is the one step that is easy to get wrong; see "The loopback trap"
-   below for exactly why. `LECTERN_AUTH=token` with a strong
+   See "The loopback trap" below for why. `LECTERN_AUTH=token` with a strong
    `LECTERN_AUTH_TOKEN` is the recommended baseline: treat that token as an
    **admin bootstrap secret**, used once to mint the first pairing code from
    a browser or `curl`, never handed to the phone itself. Pairing is the
@@ -51,27 +50,28 @@ implementation notes.
    code minted in Settings → Devices — see below), pair it, and use Lectern
    there exactly as you would over Tailscale.
 
-## The loopback trap
+## The loopback trap (and how Lectern closes it)
 
-**Read this before exposing anything.** Both `internal/auth`'s `tailscale`
-mode and its `none` mode extend extra trust to a request that arrives from
-**loopback** — the reasoning being that only a process already running on
-this machine (the CLI, the MCP server, a dispatched agent) can connect to
-`127.0.0.1`, so it is safe to treat as local. A tunnel that forwards to
-loopback (Cloudflare Tunnel's default; anything using `http://127.0.0.1:PORT`
-as its origin) makes **every internet visitor indistinguishable from that
-trusted local process**, because `cloudflared` — not the remote browser — is
-what actually opens the TCP connection Lectern sees. In `tailscale` mode this
-resolves the caller to `KindLocal` (not human, but still allowed to use the
-ordinary API); in `none` mode it is worse — everyone is trusted as the owner,
-tunnel or not.
+`internal/auth` trusts a request from **loopback** as "a process on this
+machine" (the CLI, the MCP server, a dispatched agent): `KindLocal` in
+`tailscale` mode, and the owner in `none` mode. A tunnel that forwards to
+`127.0.0.1` (Cloudflare Tunnel's default, Tailscale Funnel) opens that
+loopback connection on behalf of **every internet visitor**, so without a
+guard they would all inherit that trust.
 
-This is not new or specific to pairing — it is true of this codebase today,
-independent of anything in this document — but it is exactly the mistake a
-public tunnel makes easy to walk into by accident. The fix is step 3 above:
-**set `LECTERN_AUTH=token` (or rely on device pairing itself once paired
-devices exist) for any process reachable through a tunnel that forwards to
-loopback.** Never leave a tunneled Lectern on `auto`/`tailscale`/`none`.
+Lectern refuses loopback requests that show they were relayed from
+outside, in every mode. That covers any request carrying
+`Cf-Connecting-Ip`/`Cf-Ray` (Cloudflare) or `Tailscale-Funnel-Request`, or a
+`X-Forwarded-For`/`X-Real-Ip`/`Forwarded` client address that is neither
+loopback nor a tailnet IP. Such a request gets in only with a credential: the
+static token or a paired device. Plain local callers, and `tailscale serve`
+relaying a tailnet client, behave as before. The rules and their tests live in
+`internal/auth` (`cameFromOutside`, `tunnel_test.go`).
+
+Still set `LECTERN_AUTH=token` with a strong `LECTERN_AUTH_TOKEN` when you
+expose Lectern. The guard depends on the tunnel sending a forwarding header,
+and every mainstream one does. A bespoke proxy that strips all of them would
+defeat it, and token mode does not extend loopback trust at all.
 
 ## Security model
 

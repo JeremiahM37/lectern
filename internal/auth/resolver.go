@@ -80,6 +80,38 @@ func firstForwarded(r *http.Request) string {
 	return first
 }
 
+// cameFromOutside reports whether a request that reached us over loopback was
+// actually relayed from somewhere else — a public tunnel (Cloudflare Tunnel,
+// Tailscale Funnel) or any reverse proxy forwarding a non-local, non-tailnet
+// client. Loopback is only trustworthy as "a process on this machine" when
+// nothing says otherwise; a tunnel pointed at 127.0.0.1 must never inherit
+// that trust, or every visitor on the internet would.
+func cameFromOutside(r *http.Request) bool {
+	for _, h := range []string{"Cf-Connecting-Ip", "Cf-Ray", "Tailscale-Funnel-Request"} {
+		if r.Header.Get(h) != "" {
+			return true
+		}
+	}
+	forwarded := []string{firstForwarded(r), strings.TrimSpace(r.Header.Get("X-Real-Ip"))}
+	if f := r.Header.Get("Forwarded"); f != "" {
+		for _, part := range strings.Split(strings.Split(f, ",")[0], ";") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(part), "="); ok && strings.EqualFold(k, "for") {
+				v = strings.Trim(strings.TrimSpace(v), `"[]`)
+				if host, _, err := net.SplitHostPort(v); err == nil {
+					v = host
+				}
+				forwarded = append(forwarded, v)
+			}
+		}
+	}
+	for _, ip := range forwarded {
+		if ip != "" && !isLoopbackIP(ip) && !isTailscaleIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func extractToken(r *http.Request) string {
 	if v := bearerToken(r); v != "" {
 		return v
@@ -328,13 +360,19 @@ func (a *Resolver) Authenticate(r *http.Request) (Principal, bool) {
 			}
 		}
 	}
+	remote := hostOf(r.RemoteAddr)
+	if isLoopbackIP(remote) && cameFromOutside(r) {
+		// A tunnel or proxy delivering outside traffic over loopback: only a
+		// credential (the static token or a paired device, both checked
+		// above) gets in, whatever the mode.
+		return Principal{}, false
+	}
 	if a.Mode == ModeNone {
 		// Single-machine, no-login-ever mode: everyone who reaches the
 		// process is the one operator it belongs to.
 		return Principal{Kind: KindLocal, Human: true}, true
 	}
 
-	remote := hostOf(r.RemoteAddr)
 	if isLoopbackIP(remote) {
 		// Loopback cannot tell `tailscale serve` proxying a real tailnet
 		// client from ANY other process on this box forging the same
