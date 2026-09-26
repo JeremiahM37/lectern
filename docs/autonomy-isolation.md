@@ -234,8 +234,11 @@ model turn or paid API fallback is used. Authentication failure stops launch
 without exposing credential values; the existing operational retry policy applies.
 The worker proxy still does not allow the OAuth endpoint or arbitrary Internet.
 
-Operational retries are bounded to three per cycle per day, with one-, five-,
-and fifteen-minute backoff, then next morning. An earlier cycle's failures no
-longer consume every later cycle's recovery budget. Legacy retry records acquire
+Operational retries use one-, five-, and fifteen-minute backoff. Continuous mode
+then retries every fifteen minutes while enabled and fresh quota permits, so a
+provider outage does not strand it until tomorrow. Scheduled daily mode retains
+three retries per cycle per day, then next morning. An earlier cycle's failures
+no longer consume every later cycle's recovery budget. Existing overnight delays
+in continuous mode are shortened to a one-minute recovery window once. Legacy retry records acquire
 one bounded window when first seen by this version; unsafe/unknown failure
 reasons are never migrated or retried, and enabled/quota gates remain mandatory.

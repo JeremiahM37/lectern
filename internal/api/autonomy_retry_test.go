@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ func TestAutonomyOperationalRetryBackoffAndDailyRecovery(t *testing.T) {
 	state, _ := autonomy.NewState("2026-09-24")
 	state.Pause("snapshot contains unsupported link/device pax_global_header")
 	a := &autoRecord{Config: autonomy.DefaultConfig(), State: state}
+	a.Config.Continuous = false
 	for i, delay := range []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute} {
 		if autoRetryReady(a, now) {
 			t.Fatal("retry did not back off")
@@ -75,7 +77,7 @@ func TestOperationalRetryBudgetIsBoundedPerCycle(t *testing.T) {
 	}
 	a.RetryCount = 3
 	a.RetryAt = time.Time{}
-	if autoRetryReady(a, now) || a.RetryAt.Sub(now) < time.Hour {
+	if autoRetryReady(a, now) || a.RetryAt.Sub(now) != 15*time.Minute {
 		t.Fatal("same cycle bypassed cap")
 	}
 	a.State.Cycle++
@@ -86,5 +88,39 @@ func TestOperationalRetryBudgetIsBoundedPerCycle(t *testing.T) {
 	a.State.Reason = "Missing job receipt; manual inspection required"
 	if autoRetryReady(a, now) || a.RetryScope != "older" {
 		t.Fatal("unsafe state migrated")
+	}
+}
+
+func TestContinuousOutageRecoveryPersistsWithoutOvernightPause(t *testing.T) {
+	now := time.Date(2026, 9, 25, 20, 0, 0, 0, time.UTC)
+	state, _ := autonomy.NewState("2026-09-25")
+	state.Cycle = 62
+	state.Pause("Worker failed; artifacts retained for inspection")
+	a := &autoRecord{Config: autonomy.DefaultConfig(), State: state,
+		RetryScope: "2026-09-25/62", RetryDay: "2026-09-25", RetryCount: 3, RetryAt: now.Add(12 * time.Hour)}
+	if autoRetryReady(a, now) || !a.RetryAt.Equal(now.Add(time.Minute)) {
+		t.Fatal("legacy overnight delay was not shortened")
+	}
+	for i := 0; i < 6; i++ {
+		deadline := a.RetryAt
+		raw, _ := json.Marshal(a)
+		var restored autoRecord
+		if err := json.Unmarshal(raw, &restored); err != nil {
+			t.Fatal(err)
+		}
+		a = &restored
+		if autoRetryReady(a, deadline.Add(-time.Second)) || !a.RetryAt.Equal(deadline) {
+			t.Fatal("restart changed backoff or retried early")
+		}
+		if !autoRetryReady(a, deadline) {
+			t.Fatal("continuous retry stopped")
+		}
+		if autoRetryReady(a, deadline) || !a.RetryAt.Equal(deadline.Add(15*time.Minute)) {
+			t.Fatal("retry storm or overnight deferral")
+		}
+	}
+	a.State.Reason = "Missing job receipt; manual inspection required"
+	if autoRetryReady(a, a.RetryAt.Add(time.Hour)) {
+		t.Fatal("unsafe state retried")
 	}
 }

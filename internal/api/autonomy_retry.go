@@ -46,16 +46,26 @@ func autoRetryReady(a *autoRecord, now time.Time) bool {
 		a.RetryDay = day
 		a.RetryCount = 0
 	}
+	// Continuous mode must recover from a provider outage without waiting for
+	// tomorrow or a person. Shorten legacy overnight deferrals once; subsequent
+	// retries retain their deadline across controller restarts.
+	if a.Config.Continuous && a.RetryAt.After(now.Add(15*time.Minute)) {
+		a.RetryAt = now.Add(time.Minute)
+	}
 	if a.RetryAt.IsZero() {
 		delays := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
 		if a.RetryCount >= len(delays) {
-			local := now.In(loc)
-			a.RetryAt = time.Date(local.Year(), local.Month(), local.Day()+1, a.Config.MorningHour, 0, 0, 0, loc)
+			if a.Config.Continuous {
+				a.RetryAt = now.Add(15 * time.Minute)
+			} else {
+				local := now.In(loc)
+				a.RetryAt = time.Date(local.Year(), local.Month(), local.Day()+1, a.Config.MorningHour, 0, 0, 0, loc)
+			}
 		} else {
 			a.RetryAt = now.Add(delays[a.RetryCount])
 		}
 	}
-	a.Reason = fmt.Sprintf("%s · Automatic retry at %s (%d/3 retries used for this cycle today)", a.State.Reason, a.RetryAt.In(loc).Format("Jan 2 15:04 MST"), a.RetryCount)
+	a.Reason = fmt.Sprintf("%s · Automatic retry at %s (%d retries used for this cycle today)", a.State.Reason, a.RetryAt.In(loc).Format("Jan 2 15:04 MST"), a.RetryCount)
 	if now.Before(a.RetryAt) {
 		return false
 	}
