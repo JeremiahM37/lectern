@@ -71,6 +71,7 @@ launches with no arguments and no terminal still start the server.
 | P | Manage named launch profiles |
 | Q | Manage agent runners (add custom CLIs) |
 | h / v / u | Read retained history / review a task diff / upload context |
+| C / U | Restore list (closed, archived, interrupted) / undo: reopen the session closed last |
 | f | Find running agents and add one to tracking by name |
 | 7 / 8 / 9 | Settings / usage / full API |
 | ? / q | Help / quit without stopping agents |
@@ -456,17 +457,52 @@ patches are explicitly truncated at 512 KiB. Git and Python 3 run on the target,
 including SSH targets; there is no local-checkout assumption and no staging or
 checkout mutation.
 
-## Saved native conversations and forks
+## Restoring sessions
 
-The Sessions view also has **Recently closed**. It fetches the latest ten
-server records each time it opens, so ended sessions remain available after the
-live list is empty. The terminal dashboard opens the same list with `C` or
-Actions → Recently closed; `Esc` or Backspace returns to the live list. A record
-with an exact durable native binding offers **Resume** and continues that
-conversation after refreshing the session list. Released adopted terminals
-offer **Restore tracking**, which resumes monitoring the existing terminal
-without launching another agent. Other records offer **Choose history**, which
-opens the existing explicit native history picker.
+Anything that closed can come back from one list: sessions you ended (from the
+web, the dashboard or a chat's `end_session`), archived ones, ones that exited
+on their own, and ones a host restart interrupted. Each row says why it closed,
+shows its last message, and names what reopening does:
+
+| Action | When | What comes back |
+| --- | --- | --- |
+| Resume | a Claude/Codex conversation is bound to the record | the conversation, under the same name; not the old scrollback |
+| Track again | tracking was stopped but the terminal kept running | the running terminal, untouched |
+| Relaunch | a restart interrupted it and no conversation was bound | a fresh agent in the same folder and record, primed with its last handoff if any |
+| New shell here | a shell | a new shell in the same folder; scrollback is gone |
+| Continue from handoff | no conversation, but a handoff was written | a new session primed with it |
+| Choose history | Claude/Codex with no bound conversation | the saved-conversation picker for its folder |
+| Start fresh here | nothing was saved | a new session in the same folder |
+
+An archived record is unarchived first, and archived again if reopening
+fails. A record another session already continued is not listed again.
+
+- **Web and phone**: **Sessions → ↺ Restore**, with search and project groups.
+  **Other agent…** opens the Switch picker and continues the session in the
+  agent, model or saved provider you pick, primed with its last handoff or the
+  end of its conversation (native conversations do not carry across agents).
+  Ending, stopping tracking or stopping and archiving a session shows a toast
+  with **Undo** for ten seconds.
+- **Terminal dashboard**: `C` opens the list (`/` filters it, Enter restores,
+  `h` opens history, Esc returns); `U` reopens the session closed last without
+  attaching.
+- **CLI**: `lectern restore` lists; `lectern restore QUERY` restores the one
+  match (several matches are listed, not guessed); `lectern restore ID`,
+  `--last`, `--agent NAME`, `--model M`, `--profile ID`, `--no-attach`.
+- **Chat connector / MCP**: `restore_session`, see [sessions-mcp.md](sessions-mcp.md).
+- **API**: `GET /api/sessions/restorable?q=&limit=&all=true` and
+  `POST /api/sessions/{id}/reopen` with an optional `agent`, `model`,
+  `profile_id` or `name`. A 409 with `needs_history: true` means pick a
+  conversation from the history picker.
+
+After a host restart, a Lectern-launched session with a bound conversation is
+relaunched with it automatically on the next poll. Sessions it cannot bring back
+(shells, agents without a saved conversation, or a failed relaunch) stay
+**interrupted**: their cards show **↺ Restore**, and Sessions shows a banner that
+restores them all. Adopted sessions you started yourself are not relaunched; they
+appear in the list as exited.
+
+## Saved native conversations and forks
 
 On a Claude or Codex session, press `H` (or Actions → Saved conversations / fork)
 to choose a saved conversation from that workspace on its target. Read it in the

@@ -25,6 +25,7 @@ operator reference (environment variables, exposure, security model).
 | Start a session that builds something | `start_session` | Claude or Codex, in a project, folder, or a blank scratch workspace |
 | Give an open session a message, context or files | `send_to_session` | Can interrupt a running turn first |
 | End a session | `end_session` | **Archives** it: the terminal stops, the record and final output are kept, and it can be restored from Lectern. Needs the exact name or id. |
+| Bring one back | `restore_session` | Lists what can be restored, or reopens one by id or exact name — resuming its conversation when one was saved. Optional `agent`/`model` continue it elsewhere. |
 | File or delegate board work | `create_task`, `delegate_build`, … | Same tools the CLI agents have |
 
 What a chat **cannot** do: approve or deny an agent's request

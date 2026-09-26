@@ -87,6 +87,22 @@ or build session it started.
   from Lectern. Nothing is permanently deleted.
 - Over the web connector it needs the `lectern.write` scope, like every tool
   that changes something. In claude.ai, set it to "Needs approval".
+- `restore_session` brings it back.
+
+## `restore_session`
+
+Reopens a session that was ended, archived, exited, or interrupted by a
+restart — the same action as **Restore** in the web and `lectern restore`.
+
+- No `session`: lists up to 20 restorable sessions, newest first, with why each
+  closed, its last message and what reopening it does.
+- `session`: an id or the exact name of a restorable session. Two with the same
+  name are refused; pass the id.
+- `agent` / `model` (optional): continue it in another agent or model instead,
+  primed with its last handoff or the end of its conversation.
+- It resumes the saved conversation when one is bound, tracks a still-running
+  terminal again, or starts fresh in the same folder and says so in `message`.
+- Needs the `lectern.write` scope.
 
 ## Example
 

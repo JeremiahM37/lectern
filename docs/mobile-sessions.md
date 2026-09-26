@@ -34,6 +34,14 @@ that enable terminal mouse reporting. Vertical drags still scroll; long press
 selects text and pinch changes text size. The terminal fits the visible viewport
 when the phone keyboard opens, including browsers that overlay the layout.
 
+**↺ Restore** lists closed, archived, exited and restart-interrupted sessions,
+grouped by project with a search box. Each row shows why it closed, its last
+message and what one tap will do — usually **Resume**, which continues the saved
+conversation. **Other agent…** continues it with a different agent or model.
+Ending a session from its card shows an **Undo** toast for ten seconds, and
+sessions a restart interrupted get a banner that restores them in one tap. See
+[Restoring sessions](terminal-client.md#restoring-sessions).
+
 **Switch agent or model** offers discovered models, saved provider profiles and
 favorites. Switching saves a fresh handoff and starts the destination with that
 context. It keeps the original session running. The progress display distinguishes
