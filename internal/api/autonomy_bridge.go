@@ -139,6 +139,13 @@ func autoResearchURL(raw string) (*url.URL, error) {
 }
 
 func autoResearch(w http.ResponseWriter, r *http.Request) {
+	transport := &http.Transport{DialContext: autoPublicDial, DisableKeepAlives: true, ResponseHeaderTimeout: 20 * time.Second}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	serveAutoResearch(w, r, client)
+}
+
+func serveAutoResearch(w http.ResponseWriter, r *http.Request, client *http.Client) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "read only", 405)
 		return
@@ -155,9 +162,6 @@ func autoResearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid URL", 400)
 		return
 	}
-	transport := &http.Transport{DialContext: autoPublicDial, DisableKeepAlives: true, ResponseHeaderTimeout: 20 * time.Second}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "research unavailable", 502)
@@ -168,9 +172,17 @@ func autoResearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "research source did not return a document (redirects are refused)", 502)
 		return
 	}
+	// Validate the complete bounded response before emitting any upstream bytes.
+	// A successful truncated document or archive can silently corrupt research.
+	const limit = 2 << 20
+	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil || len(body) > limit {
+		http.Error(w, "research response incomplete or exceeds 2 MiB; no source bytes returned", http.StatusBadGateway)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = io.Copy(w, io.LimitReader(res.Body, 2<<20))
+	_, _ = w.Write(body)
 }
 
 func (s *Server) ensureAutoBridges(j *autoJob) error {

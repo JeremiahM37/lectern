@@ -369,6 +369,7 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 		return e
 	}
 	j := *old
+	j.LaunchRetryPaid = false
 	if old.ReportError != "" {
 		j.ReportRepairs++
 		j.ReportRetryAt = time.Time{}

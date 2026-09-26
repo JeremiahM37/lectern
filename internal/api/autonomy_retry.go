@@ -13,7 +13,7 @@ func autoRetryable(reason string) bool {
 	if strings.HasPrefix(reason, "Invalid worker report:") && !autoReportRepairable(strings.TrimPrefix(reason, "Invalid worker report:")) {
 		return false
 	}
-	for _, denied := range []string{"unsafe", "escaping", "Missing job receipt", "State persistence", "Invalid runner status"} {
+	for _, denied := range []string{"unsafe", "escaping", "Missing job receipt", "State persistence", "Invalid runner status", "invalid runner start receipt"} {
 		if strings.Contains(reason, denied) {
 			return false
 		}

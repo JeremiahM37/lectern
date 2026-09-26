@@ -3,6 +3,7 @@
 import argparse
 import base64
 import ctypes
+from contextlib import contextmanager
 import datetime
 import fcntl
 import hashlib
@@ -418,7 +419,82 @@ def ensure_work(p):
     return work
 
 
+@contextmanager
+def launch_lock(job, blocking=True):
+    p = job_path(job)
+    fd = os.open(p / 'launch.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1 or info.st_mode & 0o022:
+            raise ValueError('unsafe launch lock')
+        fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def launch_state_unlocked(job):
+    p = job_path(job)
+    recorded = False
+    for name in ('start-intent.json', 'job.json'):
+        path = p / name
+        if path.exists() or path.is_symlink():
+            info = regular(path)
+            if info.st_uid != os.geteuid() or info.st_mode & 0o022 or info.st_size > 4096:
+                raise ValueError('unsafe runner start receipt')
+            try:
+                receipt = json.loads(path.read_text())
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError('invalid runner start receipt') from exc
+            if not isinstance(receipt, dict) or (name == 'start-intent.json' and receipt != {'version': 1}) or (name == 'job.json' and (receipt.get('provider') not in ('codex', 'claude', 'selftest') or not isinstance(receipt.get('model'), str))):
+                raise ValueError('invalid runner start receipt')
+            recorded = True
+    # Legacy starts may have failed before job.json was written. Never retry
+    # their partially populated assets in place or discard the original evidence.
+    assets = p / 'assets'
+    if assets.exists() or assets.is_symlink():
+        info = assets.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+            raise ValueError('unsafe runner startup footprint')
+        recorded = True
+    worker = status_unlocked(job)
+    if worker['state'] == 'running':
+        return {'state': 'running'}
+    if worker['state'] not in ('done', 'failed', 'stopped'):
+        raise ValueError('invalid runner status')
+    if recorded or (p / 'stopped').exists() or (p / 'result.json').exists():
+        return {'state': 'consumed', 'worker_state': worker['state']}
+    return {'state': 'unused'}
+
+
+def launch_state(job):
+    try:
+        with launch_lock(job, blocking=False):
+            return launch_state_unlocked(job)
+    except BlockingIOError:
+        return {'state': 'launching'}
+
+
 def start(args):
+    with launch_lock(args.job) as launch_fd:
+        phase = launch_state_unlocked(args.job)['state']
+        if phase == 'running':
+            return status_unlocked(args.job)
+        if phase != 'unused':
+            raise ValueError('job UUID has already been used; preserve it and prepare a fresh UUID')
+        p = job_path(args.job)
+        write_new(p / 'start-intent.json', json.dumps({'version': 1}))
+        with (p / 'start-intent.json').open('rb') as marker:
+            os.fsync(marker.fileno())
+        fd = os.open(p, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return start_locked(args, launch_fd)
+
+
+def start_locked(args, launch_fd):
     p = job_path(args.job)
     if not p.is_dir() or p.stat().st_uid not in (0, pwd.getpwnam('admin').pw_uid):
         raise ValueError('controller must create job directory first')
@@ -429,7 +505,7 @@ def start(args):
     if len(args.model) > 120 or args.model.startswith('-'):
         raise ValueError('invalid model')
     if (p / 'job.json').exists():
-        previous = status(args.job)
+        previous = status_unlocked(args.job)
         if previous['state'] == 'running':
             return previous
         raise ValueError('job UUID has already been used; preserve it and prepare a fresh UUID')
@@ -486,20 +562,50 @@ def start(args):
     for prop in properties() + ['StandardOutput=append:' + str(p / 'output.jsonl'),
                                 'StandardError=append:' + str(p / 'stderr.log')]:
         cmd += ['--property=' + prop]
-    run(cmd + [INSTALL, '_execute', '--job', args.job], env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+    run(cmd + [INSTALL, '_execute', '--job', args.job], env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}, pass_fds=(launch_fd,))
     return {'state': 'running', 'exit_code': None}
 
 def status(job):
+    try:
+        with launch_lock(job, blocking=False):
+            return status_unlocked(job)
+    except BlockingIOError:
+        # A privileged launcher may outlive the controller that called it.
+        # Do not export/copy/restart its work while it can still launch a unit.
+        return {'state': 'running', 'exit_code': None}
+
+
+def stop(job):
+    with launch_lock(job):
+        p = job_path(job)
+        if not (p / 'stopped').exists():
+            write_new(p / 'stopped', '')
+        # The lock prevents a delayed start after this stop completes.
+        # Query the unit directly: cancellation intent is not proof of termination.
+        result = run(['/usr/bin/systemctl', 'show', unit(job), '--property=ActiveState', '--value'])
+        active = result.stdout.strip()
+        if active in ('active', 'activating', 'deactivating', 'reloading'):
+            run(['/usr/bin/systemctl', 'stop', unit(job)])
+        elif active not in ('inactive', 'failed'):
+            raise RuntimeError('runner unit status unavailable during stop')
+        return status_unlocked(job)
+
+
+def status_unlocked(job):
     p = job_path(job)
+    r = subprocess.run(['/usr/bin/systemctl', 'show', unit(job), '--property=ActiveState,ExecMainStatus,Result'],
+                       text=True, capture_output=True)
+    props = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
+    if r.returncode != 0 or props.get('ActiveState') not in ('active', 'activating', 'deactivating', 'reloading', 'inactive', 'failed'):
+        raise RuntimeError('runner unit status unavailable')
+    if props.get('ActiveState') in ('active', 'activating', 'deactivating', 'reloading'):
+        return {'state': 'running', 'exit_code': None}
+    # A stop marker records intent, and result.json may precede process exit.
+    # Neither can override a live/transitional unit or an uncertain status query.
     if (p / 'result.json').exists():
         return json.loads((p / 'result.json').read_text())
     if (p / 'stopped').exists():
         return {'state': 'stopped', 'exit_code': None}
-    r = subprocess.run(['/usr/bin/systemctl', 'show', unit(job), '--property=ActiveState,ExecMainStatus,Result'],
-                       text=True, capture_output=True)
-    props = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
-    if props.get('ActiveState') in ('active', 'activating', 'deactivating'):
-        return {'state': 'running', 'exit_code': None}
     return {'state': 'failed', 'exit_code': int(props.get('ExecMainStatus', '1')) or 1}
 
 def digest_file(path):
@@ -1153,7 +1259,7 @@ def snapshot_execute(job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -1225,12 +1331,10 @@ def main():
         if not args.provider or not args.prompt:
             raise ValueError('start requires provider and prompt')
         out = start(args)
+    elif args.command == 'launch-state':
+        out = launch_state(args.job)
     elif args.command == 'stop':
-        p = job_path(args.job)
-        run(['/usr/bin/systemctl', 'stop', unit(args.job)])
-        if not (p / 'stopped').exists():
-            write_new(p / 'stopped', '')
-        out = status(args.job)
+        out = stop(args.job)
     else:
         out = status(args.job)
     print(json.dumps(out))
