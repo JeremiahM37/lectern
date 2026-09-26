@@ -274,8 +274,10 @@ an honestly reported blocked stop is not successful completion.
 New builder/reviewer assignments use report version 2, persisted on the assignment.
 Builders declare `ready_for_review`, `blocked`, `incomplete`, or `decision` for a major
 choice awaiting audits. Final reviewers declare `completed`, `blocked`, or
-`incomplete`. An approval requires both a completed review outcome and a completed
-builder report (`ready_for_review`, or legacy `completed`). Independent review is
+`incomplete`. An approval requires a completed independent review outcome based on actual
+acceptance evidence. The builder’s self-assessment is preserved but cannot veto
+an independent reviewer who verifies completion (including completing the pending
+review itself). Unresolved implementation/test gaps must remain unapproved. Independent review is
 automatically scheduled after the builder returns; waiting for that review does
 not make the implementation incomplete. Valid blocked reports are retained and independently reviewed;
 they cannot become approved continuation artifacts. A fully executed experiment

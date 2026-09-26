@@ -51,9 +51,6 @@ func TestTypedOutcomesDoNotPromoteAnHonestBlockedStop(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if err := s.ApplyReport(enabled(), 5, approval); err == nil {
-					t.Fatal("reviewer promoted unfinished builder")
-				}
 				if err := s.ApplyReport(enabled(), 5, []byte(`{"outcome":"`+outcome+`","approve":false,"reason":"prerequisite absent"}`)); err != nil {
 					t.Fatal(err)
 				}
@@ -96,5 +93,24 @@ func TestReadyForReviewAutomaticallySchedulesIndependentReviewer(t *testing.T) {
 	}
 	if s.Phase != Complete {
 		t.Fatal(s.Phase)
+	}
+}
+
+func TestIndependentReviewCanResolveConservativeBuilderOutcome(t *testing.T) {
+	s := decisionReady(t)
+	deliver(t, s, "builder", 4, `{"outcome":"incomplete","summary":"implementation done, waiting for automatic review","evidence":["full suite passed"]}`)
+	if err := s.RegisterTask("reviewer", 5); err != nil {
+		t.Fatal(err)
+	}
+	s.Assignments[len(s.Assignments)-1].ReportVersion = 2
+	if err := s.ApplyReport(enabled(), 5, []byte(`{"outcome":"completed","approve":true,"reason":"independent rerun fulfilled all acceptance criteria; only outstanding item was this review"}`)); err != nil {
+		t.Fatal(err)
+	}
+	var original BuildReport
+	if err := json.Unmarshal(s.Reports[4], &original); err != nil {
+		t.Fatal(err)
+	}
+	if original.Outcome != "incomplete" || s.Phase != Complete {
+		t.Fatal("original report changed or verified work blocked")
 	}
 }

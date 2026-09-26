@@ -44,10 +44,11 @@ func (s *State) validateReviewOutcome(v Verdict, reviewer Assignment) error {
 		if err := json.Unmarshal(s.Reports[builder.TaskID], &report); err != nil {
 			return errors.New("builder outcome evidence unavailable")
 		}
-		if report.Outcome != "completed" && report.Outcome != "ready_for_review" && (report.Outcome != "" || builder.ReportVersion >= 2) {
-			return errors.New("builder did not report completed work; cannot approve it")
-		}
-		return nil
+		// The independent reviewer owns the final outcome. A builder may be
+		// overly conservative (for example, waiting for this very review).
+		// Preserve its report, but do not let a self-assessment veto independently
+		// verified completion. Explicit incomplete REVIEW outcomes still fail above.
+		return validateBuildOutcome(report, builder.ReportVersion)
 	}
 	return errors.New("completed builder evidence unavailable")
 }
