@@ -236,12 +236,9 @@ func (s *session) handshake(msg []byte) bool {
 	if err != nil {
 		return false
 	}
+	// On a refusal the caller then closes the connection; the relay delivers
+	// this reply first, so the phone can say why.
 	if err := s.h.write(relay.EncodeWire(relay.WireData, s.conn, reply)); err != nil || !welcome.OK {
-		if !welcome.OK {
-			// Give the relay a moment to deliver the refusal before the
-			// close, so the phone can say why.
-			time.Sleep(200 * time.Millisecond)
-		}
 		return false
 	}
 	s.noise = sess

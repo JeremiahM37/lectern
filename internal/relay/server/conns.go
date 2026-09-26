@@ -110,9 +110,9 @@ func (s *Server) host(ctx context.Context, c *websocket.Conn, _ *http.Request) {
 			if s.cfg.OnFrame != nil {
 				s.cfg.OnFrame("to_device", ch.id, id, payload)
 			}
-			d.enqueue(payload)
+			d.enqueue(websocket.MessageBinary, payload)
 		case relay.WireClose:
-			d.close(websocket.StatusNormalClosure, "closed by host")
+			d.finish(websocket.StatusNormalClosure, "closed by host")
 		}
 	}
 	s.dropHost(hc)
@@ -204,22 +204,37 @@ func (s *Server) pruneRoutes(ch *channel) {
 	}
 }
 
+type outFrame struct {
+	typ websocket.MessageType
+	b   []byte
+}
+
 type deviceConn struct {
 	id    uint32
 	c     *websocket.Conn
 	limit int
 
 	mu     sync.Mutex
-	out    chan []byte
+	out    chan outFrame
 	queued int
 	done   chan struct{}
 	once   sync.Once
+	// Set once, before done closes: how the writer ends the connection.
+	code   websocket.StatusCode
+	reason string
+	drain  bool
+}
+
+func newDeviceConn(id uint32, c *websocket.Conn, limit int) *deviceConn {
+	d := &deviceConn{id: id, c: c, limit: limit, out: make(chan outFrame, 4096), done: make(chan struct{})}
+	go d.writer()
+	return d
 }
 
 // enqueue hands a frame to the device's writer. A device that cannot keep up
 // is disconnected rather than allowed to hold memory or stall the host's one
 // shared connection.
-func (d *deviceConn) enqueue(b []byte) {
+func (d *deviceConn) enqueue(typ websocket.MessageType, b []byte) {
 	d.mu.Lock()
 	if d.queued+len(b) > d.limit {
 		d.mu.Unlock()
@@ -227,7 +242,7 @@ func (d *deviceConn) enqueue(b []byte) {
 		return
 	}
 	select {
-	case d.out <- b:
+	case d.out <- outFrame{typ, b}:
 		d.queued += len(b)
 		d.mu.Unlock()
 	default:
@@ -236,28 +251,48 @@ func (d *deviceConn) enqueue(b []byte) {
 	}
 }
 
-func (d *deviceConn) close(code websocket.StatusCode, reason string) {
+// close ends the connection at once, dropping anything still queued.
+func (d *deviceConn) close(code websocket.StatusCode, reason string) { d.end(code, reason, false) }
+
+// finish ends the connection after delivering what is already queued: the
+// host's last words (a refused handshake says why) must reach the phone.
+func (d *deviceConn) finish(code websocket.StatusCode, reason string) { d.end(code, reason, true) }
+
+func (d *deviceConn) end(code websocket.StatusCode, reason string, drain bool) {
 	d.once.Do(func() {
+		d.code, d.reason, d.drain = code, reason, drain
 		close(d.done)
-		go closeWith(d.c, code, reason)
 	})
+}
+
+func (d *deviceConn) write(f outFrame) error {
+	d.mu.Lock()
+	d.queued -= len(f.b)
+	d.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return d.c.Write(ctx, f.typ, f.b)
 }
 
 func (d *deviceConn) writer() {
 	for {
 		select {
 		case <-d.done:
+			if d.drain {
+				for more := true; more; {
+					select {
+					case f := <-d.out:
+						more = d.write(f) == nil
+					default:
+						more = false
+					}
+				}
+			}
+			closeWith(d.c, d.code, d.reason)
 			return
-		case b := <-d.out:
-			d.mu.Lock()
-			d.queued -= len(b)
-			d.mu.Unlock()
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := d.c.Write(ctx, websocket.MessageBinary, b)
-			cancel()
-			if err != nil {
+		case f := <-d.out:
+			if d.write(f) != nil {
 				d.close(CodeSlow, "write failed")
-				return
 			}
 		}
 	}
@@ -300,7 +335,7 @@ func (s *Server) device(ctx context.Context, c *websocket.Conn, r *http.Request)
 		delete(ch.routes, hash)
 	}
 	ch.next++
-	d := &deviceConn{id: ch.next, c: c, limit: s.cfg.DeviceQueue, out: make(chan []byte, 4096), done: make(chan struct{})}
+	d := newDeviceConn(ch.next, c, s.cfg.DeviceQueue)
 	ch.devices[d.id] = d
 	host := ch.host
 	s.mu.Unlock()
@@ -318,13 +353,13 @@ func (s *Server) device(ctx context.Context, c *websocket.Conn, r *http.Request)
 			_ = host.send(relay.EncodeWire(relay.WireClose, d.id, nil))
 		}
 	}()
+	// "ok" goes through the writer's queue, so it reaches the phone before
+	// anything the host sends in response to WireOpen.
+	okMsg, _ := json.Marshal(relay.Control{T: "ok"})
+	d.enqueue(websocket.MessageText, okMsg)
 	if host.send(relay.EncodeWire(relay.WireOpen, d.id, []byte(hash))) != nil {
 		return
 	}
-	if writeControl(ctx, c, relay.Control{T: "ok"}) != nil {
-		return
-	}
-	go d.writer()
 	kctx, stop := context.WithCancel(ctx)
 	defer stop()
 	go s.keepalive(kctx, c)

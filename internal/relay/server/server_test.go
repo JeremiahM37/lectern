@@ -403,3 +403,25 @@ func TestTooManyDevicesPerChannel(t *testing.T) {
 		t.Fatalf("close code = %d", code)
 	}
 }
+
+// A host that answers and closes at once (a refused handshake) must still
+// have its answer delivered before the close.
+func TestHostCloseDeliversQueuedFrames(t *testing.T) {
+	_, base := startRelay(t, nil)
+	h := readyHost(t, base, "tok")
+	for i := 0; i < 20; i++ {
+		d := connectDevice(t, base, h.channel, "tok")
+		recvControl(t, d)
+		_, b, _ := recv(t, h.c)
+		_, conn, _, _ := relay.DecodeWire(b)
+		_ = h.c.Write(context.Background(), websocket.MessageBinary, relay.EncodeWire(relay.WireData, conn, []byte("last words")))
+		_ = h.c.Write(context.Background(), websocket.MessageBinary, relay.EncodeWire(relay.WireClose, conn, nil))
+		if _, got, err := recv(t, d); err != nil || string(got) != "last words" {
+			t.Fatalf("attempt %d: got %q, %v", i, got, err)
+		}
+		if code := closeCode(t, d); code != websocket.StatusNormalClosure {
+			t.Fatalf("close code = %d", code)
+		}
+		recv(t, h.c) // the relay's own close notice for this device, if any
+	}
+}
