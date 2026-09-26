@@ -120,7 +120,7 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 	return nil
 }
 
-func (s *Server) autoSourceContext(ctx context.Context, id string) (map[string]any, error) {
+func (s *Server) autoSourceContext(ctx context.Context, id, requestedRevision string) (map[string]any, error) {
 	pid, err := strconv.ParseInt(id, 10, 64)
 	if err != nil || pid <= 0 {
 		return nil, errors.New("positive project_id required")
@@ -129,10 +129,44 @@ func (s *Server) autoSourceContext(ctx context.Context, id string) (map[string]a
 	if err != nil {
 		return nil, err
 	}
-	revision, err := autoSourceRevision(ctx, p.RepoPath, "HEAD")
+	if requestedRevision == "" {
+		requestedRevision = "HEAD"
+	} else if !autoSourceHash(requestedRevision) {
+		return nil, errors.New("source_revision must be a full commit hash")
+	}
+	revision, err := autoSourceRevision(ctx, p.RepoPath, requestedRevision)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"project_id": p.ID, "source_revision": revision,
-		"scope": "Committed source only; uncommitted files are excluded. This is provenance, not ownership clearance, checkpoint approval, or permission to repeat rejected work. New milestones require both plan audits; retain continuation/repair lineage for existing work."}, nil
+	tree, err := autoSourceTree(ctx, p.RepoPath, revision)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"project_id": p.ID, "source_revision": revision, "source_tree": tree,
+		"tree_scope": "Git tree of the resolved source commit. Snapshot commit IDs normally differ. Matching trees corroborate paths, blobs and executable bits only within the same Git object format. Export attributes or ignored tracked files can change an archived snapshot tree; mismatch is diagnostic, not a new admission gate.",
+		"scope":      "Committed source only; uncommitted files are excluded. This is provenance, not ownership clearance, checkpoint approval, or permission to repeat rejected work. New milestones require both plan audits; retain continuation/repair lineage for existing work."}, nil
+}
+
+// Inspect only a previously resolved commit; no replacement objects or lazy fetch.
+func autoSourceTree(ctx context.Context, dir, revision string) (string, error) {
+	if !autoSourceHash(revision) {
+		return "", errors.New("source_revision must be a full commit hash")
+	}
+	c, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := autoSourceCommand(c, dir, "rev-parse", "--verify", revision+"^{tree}")
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", errors.New("source tree unavailable")
+	}
+	if err = cmd.Start(); err != nil {
+		return "", errors.New("source tree unavailable")
+	}
+	out, readErr := io.ReadAll(io.LimitReader(pipe, 128))
+	err = cmd.Wait()
+	tree := strings.TrimSpace(string(out))
+	if err != nil || readErr != nil || !autoSourceHash(tree) {
+		return "", errors.New("source tree unavailable")
+	}
+	return tree, nil
 }

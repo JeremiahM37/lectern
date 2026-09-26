@@ -345,7 +345,16 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, rows)
 		return
 	case "/source":
-		row, err := s.autoSourceContext(r.Context(), r.URL.Query().Get("project_id"))
+		query, parseErr := url.ParseQuery(r.URL.RawQuery)
+		if parseErr != nil || len(query["source_revision"]) > 1 || len(query["project_id"]) != 1 {
+			http.Error(w, "invalid source query", 400)
+			return
+		}
+		if query.Has("source_revision") && !autoSourceHash(query.Get("source_revision")) {
+			http.Error(w, "source_revision must be a full commit hash", http.StatusBadRequest)
+			return
+		}
+		row, err := s.autoSourceContext(r.Context(), query.Get("project_id"), query.Get("source_revision"))
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return
