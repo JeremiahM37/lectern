@@ -437,7 +437,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			return errors.New("unexpected planner report")
 		}
 		var r PlanReport
-		if err := decodeStrict(raw, &r); err != nil {
+		if err := decodePlanReport(raw, &r); err != nil {
 			return err
 		}
 		if r.Items == nil || len(r.Items) > c.MaxItemsPerDay || len(r.Backlog) > 12 {
