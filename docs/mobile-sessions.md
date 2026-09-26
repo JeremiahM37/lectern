@@ -70,6 +70,44 @@ supports the Web Speech API and stays hidden if it does not. Interim words
 show up as they are heard and are replaced, never duplicated, once
 recognized; nothing is ever sent on your behalf; you still tap Send.
 
+## Voice mode
+
+Below the composer in a live session's Chat view, **🎧 Voice mode** turns the
+same free Web Speech API into a hands-free loop instead of just dictation —
+no vendor keys, no metered API. Tap it once; nothing listens until you do.
+
+- **Talking to the agent.** While on, it listens continuously and shows the
+  live transcript. Pausing for about 1.5 seconds, or ending with "**send
+  it**" or "**over**", sends the utterance — after a 2-second **"Sending…
+  tap to cancel"** window, so a misheard phrase never reaches the agent
+  unreviewed.
+- **Hearing it back.** New agent output is read aloud, sentence by sentence,
+  as it arrives. Terminal noise (ANSI colors, box-drawing borders) is
+  stripped first, and a fenced code block is announced as "Code omitted."
+  rather than read character by character. Starting to talk immediately
+  interrupts whatever is being spoken (barge-in) — you are never stuck
+  waiting for a reply to finish before you can jump in.
+- **Spoken approvals.** A pending approval is announced — "Claude wants to
+  run \<command\>. Say approve or deny." — and answered by saying **approve**
+  / **allow** / **yes** or **deny** / **no** / **stop**, alone or with
+  "please" (a sentence that merely mentions the word, like "don't approve
+  that yet", is never mistaken for the decision). The decision is always
+  echoed back, spoken and on screen ("Approved." / "Denied."), before it
+  takes effect.
+- **Voice commands**: "**interrupt**" or "**stop that**" sends the same Escape
+  key as the composer's Interrupt button; "**read that again**" repeats the
+  last thing spoken; "**exit voice mode**" turns it off.
+- **Settings** (voice, speaking rate, language, auto-read on/off) are stored
+  per device and reached from the ⚙ link in the panel.
+- **Fallback and capability handling.** Where continuous background listening
+  is not available — notably iOS Safari, including inside an installed PWA
+  on some versions — voice mode falls back to **push-to-talk**: hold the mic
+  button, speak, release. A browser with neither `SpeechRecognition` nor
+  `speechSynthesis` never shows the toggle at all; it explains why in its
+  place instead. A screen **Wake Lock** is requested while voice mode is on
+  (and tolerated if the browser refuses it), so the screen does not sleep
+  mid-conversation.
+
 Notifications for the same session replace each other in the tray instead of
 stacking (grouped by session, or by approval, or by kind for a broadcast like
 a failed check). A session waiting on you gets **Open terminal** and

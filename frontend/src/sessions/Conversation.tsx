@@ -23,6 +23,7 @@ import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { MemoryDeliveries } from "./MemoryDeliveries";
 import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
+import { VoiceMode } from "./VoiceMode";
 interface Attachment {
   name: string;
   path: string;
@@ -934,6 +935,15 @@ export function Conversation({
           </div>
         ))}
       </div>
+      {kind === "session" && !unavailable && (
+        <VoiceMode
+          api={api}
+          sessionId={id}
+          sessionText={sessionText}
+          approvals={approvals}
+          onNotice={onNotice}
+        />
+      )}
       <form
         id="conversation-compose"
         className={drag ? "file-drag" : ""}

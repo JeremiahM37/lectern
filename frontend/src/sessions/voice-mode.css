@@ -1,0 +1,88 @@
+/* Voice mode: kept visually small when off (one toggle button) and only
+   grows into a full panel once a person turns it on — most sessions never
+   touch it, so it must not compete with the composer for attention. */
+.voice-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.voice-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  background: var(--panel-bg, rgba(127, 127, 127, 0.08));
+}
+.voice-mode-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.voice-mode-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border, #888);
+  flex: none;
+}
+.voice-mode-dot.listening {
+  background: #2e7d32;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.voice-mode-dot.speaking {
+  background: #1565c0;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.voice-mode-transcript {
+  font-style: italic;
+  opacity: 0.85;
+  word-break: break-word;
+}
+.voice-mode-status {
+  font-weight: 500;
+}
+.voice-mode-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.voice-mode-hints {
+  line-height: 1.4;
+}
+.voice-mode-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.voice-mode-settings-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+}
+.voice-mode-autoread {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+/* A big, thumb-friendly target for push-to-talk on the one class of browser
+   (iOS Safari) that cannot listen continuously. */
+.voice-mode-hold {
+  align-self: stretch;
+  padding: 14px;
+  font-size: 1.1em;
+  touch-action: none;
+  user-select: none;
+}
+
+@media (max-width: 600px) {
+  .voice-mode-panel {
+    font-size: 0.95em;
+  }
+}
