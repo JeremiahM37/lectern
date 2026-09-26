@@ -28,6 +28,7 @@ import { ApprovalCard, type ApprovalDecisionOptions } from "./ApprovalCard";
 import { Markdown } from "./markdown";
 import { buildChatCards, type ConversationItem } from "./tool-views/chatCards";
 import { ToolCardView } from "./tool-views/ToolCard";
+import { VoiceMode } from "./VoiceMode";
 interface Attachment {
   name: string;
   path: string;
@@ -1031,6 +1032,15 @@ export function Conversation({
           />
         ))}
       </div>
+      {kind === "session" && !unavailable && (
+        <VoiceMode
+          api={api}
+          sessionId={id}
+          sessionText={sessionText}
+          approvals={approvals}
+          onNotice={onNotice}
+        />
+      )}
       <form
         id="conversation-compose"
         className={drag ? "file-drag" : ""}

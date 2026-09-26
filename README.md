@@ -44,6 +44,10 @@ dashboard required, and it's still on your phone the moment you detach.
   Proxmox LXC (`pct`, no SSH needed) or an ephemeral sandbox container.
 - **Approve from your phone.** Web-push, Discord or ntfy notifications with
   inline approve/deny, and a mobile-first PWA for the whole control loop.
+- **Talk to your agent, hands-free.** Voice mode uses only the browser's free
+  Web Speech API — no vendor keys, nothing metered — to listen, read replies
+  aloud, and take spoken approve/deny on a pending approval. See
+  [docs/mobile-sessions.md](docs/mobile-sessions.md#voice-mode).
 - **Best-of-N with a judge.** Delegated builds (opt-in) run a cheap worker in
   its own worktree while a lead reviews, corrects and integrates its diff.
 - **Eval suites on your own repo.** `eval/capability` runs the real agent loop
