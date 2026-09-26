@@ -86,14 +86,28 @@ func TestCatalogAgentMCPRejectsStrictMode(t *testing.T) {
 	}
 }
 
-// Gemini CLI has no per-session MCP file (docs/context-parity.md), so its
-// launch carries no MCP arguments at all, not Codex's.
-func TestGeminiInteractiveLaunchGetsNoMCPTranslation(t *testing.T) {
+// Interactive Gemini in a project's own checkout: Lectern did not create the
+// workspace, so the workspace helper is told so and (on a real target, see
+// gemini_workspace_mcp_test.go) writes nothing. No other agent's MCP
+// arguments reach the launch.
+func TestGeminiInteractiveLaunchInOwnCheckoutIsNotOwned(t *testing.T) {
 	h := newHarness(t)
 	p := h.project("mcp-gemini", obj{"default_agent": "gemini", "mcp": obj{"ops": obj{"command": "x"}}})
 	h.session(obj{"agent": "gemini", "project_id": p.id()})
 	cmd := h.launchCmd()
 	if strings.Contains(cmd, "mcp_servers") || strings.Contains(cmd, "--mcp") || strings.Contains(cmd, "/lectern/mcp/") {
-		t.Fatalf("gemini launch should carry no MCP translation: %s", cmd)
+		t.Fatalf("gemini launch should carry no MCP arguments: %s", cmd)
+	}
+	found := false
+	for _, c := range h.mock().CmdLog() {
+		if strings.Contains(c, "# lectern-gemini-workspace-mcp") && strings.Contains(c, `"op":"install"`) {
+			found = true
+			if !strings.Contains(c, `"owned":false`) {
+				t.Fatalf("a project checkout must not be claimed as a Lectern workspace: %s", c)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the workspace helper was not consulted")
 	}
 }

@@ -112,7 +112,8 @@ func rebuildAttempts(db *store.DB, cutoff float64) error {
 			}
 		}
 		if costSource == "" && (inTok > 0 || outTok > 0) {
-			if est, ok := prices.EstimateFor(agent, model, inTok, outTok); ok {
+			cached, _ := store.UnjObj(r.resultJSON)["cached_input_tokens"].(float64)
+			if est, ok := prices.EstimateTokens(agent, model, Tokens{Input: inTok, CachedInput: int64(cached), Output: outTok}); ok {
 				cost, costSource = est, "estimated"
 			}
 		}

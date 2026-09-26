@@ -916,4 +916,7 @@ var migrations = []string{
 	// The likely conversation of an adopted session that was lost
 	// (store.Session.ResumeGuess).
 	"ALTER TABLE sessions ADD COLUMN resume_guess TEXT NOT NULL DEFAULT ''",
+	// Interactive Gemini MCP (docs/context-parity.md): what a session wrote
+	// into its Lectern workspace's .gemini/settings.json, for cleanup at end.
+	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 }

@@ -56,3 +56,26 @@ func TestSavePricesRejectsInvalidConfig(t *testing.T) {
 		t.Errorf("a rejected save must not have written anything: %q", raw)
 	}
 }
+
+func TestEstimateBillsCachedInputAtCachedRate(t *testing.T) {
+	cachedRate := 0.125
+	cfg := PriceConfig{Prices: map[string]ModelPrice{
+		"gpt-5-codex": {InputPer1M: 1.25, OutputPer1M: 10, CachedInputPer1M: &cachedRate},
+		"codex":       {InputPer1M: 2, OutputPer1M: 8},
+	}}
+	// 1M input of which 0.8M cached, 0.1M output.
+	got, ok := cfg.EstimateTokens("codex", "gpt-5-codex", Tokens{Input: 1_000_000, CachedInput: 800_000, Output: 100_000})
+	want := 0.2*1.25 + 0.8*0.125 + 0.1*10
+	if !ok || got < want-1e-9 || got > want+1e-9 {
+		t.Fatalf("cached rate: got %v %v, want %v", got, ok, want)
+	}
+	// No cached rate configured: cached input is billed as ordinary input.
+	got, _ = cfg.EstimateTokens("codex", "", Tokens{Input: 1_000_000, CachedInput: 800_000, Output: 0})
+	if got != 2 {
+		t.Fatalf("without a cached rate, cached input bills at the input rate: %v", got)
+	}
+	negative := -1.0
+	if err := (PriceConfig{Prices: map[string]ModelPrice{"m": {CachedInputPer1M: &negative}}}).Validate(); err == nil {
+		t.Fatal("a negative cached rate must be rejected")
+	}
+}

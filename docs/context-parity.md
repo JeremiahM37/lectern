@@ -75,7 +75,7 @@ gets none of these):
 | OpenCode (`opencode`) | private file named by `OPENCODE_CONFIG`, servers under `mcp` (`local`/`remote`) | over ACP `session/new` |
 | Qwen Code (`qwen`) | private file named by `QWEN_CODE_SYSTEM_DEFAULTS_PATH`, `mcpServers` (HTTP as `httpUrl`) | not translated (plain task CLI) |
 | GitHub Copilot CLI (`copilot`) | `--additional-mcp-config @<private file>`, the Claude document as is | not translated (plain task CLI) |
-| Gemini CLI (`gemini`) | not translated (see below) | over ACP `session/new` when run as the ACP preset |
+| Gemini CLI (`gemini`) | merged into `.gemini/settings.json` in a Lectern-created worktree or scratch workspace only; a session in the project's own checkout gets nothing (see below) | over ACP `session/new` when run as the ACP preset |
 | Any ACP agent (Goose, Kimi, Cline, …) | not translated | over ACP `session/new` |
 | Aider, Amp, Cursor, Crush, other custom agents | not translated | refused when the project declares MCP |
 
@@ -92,16 +92,38 @@ attempt fails instead of running with fewer tools. Translations accept
 `command`/`args`/`env` (stdio) and `url`/`headers` with `type` `http` or `sse`;
 any other field is refused rather than dropped.
 
-Interactive Gemini CLI has no equivalent: its only settings-file override,
-`GEMINI_CLI_SYSTEM_DEFAULTS_PATH`, is ignored unless the file's directory is
-owned by root, so a per-session private file cannot work, and Lectern does not
-write MCP servers into the workspace's `.gemini/settings.json`.
+Interactive Gemini CLI has no per-session file: its only settings-file
+override, `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`, is ignored unless the file's
+directory is owned by root. Gemini does read `<workspace>/.gemini/settings.json`,
+so Lectern writes there, but only when the session runs in a workspace Lectern
+created: an interactive worktree (this launch's, or one recorded for an earlier
+session) or a directory under the target's scratch root. In the project's own
+checkout nothing is written and the session gets no translation. In a Lectern
+workspace:
+
+- The servers are merged into any existing file; other settings are kept, and
+  a server the file already names keeps its own definition.
+- A file Lectern created is hidden from `git status` by a marked line in the
+  repository's `info/exclude`. Git keeps one such file per repository, shared by
+  its linked worktrees, so the line is per workspace and removed with it.
+- A repository that commits `.gemini/settings.json` is not edited, and a file
+  that is not plain JSON (for example, with comments) fails the launch rather
+  than being rewritten.
+- The launch sets `GEMINI_CLI_TRUST_WORKSPACE=true`, because Gemini ignores
+  workspace settings in a folder it does not trust.
+- When the last Lectern session using the workspace ends (stop, exit, archive or
+  failed setup), Lectern removes exactly the servers it added, while they are
+  unchanged, and the file and `.gemini` directory if it created them. A private
+  ledger under `$XDG_STATE_HOME/lectern/gemini-mcp/` records what was added.
+- Task takeover into an interactive Gemini session does not write the file.
 
 Checked on 2026-09-26 against OpenCode 1.18.32 and Qwen Code 0.24.6 (`mcp list`
 connected to a stdio server from the generated file while keeping the user's own
 server), Copilot CLI 1.0.88 (reported the server connected at start), and
 `opencode acp` and `gemini --acp` 0.61.0 (both started the stdio server passed
-in `session/new`).
+in `session/new`). Interactive Gemini CLI 0.61.0, in a linked worktree with the
+file Lectern wrote, listed both the project's and the user's own stdio servers
+as connected, with `git status` clean; removal restored the worktree.
 
 ## Permissions
 

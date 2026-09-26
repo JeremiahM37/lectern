@@ -145,6 +145,11 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		// mock only needs to return the absolute private-state path that the
 		// launcher would receive; it must not pretend the Git worktree owns it.
 		return Result{0, "/tmp/lectern-mcp-state/lectern/mcp/mock/mcp.json\n", ""}, nil
+	case strings.Contains(cmd, "# lectern-gemini-workspace-mcp"):
+		// The Gemini workspace MCP helper edits files on the real target; the
+		// mock reports a successful merge so launch-path tests can check what
+		// was asked for in the command itself.
+		return Result{0, `{"path":"/mock/.gemini/settings.json","added":[]}` + "\n", ""}, nil
 	case strings.HasPrefix(cmd, "test \"$(wc -c < ") && strings.Contains(cmd, " && mv -- "):
 		return m.publishUpload(cmd), nil
 	case strings.HasPrefix(cmd, "sudo pvesh get /cluster/nextid"):

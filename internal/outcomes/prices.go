@@ -26,6 +26,10 @@ const PricesSettingsKey = "model_prices"
 type ModelPrice struct {
 	InputPer1M  float64 `json:"input_per_1m"`
 	OutputPer1M float64 `json:"output_per_1m"`
+	// CachedInputPer1M, when set, prices input tokens the agent reports as
+	// served from its prompt cache (Codex's cached_input_tokens, a subset of
+	// its input tokens). Unset bills them at InputPer1M.
+	CachedInputPer1M *float64 `json:"cached_input_per_1m,omitempty"`
 }
 
 // PriceConfig is GET/PUT /api/model-prices' whole body: a model name to its
@@ -47,7 +51,7 @@ func (c PriceConfig) Validate() error {
 		if strings.TrimSpace(model) == "" {
 			return errors.New("a model price needs a model name")
 		}
-		if p.InputPer1M < 0 || p.OutputPer1M < 0 {
+		if p.InputPer1M < 0 || p.OutputPer1M < 0 || (p.CachedInputPer1M != nil && *p.CachedInputPer1M < 0) {
 			return fmt.Errorf("%s: rates must not be negative", model)
 		}
 	}
@@ -88,11 +92,43 @@ func SavePrices(db *store.DB, cfg PriceConfig) (PriceConfig, error) {
 // ok is false when the model has no price entry (or the config is empty),
 // so a caller never mistakes "no data" for "free".
 func (c PriceConfig) Estimate(model string, inputTokens, outputTokens int64) (usd float64, ok bool) {
+	return c.estimate(model, Tokens{Input: inputTokens, Output: outputTokens})
+}
+
+// Tokens is one reading to price. CachedInput is the part of Input served
+// from the prompt cache.
+type Tokens struct {
+	Input, CachedInput, Output int64
+}
+
+func (c PriceConfig) estimate(model string, t Tokens) (float64, bool) {
 	p, found := c.Prices[model]
 	if !found {
 		return 0, false
 	}
-	return float64(inputTokens)/1e6*p.InputPer1M + float64(outputTokens)/1e6*p.OutputPer1M, true
+	cached := t.CachedInput
+	if cached < 0 || cached > t.Input {
+		cached = 0
+	}
+	cachedRate := p.InputPer1M
+	if p.CachedInputPer1M != nil {
+		cachedRate = *p.CachedInputPer1M
+	}
+	return float64(t.Input-cached)/1e6*p.InputPer1M + float64(cached)/1e6*cachedRate +
+		float64(t.Output)/1e6*p.OutputPer1M, true
+}
+
+// EstimateTokens is EstimateFor with the cached-input split.
+func (c PriceConfig) EstimateTokens(agent, model string, t Tokens) (usd float64, ok bool) {
+	if model != "" {
+		if usd, ok := c.estimate(model, t); ok {
+			return usd, true
+		}
+	}
+	if agent == "" {
+		return 0, false
+	}
+	return c.estimate(agent, t)
 }
 
 // EstimateFor is Estimate with one fallback: when model has no entry (or is
@@ -100,15 +136,7 @@ func (c PriceConfig) Estimate(model string, inputTokens, outputTokens int64) (us
 // name is tried as a key, so an operator can price "codex" once without
 // naming every model it might pick.
 func (c PriceConfig) EstimateFor(agent, model string, inputTokens, outputTokens int64) (usd float64, ok bool) {
-	if model != "" {
-		if usd, ok := c.Estimate(model, inputTokens, outputTokens); ok {
-			return usd, true
-		}
-	}
-	if agent == "" {
-		return 0, false
-	}
-	return c.Estimate(agent, inputTokens, outputTokens)
+	return c.EstimateTokens(agent, model, Tokens{Input: inputTokens, Output: outputTokens})
 }
 
 // EstimateResult fills in an estimated cost on one normalised result event
@@ -124,7 +152,8 @@ func EstimateResult(prices PriceConfig, agent, model string, payload map[string]
 	if in == 0 && out == 0 {
 		return false
 	}
-	usd, ok := prices.EstimateFor(agent, model, in, out)
+	cached, _ := payload["cached_input_tokens"].(float64)
+	usd, ok := prices.EstimateTokens(agent, model, Tokens{Input: in, CachedInput: int64(cached), Output: out})
 	if !ok {
 		return false
 	}

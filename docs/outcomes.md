@@ -145,7 +145,8 @@ cumulative reading. `internal/outcomes.Rebuild` reads this ahead of
    (`internal/outcomes/prices.go`, settings key `model_prices`). A fresh
    install estimates nothing: an unconfigured model's cost is reported as
    unknown (`cost_source: ""`), never silently invented.
-   A model with no entry falls back to the agent's name, so pricing `codex`
+   An entry may also set `cached_input_per_1m` to bill cached input (Codex
+   reports it) at its own rate. A model with no entry falls back to the agent's name, so pricing `codex`
    covers Codex runs that report no model. For Codex the scheduler already
    writes this estimate into `result_json` while the attempt runs (see
    [budgets](budgets.md)); it keeps its `estimated` label here.
