@@ -17,8 +17,8 @@ func validateBuildOutcome(r BuildReport, version int) error {
 		if r.Outcome != "decision" {
 			return errors.New("decision checkpoint requires outcome=decision")
 		}
-	} else if !validFinalOutcome(r.Outcome) {
-		return errors.New("build outcome must be completed, blocked or incomplete")
+	} else if !validFinalOutcome(r.Outcome) && r.Outcome != "ready_for_review" {
+		return errors.New("build outcome must be ready_for_review, blocked or incomplete (legacy completed is also accepted)")
 	}
 	return nil
 }
@@ -44,7 +44,7 @@ func (s *State) validateReviewOutcome(v Verdict, reviewer Assignment) error {
 		if err := json.Unmarshal(s.Reports[builder.TaskID], &report); err != nil {
 			return errors.New("builder outcome evidence unavailable")
 		}
-		if report.Outcome != "completed" && (report.Outcome != "" || builder.ReportVersion >= 2) {
+		if report.Outcome != "completed" && report.Outcome != "ready_for_review" && (report.Outcome != "" || builder.ReportVersion >= 2) {
 			return errors.New("builder did not report completed work; cannot approve it")
 		}
 		return nil

@@ -70,3 +70,31 @@ func TestLegacyBuildAndReviewRemainValid(t *testing.T) {
 	deliver(t, s, "builder", 4, `{"summary":"result","evidence":["tested"]}`)
 	deliver(t, s, "reviewer", 5, `{"approve":true,"reason":"verified"}`)
 }
+
+func TestReadyForReviewAutomaticallySchedulesIndependentReviewer(t *testing.T) {
+	s := decisionReady(t)
+	if err := s.RegisterTask("builder", 4); err != nil {
+		t.Fatal(err)
+	}
+	s.Assignments[len(s.Assignments)-1].ReportVersion = 2
+	if err := s.ApplyReport(enabled(), 4, []byte(`{"outcome":"ready_for_review","summary":"implementation and tests finished; awaits independent review","evidence":["full tests passed"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if s.Phase != Review {
+		t.Fatal("builder needs manual intervention instead of automatic review")
+	}
+	roles := s.NeededRoles()
+	if len(roles) != 1 || roles[0] != "reviewer" {
+		t.Fatal(roles)
+	}
+	if err := s.RegisterTask("reviewer", 5); err != nil {
+		t.Fatal(err)
+	}
+	s.Assignments[len(s.Assignments)-1].ReportVersion = 2
+	if err := s.ApplyReport(enabled(), 5, []byte(`{"outcome":"completed","approve":true,"reason":"independently reproduced all acceptance checks"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if s.Phase != Complete {
+		t.Fatal(s.Phase)
+	}
+}
