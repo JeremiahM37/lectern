@@ -191,6 +191,7 @@ func (m *Manager) poll(ctx context.Context, onlyTarget *int64) {
 			}
 			m.applyPane(s, pane.Text, pane.Missing)
 		}
+		m.probeAgents(ctx, ex, targetID, group)
 		m.pollCodexUsage(ctx, ex, group)
 	}
 }
@@ -285,6 +286,13 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		m.publish(fresh)
 		if status == StatusDead && s.Status != StatusDead {
 			m.Log.Info("session ended", "session", s.ID, "name", s.Name)
+			if s.Origin == "discovered" && (s.Agent == "claude" || s.Agent == "codex") {
+				go func(id int64) {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					defer cancel()
+					m.MatchLostAdopted(ctx, id)
+				}(s.ID)
+			}
 		}
 	}
 }

@@ -32,6 +32,26 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cid, err := s.boundNativeCID(r, row)
+	if err != nil && row.AgentExitedAt != nil {
+		// The agent already exited and nothing was saved to resume: start it
+		// again in the same folder, primed with its last handoff if any.
+		if err := s.Sessions.Kill(r.Context(), row.ID); err != nil {
+			respondErr(w, err)
+			return
+		}
+		opts := sessions.ContinueOpts{Name: row.Name}
+		if wrap := s.latestWrap(row.ID); wrap != nil {
+			opts.Context, opts.WrapID = wrap.Summary, wrap.ID
+		}
+		next, err := s.Sessions.Continue(r.Context(), row.ID, opts)
+		if err != nil {
+			httpError(w, 409, "the old terminal was closed but the agent could not be started again: %s", err)
+			return
+		}
+		s.markReopened(row.ID, next.ID)
+		writeJSON(w, 201, s.sessionView(next))
+		return
+	}
 	if err != nil {
 		httpError(w, 409, "no saved conversation is bound to this session (%s); stop it and start a new one", err)
 		return
@@ -45,5 +65,6 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "the agent was stopped but its conversation could not be resumed: %s", err)
 		return
 	}
+	s.markReopened(row.ID, next.ID)
 	writeJSON(w, 201, s.sessionView(next))
 }

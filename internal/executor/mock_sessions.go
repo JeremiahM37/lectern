@@ -18,6 +18,8 @@ const (
 	MockPollEnd           = "ADK-POLL-END-v2"
 	MockPaneDelimiter     = "\x1e---LECTERN-PANE---\x1e"
 	MockDiscoverDelimiter = "\x1e---LECTERN-PS---\x1e"
+	// MockAgentProbeMarker must match sessions.AgentProbeMarker.
+	MockAgentProbeMarker = ": LECTERN-AGENT-PROBE;"
 )
 
 // mockPane is a scripted interactive agent: a pane of text that responds to what
@@ -31,6 +33,8 @@ type mockPane struct {
 	// discovery joins on.
 	psArgs string
 	busy   bool
+	// agentExited models an agent that quit and left its pane at a shell.
+	agentExited bool
 }
 
 var (
@@ -236,4 +240,45 @@ func (m *Mock) handleTracking(cmd string) Result {
 		return Result{0, "", ""}
 	}
 	return Result{0, pane.trackingIdentity + "\n", ""}
+}
+
+var agentProbeRe = regexp.MustCompile(`display-message -p -t '?=([^' ]+):'?`)
+
+// ExitPaneAgent makes a scripted pane's agent quit, leaving a shell prompt.
+func (m *Mock) ExitPaneAgent(sess string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.panes[sess]; ok {
+		p.agentExited = true
+		p.lines = append(p.lines, "$ ")
+	}
+}
+
+// handleAgentProbe answers sessions' agent probe: the pane's root process,
+// its foreground command and the processes on its terminal.
+func (m *Mock) handleAgentProbe(cmd string) Result {
+	var b strings.Builder
+	enc := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	for _, match := range agentProbeRe.FindAllStringSubmatch(cmd, -1) {
+		name := match[1]
+		m.mu.Lock()
+		p, ok := m.panes[name]
+		var exited bool
+		var ps string
+		if ok {
+			exited, ps = p.agentExited, p.psArgs
+		}
+		m.mu.Unlock()
+		if !ok {
+			fmt.Fprintf(&b, "%s\tmissing\t\t\t\n", enc(name))
+			continue
+		}
+		root, cur, all := "bash -c cd "+name+" && "+ps+"; exec bash", "claude", ps
+		if exited {
+			root, cur, all = "bash", "bash", "bash"
+		}
+		fmt.Fprintf(&b, "%s\tok\t%s\t%s\t%s\n", enc(name), enc(root), enc(cur), enc(all))
+	}
+	b.WriteString(MockPollEnd + "\n")
+	return Result{0, b.String(), ""}
 }

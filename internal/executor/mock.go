@@ -137,6 +137,8 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	}
 
 	switch {
+	case strings.HasPrefix(cmd, MockAgentProbeMarker):
+		return m.handleAgentProbe(cmd), nil
 	case strings.HasPrefix(cmd, "python3 -c ") && strings.Contains(cmd, "os.O_NOFOLLOW"):
 		// MCP runtime publication is a target-side helper in real executors. The
 		// mock only needs to return the absolute private-state path that the
