@@ -10,10 +10,10 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -230,6 +230,9 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/integrations":
+		s.getAutoIntegrations(w, r)
+		return
 	case "/requirements":
 		a, err := s.loadAuto()
 		if err != nil {
@@ -285,8 +288,19 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		integrations, err := s.autoIntegrations()
+		if err != nil {
+			http.Error(w, "integration ledger unavailable", 503)
+			return
+		}
 		if r.URL.Path == "/repairable" {
-			writeJSON(w, 200, s.autoRepairableArtifacts(a))
+			rows := s.autoRepairableArtifacts(a)
+			for _, row := range rows {
+				if id, ok := row["task_id"].(int64); ok {
+					row["private_integrations"] = autoIntegrationsForTask(integrations, id)
+				}
+			}
+			writeJSON(w, 200, rows)
 			return
 		}
 		if r.URL.Path == "/artifacts" {
@@ -300,7 +314,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					continue
 				}
-				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model})
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID)})
 			}
 			writeJSON(w, 200, rows)
 			return
@@ -422,30 +436,27 @@ func (s *Server) downloadAutonomy(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "completed job artifact not found")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "sudo", "-n", autoRunner, "archive", "--job", found.ID)
-	out, e := cmd.StdoutPipe()
+	if e = s.snapshotAutoJob(r.Context(), found); e != nil {
+		w.Header().Set("Retry-After", "20")
+		httpError(w, 503, "artifact preservation pending; retry shortly")
+		return
+	}
+	path := filepath.Join(autoRoot, found.ID, "artifact.tar.gz")
+	fd, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if e != nil {
 		respondErr(w, e)
 		return
 	}
-	if e = cmd.Start(); e != nil {
-		respondErr(w, e)
-		return
-	}
-	first := make([]byte, 512)
-	n, readErr := out.Read(first)
-	if n == 0 && readErr != nil {
-		_ = cmd.Wait()
-		httpError(w, 503, "artifact archive unavailable")
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	st, e := f.Stat()
+	if e != nil || !st.Mode().IsRegular() || st.Size() == 0 {
+		httpError(w, 503, "artifact unavailable")
 		return
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", "attachment; filename=workshop-"+found.ID+".tar.gz")
-	_, _ = w.Write(first[:n])
-	_, _ = io.Copy(w, io.LimitReader(out, 3<<30))
-	_ = cmd.Wait()
+	http.ServeContent(w, r, "workshop-"+found.ID+".tar.gz", st.ModTime(), f)
 }
 
 // Bound sockets in the trusted control plane as well as worker processes.

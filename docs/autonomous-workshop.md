@@ -208,3 +208,56 @@ The legacy `/backlog` endpoint still returns the full current backlog. Exact-key
 lookup searches current, deferred and retained in-memory cycles; an old key may
 return404 after history rotates out, even though archived reports remain retained.
 It never substitutes another similarly titled opportunity for missing content.
+
+## Completed workspace preservation
+
+Completed workers enter a persisted `exporting` state before their reports are
+applied. A UUID-scoped systemd exporter preserves the complete workspace under a
+10-minute, 512 MiB, one-CPU limit, using per-job locks and atomic publication.
+The original workspace remains intact on every failure. Interrupted exports retry
+preservation with backoff; they do not rerun the model or consume report repairs.
+Status reads use the latest committed controller snapshot without waiting for
+compression. OFF leaves bounded evidence preservation running, retains the pending
+assignment, and prevents further agent work. Restart reconciles the existing unit
+and published archive. Downloads use the published archive, not a second export.
+Other controller I/O can still delay mutations; this removes the archive-duration
+lock specifically. Legacy two-minute archive timeouts are recovered only when the
+original worker exited successfully and its report passes the unchanged validation.
+
+## Private integration receipts
+
+`GET /api/autonomy/integrations` and the worker's read-only `GET /integrations`
+expose append-only records of scoped local integration. A trusted local integrator
+or authorized human records one with `POST /api/autonomy/integrations` after local
+commit and verification. Include `task_id`, exact `job_id`, `project_id`, full
+`revision`, original `report_sha256`, `scope_type` (`adapted` or `partial`), concrete
+`integrated_scope`, `remaining_scope` (required for partial work), and private
+validation `evidence` references. The server verifies the original report identity,
+task/project association and commit reachability from the registered canonical
+repository's captured HEAD; caller-supplied repository paths are not accepted.
+Repeated identical submissions return the original receipt.
+
+These records attest integration scope; evidence references are not automatically
+executed, byte equivalence is not inferred, and later reverts can remove changes.
+Current presence remains explicitly unknown until inspected. Historical approval,
+rejection, repair limits, unfinished scope and publication restrictions remain
+unchanged. `/artifacts` and `/repairable` annotate matching receipts without hiding
+rejected or partially integrated work. The worker bridge refuses writes. Record
+one after every trusted local integration so planners need not infer completion
+from a project name, source revision or stale narrative memory.
+
+## Declining work is audited
+
+An empty `items` array goes through both independent plan auditors. New planner
+assignments (report version 3) must include `no_work`: a concrete `reason`, up to
+12 uniquely keyed prerequisite `blockers` with evidence, and 1–4 `exploration`
+findings with opportunity, decision and evidence references. Blockers may be empty;
+a planner must not invent a prerequisite merely to satisfy a schema. The evidence
+is a claim to inspect, not mechanically certified research or proof of novelty.
+
+Both auditors may approve a justified no-work decision, which completes the cycle
+without ever scheduling a builder. Disagreement requests revisions under the
+existing cap; exhaustion completes without a build. OFF/quota gates and repair
+lineage rules remain unchanged. In-flight legacy planners can submit their old
+schema, but their empty reports still receive both audits, with missing evidence
+visible to the auditors. Historical completed cycles are not rewritten.

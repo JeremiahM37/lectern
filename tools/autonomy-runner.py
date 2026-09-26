@@ -6,6 +6,7 @@ import ctypes
 import datetime
 import fcntl
 import hashlib
+import gzip
 import tempfile
 import ipaddress
 import json
@@ -29,6 +30,7 @@ INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
 DEPENDENCIES = ROOT.parent / 'dependencies'
 AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
+ARTIFACT_LOCK = Path('/run/lectern-artifact.lock')
 STORAGE_LIMIT = 200 * 1024**3
 UID = GID = 65534
 DENY = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10',
@@ -1058,9 +1060,100 @@ def archive(job):
         out.add(work, arcname='work', recursive=True, filter=safe_member)
 
 
+
+def snapshot_stage(job):
+    stage = job_path(job) / 'artifact-state'
+    stage.mkdir(mode=0o755, exist_ok=True)
+    st = stage.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ValueError('unsafe artifact state directory')
+    return stage
+
+
+def snapshot(job):
+    p = job_path(job)
+    if status(job)['state'] == 'running':
+        raise ValueError('artifact export requires a stopped worker')
+    target = p / 'artifact.tar.gz'
+    if target.exists():
+        if regular(target).st_size <= 0:
+            raise ValueError('empty artifact')
+        return {'state': 'ready'}
+    stage = snapshot_stage(job)
+    with (stage / 'start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        name = 'lectern-artifact-' + job + '.service'
+        active = subprocess.run(['/usr/bin/systemctl', 'is-active', name], capture_output=True, text=True).stdout.strip()
+        if active in ('active', 'activating', 'deactivating'):
+            return {'state': 'exporting'}
+        receipt = json.loads((stage / 'receipt.json').read_text()) if (stage / 'receipt.json').exists() else {}
+        if receipt.get('state') == 'exporting':
+            receipt.update(state='waiting', reason='export interrupted; original workspace retained', retry_at=time.time()+60)
+            dependency_receipt(stage, receipt)
+        if receipt.get('retry_at', 0) > time.time():
+            return receipt
+        capacity = storage_status()
+        if not capacity['ready'] or capacity['free_bytes'] < 23*1024**3 or capacity['allocated_bytes'] > STORAGE_LIMIT-3*1024**3:
+            return {'state': 'waiting', 'reason': 'artifact export needs 3 GiB storage headroom'}
+        dependency_receipt(stage, {'state': 'exporting'})
+        run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+name,
+             '--property=RuntimeMaxSec=600', '--property=MemoryMax=512M',
+             '--property=CPUQuota=100%', '--property=TasksMax=16',
+             '--property=KillMode=control-group', '--property=UMask=0077',
+             INSTALL, '_snapshot', '--job', job])
+        return {'state': 'exporting'}
+
+
+def snapshot_execute(job):
+    p = job_path(job)
+    stage = snapshot_stage(job)
+    with ARTIFACT_LOCK.open('a') as global_lock, (stage / 'export.lock').open('a') as lock:
+        fcntl.flock(global_lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if status(job)['state'] == 'running':
+            raise ValueError('artifact export requires a stopped worker')
+        target = p / 'artifact.tar.gz'
+        if target.exists():
+            regular(target)
+            return 0
+        # Only this fixed private temporary path is replaced after a crash.
+        temp = stage / 'archive.tmp'
+        try:
+            capacity = storage_status()
+            if not capacity['ready'] or capacity['free_bytes'] < 23*1024**3 or capacity['allocated_bytes'] > STORAGE_LIMIT-3*1024**3:
+                raise RuntimeError('artifact export needs 3 GiB storage headroom')
+            if temp.exists() or temp.is_symlink():
+                regular(temp)
+                temp.unlink()
+            work = ensure_work(p)
+            def safe_member(member):
+                if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
+                    raise ValueError('special files cannot be exported')
+                member.mode &= 0o777
+                member.uid = member.gid = 0
+                member.uname = member.gname = ''
+                return member
+            with temp.open('xb') as raw:
+                with gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=1, mtime=0) as compressed:
+                    with tarfile.open(fileobj=compressed, mode='w|', dereference=False) as out:
+                        out.add(work, arcname='work', recursive=True, filter=safe_member)
+                raw.flush(); os.fsync(raw.fileno())
+            digest = digest_file(temp)
+            os.chown(temp, 0, pwd.getpwnam('admin').pw_gid)
+            temp.chmod(0o440)
+            os.replace(temp, target)
+            fd = os.open(p, os.O_DIRECTORY)
+            try: os.fsync(fd)
+            finally: os.close(fd)
+            dependency_receipt(stage, {'state': 'ready', 'sha256': digest, 'bytes': target.stat().st_size})
+            return 0
+        except Exception as exc:
+            dependency_receipt(stage, {'state': 'waiting', 'reason': str(exc)[:500], 'retry_at': time.time()+300})
+            raise
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'selftest', 'start', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -1108,6 +1201,10 @@ def main():
         finally:
             run(['/usr/bin/systemctl', 'stop', probe_name])
         out = {'ready': True}
+    elif args.command == 'snapshot':
+        out = snapshot(args.job)
+    elif args.command == '_snapshot':
+        return snapshot_execute(args.job)
     elif args.command == 'archive':
         archive(args.job)
         return 0

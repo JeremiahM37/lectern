@@ -140,6 +140,8 @@ type Server struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/autonomy", s.getAutonomy)
+	mux.HandleFunc("GET /api/autonomy/integrations", s.getAutoIntegrations)
+	mux.HandleFunc("POST /api/autonomy/integrations", s.postAutoIntegration)
 	mux.HandleFunc("GET /api/autonomy/jobs/{job}/archive", s.downloadAutonomy)
 	mux.HandleFunc("PUT /api/autonomy", s.putAutonomy)
 	mux.HandleFunc("POST /api/autonomy/run", s.startAutonomy)

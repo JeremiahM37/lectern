@@ -168,9 +168,67 @@ type Proposal struct {
 	Score          int      `json:"score,omitempty"`
 	Expert         bool     `json:"expert,omitempty"`
 }
+
+// NoWorkReport makes declining work an auditable decision, not an implicit
+// shortcut around the two independent plan auditors. Evidence remains claims
+// to inspect; structure alone never proves novelty, feasibility or exhaustion.
+type NoWorkBlocker struct {
+	Key         string   `json:"key"`
+	Requirement string   `json:"requirement"`
+	Evidence    []string `json:"evidence"`
+}
+type ExplorationFinding struct {
+	Opportunity string   `json:"opportunity"`
+	Decision    string   `json:"decision"`
+	Evidence    []string `json:"evidence"`
+}
+type NoWorkReport struct {
+	Reason      string               `json:"reason"`
+	Blockers    []NoWorkBlocker      `json:"blockers"`
+	Exploration []ExplorationFinding `json:"exploration"`
+}
+
+func validateNoWork(r *NoWorkReport, required bool) error {
+	if r == nil {
+		if required {
+			return errors.New("empty plan requires no_work reason, blockers and exploration evidence")
+		}
+		return nil
+	}
+	textOK := func(s string) bool { return strings.TrimSpace(s) != "" && len(s) <= 4000 }
+	evidenceOK := func(rows []string) bool {
+		if len(rows) == 0 || len(rows) > 8 {
+			return false
+		}
+		for _, row := range rows {
+			if !textOK(row) {
+				return false
+			}
+		}
+		return true
+	}
+	if !textOK(r.Reason) || len(r.Blockers) > 12 || len(r.Exploration) == 0 || len(r.Exploration) > 4 {
+		return errors.New("no_work needs a reason, at most 12 blockers and 1 to 4 exploration findings")
+	}
+	seen := map[string]bool{}
+	for _, b := range r.Blockers {
+		if !textOK(b.Key) || len(b.Key) > 128 || seen[b.Key] || !textOK(b.Requirement) || !evidenceOK(b.Evidence) {
+			return errors.New("no_work blocker requires unique key, concrete requirement and evidence")
+		}
+		seen[b.Key] = true
+	}
+	for _, f := range r.Exploration {
+		if !textOK(f.Opportunity) || !textOK(f.Decision) || !evidenceOK(f.Evidence) {
+			return errors.New("no_work exploration requires opportunity, decision and evidence")
+		}
+	}
+	return nil
+}
+
 type PlanReport struct {
-	Items   []Proposal `json:"items"`
-	Backlog []Proposal `json:"backlog,omitempty"`
+	NoWork  *NoWorkReport `json:"no_work,omitempty"`
+	Items   []Proposal    `json:"items"`
+	Backlog []Proposal    `json:"backlog,omitempty"`
 }
 type Verdict struct {
 	Outcome string `json:"outcome,omitempty"`
@@ -217,6 +275,7 @@ type Assignment struct {
 	Completed     bool   `json:"completed"`
 }
 type State struct {
+	NoWork         *NoWorkReport             `json:"no_work,omitempty"`
 	Date           string                    `json:"date"`
 	Phase          Phase                     `json:"phase"`
 	ResumePhase    Phase                     `json:"resume_phase,omitempty"`
@@ -384,6 +443,13 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		if r.Items == nil || len(r.Items) > c.MaxItemsPerDay || len(r.Backlog) > 12 {
 			return errors.New("plan needs items array within cycle cap and at most 12 backlog proposals")
 		}
+		if len(r.Items) == 0 {
+			if err := validateNoWork(r.NoWork, a.ReportVersion >= 3); err != nil {
+				return err
+			}
+		} else if r.NoWork != nil {
+			return errors.New("no_work is only valid for an empty items array")
+		}
 		seen := map[string]bool{}
 		for index, p := range append(append([]Proposal(nil), r.Items...), r.Backlog...) {
 			// A selected milestone may also appear in the persistent backlog.
@@ -404,14 +470,12 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			}
 			seen[key] = true
 		}
+		s.NoWork = r.NoWork
 		s.Items = r.Items
 		s.Backlog = r.Backlog
 		s.Audits = map[string]Verdict{}
 		s.Phase = Audit
-		if len(r.Items) == 0 {
-			s.Phase = Complete
-			s.Reason = "No worthwhile work proposed"
-		}
+
 	case "auditor_a", "auditor_b":
 		if s.Phase != Audit {
 			return errors.New("unexpected audit report")
@@ -429,7 +493,12 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 		s.Audits[a.Role] = v
 		if len(s.Audits) == 2 {
 			if *s.Audits["auditor_a"].Approve && *s.Audits["auditor_b"].Approve {
-				s.Phase = Build
+				if len(s.Items) == 0 {
+					s.Phase = Complete
+					s.Reason = "Both independent auditors accepted the no-work decision"
+				} else {
+					s.Phase = Build
+				}
 			} else if s.Revision < c.MaxRevisionRounds {
 				s.Revision++
 				s.Phase = Revise
