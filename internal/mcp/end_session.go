@@ -46,7 +46,7 @@ func init() {
 				return nil, err
 			}
 			return map[string]any{"ended": true, "archived": true, "id": id, "name": sess["name"],
-				"note": "terminal stopped; record and final output kept — restore it from Lectern if needed",
+				"note":   "terminal stopped; record and final output kept — restore it from Lectern if needed",
 				"result": out}, nil
 		},
 	})

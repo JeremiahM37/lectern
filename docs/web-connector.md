@@ -1,5 +1,9 @@
 # Web connector: driving Lectern from claude.ai
 
+> The how-to for everyday use (adding it, permissions, example prompts,
+> troubleshooting) is [use-from-chat.md](use-from-chat.md). This page is the
+> operator reference.
+
 `lectern mcp --http` serves the same MCP tool surface as `lectern mcp`
 (stdio) over the Streamable-HTTP transport, protected by OAuth 2.1, so the
 owner's everyday claude.ai chats — web or the mobile app — can add Lectern as
@@ -209,6 +213,25 @@ librarr project that adds the two-tier cache we just designed — here's the
 spec" (pasting or attaching the spec, which lands as `inline_files`), or
 "tell my open session about the retry logic in this ticket" (attaching the
 ticket).
+
+## The Settings card and ChatGPT
+
+At startup, `lectern mcp --http` reports `LECTERN_PUBLIC_BASE/mcp` to the
+control plane (`POST /api/mcp-clients/web-endpoint`). Only a process on the
+Lectern host or the signed-in owner may set it, because the URL stored there
+is what the owner is told to paste. **Settings → Connect your AI tools** then
+shows it with a copy button. It shows "connected · used N ago" once a chat's
+MCP client (`Anthropic/ClaudeAI`, `Anthropic/Toolbox`, `openai-mcp`) has
+initialised.
+
+ChatGPT: turn on Developer mode, where the plan allows it, and add a
+connector with the same URL. The default redirect allowlist already covers
+chatgpt.com and openai.com. This path is supported but not yet tested end to
+end.
+
+**Tool list caching:** claude.ai caches the connector's tools per chat. After
+an upgrade that adds a tool, open the connector's page under Customize →
+Connectors to refresh the list, then start a new chat.
 
 ## Admin: listing and revoking connected clients
 

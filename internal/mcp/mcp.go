@@ -296,3 +296,10 @@ func (s *Server) object(path string) (map[string]any, error) {
 	m, _ := raw.(map[string]any)
 	return m, nil
 }
+
+// ReportWebEndpoint records this web connector's public MCP URL with the
+// control plane (POST /api/mcp-clients/web-endpoint).
+func (s *Server) ReportWebEndpoint(url string) error {
+	_, err := s.api("POST", "/mcp-clients/web-endpoint", map[string]any{"url": url})
+	return err
+}

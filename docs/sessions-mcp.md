@@ -73,6 +73,21 @@ than one open session, or none, errors with the candidates — call
 at this" instead of queuing behind the current turn. Refused for a session
 that has ended.
 
+## `end_session`
+
+Ends an interactive session a conversation no longer needs, such as the test
+or build session it started.
+
+- `session`: the session's id or **exact** name. A partial name, even one that
+  matches a single session, is refused with a message asking for the exact
+  name. `send_to_session` accepts unique partial names; ending a session does
+  not.
+- It **archives** the session with `stop=true`. The terminal ends, but the
+  session's record and final terminal output are kept, and it can be restored
+  from Lectern. Nothing is permanently deleted.
+- Over the web connector it needs the `lectern.write` scope, like every tool
+  that changes something. In claude.ai, set it to "Needs approval".
+
 ## Example
 
 A brainstorm session (Claude Code or Codex, no Lectern session of its own)

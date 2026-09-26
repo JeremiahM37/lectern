@@ -52,12 +52,15 @@ fix printed next to anything that's off.
   board** lets it say what it's about to do — claimed automatically or with
   one MCP call, shown in every peer's briefing and edit warnings, always
   advisory. See [docs/claims.md](docs/claims.md).
-- **Hand off a brainstorm.** From a Claude Code or Codex chat with no Lectern
-  session of its own, `start_session`/`send_to_session`/`list_sessions` on
-  the `lectern` MCP server let "start a session that builds this" or "give my
-  open session this file" work straight from that conversation, files and
-  freeform context included, with Grimoire as the durable brief. See
-  [docs/sessions-mcp.md](docs/sessions-mcp.md).
+- **Hand off a brainstorm — even from claude.ai.** From an ordinary claude.ai
+  chat (web, desktop or phone), or from Claude Code/Codex, "start a session
+  that builds this", "give my open session this file" and "end that session"
+  just work — uploaded files (PDFs included) arrive as the real file, the
+  conversation's design as context, with Grimoire as the durable brief. The
+  web connector is OAuth that only you can approve, and it can never approve
+  an agent's actions. See [docs/use-from-chat.md](docs/use-from-chat.md),
+  [docs/sessions-mcp.md](docs/sessions-mcp.md) and
+  [docs/web-connector.md](docs/web-connector.md).
 - **Self-hosted, MIT.** One static binary, your infrastructure, your choice of
   model provider — nothing about your code leaves a box you control unless
   your chosen agent's own model call does.
@@ -426,9 +429,12 @@ worked:
 - **Claude Desktop**: a copyable `mcpServers` JSON snippet for Settings →
   Developer → Edit Config.
 - **Cursor and VS Code**: a real one-click MCP install deep link.
-- **claude.ai / ChatGPT (web)**: these need a public HTTPS MCP endpoint,
-  which Lectern does not expose by default, so the card explains that and
-  links to claude.ai's own connectors page rather than faking a button.
+- **claude.ai / ChatGPT (web)**: these reach Lectern through the web
+  connector (`lectern mcp --http` behind an HTTPS tunnel, OAuth approved from
+  your own tailnet device). Once it runs, the card shows the exact URL to
+  paste — with buttons to open claude.ai's connectors page and ChatGPT's
+  settings — and "connected · used N ago" once a chat uses it. Step by step:
+  [docs/use-from-chat.md](docs/use-from-chat.md).
 
 Once a client actually talks to `lectern mcp`, the card shows "connected ·
 used N ago" — recorded from the MCP `initialize` handshake's `clientInfo`,

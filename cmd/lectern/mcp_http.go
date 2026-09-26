@@ -50,6 +50,7 @@ func mcpHTTPCommand(cfg *config.Config) error {
 
 	if oa != nil {
 		go serveAuthorize(oa)
+		go reportWebEndpoint(srv, strings.TrimRight(os.Getenv("LECTERN_PUBLIC_BASE"), "/")+"/mcp")
 	}
 
 	addr := env("LECTERN_MCP_ADDR", "127.0.0.1:"+env("LECTERN_MCP_PORT", "9119"))
@@ -195,4 +196,17 @@ func hasFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+// reportWebEndpoint tells the control plane this connector's public MCP URL,
+// so Settings can show the exact address to paste into claude.ai or ChatGPT.
+// Best effort, retried while Lectern itself may still be starting; a failure
+// only means the card keeps its generic hint.
+func reportWebEndpoint(srv *mcp.Server, url string) {
+	for attempt := 0; attempt < 10; attempt++ {
+		if err := srv.ReportWebEndpoint(url); err == nil {
+			return
+		}
+		time.Sleep(time.Duration(attempt+1) * 3 * time.Second)
+	}
 }

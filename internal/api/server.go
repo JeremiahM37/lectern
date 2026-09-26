@@ -350,6 +350,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mcp-clients", s.listMCPClients)
 	mux.HandleFunc("POST /api/mcp-clients/{id}/install", s.installMCPClient)
 	mux.HandleFunc("POST /api/mcp-clients/seen", s.mcpClientSeen)
+	mux.HandleFunc("POST /api/mcp-clients/web-endpoint", s.mcpWebEndpoint)
 	// ---- routines: a saved job, one button, optionally scheduled ----
 	mux.HandleFunc("GET /api/routines", s.listRoutines)
 	mux.HandleFunc("POST /api/routines", s.createRoutine)

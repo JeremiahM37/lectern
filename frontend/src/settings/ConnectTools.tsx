@@ -150,7 +150,9 @@ export function ConnectTools({
       )}
       <div className="connect-tools-grid" id="connect-tools-grid">
         {clients.map((c) => {
-          const command = remote ? c.remote_command : c.command;
+          // The web connector's URL is the same from every computer.
+          const command =
+            remote && c.id !== "web-connectors" ? c.remote_command : c.command;
           const shown = command ? fillOrigin(command, origin) : undefined;
           const result = results[c.id];
           return (
@@ -200,6 +202,16 @@ export function ConnectTools({
                     rel="noreferrer"
                   >
                     Open claude.ai connectors
+                  </a>
+                )}
+                {c.id === "web-connectors" && (
+                  <a
+                    className="b connect-deeplink"
+                    href="https://chatgpt.com/#settings"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open ChatGPT settings
                   </a>
                 )}
               </div>

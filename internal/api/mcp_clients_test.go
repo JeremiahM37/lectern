@@ -408,3 +408,82 @@ func TestLecternPathPrefersStableNameOnPath(t *testing.T) {
 		t.Fatalf("lecternPath() = %q, want the stable PATH entry %q", got, link)
 	}
 }
+
+func postWebEndpoint(t *testing.T, s *Server, p auth.Principal, url string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest("POST", "/api/mcp-clients/web-endpoint", strings.NewReader(`{"url":"`+url+`"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+	w := httptest.NewRecorder()
+	s.mcpWebEndpoint(w, r)
+	return w
+}
+
+func webConnectorRow(t *testing.T, s *Server) map[string]any {
+	t.Helper()
+	w := httptest.NewRecorder()
+	s.listMCPClients(w, httptest.NewRequest("GET", "/api/mcp-clients", nil))
+	var rows []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row["id"] == "web-connectors" {
+			return row
+		}
+	}
+	t.Fatal("no web-connectors row")
+	return nil
+}
+
+// The connector process on this machine registers its public URL, and the
+// Settings card then shows exactly that URL to paste into claude.ai/ChatGPT.
+func TestWebEndpointRegisteredLocallyAppearsOnTheCard(t *testing.T) {
+	s := mcpTestServer(t, auth.ModeTailscale)
+	if row := webConnectorRow(t, s); row["command"] != nil {
+		t.Fatalf("no URL is known yet, got %v", row["command"])
+	}
+	w := postWebEndpoint(t, s, auth.Principal{Kind: auth.KindLocal}, "https://lec-mcp.example.org/mcp")
+	if w.Code != 200 {
+		t.Fatalf("a local connector process must be allowed, got %d: %s", w.Code, w.Body.String())
+	}
+	row := webConnectorRow(t, s)
+	if row["command"] != "https://lec-mcp.example.org/mcp" {
+		t.Fatalf("card should offer the registered URL, got %v", row["command"])
+	}
+	if !strings.Contains(row["detail"].(string), "Add custom connector") {
+		t.Fatalf("card should explain where to paste it, got %q", row["detail"])
+	}
+}
+
+// What is stored here is what the owner is told to paste into claude.ai, so a
+// tagged device (or any other non-owner on the tailnet) must not set it.
+func TestWebEndpointRefusesNonOwnerTailnetCaller(t *testing.T) {
+	s := mcpTestServer(t, auth.ModeTailscale)
+	w := postWebEndpoint(t, s, auth.Principal{Kind: auth.KindTailscale}, "https://evil.example/mcp")
+	if w.Code != 403 {
+		t.Fatalf("a non-owner tailnet caller must be refused, got %d", w.Code)
+	}
+	if row := webConnectorRow(t, s); row["command"] != nil {
+		t.Fatalf("a refused call must not change the card, got %v", row["command"])
+	}
+}
+
+func TestWebEndpointRejectsNonHTTPSOrWrongPath(t *testing.T) {
+	s := mcpTestServer(t, auth.ModeTailscale)
+	for _, bad := range []string{"http://lec.example/mcp", "https://lec.example/other", "not a url"} {
+		if w := postWebEndpoint(t, s, auth.Principal{Kind: auth.KindLocal}, bad); w.Code != 400 {
+			t.Errorf("%q should be rejected, got %d", bad, w.Code)
+		}
+	}
+}
+
+// claude.ai's MCP client identifies itself as Anthropic/ClaudeAI (and
+// Anthropic/Toolbox); both mean the web connector is in use.
+func TestClaudeAISeenLandsOnTheWebConnectorCard(t *testing.T) {
+	s := mcpTestServer(t, auth.ModeTailscale)
+	s.recordMCPClientSeen("Anthropic/ClaudeAI", "1.0.0")
+	if row := webConnectorRow(t, s); row["last_seen"] == nil {
+		t.Fatalf("claude.ai use should mark the web connector card as seen: %v", row)
+	}
+}

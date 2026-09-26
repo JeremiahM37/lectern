@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,6 +150,11 @@ var mcpKnownSeenNames = map[string]string{
 	"codex":            "codex",
 	"codex-mcp-client": "codex",
 	"codex-cli":        "codex",
+	// claude.ai (web, desktop and mobile apps) through Lectern's web connector
+	"anthropic/claudeai": "web-connectors",
+	"anthropic/toolbox":  "web-connectors",
+	// ChatGPT's connector client
+	"openai-mcp": "web-connectors",
 }
 
 // mcpSeenGroup resolves a reported clientInfo.name to the id its last-seen
@@ -218,6 +224,7 @@ func truncateOutput(s string, limit int) string {
 // a config snippet or deep link, the two web surfaces that need neither, and
 // any client that has actually connected but isn't one of the above.
 func (s *Server) mcpClientsList(ctx context.Context) []mcpClientInfo {
+	webURL := strings.TrimSpace(s.DB.Setting(mcpWebEndpointKey))
 	lecternPath := s.lecternPath()
 	seen := s.loadMCPClientsSeen()
 	out := make([]mcpClientInfo, 0, 8)
@@ -278,7 +285,8 @@ func (s *Server) mcpClientsList(ctx context.Context) []mcpClientInfo {
 		mcpClientInfo{
 			ID:          "web-connectors",
 			Name:        "claude.ai / ChatGPT (web)",
-			Detail:      "These need a public HTTPS MCP endpoint, which Lectern does not expose by default. Use a CLI or desktop client above instead, or expose one yourself and add it as a connector.",
+			Detail:      webConnectorDetail(webURL),
+			Command:     webURL,
 			ExternalURL: "https://claude.ai/customize/connectors",
 			LastSeen:    seen["web-connectors"],
 		},
@@ -427,4 +435,50 @@ func (s *Server) recordMCPClientSeen(name, version string) {
 	current[id] = &mcpSeenRecord{Name: name, Version: version, At: time.Now().Unix()}
 	raw, _ := json.Marshal(current)
 	_ = s.DB.SetSetting(mcpClientSeenKey, string(raw))
+}
+
+// mcpWebEndpointKey holds the public MCP URL of Lectern's web connector
+// (`lectern mcp --http`), which reports it at startup. Knowing it lets the
+// Settings card show the exact URL to paste into claude.ai or ChatGPT instead
+// of a generic "you need a public endpoint".
+const mcpWebEndpointKey = "mcp_web_endpoint"
+
+func webConnectorDetail(url string) string {
+	if url == "" {
+		return "These need a public HTTPS MCP endpoint. Run `lectern mcp --http` behind a tunnel " +
+			"(see docs/web-connector.md) and the address to paste will appear here."
+	}
+	return "Paste this URL as a custom connector — claude.ai: Customize → Connectors → Add custom " +
+		"connector; ChatGPT (Developer mode): Settings → Apps → Create. Then approve the sign-in on a " +
+		"device on your tailnet. See docs/use-from-chat.md."
+}
+
+// mcpWebEndpoint is POST /api/mcp-clients/web-endpoint: the web connector
+// process reporting its public URL. What this stores is shown to the owner as
+// the thing to paste into claude.ai, so only this machine's own processes (the
+// connector runs beside Lectern) or the signed-in owner may set it — never an
+// arbitrary tailnet peer.
+func (s *Server) mcpWebEndpoint(w http.ResponseWriter, r *http.Request) {
+	principal, _ := auth.FromContext(r.Context())
+	if principal.Kind != auth.KindLocal && (s.Auth == nil || !s.Auth.CanDecide(principal)) {
+		httpError(w, 403, "only the web connector on this machine, or you, can set its address")
+		return
+	}
+	var in struct {
+		URL string `json:"url"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	u, err := url.Parse(strings.TrimSpace(in.URL))
+	if err != nil || u.Scheme != "https" || u.Host == "" || !strings.HasSuffix(u.Path, "/mcp") {
+		httpError(w, 400, "url must be an https URL ending in /mcp")
+		return
+	}
+	if err := s.DB.SetSetting(mcpWebEndpointKey, u.String()); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "url": u.String()})
 }
