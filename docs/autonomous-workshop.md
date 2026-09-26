@@ -245,3 +245,19 @@ unchanged. `/artifacts` and `/repairable` annotate matching receipts without hid
 rejected or partially integrated work. The worker bridge refuses writes. Record
 one after every trusted local integration so planners need not infer completion
 from a project name, source revision or stale narrative memory.
+
+## Declining work is audited
+
+An empty `items` array goes through both independent plan auditors. New planner
+assignments (report version 3) must include `no_work`: a concrete `reason`, up to
+12 uniquely keyed prerequisite `blockers` with evidence, and 1–4 `exploration`
+findings with opportunity, decision and evidence references. Blockers may be empty;
+a planner must not invent a prerequisite merely to satisfy a schema. The evidence
+is a claim to inspect, not mechanically certified research or proof of novelty.
+
+Both auditors may approve a justified no-work decision, which completes the cycle
+without ever scheduling a builder. Disagreement requests revisions under the
+existing cap; exhaustion completes without a build. OFF/quota gates and repair
+lineage rules remain unchanged. In-flight legacy planners can submit their old
+schema, but their empty reports still receive both audits, with missing evidence
+visible to the auditors. Historical completed cycles are not rewritten.
