@@ -223,3 +223,25 @@ and published archive. Downloads use the published archive, not a second export.
 Other controller I/O can still delay mutations; this removes the archive-duration
 lock specifically. Legacy two-minute archive timeouts are recovered only when the
 original worker exited successfully and its report passes the unchanged validation.
+
+## Private integration receipts
+
+`GET /api/autonomy/integrations` and the worker's read-only `GET /integrations`
+expose append-only records of scoped local integration. A trusted local integrator
+or authorized human records one with `POST /api/autonomy/integrations` after local
+commit and verification. Include `task_id`, exact `job_id`, `project_id`, full
+`revision`, original `report_sha256`, `scope_type` (`adapted` or `partial`), concrete
+`integrated_scope`, `remaining_scope` (required for partial work), and private
+validation `evidence` references. The server verifies the original report identity,
+task/project association and commit reachability from the registered canonical
+repository's captured HEAD; caller-supplied repository paths are not accepted.
+Repeated identical submissions return the original receipt.
+
+These records attest integration scope; evidence references are not automatically
+executed, byte equivalence is not inferred, and later reverts can remove changes.
+Current presence remains explicitly unknown until inspected. Historical approval,
+rejection, repair limits, unfinished scope and publication restrictions remain
+unchanged. `/artifacts` and `/repairable` annotate matching receipts without hiding
+rejected or partially integrated work. The worker bridge refuses writes. Record
+one after every trusted local integration so planners need not infer completion
+from a project name, source revision or stale narrative memory.

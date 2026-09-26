@@ -230,6 +230,9 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/integrations":
+		s.getAutoIntegrations(w, r)
+		return
 	case "/requirements":
 		a, err := s.loadAuto()
 		if err != nil {
@@ -285,8 +288,19 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		integrations, err := s.autoIntegrations()
+		if err != nil {
+			http.Error(w, "integration ledger unavailable", 503)
+			return
+		}
 		if r.URL.Path == "/repairable" {
-			writeJSON(w, 200, s.autoRepairableArtifacts(a))
+			rows := s.autoRepairableArtifacts(a)
+			for _, row := range rows {
+				if id, ok := row["task_id"].(int64); ok {
+					row["private_integrations"] = autoIntegrationsForTask(integrations, id)
+				}
+			}
+			writeJSON(w, 200, rows)
 			return
 		}
 		if r.URL.Path == "/artifacts" {
@@ -300,7 +314,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					continue
 				}
-				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model})
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID)})
 			}
 			writeJSON(w, 200, rows)
 			return
