@@ -19,6 +19,10 @@ var localClientCommands = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true, "expose": true, "skill": true,
 	"attach": true, "mcp": true, "promote": true, "controls": true,
+	// claude/codex are the one-command agent launchers (cmd/lectern/agent_quick.go);
+	// `lectern local claude` forces one onto this machine's local runtime the
+	// same way it does for every other client command here.
+	"claude": true, "codex": true,
 }
 
 // localCommand is deliberately a thin routing layer. The local runtime is
@@ -56,7 +60,7 @@ func localCommand(cfg *config.Config, args []string) error {
 		return enc.Encode(status)
 	}
 	if !localClientCommands[args[0]] {
-		return errors.New("usage: lectern local [console|tui|shell|api|agent|files|upload|download|skill|attach|promote|mcp|status|stop]")
+		return errors.New("usage: lectern local [console|tui|shell|api|agent|files|upload|download|skill|attach|promote|mcp|claude|codex|status|stop]")
 	}
 	return localClientCommand(cfg, args[0], args[1:])
 }

@@ -34,6 +34,30 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
+// clientVerbs are the subcommands routed through the generic client dispatch:
+// explicit LECTERN_API talks straight to it, otherwise the private local
+// runtime is started/reused (localCommand). agentQuickVerbs (see
+// cmd/lectern/agent_quick.go) shares this exact dispatch.
+var clientVerbs = map[string]bool{
+	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
+	"upload": true, "files": true, "download": true, "post": true, "live": true,
+	"expose": true, "skill": true, "promote": true, "controls": true,
+	"help": true, "--help": true, "-h": true,
+}
+
+// reservedVerbs are every other top-level name main.go or localCommand
+// (cmd/lectern/local_cli.go) already claims. An agent-quick name landing here
+// would be silently shadowed by an existing subcommand — which must always
+// win — so a test asserts the sets are disjoint.
+var reservedVerbs = map[string]bool{
+	"local": true, "up": true, "doctor": true, "serve": true, "attach": true,
+	"mcp": true, "version": true, "--version": true, "-v": true,
+	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
+	// argument position (after "local") but reserved all the same so
+	// `lectern local claude` cannot mean two different things.
+	"supervise": true, "status": true, "stop": true,
+}
+
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
@@ -85,19 +109,25 @@ func main() {
 	}
 
 	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "console", "tui", "shell", "api", "agent", "upload", "files", "download", "post", "live", "expose", "skill", "promote", "controls", "help", "--help", "-h":
+		arg := os.Args[1]
+		// clientVerbs and agentQuickVerbs (cmd/lectern/agent_quick.go) share
+		// one dispatch: explicit LECTERN_API talks straight to it, otherwise
+		// the private local runtime is started/reused. TestDispatch in
+		// main_test.go proves this set and reservedVerbs below never collide.
+		if clientVerbs[arg] || agentQuickVerbs[arg] {
 			var err error
-			if explicitRemote || os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" {
-				err = clientCommand(cfg, os.Args[1], os.Args[2:])
+			if explicitRemote || arg == "help" || arg == "--help" || arg == "-h" {
+				err = clientCommand(cfg, arg, os.Args[2:])
 			} else {
-				err = localCommand(cfg, append([]string{os.Args[1]}, os.Args[2:]...))
+				err = localCommand(cfg, append([]string{arg}, os.Args[2:]...))
 			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 			return
+		}
+		switch arg {
 		case "local":
 			if err := localCommand(cfg, os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, err)

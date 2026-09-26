@@ -8,6 +8,43 @@ credentials, the configured port, auth mode, TLS and push keys, printing a fix
 next to anything that needs one. Both are independent of everything else on
 this page — see the top-level README's Install section.
 
+### One command, any folder: `lectern claude` / `lectern codex`
+
+`lectern claude [args...]` and `lectern codex [args...]` are the fastest way
+into a tracked session, matching Happy's `happy claude`: no dashboard, no
+picking a project first.
+
+```
+$ cd ~/projects/lectern
+$ lectern claude
+Session #14 "lectern · one-command" — also on your phone at http://127.0.0.1:9110/#session/14
+```
+
+Run it in any folder. It starts (or reuses) Lectern exactly like every other
+client command — an explicit `LECTERN_API`/`LECTERN_AUTH_TOKEN`, or otherwise
+the private local runtime, started automatically if it isn't already up — then:
+
+- Creates a session for `agent=claude` (or `codex`) and `workdir=$PWD`.
+- Names it after the folder, plus the checked-out git branch when there is
+  one: `lectern · one-command`.
+- Attaches it to the project whose registered repository contains `$PWD`, if
+  any; otherwise the session just has a workdir, no project.
+- If a live session already exists for that same agent and folder, an
+  interactive terminal asks `Attach to existing session 'x' (#id)? [Y/n]`
+  (default yes). `--new` always starts a fresh one; `--attach` always reuses
+  (and errors if there is nothing to reuse). A non-interactive caller (a
+  script, a pipe) defaults to reuse.
+- Attaches your terminal to it with the same native attach `lectern attach
+  session ID` uses — the status bar (Ctrl-\\ to send a file, Ctrl-] then m for
+  controls) is right there. **Ctrl-b, then d** detaches back to your shell;
+  the session keeps running and stays reachable from the dashboard and your
+  phone.
+
+Extra arguments are the documented subset the session API actually accepts:
+`--model NAME` and `--resume`. Anything else is a clear error rather than a
+silently dropped argument, since there is no field for arbitrary pass-through
+CLI flags.
+
 Run `lectern` in an interactive terminal, or `lectern console`, for the live
 dashboard. It opens on Sessions, groups by project, and refreshes automatically.
 A single left-click on a session row attaches in the current terminal.
