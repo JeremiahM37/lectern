@@ -241,20 +241,53 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 		m.release(a.Key)
 		return 0, fmt.Errorf("ttyd failed to start: %w", err)
 	}
-	// give it a moment to bind — an immediate exit means the session is gone
-	select {
-	case <-ctx.Done():
-	case <-time.After(300 * time.Millisecond):
+	exited := make(chan struct{})
+	if cmd.Process != nil { // test doubles may hand back a command never started
+		go func() { _ = cmd.Wait(); close(exited) }()
 	}
-	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		m.release(a.Key)
-		return 0, errors.New("ttyd exited immediately")
+	// Wait until it is listening, for at most the fixed 300ms this used to
+	// sleep unconditionally: that sleep was nearly all of an attach's latency,
+	// and ttyd binds in a few milliseconds. An exit in the meantime means it
+	// could not start (a port taken after all, a bad argument).
+	if !waitListening(ctx, port, exited, BindWait) {
+		select {
+		case <-exited:
+			m.release(a.Key)
+			return 0, errors.New("ttyd exited immediately")
+		default:
+		}
 	}
 	m.mu.Lock()
 	m.procs[a.Key] = &session{port: port, cmd: cmd, started: time.Now()}
 	m.mu.Unlock()
-	go func() { _ = cmd.Wait() }()
 	return port, nil
+}
+
+// BindWait is the longest Attach waits for a fresh ttyd to start listening.
+var BindWait = 300 * time.Millisecond
+
+// waitListening polls the loopback port until something accepts, the process
+// exits, ctx ends, or limit passes. It reports whether the port is accepting.
+func waitListening(ctx context.Context, port int, exited <-chan struct{}, limit time.Duration) bool {
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	deadline := time.Now().Add(limit)
+	for {
+		if conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond); err == nil {
+			conn.Close()
+			return true
+		}
+		wait := min(10*time.Millisecond, time.Until(deadline))
+		if wait <= 0 {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-exited:
+			return false
+		case <-time.After(wait):
+		}
+	}
 }
 
 // release drops a reservation whose ttyd never came up, returning its port.
