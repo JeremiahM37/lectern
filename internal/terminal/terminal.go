@@ -187,7 +187,11 @@ func WebAttachArgv(a Attachment, target *store.Target) ([]string, error) {
 // program that did not ask for extended keys (a shell), and send Ctrl+letters
 // in legacy form even to one that did, so the browser only declares extended
 // keys to tmux 3.5 and later (see tmuxkeys).
-const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[0-4]|"tmux 3."[0-4][!0-9]*) set -- ;; *) set -- -T extkeys ;; esac; exec tmux "$@"`
+//
+// The browser also declares OSC 8 hyperlinks (tmux 3.4 and later), so a link
+// an agent prints — Claude Code's Markdown links to files, say — reaches the
+// browser's terminal as one (docs/files.md, terminal links).
+const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[0-3]|"tmux 3."[0-3][!0-9]*) set -- ;; "tmux 3.4"|"tmux 3.4"[!0-9]*) set -- -T hyperlinks ;; *) set -- -T extkeys,hyperlinks ;; esac; exec tmux "$@"`
 
 func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) {
 	sess := a.TmuxSession

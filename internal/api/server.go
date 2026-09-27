@@ -413,6 +413,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/term/{kind}/{id}/git-status", s.workspaceGitStatus)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/search", s.workspaceSearch)
 	mux.HandleFunc("POST /api/term/{kind}/{id}/watch", s.workspaceWatch)
+	// terminal links: a bare name must exist; outside paths are read-only (external_files.go)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/exists", s.workspaceExists)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/external-stat", s.externalStat)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/external", s.externalFile)
 	mux.HandleFunc("POST /api/term/{kind}/{id}/activity", s.terminalActivity)
 	// ---- attached terminals (proxied on this origin; see termproxy.go) ----
 	mux.HandleFunc("/term/{kind}/{id}", s.termProxy)

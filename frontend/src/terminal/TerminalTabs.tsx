@@ -3,6 +3,8 @@ import {viewportSliceFor, visibleViewport, virtualKeyboard} from './viewport';
 import {orderProjectsByRecency, readProjectPreference} from '../project-preference';
 import './terminal-tabs.css';
 import {t,useLocale} from '../i18n';
+import {filesContext,openFilePane} from '../workspace/files-provider';
+import {paneType} from '../workspace/registry';
 // Helpers the workspace (workspace/Workspace.tsx) uses for its terminal panes:
 // the address check, the embedded terminal frame, the swipe recogniser and the
 // New terminal picker.
@@ -32,9 +34,12 @@ export function TerminalFrame(props:FrameProps){useLocale();const frame=useRef<H
  // A deliberate horizontal flick on the terminal body is recognised inside the
  // frame, where scrolling, long-press selection and pinch already own the
  // gesture, and relayed here; negotiated mouse reporting no longer blocks it.
- useEffect(()=>{const onMessage=(event:MessageEvent)=>{const win=frame.current?.contentWindow;if(!win||event.source!==win||event.origin!==location.origin)return;const data:unknown=event.data;if(!data||typeof data!=='object'||!('type' in data))return;if(data.type==='lec-terminal-need-viewport'){measure();return;}if(data.type==='lec-terminal-focus'){latest.current.onFocus?.();return;}if(data.type!=='lec-terminal-swipe')return;const value=latest.current;if(!value.mobile||!value.visible||!value.shown||!value.primary)return;value.relative('direction' in data&&data.direction===-1?-1:1);};window.addEventListener('message',onMessage);return()=>window.removeEventListener('message',onMessage);},[]);
+ useEffect(()=>{const onMessage=(event:MessageEvent)=>{const win=frame.current?.contentWindow;if(!win||event.source!==win||event.origin!==location.origin)return;const data:unknown=event.data;if(!data||typeof data!=='object'||!('type' in data))return;if(data.type==='lec-terminal-need-viewport'){measure();return;}if(data.type==='lec-terminal-focus'){latest.current.onFocus?.();return;}if(data.type==='lec-terminal-open-beside'){openBeside(latest.current.tab.path,data);return;}if(data.type!=='lec-terminal-swipe')return;const value=latest.current;if(!value.mobile||!value.visible||!value.shown||!value.primary)return;value.relative('direction' in data&&data.direction===-1?-1:1);};window.addEventListener('message',onMessage);return()=>window.removeEventListener('message',onMessage);},[]);
  return <iframe ref={frame} title={t('terminalPage.tabs.frameTitle',{label:props.tab.label})} src={props.tab.path+'?embed=1'} allow="clipboard-read; clipboard-write" onLoad={notify}/>;
 }
+// A terminal link's "Open beside" (terminal/LinkMenu.tsx): a file pane for
+// that session's file, beside the pane in front.
+function openBeside(tabPath:string,data:object){const session=/^\/terminal\/session\/([1-9]\d*)$/.exec(tabPath),context=filesContext(),path='path' in data&&typeof data.path==='string'?data.path:'';if(!session||!context||!path||!paneType('file'))return;const num=(key:string)=>{const value=(data as Record<string,unknown>)[key];return typeof value==='number'&&value>0?value:undefined;};openFilePane({...context,session:Number(session[1])},path,num('line'),num('column'));}
 export interface TerminalMachine {id:number;name:string}
 // A project only needs what the picker shows: a name and where it lives.
 export interface TerminalProject {id:number;name:string;repo_path:string;target_name?:string}

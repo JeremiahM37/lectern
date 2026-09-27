@@ -183,13 +183,15 @@ directory and removes it when the attachment ends.
 | Keys while attached | Action |
 | --- | --- |
 | Ctrl+\ | Send a file from this machine to the agent as context (one chord) |
+| Double-click a path or link | Open it on this machine (see below) |
+| Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
 | Ctrl+] then m | Open Lectern actions for this attachment |
 | Ctrl+] then u | Same file sender as Ctrl+\ |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
 
-The top status line keeps **Ctrl+\\ send file** and **Ctrl+] m** visible while you are attached, including
+The top status line keeps **Ctrl+\\ send file**, **Double-click open path** and **Ctrl+] m** visible while you are attached, including
 in narrow terminals. Direct SSH launchers also get this bar from the server;
 updated clients that provide their own controls mark the connection to avoid
 a second wrapper. Update an older installed native client and reattach to use
@@ -216,6 +218,58 @@ menu. The path refers to the agent's workspace on its target, so it stays
 usable wherever the agent is running; submit it yourself when your prompt is
 ready. If the client cannot reach the attached pane, or the path cannot be
 typed literally, the popup reports the path instead of inserting it.
+
+### Paths and links the agent prints
+
+Double-click a path or web address in an attached terminal and it opens **on
+the machine you are sitting at**, even when the session runs on a server: a
+web address in your default browser, a file (a PDF, an image, a report) in its
+default app. The file is fetched read-only through the Lectern API into a
+private folder (`0700`) under its own name, and swept after a day. It works
+for paths outside the workspace (`/home/you/.formwork/report.pdf`, `~/notes/x.md`)
+and for paths an agent's TUI wrapped across rows: detection is the Go port of
+the web terminal's (`internal/filelinks`), run on the same test vectors. A bare
+name (`report.md`) counts only if the workspace has that file. Double-clicking
+anything else still selects the word, as tmux always does.
+
+Right-click one for a menu:
+
+| Item | What it does |
+| --- | --- |
+| Open on this machine | The same as a double-click |
+| Download to ~/Downloads | Saves it there (a second copy gets ` (1)`), and says where |
+| Copy path | The full path, to your clipboard (OSC 52, so it works over SSH too) |
+| Send path to the agent | Types it at the prompt, quoted, without pressing Enter |
+| Open in web viewer | The session's page in your browser, with the file open |
+
+A web address offers **Open in browser** and **Copy link**. Right-clicking
+anything else shows tmux's own menu.
+
+Where nothing can open on "this machine" — the client runs on a server over
+SSH (`SSH_CONNECTION` is set), or a Linux machine without a desktop session —
+a web address is copied to your clipboard with a note to open it in your
+browser, and a file opens in a viewer popup instead: text in a pager, a PDF
+as its text (`pdftotext`). The menu offers **View here** in place of Open and
+Download. Opening uses `open` on macOS, `wslview` (or `explorer.exe`) in WSL,
+`xdg-open` on Linux, and the default handler on Windows. Files an OS would
+run rather than show (`.sh`, `.desktop`, `.exe`, `.bat`, `.js`, `.py`, `.app`
+and the like, or no extension at all) are not opened; download or view them.
+
+Safety:
+
+- The bindings live only on this attachment's private tmux server. Your own
+  tmux and its configuration are not changed, and in copy mode both clicks
+  keep tmux's meaning.
+- The only way in is a mouse event on that private pane. Output an agent
+  prints — including escape sequences that imitate a mouse report — is output,
+  not input, and cannot open anything. There is no "open on the client" API:
+  the click is handled on your machine, which asks the server for the file.
+- Reading outside the workspace needs a person (a token holder or your signed-in
+  identity): with Tailscale sign-in, a process on the Lectern machine is
+  refused. The API credential lives only in the private tmux server's
+  environment; the attachment inside it (and so the agent) runs without it.
+- OSC 8 hyperlinks count when tmux passes them to the private pane
+  (`#{mouse_hyperlink}`, tmux 3.4+); otherwise the text of the path is used.
 
 `lectern controls [KIND ID]` opens the same control-only dashboard directly
 (`session`, `task`, `attempt`, or `project`). An attempt resolves to its owning

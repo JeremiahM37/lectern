@@ -468,12 +468,13 @@ func TestWebAttachDeclaresExtendedKeysByTmuxVersion(t *testing.T) {
 		"tmux 3.1c":        "if-shell -F #{?#{extended-keys-format},#{==:#{extended-keys},off},0} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
 		"tmux 2.9a":        "if-shell -F",
 		"tmux 3.2a":        "if-shell -F",
-		"tmux 3.4":         "if-shell -F",
-		"tmux 3.5":         "-T extkeys if-shell -F #{?#{extended-keys-format},#{==:#{extended-keys},off},0} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
-		"tmux 3.5a":        "-T extkeys if-shell",
-		"tmux 3.10":        "-T extkeys if-shell",
-		"tmux next-3.6":    "-T extkeys if-shell",
-		"tmux openbsd-7.6": "-T extkeys if-shell",
+		"tmux 3.4":         "-T hyperlinks if-shell -F",
+		"tmux 3.4a":        "-T hyperlinks if-shell -F",
+		"tmux 3.5":         "-T extkeys,hyperlinks if-shell -F #{?#{extended-keys-format},#{==:#{extended-keys},off},0} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 3.5a":        "-T extkeys,hyperlinks if-shell",
+		"tmux 3.10":        "-T extkeys,hyperlinks if-shell",
+		"tmux next-3.6":    "-T extkeys,hyperlinks if-shell",
+		"tmux openbsd-7.6": "-T extkeys,hyperlinks if-shell",
 	} {
 		fake := filepath.Join(dir, "tmux")
 		script := "#!/bin/sh\nif [ \"$1\" = -V ]; then echo '" + version + "'; exit 0; fi\necho \"$@\"\n"

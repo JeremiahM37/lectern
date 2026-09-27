@@ -1,0 +1,761 @@
+{
+ "comment": "Shared by frontend/src/terminal/links.test.ts and internal/filelinks/links_test.go so the web terminal and the native client find the same links. rows are screen rows; wrapped[i] marks a row that continues the previous one (a terminal soft wrap). row/col is the clicked cell as a character index. spans are [row, start, end) character ranges.",
+ "cases": [
+  {
+   "name": "owner sample: hard-wrapped bullet, click the last row",
+   "workdir": "/home/admin/projects/lectern",
+   "rows": [
+    "  • Cerebras résumé (PDF) (/home/admin/.formwork/",
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU"
+   ],
+   "row": 2,
+   "col": 10,
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "external": true,
+    "spans": [
+     [
+      0,
+      27,
+      49
+     ],
+     [
+      1,
+      4,
+      33
+     ],
+     [
+      2,
+      4,
+      32
+     ]
+    ]
+   }
+  },
+  {
+   "name": "owner sample: click the first row",
+   "workdir": "/home/admin/projects/lectern",
+   "rows": [
+    "  • Cerebras résumé (PDF) (/home/admin/.formwork/",
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU"
+   ],
+   "row": 0,
+   "col": 35,
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "external": true,
+    "spans": [
+     [
+      0,
+      27,
+      49
+     ],
+     [
+      1,
+      4,
+      33
+     ],
+     [
+      2,
+      4,
+      32
+     ]
+    ]
+   }
+  },
+  {
+   "name": "owner sample: click the middle row",
+   "workdir": "/home/admin/projects/lectern",
+   "rows": [
+    "  • Cerebras résumé (PDF) (/home/admin/.formwork/",
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU"
+   ],
+   "row": 1,
+   "col": 12,
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "external": true,
+    "spans": [
+     [
+      0,
+      27,
+      49
+     ],
+     [
+      1,
+      4,
+      33
+     ],
+     [
+      2,
+      4,
+      32
+     ]
+    ]
+   }
+  },
+  {
+   "name": "owner sample: the prose after the path is not a link",
+   "workdir": "/home/admin/projects/lectern",
+   "rows": [
+    "  • Cerebras résumé (PDF) (/home/admin/.formwork/",
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU"
+   ],
+   "row": 2,
+   "col": 40,
+   "expect": null
+  },
+  {
+   "name": "Claude Code tool output: gutter and indentation before the continuation",
+   "workdir": "/w",
+   "rows": [
+    "⏺ Wrote report to /w/reports/2026/",
+    "  ⎿  summary-final.md (240 lines)"
+   ],
+   "row": 1,
+   "col": 8,
+   "expect": {
+    "kind": "file",
+    "path": "reports/2026/summary-final.md",
+    "spans": [
+     [
+      0,
+      18,
+      34
+     ],
+     [
+      1,
+      5,
+      21
+     ]
+    ]
+   }
+  },
+  {
+   "name": "Codex box: right and left borders around a wrapped path",
+   "workdir": "/w",
+   "rows": [
+    "│ Edited /w/internal/api/            │",
+    "│   workspace_files.go:120 (+4 -1)   │"
+   ],
+   "row": 0,
+   "col": 12,
+   "expect": {
+    "kind": "file",
+    "path": "internal/api/workspace_files.go",
+    "line": 120,
+    "spans": [
+     [
+      0,
+      9,
+      25
+     ],
+     [
+      1,
+      4,
+      26
+     ]
+    ]
+   }
+  },
+  {
+   "name": "soft wrap: the terminal wrapped a long path at the right edge",
+   "workdir": "/w",
+   "rows": [
+    "see /w/src/components/very-long-na",
+    "me/Button.tsx:12 for details"
+   ],
+   "wrapped": [
+    false,
+    true
+   ],
+   "row": 1,
+   "col": 3,
+   "expect": {
+    "kind": "file",
+    "path": "src/components/very-long-name/Button.tsx",
+    "line": 12,
+    "spans": [
+     [
+      0,
+      4,
+      34
+     ],
+     [
+      1,
+      0,
+      16
+     ]
+    ]
+   }
+  },
+  {
+   "name": "full-width row that ends mid-token inside a path joins its continuation",
+   "workdir": "/w",
+   "width": 24,
+   "rows": [
+    "  open /tmp/out/report-f",
+    "  inal.pdf to review"
+   ],
+   "row": 1,
+   "col": 3,
+   "expect": {
+    "kind": "file",
+    "path": "/tmp/out/report-final.pdf",
+    "external": true,
+    "spans": [
+     [
+      0,
+      7,
+      24
+     ],
+     [
+      1,
+      2,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a short row ending mid-word does not join",
+   "workdir": "/w",
+   "width": 80,
+   "rows": [
+    "  open /tmp/out/report-f",
+    "  inal.pdf to review"
+   ],
+   "row": 1,
+   "col": 4,
+   "expect": {
+    "kind": "file",
+    "path": "inal.pdf",
+    "verify": true,
+    "spans": [
+     [
+      1,
+      2,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "prose ending in a word does not join the next line",
+   "workdir": "/w",
+   "rows": [
+    "I updated the handler and",
+    "  tests.go now passes"
+   ],
+   "row": 1,
+   "col": 4,
+   "expect": {
+    "kind": "file",
+    "path": "tests.go",
+    "verify": true,
+    "spans": [
+     [
+      1,
+      2,
+      10
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a slash at the end of prose (and/or) does not start a path join",
+   "workdir": "/w",
+   "rows": [
+    "choose one and/",
+    "  or the other"
+   ],
+   "row": 1,
+   "col": 3,
+   "expect": null
+  },
+  {
+   "name": "a new bullet after a folder path is not its continuation",
+   "workdir": "/w",
+   "rows": [
+    "Created /w/out/",
+    "- next step"
+   ],
+   "row": 0,
+   "col": 10,
+   "expect": {
+    "kind": "file",
+    "path": "out",
+    "spans": [
+     [
+      0,
+      8,
+      14
+     ]
+    ]
+   }
+  },
+  {
+   "name": "compiler output keeps working on one line",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "src/app.ts:42:7 - error TS2322: Type 'x'"
+   ],
+   "row": 0,
+   "col": 3,
+   "expect": {
+    "kind": "file",
+    "path": "src/app.ts",
+    "line": 42,
+    "column": 7,
+    "verify": true,
+    "spans": [
+     [
+      0,
+      0,
+      15
+     ]
+    ]
+   }
+  },
+  {
+   "name": "an absolute path inside the workspace becomes relative",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "  at /home/me/repo/internal/api/server.go:120"
+   ],
+   "row": 0,
+   "col": 12,
+   "expect": {
+    "kind": "file",
+    "path": "internal/api/server.go",
+    "line": 120,
+    "spans": [
+     [
+      0,
+      5,
+      45
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a home path is outside the workspace",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "notes in ~/notes/todo.md"
+   ],
+   "row": 0,
+   "col": 12,
+   "expect": {
+    "kind": "file",
+    "path": "~/notes/todo.md",
+    "external": true,
+    "spans": [
+     [
+      0,
+      9,
+      24
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a relative path climbing out of the workspace is resolved absolutely",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "../outside/file.go"
+   ],
+   "row": 0,
+   "col": 5,
+   "expect": {
+    "kind": "file",
+    "path": "/home/me/outside/file.go",
+    "external": true,
+    "spans": [
+     [
+      0,
+      0,
+      18
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a web address wrapped by the terminal is one link",
+   "workdir": "/w",
+   "rows": [
+    "docs: https://example.com/a/very/lo",
+    "ng/page?x=1."
+   ],
+   "wrapped": [
+    false,
+    true
+   ],
+   "row": 1,
+   "col": 2,
+   "expect": {
+    "kind": "url",
+    "url": "https://example.com/a/very/long/page?x=1",
+    "spans": [
+     [
+      0,
+      6,
+      35
+     ],
+     [
+      1,
+      0,
+      11
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a sentence's full stop is not part of an address",
+   "workdir": "/w",
+   "rows": [
+    "Preview ready (see https://example.com/a?b=1)."
+   ],
+   "row": 0,
+   "col": 25,
+   "expect": {
+    "kind": "url",
+    "url": "https://example.com/a?b=1",
+    "spans": [
+     [
+      0,
+      19,
+      44
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a version number is not a file",
+   "workdir": "/w",
+   "rows": [
+    "upgraded to 1.2.3 today"
+   ],
+   "row": 0,
+   "col": 13,
+   "expect": null
+  },
+  {
+   "name": "a path truncated with an ellipsis is not a link",
+   "workdir": "/home/me/proj",
+   "rows": [
+    "  m1 default · /tmp/claude-1000/-home-admin-proje…"
+   ],
+   "row": 0,
+   "col": 20,
+   "expect": null
+  },
+  {
+   "name": "Codex markdown link as rendered at 50 columns (bytes in codex-markdown-link.bin), wider terminal",
+   "workdir": "/home/admin/projects/lectern",
+   "width": 120,
+   "rows": [
+    "• Both are ready for review:",
+    "",
+    "  • Cerebras résumé (PDF) (/home/admin/.formwork/",
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf)",
+    "",
+    "  • Docs (https://example.com/docs/page)"
+   ],
+   "row": 4,
+   "col": 6,
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "external": true,
+    "spans": [
+     [
+      2,
+      27,
+      49
+     ],
+     [
+      3,
+      4,
+      33
+     ],
+     [
+      4,
+      4,
+      32
+     ]
+    ]
+   }
+  },
+  {
+   "name": "when the start of a wrapped path has scrolled away, the rest is a workspace path to verify",
+   "workdir": "/home/admin/projects/lectern",
+   "width": 120,
+   "rows": [
+    "    application-testing-20260927/",
+    "    Jeremiah_Mackey_Cerebras.pdf)"
+   ],
+   "row": 1,
+   "col": 8,
+   "expect": {
+    "kind": "file",
+    "path": "application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "verify": true,
+    "spans": [
+     [
+      0,
+      4,
+      33
+     ],
+     [
+      1,
+      4,
+      32
+     ]
+    ]
+   }
+  },
+  {
+   "name": "compiler position",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "src/app.ts:12:5: error TS2322"
+   ],
+   "row": 0,
+   "col": 2,
+   "expect": {
+    "path": "src/app.ts",
+    "verify": true,
+    "line": 12,
+    "column": 5,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "dot-slash with line",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "./main.go:40 undefined: x"
+   ],
+   "row": 0,
+   "col": 3,
+   "expect": {
+    "path": "main.go",
+    "verify": true,
+    "line": 40,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "stack frame inside the workspace",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "at run (/home/me/repo/lib/x.js:3:9)"
+   ],
+   "row": 0,
+   "col": 12,
+   "expect": {
+    "path": "lib/x.js",
+    "line": 3,
+    "column": 9,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "parenthesised position",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "Button.tsx(8,14): error"
+   ],
+   "row": 0,
+   "col": 2,
+   "expect": {
+    "path": "Button.tsx",
+    "verify": true,
+    "line": 8,
+    "column": 14,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "Python traceback",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "  File \"tools/run.py\", line 9, in main"
+   ],
+   "row": 0,
+   "col": 10,
+   "expect": {
+    "path": "tools/run.py",
+    "verify": true,
+    "line": 9,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "git status line",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "modified:   docs/files.md"
+   ],
+   "row": 0,
+   "col": 14,
+   "expect": {
+    "path": "docs/files.md",
+    "verify": true,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "name without extension, with a line",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "see Makefile:12"
+   ],
+   "row": 0,
+   "col": 6,
+   "expect": {
+    "path": "Makefile",
+    "verify": true,
+    "line": 12,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "second of two links on a row",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "error in src/a.ts:3 and src/b.ts:4"
+   ],
+   "row": 0,
+   "col": 26,
+   "expect": {
+    "path": "src/b.ts",
+    "verify": true,
+    "line": 4,
+    "kind": "file"
+   }
+  },
+  {
+   "name": "non-ASCII folder and name",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "saved /home/me/Документы/résumé.pdf ok"
+   ],
+   "row": 0,
+   "col": 12,
+   "expect": {
+    "path": "/home/me/Документы/résumé.pdf",
+    "external": true,
+    "spans": [
+     [
+      0,
+      6,
+      35
+     ]
+    ],
+    "kind": "file"
+   }
+  },
+  {
+   "name": "a clock time is not a link",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "done 2:46 PM"
+   ],
+   "row": 0,
+   "col": 6,
+   "expect": null
+  },
+  {
+   "name": "URL loses the sentence's full stop",
+   "workdir": "/home/me/repo",
+   "rows": [
+    "open https://example.com/a?b=1. now"
+   ],
+   "row": 0,
+   "col": 8,
+   "expect": {
+    "kind": "url",
+    "url": "https://example.com/a?b=1",
+    "spans": [
+     [
+      0,
+      5,
+      30
+     ]
+    ]
+   }
+  }
+ ],
+ "hyperlinks": [
+  {
+   "name": "Claude Code file:// link",
+   "workdir": "/home/admin/projects/lectern",
+   "uri": "file:///home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/application-testing-20260927/Jeremiah_Mackey_Cerebras.pdf",
+    "external": true
+   }
+  },
+  {
+   "name": "percent-encoded non-ASCII file:// link",
+   "workdir": "/home/admin/projects/lectern",
+   "uri": "file:///home/admin/.formwork/R%C3%A9sum%C3%A9%20plan.pdf",
+   "expect": {
+    "kind": "file",
+    "path": "/home/admin/.formwork/Résumé plan.pdf",
+    "external": true
+   }
+  },
+  {
+   "name": "bare ~/ path as the URI",
+   "workdir": "/home/admin/projects/lectern",
+   "uri": "~/notes/todo.md",
+   "expect": {
+    "kind": "file",
+    "path": "~/notes/todo.md",
+    "external": true
+   }
+  },
+  {
+   "name": "bare absolute path inside the workspace",
+   "workdir": "/home/admin/projects/lectern",
+   "uri": "/home/admin/projects/lectern/docs/files.md",
+   "expect": {
+    "kind": "file",
+    "path": "docs/files.md"
+   }
+  },
+  {
+   "name": "web link",
+   "workdir": "/w",
+   "uri": "https://example.com/docs/page",
+   "expect": {
+    "kind": "url",
+    "url": "https://example.com/docs/page"
+   }
+  },
+  {
+   "name": "other schemes are ignored",
+   "workdir": "/w",
+   "uri": "javascript:alert(1)",
+   "expect": null
+  },
+  {
+   "name": "malformed percent-encoding",
+   "workdir": "/w",
+   "uri": "file:///tmp/%E0%A4%A.pdf",
+   "expect": null
+  }
+ ]
+}

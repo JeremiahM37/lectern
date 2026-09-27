@@ -127,6 +127,51 @@ def do_stat():
     return dict(exists=True, sha256=digest(data), size=len(data), mtime=int(st.st_mtime * 1000))
 
 
+def do_exists():
+    """Whether a workspace path names something, without reading it: terminal
+    links check this before offering a bare file name."""
+    p = resolved(rel)
+    if not os.path.exists(p):
+        return dict(exists=False, path=os.path.relpath(p, root))
+    return dict(exists=True, directory=os.path.isdir(p), path=os.path.relpath(p, root))
+
+
+def outside():
+    """An absolute or ~/ path anywhere on the target, for a person to view
+    read-only (the server allows only signed-in people to ask)."""
+    p = os.path.expanduser(rel) if rel.startswith('~/') else rel
+    if not os.path.isabs(p):
+        raise Refused('give an absolute or ~/ path')
+    return os.path.realpath(p)
+
+
+def do_ext_stat():
+    p = outside()
+    if not os.path.exists(p):
+        return dict(exists=False, path=p)
+    st = os.stat(p)
+    if not stat.S_ISREG(st.st_mode):
+        return dict(exists=True, regular=False, path=p)
+    return dict(exists=True, regular=True, path=p, size=st.st_size, mtime=int(st.st_mtime * 1000))
+
+
+def do_ext_read():
+    p = outside()
+    fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):
+        os.close(fd)
+        raise Refused('choose a regular file')
+    with os.fdopen(fd, 'rb') as f:
+        if st.st_size > CAP:
+            raise Refused('file exceeds 25 MiB limit')
+        data = f.read(CAP + 1)
+    if len(data) > CAP:
+        raise Refused('file exceeds 25 MiB limit')
+    return dict(data=base64.b64encode(data).decode(), sha256=digest(data), size=len(data),
+                mtime=int(st.st_mtime * 1000), path=p)
+
+
 def do_write():
     temp, expected = extra[0], extra[1]
     try:
@@ -586,7 +631,8 @@ def do_watch():
 
 ACTIONS = dict(list=do_list, read=do_read, stat=do_stat, write=do_write, mkdir=do_mkdir, create=do_create,
                rename=do_rename, delete=do_delete, archive=do_archive, index=do_index, gitstatus=do_git_status,
-               search=do_search, watch=do_watch)
+               search=do_search, watch=do_watch, exists=do_exists,
+               ext_stat=do_ext_stat, ext_read=do_ext_read)
 
 try:
     if action not in ACTIONS:

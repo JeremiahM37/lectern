@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../i18n";
 import { chordsFor, useShortcuts } from "../shortcuts/dispatch";
-import { copyClipboard, downloadBlob, errorMessage, quote, type TerminalInfo } from "../terminal/model";
+import { copyClipboard, downloadBlob, errorMessage, shellPath, type TerminalInfo } from "../terminal/model";
 import { ConflictError, FileApi, type Entry, type GitKind, type Hit, type Index } from "./api";
 import { lineHash, parseLineHash, readDeepLink, type LineTarget } from "./deeplink";
 import { DocPanel, dirOf, nameOf, useFileDocs, useMedia, useSettings } from "./docs";
@@ -203,7 +203,7 @@ export function Workbench({
       event.preventDefault();
       event.stopPropagation();
       try {
-        onInsert(quote(info.workdir + "/" + path) + " ");
+        onInsert(shellPath(info.workdir, path) + " ");
         onNotice(t("files.pathInserted", { path }));
       } catch (error) {
         onNotice(errorMessage(error));
@@ -219,7 +219,7 @@ export function Workbench({
 
   const insertPath = (path: string) => {
     try {
-      onInsert(quote(info.workdir + "/" + path) + " ");
+      onInsert(shellPath(info.workdir, path) + " ");
       if (phone) onOpenChange(false);
     } catch (error) {
       notice(errorMessage(error), true);

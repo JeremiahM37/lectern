@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { highlights, parseQuery, rank } from "./fuzzy";
 import { naturalCompare, sortEntries } from "./natsort";
-import { findLinks, linkAt } from "./links";
 import { fileLink, lineHash, parseLineHash, readDeepLink } from "./deeplink";
 import { detectDelimiter, parseDelimited } from "./csv";
 import { parseNotebook } from "./notebook";
@@ -91,37 +90,6 @@ test("explorer order is natural: folders first, file2 before file10", () => {
     { name: "a.md", directory: false },
   ]).map((e) => e.name);
   assert.deepEqual(sorted, ["src", "a.md", "b2.md", "b10.md"]);
-});
-
-test("terminal output links files with line and column", () => {
-  const work = "/home/me/repo";
-  const cases: [string, Partial<ReturnType<typeof findLinks>[number]>][] = [
-    ["src/app.ts:12:5: error TS2322", { path: "src/app.ts", line: 12, column: 5 }],
-    ["./main.go:40 undefined: x", { path: "main.go", line: 40 }],
-    ["at run (/home/me/repo/lib/x.js:3:9)", { path: "lib/x.js", line: 3, column: 9 }],
-    ["Button.tsx(8,14): error", { path: "Button.tsx", line: 8, column: 14 }],
-    ['  File "tools/run.py", line 9, in main', { path: "tools/run.py", line: 9 }],
-    ["modified:   docs/files.md", { path: "docs/files.md" }],
-    ["see Makefile:12", { path: "Makefile", line: 12 }],
-  ];
-  for (const [text, expected] of cases) {
-    const link = findLinks(text, work).find((l) => l.path);
-    assert.ok(link, text);
-    for (const [key, value] of Object.entries(expected)) assert.equal(link[key as keyof typeof link], value, `${text}: ${key}`);
-  }
-});
-
-test("terminal links skip outside paths, versions and prose, and find URLs", () => {
-  const work = "/home/me/repo";
-  assert.equal(findLinks("/etc/passwd:1", work).filter((l) => l.path).length, 0);
-  assert.equal(findLinks("../../escape.txt:3", work).filter((l) => l.path).length, 0);
-  assert.equal(findLinks("version 1.2.3 and/or 10.0.0.1", work).length, 0);
-  const url = findLinks("open https://example.com/a?b=1. now", work);
-  assert.deepEqual(url.map((l) => l.url), ["https://example.com/a?b=1"]);
-  const line = "error in src/a.ts:3 and src/b.ts:4";
-  const links = findLinks(line, work);
-  assert.equal(linkAt(links, line.indexOf("b.ts"))?.path, "src/b.ts");
-  assert.equal(linkAt(links, 0), undefined);
 });
 
 test("line deep links round-trip", () => {

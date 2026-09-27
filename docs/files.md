@@ -174,13 +174,45 @@ line and column.
 - Paths in terminal output open the file at the line: `src/app.ts:12:5`,
   `./main.go:40`, `Button.tsx(8,14)`, `at fn (/abs/workspace/lib/x.js:3:9)` and
   Python's `File "x.py", line 9`. Click on desktop, tap on a phone. Web
-  addresses open in a new tab. Paths outside the workspace are not links.
-- OSC 8 hyperlinks to a `file://` address in the workspace (optionally ending
-  in `#L12` or `:12:3`) open the same way on click. tmux only forwards OSC 8
-  to clients it believes support it, which Lectern does not configure: it
-  needs `set -as terminal-features ',*:hyperlinks'` in your tmux settings.
-  This path is unit-tested only; the browser test for it was unreliable
-  through tmux and was dropped.
+  addresses open in a new tab.
+- **A path split across rows is one link.** A long line the terminal wraps
+  at its edge always joins. Agent TUIs also wrap their own output, with
+  indentation or a gutter (`│`, `⎿`), as Codex did with this Markdown link:
+
+  ```
+    • Cerebras résumé (PDF) (/home/admin/.formwork/
+      application-testing-20260927/
+      Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU
+  ```
+
+  A row joins the next one only when it ends inside a path (a fragment ending
+  in `/`, or one running to the full width) and the next row, after its
+  indentation or gutter, starts with a path segment. Prose never runs into the
+  next line. Clicking any of the three rows opens the whole path, and hovering
+  one underlines all three. The detection is `frontend/src/terminal/links.ts`;
+  the native client runs a Go port of it (`internal/filelinks`), and both run
+  the same test vectors (`internal/filelinks/testdata/vectors.json`).
+- **Paths outside the workspace open read-only.** An absolute or `~/` path on
+  the session's machine (a PDF an agent wrote to `~/.formwork`, say) opens in
+  the same viewers, labelled **Outside workspace · read-only**, with no Edit
+  or Save. It is read on the session's own target through its executor, with
+  the same 25 MiB cap. Only a person can open one: with Tailscale sign-in a
+  process on the Lectern machine (an agent) is refused, as for writes.
+- **A bare name is a link only if the file exists.** `report.md` in prose is
+  offered only when the workspace has it; the page asks once and remembers
+  (a miss for five seconds, since the agent may be about to write it). A click
+  on a path that names nothing says which path it tried (`No file at …`)
+  instead of opening an error.
+- OSC 8 hyperlinks open the same way: a `file://` address (percent-encoded
+  names included) or a bare absolute or `~/` path, as Claude Code prints for
+  Markdown links to files. The browser's tmux client declares OSC 8 support
+  (tmux 3.4 and later), so these reach the page through tmux.
+- **Right-click** a path or address for a menu: **Open**, **Download**, **Copy
+  path**, **Send path to the agent** (typed at the prompt, quoted, without
+  Enter) and, in the workspace, **Open beside** (a file pane next to the
+  terminal). For a web address: **Open in browser** and **Copy link**. Off a
+  link, the browser's own menu appears. On a phone, a long press selects the
+  text and the selection bar offers **Open**.
 - The page address follows the open file: `?open=src/app.ts#L42`. `#L42C5`
   points at a column and `#L10-L20` at a range. Clicking a line number sets it
   (Shift-click for a range), and **Copy link** in the file menu copies it.
@@ -223,7 +255,8 @@ attaching a terminal shows stacked copies of the app instead of the terminal.
   the same rule as deciding an approval: with Tailscale sign-in, a process on
   the Lectern machine (an agent) is refused; a signed-in owner, a token holder
   or a paired device may write. With `LECTERN_AUTH=none` everyone may. Reading
-  follows the ordinary API rule.
+  follows the ordinary API rule, except outside the workspace: reading an
+  absolute or `~/` path there needs a person too, and nothing can write there.
 - Limits: 25 MiB to read, download or save a file; 10 MiB to edit; folder
   downloads 50 MiB compressed (200 MiB of files); 2,000 search results with
   lines cut to 400 characters; 50,000 files in the Go to file list; 2,000
@@ -245,6 +278,9 @@ All under `/api/term/{kind}/{id}` (`kind` is `session`, `attempt` or `project`):
 | GET | `git-status` | Git status per path |
 | GET | `search?q=&regex=&case=&word=&include=&ignored=` | Project search |
 | POST | `watch` | `{"dirs": [...], "token", "timeout"}`: long-poll until a folder changes |
+| GET | `exists?path=` | Whether a workspace path names something, without reading it |
+| GET | `external-stat?path=` | An absolute or `~/` path outside the workspace: exists, regular, size (people only) |
+| GET | `external?path=` | That file's bytes, read-only, 25 MiB cap; `X-Lectern-Path` is its real path (people only) |
 
 ## Tests
 
@@ -255,8 +291,22 @@ All under `/api/term/{kind}/{id}` (`kind` is `session`, `attempt` or `project`):
   and search options with and without git; 5,000 files; the human-only rule and
   token gating.
 - `frontend/src/files/files.test.ts`: Quick Open ranking (and 5,000 paths well
-  inside the budget), natural sort, terminal link detection, deep links, CSV,
-  notebooks, front matter and headings.
+  inside the budget), natural sort, deep links, CSV, notebooks, front matter
+  and headings.
+- `frontend/src/terminal/links.test.ts` and `internal/filelinks`: the shared
+  link vectors — the owner's wrapped sample from every row, Claude Code's `⎿`
+  gutter, Codex's boxes, soft wraps, prose, versions, clock times, truncated
+  paths, and OSC 8 targets. `internal/filelinks/testdata/*.bin` are the exact
+  bytes Codex 0.157 and Claude Code 2.1 printed for Markdown links to files,
+  captured from the real CLIs against a local stand-in model.
+- `internal/api/external_files_test.go`: outside files by absolute and `~/`
+  path, the size cap, folders, devices and missing files refused, the
+  human-only rule and token gating; `exists` never looks outside.
+- `e2e/test_terminal_file_links.py`: those bytes replayed into a real terminal
+  with a real PDF at the owner's path: every row opens it read-only, Claude
+  Code's hyperlinks (percent-encoded and `~/`), a bare name that exists and one
+  that does not, a missing outside path, the right-click menu (download, copy,
+  send, open), Open beside in the workspace, a phone tap, and both themes.
 - `TestWorkspaceWatchReportsChanges`: the watch answers a change within a
   second and waits out a quiet timeout.
 - `e2e/test_files_workbench.py`: real ttyd, tmux and files. Explorer → open →

@@ -181,6 +181,21 @@ const catalog: Record<string, string> = {
   "files.paneSearch": "검색",
   "files.paneFilesTitle": "파일 · {name}",
   "files.paneSearchTitle": "검색 · {name}",
+  "files.outsideReadOnly": "워크스페이스 밖 · 읽기 전용",
+  "files.link.open": "열기",
+  "files.link.openBrowser": "브라우저에서 열기",
+  "files.link.copyLink": "링크 복사",
+  "files.link.download": "다운로드",
+  "files.link.copyPath": "경로 복사",
+  "files.link.send": "경로를 에이전트에게 보내기",
+  "files.link.beside": "옆에 열기",
+  "files.link.missing": "{path}에 파일이 없습니다",
+  "files.link.notFile": "{path}은(는) 파일이 아닙니다",
+  "files.link.failed": "{path}을(를) 열 수 없습니다: {message}",
+  "files.link.copied": "{text} 복사됨",
+  "files.link.downloaded": "{name} 다운로드됨",
+  "files.link.sent": "{path}을(를) 에이전트에게 보냈습니다",
+  "files.link.sendFailed": "터미널 연결이 끊겼습니다. 다시 연결한 뒤 경로를 보내세요.",
 };
 
 export default catalog;

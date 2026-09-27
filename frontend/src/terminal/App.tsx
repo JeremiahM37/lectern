@@ -25,8 +25,13 @@ import {
   Snippets,
 } from "./dialogs";
 import { Workbench, type FileRequest } from "../files/Workbench";
+import { FileApi, isOutside } from "../files/api";
+import { existenceCheck } from "../files/linkCheck";
+import { LinkMenu } from "./LinkMenu";
 import {
   copyClipboard,
+  downloadBlob,
+  shellPath,
   FONT_MAX,
   FONT_MIN,
   json,
@@ -67,6 +72,8 @@ interface Callbacks {
   preview: (path: string, line?: number, column?: number) => void;
   swipe: (id: string, direction: 1 | -1) => void;
   link: (link: TerminalLink) => void;
+  linkMenu: (id: string, link: TerminalLink, point: { x: number; y: number }) => void;
+  linkExists: (path: string) => boolean | Promise<boolean>;
   clipboard: (text: string) => void;
 }
 function Pane({
@@ -116,6 +123,8 @@ function Pane({
       controls: () => latest.current.callbacks.controls(),
       swipe: (direction) => latest.current.callbacks.swipe(spec.id, direction),
       openLink: (link) => latest.current.callbacks.link(link),
+      linkMenu: (link, point) => latest.current.callbacks.linkMenu(spec.id, link, point),
+      linkExists: (path) => latest.current.callbacks.linkExists(path),
       workdir: () => (info.files_available ? info.workdir : ""),
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
@@ -125,10 +134,6 @@ function Pane({
     });
     engine.current = instance;
     latest.current.callbacks.engine(spec.id, instance);
-    if (info.files_available)
-      instance.fileLinks(info.workdir, (path, line, column) =>
-        latest.current.callbacks.preview(path, line, column),
-      );
     return () => {
       instance.dispose();
       latest.current.callbacks.engine(spec.id, null);
@@ -484,14 +489,63 @@ export function TerminalApp({
       .find((element) => element.getClientRects().length > 0);
     (firstAction ?? details.querySelector<HTMLElement>("summary"))?.focus();
   }, [placeTools]);
-  // A tapped link: web addresses leave for the browser, workspace files open
-  // in the file viewer.
-  const link = useCallback((target: TerminalLink) => {
-    if (target.kind === "url") openExternal(target.url);
-    else preview(target.path, target.line, target.column);
-  }, [preview]);
+  // A clicked or tapped link: web addresses leave for the browser; files
+  // open in the file viewer, those outside the workspace read-only. A path
+  // that names nothing says which path was tried instead of opening.
+  const fileApi = useMemo(() => new FileApi(base), [base]);
+  const linkExists = useMemo(() => existenceCheck(fileApi), [fileApi]);
+  const [linkMenu, setLinkMenu] = useState<{ id: string; link: TerminalLink; point: { x: number; y: number } }>();
+  const link = useCallback(
+    async (target: TerminalLink) => {
+      if (target.kind === "url") return openExternal(target.url);
+      try {
+        if (target.external) {
+          const stat = await fileApi.outsideStat(target.path);
+          if (!stat.exists) return setNotice(t("files.link.missing", { path: target.path }));
+          if (!stat.regular) return setNotice(t("files.link.notFile", { path: stat.path }));
+        } else if (target.verify && !(await linkExists(target.path))) return setNotice(t("files.link.missing", { path: target.path }));
+      } catch (error) {
+        return setNotice(t("files.link.failed", { path: target.path, message: errorMessage(error) }));
+      }
+      preview(target.path, target.line, target.column);
+    },
+    [fileApi, linkExists, preview],
+  );
+  const closeLinkMenu = useCallback(() => setLinkMenu(undefined), []);
+  const linkActions = useMemo(
+    () => ({
+      open: (target: TerminalLink) => void link(target),
+      absolute: (path: string) => (isOutside(path) ? path : (info?.workdir || "").replace(/\/+$/, "") + "/" + path),
+      copy: (text: string) =>
+        void copyClipboard(text).then(
+          () => setNotice(t("files.link.copied", { text })),
+          (error) => setNotice(errorMessage(error)),
+        ),
+      download: (path: string) =>
+        void fileApi.open(path).then(
+          (opened) => {
+            downloadBlob(opened.blob, path.slice(path.lastIndexOf("/") + 1));
+            setNotice(t("files.link.downloaded", { name: path.slice(path.lastIndexOf("/") + 1) }));
+          },
+          (error) => setNotice(t("files.link.failed", { path, message: errorMessage(error) })),
+        ),
+      send: (path: string) => {
+        const engine = engines.current.get(linkMenu?.id || activeRef.current) ?? current();
+        if (!engine) return setNotice(t("files.link.sendFailed"));
+        engine.paste(shellPath(info?.workdir || "", path) + " ");
+        setNotice(t("files.link.sent", { path }));
+      },
+      beside:
+        embedded && parent !== window
+          ? (path: string, line?: number, column?: number) => parent.postMessage({ type: "lec-terminal-open-beside", path, line, column }, location.origin)
+          : undefined,
+    }),
+    [embedded, fileApi, info?.workdir, link, linkMenu?.id],
+  );
   const callbacks: Callbacks = {
-    link,
+    link: (target) => void link(target),
+    linkMenu: (id, target, point) => setLinkMenu({ id, link: target, point }),
+    linkExists,
     engine: register,
     state: update,
     select: setActive,
@@ -1359,6 +1413,7 @@ export function TerminalApp({
       {mobile && !state?.paused && state?.selection && (
         <LiveSelectionBar engine={current} onNotice={setNotice} onLink={link} />
       )}
+      {linkMenu && <LinkMenu link={linkMenu.link} point={linkMenu.point} actions={linkActions} onClose={closeLinkMenu} />}
       {fontHint && (
         <div id="font-hint" role="status">
           {t("terminalPage.fontHint", { size: fontHint, columns: current()?.term.cols ?? 0 })}

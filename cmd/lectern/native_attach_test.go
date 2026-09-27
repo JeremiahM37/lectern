@@ -437,10 +437,10 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
 	for _, want := range []string{
 		"set -g status-position top",
-		"set -g status-left-length 72",
+		"set -g status-left-length 100",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
+		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
 	} {
 		if !strings.Contains(plan.conf, want) {
 			t.Errorf("config is missing %q:\n%s", want, plan.conf)

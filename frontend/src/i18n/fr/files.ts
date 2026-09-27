@@ -181,6 +181,21 @@ const catalog: Record<string, string> = {
   "files.paneSearch": "Rechercher",
   "files.paneFilesTitle": "Fichiers · {name}",
   "files.paneSearchTitle": "Rechercher · {name}",
+  "files.outsideReadOnly": "Hors de l’espace de travail · lecture seule",
+  "files.link.open": "Ouvrir",
+  "files.link.openBrowser": "Ouvrir dans le navigateur",
+  "files.link.copyLink": "Copier le lien",
+  "files.link.download": "Télécharger",
+  "files.link.copyPath": "Copier le chemin",
+  "files.link.send": "Envoyer le chemin à l’agent",
+  "files.link.beside": "Ouvrir à côté",
+  "files.link.missing": "Aucun fichier à {path}",
+  "files.link.notFile": "{path} n’est pas un fichier",
+  "files.link.failed": "Impossible d’ouvrir {path} : {message}",
+  "files.link.copied": "Copié : {text}",
+  "files.link.downloaded": "Téléchargé : {name}",
+  "files.link.sent": "Chemin {path} envoyé à l’agent",
+  "files.link.sendFailed": "Terminal déconnecté. Reconnectez-vous avant d’envoyer un chemin.",
 };
 
 export default catalog;

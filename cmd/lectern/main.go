@@ -85,6 +85,10 @@ func routesToServer(args []string, interactive bool) bool {
 }
 
 func main() {
+	// A double-click or right-click in a native attachment (native_links.go).
+	if len(os.Args) > 1 && os.Args[1] == terminalLinkFlag {
+		os.Exit(terminalLinkCommand(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "autonomy-overlay" || os.Args[1] == "autonomy-overlay-inspect") {
 		os.Exit(autonomyOverlayCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
 	}

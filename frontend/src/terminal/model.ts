@@ -75,6 +75,13 @@ export function loadPrefs(): Prefs {
     };
   }
 }
+/** A workspace or outside path as shell text for the agent's prompt: relative
+ * paths are made absolute, and ~/ stays unquoted so the shell expands it. */
+export function shellPath(workdir: string, path: string) {
+  if (path.startsWith("~/")) return "~/" + quote(path.slice(2));
+  return quote(path.startsWith("/") ? path : workdir.replace(/\/+$/, "") + "/" + path);
+}
+
 export function quote(path: string) {
   return "'" + path.replaceAll("'", "'\\''") + "'";
 }

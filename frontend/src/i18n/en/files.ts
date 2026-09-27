@@ -182,6 +182,21 @@ const catalog: Record<string, string> = {
   "files.paneSearch": "Search",
   "files.paneFilesTitle": "Files · {name}",
   "files.paneSearchTitle": "Search · {name}",
+  "files.outsideReadOnly": "Outside workspace · read-only",
+  "files.link.open": "Open",
+  "files.link.openBrowser": "Open in browser",
+  "files.link.copyLink": "Copy link",
+  "files.link.download": "Download",
+  "files.link.copyPath": "Copy path",
+  "files.link.send": "Send path to the agent",
+  "files.link.beside": "Open beside",
+  "files.link.missing": "No file at {path}",
+  "files.link.notFile": "{path} is not a file",
+  "files.link.failed": "Could not open {path}: {message}",
+  "files.link.copied": "Copied {text}",
+  "files.link.downloaded": "Downloaded {name}",
+  "files.link.sent": "Sent {path} to the agent",
+  "files.link.sendFailed": "Terminal disconnected. Reconnect before sending a path.",
 };
 
 export default catalog;

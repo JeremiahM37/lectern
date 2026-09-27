@@ -96,7 +96,7 @@ export interface EditorOptions {
 export function createEditor(host: HTMLElement, options: EditorOptions) {
   registerMarkdownBlocks();
   // One model per path, so undo history survives switching between tabs.
-  const uri = monaco.Uri.from({ scheme: "lectern-file", path: "/" + options.path });
+  const uri = modelUri(options.path);
   const model = monaco.editor.getModel(uri) || monaco.editor.createModel(options.value, options.language, uri);
   if (model.getValue() !== options.value) model.setValue(options.value);
   monaco.editor.setModelLanguage(model, options.language);
@@ -139,5 +139,14 @@ export function createDiff(host: HTMLElement, original: string, modified: string
 
 /** Forget a closed file's model (and its undo history). */
 export function releaseModel(path: string) {
-  monaco.editor.getModel(monaco.Uri.from({ scheme: "lectern-file", path: "/" + path }))?.dispose();
+  monaco.editor.getModel(modelUri(path))?.dispose();
+}
+
+// A workspace path is relative; a file outside the workspace is absolute or
+// ~/, under its own scheme so the two can never name the same model (and a
+// URI path may not start with "//").
+function modelUri(path: string) {
+  if (path.startsWith("~/")) return monaco.Uri.from({ scheme: "lectern-outside", path: "/" + path });
+  if (path.startsWith("/")) return monaco.Uri.from({ scheme: "lectern-outside", path });
+  return monaco.Uri.from({ scheme: "lectern-file", path: "/" + path });
 }

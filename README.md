@@ -48,6 +48,14 @@ Type `lectern` for a live dashboard of every agent on every machine.
 drops you in. In an attached session, **`Ctrl+\`** sends a file to the agent.
 → [Terminal client](docs/terminal-client.md)
 
+**Click any file path or link an agent prints** — even one wrapped across
+lines or outside the project — and it opens. In a terminal, double-click opens
+PDFs in your PDF viewer and links in your browser, on your own machine even
+when the session runs on a server; right-click to download it or send the path
+back to the agent. In the browser, it opens in Lectern's viewer (read-only
+outside the project).
+→ [Paths and links](docs/terminal-client.md#paths-and-links-the-agent-prints)
+
 ![Opening a project shell from the dashboard](docs/media/projects-shell.gif)
 
 ### Any agent, without cluttered menus

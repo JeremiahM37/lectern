@@ -181,6 +181,21 @@ const catalog: Record<string, string> = {
   "files.paneSearch": "検索",
   "files.paneFilesTitle": "ファイル · {name}",
   "files.paneSearchTitle": "検索 · {name}",
+  "files.outsideReadOnly": "ワークスペース外 · 読み取り専用",
+  "files.link.open": "開く",
+  "files.link.openBrowser": "ブラウザーで開く",
+  "files.link.copyLink": "リンクをコピー",
+  "files.link.download": "ダウンロード",
+  "files.link.copyPath": "パスをコピー",
+  "files.link.send": "パスをエージェントに送る",
+  "files.link.beside": "横に開く",
+  "files.link.missing": "{path} にファイルがありません",
+  "files.link.notFile": "{path} はファイルではありません",
+  "files.link.failed": "{path} を開けませんでした：{message}",
+  "files.link.copied": "{text} をコピーしました",
+  "files.link.downloaded": "{name} をダウンロードしました",
+  "files.link.sent": "{path} をエージェントに送りました",
+  "files.link.sendFailed": "ターミナルが切断されています。再接続してからパスを送ってください。",
 };
 
 export default catalog;

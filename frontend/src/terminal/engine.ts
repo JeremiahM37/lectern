@@ -2,8 +2,8 @@ import { errorMessage } from "./model";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { installTerminalLinks } from "../files/terminalLinks";
+import { installTerminalLinks, linkAtCell } from "../files/terminalLinks";
+import type { ExistsCheck } from "../files/linkCheck";
 import { installTerminalScroll } from "./scroll";
 import {
   copyClipboard,
@@ -44,10 +44,15 @@ export interface EngineOptions {
   matches: (index: number, count: number) => void;
   // A deliberate horizontal flick on the terminal body, for the tab bar.
   swipe?: (direction: 1 | -1) => void;
-  // A tapped link in the output (links.ts): a web address or a workspace file.
+  // A clicked or tapped link in the output (links.ts): a web address or a
+  // file, in the workspace or outside it.
   openLink?: (link: TerminalLink) => void;
+  // A right-click on a link, at a point in the page: the link's menu.
+  linkMenu?: (link: TerminalLink, point: { x: number; y: number }) => void;
   // The workspace, for turning tapped paths into files the viewer can open.
   workdir?: () => string;
+  // Whether a workspace path names a file: a bare name is a link only then.
+  linkExists?: ExistsCheck;
   // Whether a program may copy to the clipboard with OSC 52, and what to do
   // with text it copies.
   osc52?: () => boolean;
@@ -60,7 +65,7 @@ export interface EngineOptions {
 import { installAndroidInput } from "./android-input";
 import { modified, type Mods } from "./keys";
 import { encodeKey, keyFromBytes, keyInput, KeyboardModes } from "./extended-keys";
-import { hyperlinkTarget, linkAt, type TerminalLink } from "./links";
+import { hyperlinkTarget, type TerminalLink } from "./links";
 import { haptic } from "../mobile/haptics";
 export class Engine {
   private controlsPrefix = false;
@@ -281,9 +286,13 @@ export class Engine {
     });
     this.term.loadAddon(this.fit);
     this.term.loadAddon(this.search);
-    this.term.loadAddon(
-      new WebLinksAddon((_event, url) => {
-        if (/^https?:\/\//i.test(url)) this.open({ kind: "url", url, text: url });
+    // Paths and web addresses in the output, whole even when wrapped across
+    // rows (files/terminalLinks.ts). Taps go through tapAt below.
+    this.disposables.push(
+      installTerminalLinks(this.term, {
+        workdir: () => options.workdir?.() || "",
+        exists: (path) => options.linkExists?.(path) ?? false,
+        activate: (link) => this.open(link),
       }),
     );
     // OSC 8 hyperlinks (ls --hyperlink, compilers, test runners): web
@@ -347,8 +356,27 @@ export class Engine {
         }
       }),
     );
+    // A right-click on a link opens its menu, and is not also sent to the
+    // program as a mouse press. Elsewhere the browser's menu is untouched.
+    let menuLink: TerminalLink | undefined;
+    options.host.addEventListener("mousedown", (event) => {
+      menuLink = undefined;
+      if (event.button !== 2 || !options.linkMenu) return;
+      const link = this.linkAtPoint({ x: event.clientX, y: event.clientY });
+      if (!link) return;
+      menuLink = link;
+      event.preventDefault();
+      event.stopPropagation();
+    }, { signal: this.lifetime.signal, capture: true });
     // A long press is a selection here, never the browser's context menu.
     options.host.addEventListener("contextmenu", (event) => {
+      const link = menuLink ?? (event.button === 2 && options.linkMenu ? this.linkAtPoint({ x: event.clientX, y: event.clientY }) : undefined);
+      menuLink = undefined;
+      if (link && options.linkMenu && !(event instanceof PointerEvent && event.pointerType === "touch")) {
+        event.preventDefault();
+        options.linkMenu(link, { x: event.clientX, y: event.clientY });
+        return;
+      }
       if (navigator.maxTouchPoints > 0) event.preventDefault();
     }, { signal: this.lifetime.signal });
     this.observer = new ResizeObserver(() => this.scheduleFit());
@@ -558,8 +586,20 @@ export class Engine {
   selectedLink(): TerminalLink | undefined {
     const at = this.term.getSelectionPosition();
     if (!at || at.start.y !== at.end.y) return undefined;
-    const text = this.term.buffer.active.getLine(at.start.y)?.translateToString(true) || "";
-    return linkAt(text, at.start.x, this.options.workdir?.() || "");
+    return this.hyperlinkAt(at.start.x, at.start.y) ?? this.textLinkAt(at.start.x, at.start.y);
+  }
+  // A path or address in the text under a cell. A bare workspace name known
+  // not to exist is not a link; one not yet checked is, and is checked on use.
+  private textLinkAt(col: number, row: number): TerminalLink | undefined {
+    const link = linkAtCell(this.term, col, row, this.options.workdir?.() || "")?.link;
+    if (!link || link.kind === "url") return link;
+    if (!this.options.workdir?.()) return undefined;
+    if (link.verify && this.options.linkExists?.(link.path) === false) return undefined;
+    return link;
+  }
+  private linkAtPoint(point: { x: number; y: number }): TerminalLink | undefined {
+    const cell = this.cellAt(point);
+    return cell && (this.hyperlinkAt(cell.col, cell.row) ?? this.textLinkAt(cell.col, cell.row));
   }
   private tapAt(point: { x: number; y: number }): boolean {
     if (this.term.hasSelection()) {
@@ -568,8 +608,7 @@ export class Engine {
     }
     const cell = this.cellAt(point);
     if (!cell) return false;
-    const link = this.hyperlinkAt(cell.col, cell.row) ??
-      linkAt(this.term.buffer.active.getLine(cell.row)?.translateToString(true) || "", cell.col, this.options.workdir?.() || "");
+    const link = this.hyperlinkAt(cell.col, cell.row) ?? this.textLinkAt(cell.col, cell.row);
     if (!link || (link.kind === "file" && !this.options.workdir?.())) return false;
     this.open(link);
     return true;
@@ -902,16 +941,6 @@ export class Engine {
     this.term.options.lineHeight = prefs.lineHeight;
     this.term.options.theme = resolveTerminalTheme(prefs.theme);
     if (!this.paused) this.scheduleFit();
-  }
-  // File references in the output, underlined on hover and opened at their
-  // line on click (files/terminalLinks.ts). Taps go through tapAt above.
-  fileLinks(workdir: string, preview: (path: string, line?: number, column?: number) => void) {
-    this.disposables.push(
-      installTerminalLinks(this.term, workdir, (link) => {
-        if (link.url) window.open(link.url, "_blank", "noopener");
-        else if (link.path) preview(link.path, link.line, link.column);
-      }),
-    );
   }
   dispose() {
     this.stopped = true;

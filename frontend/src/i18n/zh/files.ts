@@ -181,6 +181,21 @@ const catalog: Record<string, string> = {
   "files.paneSearch": "搜索",
   "files.paneFilesTitle": "文件 · {name}",
   "files.paneSearchTitle": "搜索 · {name}",
+  "files.outsideReadOnly": "工作区之外 · 只读",
+  "files.link.open": "打开",
+  "files.link.openBrowser": "在浏览器中打开",
+  "files.link.copyLink": "复制链接",
+  "files.link.download": "下载",
+  "files.link.copyPath": "复制路径",
+  "files.link.send": "将路径发送给代理",
+  "files.link.beside": "在旁边打开",
+  "files.link.missing": "{path} 处没有文件",
+  "files.link.notFile": "{path} 不是文件",
+  "files.link.failed": "无法打开 {path}：{message}",
+  "files.link.copied": "已复制 {text}",
+  "files.link.downloaded": "已下载 {name}",
+  "files.link.sent": "已将 {path} 发送给代理",
+  "files.link.sendFailed": "终端已断开。请重新连接后再发送路径。",
 };
 
 export default catalog;

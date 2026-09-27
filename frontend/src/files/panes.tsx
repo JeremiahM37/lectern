@@ -30,7 +30,8 @@ registerPaneType({
   check: (ref) => {
     const id = session(ref),
       path = ref.params.path || "";
-    return id && path && !path.startsWith("/") && !path.split("/").includes("..") && ref.id === `file:session:${id}:${path}` ? ref : null;
+    // A workspace path, or an absolute or ~/ one outside it (read-only).
+    return id && path && !path.startsWith("//") && !path.split("/").includes("..") && ref.id === `file:session:${id}:${path}` ? ref : null;
   },
   popout: (ref) => `/terminal/session/${session(ref)}?open=${encodeURIComponent(ref.params.path || "")}${ref.params.line ? "#L" + ref.params.line : ""}`,
   render: ({ pane, services, close, mobile }) => (

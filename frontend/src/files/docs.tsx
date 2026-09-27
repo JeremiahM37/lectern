@@ -5,7 +5,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t } from "../i18n";
 import { copyClipboard, errorMessage } from "../terminal/model";
-import { ConflictError, type FileApi } from "./api";
+import { ConflictError, isOutside, type FileApi } from "./api";
 import { fileLink, type LineTarget } from "./deeplink";
 import { CodeEditor, loadMonaco, type EditorHandle } from "./Editor";
 import { languageFor, mimeFor, rendered, viewKind, type ViewKind } from "./formats";
@@ -37,6 +37,8 @@ export interface Doc {
   sha: string;
   revision: number; // bumped when the buffer is replaced from disk
   readOnly: boolean;
+  // Outside the workspace: always read-only, and not followed on disk.
+  outside?: boolean;
   truncated: boolean;
   mode: Mode;
   editing: boolean;
@@ -129,7 +131,7 @@ export function useFileDocs({ api, phone, notice, autosave, onSaved }: DocsOptio
       }
       setDocs((old) => [
         ...old,
-        { path, kind: "code", loading: true, url: "", text: "", buffer: "", sha: "", revision: 0, readOnly: true, truncated: false, mode: "source", editing: false, scripts: false, target, targetKey: 1, saving: false },
+        { path, kind: "code", loading: true, url: "", text: "", buffer: "", sha: "", revision: 0, readOnly: true, outside: isOutside(path), truncated: false, mode: "source", editing: false, scripts: false, target, targetKey: 1, saving: false },
       ]);
       try {
         const opened = await api.open(path);
@@ -142,9 +144,10 @@ export function useFileDocs({ api, phone, notice, autosave, onSaved }: DocsOptio
         const wantsSource = !!target || preferSource;
         const mode: Mode = !rendered(kind) ? "source" : wantsSource ? (phone || kind !== "markdown" ? "source" : "split") : "view";
         if (!docsRef.current.some((item) => item.path === path)) return URL.revokeObjectURL(url);
-        update(path, { kind, loading: false, blob: opened.blob, url, text, buffer: text, sha: opened.sha256, readOnly: truncated, truncated, mode });
+        update(path, { kind, loading: false, blob: opened.blob, url, text, buffer: text, sha: opened.sha256, readOnly: truncated || isOutside(path), truncated, mode });
       } catch (error) {
-        update(path, { loading: false, error: errorMessage(error) });
+        // Say which path was tried: a link may have named something else.
+        update(path, { loading: false, error: t("files.link.failed", { path, message: errorMessage(error) }) });
       }
     },
     [api, phone, update],
@@ -217,7 +220,7 @@ export function useFileDocs({ api, phone, notice, autosave, onSaved }: DocsOptio
   // watch reports a change, and when the page comes back.
   const checkDisk = useCallback(async () => {
     for (const current of docsRef.current.slice(0, 20)) {
-      if (current.loading || current.saving || !current.sha) continue;
+      if (current.loading || current.saving || !current.sha || current.outside) continue;
       const path = current.path;
       try {
         const stat = await api.stat(path);
@@ -439,7 +442,7 @@ export function DocPanel(props: DocPanelProps) {
           {doc.path}
         </span>
         <span className="wb-doc-state" role="status">
-          {doc.saving ? t("files.saving") : doc.readOnly && doc.truncated ? t("files.readOnlyTruncated") : dirty(doc) ? t("files.unsaved") : ""}
+          {doc.saving ? t("files.saving") : doc.outside ? t("files.outsideReadOnly") : doc.readOnly && doc.truncated ? t("files.readOnlyTruncated") : dirty(doc) ? t("files.unsaved") : ""}
         </span>
         {rendered(doc.kind) && !doc.loading && (
           <div className="wb-modes" role="group" aria-label={t("files.view")}>
@@ -457,7 +460,7 @@ export function DocPanel(props: DocPanelProps) {
               </button>
             )}
             <button aria-pressed={doc.mode === "source"} onClick={() => setMode("source")}>
-              {doc.kind === "markdown" ? t("files.edit") : t("files.source")}
+              {doc.kind === "markdown" && !doc.readOnly ? t("files.edit") : t("files.source")}
             </button>
           </div>
         )}
@@ -500,7 +503,7 @@ export function DocPanel(props: DocPanelProps) {
                 {doc.target ? t("files.copyLinkLine", { line: doc.target.line }) : t("files.copyLink")}
               </button>
             )}
-            {props.onReveal && (
+            {props.onReveal && !doc.outside && (
               <button role="menuitem" onClick={() => props.onReveal?.(doc.path)}>
                 {t("files.showInExplorer")}
               </button>

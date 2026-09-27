@@ -173,6 +173,7 @@ type nativeWrapPlan struct {
 	innerScript    string
 	controlsScript string
 	uploadScript   string
+	linkScript     string
 	controls       nativeControls
 	inWorkspace    string
 	innerArgv      []string
@@ -180,6 +181,7 @@ type nativeWrapPlan struct {
 	inner          string
 	controlsBody   string
 	uploadBody     string
+	linkBody       string
 }
 
 func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []string, workspace string) (*nativeWrapPlan, error) {
@@ -198,6 +200,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		innerScript:    filepath.Join(dir, "attach.sh"),
 		controlsScript: filepath.Join(dir, "controls.sh"),
 		uploadScript:   filepath.Join(dir, "upload.sh"),
+		linkScript:     filepath.Join(dir, "link.sh"),
 		controls:       controls,
 		inWorkspace:    workspace,
 		innerArgv:      withClientControlsMarker(argv),
@@ -212,6 +215,11 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	}
 	plan.controlsBody = execScriptWithEnv(insertEnv, []string{self, "controls", controls.Kind, controls.ID, "--popup"})
 	plan.uploadBody = execScriptWithEnv(insertEnv, []string{self, "controls", controls.Kind, controls.ID, "--popup", "--action", "upload"})
+	// Double-click and right-click on a path or link (native_links.go): the
+	// bindings pass only the pane and the mouse cell; the script adds this
+	// attachment's identity, and the server's environment its credential.
+	plan.linkBody = strings.TrimSuffix(execScriptWithEnv(append(insertEnv, linkDirEnv+"="+dir),
+		[]string{self, terminalLinkFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
 }
@@ -255,9 +263,10 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 	// Sending a file is the most-used control, so it gets its own one-chord
 	// key and leads the row. Ctrl+\ is free in shells, Claude Code and Codex
 	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
-	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
+	// Double-click opens a path or link an agent printed, on this machine.
+	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
 	if p.controls.TabView {
-		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
+		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
@@ -275,7 +284,7 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",
 		"set -g status-position top",
-		"set -g status-left-length 72",
+		"set -g status-left-length 100",
 		"set -g status-style fg=colour252,bg=colour236",
 		// The primary shortcut leads the row so a narrow client clips trailing
 		// text, never the hint itself. The window list is dropped: its text
@@ -300,6 +309,7 @@ func (p *nativeWrapPlan) write() error {
 		{p.innerScript, p.inner, 0o700},
 		{p.controlsScript, p.controlsBody, 0o700},
 		{p.uploadScript, p.uploadBody, 0o700},
+		{p.linkScript, p.linkBody, 0o700},
 	}
 	for _, file := range files {
 		if err := os.WriteFile(file.path, []byte(file.body), file.mode); err != nil {
@@ -320,6 +330,9 @@ func (p *nativeWrapPlan) start(tmuxPath string) error {
 		}
 		return fmt.Errorf("start private tmux: %w", err)
 	}
+	// Without the link bindings the attachment still works; clicks keep
+	// tmux's own meaning.
+	_ = p.bindLinks(tmuxPath)
 	return nil
 }
 

@@ -69,6 +69,10 @@ export class ConflictError extends Error {
 
 const q = (path: string) => encodeURIComponent(path);
 
+/** An absolute or ~/ path names a file outside the workspace, on the
+ * session's machine: a person may view it read-only (external_files.go). */
+export const isOutside = (path: string) => path.startsWith("/") || path.startsWith("~/");
+
 export class FileApi {
   constructor(readonly base: string) {}
 
@@ -77,7 +81,7 @@ export class FileApi {
   }
 
   async open(path: string, signal?: AbortSignal): Promise<Opened> {
-    const response = await request(`${this.base}/file?path=${q(path)}`, { signal });
+    const response = await request(`${this.base}/${isOutside(path) ? "external" : "file"}?path=${q(path)}`, { signal });
     return {
       blob: await response.blob(),
       sha256: response.headers.get("X-Lectern-Sha256") || "",
@@ -87,6 +91,16 @@ export class FileApi {
 
   async stat(path: string, signal?: AbortSignal): Promise<{ exists: boolean; sha256?: string; mtime?: number; size?: number }> {
     return (await request(`${this.base}/stat?path=${q(path)}`, { signal })).json();
+  }
+
+  /** Whether a workspace path names something, without reading it. */
+  async exists(path: string, signal?: AbortSignal): Promise<{ exists: boolean; directory?: boolean; path: string }> {
+    return (await request(`${this.base}/exists?path=${q(path)}`, { signal })).json();
+  }
+
+  /** A file outside the workspace: whether it exists and is a regular file. */
+  async outsideStat(path: string, signal?: AbortSignal): Promise<{ exists: boolean; regular?: boolean; path: string; size?: number }> {
+    return (await request(`${this.base}/external-stat?path=${q(path)}`, { signal })).json();
   }
 
   /** base is the hash the editor started from, "absent" to create, "any" to overwrite. */
