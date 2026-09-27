@@ -7,7 +7,7 @@
 **Dispatch AI coding agents onto machines you own — and approve their work from your phone.**
 
 <!-- badges -->
-![status](https://img.shields.io/badge/status-v2.3.0-8b5cf6)
+![status](https://img.shields.io/badge/status-v2.4.0-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/go-1.25%2B-00add8)
 ![docker](https://img.shields.io/badge/docker-ready-2496ed)
@@ -18,9 +18,6 @@
 ![Lectern board](screenshots/board-current.png)
 
 </div>
-
-**Release note:** the `up` workflow below is in this checkout, but is not in
-v2.3.1. Until the next release is published, use the [source installer](local.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh

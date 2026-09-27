@@ -33,6 +33,4 @@ Run the project `verify` suite for Go, frontend, isolated browser/PTY tests and
 live service/UI checks. Unit generation is not proof of macOS launchd behavior;
 macOS runtime and physical-phone keyboard behavior remain separate checks.
 
-The public v2.3.1 archive was downloaded and checked: `up` is absent. A new
-approved release is required before public installers provide this workflow.
-No public push, tag or release is part of this local acceptance run.
+v2.3.1 predates `up`; v2.4.0 is the first release that ships it.
