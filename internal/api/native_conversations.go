@@ -19,8 +19,14 @@ import (
 var nativeRecordsScript = nativeidentity.RecordsScript
 
 func (s *Server) nativeConversationData(r *http.Request, row *store.Session, cid string) (map[string]json.RawMessage, error) {
-	if row.Agent != "codex" && row.Agent != "claude" {
-		return nil, fmt.Errorf("native history is supported for Claude and Codex; use terminal history for this agent")
+	catalog := row.Agent != "codex" && row.Agent != "claude"
+	var catalogSpec sessions.Spec
+	if catalog {
+		config, err := s.Sessions.SessionLaunchConfiguration(row)
+		if err != nil || config.Spec.Sessions == nil {
+			return nil, fmt.Errorf("Lectern cannot read this agent's saved conversations; use terminal history for this agent")
+		}
+		catalogSpec = s.Sessions.Resolve(config.Spec)
 	}
 	if !path.IsAbs(row.Workdir) {
 		return nil, fmt.Errorf("workspace unavailable")
@@ -35,6 +41,23 @@ func (s *Server) nativeConversationData(r *http.Request, row *store.Session, cid
 	ex, err := s.Reg.For(target)
 	if err != nil {
 		return nil, err
+	}
+	if catalog {
+		out, err := sessions.CatalogConversations(r.Context(), ex, catalogSpec, row.Workdir, cid)
+		if err == nil && cid == "" && row.NativeRecoveryCID != "" {
+			// The picker's "current" marker: the conversation bound to this
+			// session, when it is among those listed.
+			var listed []struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(out["conversations"], &listed)
+			saved := false
+			for _, c := range listed {
+				saved = saved || c.ID == row.NativeRecoveryCID
+			}
+			out["current"], _ = json.Marshal(map[string]any{"state": "identified", "id": row.NativeRecoveryCID, "saved": saved})
+		}
+		return out, err
 	}
 	config, err := s.Sessions.SessionLaunchConfiguration(row)
 	if err != nil {
@@ -224,7 +247,7 @@ func (s *Server) forkConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	// Re-resolve on the target at mutation time. Never accept a path, --last, or
 	// an ID belonging to another workspace just because it came from a picker.
-	if _, err := s.nativeConversationData(r, row, in.ConversationID); err != nil {
+	if _, err := s.nativeConversationData(r, row, in.ConversationID); err != nil && !s.assignedConversation(row, in.ConversationID) {
 		httpError(w, 409, "%s", err)
 		return
 	}
@@ -282,6 +305,19 @@ func (s *Server) resumeConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, s.sessionView(next))
 }
 
+// assignedConversation reports whether cid is exactly this session's
+// conversation for a catalog CLI that takes session ids: the id Lectern named
+// at launch, or the id an exact resume continued. Both are exact by
+// construction even while the CLI's own listing leaves them out — Qwen Code
+// lists a conversation only after its process exits.
+func (s *Server) assignedConversation(row *store.Session, cid string) bool {
+	if cid == "" || (cid != row.NativeRecoveryCID && cid != row.ResumeID) || row.Agent == "claude" || row.Agent == "codex" {
+		return false
+	}
+	config, err := s.Sessions.SessionLaunchConfiguration(row)
+	return err == nil && len(config.Spec.SessionIDArgs) > 0
+}
+
 // boundNativeCID returns the conversation bound to this session, after
 // validating that exact transcript on the target. Directory mtime is never a
 // session identity: a newer unrelated conversation in the same workspace must
@@ -289,6 +325,16 @@ func (s *Server) resumeConversation(w http.ResponseWriter, r *http.Request) {
 // priority over the legacy ResumeID; the latter is accepted only after the
 // exact-history reader proves it still exists.
 func (s *Server) boundNativeCID(r *http.Request, row *store.Session) (string, error) {
+	if row.Agent != "claude" && row.Agent != "codex" && row.NativeRecoveryCID != "" {
+		// A catalog CLI that takes a session id was given this one by Lectern
+		// at launch, so the binding is exact by construction. It is not
+		// re-validated: some CLIs (Qwen Code) leave a conversation out of
+		// their own listing until its process has fully exited, and others
+		// (Copilot, Grok) have no listing Lectern reads at all.
+		if s.assignedConversation(row, row.NativeRecoveryCID) {
+			return row.NativeRecoveryCID, nil
+		}
+	}
 	if row.NativeRecoveryCID != "" {
 		if _, err := s.nativeConversationData(r, row, row.NativeRecoveryCID); err == nil {
 			return row.NativeRecoveryCID, nil

@@ -78,11 +78,12 @@ func (s *Server) planRestore(row *store.Session) restorePlan {
 	p := restorePlan{}
 	p.Reason, p.ReasonLabel = endReason(row)
 	bound := row.NativeRecoveryCID != "" || row.ResumeID != ""
-	resumable := false
-	if bound && (row.Agent == "claude" || row.Agent == "codex") {
-		if config, err := s.Sessions.SessionLaunchConfiguration(row); err == nil && len(config.Spec.ResumeIDArgs) > 0 {
-			resumable = true
-		}
+	resumable, pickable := false, row.Agent == "claude" || row.Agent == "codex"
+	if config, err := s.Sessions.SessionLaunchConfiguration(row); err == nil {
+		resumable = bound && len(config.Spec.ResumeIDArgs) > 0 && config.Spec.ExactConversations()
+		// A catalog agent whose saved conversations Lectern can list gets the
+		// same history picker as Claude and Codex.
+		pickable = pickable || (config.Spec.Sessions != nil && len(config.Spec.ResumeIDArgs) > 0)
 	}
 	wrap := s.latestWrap(row.ID) != nil
 	switch {
@@ -105,7 +106,7 @@ func (s *Server) planRestore(row *store.Session) restorePlan {
 		p.LikelyMatch = true
 	case wrap:
 		p.Action, p.ActionLabel, p.Note = "handoff", "Continue from handoff", "Starts a new session primed with its last handoff."
-	case row.Agent == "claude" || row.Agent == "codex":
+	case pickable:
 		p.Action, p.ActionLabel, p.Note = "history", "Choose history", "No conversation is bound to this record; pick one from its folder's saved conversations."
 	default:
 		p.Action, p.ActionLabel, p.Note = "fresh", "Start fresh here", "Nothing was saved to resume; starts a new session in the same folder."

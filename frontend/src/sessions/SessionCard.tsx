@@ -584,7 +584,7 @@ export function SessionCard({
           <button className="b" onClick={() => onGroup(s)}>
             Move to group
           </button>
-          {["claude", "codex"].includes(s.agent) && (
+          {(s.saved_conversations ?? ["claude", "codex"].includes(s.agent)) && (
             <button className="b" onClick={() => onHistory(s)}>
               Saved conversations
             </button>
