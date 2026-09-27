@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,17 +15,18 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
-// fakeTTYD stands in for the real binary: it records the port it was handed and
-// stays alive, the way a bound ttyd does.
-func fakeManager(t *testing.T) (*Manager, func() []int) {
+// fakeTTYD stands in for the real binary: it records the socket it was handed
+// and stays alive, the way a listening ttyd does.
+func fakeManager(t *testing.T) (*Manager, func() []string) {
 	t.Helper()
 	m := NewManager()
+	m.SocketDir = t.TempDir()
 	m.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
 	var mu sync.Mutex
-	var ports []int
-	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+	var sockets []string
+	m.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
 		mu.Lock()
-		ports = append(ports, port)
+		sockets = append(sockets, socket)
 		mu.Unlock()
 		cmd := exec.Command("sleep", "30")
 		if err := cmd.Start(); err != nil {
@@ -35,11 +35,10 @@ func fakeManager(t *testing.T) (*Manager, func() []int) {
 		return cmd, nil
 	}
 	t.Cleanup(m.Shutdown)
-	return m, func() []int {
+	return m, func() []string {
 		mu.Lock()
 		defer mu.Unlock()
-		out := append([]int(nil), ports...)
-		return out
+		return append([]string(nil), sockets...)
 	}
 }
 
@@ -48,13 +47,12 @@ func target(kind string) *store.Target {
 }
 
 // Two people clicking attach at the same moment is ordinary — the board shows a
-// running attempt and a live session side by side. If both land on one port the
-// second ttyd cannot bind and its terminal is dead on arrival.
-func TestConcurrentAttachesGetDistinctPorts(t *testing.T) {
+// running attempt and a live session side by side. Each must get its own ttyd.
+func TestConcurrentAttachesGetDistinctSockets(t *testing.T) {
 	m, spawned := fakeManager(t)
 	const n = 6
 	var wg sync.WaitGroup
-	got := make([]int, n)
+	got := make([]string, n)
 	errs := make([]error, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
@@ -66,24 +64,23 @@ func TestConcurrentAttachesGetDistinctPorts(t *testing.T) {
 	}
 	wg.Wait()
 
-	seen := map[int]int{}
-	for i, port := range got {
+	seen := map[string]int{}
+	for i, socket := range got {
 		if errs[i] != nil {
 			t.Fatalf("attach %d failed: %v", i, errs[i])
 		}
-		if prev, dup := seen[port]; dup {
-			t.Fatalf("attachments %d and %d were both given port %d — the second ttyd "+
-				"cannot bind, so that terminal is dead on arrival", prev, i, port)
+		if prev, dup := seen[socket]; dup {
+			t.Fatalf("attachments %d and %d were both given %s", prev, i, socket)
 		}
-		seen[port] = i
+		seen[socket] = i
 	}
 	if len(spawned()) != n {
 		t.Errorf("spawned %d ttyds for %d attachments", len(spawned()), n)
 	}
 }
 
-// Attaching twice to the same thing must reuse the existing terminal rather than
-// burning another port from a range of twenty.
+// Attaching twice to the same thing must reuse the existing terminal rather
+// than starting a second ttyd.
 func TestAttachingTwiceReusesTheSameTerminal(t *testing.T) {
 	m, spawned := fakeManager(t)
 	a := Attachment{Key: "session:3", TmuxSession: "lec-sess-3"}
@@ -96,7 +93,7 @@ func TestAttachingTwiceReusesTheSameTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first != second {
-		t.Errorf("the same attachment got two ports: %d then %d", first, second)
+		t.Errorf("the same attachment got two terminals: %s then %s", first, second)
 	}
 	if len(spawned()) != 1 {
 		t.Errorf("spawned %d ttyds for one attachment", len(spawned()))
@@ -116,17 +113,47 @@ func TestAttemptAndSessionKeysDoNotCollide(t *testing.T) {
 		t.Fatal(err)
 	}
 	if x == y {
-		t.Errorf("attempt:3 and session:3 shared port %d", x)
+		t.Errorf("attempt:3 and session:3 shared %s", x)
 	}
 }
 
-func TestPortsAreReturnedWhenTerminalsAreShutDown(t *testing.T) {
+// Sockets live in a directory only this user can enter — a ttyd is an
+// unauthenticated shell — and each Lectern has its own. On loopback ports,
+// two instances on one host picked the same port and served each other's
+// terminals, and any local user could connect.
+func TestSocketsArePrivateAndPerInstance(t *testing.T) {
 	m, _ := fakeManager(t)
+	other, _ := fakeManager(t)
+	other.SocketDir = m.SocketDir // same parent, as two instances on one host
+	a, err := m.Attach(context.Background(), Attachment{Key: "session:1"}, target("local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := other.Attach(context.Background(), Attachment{Key: "session:1"}, target("local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(a) == filepath.Dir(b) {
+		t.Fatalf("two managers shared a socket directory: %s", filepath.Dir(a))
+	}
+	info, err := os.Stat(filepath.Dir(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("socket directory mode %v, want 0700", info.Mode().Perm())
+	}
+}
+
+func TestTerminalsAreReleasedWhenShutDown(t *testing.T) {
+	m, _ := fakeManager(t)
+	var dir string
 	for i := 0; i < 4; i++ {
-		if _, err := m.Attach(context.Background(),
-			Attachment{Key: fmt.Sprintf("attempt:%d", i)}, target("local")); err != nil {
+		socket, err := m.Attach(context.Background(), Attachment{Key: fmt.Sprintf("attempt:%d", i)}, target("local"))
+		if err != nil {
 			t.Fatal(err)
 		}
+		dir = filepath.Dir(socket)
 	}
 	m.Shutdown()
 	m.mu.Lock()
@@ -135,21 +162,23 @@ func TestPortsAreReturnedWhenTerminalsAreShutDown(t *testing.T) {
 	if n != 0 {
 		t.Errorf("%d terminals still tracked after shutdown", n)
 	}
-	// the range is only twenty wide, so a leak here exhausts it in a day's use
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("socket directory left behind: %v", err)
+	}
 	if _, err := m.Attach(context.Background(),
 		Attachment{Key: "attempt:99"}, target("local")); err != nil {
 		t.Fatalf("could not attach after a shutdown: %v", err)
 	}
 }
 
-// Terminals no longer exit when their last viewer leaves, so the range can fill
-// with ones nobody is looking at. Refusing to attach at that point would make
-// the board unusable until a restart, so the least recently used idle one is
-// retired instead — the tmux session behind it is untouched, and re-attaching
-// costs one click — and the caller is told which.
-func TestAFullRangeRetiresTheIdlestTerminal(t *testing.T) {
+// Terminals no longer exit when their last viewer leaves, so they pile up.
+// Past the limit, refusing to attach would make the board unusable until a
+// restart, so the least recently used idle one is retired instead — the tmux
+// session behind it is untouched, and re-attaching costs one click — and the
+// caller is told which.
+func TestAtTheLimitTheIdlestTerminalIsRetired(t *testing.T) {
 	m, _ := fakeManager(t)
-	m.PortLo, m.PortHi = 7950, 7952
+	m.Max = 3
 	for i := 0; i < 3; i++ {
 		if _, retired, err := m.AttachWithNotice(context.Background(),
 			Attachment{Key: fmt.Sprintf("attempt:%d", i)}, target("local")); err != nil || retired != "" {
@@ -158,12 +187,9 @@ func TestAFullRangeRetiresTheIdlestTerminal(t *testing.T) {
 	}
 	// attempt:0 is the oldest, but someone looked at it more recently than 1
 	m.Viewing("attempt:0")()
-	port, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: "one-too-many"}, target("local"))
+	_, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: "one-too-many"}, target("local"))
 	if err != nil {
-		t.Fatalf("a full range refused a new terminal instead of making room: %v", err)
-	}
-	if port < 7950 || port > 7952 {
-		t.Errorf("port %d is outside the range", port)
+		t.Fatalf("a full manager refused a new terminal instead of making room: %v", err)
 	}
 	if retired != "attempt:1" {
 		t.Fatalf("retired %q, want the least recently used idle terminal attempt:1", retired)
@@ -172,7 +198,7 @@ func TestAFullRangeRetiresTheIdlestTerminal(t *testing.T) {
 	held := len(m.procs)
 	m.mu.Unlock()
 	if held != 3 {
-		t.Errorf("the range holds %d terminals, want 3", held)
+		t.Errorf("%d terminals running, want 3", held)
 	}
 }
 
@@ -180,7 +206,7 @@ func TestAFullRangeRetiresTheIdlestTerminal(t *testing.T) {
 // every one is open, the new attach is refused with a reason instead.
 func TestAViewedTerminalIsNeverRetired(t *testing.T) {
 	m, _ := fakeManager(t)
-	m.PortLo, m.PortHi = 7960, 7961
+	m.Max = 2
 	var done []func()
 	for i := 0; i < 2; i++ {
 		key := fmt.Sprintf("session:%d", i)
@@ -189,11 +215,11 @@ func TestAViewedTerminalIsNeverRetired(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := m.AttachWithNotice(context.Background(), Attachment{Key: "session:9"}, target("local")); err != ErrNoPorts {
-		t.Fatalf("got %v, want ErrNoPorts while every terminal is being viewed", err)
+	if _, _, err := m.AttachWithNotice(context.Background(), Attachment{Key: "session:9"}, target("local")); err != ErrFull {
+		t.Fatalf("got %v, want ErrFull while every terminal is being viewed", err)
 	}
 	for _, key := range []string{"session:0", "session:1"} {
-		if _, ok := m.PortFor(key); !ok {
+		if _, ok := m.SocketFor(key); !ok {
 			t.Fatalf("%s was closed while being viewed", key)
 		}
 	}
@@ -204,17 +230,6 @@ func TestAViewedTerminalIsNeverRetired(t *testing.T) {
 	}
 	if m.Viewers("session:0") != 1 || m.Viewers("session:1") != 0 {
 		t.Fatal("viewer counts drifted")
-	}
-}
-
-func TestParsePortRange(t *testing.T) {
-	if lo, hi, ok := ParsePortRange(" 8000-8099 "); !ok || lo != 8000 || hi != 8099 {
-		t.Fatalf("got %d %d %v", lo, hi, ok)
-	}
-	for _, bad := range []string{"", "8000", "9000-8000", "80-90", "a-b"} {
-		if _, _, ok := ParsePortRange(bad); ok {
-			t.Errorf("%q parsed", bad)
-		}
 	}
 }
 
@@ -387,8 +402,8 @@ func TestAttachReturnsOnceTheTerminalListens(t *testing.T) {
 			l.Close()
 		}
 	})
-	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
-		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	m.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
+		l, err := net.Listen("unix", socket)
 		if err != nil {
 			return nil, err
 		}
@@ -405,11 +420,11 @@ func TestAttachReturnsOnceTheTerminalListens(t *testing.T) {
 	}
 }
 
-// A ttyd that dies before it listens is reported, and its port released,
+// A ttyd that dies before it listens is reported, and its slot released,
 // rather than handed to the browser as a dead terminal.
 func TestAttachReportsATerminalThatExits(t *testing.T) {
 	m, _ := fakeManager(t)
-	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+	m.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
 		cmd := exec.Command("false")
 		return cmd, cmd.Start()
 	}
@@ -417,47 +432,7 @@ func TestAttachReportsATerminalThatExits(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exited immediately") {
 		t.Fatalf("got %v", err)
 	}
-	if _, ok := m.PortFor("session:2"); ok {
-		t.Fatal("a terminal that never started kept its port")
-	}
-}
-
-// Retiring a terminal hands its port straight to the new one, so the old
-// process must be gone first: otherwise the new ttyd cannot bind, and the
-// readiness check finds the dying one still answering and returns a terminal
-// that closes at once.
-func TestARetiredTerminalFreesItsPortBeforeReuse(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 is needed to stand in for ttyd")
-	}
-	m, _ := fakeManager(t)
-	m.PortLo, m.PortHi = 7970, 7970
-	// a stand-in ttyd that really binds its port and exits if it cannot
-	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
-		cmd := exec.Command("python3", "-c", fmt.Sprintf(
-			"import socket,time\ns=socket.socket()\ns.bind(('127.0.0.1',%d))\ns.listen()\ntime.sleep(30)", port))
-		return cmd, cmd.Start()
-	}
-	if _, err := m.Attach(context.Background(), Attachment{Key: "session:1"}, target("local")); err != nil {
-		t.Fatal(err)
-	}
-	for i := 2; i <= 4; i++ {
-		key := fmt.Sprintf("session:%d", i)
-		_, retired, err := m.AttachWithNotice(context.Background(), Attachment{Key: key}, target("local"))
-		if err != nil {
-			t.Fatalf("attach %s after retiring: %v", key, err)
-		}
-		if retired != fmt.Sprintf("session:%d", i-1) {
-			t.Fatalf("retired %q", retired)
-		}
-		m.mu.Lock()
-		s := m.procs[key]
-		m.mu.Unlock()
-		time.Sleep(100 * time.Millisecond)
-		select {
-		case <-s.exited:
-			t.Fatalf("%s's terminal exited: it could not bind the retired terminal's port", key)
-		default:
-		}
+	if _, ok := m.SocketFor("session:2"); ok {
+		t.Fatal("a terminal that never started kept its slot")
 	}
 }

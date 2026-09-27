@@ -138,9 +138,9 @@ type Config struct {
 	// not answer in time is shown as unreachable and retried with backoff,
 	// without holding up the others.
 	TargetPollTimeout time.Duration
-	// TerminalPorts is "LO-HI", the loopback ports web terminals may use —
-	// one per open terminal. Empty keeps internal/terminal's default range.
-	TerminalPorts string
+	// TerminalsMax caps how many web terminals (ttyd processes) run at once;
+	// 0 keeps internal/terminal's default.
+	TerminalsMax int
 
 	// MediaPath overrides MediaDir; MediaMaxBytes caps one posted file.
 	MediaPath     string
@@ -249,7 +249,7 @@ func Load() *Config {
 		GrimoireContextProjects: os.Getenv("LECTERN_GRIMOIRE_CONTEXT_PROJECTS"),
 		SessionPoll:             envSeconds("LECTERN_SESSION_POLL", 3.0),
 		TargetPollTimeout:       envSeconds("LECTERN_TARGET_POLL_TIMEOUT", 20),
-		TerminalPorts:           os.Getenv("LECTERN_TERMINAL_PORTS"),
+		TerminalsMax:            int(envFloat("LECTERN_TERMINALS_MAX", 0)),
 		CheckTimeout:            envSeconds("LECTERN_CHECK_TIMEOUT", 900),
 	}
 	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))

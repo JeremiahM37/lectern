@@ -1,10 +1,11 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -15,12 +16,12 @@ import (
 
 // termProxy serves an attached terminal on lectern's own origin.
 //
-// The URL names the attachment ("/term/session/24"), never the port. ttyd runs
-// on the control plane, on loopback, on a port from a small range — and that
-// port is not stable: a terminal is retired when the range fills, and every one
-// of them dies when this service restarts. A page holding a port URL is then
-// pointed at nothing for good, which is exactly what left ttyd's own reconnect
-// retrying forever with no way to succeed.
+// The URL names the attachment ("/term/session/24"), never where its ttyd is.
+// ttyd runs on the control plane behind a private Unix socket, and that is not
+// stable: an idle terminal is retired when the limit is reached, and every one
+// of them dies when this service restarts. A page holding a location URL (as
+// port URLs once were) is then pointed at nothing for good, which is exactly
+// what left ttyd's own reconnect retrying forever with no way to succeed.
 //
 // So the terminal is resolved, and respawned if it is gone, on every request.
 // Reconnecting from a stale tab therefore just works: it lands on a fresh ttyd
@@ -40,7 +41,7 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	// Attach reuses a live terminal for this attachment and starts one when
 	// there is none, so a reconnect after a restart heals itself
-	port, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
+	socket, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
 	if retired != "" {
 		s.Log.Info("retired an idle terminal to make room", "retired", retired, "for", att.Key)
 	}
@@ -50,14 +51,20 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target2, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	proxy := &httputil.ReverseProxy{
 		// ttyd is mounted with --base-path, so it expects the prefix to arrive
 		// intact; the path is passed through rather than stripped.
 		Director: func(req *http.Request) {
-			req.URL.Scheme = target2.Scheme
-			req.URL.Host = target2.Host
-			req.Host = target2.Host
+			req.URL.Scheme = "http"
+			req.URL.Host = "ttyd"
+			req.Host = "localhost"
+		},
+		// ttyd listens on a private Unix socket (see terminal.TTYDArgs)
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return terminal.Dial(ctx, socket)
+			},
+			DisableKeepAlives: true,
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Info("terminal proxy ended", "attachment", att.Key, "err", err)
