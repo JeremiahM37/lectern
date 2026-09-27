@@ -14,10 +14,25 @@ export function jumpHunk(container: HTMLElement, dir: 1 | -1, scroller: HTMLElem
   const hunks = Array.from(container.querySelectorAll<HTMLElement>(".dl-hunk"));
   const top = scroller.getBoundingClientRect().top + inset;
   const offset = (el: HTMLElement) => el.getBoundingClientRect().top - top;
-  const target =
-    dir === 1 ? hunks.find((h) => offset(h) > 12) : [...hunks].reverse().find((h) => offset(h) < -12);
+  const visible = scroller.clientHeight - inset;
+  // Walk from the hunk last jumped to while it is still on screen: when the
+  // view cannot scroll any further, positions alone would find the same
+  // hunk again and navigation would stall on a short file.
+  const last = Number(container.dataset.hunkAt ?? -1);
+  let index: number;
+  if (last >= 0 && last < hunks.length && offset(hunks[last]!) > -24 && offset(hunks[last]!) < visible) {
+    index = last + dir;
+  } else if (dir === 1) {
+    index = hunks.findIndex((h) => offset(h) > 12);
+  } else {
+    index = hunks.length - 1 - [...hunks].reverse().findIndex((h) => offset(h) < -12);
+    if (index >= hunks.length) index = -1;
+  }
+  const target = hunks[index];
   if (!target) return false;
+  container.dataset.hunkAt = String(index);
   scroller.scrollTop += offset(target) - 4;
+  for (const h of hunks) h.classList.remove("dl-hunk-current");
   target.classList.add("dl-hunk-current");
   window.setTimeout(() => target.classList.remove("dl-hunk-current"), 900);
   return true;
@@ -57,6 +72,7 @@ export function FocusReview({
     const el = body.current;
     if (!el) return;
     el.scrollTop = 0;
+    delete el.dataset.hunkAt;
     if (!pendingEdge) return;
     const id = window.requestAnimationFrame(() => {
       if (pendingEdge === "last") {

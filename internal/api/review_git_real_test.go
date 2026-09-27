@@ -678,3 +678,27 @@ func TestRealLiveDiffFallsBackToHeadWithoutTheBaseBranch(t *testing.T) {
 		t.Fatalf("expected the uncommitted change against HEAD: %v", diff)
 	}
 }
+
+// codexApplyPatchHook is a PostToolUse payload captured verbatim from codex
+// 0.157.0 (`codex exec` against a local stand-in model provider, no login),
+// with only the session ids shortened and cwd templated.
+const codexApplyPatchHook = `{"session_id":"s","turn_id":"t","cwd":%q,"hook_event_name":"PostToolUse","model":"gpt-5.5",` +
+	`"permission_mode":"bypassPermissions","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: hello.txt\n+hello from the agent\n+second line\n*** End Patch\n"},` +
+	`"tool_response":"Exit code: 0\nWall time: 0.1 seconds\nOutput:\nSuccess. Updated the following files:\nA hello.txt\n","tool_use_id":"call_1"}`
+
+func TestRealAttributionFromARealCodexApplyPatchHook(t *testing.T) {
+	h, _, id, wt, _ := newReviewSession(t)
+	writeReviewFile(t, filepath.Join(wt, "hello.txt"), "hello from the agent\nsecond line\nmine\n")
+	sess, err := h.App.DB.Session(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, raw := h.rawRequest("POST", fmt.Sprintf("/api/hook/session/%d/PostToolUse", id),
+		fmt.Sprintf(codexApplyPatchHook, wt), sess.HookToken); code != 200 {
+		t.Fatalf("hook: %d %s", code, raw)
+	}
+	file := h.get(fmt.Sprintf("/api/sessions/%d/attribution", id)).list("repos")[0].sub("files").sub("hello.txt")
+	if fmt.Sprint(file["agent"]) != "[[1 2]]" || fmt.Sprint(file["human"]) != "[[3 3]]" {
+		t.Fatalf("codex patch lines should be the agent's, the third line yours: %v", file)
+	}
+}

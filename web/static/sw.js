@@ -2152,7 +2152,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-6438f9a3335c";
+  var CACHE = "lectern-react-2b55f03f7afb";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2201,7 +2201,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-BGyrh_gP.js","/react/assets/app-CDLQPrHh.js","/react/assets/app-baZzMiTf.css","/react/assets/preload-helper-C4IycESL.js","/react/assets/preload-helper-DR5PCwew.css","/react/assets/terminal-1m57pqSi.css","/react/assets/terminal-B-20_oEj.js"]);
+    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-BHIgMHJg.js","/react/assets/app-CCchYfQA.css","/react/assets/app-u0B7Ikg0.js","/react/assets/preload-helper-D4uCvZtJ.js","/react/assets/preload-helper-DR5PCwew.css","/react/assets/terminal-1m57pqSi.css","/react/assets/terminal-6cYt7oz0.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

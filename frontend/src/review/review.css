@@ -252,3 +252,7 @@ textarea.conflict-result { font-family: var(--mono); font-size: 12.5px; white-sp
 .dcode .dl-check input { width: 15px; height: 15px; margin: 0; cursor: pointer; }
 .dcode .dl-checked { box-shadow: inset 3px 0 var(--accent); }
 @media (pointer: coarse) { .dcode .dl-check { width: 34px; } .dcode .dl-check input { width: 20px; height: 20px; } }
+/* While a comment is being written, the docked tray steps back into the
+   flow: on a phone with the keyboard up it would otherwise sit on top of the
+   composer it belongs to. */
+.sheet.review-workspace:has(.dl-composer textarea:focus) .review-tray { position: static; box-shadow: none; }
