@@ -388,6 +388,11 @@ type MCPAdapter struct {
 //     settings file; mcpServers is shallow-merged with the user's own.
 //   - copilot: --additional-mcp-config @file augments ~/.copilot/mcp-config.json
 //     for the session and reads the Claude document as is.
+//   - kilo and mimo: OpenCode forks; KILO_CONFIG and MIMOCODE_CONFIG name
+//     the same extra config file, in OpenCode's "mcp" shape (checked with
+//     `kilo mcp list` 7.8.1 and `mimo mcp list` 0.1.15).
+//   - amp: --mcp-config <file> merges a bare server map with the user's
+//     settings (checked with `amp mcp list`, stdio, http and sse entries).
 //
 // Gemini CLI has no equivalent: its system settings files are ignored unless
 // their directory is owned by root, so a per-session file is not possible.
@@ -399,6 +404,12 @@ func MCPAdapterFor(agent string) (MCPAdapter, bool) {
 		return MCPAdapter{Payload: QwenMCPPayload, EnvVar: "QWEN_CODE_SYSTEM_DEFAULTS_PATH"}, true
 	case "copilot":
 		return MCPAdapter{Payload: CopilotMCPPayload, Args: []string{"--additional-mcp-config", "@{path}"}}, true
+	case "kilo":
+		return MCPAdapter{Payload: OpenCodeMCPPayload, EnvVar: "KILO_CONFIG"}, true
+	case "mimo":
+		return MCPAdapter{Payload: OpenCodeMCPPayload, EnvVar: "MIMOCODE_CONFIG"}, true
+	case "amp":
+		return MCPAdapter{Payload: AmpMCPPayload, Args: []string{"--mcp-config", "{path}"}}, true
 	}
 	return MCPAdapter{}, false
 }
@@ -511,6 +522,22 @@ func CopilotMCPPayload(mcp map[string]any) ([]byte, error) {
 		}
 	}
 	return MCPPayload(mcp)
+}
+
+// AmpMCPPayload validates the declaration and writes the bare server map
+// Amp's --mcp-config reads: the Claude server fields, without the
+// mcpServers wrapper (a wrapped document is rejected as invalid).
+func AmpMCPPayload(mcp map[string]any) ([]byte, error) {
+	servers, names, err := mcpServerMap(mcp)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		if _, err := mcpTransport(name, servers[name]); err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(servers)
 }
 
 // ACPMCPServers translates the declaration into ACP session/new mcpServers

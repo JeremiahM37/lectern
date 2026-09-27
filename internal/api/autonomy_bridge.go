@@ -202,13 +202,13 @@ func (s *Server) ensureAutoBridges(j *autoJob) error {
 			}
 		}
 	}()
-	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch, "python-dependency.sock": autoPythonDependencyBroker()} {
+	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch, "python-dependency.sock": autoPythonDependencyBroker(), "node-dependency.sock": autoNodeDependencyBroker()} {
 		dir := filepath.Join(autoRoot, j.ID, "bridges")
 		if e := os.MkdirAll(dir, 0755); e != nil {
 			return e
 		}
 		path := filepath.Join(dir, name)
-		if name == "dependency.sock" || name == "python-dependency.sock" {
+		if name == "dependency.sock" || name == "python-dependency.sock" || name == "node-dependency.sock" {
 			path = filepath.Join(autoRoot, j.ID, name)
 		}
 		if st, e := os.Lstat(path); e == nil {
@@ -243,6 +243,32 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/source-contract":
+		s.autoOrdinarySourceContract(w, r)
+		return
+	case "/private-integrations":
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			http.Error(w, "invalid integration query", 400)
+			return
+		}
+		a, err := s.loadAuto()
+		if err != nil {
+			http.Error(w, "private integration catalog unavailable", 503)
+			return
+		}
+		body, status := autoPrivateIntegrationDiscovery(autoPrivateIntegrationRows(a), query)
+		if status == http.StatusOK && query.Get("integration_id") != "" {
+			detail, err := autoPrivateIntegrationDetail(a, query.Get("integration_id"))
+			if err != nil {
+				http.Error(w, "private integration details unavailable", 503)
+				return
+			}
+			body = map[string]any{"integration": detail, "scope": "Historical private integration evidence; current canonical and deployed presence require separate verification"}
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, status, body)
+		return
 	case "/capabilities":
 		writeJSON(w, 200, autoCapabilityCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies"), autoRunner, autoPythonProvisioner))
 		return
@@ -376,7 +402,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					continue
 				}
-				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID), "documentation": j.Documentation})
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID), "documentation": j.Documentation, "source_contract": autoOrdinaryContractLink(j.TaskID), "plan_audit_evidence": autoOrdinaryAuditDelivery})
 			}
 			writeJSON(w, 200, rows)
 			return

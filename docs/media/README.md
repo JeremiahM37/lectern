@@ -72,3 +72,11 @@ sessions themselves rather than `tmux kill-session`/`kill-server` — e.g.
 (and, for a plain shell session, `tmux send-keys -t lec-sN 'exit' Enter`) —
 which lets tmux close the session on its own once nothing is left running
 inside it.
+
+## `trackers/` — Tasks hub screenshots
+
+Still screenshots of the Tasks hub ([trackers.md](../trackers.md)) at 1440x900
+and 390x844 (2x): demo mode's scripted GitHub repository (`mock/repo`), plus a
+Linear and a Jira connection pointed at a small local stand-in API serving
+made-up issues. Captured with headless Chromium through Playwright; nothing is
+edited.

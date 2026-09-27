@@ -137,7 +137,7 @@ func seedTriggerCursor(kind triggers.Kind) string {
 	switch kind {
 	case triggers.KindGitHub:
 		return store.J(map[string]string{"issues_since": now, "comments_since": now})
-	case triggers.KindLinear:
+	case triggers.KindLinear, triggers.KindJira:
 		return store.J(map[string]string{"since": now})
 	default:
 		return "{}"

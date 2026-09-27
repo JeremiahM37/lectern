@@ -27,7 +27,7 @@ func TestDispatchTable(t *testing.T) {
 		wantClientDialed bool // routed through clientCommand/localCommand's shared dispatch
 	}{
 		{"console", true}, {"tui", true}, {"shell", true}, {"api", true},
-		{"agent", true}, {"upload", true}, {"files", true}, {"download", true},
+		{"agent", true}, {"account", true}, {"upload", true}, {"files", true}, {"download", true},
 		{"post", true}, {"live", true}, {"expose", true}, {"skill", true},
 		{"promote", true}, {"controls", true}, {"help", true}, {"--help", true}, {"-h", true},
 		{"claude", true}, {"codex", true},

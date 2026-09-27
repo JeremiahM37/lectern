@@ -282,6 +282,38 @@ func TestCopilotMCPPayloadKeepsClaudeDocument(t *testing.T) {
 	}
 }
 
+// Amp's --mcp-config takes the bare server map; the mcpServers wrapper is
+// rejected by amp 0.0.1790496040 ("mcpServers: Invalid input").
+func TestAmpMCPPayloadIsTheBareServerMap(t *testing.T) {
+	raw, err := AmpMCPPayload(map[string]any{"mcpServers": map[string]any{
+		"ops": map[string]any{"command": "x", "args": []any{"-v"}},
+		"web": map[string]any{"type": "http", "url": "https://mcp.example/mcp"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"ops":{"args":["-v"],"command":"x"},"web":{"type":"http","url":"https://mcp.example/mcp"}}`
+	if string(raw) != want {
+		t.Fatalf("amp payload:\n got %s\nwant %s", raw, want)
+	}
+}
+
+// Kilo and MiMo Code are OpenCode forks that read the same "mcp" document
+// from their own environment variable; Amp reads a file named on its
+// command line.
+func TestForkAndAmpAdaptersNameTheirOwnFile(t *testing.T) {
+	for agent, want := range map[string]string{"kilo": "KILO_CONFIG", "mimo": "MIMOCODE_CONFIG"} {
+		a, ok := MCPAdapterFor(agent)
+		if !ok || a.EnvVar != want || len(a.Args) != 0 {
+			t.Errorf("%s adapter: %+v %v", agent, a, ok)
+		}
+	}
+	a, ok := MCPAdapterFor("amp")
+	if !ok || fmt.Sprint(a.Args) != "[--mcp-config {path}]" || a.EnvVar != "" {
+		t.Errorf("amp adapter: %+v %v", a, ok)
+	}
+}
+
 func TestACPMCPServersUsesNameValuePairsAndReportsTransports(t *testing.T) {
 	servers, needHTTP, needSSE, err := ACPMCPServers(adapterFixture())
 	if err != nil {
@@ -303,6 +335,7 @@ func TestMCPAdaptersRejectUntranslatableFields(t *testing.T) {
 	bad := map[string]any{"ops": map[string]any{"command": "x", "cwd": "/srv"}}
 	for name, fn := range map[string]func(map[string]any) ([]byte, error){
 		"opencode": OpenCodeMCPPayload, "qwen": QwenMCPPayload, "copilot": CopilotMCPPayload,
+		"amp": AmpMCPPayload,
 	} {
 		if _, err := fn(bad); err == nil || !strings.Contains(err.Error(), `"cwd"`) {
 			t.Errorf("%s should refuse a field it cannot carry, got %v", name, err)

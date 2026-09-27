@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
@@ -189,6 +190,7 @@ type projectPatch struct {
 	Isolation             *isolation.Config `json:"isolation"`
 	CILoop                *bool             `json:"ci_loop"`
 	CIMaxAttempts         *int              `json:"ci_max_attempts"`
+	ComputerUse           *bool             `json:"computer_use"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -239,6 +241,14 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "no such project")
 		return
 	}
+	// Letting agents operate a desktop is the owner's decision, never an
+	// agent's: a local process may turn it off but not on.
+	if p.ComputerUse != nil && *p.ComputerUse {
+		if principal, _ := auth.FromContext(r.Context()); s.Auth == nil || !s.Auth.CanDecide(principal) {
+			httpError(w, 403, "turning on computer use needs a signed-in person, like deciding an approval")
+			return
+		}
+	}
 	fields := map[string]any{}
 	if p.Name != nil && strings.TrimSpace(*p.Name) != "" {
 		fields["name"] = strings.TrimSpace(*p.Name)
@@ -260,6 +270,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	setBool(fields, "review_gate", p.ReviewGate)
 	setBool(fields, "strict_mcp", p.StrictMCP)
 	setBool(fields, "ci_loop", p.CILoop)
+	setBool(fields, "computer_use", p.ComputerUse)
 	if p.CIMaxAttempts != nil {
 		fields["ci_max_attempts"] = *p.CIMaxAttempts
 	}

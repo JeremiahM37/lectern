@@ -18,6 +18,7 @@ import { LaunchProfiles } from "./settings/LaunchProfiles";
 import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
 import { SessionReview } from "./review/SessionReview";
+import { TasksHub } from "./trackers/TasksHub";
 import { Evals } from "./evals/Evals";
 import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
 import { Palette, type Command } from "./shell/Palette";
@@ -88,6 +89,7 @@ function savedSwitches(): Record<string, PendingSwitch> {
 const tabs = [
   "board",
   "sessions",
+  "tasks",
   "terminals",
   "media",
   "deck",
@@ -99,6 +101,7 @@ type Tab = (typeof tabs)[number];
 const labels: Record<Tab, string> = {
   board: "Board",
   sessions: "Sessions",
+  tasks: "Tasks",
   terminals: "Terminals",
   media: "Media",
   deck: "Deck",
@@ -977,6 +980,20 @@ export default function App() {
               void refresh().catch((error) => notice(String(error), true))
             }
             onNotice={notice}
+          />
+        )}{" "}
+        {view === "tasks" && (
+          <TasksHub
+            api={api}
+            projects={projects}
+            refreshVersion={version}
+            onNotice={notice}
+            onOpenSession={(id, name) => setConversation({ kind: "session", id, name })}
+            onOpenTask={openTask}
+            onSettings={(id) => {
+              settings("projects");
+              setProjectEdit({ id, version: Date.now() });
+            }}
           />
         )}{" "}
         {view === "deck" && <Deck tasks={tasks} api={api} onTask={openTask} />}{" "}

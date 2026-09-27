@@ -6,6 +6,7 @@ import { fetchAgentMenu, saveAgentMenu } from "../agents/menu";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
 import { Triggers } from "./Triggers";
+import { TrackerSettings } from "../trackers/TrackerSettings";
 import { Delegation } from "./Delegation";
 import { ConnectTools } from "./ConnectTools";
 import { Devices } from "./Devices";
@@ -16,6 +17,7 @@ import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
 import { ModelPrices } from "./ModelPrices";
 import { LimitPolicyEditor } from "./LimitPolicy";
+import { AccountsPanel } from "./Accounts";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
@@ -171,6 +173,7 @@ export function Settings({
             ["devices", "Devices"],
             ["about", "Usage & about"],
             ["budgets", "Budgets"],
+            ["accounts", "Accounts"],
             ["agents", "Agents"],
           ] as const
         ).map(([k, v]) => (
@@ -180,7 +183,7 @@ export function Settings({
             aria-selected={tab === k}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "agents"];
+              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents"];
               const next = tabs[(tabs.indexOf(k) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
               setTab(next);
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
@@ -250,6 +253,9 @@ export function Settings({
           <ModelPrices api={api} onNotice={onNotice} />
           <LimitPolicyEditor api={api} onNotice={onNotice} />
         </>
+      )}{" "}
+      {tab === "accounts" && (
+        <AccountsPanel api={api} targets={targets} onNotice={onNotice} onOpenTerminal={onOpenTerminal} />
       )}{" "}
       {tab === "agents" && (
         <Agents
@@ -616,6 +622,7 @@ function ProjectCard({
     [checkStatus, setCheckStatus] = useState(""),
     [ciLoop, setCiLoop] = useState(Boolean(p.ci_loop)),
     [ciMax, setCiMax] = useState(p.ci_max_attempts || 3),
+    [computerUse, setComputerUse] = useState(Boolean(p.computer_use)),
     [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
   function loadCheckCommand() {
     api
@@ -860,6 +867,26 @@ function ProjectCard({
         </label>
       )}
       <label>
+        <input
+          type="checkbox"
+          aria-label="Let agents operate live desktops"
+          checked={computerUse}
+          onChange={(e) => {
+            const on = e.target.checked;
+            void api
+              .request(`/projects/${p.id}`, { method: "PATCH", body: { computer_use: on } })
+              .then(() => {
+                setComputerUse(on);
+                onNotice(on ? "Agents in this project may operate their live desktops" : "Computer use is off");
+              })
+              .catch((error) => onNotice(String(error), true));
+          }}
+        />{" "}
+        Let agents operate live desktops (computer use): screenshot, click and
+        type on a desktop their session started. The Browser pane shows when an
+        agent is in control and can stop it.
+      </label>
+      <label>
         New worktree setup command
         <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />
       </label>
@@ -913,6 +940,7 @@ function ProjectCard({
         onNotice={onNotice}
       />
       <Triggers api={api} projectId={p.id} onNotice={onNotice} />
+      <TrackerSettings api={api} projectId={p.id} onNotice={onNotice} />
       <button
         onClick={() => {
           if (confirm(`Delete ${p.name}?`))

@@ -23,6 +23,8 @@ func (m *Manager) TestConnection(ctx context.Context, src *store.TriggerSource) 
 		return testSlack(ctx, m, src)
 	case KindLinear:
 		return testLinear(ctx, m, src)
+	case KindJira:
+		return testJira(ctx, m, src)
 	default:
 		return "", fmt.Errorf("unknown trigger kind %q", src.Kind)
 	}
