@@ -1,1 +1,0 @@
-var e={core:{},app:{},settings:{},"settings-agents":{},sessions:{},conversation:{},review:{},board:{},terminal:{},browser:{},trackers:{}},t=Object.assign({},...Object.values(e));export{e as areas,t as default};

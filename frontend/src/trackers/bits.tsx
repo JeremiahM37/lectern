@@ -81,7 +81,7 @@ export function Labels({ labels, onRemove }: { labels: Label[]; onRemove?(name: 
   return (
     <span className="th-labels">
       {labels.map((l) => (
-        <span key={l.name} className="th-label" style={labelStyle(l.color)}>
+        <span key={l.name} className="th-label" style={labelStyle(l.color, document.documentElement.dataset.theme === "light" ? "light" : "dark")}>
           {l.name}
           {onRemove && (
             <button type="button" className="th-x" aria-label={t("trackers.labels.remove", { name: l.name })} onClick={() => onRemove(l.name)}>

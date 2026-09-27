@@ -1,5 +1,7 @@
 // Pure helpers for the Tasks hub, kept apart from the components so they are
 // unit tested (logic.test.ts) without a browser.
+import { ensureContrast } from "../theme/color";
+import { themeTokens } from "../theme/app-theme";
 import { t } from "../i18n";
 import type { Item, ItemRef, MergeMethod, PRDetail, Source, Transition } from "./types";
 
@@ -169,8 +171,10 @@ export function ago(iso: string | undefined, now = Date.now()): string {
 }
 
 /** A readable label colour: GitHub stores label colours without '#'. */
-export function labelStyle(color?: string): { borderColor?: string; color?: string } {
+export function labelStyle(color?: string, mode: "dark" | "light" = "dark"): { borderColor?: string; color?: string } {
   if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {};
-  // lightened so a dark label colour stays readable on the dark theme
-  return { borderColor: `#${color}99`, color: `color-mix(in srgb, #${color} 65%, white)` };
+  // The label's own colour, lightened or darkened only as far as it must be to
+  // read on the theme's least favourable surface.
+  const surface = themeTokens(mode)[mode === "dark" ? "panel-2" : "bg-soft"];
+  return { borderColor: `#${color}99`, color: ensureContrast(`#${color}`, surface) };
 }

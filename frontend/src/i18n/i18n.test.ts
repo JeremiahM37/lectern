@@ -79,7 +79,9 @@ for (const [tag, [catalog, areas]] of Object.entries(shipped)) {
       const translated = (areas as Record<string, Record<string, string>>)[area] || {};
       for (const [key, text] of Object.entries(english)) {
         if (!(key in translated)) problems.push(`missing ${area}: ${key}`);
-        else if (!translated[key]!.trim()) problems.push(`empty ${area}: ${key}`);
+        // A fragment placed before or after an inline element (code, a link)
+        // may be empty where the language's word order moves its words.
+        else if (!translated[key]!.trim() && !/(Before|After)$/.test(key)) problems.push(`empty ${area}: ${key}`);
         else if (placeholders(translated[key]!) !== placeholders(text)) problems.push(`placeholders ${area}: ${key}: ${translated[key]}`);
       }
       for (const key of Object.keys(translated)) if (!(key in english)) problems.push(`extra ${area}: ${key}`);

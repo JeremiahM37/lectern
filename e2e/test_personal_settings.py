@@ -139,3 +139,34 @@ def test_personal_settings_fit_a_phone(page, real_terminal):
         page.locator(f'[data-settings="{section}"]').click()
         width = page.evaluate('document.documentElement.scrollWidth')
         assert width <= PHONE['width'] + 1, (section, width)
+
+
+def test_language_follows_the_browser_and_can_be_chosen(browser, real_terminal):
+    t = real_terminal
+    # A French browser gets French without choosing anything.
+    context = browser.new_context(viewport={'width': 390, 'height': 844}, locale='fr-FR')
+    page = context.new_page()
+    page.goto(t['url'] + '/#sessions')
+    expect(page.locator('html')).to_have_attribute('lang', 'fr')
+    expect(page.locator('.tab[data-tab="sessions"]')).to_contain_text('Sessions')
+    expect(page.locator('.tab[data-tab="board"]')).to_contain_text('Tableau')
+    # Longer French labels still fit a phone on the main screens.
+    for tab in ('board', 'sessions'):
+        page.locator(f'.tab[data-tab="{tab}"]').click()
+        assert page.evaluate('document.documentElement.scrollWidth') <= 391, tab
+    # Choosing Japanese in Settings changes the whole app at once, and is kept.
+    page.goto(t['url'] + '/#targets')
+    page.locator('[data-settings="appearance"]').click()
+    page.locator('[data-setting="appearance.language"] select').select_option('ja')
+    expect(page.locator('html')).to_have_attribute('lang', 'ja')
+    expect(page.locator('.tab[data-tab="board"]')).to_contain_text('ボード')
+    expect(page.locator('[data-settings="appearance"]')).to_have_text('外観')
+    page.wait_for_timeout(600)
+    assert prefs(t)['appearance']['language'] == 'ja'
+    page.reload()
+    expect(page.locator('.tab[data-tab="board"]')).to_contain_text('ボード')
+    # The terminal page, a separate document, follows too.
+    page.goto(t['url'] + f"/terminal/session/{t['id']}")
+    expect(page.locator('html')).to_have_attribute('lang', 'ja')
+    expect(page.locator('#upload')).to_have_text('ファイルを添付', timeout=15000)
+    context.close()

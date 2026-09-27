@@ -94,8 +94,11 @@ resized and maximized; on a phone it is a bottom sheet.
   set-buffer -w`, and vim or remote shells when tmux passes them on with
   `set-clipboard on`). Reading the clipboard is never allowed. It can be
   switched off in Settings.
-- **Kitty keyboard protocol**: not available. It needs xterm.js 6.1, which is
-  still in beta; Lectern uses 5.5.
+- **Kitty keyboard protocol**: pending. xterm.js 6.0 has been stable since
+  December 2025 but does not include it; it arrives in 6.1, still in beta
+  (6.1.0-beta.304, August 2026). Lectern stays on 5.5 until 6.1 is stable,
+  since moving to 6.0 alone would bring the renderer and add-on changes
+  without the protocol.
 
 ![Find with a regular expression](media/workspace/desktop-terminal-find.png)
 ![Find on a phone](media/workspace/phone-terminal-find.png)
@@ -171,12 +174,31 @@ into view. The command palette reaches the personal settings the same way.
 
 ## Translation
 
-Text goes through `t()` (`frontend/src/i18n`). English (`en.ts`) is the
-complete catalog; a test fails if code asks for a key it does not have. The
-pseudo-locale in Settings → Appearance → Language accents every translated
-string, which shows at a glance what is not wired yet. The new workspace,
-terminal, settings and shell chrome are wired; most older views are not yet,
-and no other language ships.
+The whole web app — board, sessions, chat, review, the Tasks hub, settings,
+the workspace, the terminal page and the browser pane — takes its text from
+catalogs through `t()` (`frontend/src/i18n`). It ships in **English, 简体中文,
+日本語, 한국어, Español and Français**. Settings → Appearance → Language picks one;
+the default follows the browser's language (Traditional Chinese browsers get
+English rather than Simplified). Only the chosen language's catalog is
+downloaded.
+
+- English is the source, one file per area in `i18n/en/`; each language has
+  the same files in `i18n/<lang>/`. Product terms follow one glossary per
+  language (session, task, worktree, board, approval…).
+- `i18n/i18n.test.ts` fails when code asks for a key English lacks, when a
+  key is defined twice, when any language misses a key, has an extra one or
+  changes a `{placeholder}`, or when a language leaves whole sentences in
+  English.
+![Sessions in Japanese on a phone](media/workspace/phone-japanese-sessions.png)
+![Appearance settings in Chinese](media/workspace/desktop-chinese-appearance.png)
+
+- The pseudo-locale in the same menu accents every string that goes through
+  `t()`, which shows at a glance any that do not.
+- Not translated: text that comes from the server or from trackers (error
+  details, issue titles, agent output), product names, commands and key names,
+  spoken voice-mode commands (recognised in English only), the keyboard layout
+  report (a diagnostic to paste back), and notification text sent by the
+  server and service worker.
 
 ## Storage and API
 

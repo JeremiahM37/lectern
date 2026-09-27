@@ -225,6 +225,17 @@ function MruSwitcher({ state, index, onMove, onChoose, onCancel }: {
   useEffect(() => {
     box.current?.focus({ preventScroll: true });
   }, []);
+  // The chord may have been pressed inside a terminal frame, which reports
+  // the modifier's release itself.
+  const chosenRef = useRef(chosen);
+  chosenRef.current = chosen;
+  useEffect(() => {
+    const release = () => {
+      if (chosenRef.current) onChoose(chosenRef.current);
+    };
+    addEventListener("lec-shortcut-release", release);
+    return () => removeEventListener("lec-shortcut-release", release);
+  }, [onChoose]);
   return (
     <div className="ws-mru" role="dialog" aria-label={t("workspace.recentTabs")} tabIndex={-1} ref={box}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) onCancel(); }}
