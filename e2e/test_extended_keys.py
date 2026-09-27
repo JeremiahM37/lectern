@@ -56,6 +56,17 @@ def reads(log, count, timeout=10):
     raise AssertionError(f'expected {count} reads, got {log.read_text() if log.exists() else "none"}')
 
 
+def tmux_version(t):
+    return subprocess.check_output(['tmux', '-V'], env=t['env']).decode().strip()
+
+
+def extended_tmux(t):
+    """Whether Lectern turns extended keys on for this tmux: 3.5 and later.
+    3.2-3.4 drop Shift+Enter meant for a shell (internal/tmuxkeys)."""
+    match = re.match(r'tmux (\d+)\.(\d+)', tmux_version(t))
+    return not match or (int(match[1]), int(match[2])) >= (3, 5)
+
+
 # Ctrl+Shift+A is Lectern's own Select all (remappable), so D stands in.
 CHORDS = ['Shift+Enter', 'Enter', 'Control+Enter', 'Control+Shift+KeyD', 'Alt+Enter', 'Control+KeyI', 'Tab']
 
@@ -63,15 +74,25 @@ CHORDS = ['Shift+Enter', 'Enter', 'Control+Enter', 'Control+Shift+KeyD', 'Alt+En
 def test_through_tmux_a_program_asking_for_extended_keys_gets_them(page, real_terminal):
     t = real_terminal
     open_terminal(page, t)
-    # The browser attachment declared extkeys and turned extended keys on.
     options = subprocess.check_output(['tmux', 'show-options', '-s'], env=t['env']).decode()
-    assert 'extended-keys on' in options and 'extended-keys-format csi-u' in options, options
+    extended = extended_tmux(t)
+    if extended:
+        # The browser attachment declared extkeys and turned extended keys on.
+        assert 'extended-keys on' in options and 'extended-keys-format csi-u' in options, options
+    else:
+        # An older tmux is left exactly as it was, and so are the keys.
+        assert 'extended-keys on' not in options, (tmux_version(t), options)
     log = start_keyecho(page, t, 'mok', '2')
-    for chord in CHORDS:
+    # Legacy has no Ctrl+Shift+D at all; the browser keeps it.
+    chords = CHORDS if extended else [c for c in CHORDS if c != 'Control+Shift+KeyD']
+    for chord in chords:
         page.keyboard.press(chord)
         time.sleep(.05)
-    got = reads(log, len(CHORDS))
-    assert got == [b'\x1b[13;2u', b'\r', b'\x1b[13;5u', b'\x1b[68;6u', b'\x1b[13;3u', b'\x1b[105;5u', b'\t'], got
+    got = reads(log, len(chords))
+    if extended:
+        assert got == [b'\x1b[13;2u', b'\r', b'\x1b[13;5u', b'\x1b[68;6u', b'\x1b[13;3u', b'\x1b[105;5u', b'\t'], got
+    else:
+        assert got == [b'\r', b'\r', b'\r', b'\x1b\r', b'\t', b'\t'], (tmux_version(t), got)
     page.keyboard.press('q')
 
 
@@ -215,7 +236,11 @@ def test_phone_key_bar_and_sticky_modifiers_send_extended_keys(page, real_termin
     # The ^C key is still an interrupt a program can tell apart.
     f.locator('[data-terminal-key="interrupt"]').click()
     got = reads(log, 3)
-    assert got == [b'\x1b[97;5u', b'\x1b[9;5u', b'\x1b[99;5u'], got
+    if extended_tmux(t):
+        assert got == [b'\x1b[97;5u', b'\x1b[9;5u', b'\x1b[99;5u'], got
+    else:
+        # No extended keys through an older tmux: the legacy bytes, as before.
+        assert got == [b'\x01', b'\t', b'\x03'], (tmux_version(t), got)
     page.keyboard.type('q')
 
 
@@ -227,6 +252,8 @@ def test_claude_code_takes_shift_enter_as_a_newline(page, real_terminal):
         'customApiKeyResponses': {'approved': ['lectern-keyboard-audit'], 'rejected': []}}))
     cmd = (f'env ANTHROPIC_API_KEY=lectern-keyboard-audit ANTHROPIC_BASE_URL=http://127.0.0.1:1 CLAUDE_CONFIG_DIR={home} '
            'DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude --setting-sources ""')
+    if not extended_tmux(t):
+        pytest.skip(f'{tmux_version(t)}: extended keys need tmux 3.5')
     # Attach first: tmux drops a program's request for extended keys made
     # before they were turned on, and this session was not made by Lectern.
     open_terminal(page, t)

@@ -22,7 +22,7 @@ func TestSuffixIsOneMoreCommandForTheSameTmux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "<new-session><-d><-s><lec-s1><--><bash><;><if-shell><-F><#{==:#{extended-keys},off}>" +
+	want := "<new-session><-d><-s><lec-s1><--><bash><;><if-shell><-F><#{?#{extended-keys-format},#{==:#{extended-keys},off},0}>" +
 		"<set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u>"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)

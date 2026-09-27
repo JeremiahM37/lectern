@@ -107,17 +107,21 @@ resized and maximized; on a phone it is a bottom sheet.
     a modified key carries the num_lock bit.
   - xterm's modifyOtherKeys (`CSI > 4 ; 1|2 m`, and its query).
   - **Through tmux**, which is how every Lectern terminal runs: the browser
-    attaches with `tmux -T extkeys` (tmux 3.2 and later; the version is
-    checked on the target and older tmux attaches as before). tmux then asks
+    attaches with `tmux -T extkeys` on **tmux 3.5 and later** (the version is
+    checked on the target). tmux 3.2-3.4 would drop Shift+Enter and
+    Ctrl+Enter meant for a program that did not ask for extended keys (a
+    shell) and send Ctrl+letters in legacy form anyway, so there Lectern
+    leaves tmux and the keys exactly as before: no extended keys through
+    tmux older than 3.5 (Ubuntu 24.04 ships 3.4). tmux then asks
     the browser for modifyOtherKeys and passes extended keys only to programs
     that request them, so a shell still gets a plain Enter and Ctrl+C. tmux
     does not pass the kitty protocol through; programs inside it use
     modifyOtherKeys, as Claude Code does.
   - `extended-keys` is a tmux server option, and tmux ignores a program's
     request made while it is off. Lectern turns it `on` when it creates a
-    session (and when a browser attaches), with `extended-keys-format csi-u`
-    on tmux 3.5; if the server already had extended keys configured, neither
-    is touched. An agent started before that, in a session Lectern adopted,
+    session (and when a browser attaches), with `extended-keys-format csi-u`,
+    on tmux 3.5 and later only; if the server already had extended keys
+    configured, neither is touched. An agent started before that, in a session Lectern adopted,
     needs a restart to get extended keys.
   - The phone key bar and its sticky Ctrl/Alt send the extended form too, and
     typing through the phone's own keyboard (IME, Gboard) is unchanged.

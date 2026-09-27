@@ -446,7 +446,8 @@ func TestAttachReportsATerminalThatExits(t *testing.T) {
 
 // The browser's attachment turns on tmux's extended keys and declares that
 // the browser speaks them, by tmux version on the target: -T extkeys only
-// exists from 3.2, and an older tmux rejects it and would never attach.
+// exists from 3.2, an older tmux rejects it and would never attach, and
+// 3.2-3.4 mishandle extended keys (terminal.go, extkeysProbe).
 func TestWebAttachDeclaresExtendedKeysByTmuxVersion(t *testing.T) {
 	native, _ := AttachArgv(Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "local"})
 	if strings.Contains(strings.Join(native, " "), "extkeys") {
@@ -464,9 +465,11 @@ func TestWebAttachDeclaresExtendedKeysByTmuxVersion(t *testing.T) {
 	// print the arguments they were given.
 	dir := t.TempDir()
 	for version, want := range map[string]string{
-		"tmux 3.1c":        "if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
-		"tmux 2.9a":        "if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
-		"tmux 3.2a":        "-T extkeys if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 3.1c":        "if-shell -F #{?#{extended-keys-format},#{==:#{extended-keys},off},0} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 2.9a":        "if-shell -F",
+		"tmux 3.2a":        "if-shell -F",
+		"tmux 3.4":         "if-shell -F",
+		"tmux 3.5":         "-T extkeys if-shell -F #{?#{extended-keys-format},#{==:#{extended-keys},off},0} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
 		"tmux 3.5a":        "-T extkeys if-shell",
 		"tmux 3.10":        "-T extkeys if-shell",
 		"tmux next-3.6":    "-T extkeys if-shell",

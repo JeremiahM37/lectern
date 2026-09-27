@@ -7,7 +7,7 @@
 # translated to exact kill-session calls on a validated test socket.
 set -eu
 
-real_tmux=/usr/bin/tmux
+real_tmux=${ADK_TEST_REAL_TMUX:-/usr/bin/tmux}
 socket_root=${ADK_TEST_TMUX_ROOT:-/tmp}
 tmux_tmpdir=${TMUX_TMPDIR:-/tmp}
 default_socket=${ADK_TEST_TMUX_SOCKET:-$tmux_tmpdir/tmux-$(id -u)/default}
