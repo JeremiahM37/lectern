@@ -311,3 +311,30 @@ func TestColdPrerequisiteOverflowGetsFairPollingSlot(t *testing.T) {
 		t.Fatal("cold full queue starved overflow")
 	}
 }
+
+func TestPythonBrowserReceiptPreservesBoundIdentityAndLegacyBundles(t *testing.T) {
+	for _, browser := range []string{"", strings.Repeat("9", 64), "invalid-browser-key"} {
+		a := &autoRecord{}
+		j := &autoJob{PythonRequest: &autoPythonRequest{Kind: "python_wheels", SourceJob: "source", SourceSHA: strings.Repeat("a", 64), AdmissionSHA: strings.Repeat("b", 64)}}
+		receipt := autoPythonReceipt{State: "verified", Capability: "python_wheels", SourceJob: j.PythonRequest.SourceJob, SourceSHA: j.PythonRequest.SourceSHA, AdmissionSHA: j.PythonRequest.AdmissionSHA, InputKey: strings.Repeat("c", 64), BundleKey: strings.Repeat("d", 64), RuntimeDigest: strings.Repeat("e", 64), BrowserKey: browser}
+		raw, _ := json.Marshal(receipt)
+		ready, err := autoApplyPythonReceipt(a, j, raw)
+		if browser == "invalid-browser-key" {
+			if err == nil || ready || j.PythonRecovery != nil {
+				t.Fatal("invalid browser identity accepted")
+			}
+			continue
+		}
+		if err != nil || !ready || j.PythonRecovery.BrowserKey != browser {
+			t.Fatal("receipt browser identity lost", ready, err)
+		}
+		// Browser identity is inside the immutable bundle: selecting another bundle
+		// must fail the same frozen environment gate as changing Python packages.
+		j.PythonExpectedBundle = receipt.BundleKey
+		receipt.BundleKey = strings.Repeat("f", 64)
+		raw, _ = json.Marshal(receipt)
+		if ready, err = autoApplyPythonReceipt(a, j, raw); err != nil || ready || !j.RequirementHold || !j.PythonRecovery.Unsupported {
+			t.Fatal("changed browser-bearing bundle silently substituted", ready, err)
+		}
+	}
+}

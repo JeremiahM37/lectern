@@ -28,6 +28,7 @@ type autoPythonRequest struct {
 	AdmissionSHA      string   `json:"admission_sha256"`
 }
 type autoPythonReceipt struct {
+	BrowserKey    string `json:"browser_key,omitempty"`
 	Diagnostic    string `json:"diagnostic,omitempty"`
 	Unsupported   bool   `json:"unsupported,omitempty"`
 	State         string `json:"state"`
@@ -148,9 +149,12 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	if a.Requirements == nil {
 		a.Requirements = map[string]*autoRequirement{}
 	}
-	blocked := body.Outcome == "blocked" && (j.Role == "builder" || j.Role == "reviewer" && body.Approve != nil && !*body.Approve)
+	historicalGate := autoHistoricalProvisioningGate(a, j, body.Outcome, body.Requirements)
+	blocked := historicalGate || body.Outcome == "blocked" && (j.Role == "builder" || j.Role == "reviewer" && body.Approve != nil && !*body.Approve)
 	var pins, imports []string
-	if j.PythonRequest != nil {
+	diagnosis := a.RequirementDiagnoses[j.DiagnosisReservation]
+	completeRecipe := diagnosis != nil && diagnosis.EvidenceOnly && j.Role == "builder"
+	if j.PythonRequest != nil && !completeRecipe {
 		pins = append(pins, j.PythonRequest.Requirements...)
 		imports = append(imports, j.PythonRequest.Imports...)
 	}
@@ -199,6 +203,7 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	}
 	j.RequirementIDs = ids
 	if !unsupported {
+
 		p, m, e := autoPythonInputs(pins, imports)
 		if e != nil {
 			unsupported = true
@@ -245,6 +250,9 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	}
 	s.closeAutoBridge(j.ID)
 	j.Summary = "Worker blocked on recorded prerequisites; report and archive retained"
+	if historicalGate {
+		j.Summary = "Historical diagnosis awaits actual prerequisite verification and testing; original ready report and archive retained"
+	}
 	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "backlog"})
 	j.Status = "stopped"
 	j.RequirementHold = unsupported
@@ -270,7 +278,7 @@ func autoPythonPending(j *autoJob) bool {
 	return j.PythonRequest != nil && !j.PythonStopped && (j.Status == "prepared" || j.Status == "deferred")
 }
 func autoPythonBound(request *autoPythonRequest, receipt autoPythonReceipt) bool {
-	return request != nil && receipt.Capability == "python_wheels" && receipt.SourceJob == request.SourceJob && receipt.SourceSHA == request.SourceSHA && receipt.AdmissionSHA == request.AdmissionSHA
+	return request != nil && (receipt.BrowserKey == "" || autoHash256(receipt.BrowserKey)) && receipt.Capability == "python_wheels" && receipt.SourceJob == request.SourceJob && receipt.SourceSHA == request.SourceSHA && receipt.AdmissionSHA == request.AdmissionSHA
 }
 func autoWritePythonRequest(j *autoJob) error { return autoWritePythonRequestAt(autoRoot, j) }
 func autoWritePythonRequestAt(root string, j *autoJob) error {
@@ -408,7 +416,7 @@ func autoApplyPythonReceipt(a *autoRecord, j *autoJob, raw []byte) (bool, error)
 }
 
 const autoRequirementsPrompt = `
-Prerequisite recovery: reports may optionally include requirements:[{capability:"python_wheels",schema_version:1,requirements:["django==5.2.12"],imports:["django"],condition:"offline_imports_available",evidence:["actual failed import plus evidence supporting the selected distribution/version"]}]. This is an example shape, not a recommendation to install that version. Request only exact evidenced distribution pins needed for the audited isolated task. Never infer distribution names solely from imports. Source packages under test must remain the retained checkout; do not replace them with released wheels. No URLs, VCS, local projects, builds or arbitrary commands. Existing pytest tooling remains controller-owned. The supported provisioner resolves compatible pure-Python wheels and verifies them in an isolated process; unavailable or conflicting dependencies remain explicit. For a builder unable to complete, outcome=blocked with requirements preserves its assignment for verified recovery; for a reviewer unable to assess due solely to the environment, outcome=blocked,approve=false preserves the review assignment. If substantive defects are established, reject normally as incomplete; missing dependencies do not erase that rejection. Unsupported requirements may use another descriptive capability token and evidence; they are recorded for bounded diagnosis, never automatic privileges or a human-consent blocker. Inspect /requirements before repeating an unchanged blocker. Investigate supported alternatives or propose a useful isolated diagnosis through the normal independent plan audits; do not repeatedly relaunch on the same verified environment. Worker reports do not prove a prerequisite changed. Existing processes gain no mounts retroactively.
+Prerequisite recovery: reports may optionally include requirements:[{capability:"python_wheels",schema_version:1,requirements:["django==5.2.12"],imports:["django"],condition:"offline_imports_available",evidence:["actual failed import plus evidence supporting the selected distribution/version"]}]. This is an example shape, not a recommendation to install that version. Request only exact evidenced distribution pins needed for the audited isolated task. Never infer distribution names solely from imports. Source packages under test must remain the retained checkout; do not replace them with released wheels. No URLs, VCS, local projects, builds or arbitrary commands. Existing pytest tooling remains controller-owned. The supported provisioner resolves compatible universal and native wheels and verifies them in an isolated process; unavailable or conflicting dependencies remain explicit. Discover registered browser assets through /capabilities; request the exact supported Playwright version together with project pins. Delivery requires a bound browser_key in /prerequisite python, not merely a catalog entry. Run browser-backed project tests through /opt/browser-runtime/browsers/offline-test COMMAND ARGS to retain local fixtures without credentials, bridge sockets or external networking. For a builder unable to complete, outcome=blocked with requirements preserves its assignment for verified recovery; for a reviewer unable to assess due solely to the environment, outcome=blocked,approve=false preserves the review assignment. If substantive defects are established, reject normally as incomplete; missing dependencies do not erase that rejection. Unsupported requirements may use another descriptive capability token and evidence; they are recorded for bounded diagnosis, never automatic privileges or a human-consent blocker. Inspect /requirements before repeating an unchanged blocker. Investigate supported alternatives or propose a useful isolated diagnosis through the normal independent plan audits; do not repeatedly relaunch on the same verified environment. Worker reports do not prove a prerequisite changed. Existing processes gain no mounts retroactively.
 `
 
 func autoRequirementRows(a *autoRecord) []map[string]any {
@@ -436,9 +444,12 @@ func autoRequirementRows(a *autoRecord) []map[string]any {
 
 // A review or retained continuation must receive the same verified test
 // environment as its source. Provisioning still independently revalidates it.
-func autoInheritPythonRequest(a *autoRecord, j *autoJob) {
+func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 	if j.PythonRequest != nil || a.State == nil || a.State.Item < 0 || a.State.Item >= len(a.State.Items) {
-		return
+		return nil
+	}
+	if j.Role == "builder" && a.State.Step == 0 && a.State.Items[a.State.Item].EnvironmentDiagnosisTaskID > 0 {
+		return applyAutoDiagnosisEnvironment(a, j)
 	}
 	var source *autoJob
 	if j.Role == "reviewer" || strings.HasPrefix(j.Role, "decision_") || j.Role == "builder" && a.State.Step > 0 {
@@ -469,6 +480,7 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) {
 		j.PythonExpectedInput = source.PythonRecovery.InputKey
 		j.PythonExpectedBundle = source.PythonRecovery.BundleKey
 	}
+	return nil
 }
 
 func autoPreparePythonResume(old, j *autoJob) {

@@ -280,7 +280,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges, python_project=None):
+def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -313,6 +313,8 @@ def bwrap(p, provider, assets, work, bridges, python_project=None):
             '--ro-bind', str(assets / 'nsswitch.conf'), '/etc/nsswitch.conf',
                         '--ro-bind', str(assets / 'prompt.txt'), '/prompt.txt',
             '--bind', str(work), '/work', '--chdir', '/work']
+    if browser is not None:
+        cmd += browser_runtime_mount(browser)
     cmd += review_evidence_mount(work)
     cmd += ['--ro-bind', str(bridges), '/bridges',
             '--symlink', '/bridges/network.sock', '/network.sock',
@@ -389,7 +391,14 @@ def execute(job):
     if project_bundle is not None:
         project_mount = Path('/tmp/python-project'); project_mount.mkdir()
         run(['/usr/bin/mount', '--bind', str(project_bundle), str(project_mount)])
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount)
+    browser_mount=None
+    if project_bundle is not None:
+        project_manifest=json.loads((project_bundle/'manifest.json').read_text())
+        if project_manifest.get('browser_key'):
+            browser_source=browser_runtime(project_manifest['browser_key'],project_manifest['packages']['playwright'])
+            browser_mount=Path('/tmp/browser-runtime');browser_mount.mkdir()
+            run(['/usr/bin/mount','--bind',str(browser_source),str(browser_mount)])
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount)
     def drop():
         os.setgroups([])
         os.setgid(GID)
@@ -735,9 +744,8 @@ def python_test_runtime_mount():
                 '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_REASON', reason[:200]]
     if bundle is None:
         return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'not_provisioned']
-    return ['--ro-bind', str(bundle / 'site-packages'), '/opt/python-test',
+    return python_site_mount(bundle) + ['--ro-bind', str(bundle / 'site-packages'), '/opt/python-test',
             '--ro-bind', str(bundle / 'manifest.json'), '/opt/python-test-runtime.json',
-            '--setenv', 'PYTHONPATH', '/opt/python-test',
             '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
             '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
 
@@ -800,23 +808,124 @@ def python_test_bundle():
 # the host. The resolver and imports run in separate, credential-free sandboxes.
 PYTHON_HELPER = Path('/usr/local/libexec/lectern-python-project-dependencies.py')
 PYTHON_PIP_SOURCE = Path('/home/admin/.venvs/verify/lib/python3.13/site-packages')
+BROWSER_HELPER = Path('/usr/local/libexec/lectern-browser-runtime.py')
+PYTHON_SANDBOX_FILE_LIMIT = 256 * 1024**2
+PYTHON_PROVISIONER_FILE_LIMIT = 2 * 1024**3  # Trusted sparse workspace image; children lower their own cap.
 
 
 class PythonUnsupported(ValueError):
     pass
 
 
+def python_site_mount(bundle):
+    """Use the interpreter's normal site integration, independent of PYTHONPATH.
+
+    This runtime is admitted specifically for Debian's /usr Python interpreter.
+    The verified local site takes precedence over the already-visible distro
+    site. Those existing system packages remain available; this does not claim
+    the entire interpreter environment is a reproducibly provisioned bundle.
+    Project cwd/PYTHONPATH keep Python's ordinary precedence; -I still finds the
+    verified site, while the deliberately site-disabled -S remains an opt-out.
+    """
+    version='.'.join(map(str,sys.version_info[:2]))
+    selected='/usr/local/lib/python'+version+'/dist-packages'
+    return ['--ro-bind',str(bundle/'site-packages'),selected]
+
+
 def python_project_mount(bundle):
     # Both names expose the SAME unified immutable environment. Existing audited
     # commands referring to the original pytest path survive dependency recovery.
-    result=[]
+    result=python_site_mount(bundle)
     for prefix in ('python-project','python-test'):
         result+=['--ro-bind',str(bundle/'site-packages'),'/opt/'+prefix,
                  '--ro-bind',str(bundle/'manifest.json'),'/opt/'+prefix+'-runtime.json']
-    return result+['--setenv','PYTHONPATH','/opt/python-project',
-                   '--setenv','PYTHONDONTWRITEBYTECODE','1',
+    return result+['--setenv','PYTHONDONTWRITEBYTECODE','1',
                    '--setenv','LECTERN_PYTHON_TEST_RUNTIME_STATUS','verified',
                    '--setenv','LECTERN_PYTHON_PROJECT_RUNTIME_STATUS','verified']
+
+
+def browser_runtime(key, version, full=True):
+    if not isinstance(key,str) or len(key)!=64 or any(c not in '0123456789abcdef' for c in key):raise PythonUnsupported('matching immutable browser runtime is unavailable')
+    root=DEPENDENCIES/'browser'
+    try:
+        for path in (DEPENDENCIES,root):
+            info=path.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe browser dependency root')
+        bundle=root/key
+        helper=python_helper(BROWSER_HELPER)
+        try:manifest=helper.verify(bundle,full=full)
+        except helper.BrowserCompatibilityError as exc:raise PythonUnsupported(str(exc)+'; audited environment rebind required') from exc
+    except FileNotFoundError as exc:
+        raise PythonUnsupported('selected browser runtime is unavailable; restore the registered payload or audit a new environment') from exc
+    if manifest['playwright_version']!=version:raise PythonUnsupported('immutable browser does not match Playwright version')
+    return bundle
+
+
+def browser_select(version):
+    selector=DEPENDENCIES/'browser/active.json'
+    if not selector.exists():raise PythonUnsupported('verified browser payload unavailable for Playwright '+version)
+    info=regular(selector)
+    if info.st_uid!=0 or info.st_mode&0o222 or info.st_size>16384:raise ValueError('unsafe browser selector')
+    value=json.loads(selector.read_text())
+    if value.get('schema_version')!=1:raise ValueError('unsupported browser selector')
+    key=value.get('playwright',{}).get(version,'')
+    browser_runtime(key,version)
+    return key
+
+
+def browser_runtime_mount(bundle):
+    return ['--ro-bind',str(bundle),'/opt/browser-runtime',
+            '--setenv','PLAYWRIGHT_BROWSERS_PATH','/opt/browser-runtime/browsers',
+            '--setenv','LECTERN_BROWSER_RUNTIME_STATUS','verified',
+            '--dir','/home/agent/.cache','--symlink','/opt/browser-runtime/browsers','/home/agent/.cache/ms-playwright']
+
+
+BROWSER_PROBE=r'''
+import sys,json,http.server,threading,socket,hashlib,zlib,struct,site
+from pathlib import Path
+site.addsitedir('/fetch/site-packages')
+from playwright.sync_api import sync_playwright
+manifest=json.loads(Path('/browser/manifest.json').read_text())
+class Fixture(http.server.BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers()
+  self.wfile.write(b'<iframe src="/frame"></iframe>' if self.path=='/' else b'<button id="fixture">offline</button>')
+ def log_message(self,*args):pass
+server=http.server.HTTPServer(('127.0.0.1',0),Fixture)
+threading.Thread(target=server.serve_forever,daemon=True).start()
+with sync_playwright() as api:
+ browser=api.chromium.launch()
+ context=browser.new_context();context.add_init_script('window.lecternFixture=42')
+ page=context.new_page();page.goto('http://127.0.0.1:'+str(server.server_port))
+ assert page.frames[1].evaluate('window.lecternFixture')==42
+ assert page.frames[1].locator('#fixture').inner_text()=='offline'
+ page.add_style_tag(content='html {background:rgb(12,34,56)} body {margin:0} iframe {margin-left:10px}')
+ image=page.screenshot(path='/tmp/browser-fixture.png')
+ assert image[:8]==b'\x89PNG\r\n\x1a\n'
+ offset=8;compressed=b'';color=None
+ while offset<len(image):
+  size=struct.unpack('>I',image[offset:offset+4])[0];kind=image[offset+4:offset+8];data=image[offset+8:offset+8+size];offset+=12+size
+  if kind==b'IHDR':color=data[9];assert data[8]==8
+  if kind==b'IDAT':compressed+=data
+ assert color in (2,6) and zlib.decompress(compressed)[1:4]==bytes((12,34,56))
+ assert browser.version==manifest['browser_version']
+ version=browser.version;browser.close()
+try:socket.create_connection(('1.1.1.1',443),timeout=.2)
+except OSError:pass
+else:raise AssertionError('unexpected browser probe egress')
+assert not Path('/home/admin').exists() and not Path('/dependency.sock').exists()
+Path('/proof/browser.json').write_text(json.dumps({'browser_key':manifest['key'],'browser_version':version,'network':'unshared-no-socket','fixture':True}))
+'''
+
+
+def browser_probe_receipt(path,key):
+    try:
+        info=regular(path)
+        if info.st_size>32768:raise ValueError('oversized browser proof')
+        proof=json.loads(path.read_text())
+        if proof.get('browser_key')!=key or proof.get('network')!='unshared-no-socket' or proof.get('fixture') is not True:raise ValueError('incomplete browser proof')
+        return proof
+    except (ValueError,OSError,TypeError) as exc:raise PythonUnsupported('unsafe or incomplete offline browser proof') from exc
 
 
 def python_helper(path=None):
@@ -924,6 +1033,7 @@ def python_identity(stage, request):
     runtime={'python_sha256':digest_file(Path('/usr/bin/python3').resolve()),
              'python_version':platform.python_version(), 'helper_sha256':digest_file(frozen),
              'pip_record_sha256':digest_file(records[0]), 'pytest_key':manifest['key'], 'policy':helper.POLICY}
+    if helper.POLICY=='pypi-compatible-wheel-v2':runtime['target']=helper.target_identity(PYTHON_PIP_SOURCE)
     runtime_digest=hashlib.sha256(helper.canonical(runtime)).hexdigest()
     semantic={'requirements':request['requirements'],'imports':request['imports'],
               'tooling_requirements':[name+'=='+version for name,version in sorted(manifest['packages'].items())],
@@ -987,7 +1097,10 @@ def python_dependencies(job):
         if any(receipt.get(k)!=v for k,v in binding.items()): raise ValueError('Python recovery binding mismatch')
         if receipt.get('state')=='verified':
             # Full bytes are reverified by the trusted launcher before mounting.
-            python_project_bundle(job, full=False)
+            try:python_project_bundle(job, full=False)
+            except PythonUnsupported as exc:
+                receipt.update(state='unavailable',unsupported=True,reason=str(exc)[:400])
+                completion_write(stage/'receipt.json',receipt)
             return receipt
         if cancellation!=((stage/'cancel.json').read_bytes() if (stage/'cancel.json').exists() else b''):
             return dict(receipt,state='waiting',reason='Python launch cancelled by controller')
@@ -1006,7 +1119,7 @@ def python_dependencies(job):
         completion_write(stage/'receipt.json',receipt)
         run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+python_unit(job),
              '--property=RuntimeMaxSec=600','--property=MemoryMax=2G','--property=MemorySwapMax=0',
-             '--property=CPUQuota=200%','--property=TasksMax=128','--property=KillMode=control-group',
+             '--property=LimitFSIZE='+str(PYTHON_PROVISIONER_FILE_LIMIT),'--property=CPUQuota=200%','--property=TasksMax=128','--property=KillMode=control-group',
              '--property=PrivateMounts=yes','--property=UMask=0077',INSTALL,'_python-dependencies','--job',job],pass_fds=(lock.fileno(),))
         return receipt
 
@@ -1047,8 +1160,20 @@ def python_project_bundle(job, full=True):
     manifest=json.loads(manifest_path.read_text());body=dict(manifest);body.pop('key',None)
     if hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest()!=key or manifest.get('key')!=key or manifest.get('input_key')!=identity['input_key'] or manifest.get('runtime_digest')!=identity['runtime_digest'] or manifest.get('checksum_verified') is not True:
         raise ValueError('Python project manifest identity mismatch')
+    def unavailable(reason):
+        receipt.update(state='unavailable',unsupported=True,reason=reason[:400])
+        completion_write(stage/'receipt.json',receipt)
+        raise PythonUnsupported(reason)
+    if manifest.get('packages',{}).get('playwright'):
+        try:browser_runtime(manifest.get('browser_key',''),manifest['packages']['playwright'],full=full)
+        except PythonUnsupported as exc:
+            if full:unavailable(str(exc))
+            raise
+        if receipt.get('browser_key')!=manifest['browser_key']:raise ValueError('Python browser receipt differs from immutable bundle')
+    elif manifest.get('browser_key') or receipt.get('browser_key'):raise ValueError('unexpected browser binding')
     if full:
-        if digest_file(Path('/usr/bin/python3').resolve())!=identity['runtime']['python_sha256']: raise ValueError('Python interpreter changed since dependency verification')
+        if identity['runtime'].get('policy')=='pypi-compatible-wheel-v2' and python_helper(stage/'helper.py').target_identity(PYTHON_PIP_SOURCE)!=identity['runtime'].get('target'):unavailable('native Python target changed; audited rebind required')
+        if digest_file(Path('/usr/bin/python3').resolve())!=identity['runtime']['python_sha256']: unavailable('Python interpreter changed since dependency verification; audited rebind required')
         seen=set();total=0;site=bundle/'site-packages'
         rows=manifest.get('files',[])
         if not rows or len(rows)>100000: raise ValueError('Python project inventory size')
@@ -1061,7 +1186,7 @@ def python_project_bundle(job, full=True):
                 pi=parent.lstat()
                 if not stat.S_ISDIR(pi.st_mode) or pi.st_uid!=0 or pi.st_mode&0o222: raise ValueError('unsafe Python project directory')
             st=regular(path);total+=st.st_size
-            if st.st_uid!=0 or st.st_mode&0o222 or st.st_size!=row['size'] or digest_file(path)!=row['sha256'] or total>1024**3: raise ValueError('Python project bytes changed')
+            if row.get('mode',0o444) not in (0o444,0o555) or stat.S_IMODE(st.st_mode)!=row.get('mode',0o444) or st.st_uid!=0 or st.st_size!=row['size'] or digest_file(path)!=row['sha256'] or total>1024**3: raise ValueError('Python project bytes changed')
         actual=set()
         for path in site.rglob('*'):
             info=path.lstat()
@@ -1085,13 +1210,16 @@ def python_sandbox_command(command, probe=False):
     if probe:cmd+=['--bind','/tmp/python-proof','/proof']
     else:cmd+=['--ro-bind','/tmp/python-dependency.sock','/dependency.sock']
     launch=('/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/dependency.sock &\nsleep .2\n' if not probe else '')
-    launch+='exec /usr/bin/python3 -I -S /helper.py '+command
+    if command=='browser-probe':
+        cmd+=['--ro-bind','/tmp/python-browser','/browser','--setenv','PLAYWRIGHT_BROWSERS_PATH','/browser/browsers']
+        launch+='exec /usr/bin/python3 -I -S -c '+shlex.quote(BROWSER_PROBE)
+    else:launch+='exec /usr/bin/python3 -I -S /helper.py '+command
     return cmd+['--','/bin/sh','-c',launch]
 
 
 def python_sandbox_run(job,stage,command,probe=False):
     def drop():
-        resource.setrlimit(resource.RLIMIT_FSIZE,(64*1024**2,64*1024**2))
+        resource.setrlimit(resource.RLIMIT_FSIZE,(PYTHON_SANDBOX_FILE_LIMIT,PYTHON_SANDBOX_FILE_LIMIT))
         os.setgroups([]);os.setgid(GID);os.setuid(UID)
     with (stage/(command+'.log')).open('w') as log:
         process=subprocess.Popen(python_sandbox_command(command,probe),preexec_fn=drop,close_fds=True,stdout=log,stderr=log)
@@ -1106,7 +1234,7 @@ def python_sandbox_run(job,stage,command,probe=False):
                 # Kill the entire fixed unit, including detached resolver children.
                 run(['/usr/bin/systemctl','kill','--kill-whom=all','--signal=SIGKILL',python_unit(job)])
         if process.returncode:
-            exception=(PythonUnsupported('requested wheels or import environment are unsupported') if process.returncode==2
+            exception=(PythonUnsupported('requested wheels or import environment are unsupported') if (process.returncode==2 or (command=='browser-probe' and process.returncode>0))
                        else RuntimeError('Python '+command+' failed'))
             exception.diagnostic=python_failure_diagnostic(stage/(command+'.log'))
             raise exception
@@ -1114,7 +1242,7 @@ def python_sandbox_run(job,stage,command,probe=False):
 
 def python_failure_diagnostic(path):
     info=regular(path)
-    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>64*1024**2:
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>PYTHON_SANDBOX_FILE_LIMIT:
         raise ValueError('unsafe Python diagnostic log')
     with path.open('rb') as log:
         log.seek(max(0,info.st_size-12000))
@@ -1163,6 +1291,7 @@ def python_dependencies_execute(job):
             if index.exists():
                 cached=completion_json(index)
                 receipt.update(state='verified',bundle_key=cached['bundle_key'],lock_sha256=cached['lock_sha256'],proof_sha256=cached['proof_sha256'])
+                if cached.get('browser_key'):receipt['browser_key']=cached['browser_key']
                 completion_write(stage/'receipt.json',receipt)
                 python_project_bundle(job)
                 return 0
@@ -1171,6 +1300,9 @@ def python_dependencies_execute(job):
             if tooling.exists():shutil.rmtree(tooling)
             tool_identity=helper.snapshot_pip(PYTHON_PIP_SOURCE,tooling)
             if tool_identity['record_sha256']!=identity['runtime']['pip_record_sha256']:raise PythonUnsupported('pip resolver changed after admission; audited environment rebind required')
+            if helper.POLICY=='pypi-compatible-wheel-v2':
+                helper.configure_tooling(tooling)
+                if helper.target_identity(tooling)!=identity['runtime'].get('target'):raise PythonUnsupported('native Python target changed after admission; audited rebind required')
             data={k:identity[k] for k in ('requirements','imports','tooling_requirements','input_key')}
             (fetch/'input.json').write_bytes(helper.canonical(data))
             # Restore only a root-sealed full lock; mutable partial resolver output
@@ -1207,24 +1339,40 @@ def python_dependencies_execute(job):
                 if completion_json_large(stage/'lock.json')!=lock_data:raise ValueError('frozen resolution changed')
             else:completion_write(stage/'lock.json',lock_data)
             python_sandbox_run(job,stage,'install')
-            before=helper.verify_install(fetch)
+            verify_args=(fetch,tooling) if helper.POLICY=='pypi-compatible-wheel-v2' else (fetch,)
+            before=helper.verify_install(*verify_args)
+            browser_key=''
+            if before['packages'].get('playwright'):
+                browser_key=browser_select(before['packages']['playwright'])
+                selected_browser=browser_runtime(browser_key,before['packages']['playwright'])
+                browser_manifest=json.loads((selected_browser/'manifest.json').read_text())
+                if digest_file(fetch/'site-packages/playwright/driver/package/browsers.json')!=browser_manifest['driver_declaration_sha256']:raise PythonUnsupported('Playwright driver browser declaration differs from attested runtime')
+                target=Path('/tmp/python-browser');target.mkdir()
+                run(['/usr/bin/mount','--bind',str(selected_browser),str(target)])
+                python_sandbox_run(job,stage,'browser-probe',probe=True)
+                browser_probe_receipt(proof/'browser.json',browser_key)
             python_sandbox_run(job,stage,'probe',probe=True)
-            after=helper.verify_install(fetch)
+            after=helper.verify_install(*verify_args)
             if before!=after:raise ValueError('probe changed immutable installation')
             python_probe_receipt(proof/'probe.json',identity,request)
             manifest=dict(after,schema_version=1,kind='python-project-runtime',input_key=identity['input_key'],runtime_digest=identity['runtime_digest'],checksum_verified=True,
                           proof_sha256=digest_file(proof/'probe.json'),policy=helper.POLICY)
+            if browser_key:manifest.update(browser_key=browser_key,browser_proof_sha256=digest_file(proof/'browser.json'))
             key=hashlib.sha256(helper.canonical(manifest)).hexdigest();manifest['key']=key
             pending=cache/('.pending-'+job)
             if pending.exists():shutil.rmtree(pending)
             pending.mkdir();shutil.copytree(fetch/'site-packages',pending/'site-packages')
             (pending/'manifest.json').write_bytes(helper.canonical(manifest))
+            file_modes={row['path']:row.get('mode',0o444) for row in manifest['files']}
             for item in (pending,*pending.rglob('*')):
-                os.chown(item,0,0);item.chmod(0o555 if item.is_dir() else 0o444)
+                mode=0o555 if item.is_dir() else (file_modes[item.relative_to(pending/'site-packages').as_posix()] if item!=pending/'manifest.json' else 0o444)
+                if mode not in (0o444,0o555):raise ValueError('unsafe Python published file mode')
+                os.chown(item,0,0);item.chmod(mode)
             bundle=cache/key
             if bundle.exists():shutil.rmtree(pending)
             else:os.rename(pending,bundle)
             receipt.update(state='verified',bundle_key=key,lock_sha256=manifest['lock_sha256'],proof_sha256=manifest['proof_sha256'],verified_at=time.time())
+            if browser_key:receipt['browser_key']=browser_key
             completion_write(stage/'receipt.json',receipt)
             python_project_bundle(job)
             # Publish the replay identity and fixed helper before the index that
@@ -1242,7 +1390,7 @@ def python_dependencies_execute(job):
                 os.chown(helper_pending,0,0);helper_pending.chmod(0o444)
                 os.replace(helper_pending,helper_path)
             if digest_file(helper_path)!=identity['runtime']['helper_sha256']:raise ValueError('cached Python helper differs')
-            completion_write(index,{k:receipt[k] for k in ('bundle_key','lock_sha256','proof_sha256')})
+            completion_write(index,{k:receipt[k] for k in ('bundle_key','lock_sha256','proof_sha256','browser_key') if k in receipt})
         except Exception as exc:
             unsupported=isinstance(exc,(helper.Unsupported,PythonUnsupported))
             receipt.update(state='unavailable' if unsupported else 'waiting',unsupported=unsupported,reason=str(exc)[:400],retry_at=time.time()+900)
@@ -1996,7 +2144,7 @@ def evidence_extract_archive(source, destination):
     Symlinks are literal data. Hardlinks are expanded into independent regular
     files using only validated tar members, never filesystem link resolution.
     """
-    if status(source)['state']!='done':raise ValueError('archive evidence requires a completed source')
+    if status(source)['state'] not in ('done','failed','stopped'):raise ValueError('archive evidence requires a terminal source')
     archive=job_path(source)/'artifact.tar.gz'
     expected=archive_identity(source)['sha256']
     if digest_file(archive)!=expected:raise RuntimeError('evidence archive checksum mismatch')
@@ -2174,6 +2322,112 @@ def copy_archive_review(job, source):
         receipt = dict(expected, state='copied', evidence_tree_sha256=tree_hash, evidence_digest_scheme=scheme)
         completion_write(published, receipt)
         return receipt
+
+
+def archive_report_unit(job):
+    job_path(job)
+    return 'lectern-archive-report-'+job+'.service'
+
+
+def archive_report_cached(stage, digest):
+    path=stage/'report.json'
+    if not path.exists():return None
+    info=regular(path)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>1024*1024:
+        raise RuntimeError('unsafe archived report receipt')
+    value=json.loads(path.read_text())
+    if value.get('archive_sha256')!=digest:raise RuntimeError('archived report identity changed')
+    if value.get('state')=='ready':
+        if not isinstance(value.get('report'),str):raise RuntimeError('invalid cached archived report text')
+        raw=value['report'].encode('utf-8')
+        if len(raw)>128*1024 or hashlib.sha256(raw).hexdigest()!=value.get('report_sha256'):
+            raise RuntimeError('cached archived report bytes changed')
+    return value
+
+
+def archive_report(job):
+    p=job_path(job)
+    if not (p/'artifact.tar.gz').exists() and not (p/'artifact.tar.gz').is_symlink():
+        return {'state':'exporting','reason':'source immutable export is not ready'}
+    digest=archive_identity(job)['sha256'];stage=snapshot_stage(job)
+    cancelled=(stage/'report-cancel.json').read_bytes() if (stage/'report-cancel.json').exists() else b''
+    with (stage/'report-start.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        previous=archive_report_cached(stage,digest)
+        if previous and previous.get('state') in ('ready','unavailable'):return previous
+        if cancelled!=((stage/'report-cancel.json').read_bytes() if (stage/'report-cancel.json').exists() else b''):
+            return {'state':'waiting','archive_sha256':digest,'reason':'archive report read cancelled'}
+        if completion_service_active(archive_report_unit(job)):
+            return {'state':'exporting','archive_sha256':digest}
+        if previous and previous.get('state')=='exporting':
+            previous=dict(previous,state='waiting',reason='archive report reader interrupted',retry_at=time.time()+30)
+            completion_write(stage/'report.json',previous)
+        if previous and previous.get('retry_at',0)>time.time():return previous
+        if shutil.disk_usage(ROOT).free<20*1024**3:
+            return {'state':'waiting','archive_sha256':digest,'reason':'archive report reader requires storage floor'}
+        receipt={'state':'exporting','archive_sha256':digest}
+        completion_write(stage/'report.json',receipt)
+        run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+archive_report_unit(job),
+             '--property=RuntimeMaxSec=300','--property=MemoryMax=512M','--property=MemorySwapMax=0',
+             '--property=CPUQuota=100%','--property=TasksMax=16','--property=KillMode=control-group',
+             '--property=UMask=0077',INSTALL,'_archive-report','--job',job],pass_fds=(lock.fileno(),))
+        return receipt
+
+
+def archive_report_stop(job):
+    stage=snapshot_stage(job)
+    completion_write(stage/'report-cancel.json',{'epoch':str(uuid.uuid4())})
+    with (stage/'report-start.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        if completion_service_active(archive_report_unit(job)):
+            run(['/usr/bin/systemctl','stop',archive_report_unit(job)],pass_fds=(lock.fileno(),))
+        if completion_service_active(archive_report_unit(job)):raise RuntimeError('archive report reader did not stop')
+        if (stage/'report.json').exists():
+            previous=archive_report_cached(stage,archive_identity(job)['sha256'])
+            if previous.get('state')=='exporting':
+                completion_write(stage/'report.json',dict(previous,state='waiting',reason='archive report reader stopped',retry_at=0))
+    return {'state':'stopped'}
+
+
+def archive_report_execute(job):
+    current=Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+    if not current.endswith('/'+archive_report_unit(job)):raise RuntimeError('archive report reader outside matching unit')
+    stage=snapshot_stage(job);digest=archive_identity(job)['sha256']
+    with ARTIFACT_LOCK.open('a') as global_lock,(stage/'export.lock').open('a') as lock:
+        fcntl.flock(global_lock,fcntl.LOCK_EX);fcntl.flock(lock,fcntl.LOCK_EX)
+        try:
+            receipt=archive_report_read(job,digest)
+        except (ValueError,UnicodeError,tarfile.TarError) as exc:
+            receipt={'state':'unavailable','archive_sha256':digest,'reason':str(exc)[:400]}
+        except Exception as exc:
+            receipt={'state':'waiting','archive_sha256':digest,'reason':str(exc)[:400],'retry_at':time.time()+60}
+        completion_write(stage/'report.json',receipt)
+        return 0 if receipt['state']=='ready' else 1
+
+
+def archive_report_read(job, digest):
+    archive=job_path(job)/'artifact.tar.gz'
+    if digest_file(archive)!=digest:raise RuntimeError('archived report source checksum mismatch')
+    report=None;count=0;total=0
+    # Streaming iteration reaches the end to reject a later duplicate. Nothing
+    # is extracted and tar link resolution is never used for this fixed member.
+    with tarfile.open(archive,'r|gz') as tar:
+        for member in tar:
+            count+=1;total+=member.size
+            if count>100000 or member.size<0 or total>COMPLETION_MAX_BYTES:
+                raise ValueError('archived report scan exceeds export bounds')
+            if member.name=='work/autonomy-report.json':
+                if report is not None:raise ValueError('duplicate archived autonomy report')
+                if not member.isfile() or member.islnk() or member.issym() or member.size>128*1024:
+                    raise ValueError('archived autonomy report must be an independent regular file at most 128 KiB')
+                with tar.extractfile(member) as stream:report=stream.read(128*1024+1)
+                if len(report)!=member.size:raise ValueError('truncated archived autonomy report')
+            elif Path(member.name).parts==('work','autonomy-report.json'):
+                raise ValueError('noncanonical archived autonomy report path')
+    if report is None:raise ValueError('immutable export has no root autonomy report')
+    text=report.decode('utf-8')  # Historical malformed report text remains evidence.
+    if digest_file(archive)!=digest:raise RuntimeError('archived report source changed during scan')
+    return {'state':'ready','archive_sha256':digest,'report_sha256':hashlib.sha256(report).hexdigest(),'report':text}
 
 
 def archive_identity(job):
@@ -2753,7 +3007,7 @@ def completion_resume(job, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
@@ -2766,7 +3020,13 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'python-dependencies':
+    if args.command == 'archive-report':
+        out=archive_report(args.job)
+    elif args.command == 'archive-report-stop':
+        out=archive_report_stop(args.job)
+    elif args.command == '_archive-report':
+        return archive_report_execute(args.job)
+    elif args.command == 'python-dependencies':
         out = python_dependencies(args.job)
     elif args.command == 'python-dependencies-stop':
         out = python_dependencies_stop(args.job)

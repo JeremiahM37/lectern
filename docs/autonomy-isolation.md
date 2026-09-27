@@ -475,9 +475,21 @@ does not justify relaunching it unchanged.
 The `python_wheels` capability accepts exact distribution pins, explicit import
 names and the condition `offline_imports_available`. Names are case-insensitive.
 The fixed resolver uses a dedicated PyPI broker inside a credential-free sandbox;
-project code and home directories are absent. Only compatible universal Python
-wheels are supported. Source builds, editable installs, local/VCS references,
-native wheels and startup hooks remain unavailable. The resolver includes the
+project code and home directories are absent. Compatible universal and native Python wheels are supported, with interpreter
+tags and Requires-Python checked against the fixed runtime. Filename and WHEEL
+metadata tags must each independently support that runtime; neither can widen
+the other's compatibility. Their exact tag sets and any discrepancy are retained
+in the hashed dependency lock. This accommodates inconsistent upstream metadata
+(such as Playwright 1.62.0) without claiming that wheel conforms to the format
+specification. Source builds,
+editable installs and local/VCS references remain unavailable. RECORD-verified
+startup hooks execute only in the unprivileged offline probe or worker, never
+in the host installer or network resolver. Executable files retain normalized
+read-only executable modes; other files are read-only. Wheel purelib/platlib
+entries relocate into the verified site directory with collision checks. Headers
+are retained under a reserved, non-importable metadata directory with their
+original paths and hashes recorded. Wheel scripts/data installation schemes
+remain explicitly unsupported; their required files are never silently dropped. The resolver includes the
 existing pytest pins in the same environment to detect version conflicts rather
 than silently choosing between two independent package paths.
 
@@ -488,6 +500,23 @@ registry socket. Registry hashes establish artifact identity, not publisher
 trust or application correctness. Workers receive a read-only verified bundle;
 the source checkout under test must not be replaced with a released package.
 Independent project tests remain necessary after provisioning.
+
+Browser assets use a separate immutable inventory registered by exact Playwright
+version. Install `tools/provision-browser-runtime.py` as root-owned mode 0555
+`/usr/local/libexec/lectern-browser-runtime.py`. Stage the installed cache with
+its matching driver declaration, then register the resulting key in root-owned,
+read-only `dependencies/browser/active.json`. Staging records local cache
+provenance, not an independent vendor checksum or a successful browser test.
+Assignment provisioning verifies the files, driver declaration and a real local
+browser fixture before binding the browser key into the Python environment.
+Missing or incompatible assets cannot count as verified delivery.
+
+`/opt/browser-runtime/browsers/offline-test COMMAND ARGS` starts project tests in
+a nested namespace without model credentials, bridge sockets or external
+networking; local HTTP fixtures work. Its launcher starts Python with isolated
+mode and site initialization disabled, so dependency startup hooks cannot run
+before that boundary is established. Browser processes inherit the worker's
+resource and cancellation limits. No logged-in browser profile is supplied.
 
 Install `tools/python-project-dependencies.py` as
 `/usr/local/libexec/lectern-python-project-dependencies.py`, owned by root and mode

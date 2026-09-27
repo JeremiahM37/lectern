@@ -1,4 +1,4 @@
-"""Pure-wheel admission and actual credential-free pip/import sandbox proofs."""
+"""Compatible-wheel admission and actual credential-free pip/import sandbox proofs."""
 import base64
 import csv
 import hashlib
@@ -26,6 +26,7 @@ def load(name,path):
 H=load('python_project_helper',HERE/'python-project-dependencies.py')
 R=load('python_project_runner',HERE/'autonomy-runner.py')
 REAL_IDENTITY=R.python_identity
+H.configure_tooling(R.PYTHON_PIP_SOURCE)
 
 
 def wheel(root,name,version='1.0',files=None,requires=()):
@@ -37,14 +38,16 @@ def wheel(root,name,version='1.0',files=None,requires=()):
     return wheel_data(root,name,version,data)
 
 
-def wheel_data(root,name,version,data):
+def wheel_data(root,name,version,data,tag='py3-none-any',modes=None):
     data=dict(data);record=name.replace('-','_')+'-'+version+'.dist-info/RECORD';data.pop(record,None)
     buf=io.StringIO();writer=csv.writer(buf,lineterminator='\n')
     for key,value in sorted(data.items()):writer.writerow([key,'sha256='+base64.urlsafe_b64encode(hashlib.sha256(value).digest()).decode().rstrip('='),str(len(value))])
     writer.writerow([record,'','']);data[record]=buf.getvalue().encode()
-    target=root/(name.replace('-','_')+'-'+version+'-py3-none-any.whl')
+    target=root/(name.replace('-','_')+'-'+version+'-'+tag+'.whl')
     with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as out:
-        for key,value in data.items():out.writestr(key,value)
+        for key,value in data.items():
+            entry=zipfile.ZipInfo(key);entry.external_attr=(stat.S_IFREG|(modes or {}).get(key,0o644))<<16
+            out.writestr(entry,value)
     return target
 
 
@@ -55,10 +58,11 @@ class WheelTests(unittest.TestCase):
         wheels=self.root/'wheels';wheels.mkdir();path=wheel(wheels,'example');info=H.wheel_info(path)
         (self.root/'lock.json').write_bytes(H.canonical({'policy':H.POLICY,'input_key':'a'*64,'wheels':[info]}))
         H.install(self.root);self.assertEqual(H.verify_install(self.root)['packages'],{'example':'1.0'})
+        (self.root/'site-packages/example/__init__.py').chmod(0o644)
         (self.root/'site-packages/example/__init__.py').write_text('changed')
-        with self.assertRaisesRegex(ValueError,'bytes differ'):H.verify_install(self.root)
+        with self.assertRaisesRegex(ValueError,'bytes or mode differ'):H.verify_install(self.root)
     def test_reject_traversal_links_record_tampering_and_hooks(self):
-        for target in ('../escape','/escape','x/../escape','x.pth','sitecustomize.py','x.so','x.data/scripts/run'):
+        for target in ('../escape','/escape','x/../escape','x.pyc','x.data/scripts/run'):
             with self.subTest(target=target):
                 path=wheel(self.root,'example',files={target:b'bad'})
                 with self.assertRaises(ValueError):H.wheel_info(path)
@@ -75,6 +79,79 @@ class WheelTests(unittest.TestCase):
         with zipfile.ZipFile(path,'w') as z:
             for name,value in members.items():z.writestr(name,value)
         with self.assertRaisesRegex(ValueError,'checksum'):H.wheel_info(path)
+    def test_native_tags_metadata_modes_and_host_inert_hooks(self):
+        tag=str(next(H.target_packaging()[0].sys_tags()))
+        dist='native-1.0.dist-info'
+        data={'native/__init__.py':b'VALUE=42', 'native/driver':b'ELF fixture',
+              'runtime.pth':b'import pathlib; pathlib.Path("/tmp/lectern-hook-must-not-run").touch()\n',
+              dist+'/METADATA':b'Name: native\nVersion: 1.0\nRequires-Python: >=3.13\n',
+              dist+'/WHEEL':('Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: '+tag+'\n').encode()}
+        path=wheel_data(self.root,'native','1.0',data,tag,{'native/driver':0o777})
+        info=H.wheel_info(path)
+        self.assertEqual(next(row for row in info['files'] if row['path']=='native/driver')['mode'],0o555)
+        self.assertFalse(Path('/tmp/lectern-hook-must-not-run').exists())
+        for change in ('foreign','tag_mismatch','python','suid'):
+            with self.subTest(change=change):
+                modified=dict(data); filename_tag=tag; modes={}
+                if change=='foreign':
+                    filename_tag='cp39-cp39-win32'
+                    modified[dist+'/WHEEL']=b'Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: cp39-cp39-win32\n'
+                elif change=='tag_mismatch': modified[dist+'/WHEEL']=b'Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: cp39-cp39-win32\n'
+                elif change=='python':modified[dist+'/METADATA']=b'Name: native\nVersion: 1.0\nRequires-Python: >=99\n'
+                else:modes={'native/driver':0o4755}
+                with self.assertRaises(ValueError):H.wheel_info(wheel_data(self.root,'native','1.0',modified,filename_tag,modes))
+    def test_both_tag_descriptions_must_admit_target_discrepancy_recorded(self):
+        dist='browser-1.0.dist-info'
+        data={dist+'/METADATA':b'Name: browser\nVersion: 1.0\n',
+              dist+'/WHEEL':b'Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: py3-none-any\n'}
+        path=wheel_data(self.root,'browser','1.0',data,'py3-none-manylinux1_x86_64')
+        row=H.wheel_info(path)
+        self.assertEqual(row['filename_tags'],['py3-none-manylinux1_x86_64'])
+        self.assertEqual(row['metadata_tags'],['py3-none-any'])
+        self.assertIn('discrepancy',row['tag_warning'])
+        incompatible=wheel_data(self.root,'browser','1.0',data,'py3-none-win32')
+        with self.assertRaisesRegex(ValueError,'browser.*filename tags exclude'):H.wheel_info(incompatible)
+        data[dist+'/WHEEL']=b'Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: py3-none-win32\n'
+        incompatible=wheel_data(self.root,'browser','1.0',data,'py3-none-any')
+        with self.assertRaisesRegex(ValueError,'browser.*metadata tags exclude'):H.wheel_info(incompatible)
+    def test_equivalent_tooling_snapshot_and_changed_parser(self):
+        target=self.root/'tooling';H.snapshot_pip(R.PYTHON_PIP_SOURCE,target)
+        self.assertEqual(H.target_identity(target),H.target_identity(R.PYTHON_PIP_SOURCE))
+        parser=target/'pip/_vendor/packaging/tags.py';parser.chmod(0o644);parser.write_text('raise RuntimeError("must not execute")')
+        with self.assertRaisesRegex(ValueError,'tooling changed'):H.configure_tooling(target)
+    def test_data_relocation_retains_headers_and_checks_identity_collisions(self):
+        wheels=self.root/'wheels';wheels.mkdir()
+        data={'example-1.0.data/purelib/relocated.py':b'VALUE=7\n',
+              'example-1.0.data/platlib/native.dat':b'native-data',
+              'example-1.0.data/headers/example.h':b'#define VALUE 7\n'}
+        path=wheel(wheels,'example',files=data);info=H.wheel_info(path)
+        (self.root/'lock.json').write_bytes(H.canonical({'policy':H.POLICY,'wheels':[info]}))
+        H.install(self.root);H.verify_install(self.root)
+        for original,content in data.items():
+            entry=next(row for row in info['files'] if row['original']==original)
+            self.assertEqual((self.root/'site-packages'/entry['path']).read_bytes(),content)
+        self.assertTrue((self.root/'site-packages/.lectern-wheel-data/example-1.0/headers/example.h').exists())
+        for extra in ({'relocated.py':b'collision'},
+                      {'example-1.0.data/platlib/relocated.py':b'collision'},
+                      {'other-1.0.data/purelib/other.py':b'bad'},
+                      {'.lectern-wheel-data/spoof':b'bad'},
+                      {'example-1.0.data/purelib/.lectern-wheel-data/spoof':b'bad'},
+                      {'example-1.0.data/scripts/run':b'#!/bin/sh'},
+                      {'example-1.0.data/data/config':b'config'}):
+            with self.subTest(extra=extra):
+                with self.assertRaises(ValueError):H.wheel_info(wheel(wheels,'example',files=dict(data,**extra)))
+    def test_member_file_limit_and_os_boundary_are_typed(self):
+        import errno
+        path=wheel(self.root,'example',files={'example/large.dat':b'x'*1025})
+        with patch.object(H,'MAX_FILE_BYTES',1024):
+            with self.assertRaises(H.Unsupported) as result:H.wheel_info(path)
+            self.assertEqual(result.exception.code,'size_limit')
+            self.assertIn('example/large.dat',str(result.exception))
+        with patch.object(Path,'write_bytes',side_effect=OSError(errno.EFBIG,'File too large')):
+            with self.assertRaises(H.Unsupported) as result:H.bounded_write(self.root/'large',b'data')
+            self.assertEqual(result.exception.code,'size_limit')
+        with patch.object(Path,'write_bytes',side_effect=OSError(errno.ENOSPC,'No space')):
+            with self.assertRaises(OSError):H.bounded_write(self.root/'large',b'data')
     def test_collision_rejected(self):
         wheels=self.root/'wheels';wheels.mkdir()
         rows=[H.wheel_info(wheel(wheels,name,files={'shared.py':b'one'})) for name in ('one','two')]
@@ -146,7 +223,7 @@ class RunnerTests(unittest.TestCase):
         from types import SimpleNamespace
         deps=self.root/'dependencies';deps.mkdir();cache=deps/'python-project';cache.mkdir(mode=0o700)
         helper_data=(HERE/'python-project-dependencies.py').read_bytes()
-        runtime={'python_sha256':R.digest_file(Path('/usr/bin/python3').resolve()),'python_version':'3.13.5','helper_sha256':hashlib.sha256(helper_data).hexdigest(),'pip_record_sha256':'b'*64,'pytest_key':'c'*64,'policy':H.POLICY}
+        runtime={'python_sha256':R.digest_file(Path('/usr/bin/python3').resolve()),'python_version':'3.13.5','helper_sha256':hashlib.sha256(helper_data).hexdigest(),'pip_record_sha256':'b'*64,'pytest_key':'c'*64,'policy':H.POLICY,'target':H.target_identity(R.PYTHON_PIP_SOURCE)}
         runtime_digest=hashlib.sha256(H.canonical(runtime)).hexdigest()
         semantic={'requirements':self.request['requirements'],'imports':self.request['imports'],'tooling_requirements':['pytest==9.1.1'],'runtime_digest':runtime_digest}
         key=hashlib.sha256(H.canonical(semantic)).hexdigest();identity=dict(semantic,input_key=key,runtime=runtime)
@@ -235,15 +312,42 @@ class SandboxTests(unittest.TestCase):
                 self.assertEqual(len(matches),1)
                 selected={row[0]:contents[row[0]][0] for row in csv.reader(io.StringIO(matches[0].read_text())) if row[0] in contents}
                 wheel_data(wheels,name,version,selected)
-            wheel(wheels,'project_dep',files={'project_dep/__init__.py':b'import transitive_dep\nVALUE=transitive_dep.VALUE\nimport os\nassert not os.path.exists("/dependency.sock")\nassert not os.path.exists("/home/admin")\n'},requires=['transitive-dep>=1.0,<2'])
+            wheel(wheels,'project_dep',files={'project_dep/__init__.py':b'import transitive_dep\nVALUE=transitive_dep.VALUE\nimport os\nassert not os.path.exists("/dependency.sock")\nassert not os.path.exists("/home/admin")\n'},requires=['transitive-dep>=1.0,<2','native-dep==1.0'])
             wheel(wheels,'transitive_dep')
             wheel(wheels,'transitive_dep','2.0')
+            import sysconfig
+            extension=next(Path(sysconfig.get_config_var('DESTSHARED')).glob('_bz2.*.so'))
+            tag=str(next(H.target_packaging()[0].sys_tags()));dist='native_dep-1.0.dist-info'
+            hook=b"import hostile_hook\n"
+            hostile=b'''import os,socket,pathlib
+assert not os.path.exists('/home/admin')
+assert not any(os.path.exists(p) for p in ['/dependency.sock','/bridges','/network.sock'])
+assert not any(k in os.environ for k in ['ANTHROPIC_API_KEY','OPENAI_API_KEY'])
+try:
+ socket.create_connection(('1.1.1.1',443),timeout=.1)
+except OSError: pass
+else: raise RuntimeError('public network reachable')
+try:
+ pathlib.Path('/usr/lectern-host-write').write_text('bad')
+except OSError: pass
+else: raise RuntimeError('host write succeeded')
+pathlib.Path('/tmp/lectern-isolated-hook').write_text('activated')
+'''
+            data={'native_dep/'+extension.name:extension.read_bytes(),'native_dep/driver':Path('/usr/bin/true').read_bytes(),
+                  'native_dep/__init__.py':b'from . import _bz2\nimport subprocess,pathlib\nassert _bz2.BZ2Compressor().compress(b"native")==b""\nsubprocess.run([str(pathlib.Path(__file__).parent/"driver")],check=True)\n',
+                  'hostile_hook.py':hostile,'runtime.pth':hook,
+                  dist+'/METADATA':b'Name: native-dep\nVersion: 1.0\n',
+                  dist+'/WHEEL':('Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: '+tag+'\n').encode()}
+            wheel_data(wheels,'native-dep','1.0',data,tag,{'native_dep/driver':0o755})
             infos=[H.wheel_info(path) for path in wheels.iterdir()]
-            routes={row['route']:(wheels/row['filename']).read_bytes() for row in infos};calls=[];faults={}
+            routes={row['route']:(wheels/row['filename']).read_bytes() for row in infos};calls=[];faults={};omit_bound_header=set()
             class Handler(http.server.BaseHTTPRequestHandler):
                 def do_GET(self):
                     calls.append(self.path)
-                    if self.path in faults:self.send_error(faults[self.path]);return
+                    if self.path in faults:
+                        self.send_response(faults[self.path])
+                        if faults[self.path]==422 and self.path not in omit_bound_header:self.send_header('X-Lectern-Python-Registry','unsupported-size')
+                        self.end_headers();return
                     if self.path.startswith('/python/simple/'):
                         name=self.path.rstrip('/').rsplit('/',1)[-1]
                         body=('\n'.join('<a href="'+row['route']+'#sha256='+row['sha256']+'">'+row['filename']+'</a>' for row in infos if row['name']==name)).encode()
@@ -258,7 +362,7 @@ class SandboxTests(unittest.TestCase):
             sock=root/'registry.sock'
             server=Server(str(sock),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
-            request={'input_key':'a'*64,'requirements':['project-dep==1.0'],'imports':['project_dep'], 'tooling_requirements':[name+'=='+version for name,version in versions.items()]}
+            request={'input_key':'a'*64,'requirements':['project-dep==1.0'],'imports':['project_dep','native_dep'], 'tooling_requirements':[name+'=='+version for name,version in versions.items()]}
             (fetch/'input.json').write_bytes(H.canonical(request))
             replacements={'/tmp/python-fetch':str(fetch),'/tmp/python-tooling':str(tooling),'/tmp/python-helper':str((HERE/'python-project-dependencies.py').resolve()),'/tmp/python-proof':str(proof),'/tmp/python-dependency.sock':str(sock)}
             def execute(command,probe=False,custom=None):
@@ -268,19 +372,51 @@ class SandboxTests(unittest.TestCase):
                 return result
             result=execute('resolve');self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             frozen=(fetch/'lock.json').read_bytes();lock=json.loads(frozen)
-            self.assertEqual(len(lock['wheels']),7)
+            self.assertEqual(len(lock['wheels']),8)
             self.assertIn('transitive-dep',[row['name'] for row in lock['wheels']])
             (fetch/'wheels'/next(row['filename'] for row in lock['wheels'] if row['name']=='transitive-dep')).unlink()
+            locked_route=next(row['route'] for row in lock['wheels'] if row['name']=='transitive-dep')
+            for status,exitcode in ((422,2),(502,1)):
+                faults[locked_route]=status
+                result=execute('resolve');self.assertEqual(result.returncode,exitcode,result.stdout+result.stderr)
+                self.assertEqual((fetch/'lock.json').read_bytes(),frozen)
+                if status==422:self.assertIn('bounded supported size',result.stderr)
+            omit_bound_header.add(locked_route);faults[locked_route]=422
+            result=execute('resolve');self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+            omit_bound_header.clear();faults.pop(locked_route)
             calls.clear();result=execute('resolve');self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertEqual((fetch/'lock.json').read_bytes(),frozen)
             self.assertTrue(calls);self.assertFalse(any('/simple/' in call for call in calls),'frozen lock must not re-resolve')
             result=execute('install');self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             H.verify_install(fetch)
             (fetch/'manifest.json').write_text('{"fixture":"unified"}')
-            alias_code='import pytest,project_dep,os,json;assert project_dep.VALUE==42;assert os.stat("/opt/python-project/project_dep/__init__.py").st_ino==os.stat("/opt/python-test/project_dep/__init__.py").st_ino;assert json.load(open("/opt/python-test-runtime.json"))==json.load(open("/opt/python-project-runtime.json"));assert os.environ["LECTERN_PYTHON_TEST_RUNTIME_STATUS"]=="verified";assert not os.access("/opt/python-test",os.W_OK)'
+            alias_code='import pytest,project_dep,native_dep,os,json;assert open("/tmp/lectern-isolated-hook").read()=="activated";assert project_dep.VALUE==42;assert os.stat("/opt/python-project/project_dep/__init__.py").st_ino==os.stat("/opt/python-test/project_dep/__init__.py").st_ino;assert json.load(open("/opt/python-test-runtime.json"))==json.load(open("/opt/python-project-runtime.json"));assert os.environ["LECTERN_PYTHON_TEST_RUNTIME_STATUS"]=="verified";assert not os.access("/opt/python-test",os.W_OK)'
             alias_command=['/usr/bin/bwrap','--unshare-all','--die-with-parent','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--clearenv']+R.python_project_mount(fetch)+['--setenv','PYTHONPATH','/opt/python-test','--','/usr/bin/python3','-B','-c',alias_code]
             alias=subprocess.run(alias_command,capture_output=True,text=True,timeout=30)
             self.assertEqual(alias.returncode,0,alias.stdout+alias.stderr)
+            # Real worker interpreter integration: project PYTHONPATH cannot
+            # remove the verified site, including absolute/isolated child Python.
+            work=root/'worker';pkg=work/'pkg';pkg.mkdir(parents=True)
+            (pkg/'project_dep.py').write_text('VALUE=99\n')
+            (work/'test_runtime.py').write_text('import pytest,project_dep\ndef test_project_first(): assert project_dep.VALUE==99\n')
+            worker_base=['/usr/bin/bwrap','--unshare-all','--die-with-parent','--clearenv','--ro-bind','/usr','/usr','--ro-bind','/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--tmpfs','/home','--ro-bind',str(work),'/work','--chdir','/work','--setenv','HOME','/tmp','--setenv','PATH','/usr/bin:/bin']
+            for runtime_kind in ('pytest','project'):
+                with self.subTest(runtime_kind=runtime_kind):
+                    if runtime_kind=='pytest':
+                        with patch.object(R,'python_test_bundle',return_value=fetch):mounts=R.python_test_runtime_mount()
+                    else:mounts=R.python_project_mount(fetch)
+                    self.assertNotIn('PYTHONPATH',mounts)
+                    code='import sys,os,subprocess,importlib.util,pytest,project_dep,packaging,pygments,apt_pkg;assert project_dep.VALUE==99;assert apt_pkg.__file__.startswith("/usr/lib/python3/dist-packages/");assert packaging.__file__.startswith("/usr/local/lib/python3.13/dist-packages/");assert pygments.__file__.startswith("/usr/local/lib/python3.13/dist-packages/");assert not os.path.exists("/home/admin");assert not os.access("/usr/local/lib/python3.13/dist-packages",os.W_OK);child="import pytest,project_dep;assert project_dep.VALUE==42";subprocess.run([sys.executable,"-I","-c",child],check=True);subprocess.run(["/usr/bin/python3","-c",child],env={},check=True);assert pytest.__file__.startswith("/usr/local/lib/python3.13/dist-packages/")'
+                    common=worker_base+mounts+['--setenv','PYTHONPATH','/work/pkg']
+                    check=subprocess.run(common+['--','python3','-B','-c',code],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(check.returncode,0,check.stdout+check.stderr)
+                    check=subprocess.run(common+['--','python3','-m','pytest','-q','-p','no:cacheprovider','test_runtime.py'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(check.returncode,0,check.stdout+check.stderr)
+                    isolated=subprocess.run(common+['--','/usr/bin/python3','-I','-m','pytest','--version'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(isolated.returncode,0,isolated.stdout+isolated.stderr)
+                    self.assertIn('pytest ',isolated.stdout)
+                    optout=subprocess.run(common+['--','/usr/bin/python3','-I','-S','-c','import importlib.util;assert importlib.util.find_spec("pytest") is None'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(optout.returncode,0,optout.stdout+optout.stderr)
             result=execute('probe',True);self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertEqual(json.loads((proof/'probe.json').read_text())['network'],'unshared-no-socket')
             (fetch/'input.json').write_bytes(H.canonical(dict(request,imports=['missing_project_module'])))
@@ -299,10 +435,24 @@ class SandboxTests(unittest.TestCase):
                     (fetch/'lock.json').unlink(missing_ok=True)
                     (fetch/'input.json').write_bytes(H.canonical(dict(request,requirements=requirements)))
                     result=execute('resolve');self.assertEqual(result.returncode,2,result.stdout+result.stderr)
-                    self.assertIn('no compatible pure-wheel resolution',result.stderr)
+                    self.assertIn('no compatible wheel resolution',result.stderr)
             (fetch/'input.json').write_bytes(H.canonical(request));faults['/python/simple/project-dep/']=502
             result=execute('resolve');self.assertEqual(result.returncode,1,result.stdout+result.stderr)
             self.assertIn('Registry transport unavailable',result.stderr)
+            faults.clear()
+            project_route=next(row['route'] for row in infos if row['name']=='project-dep')
+            faults[project_route]=422
+            result=execute('resolve');self.assertEqual(result.returncode,2,result.stdout+result.stderr)
+            self.assertIn('bounded supported size',result.stderr)
+            omit_bound_header.add(project_route)
+            result=execute('resolve');self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+            omit_bound_header.clear()
+            faults[project_route]=502
+            result=execute('resolve');self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+            faults.clear()
+            faults['/python/simple/project-dep/']=422
+            result=execute('resolve');self.assertEqual(result.returncode,2,result.stdout+result.stderr)
+            self.assertIn('bounded supported size',result.stderr)
             print('Real isolated pip: transitive closure PASS; frozen lock reuse PASS; offline imports and pytest PASS; deliberate assertion failure detected; nonexistent pin/native-only/conflicts diagnosed; transport remains retryable')
 
 

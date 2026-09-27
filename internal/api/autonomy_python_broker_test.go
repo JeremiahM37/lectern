@@ -22,7 +22,11 @@ func (f pythonBrokerTransport) RoundTrip(r *http.Request) (*http.Response, error
 
 func pythonBrokerFixture(t *testing.T, mutate func(string, *http.Response)) (*autoPythonBroker, string, string, *[]string) {
 	t.Helper()
-	filename := "demo_pkg-1.2.3-py2.py3-none-any.whl"
+	return pythonBrokerNamedFixture(t, "demo_pkg-1.2.3-py2.py3-none-any.whl", mutate)
+}
+
+func pythonBrokerNamedFixture(t *testing.T, filename string, mutate func(string, *http.Response)) (*autoPythonBroker, string, string, *[]string) {
+	t.Helper()
 	wheel := []byte("wheel bytes; extraction validation belongs to isolated installer")
 	sum := sha256.Sum256(wheel)
 	digest := hex.EncodeToString(sum[:])
@@ -30,7 +34,6 @@ func pythonBrokerFixture(t *testing.T, mutate func(string, *http.Response)) (*au
 	index := map[string]any{"meta": map[string]string{"api-version": "1.4"}, "name": "Demo_Pkg", "files": []any{
 		map[string]any{"filename": filename, "url": remote, "hashes": map[string]string{"sha256": digest}, "requires-python": ">=3.9", "yanked": "reason \"quoted\" <script>"},
 		map[string]string{"filename": "demo_pkg-1.2.3.tar.gz", "url": "https://evil.test/source"},
-		map[string]string{"filename": "demo_pkg-1.2.3-cp313-cp313-linux_x86_64.whl", "url": "https://evil.test/native"},
 	}}
 	release := map[string]any{"urls": []any{map[string]any{"filename": filename, "url": remote, "digests": map[string]string{"sha256": digest}, "packagetype": "bdist_wheel"}}}
 	calls := []string{}
@@ -131,7 +134,7 @@ func TestPythonBrokerWheelURLAndCandidatePolicy(t *testing.T) {
 			t.Error("accepted", raw)
 		}
 	}
-	for _, name := range []string{"a-1-cp313-none-any.whl", "a-1-py3-none-linux_x86_64.whl", "a-1-py3-abi3-any.whl", "a-1-py3-none-any.whl/other", "../a-1-py3-none-any.whl"} {
+	for _, name := range []string{"a-1-invalidbuild-cp313-cp313-linux_x86_64.whl", "a-1-cp313--linux_x86_64.whl", "a-1-cp313-cp313-linux..x86_64.whl", "a-1-py3-none-any.whl/other", "../a-1-py3-none-any.whl"} {
 		if _, _, ok := autoPythonWheelIdentity(name); ok {
 			t.Error("accepted", name)
 		}
@@ -165,7 +168,11 @@ func TestPythonBrokerNeverReturnsPartialOrUnverifiedSuccess(t *testing.T) {
 			b.client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }
 			w := httptest.NewRecorder()
 			b.serveHTTP(w, httptest.NewRequest("GET", "/python/wheel/demo-pkg/1.2.3/"+digest+"/"+filename, nil))
-			if w.Code != 502 || len(*calls) != 2 || strings.Contains(w.Body.String(), "wheel bytes") {
+			want := 502
+			if scenario == "oversized" {
+				want = 422
+			}
+			if w.Code != want || len(*calls) != 2 || strings.Contains(w.Body.String(), "wheel bytes") {
 				t.Fatal(w.Code, w.Body.String(), *calls)
 			}
 		})
@@ -309,5 +316,101 @@ func TestPythonBrokerAuthoritativeMissingPackageIsNotTransportFailure(t *testing
 				t.Fatal("absence was not authoritative", calls)
 			}
 		})
+	}
+}
+
+func TestPythonBrokerNativeCandidatesRemainRegistryAndHashBound(t *testing.T) {
+	for _, filename := range []string{
+		"demo_pkg-1.2.3-py3-none-manylinux1_x86_64.manylinux2014_x86_64.whl",
+		"demo_pkg-1.2.3-cp39-abi3-manylinux_2_28_x86_64.whl",
+		"demo_pkg-1.2.3-2abc-py3-none-manylinux1_x86_64.whl",
+		// Compatibility is deliberately owned by the resolver/helper, not broker.
+		"demo_pkg-1.2.3-cp313-cp313-win_amd64.whl",
+	} {
+		t.Run(filename, func(t *testing.T) {
+			b, _, digest, _ := pythonBrokerNamedFixture(t, filename, nil)
+			w := httptest.NewRecorder()
+			b.serveHTTP(w, httptest.NewRequest("GET", "/python/simple/demo-pkg/", nil))
+			route := "/python/wheel/demo-pkg/1.2.3/" + digest + "/" + filename
+			if w.Code != 200 || !strings.Contains(w.Body.String(), route+"#sha256="+digest) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			// Restart loses no authority: exact release membership is fetched again.
+			b, _, _, calls := pythonBrokerNamedFixture(t, filename, nil)
+			w = httptest.NewRecorder()
+			b.serveHTTP(w, httptest.NewRequest("GET", route, nil))
+			if w.Code != 200 || len(*calls) != 2 {
+				t.Fatal(w.Code, w.Body.String(), *calls)
+			}
+			sum := sha256.Sum256(w.Body.Bytes())
+			if hex.EncodeToString(sum[:]) != digest {
+				t.Fatal("native bytes not hash verified")
+			}
+			w = httptest.NewRecorder()
+			b.serveHTTP(w, httptest.NewRequest("GET", strings.Replace(route, digest, strings.Repeat("a", 64), 1), nil))
+			if w.Code != 502 {
+				t.Fatal("incorrect native digest admitted", w.Code)
+			}
+		})
+	}
+}
+
+func TestPythonBrokerLiveNativeRegistry(t *testing.T) {
+	if os.Getenv("LECTERN_PYTHON_BROKER_LIVE") != "1" {
+		t.Skip("opt-in public registry read")
+	}
+	for _, tc := range []struct{ name, version, tag string }{
+		{"playwright", "1.62.0", "py3-none-manylinux1_x86_64"},
+		{"pydantic-core", "2.33.2", "cp313-cp313-manylinux_2_17_x86_64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := autoPythonDependencyBroker()
+			w := httptest.NewRecorder()
+			h(w, httptest.NewRequest("GET", "/python/simple/"+tc.name+"/", nil))
+			if w.Code != 200 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			var route string
+			for _, line := range strings.Split(w.Body.String(), "\n") {
+				if strings.Contains(line, "/python/wheel/"+tc.name+"/"+tc.version+"/") && strings.Contains(line, tc.tag) {
+					start := strings.Index(line, `href="`) + len(`href="`)
+					end := strings.Index(line[start:], "#sha256=")
+					if start >= len(`href="`) && end > 0 {
+						route = line[start : start+end]
+						break
+					}
+				}
+			}
+			if route == "" {
+				t.Fatal("expected actual native wheel absent")
+			}
+			w = httptest.NewRecorder()
+			h(w, httptest.NewRequest("GET", route, nil))
+			if w.Code != 200 || w.Body.Len() < 100000 {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			t.Logf("read-only native PyPI proof: %s, %d hash-verified bytes", route, w.Body.Len())
+		})
+	}
+}
+
+func TestPythonBrokerOversizeIsTypedUnsupported(t *testing.T) {
+	for _, declared := range []bool{true, false} {
+		b, _, _, _ := pythonBrokerFixture(t, func(host string, res *http.Response) {
+			if host != "pypi.org" {
+				return
+			}
+			if declared {
+				res.ContentLength = autoPythonMetadataLimit + 1
+			} else {
+				res.ContentLength = -1
+				res.Body = io.NopCloser(strings.NewReader(strings.Repeat("x", autoPythonMetadataLimit+1)))
+			}
+		})
+		w := httptest.NewRecorder()
+		b.serveHTTP(w, httptest.NewRequest("GET", "/python/simple/demo-pkg/", nil))
+		if w.Code != 422 || w.Header().Get("X-Lectern-Python-Registry") != "unsupported-size" {
+			t.Fatal(w.Code, w.Body.String())
+		}
 	}
 }

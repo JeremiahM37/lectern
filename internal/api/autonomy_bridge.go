@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -244,6 +243,23 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/capabilities":
+		writeJSON(w, 200, autoCapabilityCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies"), autoRunner, autoPythonProvisioner))
+		return
+	case "/environments":
+		a, err := s.loadAuto()
+		if err != nil {
+			http.Error(w, "environment catalog unavailable", 503)
+			return
+		}
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			http.Error(w, "invalid environment query", 400)
+			return
+		}
+		body, status := autoDiagnosisEnvironmentDiscovery(a, query)
+		writeJSON(w, status, body)
+		return
 	case "/integrations":
 		s.getAutoIntegrations(w, r)
 		return
@@ -504,12 +520,11 @@ func (s *Server) downloadAutonomy(w http.ResponseWriter, r *http.Request) {
 		}
 		path = filepath.Join(autoRoot, found.ID, "completion-artifact.tar.gz")
 	}
-	fd, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, e := autoOpenArtifact(path)
 	if e != nil {
 		respondErr(w, e)
 		return
 	}
-	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
 	st, e := f.Stat()
 	if e != nil || !st.Mode().IsRegular() || st.Size() == 0 {

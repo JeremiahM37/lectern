@@ -38,6 +38,23 @@ func TestAutonomyEscalatesRepeatedReviewedFailure(t *testing.T) {
 	}
 }
 
+func TestAutonomyDiagnosisUsesExpertWithoutChangingItsAdmission(t *testing.T) {
+	for _, p := range []autonomy.Proposal{{DiagnoseTaskID: 300}, {DiagnoseRequirement: "recorded-requirement"}} {
+		a := &autoRecord{Config: autonomy.DefaultConfig(), State: &autonomy.State{Items: []autonomy.Proposal{p}}}
+		before, _ := json.Marshal(a)
+		if !autoExpertBuilder(a) || autoModelChoice("builder", "codex", autoExpertBuilder(a), []string{"gpt-6-astra", "gpt-6-luna"}) != "gpt-6-astra" {
+			t.Fatal("diagnosis was routed back to the routine tier")
+		}
+		if autoModelChoice("builder", "claude", autoExpertBuilder(a), nil) != "opus" {
+			t.Fatal("diagnosis was routed back to routine Claude")
+		}
+		after, _ := json.Marshal(a)
+		if string(before) != string(after) {
+			t.Fatal("routing mutated admission or history")
+		}
+	}
+}
+
 func TestAutonomyEscalationNeedsTwoIndependentRejections(t *testing.T) {
 	for _, name := range []string{"first repair", "process failure", "review pending", "approved repair", "no original rejection", "ordinary builder"} {
 		t.Run(name, func(t *testing.T) {

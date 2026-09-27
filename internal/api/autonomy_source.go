@@ -97,6 +97,9 @@ func autoArchiveSource(ctx context.Context, dir, revision, dest string) error {
 // Resolve omitted revisions for legacy planner reports BEFORE the two plan
 // audits. Never resolve HEAD again when launching a newly admitted proposal.
 func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []autonomy.Proposal) error {
+	if err := s.observeAutoHistoricalDiagnoses(ctx, a, items); err != nil {
+		return err
+	}
 	if err := s.validateAutoSources(a, items); err != nil {
 		return err
 	}
@@ -117,6 +120,9 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 			return fmt.Errorf("item %d: committed source changed since discovery; reread /source?project_id=%d and revise before audit", i, p.ProjectID)
 		}
 		p.SourceRevision = revision
+	}
+	if err := pinAutoDiagnosisEnvironments(a, items); err != nil {
+		return err
 	}
 	if err := s.pinAutoDocumentation(ctx, a, items); err != nil {
 		return err
