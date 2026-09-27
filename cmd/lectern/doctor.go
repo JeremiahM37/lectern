@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
+	"github.com/JeremiahM37/lectern/v2/internal/browser"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/console"
 	"github.com/JeremiahM37/lectern/v2/internal/onboard"
@@ -120,6 +122,21 @@ func doctorCommand(cfg *config.Config, args []string) error {
 	checks = append(checks, check("claude credentials", claudeCredsOK, claudeCredsDetail, "run `claude` once and sign in, or set LECTERN_ANTHROPIC_API_KEY"))
 	codexCredsOK, codexCredsDetail := agentCredHint(cfg.CodexCredsPath)
 	checks = append(checks, check("codex credentials", codexCredsOK, codexCredsDetail, "run `codex` once and sign in"))
+
+	// The Browser pane and the agent browser tools need a Chromium-family
+	// browser on the machine they run on; everything else works without one.
+	bctx, bcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	bin, version, berr := browser.Find(bctx, func(ctx context.Context, script string) (string, error) {
+		out, err := exec.CommandContext(ctx, "sh", "-c", script).Output()
+		return string(out), err
+	})
+	bcancel()
+	if berr != nil {
+		checks = append(checks, skip("browser", "no Chromium or Chrome here — the session browser needs one on the machine it runs on "+
+			"(install chromium, run `npx playwright install chromium`, or set LECTERN_BROWSER_BIN)"))
+	} else {
+		checks = append(checks, check("browser", true, bin+" ("+version+")", ""))
+	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	resolver := auth.New(auth.Settings{

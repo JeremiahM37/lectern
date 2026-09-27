@@ -59,10 +59,14 @@ type Event struct {
 // events go to the handler of the page session they belong to, which must not
 // block for long.
 type Conn struct {
-	ws       *websocket.Conn
-	next     atomic.Int64
-	mu       sync.Mutex
-	pending  map[int64]chan cdpMessage
+	ws      *websocket.Conn
+	next    atomic.Int64
+	mu      sync.Mutex
+	pending map[int64]chan cdpMessage
+	// owner is the page session each pending call was sent to, so a page
+	// that goes away fails its calls at once instead of leaving them
+	// waiting for a reply that will never come.
+	owner    map[int64]string
 	handlers map[string]func(Event)
 	closed   chan struct{}
 	err      error
@@ -84,7 +88,7 @@ func connect(ctx context.Context, dial Dial, port int, path string) (*Conn, erro
 	}
 	// Full-page screenshots and large DOM snapshots arrive as one message.
 	ws.SetReadLimit(64 << 20)
-	c := &Conn{ws: ws, pending: map[int64]chan cdpMessage{}, handlers: map[string]func(Event){}, closed: make(chan struct{})}
+	c := &Conn{ws: ws, pending: map[int64]chan cdpMessage{}, owner: map[int64]string{}, handlers: map[string]func(Event){}, closed: make(chan struct{})}
 	go c.read()
 	return c, nil
 }
@@ -104,11 +108,20 @@ func (c *Conn) read() {
 			c.mu.Lock()
 			ch := c.pending[msg.ID]
 			delete(c.pending, msg.ID)
+			delete(c.owner, msg.ID)
 			c.mu.Unlock()
 			if ch != nil {
 				ch <- msg
 			}
 			continue
+		}
+		if msg.Method == "Target.detachedFromTarget" {
+			var p struct {
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(msg.Params, &p) == nil && p.SessionID != "" {
+				c.failSession(p.SessionID)
+			}
 		}
 		if msg.Method != "" {
 			c.mu.Lock()
@@ -145,6 +158,29 @@ func (c *Conn) handle(session string, h func(Event)) {
 	}
 }
 
+// ErrPageGone means the page a call was sent to closed before answering; a
+// click that closes its own window ends this way.
+var ErrPageGone = errors.New("the page closed")
+
+// failSession answers every call still waiting on a page that has gone.
+func (c *Conn) failSession(sessionID string) {
+	c.mu.Lock()
+	var chans []chan cdpMessage
+	for id, sid := range c.owner {
+		if sid == sessionID {
+			chans = append(chans, c.pending[id])
+			delete(c.pending, id)
+			delete(c.owner, id)
+		}
+	}
+	c.mu.Unlock()
+	for _, ch := range chans {
+		if ch != nil {
+			ch <- cdpMessage{Error: &cdpError{Code: -1, Message: ErrPageGone.Error()}}
+		}
+	}
+}
+
 // Close ends the connection. The browser process is stopped separately.
 func (c *Conn) Close() { c.shutdown(ErrClosed) }
 
@@ -173,6 +209,7 @@ func (c *Conn) Call(ctx context.Context, sessionID, method string, params any, r
 		return ErrClosed
 	}
 	c.pending[id] = ch
+	c.owner[id] = sessionID
 	c.mu.Unlock()
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -182,6 +219,7 @@ func (c *Conn) Call(ctx context.Context, sessionID, method string, params any, r
 	if err := c.ws.Write(ctx, websocket.MessageText, raw); err != nil {
 		c.mu.Lock()
 		delete(c.pending, id)
+		delete(c.owner, id)
 		c.mu.Unlock()
 		return fmt.Errorf("%s: %w", method, err)
 	}
@@ -191,6 +229,9 @@ func (c *Conn) Call(ctx context.Context, sessionID, method string, params any, r
 			return ErrClosed
 		}
 		if reply.Error != nil {
+			if reply.Error.Code == -1 && reply.Error.Message == ErrPageGone.Error() {
+				return fmt.Errorf("%s: %w", method, ErrPageGone)
+			}
 			return fmt.Errorf("%s: %w", method, reply.Error)
 		}
 		if result != nil && len(reply.Result) > 0 {
@@ -200,6 +241,7 @@ func (c *Conn) Call(ctx context.Context, sessionID, method string, params any, r
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, id)
+		delete(c.owner, id)
 		c.mu.Unlock()
 		return fmt.Errorf("%s: %w", method, ctx.Err())
 	}

@@ -241,7 +241,7 @@ e2e_workers=${ADK_TEST_E2E_WORKERS:-$(( cpus / 2 > 1 ? cpus / 2 : 1 ))}
 [[ $e2e_workers =~ ^[0-9]+$ ]] || { echo "ADK_TEST_E2E_WORKERS must be a non-negative integer" >&2; exit 2; }
 
 inner=(/bin/bash -c)
-go_test_cmd="GOMAXPROCS=$cpus go test ./... -count=1"
+go_test_cmd="{ go run ./cmd/lectern doctor 2>&1 | grep -F '] browser' || true; } && GOMAXPROCS=$cpus go test ./... -count=1"
 if [[ -n ${ADK_TEST_GO_ARGS:-} ]]; then
   # Parse the optional focused-test arguments as shell words here, then quote
   # each word before placing it in the namespace command. This keeps the
@@ -255,7 +255,9 @@ if [[ -n ${ADK_TEST_GO_ARGS:-} ]]; then
 fi
 # One binary for every worker: without LECTERN_BIN each xdist worker would
 # build its own copy of the server at startup.
-e2e_prelude='go build -o /tmp/lectern-e2e ./cmd/lectern && export LECTERN_BIN=/tmp/lectern-e2e && '
+# Say which browser the session browser will use in here, and its version,
+# so a browser-specific failure in CI is diagnosable from the log.
+e2e_prelude='go build -o /tmp/lectern-e2e ./cmd/lectern && export LECTERN_BIN=/tmp/lectern-e2e && { /tmp/lectern-e2e doctor 2>&1 | grep -F "] browser" || true; } && '
 e2e_parallel=
 if (( e2e_workers > 1 )); then
   e2e_parallel=" -p xdist -n $e2e_workers --dist worksteal"

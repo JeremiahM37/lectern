@@ -60,6 +60,32 @@ reap() {
 }
 `
 
+// Find names the browser Launch would start on a machine, and its version,
+// or returns ErrNoBrowser.
+func Find(ctx context.Context, run Runner) (string, string, error) {
+	out, err := run(ctx, "# lectern-browser-find\n"+findScript+`[ -n "$bin" ] || { echo NOBROWSER; exit 0; }
+printf 'BIN %s\n' "$bin"; printf 'VERSION %s\n' "$("$bin" --version 2>/dev/null | head -n 1)"
+`)
+	if err != nil {
+		return "", "", err
+	}
+	var bin, version string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.TrimSpace(line) == "NOBROWSER":
+			return "", "", ErrNoBrowser
+		case strings.HasPrefix(line, "BIN "):
+			bin = strings.TrimSpace(line[4:])
+		case strings.HasPrefix(line, "VERSION "):
+			version = strings.TrimSpace(line[8:])
+		}
+	}
+	if bin == "" {
+		return "", "", ErrNoBrowser
+	}
+	return bin, version, nil
+}
+
 // LaunchOptions shape one browser.
 type LaunchOptions struct {
 	Width, Height int
@@ -134,6 +160,7 @@ start() {
   DBUS_SESSION_BUS_ADDRESS=disabled: setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
     --user-data-dir="$profile" --no-first-run --no-default-browser-check --disable-extensions \
     --disable-background-networking --disable-component-update --disable-default-apps \
+    --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding \
     --password-store=basic --use-mock-keychain --disable-sync --mute-audio --hide-scrollbars \
     --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
   echo $! >"$dir/browser.pid"

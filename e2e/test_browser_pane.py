@@ -178,7 +178,7 @@ def test_design_mode_on_a_live_page_sends_elements_to_the_agent(page, real_termi
     body = sent.value.json()
     assert sent.value.status == 200, body
     sources = [s['source'] for s in body['screenshots']]
-    assert all('headless Chromium on terminal-local' in s for s in sources), sources
+    assert all('headless Chromium on terminal-local' in s for s in sources), body['screenshots']
     files = staged(t)
     for name in ('design.md', 'element-1.html', 'element-2.html', 'element-1.png', 'element-2.png'):
         assert name in files, files

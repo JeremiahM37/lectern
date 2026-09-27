@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -166,14 +167,31 @@ func (s *Server) renderShots(ctx context.Context, sess *store.Session, in *desig
 		}
 		address := localURL(e.URL, port)
 		if address != loaded {
-			if _, err := page.Navigate(ctx, address); err != nil {
+			// A loaded machine can take a moment to answer, or to lay the
+			// page out once it has: try a few times before giving up on the
+			// render and falling back to the pane's own capture.
+			var err error
+			for try := 0; try < 3; try++ {
+				if _, err = page.Navigate(ctx, address); err == nil {
+					break
+				}
+				settle(ctx)
+			}
+			if err != nil {
 				shots[i].err = err.Error()
 				continue
 			}
 			loaded = address
 			settle(ctx)
 		}
-		raw, err := page.DescribeSelector(ctx, e.Selector)
+		var raw json.RawMessage
+		var err error
+		for try := 0; try < 10; try++ {
+			if raw, err = page.DescribeSelector(ctx, e.Selector); !errors.Is(err, browser.ErrNotFound) {
+				break
+			}
+			settle(ctx)
+		}
 		if err != nil {
 			shots[i].err = "the element was not found in a fresh render (" + err.Error() + ")"
 			continue

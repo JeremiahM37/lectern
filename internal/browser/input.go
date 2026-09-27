@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -112,6 +113,10 @@ func (b *Browser) ClickAt(ctx context.Context, x, y float64) error {
 		{"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1},
 	} {
 		if err := b.conn.Call(ctx, b.page, "Input.dispatchMouseEvent", step, nil); err != nil {
+			// The click closed its own page (window.close()): it happened.
+			if errors.Is(err, ErrPageGone) {
+				return nil
+			}
 			return err
 		}
 	}
