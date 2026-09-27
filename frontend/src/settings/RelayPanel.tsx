@@ -51,7 +51,18 @@ function ThisDevice() {
     tunnel.addEventListener("status", on);
     return () => tunnel.removeEventListener("status", on);
   }, [tunnel]);
-  if (!relayFlagged()) return null;
+  if (!relayFlagged()) {
+    // The Android app connected straight to this Lectern: the one place to
+    // disconnect it and pair again (docs/android.md).
+    if (!inApp()) return null;
+    return (
+      <div className="relay-this-device" data-testid="app-this-device">
+        <h4>This app</h4>
+        <p className="subhint">Connected directly to {window.location.host}.</p>
+        <button className="b" onClick={() => { if (confirm("Disconnect this app from Lectern?")) void forgetPairing(); }}>Disconnect this app</button>
+      </div>
+    );
+  }
   const direct = preferDirect();
   async function forget() {
     if (!confirm("Forget this device's relay pairing? You will need a new QR code to pair it again.")) return;
