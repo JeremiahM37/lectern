@@ -12,8 +12,13 @@
 // extended-keys-format csi-u (tmux 3.5+) is the form kitty-protocol readers,
 // Claude Code among them, parse; xterm-format readers such as vim read both.
 // That format is a server option too, so it is only chosen when extended keys
-// were off, i.e. not configured by anyone. -q hides unknown-option errors on
-// tmux before 3.2 and 3.5, where the format is empty and nothing is set.
+// were off, i.e. not configured by anyone.
+//
+// Only tmux 3.5 and later, recognised by having extended-keys-format at all.
+// Before 3.5, tmux drops a modified Enter (Shift+Enter, Ctrl+Enter) meant for
+// a program that did not ask for extended keys, so turning them on would
+// make Shift+Enter do nothing at a shell prompt on tmux 3.2-3.4. There the
+// option is left as it is, and so are the browser's keys (WebAttachArgv).
 package tmuxkeys
 
 import (
@@ -23,7 +28,7 @@ import (
 )
 
 // Commands is the tmux command, as argv words, that turns extended keys on.
-var Commands = []string{"if-shell", "-F", "#{==:#{extended-keys},off}",
+var Commands = []string{"if-shell", "-F", "#{?#{extended-keys-format},#{==:#{extended-keys},off},0}",
 	"set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u"}
 
 // Suffix follows a `tmux new-session ...` shell command, running Commands in

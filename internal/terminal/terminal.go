@@ -180,10 +180,14 @@ func WebAttachArgv(a Attachment, target *store.Target) ([]string, error) {
 	return attachArgv(a, target, true)
 }
 
-// extkeysProbe picks the client flag by the target's tmux version: -T (and
+// extkeysProbe picks the client flag by the target's tmux version. -T (and
 // the extkeys feature) arrived in tmux 3.2, and an older tmux refuses an
 // unknown flag outright, which would leave the browser with no terminal.
-const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[01]|"tmux 3."[01][!0-9]*) set -- ;; *) set -- -T extkeys ;; esac; exec tmux "$@"`
+// tmux 3.2-3.4 accept it but then drop Shift+Enter and Ctrl+Enter meant for a
+// program that did not ask for extended keys (a shell), and send Ctrl+letters
+// in legacy form even to one that did, so the browser only declares extended
+// keys to tmux 3.5 and later (see tmuxkeys).
+const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[0-4]|"tmux 3."[0-4][!0-9]*) set -- ;; *) set -- -T extkeys ;; esac; exec tmux "$@"`
 
 func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) {
 	sess := a.TmuxSession

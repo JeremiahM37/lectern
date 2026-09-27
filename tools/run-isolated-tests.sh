@@ -210,6 +210,16 @@ if [[ -n "$playwright" ]]; then
   bwrap_args+=(--dir /opt/playwright --ro-bind "$playwright" /opt/playwright)
 fi
 bwrap_args+=(--ro-bind "$stage/bin/tmux" /opt/test-bin/tmux)
+# Optional other tmux, to reproduce a target's version (CI's apt tmux, say):
+# a directory whose bin/tmux runs it. The wrapper above then uses it in place
+# of the host's /usr/bin/tmux.
+tmux_env=()
+if [[ -n ${ADK_TEST_TMUX_DIR:-} ]]; then
+  tmux_dir=$(readlink -f "$ADK_TEST_TMUX_DIR")
+  [[ -x "$tmux_dir/bin/tmux" ]] || { echo "ADK_TEST_TMUX_DIR has no bin/tmux" >&2; exit 2; }
+  bwrap_args+=(--ro-bind "$tmux_dir" /opt/test-tmux)
+  tmux_env=(--setenv ADK_TEST_REAL_TMUX /opt/test-tmux/bin/tmux)
+fi
 # Optional real Claude CLI for explicit terminal-input audits. Only the executable
 # is exposed; HOME/config/credentials stay private to the test namespace.
 if [[ -n ${ADK_TEST_CLAUDE_BIN:-} ]]; then
@@ -363,6 +373,7 @@ env_args=(
   --setenv TMUX_TMPDIR "$tmux_root"
   --setenv ADK_TEST_TMUX_ROOT "$tmux_root"
   --setenv ADK_TEST_ISOLATED 1
+  "${tmux_env[@]}"
   --setenv ADK_HOST_TMUX_SOCKET "$host_tmux_socket"
 )
 
