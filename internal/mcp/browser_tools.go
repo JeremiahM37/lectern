@@ -27,7 +27,7 @@ func sessionHints(args map[string]any) map[string]any {
 func (s *Server) browserCall(action string, args map[string]any, keys ...string) (any, error) {
 	body := sessionHints(args)
 	body["action"] = action
-	for _, k := range keys {
+	for _, k := range append(keys, "tab") {
 		if v, ok := args[k]; ok {
 			body[k] = v
 		}
@@ -152,6 +152,38 @@ func init() {
 			},
 		},
 		tool{
+			Name: "browser_tabs",
+			Description: "List, open, switch or close the tabs of this session's browser. Every browser tool acts on the " +
+				"active tab unless you pass tab; a link that opens a new window becomes a tab of its own.",
+			Schema: obj(map[string]any{"action": str("list (default) | new | select | close"),
+				"tab": num("the tab id, for select and close"), "url": str("address for a new tab"), "session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				action := map[string]string{"new": "tab_new", "select": "tab_select", "close": "tab_close"}[argStr(args, "action")]
+				if action == "" {
+					action = "tabs"
+				}
+				return s.browserCall(action, args, "url")
+			},
+		},
+		tool{
+			Name:        "browser_find",
+			Description: "Find text in the page, as a browser's own find does: selects and scrolls to the next match and counts them all.",
+			Schema: obj(map[string]any{"text": str("what to find"), "backwards": flag("find the previous match"),
+				"session_id": sessionArg}, "text"),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.browserCall("find", args, "text", "backwards")
+			},
+		},
+		tool{
+			Name: "browser_downloads",
+			Description: "Files this session's browser downloaded. They are saved in your workspace under .lectern/downloads " +
+				"(excluded from git); read them from there.",
+			Schema: obj(map[string]any{"session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.browserCall("downloads", args)
+			},
+		},
+		tool{
 			Name:        "browser_close",
 			Description: "Close this session's browser when you are done with it.",
 			Schema:      obj(map[string]any{"session_id": sessionArg}),
@@ -169,6 +201,18 @@ func init() {
 			},
 		},
 		tool{
+			Name: "computer_snapshot",
+			Description: "Read this session's live desktop as an accessibility tree: every app, window and control, " +
+				"each actionable one with a [ref=N] and its screen rectangle. Pass a ref to computer_click or " +
+				"computer_type to act on that element; refs go stale when the screen changes. Apps must be started " +
+				"with ACCESSIBILITY_ENABLED=1 (and Chromium with --force-renderer-accessibility) to appear.",
+			Schema: obj(map[string]any{"screenshot": flag("also return a screenshot"), "live_id": num("which desktop"),
+				"session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.computerCall("snapshot", args, "screenshot")
+			},
+		},
+		tool{
 			Name:        "computer_windows",
 			Description: "List the visible windows on this session's live desktop, with their names and screen rectangles.",
 			Schema:      obj(map[string]any{"live_id": num("which desktop"), "session_id": sessionArg}),
@@ -177,26 +221,27 @@ func init() {
 			},
 		},
 		tool{
-			Name:        "computer_click",
-			Description: "Click a point on this session's live desktop, in screen pixels from computer_screenshot.",
-			Schema: obj(map[string]any{"x": num("x in screen pixels"), "y": num("y in screen pixels"),
+			Name: "computer_click",
+			Description: "Click an element by ref (from computer_snapshot), using its own accessible action when it has one, " +
+				"or a point on this session's live desktop in screen pixels.",
+			Schema: obj(map[string]any{"ref": num("element ref from computer_snapshot"), "x": num("x in screen pixels"), "y": num("y in screen pixels"),
 				"button": str("left (default), right or double"), "screenshot": flag("return a screenshot afterwards"),
-				"live_id": num("which desktop"), "session_id": sessionArg}, "x", "y"),
+				"live_id": num("which desktop"), "session_id": sessionArg}),
 			Run: func(s *Server, args map[string]any) (any, error) {
 				action := map[string]string{"right": "right_click", "double": "double_click"}[argStr(args, "button")]
 				if action == "" {
 					action = "click"
 				}
-				return s.computerCall(action, args, "x", "y", "screenshot")
+				return s.computerCall(action, args, "ref", "x", "y", "screenshot")
 			},
 		},
 		tool{
 			Name:        "computer_type",
-			Description: "Type text into whatever has focus on this session's live desktop.",
-			Schema: obj(map[string]any{"text": str("text to type"), "screenshot": flag("return a screenshot afterwards"),
+			Description: "Type text into an element by ref (from computer_snapshot: its text is replaced), or into whatever has focus on this session's live desktop.",
+			Schema: obj(map[string]any{"text": str("text to type"), "ref": num("element ref from computer_snapshot"), "screenshot": flag("return a screenshot afterwards"),
 				"live_id": num("which desktop"), "session_id": sessionArg}, "text"),
 			Run: func(s *Server, args map[string]any) (any, error) {
-				return s.computerCall("type", args, "text", "screenshot")
+				return s.computerCall("type", args, "ref", "text", "screenshot")
 			},
 		},
 		tool{
@@ -218,6 +263,16 @@ func init() {
 			},
 		},
 	)
+	// Browser tools that act on a page take an optional tab.
+	for i := range tools {
+		t := &tools[i]
+		if !strings.HasPrefix(t.Name, "browser_") || t.Name == "browser_tabs" || t.Name == "browser_close" || t.Name == "browser_downloads" {
+			continue
+		}
+		if props, ok := t.Schema["properties"].(map[string]any); ok {
+			props["tab"] = num("the tab to act on (see browser_tabs); omit for the active tab")
+		}
+	}
 	// A browser or a desktop on the operator's machine is driven by that
 	// session's own agent, never by a remote chat through the web connector.
 	for _, t := range tools {

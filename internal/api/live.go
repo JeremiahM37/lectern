@@ -69,6 +69,7 @@ func (s *Server) liveInit() *liveState {
 					if len(gone) > 0 {
 						s.Bus.Publish("board", "live", map[string]any{"closed": gone})
 					}
+					s.keepDesktopsAlive()
 				}
 			}
 		}()
@@ -362,4 +363,34 @@ func (s *Server) closeLive(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Bus.Publish("board", "live", map[string]any{"closed": []int64{id}})
 	w.WriteHeader(204)
+}
+
+// keepDesktopsAlive marks this server's desktops as in use, so another
+// Lectern starting one on the same machine leaves them be.
+func (s *Server) keepDesktopsAlive() {
+	l := &s.live
+	byTarget := map[int64][]string{}
+	for _, f := range l.forwards.List() {
+		l.mu.Lock()
+		d := l.desktops[f.ID]
+		l.mu.Unlock()
+		if d != nil {
+			byTarget[f.TargetID] = append(byTarget[f.TargetID], d.Dir)
+		}
+	}
+	for targetID, dirs := range byTarget {
+		target, err := s.DB.Target(targetID)
+		if err != nil {
+			continue
+		}
+		ex, err := s.Reg.For(target)
+		if err != nil {
+			continue
+		}
+		go func(run desktop.Runner, dirs []string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			_ = desktop.KeepAlive(ctx, run, dirs...)
+		}(liveRunner(ex), dirs)
+	}
 }

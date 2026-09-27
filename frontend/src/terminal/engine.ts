@@ -8,11 +8,11 @@ import {
   copyClipboard,
   json,
   request,
-  themes,
   withToken,
   type History,
   type Prefs,
 } from "./model";
+import { resolveTerminalTheme } from "../theme/terminal-prefs";
 export interface Snapshot {
   connected: boolean;
   paused: boolean;
@@ -40,6 +40,10 @@ export interface EngineOptions {
   matches: (index: number, count: number) => void;
   // A deliberate horizontal flick on the terminal body, for the tab bar.
   swipe?: (direction: 1 | -1) => void;
+  // Whether a program may copy to the clipboard with OSC 52, and what to do
+  // with text it copies.
+  osc52?: () => boolean;
+  clipboard?: (text: string) => void;
 }
 import { installAndroidInput } from "./android-input";
 export class Engine {
@@ -113,7 +117,7 @@ export class Engine {
     this.term = new Terminal({
       fontSize: prefs.fontSize,
       lineHeight: prefs.lineHeight,
-      theme: themes[prefs.theme] || themes.slate,
+      theme: resolveTerminalTheme(prefs.theme),
       fontFamily: "Cascadia Mono, Consolas, Liberation Mono, monospace",
       scrollback: 100000,
       convertEol: false,
@@ -129,6 +133,20 @@ export class Engine {
       }),
     );
     this.term.open(options.host);
+    // OSC 52: a program (tmux, vim, a remote shell) sets the clipboard. Writes
+    // are honoured when allowed; a request to read the clipboard ("?") never
+    // is, because it would hand the local clipboard to whatever is running.
+    this.disposables.push(this.term.parser.registerOscHandler(52, (data) => {
+      const at = data.indexOf(";");
+      const payload = at < 0 ? "" : data.slice(at + 1);
+      if (!payload || payload === "?" || !(options.osc52?.() ?? true)) return true;
+      try {
+        const bytes = Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0));
+        const text = new TextDecoder().decode(bytes);
+        if (text.length <= 1_000_000) options.clipboard?.(text);
+      } catch {}
+      return true;
+    }));
     if (/Android/i.test(navigator.userAgent) && this.term.textarea) {
       this.androidInput = installAndroidInput(options.host, this.term.textarea,
         text => this.input(text, true));
@@ -179,19 +197,14 @@ export class Engine {
         } else this.controlsPrefix = true;
         return false;
       }
+      // Ctrl+C with text selected copies it; with nothing selected it is the
+      // interrupt the program expects. Chorded copy, history and the rest are
+      // registry shortcuts (shortcuts/registry.ts), handled by the page.
       if (
         (event.ctrlKey || event.metaKey) &&
-        event.shiftKey &&
-        event.code === "KeyF"
-      ) {
-        event.preventDefault();
-        options.history();
-        return false;
-      }
-      if (
-        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
         event.code === "KeyC" &&
-        (event.shiftKey || this.selectedText())
+        this.selectedText()
       ) {
         event.preventDefault();
         void copyClipboard(this.selectedText(), () => this.term.focus()).catch(
@@ -509,6 +522,11 @@ export class Engine {
     this.term.paste(text);
     this.term.focus();
   }
+  copySelection() {
+    const text = this.selectedText();
+    if (!text) return Promise.resolve(false);
+    return copyClipboard(text, () => this.term.focus()).then(() => true);
+  }
   selectedText() {
     const selection = window.getSelection();
     return selection?.toString() &&
@@ -597,7 +615,7 @@ export class Engine {
     const prefs = this.options.prefs();
     this.term.options.fontSize = prefs.fontSize;
     this.term.options.lineHeight = prefs.lineHeight;
-    this.term.options.theme = themes[prefs.theme] || themes.slate;
+    this.term.options.theme = resolveTerminalTheme(prefs.theme);
     if (!this.paused) this.scheduleFit();
   }
   fileLinks(workdir: string, preview: (path: string) => void) {
