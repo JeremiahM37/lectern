@@ -169,6 +169,14 @@ func init() {
 			},
 		},
 		tool{
+			Name:        "computer_windows",
+			Description: "List the visible windows on this session's live desktop, with their names and screen rectangles.",
+			Schema:      obj(map[string]any{"live_id": num("which desktop"), "session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.computerCall("windows", args)
+			},
+		},
+		tool{
 			Name:        "computer_click",
 			Description: "Click a point on this session's live desktop, in screen pixels from computer_screenshot.",
 			Schema: obj(map[string]any{"x": num("x in screen pixels"), "y": num("y in screen pixels"),

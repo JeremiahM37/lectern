@@ -306,6 +306,8 @@ def test_computer_use_is_off_until_allowed_and_stops_on_demand(page, real_termin
     pane.get_by_role('tab', name='Desktop').click()
     pane.get_by_role('button', name='Allow agent control').click()
     expect(pane.locator('.desk .browser-control')).to_contain_text('may control', timeout=10000)
+    # The agent can see what is on screen: the desktop's browser window, by name.
+    wait_for('the desktop browser window', lambda: 'Fixture shop' in mcp(t, ('computer_windows', {}))[0]['text'], timeout=30)
     shot, click = mcp(t, ('computer_screenshot', {}), ('computer_click', {'x': 50, 'y': 60}))
     assert not shot['error'] and shot['content'][1]['type'] == 'image', shot
     assert not click['error'], click

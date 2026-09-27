@@ -35,7 +35,7 @@ const computerUsage = `usage: lectern computer ACTION [ARGS] [--session ID] [--l
   type TEXT
   key KEY                     xdotool key name: Return, ctrl+l, ...
   scroll X Y up|down|left|right [--amount N]
-  status`
+  windows | status`
 
 // commonFlags pulls --session, --live and flag values out of args.
 func commonFlags(args []string, valued map[string]bool) (rest []string, flags map[string]string, err error) {
@@ -297,7 +297,7 @@ func computerCommand(c *console.Client, args []string) ([]byte, error) {
 			n, _ := strconv.Atoi(v)
 			body["amount"] = n
 		}
-	case "status":
+	case "status", "windows":
 	default:
 		return nil, fmt.Errorf("unknown computer action %q\n%s", action, computerUsage)
 	}

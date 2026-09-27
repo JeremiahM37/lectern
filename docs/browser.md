@@ -28,11 +28,13 @@ The pane can show a page in two ways:
 | What it is | A real headless Chromium on the session's machine, streamed to the pane | The dev server itself, framed through a Lectern view |
 | The agent sees it too | Yes, it is the browser the agent's tools drive | No |
 | Scrolling and typing | Sent to the page as input | Native |
-| Over the relay and in the Android app | Yes | No (the frame cannot use the encrypted tunnel) |
+| Over the encrypted relay | Yes | No (a frame cannot use the tunnel) |
 | Needs | Chromium or Chrome on that machine (or on the Lectern host, see below) | `LECTERN_LIVE=1` on the server |
 
 Both see the session machine's own `localhost`, so a dev server bound to
-`127.0.0.1` works without exposing anything.
+`127.0.0.1` works without exposing anything. The Android app runs this same
+web app; the pane has been tested in browsers, over the relay and directly,
+but not yet inside the APK.
 
 <img src="media/browser/phone.png" width="260" alt="The shared browser on a phone paired over the relay">
 
@@ -53,8 +55,11 @@ message typed into the session that names them:
 
 - `design.md`: for each element, the page URL as the agent knows it
   (`http://localhost:5173/...`, not Lectern's address), the viewport, the
-  selector, the DOM path, its box, the computed CSS that differs from that
-  element's defaults, and the stylesheet rules that match it.
+  selector, the DOM path, its box, the source file and line when a dev build
+  exposes them (React's debug info, Vue's component file, Svelte's location,
+  or inspector `data-*` attributes), the computed CSS that differs from that
+  element's defaults, the stylesheet rules that match it, and its parent's
+  markup cut to two levels.
 - `element-N.html`: the element's markup, trimmed: scripts and SVG paths
   removed, long text and attributes cut, deep subtrees summarised, event
   handlers dropped and password fields blanked.
@@ -120,6 +125,7 @@ one it starts with `open_live_view` or `lectern live` (see
 | MCP tool | CLI |
 |---|---|
 | `computer_screenshot` | `lectern computer screenshot FILE` |
+| `computer_windows` (names and rectangles) | `lectern computer windows` |
 | `computer_click` (left, right, double) | `lectern computer click X Y [--right\|--double]` |
 | `computer_type` | `lectern computer type TEXT` |
 | `computer_key` (xdotool names: `Return`, `ctrl+l`) | `lectern computer key KEY` |
@@ -173,14 +179,15 @@ the agent is in control, and has **Stop agent**. The desktop's machine needs
 ## How it works
 
 ```
- Browser pane (web app, PWA, Android)          Lectern                      session machine
- ┌────────────────────────────┐               ┌─────────────────────┐       ┌──────────────────────────┐
- │ shared: <img> of frames  ◄─┼── API WS ─────┤ CDP client ─────────┼─dial─►│ headless Chromium        │
- │   input events ──────────► │  (tunnels     │  screencast, input,  │ 127.0.0.1│ DevTools on loopback    │
- │ live page: <iframe> ◄──────┼── view port ──┤ view proxy ──────────┼─dial─►│ dev server :5173         │
- │ Design Mode panel          │               │ design: render, crop,│       │ .lectern/context/…       │
- └────────────────────────────┘               │ stage, type message  │       └──────────────────────────┘
- agent (MCP / lectern browser) ─── POST /api/browser, /api/computer ──┘
+Browser pane (web app, PWA)      Lectern                        session machine
+  shared browser:                  CDP client  ── dial ──────►   headless Chromium
+    <img> frames  ◄── API WS ──    (screencast, input,           (DevTools on 127.0.0.1)
+    input events  ──►               snapshots, design)
+  live page:
+    <iframe>      ◄── view port ── view proxy  ── dial ──────►   dev server, e.g. :5173
+  Design Mode send ── POST ──────► render, crop, stage ──────►   .lectern/context/…
+                                   type one message ─────────►   the agent's terminal
+agent (MCP or `lectern browser`) ── POST /api/browser, /api/computer ─┘
 ```
 
 - `internal/browser` speaks the Chrome DevTools Protocol directly: no

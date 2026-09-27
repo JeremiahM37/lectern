@@ -48,6 +48,58 @@ printf 'PNG '; base64 -w0 "$f" 2>/dev/null || base64 "$f" | tr -d '\n'; echo; rm
 	return nil, fmt.Errorf("the machine did not return a screenshot")
 }
 
+// Window is one visible top-level window.
+type Window struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	X      int    `json:"x"`
+	Y      int    `json:"y"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+// Windows lists the desktop's visible windows, so an agent knows what is on
+// screen and where before it clicks.
+func Windows(ctx context.Context, run Runner, d *Desktop) ([]Window, error) {
+	if !stateDir.MatchString(d.Dir) {
+		return nil, fmt.Errorf("not a desktop state directory")
+	}
+	out, err := run(ctx, fmt.Sprintf(`# lectern-desktop-windows
+dir=%s; export DISPLAY=:%d
+[ -d "$dir" ] || { echo "ERROR the desktop is gone"; exit 0; }
+command -v xdotool >/dev/null 2>&1 || { echo "MISSING xdotool"; exit 0; }
+for id in $(xdotool search --onlyvisible --name '.' 2>/dev/null | head -n 50); do
+  eval "$(xdotool getwindowgeometry --shell "$id" 2>/dev/null)"
+  [ "${WIDTH:-0}" -gt 1 ] || continue
+  printf 'WIN\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\n' "$id" "$X" "$Y" "$WIDTH" "$HEIGHT" "$(xdotool getwindowname "$id" 2>/dev/null | tr '\t\n' '  ')"
+done
+`, shellQuote(d.Dir), d.Display))
+	if err != nil {
+		return nil, err
+	}
+	wins := []Window{}
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "MISSING"):
+			return nil, &MissingError{Tools: strings.Fields(line)[1:]}
+		case strings.HasPrefix(line, "ERROR "):
+			return nil, fmt.Errorf("%s", strings.TrimPrefix(line, "ERROR "))
+		case strings.HasPrefix(line, "WIN\t"):
+			f := strings.SplitN(line, "\t", 7)
+			if len(f) != 7 {
+				continue
+			}
+			w := Window{ID: f[1], Name: f[6]}
+			fmt.Sscan(f[2], &w.X)
+			fmt.Sscan(f[3], &w.Y)
+			fmt.Sscan(f[4], &w.Width)
+			fmt.Sscan(f[5], &w.Height)
+			wins = append(wins, w)
+		}
+	}
+	return wins, nil
+}
+
 // Action is one input to a desktop.
 type Action struct {
 	Type   string `json:"action"` // click|double_click|right_click|move|type|key|scroll

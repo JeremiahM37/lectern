@@ -193,6 +193,50 @@
     return rules;
   }
 
+  // Where the element comes from in the app's source, when a dev build says:
+  // React's debug info, Vue's component file, Svelte's location, or the
+  // data attributes inspector plugins add.
+  function sourceOf(el) {
+    for (var n = el, hops = 0; n && n.nodeType === 1 && hops < 12; n = n.parentElement, hops++) {
+      var file = n.getAttribute("data-inspector-relative-path") || n.getAttribute("data-source-file");
+      if (file) return { file: file, line: +(n.getAttribute("data-inspector-line") || n.getAttribute("data-source-line") || 0), via: "data attribute" };
+      if (n.__svelte_meta && n.__svelte_meta.loc) {
+        var loc = n.__svelte_meta.loc;
+        return { file: loc.file, line: loc.line + 1, column: loc.column, via: "svelte" };
+      }
+      if (n.__vueParentComponent && n.__vueParentComponent.type && n.__vueParentComponent.type.__file) {
+        return { file: n.__vueParentComponent.type.__file, via: "vue" };
+      }
+      var key = Object.keys(n).find(function (k) { return k.indexOf("__reactFiber$") === 0; });
+      for (var f = key && n[key], up = 0; f && up < 20; f = f.return, up++) {
+        if (f._debugSource && f._debugSource.fileName) {
+          return { file: f._debugSource.fileName, line: f._debugSource.lineNumber, column: f._debugSource.columnNumber, via: "react" };
+        }
+        var stack = f._debugStack && f._debugStack.stack;
+        if (typeof stack === "string") {
+          var lines = stack.split("\n");
+          for (var i = 0; i < lines.length; i++) {
+            var m = /(https?:\/\/[^\s)]+?):(\d+):(\d+)/.exec(lines[i]);
+            if (m && !/node_modules|\/\.vite\/deps\/|react-dom|react\.development/.test(m[1])) {
+              return { file: m[1].replace(/^https?:\/\/[^/]+/, "").replace(/\?.*$/, ""), line: +m[2], column: +m[3], via: "react" };
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // The parent's markup, cut to two levels, so the agent sees what surrounds
+  // the element.
+  function neighborhood(el) {
+    var parent = el.parentElement;
+    if (!parent || parent === document.body || parent === document.documentElement) return "";
+    var keep = [MAX_DEPTH, MAX_HTML];
+    MAX_DEPTH = 2; MAX_HTML = 2000;
+    try { return trimHTML(parent).html; } finally { MAX_DEPTH = keep[0]; MAX_HTML = keep[1]; }
+  }
+
   function describe(el) {
     var r = el.getBoundingClientRect(), text = (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ");
     var h = trimHTML(el), rules = matchedRules(el), css = styleDiff(el);
@@ -205,6 +249,8 @@
       html: h.html, html_truncated: h.truncated, html_length: h.original_length,
       css: css,
       rules: rules,
+      source: sourceOf(el),
+      context_html: neighborhood(el),
       rect: { x: r.left, y: r.top, width: r.width, height: r.height },
       scroll: { x: window.scrollX, y: window.scrollY },
       viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 },

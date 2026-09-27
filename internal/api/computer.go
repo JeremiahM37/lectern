@@ -159,6 +159,16 @@ func (s *Server) agentComputer(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	out := map[string]any{"live_id": ld.view.ID, "width": ld.d.Width, "height": ld.d.Height}
+	if in.Type == "windows" {
+		wins, err := desktop.Windows(ctx, run, ld.d)
+		if err != nil {
+			deskError(w, err)
+			return
+		}
+		out["windows"] = wins
+		writeJSON(w, 200, out)
+		return
+	}
 	if in.Type != "screenshot" {
 		if err := desktop.Act(ctx, run, ld.d, in.Action); err != nil {
 			deskError(w, err)

@@ -27,8 +27,8 @@ body{margin:0;font-family:sans-serif}
 .card{position:absolute;left:40px;top:60px;width:200px;height:100px;background:rgb(255,0,0);border-radius:8px;padding:0}
 #long{margin-top:400px}
 </style></head><body>
-<h1>Fixture heading</h1>
-<div class="card" id="card"><span>Red card</span></div>
+<h1 id="heading">Fixture heading</h1><script>document.getElementById('heading')['__reactFiber$x1']={return:{_debugSource:{fileName:'/app/src/Heading.tsx',lineNumber:7,columnNumber:3}}}</script>
+<div class="card" id="card" data-source-file="src/Card.tsx" data-source-line="12"><span>Red card</span></div>
 <form id="f" style="margin-top:200px">
   <label>Email <input id="email" name="email" type="text"></label>
   <label>Secret <input id="secret" type="password" value="hunter2"></label>
@@ -258,6 +258,15 @@ func TestDesignPayloadAndCroppedScreenshot(t *testing.T) {
 	}
 	if _, ok := d.CSS["font-style"]; ok {
 		t.Fatalf("css diff includes a default value: %v", d.CSS)
+	}
+	if !strings.Contains(string(raw), `"source":{"file":"src/Card.tsx","line":12`) {
+		t.Fatalf("no source from the inspector attributes: %s", raw)
+	}
+	if raw, err := b.DescribeSelector(ctx, "#heading"); err != nil || !strings.Contains(string(raw), `"file":"/app/src/Heading.tsx","line":7`) {
+		t.Fatalf("no source from React's debug info: %s %v", raw, err)
+	}
+	if !strings.Contains(string(raw), `"context_html":""`) {
+		t.Fatalf("a child of body has no neighborhood to show: %s", raw)
 	}
 	if len(d.Rules) == 0 || !strings.Contains(d.Rules[0], ".card") {
 		t.Fatalf("matched rules: %v", d.Rules)

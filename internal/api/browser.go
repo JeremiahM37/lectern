@@ -502,6 +502,9 @@ func (s *Server) act(ctx context.Context, sess *store.Session, a browserArgs, ag
 	case "resize":
 		state, err = b.Resize(ctx, a.viewport())
 	case "click":
+		if a.Ref == 0 && a.Selector == "" && a.X == 0 && a.Y == 0 {
+			return nil, invalid("name what to click: a ref from a snapshot, a selector, or x and y")
+		}
 		if a.Ref == 0 && a.Selector == "" {
 			err = b.ClickAt(ctx, a.X, a.Y)
 			state = b.State()

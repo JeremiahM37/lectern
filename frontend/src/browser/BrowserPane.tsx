@@ -771,6 +771,7 @@ export function BrowserPane({
                       <code>{el.breadcrumb}</code>
                       <small>
                         {Math.round(el.rect.width)}×{Math.round(el.rect.height)} · {Object.keys(el.css).length} styles
+                        {el.source ? ` · ${el.source.file.split("/").pop()}${el.source.line ? ":" + el.source.line : ""}` : ""}
                       </small>
                       <button className="b" aria-label={`Remove ${el.selector}`} onClick={() => setPicked((l) => l.filter((x) => x !== el))}>
                         ×

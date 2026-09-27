@@ -41,6 +41,23 @@ func TestComputerUseSeesAndDrivesARealDisplay(t *testing.T) {
 	if b := img.Bounds(); b.Dx() != 800 || b.Dy() != 600 {
 		t.Fatalf("screenshot is %dx%d", b.Dx(), b.Dy())
 	}
+	// A window appears in the list with its rectangle.
+	if _, err := exec.LookPath("xmessage"); err == nil {
+		_, _ = sh(ctx, "DISPLAY=:"+strconv.Itoa(d.Display)+" setsid nohup xmessage -geometry +40+50 'hello from lectern' >/dev/null 2>&1 </dev/null & echo $! >"+d.Dir+"/xmessage.pid")
+		deadline := time.Now().Add(10 * time.Second)
+		var wins []Window
+		for time.Now().Before(deadline) {
+			if wins, err = Windows(ctx, sh, d); err == nil && len(wins) > 0 {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if len(wins) == 0 || wins[0].Width < 10 {
+			t.Fatalf("windows: %+v %v", wins, err)
+		}
+	} else if _, err := Windows(ctx, sh, d); err != nil {
+		t.Fatal(err)
+	}
 	if err := Act(ctx, sh, d, Action{Type: "move", X: 123, Y: 234}); err != nil {
 		t.Fatal(err)
 	}

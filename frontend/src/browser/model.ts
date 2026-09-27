@@ -66,6 +66,9 @@ export interface DesignElement {
   html_length: number;
   css: Record<string, string>;
   rules: string[];
+  /** Where a dev build says the element comes from, when it says. */
+  source?: { file: string; line?: number; column?: number; via: string } | null;
+  context_html?: string;
   rect: { x: number; y: number; width: number; height: number };
   scroll: { x: number; y: number };
   viewport: { width: number; height: number; dpr: number };

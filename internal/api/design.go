@@ -31,8 +31,15 @@ type designElement struct {
 	HTMLLength    int               `json:"html_length"`
 	CSS           map[string]string `json:"css"`
 	Rules         []string          `json:"rules"`
-	Rect          browser.Clip      `json:"rect"`
-	Scroll        struct {
+	Source        *struct {
+		File   string `json:"file"`
+		Line   int    `json:"line"`
+		Column int    `json:"column"`
+		Via    string `json:"via"`
+	} `json:"source"`
+	ContextHTML string       `json:"context_html"`
+	Rect        browser.Clip `json:"rect"`
+	Scroll      struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 	} `json:"scroll"`
@@ -77,10 +84,15 @@ func (in *designIn) validate() error {
 		if strings.TrimSpace(e.Selector) == "" || len(e.Selector) > 2000 {
 			return invalid("element %d has no usable selector", i+1)
 		}
-		if len(e.HTML) > 20000 || len(e.CSS) > 150 || len(e.Rules) > 20 || len(e.ClientPNG) > 12<<20 {
+		if len(e.HTML) > 20000 || len(e.ContextHTML) > 6000 || len(e.CSS) > 150 || len(e.Rules) > 20 || len(e.ClientPNG) > 12<<20 {
 			return invalid("element %d is larger than Design Mode sends", i+1)
 		}
 		e.Breadcrumb, e.Text, e.Title = clip(e.Breadcrumb, 400), clip(e.Text, 400), clip(e.Title, 200)
+		if e.Source != nil {
+			if e.Source.File = clip(strings.TrimSpace(e.Source.File), 500); e.Source.File == "" || strings.ContainsAny(e.Source.File, "\n\r") {
+				e.Source = nil
+			}
+		}
 	}
 	return nil
 }
@@ -312,6 +324,9 @@ func designSummary(in *designIn, shots []designShot, port int) string {
 		if e.Text != "" {
 			fmt.Fprintf(&b, "- Text: %q\n", e.Text)
 		}
+		if e.Source != nil {
+			fmt.Fprintf(&b, "- Source: %s (from %s dev info)\n", sourceRef(e), e.Source.Via)
+		}
 		switch {
 		case shots[i].png != nil:
 			fmt.Fprintf(&b, "- Screenshot: element-%d.png, from %s\n", n, shots[i].source)
@@ -335,6 +350,9 @@ func designSummary(in *designIn, shots []designShot, port int) string {
 			}
 			b.WriteString("```\n\n")
 		}
+		if e.ContextHTML != "" {
+			b.WriteString("Surrounding markup (its parent, trimmed):\n\n```html\n" + e.ContextHTML + "\n```\n\n")
+		}
 		if len(e.Rules) > 0 {
 			b.WriteString("Stylesheet rules that match it:\n\n```css\n")
 			for _, rule := range e.Rules {
@@ -344,6 +362,13 @@ func designSummary(in *designIn, shots []designShot, port int) string {
 		}
 	}
 	return b.String()
+}
+
+func sourceRef(e designElement) string {
+	if e.Source.Line > 0 {
+		return fmt.Sprintf("%s:%d", e.Source.File, e.Source.Line)
+	}
+	return e.Source.File
 }
 
 func designMessage(in *designIn, staged []stagedFile, shots []designShot, port int) string {
@@ -358,7 +383,11 @@ func designMessage(in *designIn, staged []stagedFile, shots []designShot, port i
 	}
 	fmt.Fprintf(&b, "Design Mode: I picked %s on %s (viewport %dx%d).\n", count, pageOf(e0, port), e0.Viewport.Width, e0.Viewport.Height)
 	for i, e := range in.Elements {
-		fmt.Fprintf(&b, "%d. %s (selector: %s)\n", i+1, clip(e.Breadcrumb, 160), clip(e.Selector, 200))
+		fmt.Fprintf(&b, "%d. %s (selector: %s)", i+1, clip(e.Breadcrumb, 160), clip(e.Selector, 200))
+		if e.Source != nil {
+			b.WriteString(", source " + sourceRef(e))
+		}
+		b.WriteString("\n")
 	}
 	var pngs []string
 	summary := ""
