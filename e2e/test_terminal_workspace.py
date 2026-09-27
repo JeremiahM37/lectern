@@ -14,7 +14,7 @@ import urllib.request
 
 import pytest
 from playwright.sync_api import expect
-from conftest import _binary, _unused_port, OUTSIDE_WORLD
+from conftest import _binary, _unused_port, OUTSIDE_WORLD, tmux_chord
 
 @pytest.fixture()
 def real_terminal(tmp_path, request):
@@ -237,7 +237,7 @@ def test_real_terminal_history_preferences_pause_and_two_clients(page,browser,re
         assert b'AFTER-PAUSE-PROOF' in output
         os.write(master,b'echo DESKTOP-PTY-PROOF\r')
         expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text('DESKTOP-PTY-PROOF',timeout=10000)
-        os.write(master,b'\x02d');child.wait(timeout=10)
+        tmux_chord(master, b"\x02d");child.wait(timeout=10)
         assert child.returncode==0
     finally:
         if child.poll() is None:child.terminate();child.wait(timeout=10)
