@@ -79,7 +79,11 @@ func Start(ctx context.Context, run Runner, owner string, width, height int) (*D
 W=%d; H=%d; OWNER=%s
 for old in /tmp/lectern-live-??????; do
   [ -d "$old" ] && [ ! -L "$old" ] || continue
-  [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] || reap "$old"
+  [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] && continue
+  # Another server's desktop stays while that server keeps it alive: two
+  # Lecterns can share a machine. One not touched for 5 minutes is abandoned.
+  if [ -n "$(find "$old/alive" -mmin -5 2>/dev/null)" ]; then continue; fi
+  reap "$old"
 done
 missing=""
 for b in Xvfb x11vnc websockify python3; do command -v "$b" >/dev/null 2>&1 || missing="$missing $b"; done
@@ -90,7 +94,7 @@ done
 [ -n "$novnc" ] || missing="$missing novnc"
 if [ -n "$missing" ]; then echo "MISSING$missing"; exit 0; fi
 dir=$(mktemp -d /tmp/lectern-live-XXXXXX) || { echo "ERROR could not create state directory"; exit 0; }
-chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"
+chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"; : >"$dir/alive"
 n=""
 for c in $(seq 90 139); do
   [ -e "/tmp/.X11-unix/X$c" ] || [ -e "/tmp/.X$c-lock" ] || { n=$c; break; }
@@ -146,6 +150,21 @@ echo "OK $dir $n $wport"
 		}
 	}
 	return nil, fmt.Errorf("the target did not report a desktop: %s", strings.TrimSpace(out))
+}
+
+// KeepAlive tells other servers on the machine these desktops are still in
+// use; Start reaps one whose owner stopped doing this.
+func KeepAlive(ctx context.Context, run Runner, dirs ...string) error {
+	var b strings.Builder
+	b.WriteString("# lectern-desktop-alive\n")
+	for _, d := range dirs {
+		if stateDir.MatchString(d) {
+			fmt.Fprintf(&b, "[ -d %[1]s ] && touch %[1]s/alive\n", shellQuote(d))
+		}
+	}
+	b.WriteString("true\n")
+	_, err := run(ctx, b.String())
+	return err
 }
 
 // Stop ends a desktop and everything started inside it, and removes its state.
