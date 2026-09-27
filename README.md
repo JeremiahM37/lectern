@@ -52,9 +52,10 @@ drops you in. In an attached session, **`Ctrl+\`** sends a file to the agent.
 
 ### Any agent, without cluttered menus
 
-Claude Code, Codex and Gemini are built in. Settings → Agents adds OpenCode,
-Aider, Goose, Amp, Cursor Agent, Copilot CLI, Qwen Code, Crush, Kimi or Cline in
-one click, or any CLI as a custom agent. Only the agents you pick appear in
+Claude Code, Codex and Gemini are built in. Settings → Agents adds 30 more from a
+searchable catalog in one click — OpenCode, Cursor, Copilot CLI, Grok, Amp,
+Antigravity, Qwen Code, Kimi, Goose, Aider, Droid, Kiro, Devin, Pi and the rest —
+or any CLI as a custom agent. Only the agents you pick appear in
 menus, and the rest sit under **More agents…**. Resume, fork, models, approvals,
 tasks and `lectern <agent>` work with each agent as far as its CLI allows.
 Lectern tells you plainly when a CLI can't do something.

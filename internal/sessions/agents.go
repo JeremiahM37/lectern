@@ -38,6 +38,12 @@ type Spec struct {
 	// PromptArg says the opening message can be a positional argument. When it
 	// cannot, lectern falls back to typing the message once the pane settles.
 	PromptArg bool `json:"prompt_arg,omitempty"`
+	// PromptArgs pass the opening message through arguments instead, with
+	// {prompt} replaced by the message, e.g. ["--prompt", "{prompt}"] or
+	// ["-i", "{prompt}"] for a CLI whose bare positional would run one-shot
+	// and exit, or ["--", "{prompt}"] where a positional must be separated
+	// from options. It takes precedence over PromptArg.
+	PromptArgs []string `json:"prompt_args,omitempty"`
 	// Env is agent-wide environment, layered under the project's own. This is
 	// the local-model door for a CLI that wants its endpoint in the environment.
 	Env map[string]string `json:"env,omitempty"`
@@ -56,6 +62,10 @@ type Spec struct {
 	// coding CLI spells this differently and some cannot do it at all; empty
 	// means this agent has no such mode and the toggle is not offered for it.
 	YoloArgs []string `json:"yolo_args,omitempty"`
+	// YoloEnv is the same switch for a CLI that only reads it from the
+	// environment (goose's GOOSE_MODE=auto). Like YoloArgs it is applied only
+	// when the launch asks for yolo, never as agent-wide Env.
+	YoloEnv map[string]string `json:"yolo_env,omitempty"`
 	// ModelsCommand asks the CLI what models it has. `{bin}` is replaced with the
 	// resolved binary. Model line-ups change faster than lectern ships, and a
 	// list of names written down here is wrong the moment a vendor renames one —
@@ -288,8 +298,32 @@ func ValidateSpecs(raw string) error {
 				return fmt.Errorf("agent %q: invalid env var name %q", name, k)
 			}
 		}
+		for k := range c.YoloEnv {
+			if !validEnvName(k) {
+				return fmt.Errorf("agent %q: invalid yolo_env var name %q", name, k)
+			}
+		}
+		if len(c.PromptArgs) > 0 {
+			found := false
+			for _, arg := range c.PromptArgs {
+				if arg == "{prompt}" {
+					found = true
+				} else if strings.Contains(arg, "{prompt}") {
+					return fmt.Errorf("agent %q: prompt_args placeholder {prompt} must be a whole argument", name)
+				}
+			}
+			if !found {
+				return fmt.Errorf("agent %q: prompt_args must contain {prompt}", name)
+			}
+		}
 	}
 	return nil
+}
+
+// TakesPrompt reports whether the opening message can ride on the command
+// line (PromptArg or PromptArgs); otherwise it is typed once the pane settles.
+func (s Spec) TakesPrompt() bool {
+	return s.PromptArg || len(s.PromptArgs) > 0
 }
 
 // TaskPermissionArgsConfigured distinguishes a real capability mapping from
@@ -403,8 +437,9 @@ type Start struct {
 	IsolationOpts isolation.WrapOpts
 }
 
-// LaunchCommand builds the tmux command that starts one interactive session.
-func (s Spec) LaunchCommand(o Start) string {
+// invocation is the agent's own command line — environment, binary and
+// arguments — before any sandbox wrapping or tmux quoting.
+func (s Spec) invocation(o Start) string {
 	parts := []string{s.Command}
 	parts = append(parts, s.Args...)
 	for _, arg := range o.ToolArgs {
@@ -427,10 +462,24 @@ func (s Spec) LaunchCommand(o Start) string {
 	if o.Model != "" && s.ModelFlag != "" {
 		parts = append(parts, s.ModelFlag, o.Model)
 	}
-	if o.Prompt != "" && s.PromptArg {
+	if o.Prompt != "" && len(s.PromptArgs) > 0 {
+		for _, arg := range s.PromptArgs {
+			parts = append(parts, shellq.Quote(strings.ReplaceAll(arg, "{prompt}", o.Prompt)))
+		}
+	} else if o.Prompt != "" && s.PromptArg {
 		parts = append(parts, shellq.Quote(o.Prompt))
 	}
-	agentInvocation := o.EnvPrefix + strings.Join(parts, " ")
+	yoloEnv := ""
+	if o.Yolo && len(s.YoloEnv) > 0 {
+		// ValidateSpecs rejects bad names, so this cannot fail for a saved spec.
+		yoloEnv, _ = EnvPrefix(s.YoloEnv)
+	}
+	return o.EnvPrefix + yoloEnv + strings.Join(parts, " ")
+}
+
+// LaunchCommand builds the tmux command that starts one interactive session.
+func (s Spec) LaunchCommand(o Start) string {
+	agentInvocation := s.invocation(o)
 	if o.Isolation.Normalized().Mode != isolation.None {
 		wrapOpts := o.IsolationOpts
 		wrapOpts.Workdir = o.Workdir
@@ -713,7 +762,7 @@ func (s Spec) Capabilities() map[Capability]CapabilityState {
 		CapForkTo:     state(len(s.ForkArgs) > 0, CapForkTo),
 		CapModel:      state(s.ModelFlag != "", CapModel),
 		CapModelsList: state(s.ModelsCommand != "", CapModelsList),
-		CapYolo:       state(len(s.YoloArgs) > 0, CapYolo),
+		CapYolo:       state(len(s.YoloArgs) > 0 || len(s.YoloEnv) > 0, CapYolo),
 		CapACP:        state(s.ACP != nil, CapACP),
 		CapTask:       state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
 	}

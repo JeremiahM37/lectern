@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"encoding/json"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -56,6 +58,90 @@ func TestCatalogPresetsAreWellFormed(t *testing.T) {
 	}
 	if len(seen) < 12 {
 		t.Errorf("expected at least a dozen catalog presets, got %d", len(seen))
+	}
+}
+
+// TestCatalogPresetSchema is the per-entry contract the searchable, grouped
+// catalog UI relies on, and proves every preset would pass the same
+// validation `PUT /api/agents` applies when the operator saves it.
+func TestCatalogPresetSchema(t *testing.T) {
+	groups := map[string]bool{}
+	for _, g := range CatalogGroups() {
+		groups[g] = true
+	}
+	specFields := map[string]bool{"command": true, "install_hint": true}
+	for i := 0; i < reflect.TypeOf(Spec{}).NumField(); i++ {
+		tag := strings.Split(reflect.TypeOf(Spec{}).Field(i).Tag.Get("json"), ",")[0]
+		specFields[tag] = true
+	}
+	color := regexp.MustCompile(`^#[0-9a-f]{6}$`)
+	version := regexp.MustCompile(`^(docs|\S+ v?\d[\w.\-]*( \(.+\))?)$`)
+	for _, p := range Catalog() {
+		if !groups[p.Group] {
+			t.Errorf("%s: unknown group %q", p.Name, p.Group)
+		}
+		if strings.TrimSpace(p.Vendor) == "" || strings.TrimSpace(p.Description) == "" ||
+			strings.TrimSpace(p.InstallHint) == "" {
+			t.Errorf("%s: vendor, description and install hint are required", p.Name)
+		}
+		if !strings.HasPrefix(p.Homepage, "https://") {
+			t.Errorf("%s: homepage must be an https URL, got %q", p.Name, p.Homepage)
+		}
+		if n := len([]rune(p.Icon.Glyph)); n < 1 || n > 2 || !color.MatchString(p.Icon.Color) {
+			t.Errorf("%s: icon needs a 1-2 letter glyph and a #rrggbb color, got %+v", p.Name, p.Icon)
+		}
+		if !version.MatchString(p.VerifiedBy) {
+			t.Errorf("%s: verified_by must be \"docs\" or \"<binary> <version>\", got %q", p.Name, p.VerifiedBy)
+		}
+		if p.VerifiedBy == "docs" && !strings.Contains(p.Source, "https://") && p.Group != CatalogGroupAdapters {
+			t.Errorf("%s: a docs-verified preset must cite a documentation URL", p.Name)
+		}
+		for _, field := range p.Unverified {
+			if !specFields[field] {
+				t.Errorf("%s: unverified field %q is not a Spec field", p.Name, field)
+			}
+		}
+		raw, _ := json.Marshal([]Spec{p.Spec})
+		if err := ValidateSpecs(string(raw)); err != nil {
+			t.Errorf("%s: would be rejected on save: %v", p.Name, err)
+		}
+		if p.Task == nil && p.ACP == nil && p.Capabilities()[CapTask].Available {
+			t.Errorf("%s: claims background tasks without a backend", p.Name)
+		}
+	}
+}
+
+// TestCatalogCoversOrcasAgents keeps the catalog at parity with the agents
+// Orca (github.com/stablyai/orca) supports, plus Aider and Gemini which it
+// does not. Claude Code and Codex are Lectern built-ins.
+func TestCatalogCoversOrcasAgents(t *testing.T) {
+	for _, name := range []string{
+		"grok", "cursor-agent", "copilot", "muse", "zcode", "opencode", "mimo", "amp",
+		"openclaude", "antigravity", "pi", "omp", "hermes", "devin", "goose", "auggie",
+		"autohand", "crush", "cline", "codebuff", "command-code", "cn", "droid", "kilo",
+		"kimi", "kiro", "vibe", "qwen", "rovodev", "aider", "gemini-acp",
+	} {
+		if _, ok := FindCatalogPreset(name); !ok {
+			t.Errorf("catalog is missing %s", name)
+		}
+	}
+}
+
+func TestPromptArgsAndYoloEnvValidation(t *testing.T) {
+	for raw, wantErr := range map[string]bool{
+		`[{"name":"a","command":"a","prompt_args":["--prompt","{prompt}"]}]`: false,
+		`[{"name":"a","command":"a","prompt_args":["--prompt"]}]`:            true,
+		`[{"name":"a","command":"a","prompt_args":["--prompt={prompt}"]}]`:   true,
+		`[{"name":"a","command":"a","yolo_env":{"GOOSE_MODE":"auto"}}]`:      false,
+		`[{"name":"a","command":"a","yolo_env":{"1BAD":"x"}}]`:               true,
+	} {
+		if err := ValidateSpecs(raw); (err != nil) != wantErr {
+			t.Errorf("%s: err=%v, want error %v", raw, err, wantErr)
+		}
+	}
+	yolo := Spec{Name: "g", Command: "g", YoloEnv: map[string]string{"GOOSE_MODE": "auto"}}
+	if !yolo.Capabilities()[CapYolo].Available {
+		t.Error("an environment-only yolo switch still offers yolo")
 	}
 }
 

@@ -16,6 +16,7 @@ import "../../web/static/agent-settings.css";
 import "../../web/static/command-palette.css";
 import "./shell/shell.css";
 import "./settings/connect-tools.css";
+import "./settings/agent-catalog.css";
 import "./settings/devices.css";
 import "./settings/model-prices.css";
 import "./pairing/pair.css";

@@ -524,7 +524,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// message alongside that — so a prime on a resumed session still has to be
 	// typed in once it is up
 	argPrompt := ""
-	if o.Prime != "" && !o.Resume && o.ResumeID == "" && spec.PromptArg {
+	if o.Prime != "" && !o.Resume && o.ResumeID == "" && spec.TakesPrompt() {
 		argPrompt = o.Prime
 	}
 	// agent-wide env first, then the project's, so a project can point one agent

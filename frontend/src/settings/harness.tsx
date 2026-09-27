@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Settings, type SettingsApi } from "./Settings";
 import type { MCPClientInfo } from "./ConnectTools";
 import "./connect-tools.css";
+import "./agent-catalog.css";
 const calls: unknown[] = [];
 Object.assign(window, { calls });
 const target = {
@@ -203,17 +204,17 @@ const api: SettingsApi = {
     if (p === "/agents/catalog")
       return [
         {
-          name: "claude-code-acp", display_name: "Claude Code (ACP)", command: "claude-code-acp",
-          acp: { command: "npx", args: ["-y", "@zed-industries/claude-code-acp"] },
+          name: "claude-code-acp", group: "ACP adapters", vendor: "Zed", display_name: "Claude Code (ACP)", command: "claude-code-acp",
+          acp: { command: "npx", args: ["-y", "@agentclientprotocol/claude-agent-acp"] },
           installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
         },
         {
-          name: "codex-acp", display_name: "Codex (ACP)", command: "codex-acp",
-          acp: { command: "npx", args: ["-y", "@zed-industries/codex-acp"] },
+          name: "codex-acp", group: "ACP adapters", vendor: "Zed", display_name: "Codex (ACP)", command: "codex-acp",
+          acp: { command: "npx", args: ["-y", "@agentclientprotocol/codex-acp"] },
           installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
         },
         {
-          name: "gemini-acp", display_name: "Gemini CLI (ACP)", command: "gemini",
+          name: "gemini-acp", group: "ACP adapters", vendor: "Google", display_name: "Gemini CLI (ACP)", command: "gemini",
           acp: { command: "gemini", args: ["--experimental-acp"] },
           installed: false, added: false, source: "docs/acp.md", verified_at: "2026-09-26",
         },

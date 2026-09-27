@@ -19,8 +19,8 @@ binary exists until you save and dispatch against it:
 
 | Preset | Command | Notes |
 |---|---|---|
-| Claude Code (ACP) | `npx -y @zed-industries/claude-code-acp` | Zed's own adapter; needs a Claude Code login exactly like the built-in `claude` agent |
-| Codex (ACP) | `npx -y @zed-industries/codex-acp` | Zed's own adapter; ships a platform-specific native binary via `optionalDependencies` |
+| Claude Code (ACP) | `npx -y @agentclientprotocol/claude-agent-acp` | The ACP adapter (renamed from Zed's deprecated `@zed-industries/claude-code-acp`); needs a Claude Code login exactly like the built-in `claude` agent |
+| Codex (ACP) | `npx -y @agentclientprotocol/codex-acp` | The ACP adapter (replaces Zed's deprecated `@zed-industries/codex-acp`); ships a platform-specific native binary via `optionalDependencies` |
 | Gemini CLI (ACP) | `gemini --experimental-acp` | Gemini CLI's own native ACP mode — no adapter package, but `gemini` itself must already be installed |
 
 Or by hand:
@@ -29,7 +29,7 @@ Or by hand:
 curl -X PUT .../api/agents -d '[{
   "name": "claude-code-acp",
   "command": "claude-code-acp",
-  "acp": {"command": "npx", "args": ["-y", "@zed-industries/claude-code-acp"]}
+  "acp": {"command": "npx", "args": ["-y", "@agentclientprotocol/claude-agent-acp"]}
 }]'
 ```
 
