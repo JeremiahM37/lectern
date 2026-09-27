@@ -13,6 +13,7 @@ import {
   rememberRecentProject,
 } from "../project-preference";
 import type { SessionsApi } from "./Sessions";
+import { t, useLocale } from "../i18n";
 interface Candidate {
   target_id: number;
   tmux_session: string;
@@ -48,6 +49,7 @@ export function NewSession({
   onCreated(s: SessionView): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [agents, setAgents] = useState<Agent[]>([]),
     [profiles, setProfiles] = useState<LaunchProfile[]>([]),
     [manageProfiles, setManageProfiles] = useState(false),
@@ -99,7 +101,7 @@ export function NewSession({
         setModels(m);
       })
       .catch((error) =>
-        onNotice("Could not load launch options: " + String(error), true),
+        onNotice(t("sessions.dialogs.newSession.loadFailed", { error: String(error) }), true),
       );
     // The operator's global default (docs/agent-events.md section 3) is
     // what this dialog's Yolo checkbox opens set to — its own explicit
@@ -120,7 +122,7 @@ export function NewSession({
   useEffect(() => {
     let current = true;
     setMemoryStatus(
-      mode === "brief" && project ? "Checking project memory…" : "",
+      mode === "brief" && project ? t("sessions.dialogs.newSession.checkingMemory") : "",
     );
     setMemoryKind("");
     if (mode === "brief" && project)
@@ -130,7 +132,7 @@ export function NewSession({
         )
         .then((r) => {
           if (current) {
-            setMemoryStatus(r.memory?.message || "Memory status unavailable");
+            setMemoryStatus(r.memory?.message || t("sessions.dialogs.newSession.memoryUnavailable"));
             setMemoryKind(r.memory?.status || "unavailable");
           }
         })
@@ -138,7 +140,7 @@ export function NewSession({
           () =>
             current &&
             setMemoryStatus(
-              "Could not preview project context. You can still start the session.",
+              t("sessions.dialogs.newSession.memoryPreviewFailed"),
             ),
         );
     return () => {
@@ -191,14 +193,14 @@ export function NewSession({
   );
   const launchNotes = [
     !yoloSupported
-      ? `${agent} has no way to skip its prompts — it will ask`
+      ? t("sessions.dialogs.newSession.noteNoYolo", { agent })
       : yolo
-        ? "Yolo — no approval prompts"
-        : "Asks before it acts",
-    profile ? `launch profile “${profile.name}” (${profile.agent})` : "",
-    isolated ? "isolated Git worktree" : "",
-    mode === "brief" ? "primed with project memory" : "",
-    mode === "resume" ? "resumes the agent’s last conversation" : "",
+        ? t("sessions.dialogs.newSession.yolo")
+        : t("sessions.dialogs.newSession.noteAsks"),
+    profile ? t("sessions.dialogs.newSession.noteProfile", { name: profile.name, agent: profile.agent }) : "",
+    isolated ? t("sessions.dialogs.newSession.noteWorktree") : "",
+    mode === "brief" ? t("sessions.dialogs.newSession.noteBrief") : "",
+    mode === "resume" ? t("sessions.dialogs.newSession.noteResume") : "",
   ].filter(Boolean);
   const launchSummary = launchNotes.join(" · ");
   async function start() {
@@ -246,8 +248,8 @@ export function NewSession({
       onCreated(s);
       onNotice(
         s.setup_state === "creating"
-          ? "Workspace setup started. You can keep using Lectern."
-          : "Session started",
+          ? t("sessions.dialogs.newSession.setupStarted")
+          : t("sessions.dialogs.newSession.started"),
       );
       onClose();
     } catch (e) {
@@ -263,28 +265,27 @@ export function NewSession({
         id="sheet"
         open
         className="sheet"
-        aria-label="New session"
+        aria-label={t("sessions.dialogs.newSession.title")}
         onCancel={onClose}
       >
         <div className="sheet-head">
-          <h2>New session</h2>
+          <h2>{t("sessions.dialogs.newSession.title")}</h2>
           <button
             className="x"
-            aria-label="Close new session"
+            aria-label={t("sessions.dialogs.newSession.close")} data-close
             onClick={onClose}
           >
             ✕
           </button>
         </div>
         <p>
-          An interactive agent you attach to and work with — not a dispatched
-          task.
+          {t("sessions.dialogs.newSession.intro")}
         </p>
         <div className="session-field">
-          <label htmlFor="ns-project">Project</label>
+          <label htmlFor="ns-project">{t("sessions.dialogs.newSession.project")}</label>
           <select
             id="ns-project"
-            aria-label="Project"
+            aria-label={t("sessions.dialogs.newSession.project")}
             value={project ?? ""}
             onChange={(e) => {
               const next = e.target.value ? Number(e.target.value) : null;
@@ -295,17 +296,17 @@ export function NewSession({
               rememberProjectSelection(next);
             }}
           >
-            <option value="">▢ Blank room — no project yet</option>
+            <option value="">{t("sessions.dialogs.newSession.blankRoom")}</option>
             {recentProjects.length > 0 ? (
               <>
-                <optgroup label="Recent">
+                <optgroup label={t("sessions.dialogs.newSession.recentProjects")}>
                   {recentProjects.map((p) => (
                     <option value={p.id} key={p.id}>
                       {p.name} — {p.target_name}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="Other projects">
+                <optgroup label={t("sessions.dialogs.newSession.otherProjects")}>
                   {otherProjects.map((p) => (
                     <option value={p.id} key={p.id}>
                       {p.name} — {p.target_name}
@@ -324,7 +325,7 @@ export function NewSession({
         </div>
         <div id="ns-proj-hint">
           {selectedProject === null ? (
-            "Starts the agent in a fresh throwaway directory. Turn it into a project later."
+            t("sessions.dialogs.newSession.blankRoomHint")
           ) : (
             <>
               <span className="ns-proj-path">{selectedProject.repo_path}</span>
@@ -333,15 +334,14 @@ export function NewSession({
                 : ""}
               {isolated && selectedProject.setup_cmd ? (
                 <span className="ns-proj-setup">
-                  This project’s setup command runs in the new checkout before
-                  the agent starts.
+                  {t("sessions.dialogs.newSession.setupCommandHint")}
                 </span>
               ) : null}
             </>
           )}
         </div>
         <div className="session-field">
-          <label htmlFor="ns-agent">Agent</label>
+          <label htmlFor="ns-agent">{t("sessions.dialogs.newSession.agent")}</label>
           <select
             id="ns-agent"
             value={agent}
@@ -368,7 +368,7 @@ export function NewSession({
                     </option>
                   ))}
                   {more.length > 0 && (
-                    <option value="__more__">More agents…</option>
+                    <option value="__more__">{t("sessions.dialogs.moreAgents")}</option>
                   )}
                 </>
               );
@@ -384,26 +384,25 @@ export function NewSession({
         )}
         {profile && (
           <div className="subhint" id="ns-agent-profile">
-            Locked to {profile.agent} by the “{profile.name}” launch profile —
-            pick another profile under Advanced options.
+            {t("sessions.dialogs.newSession.lockedByProfile", { agent: profile.agent, name: profile.name })}
           </div>
         )}
         <div id="ns-agent-hint" className="subhint">
           {spec
             ? [
                 !spec.model_flag
-                  ? "no model switch — the Model field is ignored"
+                  ? t("sessions.dialogs.newSession.hintNoModel")
                   : "",
-                !spec.resume_args ? "cannot resume its own history" : "",
+                !spec.resume_args ? t("sessions.dialogs.newSession.hintNoResume") : "",
               ]
                 .filter(Boolean)
                 .join(" · ")
             : ""}
         </div>
         <details id="ns-advanced" className="session-advanced">
-          <summary>Advanced options</summary>
+          <summary>{t("sessions.dialogs.newSession.advanced")}</summary>
           <div className="session-field">
-            <label htmlFor="ns-name">Name</label>
+            <label htmlFor="ns-name">{t("sessions.dialogs.newSession.name")}</label>
             <input
               id="ns-name"
               value={name}
@@ -411,7 +410,7 @@ export function NewSession({
             />
           </div>
           <div className="session-field">
-            <label htmlFor="ns-group">Group</label>
+            <label htmlFor="ns-group">{t("sessions.dialogs.newSession.group")}</label>
             <input
               id="ns-group"
               value={group}
@@ -419,13 +418,13 @@ export function NewSession({
             />
           </div>
           <div className="session-field">
-            <label htmlFor="ns-profile">Launch profile</label>
+            <label htmlFor="ns-profile">{t("sessions.dialogs.newSession.launchProfile")}</label>
             <select
               id="ns-profile"
               value={profileId}
               onChange={(e) => setProfileId(Number(e.target.value))}
             >
-              <option value={0}>Agent and project defaults</option>
+              <option value={0}>{t("sessions.dialogs.newSession.noProfile")}</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} · {p.agent}
@@ -439,12 +438,14 @@ export function NewSession({
             type="button"
             onClick={() => setManageProfiles(true)}
           >
-            Manage launch profiles
+            {t("sessions.dialogs.newSession.manageProfiles")}
           </button>
           <div className="subhint" id="ns-profile-hint" role="status">
             {profile && (
               <>
-                {`${profile.name} · ${profile.agent}${profile.model ? " · default model: " + profile.model : ""}. Settings are captured when the session starts.`}
+                {profile.model
+                  ? t("sessions.dialogs.newSession.profileSummaryModel", { name: profile.name, agent: profile.agent, model: profile.model })
+                  : t("sessions.dialogs.newSession.profileSummary", { name: profile.name, agent: profile.agent })}
                 {profile.description && (
                   <span className="ns-profile-description">
                     {profile.description}
@@ -454,16 +455,16 @@ export function NewSession({
             )}
           </div>
           <div className="session-field">
-            <label htmlFor="ns-model">Model</label>
+            <label htmlFor="ns-model">{t("sessions.dialogs.model")}</label>
             <input
               placeholder={
                 profile?.model
-                  ? profile.model + " — or override"
+                  ? t("sessions.dialogs.newSession.modelOverride", { model: profile.model })
                   : models[agent] === undefined
-                    ? "this agent has no model switch"
+                    ? t("sessions.dialogs.newSession.modelNone")
                     : models[agent]?.length
-                      ? "default — or type any model name"
-                      : "type the model name"
+                      ? t("sessions.dialogs.newSession.modelDefault")
+                      : t("sessions.dialogs.newSession.modelType")
               }
               id="ns-model"
               list="lec-models"
@@ -489,24 +490,22 @@ export function NewSession({
               disabled={!project}
               onChange={(e) => setIsolated(e.target.checked)}
             />{" "}
-            Isolate in a new Git worktree
+            {t("sessions.dialogs.newSession.worktree")}
           </label>
           {isolated && (
             <div id="ns-worktree-options">
               <p className="subhint">
-                A fresh session with separate files on a new branch. Starts from a
-                committed revision; uncommitted edits stay in the original
-                directory.
+                {t("sessions.dialogs.newSession.worktreeHint")}
               </p>
               <input
                 id="ns-worktree-base"
-                aria-label="Base branch, tag or commit"
+                aria-label={t("sessions.dialogs.newSession.worktreeBase")}
                 value={base}
                 onChange={(e) => setBase(e.target.value)}
               />
               <input
                 id="ns-worktree-branch"
-                aria-label="New branch name"
+                aria-label={t("sessions.dialogs.newSession.worktreeBranch")}
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
               />
@@ -520,25 +519,25 @@ export function NewSession({
               </div>
             </div>
           )}
-          <label htmlFor="ns-start">Start from</label>
+          <label htmlFor="ns-start">{t("sessions.dialogs.newSession.startFrom")}</label>
           <select
             id="ns-start"
             value={mode}
             onChange={(e) => setMode(e.target.value)}
           >
-            <option value="fresh">Fresh context</option>
+            <option value="fresh">{t("sessions.dialogs.newSession.startFresh")}</option>
             <option value="brief" disabled={!project}>
-              Fresh, primed with what this project knows
+              {t("sessions.dialogs.newSession.startBrief")}
             </option>
             <option value="resume" disabled={isolated}>
-              Resume the agent's own last conversation
+              {t("sessions.dialogs.newSession.startResume")}
             </option>
           </select>
           <div className="subhint" id="ns-hint">
             {mode === "brief"
-              ? "Pulls the project’s durable memory and its last handoff into the first message."
+              ? t("sessions.dialogs.newSession.briefHint")
               : mode === "resume"
-                ? "Reopens the agent’s own previous conversation in this directory."
+                ? t("sessions.dialogs.newSession.resumeHint")
                 : ""}
           </div>
           <div
@@ -557,13 +556,13 @@ export function NewSession({
               checked={yolo}
               onChange={(e) => setYolo(e.target.checked)}
             />{" "}
-            Yolo — no approval prompts
+            {t("sessions.dialogs.newSession.yolo")}
           </label>
           <div className="subhint" id="ns-yolo-hint">
             {!yoloSupported
-              ? `${agent} has no way to skip its prompts — it will ask.`
+              ? t("sessions.dialogs.newSession.yoloUnsupported", { agent })
               : yolo
-                ? "The agent acts without stopping to ask. You are the supervision."
+                ? t("sessions.dialogs.newSession.yoloHint")
                 : agent === "claude" || agent === "codex"
                   ? // Session permission mode (docs/agent-events.md section
                     // 3): unchecking Yolo is what launches claude/codex in
@@ -573,23 +572,23 @@ export function NewSession({
                     // so this is the same checkbox that used to only mean
                     // "prompt in the terminal" and now also means "or from
                     // my phone", for both agents.
-                    "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone."
-                  : "The agent stops and asks before it edits or runs anything."}
+                    t("sessions.dialogs.newSession.askHintPhone")
+                  : t("sessions.dialogs.newSession.askHint")}
           </div>
-          <label htmlFor="ns-isolation">Isolation</label>
+          <label htmlFor="ns-isolation">{t("sessions.dialogs.newSession.isolation")}</label>
           <select
             id="ns-isolation"
             value={sandboxMode}
             onChange={(e) => setSandboxMode(e.target.value as typeof sandboxMode)}
           >
-            <option value="">Project default</option>
-            <option value="none">None (today's behavior)</option>
-            <option value="bwrap">bwrap — fast, no daemon</option>
-            <option value="docker">Docker container</option>
+            <option value="">{t("sessions.dialogs.newSession.isolationDefault")}</option>
+            <option value="none">{t("sessions.dialogs.newSession.isolationNone")}</option>
+            <option value="bwrap">{t("sessions.dialogs.newSession.isolationBwrap")}</option>
+            <option value="docker">{t("sessions.dialogs.newSession.isolationDocker")}</option>
           </select>
           {(sandboxMode === "bwrap" || sandboxMode === "docker") && (
             <>
-              <label htmlFor="ns-isolation-network">Network</label>
+              <label htmlFor="ns-isolation-network">{t("sessions.dialogs.newSession.network")}</label>
               <select
                 id="ns-isolation-network"
                 value={sandboxNetwork}
@@ -597,22 +596,22 @@ export function NewSession({
                   setSandboxNetwork(e.target.value as typeof sandboxNetwork)
                 }
               >
-                <option value="allow">Allow — unrestricted, like today</option>
+                <option value="allow">{t("sessions.dialogs.newSession.networkAllow")}</option>
                 <option value="deny">
-                  Deny — allowlist proxy only (see docs/isolation.md)
+                  {t("sessions.dialogs.newSession.networkDeny")}
                 </option>
               </select>
             </>
           )}
           <div className="subhint" id="ns-isolation-hint">
             {sandboxMode === "bwrap"
-              ? "Runs the agent inside bubblewrap: its own filesystem view, this project's directory and its own auth read-write, the rest of $HOME hidden."
+              ? t("sessions.dialogs.newSession.bwrapHint")
               : sandboxMode === "docker"
-                ? "Runs the agent inside a disposable Docker container with the same mounts."
+                ? t("sessions.dialogs.newSession.dockerHint")
                 : ""}
           </div>
           <div className="session-field">
-            <label htmlFor="ns-prime">First message (optional)</label>
+            <label htmlFor="ns-prime">{t("sessions.dialogs.newSession.firstMessage")}</label>
             <textarea
               id="ns-prime"
               value={prime}
@@ -622,7 +621,7 @@ export function NewSession({
         </details>
         {overlaps.length > 0 && (
           <div className="claims-overlap-warning" id="new-session-claim-overlap" role="status">
-            ⚠ This looks like it might already be claimed:
+            {t("sessions.dialogs.newSession.overlapWarning")}
             <ul>
               {overlaps.map((c) => (
                 <li key={c.id}>
@@ -631,7 +630,7 @@ export function NewSession({
                 </li>
               ))}
             </ul>
-            Check their work or ask the operator before starting.
+            {t("sessions.dialogs.newSession.overlapAdvice")}
           </div>
         )}
         <div className="session-launch-actions">
@@ -648,7 +647,7 @@ export function NewSession({
             disabled={busy}
             onClick={() => void start()}
           >
-            ▶ Start session
+            {t("sessions.dialogs.newSession.start")}
           </button>
         </div>
       </Modal>
@@ -685,6 +684,7 @@ export function Discover({
   onCreated(): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [rows, setRows] = useState<Candidate[]>([]);
   useEffect(() => {
     void api
@@ -697,21 +697,21 @@ export function Discover({
       id="sheet"
       open
       className="sheet"
-      aria-label="Running agents"
+      aria-label={t("sessions.dialogs.discover.title")}
       onCancel={onClose}
     >
-      <h2>Running agents</h2>
+      <h2>{t("sessions.dialogs.discover.title")}</h2>
       <button onClick={onClose}>✕</button>
-      <p>Adopting does not restart or disturb it.</p>
-      {!rows.length && <p>No agents found running on any target.</p>}
+      <p>{t("sessions.dialogs.discover.intro")}</p>
+      {!rows.length && <p>{t("sessions.dialogs.discover.empty")}</p>}
       {rows.map((c) => (
         <article className="cand" key={`${c.target_id}-${c.tmux_session}`}>
           <b>{c.tmux_session}</b>
           <p>
             {c.agent} · {c.workdir}
           </p>
-          <select aria-label={`Project for ${c.tmux_session}`} defaultValue="">
-            <option value="">Unassigned</option>
+          <select aria-label={t("sessions.dialogs.discover.projectFor", { name: c.tmux_session })} defaultValue="">
+            <option value="">{t("sessions.dialogs.discover.unassigned")}</option>
             {projects.map((p) => (
               <option value={p.id} key={p.id}>
                 {p.name}
@@ -742,7 +742,7 @@ export function Discover({
                 .catch((x) => onNotice(String(x), true));
             }}
           >
-            Adopt
+            {t("sessions.dialogs.discover.adopt")}
           </button>
         </article>
       ))}
@@ -762,6 +762,7 @@ export function Handoff({
   onCreated(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const [successor, setSuccessor] = useState(true),
     [agent, setAgent] = useState(session.agent),
     [model, setModel] = useState(""),
@@ -793,7 +794,7 @@ export function Handoff({
         },
       });
       onNotice(
-        "Asked for a handoff — it lands when the agent finishes its turn",
+        t("sessions.dialogs.handoff.requested"),
       );
       onCreated();
       onClose();
@@ -807,22 +808,21 @@ export function Handoff({
     <Modal
       id="sheet"
       className="sheet"
-      aria-label="Hand off"
+      aria-label={t("sessions.dialogs.handoff.title")}
       onCancel={onClose}
     >
       <div className="sheet-head">
-        <h2>Hand off</h2>
+        <h2>{t("sessions.dialogs.handoff.title")}</h2>
         <button className="x" onClick={onClose}>
           ✕
         </button>
       </div>
       <div className="sub">
-        <b className="hs-name">{session.name}</b> writes down where it got to —
-        what it did, what it learned, what it was about to do — and the next
-        session starts primed with it.
+        <b className="hs-name">{session.name}</b>{" "}
+        {t("sessions.dialogs.handoff.intro")}
       </div>
       <label className="f" htmlFor="ho-mode">
-        Then
+        {t("sessions.dialogs.handoff.then")}
       </label>
       <select
         className="f"
@@ -830,14 +830,14 @@ export function Handoff({
         value={successor ? "successor" : "note"}
         onChange={(event) => setSuccessor(event.target.value === "successor")}
       >
-        <option value="successor">Start a new session with it</option>
+        <option value="successor">{t("sessions.dialogs.handoff.modeSuccessor")}</option>
         <option value="note">
-          Just write it down, keep this session running
+          {t("sessions.dialogs.handoff.modeNote")}
         </option>
       </select>
       <div id="ho-successor" hidden={!successor}>
         <label className="f" htmlFor="ho-agent">
-          Hand it to
+          {t("sessions.dialogs.handoff.handTo")}
         </label>
         <select
           className="f"
@@ -862,12 +862,12 @@ export function Handoff({
                   <option key={row.name} value={row.name}>
                     {row.name}
                     {row.name === session.agent
-                      ? " — same agent, clean context"
+                      ? t("sessions.dialogs.handoff.sameAgentSuffix")
                       : ""}
                   </option>
                 ))}
                 {more.length > 0 && (
-                  <option value="__more__">More agents…</option>
+                  <option value="__more__">{t("sessions.dialogs.moreAgents")}</option>
                 )}
               </>
             );
@@ -882,11 +882,11 @@ export function Handoff({
         )}
         <div className="subhint" id="ho-agent-hint">
           {agent !== session.agent
-            ? `The work moves to ${agent}. It starts fresh, knowing only what the handoff says.`
-            : "Same agent, clean context — for when the window is full."}
+            ? t("sessions.dialogs.handoff.otherAgentHint", { agent })
+            : t("sessions.dialogs.handoff.sameAgentHint")}
         </div>
         <label className="f" htmlFor="ho-model">
-          Model
+          {t("sessions.dialogs.model")}
         </label>
         <input
           className="f"
@@ -894,7 +894,7 @@ export function Handoff({
           value={model}
           disabled={!modelEnabled}
           placeholder={
-            modelEnabled ? "default" : agent + " has no model switch"
+            modelEnabled ? t("sessions.dialogs.handoff.modelDefault") : t("sessions.dialogs.handoff.modelNone", { agent })
           }
           onChange={(event) => setModel(event.target.value)}
         />
@@ -906,14 +906,15 @@ export function Handoff({
             onChange={(event) => setKill(event.target.checked)}
           />
           <span>
-            Retire <span className="hs-name2">{session.name}</span> once the
-            handoff is written
+            {t("sessions.dialogs.handoff.retire")}{" "}
+            <span className="hs-name2">{session.name}</span>{" "}
+            {t("sessions.dialogs.handoff.retireAfter")}
           </span>
         </label>
         <div className="subhint" id="ho-kill-hint">
           {kill
-            ? "Its tmux session ends. The handoff and its history stay."
-            : "Both sessions keep running — useful if you want to compare them."}
+            ? t("sessions.dialogs.handoff.killHint")
+            : t("sessions.dialogs.handoff.keepHint")}
         </div>
       </div>
       <div className="btnrow">
@@ -923,7 +924,7 @@ export function Handoff({
           disabled={busy}
           onClick={() => void go()}
         >
-          {successor ? "⇥ Write it and hand over" : "⇥ Write the handoff"}
+          {successor ? t("sessions.dialogs.handoff.goSuccessor") : t("sessions.dialogs.handoff.goNote")}
         </button>
       </div>
     </Modal>

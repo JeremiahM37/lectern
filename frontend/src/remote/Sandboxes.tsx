@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { Target } from "../types";
 import type { RemoteApi } from "./MachineRemote";
+import { formatDate, t, useLocale } from "../i18n";
 
 export interface SandboxConfig {
   provider?: "proxmox" | "docker" | "script";
@@ -62,37 +63,38 @@ export function ProviderFields({ value, onChange, machines }: {
   value: SandboxConfig; onChange(v: SandboxConfig): void; machines: Target[];
 }) {
   const set = (patch: Partial<SandboxConfig>) => onChange({ ...value, ...patch });
+  useLocale();
   return (
     <div className="sandbox-fields">
-      <label>
-        Provider
+      <label data-setting="machines.sandboxProvider">
+        {t("remote.sandbox.provider")}
         <select value={value.provider || "proxmox"} onChange={(e) => set({ provider: e.target.value as SandboxConfig["provider"] })}>
-          <option value="proxmox">Proxmox LXC linked clone</option>
-          <option value="docker">Docker container</option>
-          <option value="script">Script (Fly, Modal, Vercel, any CLI)</option>
+          <option value="proxmox">{t("remote.sandbox.providerProxmox")}</option>
+          <option value="docker">{t("remote.sandbox.providerDocker")}</option>
+          <option value="script">{t("remote.sandbox.providerScript")}</option>
         </select>
       </label>
       {value.provider === "docker" && (
         <>
           <label>
-            Image
+            {t("remote.sandbox.image")}
             <input value={value.image || ""} placeholder="ghcr.io/you/dev-image:latest" onChange={(e) => set({ image: e.target.value })} />
           </label>
           <label>
-            Docker runs on
+            {t("remote.sandbox.dockerOn")}
             <select value={value.machine || ""} onChange={(e) => set({ machine: e.target.value })}>
-              <option value="">this server</option>
+              <option value="">{t("remote.sandbox.thisServer")}</option>
               {machines.filter((m) => m.kind !== "sandbox").map((m) => (
                 <option key={m.id} value={m.name}>{m.name}</option>
               ))}
             </select>
           </label>
           <label>
-            Docker host (optional, -H)
-            <input value={value.docker_host || ""} placeholder="ssh://user@docker-box or tcp://…" onChange={(e) => set({ docker_host: e.target.value })} />
+            {t("remote.sandbox.dockerHost")}
+            <input value={value.docker_host || ""} placeholder={t("remote.sandbox.dockerHostPlaceholder")} onChange={(e) => set({ docker_host: e.target.value })} />
           </label>
           <label>
-            Extra run arguments, one per line
+            {t("remote.sandbox.runArgs")}
             <textarea rows={2} value={(value.run_args || []).join("\n")} placeholder={"--memory\n4g"}
               onChange={(e) => set({ run_args: e.target.value.split("\n").map((l) => l.trim()).filter(Boolean) })} />
           </label>
@@ -100,20 +102,20 @@ export function ProviderFields({ value, onChange, machines }: {
       )}
       {value.provider === "script" && (
         <label>
-          Hooks file
+          {t("remote.sandbox.hooksFile")}
           <input value={value.config_path || ""} placeholder="{repo}/lectern.sandbox.yaml" onChange={(e) => set({ config_path: e.target.value })} />
         </label>
       )}
       <label>
-        Environment for every sandbox, NAME=value per line
+        {t("remote.sandbox.env")}
         <textarea rows={2} defaultValue={envText(value.env)} onBlur={(e) => set({ env: parseEnv(e.target.value) })} />
       </label>
       <label>
-        When an attempt finishes
+        {t("remote.sandbox.onFinish")}
         <select value={value.on_finish || ""} onChange={(e) => set({ on_finish: e.target.value as SandboxConfig["on_finish"] })}>
-          <option value="">Destroy the sandbox</option>
-          <option value="suspend">Suspend it (resume later from the list)</option>
-          <option value="keep">Keep it running</option>
+          <option value="">{t("remote.sandbox.finishDestroy")}</option>
+          <option value="suspend">{t("remote.sandbox.finishSuspend")}</option>
+          <option value="keep">{t("remote.sandbox.finishKeep")}</option>
         </select>
       </label>
     </div>
@@ -128,12 +130,13 @@ function Hooks({ api, target, onNotice }: { api: RemoteApi; target: Target; onNo
       .then((v) => setView(v && typeof v.path === "string" ? v : undefined))
       .catch((e) => onNotice(String(e), true));
   useEffect(load, [target.id, target.sandbox_json]);
+  useLocale();
   if (!view) return null;
   return (
     <div className="sandbox-hooks" data-trusted={view.trusted}>
       <div className="remote-row">
         <code>{view.path}</code>
-        {view.trusted ? <span className="chip ds">trusted</span> : <span className="chip warn">not trusted</span>}
+        {view.trusted ? <span className="chip ds">{t("remote.sandbox.trusted")}</span> : <span className="chip warn">{t("remote.sandbox.notTrusted")}</span>}
       </div>
       {view.error && <p className="subhint" role="alert">{view.error}</p>}
       {view.content && <pre className="sandbox-yaml">{view.content}</pre>}
@@ -145,16 +148,16 @@ function Hooks({ api, target, onNotice }: { api: RemoteApi; target: Target; onNo
             void api
               .request(`/targets/${target.id}/sandbox/trust`, { method: "POST", body: { path: view.path, sha256: view.sha256 } })
               .then(() => {
-                onNotice("Hooks trusted. Any change to the file needs trusting again.");
+                onNotice(t("remote.sandbox.trustedNotice"));
                 load();
               })
               .catch((e) => onNotice(String(e), true))
           }
         >
-          Trust these hooks
+          {t("remote.sandbox.trust")}
         </button>
       )}
-      <p className="subhint">These commands run on the Lectern server. Lectern runs them only while the file is exactly what you trusted, so an agent editing it cannot run anything.</p>
+      <p className="subhint">{t("remote.sandbox.trustHint")}</p>
     </div>
   );
 }
@@ -166,15 +169,16 @@ export function SandboxMachine({ api, target, machines, onChanged, onNotice }: {
   const [cfg, setCfg] = useState<SandboxConfig>(() => sandboxConfig(target));
   const [busy, setBusy] = useState("");
   const saved = sandboxConfig(target);
+  useLocale();
   return (
     <div className="machine-remote sandbox-machine">
       <div className="remote-row">
         <span className="chip info" data-provider={saved.provider}>
-          {saved.provider === "docker" ? `Docker · ${saved.image}${saved.machine ? ` on ${saved.machine}` : ""}` :
-            saved.provider === "script" ? "Script provider" : `Proxmox template ${target.host}`}
+          {saved.provider === "docker" ? (saved.machine ? t("remote.sandbox.chipDockerOn", { image: saved.image || "", machine: saved.machine }) : t("remote.sandbox.chipDocker", { image: saved.image || "" })) :
+            saved.provider === "script" ? t("remote.sandbox.chipScript") : t("remote.sandbox.chipProxmox", { vmid: target.host })}
         </span>
         <button type="button" className="linkish" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? "Close" : "Provider"}
+          {open ? t("settings.common.close") : t("remote.sandbox.provider")}
         </button>
         <button
           type="button"
@@ -185,14 +189,14 @@ export function SandboxMachine({ api, target, machines, onChanged, onNotice }: {
             void api
               .request("/sandboxes", { method: "POST", body: { target_id: target.id } })
               .then(() => {
-                onNotice("Sandbox created");
+                onNotice(t("remote.sandbox.created"));
                 window.dispatchEvent(new CustomEvent("lec-sandboxes-changed"));
               })
               .catch((e) => onNotice(String(e), true))
               .finally(() => setBusy(""));
           }}
         >
-          {busy === "create" ? "Creating…" : "+ Sandbox"}
+          {busy === "create" ? t("remote.sandbox.creating") : t("remote.sandbox.create")}
         </button>
       </div>
       {open && (
@@ -204,7 +208,7 @@ export function SandboxMachine({ api, target, machines, onChanged, onNotice }: {
             void api
               .request(`/targets/${target.id}/sandbox`, { method: "PUT", body: cfg as unknown as JsonValue })
               .then(() => {
-                onNotice(`Saved ${target.name}'s sandbox provider`);
+                onNotice(t("remote.sandbox.saved", { name: target.name }));
                 onChanged();
               })
               .catch((err) => onNotice(String(err), true))
@@ -212,7 +216,7 @@ export function SandboxMachine({ api, target, machines, onChanged, onNotice }: {
           }}
         >
           <ProviderFields value={cfg} onChange={setCfg} machines={machines} />
-          <button type="submit" disabled={!!busy}>Save provider</button>
+          <button type="submit" disabled={!!busy}>{t("remote.sandbox.save")}</button>
         </form>
       )}
       {saved.provider === "script" && open && <Hooks api={api} target={target} onNotice={onNotice} />}
@@ -221,7 +225,7 @@ export function SandboxMachine({ api, target, machines, onChanged, onNotice }: {
 }
 
 function when(ts: number) {
-  return new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatDate(ts * 1000, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 // SandboxList is every live sandbox with its lifecycle buttons.
@@ -242,9 +246,10 @@ export function SandboxList({ api, onNotice, onOpenTask }: {
     window.addEventListener("lec-sandboxes-changed", on);
     return () => window.removeEventListener("lec-sandboxes-changed", on);
   }, [all]);
+  useLocale();
   if (!rows) return null;
   const act = (row: SandboxRow, action: string) => {
-    if (action === "destroy" && !confirm(`Destroy sandbox ${row.ext_id}? Anything only inside it is lost.`)) return;
+    if (action === "destroy" && !confirm(t("remote.sandbox.destroyConfirm", { id: row.ext_id }))) return;
     setBusy(row.id);
     void api
       .request(`/sandboxes/${row.id}/${action}`, { method: "POST" })
@@ -253,23 +258,23 @@ export function SandboxList({ api, onNotice, onOpenTask }: {
       .finally(() => setBusy(0));
   };
   return (
-    <section className="sandbox-list" aria-label="Sandboxes">
+    <section className="sandbox-list" aria-label={t("remote.sandbox.list")} data-setting="machines.sandboxes">
       <div className="remote-row">
-        <h3>Sandboxes</h3>
+        <h3>{t("remote.sandbox.list")}</h3>
         <label className="check">
-          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> show destroyed
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t("remote.sandbox.showDestroyed")}
         </label>
       </div>
-      {rows.length === 0 && <p className="sub">No sandboxes are running.</p>}
+      {rows.length === 0 && <p className="sub">{t("remote.sandbox.none")}</p>}
       <div className="sandbox-cards">
         {rows.map((row) => (
           <article key={row.id} className={`sandbox-card s-${row.status}`} data-sandbox={row.ext_id}>
             <header>
               <b>{row.ext_id}</b>
-              <span className={`chip ${row.status === "running" ? "ds" : row.status === "suspended" ? "warn" : ""}`}>{row.status}</span>
+              <span className={`chip ${row.status === "running" ? "ds" : row.status === "suspended" ? "warn" : ""}`}>{t(`remote.sandbox.status.${row.status}`, undefined, row.status)}</span>
             </header>
             <p className="sub">
-              {row.provider} on {row.target_name} · {when(row.created_at)}
+              {t("remote.sandbox.where", { provider: row.provider, machine: row.target_name })} · {when(row.created_at)}
               {row.task_id ? (
                 <>
                   {" · "}
@@ -277,13 +282,13 @@ export function SandboxList({ api, onNotice, onOpenTask }: {
                     {row.task_title} #{row.attempt_n}
                   </button>
                 </>
-              ) : " · made by hand"}
+              ) : ` · ${t("remote.sandbox.byHand")}`}
             </p>
             {!row.destroyed_at && (
               <div className="btnrow">
-                {row.can.suspend && <button type="button" disabled={busy === row.id} onClick={() => act(row, "suspend")}>Suspend</button>}
-                {row.can.resume && <button type="button" disabled={busy === row.id} onClick={() => act(row, "resume")}>Resume</button>}
-                {row.can.destroy && <button type="button" className="danger" disabled={busy === row.id} onClick={() => act(row, "destroy")}>Destroy</button>}
+                {row.can.suspend && <button type="button" disabled={busy === row.id} onClick={() => act(row, "suspend")}>{t("remote.sandbox.suspend")}</button>}
+                {row.can.resume && <button type="button" disabled={busy === row.id} onClick={() => act(row, "resume")}>{t("remote.sandbox.resume")}</button>}
+                {row.can.destroy && <button type="button" className="danger" disabled={busy === row.id} onClick={() => act(row, "destroy")}>{t("remote.sandbox.destroy")}</button>}
               </div>
             )}
           </article>

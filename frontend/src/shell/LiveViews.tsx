@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createDeckApi, withToken } from "../api";
+import { t, useLocale } from "../i18n";
 import type { Approval, Event as AgentEvent, TaskView } from "../types";
 type Api = ReturnType<typeof createDeckApi>;
 function text(value: unknown) {
@@ -58,7 +59,7 @@ function Pane({
       try {
         add([JSON.parse((event as MessageEvent<string>).data) as AgentEvent]);
       } catch {
-        setError("Could not read a live event.");
+        setError(t("app.deck.badEvent"));
       }
     });
     return () => {
@@ -96,6 +97,7 @@ export function Deck({
   api: Api;
   onTask: (id: number) => void;
 }) {
+  useLocale();
   const active = tasks
     .filter((task) => ["running", "review", "queued"].includes(task.status))
     .slice(0, 16);
@@ -107,9 +109,9 @@ export function Deck({
     </div>
   ) : (
     <div className="hint">
-      Nothing live right now.
+      {t("app.deck.empty")}
       <br />
-      Dispatch tasks and watch them run here, side by side.
+      {t("app.deck.emptyHint")}
     </div>
   );
 }
@@ -124,6 +126,7 @@ export function Approvals({
   onChanged: () => void;
   onNotice: (message: string, error?: boolean) => void;
 }) {
+  useLocale();
   const [busy, setBusy] = useState<number[]>([]);
   async function decide(
     id: number,
@@ -133,7 +136,7 @@ export function Approvals({
     let note = "";
     if (decision === "denied") {
       const response = prompt(
-        "Reason (sent back to the agent):",
+        t("app.approvals.reasonPrompt"),
         "not safe, find another way",
       );
       if (response === null) return;
@@ -144,8 +147,8 @@ export function Approvals({
       await api.decideApproval(id, decision, note, always);
       onNotice(
         decision === "approved"
-          ? "Approved — agent continuing"
-          : "Denied — agent notified",
+          ? t("app.approvals.approved")
+          : t("app.approvals.denied"),
       );
       onChanged();
     } catch (error) {
@@ -159,10 +162,10 @@ export function Approvals({
       {rows.map((row) => (
         <div className="rowcard" key={row.id}>
           <h3>
-            {row.tool_name} <span>wants to run</span>
+            {row.tool_name} <span>{t("app.approvals.wantsToRun")}</span>
           </h3>
           <div className="sub">
-            task #{row.task_id} · {row.task_title}
+            {t("app.approvals.task", { id: row.task_id ?? "", title: row.task_title ?? "" })}
           </div>
           <pre>{JSON.stringify(row.input, null, 2).slice(0, 1200)}</pre>
           <div className="btnrow">
@@ -171,22 +174,22 @@ export function Approvals({
               disabled={busy.includes(row.id)}
               onClick={() => void decide(row.id, "approved")}
             >
-              Approve
+              {t("app.approvals.approve")}
             </button>
             <button
               className="b ok"
-              title="approve and never ask again for this pattern in this project"
+              title={t("app.approvals.alwaysHint")}
               disabled={busy.includes(row.id)}
               onClick={() => void decide(row.id, "approved", true)}
             >
-              ∞ Always
+              {t("app.approvals.always")}
             </button>
             <button
               className="b no grow"
               disabled={busy.includes(row.id)}
               onClick={() => void decide(row.id, "denied")}
             >
-              Deny
+              {t("app.approvals.deny")}
             </button>
           </div>
         </div>
@@ -194,9 +197,9 @@ export function Approvals({
     </div>
   ) : (
     <div className="hint">
-      No pending approvals.
+      {t("app.approvals.empty")}
       <br />
-      When an agent needs permission it shows up here — and pings your phone.
+      {t("app.approvals.emptyHint")}
     </div>
   );
 }

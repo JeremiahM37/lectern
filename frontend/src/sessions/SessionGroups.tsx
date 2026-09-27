@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { SessionView } from "../types";
+import { t, useLocale } from "../i18n";
 export type GroupMode = "none" | "group" | "project" | "target";
 interface Node {
   label: string;
@@ -22,6 +23,7 @@ export function SessionGroups({
   onToggle: (key: string, open: boolean) => void;
   render: (session: SessionView) => ReactNode;
 }) {
+  useLocale();
   if (mode === "none") return <>{items.map(render)}</>;
   const tree: Node = { label: "", children: new Map(), items: [], all: [] };
   for (const session of items) {
@@ -39,7 +41,14 @@ export function SessionGroups({
     for (const label of labels) {
       if (!node.children.has(label))
         node.children.set(label, {
-          label: label === "\0" ? "Ungrouped" : label,
+          // "Unassigned" stays the grouping key (it is in data-group-path and
+          // the saved collapse state); only the heading is translated.
+          label:
+            label === "\0"
+              ? t("sessions.groups.ungrouped")
+              : mode !== "group" && label === "Unassigned"
+                ? t("sessions.groups.unassigned")
+                : label,
           children: new Map(),
           items: [],
           all: [],
@@ -78,7 +87,7 @@ export function SessionGroups({
                   <span>{child.label}</span>
                   <small>
                     {child.all.length}
-                    {waiting ? ` · ${waiting} waiting` : ""}
+                    {waiting ? t("sessions.groups.waiting", { n: waiting }) : ""}
                   </small>
                 </summary>
                 <div className="session-group-body">{draw(child, next)}</div>

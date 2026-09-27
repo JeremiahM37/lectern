@@ -2,6 +2,7 @@
 // compaction warning. One component set used from SessionCard, the
 // Conversation header and the Needs-you rows so the three surfaces the task
 // asked for never drift out of sync with each other.
+import { t, useLocale } from "../i18n";
 import type { Session } from "../types";
 import { clampPct, contextClass, formatCost, formatLineDelta, formatTokens } from "./usageFormat";
 
@@ -28,12 +29,13 @@ export type UsageFields = Pick<
 // docs/agent-events.md's "Correction" note for why these are two different
 // columns rather than one.
 export function ContextBadge({ session, tag = "ctx" }: { session: UsageFields; tag?: string }) {
+  useLocale();
   if (session.context_used_pct != null) {
     const pct = clampPct(session.context_used_pct);
     const cls = contextClass(pct);
     const hasDetail = session.context_tokens != null && session.context_size != null;
     const title = hasDetail
-      ? `${formatTokens(session.context_tokens)} / ${formatTokens(session.context_size)} tokens used`
+      ? t("sessions.usage.contextTitle", { used: formatTokens(session.context_tokens), size: formatTokens(session.context_size) })
       : undefined;
     return (
       <span className={`ctxbar ctx-used ${cls}`} title={title}>
@@ -50,7 +52,7 @@ export function ContextBadge({ session, tag = "ctx" }: { session: UsageFields; t
     return (
       <span
         className={`ctxbar ${pct <= 10 ? "crit" : pct <= 25 ? "low" : ""}`}
-        title="Percent of context left until auto-compact"
+        title={t("sessions.usage.contextLeftTitle")}
       >
         {tag}{" "}
         <i>
@@ -64,11 +66,13 @@ export function ContextBadge({ session, tag = "ctx" }: { session: UsageFields; t
 }
 
 export function CostBadge({ session }: { session: UsageFields }) {
+  useLocale();
   if (session.cost_usd == null) return null;
   return <span className="chip cost">{formatCost(session.cost_usd)}</span>;
 }
 
 export function LinesBadge({ session }: { session: UsageFields }) {
+  useLocale();
   const label = formatLineDelta(session.lines_added, session.lines_removed);
   if (!label) return null;
   return <span className="chip ds">{label}</span>;
@@ -81,15 +85,16 @@ export function LinesBadge({ session }: { session: UsageFields }) {
 const COMPACTION_WARNING_WINDOW_S = 120;
 
 export function CompactionWarning({ session, now = Date.now() / 1000 }: { session: UsageFields; now?: number }) {
+  useLocale();
   const nearFull = session.context_used_pct != null && session.context_used_pct >= 85;
   const recentlyCompacted = session.precompact_at != null && now - session.precompact_at < COMPACTION_WARNING_WINDOW_S;
   if (!nearFull && !recentlyCompacted) return null;
   return (
     <span
       className="chip warn compaction-warning"
-      title={recentlyCompacted ? "A context compaction just ran" : "Context window is nearly full"}
+      title={recentlyCompacted ? t("sessions.usage.compactedTitle") : t("sessions.usage.nearlyFullTitle")}
     >
-      {recentlyCompacted ? "⚠ compacting" : `⚠ context ${session.context_used_pct}%`}
+      {recentlyCompacted ? t("sessions.usage.compacting") : t("sessions.usage.contextPercent", { percent: session.context_used_pct ?? "" })}
     </span>
   );
 }

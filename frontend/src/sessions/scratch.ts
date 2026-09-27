@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { SessionView } from "../types";
 
 // Presentation only: the tracked rows and their terminals are untouched.
@@ -13,6 +14,7 @@ export function isScratchTerminal(session: SessionView): boolean {
 // The generic name a blank shell is created with. Kept in one place so the
 // board can tell a card nobody has named from one somebody has: renaming is a
 // deliberate act, and only a name that differs from this one is a person's.
+// Not translated: it is compared with the name the server gave the shell.
 export function scratchDefaultName(session: SessionView): string {
   return session.target_name ? `Shell · ${session.target_name}` : "Shell";
 }
@@ -35,5 +37,5 @@ export function scratchFolder(session: SessionView): string {
 export function scratchTitle(session: SessionView): string {
   const name = (session.name || "").trim();
   if (name && name !== scratchDefaultName(session)) return name;
-  return scratchFolder(session) || `Shell #${session.id}`;
+  return scratchFolder(session) || t("sessions.scratch.fallbackTitle", { id: session.id });
 }

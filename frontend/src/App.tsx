@@ -336,7 +336,7 @@ export default function App() {
       if (response.notice) notice(response.notice);
       terminals.close(`/terminal/session/${source}`);
       const remaining = {...switching.current}; delete remaining[String(source)]; saveSwitches(remaining);
-      notice('Switched. The original session is still available in Sessions.');
+      notice(t('app.switch.switched'));
     } catch(error) {
       // The successor exists even though this browser could not open it. Keep
       // it so the operator can retry the attach — and never ask the agent to
@@ -371,7 +371,7 @@ export default function App() {
       // Only an accepted request clears the previous failure and restarts the
       // progress surface; a rejected retry keeps showing why it failed.
       saveSwitches({...switching.current,[String(source)]:{...(latest||current),after:result.after_wrap_id,generation:((latest||current).generation||0)+1,error:undefined,successor:undefined}});
-      notice('Switching… waiting for the current agent to save its handoff.');
+      notice(t('app.switch.waiting'));
       void refresh().catch(error=>notice(String(error),true));
     } catch(error) { switchFailure(source, String(error)); }
   },[api,notice,refresh,saveSwitches,switchFailure]);
@@ -621,20 +621,20 @@ export default function App() {
         };
         if(row.session_id && row.session_id in switching.current) {
           if(row.ok && row.successor) void completeSwitch(row.session_id,row.successor);
-          else switchFailure(row.session_id,row.error || 'The switch did not complete. Your original session is still available.');
+          else switchFailure(row.session_id,row.error || t('app.switch.incomplete'));
           update();
           return;
         }
         notice(
           row.ok
-            ? "Handoff written" +
-                (row.successor ? " — successor session started" : "") +
-                (row.remembered ? " · remembered" : "")
-            : "Handoff failed: " + (row.error || "unknown"),
+            ? t("app.handoff.written") +
+                (row.successor ? t("app.handoff.successorStarted") : "") +
+                (row.remembered ? t("app.handoff.remembered") : "")
+            : t("app.handoff.failed", { error: row.error || t("app.handoff.unknown") }),
           !row.ok,
         );
       } catch {
-        notice("Could not read handoff result.", true);
+        notice(t("app.handoff.unreadable"), true);
       }
       update();
     });
@@ -694,7 +694,7 @@ export default function App() {
     if (navigator.serviceWorker && !inApp())
       void navigator.serviceWorker
         .register("/sw.js")
-        .catch((error) => notice("Offline support: " + String(error), true));
+        .catch((error) => notice(t("app.offlineSupportError", { error: String(error) }), true));
   }, [notice]);
   // Learn whether this device already has a live push subscription, so the
   // Needs-you prompt and the Settings state both reflect reality on load
@@ -754,19 +754,19 @@ export default function App() {
         setPushEndpoint(await enableNativePush(api.request));
         setPushPromptGone(true);
         dismissPushPrompt();
-        notice("Push enabled on this device — sending a test notification");
+        notice(t("app.pushPrompt.enabled"));
         await api.request("/settings/test-notification", { method: "POST" });
       } catch (error) {
-        notice("Push: " + String(error), true);
+        notice(t("app.pushPrompt.error", { error: String(error) }), true);
       }
       return;
     }
     try {
       if (!navigator.serviceWorker || !window.Notification)
-        throw new Error("Notifications require a supported secure browser.");
+        throw new Error(t("app.pushPrompt.unsupported"));
       const registration = await navigator.serviceWorker.ready;
       if ((await Notification.requestPermission()) !== "granted")
-        throw new Error("Notifications not granted.");
+        throw new Error(t("app.pushPrompt.notGranted"));
       const { key } = await api.request<{ key: string }>("/push/vapid");
       const raw = atob(
           key.replace(/-/g, "+").replace(/_/g, "/") +
@@ -793,17 +793,17 @@ export default function App() {
       setPushEndpoint(value.endpoint || null);
       setPushPromptGone(true);
       dismissPushPrompt();
-      notice("Push enabled on this device — sending a test notification");
+      notice(t("app.pushPrompt.enabled"));
       // So the owner sees, right away, that it actually works — rather than
       // finding out for the first time when a real alert silently fails to
       // arrive.
       try {
         await api.request("/settings/test-notification", { method: "POST" });
       } catch (error) {
-        notice("Test notification: " + String(error), true);
+        notice(t("app.pushPrompt.testError", { error: String(error) }), true);
       }
     } catch (error) {
-      notice("Push: " + String(error), true);
+      notice(t("app.pushPrompt.error", { error: String(error) }), true);
     }
   }
   // Removes a device's subscription server-side; when it is this browser's
@@ -826,9 +826,9 @@ export default function App() {
         }
         setPushEndpoint(null);
       }
-      notice("Unsubscribed");
+      notice(t("app.pushPrompt.unsubscribed"));
     } catch (error) {
-      notice("Unsubscribe: " + String(error), true);
+      notice(t("app.pushPrompt.unsubscribeError", { error: String(error) }), true);
     }
   }
   async function saveToken() {
@@ -846,9 +846,9 @@ export default function App() {
     {
       id: "routines",
       shortcut: chordsFor("routines.open"),
-      title: "Routines",
-      category: "Actions",
-      detail: "Saved jobs and active runs",
+      title: t("app.commands.routines"),
+      category: t("palette.actions"),
+      detail: t("app.commands.routinesDetail"),
       keywords: "schedule takeover",
       run: () => {
         navigate("#board");
@@ -858,42 +858,42 @@ export default function App() {
     {
       id: "new-session",
       shortcut: chordsFor("session.new"),
-      title: "New session",
-      category: "Actions",
-      detail: "Start an interactive agent",
+      title: t("app.commands.newSession"),
+      category: t("palette.actions"),
+      detail: t("app.commands.newSessionDetail"),
       keywords: "create launch",
       run: () => sessionCommand("new"),
     },
     {
       id: "new-task",
       shortcut: chordsFor("task.new"),
-      title: "New task",
-      category: "Actions",
-      detail: "Plan or dispatch work",
+      title: t("app.newTask"),
+      category: t("palette.actions"),
+      detail: t("app.commands.newTaskDetail"),
       keywords: "create",
       run: newTask,
     },
     {
       id: "saved-search",
       shortcut: chordsFor("search.saved"),
-      title: "Search saved conversations",
-      category: "Actions",
+      title: t("app.commands.savedSearch"),
+      category: t("palette.actions"),
       keywords: "history messages content native",
       run: () => setSearch(true),
     },
     {
       id: "discover",
       shortcut: chordsFor("session.discover"),
-      title: "Find running agents",
-      category: "Actions",
+      title: t("app.commands.discover"),
+      category: t("palette.actions"),
       keywords: "adopt restore untracked",
       run: () => sessionCommand("discover"),
     },
     {
       id: "launch-profiles",
       shortcut: chordsFor("profiles.manage"),
-      title: "Manage launch profiles",
-      category: "Actions",
+      title: t("app.commands.launchProfiles"),
+      category: t("palette.actions"),
       keywords: "profiles accounts configuration",
       run: () => setManageProfiles(true),
     },
@@ -901,27 +901,27 @@ export default function App() {
       id: `nav-${tab}`,
       title:
         tab === "board"
-          ? "Task board"
+          ? t("app.commands.taskBoard")
           : tab === "terminals"
-            ? "Open terminals"
+            ? t("app.commands.openTerminals")
             : label(tab),
-      category: "Navigate",
+      category: t("app.commands.navigate"),
       keywords: "navigate view",
       shortcut: chordsFor("nav." + tab),
       run: () => navigate(tab === "terminals" ? terminals.hash : "#" + tab),
     })),
     ...[
-      ["machines", "Targets", "ssh remote local machines"],
-      ["projects", "Projects", "repositories workspaces"],
-      ["notifications", "Notifications", "alerts push"],
-      ["devices", "Devices", "pair phone tunnel qr code pairing"],
-      ["about", "Usage and about", "settings version costs"],
-      ["agents", "Agents", "agent runners commands custom providers models"],
+      ["machines", t("app.commands.targets"), "ssh remote local machines"],
+      ["projects", t("app.commands.projects"), "repositories workspaces"],
+      ["notifications", t("app.commands.notifications"), "alerts push"],
+      ["devices", t("app.commands.devices"), "pair phone tunnel qr code pairing"],
+      ["about", t("app.commands.about"), "settings version costs"],
+      ["agents", t("app.commands.agents"), "agent runners commands custom providers models"],
     ].map(([name, title, keywords]) => ({
       id: "settings-" + name,
       title: title!,
-      category: "Navigate",
-      detail: "Settings",
+      category: t("app.commands.navigate"),
+      detail: t("palette.settings"),
       keywords,
       run: () => settings(name!),
     })),
@@ -950,8 +950,8 @@ export default function App() {
     })),
     ...sessions.map((session) => ({
       id: `session-${session.id}`,
-      title: session.name || `Session ${session.id}`,
-      category: "Sessions",
+      title: session.name || t("app.lineage.session", { id: session.id }),
+      category: t("app.commands.sessions"),
       detail: [
         session.status,
         session.agent,
@@ -967,16 +967,16 @@ export default function App() {
     })),
     ...tasks.map((task) => ({
       id: `task-${task.id}`,
-      title: task.title || `Task ${task.id}`,
-      category: "Tasks",
+      title: task.title || t("app.commands.task", { id: task.id }),
+      category: t("app.commands.tasks"),
       detail: [task.status, task.project_name].join(" · "),
       keywords: `task ${task.id}`,
       run: () => openTask(task.id),
     })),
     ...projects.map((project) => ({
       id: `project-${project.id}`,
-      title: `Edit project: ${project.name}`,
-      category: "Projects",
+      title: t("app.commands.editProject", { name: project.name }),
+      category: t("app.commands.projectsCategory"),
       detail: project.repo_path,
       keywords: "repository workspace configuration",
       run: () => {
@@ -1016,7 +1016,7 @@ export default function App() {
           <span
             id="conn-led"
             className={`led ${connected ? "led-on" : "led-err"}`}
-            title="live connection"
+            title={t("app.liveConnection")}
           />
           <span id="conn-label">{connected ? t("shell.live") : t("shell.reconnecting")}</span>
         </div>
@@ -1057,7 +1057,7 @@ export default function App() {
             }
             onNotice={notice}
             onOpenSession={(id) =>
-              setConversation({ kind: "session", id, name: sessions.find((session) => session.id === id)?.name || "Session" })
+              setConversation({ kind: "session", id, name: sessions.find((session) => session.id === id)?.name || t("app.continuity.session") })
             }
             onOpenTerminal={openTerminal}
           />
@@ -1165,7 +1165,7 @@ export default function App() {
           if(!active) return null;
           const busy = active.id in pendingSwitches || active.handoff_in_flight;
           return <>
-            <button className="b terminal-agent-switch" aria-label="Switch agent or model" title={`Switch ${sessionModelLabel(active)}`} disabled={busy} onClick={()=>setSwitchSession(active)}>{busy?'Switching…':`⇄ ${sessionModelLabel(active)} ▾`}</button>
+            <button className="b terminal-agent-switch" aria-label={t("app.switcher.label")} title={t("app.switcher.title", { model: sessionModelLabel(active) })} disabled={busy} onClick={()=>setSwitchSession(active)}>{busy?t("app.switcher.switching"):`⇄ ${sessionModelLabel(active)} ▾`}</button>
             <SessionLineage api={api} session={active} pending={busy} onOpen={(session)=>{ if(session.ended_at) setConversation({kind:'session',id:session.id,name:session.name}); else void attach(session.id); }} onOpenChat={(session)=>setConversation({kind:'session',id:session.id,name:session.name})}/>
           </>;
         })()}
@@ -1173,14 +1173,14 @@ export default function App() {
       <FloatingTerminal services={services} onDock={(tab) => terminals.open(tab.path, tab.label)} />
       {switchSession && <QuickSwitch api={api} session={switchSession} onClose={()=>setSwitchSession(undefined)} onStarted={(source,afterWrap,request:SwitchRequest)=>{
         saveSwitches({...switching.current,[String(source.id)]:{after:afterWrap,generation:1,destination:request.destination,agent:request.agent,model:request.model,profile:request.profile}});
-        notice('Switching… waiting for the current agent to save its handoff.');
+        notice(t('app.switch.waiting'));
         void refresh().catch(error=>notice(String(error),true));
       }} onProfiles={()=>{setSwitchSession(undefined);setManageProfiles(true);}}/>}
       <SwitchProgressPanel api={api} pending={pendingSwitches} onReady={completeSwitch} onFailed={switchFailure} onRetry={(source)=>void retrySwitch(source)} onReopen={reopenSwitch} onDismiss={dismissSwitch}/>
       <button
         id="fab"
-        title="new task"
-        aria-label="New task"
+        title={t("app.fabTitle")}
+        aria-label={t("app.newTask")}
         hidden={view !== "board"}
         onClick={newTask}
       >
@@ -1226,7 +1226,7 @@ export default function App() {
                 id="media-badge"
                 className={liveViews.length ? "badge" : "badge dim"}
                 hidden={!media.length && !liveViews.length}
-                title={liveViews.length ? `${liveViews.length} live` : undefined}
+                title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : undefined}
               >
                 {media.length + liveViews.length}
               </b>
@@ -1242,7 +1242,7 @@ export default function App() {
           id="nav-overflow"
           className={`action-menu ${["media", "deck", "approvals", "targets"].includes(view) ? "on" : ""}`}
         >
-          <summary aria-label="More pages">
+          <summary aria-label={t("app.morePages")}>
             <span aria-hidden="true">···</span>{t("nav.more")}
             <b id="more-badge" className="badge" hidden={!approvals.length}>
               {approvals.length}
@@ -1313,7 +1313,7 @@ export default function App() {
             if (session.setup_state === "creating") {
               navigate("#sessions");
               notice(
-                "Fork workspace setup started. Follow progress in Sessions.",
+                t("app.forkStarted"),
               );
             } else void attach(session.id);
           }}
@@ -1364,18 +1364,18 @@ export default function App() {
       {unauthorized && (
         <Modal
           className="token-dialog"
-          aria-label="Access token"
+          aria-label={t("app.token.title")}
           onCancel={(event) => event.preventDefault()}
         >
-          <h2>Access token</h2>
-          <p>This Lectern requires an access token.</p>
+          <h2>{t("app.token.title")}</h2>
+          <p>{t("app.token.required")}</p>
           <form
             onSubmit={(event) => {
               event.preventDefault();
               void saveToken();
             }}
           >
-            <label htmlFor="access-token">Access token</label>
+            <label htmlFor="access-token">{t("app.token.title")}</label>
             <input
               id="access-token"
               type="password"
@@ -1385,7 +1385,7 @@ export default function App() {
             />
             {authError && <p role="alert">{authError}</p>}
             <button className="b ok" type="submit">
-              Connect
+              {t("app.token.connect")}
             </button>
           </form>
         </Modal>

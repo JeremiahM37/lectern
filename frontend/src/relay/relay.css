@@ -7,12 +7,12 @@
   padding: 6px 12px;
   font-size: 0.85rem;
   text-align: center;
-  background: var(--bg-alt, #12151f);
-  color: var(--ink, #e7ebf3);
-  border-bottom: 1px solid var(--border, #262c3d);
+  background: var(--bg-alt);
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
 }
 .relay-banner[data-status="revoked"] {
-  background: #3a1d24;
+  background: var(--panel-2);
 }
 .relay-this-device {
   display: flex;

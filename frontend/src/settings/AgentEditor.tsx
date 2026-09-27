@@ -4,6 +4,7 @@ import { Modal } from "../sessions/Modal";
 import type { SettingsApi } from "./Settings";
 import type { Target } from "../types";
 import { capabilityChips, groupCatalog, type CatalogCapability } from "./agentCatalog";
+import { t, useLocale } from "../i18n";
 export interface AgentSpec {
   name: string;
   command: string;
@@ -94,7 +95,7 @@ function args(v: string, label: string) {
       .filter(Boolean);
   }
   if (!Array.isArray(x) || x.some((y) => typeof y !== "string"))
-    throw Error(`${label} must be a JSON array of strings.`);
+    throw Error(t("agentSettings.editor.argsNotArray", { label }));
   return x as string[];
 }
 function envText(a?: AgentSpec) {
@@ -110,11 +111,11 @@ function env(v: string, prior: Record<string, JsonValue> = {}) {
   for (const raw of v.split(/\r?\n/)) {
     if (!raw.trim()) continue;
     const i = raw.indexOf("=");
-    if (i < 1) throw Error("Environment lines must use KEY=value.");
+    if (i < 1) throw Error(t("agentSettings.editor.envLineFormat"));
     const k = raw.slice(0, i).trim(),
       val = raw.slice(i + 1);
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
-      throw Error(`Invalid environment name ${k}.`);
+      throw Error(t("agentSettings.editor.envInvalidName", { name: k }));
     if (val === "••••" || val === "***") continue;
     if (val === "") delete out[k];
     else out[k] = val;
@@ -138,6 +139,7 @@ export function AgentEditor({
   onSaved(): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [name, setName] = useState(source?.name || ""),
     [command, setCommand] = useState(source?.command || ""),
     [fixed, setFixed] = useState(JSON.stringify(source?.args || [], null, 2)),
@@ -259,31 +261,31 @@ export function AgentEditor({
     geminiAvailable = targetHasBinary(targets || [], "gemini");
   async function save() {
     if (!name.trim() || !command.trim())
-      throw Error("Name and command are required.");
+      throw Error(t("agentSettings.editor.nameCommandRequired"));
     let permissionArgs: unknown;
     try {
       permissionArgs = JSON.parse(permissions || "{}");
     } catch {
-      throw Error("Permission arguments must be JSON.");
+      throw Error(t("agentSettings.editor.permissionsNotJson"));
     }
     if (
       !permissionArgs ||
       Array.isArray(permissionArgs) ||
       typeof permissionArgs !== "object"
     )
-      throw Error("Permission arguments must be a JSON object.");
+      throw Error(t("agentSettings.editor.permissionsNotObject"));
     const spec: AgentSpec = {
       ...source,
       name: name.trim(),
       command: command.trim(),
-      args: args(fixed, "Fixed arguments"),
+      args: args(fixed, t("agentSettings.editor.fixedArgs")),
       model_flag: modelFlag.trim(),
       prompt_arg: promptArg,
-      prompt_args: args(promptArgs, "Opening prompt arguments"),
-      resume_args: args(resume, "Resume arguments"),
-      resume_id_args: args(resumeID, "Resume-by-ID arguments"),
-      fork_args: args(forkArgs, "Fork arguments"),
-      yolo_args: args(yolo, "Yolo arguments"),
+      prompt_args: args(promptArgs, t("agentSettings.editor.promptArgsName")),
+      resume_args: args(resume, t("agentSettings.editor.resumeArgsName")),
+      resume_id_args: args(resumeID, t("agentSettings.editor.resumeIdArgsName")),
+      fork_args: args(forkArgs, t("agentSettings.editor.forkArgsName")),
+      yolo_args: args(yolo, t("agentSettings.editor.yoloArgs")),
       yolo_env: env(yoloEnv, source?.yolo_env),
       models_command: modelsCommand.trim(),
       trust_command: trustCommand.trim(),
@@ -291,10 +293,10 @@ export function AgentEditor({
     };
     delete spec.builtin;
     if (acpOn) {
-      if (!acpCommand.trim()) throw Error("ACP command is required.");
+      if (!acpCommand.trim()) throw Error(t("agentSettings.editor.acpCommandRequired"));
       spec.acp = {
         command: acpCommand.trim(),
-        args: args(acpArgs, "ACP arguments"),
+        args: args(acpArgs, t("agentSettings.editor.acpArgsName")),
         env: env(acpEnvironment, source?.acp?.env),
       };
       delete spec.task;
@@ -303,7 +305,7 @@ export function AgentEditor({
       if (taskOn)
         spec.task = {
           command: taskCommand.trim() || spec.command,
-          args: args(taskArgs, "Task arguments"),
+          args: args(taskArgs, t("agentSettings.editor.taskArgsName")),
           prompt_template: taskPrompt.trim(),
           output_mode: taskOutput,
           permission_args: permissionArgs as Record<string, JsonValue>,
@@ -318,7 +320,7 @@ export function AgentEditor({
         return y;
       });
     setBusy(true);
-    setStatus("Saving runner…");
+    setStatus(t("agentSettings.editor.saving"));
     try {
       await api.request("/agents", {
         method: "PUT",
@@ -335,24 +337,24 @@ export function AgentEditor({
   return (
     <Modal
       className="agent-settings-dialog"
-      aria-label={source ? `Edit agent ${source.name}` : "Add agent"}
+      aria-label={source ? t("agentSettings.editor.editAgentNamed", { name: source.name }) : t("agentSettings.editor.addAgent")}
       onCancel={(e) => {
         if (busy) e.preventDefault();
         else onClose();
       }}
     >
-      <h2>{source ? "Edit agent" : "Add agent"}</h2>
+      <h2>{source ? t("agentSettings.editor.editAgent") : t("agentSettings.editor.addAgent")}</h2>
       <button disabled={busy} onClick={onClose}>
-        Close
+        {t("agentSettings.editor.close")}
       </button>
       {!source && (
-        <section className="agent-catalog" aria-label="Agent catalog">
+        <section className="agent-catalog" aria-label={t("agentSettings.editor.catalog")}>
           <label>
-            Starter template (catalog — one click, then edit anything below)
+            {t("agentSettings.editor.starterTemplate")}
             <input
               type="search"
-              aria-label="Search agent catalog"
-              placeholder={`Search ${catalog.length || ""} agents by name, command or vendor`}
+              aria-label={t("agentSettings.editor.searchCatalog")}
+              placeholder={t("agentSettings.editor.searchPlaceholder", { n: catalog.length || "" })}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -366,13 +368,13 @@ export function AgentEditor({
             >
               <span className="agent-catalog-icon" aria-hidden="true">+</span>
               <span className="agent-catalog-text">
-                <b>Custom runner</b>
-                <span className="agent-catalog-meta">Any other CLI — fill in the fields below</span>
+                <b>{t("agentSettings.editor.customRunner")}</b>
+                <span className="agent-catalog-meta">{t("agentSettings.editor.customRunnerHint")}</span>
               </span>
             </button>
             {groupCatalog(catalog, query).map((section) => (
-              <div key={section.group} className="agent-catalog-group" role="group" aria-label={section.group}>
-                <h3>{section.group}</h3>
+              <div key={section.group} className="agent-catalog-group" role="group" aria-label={section.group === "Other" ? t("agentSettings.editor.groupOther") : section.group}>
+                <h3>{section.group === "Other" ? t("agentSettings.editor.groupOther") : section.group}</h3>
                 {section.items.map((p) => {
                   // The two Zed adapter presets need npx, not their own
                   // placeholder Command; gemini-acp needs `gemini` itself.
@@ -395,11 +397,11 @@ export function AgentEditor({
                   // be installed on a different target.
                   const disabled = p.added || (needsBinary ? targetKnown === false : false);
                   const note = p.added
-                    ? "already added"
+                    ? t("agentSettings.editor.alreadyAdded")
                     : needsBinary && targetKnown === false
-                      ? `${needsBinary} not detected on any target`
+                      ? t("agentSettings.editor.binaryNotDetected", { binary: needsBinary })
                       : p.installed
-                        ? "installed here"
+                        ? t("agentSettings.editor.installedHere")
                         : "";
                   return (
                     <button
@@ -435,8 +437,7 @@ export function AgentEditor({
                               className={c.available ? "agent-cap on" : "agent-cap off"}
                               title={c.title}
                             >
-                              {c.available ? "" : "no "}
-                              {c.label}
+                              {c.available ? c.label : t("agentSettings.editor.capabilityMissing", { label: c.label })}
                             </span>
                           ))}
                         </span>
@@ -448,7 +449,7 @@ export function AgentEditor({
             ))}
             {catalog.length > 0 && groupCatalog(catalog, query).length === 0 && (
               <p className="sub">
-                No catalog agent matches “{query}”. Custom runner works for any other CLI.
+                {t("agentSettings.editor.noMatch", { query })}
               </p>
             )}
           </div>
@@ -465,38 +466,36 @@ export function AgentEditor({
               {p.unverified && p.unverified.length > 0 && (
                 <>
                   {" "}
-                  <b>Unverified fields (best guess, check before relying on
-                  them):</b> {p.unverified.join(", ")}.
+                  <b>{t("agentSettings.editor.unverifiedFields")}</b> {p.unverified.join(", ")}.
                 </>
               )}
-              {p.sessions_hint && <> Session ids: <code>{p.sessions_hint}</code>.</>}
-              {" "}Checked {p.verified_at} against{" "}
-              {p.verified_by === "docs" ? "the vendor's docs" : p.verified_by || "its docs"} ({p.source}).
-              {!p.installed && <> Install: <code>{p.install_hint}</code></>}
+              {p.sessions_hint && <>{" "}{t("agentSettings.editor.sessionIds")}{" "}<code>{p.sessions_hint}</code>.</>}
+              {" "}{t("agentSettings.editor.checkedAgainst", { date: p.verified_at, by: p.verified_by === "docs" ? t("agentSettings.editor.vendorDocs") : p.verified_by || t("agentSettings.editor.itsDocs"), source: p.source })}
+              {!p.installed && <>{" "}{t("agentSettings.editor.install")}{" "}<code>{p.install_hint}</code></>}
             </p>
           );
         })()}
       <label>
-        Name
+        {t("agentSettings.editor.name")}
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label>
-        Command
+        {t("agentSettings.editor.command")}
         <input value={command} onChange={(e) => setCommand(e.target.value)} />
       </label>
       <label>
-        Fixed arguments
+        {t("agentSettings.editor.fixedArgs")}
         <textarea value={fixed} onChange={(e) => setFixed(e.target.value)} />
       </label>
       <label>
-        Model flag
+        {t("agentSettings.editor.modelFlag")}
         <input
           value={modelFlag}
           onChange={(e) => setModelFlag(e.target.value)}
         />
       </label>
       <label>
-        Provider endpoint URL (optional)
+        {t("agentSettings.editor.providerUrl")}
         <input value={providerURL} onChange={(e) => setProviderURL(e.target.value)} />
       </label>
       <label>
@@ -505,44 +504,44 @@ export function AgentEditor({
           checked={promptArg}
           onChange={(e) => setPromptArg(e.target.checked)}
         />{" "}
-        Opening prompt is a positional argument
+        {t("agentSettings.editor.promptPositional")}
       </label>
       <label>
-        Opening prompt arguments (JSON array; {"{prompt}"} is the message — for a CLI that takes it through a flag)
+        {t("agentSettings.editor.promptArgs")}
         <textarea value={promptArgs} onChange={(e) => setPromptArgs(e.target.value)} />
       </label>
       <label>
-        Resume arguments (resume the CLI's own last conversation)
+        {t("agentSettings.editor.resumeArgs")}
         <textarea value={resume} onChange={(e) => setResume(e.target.value)} />
       </label>
       <label>
-        Resume-by-ID arguments (JSON array; {"{id}"}/{"{dir}"} substituted — blank if unsupported)
+        {t("agentSettings.editor.resumeIdArgs")}
         <textarea value={resumeID} onChange={(e) => setResumeID(e.target.value)} />
       </label>
       <label>
-        Fork arguments (JSON array; {"{id}"}/{"{dir}"} substituted — blank if unsupported)
+        {t("agentSettings.editor.forkArgs")}
         <textarea value={forkArgs} onChange={(e) => setForkArgs(e.target.value)} />
       </label>
       <label>
-        Model catalog command (optional; {"{bin}"} is the resolved binary)
+        {t("agentSettings.editor.modelsCommand")}
         <input value={modelsCommand} onChange={(e) => setModelsCommand(e.target.value)} />
       </label>
       <label>
-        Trust command (optional; {"{dir}"} is the working directory)
+        {t("agentSettings.editor.trustCommand")}
         <input value={trustCommand} onChange={(e) => setTrustCommand(e.target.value)} />
       </label>
       <label>
-        Yolo arguments
+        {t("agentSettings.editor.yoloArgs")}
         <textarea value={yolo} onChange={(e) => setYolo(e.target.value)} />
       </label>
       <label>
-        Yolo environment (KEY=value lines, set only for yolo launches)
+        {t("agentSettings.editor.yoloEnv")}
         <textarea value={yoloEnv} onChange={(e) => setYoloEnv(e.target.value)} />
       </label>
       <label>
-        Environment (KEY=value lines; existing values are masked and retained)
+        {t("agentSettings.editor.environment")}
         <textarea
-          aria-label="Environment (KEY=value lines; existing values are masked and retained)"
+          aria-label={t("agentSettings.editor.environment")}
           value={environment}
           onChange={(e) => setEnvironment(e.target.value)}
         />
@@ -554,51 +553,50 @@ export function AgentEditor({
           disabled={acpOn}
           onChange={(e) => setTaskOn(e.target.checked)}
         />{" "}
-        Enable background tasks for this agent
+        {t("agentSettings.editor.enableTasks")}
       </label>
       {acpOn && (
         <p className="sub">
-          Disabled while ACP is enabled below — a background task is either a
-          plain command or an ACP agent, never both.
+          {t("agentSettings.editor.tasksDisabledByAcp")}
         </p>
       )}
       {taskOn && !acpOn && (
         <>
           <label>
-            Task command
+            {t("agentSettings.editor.taskCommand")}
             <input
               value={taskCommand}
               onChange={(e) => setTaskCommand(e.target.value)}
             />
           </label>
           <label>
-            Task arguments (one per line; JSON array accepted)
+            {t("agentSettings.editor.taskArgs")}
             <textarea
-              aria-label="Task arguments (one per line; JSON array accepted)"
+              aria-label={t("agentSettings.editor.taskArgs")}
               value={taskArgs}
               onChange={(e) => setTaskArgs(e.target.value)}
             />
           </label>
           <label>
-            Prompt template
+            {t("agentSettings.editor.promptTemplate")}
             <input
-              aria-label="Prompt template"
+              aria-label={t("agentSettings.editor.promptTemplate")}
               value={taskPrompt}
               onChange={(e) => setTaskPrompt(e.target.value)}
             />
           </label>
           <label>
-            Task output
+            {t("agentSettings.editor.taskOutput")}
             <select
               value={taskOutput}
               onChange={(e) => setTaskOutput(e.target.value)}
             >
-              <option value="plain">Plain text</option>
-              <option value="jsonl">JSONL events</option>
+              <option value="plain">{t("agentSettings.editor.outputPlain")}</option>
+              <option value="jsonl">{t("agentSettings.editor.outputJsonl")}</option>
             </select>
           </label>
           <label>
-            Permission arguments
+            {t("agentSettings.editor.permissionArgs")}
             <textarea
               value={permissions}
               onChange={(e) => setPermissions(e.target.value)}
@@ -613,43 +611,42 @@ export function AgentEditor({
           disabled={taskOn}
           onChange={(e) => setAcpOn(e.target.checked)}
         />{" "}
-        Use the Agent Client Protocol (ACP) instead of a task command
+        {t("agentSettings.editor.useAcp")}
       </label>
       {taskOn && !acpOn && (
         <p className="sub">
-          Disabled while background tasks are enabled above.
+          {t("agentSettings.editor.acpDisabledByTasks")}
         </p>
       )}
       {acpOn && (
         <>
           <p className="sub">
-            Every permission mode is supported automatically — ACP carries
-            its own gated approvals. See{" "}
+            {t("agentSettings.editor.acpPermissions")}{" "}
             <a href="https://agentclientprotocol.com" target="_blank" rel="noreferrer">
               agentclientprotocol.com
             </a>
             .
           </p>
           <label>
-            ACP command
+            {t("agentSettings.editor.acpCommand")}
             <input
-              aria-label="ACP command"
+              aria-label={t("agentSettings.editor.acpCommand")}
               value={acpCommand}
               onChange={(e) => setAcpCommand(e.target.value)}
             />
           </label>
           <label>
-            ACP arguments (one per line; JSON array accepted)
+            {t("agentSettings.editor.acpArgs")}
             <textarea
-              aria-label="ACP arguments (one per line; JSON array accepted)"
+              aria-label={t("agentSettings.editor.acpArgs")}
               value={acpArgs}
               onChange={(e) => setAcpArgs(e.target.value)}
             />
           </label>
           <label>
-            ACP environment (KEY=value lines; existing values are masked and retained)
+            {t("agentSettings.editor.acpEnvironment")}
             <textarea
-              aria-label="ACP environment (KEY=value lines; existing values are masked and retained)"
+              aria-label={t("agentSettings.editor.acpEnvironment")}
               value={acpEnvironment}
               onChange={(e) => setAcpEnvironment(e.target.value)}
             />
@@ -660,11 +657,11 @@ export function AgentEditor({
         disabled={busy}
         onClick={() => void save().catch((e) => { const message=e instanceof Error?e.message:String(e);setStatus(message);onNotice(message, true); })}
       >
-        Save runner
+        {t("agentSettings.editor.saveRunner")}
       </button>
       <p className="agent-dialog-status" role="status">{status}</p>
       <button disabled={busy} onClick={onClose}>
-        Cancel
+        {t("agentSettings.editor.cancel")}
       </button>
     </Modal>
   );

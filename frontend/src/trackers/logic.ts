@@ -1,5 +1,8 @@
 // Pure helpers for the Tasks hub, kept apart from the components so they are
 // unit tested (logic.test.ts) without a browser.
+import { ensureContrast } from "../theme/color";
+import { themeTokens } from "../theme/app-theme";
+import { t } from "../i18n";
 import type { Item, ItemRef, MergeMethod, PRDetail, Source, Transition } from "./types";
 
 export const SOURCE_NAME: Record<Source, string> = {
@@ -34,7 +37,7 @@ export const EMOJIS: [string, string][] = [
 
 /** The Issues tab's name for a host. */
 export function issuesLabel(kind?: Source): string {
-  return kind === "azure" ? "Work items" : "Issues";
+  return kind === "azure" ? t("trackers.hub.tab.workItems") : t("trackers.hub.tab.issues");
 }
 
 /** The short mark a list row shows before the id. */
@@ -81,22 +84,22 @@ export function sameRef(a?: ItemRef, b?: Pick<Item, "source" | "kind" | "id" | "
 
 // ---- merging ---------------------------------------------------------------
 
-const METHOD_VERB: Record<MergeMethod, string> = {
-  merge: "Create a merge commit",
-  squash: "Squash and merge",
-  rebase: "Rebase and merge",
-};
+const METHOD_VERB = (): Record<MergeMethod, string> => ({
+  merge: t("trackers.merge.method.merge"),
+  squash: t("trackers.merge.method.squash"),
+  rebase: t("trackers.merge.method.rebase"),
+});
 
 export function methodLabel(m: MergeMethod): string {
-  return METHOD_VERB[m];
+  return METHOD_VERB()[m];
 }
 
 /** The merge button's words: queueing, auto-merge and a direct merge read
  * differently so the confirmation is never ambiguous about what happens. */
 export function mergeButtonLabel(pr: Pick<PRDetail, "merge">, method: MergeMethod, auto: boolean): string {
-  if (auto) return "Enable auto-merge";
-  if (pr.merge.merge_queue) return "Add to merge queue";
-  return METHOD_VERB[method];
+  if (auto) return t("trackers.merge.enableAuto");
+  if (pr.merge.merge_queue) return t("trackers.merge.addToQueue");
+  return METHOD_VERB()[method];
 }
 
 /** Why merging is not possible right now ("" when it is), and a warning a
@@ -106,20 +109,20 @@ export function mergeState(pr: Pick<PRDetail, "state" | "draft" | "mergeable" | 
   warn: string;
   autoOnly: boolean;
 } {
-  if (pr.state !== "open") return { block: `This pull request is ${pr.state}.`, warn: "", autoOnly: false };
-  if (pr.draft) return { block: "Drafts cannot be merged. Mark it ready for review first.", warn: "", autoOnly: false };
-  if (!pr.merge.can_merge) return { block: "Your login on this machine cannot merge into this repository.", warn: "", autoOnly: false };
+  if (pr.state !== "open") return { block: t("trackers.merge.block.state", { state: pr.state }), warn: "", autoOnly: false };
+  if (pr.draft) return { block: t("trackers.merge.block.draft"), warn: "", autoOnly: false };
+  if (!pr.merge.can_merge) return { block: t("trackers.merge.block.permission"), warn: "", autoOnly: false };
   if (pr.mergeable === "conflicting")
-    return { block: "This branch has conflicts that must be resolved first.", warn: "", autoOnly: false };
+    return { block: t("trackers.merge.block.conflicts"), warn: "", autoOnly: false };
   const warn: string[] = [];
   let autoOnly = false;
-  if (pr.checks === "fail") warn.push("Some checks are failing.");
+  if (pr.checks === "fail") warn.push(t("trackers.merge.warn.checksFailing"));
   if (pr.checks === "pending") {
-    warn.push("Checks are still running.");
+    warn.push(t("trackers.merge.warn.checksRunning"));
     autoOnly = pr.merge.auto_merge_allowed;
   }
-  if (pr.review === "changes_requested") warn.push("A reviewer requested changes.");
-  if (pr.review === "review_required") warn.push("A review is still required.");
+  if (pr.review === "changes_requested") warn.push(t("trackers.merge.warn.changesRequested"));
+  if (pr.review === "review_required") warn.push(t("trackers.merge.warn.reviewRequired"));
   return { block: "", warn: warn.join(" "), autoOnly };
 }
 
@@ -156,17 +159,17 @@ export function boardColumns(items: Item[], states: Transition[] = []): Column[]
 }
 
 function columnTitle(item: Item): string {
-  if (hasStatuses(item)) return item.state || "No status";
+  if (hasStatuses(item)) return item.state || t("trackers.column.noStatus");
   if (item.kind === "pr") {
-    if (item.state !== "open") return item.state === "merged" ? "Merged" : "Closed";
-    if (item.draft) return "Draft";
-    if (item.checks === "fail") return "Checks failing";
-    if (item.conflicts) return "Conflicts";
-    if (item.review === "approved") return "Approved";
-    if (item.review === "changes_requested") return "Changes requested";
-    return "In review";
+    if (item.state !== "open") return item.state === "merged" ? t("trackers.column.merged") : t("trackers.column.closed");
+    if (item.draft) return t("trackers.column.draft");
+    if (item.checks === "fail") return t("trackers.column.checksFailing");
+    if (item.conflicts) return t("trackers.column.conflicts");
+    if (item.review === "approved") return t("trackers.column.approved");
+    if (item.review === "changes_requested") return t("trackers.column.changesRequested");
+    return t("trackers.column.inReview");
   }
-  return item.state === "open" ? "Open" : "Closed";
+  return item.state === "open" ? t("trackers.column.open") : t("trackers.column.closed");
 }
 
 /** Free-text narrowing applied on top of the server's filter, so typing in
@@ -185,19 +188,21 @@ export function matches(item: Item, text: string): boolean {
 
 export function ago(iso: string | undefined, now = Date.now()): string {
   if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const s = Math.max(0, (now - t) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(t).toISOString().slice(0, 10);
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  const s = Math.max(0, (now - ts) / 1000);
+  if (s < 60) return t("trackers.ago.justNow");
+  if (s < 3600) return t("trackers.ago.minutes", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("trackers.ago.hours", { n: Math.floor(s / 3600) });
+  if (s < 86400 * 30) return t("trackers.ago.days", { n: Math.floor(s / 86400) });
+  return new Date(ts).toISOString().slice(0, 10);
 }
 
 /** A readable label colour: GitHub stores label colours without '#'. */
-export function labelStyle(color?: string): { borderColor?: string; color?: string } {
+export function labelStyle(color?: string, mode: "dark" | "light" = "dark"): { borderColor?: string; color?: string } {
   if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {};
-  // lightened so a dark label colour stays readable on the dark theme
-  return { borderColor: `#${color}99`, color: `color-mix(in srgb, #${color} 65%, white)` };
+  // The label's own colour, lightened or darkened only as far as it must be to
+  // read on the theme's least favourable surface.
+  const surface = themeTokens(mode)[mode === "dark" ? "panel-2" : "bg-soft"];
+  return { borderColor: `#${color}99`, color: ensureContrast(`#${color}`, surface) };
 }

@@ -26,6 +26,7 @@ import { QuickSwitch } from "./QuickSwitch";
 import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
+import { t, useLocale } from "../i18n";
 import "./sessions.css";
 export interface SessionsApi {
   sessions(options?: {
@@ -102,6 +103,7 @@ export function Sessions({
   onMetadataRefresh,
   pushPrompt,
 }: SessionsProps) {
+  useLocale();
   const [rows, setRows] = useState<SessionView[]>([]),
     [scope, setScope] = useState<"active" | "all" | "archived">("active"),
     [query, setQuery] = useState(""),
@@ -319,14 +321,14 @@ export function Sessions({
     if (session.setup_state === "failed") {
       onNotice(
         session.setup_error ||
-          "Workspace setup failed. Inspect retained files before launching again.",
+          t("sessions.list.setupFailed"),
         true,
       );
       return;
     }
     if (session.setup_state === "creating") {
       onNotice(
-        "Workspace is setting up. Attach becomes available when setup finishes.",
+        t("sessions.list.settingUp"),
       );
       return;
     }
@@ -350,8 +352,8 @@ export function Sessions({
         await new Promise((resolve) => window.setTimeout(resolve, 250));
       }
     }
-    onNotice(String(lastError) + " — attach manually", true);
-    prompt("Attach with:", `tmux attach -t ${session.tmux_session}`);
+    onNotice(t("sessions.list.attachManually", { error: String(lastError) }), true);
+    prompt(t("sessions.list.attachWith"), `tmux attach -t ${session.tmux_session}`);
   }
   const refreshAll = async () => {
     await load();
@@ -415,7 +417,7 @@ export function Sessions({
   // same record through the same path, without taking over the current view.
   function closed(session: SessionView, text: string) {
     onNotice(text, false, {
-      label: "Undo",
+      label: t("sessions.list.undo"),
       run: () => void reopen(session, {}, { attach: false }),
     });
   }
@@ -445,7 +447,7 @@ export function Sessions({
         body: {},
       });
       await refreshAll();
-      onNotice(`Revived “${next.name || session.name}”.`);
+      onNotice(t("sessions.list.revived", { name: next.name || session.name }));
       await attach(next, true);
     } catch (error) {
       onNotice(String(error), true);
@@ -461,7 +463,7 @@ export function Sessions({
       if (await reopen(session, {}, { attach: false, quiet: true })) restored++;
     setRestoringAll(false);
     onNotice(
-      `Restored ${restored} of ${interrupted.length} interrupted session${interrupted.length === 1 ? "" : "s"}.`,
+      t("sessions.list.restoredOf", { restored, count: interrupted.length }),
       restored < interrupted.length,
     );
   }
@@ -525,14 +527,13 @@ export function Sessions({
     <section className="list wide">
       <div className="sesshead">
         <div>
-          <h2>Sessions</h2>
+          <h2>{t("sessions.list.title")}</h2>
           <p>
-            {
-              rows.filter(
+            {t("sessions.list.activeSummary", {
+              active: rows.filter(
                 (session) => !session.ended_at && session.status !== "dead",
-              ).length
-            }{" "}
-            active · Pick up where you left off.
+              ).length,
+            })}
           </p>
         </div>
         <QuotaChip api={api} />
@@ -540,36 +541,35 @@ export function Sessions({
           className="b"
           id="sess-saved-search"
           onClick={() => setSearch(true)}
-          aria-label="Search saved conversations"
+          aria-label={t("sessions.list.searchSavedLabel")}
         >
-          Search saved<span className="wide-only"> conversations</span>
+          {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
         </button>
         <button
           className="b"
           id="sess-discover"
           onClick={() => setSheet("discover")}
-          aria-label="Find running agents"
+          aria-label={t("sessions.list.findAgentsLabel")}
         >
-          ⌕ Find<span className="wide-only"> running</span> agents
+          {t("sessions.list.findAgentsFind")}<span className="wide-only">{t("sessions.list.findAgentsWide")}</span>{t("sessions.list.findAgentsEnd")}
         </button>
         <button
           className="b"
           id="sess-recent"
           aria-expanded={recentOpen}
-          aria-label="Restore closed sessions"
+          aria-label={t("sessions.list.restoreClosedLabel")}
           onClick={() => setRecentOpen((open) => !open)}
         >
-          ↺ Restore
+          {t("sessions.list.restoreButton")}
         </button>
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
-          + New session
+          {t("sessions.list.newSession")}
         </button>
       </div>
       {relaunched.length > 0 && (
         <div className="restore-banner relaunch-notice" role="status">
           <span>
-            Relaunched {relaunched.length} session{relaunched.length === 1 ? "" : "s"} after a
-            restart:{" "}
+            {t("sessions.list.relaunched", { count: relaunched.length })}{" "}
             {relaunched.map((session, index) => (
               <Fragment key={session.id}>
                 {index > 0 && ", "}
@@ -581,17 +581,14 @@ export function Sessions({
             .
           </span>
           <button className="b" id="relaunch-dismiss" onClick={() => void dismissRelaunched()}>
-            Dismiss
+            {t("sessions.list.dismiss")}
           </button>
         </div>
       )}
       {interrupted.length > 0 && (
         <div className="restore-banner" role="status">
           <span>
-            {interrupted.length === 1
-              ? "1 session was"
-              : `${interrupted.length} sessions were`}{" "}
-            interrupted by a restart and could not be reopened automatically.
+            {t("sessions.list.interrupted", { count: interrupted.length })}
           </span>
           <button
             className="b ok"
@@ -600,10 +597,10 @@ export function Sessions({
             onClick={() => void restoreInterrupted()}
           >
             {restoringAll
-              ? "Restoring…"
+              ? t("sessions.list.restoring")
               : interrupted.length === 1
-                ? "Restore it"
-                : `Restore ${interrupted.length}`}
+                ? t("sessions.list.restoreIt")
+                : t("sessions.list.restoreCount", { count: interrupted.length })}
           </button>
         </div>
       )}
@@ -617,18 +614,18 @@ export function Sessions({
         id="sess-search"
         className="f"
         type="search"
-        placeholder="Search sessions, groups, branches or folders"
-        aria-label="Find a session or project"
+        placeholder={t("sessions.list.searchPlaceholder")}
+        aria-label={t("sessions.list.searchLabel")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
       <div className="session-filters">
       <label className="session-grouping">
-        Group by{" "}
+        {t("sessions.list.groupBy")}{" "}
         <select
           className="f"
           id="sess-grouping"
-          aria-label="Group sessions by"
+          aria-label={t("sessions.list.groupByLabel")}
           value={group}
           onChange={(event) => {
             const value = event.target.value as GroupMode;
@@ -636,23 +633,23 @@ export function Sessions({
             sessionStorage.setItem("lec-session-grouping", value);
           }}
         >
-          <option value="none">None</option>
-          <option value="group">Named group</option>
-          <option value="project">Project</option>
-          <option value="target">Target</option>
+          <option value="none">{t("sessions.list.groupNone")}</option>
+          <option value="group">{t("sessions.list.groupNamed")}</option>
+          <option value="project">{t("sessions.list.groupProject")}</option>
+          <option value="target">{t("sessions.list.groupTarget")}</option>
         </select>
       </label>
       <label className="session-grouping session-scope">
-        Show{" "}
+        {t("sessions.list.show")}{" "}
         <select
           className="f"
           id="sess-scope"
           value={scope}
           onChange={(event) => setScope(event.target.value as typeof scope)}
         >
-          <option value="active">Active sessions</option>
-          <option value="all">Include ended and untracked</option>
-          <option value="archived">Archived sessions</option>
+          <option value="active">{t("sessions.list.scopeActive")}</option>
+          <option value="all">{t("sessions.list.scopeAll")}</option>
+          <option value="archived">{t("sessions.list.scopeArchived")}</option>
         </select>
       </label>
       </div>
@@ -680,7 +677,7 @@ export function Sessions({
               model: request.model,
               profile_id: request.profile,
             });
-            if (!ok) throw new Error("Restore failed; the closed session is unchanged.");
+            if (!ok) throw new Error(t("sessions.list.restoreFailed"));
           }}
         />
       )}
@@ -693,7 +690,7 @@ export function Sessions({
           aria-labelledby="regular-sessions-title"
         >
           <h3 className="session-section-title" id="regular-sessions-title">
-            Sessions and projects
+            {t("sessions.list.sectionTitle")}
           </h3>
           {/* #sesslist is a responsive card grid; each section holds its own
               grid so the cards keep the same columns they had before. */}
@@ -710,10 +707,10 @@ export function Sessions({
             ) : (
               <div className="hint">
                 {query
-                  ? "No sessions match your search."
+                  ? t("sessions.list.noMatch")
                   : scope === "archived"
-                    ? "No archived sessions. Use “Stop and archive” in a session’s actions to keep it here for later."
-                    : "No sessions yet. Start one here, or hit Find running agents to adopt sessions already running in tmux."}
+                    ? t("sessions.list.noArchived")
+                    : t("sessions.list.empty")}
               </div>
             )}
           </div>
@@ -816,10 +813,10 @@ export function Sessions({
             void load();
             if (session.setup_state === "creating")
               onNotice(
-                "Fork workspace setup started. Follow progress in Sessions.",
+                t("sessions.list.forkSetupStarted"),
               );
             else if (action === "resume") void attach(session);
-            else onNotice("Fork started. The original session keeps running.");
+            else onNotice(t("sessions.list.forkStarted"));
           }}
           onNotice={onNotice}
         />
@@ -834,7 +831,7 @@ export function Sessions({
             void load();
             if (session.setup_state === "creating")
               onNotice(
-                "Fork workspace setup started. Follow progress in Sessions.",
+                t("sessions.list.forkSetupStarted"),
               );
             else void attach(session);
           }}
@@ -844,19 +841,19 @@ export function Sessions({
       {archiveText && (
         <Modal
           className="sheet archive-output"
-          aria-label="Archived terminal output"
+          aria-label={t("sessions.list.archivedOutput")}
           onCancel={() => setArchiveText(undefined)}
         >
           <h2>{archiveText.name}</h2>
           <button
             className="b"
-            aria-label="Close archived output"
+            aria-label={t("sessions.list.closeArchivedOutput")} data-close
             onClick={() => setArchiveText(undefined)}
           >
-            Close
+            {t("sessions.list.close")}
           </button>
           <p>{archiveText.note}</p>
-          <pre>{archiveText.text || "No terminal output was available."}</pre>
+          <pre>{archiveText.text || t("sessions.list.noOutput")}</pre>
         </Modal>
       )}
       <ScratchReview api={api} onNotice={onNotice} />
@@ -876,6 +873,7 @@ function GroupEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useLocale();
   const [path, setPath] = useState(session.group_path || ""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -883,12 +881,12 @@ function GroupEditor({
     <Modal
       id="sheet"
       className="sheet"
-      aria-label="Move to group"
+      aria-label={t("sessions.groupEditor.title")}
       onCancel={onClose}
     >
       <div className="sheet-head">
-        <h2>Move to group</h2>
-        <button className="x" aria-label="Close group editor" onClick={onClose}>
+        <h2>{t("sessions.groupEditor.title")}</h2>
+        <button className="x" aria-label={t("sessions.groupEditor.close")} data-close onClick={onClose}>
           ✕
         </button>
       </div>
@@ -912,13 +910,13 @@ function GroupEditor({
         }}
       >
         <label className="f" htmlFor="sg-path">
-          Group path
+          {t("sessions.groupEditor.path")}
         </label>
         <input
           className="f"
           id="sg-path"
           list="sg-existing"
-          placeholder="Work/Client"
+          placeholder={t("sessions.groupEditor.pathPlaceholder")}
           value={path}
           onChange={(event) => setPath(event.target.value)}
           autoFocus
@@ -929,13 +927,13 @@ function GroupEditor({
           ))}
         </datalist>
         <p className="subhint">
-          Use / for nested groups. Leave blank to ungroup.
+          {t("sessions.groupEditor.hint")}
         </p>
         <p id="sg-error" role="status">
           {error}
         </p>
         <button className="b ok" id="sg-save" disabled={busy}>
-          Save group
+          {t("sessions.groupEditor.save")}
         </button>
       </form>
     </Modal>

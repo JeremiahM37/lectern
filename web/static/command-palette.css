@@ -1,7 +1,7 @@
 #command-open { display:flex; align-items:center; justify-content:space-between; gap:24px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink-dim); padding:9px 13px; min-height:40px; cursor:pointer; font:inherit; }
 #command-open kbd { font:11px var(--mono); color:var(--ink-faint); }
-.command-palette { padding:0; width:min(620px,calc(100vw - 32px)); max-height:calc(var(--command-height,100dvh) - 32px); margin:clamp(16px,10dvh,100px) auto auto; border:1px solid var(--line-2); border-radius:14px; background:var(--panel); color:var(--ink); box-shadow:0 24px 80px #0008; overflow:hidden; }
-.command-palette::backdrop { background:#03060cb3; }
+.command-palette { padding:0; width:min(620px,calc(100vw - 32px)); max-height:calc(var(--command-height,100dvh) - 32px); margin:clamp(16px,10dvh,100px) auto auto; border:1px solid var(--line-2); border-radius:14px; background:var(--panel); color:var(--ink); box-shadow:0 24px 80px color-mix(in srgb, var(--scrim) 53%, transparent); overflow:hidden; }
+.command-palette::backdrop { background:color-mix(in srgb, var(--scrim) 70%, transparent); }
 .command-search { display:flex; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
 .command-search input { flex:1; min-width:0; border:0; background:transparent; color:var(--ink); font:16px var(--sans); padding:8px 0; outline-offset:3px; }
 .command-search button { flex:none; min-height:40px; min-width:40px; border:1px solid var(--line); border-radius:6px; background:var(--panel-2); color:var(--ink-dim); cursor:pointer; }

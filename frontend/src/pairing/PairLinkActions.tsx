@@ -1,10 +1,11 @@
 // Under a pairing QR code: send the same link by message or email instead
 // of scanning it, or open it in the Android app on this very phone.
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import { copyClipboard } from "../terminal/model";
 import { appPairLink } from "./links";
 
 export function PairLinkActions({ link, onNotice }: { link: string; onNotice(text: string, error?: boolean): void }) {
+  useLocale();
   const app = appPairLink(link);
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   return (
@@ -40,6 +41,7 @@ export function PairLinkActions({ link, onNotice }: { link: string; onNotice(tex
 /** On a pairing page opened in a phone's browser: the same pairing in the
  * app instead, when it is installed. */
 export function OpenInAppNote({ intent }: { intent?: string }) {
+  useLocale();
   if (!intent) return null;
   return (
     <p className="pair-open-app" data-testid="open-in-app">

@@ -7,6 +7,7 @@
 // small since this chip only reads the `quota` field.
 import { useEffect, useState } from "react";
 import { withToken } from "../api";
+import { t, useLocale } from "../i18n";
 import type { BudgetStatus, UsageQuota } from "../types";
 import { formatAge, formatCountdown, quotaClass } from "./usageFormat";
 
@@ -15,6 +16,7 @@ export interface QuotaChipApi {
 }
 
 export function QuotaChip({ api }: { api: QuotaChipApi }) {
+  useLocale();
   const [quota, setQuota] = useState<UsageQuota>();
   const [budgets, setBudgets] = useState<BudgetStatus>();
   useEffect(() => {
@@ -56,10 +58,10 @@ export function QuotaChip({ api }: { api: QuotaChipApi }) {
   const budgetChip = worst && (
     <span
       className={`budget-chip${budgets?.any_blocked ? " budget-blocked" : ""}`}
-      title={`Overall budget: $${worst.spent_usd.toFixed(2)} of $${worst.cap_usd.toFixed(2)}`}
+      title={t("sessions.quota.budgetTitle", { spent: worst.spent_usd.toFixed(2), cap: worst.cap_usd.toFixed(2) })}
     >
-      ${worst.spent_usd.toFixed(0)}/{worst.cap_usd.toFixed(0)}
-      {budgets?.any_blocked ? " · blocked" : ""}
+      {t("sessions.quota.budget", { spent: worst.spent_usd.toFixed(0), cap: worst.cap_usd.toFixed(0) })}
+      {budgets?.any_blocked ? t("sessions.quota.blocked") : ""}
     </span>
   );
 
@@ -67,13 +69,13 @@ export function QuotaChip({ api }: { api: QuotaChipApi }) {
   const stale = quota.stale;
   return (
     <>
-      <div className={`quota-chip${stale ? " stale" : ""}`} title={stale ? `Last updated ${formatAge(quota.at)}` : undefined}>
+      <div className={`quota-chip${stale ? " stale" : ""}`} title={stale ? t("sessions.quota.lastUpdated", { age: formatAge(quota.at) }) : undefined}>
         <span className={`quota-window ${quotaClass(quota.five_hour.used_percentage)}`}>
-          5h {quota.five_hour.used_percentage}%
+          {t("sessions.quota.fiveHour", { percent: quota.five_hour.used_percentage })}
           {quota.five_hour.resets_at ? <small> {formatCountdown(quota.five_hour.resets_at)}</small> : null}
         </span>
         <span className={`quota-window ${quotaClass(quota.seven_day.used_percentage)}`}>
-          7d {quota.seven_day.used_percentage}%
+          {t("sessions.quota.sevenDay", { percent: quota.seven_day.used_percentage })}
           {quota.seven_day.resets_at ? <small> {formatCountdown(quota.seven_day.resets_at)}</small> : null}
         </span>
         {stale && <span className="quota-stale-note">{formatAge(quota.at)}</span>}

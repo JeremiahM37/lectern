@@ -6,8 +6,8 @@
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background: var(--bg, #0b0e14);
-  color: var(--ink, #e7ebf3);
+  background: var(--bg);
+  color: var(--ink);
 }
 .pair-card {
   width: 100%;
@@ -22,7 +22,7 @@
 }
 .pair-card p {
   margin: 0;
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
   font-size: 0.92rem;
 }
 .pair-card form {
@@ -35,23 +35,23 @@
   flex-direction: column;
   gap: 6px;
   font-size: 0.85rem;
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
 }
 .pair-card input {
   font-size: 1rem;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid var(--border, #262c3d);
-  background: var(--bg-alt, #12151f);
-  color: var(--ink, #e7ebf3);
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--ink);
 }
 .pair-card button {
   font-size: 1rem;
   padding: 11px 14px;
   border-radius: 8px;
   border: none;
-  background: var(--accent, #5b8cff);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   cursor: pointer;
 }
 .pair-card button:disabled {
@@ -59,7 +59,7 @@
   cursor: default;
 }
 .pair-error {
-  color: var(--amber, #fbbf24);
+  color: var(--amber);
   font-size: 0.85rem;
   margin: 0;
 }

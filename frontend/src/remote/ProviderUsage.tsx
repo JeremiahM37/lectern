@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import { formatCost, formatCountdown, formatTokens } from "../sessions/usageFormat";
+import { t, useLocale } from "../i18n";
 
 interface Win {
   agent: string;
@@ -52,17 +53,20 @@ interface CostRow {
 }
 export interface ProviderReport { days: number; warn_percent: number; providers: Provider[]; cost_table: CostRow[] }
 
-const windowName = { "5h": "5 hour", "7d": "7 day" } as const;
+const windowName = (name: "5h" | "7d") => t(`remote.usage.window.${name}`);
+
+// The CLI's own login is "Default" from the server; show it translated.
+const accountLabel = (label: string) => (label === "Default" ? t("remote.usage.defaultAccount") : label);
 
 function Meter({ w, warnAt }: { w: Win; warnAt: number }) {
   const pct = Math.max(0, Math.min(100, w.used_percentage));
   return (
     <div className={`pu-meter${w.warn ? " warn" : ""}`} data-window={w.name}>
       <span className="pu-meter-label">
-        {windowName[w.name]}
-        {w.account !== "Default" || w.target ? <small> · {w.account}{w.target ? ` on ${w.target}` : ""}</small> : null}
+        {windowName(w.name)}
+        {w.account !== "Default" || w.target ? <small> · {w.target ? t("remote.usage.accountOn", { account: accountLabel(w.account), machine: w.target }) : accountLabel(w.account)}</small> : null}
       </span>
-      <i role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${windowName[w.name]} window used`}>
+      <i role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={t("remote.usage.windowUsed", { window: windowName(w.name) })}>
         <b style={{ width: `${pct}%` }} />
         <em style={{ left: `${warnAt}%` }} aria-hidden />
       </i>
@@ -78,13 +82,13 @@ function Bars({ days }: { days: Day[] }) {
   const tokensMax = Math.max(1, ...days.map((d) => d.input_tokens + d.output_tokens));
   const useTokens = days.every((d) => d.cost_usd === 0) && days.some((d) => d.input_tokens + d.output_tokens > 0);
   return (
-    <div className="pu-bars" aria-label={useTokens ? "Tokens by day" : "Cost by day"}>
+    <div className="pu-bars" aria-label={useTokens ? t("remote.usage.tokensByDay") : t("remote.usage.costByDay")}>
       {days.map((d) => {
         const v = useTokens ? (d.input_tokens + d.output_tokens) / tokensMax : d.cost_usd / max;
         return (
           <span
             key={d.date}
-            title={`${d.date}: ${formatCost(d.cost_usd)} · ${formatTokens(d.input_tokens)} in / ${formatTokens(d.output_tokens)} out`}
+            title={`${d.date}: ${formatCost(d.cost_usd)} · ${t("remote.usage.tokensInOut", { input: formatTokens(d.input_tokens), output: formatTokens(d.output_tokens) })}`}
           >
             <i style={{ height: `${v > 0 ? Math.max(4, v * 100) : 0}%` }} />
           </span>
@@ -101,35 +105,35 @@ function ProviderCard({ p, warnAt }: { p: Provider; warnAt: number }) {
     <article className={`pu-card${p.warn ? " warn" : ""}${idle ? " idle" : ""}`} data-provider={p.agent}>
       <header>
         <h4>{p.label}</h4>
-        {p.warn && <span className="chip warn" role="status">⚠ over {warnAt}%</span>}
+        {p.warn && <span className="chip warn" role="status">{t("remote.usage.over", { pct: warnAt })}</span>}
       </header>
       <div className="pu-figures">
         <b>{formatCost(p.cost_usd)}</b>
         <span className="sub">
-          {formatTokens(p.input_tokens)} in · {formatTokens(p.output_tokens)} out
-          {p.estimated_usd > 0 && ` · ~${formatCost(p.estimated_usd)} estimated`}
+          {t("remote.usage.tokensInOutDot", { input: formatTokens(p.input_tokens), output: formatTokens(p.output_tokens) })}
+          {p.estimated_usd > 0 && ` · ${t("remote.usage.estimated", { cost: formatCost(p.estimated_usd) })}`}
         </span>
       </div>
       <Bars days={p.daily} />
       {p.windows.length > 0 ? (
         <div className="pu-windows">{p.windows.map((w, i) => <Meter key={i} w={w} warnAt={warnAt} />)}</div>
       ) : (
-        <p className="sub pu-nowindow">{idle ? "No use in this window." : "This CLI reports no usage windows."}</p>
+        <p className="sub pu-nowindow">{idle ? t("remote.usage.idle") : t("remote.usage.noWindows")}</p>
       )}
       {p.accounts.length > 1 && (
         <>
           <button type="button" className="linkish" aria-expanded={accounts} onClick={() => setAccounts(!accounts)}>
-            {accounts ? "Hide" : "By account"} ({p.accounts.length})
+            {accounts ? t("remote.usage.hideAccounts", { n: p.accounts.length }) : t("remote.usage.byAccount", { n: p.accounts.length })}
           </button>
           {accounts && (
             <table className="usage-table pu-accounts">
               <tbody>
                 {p.accounts.map((a) => (
                   <tr key={a.key} className={a.warn ? "warn" : ""}>
-                    <td>{a.label}<small className="sub"> {a.target}</small></td>
+                    <td>{accountLabel(a.label)}<small className="sub"> {a.target}</small></td>
                     <td>{formatCost(a.cost_usd)}</td>
                     <td className="sub">
-                      {a.windows.map((w) => `${windowName[w.name]} ${Math.round(w.used_percentage)}%`).join(" · ") || "—"}
+                      {a.windows.map((w) => `${windowName(w.name)} ${Math.round(w.used_percentage)}%`).join(" · ") || "—"}
                     </td>
                   </tr>
                 ))}
@@ -146,6 +150,7 @@ export function ProviderUsage({ api, days }: {
   api: { request<T>(path: string, o?: { method?: string; body?: JsonValue }): Promise<T> };
   days: number;
 }) {
+  useLocale();
   const [report, setReport] = useState<ProviderReport>();
   const [error, setError] = useState("");
   const [warn, setWarn] = useState("");
@@ -177,11 +182,11 @@ export function ProviderUsage({ api, days }: {
   };
   const warned = report.providers.filter((p) => p.warn);
   return (
-    <section className="provider-usage" aria-label="Usage by provider">
+    <section className="provider-usage" aria-label={t("remote.usage.title")} data-setting="usage.providers">
       <div className="pu-head">
-        <h4>By provider</h4>
-        <label>
-          Warn at
+        <h4>{t("remote.usage.byProvider")}</h4>
+        <label data-setting="usage.warnPercent">
+          {t("remote.usage.warnAt")}
           <input
             type="number"
             min={1}
@@ -196,17 +201,17 @@ export function ProviderUsage({ api, days }: {
       </div>
       {warned.length > 0 && (
         <p className="pu-alert" role="alert">
-          {warned.map((p) => p.label).join(", ")} {warned.length === 1 ? "is" : "are"} past {report.warn_percent}% of a usage window. A push went out when it crossed.
+          {t("remote.usage.alert", { count: warned.length, names: warned.map((p) => p.label).join(", "), pct: report.warn_percent })}
         </p>
       )}
       <div className="pu-grid">
         {report.providers.map((p) => <ProviderCard key={p.agent} p={p} warnAt={report.warn_percent} />)}
       </div>
       <details className="pu-costs" open={report.cost_table.length > 0 && report.cost_table.length <= 6}>
-        <summary>Estimated cost by model</summary>
+        <summary>{t("remote.usage.costTable")}</summary>
         <table className="usage-table">
           <thead>
-            <tr><th>Agent · model</th><th>Tokens in / out</th><th>Reported</th><th>Estimated</th><th>At list price</th></tr>
+            <tr><th>{t("remote.usage.col.model")}</th><th>{t("remote.usage.col.tokens")}</th><th>{t("remote.usage.col.reported")}</th><th>{t("remote.usage.col.estimated")}</th><th>{t("remote.usage.col.list")}</th></tr>
           </thead>
           <tbody>
             {report.cost_table.map((c) => (
@@ -215,13 +220,13 @@ export function ProviderUsage({ api, days }: {
                 <td className="sub">{formatTokens(c.input_tokens)} / {formatTokens(c.output_tokens)}</td>
                 <td>{formatCost(c.reported_usd)}</td>
                 <td>{c.estimated_usd > 0 ? formatCost(c.estimated_usd) : "—"}</td>
-                <td>{c.priced ? formatCost(c.list_usd || 0) : <span className="sub">add a price</span>}</td>
+                <td>{c.priced ? formatCost(c.list_usd || 0) : <span className="sub">{t("remote.usage.addPrice")}</span>}</td>
               </tr>
             ))}
-            {report.cost_table.length === 0 && <tr><td colSpan={5} className="sub">Nothing used in this window.</td></tr>}
+            {report.cost_table.length === 0 && <tr><td colSpan={5} className="sub">{t("remote.usage.nothing")}</td></tr>}
           </tbody>
         </table>
-        <p className="subhint">“At list price” prices the tokens with Settings → Budgets → model prices, so agents that report only tokens are comparable.</p>
+        <p className="subhint">{t("remote.usage.listHint")}</p>
       </details>
     </section>
   );

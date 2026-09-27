@@ -15,7 +15,7 @@ interface Deps {
 }
 
 export function sessionSwipes(s: SessionView, approval: Approval | undefined, deps: Deps): { left?: SwipeAction; right?: SwipeAction } {
-  const name = s.name || "session";
+  const name = s.name || t("sessions.card.sessionFallback");
   const run = async (work: () => Promise<unknown>, text: string, undo = true) => {
     try {
       await work();

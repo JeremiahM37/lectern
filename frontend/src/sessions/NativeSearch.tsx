@@ -4,6 +4,7 @@ import { Modal } from "./Modal";
 import type { SessionsApi } from "./Sessions";
 import type { SessionView, Target } from "../types";
 import type { JsonValue } from "../api";
+import { t, useLocale } from "../i18n";
 interface Hit {
   id: string;
   title: string;
@@ -68,6 +69,7 @@ export function NativeSearch({
   onFork(s: SessionView): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [query, setQuery] = useState(""),
     [target, setTarget] = useState(""),
     [agent, setAgent] = useState(""),
@@ -82,7 +84,7 @@ export function NativeSearch({
     [forking, setForking] = useState(false),
     [forkPending, setForkPending] = useState(false),
     [configuration, setConfiguration] = useState(""),
-    [name, setName] = useState("Conversation fork"),
+    [name, setName] = useState(() => t("conversation.search.defaultForkName")),
     [isolated, setIsolated] = useState(false),
     [branch, setBranch] = useState(""),
     [base, setBase] = useState(""),
@@ -136,7 +138,7 @@ export function NativeSearch({
         request === pollGeneration.current
       ) {
         setStatus(
-          `Could not update search: ${explain(e)}. Available results are retained.`,
+          t("conversation.search.updateFailed", { error: explain(e) }),
         );
         setRetry(true);
       }
@@ -151,7 +153,7 @@ export function NativeSearch({
     setStarting(true);
     clearTimeout(timer.current);
     setRetry(false);
-    setStatus("Starting search…");
+    setStatus(t("conversation.search.starting"));
     try {
       if (previous && !last.current?.done) {
         try {
@@ -184,7 +186,7 @@ export function NativeSearch({
     } catch (e) {
       if (alive.current && version === generation.current) {
         job.current = previous;
-        setStatus(`Could not start search: ${explain(e)}`);
+        setStatus(t("conversation.search.startFailed", { error: explain(e) }));
       }
     } finally {
       startBusy.current = false;
@@ -203,7 +205,7 @@ export function NativeSearch({
       accept(value);
       if (!value.done) later(id, version);
     } catch (e) {
-      if (alive.current) setStatus(`Could not stop search: ${explain(e)}`);
+      if (alive.current) setStatus(t("conversation.search.stopFailed", { error: explain(e) }));
     }
   }
   function close() {
@@ -232,7 +234,7 @@ export function NativeSearch({
     setHit(selected);
     setForking(false);
     setReading(true);
-    setReadStatus("Loading matching message…");
+    setReadStatus(t("conversation.search.loadingMatch"));
     setPage(undefined);
     requestAnimationFrame(() => backButton.current?.focus());
     try {
@@ -242,7 +244,18 @@ export function NativeSearch({
       if (!alive.current || version !== readGeneration.current) return;
       setPage(value);
       setReadStatus(
-        `${value.page_mode === "latest" ? "Latest indexed messages" : value.page_mode && value.page_mode !== "match" ? "Saved messages" : "Matching message with nearby context"}${value.changed_neighbors ? ` · ${value.changed_neighbors} changed messages omitted` : ""}${!value.index_complete ? " · indexing is incomplete" : ""}.`,
+        t("conversation.search.readStatus", {
+          mode:
+            value.page_mode === "latest"
+              ? t("conversation.search.modeLatest")
+              : value.page_mode && value.page_mode !== "match"
+                ? t("conversation.search.modeSaved")
+                : t("conversation.search.modeMatch"),
+          changed: value.changed_neighbors
+            ? t("conversation.search.changedOmitted", { count: value.changed_neighbors })
+            : "",
+          incomplete: !value.index_complete ? t("conversation.search.indexIncomplete") : "",
+        }),
       );
       requestAnimationFrame(() => {
         if (messages.current) {
@@ -254,7 +267,7 @@ export function NativeSearch({
       });
     } catch (e) {
       if (alive.current && version === readGeneration.current)
-        setReadStatus(`${explain(e)}. Return to results and search again.`);
+        setReadStatus(t("conversation.search.readFailed", { error: explain(e) }));
     } finally {
       if (alive.current && version === readGeneration.current)
         setReading(false);
@@ -284,7 +297,7 @@ export function NativeSearch({
     if (forkBusy.current || !hit || !job.current || !configuration) return;
     forkBusy.current = true;
     setForkPending(true);
-    setForkStatus("Starting fork…");
+    setForkStatus(t("conversation.search.startingFork"));
     const body: Record<string, JsonValue> = {
       configuration_id: configuration,
       name,
@@ -324,12 +337,21 @@ export function NativeSearch({
   const summary =
     status ||
     (result
-      ? `${result.results.length} ${result.results.length === 1 ? "conversation" : "conversations"} found${unfinished ? ` · searching ${unfinished} ${unfinished === 1 ? "profile" : "profiles"}…` : result.complete ? "" : " · some profiles could not be fully searched"}${result.scopes.some((scope) => scope.more) ? " · more matches available; narrow your search" : ""}${!result.results.length && result.complete ? ". Try different words or filters." : ""}`
-      : "Search saved messages across workspaces, including conversations you no longer track.");
+      ? t("conversation.search.summary", {
+          found: t("conversation.search.found", { count: result.results.length }),
+          progress: unfinished
+            ? t("conversation.search.searching", { count: unfinished })
+            : result.complete
+              ? ""
+              : t("conversation.search.incomplete"),
+          more: result.scopes.some((scope) => scope.more) ? t("conversation.search.more") : "",
+          hint: !result.results.length && result.complete ? t("conversation.search.tryDifferent") : "",
+        })
+      : t("conversation.search.intro"));
   return (
     <Modal
       className="native-history native-search"
-      aria-label="Search saved conversations"
+      aria-label={t("conversation.search.title")}
       style={{ "--search-height": `${height}px` } as CSSProperties}
       onCancel={(e) => {
         e.preventDefault();
@@ -363,14 +385,14 @@ export function NativeSearch({
       }}
     >
       <header>
-        <h2>Search saved conversations</h2>
+        <h2>{t("conversation.search.title")}</h2>
         <button
           className="ns-close"
-          aria-label="Close saved conversation search"
+          aria-label={t("conversation.search.closeLabel")} data-close
           disabled={forkPending}
           onClick={close}
         >
-          Close
+          {t("conversation.search.close")}
         </button>
       </header>
       <section className="ns-browse" hidden={!!hit}>
@@ -381,7 +403,7 @@ export function NativeSearch({
             void start();
           }}
         >
-          <label htmlFor="native-search-query">Conversation text</label>
+          <label htmlFor="native-search-query">{t("conversation.search.queryLabel")}</label>
           <input
             id="native-search-query"
             className="ns-query"
@@ -389,43 +411,43 @@ export function NativeSearch({
             type="search"
             required
             maxLength={500}
-            placeholder="Find something discussed…"
+            placeholder={t("conversation.search.queryPlaceholder")}
             autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="ns-filters">
             <label>
-              Target
+              {t("conversation.search.target")}
               <select
-                aria-label="Target"
+                aria-label={t("conversation.search.target")}
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
               >
-                <option value="">All targets</option>
-                {targets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
+                <option value="">{t("conversation.search.allTargets")}</option>
+                {targets.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Agent
+              {t("conversation.search.agent")}
               <select
-                aria-label="Agent"
+                aria-label={t("conversation.search.agent")}
                 value={agent}
                 onChange={(e) => setAgent(e.target.value)}
               >
-                <option value="">Claude and Codex</option>
+                <option value="">{t("conversation.search.claudeAndCodex")}</option>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
               </select>
             </label>
-            <button disabled={starting}>Search</button>
+            <button disabled={starting}>{t("conversation.search.search")}</button>
             {result && !result.done && !starting && (
               <button type="button" onClick={() => void stop()}>
-                Stop search
+                {t("conversation.search.stop")}
               </button>
             )}
           </div>
@@ -440,26 +462,29 @@ export function NativeSearch({
               if (job.current) void poll(job.current, generation.current);
             }}
           >
-            Retry connection
+            {t("conversation.search.retry")}
           </button>
         )}
         {!!result?.scopes.length && (
           <details className="ns-progress">
             <summary>
-              Target progress · {result.scopes.length}{" "}
-              {result.scopes.length === 1 ? "profile" : "profiles"}
-              {problemCount ? ` · ${problemCount} with issues` : ""}
+              {t("conversation.search.progress", { count: result.scopes.length })}
+              {problemCount ? t("conversation.search.withIssues", { count: problemCount }) : ""}
             </summary>
             <div>
               {result.scopes.map((scope) => (
                 <p key={scope.id}>
-                  {scope.target} · {scope.agent}: {scope.error || scope.state} ·{" "}
-                  {scope.progress.documents} conversations
+                  {t("conversation.search.scopeLine", {
+                    target: scope.target,
+                    agent: scope.agent,
+                    state: scope.error || scope.state,
+                    documents: scope.progress.documents,
+                  })}
                   {scope.progress.pending_files
-                    ? ` · ${scope.progress.pending_files} pending`
+                    ? t("conversation.search.pending", { count: scope.progress.pending_files })
                     : ""}
                   {scope.progress.oversized_entries
-                    ? ` · ${scope.progress.oversized_entries} oversized entries skipped`
+                    ? t("conversation.search.oversized", { count: scope.progress.oversized_entries })
                     : ""}
                   {scope.progress.issues?.length
                     ? " · " + scope.progress.issues.join("; ")
@@ -471,7 +496,7 @@ export function NativeSearch({
         )}
         <div
           className="ns-results"
-          aria-label="Saved conversation results"
+          aria-label={t("conversation.search.resultsLabel")}
           ref={results}
         >
           {result?.results.map((row) => (
@@ -491,20 +516,17 @@ export function NativeSearch({
           ))}
         </div>
         <details className="ns-advanced">
-          <summary>Search options</summary>
-          <p>
-            If a transcript was rewritten, rebuild its search index. Saved
-            conversations remain unchanged.
-          </p>
+          <summary>{t("conversation.search.options")}</summary>
+          <p>{t("conversation.search.rebuildHelp")}</p>
           <button disabled={starting} onClick={() => void start(true)}>
-            Rebuild and search
+            {t("conversation.search.rebuild")}
           </button>
         </details>
       </section>
       <section className="ns-reader" hidden={!hit}>
         <div className="ns-reader-head">
           <button ref={backButton} disabled={forkPending} onClick={back}>
-            Back to results
+            {t("conversation.search.back")}
           </button>
           <p className="ns-location">
             {hit && `${hit.target} · ${hit.agent} · ${hit.cwd}`}
@@ -515,26 +537,26 @@ export function NativeSearch({
             disabled={reading || page?.before == null}
             onClick={() => hit && void read(hit, `?before=${page?.before}`)}
           >
-            Earlier messages
+            {t("conversation.search.earlier")}
           </button>
           <button
             disabled={reading || page?.after == null}
             onClick={() => hit && void read(hit, `?after=${page?.after}`)}
           >
-            Later messages
+            {t("conversation.search.later")}
           </button>
           <button
             disabled={reading}
             onClick={() => hit && void read(hit, "?latest=1")}
           >
-            Latest indexed
+            {t("conversation.search.latestIndexed")}
           </button>
           <button disabled={reading} onClick={() => hit && void read(hit)}>
-            Back to match
+            {t("conversation.search.backToMatch")}
           </button>
           {choices.length > 0 && (
             <button ref={forkButton} disabled={reading} onClick={confirmFork}>
-              Fork conversation
+              {t("conversation.search.fork")}
             </button>
           )}
         </div>
@@ -550,7 +572,8 @@ export function NativeSearch({
                 open={message.matched || undefined}
               >
                 <summary>
-                  Tool activity{message.matched ? " · Matching message" : ""}
+                  {t("conversation.search.toolActivity")}
+                  {message.matched ? t("conversation.search.matching") : ""}
                 </summary>
                 <pre>{message.text}</pre>
               </details>
@@ -560,12 +583,12 @@ export function NativeSearch({
                 className={`nh-message nh-${message.role}${message.matched ? " ns-match" : ""}`}
               >
                 <h3>
-                  {message.role === "user" ? "You" : "Assistant"}
-                  {message.matched ? " · Matching message" : ""}
+                  {message.role === "user" ? t("conversation.search.you") : t("conversation.search.assistant")}
+                  {message.matched ? t("conversation.search.matching") : ""}
                 </h3>
                 <pre>{message.text}</pre>
                 {message.truncated && (
-                  <small>Long message shortened in this view.</small>
+                  <small>{t("conversation.search.longShortened")}</small>
                 )}
               </article>
             ),
@@ -579,27 +602,26 @@ export function NativeSearch({
               void createFork();
             }}
           >
-            <h3>Fork saved conversation</h3>
+            <h3>{t("conversation.search.forkTitle")}</h3>
             <p className="ns-fork-warning">
-              Fork the whole saved conversation, including messages after the
-              match.{" "}
+              {t("conversation.search.forkWarning")}{" "}
               {isolated
-                ? "Start in a new Git worktree from the selected committed base; uncommitted changes stay in the original workspace."
-                : "Both conversations will use the same workspace files."}{" "}
-              The original conversation and terminal stay intact.
+                ? t("conversation.search.forkIsolated")
+                : t("conversation.search.forkShared")}{" "}
+              {t("conversation.search.forkIntact")}
             </p>
             <label>
-              Launch settings
+              {t("conversation.search.launchSettings")}
               <select
                 ref={configInput}
-                aria-label="Launch settings"
+                aria-label={t("conversation.search.launchSettings")}
                 required
                 disabled={forkPending}
                 value={configuration}
                 onChange={(e) => setConfiguration(e.target.value)}
               >
                 {choices.length > 1 && (
-                  <option value="">Choose launch settings</option>
+                  <option value="">{t("conversation.search.chooseLaunch")}</option>
                 )}
                 {choices.map((choice) => (
                   <option key={choice.id} value={choice.id}>
@@ -610,9 +632,9 @@ export function NativeSearch({
               </select>
             </label>
             <label>
-              Session name
+              {t("conversation.search.sessionName")}
               <input
-                aria-label="Session name"
+                aria-label={t("conversation.search.sessionName")}
                 value={name}
                 maxLength={160}
                 disabled={forkPending}
@@ -620,32 +642,32 @@ export function NativeSearch({
               />
             </label>
             <label>
-              Workspace
+              {t("conversation.search.workspace")}
               <select
-                aria-label="Fork workspace"
+                aria-label={t("conversation.search.forkWorkspace")}
                 disabled={forkPending}
                 value={isolated ? "isolated" : "shared"}
                 onChange={(e) => setIsolated(e.target.value === "isolated")}
               >
-                <option value="shared">Use the same workspace files</option>
-                <option value="isolated">New isolated Git worktree</option>
+                <option value="shared">{t("conversation.search.sameWorkspace")}</option>
+                <option value="isolated">{t("conversation.search.isolatedWorktree")}</option>
               </select>
             </label>
             {isolated && (
               <>
                 <label>
-                  Branch (blank = automatic)
+                  {t("conversation.search.branch")}
                   <input
-                    aria-label="Branch (blank = automatic)"
+                    aria-label={t("conversation.search.branch")}
                     value={branch}
                     disabled={forkPending}
                     onChange={(e) => setBranch(e.target.value)}
                   />
                 </label>
                 <label>
-                  Base commit or branch (blank = HEAD)
+                  {t("conversation.search.base")}
                   <input
-                    aria-label="Base commit or branch (blank = HEAD)"
+                    aria-label={t("conversation.search.base")}
                     value={base}
                     disabled={forkPending}
                     onChange={(e) => setBase(e.target.value)}
@@ -656,7 +678,7 @@ export function NativeSearch({
             <p className="ns-fork-status" role="status">
               {forkStatus}
             </p>
-            <button disabled={forkPending}>Create fork</button>
+            <button disabled={forkPending}>{t("conversation.search.createFork")}</button>
             <button
               type="button"
               disabled={forkPending}
@@ -665,7 +687,7 @@ export function NativeSearch({
                 requestAnimationFrame(() => forkButton.current?.focus());
               }}
             >
-              Cancel fork
+              {t("conversation.search.cancelFork")}
             </button>
           </form>
         )}

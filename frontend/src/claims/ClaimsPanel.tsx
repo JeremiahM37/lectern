@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Claim, Project } from "../types";
 import { Modal } from "../sessions/Modal";
+import { t, useLocale } from "../i18n";
 import "./claims.css";
 
 // ClaimsPanel is the Claim board's human surface (docs/claims.md point 5): a
@@ -46,26 +47,26 @@ export function parseClaimPaths(claim: Claim): string[] {
 
 export function claimScopeLabel(claim: Claim): string {
   if (claim.scope_kind === "paths") return parseClaimPaths(claim).join(", ");
-  if (claim.scope_kind === "task") return `task #${claim.scope}`;
+  if (claim.scope_kind === "task") return t("board.claims.taskScope", { id: claim.scope });
   return claim.scope;
 }
 
 function ago(seconds: number): string {
   const s = Date.now() / 1000 - seconds;
-  if (s < 60) return "just now";
+  if (s < 60) return t("board.claims.justNow");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return t("board.claims.minutesAgo", { n: m });
   const h = Math.round(m / 60);
-  return `${h}h ago`;
+  return t("board.claims.hoursAgo", { n: h });
 }
 
 function inFuture(seconds: number): string {
   const s = seconds - Date.now() / 1000;
-  if (s <= 0) return "expiring";
+  if (s <= 0) return t("board.claims.expiring");
   const m = Math.round(s / 60);
-  if (m < 60) return `in ${m}m`;
+  if (m < 60) return t("board.claims.inMinutes", { n: m });
   const h = Math.round(m / 60);
-  return `in ${h}h`;
+  return t("board.claims.inHours", { n: h });
 }
 
 export function ClaimsPanel({
@@ -81,6 +82,7 @@ export function ClaimsPanel({
   onNotice(text: string, error?: boolean): void;
   initialProjectId?: number;
 }) {
+  useLocale();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [projectFilter, setProjectFilter] = useState<number | "">(initialProjectId ?? "");
   const [loading, setLoading] = useState(false);
@@ -138,7 +140,7 @@ export function ClaimsPanel({
   async function submitClaimForMe(e: React.FormEvent) {
     e.preventDefault();
     if (!formProject || !scope.trim()) {
-      onNotice("give a project and a scope", true);
+      onNotice(t("board.claims.needProjectScope"), true);
       return;
     }
     try {
@@ -164,23 +166,22 @@ export function ClaimsPanel({
   }
 
   return (
-    <Modal id="claims-panel" open className="sheet claims-panel" aria-label="Claim board" onCancel={onClose}>
+    <Modal id="claims-panel" open className="sheet claims-panel" aria-label={t("board.claims.title")} onCancel={onClose}>
       <header className="sheet-head">
-        <h2>Claim board</h2>
+        <h2>{t("board.claims.title")}</h2>
         <button onClick={onClose}>✕</button>
       </header>
       <p>
-        Who is doing what, right now — claimed by an agent (automatically, or with{" "}
-        <code>claim_work</code>) or by you. Advisory only: nothing is blocked, this just keeps
-        everyone from duplicating the same work.
+        {t("board.claims.introBefore")}{" "}
+        <code>claim_work</code>{t("board.claims.introAfter")}
       </p>
       <div className="claims-toolbar">
         <select
-          aria-label="Filter by project"
+          aria-label={t("board.claims.filterByProject")}
           value={projectFilter}
           onChange={(e) => setProjectFilter(e.target.value ? Number(e.target.value) : "")}
         >
-          <option value="">All repositories</option>
+          <option value="">{t("board.claims.allRepositories")}</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -188,13 +189,13 @@ export function ClaimsPanel({
           ))}
         </select>
         <button type="button" className="b" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "Claim for me…"}
+          {showForm ? t("board.claims.cancel") : t("board.claims.claimForMe")}
         </button>
       </div>
       {showForm && (
         <form className="claims-form" onSubmit={submitClaimForMe}>
           <select
-            aria-label="Project to claim in"
+            aria-label={t("board.claims.projectToClaim")}
             value={formProject}
             onChange={(e) => setFormProject(Number(e.target.value))}
           >
@@ -205,16 +206,16 @@ export function ClaimsPanel({
             ))}
           </select>
           <select
-            aria-label="Scope kind"
+            aria-label={t("board.claims.scopeKind")}
             value={scopeKind}
             onChange={(e) => setScopeKind(e.target.value as "task" | "paths" | "topic")}
           >
-            <option value="topic">Topic</option>
-            <option value="paths">Paths (comma-separated globs)</option>
-            <option value="task">Task id</option>
+            <option value="topic">{t("board.claims.kindTopicOption")}</option>
+            <option value="paths">{t("board.claims.kindPathsOption")}</option>
+            <option value="task">{t("board.claims.kindTaskOption")}</option>
           </select>
           <input
-            aria-label="Scope"
+            aria-label={t("board.claims.scope")}
             value={scope}
             onChange={(e) => setScope(e.target.value)}
             placeholder={
@@ -222,17 +223,17 @@ export function ClaimsPanel({
                 ? "frontend/src/sessions/**, frontend/src/board/**"
                 : scopeKind === "task"
                   ? "42"
-                  : "rename button in session card"
+                  : t("board.claims.topicPlaceholder")
             }
           />
           <input
-            aria-label="Intent"
+            aria-label={t("board.claims.intent")}
             value={intent}
             onChange={(e) => setIntent(e.target.value)}
-            placeholder="what you're doing (shown to others)"
+            placeholder={t("board.claims.intentPlaceholder")}
           />
           <input
-            aria-label="TTL minutes"
+            aria-label={t("board.claims.ttlMinutes")}
             type="number"
             min={5}
             max={1440}
@@ -240,12 +241,12 @@ export function ClaimsPanel({
             onChange={(e) => setTtl(Number(e.target.value))}
           />
           <button className="b ok" type="submit">
-            Claim
+            {t("board.claims.claim")}
           </button>
         </form>
       )}
-      {loading && claims.length === 0 && <p>Loading…</p>}
-      {!loading && claims.length === 0 && <p>Nothing claimed right now.</p>}
+      {loading && claims.length === 0 && <p>{t("board.claims.loading")}</p>}
+      {!loading && claims.length === 0 && <p>{t("board.claims.empty")}</p>}
       <ul className="claims-list">
         {claims.map((c) => (
           <li key={c.id} className="claims-row" data-id={c.id} data-scope-kind={c.scope_kind}>
@@ -255,22 +256,22 @@ export function ClaimsPanel({
                 {c.holder_kind === "attempt" && `#${c.attempt_id} `}
                 {c.holder}
                 {c.agent && <span className="claims-agent"> ({c.agent})</span>}
-                {c.auto && <span className="claims-auto-badge" title="Created automatically">auto</span>}
+                {c.auto && <span className="claims-auto-badge" title={t("board.claims.autoTitle")}>{t("board.claims.auto")}</span>}
               </span>
               <span className="claims-scope">
-                <b>{c.scope_kind}</b> {claimScopeLabel(c)}
+                <b>{t(`board.claims.kind.${c.scope_kind}`, undefined, c.scope_kind)}</b> {claimScopeLabel(c)}
               </span>
               {c.intent && <span className="claims-intent">“{c.intent}”</span>}
               <span className="claims-times">
-                claimed {ago(c.created_at)} · expires {inFuture(c.expires_at)}
+                {t("board.claims.times", { claimed: ago(c.created_at), expires: inFuture(c.expires_at) })}
               </span>
             </div>
             <div className="claims-row-actions">
               <button className="b" disabled={busy === c.id} onClick={() => void extend(c.id)}>
-                Extend
+                {t("board.claims.extend")}
               </button>
               <button className="b" disabled={busy === c.id} onClick={() => void release(c.id)}>
-                Release
+                {t("board.claims.release")}
               </button>
             </div>
           </li>

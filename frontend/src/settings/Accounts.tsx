@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import type { AgentAccount, Target } from "../types";
 import { clock } from "../limits/limit-label";
+import { t, useLocale } from "../i18n";
 
 export interface AccountsApi {
   request<T>(p: string, o?: { method?: string; body?: unknown }): Promise<T>;
@@ -16,11 +17,11 @@ const AGENTS = ["claude", "codex", "gemini"];
 
 function usageText(a: AgentAccount): string {
   const u = a.usage;
-  if (!u) return "no usage reported yet";
+  if (!u) return t("settings.accounts.noUsage");
   const parts: string[] = [];
-  if (u.rate_5h_pct != null) parts.push(`5h ${u.rate_5h_pct}%`);
-  if (u.rate_7d_pct != null) parts.push(`7d ${u.rate_7d_pct}%`);
-  return parts.length ? parts.join(" · ") : "no usage reported yet";
+  if (u.rate_5h_pct != null) parts.push(t("settings.accounts.usage5h", { pct: u.rate_5h_pct }));
+  if (u.rate_7d_pct != null) parts.push(t("settings.accounts.usage7d", { pct: u.rate_7d_pct }));
+  return parts.length ? parts.join(" · ") : t("settings.accounts.noUsage");
 }
 
 export function AccountsPanel({
@@ -34,8 +35,9 @@ export function AccountsPanel({
   onNotice(text: string, error?: boolean): void;
   onOpenTerminal(url: string, title: string): void;
 }) {
+  useLocale();
   const [rows, setRows] = useState<AgentAccount[] | null>(null);
-  const usable = targets.filter((t) => t.kind !== "sandbox");
+  const usable = targets.filter((target) => target.kind !== "sandbox");
   const [targetId, setTargetId] = useState<number>(0);
   const [agent, setAgent] = useState("claude");
   const [label, setLabel] = useState("");
@@ -57,7 +59,7 @@ export function AccountsPanel({
         body: { agent, label: label.trim(), target_id: targetId || usable[0]?.id || 0 },
       });
       setLabel("");
-      onNotice(`Added ${agent} account “${label.trim()}”. Sign it in next.`);
+      onNotice(t("settings.accounts.added", { agent, label: label.trim() }));
       load();
     } catch (e) {
       onNotice(e instanceof Error ? e.message : String(e), true);
@@ -69,14 +71,14 @@ export function AccountsPanel({
   async function signIn(a: AgentAccount) {
     try {
       const sess = await api.request<{ id: number }>(`/accounts/${a.id}/login`, { method: "POST" });
-      onOpenTerminal(`/terminal/session/${sess.id}`, `Sign in · ${a.label}`);
+      onOpenTerminal(`/terminal/session/${sess.id}`, t("settings.accounts.signInTitle", { label: a.label }));
     } catch (e) {
       onNotice(e instanceof Error ? e.message : String(e), true);
     }
   }
 
   async function remove(a: AgentAccount) {
-    if (!window.confirm(`Forget ${a.agent} account “${a.label}”? Its directory and login stay on ${a.target_name}.`)) return;
+    if (!window.confirm(t("settings.accounts.forgetConfirm", { agent: a.agent, label: a.label, target: a.target_name }))) return;
     try {
       await api.request(`/accounts/${a.id}`, { method: "DELETE" });
       load();
@@ -88,17 +90,14 @@ export function AccountsPanel({
   const now = Date.now() / 1000;
   return (
     <article id="accounts-panel" className="accounts-panel">
-      <h3>Accounts</h3>
+      <h3>{t("settings.section.accounts")}</h3>
       <p className="subhint">
-        Several logins of the same agent on a machine. With “swap accounts” on in a usage-limit policy, an agent
-        that hits its limit is restarted under the next free account and continues the same conversation. Each
-        account is a private directory on the machine that only its CLI reads; Lectern never shows or sends what is
-        in it. Only add accounts that are your own, and check that your providers' terms allow how you use them.
+        {t("settings.accounts.hint")}
       </p>
       {rows === null ? (
-        <p>Loading accounts…</p>
+        <p>{t("settings.accounts.loading")}</p>
       ) : rows.length === 0 ? (
-        <p>No accounts yet. The login each agent already uses is added as “Default” with the first one.</p>
+        <p>{t("settings.accounts.empty")}</p>
       ) : (
         <ul className="accounts-list">
           {rows.map((a) => (
@@ -107,21 +106,21 @@ export function AccountsPanel({
                 <strong>
                   {a.agent} · {a.label}
                 </strong>
-                {a.default && <span className="subhint"> (its own login)</span>}
-                <span className="subhint"> on {a.target_name}</span>
+                {a.default && <span className="subhint"> {t("settings.accounts.ownLogin")}</span>}
+                <span className="subhint"> {t("settings.accounts.onTarget", { target: a.target_name })}</span>
               </div>
               <div className="accounts-state">
-                <span>{a.signed_in == null ? "sign-in unknown" : a.signed_in ? "signed in" : "not signed in"}</span>
-                <span>{a.blocked_until && a.blocked_until > now ? `limited until ${clock(a.blocked_until, now)}` : "free"}</span>
+                <span>{a.signed_in == null ? t("settings.accounts.signInUnknown") : a.signed_in ? t("settings.accounts.signedIn") : t("settings.accounts.notSignedIn")}</span>
+                <span>{a.blocked_until && a.blocked_until > now ? t("settings.accounts.limitedUntil", { time: clock(a.blocked_until, now) }) : t("settings.accounts.free")}</span>
                 <span>{usageText(a)}</span>
-                {a.live_sessions > 0 && <span>{a.live_sessions} running</span>}
+                {a.live_sessions > 0 && <span>{t("settings.accounts.running", { n: a.live_sessions })}</span>}
               </div>
               <div className="accounts-actions">
                 <button className="b" onClick={() => void signIn(a)}>
-                  Sign in
+                  {t("settings.accounts.signIn")}
                 </button>
-                <button className="b" aria-label={`Remove ${a.label}`} onClick={() => void remove(a)}>
-                  Remove
+                <button className="b" aria-label={t("settings.remove", { name: a.label })} onClick={() => void remove(a)}>
+                  {t("settings.common.remove")}
                 </button>
               </div>
             </li>
@@ -129,37 +128,37 @@ export function AccountsPanel({
         </ul>
       )}
       <fieldset>
-        <legend>Add an account</legend>
+        <legend>{t("settings.accounts.add")}</legend>
         <div className="limit-row">
           <label>
-            Agent
-            <select aria-label="Account agent" value={agent} onChange={(e) => setAgent(e.target.value)}>
+            {t("settings.accounts.agent")}
+            <select aria-label={t("settings.accounts.agentAria")} value={agent} onChange={(e) => setAgent(e.target.value)}>
               {AGENTS.map((name) => (
                 <option key={name}>{name}</option>
               ))}
             </select>
           </label>
           <label>
-            Machine
+            {t("settings.accounts.machine")}
             <select
-              aria-label="Account machine"
+              aria-label={t("settings.accounts.machineAria")}
               value={targetId || usable[0]?.id || 0}
               onChange={(e) => setTargetId(Number(e.target.value))}
             >
-              {usable.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+              {usable.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.name}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Label
-            <input aria-label="Account label" value={label} maxLength={40} placeholder="work" onChange={(e) => setLabel(e.target.value)} />
+            {t("settings.accounts.label")}
+            <input aria-label={t("settings.accounts.labelAria")} value={label} maxLength={40} placeholder={t("settings.accounts.labelPlaceholder")} onChange={(e) => setLabel(e.target.value)} />
           </label>
         </div>
         <button disabled={busy || !label.trim()} onClick={() => void add()}>
-          Add account
+          {t("settings.accounts.addButton")}
         </button>
       </fieldset>
     </article>

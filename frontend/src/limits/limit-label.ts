@@ -2,6 +2,7 @@
 // the card chip, the banner line and which one-tap choices make sense. Kept
 // free of React so limit-label.test.ts can check it directly.
 import type { LimitHold } from "../types";
+import { t } from "../i18n";
 
 // clock renders an epoch in the viewer's own zone: "3:40pm" today,
 // "Sat 9:00am" within a week, a date beyond that.
@@ -21,22 +22,24 @@ export function limitLabel(h: LimitHold, now: number = Date.now() / 1000, locale
   const reset = h.reset_at ? clock(h.reset_at, now, locale) : "";
   switch (h.state) {
     case "resuming":
-      return h.to_account ? `Swapped to ${h.to_account} — resuming…` : "Limit reset — resuming…";
+      return h.to_account ? t("app.limit.swappedResuming", { account: h.to_account }) : t("app.limit.resetResuming");
     case "swapping":
-      return `Limit — swapping to ${h.to_account || "another account"}…`;
+      return t("app.limit.swapping", { account: h.to_account || t("app.limit.anotherAccount") });
     case "swapped":
-      return `Limit — continues on ${h.to_account || "another account"}`;
+      return t("app.limit.continuesOn", { account: h.to_account || t("app.limit.anotherAccount") });
     case "handing_off":
-      return `Limit — handing off${h.fallback ? ` to ${h.fallback}` : ""}…`;
-    case "requeued":
-      return `Limit — resumes ${h.due_at ? clock(h.due_at, now, locale) : reset || "after the reset"}`;
+      return h.fallback ? t("app.limit.handingOffTo", { agent: h.fallback }) : t("app.limit.handingOff");
+    case "requeued": {
+      const when = h.due_at ? clock(h.due_at, now, locale) : reset;
+      return when ? t("app.limit.resumes", { time: when }) : t("app.limit.resumesAfterReset");
+    }
   }
   if (h.policy === "wait") {
     const due = h.due_at ? clock(h.due_at, now, locale) : reset;
-    return due ? `Limit — resumes ${due}` : "Limit — resumes after the reset";
+    return due ? t("app.limit.resumes", { time: due }) : t("app.limit.resumesAfterReset");
   }
-  if (h.reset_at && h.reset_at <= now) return "Limit reset — ready to resume";
-  return reset ? `Limit — resets ${reset}` : "Limit — reset time unknown";
+  if (h.reset_at && h.reset_at <= now) return t("app.limit.readyToResume");
+  return reset ? t("app.limit.resets", { time: reset }) : t("app.limit.resetUnknown");
 }
 
 export type LimitChoice = "wait" | "resume_now" | "handoff" | "swap" | "dismiss";
@@ -57,14 +60,14 @@ export function limitChoices(h: LimitHold, now: number = Date.now() / 1000): Lim
 export function choiceLabel(c: LimitChoice, h: LimitHold): string {
   switch (c) {
     case "wait":
-      return "Resume at reset";
+      return t("app.limit.resumeAtReset");
     case "resume_now":
-      return "Resume now";
+      return t("app.limit.resumeNow");
     case "handoff":
-      return h.fallback ? `Hand off to ${h.fallback}` : "Hand off…";
+      return h.fallback ? t("app.limit.handOffTo", { agent: h.fallback }) : t("app.limit.handOff");
     case "swap":
-      return `Swap to ${h.swap_to?.label || "another account"}`;
+      return t("app.limit.swapTo", { account: h.swap_to?.label || t("app.limit.anotherAccount") });
     case "dismiss":
-      return "Dismiss";
+      return t("app.limit.dismiss");
   }
 }

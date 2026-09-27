@@ -20,7 +20,7 @@ import { ModelPrices } from "./ModelPrices";
 import { LimitPolicyEditor } from "./LimitPolicy";
 import { AccountsPanel } from "./Accounts";
 import { LaunchProfiles } from "./LaunchProfiles";
-import { INSTRUCTIONS_HELP } from "./launchProfileForm";
+import { instructionsHelp } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
 import { AppearancePanel, ShortcutsPanel, WorkspacePanel } from "./Personal";
 import { SettingsSearch } from "./SettingsSearch";
@@ -159,7 +159,7 @@ export function Settings({
     if (section.focus === "search") setSearchFocus(Date.now());
     else if (section.focus) {
       setFocused(section.focus);
-      requestAnimationFrame(() => focusSetting({ id: section.focus!, match: undefined }));
+      requestAnimationFrame(() => focusSetting({ id: section.focus! }));
     }
     onExternalActionConsumed("section");
   }, [section?.version]);
@@ -247,16 +247,14 @@ export function Settings({
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (
         <section>
-          <h3>Spend</h3>
+          <h3 data-setting="about.spend">{t("settings.about.spend")}</h3>
           {stats && (
             <p>
-              ${Number(stats.total_cost_usd).toFixed(2)} all-time · $
-              {Number(stats.last_7d_usd).toFixed(2)} last 7d ·{" "}
-              {stats.tasks_done} tasks done
+              {t("settings.about.spendLine", { total: Number(stats.total_cost_usd).toFixed(2), week: Number(stats.last_7d_usd).toFixed(2), tasks: stats.tasks_done })}
             </p>
           )}
           <UsagePanel api={api} />
-          <h3>Outcomes</h3>
+          <h3 data-setting="about.outcomes">{t("settings.about.outcomes")}</h3>
           <OutcomesPanel api={api} />
           <Whoami api={api} />
           <Build api={api} />
@@ -299,6 +297,7 @@ function Targets({
   onChanged(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [commands,setCommands]=useState<Target>();
@@ -306,44 +305,44 @@ function Targets({
   return (
     <div className="settings-grid">
       <div className="btnrow grid-span">
-        <button type="button" onClick={() => setAdding(true)}>Add machine</button>
-        <button type="button" id="ssh-import" onClick={() => setImporting(true)}>Import from ~/.ssh/config</button>
+        <button type="button" onClick={() => setAdding(true)}>{t("settings.targets.addMachine")}</button>
+        <button type="button" id="ssh-import" data-setting="machines.sshImport" onClick={() => setImporting(true)}>{t("remote.ssh.importButton")}</button>
       </div>
       {adding && <TargetEditor api={api} machines={rows} onClose={() => setAdding(false)} onChanged={onChanged} />}
       {importing && <SshImport api={api} onClose={() => setImporting(false)} onImported={() => void onChanged()} onNotice={onNotice} />}
-      {rows.map((t) => (
-        <article className="rowcard" key={t.id}>
-          <h3>{t.name}</h3>
+      {rows.map((target) => (
+        <article className="rowcard" key={target.id}>
+          <h3>{target.name}</h3>
           <p>
-            {t.kind}
-            {t.host && ` · ${t.user}@${t.host}`} · {t.max_concurrent} slots
-            {t.sandbox ? " · sandbox" : ""}
+            {target.kind}
+            {target.host && ` · ${target.user}@${target.host}`} · {t("settings.targets.slots", { n: target.max_concurrent })}
+            {target.sandbox ? ` · ${t("settings.targets.sandbox")}` : ""}
           </p>
           <button
             onClick={() =>
               void api
-                .request<Target>(`/targets/${t.id}/check`, { method: "POST" })
+                .request<Target>(`/targets/${target.id}/check`, { method: "POST" })
                 .then((result) => {
-                  let detail = result.info_json || result.status || "Probe complete";
+                  let detail = result.info_json || result.status || t("settings.targets.probeComplete");
                   try { detail = JSON.stringify(JSON.parse(detail)); } catch { /* show backend text */ }
-                  setChecks((old) => ({ ...old, [t.id]: detail }));
+                  setChecks((old) => ({ ...old, [target.id]: detail }));
                   return onChanged();
                 })
                 .catch((e) => onNotice(String(e), true))
             }
           >
-            Probe
+            {t("settings.targets.probe")}
           </button>
-          {checks[t.id] && <p className="sub" role="status">{checks[t.id]}</p>}
+          {checks[target.id] && <p className="sub" role="status">{checks[target.id]}</p>}
           <button
-            onClick={() => setCommands(t)}
+            onClick={() => setCommands(target)}
           >
-            Agent commands
+            {t("settings.targets.agentCommands")}
           </button>
-          {t.kind === "sandbox" ? (
-            <SandboxMachine api={api} target={t} machines={rows} onChanged={() => void onChanged()} onNotice={onNotice} />
+          {target.kind === "sandbox" ? (
+            <SandboxMachine api={api} target={target} machines={rows} onChanged={() => void onChanged()} onNotice={onNotice} />
           ) : (
-            <MachineRemote api={api} target={t} onChanged={() => void onChanged()} onNotice={onNotice} />
+            <MachineRemote api={api} target={target} onChanged={() => void onChanged()} onNotice={onNotice} />
           )}
         </article>
       ))}
@@ -355,13 +354,14 @@ function Targets({
 function TargetEditor({ api, machines, onClose, onChanged }: {
   api: SettingsApi; machines: Target[]; onClose(): void; onChanged(): Promise<void>;
 }) {
+  useLocale();
   const [kind, setKind] = useState("ssh");
   const [provider, setProvider] = useState<SandboxConfig>({ provider: "docker" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  return <Modal className="sheet machine-sheet" aria-label="Add machine" onCancel={onClose}>
-    <div className="sheet-head"><h2>Add machine</h2>
-    <button type="button" onClick={onClose} aria-label="Close">×</button></div>
+  return <Modal className="sheet machine-sheet" aria-label={t("settings.targets.addMachine")} onCancel={onClose}>
+    <div className="sheet-head"><h2>{t("settings.targets.addMachine")}</h2>
+    <button type="button" onClick={onClose} aria-label={t("settings.common.close")} data-close>×</button></div>
     <form onSubmit={async (event) => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
@@ -384,26 +384,26 @@ function TargetEditor({ api, machines, onClose, onChanged }: {
         await onChanged(); onClose();
       } catch (e) { setError(String(e)); } finally { setBusy(false); }
     }}>
-      <label>Machine name<input name="name" required maxLength={100} /></label>
-      <label>Connection<select value={kind} onChange={(e) => setKind(e.target.value)}>
-        <option value="ssh">Remote machine (SSH)</option>
-        <option value="local">This server</option>
-        <option value="sandbox">Sandboxes (a fresh one per attempt)</option>
+      <label data-setting="machines.name">{t("settings.targets.name")}<input name="name" required maxLength={100} /></label>
+      <label>{t("settings.targets.connection")}<select value={kind} onChange={(e) => setKind(e.target.value)}>
+        <option value="ssh">{t("settings.targets.remote")}</option>
+        <option value="local">{t("settings.targets.local")}</option>
+        <option value="sandbox">{t("remote.sandbox.kindOption")}</option>
       </select></label>
       {kind === "sandbox" && <>
         <ProviderFields value={provider} onChange={setProvider} machines={machines} />
-        {provider.provider === "proxmox" && <label>Template container id<input name="template" required inputMode="numeric" placeholder="110" /></label>}
-        <p className="sub">Every attempt gets its own sandbox, so agents may run with permissions bypassed. See docs/sandboxes.md.</p>
+        {provider.provider === "proxmox" && <label>{t("remote.sandbox.template")}<input name="template" required inputMode="numeric" placeholder="110" /></label>}
+        <p className="sub">{t("remote.sandbox.kindHint")}</p>
       </>}
       {kind === "sandbox" ? null : kind === "ssh" ? <>
-        <label>Hostname<input name="host" required placeholder="server.example" /></label>
-        <label>SSH user<input name="user" required autoComplete="username" /></label>
-        <label>SSH port<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
-        <label>SSH key path<input name="key_path" placeholder="~/.ssh/id_ed25519" /></label>
-        <p className="sub">The key must exist on the Lectern server. Install Git, tmux, Python 3 and your agent CLI on the remote machine, then sign in there.</p>
-      </> : <p className="sub">Runs on the Lectern server. In Docker this means inside the container. A blank shell needs no agent login.</p>}
+        <label data-setting="machines.host">{t("settings.targets.host")}<input name="host" required placeholder="server.example" /></label>
+        <label data-setting="machines.user">{t("settings.targets.user")}<input name="user" required autoComplete="username" /></label>
+        <label data-setting="machines.port">{t("settings.targets.port")}<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>
+        <label data-setting="machines.key">{t("settings.targets.key")}<input name="key_path" placeholder="~/.ssh/id_ed25519" /></label>
+        <p className="sub">{t("settings.targets.sshHint")}</p>
+      </> : <p className="sub">{t("settings.targets.localHint")}</p>}
       {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy}>{busy ? "Adding…" : "Save machine"}</button>
+      <button type="submit" disabled={busy}>{busy ? t("settings.targets.adding") : t("settings.targets.save")}</button>
     </form>
   </Modal>;
 }
@@ -429,6 +429,7 @@ function Projects({
   root: string;
   setRoot(value: string): void;
 }) {
+  useLocale();
   const [found, setFound] = useState<
       { name: string; path: string; registered: boolean }[]
     >([]),
@@ -474,7 +475,7 @@ function Projects({
       .map((p) => p.name);
     if (
       !confirm(
-        `Delete ${names.length} project${names.length === 1 ? "" : "s"}?\n\n${names.join("\n")}\n\nTasks, sessions and project settings are removed; code on disk is untouched.`,
+        t("settings.projects.deleteConfirm", { count: names.length, names: names.join("\n") }),
       )
     )
       return;
@@ -487,7 +488,7 @@ function Projects({
   return (
     <section>
       <div className="btnrow">
-        <input id="pj-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter projects…" />
+        <input id="pj-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("settings.projects.filter")} />
         <button
           id="pj-select"
           onClick={() => {
@@ -495,7 +496,7 @@ function Projects({
             setSelected([]);
           }}
         >
-          {selecting ? "Cancel selection" : "Select…"}
+          {selecting ? t("settings.projects.cancelSelection") : t("settings.projects.select")}
         </button>
         {selecting && selected.length > 0 && (
           <button id="pj-del"
@@ -503,7 +504,7 @@ function Projects({
               void removeSelected().catch((e) => onNotice(String(e), true))
             }
           >
-            Delete {selected.length} selected
+            {t("settings.projects.deleteSelected", { count: selected.length })}
           </button>
         )}
       </div>
@@ -524,28 +525,27 @@ function Projects({
                   )
                 }
               />{" "}
-              Select {p.name}
+              {t("settings.projects.selectOne", { name: p.name })}
             </label>
           )}
           <p>
-            {usage[p.id]?.tasks || 0} tasks ({usage[p.id]?.open_tasks || 0}{" "}
-            open) · {usage[p.id]?.sessions || 0} sessions
+            {t("settings.projects.usage", { tasks: usage[p.id]?.tasks || 0, open: usage[p.id]?.open_tasks || 0, sessions: usage[p.id]?.sessions || 0 })}
           </p>
           <div className="pjmain"><div className="pjname">{p.name}</div><div className="pjmeta">{p.target_name}</div><div className="pjpath">{p.repo_path}</div></div>
-          <button aria-label={`Shell in ${p.name}`} onClick={(e) => { e.stopPropagation(); void api.request<{url:string;notice?:string}>(`/projects/${p.id}/terminal`, {method:"POST"}).then((r) => { onOpenTerminal(r.url, p.name); if (r.notice) onNotice(r.notice); }).catch((error) => onNotice(String(error), true)); }}>⌨</button>
+          <button aria-label={t("settings.projects.shellIn", { name: p.name })} onClick={(e) => { e.stopPropagation(); void api.request<{url:string;notice?:string}>(`/projects/${p.id}/terminal`, {method:"POST"}).then((r) => { onOpenTerminal(r.url, p.name); if (r.notice) onNotice(r.notice); }).catch((error) => onNotice(String(error), true)); }}>⌨</button>
         </div>
       ))}
       </div>
-      {editing && <Modal id="sheet" open className="sheet" aria-label={`Edit ${editing.name}`} onCancel={() => setEditing(undefined)}>
-        <button className="x" onClick={() => setEditing(undefined)}>Close</button>
+      {editing && <Modal id="sheet" open className="sheet" aria-label={t("settings.projects.editName", { name: editing.name })} onCancel={() => setEditing(undefined)}>
+        <button className="x" onClick={() => setEditing(undefined)}>{t("settings.common.close")}</button>
         <ProjectCard api={api} p={editing} onChanged={onChanged} onNotice={onNotice} />
       </Modal>}
       <article>
-        <h3>Import projects</h3>
-        <select aria-label="Import target" id="import-target">
-          {targets.map((t) => (
-            <option value={t.id} key={t.id}>
-              {t.name}
+        <h3 data-setting="projects.import">{t("settings.projects.import")}</h3>
+        <select aria-label={t("settings.projects.importTarget")} id="import-target">
+          {targets.map((target) => (
+            <option value={target.id} key={target.id}>
+              {target.name}
             </option>
           ))}
         </select>
@@ -565,9 +565,9 @@ function Projects({
               .then((rows) => { setFound(rows); setScanned(true); })
           }
         >
-          Scan
+          {t("settings.projects.scan")}
         </button>
-        <div id="imp-out">{scanned && found.length === 0 ? "Nothing project-shaped found." : ""}</div>
+        <div id="imp-out">{scanned && found.length === 0 ? t("settings.projects.nothingFound") : ""}</div>
         {found.map((f) => (
           <label key={f.path}>
             <input
@@ -606,12 +606,22 @@ function Projects({
                 .catch((e) => onNotice(String(e), true));
             }}
           >
-            Import selected
+            {t("settings.projects.importSelected")}
           </button>
         )}
       </article>
     </section>
   );
+}
+// The one-line capability summary shown under a project card.
+function capabilityText(c: { profile: string; allow: string[]; mcp_servers: string[]; memory_dir: string }): string {
+  return t("settings.projects.capability", {
+    warn: c.profile === "restricted" ? "⚠ " : "",
+    profile: c.profile,
+    servers: c.mcp_servers.join(", ") || t("settings.projects.none"),
+    memory: c.memory_dir ? t("settings.projects.memoryShared") : t("settings.projects.none"),
+    bash: c.allow.includes("Bash") ? t("settings.projects.bashUnrestricted") : t("settings.projects.bashRestricted"),
+  });
 }
 function ProjectCard({
   api,
@@ -624,6 +634,7 @@ function ProjectCard({
   onChanged(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [setup, setSetup] = useState(p.setup_cmd),
     [profile, setProfile] = useState(p.capability_profile),
     [perm, setPerm] = useState(p.default_permission_mode);
@@ -645,7 +656,7 @@ function ProjectCard({
       initialIsolation.network === "deny" ? "deny" : "allow",
     );
   const [mcp, setMcp] = useState("{}"),
-    [mcpStatus, setMcpStatus] = useState("Loading…"),
+    [mcpStatus, setMcpStatus] = useState(() => t("settings.common.loading")),
     [revision, setRevision] = useState(""),
     [strict, setStrict] = useState(Boolean(p.strict_mcp)),
     [sources, setSources] = useState(() => {
@@ -691,10 +702,10 @@ function ProjectCard({
     ])
       .then(([m, c]) => {
         setMcp(JSON.stringify(m.mcp, null, 2));
-        setMcpStatus("MCP settings loaded");
+        setMcpStatus(t("settings.projects.mcpLoaded"));
         setRevision(m.revision);
         setStrict(m.strict_mcp);
-        setCap(`${c.profile === "restricted" ? "⚠ " : ""}${c.profile} · MCP: ${c.mcp_servers.join(", ") || "none"} · memory: ${c.memory_dir ? "shared" : "none"} · ${c.allow.includes("Bash") ? "bash: unrestricted" : "bash: restricted"}`);
+        setCap(capabilityText(c));
       })
       .catch(() => {});
   }, [p.id]);
@@ -711,26 +722,26 @@ function ProjectCard({
             : { mode: isolationMode, network: isolationNetwork },
       },
     });
-    onNotice("Project saved");
+    onNotice(t("settings.projects.saved"));
     await onChanged();
   }
   // The CI loop settings save as they change, like the capability picker.
   function saveCI(body: { ci_loop?: boolean; ci_max_attempts?: number }) {
     void api
       .request(`/projects/${p.id}`, { method: "PATCH", body })
-      .then(() => onNotice("CI loop setting saved"))
+      .then(() => onNotice(t("settings.projects.ciSaved")))
       .catch((error) => onNotice(String(error), true));
   }
   async function saveSetup() {
     try {
       await api.request(`/projects/${p.id}`, { method: "PATCH", body: { setup_cmd: setup } });
-      setSetupStatus("Saved setup command"); await onChanged();
+      setSetupStatus(t("settings.projects.setupSaved")); await onChanged();
     } catch (error) { setSetupStatus(error instanceof Error ? error.message : String(error)); }
   }
   async function saveCheckCmd() {
     try {
       await api.request(`/projects/${p.id}`, { method: "PATCH", body: { verify_cmd: checkCmd } });
-      setCheckStatus("Saved check command");
+      setCheckStatus(t("settings.projects.checkSaved"));
       loadCheckCommand();
       await onChanged();
     } catch (error) { setCheckStatus(error instanceof Error ? error.message : String(error)); }
@@ -740,7 +751,7 @@ function ProjectCard({
     try {
       next = JSON.parse(mcp) as Record<string, JsonValue>;
     } catch {
-      return onNotice("MCP settings must be valid JSON", true);
+      return onNotice(t("settings.projects.mcpInvalid"), true);
     }
     try {
       const saved = await api.request<{ revision: string }>(
@@ -748,8 +759,8 @@ function ProjectCard({
         { method: "PUT", body: { mcp: next, revision, strict_mcp: strict } },
       );
       setRevision(saved.revision);
-      setMcpStatus("Saved MCP settings");
-      onNotice("MCP settings saved");
+      setMcpStatus(t("settings.projects.mcpSavedStatus"));
+      onNotice(t("settings.projects.mcpSaved"));
     } catch (e) {
       const err = e as { status?: number; message?: string };
       if (err.status !== 409) { setMcpStatus(err.message || String(e)); return onNotice(err.message || String(e), true); }
@@ -764,14 +775,14 @@ function ProjectCard({
         >;
         setMcp(JSON.stringify(merged, null, 2));
         setRevision(latest.revision);
-        setMcpStatus("MCP settings changed elsewhere; your draft is preserved. Review it, then Save again.");
+        setMcpStatus(t("settings.projects.mcpConflict"));
         onNotice(
-          "MCP settings changed elsewhere; your draft is preserved. Review it, then Save again.",
+          t("settings.projects.mcpConflict"),
           true,
         );
       } catch (refresh) {
         onNotice(
-          `MCP settings changed elsewhere; the new revision could not be loaded: ${String(refresh)}`,
+          t("settings.projects.mcpConflictLoad", { error: String(refresh) }),
           true,
         );
       }
@@ -808,23 +819,23 @@ function ProjectCard({
         {p.target_name} · {p.repo_path}
       </p>
       <label>
-        Agent capability
+        {t("settings.projects.capabilityLabel")}
         <select className="cap-sel" value={profile} onChange={(e) => {
           const value = e.target.value;
           setProfile(value);
           void api.request(`/projects/${p.id}`, { method: "PATCH", body: { capability_profile: value } }).then(async () => {
             const c = await api.request<{profile:string;allow:string[];mcp_servers:string[];memory_dir:string}>(`/projects/${p.id}/capability`);
-            setCap(`${c.profile === "restricted" ? "⚠ " : ""}${c.profile} · MCP: ${c.mcp_servers.join(", ") || "none"} · memory: ${c.memory_dir ? "shared" : "none"} · ${c.allow.includes("Bash") ? "bash: unrestricted" : "bash: restricted"}`);
+            setCap(capabilityText(c));
           }).catch((error) => onNotice(String(error), true));
         }}>
-          <option value="restricted">restricted — only rules you set</option>
-          <option value="parity">parity — same tools as your terminal</option>
+          <option value="restricted">{t("settings.projects.capRestricted")}</option>
+          <option value="parity">{t("settings.projects.capParity")}</option>
         </select>
       </label>
       <label>
-        Default permission mode
+        {t("settings.projects.permission")}
         <select value={perm} onChange={(e) => setPerm(e.target.value)}>
-          <option value="">task default</option>
+          <option value="">{t("settings.projects.taskDefault")}</option>
           <option>default</option>
           <option>acceptEdits</option>
           <option>plan</option>
@@ -832,73 +843,72 @@ function ProjectCard({
         </select>
       </label>
       <label>
-        Default isolation
+        {t("settings.projects.isolation")}
         <select
           value={isolationMode}
           onChange={(e) =>
             setIsolationMode(e.target.value as typeof isolationMode)
           }
         >
-          <option value="">none (today's behavior)</option>
-          <option value="bwrap">bwrap — fast, no daemon</option>
-          <option value="docker">Docker container</option>
+          <option value="">{t("settings.projects.isolationNone")}</option>
+          <option value="bwrap">{t("settings.projects.isolationBwrap")}</option>
+          <option value="docker">{t("settings.projects.isolationDocker")}</option>
         </select>
       </label>
       {isolationMode !== "" && (
         <label>
-          Default isolation network
+          {t("settings.projects.isolationNetwork")}
           <select
             value={isolationNetwork}
             onChange={(e) =>
               setIsolationNetwork(e.target.value as typeof isolationNetwork)
             }
           >
-            <option value="allow">allow — unrestricted, like today</option>
-            <option value="deny">deny — allowlist proxy only</option>
+            <option value="allow">{t("settings.projects.networkAllow")}</option>
+            <option value="deny">{t("settings.projects.networkDeny")}</option>
           </select>
         </label>
       )}
       <label>
-        Check command
+        {t("settings.projects.check")}
         <input
-          aria-label="Check command"
+          aria-label={t("settings.projects.check")}
           value={checkCmd}
           placeholder={
             autoDetect?.source === "auto"
-              ? `auto-detected: ${autoDetect.command}`
-              : "e.g. go test ./..."
+              ? t("settings.projects.autoDetected", { command: autoDetect.command })
+              : t("settings.projects.checkExample")
           }
           onChange={(e) => setCheckCmd(e.target.value)}
         />
       </label>
-      <button onClick={() => void saveCheckCmd()}>Save check command</button>
+      <button onClick={() => void saveCheckCmd()}>{t("settings.projects.saveCheck")}</button>
       <p className="project-check-status" role="status">
         {checkStatus ||
           (checkCmd
             ? ""
             : autoDetect?.source === "auto"
-              ? `Check command: auto-detected: ${autoDetect.command}`
-              : "Check command: none configured, and no .verify.yaml found on the target")}
+              ? t("settings.projects.checkAuto", { command: autoDetect.command })
+              : t("settings.projects.checkNone"))}
       </p>
       <label>
         <input
           type="checkbox"
-          aria-label="Fix CI failures automatically"
+          aria-label={t("settings.projects.ciFix")}
           checked={ciLoop}
           onChange={(e) => {
             setCiLoop(e.target.checked);
             saveCI({ ci_loop: e.target.checked });
           }}
         />{" "}
-        Fix CI failures automatically — when a PR opened here fails its checks,
-        send the failing jobs to the agent and ask it to push a fix
+        {t("settings.projects.ciFixHint")}
       </label>
       {ciLoop && (
         <label>
-          Fix attempts per PR
+          {t("settings.projects.ciAttempts")}
           <input
             type="number"
-            aria-label="Fix attempts per PR"
+            aria-label={t("settings.projects.ciAttempts")}
             min={1}
             max={10}
             value={ciMax}
@@ -910,7 +920,7 @@ function ProjectCard({
       <label>
         <input
           type="checkbox"
-          aria-label="Let agents operate live desktops"
+          aria-label={t("settings.projects.computerUse")}
           checked={computerUse}
           onChange={(e) => {
             const on = e.target.checked;
@@ -918,43 +928,41 @@ function ProjectCard({
               .request(`/projects/${p.id}`, { method: "PATCH", body: { computer_use: on } })
               .then(() => {
                 setComputerUse(on);
-                onNotice(on ? "Agents in this project may operate their live desktops" : "Computer use is off");
+                onNotice(on ? t("settings.projects.computerUseOn") : t("settings.projects.computerUseOff"));
               })
               .catch((error) => onNotice(String(error), true));
           }}
         />{" "}
-        Let agents operate live desktops (computer use): screenshot, click and
-        type on a desktop their session started. The Browser pane shows when an
-        agent is in control and can stop it.
+        {t("settings.projects.computerUseHint")}
       </label>
       <label>
-        New worktree setup command
-        <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />
+        {t("settings.projects.setup")}
+        <textarea aria-label={t("settings.projects.setup")} value={setup} onChange={(e) => setSetup(e.target.value)} />
       </label>
-      <button onClick={() => void saveSetup()}>Save setup command</button>
+      <button onClick={() => void saveSetup()}>{t("settings.projects.saveSetup")}</button>
       <p className="project-setup-status" role="status">{setupStatus}</p>
       <button
         onClick={() => void save().catch((e) => onNotice(String(e), true))}
       >
-        Save project
+        {t("settings.projects.save")}
       </button>
       <p className="cap-info">{cap}</p>
       <section className="project-mcp-editor">
-        <h4>Project MCP servers</h4>
+        <h4 data-setting="projects.mcp">{t("settings.projects.mcpServers")}</h4>
         <p className="project-mcp-status" role="status">{mcpStatus}</p>
         {Object.entries(documentValue()).map(([name, raw], index) => {
           const spec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, JsonValue> : {};
           const http = typeof spec.url === "string";
           const extra = Object.fromEntries(Object.entries(spec).filter(([key]) => key !== "command" && key !== "url"));
           return <div className="mcp-row" key={`${index}-${name}`}>
-            <input className="mcp-name" aria-label="Server name" value={name} onChange={(e) => changeMCP(index, "name", e.target.value)} />
-            <select className="mcp-type" aria-label="Server type" value={http ? "http" : "stdio"} onChange={(e) => changeMCP(index, "type", e.target.value)}><option value="stdio">stdio</option><option value="http">http</option></select>
-            <input className="mcp-command" aria-label={http ? "URL" : "Command"} value={String(http ? spec.url || "" : spec.command || "")} onChange={(e) => changeMCP(index, "command", e.target.value)} />
-            <textarea className="mcp-extra" aria-label="Additional settings" value={JSON.stringify(extra, null, 2)} onChange={(e) => changeMCP(index, "extra", e.target.value)} />
-            <button className="mcp-remove" onClick={() => { const entries=Object.entries(documentValue());entries.splice(index,1);setMcp(JSON.stringify(Object.fromEntries(entries),null,2)); }}>Remove</button>
+            <input className="mcp-name" aria-label={t("settings.projects.serverName")} value={name} onChange={(e) => changeMCP(index, "name", e.target.value)} />
+            <select className="mcp-type" aria-label={t("settings.projects.serverType")} value={http ? "http" : "stdio"} onChange={(e) => changeMCP(index, "type", e.target.value)}><option value="stdio">stdio</option><option value="http">http</option></select>
+            <input className="mcp-command" aria-label={http ? t("settings.projects.serverUrl") : t("settings.projects.serverCommand")} value={String(http ? spec.url || "" : spec.command || "")} onChange={(e) => changeMCP(index, "command", e.target.value)} />
+            <textarea className="mcp-extra" aria-label={t("settings.projects.serverExtra")} value={JSON.stringify(extra, null, 2)} onChange={(e) => changeMCP(index, "extra", e.target.value)} />
+            <button className="mcp-remove" onClick={() => { const entries=Object.entries(documentValue());entries.splice(index,1);setMcp(JSON.stringify(Object.fromEntries(entries),null,2)); }}>{t("settings.common.remove")}</button>
           </div>;
         })}
-        <button className="project-mcp-add" onClick={() => { const entries=Object.entries(documentValue());entries.push([`server_${entries.length+1}`, {command:""}]);setMcp(JSON.stringify(Object.fromEntries(entries),null,2)); }}>Add server</button>
+        <button className="project-mcp-add" onClick={() => { const entries=Object.entries(documentValue());entries.push([`server_${entries.length+1}`, {command:""}]);setMcp(JSON.stringify(Object.fromEntries(entries),null,2)); }}>{t("settings.projects.addServer")}</button>
       </section>
       <label>
         <input
@@ -962,9 +970,9 @@ function ProjectCard({
           checked={strict}
           onChange={(e) => setStrict(e.target.checked)}
         />{" "}
-        Claude strict MCP replacement
+        {t("settings.projects.strictMcp")}
       </label>
-      <button className="project-mcp-save" onClick={() => void saveMCP()}>Save MCP settings</button>
+      <button className="project-mcp-save" onClick={() => void saveMCP()}>{t("settings.projects.saveMcp")}</button>
       <LimitPolicyEditor api={api} projectId={p.id} onNotice={onNotice} />
       <Skills
         api={api}
@@ -984,13 +992,13 @@ function ProjectCard({
       <TrackerSettings api={api} projectId={p.id} onNotice={onNotice} />
       <button
         onClick={() => {
-          if (confirm(`Delete ${p.name}?`))
+          if (confirm(t("settings.projects.deleteOne", { name: p.name })))
             void api
               .request(`/projects/${p.id}?cascade=true`, { method: "DELETE" })
               .then(onChanged);
         }}
       >
-        Delete project
+        {t("settings.projects.delete")}
       </button>
     </article>
   );
@@ -1016,6 +1024,7 @@ function Notifications({
   onUnsubscribePush?(endpoint: string): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [discord, setDiscord] = useState(String(values.discord_webhook ?? "")),
     [server, setServer] = useState(String(values.ntfy_server ?? "")),
     [topic, setTopic] = useState(String(values.ntfy_topic ?? ""));
@@ -1023,11 +1032,11 @@ function Notifications({
   // as "0"/"1" strings, default ON — missing or anything but "0" means the
   // alert is enabled (internal/alerts.Watcher.enabled).
   const alertKeys: [string, string][] = [
-    ["alert_waiting_permission", "Needs permission"],
-    ["alert_waiting_input", "Waiting for input"],
-    ["alert_idle", "Finished"],
-    ["alert_error", "Error"],
-    ["alert_compacting", "Compacting"],
+    ["alert_waiting_permission", t("settings.notifications.alertPermission")],
+    ["alert_waiting_input", t("settings.notifications.alertInput")],
+    ["alert_idle", t("settings.notifications.alertIdle")],
+    ["alert_error", t("settings.notifications.alertError")],
+    ["alert_compacting", t("settings.notifications.alertCompacting")],
   ];
   const [alerts, setAlerts] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(alertKeys.map(([key]) => [key, String(values[key] ?? "") !== "0"])),
@@ -1046,39 +1055,39 @@ function Notifications({
   useEffect(loadDevices, [pushEndpoint]);
   return (
     <article>
-      <h3>Notifications</h3>
-      <div className="push-status">
+      <h3>{t("settings.section.notifications")}</h3>
+      <div className="push-status" data-setting="notifications.push">
         {!pushAvailable ? (
           <>
             <p className="subhint" id="push-unavailable-reason">
-              {pushUnavailableReason || "Push notifications are not available in this browser."}
+              {pushUnavailableReason || t("settings.notifications.unavailable")}
             </p>
             {pushUnavailableReasonKind === "ios-not-installed" && (
               <ol className="push-ios-steps" id="push-ios-steps">
                 <li>
-                  Tap the <strong>Share</strong> icon in Safari's toolbar.
+                  {t("settings.notifications.iosStep1")} <strong>{t("settings.notifications.iosShare")}</strong> {t("settings.notifications.iosStep1After")}
                 </li>
                 <li>
-                  Scroll down and tap <strong>Add to Home Screen</strong>.
+                  {t("settings.notifications.iosStep2")} <strong>{t("settings.notifications.iosAddToHome")}</strong>{t("settings.notifications.iosStepEnd")}
                 </li>
                 <li>
-                  Tap <strong>Add</strong> in the top-right corner.
+                  {t("settings.notifications.iosStep3")} <strong>{t("settings.notifications.iosAdd")}</strong> {t("settings.notifications.iosStep3After")}
                 </li>
-                <li>Open Lectern from its new Home Screen icon, not from Safari.</li>
+                <li>{t("settings.notifications.iosStep4")}</li>
                 <li>
-                  Come back here (Settings → Notifications) and tap{" "}
-                  <strong>Enable phone alerts</strong>.
+                  {t("settings.notifications.iosStep5")}{" "}
+                  <strong>{t("settings.notifications.enable")}</strong>{t("settings.notifications.iosStepEnd")}
                 </li>
               </ol>
             )}
           </>
         ) : pushEndpoint ? (
           <p className="subhint" id="push-enabled-hint">
-            Phone alerts are on for this device.
+            {t("settings.notifications.enabled")}
           </p>
         ) : (
           <button id="s-enable-push" onClick={onEnablePush}>
-            Enable phone alerts
+            {t("settings.notifications.enable")}
           </button>
         )}
         {devices.length > 0 && (
@@ -1088,19 +1097,19 @@ function Notifications({
                 <span>
                   {shortEndpoint(d.endpoint)}
                   {d.endpoint === pushEndpoint && (
-                    <em className="push-this-device"> · this device</em>
+                    <em className="push-this-device"> · {t("settings.notifications.thisDevice")}</em>
                   )}
                 </span>
                 {onUnsubscribePush && (
                   <button
                     className="b"
-                    aria-label={`Unsubscribe ${shortEndpoint(d.endpoint)}`}
+                    aria-label={t("settings.notifications.unsubscribeName", { name: shortEndpoint(d.endpoint) })}
                     onClick={() => {
                       onUnsubscribePush(d.endpoint);
                       setDevices((old) => old.filter((row) => row.id !== d.id));
                     }}
                   >
-                    Unsubscribe
+                    {t("settings.notifications.unsubscribe")}
                   </button>
                 )}
               </li>
@@ -1108,16 +1117,16 @@ function Notifications({
           </ul>
         )}
       </div>
-      <label>
-        Discord webhook URL
+      <label data-setting="notifications.sinks">
+        {t("settings.notifications.discord")}
         <input id="s-discord" value={discord} onChange={(e) => setDiscord(e.target.value)} />
       </label>
       <label>
-        ntfy server
+        {t("settings.notifications.ntfyServer")}
         <input id="s-ntfy-server" value={server} onChange={(e) => setServer(e.target.value)} />
       </label>
       <label>
-        ntfy topic
+        {t("settings.notifications.ntfyTopic")}
         <input id="s-ntfy-topic" value={topic} onChange={(e) => setTopic(e.target.value)} />
       </label>
       <button
@@ -1132,26 +1141,24 @@ function Notifications({
                 ntfy_topic: topic.trim(),
               },
             })
-            .then(() => onNotice("Sinks saved"))
+            .then(() => onNotice(t("settings.notifications.sinksSaved")))
         }
       >
-        Save sinks
+        {t("settings.notifications.saveSinks")}
       </button>
       <button
         onClick={() =>
           void api
             .request("/settings/test-notification", { method: "POST" })
-            .then(() => onNotice("Test sent"))
+            .then(() => onNotice(t("settings.notifications.testSent")))
         }
       >
-        Send test
+        {t("settings.notifications.sendTest")}
       </button>
 
-      <h4>Session alerts</h4>
+      <h4 data-setting="notifications.sessionAlerts">{t("settings.notifications.sessionAlerts")}</h4>
       <p className="subhint">
-        A push when a session needs permission, is waiting for you, finishes, hits an
-        error, or auto-compacts its context. Suppressed for 30s after you type into that
-        session's terminal.
+        {t("settings.notifications.sessionAlertsHint")}
       </p>
       {alertKeys.map(([key, label]) => (
         <label key={key}>
@@ -1173,17 +1180,15 @@ function Notifications({
                 alertKeys.map(([key]) => [key, alerts[key] ? "1" : "0"]),
               ),
             })
-            .then(() => onNotice("Alert settings saved"))
+            .then(() => onNotice(t("settings.notifications.alertsSaved")))
         }
       >
-        Save alerts
+        {t("settings.notifications.saveAlerts")}
       </button>
 
-      <h4>New session permission mode</h4>
+      <h4 data-setting="projects.permission">{t("settings.notifications.permissionMode")}</h4>
       <p className="subhint">
-        The default for a new interactive session that does not say otherwise. "Ask"
-        registers the PermissionRequest hook, so a tool call can be approved or denied
-        from the phone; "Bypass" is today's default — the agent runs unattended.
+        {t("settings.notifications.permissionHint")}
       </p>
       <label>
         <select
@@ -1191,8 +1196,8 @@ function Notifications({
           value={permissionMode}
           onChange={(e) => setPermissionMode(e.target.value)}
         >
-          <option value="bypass">Bypass (no approval prompts)</option>
-          <option value="ask">Ask (approve/deny from the phone)</option>
+          <option value="bypass">{t("settings.notifications.bypass")}</option>
+          <option value="ask">{t("settings.notifications.ask")}</option>
         </select>
       </label>
       <button
@@ -1203,10 +1208,10 @@ function Notifications({
               method: "PUT",
               body: { session_permission_mode: permissionMode },
             })
-            .then(() => onNotice("Default permission mode saved"))
+            .then(() => onNotice(t("settings.notifications.permissionSaved")))
         }
       >
-        Save default
+        {t("settings.notifications.saveDefault")}
       </button>
     </article>
   );
@@ -1222,6 +1227,7 @@ interface Whoami {
 // useful in tailscale mode, where nobody ever typed a credential in — this is
 // the one place that confirms it actually resolved to the right person.
 function Whoami({ api }: { api: SettingsApi }) {
+  useLocale();
   const [w, setW] = useState<Whoami>();
   useEffect(() => {
     void api.request<Whoami>("/whoami").then(setW);
@@ -1231,31 +1237,32 @@ function Whoami({ api }: { api: SettingsApi }) {
     w.kind === "tailscale"
       ? `tailscale · ${w.login}${w.node ? ` (${w.node})` : ""}`
       : w.kind === "token"
-        ? "access token"
+        ? t("settings.about.accessToken")
         : w.kind === "device"
-          ? `paired device${w.login ? ` · ${w.login}` : ""}`
-          : "local (no login needed)";
+          ? (w.login ? t("settings.about.pairedDeviceAs", { login: w.login }) : t("settings.about.pairedDevice"))
+          : t("settings.about.local");
   return (
     <article id="whoami">
-      <h3>Signed in</h3>
+      <h3 data-setting="about.signedIn">{t("settings.about.signedIn")}</h3>
       <p>
-        {identity} · auth mode: {w.mode}
+        {t("settings.about.identity", { identity, mode: w.mode })}
       </p>
     </article>
   );
 }
 function Build({ api }: { api: SettingsApi }) {
+  useLocale();
   const [h, setH] = useState<Health>();
   useEffect(() => {
     void api.request<Health>("/health").then(setH);
   }, []);
   return (
     <article id="running-build">
-      <h3>Running build</h3>
+      <h3 data-setting="about.build">{t("settings.about.build")}</h3>
       <p>
         {h
-          ? `${h.version} · ${h.build?.revision?.slice(0, 12) || "revision unknown"} · ${h.build?.modified === true ? "local changes" : h.build?.modified === false ? "clean" : "build status unknown"}`
-          : "Loading…"}
+          ? t("settings.about.buildLine", { version: h.version, revision: h.build?.revision?.slice(0, 12) || t("settings.about.revisionUnknown"), state: h.build?.modified === true ? t("settings.about.localChanges") : h.build?.modified === false ? t("settings.about.clean") : t("settings.about.buildUnknown") })
+          : t("settings.common.loading")}
       </p>
     </article>
   );
@@ -1275,6 +1282,7 @@ function Agents({
   onChanged(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [editing, setEditing] = useState<Agent | "new">(),
     [profile, setProfile] = useState<Profile | "new">(),
     [startersOpen, setStartersOpen] = useState(false),
@@ -1314,14 +1322,11 @@ function Agents({
   const hidden = agents.filter((a) => !menu.includes(a.name));
   return (
     <section>
-      <h3>Show in menus</h3>
+      <h3 data-setting="agents.menus">{t("settings.agentsTab.menus")}</h3>
       <p className="sub">
-        New session, Switch, task/best-of-N and other agent pickers show
-        these agents first, in this order, with a “More agents…” entry for
-        everything else — so adding a dozen catalog agents never turns a
-        picker into a long scroll.
+        {t("settings.agentsTab.menusHint")}
       </p>
-      <ul className="agent-menu-order" aria-label="Shown agents">
+      <ul className="agent-menu-order" aria-label={t("settings.agentsTab.shown")}>
         {menu.map((name, i) => (
           <li key={name}>
             <label>
@@ -1335,7 +1340,7 @@ function Agents({
             </label>
             <button
               type="button"
-              aria-label={`Move ${name} up`}
+              aria-label={t("settings.moveUp", { name })}
               disabled={menuBusy || i === 0}
               onClick={() => move(name, -1)}
             >
@@ -1343,7 +1348,7 @@ function Agents({
             </button>
             <button
               type="button"
-              aria-label={`Move ${name} down`}
+              aria-label={t("settings.moveDown", { name })}
               disabled={menuBusy || i === menu.length - 1}
               onClick={() => move(name, 1)}
             >
@@ -1354,8 +1359,8 @@ function Agents({
       </ul>
       {hidden.length > 0 && (
         <>
-          <p className="sub">Hidden from menus (reachable via “More agents…”):</p>
-          <ul className="agent-menu-hidden" aria-label="Hidden agents">
+          <p className="sub">{t("settings.agentsTab.hiddenHint")}</p>
+          <ul className="agent-menu-hidden" aria-label={t("settings.agentsTab.hidden")}>
             {hidden.map((a) => (
               <li key={a.name}>
                 <label>
@@ -1372,17 +1377,17 @@ function Agents({
           </ul>
         </>
       )}
-      <h3>Agent runners</h3>
+      <h3 data-setting="agents.runners">{t("settings.agentsTab.runners")}</h3>
       {agents.map((a) => (
         <article className="agent-card" key={a.name}>
           <b>
             {a.name}
-            {a.builtin ? " · built in" : " · custom"}
+            {a.builtin ? ` · ${t("settings.agentsTab.builtin")}` : ` · ${t("settings.agentsTab.custom")}`}
           </b>
           <span>
-            {a.command} · {a.model_flag || "no model flag"}
+            {a.command} · {a.model_flag || t("settings.agentsTab.noModelFlag")}
           </span>
-          <button onClick={() => setEditing(a)}>Edit</button>
+          <button onClick={() => setEditing(a)}>{t("settings.common.edit")}</button>
           {!a.builtin && (
             <button
               onClick={() =>
@@ -1396,18 +1401,18 @@ function Agents({
                   .then(onChanged)
               }
             >
-              Delete
+              {t("settings.common.delete")}
             </button>
           )}
         </article>
       ))}
-      <button onClick={() => setEditing("new")}>Add agent</button>
-      <h3 id="launch-profiles">Launch profiles</h3>
+      <button onClick={() => setEditing("new")}>{t("settings.agentsTab.addAgent")}</button>
+      <h3 id="launch-profiles" data-setting="agents.profiles">{t("settings.agentsTab.profiles")}</h3>
       {profiles.map((p) => (
         <article key={p.id}>
           <b>{p.name}</b> · {p.agent} · {p.model}
           {p.description && <p>{p.description}</p>}
-          <button onClick={() => setProfile(p)}>Edit profile</button>
+          <button onClick={() => setProfile(p)}>{t("settings.agentsTab.editProfile")}</button>
           <button
             onClick={() =>
               void api
@@ -1415,12 +1420,12 @@ function Agents({
                 .then(onChanged)
             }
           >
-            Delete profile
+            {t("settings.agentsTab.deleteProfile")}
           </button>
         </article>
       ))}
-      <button onClick={() => setProfile("new")}>New profile</button>
-      <button onClick={() => setStartersOpen(true)}>Browse starter profiles</button>
+      <button onClick={() => setProfile("new")}>{t("settings.agentsTab.newProfile")}</button>
+      <button onClick={() => setStartersOpen(true)}>{t("settings.agentsTab.starters")}</button>
       {startersOpen && <LaunchProfiles api={api} onClose={() => setStartersOpen(false)} onChange={() => void onChanged()} />}
       {editing && (
         <AgentEditor
@@ -1461,6 +1466,7 @@ function ProfileEditor({
   onSaved(): Promise<void>;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [name, setName] = useState(source?.name || ""),
     [agent, setAgent] = useState(source?.agent || agents[0]?.name || "claude"),
     [command, setCommand] = useState(source?.command || ""),
@@ -1480,7 +1486,7 @@ function ProfileEditor({
     try {
       parsed = JSON.parse(environment);
     } catch {
-      throw Error("Environment must be valid JSON.");
+      throw Error(t("settings.profileEditor.envInvalid"));
     }
     if (
       !parsed ||
@@ -1488,8 +1494,8 @@ function ProfileEditor({
       typeof parsed !== "object" ||
       Object.values(parsed).some((v) => typeof v !== "string")
     )
-      throw Error("Environment must be a JSON object with string values.");
-    if (!name.trim()) throw Error("Name is required.");
+      throw Error(t("settings.profileEditor.envShape"));
+    if (!name.trim()) throw Error(t("settings.profileEditor.nameRequired"));
     setBusy(true);
     try {
       await api.request(
@@ -1516,21 +1522,21 @@ function ProfileEditor({
   return (
     <Modal
       className="launch-profiles"
-      aria-label="Launch profiles"
+      aria-label={t("settings.agentsTab.profiles")}
       onCancel={(e) => {
         if (busy) e.preventDefault();
       }}
     >
-      <h2>{source ? "Edit launch profile" : "New launch profile"}</h2>
+      <h2>{source ? t("settings.profileEditor.edit") : t("settings.profileEditor.new")}</h2>
       <button disabled={busy} onClick={onClose}>
-        Close
+        {t("settings.common.close")}
       </button>
       <label>
-        Name
+        {t("settings.profileEditor.name")}
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label>
-        Agent
+        {t("settings.profileEditor.agent")}
         <select value={agent} onChange={(e) => setAgent(e.target.value)}>
           {agents.map((a) => (
             <option key={a.name}>{a.name}</option>
@@ -1538,30 +1544,30 @@ function ProfileEditor({
         </select>
       </label>
       <label>
-        Description
+        {t("settings.profileEditor.description")}
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
       </label>
       <label>
-        Workflow instructions
+        {t("settings.profileEditor.instructions")}
         <textarea
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
         />
       </label>
-      <p className="lp-hint">{INSTRUCTIONS_HELP}</p>
+      <p className="lp-hint">{instructionsHelp()}</p>
       <label>
-        Command override
+        {t("settings.profileEditor.command")}
         <input value={command} onChange={(e) => setCommand(e.target.value)} />
       </label>
       <label>
-        Default model
+        {t("settings.profileEditor.model")}
         <input value={model} onChange={(e) => setModel(e.target.value)} />
       </label>
       <label>
-        Environment (JSON)
+        {t("settings.profileEditor.environment")}
         <textarea
           value={environment}
           onChange={(e) => setEnvironment(e.target.value)}
@@ -1571,7 +1577,7 @@ function ProfileEditor({
         disabled={busy}
         onClick={() => void save().catch((e) => onNotice(String(e), true))}
       >
-        Save profile
+        {t("settings.profileEditor.save")}
       </button>
     </Modal>
   );

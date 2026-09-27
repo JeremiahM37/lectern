@@ -3,9 +3,9 @@
 .limit-banner {
   margin: 6px 0;
   padding: 8px 10px;
-  border: 1px solid rgba(96, 165, 250, 0.45);
+  border: 1px solid color-mix(in srgb, var(--blue) 45%, transparent);
   border-radius: 9px;
-  background: rgba(96, 165, 250, 0.08);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
   display: flex;
   flex-direction: column;
   gap: 6px;

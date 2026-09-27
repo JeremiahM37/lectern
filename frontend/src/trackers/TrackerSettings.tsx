@@ -1,60 +1,67 @@
 import { useCallback, useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 import { errorText, type Notice, type TrackerApi } from "./api";
 import { isForge, SOURCE_NAME } from "./logic";
 import type { Source, TrackerConnection, TrackersResponse } from "./types";
 
 type Draft = Record<string, string>;
 
-const FIELDS: Record<Source, { key: string; label: string; secret?: boolean; placeholder?: string; hint?: string; options?: string[] }[]> = {
+// Placeholders are sample values (repository paths, hosts, keys, a JQL query) and stay as they are.
+const FIELDS = (): Record<Source, { key: string; label: string; secret?: boolean; placeholder?: string; hint?: string; options?: string[] }[]> => ({
   github: [
-    { key: "repo", label: "Repository", placeholder: "owner/repo", hint: "Leave empty to use the clone's origin remote." },
-    { key: "host", label: "Host", placeholder: "github.com", hint: "Only for GitHub Enterprise." },
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: "owner/repo", hint: t("trackers.settings.hint.originRemote") },
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "github.com", hint: t("trackers.settings.hint.githubEnterprise") },
   ],
   gitlab: [
-    { key: "repo", label: "Project path", placeholder: "group/subgroup/project", hint: "Leave empty to use the clone's origin remote." },
-    { key: "host", label: "Host", placeholder: "gitlab.com", hint: "For a self-managed GitLab." },
+    { key: "repo", label: t("trackers.settings.field.projectPath"), placeholder: "group/subgroup/project", hint: t("trackers.settings.hint.originRemote") },
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "gitlab.com", hint: t("trackers.settings.hint.gitlabSelfManaged") },
   ],
   bitbucket: [
-    { key: "repo", label: "Repository", placeholder: "workspace/repo or PROJECT/repo", hint: "Leave empty to use the clone's origin remote." },
-    { key: "host", label: "Host", placeholder: "bitbucket.org", hint: "For Bitbucket Data Center, its host name." },
-    { key: "flavor", label: "Deployment", options: ["", "cloud", "server"], hint: "Empty guesses from the host: bitbucket.org is Cloud." },
-    { key: "base_url", label: "API URL (optional)", placeholder: "https://bitbucket.example.com", hint: "Data Center behind a path prefix." },
-    { key: "username", label: "Account (Cloud)", placeholder: "you@example.com", hint: "Cloud API token or app password: the account it belongs to. Leave empty for a repository/workspace access token." },
-    { key: "token", label: "Token", secret: true, hint: "Cloud: API token, app password or access token. Data Center: an HTTP access token." },
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: t("trackers.settings.placeholder.bitbucketRepo"), hint: t("trackers.settings.hint.originRemote") },
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "bitbucket.org", hint: t("trackers.settings.hint.bitbucketHost") },
+    { key: "flavor", label: t("trackers.settings.field.deployment"), options: ["", "cloud", "server"], hint: t("trackers.settings.hint.bitbucketDeployment") },
+    { key: "base_url", label: t("trackers.settings.field.apiUrl"), placeholder: "https://bitbucket.example.com", hint: t("trackers.settings.hint.bitbucketApiUrl") },
+    { key: "username", label: t("trackers.settings.field.cloudAccount"), placeholder: "you@example.com", hint: t("trackers.settings.hint.bitbucketAccount") },
+    { key: "token", label: t("trackers.settings.field.token"), secret: true, hint: t("trackers.settings.hint.bitbucketToken") },
   ],
   gitea: [
-    { key: "host", label: "Host", placeholder: "codeberg.org" },
-    { key: "repo", label: "Repository", placeholder: "owner/repo", hint: "Leave empty to use the clone's origin remote." },
-    { key: "base_url", label: "API URL (optional)", placeholder: "https://git.example.com/api/v1" },
-    { key: "token", label: "Access token", secret: true, hint: "Settings → Applications → a token with repository and issue scopes." },
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "codeberg.org" },
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: "owner/repo", hint: t("trackers.settings.hint.originRemote") },
+    { key: "base_url", label: t("trackers.settings.field.apiUrl"), placeholder: "https://git.example.com/api/v1" },
+    { key: "token", label: t("trackers.settings.field.accessToken"), secret: true, hint: t("trackers.settings.hint.giteaToken") },
   ],
   azure: [
-    { key: "repo", label: "Repository", placeholder: "organisation/project/repo", hint: "Leave empty to use the clone's origin remote." },
-    { key: "base_url", label: "Server URL (optional)", placeholder: "https://devops.example.com/tfs", hint: "Only for Azure DevOps Server." },
-    { key: "token", label: "Personal access token", secret: true, hint: "Scopes: Code (read & write), Work Items (read & write)." },
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: "organisation/project/repo", hint: t("trackers.settings.hint.originRemote") },
+    { key: "base_url", label: t("trackers.settings.field.serverUrl"), placeholder: "https://devops.example.com/tfs", hint: t("trackers.settings.hint.azureServerUrl") },
+    { key: "token", label: t("trackers.settings.field.pat"), secret: true, hint: t("trackers.settings.hint.azureToken") },
   ],
   linear: [
-    { key: "team_key", label: "Team key", placeholder: "ENG", hint: "The team the hub opens on." },
-    { key: "api_key", label: "API key", secret: true, placeholder: "lin_api_…", hint: "Linear → Settings → API. Empty reuses this project's Linear trigger key." },
+    { key: "team_key", label: t("trackers.settings.field.teamKey"), placeholder: "ENG", hint: t("trackers.settings.hint.teamKey") },
+    { key: "api_key", label: t("trackers.settings.field.apiKey"), secret: true, placeholder: "lin_api_…", hint: t("trackers.settings.hint.linearKey") },
   ],
   jira: [
-    { key: "base_url", label: "Site URL", placeholder: "https://yourteam.atlassian.net" },
-    { key: "flavor", label: "Deployment", options: ["", "cloud", "server"], hint: "Empty guesses from the URL: *.atlassian.net is Cloud." },
-    { key: "email", label: "Account email", placeholder: "you@example.com", hint: "Jira Cloud only: the account the API token belongs to." },
-    { key: "token", label: "Token", secret: true, hint: "Cloud: an API token. Server / Data Center: a personal access token." },
-    { key: "project_key", label: "Project key", placeholder: "OPS" },
-    { key: "jql", label: "JQL (optional)", placeholder: "project = OPS AND component = api", hint: "Replaces the project filter." },
+    { key: "base_url", label: t("trackers.settings.field.siteUrl"), placeholder: "https://yourteam.atlassian.net" },
+    { key: "flavor", label: t("trackers.settings.field.deployment"), options: ["", "cloud", "server"], hint: t("trackers.settings.hint.deployment") },
+    { key: "email", label: t("trackers.settings.field.email"), placeholder: "you@example.com", hint: t("trackers.settings.hint.email") },
+    { key: "token", label: t("trackers.settings.field.token"), secret: true, hint: t("trackers.settings.hint.token") },
+    { key: "project_key", label: t("trackers.settings.field.projectKey"), placeholder: "OPS" },
+    { key: "jql", label: t("trackers.settings.field.jql"), placeholder: "project = OPS AND component = api", hint: t("trackers.settings.hint.jql") },
   ],
-};
+});
 
 const SECRET_KEYS = new Set(["api_key", "token"]);
 
 // The flavor select's option labels, per kind.
-const FLAVOR: Record<string, string> = { "": "Guess from the host", cloud: "Cloud", server: "Server / Data Center" };
+const FLAVOR = (): Record<string, string> => ({
+  "": t("trackers.settings.flavor.guessHost"),
+  cloud: t("trackers.settings.flavor.cloudAny"),
+  server: t("trackers.settings.flavor.server"),
+});
 
 /** A project's tracker connections for the Tasks hub. Keys and tokens are
  * write-only here: the server only ever reports whether one is set. */
 export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi; projectId: number; onNotice: Notice }) {
+  useLocale();
   const [data, setData] = useState<TrackersResponse>();
   const [adding, setAdding] = useState<Source | "">("");
   const [draft, setDraft] = useState<Draft>({});
@@ -66,14 +73,14 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
     api
       .request<TrackersResponse>(`/projects/${projectId}/trackers`)
       .then(setData)
-      .catch((e) => onNotice(`Trackers: ${errorText(e)}`, true));
+      .catch((e) => onNotice(t("trackers.settings.loadFailed", { error: errorText(e) }), true));
   }, [api, projectId, onNotice]);
   useEffect(load, [load]);
 
   function split(kind: Source, d: Draft) {
     const config: Record<string, string> = {},
       secrets: Record<string, string> = {};
-    for (const f of FIELDS[kind]) {
+    for (const f of FIELDS()[kind]) {
       const v = (d[f.key] || "").trim();
       if (SECRET_KEYS.has(f.key)) {
         if (v) secrets[f.key] = v;
@@ -88,7 +95,7 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
       const { config, secrets } = split(kind, draft);
       if (id) await api.request(`/trackers/${id}`, { method: "PATCH", body: { config, secrets } });
       else await api.request(`/projects/${projectId}/trackers`, { method: "POST", body: { kind, name: draft.name || SOURCE_NAME[kind], config, secrets } });
-      onNotice(`${SOURCE_NAME[kind]} ${id ? "saved" : "connected"}`);
+      onNotice(id ? t("trackers.settings.saved", { source: SOURCE_NAME[kind] }) : t("trackers.settings.connected", { source: SOURCE_NAME[kind] }));
       setAdding("");
       setEditing(undefined);
       setDraft({});
@@ -101,17 +108,17 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
   }
 
   async function test(c: TrackerConnection) {
-    setTests((t) => ({ ...t, [c.id]: "Testing…" }));
+    setTests((prev) => ({ ...prev, [c.id]: t("trackers.settings.testing") }));
     try {
       const r = await api.request<{ ok: boolean; message?: string; error?: string }>(`/trackers/${c.id}/test`, { method: "POST" });
-      setTests((t) => ({ ...t, [c.id]: r.ok ? `✓ ${r.message}` : `✗ ${r.error}` }));
+      setTests((prev) => ({ ...prev, [c.id]: r.ok ? `✓ ${r.message}` : `✗ ${r.error}` }));
     } catch (e) {
-      setTests((t) => ({ ...t, [c.id]: `✗ ${errorText(e)}` }));
+      setTests((prev) => ({ ...prev, [c.id]: `✗ ${errorText(e)}` }));
     }
   }
 
   async function remove(c: TrackerConnection) {
-    if (!confirm(`Disconnect ${c.name}?`)) return;
+    if (!confirm(t("trackers.settings.confirmDisconnect", { name: c.name }))) return;
     try {
       await api.request(`/trackers/${c.id}`, { method: "DELETE" });
       load();
@@ -131,18 +138,18 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
       >
         {!id && (
           <label>
-            Name
+            {t("trackers.settings.name")}
             <input value={draft.name || ""} placeholder={SOURCE_NAME[kind]} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           </label>
         )}
-        {FIELDS[kind].map((f) => (
+        {FIELDS()[kind].map((f) => (
           <label key={f.key}>
             {f.label}
             {f.options ? (
               <select value={draft[f.key] || ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                 {f.options.map((o) => (
                   <option key={o} value={o}>
-                    {FLAVOR[o]}
+                    {FLAVOR()[o]}
                   </option>
                 ))}
               </select>
@@ -152,7 +159,7 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
                 autoComplete={f.secret ? "new-password" : "off"}
                 spellCheck={false}
                 value={draft[f.key] || ""}
-                placeholder={f.secret && secrets?.[f.key] ? "•••••• set — leave empty to keep" : f.placeholder}
+                placeholder={f.secret && secrets?.[f.key] ? t("trackers.settings.secretSet") : f.placeholder}
                 onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
               />
             )}
@@ -161,10 +168,10 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
         ))}
         <div className="btnrow">
           <button className="b ok" type="submit" disabled={busy}>
-            {id ? "Save" : "Connect"}
+            {id ? t("trackers.settings.save") : t("trackers.settings.connect")}
           </button>
           <button className="b" type="button" onClick={() => { setAdding(""); setEditing(undefined); setDraft({}); }}>
-            Cancel
+            {t("trackers.cancel")}
           </button>
         </div>
       </form>
@@ -174,19 +181,17 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
   const forge = data?.forge;
   return (
     <section className="project-trackers">
-      <h4>Tasks hub</h4>
+      <h4>{t("trackers.settings.title")}</h4>
       <p>
-        Where this project's pull requests and issues come from. GitHub and GitLab use the <code>gh</code> / <code>glab</code> login on this
-        project's machine; Bitbucket, Gitea/Forgejo, Azure DevOps, Linear and Jira need a token, which is kept on the server and never
-        shown again.
+        {t("trackers.settings.intro1")} <code>gh</code> / <code>glab</code> {t("trackers.settings.intro2Tokens")}
       </p>
       <p className="th-forge-line">
         {forge?.repo ? (
           <>
-            {SOURCE_NAME[forge.kind || "github"]} · <b>{forge.repo}</b> <span className="th-muted">({forge.source === "connection" ? "set here" : "from the origin remote"})</span>
+            {SOURCE_NAME[forge.kind || "github"]} · <b>{forge.repo}</b> <span className="th-muted">({forge.source === "connection" ? t("trackers.settings.setHere") : t("trackers.settings.fromOrigin")})</span>
           </>
         ) : (
-          <span className="th-muted">{forge?.error || "Checking the repository…"}</span>
+          <span className="th-muted">{forge?.error || t("trackers.settings.checking")}</span>
         )}
       </p>
       <ul className="th-conns">
@@ -202,17 +207,17 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
               </span>
               {Object.entries(c.secrets).map(([k, set]) => (
                 <span key={k} className={`th-badge ${set ? "th-review-approved" : ""}`}>
-                  {k} {set ? "set" : "not set"}
+                  {set ? t("trackers.settings.secretIsSet", { name: k }) : t("trackers.settings.secretNotSet", { name: k })}
                 </span>
               ))}
-              {c.borrowed && <span className="th-badge">key from trigger</span>}
+              {c.borrowed && <span className="th-badge">{t("trackers.settings.borrowed")}</span>}
             </div>
             <div className="btnrow">
-              <button className="b" onClick={() => void test(c)}>Test</button>
+              <button className="b" onClick={() => void test(c)}>{t("trackers.settings.test")}</button>
               <button className="b" onClick={() => { setEditing(c.id); setAdding(""); setDraft(Object.fromEntries(Object.entries(c.config).map(([k, v]) => [k, String(v ?? "")]))); }}>
-                Edit
+                {t("trackers.settings.edit")}
               </button>
-              <button className="b no" onClick={() => void remove(c)}>Disconnect</button>
+              <button className="b no" onClick={() => void remove(c)}>{t("trackers.settings.disconnect")}</button>
             </div>
             {tests[c.id] && <p className="th-muted" role="status">{tests[c.id]}</p>}
             {editing === c.id && form(c.kind, c.id, c.secrets)}
@@ -225,8 +230,9 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
         <div className="btnrow">
           {(["linear", "jira", "github", "gitlab", "bitbucket", "gitea", "azure"] as Source[]).map((k) => (
             <button key={k} className="b" onClick={() => { setAdding(k); setEditing(undefined); setDraft({}); }}>
-              + {SOURCE_NAME[k]}
-              {isForge(k) ? " repository" : ""}
+              {isForge(k)
+                ? t("trackers.settings.addRepository", { source: SOURCE_NAME[k] })
+                : t("trackers.settings.addSource", { source: SOURCE_NAME[k] })}
             </button>
           ))}
         </div>

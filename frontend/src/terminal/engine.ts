@@ -13,6 +13,7 @@ import {
   type Prefs,
 } from "./model";
 import { resolveTerminalTheme } from "../theme/terminal-prefs";
+import { t } from "../i18n";
 export interface Snapshot {
   connected: boolean;
   paused: boolean;
@@ -78,7 +79,7 @@ export class Engine {
   private lastHistoryRead = 0;
   private retainedLines = 0;
   private frozenText = "";
-  private status = "Connecting…";
+  private status = t("terminalPage.status.connecting");
   // Input-to-output watchdog. A keystroke to a healthy TUI, shell or editor
   // produces output within a frame. Keys are counted until any output comes
   // back; a pause in typing with several keys still unanswered is a hung
@@ -284,7 +285,7 @@ export class Engine {
     window.addEventListener("offline", () => {
       this.offline = true;
       this.connected = false;
-      this.status = "Offline";
+      this.status = t("terminalPage.status.offline");
       this.term.options.disableStdin = true;
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -552,7 +553,7 @@ export class Engine {
     this.ws?.close();
     this.ws = undefined;
     this.connected = false;
-    this.status = "Connecting…";
+    this.status = t("terminalPage.status.connecting");
     this.term.options.disableStdin = true;
     this.changed();
     try {
@@ -588,7 +589,7 @@ export class Engine {
             rows: this.term.rows,
           }),
         );
-        this.status = "Connected";
+        this.status = t("terminalPage.status.connected");
         this.changed();
         this.scheduleFit();
       };
@@ -632,10 +633,10 @@ export class Engine {
       }
     }
   }
-  private reconnect(message = "Reconnecting…") {
+  private reconnect(message = t("terminalPage.status.reconnecting")) {
     ++this.generation;
     this.connected = false;
-    this.status = this.offline ? "Offline" : message;
+    this.status = this.offline ? t("terminalPage.status.offline") : message;
     this.term.options.disableStdin = true;
     this.changed();
     if (this.stopped) return;
@@ -651,9 +652,7 @@ export class Engine {
   }
   paste(text: string) {
     if (!this.connected)
-      throw new Error(
-        "Terminal disconnected. Reconnect before inserting a path.",
-      );
+      throw new Error(t("terminalPage.errors.disconnected"));
     if (this.paused) this.freeze(false);
     this.term.paste(text);
     this.term.focus();
@@ -690,7 +689,7 @@ export class Engine {
         return;
       if (out.text.trimEnd().split("\n").length <= this.term.rows) {
         this.options.notice(
-          "No older output is retained in tmux. Full-screen chats may keep their history inside the app.",
+          t("terminalPage.notice.noOlderOutput"),
         );
         return;
       }

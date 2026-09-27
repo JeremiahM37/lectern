@@ -2,6 +2,7 @@
 // docs/budgets.md "Codex spend is estimated"). Kept apart from the component so
 // it can be unit tested.
 import type { ModelPrice } from "../types";
+import { t } from "../i18n";
 
 export interface SeenModel {
   agent: string;
@@ -48,19 +49,19 @@ export function validatePrices(rows: PriceRow[]): {
   const prices: Record<string, ModelPrice> = {};
   for (const row of rows) {
     const name = row.name.trim();
-    if (!name) return { error: "Every price needs a model or agent name." };
-    if (prices[name]) return { error: `${name} is listed twice.` };
+    if (!name) return { error: t("agentSettings.prices.needsName") };
+    if (prices[name]) return { error: t("agentSettings.prices.listedTwice", { name }) };
     const input = rate(row.input);
     const output = rate(row.output);
     const cached = rate(row.cached);
     if (input === undefined || output === undefined)
-      return { error: `${name}: enter input and output rates.` };
+      return { error: t("agentSettings.prices.needsRates", { name }) };
     if (
       Number.isNaN(input) ||
       Number.isNaN(output) ||
       Number.isNaN(cached ?? 0)
     )
-      return { error: `${name}: rates must be numbers of 0 or more.` };
+      return { error: t("agentSettings.prices.ratesInvalid", { name }) };
     prices[name] = {
       input_per_1m: input,
       output_per_1m: output,
@@ -85,8 +86,8 @@ export function unpricedNotice(seen: SeenModel[]): string {
     .map(([agent, models]) => {
       const label = agent
         ? agent.charAt(0).toUpperCase() + agent.slice(1)
-        : "Token-only";
-      return `${label} spend isn't shown until you set a price for ${models.join(", ")}.`;
+        : t("agentSettings.prices.tokenOnly");
+      return t("agentSettings.prices.unpricedNotice", { label, models: models.join(", ") });
     })
     .join(" ");
 }

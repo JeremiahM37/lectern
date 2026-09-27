@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 import { Modal } from "../sessions/Modal";
 import { Markdown } from "../sessions/markdown";
 import { errorText, type Notice, type TrackerApi } from "./api";
@@ -35,6 +36,7 @@ export function PRPage({
   /** opens the merge queue view, where the host has one */
   onQueue?(): void;
 }) {
+  useLocale();
   const base = `/projects/${projectId}/forge`;
   const [pr, setPr] = useState<PRDetail>();
   const [error, setError] = useState("");
@@ -96,7 +98,11 @@ export function PRPage({
     setConfirm("");
     const ok = await act(auto ? "auto" : "merge", `/prs/${pr.id}/merge`,
       { method, delete_branch: deleteBranch, auto, head_sha: pr.head_sha, confirm: true },
-      auto ? `Auto-merge is on for #${pr.id}` : pr.merge.merge_queue ? `#${pr.id} added to the merge queue` : `Merged #${pr.id}`);
+      auto
+        ? t("trackers.pr.notice.autoOn", { id: pr.id })
+        : pr.merge.merge_queue
+          ? t("trackers.pr.notice.queued", { id: pr.id })
+          : t("trackers.pr.notice.merged", { id: pr.id }));
     if (!ok) void load();
   }
 
@@ -124,10 +130,10 @@ export function PRPage({
     }
     setOpenLog(c.id);
     if (logs[c.id]) return;
-    setLogs((l) => ({ ...l, [c.id]: "Loading log…" }));
+    setLogs((l) => ({ ...l, [c.id]: t("trackers.pr.loadingLog") }));
     try {
       const res = await api.request<{ log: string }>(`${base}/prs/${item.id}/log?check=${encodeURIComponent(c.id)}`);
-      setLogs((l) => ({ ...l, [c.id]: res.log || "(empty log)" }));
+      setLogs((l) => ({ ...l, [c.id]: res.log || t("trackers.pr.emptyLog") }));
     } catch (e) {
       setLogs((l) => ({ ...l, [c.id]: errorText(e) }));
     }
@@ -135,13 +141,13 @@ export function PRPage({
 
   const head = (
     <div className="th-detail-bar">
-      <button className="b th-back" onClick={onClose} aria-label="Back to the list">
-        ←<span> Back</span>
+      <button className="b th-back" onClick={onClose} aria-label={t("trackers.detail.backToList")}>
+        ←<span> {t("trackers.detail.back")}</span>
       </button>
-      <span className="th-detail-kind">{pr ? SOURCE_NAME[pr.source] : ""} pull request</span>
+      <span className="th-detail-kind">{t("trackers.pr.kind", { source: pr ? SOURCE_NAME[pr.source] : "" })}</span>
       {pr && (
         <a className="b" href={pr.url} target="_blank" rel="noreferrer">
-          Open ↗
+          {t("trackers.detail.openExternal")}
         </a>
       )}
     </div>
@@ -151,14 +157,14 @@ export function PRPage({
       <div className="th-detail-inner">
         {head}
         <p className="th-error" role="alert">{error}</p>
-        <button className="b" onClick={() => void load()}>Retry</button>
+        <button className="b" onClick={() => void load()}>{t("trackers.detail.retry")}</button>
       </div>
     );
   if (!pr)
     return (
       <div className="th-detail-inner">
         {head}
-        <p className="th-muted">Loading #{item.id}…</p>
+        <p className="th-muted">{t("trackers.detail.loading", { mark: `#${item.id}` })}</p>
       </div>
     );
 
@@ -177,23 +183,23 @@ export function PRPage({
         <div className="th-pr-meta">
           <StatePill item={pr} />
           <span>
-            <b>{pr.author}</b> wants to merge into <code className="th-branch">{pr.base}</code> from{" "}
+            <b>{pr.author}</b> {t("trackers.pr.wantsToMergeInto")} <code className="th-branch">{pr.base}</code> {t("trackers.pr.from")}{" "}
             <code className="th-branch">{pr.head}</code>
           </span>
         </div>
         <div className="th-pr-meta th-muted">
           {(pr.changed_files > 0 || pr.additions > 0 || pr.deletions > 0) && <span className="th-diffstat">
-            <span className="th-add-n">+{pr.additions}</span> <span className="th-del-n">−{pr.deletions}</span> · {pr.changed_files} files
+            <span className="th-add-n">+{pr.additions}</span> <span className="th-del-n">−{pr.deletions}</span> · {t("trackers.pr.files", { n: pr.changed_files })}
           </span>}
-          <span>updated {ago(pr.updated_at)}</span>
+          <span>{t("trackers.detail.updated", { ago: ago(pr.updated_at) })}</span>
           <ReactionBar reactions={pr.reactions} label={`#${pr.id}`}
-            onReact={canReact(pr.source) ? async (emoji) => { await act("", `/prs/${pr.id}/reactions`, { emoji }, "Reaction added"); } : undefined} />
+            onReact={canReact(pr.source) ? async (emoji) => { await act("", `/prs/${pr.id}/reactions`, { emoji }, t("trackers.notice.reactionAdded")); } : undefined} />
         </div>
       </header>
 
       {pr.stack && pr.stack.length > 1 && (
-        <section className="th-section th-stack" aria-label="Stack">
-          <h3>Stack</h3>
+        <section className="th-section th-stack" aria-label={t("trackers.pr.stack")}>
+          <h3>{t("trackers.pr.stack")}</h3>
           <ol>
             {pr.stack.map((s) => (
               <li key={s.number} style={{ paddingLeft: `${s.depth * 14}px` }} className={s.current ? "current" : ""}>
@@ -209,34 +215,34 @@ export function PRPage({
         </section>
       )}
 
-      <section className="th-section th-mergebox" aria-label="Merge">
+      <section className="th-section th-mergebox" aria-label={t("trackers.pr.mergeSection")}>
         <div className="th-status-rows">
           <div className={`th-status-row th-checks-${pr.checks || "none"}`}>
             <ChecksBadge checks={pr.checks} />
-            {pr.checks === "none" && <span className="th-muted">No checks reported</span>}
-            {failing.length > 0 && <span>{failing.length} failing</span>}
+            {pr.checks === "none" && <span className="th-muted">{t("trackers.pr.noChecksReported")}</span>}
+            {failing.length > 0 && <span>{t("trackers.pr.failingCount", { n: failing.length })}</span>}
           </div>
           <div className="th-status-row">
-            {pr.review ? <ReviewBadge review={pr.review} /> : <span className="th-muted">No review decision</span>}
+            {pr.review ? <ReviewBadge review={pr.review} /> : <span className="th-muted">{t("trackers.pr.noReviewDecision")}</span>}
           </div>
           {pr.mergeable === "conflicting" && (
             <div className="th-status-row th-conflict" role="status">
-              <span className="th-badge th-conflicts">conflicts</span> This branch conflicts with <code className="th-branch">{pr.base}</code>
+              <span className="th-badge th-conflicts">{t("trackers.conflictsBadge")}</span> {t("trackers.pr.branchConflictsWith")} <code className="th-branch">{pr.base}</code>
             </div>
           )}
           {pr.ci && (
             <div className="th-status-row">
               <span className={`th-badge th-ci-${pr.ci.state}`}>{pr.ci.label}</span>
-              {pr.ci.session_id && <span className="th-muted">session #{pr.ci.session_id} is on it</span>}
+              {pr.ci.session_id && <span className="th-muted">{t("trackers.pr.ciSession", { id: pr.ci.session_id })}</span>}
             </div>
           )}
         </div>
 
         {pr.mergeable === "conflicting" && (
           <div className="th-conflicts-box">
-            <h4>Conflicting files</h4>
+            <h4>{t("trackers.pr.conflictingFiles")}</h4>
             {!conflicts ? (
-              <p className="th-muted">Working out which files conflict…</p>
+              <p className="th-muted">{t("trackers.pr.findingConflicts")}</p>
             ) : conflicts.files.length ? (
               <ul className="th-files">
                 {conflicts.files.map((f) => (
@@ -246,10 +252,10 @@ export function PRPage({
                 ))}
               </ul>
             ) : (
-              <p className="th-muted">{conflicts.detail || "No conflicting files found; the base may have moved."}</p>
+              <p className="th-muted">{conflicts.detail || t("trackers.pr.noConflictingFiles")}</p>
             )}
             <button className="b ok" id="th-resolve" disabled={busy !== "" || pr.state !== "open"} onClick={() => void agent("resolve")}>
-              {busy === "resolve" ? "Starting…" : "Resolve with agent"}
+              {busy === "resolve" ? t("trackers.starting") : t("trackers.pr.resolveWithAgent")}
             </button>
           </div>
         )}
@@ -264,18 +270,23 @@ export function PRPage({
                 {pr.auto_merge ? (
                   <div className="th-auto-on">
                     <span>
-                      Auto-merge is on{pr.auto_merge.method ? ` (${pr.auto_merge.method})` : ""}
-                      {pr.auto_merge.enabled_by ? `, set by ${pr.auto_merge.enabled_by}` : ""}.
+                      {pr.auto_merge.method
+                        ? pr.auto_merge.enabled_by
+                          ? t("trackers.pr.autoOnMethodBy", { method: pr.auto_merge.method, name: pr.auto_merge.enabled_by })
+                          : t("trackers.pr.autoOnMethod", { method: pr.auto_merge.method })
+                        : pr.auto_merge.enabled_by
+                          ? t("trackers.pr.autoOnBy", { name: pr.auto_merge.enabled_by })
+                          : t("trackers.pr.autoOn")}
                     </span>
-                    <button className="b" disabled={busy !== ""} onClick={() => void act("auto", `/prs/${pr.id}/auto-merge`, {}, "Auto-merge turned off", "DELETE")}>
-                      Turn off
+                    <button className="b" disabled={busy !== ""} onClick={() => void act("auto", `/prs/${pr.id}/auto-merge`, {}, t("trackers.pr.notice.autoOff"), "DELETE")}>
+                      {t("trackers.pr.turnOff")}
                     </button>
                   </div>
                 ) : (
                   <>
                     <div className="th-merge-opts">
                       {pr.merge.methods.length > 1 && (
-                        <select aria-label="Merge method" value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)}>
+                        <select aria-label={t("trackers.pr.mergeMethod")} value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)}>
                           {pr.merge.methods.map((m) => (
                             <option key={m} value={m}>
                               {methodLabel(m)}
@@ -284,18 +295,18 @@ export function PRPage({
                         </select>
                       )}
                       <label className="th-check">
-                        <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} /> Delete branch
+                        <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} /> {t("trackers.pr.deleteBranch")}
                       </label>
                     </div>
                     <div className="btnrow">
                       {!ms.autoOnly && (
                         <button className="b ok grow th-merge-btn" id="th-merge" disabled={busy !== ""} onClick={() => setConfirm("merge")}>
-                          {busy === "merge" ? "Merging…" : mergeButtonLabel(pr, method, false)}
+                          {busy === "merge" ? t("trackers.pr.merging") : mergeButtonLabel(pr, method, false)}
                         </button>
                       )}
                       {pr.merge.auto_merge_allowed && (
                         <button className={`b grow ${ms.autoOnly ? "ok" : ""}`} id="th-auto" disabled={busy !== ""} onClick={() => setConfirm("auto")}>
-                          {busy === "auto" ? "Enabling…" : "Auto-merge when ready"}
+                          {busy === "auto" ? t("trackers.pr.enabling") : t("trackers.pr.autoWhenReady")}
                         </button>
                       )}
                     </div>
@@ -307,31 +318,31 @@ export function PRPage({
         )}
         <div className="btnrow th-secondary">
           {pr.state === "open" && failing.length > 0 && (
-            <button className="b warn" id="th-fix" disabled={busy !== "" || ciActive} title={ciActive ? "The CI loop is already working on this" : ""} onClick={() => void agent("fix")}>
-              {busy === "fix" ? "Starting…" : "Fix checks with agent"}
+            <button className="b warn" id="th-fix" disabled={busy !== "" || ciActive} title={ciActive ? t("trackers.pr.ciBusy") : ""} onClick={() => void agent("fix")}>
+              {busy === "fix" ? t("trackers.starting") : t("trackers.pr.fixChecks")}
             </button>
           )}
           {pr.state !== "merged" && (
             <button className={`b ${pr.state === "open" ? "no" : ""}`} disabled={busy !== ""} onClick={() => setConfirm(pr.state === "open" ? "close" : "reopen")}>
-              {pr.state === "open" ? "Close" : "Reopen"}
+              {pr.state === "open" ? t("trackers.close") : t("trackers.reopen")}
             </button>
           )}
           <button className="b" onClick={() => setStarting(true)}>
-            Start session
+            {t("trackers.startSession")}
           </button>
           {onQueue && (pr.merge.merge_queue || pr.auto_merge) && (
             <button className="b" id="th-view-queue" onClick={onQueue}>
-              {pr.source === "gitlab" ? "Merge train" : "Merge queue"}
+              {pr.source === "gitlab" ? t("trackers.hub.tab.mergeTrain") : t("trackers.hub.tab.mergeQueue")}
             </button>
           )}
         </div>
       </section>
 
-      <section className="th-section" aria-label="Checks">
+      <section className="th-section" aria-label={t("trackers.pr.checks")}>
         <h3>
-          Checks <span className="th-muted">{pr.check_runs.length}</span>
+          {t("trackers.pr.checks")} <span className="th-muted">{pr.check_runs.length}</span>
         </h3>
-        {sorted.length === 0 && <p className="th-muted">No checks.</p>}
+        {sorted.length === 0 && <p className="th-muted">{t("trackers.pr.noChecks")}</p>}
         <ul className="th-checks">
           {sorted.map((c) => (
             <li key={c.id}>
@@ -343,11 +354,11 @@ export function PRPage({
                 </span>
                 {c.has_log ? (
                   <button className="b th-log-btn" aria-expanded={openLog === c.id} onClick={() => void loadLog(c)}>
-                    {openLog === c.id ? "Hide log" : "Log"}
+                    {openLog === c.id ? t("trackers.pr.hideLog") : t("trackers.pr.log")}
                   </button>
                 ) : c.url ? (
                   <a className="b th-log-btn" href={c.url} target="_blank" rel="noreferrer">
-                    Details ↗
+                    {t("trackers.pr.details")}
                   </a>
                 ) : null}
               </div>
@@ -357,21 +368,21 @@ export function PRPage({
         </ul>
       </section>
 
-      <section className="th-section" aria-label="Reviewers">
-        <h3>Reviewers</h3>
+      <section className="th-section" aria-label={t("trackers.pr.reviewers")}>
+        <h3>{t("trackers.pr.reviewers")}</h3>
         <ul className="th-reviewers">
-          {pr.reviewers.length === 0 && <li className="th-muted">Nobody yet.</li>}
+          {pr.reviewers.length === 0 && <li className="th-muted">{t("trackers.pr.noReviewers")}</li>}
           {pr.reviewers.map((r) => (
             <li key={r.login}>
               <Avatar name={r.login} />
               <span className="th-rev-name">
                 {r.login}
-                {r.team && <small className="th-muted"> team</small>}
+                {r.team && <small className="th-muted"> {t("trackers.pr.team")}</small>}
               </span>
-              <span className={`th-rev-state th-rev-${r.state}`}>{r.state.replace("_", " ")}</span>
+              <span className={`th-rev-state th-rev-${r.state}`}>{REVIEWER_STATE()[r.state] || r.state.replace("_", " ")}</span>
               {r.state === "requested" && (
-                <button className="th-x" aria-label={`Remove reviewer ${r.login}`} disabled={busy !== ""}
-                  onClick={() => void act("reviewers", `/prs/${pr.id}/reviewers`, { remove: [r.login] }, `Removed ${r.login}`)}>
+                <button className="th-x" aria-label={t("trackers.pr.removeReviewer", { name: r.login })} disabled={busy !== ""}
+                  onClick={() => void act("reviewers", `/prs/${pr.id}/reviewers`, { remove: [r.login] }, t("trackers.notice.removed", { name: r.login }))}>
                   ×
                 </button>
               )}
@@ -379,62 +390,75 @@ export function PRPage({
           ))}
         </ul>
         <NamePicker
-          label="Request review"
+          label={t("trackers.pr.requestReview")}
           busy={busy !== ""}
           options={(meta?.users || []).filter((u) => !requested.has(u.login)).map((u) => ({ value: u.login, hint: u.name }))}
-          onPick={(login) => void act("reviewers", `/prs/${pr.id}/reviewers`, { add: [login] }, `Asked ${login} to review`)}
+          onPick={(login) => void act("reviewers", `/prs/${pr.id}/reviewers`, { add: [login] }, t("trackers.pr.notice.askedReview", { name: login }))}
         />
       </section>
 
-      <section className="th-section" aria-label="Labels">
-        <h3>Labels</h3>
-        <Labels labels={pr.labels} onRemove={(name) => void act("labels", `/prs/${pr.id}/labels`, { remove: [name] }, `Removed ${name}`)} />
-        {!pr.labels.length && <p className="th-muted">None.</p>}
+      <section className="th-section" aria-label={t("trackers.labels")}>
+        <h3>{t("trackers.labels")}</h3>
+        <Labels labels={pr.labels} onRemove={(name) => void act("labels", `/prs/${pr.id}/labels`, { remove: [name] }, t("trackers.notice.removed", { name }))} />
+        {!pr.labels.length && <p className="th-muted">{t("trackers.labels.none")}</p>}
         <NamePicker
-          label="Add label"
+          label={t("trackers.labels.add")}
           busy={busy !== ""}
           options={(meta?.labels || []).filter((l) => !pr.labels.some((x) => x.name === l.name)).map((l) => ({ value: l.name }))}
-          onPick={(name) => void act("labels", `/prs/${pr.id}/labels`, { add: [name] }, `Labelled ${name}`)}
+          onPick={(name) => void act("labels", `/prs/${pr.id}/labels`, { add: [name] }, t("trackers.notice.labelled", { name }))}
         />
       </section>
 
-      <section className="th-section th-desc" aria-label="Description">
-        <h3>Description</h3>
-        <div className="th-md">{pr.body ? <Markdown text={pr.body} /> : <p className="th-muted">No description.</p>}</div>
+      <section className="th-section th-desc" aria-label={t("trackers.description")}>
+        <h3>{t("trackers.description")}</h3>
+        <div className="th-md">{pr.body ? <Markdown text={pr.body} /> : <p className="th-muted">{t("trackers.description.none")}</p>}</div>
       </section>
 
-      <section className="th-section" aria-label="Conversation">
-        <h3>Conversation</h3>
+      <section className="th-section" aria-label={t("trackers.pr.conversation")}>
+        <h3>{t("trackers.pr.conversation")}</h3>
         <Timeline
           events={pr.timeline}
           onComment={async (body) => {
-            await act("", `/prs/${pr.id}/comments`, { body }, "Comment posted");
+            await act("", `/prs/${pr.id}/comments`, { body }, t("trackers.notice.commentPosted"));
           }}
-          onReact={canReact(pr.source) ? async (subject, emoji) => { await act("", `/prs/${pr.id}/reactions`, { subject, emoji }, "Reaction added"); } : undefined}
+          onReact={canReact(pr.source) ? async (subject, emoji) => { await act("", `/prs/${pr.id}/reactions`, { subject, emoji }, t("trackers.notice.reactionAdded")); } : undefined}
         />
       </section>
 
       {confirm && (
         <Modal className="th-confirm" aria-labelledby="th-confirm-title" onCancel={() => setConfirm("")}>
           <h2 id="th-confirm-title">
-            {confirm === "merge" ? mergeButtonLabel(pr, method, false) : confirm === "auto" ? "Enable auto-merge" : confirm === "close" ? "Close pull request" : "Reopen pull request"}?
+            {confirm === "merge"
+              ? t("trackers.pr.confirm.question", { action: mergeButtonLabel(pr, method, false) })
+              : confirm === "auto"
+                ? t("trackers.pr.confirm.autoTitle")
+                : confirm === "close"
+                  ? t("trackers.pr.confirm.closeTitle")
+                  : t("trackers.pr.confirm.reopenTitle")}
           </h2>
           {confirm === "merge" || confirm === "auto" ? (
             <>
               <p>
-                {confirm === "auto" ? "When every requirement passes, " : ""}
-                <b>{itemMark(pr)}</b> {pr.title} {confirm === "auto" ? "will be merged" : pr.merge.merge_queue ? "joins the merge queue" : "is merged"} into{" "}
-                <code className="th-branch">{pr.base}</code> with <b>{methodLabel(method).toLowerCase()}</b>
-                {deleteBranch ? ", and its branch is deleted" : ""}.
+                {confirm === "auto" ? t("trackers.pr.confirm.whenPasses") + " " : ""}
+                <b>{itemMark(pr)}</b> {pr.title}{" "}
+                {confirm === "auto"
+                  ? t("trackers.pr.confirm.willBeMergedInto")
+                  : pr.merge.merge_queue
+                    ? t("trackers.pr.confirm.joinsQueueInto")
+                    : t("trackers.pr.confirm.isMergedInto")}{" "}
+                <code className="th-branch">{pr.base}</code> {t("trackers.pr.confirm.with")} <b>{methodLabel(method).toLowerCase()}</b>
+                {deleteBranch ? t("trackers.pr.confirm.branchDeleted") : t("trackers.pr.confirm.end")}
               </p>
               <p className="th-muted">
-                Only commit <code>{pr.head_sha.slice(0, 7)}</code> is merged; if the branch moves first, the merge is refused.
+                {t("trackers.pr.confirm.onlyCommit")} <code>{pr.head_sha.slice(0, 7)}</code> {t("trackers.pr.confirm.shaRule")}
               </p>
               {ms.warn && <p className="th-warn">{ms.warn}</p>}
             </>
           ) : (
             <p>
-              {itemMark(pr)} will be {confirm === "close" ? "closed without merging" : "reopened"}.
+              {confirm === "close"
+                ? t("trackers.pr.confirm.willClose", { mark: itemMark(pr) })
+                : t("trackers.pr.confirm.willReopen", { mark: itemMark(pr) })}
             </p>
           )}
           <div className="btnrow">
@@ -447,14 +471,20 @@ export function PRPage({
                 else {
                   const open = confirm === "reopen";
                   setConfirm("");
-                  void act("state", `/prs/${pr.id}/state`, { open }, open ? "Reopened" : "Closed");
+                  void act("state", `/prs/${pr.id}/state`, { open }, open ? t("trackers.notice.reopened") : t("trackers.notice.closed"));
                 }
               }}
             >
-              {confirm === "merge" ? "Confirm merge" : confirm === "auto" ? "Enable auto-merge" : confirm === "close" ? "Close" : "Reopen"}
+              {confirm === "merge"
+                ? t("trackers.pr.confirm.go")
+                : confirm === "auto"
+                  ? t("trackers.merge.enableAuto")
+                  : confirm === "close"
+                    ? t("trackers.close")
+                    : t("trackers.reopen")}
             </button>
             <button className="b" onClick={() => setConfirm("")}>
-              Cancel
+              {t("trackers.cancel")}
             </button>
           </div>
         </Modal>
@@ -477,6 +507,15 @@ export function PRPage({
     </div>
   );
 }
+
+// A reviewer's state beside their name.
+const REVIEWER_STATE = (): Record<string, string> => ({
+  requested: t("trackers.pr.reviewer.requested"),
+  approved: t("trackers.pr.reviewer.approved"),
+  changes_requested: t("trackers.pr.reviewer.changesRequested"),
+  commented: t("trackers.pr.reviewer.commented"),
+  dismissed: t("trackers.pr.reviewer.dismissed"),
+});
 
 function rank(c: Check): number {
   return { fail: 0, cancel: 1, pending: 2, pass: 3, skipping: 4 }[c.status] ?? 5;

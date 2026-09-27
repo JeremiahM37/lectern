@@ -10,6 +10,7 @@ import { QuotaChip } from "../sessions/QuotaChip";
 import { CIChip } from "../review/CIChip";
 import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import { availableAgents, raceAgents } from "../remote/race";
+import { t, useLocale } from "../i18n";
 import "./board.css";
 
 type QuickMode = "dispatch" | "orchestrate" | "race";
@@ -35,6 +36,19 @@ const columns = [
   "failed",
 ] as const;
 type Column = (typeof columns)[number];
+// A board status as people read it; anything unknown shows as the server sent it.
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    backlog: t("board.status.backlog"),
+    queued: t("board.status.queued"),
+    running: t("board.status.running"),
+    review: t("board.status.review"),
+    done: t("board.status.done"),
+    failed: t("board.status.failed"),
+    cancelled: t("board.status.cancelled"),
+  };
+  return labels[status] ?? status;
+}
 export interface BoardApi {
   tasks: (signal?: AbortSignal) => Promise<TaskView[]>;
   task: (id: number, signal?: AbortSignal) => Promise<TaskView>;
@@ -108,6 +122,7 @@ export function Board({
   routinesVersion = 0,
   onExternalActionConsumed = () => {},
 }: BoardProps) {
+  useLocale();
   const refreshSequence = useRef(0);
   const [tasks, setTasks] = useState<TaskView[]>([]),
     [projects, setProjects] = useState<Project[]>([]),
@@ -194,7 +209,7 @@ export function Board({
     if (!text || !project) return;
     const orchestrate = mode === "orchestrate";
     if (orchestrate && orchestration && !orchestration.orchestrate_ready) {
-      onNotice("Orchestrate needs Delegated builds ON — open Settings", true);
+      onNotice(t("board.orchestrateNeedsDelegation"), true);
       return;
     }
     try {
@@ -221,7 +236,7 @@ export function Board({
           body: { variants: agents.map((agent) => ({ agent })) },
         });
         setPrompt((current) => current === text ? "" : current);
-        onNotice(`Racing ${agents.join(", ")} — ${text.slice(0, 40)}`);
+        onNotice(t("remote.race.racingAgents", { agents: agents.join(", "), text: text.slice(0, 40) }));
         await refresh();
         setCompareTask(task.id);
         setSheet(task.id);
@@ -229,7 +244,7 @@ export function Board({
       }
       await api.taskAction(task.id, "dispatch", {});
       setPrompt((current) => current === text ? "" : current);
-      onNotice(`${orchestrate ? "Orchestrating" : "Dispatched"} — ${text.slice(0, 40)}`);
+      onNotice(orchestrate ? t("board.orchestrating", { text: text.slice(0, 40) }) : t("board.dispatched", { text: text.slice(0, 40) }));
       await refresh();
     } catch (e) {
       onNotice(String(e), true);
@@ -250,7 +265,7 @@ export function Board({
         await api.taskAction(data.id, "complete", {});
       else
         return onNotice(
-          `${data.status} → ${column}: not a thing. Drag to queued or done.`,
+          t("board.badDrop", { from: statusLabel(data.status), to: statusLabel(column) }),
           true,
         );
       await refresh();
@@ -259,7 +274,7 @@ export function Board({
     }
   }
   async function clear(column: "done" | "failed") {
-    if (!confirm(`Clear every ${column} card?`)) return;
+    if (!confirm(t("board.clearConfirm", { status: statusLabel(column) }))) return;
     await api.request("/tasks/clear", {
       method: "POST",
       body: { statuses: [column] },
@@ -276,11 +291,11 @@ export function Board({
         onDrop={(e) => void drop(e, column)}
       >
         <header className="col-head">
-          {column}
+          {statusLabel(column)}
           <span className="cnt">{rows.length}</span>
           {(column === "done" || column === "failed") && rows.length > 0 && (
             <button className="col-clear" onClick={() => void clear(column)}>
-              clear
+              {t("board.clear")}
             </button>
           )}
         </header>
@@ -303,10 +318,10 @@ export function Board({
             >
               <button
                 className="card-x"
-                aria-label={`Delete ${task.title}`}
+                aria-label={t("board.card.deleteLabel", { title: task.title })}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (task.status === "done" || confirm(`Delete “${task.title}”?`))
+                  if (task.status === "done" || confirm(t("board.card.deleteConfirm", { title: task.title })))
                     void api
                       .request(`/tasks/${task.id}`, { method: "DELETE" })
                       .then(() => refresh());
@@ -317,13 +332,13 @@ export function Board({
               <div className="t">{task.title}</div>
               <button
                 className="b task-chat"
-                aria-label="Chat with this task"
+                aria-label={t("board.card.chatLabel")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onChat(task);
                 }}
               >
-                Chat
+                {t("board.card.chat")}
               </button>
               <div className="meta">
                 <span className="chip">{task.project_name}</span>
@@ -337,42 +352,42 @@ export function Board({
                   return (
                     <>
                       {u.costUSD != null && (
-                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                        <span className="chip cost" title={u.costEstimated ? t("board.usage.costEstimated") : undefined}>
                           {formatResultCost(u)}
                         </span>
                       )}
                       {u.costUSD == null && u.outputTokens != null && (
-                        <span className="chip">{formatTokens(u.outputTokens)} tok</span>
+                        <span className="chip">{t("board.usage.tokens", { tokens: formatTokens(u.outputTokens) })}</span>
                       )}
                       {u.contextPct != null && (
                         <span
                           className={`ctxbar ctx-used ${contextClass(u.contextPct)}`}
-                          title={`${formatTokens(u.contextTokens)} / ${formatTokens(u.contextSize)} tokens used`}
+                          title={t("board.usage.contextUsed", { used: formatTokens(u.contextTokens), size: formatTokens(u.contextSize) })}
                         >
-                          ctx <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
+                          {t("board.usage.ctx")} <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
                         </span>
                       )}
                     </>
                   );
                 })()}
                 <CIChip ci={task.ci} />
-                {typeof task.attempt?.verify?.cmd === "string" && <span className={`chip ${task.attempt.verify.rc === 0 ? "ds" : "bad"}`}>{task.attempt.verify.rc === 0 ? "✓ verified" : "✗ verify"}</span>}
+                {typeof task.attempt?.verify?.cmd === "string" && <span className={`chip ${task.attempt.verify.rc === 0 ? "ds" : "bad"}`}>{task.attempt.verify.rc === 0 ? t("board.card.verified") : t("board.card.verifyFailed")}</span>}
                 {task.priority >= 3 && (
-                  <span className="chip warn">▲ high</span>
+                  <span className="chip warn">{t("board.card.highPriority")}</span>
                 )}
                 {task.agent && task.agent !== "claude" && <span className="chip tgt">{task.agent}</span>}
                 {task.limit && <LimitChip hold={task.limit} />}
-                {task.labels?.includes("orchestrated") && <span className="chip orch">✦ orchestrated</span>}
+                {task.labels?.includes("orchestrated") && <span className="chip orch">{t("board.card.orchestrated")}</span>}
                 {task.attempts.length > 1 && (
                   <span className="chip info">⑂ ×{task.attempts.length}</span>
                 )}
               </div>
             </article>
           ))}
-          {rows.length === 0 && <div className="col-empty">Nothing here</div>}
+          {rows.length === 0 && <div className="col-empty">{t("board.empty")}</div>}
           {rows.length > shown.length && (
             <button className="col-more" onClick={() => setShowDone(true)}>
-              show {rows.length - shown.length} more
+              {t("board.showMore", { n: rows.length - shown.length })}
             </button>
           )}
         </div>
@@ -382,28 +397,28 @@ export function Board({
   return (
     <section>
       <div className="page-heading">
-        <h2>Task board</h2>
+        <h2>{t("board.title")}</h2>
         <QuotaChip api={api} />
         <div className="btnrow">
-          <button id="qb-routines" onClick={() => setSheet("routines")}>Routines</button>
-          <button id="qb-claims" onClick={() => setSheet("claims")}>Claims</button>
+          <button id="qb-routines" onClick={() => setSheet("routines")}>{t("board.routines")}</button>
+          <button id="qb-claims" onClick={() => setSheet("claims")}>{t("board.claims")}</button>
           {/* A phone has the floating button under the thumb; one is enough. */}
           <button className="wide-only-control" onClick={() => setSheet("new")}>
-            + New task
+            + {t("board.newTask")}
           </button>
         </div>
       </div>
       <div id="quickbar" className={mode === "orchestrate" ? "orchestrate" : ""}>
-        <div id="qb-mode" role="radiogroup" aria-label="Quick bar mode">
+        <div id="qb-mode" role="radiogroup" aria-label={t("board.quick.modeLabel")}>
           <button
             type="button"
             role="radio"
             aria-checked={mode === "dispatch"}
             className={mode === "dispatch" ? "on" : ""}
             onClick={() => setMode("dispatch")}
-            title="One agent takes the task as written"
+            title={t("board.quick.dispatchTitle")}
           >
-            ⚡ Dispatch
+            {t("board.quick.dispatch")}
           </button>
           <button
             type="button"
@@ -411,9 +426,9 @@ export function Board({
             aria-checked={mode === "orchestrate"}
             className={mode === "orchestrate" ? "on" : ""}
             onClick={() => setMode("orchestrate")}
-            title="A lead plans it, the worker builds it, the lead reviews and merges"
+            title={t("board.quick.orchestrateTitle")}
           >
-            ✦ Orchestrate
+            {t("board.quick.orchestrate")}
           </button>
           <button
             type="button"
@@ -422,9 +437,9 @@ export function Board({
             aria-checked={mode === "race"}
             className={mode === "race" ? "on" : ""}
             onClick={() => setMode("race")}
-            title="Three agents take the same prompt in their own worktrees; compare them when they land"
+            title={t("remote.race.quickTitle")}
           >
-            ⚑ Race ×3
+            {t("remote.race.quick")}
           </button>
         </div>
         <select
@@ -447,30 +462,29 @@ export function Board({
           }}
           placeholder={
             mode === "orchestrate"
-              ? "Describe the outcome, hit ⏎ — Lectern plans, builds and reviews it"
+              ? t("board.quick.orchestratePlaceholder")
               : mode === "race"
-                ? "Describe it, hit ⏎ — three agents race, then compare"
-                : "Describe it, hit ⏎ — instant dispatch"
+                ? t("remote.race.quickPlaceholder")
+                : t("board.quick.dispatchPlaceholder")
           }
         />
         <input
           id="qb-filter"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter…"
+          placeholder={t("board.quick.filter")}
         />
       </div>
       {mode === "orchestrate" && orchestration && (
         <div id="qb-orch-hint" className={orchestration.orchestrate_ready ? "" : "off"}>
           {orchestration.orchestrate_ready ? (
             <>
-              A lead ({orchestration.settings?.lead_agent || "the project's agent"}) writes the plan and brief, <b>{orchestration.settings?.worker_agent}</b> builds
-              it in its own worktree, the lead reviews, fixes and merges it into this task. Want to pick the lead, model or permissions?{" "}
-              <button type="button" className="linkish" onClick={() => setSheet("new")}>Open the full form</button>.
+              {t("board.quick.hintLead", { lead: orchestration.settings?.lead_agent || t("board.quick.hintProjectAgent") })}<b>{orchestration.settings?.worker_agent}</b>{t("board.quick.hintWorker")}{" "}
+              <button type="button" className="linkish" onClick={() => setSheet("new")}>{t("board.quick.openFullForm")}</button>.
             </>
           ) : (
             <>
-              Orchestrate needs <b>Delegated builds ON</b> with a worker that answers — <a href="#targets">open Settings</a>. Dispatch still works.
+              {t("board.quick.needsBefore")}<b>{t("board.quick.needsDelegated")}</b>{t("board.quick.needsMiddle")}<a href="#targets">{t("board.quick.openSettings")}</a>{t("board.quick.needsAfter")}
             </>
           )}
         </div>
@@ -482,7 +496,7 @@ export function Board({
             className={`colchip s-${c} ${mobile === c ? "on" : ""}`}
             onClick={() => { setMobile(c); setMobilePinned(true); }}
           >
-            {c}
+            {statusLabel(c)}
             <b>{visible.filter((t) => t.status === c).length}</b>
           </button>
         ))}

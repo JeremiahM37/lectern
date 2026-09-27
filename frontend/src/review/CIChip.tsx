@@ -1,4 +1,5 @@
 import type { CIWatchView } from "../types";
+import { t, useLocale } from "../i18n";
 
 // Tone per ci_watches.state (internal/ciloop): reuses the board's chip
 // colours — info while CI runs, warn while the agent is fixing, green on
@@ -16,8 +17,9 @@ const TONE: Record<string, string> = {
 // attempt 2/3", "CI passed"); it links to the pull request. See
 // docs/ci-loop.md.
 export function CIChip({ ci }: { ci?: CIWatchView | null }) {
+  useLocale();
   if (!ci) return null;
-  const title = [ci.pr_url, ci.failing.length ? `failing: ${ci.failing.join(", ")}` : "", ci.detail || ""]
+  const title = [ci.pr_url, ci.failing.length ? t("review.ci.failing", { checks: ci.failing.join(", ") }) : "", ci.detail || ""]
     .filter(Boolean)
     .join("\n");
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayChord } from "../shortcuts/chords";
 import { searchProviders } from "./palette-providers";
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 export interface Command {
   id: string;
   title: string;
@@ -66,6 +66,7 @@ export function Palette({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
+  useLocale();
   const root = useRef<HTMLDialogElement>(null),
     input = useRef<HTMLInputElement>(null),
     close = useRef<HTMLButtonElement>(null);
@@ -96,7 +97,7 @@ export function Palette({
     let alive = true;
     void refresh()
       .catch(() => {
-        if (alive) setError("Could not refresh. Showing available results.");
+        if (alive) setError(t("app.palette.refreshFailed"));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -133,7 +134,7 @@ export function Palette({
     <dialog
       ref={root}
       className="command-palette"
-      aria-label="Search Lectern"
+      aria-label={t("app.palette.dialogLabel")}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -197,7 +198,7 @@ export function Palette({
         <button
           ref={close}
           type="button"
-          aria-label="Close search"
+          aria-label={t("app.palette.close")} data-close
           onClick={onClose}
         >
           <span className="command-close-text">Esc</span>
@@ -207,12 +208,12 @@ export function Palette({
       <p className="command-status" role="status" aria-live="polite">
         {error ||
           (all.length
-            ? `${all.length} ${all.length === 1 ? "result" : "results"}${all.length > 80 ? " · showing the first 80; type to narrow" : ""}${loading ? " · updating…" : ""}`
+            ? `${t("app.palette.results", { count: all.length })}${all.length > 80 ? t("app.palette.showingFirst") : ""}${loading ? t("app.palette.updating") : ""}`
             : loading
-              ? "Searching…"
-              : "No matches. Try a session name, project, or action.")}
+              ? t("app.palette.searching")
+              : t("app.palette.noMatches"))}
       </p>
-      <div id="command-results" role="listbox" aria-label="Search results">
+      <div id="command-results" role="listbox" aria-label={t("app.palette.resultsLabel")}>
         {results.map((item, i) => (
           <div
             id={`command-option-${i}`}

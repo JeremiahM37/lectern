@@ -1,6 +1,7 @@
 """Remote parity: Race N agents, machines (SSH import, ports, editor) and
 usage by provider, on a phone and on a desktop."""
 import json
+import re
 import urllib.request
 
 import pytest
@@ -99,6 +100,13 @@ def test_ssh_import_sheet_imports_a_host(browser, tmp_path):
             # pretending (real forwards are covered against a real target).
             card.locator(".remote-listening li", has_text="5173").get_by_role("button", name="Forward").click()
             expect(page.get_by_text("cannot forward ports").first).to_be_visible(timeout=10000)
+            # Settings search finds the new controls by id and focuses them.
+            for query, setting in (("ssh connection options", "machines.connection"), ("import ssh hosts", "machines.sshImport"),
+                                   ("sandboxes", "machines.sandboxes"), ("forwarded ports", "machines.ports"), ("usage warning", "usage.warnPercent")):
+                page.get_by_role("combobox", name="Search settings").fill(query)
+                page.locator("#settings-search-results [role=option]").first.click()
+                expect(page.locator(f'[data-setting="{setting}"]').first).to_have_class(re.compile("setting-hit"), timeout=5000)
+            _settings(page, "machines")
             card.locator('[data-remote-tab="files"]').click()
             card.get_by_label("Path on build-box").fill("/srv/app")
             link = card.get_by_role("link", name="Download")

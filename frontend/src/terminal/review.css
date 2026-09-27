@@ -5,10 +5,10 @@
   max-width: none;
   max-height: none;
   padding: 0;
-  border: 1px solid #414257;
+  border: 1px solid var(--line-2);
   border-radius: 16px;
-  background: #10131e;
-  color: #e5e7f0;
+  background: var(--bg-soft);
+  color: var(--ink);
   font:
     14px/1.5 Inter,
     system-ui,
@@ -20,7 +20,7 @@
   flex-direction: column;
 }
 .code-review::backdrop {
-  background: #030510bd;
+  background: color-mix(in srgb, var(--scrim) 74%, transparent);
   backdrop-filter: blur(4px);
 }
 .code-review header {
@@ -28,7 +28,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #2e3244;
+  border-bottom: 1px solid var(--line);
   flex: none;
 }
 .code-review h2 {
@@ -39,7 +39,7 @@
   margin: 0;
 }
 .code-review .review-name {
-  color: #a9b1c6;
+  color: var(--ink-dim);
   overflow-wrap: anywhere;
 }
 .code-review button,
@@ -47,8 +47,8 @@
 .code-review input {
   font: inherit;
   color: inherit;
-  background: #1b2031;
-  border: 1px solid #41475e;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
   padding: 7px 10px;
   min-height: 36px;
@@ -58,10 +58,10 @@
 }
 .code-review button:hover,
 .code-review button:focus-visible {
-  background: #2c3150;
+  background: color-mix(in srgb, var(--indigo) 25%, var(--bg));
 }
 .code-review :focus-visible {
-  outline: 2px solid #b2a3ff;
+  outline: 2px solid var(--accent-soft);
   outline-offset: 2px;
 }
 .review-toolbar {
@@ -72,12 +72,12 @@
   padding: 12px 20px;
 }
 .review-branch {
-  color: #b8aaff;
+  color: color-mix(in srgb, var(--accent-soft) 70%, var(--ink));
   margin-right: auto;
 }
 .code-review .review-status {
   padding: 0 20px 10px;
-  color: #b6bdd0;
+  color: var(--ink-dim);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -86,12 +86,12 @@
   grid-template-columns: 260px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
-  border-top: 1px solid #2e3244;
+  border-top: 1px solid var(--line);
 }
 .review-layout aside {
   padding: 12px;
   overflow: auto;
-  border-right: 1px solid #2e3244;
+  border-right: 1px solid var(--line);
 }
 .review-filter {
   box-sizing: border-box;
@@ -118,11 +118,11 @@
   min-width: 0;
 }
 .code-review .review-file[aria-pressed="true"] {
-  background: #403667;
-  border-color: #8170b2;
+  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
+  border-color: var(--accent);
 }
 .review-file-status {
-  color: #b6a7fa;
+  color: color-mix(in srgb, var(--accent-soft) 70%, var(--ink));
   white-space: pre;
   font-family: monospace;
 }
@@ -137,7 +137,7 @@
     13px ui-monospace,
     monospace;
   padding: 10px 14px;
-  border-bottom: 1px solid #2e3244;
+  border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
 .review-patch {
@@ -164,20 +164,20 @@
   flex-shrink: 0;
   text-align: right;
   padding-right: 6px;
-  color: #8992aa;
+  color: var(--indigo);
   user-select: none;
 }
 .review-add {
-  background: #12392b;
-  color: #b7f0cf;
+  background: color-mix(in srgb, var(--green) 20%, var(--bg));
+  color: color-mix(in srgb, var(--green) 25%, var(--ink));
 }
 .review-del {
-  background: #46222d;
-  color: #ffc7ce;
+  background: var(--line);
+  color: color-mix(in srgb, var(--red) 30%, var(--ink));
 }
 .review-hunk {
-  background: #28294c;
-  color: #c6baff;
+  background: var(--line);
+  color: color-mix(in srgb, var(--accent-soft) 50%, var(--ink));
 }
 .review-wrapped .review-line {
   min-width: 0;
@@ -189,8 +189,8 @@
 }
 .code-review footer {
   padding: 8px 20px;
-  color: #959fb7;
-  border-top: 1px solid #2e3244;
+  color: var(--ink-dim);
+  border-top: 1px solid var(--line);
   font-size: 12px;
   flex: none;
 }
@@ -213,7 +213,7 @@
   }
   .review-layout aside {
     border-right: 0;
-    border-bottom: 1px solid #2e3244;
+    border-bottom: 1px solid var(--line);
     padding: 8px 12px;
   }
   .review-files {

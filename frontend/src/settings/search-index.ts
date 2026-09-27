@@ -1,8 +1,7 @@
 // Every individual setting a person might search for, with the section it
 // lives in. Settings search and the command palette both read this list; a
 // hit opens the section and brings the control itself into view
-// (focusSetting). Controls in the personal sections carry data-setting ids;
-// older sections are found by their visible label.
+// (focusSetting), which carries a matching data-setting id.
 import { t } from "../i18n";
 import { SHORTCUTS } from "../shortcuts/registry";
 
@@ -12,8 +11,6 @@ export interface SettingEntry {
   sectionLabel: string;
   label: string;
   keywords: string;
-  // The visible text to find when the control has no data-setting id.
-  match?: string;
   kind?: "setting" | "shortcut";
 }
 
@@ -32,8 +29,8 @@ export const SECTIONS: [string, string][] = [
 ];
 export const sectionLabel = (name: string) => t(SECTIONS.find(([key]) => key === name)?.[1] || name);
 
-// [section, id, label key, keywords, visible label to match]
-const rows: [string, string, string, string, string?][] = [
+// [section, id, label key, keywords]
+const rows: [string, string, string, string][] = [
   ["appearance", "appearance.theme", "settings.appearance.theme", "dark light mode system colour scheme night"],
   ["appearance", "appearance.accent", "settings.appearance.accent", "color colour brand highlight"],
   ["appearance", "appearance.zoom", "settings.appearance.zoom", "scale size bigger smaller text"],
@@ -46,49 +43,51 @@ const rows: [string, string, string, string, string?][] = [
   ["workspace", "workspace.osc52", "settings.workspace.osc52", "clipboard copy osc 52 programs tmux vim"],
   ["workspace", "workspace.find", "settings.workspace.find", "search find regex case sensitive terminal"],
   ["shortcuts", "shortcuts.list", "settings.shortcuts.title", "keyboard keys bindings remap hotkeys"],
-  ["machines", "machines.name", "", "target ssh add machine", "Machine name"],
-  ["machines", "machines.host", "", "target ssh address", "Hostname"],
-  ["machines", "machines.user", "", "ssh login", "SSH user"],
-  ["machines", "machines.port", "", "ssh", "SSH port"],
-  ["machines", "machines.key", "", "ssh identity private key", "SSH key path"],
-  ["machines", "machines.connect", "", "mcp claude codex tools install", "Connect your AI tools"],
-  ["machines", "machines.sshImport", "", "ssh config import alias hosts proxyjump bastion kerberos gssapi fido2 security key", "Import from ~/.ssh/config"],
-  ["machines", "machines.sandboxes", "", "sandbox docker container fly modal vercel cloud provider suspend resume destroy", "Sandboxes"],
-  ["machines", "machines.ports", "", "port forward forwarding localhost expose tunnel", "Ports"],
-  ["machines", "machines.editor", "", "vs code vscode cursor zed windsurf editor open remote ssh download file folder", "Files & editor"],
-  ["about", "usage.providers", "", "usage provider claude codex gemini quota limit 80% warning cost estimate account", "By provider"],
-  ["projects", "projects.import", "", "repositories add scan", "Import projects"],
-  ["projects", "projects.mcp", "", "mcp servers tools", "Project MCP servers"],
-  ["projects", "projects.skills", "", "skills instructions", "Project skills"],
-  ["projects", "projects.workflows", "", "workflows automation", "Project workflows"],
-  ["projects", "projects.triggers", "", "triggers webhooks schedule", "Triggers"],
-  ["projects", "projects.permission", "", "permission mode approvals", "New session permission mode"],
-  ["notifications", "notifications.push", "", "push alerts phone browser", "This device"],
-  ["notifications", "notifications.sessionAlerts", "", "waiting finished alerts", "Session alerts"],
-  ["notifications", "notifications.sinks", "", "ntfy slack discord webhook", "Alerts"],
-  ["devices", "devices.paired", "", "phone pair qr code", "Paired devices"],
-  ["devices", "devices.relay", "", "encrypted relay remote", "Encrypted relay"],
-  ["about", "about.spend", "", "cost money usage", "Spend"],
-  ["about", "about.outcomes", "", "pull requests commits cost per outcome", "Outcomes"],
-  ["about", "about.signedIn", "", "identity whoami login", "Signed in"],
-  ["about", "about.build", "", "version build revision", "Running build"],
-  ["budgets", "budgets.budgets", "", "spend limit cap", "Budgets"],
-  ["budgets", "budgets.prices", "", "model token prices", "Model prices"],
-  ["budgets", "budgets.limits", "", "usage limit rate limit continue", "When an agent hits its usage limit"],
-  ["agents", "agents.runners", "", "custom agents providers", "Agent runners"],
-  ["agents", "agents.profiles", "", "launch profiles accounts", "Launch profiles"],
-  ["agents", "agents.starters", "", "starter profiles presets", "Starter profiles"],
-  ["agents", "agents.menus", "", "menu visibility", "Show in menus"],
+  ["machines", "machines.name", "settings.index.machines.name", "target ssh add machine"],
+  ["machines", "machines.host", "settings.index.machines.host", "target ssh address"],
+  ["machines", "machines.user", "settings.index.machines.user", "ssh login"],
+  ["machines", "machines.port", "settings.index.machines.port", "ssh"],
+  ["machines", "machines.key", "settings.index.machines.key", "ssh identity private key"],
+  ["machines", "machines.connect", "settings.index.machines.connect", "mcp claude codex tools install"],
+  ["machines", "machines.sshImport", "remote.index.sshImport", "ssh config import alias hosts proxyjump bastion kerberos gssapi fido2 security key"],
+  ["machines", "machines.connection", "remote.index.connection", "ssh transport openssh alias proxyjump jump host bastion agent forwarding kerberos gssapi fido2 security key reconnect"],
+  ["machines", "machines.ports", "remote.index.ports", "port forward forwarding localhost expose tunnel listening"],
+  ["machines", "machines.files", "remote.index.files", "download file folder tar vs code vscode cursor zed windsurf editor open remote"],
+  ["machines", "machines.sandboxes", "remote.index.sandboxes", "sandbox docker container fly modal vercel cloud provider suspend resume destroy"],
+  ["projects", "projects.import", "settings.index.projects.import", "repositories add scan"],
+  ["projects", "projects.mcp", "settings.index.projects.mcp", "mcp servers tools"],
+  ["projects", "projects.skills", "settings.index.projects.skills", "skills instructions"],
+  ["projects", "projects.workflows", "settings.index.projects.workflows", "workflows automation"],
+  ["projects", "projects.triggers", "settings.index.projects.triggers", "triggers webhooks schedule"],
+  ["projects", "projects.permission", "settings.index.projects.permission", "permission mode approvals"],
+  ["notifications", "notifications.push", "settings.index.notifications.push", "push alerts phone browser"],
+  ["notifications", "notifications.sessionAlerts", "settings.index.notifications.sessionAlerts", "waiting finished alerts"],
+  ["notifications", "notifications.sinks", "settings.index.notifications.sinks", "ntfy slack discord webhook"],
+  ["devices", "devices.paired", "settings.index.devices.paired", "phone pair qr code"],
+  ["devices", "devices.relay", "settings.index.devices.relay", "encrypted relay remote"],
+  ["about", "about.spend", "settings.index.about.spend", "cost money usage"],
+  ["about", "about.outcomes", "settings.index.about.outcomes", "pull requests commits cost per outcome"],
+  ["about", "about.signedIn", "settings.index.about.signedIn", "identity whoami login"],
+  ["about", "about.build", "settings.index.about.build", "version build revision"],
+  ["about", "usage.providers", "remote.index.usageProviders", "usage provider claude codex gemini quota limit window account cost estimate"],
+  ["about", "usage.warnPercent", "remote.index.usageWarn", "usage warning 80% alert push quota threshold"],
+  ["budgets", "budgets.budgets", "settings.index.budgets.budgets", "spend limit cap"],
+  ["budgets", "budgets.prices", "settings.index.budgets.prices", "model token prices"],
+  ["budgets", "budgets.limits", "settings.index.budgets.limits", "usage limit rate limit continue"],
+  ["agents", "agents.runners", "settings.index.agents.runners", "custom agents providers"],
+  ["agents", "agents.profiles", "settings.index.agents.profiles", "launch profiles accounts"],
+  ["agents", "agents.starters", "settings.index.agents.starters", "starter profiles presets"],
+  ["agents", "agents.menus", "settings.index.agents.menus", "menu visibility"],
 ];
 
 export function settingsIndex(options: { shortcuts?: boolean } = {}): SettingEntry[] {
-  const out: SettingEntry[] = rows.map(([section, id, key, keywords, match]) => ({
+  const out: SettingEntry[] = rows.map(([section, id, key, keywords]) => ({
     id,
     section,
     sectionLabel: sectionLabel(section),
-    label: key ? t(key) : match!,
+    label: t(key),
+    // The keywords stay English, so English terms find a control in any language.
     keywords,
-    match,
     kind: "setting",
   }));
   if (options.shortcuts)
@@ -121,13 +120,8 @@ export function searchSettings(query: string, entries = settingsIndex({ shortcut
 }
 
 // Scrolls the control into view, marks it briefly and focuses its input.
-export function focusSetting(entry: Pick<SettingEntry, "id" | "match">, attempts = 20) {
-  const root = document.querySelector(".settings-page");
-  let target: Element | null = root?.querySelector(`[data-setting="${CSS.escape(entry.id)}"]`) || null;
-  if (!target && entry.match && root) {
-    const want = entry.match.toLocaleLowerCase();
-    target = [...root.querySelectorAll("h3,h4,legend,label,summary,button,th")].find((node) => node.textContent?.trim().toLocaleLowerCase().startsWith(want)) || null;
-  }
+export function focusSetting(entry: Pick<SettingEntry, "id">, attempts = 20) {
+  const target = document.querySelector(`[data-setting="${CSS.escape(entry.id)}"]`);
   if (!target) {
     if (attempts > 0) setTimeout(() => focusSetting(entry, attempts - 1), 100);
     return false;

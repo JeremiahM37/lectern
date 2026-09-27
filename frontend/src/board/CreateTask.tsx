@@ -7,6 +7,7 @@ import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import { availableAgents, raceAgents, type RaceMode } from "../remote/race";
 import "../claims/claims.css";
+import { t, useLocale } from "../i18n";
 import "./board.css";
 
 type AgentSpec = {
@@ -60,6 +61,7 @@ export function CreateTask({
   onCompare?(t: TaskView): void;
   initialRace?: number;
 }) {
+  useLocale();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? 0),
     [title, setTitle] = useState(""),
     [prompt, setPrompt] = useState(""),
@@ -76,7 +78,9 @@ export function CreateTask({
     // can be genuinely blank rather than defaulting to 0.
     [budget, setBudget] = useState(""),
     [budgetStatus, setBudgetStatus] = useState<{ any_blocked: boolean }>(),
-    [cap, setCap] = useState(""),
+    // The capability line: "checking" while it loads, the server's answer, or
+    // nothing. Kept as data so the words follow the chosen language.
+    [capInfo, setCapInfo] = useState<"checking" | { profile: string; mcp_servers: string[]; memory_dir: string } | null>(null),
     // Orchestrate: the same switch the quick bar has, with the rest of the
     // form choosing the lead instead of the worker.
     [orchestrate, setOrchestrate] = useState(false),
@@ -108,9 +112,9 @@ export function CreateTask({
       api.request<Template[]>("/templates"),
       api.request<LaunchProfile[]>("/launch-profiles"),
     ])
-      .then(([a, t, p]) => {
+      .then(([a, list, p]) => {
         setAgents(a);
-        setTemplates(t);
+        setTemplates(list);
         setProfiles(p);
       })
       .catch(() => {});
@@ -136,17 +140,13 @@ export function CreateTask({
     if (!project) return;
     setAgent(project.default_agent || "claude");
     setPermission(project.default_permission_mode || "acceptEdits");
-    setCap("checking capability…");
+    setCapInfo("checking");
     void api
       .request<{ profile: string; mcp_servers: string[]; memory_dir: string }>(
         `/projects/${project.id}/capability`,
       )
-      .then((c) =>
-        setCap(
-          `${c.profile} · ${c.mcp_servers.length ? `MCP ${c.mcp_servers.join(", ")}` : "no MCP"} · ${c.memory_dir ? "shared memory" : "no memory"}`,
-        ),
-      )
-      .catch(() => setCap(""));
+      .then((c) => setCapInfo(c))
+      .catch(() => setCapInfo(null));
   }, [projectId]);
   useEffect(() => {
     const text = `${title} ${prompt}`.trim();
@@ -188,22 +188,22 @@ export function CreateTask({
   }, [initialRace, project?.id, installed]);
   async function create(dispatch: boolean, chat = false, compare = false) {
     const effectiveTitle = title.trim() || (compare ? prompt.trim().split("\n")[0]!.slice(0, 70) : "");
-    if (!effectiveTitle) return onNotice(compare ? "Describe the task first" : "Title required", true);
+    if (!effectiveTitle) return onNotice(compare ? t("remote.race.describeFirst") : t("board.create.titleRequired"), true);
     const usesFable =
       model === "fable" || variants.some((v) => v.model === "fable");
     if (
       dispatch &&
       usesFable &&
       !confirm(
-        "Dispatch on Fable 5? It's the most capable model and uses the most of your Claude Code plan. Continue?",
+        t("board.create.fableConfirm"),
       )
     )
       return;
     const budgetUSD = budget.trim() === "" ? undefined : Number(budget);
     if (budgetUSD !== undefined && (!Number.isFinite(budgetUSD) || budgetUSD < 0))
-      return onNotice("Budget must be a non-negative number", true);
+      return onNotice(t("board.create.budgetInvalid"), true);
     try {
-      const t = await api.createTask({
+      const task = await api.createTask({
         project_id: projectId,
         title: effectiveTitle,
         prompt: prompt.trim(),
@@ -215,7 +215,7 @@ export function CreateTask({
         ...(budgetUSD !== undefined ? { budget_usd: budgetUSD } : {}),
       });
       if (dispatch)
-        await api.request(`/tasks/${t.id}/dispatch`, {
+        await api.request(`/tasks/${task.id}/dispatch`, {
           method: "POST",
           body: {
             ...(variants.length > 0
@@ -236,42 +236,52 @@ export function CreateTask({
         });
       onCreated();
       onClose();
-      onNotice(compare ? `Racing ${variants.length + 1} attempts` : dispatch ? (orchestrate ? "Orchestrating" : "Dispatched") : "Saved to backlog");
-      if (chat) onChat(t);
-      if (compare) onCompare?.(t);
+      onNotice(compare ? t("remote.race.racing", { count: variants.length + 1 }) : dispatch ? (orchestrate ? t("board.create.orchestrating") : t("board.create.dispatched")) : t("board.create.savedToBacklog"));
+      if (chat) onChat(task);
+      if (compare) onCompare?.(task);
     } catch (e) {
       onNotice(String(e), true);
     }
   }
+  const cap =
+    capInfo === "checking"
+      ? t("board.create.checkingCapability")
+      : capInfo
+        ? t("board.create.capability", {
+            profile: capInfo.profile,
+            mcp: capInfo.mcp_servers.length ? t("board.create.mcpServers", { servers: capInfo.mcp_servers.join(", ") }) : t("board.create.noMcp"),
+            memory: capInfo.memory_dir ? t("board.create.sharedMemory") : t("board.create.noMemory"),
+          })
+        : "";
   return (
-    <Modal id="sheet" open className="sheet" aria-label="New task" onCancel={onClose}>
+    <Modal id="sheet" open className="sheet" aria-label={t("board.newTask")} onCancel={onClose}>
       <header className="sheet-head">
-        <h2>New task</h2>
+        <h2>{t("board.newTask")}</h2>
         <button onClick={onClose}>✕</button>
       </header>
       <label>
-        Template
+        {t("board.create.template")}
         <select
           onChange={(e) => {
-            const t = templates[Number(e.target.value)];
-            if (t) {
-              setTitle(t.title ?? title);
-              setPrompt(t.prompt ?? prompt);
-              setPermission(t.permission_mode ?? permission);
-              setModel(t.model ?? model);
+            const template = templates[Number(e.target.value)];
+            if (template) {
+              setTitle(template.title ?? title);
+              setPrompt(template.prompt ?? prompt);
+              setPermission(template.permission_mode ?? permission);
+              setModel(template.model ?? model);
             }
           }}
         >
-          <option value="">— none —</option>
-          {templates.map((t, i) => (
-            <option value={i} key={t.name}>
-              {t.name}
+          <option value="">{t("board.create.noTemplate")}</option>
+          {templates.map((template, i) => (
+            <option value={i} key={template.name}>
+              {template.name}
             </option>
           ))}
         </select>
       </label>
       <label>
-        Project
+        {t("board.create.project")}
         <select
           id="f-project"
           value={projectId}
@@ -284,51 +294,50 @@ export function CreateTask({
           ))}
         </select>
       </label>
-      <div id="f-cap-hint" className="subhint">{cap}<span className="cap-note">{cap.includes("restricted") ? " · denied with no prompt" : ""}</span></div>
+      <div id="f-cap-hint" className="subhint">{cap}<span className="cap-note">{cap.includes("restricted") ? t("board.create.deniedNoPrompt") : ""}</span></div>
       <div id="f-orchestrate" className={"orchestrate-row" + (orchestrate ? " on" : "") + (orchestration?.orchestrate_ready ? "" : " unavailable")}>
         <button
           type="button"
           role="switch"
           aria-checked={orchestrate}
-          aria-label="Orchestrate"
+          aria-label={t("board.create.orchestrateLabel")}
           disabled={!orchestration?.orchestrate_ready}
           onClick={() => setOrchestrate(!orchestrate)}
         />
         <span onClick={() => orchestration?.orchestrate_ready && setOrchestrate(!orchestrate)}>
-          <b>✦ Orchestrate</b>
+          <b>{t("board.quick.orchestrate")}</b>
           {orchestration?.orchestrate_ready ? (
             <small>
-              A lead plans the prompt and writes the brief, <b>{orchestration.settings?.worker_agent}</b> builds it in its own worktree, the lead
-              reviews, fixes and merges it into this task. Agent and model below choose the <b>lead</b> (Claude Code or Codex).
+              {t("board.create.orchLeadPlans")}<b>{orchestration.settings?.worker_agent}</b>{t("board.create.orchWorkerBuilds")}<b>{t("board.create.orchLead")}</b>{t("board.create.orchLeadAgents")}
             </small>
           ) : (
             <small>
-              Needs Delegated builds ON with a worker that answers — <a href="#targets">open Settings</a>.
+              {t("board.create.orchNeeds")}<a href="#targets">{t("board.quick.openSettings")}</a>.
             </small>
           )}
         </span>
       </div>
       <label>
-        Title
+        {t("board.create.title")}
         <input
           id="f-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add /health endpoint"
+          placeholder={t("board.create.titlePlaceholder")}
         />
       </label>
       <label>
-        {orchestrate ? "What should be built? The lead turns this into a plan and a brief." : "Prompt — what should the agent do?"}
+        {orchestrate ? t("board.create.promptOrchestrate") : t("board.create.prompt")}
         <textarea
           id="f-prompt"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe intent. Be specific about files, behavior, and how to verify."
+          placeholder={t("board.create.promptPlaceholder")}
         />
       </label>
       {overlaps.length > 0 && (
         <div className="claims-overlap-warning" id="new-task-claim-overlap" role="status">
-          ⚠ This looks like it might already be claimed:
+          {t("board.create.overlapWarning")}
           <ul>
             {overlaps.map((c) => (
               <li key={c.id}>
@@ -337,30 +346,30 @@ export function CreateTask({
               </li>
             ))}
           </ul>
-          Check their work or ask the operator before dispatching.
+          {t("board.create.overlapAdvice")}
         </div>
       )}
       <label>
-        Permissions
+        {t("board.create.permissions")}
         <select
           id="f-perm"
           value={permission}
           onChange={(e) => setPermission(e.target.value)}
         >
           <option value="default" disabled={agent !== "claude"}>
-            Gated — Claude Code only
+            {t("board.create.permGated")}
           </option>
           <option value="acceptEdits">
-            Accept edits — file changes auto-approved
+            {t("board.create.permAcceptEdits")}
           </option>
-          <option value="plan">Plan only — no changes</option>
+          <option value="plan">{t("board.create.permPlan")}</option>
           <option value="bypassPermissions">
-            Bypass — sandboxed targets only
+            {t("board.create.permBypass")}
           </option>
         </select>
       </label>
       <fieldset id="f-agent" data-value={agent}>
-        <legend>Agent</legend>
+        <legend>{t("board.create.agent")}</legend>
         {(shownAgents.some((a) => a.name === agent)
           ? shownAgents
           : [...shownAgents, ...moreAgents.filter((a) => a.name === agent)]
@@ -371,7 +380,7 @@ export function CreateTask({
             data-agent={a.name}
             key={a.name}
             disabled={orchestrate && a.name !== "claude" && a.name !== "codex"}
-            title={orchestrate && a.name !== "claude" && a.name !== "codex" ? "Only Claude Code or Codex can lead an orchestrated task" : undefined}
+            title={orchestrate && a.name !== "claude" && a.name !== "codex" ? t("board.create.leadAgentsOnly") : undefined}
             onClick={() => {
               setAgent(a.name);
               if (a.name !== "claude" && permission === "default")
@@ -383,7 +392,7 @@ export function CreateTask({
         ))}
         {moreAgents.length > 0 && (
           <button type="button" id="f-agent-more" onClick={() => setShowAllAgents(true)}>
-            More agents…
+            {t("board.create.moreAgents")}
           </button>
         )}
       </fieldset>
@@ -398,16 +407,16 @@ export function CreateTask({
         />
       )}
       <label>
-        Model
+        {t("board.create.model")}
         <input
           id="f-model"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="default"
+          placeholder={t("board.create.modelDefault")}
         />
       </label>
-      <div className="race-row" id="f-race" role="group" aria-label="Race agents">
-        <b>⚑ Race</b>
+      <div className="race-row" id="f-race" role="group" aria-label={t("remote.race.group")}>
+        <b>{t("remote.race.label")}</b>
         {[2, 3, 4].map((n) => (
           <button
             type="button"
@@ -422,20 +431,20 @@ export function CreateTask({
           </button>
         ))}
         <select
-          aria-label="Race with"
+          aria-label={t("remote.race.with")}
           value={raceMode}
           disabled={!race}
           onChange={(e) => applyRace(race, e.target.value as RaceMode)}
         >
-          <option value="mixed">different agents</option>
-          <option value="same">the same agent</option>
+          <option value="mixed">{t("remote.race.mixed")}</option>
+          <option value="same">{t("remote.race.same")}</option>
         </select>
-        <span className="subhint">Same prompt, each in its own worktree, then compare or let the judge pick.</span>
+        <span className="subhint">{t("remote.race.hint")}</span>
       </div>
       <div id="f-variants">
         <div className="variants-head">
           <span>
-            Attempts{variants.length > 0 && ` (${variants.length + 1})`}
+            {t("board.create.attempts")}{variants.length > 0 && ` (${variants.length + 1})`}
           </span>
           <button
             type="button"
@@ -454,14 +463,12 @@ export function CreateTask({
               ])
             }
           >
-            + Add attempt
+            {t("board.create.addAttempt")}
           </button>
         </div>
         {variants.length > 0 && (
           <p className="subhint">
-            The agent/model/permission above is attempt 1. Every extra row
-            below runs the same prompt in its own worktree, in parallel — pick
-            the best one when they land.
+            {t("board.create.attemptsHint")}
           </p>
         )}
         {variants.map((v, i) => (
@@ -478,10 +485,10 @@ export function CreateTask({
                 );
               }}
             >
-              <option value="">custom agent/model</option>
+              <option value="">{t("board.create.customAgentModel")}</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.name}>
-                  profile: {p.name}
+                  {t("board.create.profileOption", { name: p.name })}
                 </option>
               ))}
             </select>
@@ -502,7 +509,7 @@ export function CreateTask({
                     );
                   }}
                 >
-                  <option value="">same agent ({agent})</option>
+                  <option value="">{t("board.create.sameAgent", { agent })}</option>
                   {(v.agent && !shownAgents.some((a) => a.name === v.agent)
                     ? [...shownAgents, ...moreAgents.filter((a) => a.name === v.agent)]
                     : shownAgents
@@ -512,7 +519,7 @@ export function CreateTask({
                     </option>
                   ))}
                   {moreAgents.length > 0 && (
-                    <option value="__more__">More agents…</option>
+                    <option value="__more__">{t("board.create.moreAgents")}</option>
                   )}
                 </select>
                 {showAllVariantAgents === v.key && (
@@ -529,7 +536,7 @@ export function CreateTask({
                   />
                 )}
                 <input
-                  placeholder="model"
+                  placeholder={t("board.create.modelPlaceholder")}
                   value={v.model}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -553,15 +560,15 @@ export function CreateTask({
                 );
               }}
             >
-              <option value="">same permission</option>
-              <option value="acceptEdits">accept edits</option>
-              <option value="plan">plan only</option>
-              <option value="bypassPermissions">bypass</option>
+              <option value="">{t("board.create.samePermission")}</option>
+              <option value="acceptEdits">{t("board.create.variantAcceptEdits")}</option>
+              <option value="plan">{t("board.create.variantPlan")}</option>
+              <option value="bypassPermissions">{t("board.create.variantBypass")}</option>
             </select>
             <button
               type="button"
               className="variant-remove"
-              aria-label={`Remove attempt ${i + 2}`}
+              aria-label={t("board.create.removeAttempt", { n: i + 2 })}
               onClick={() =>
                 setVariants((list) => list.filter((x) => x.key !== v.key))
               }
@@ -572,18 +579,18 @@ export function CreateTask({
         ))}
       </div>
       <label>
-        Priority
+        {t("board.create.priority")}
         <select
           value={priority}
           onChange={(e) => setPriority(Number(e.target.value))}
         >
-          <option value={1}>low</option>
-          <option value={2}>normal</option>
-          <option value={3}>high</option>
+          <option value={1}>{t("board.create.priorityLow")}</option>
+          <option value={2}>{t("board.create.priorityNormal")}</option>
+          <option value={3}>{t("board.create.priorityHigh")}</option>
         </select>
       </label>
       <label>
-        Budget (USD) — optional
+        {t("board.create.budget")}
         <input
           id="f-budget"
           type="number"
@@ -591,25 +598,25 @@ export function CreateTask({
           step="0.01"
           value={budget}
           onChange={(e) => setBudget(e.target.value)}
-          placeholder="no cap"
+          placeholder={t("board.create.noCap")}
         />
-        <span className="subhint">Cancels this task's own running attempt once it spends this much.</span>
+        <span className="subhint">{t("board.create.budgetHint")}</span>
       </label>
       {budgetStatus?.any_blocked && (
         <p id="f-budget-blocked" className="budget-blocked-note">
-          A stop-mode budget is currently exhausted — dispatch may be refused. See Settings → Budgets.
+          {t("board.create.budgetBlocked")}
         </p>
       )}
       <div className="btnrow">
-        <button id="f-save" onClick={() => void create(false)}>Save to backlog</button>
-        <button id="f-go" onClick={() => void create(true)}>Dispatch to board</button>
+        <button id="f-save" onClick={() => void create(false)}>{t("board.create.saveToBacklog")}</button>
+        <button id="f-go" onClick={() => void create(true)}>{t("board.create.dispatchToBoard")}</button>
         {variants.length > 0 && !orchestrate ? (
           <button id="f-race-go" className="ok" onClick={() => void create(true, false, true)}>
-            Race {variants.length + 1} &amp; compare
+            {t("remote.race.go", { count: variants.length + 1 })}
           </button>
         ) : (
           <button id="f-chat" className="ok" onClick={() => void create(true, true)}>
-            Dispatch &amp; chat
+            {t("board.create.dispatchAndChat")}
           </button>
         )}
       </div>

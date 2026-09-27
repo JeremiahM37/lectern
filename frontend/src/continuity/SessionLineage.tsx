@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { agentTitle, type ContinuitySession, type SessionApi } from './handoff';
+import { t, useLocale } from '../i18n';
 import './continuity.css';
 
 export const lineageLabel = (session: ContinuitySession) =>
@@ -23,6 +24,7 @@ export function SessionLineage({
   pending?: boolean;
   className?: string;
 }) {
+  useLocale();
   const predecessorID = session.predecessor_id || undefined;
   const successorID = session.successor_id || undefined;
   const [neighbors, setNeighbors] = useState<{
@@ -62,34 +64,34 @@ export function SessionLineage({
     <span className="lineage-entry">
       <button
         className="b lineage-open"
-        aria-label={back ? `Go back to ${row.name}` : `Open ${row.name}`}
+        aria-label={back ? t('app.lineage.goBack', { name: row.name }) : t('app.lineage.open', { name: row.name })}
         onClick={() => onOpen?.(row)}
       >
         {back && <span aria-hidden="true">←</span>}
-        <strong>{row.name || `Session ${row.id}`}</strong>
+        <strong>{row.name || t('app.lineage.session', { id: row.id })}</strong>
         <small>
           {lineageLabel(row)}
-          {row.ended_at ? ' · ended' : ''}
+          {row.ended_at ? t('app.lineage.ended') : ''}
         </small>
         {!back && <span aria-hidden="true">→</span>}
       </button>
       {onOpenChat && (
         <button
           className="b lineage-chat"
-          aria-label={`Open chat for ${row.name || `session ${row.id}`}`}
+          aria-label={t('app.lineage.openChat', { name: row.name || t('app.lineage.sessionLower', { id: row.id }) })}
           onClick={() => onOpenChat(row)}
         >
-          Chat
+          {t('app.lineage.chat')}
         </button>
       )}
     </span>
   );
   return (
-    <nav className={`lineage ${className || ''}`.trim()} aria-label="Conversation lineage">
+    <nav className={`lineage ${className || ''}`.trim()} aria-label={t('app.lineage.label')}>
       {predecessor && entry(predecessor, true)}
       {pending && !successor && (
         <span className="lineage-pending" role="status">
-          Saving context…
+          {t('app.lineage.saving')}
         </span>
       )}
       {successor && entry(successor, false)}

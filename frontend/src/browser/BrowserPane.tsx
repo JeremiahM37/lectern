@@ -2,6 +2,7 @@ import "./browser.css";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { authToken, withToken, type JsonValue } from "../api";
 import { relayTunnel } from "../relay/boot";
+import { t, useLocale } from "../i18n";
 import type { LiveView } from "../types";
 import {
   DEVICES,
@@ -59,7 +60,11 @@ interface Profiles {
 }
 
 function size(n: number) {
-  return n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
+  return n >= 1 << 20
+    ? t("browser.size.mb", { size: (n / (1 << 20)).toFixed(1) })
+    : n >= 1024
+      ? t("browser.size.kb", { size: Math.round(n / 1024) })
+      : t("browser.size.bytes", { size: n });
 }
 
 interface Port {
@@ -109,6 +114,7 @@ export function BrowserPane({
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   // The parent may pass new function identities on every render; nothing
   // here should reconnect or reload because of that.
   const noticeRef = useRef(onNotice);
@@ -299,7 +305,7 @@ export function BrowserPane({
           body: { port, design: wantDesign, parent_origin: location.origin },
         });
         if (!viewFramable(location, v)) {
-          notice("This page is secure and the view is not, so it opens in its own tab.");
+          notice(t("browser.notice.viewNotSecure"));
           window.open(viewURL(location, v, path), "_blank", "noopener");
           return undefined;
         }
@@ -346,7 +352,7 @@ export function BrowserPane({
     if (mode === "direct") {
       const port = loopbackPort(target);
       if (port === null) {
-        notice("A live page shows this machine's dev servers; other sites open in the shared browser.");
+        notice(t("browser.notice.liveOnlyLocal"));
         setMode("shared");
         await act({ action: "navigate", url: target, ...vpBody() });
         return;
@@ -390,7 +396,7 @@ export function BrowserPane({
     if (!on) setPicked([]);
     if (mode === "shared") {
       if (!status?.running) {
-        notice("Open a page first.", true);
+        notice(t("browser.notice.openPageFirst"), true);
         setDesign(false);
         return;
       }
@@ -430,7 +436,7 @@ export function BrowserPane({
     } else if (/^https?:/.test(target) && port === null) {
       window.open(target, "_blank", "noopener");
     } else {
-      notice(status?.views_disabled_reason || "This address is only reachable on the agent's machine.", true);
+      notice(status?.views_disabled_reason || t("browser.notice.onlyOnAgentMachine"), true);
     }
   };
 
@@ -524,7 +530,11 @@ export function BrowserPane({
         },
       );
       const shot = out.screenshots.find((s) => s.source)?.source;
-      notice(`Sent to ${name}: ${out.files.length} files${shot ? " · screenshot from " + shot : " · no screenshot"}`);
+      notice(
+        shot
+          ? t("browser.notice.designSentShot", { name, files: out.files.length, source: shot })
+          : t("browser.notice.designSentNoShot", { name, files: out.files.length }),
+      );
       setPicked([]);
       setNote("");
     } catch (error) {
@@ -584,7 +594,7 @@ export function BrowserPane({
   const pickProfile = async (label: string) => {
     let name = label;
     if (label === "__new") {
-      name = (window.prompt("Name the new profile (lowercase letters, digits, - or _):") || "").trim().toLowerCase();
+      name = (window.prompt(t("browser.profile.prompt")) || "").trim().toLowerCase();
       if (!name) return;
     }
     const target = normalizeAddress(address || status?.state?.url || "") || "about:blank";
@@ -594,7 +604,7 @@ export function BrowserPane({
     if (p) setProfiles(p);
   };
   const importCookies = async (from: "file" | "chrome", file?: File) => {
-    setCookieResult("Importing…");
+    setCookieResult(t("browser.cookies.importing"));
     try {
       let body: FormData | Record<string, JsonValue>;
       if (from === "file" && file) {
@@ -608,7 +618,11 @@ export function BrowserPane({
         { method: "POST", body: body as JsonValue },
       );
       const skipped = Object.entries(out.skipped || {}).map(([why, n]) => `${n} ${why}`).join(", ");
-      setCookieResult(`Imported ${out.imported} cookies for ${out.sites} sites${skipped ? ` · skipped ${skipped}` : ""}`);
+      setCookieResult(
+        skipped
+          ? t("browser.cookies.importedSkipped", { imported: out.imported, sites: out.sites, skipped })
+          : t("browser.cookies.imported", { imported: out.imported, sites: out.sites }),
+      );
       void refresh();
     } catch (error) {
       setCookieResult(errorText(error));
@@ -620,7 +634,7 @@ export function BrowserPane({
     try {
       const token = authToken();
       const res = await fetch(`/api/term/session/${sessionId}/file?path=${encodeURIComponent(rel)}`, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
-      if (!res.ok) throw new Error(`Could not fetch ${d.name} (${res.status})`);
+      if (!res.ok) throw new Error(t("browser.notice.fetchFailed", { name: d.name, status: res.status }));
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
@@ -643,17 +657,17 @@ export function BrowserPane({
   // Every control once; the layout places them. A phone gets one row (back,
   // address, Go, a menu for the rest, close) so the page keeps the screen.
   const backButton = (
-            <button className="b" aria-label="Back" disabled={!shared && history.current.back === 0} onClick={() => nav("back")}>
+            <button className="b" aria-label={t("browser.toolbar.back")} disabled={!shared && history.current.back === 0} onClick={() => nav("back")}>
               ◀
             </button>
   );
   const forwardButton = (
-            <button className="b" aria-label="Forward" disabled={!shared && history.current.forward === 0} onClick={() => nav("forward")}>
+            <button className="b" aria-label={t("browser.toolbar.forward")} disabled={!shared && history.current.forward === 0} onClick={() => nav("forward")}>
               ▶
             </button>
   );
   const reloadButton = (
-            <button className="b" aria-label="Reload" onClick={() => nav("reload")}>
+            <button className="b" aria-label={t("browser.toolbar.reload")} onClick={() => nav("reload")}>
               ⟳
             </button>
   );
@@ -667,8 +681,8 @@ export function BrowserPane({
             >
               <input
                 id="browser-address"
-                aria-label="Address"
-                placeholder="localhost:5173, a port, or any address"
+                aria-label={t("browser.toolbar.address")}
+                placeholder={t("browser.toolbar.addressPlaceholder")}
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 autoCapitalize="off"
@@ -676,17 +690,17 @@ export function BrowserPane({
                 spellCheck={false}
               />
               <button className="b" disabled={!!busy || !address.trim()}>
-                Go
+                {t("browser.toolbar.go")}
               </button>
             </form>
   );
   const portsButton = (
             <button className="b" aria-expanded={showPorts} onClick={() => { setShowPorts(!showPorts); if (!showPorts) loadPorts(); }}>
-              Ports
+              {t("browser.toolbar.ports")}
             </button>
   );
   const deviceSelect = (
-            <select aria-label="Device size" value={deviceId} onChange={(e) => pickDevice(e.target.value)}>
+            <select aria-label={t("browser.toolbar.deviceSize")} value={deviceId} onChange={(e) => pickDevice(e.target.value)}>
               {DEVICES.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.label} {d.viewport.width}×{d.viewport.height}
@@ -696,11 +710,11 @@ export function BrowserPane({
   );
   const designButton = (
             <button className={design ? "b on" : "b"} aria-pressed={design} onClick={() => void toggleDesign()}>
-              Design
+              {t("browser.toolbar.design")}
             </button>
   );
   const openButton = (
-            <button className="b" aria-label="Open in a new tab" onClick={() => void openInTab()}>
+            <button className="b" aria-label={t("browser.toolbar.openInTab")} onClick={() => void openInTab()}>
               ⤢
             </button>
   );
@@ -709,38 +723,38 @@ export function BrowserPane({
               className={finding ? "b on" : "b"}
               aria-pressed={finding}
               onClick={() =>
-                shared ? setFinding(!finding) : notice("In a live page, use your own browser's find (Ctrl+F); it searches the frame too.")
+                shared ? setFinding(!finding) : notice(t("browser.notice.liveFind"))
               }
             >
-              Find
+              {t("browser.toolbar.find")}
             </button>
   );
   const modeRadios = (
     <>
             <label>
-              <input type="radio" name={`browser-mode-${sessionId}`} checked={shared} onChange={() => void switchMode("shared")} /> Shared browser
+              <input type="radio" name={`browser-mode-${sessionId}`} checked={shared} onChange={() => void switchMode("shared")} /> {t("browser.mode.shared")}
             </label>
-            <label title={relay ? "Over the relay only the shared browser can be shown" : status?.views_disabled_reason || "Frame the dev server directly"}>
-              <input type="radio" name={`browser-mode-${sessionId}`} checked={mode === "direct"} disabled={!directPossible} onChange={() => void switchMode("direct")} /> Live page
+            <label title={relay ? t("browser.mode.relayOnlyShared") : status?.views_disabled_reason || t("browser.mode.liveTitle")}>
+              <input type="radio" name={`browser-mode-${sessionId}`} checked={mode === "direct"} disabled={!directPossible} onChange={() => void switchMode("direct")} /> {t("browser.mode.live")}
             </label>
     </>
   );
   const profileSelect = (
     <>
             {profiles && (
-              <label className="browser-profile" title={`Profiles live in ${profiles.where}`}>
-                Profile{" "}
+              <label className="browser-profile" title={t("browser.profile.where", { where: profiles.where })}>
+                {t("browser.profile.label")}{" "}
                 <select
-                  aria-label="Browser profile"
+                  aria-label={t("browser.profile.select")}
                   value={status?.running ? status.profile : profiles.default}
                   onChange={(e) => void pickProfile(e.target.value)}
                 >
                   {profiles.profiles.map((p) => (
                     <option key={p} value={p}>
-                      {p === "temporary" ? "temporary (cleared on close)" : p}
+                      {p === "temporary" ? t("browser.profile.temporary") : p}
                     </option>
                   ))}
-                  <option value="__new">New profile…</option>
+                  <option value="__new">{t("browser.profile.new")}</option>
                 </select>
               </label>
             )}
@@ -748,14 +762,14 @@ export function BrowserPane({
   );
   const cookiesButton = (
             <button className="b" aria-expanded={showCookies} onClick={() => setShowCookies(!showCookies)}>
-              Cookies
+              {t("browser.cookies.button")}
             </button>
   );
   const whereText = (
     <>
             {shared && running && (
               <span className="browser-where">
-                Chromium on {status?.where === "host" ? "the Lectern host" : "the session's machine"}
+                {status?.where === "host" ? t("browser.where.host") : t("browser.where.session")}
               </span>
             )}
     </>
@@ -763,30 +777,30 @@ export function BrowserPane({
   const viewTabs = (
         <div className="browser-tabs" role="tablist">
           <button role="tab" aria-selected={tab === "page"} className="b" onClick={() => setTab("page")}>
-            Browser
+            {t("browser.pane.tabBrowser")}
           </button>
           {desks.length > 0 && (
             <button role="tab" aria-selected={tab === "desktop"} className="b" onClick={() => setTab("desktop")}>
-              Desktop
+              {t("browser.pane.tabDesktop")}
             </button>
           )}
         </div>
   );
   const closeButton = (
-        <button className="b browser-close" aria-label="Close browser" onClick={onClose}>
+        <button className="b browser-close" aria-label={t("browser.pane.close")} data-close onClick={onClose}>
           ✕
         </button>
   );
 
   return (
-    <section className={`browser-pane${agentOn ? " agent-driving" : ""}`} aria-label={`Browser for ${name}`} data-mode={mode}>
+    <section className={`browser-pane${agentOn ? " agent-driving" : ""}`} aria-label={t("browser.pane.label", { name })} data-mode={mode}>
       {compact ? (
         <div className="browser-toolbar browser-compact">
           {backButton}
           {addressForm}
           <button
             className={menu ? "b on" : "b"}
-            aria-label="More browser controls"
+            aria-label={t("browser.menu.more")}
             aria-expanded={menu}
             onClick={() => setMenu(!menu)}
           >
@@ -803,7 +817,7 @@ export function BrowserPane({
       {compact && menu && (
         <div
           className="browser-menu"
-          aria-label="Browser controls"
+          aria-label={t("browser.menu.label")}
           onClick={(e) => {
             // Choosing something closes the menu; a select or radio closes it on change.
             if ((e.target as HTMLElement).closest("button")) setMenu(false);
@@ -846,18 +860,18 @@ export function BrowserPane({
             </div>
           )}
           {shared && running && status && status.tabs.length > (compact ? 1 : 0) && (
-            <div className="browser-tabstrip" role="tablist" aria-label="Tabs">
-              {status.tabs.map((t) => (
-                <span key={t.id} className={t.active ? "browser-tab on" : "browser-tab"}>
-                  <button role="tab" aria-selected={t.active} title={t.url} onClick={() => void act({ action: "tab_select", tab: t.id })}>
-                    {t.title || (t.url === "about:blank" ? "New tab" : t.url)}
+            <div className="browser-tabstrip" role="tablist" aria-label={t("browser.tabs.label")}>
+              {status.tabs.map((tb) => (
+                <span key={tb.id} className={tb.active ? "browser-tab on" : "browser-tab"}>
+                  <button role="tab" aria-selected={tb.active} title={tb.url} onClick={() => void act({ action: "tab_select", tab: tb.id })}>
+                    {tb.title || (tb.url === "about:blank" ? t("browser.tabs.untitled") : tb.url)}
                   </button>
-                  <button aria-label={`Close tab ${t.title || t.url}`} onClick={() => void act({ action: "tab_close", tab: t.id })}>
+                  <button aria-label={t("browser.tabs.close", { title: tb.title || tb.url })} onClick={() => void act({ action: "tab_close", tab: tb.id })}>
                     ×
                   </button>
                 </span>
               ))}
-              <button className="browser-tab-new" aria-label="New tab" onClick={() => void act({ action: "tab_new" })}>
+              <button className="browser-tab-new" aria-label={t("browser.tabs.new")} onClick={() => void act({ action: "tab_new" })}>
                 +
               </button>
             </div>
@@ -871,8 +885,8 @@ export function BrowserPane({
               }}
             >
               <input
-                aria-label="Find in page"
-                placeholder="Find in page"
+                aria-label={t("browser.find.label")}
+                placeholder={t("browser.find.label")}
                 value={findText}
                 autoFocus
                 onChange={(e) => {
@@ -886,14 +900,14 @@ export function BrowserPane({
                   } else if (e.key === "Escape") setFinding(false);
                 }}
               />
-              <button type="button" className="b" aria-label="Previous match" onClick={() => void find(true)}>
+              <button type="button" className="b" aria-label={t("browser.find.previous")} onClick={() => void find(true)}>
                 ▲
               </button>
-              <button className="b" aria-label="Next match">
+              <button className="b" aria-label={t("browser.find.next")}>
                 ▼
               </button>
               <span role="status">
-                {findResult ? (findResult.matches ? `${findResult.index} of ${findResult.matches}` : "No matches") : ""}
+                {findResult ? (findResult.matches ? t("browser.find.position", { index: findResult.index, matches: findResult.matches }) : t("browser.find.none")) : ""}
               </span>
             </form>
           )}
@@ -906,25 +920,22 @@ export function BrowserPane({
             </div>
           )}
           {showCookies && (
-            <div className="browser-cookies" aria-label="Import cookies">
-              <p>
-                Sign the session's browser in by importing cookies into its current profile. Everything is read and
-                decrypted on the session's machine; Lectern only sees how many were imported.
-              </p>
+            <div className="browser-cookies" aria-label={t("browser.cookies.label")}>
+              <p>{t("browser.cookies.intro")}</p>
               <label>
-                Only these sites (optional){" "}
+                {t("browser.cookies.onlySitesOptional")}{" "}
                 <input
-                  aria-label="Only these sites"
+                  aria-label={t("browser.cookies.onlySites")}
                   placeholder="example.com, github.com"
                   value={cookieDomains}
                   onChange={(e) => setCookieDomains(e.target.value)}
                 />
               </label>
               <label className="b">
-                From a cookies file…
+                {t("browser.cookies.fromFile")}
                 <input
                   type="file"
-                  aria-label="Cookies file"
+                  aria-label={t("browser.cookies.file")}
                   accept=".txt,.json,text/plain,application/json"
                   hidden
                   onChange={(e) => {
@@ -936,23 +947,23 @@ export function BrowserPane({
               </label>
               <span className="browser-chrome-import">
                 <input
-                  aria-label="Chrome profile directory"
-                  placeholder="Chrome profile on that machine (auto)"
+                  aria-label={t("browser.cookies.chromeDir")}
+                  placeholder={t("browser.cookies.chromeDirPlaceholder")}
                   value={chromeDir}
                   onChange={(e) => setChromeDir(e.target.value)}
                 />
                 <button className="b" onClick={() => void importCookies("chrome")}>
-                  From Chrome
+                  {t("browser.cookies.fromChrome")}
                 </button>
               </span>
               {cookieResult && <p role="status">{cookieResult}</p>}
             </div>
           )}
           {showPorts && (
-            <div className="browser-ports" role="list" aria-label="Listening ports">
-              {!ports && !portsError && <span>Looking for listening ports…</span>}
+            <div className="browser-ports" role="list" aria-label={t("browser.ports.label")}>
+              {!ports && !portsError && <span>{t("browser.ports.looking")}</span>}
               {portsError && <span className="browser-error">{portsError}</span>}
-              {ports && ports.length === 0 && <span>Nothing is listening on this machine's localhost.</span>}
+              {ports && ports.length === 0 && <span>{t("browser.ports.none")}</span>}
               {[...workspacePorts, ...(allPorts ? otherPorts : otherPorts.filter((p) => p.http).slice(0, 8))].map((p) => (
                 <button
                   key={p.port}
@@ -965,16 +976,16 @@ export function BrowserPane({
                   }}
                 >
                   :{p.port}
-                  <small>{p.in_workspace ? "this workspace" : (p.command.split(" ")[0] ?? "").split("/").pop()}</small>
-                  {!p.http && <small className="dim">not http</small>}
+                  <small>{p.in_workspace ? t("browser.ports.thisWorkspace") : (p.command.split(" ")[0] ?? "").split("/").pop()}</small>
+                  {!p.http && <small className="dim">{t("browser.ports.notHttp")}</small>}
                 </button>
               ))}
               {!allPorts && otherPorts.length > otherPorts.filter((p) => p.http).slice(0, 8).length && (
                 <button className="b" onClick={() => setAllPorts(true)}>
-                  All {ports?.length} ports
+                  {t("browser.ports.all", { total: ports?.length ?? "" })}
                 </button>
               )}
-              <button className="b" onClick={loadPorts} aria-label="Look again">
+              <button className="b" onClick={loadPorts} aria-label={t("browser.ports.lookAgain")}>
                 ⟳
               </button>
             </div>
@@ -983,25 +994,31 @@ export function BrowserPane({
             <div className={`browser-control control-${control}`} role="status">
               {control === "agent" && (
                 <>
-                  <span>{status?.agent_active ? `● The agent is driving${status.last_action ? ": " + status.last_action : ""}` : "The agent may drive this browser"}</span>
+                  <span>
+                    {status?.agent_active
+                      ? status.last_action
+                        ? t("browser.control.agentDrivingAction", { action: status.last_action })
+                        : t("browser.control.agentDriving")
+                      : t("browser.control.agentMay")}
+                  </span>
                   {canDrive && (
                     <>
-                      <button className="b" onClick={() => void act({ action: "control", mode: "user" })}>Take over</button>
-                      <button className="b warn" onClick={() => void act({ action: "control", mode: "stopped" })}>Stop agent</button>
+                      <button className="b" onClick={() => void act({ action: "control", mode: "user" })}>{t("browser.control.takeOver")}</button>
+                      <button className="b warn" onClick={() => void act({ action: "control", mode: "stopped" })}>{t("browser.control.stopAgent")}</button>
                     </>
                   )}
                 </>
               )}
               {control === "user" && (
                 <>
-                  <span>You have control. The agent waits.</span>
-                  {canDrive && <button className="b" onClick={() => void act({ action: "control", mode: "agent" })}>Hand back to agent</button>}
+                  <span>{t("browser.control.userHas")}</span>
+                  {canDrive && <button className="b" onClick={() => void act({ action: "control", mode: "agent" })}>{t("browser.control.handBack")}</button>}
                 </>
               )}
               {control === "stopped" && (
                 <>
-                  <span>Agent control is stopped.</span>
-                  {canDrive && <button className="b" onClick={() => void act({ action: "control", mode: "agent" })}>Allow agent</button>}
+                  <span>{t("browser.control.stopped")}</span>
+                  {canDrive && <button className="b" onClick={() => void act({ action: "control", mode: "agent" })}>{t("browser.control.allow")}</button>}
                 </>
               )}
             </div>
@@ -1011,7 +1028,7 @@ export function BrowserPane({
               <div
                 className="browser-screen"
                 tabIndex={0}
-                aria-label={`Page: ${pageTitle || status?.state?.url || ""}`}
+                aria-label={t("browser.stage.page", { title: pageTitle || status?.state?.url || "" })}
                 onKeyDown={(e) => key("keydown", e)}
                 onKeyUp={(e) => key("keyup", e)}
                 onPaste={(e) => {
@@ -1030,7 +1047,7 @@ export function BrowserPane({
                   <img
                     ref={shotRef}
                     src={frame}
-                    alt={pageTitle || "The session's browser"}
+                    alt={pageTitle || t("browser.stage.sessionBrowser")}
                     draggable={false}
                     onPointerDown={(e) => pointer("mousedown", e)}
                     onPointerUp={(e) => pointer("mouseup", e)}
@@ -1038,20 +1055,18 @@ export function BrowserPane({
                     onContextMenu={(e) => e.preventDefault()}
                   />
                 ) : (
-                  <p className="browser-empty">Connecting to the browser…</p>
+                  <p className="browser-empty">{t("browser.stage.connecting")}</p>
                 )}
               </div>
             )}
             {shared && !running && (
               <div className="browser-empty">
-                <p>
-                  Pick a port or type an address. It opens in a real browser on {name}'s machine, which the agent can drive too.
-                </p>
+                <p>{t("browser.stage.sharedEmpty", { name })}</p>
                 {workspacePorts.length > 0 && (
                   <p>
                     {workspacePorts.map((p) => (
                       <button key={p.port} className="b" onClick={() => void go(`http://localhost:${p.port}/`)}>
-                        Open :{p.port}
+                        {t("browser.ports.open", { port: p.port })}
                       </button>
                     ))}
                   </p>
@@ -1063,7 +1078,7 @@ export function BrowserPane({
                 <iframe
                   ref={frameRef}
                   key={frameSrc}
-                  title={`Dev server for ${name}`}
+                  title={t("browser.stage.frameTitle", { name })}
                   src={frameSrc}
                   style={{ width: dev.viewport.width, height: dev.viewport.height }}
                   onLoad={(e) => {
@@ -1083,21 +1098,27 @@ export function BrowserPane({
             )}
             {!shared && !frameSrc && (
               <div className="browser-empty">
-                <p>Pick a port or type a localhost address to frame the dev server directly.</p>
+                <p>{t("browser.stage.liveEmpty")}</p>
               </div>
             )}
           </div>
           {shared && running && status && status.downloads.length > 0 && (
-            <ul className="browser-downloads" aria-label="Downloads">
+            <ul className="browser-downloads" aria-label={t("browser.downloads.label")}>
               {status.downloads.slice(-5).map((d) => (
                 <li key={d.path + d.state}>
                   <span title={d.path}>{d.name}</span>
                   <small>
-                    {d.state === "completed" ? size(d.received) : d.state === "canceled" ? "canceled" : `${size(d.received)}${d.total ? " of " + size(d.total) : ""}…`}
+                    {d.state === "completed"
+                      ? size(d.received)
+                      : d.state === "canceled"
+                        ? t("browser.downloads.canceled")
+                        : d.total
+                          ? t("browser.downloads.progressOf", { received: size(d.received), total: size(d.total) })
+                          : t("browser.downloads.progress", { received: size(d.received) })}
                   </small>
                   {d.state === "completed" && (
                     <button className="b" onClick={() => void saveDownload(d)}>
-                      Save
+                      {t("browser.downloads.save")}
                     </button>
                   )}
                 </li>
@@ -1105,10 +1126,10 @@ export function BrowserPane({
             </ul>
           )}
           {design && (
-            <div className="browser-design" aria-label="Design Mode">
-              <p className="browser-hover">{hover ? hover : "Hover to see an element's path; click to pick it. Shift-click adds more."}</p>
+            <div className="browser-design" aria-label={t("browser.design.label")}>
+              <p className="browser-hover">{hover ? hover : t("browser.design.hint")}</p>
               <label className="browser-multi">
-                <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> Pick several
+                <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> {t("browser.design.pickSeveral")}
               </label>
               {picked.length > 0 && (
                 <ol className="browser-picked">
@@ -1116,10 +1137,10 @@ export function BrowserPane({
                     <li key={el.selector}>
                       <code>{el.breadcrumb}</code>
                       <small>
-                        {Math.round(el.rect.width)}×{Math.round(el.rect.height)} · {Object.keys(el.css).length} styles
+                        {t("browser.design.elementInfo", { width: Math.round(el.rect.width), height: Math.round(el.rect.height), styles: Object.keys(el.css).length })}
                         {el.source ? ` · ${el.source.file.split("/").pop()}${el.source.line ? ":" + el.source.line : ""}` : ""}
                       </small>
-                      <button className="b" aria-label={`Remove ${el.selector}`} onClick={() => setPicked((l) => l.filter((x) => x !== el))}>
+                      <button className="b" aria-label={t("browser.design.remove", { selector: el.selector })} onClick={() => setPicked((l) => l.filter((x) => x !== el))}>
                         ×
                       </button>
                     </li>
@@ -1127,14 +1148,14 @@ export function BrowserPane({
                 </ol>
               )}
               <textarea
-                aria-label="Note for the agent"
-                placeholder="What should change? (optional)"
+                aria-label={t("browser.design.note")}
+                placeholder={t("browser.design.notePlaceholder")}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
               />
               <button className="b ok" disabled={!picked.length || busy === "design"} onClick={() => void sendDesign()}>
-                {busy === "design" ? "Sending…" : `Send ${picked.length || ""} to agent`}
+                {busy === "design" ? t("browser.design.sending") : t("browser.design.send", { picked: picked.length || "" })}
               </button>
             </div>
           )}
@@ -1153,20 +1174,20 @@ export function BrowserPane({
                   {!st
                     ? "…"
                     : st.stopped
-                      ? "Agent control stopped."
+                      ? t("browser.desk.stopped")
                       : st.allowed
                         ? st.agent_active
-                          ? `● The agent is controlling this desktop: ${st.last_action}`
-                          : "The agent may control this desktop."
-                        : "Computer use is off for this desktop."}
+                          ? t("browser.desk.agentActive", { action: st.last_action })
+                          : t("browser.desk.agentMay")
+                        : t("browser.desk.off")}
                   {st && !st.allowed && (
-                    <button className="b" onClick={() => void deskControl(d.id, { allow: true })}>Allow agent control</button>
+                    <button className="b" onClick={() => void deskControl(d.id, { allow: true })}>{t("browser.desk.allow")}</button>
                   )}
                   {st?.allowed && (
-                    <button className="b warn" onClick={() => void deskControl(d.id, { stop: true })}>Stop agent</button>
+                    <button className="b warn" onClick={() => void deskControl(d.id, { stop: true })}>{t("browser.control.stopAgent")}</button>
                   )}
                 </p>
-                {deskShot[d.id] ? <img className="desk-shot" src={deskShot[d.id]} alt={`Desktop ${d.detail?.display}`} /> : <p className="browser-empty">Capturing…</p>}
+                {deskShot[d.id] ? <img className="desk-shot" src={deskShot[d.id]} alt={t("browser.desk.alt", { display: String(d.detail?.display) })} /> : <p className="browser-empty">{t("browser.desk.capturing")}</p>}
               </article>
             );
           })}

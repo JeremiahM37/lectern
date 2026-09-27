@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "../sessions/Modal";
 import type { Target } from "../types";
 import type { RemoteApi } from "./MachineRemote";
+import { t, useLocale } from "../i18n";
 
 interface Host {
   alias: string;
@@ -38,19 +39,20 @@ export function SshImport({ api, onClose, onImported, onNotice }: {
       })
       .catch((e) => onNotice(String(e), true));
   }, []);
+  useLocale();
   const fresh = data?.hosts.filter((h) => !h.target_id) || [];
   return (
-    <Modal className="sheet ssh-import" aria-label="Import SSH hosts" onCancel={onClose}>
+    <Modal className="sheet ssh-import" aria-label={t("remote.ssh.importTitle")} onCancel={onClose}>
       <div className="sheet-head">
-        <h2>Import SSH hosts</h2>
-        <button type="button" onClick={onClose} aria-label="Close">×</button>
+        <h2>{t("remote.ssh.importTitle")}</h2>
+        <button type="button" onClick={onClose} aria-label={t("settings.common.close")} data-close>×</button>
       </div>
-      {!data && <p>Reading the SSH config…</p>}
+      {!data && <p>{t("remote.ssh.reading")}</p>}
       {data && (
         <>
           <p className="sub">
-            From <code>{data.path}</code> on the Lectern server.
-            {data.openssh ? " Imported machines connect by alias through OpenSSH, so everything the entry says applies." : " OpenSSH is not installed here, so the built-in client uses the resolved host, user, port and key."}
+            {t("remote.ssh.fromBefore")}<code>{data.path}</code>{t("remote.ssh.fromAfter")}{" "}
+            {data.openssh ? t("remote.ssh.viaOpenssh") : t("remote.ssh.viaBuiltin")}
           </p>
           {data.error && <p role="alert">{data.error}</p>}
           <ul className="ssh-hosts">
@@ -76,20 +78,20 @@ export function SshImport({ api, onClose, onImported, onNotice }: {
                   </span>
                 </label>
                 <span className="ssh-tags">
-                  {h.proxy_jump && <span className="chip">via {h.proxy_jump}</span>}
+                  {h.proxy_jump && <span className="chip">{t("remote.conn.via", { host: h.proxy_jump })}</span>}
                   {h.proxy_command && <span className="chip">ProxyCommand</span>}
-                  {h.forward_agent && <span className="chip">agent forwarding</span>}
+                  {h.forward_agent && <span className="chip">{t("remote.ssh.tagForwarding")}</span>}
                   {h.gssapi && <span className="chip">Kerberos</span>}
-                  {h.security_key && <span className="chip info">security key</span>}
-                  {h.target_id && <span className="chip ds">added as {h.target_name}</span>}
+                  {h.security_key && <span className="chip info">{t("remote.ssh.tagSecurityKey")}</span>}
+                  {h.target_id && <span className="chip ds">{t("remote.ssh.addedAs", { name: h.target_name || "" })}</span>}
                 </span>
               </li>
             ))}
-            {data.hosts.length === 0 && <li className="sub">No Host entries with a plain name were found.</li>}
+            {data.hosts.length === 0 && <li className="sub">{t("remote.ssh.noHosts")}</li>}
           </ul>
           <div className="btnrow">
             {fresh.length > 1 && (
-              <button type="button" onClick={() => setPicked(new Set(fresh.map((h) => h.alias)))}>Select all</button>
+              <button type="button" onClick={() => setPicked(new Set(fresh.map((h) => h.alias)))}>{t("remote.ssh.selectAll")}</button>
             )}
             <button
               type="button"
@@ -107,7 +109,7 @@ export function SshImport({ api, onClose, onImported, onNotice }: {
                     const ok = r.results.filter((x) => x.target).length;
                     const failed = r.results.filter((x) => x.error);
                     onNotice(
-                      `Imported ${ok} machine${ok === 1 ? "" : "s"}` +
+                      t("remote.ssh.imported", { count: ok }) +
                         (failed.length ? ` · ${failed.map((f) => `${f.alias}: ${f.error}`).join("; ")}` : ""),
                       failed.length > 0 && ok === 0,
                     );
@@ -118,7 +120,7 @@ export function SshImport({ api, onClose, onImported, onNotice }: {
                   .finally(() => setBusy(false));
               }}
             >
-              {busy ? "Importing…" : `Import ${picked.size || ""} host${picked.size === 1 ? "" : "s"}`}
+              {busy ? t("remote.ssh.importing") : t("remote.ssh.importCount", { count: picked.size })}
             </button>
           </div>
         </>
