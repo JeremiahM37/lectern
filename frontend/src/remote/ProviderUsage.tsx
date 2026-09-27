@@ -154,7 +154,7 @@ export function ProviderUsage({ api, days }: {
     api
       .request<ProviderReport>(`/usage/providers?days=${days}`)
       .then((r) => {
-        if (!alive) return;
+        if (!alive || !Array.isArray(r?.providers)) return;
         setReport(r);
         setWarn(String(r.warn_percent));
       })

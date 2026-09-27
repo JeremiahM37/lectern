@@ -258,6 +258,16 @@ func (s *Server) deleteTarget(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "target has projects")
 		return
 	}
+	// A sandbox machine's record of what it made: live sandboxes must be
+	// destroyed first so none is orphaned; destroyed ones are only history.
+	if s.DB.Exists("sandboxes", "target_id=? AND destroyed_at IS NULL", id) {
+		httpError(w, 409, "target has live sandboxes; destroy them first")
+		return
+	}
+	if _, err := s.DB.Exec(`DELETE FROM sandboxes WHERE target_id=?`, id); err != nil {
+		respondErr(w, err)
+		return
+	}
 	if _, err := s.DB.Exec(`DELETE FROM targets WHERE id=?`, id); err != nil {
 		respondErr(w, err)
 		return

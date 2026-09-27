@@ -46,7 +46,7 @@ export function ConnectionChip({ api, target }: { api: RemoteApi; target: Target
     const load = (probe: boolean) =>
       void api
         .request<ConnStatus>(`/targets/${target.id}/connection${probe ? "?probe=1" : ""}`)
-        .then((v) => alive && setSt(v))
+        .then((v) => alive && setSt(v && v.state ? v : undefined))
         .catch(() => {});
     load(false);
     const timer = setInterval(() => load(true), 20000);
@@ -185,15 +185,15 @@ export function TargetPorts({ api, target, onNotice }: { api: RemoteApi; target:
     void api
       .request<{ enabled: boolean; views: LiveView[] }>("/live")
       .then((v) => {
-        setEnabled(v.enabled);
-        setViews(v.views.filter((x) => x.kind === "port" && x.target_id === target.id));
+        setEnabled(v.enabled !== false);
+        setViews((Array.isArray(v.views) ? v.views : []).filter((x) => x.kind === "port" && x.target_id === target.id));
       })
       .catch(() => {});
   useEffect(reload, [target.id]);
   const detect = () =>
     void api
       .request<{ ports: Listening[] }>(`/targets/${target.id}/ports`)
-      .then((v) => setListening(v.ports))
+      .then((v) => setListening(Array.isArray(v.ports) ? v.ports : []))
       .catch((e) => onNotice(String(e), true));
   const forward = (p: number) => {
     setBusy(true);

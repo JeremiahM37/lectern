@@ -123,6 +123,10 @@ func TestManualSandboxSuspendResumeDestroyAndKeepOnFinish(t *testing.T) {
 	h.post(path+"resume", nil, 200)
 	h.post(path+"destroy", nil, 200)
 	h.request2("POST", path+"destroy", nil, 409)
+	// A machine with a live sandbox is not deleted out from under it.
+	live := h.post("/api/sandboxes", obj{"target_id": tgt.id()}, 201)
+	h.request2("DELETE", fmt.Sprintf("/api/targets/%d", tgt.id()), nil, 409)
+	h.post(fmt.Sprintf("/api/sandboxes/%d/destroy", live.id()), nil, 200)
 	for _, want := range []string{"docker pause " + sb.str("ext_id"), "docker unpause " + sb.str("ext_id"), "docker rm -f " + sb.str("ext_id")} {
 		if !h.cmdLogHas(want) {
 			t.Errorf("missing %q", want)

@@ -32,6 +32,7 @@ export function SshImport({ api, onClose, onImported, onNotice }: {
     void api
       .request<{ hosts: Host[]; path: string; openssh?: boolean; error?: string }>("/ssh/hosts")
       .then((d) => {
+        d = { ...d, hosts: Array.isArray(d.hosts) ? d.hosts : [] };
         setData(d);
         setPicked(new Set(d.hosts.filter((h) => !h.target_id).map((h) => h.alias)));
       })

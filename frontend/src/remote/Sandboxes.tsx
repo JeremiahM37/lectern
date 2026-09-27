@@ -125,7 +125,7 @@ function Hooks({ api, target, onNotice }: { api: RemoteApi; target: Target; onNo
   const load = () =>
     void api
       .request<typeof view>(`/targets/${target.id}/sandbox/hooks`)
-      .then(setView)
+      .then((v) => setView(v && typeof v.path === "string" ? v : undefined))
       .catch((e) => onNotice(String(e), true));
   useEffect(load, [target.id, target.sandbox_json]);
   if (!view) return null;
@@ -234,7 +234,7 @@ export function SandboxList({ api, onNotice, onOpenTask }: {
   const load = () =>
     void api
       .request<SandboxRow[]>(`/sandboxes${all ? "?all=1" : ""}`)
-      .then(setRows)
+      .then((r) => setRows(Array.isArray(r) ? r : []))
       .catch(() => setRows([]));
   useEffect(() => {
     load();
