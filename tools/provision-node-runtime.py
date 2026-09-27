@@ -31,6 +31,10 @@ def provision(source,destination):
    if st.st_uid!=0 or (not p.is_symlink() and st.st_mode&0o222):raise ValueError('existing runtime ownership/mode differs')
   shutil.rmtree(stage)
  else:os.rename(stage,final)
+ # This administrator-registered cache contains public executable assets only.
+ # A prior failed request may have created its parent root0700. Discovery by
+ # the unprivileged controller needs traversal after successful verification.
+ destination.chmod(0o755)
  for p in final.rglob('*'):
   if p.is_file() and not p.is_symlink():
    with p.open('rb') as f:os.fsync(f.fileno())

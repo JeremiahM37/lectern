@@ -33,6 +33,7 @@ func autoCapabilityCatalog(dependencies, runner, pythonHelper string) map[string
 	runnerInfo := autoCapabilityInstallation(runner)
 	helperInfo := autoCapabilityInstallation(pythonHelper)
 	catalog := autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoInstalledNodeCapability(dependencies, runner, runnerInfo))
 	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoExpertProbeCapability(runnerInfo, autoCapabilityInstallation(autoExpertProbeHelper)))
 	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoPrivateIntegrationCapability(runnerInfo, autoCapabilityInstallation(autoPrivateIntegrationHelper)))
 	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoServerOperationsCapability(runnerInfo, autoCapabilityInstallation("/usr/local/libexec/lectern-autonomy-server-operations.py"), autoCapabilityInstallation("/usr/local/libexec/lectern-autonomy-server-maintenance.py")))
