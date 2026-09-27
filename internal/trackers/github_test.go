@@ -53,7 +53,7 @@ func githubFake() *fakeExec {
 
 func TestGitHubPRDetail(t *testing.T) {
 	f := githubFake()
-	g := NewGitHub(f, RepoRef{"github", "github.com", "acme/app"})
+	g := NewGitHub(f, RepoRef{Kind: "github", Host: "github.com", Path: "acme/app"})
 	d, err := g.PR(context.Background(), 14)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestGitHubListFilters(t *testing.T) {
 	f := (&fakeExec{}).on("pr list", `[{"number":3,"title":"t","url":"u","state":"OPEN","isDraft":true,"author":{"login":"a"},
 	  "headRefName":"h","baseRefName":"main","labels":[],"assignees":[],"reviewDecision":"","updatedAt":"2026-01-01T00:00:00Z",
 	  "statusCheckRollup":[],"mergeable":"MERGEABLE"}]`).on("issue list", `[]`)
-	g := NewGitHub(f, RepoRef{"github", "ghe.corp", "acme/app"})
+	g := NewGitHub(f, RepoRef{Kind: "github", Host: "ghe.corp", Path: "acme/app"})
 	items, err := g.List(context.Background(), "pr", Filter{Mine: "review", Query: "retry"})
 	if err != nil || len(items) != 1 || !items[0].Draft || items[0].Checks != "none" || items[0].Source != "github" {
 		t.Fatalf("items = %+v, %v", items, err)
@@ -129,7 +129,7 @@ func TestGitHubListFilters(t *testing.T) {
 
 func TestGitHubActionsCommands(t *testing.T) {
 	f := (&fakeExec{}).on("pr merge", "✓ Merged").on("pr edit", "").on("pr comment", "").on("issue close", "")
-	g := NewGitHub(f, RepoRef{"github", "github.com", "acme/app"})
+	g := NewGitHub(f, RepoRef{Kind: "github", Host: "github.com", Path: "acme/app"})
 	ctx := context.Background()
 	if _, err := g.Merge(ctx, 14, MergeRequest{Method: "squash", DeleteBranch: true, Auto: true, HeadSHA: "abc"}); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestGitHubActionsCommands(t *testing.T) {
 
 func TestGitHubJobLogUsesCILoopFetcher(t *testing.T) {
 	f := githubFake().on("run view 55 -R acme/app --log-failed --job 66", "unit tests\tRun\t2026-09-26T11:00:00Z boom\n")
-	g := NewGitHub(f, RepoRef{"github", "github.com", "acme/app"})
+	g := NewGitHub(f, RepoRef{Kind: "github", Host: "github.com", Path: "acme/app"})
 	d, err := g.PR(context.Background(), 14)
 	if err != nil {
 		t.Fatal(err)

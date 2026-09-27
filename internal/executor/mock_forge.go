@@ -23,6 +23,9 @@ type mockForge struct {
 	mu     sync.Mutex
 	prs    map[int]*mockPR
 	issues map[int]*mockIssue
+	// reactions added through addReaction, by subject node id and content
+	reactions map[string]map[string]int
+	queueSeq  int
 }
 
 type mockPR struct {
@@ -41,6 +44,7 @@ type mockPR struct {
 	Conflicts  []string
 	Comments   [][2]string // author, body
 	AutoMerge  string
+	QueuedSeq  int
 	Updated    string
 	MergedWith string
 }
@@ -207,7 +211,7 @@ func (f *mockForge) run(cmd string) Result {
 		}
 		return Result{0, "--lectern-merge-tree--\n4b825dc642cb6eb9a060e54bf8d69288fbee4904\nrc=0\n", ""}
 	case strings.HasPrefix(cmd, "gh api graphql"):
-		return Result{0, `{"data":{"repository":{"autoMergeAllowed":true,"mergeQueue":null}}}`, ""}
+		return f.graphql(shellWords(cmd))
 	case strings.HasPrefix(cmd, "gh pr view https://"):
 		n, _ := strconv.Atoi(mockForgeURLRe.FindStringSubmatch(cmd)[1])
 		p := f.prs[n]
@@ -243,7 +247,8 @@ func (f *mockForge) run(cmd string) Result {
 		return mockJSON(map[string]any{
 			"mergeCommitAllowed": true, "squashMergeAllowed": true, "rebaseMergeAllowed": true,
 			"deleteBranchOnMerge": true, "viewerPermission": "ADMIN", "viewerDefaultMergeMethod": "SQUASH",
-			"labels": labels,
+			"defaultBranchRef": map[string]string{"name": "main"},
+			"labels":           labels,
 			"assignableUsers": []map[string]string{{"login": "jo", "name": "Jo Park"}, {"login": "riley", "name": "Riley Chen"},
 				{"login": "sam", "name": "Sam Ortiz"}, {"login": "devon", "name": "Devon Hale"}},
 		})
@@ -323,6 +328,8 @@ func (f *mockForge) run(cmd string) Result {
 		}
 		if hasFlag(args, "--auto") {
 			p.AutoMerge = method
+			f.queueSeq++
+			p.QueuedSeq = f.queueSeq
 			return Result{0, fmt.Sprintf("✓ Pull request mock/repo#%d will be automatically merged via %s when all requirements are met\n", n, strings.ToLower(method)), ""}
 		}
 		if len(p.Conflicts) > 0 {
@@ -469,9 +476,10 @@ func (f *mockForge) prJSON(p *mockPR) map[string]any {
 	}
 	comments := []map[string]any{}
 	for i, c := range p.Comments {
-		comments = append(comments, map[string]any{"author": map[string]string{"login": c[0]}, "body": c[1],
+		id := fmt.Sprintf("IC_mock_pr%d_%d", p.Number, i)
+		comments = append(comments, map[string]any{"id": id, "author": map[string]string{"login": c[0]}, "body": c[1],
 			"createdAt": fmt.Sprintf("2026-09-26T0%d:30:00Z", i+1), "url": fmt.Sprintf("https://github.com/mock/repo/pull/%d#c%d", p.Number, i),
-			"reactionGroups": []map[string]any{{"content": "THUMBS_UP", "users": map[string]int{"totalCount": i % 2}}}})
+			"reactionGroups": f.groups(id, map[string]int{"THUMBS_UP": i % 2})})
 	}
 	decision := "REVIEW_REQUIRED"
 	for _, r := range p.Reviews {
@@ -504,7 +512,8 @@ func (f *mockForge) prJSON(p *mockPR) map[string]any {
 			"committedDate": "2026-09-25T20:00:00Z", "authors": []map[string]string{{"login": p.Author}}}},
 		"additions": 120 + p.Number, "deletions": 14 + p.Number%5, "changedFiles": 3 + p.Number%4,
 		"statusCheckRollup": checks, "autoMergeRequest": auto,
-		"reactionGroups": []map[string]any{{"content": "ROCKET", "users": map[string]int{"totalCount": 2}}},
+		"id":             fmt.Sprintf("PR_mock_%d", p.Number),
+		"reactionGroups": f.groups(fmt.Sprintf("PR_mock_%d", p.Number), map[string]int{"ROCKET": 2}),
 		"createdAt":      "2026-09-24T08:00:00Z", "updatedAt": p.Updated,
 	}
 	if p.State == "MERGED" {
@@ -516,14 +525,16 @@ func (f *mockForge) prJSON(p *mockPR) map[string]any {
 func (f *mockForge) issueJSON(i *mockIssue) map[string]any {
 	comments := []map[string]any{}
 	for k, c := range i.Comments {
-		comments = append(comments, map[string]any{"author": map[string]string{"login": c[0]}, "body": c[1],
-			"createdAt": fmt.Sprintf("2026-09-26T0%d:10:00Z", k+1)})
+		id := fmt.Sprintf("IC_mock_i%d_%d", i.Number, k)
+		comments = append(comments, map[string]any{"id": id, "author": map[string]string{"login": c[0]}, "body": c[1],
+			"createdAt": fmt.Sprintf("2026-09-26T0%d:10:00Z", k+1), "reactionGroups": f.groups(id, nil)})
 	}
 	return map[string]any{
 		"number": i.Number, "title": i.Title, "body": i.Body, "url": fmt.Sprintf("https://github.com/mock/repo/issues/%d", i.Number),
 		"state": i.State, "author": map[string]string{"login": i.Author}, "labels": mockLabels(i.Labels),
-		"assignees": []map[string]string{}, "comments": comments, "reactionGroups": []map[string]any{},
-		"createdAt": "2026-09-22T08:00:00Z", "updatedAt": i.Updated,
+		"assignees": []map[string]string{}, "comments": comments, "id": fmt.Sprintf("I_mock_%d", i.Number),
+		"reactionGroups": f.groups(fmt.Sprintf("I_mock_%d", i.Number), nil),
+		"createdAt":      "2026-09-22T08:00:00Z", "updatedAt": i.Updated,
 	}
 }
 
@@ -534,4 +545,80 @@ func mockJobLog(run string) string {
 		"unit tests\tRun pytest\t2026-09-26T18:04:09.0000000Z E   AssertionError: expected 3 of 5 retries used, got 2 of 5\n" +
 		"unit tests\tRun pytest\t2026-09-26T18:04:09.0000000Z ========================= 1 failed, 41 passed in 7.1s =========================\n" +
 		"unit tests\tRun pytest\t2026-09-26T18:04:09.0000000Z ##[error]Process completed with exit code 1. (run " + run + ")\n"
+}
+
+// groups is a subject's reactionGroups: the scripted base counts plus any
+// added through addReaction.
+func (f *mockForge) groups(subject string, base map[string]int) []map[string]any {
+	counts := map[string]int{}
+	for k, v := range base {
+		counts[k] += v
+	}
+	for k, v := range f.reactions[subject] {
+		counts[k] += v
+	}
+	out := []map[string]any{}
+	for _, c := range []string{"THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"} {
+		if counts[c] > 0 {
+			out = append(out, map[string]any{"content": c, "users": map[string]int{"totalCount": counts[c]}})
+		}
+	}
+	return out
+}
+
+// graphql answers the three GraphQL calls the adapter makes: the
+// repository's auto-merge/queue flags, the merge queue (the PRs with
+// auto-merge armed, in the order they were armed), and reactions.
+func (f *mockForge) graphql(args []string) Result {
+	vars := map[string]string{}
+	query := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-f" {
+			k, v, _ := strings.Cut(args[i+1], "=")
+			if k == "query" {
+				query = v
+			} else {
+				vars[k] = v
+			}
+		}
+	}
+	switch {
+	case strings.Contains(query, "addReaction"):
+		if f.reactions == nil {
+			f.reactions = map[string]map[string]int{}
+		}
+		if f.reactions[vars["s"]] == nil {
+			f.reactions[vars["s"]] = map[string]int{}
+		}
+		f.reactions[vars["s"]][vars["c"]]++
+		return mockJSON(map[string]any{"data": map[string]any{"addReaction": map[string]any{"reaction": map[string]string{"content": vars["c"]}}}})
+	case strings.Contains(query, "dequeuePullRequest"):
+		for _, p := range f.prs {
+			if fmt.Sprintf("MQE_mock_%d", p.Number) == vars["id"] {
+				p.AutoMerge, p.QueuedSeq = "", 0
+			}
+		}
+		return mockJSON(map[string]any{"data": map[string]any{"dequeuePullRequest": map[string]any{"mergeQueueEntry": map[string]string{"id": vars["id"]}}}})
+	case strings.Contains(query, "entries(first"):
+		var queued []*mockPR
+		for _, p := range f.prs {
+			if p.AutoMerge != "" && p.State == "OPEN" && p.Base == vars["b"] {
+				queued = append(queued, p)
+			}
+		}
+		sort.Slice(queued, func(i, j int) bool { return queued[i].QueuedSeq < queued[j].QueuedSeq })
+		nodes := []any{}
+		for i, p := range queued {
+			state := "QUEUED"
+			if i == 0 {
+				state = "AWAITING_CHECKS"
+			}
+			nodes = append(nodes, map[string]any{"id": fmt.Sprintf("MQE_mock_%d", p.Number), "position": i + 1, "state": state,
+				"enqueuedAt": "2026-09-27T09:0" + strconv.Itoa(i) + ":00Z", "estimatedTimeToMerge": 300 * (i + 1),
+				"pullRequest": map[string]any{"number": p.Number, "title": p.Title, "url": fmt.Sprintf("https://github.com/mock/repo/pull/%d", p.Number),
+					"author": map[string]string{"login": p.Author}}})
+		}
+		return mockJSON(map[string]any{"data": map[string]any{"repository": map[string]any{"mergeQueue": map[string]any{"entries": map[string]any{"nodes": nodes}}}}})
+	}
+	return Result{0, `{"data":{"repository":{"autoMergeAllowed":true,"mergeQueue":null}}}`, ""}
 }

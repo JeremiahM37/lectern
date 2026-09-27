@@ -125,6 +125,7 @@ type glIssue struct {
 }
 
 type glNote struct {
+	ID        int64  `json:"id"`
 	Body      string `json:"body"`
 	Author    glUser `json:"author"`
 	CreatedAt string `json:"created_at"`
@@ -392,7 +393,11 @@ func (g *GitLab) PR(ctx context.Context, n int) (*PRDetail, error) {
 		if nt.System {
 			kind = "event"
 		}
-		d.Timeline = append(d.Timeline, Event{Kind: kind, Author: nt.Author.Username, Body: nt.Body, At: nt.CreatedAt})
+		ev := Event{Kind: kind, Author: nt.Author.Username, Body: nt.Body, At: nt.CreatedAt}
+		if !nt.System {
+			ev.ID = strconv.FormatInt(nt.ID, 10)
+		}
+		d.Timeline = append(d.Timeline, ev)
 	}
 	if d.Timeline == nil {
 		d.Timeline = []Event{}
@@ -497,7 +502,9 @@ func glMergeOptions(p glProject) MergeOptions {
 	if p.Permissions.GroupAccess != nil && p.Permissions.GroupAccess.AccessLevel > level {
 		level = p.Permissions.GroupAccess.AccessLevel
 	}
-	o.CanMerge = level >= 30 // Developer
+	// Access levels only appear to a signed-in member; with none reported,
+	// offer the merge and let GitLab decide.
+	o.CanMerge = level >= 30 || level == 0 // 30 is Developer
 	return o
 }
 
@@ -518,7 +525,11 @@ func (g *GitLab) Issue(ctx context.Context, n int) (*IssueDetail, error) {
 		if nt.System {
 			kind = "event"
 		}
-		d.Timeline = append(d.Timeline, Event{Kind: kind, Author: nt.Author.Username, Body: nt.Body, At: nt.CreatedAt})
+		ev := Event{Kind: kind, Author: nt.Author.Username, Body: nt.Body, At: nt.CreatedAt}
+		if !nt.System {
+			ev.ID = strconv.FormatInt(nt.ID, 10)
+		}
+		d.Timeline = append(d.Timeline, ev)
 	}
 	return d, nil
 }
@@ -678,4 +689,75 @@ func (g *GitLab) Users(ctx context.Context) ([]User, error) {
 // target project for every MR, forks included.
 func (g *GitLab) FetchRefs(pr *PRDetail) (string, string) {
 	return "refs/heads/" + pr.Base, "refs/merge-requests/" + pr.ID + "/head"
+}
+
+var glAward = map[string]string{"+1": "thumbsup", "-1": "thumbsdown", "laugh": "laughing", "hooray": "tada",
+	"confused": "confused", "heart": "heart", "rocket": "rocket", "eyes": "eyes"}
+
+// React awards an emoji to the merge request or issue, or to one of its notes.
+func (g *GitLab) React(ctx context.Context, kind string, n int, subject, emoji string) error {
+	name := glAward[emoji]
+	if name == "" {
+		return fmt.Errorf("unknown reaction %q", emoji)
+	}
+	path := g.itemPath(kind, n)
+	if subject != "" {
+		if _, err := strconv.ParseInt(subject, 10, 64); err != nil {
+			return fmt.Errorf("bad note id %q", subject)
+		}
+		path += "/notes/" + subject
+	}
+	return g.api(ctx, "POST", path+"/award_emoji", map[string]any{"name": name}, nil)
+}
+
+type glTrain struct {
+	ID           int64 `json:"id"`
+	MergeRequest struct {
+		IID    int    `json:"iid"`
+		Title  string `json:"title"`
+		WebURL string `json:"web_url"`
+	} `json:"merge_request"`
+	User      glUser      `json:"user"`
+	Pipeline  *glPipeline `json:"pipeline"`
+	Status    string      `json:"status"`
+	CreatedAt string      `json:"created_at"`
+}
+
+// Queue reads the active merge train for a target branch, oldest (next to
+// merge) first.
+func (g *GitLab) Queue(ctx context.Context, base string) ([]QueueEntry, error) {
+	q := url.Values{"scope": {"active"}, "sort": {"asc"}, "per_page": {"100"}}
+	if base != "" {
+		q.Set("target_branch", base)
+	}
+	var rows []glTrain
+	if err := g.api(ctx, "GET", g.project()+"/merge_trains?"+q.Encode(), nil, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]QueueEntry, 0, len(rows))
+	for i, t := range rows {
+		e := QueueEntry{ID: strconv.Itoa(t.MergeRequest.IID), Number: t.MergeRequest.IID, Title: t.MergeRequest.Title,
+			URL: t.MergeRequest.WebURL, Author: t.User.Username, Position: i + 1, Status: t.Status, EnqueuedAt: t.CreatedAt}
+		if t.Pipeline != nil {
+			e.Pipeline = t.Pipeline.Status
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// Dequeue takes a merge request off the train by cancelling its auto-merge,
+// which is how GitLab removes a train entry.
+func (g *GitLab) Dequeue(ctx context.Context, e QueueEntry) error {
+	return g.DisableAutoMerge(ctx, e.Number)
+}
+
+func (g *GitLab) DefaultBranch(ctx context.Context) (string, error) {
+	var p struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := g.api(ctx, "GET", g.project(), nil, &p); err != nil {
+		return "", err
+	}
+	return p.DefaultBranch, nil
 }

@@ -1,0 +1,101 @@
+[
+ {
+  "iid": 7480,
+  "title": "Draft: Share the Go build and test cache through gobuildcache",
+  "description": "## What does this MR do?\n\nShares the Go build and test cache between all CI jobs through a bucket, using [gobuildcache](https://github.com/saracen/gobuildcache) as `GOCACHEPROG`, and makes test results reusable across pipelines.\n\nSupersedes https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/5312.\n\n1. **Stable file modification times.** `ci/touch_git_hash` sets each tracked file's mtime from its blob ID. Go's test cache records the mtime of every file a test opens, and commit dates change between pipelines: shallow clones date untouched files to the oldest fetched commit, and merged results pipelines get a new merge commit every time (https://gitlab.com/gitlab-org/gitaly/-/issues/6614).\n2. **Shared cache.** `ci/gobuildcache` sets `GOCACHEPROG` for jobs using `.go-cache`:\n   - **Protected refs write.** Their job's ID token is exchanged through GCP Workload Identity Federation, which only accepts tokens for protected refs of runner projects. No key is stored anywhere.\n   - **Everything else reads anonymously** (`-readonly`), including merge requests from forks, and keeps new entries local.\n   - **Writers refresh the entries they use,** so the bucket's age-based lifecycle rule only expires entries nothing uses.\n3. **Cacheable test runs.** Linux jobs that test `./...` use splitic's `-group-by-package`, which tests each package in its own `go test` without a `-run` pattern. Today every package's cached result is keyed on the whole bucket's `-run` pattern, and with `-coverpkg`, on every covered package in the same invocation, so almost nothing is reused.\n\n4. **No more GitLab Go cache in these jobs.** Go doesn't use `GOCACHE` when `GOCACHEPROG` is set, so it was being restored and saved for nothing. In `binaries` on `main` it's 10 GB: 3m43s to restore and 6m54s to save, about 10 of the job's 15 minutes, against 2m28s of actual building. Windows jobs keep theirs.\n\n## Why was this MR needed?\n\nMeasured locally on `./helpers/...` (50 test packages) with a shared bucket and a fresh local cache per run, after a one-line change to `helpers/url`: 7/50 test results cached with today's splitic, 48/50 with `-group-by-package`.\n\n## Security\n\n- **Writes** only come from protected refs, and GCP enforces that from the signed ID token. A pipeline for a fork's merge request run in this project can't write, even if it changes the CI config.\n- **Reads** are public. Test output from protected refs ends up in the bucket, and unlike job logs it isn't masked. Tests only see the variables in `scripts/envs/allowlist_*.env`, and `scripts/envs/README.md` now says nothing secret belongs there. The only credential on those lists is `OUTER_CI_JOB_TOKEN`, which expires with the job. `GOBUILDCACHE_CREDENTIALS` is the path to a credentials config, which isn't secret; on protected refs the config points at a file holding the job's ID token, which merged test code could read.\n- **Release jobs** (`* docker images`) extend `.go-cache`, so on protected refs they read and write the bucket too.\n\n## Depends on\n\n- https://gitlab.com/gitlab-org/ci-cd/runner-tools/splitic/-/merge_requests/5 (`SPLITIC_VERSION` pins its branch)\n- gobuildcache's refresh branch, https://github.com/saracen/gobuildcache/tree/ajwalker/refresh (`GOBUILDCACHE_VERSION` pins it)\n- The Workload Identity Federation pool and provider in `group-verify-df9383`. Until they exist, protected refs fail to write and carry on with their local cache.\n\n## Not included\n\n- Windows jobs still use the GitLab cache.\n- Removing the old `GOBUILDCACHE` and `GOCACHEBUILD_CREDENTIALS` project variables, and the key they held, once this works.\n- Moving to a shared CI component (`gitlab-org/ci-cd/runner-tools/gobuildcache`) for use by other runner projects.\n\n## What's the best way to test this MR?\n\n- **MR pipelines** read the bucket anonymously, and their `-stats` lines in the job logs show hits and misses per `go` command.\n- **Writes** need a protected ref, which is being tested in a separate test project.",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/7480",
+  "state": "opened",
+  "draft": true,
+  "author": {
+   "id": 1000,
+   "username": "user1",
+   "public_email": "",
+   "name": "user2",
+   "state": "active",
+   "locked": false,
+   "avatar_url": "https://example.invalid/avatar",
+   "web_url": "https://gitlab.com/user",
+   "bot": false
+  },
+  "assignees": [],
+  "reviewers": [],
+  "labels": [
+   "type::maintenance"
+  ],
+  "source_branch": "ajwalker/gobuildcache",
+  "target_branch": "main",
+  "sha": "83201beb0704196679466ba5dce3ea83b9e86225",
+  "has_conflicts": false,
+  "detailed_merge_status": "draft_status",
+  "merge_when_pipeline_succeeds": false,
+  "merge_user": null,
+  "source_project_id": 250833,
+  "target_project_id": 250833,
+  "upvotes": 0,
+  "downvotes": 0,
+  "created_at": "2026-09-25T17:08:39.530Z",
+  "updated_at": "2026-09-27T09:57:19.780Z",
+  "merged_at": null,
+  "closed_at": null,
+  "changes_count": null
+ },
+ {
+  "iid": 7481,
+  "title": "Remove service health check container when the job is cancelled",
+  "description": "## What does this MR do?\n\nRemoves the service health check container (`<service>-wait-for-service`) with a context detached from the job's cancellation, bounded by `dockerCleanupTimeout`, the same way `Cleanup()` does.\n\n## Why was this MR needed?\n\n`runServiceHealthCheckContainer` removes the health check container in a deferred call using `e.Context`. When a job is cancelled or times out while the runner is waiting for a service, that context is already done: `ContainerRemove` fails and the error is discarded. The container is not tracked in `e.temporary`, so `Cleanup()` does not remove it either.\n\nAs a result, cancelled jobs leak health check containers on the runner host. If the health check had not finished yet, the leaked container keeps running indefinitely, polling a service that no longer exists. On our hosts we found 3 running and 28 exited leaked containers, the oldest two months old.\n\n## What's the best way to test this MR?\n\n- New unit test `TestRunServiceHealthCheckContainer_RemovesContainerWhenJobIsCancelled`: the waiter mock cancels the job context and returns `context.Canceled`. The test asserts that `NetworkList` and `ContainerRemove` are called with a context that is not cancelled. Without the fix, the test fails with an unexpected `ContainerRemove` call made with the cancelled context.\n- `go test ./executors/docker/` passes (unit tests; integration tests skipped without Docker in the test container). `gofmt` and `go vet` are clean.\n- Manual check: run a job with a slow service (for example Elasticsearch), cancel it during \"Waiting for services to be up and running\", then run `docker ps -a --filter label=com.gitlab.gitlab-runner.type=wait`. Before this change a container is left behind; with it, none is.\n\n## What are the relevant issue numbers?\n\nCloses https://gitlab.com/gitlab-org/gitlab-runner/-/issues/39937",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/7481",
+  "state": "opened",
+  "draft": false,
+  "author": {
+   "id": 1000,
+   "username": "user3",
+   "public_email": null,
+   "name": "user4",
+   "state": "active",
+   "locked": false,
+   "avatar_url": "https://example.invalid/avatar",
+   "web_url": "https://gitlab.com/user",
+   "bot": false
+  },
+  "assignees": [
+   {
+    "id": 1000,
+    "username": "user3",
+    "public_email": null,
+    "name": "user4",
+    "state": "active",
+    "locked": false,
+    "avatar_url": "https://example.invalid/avatar",
+    "web_url": "https://gitlab.com/user"
+   }
+  ],
+  "reviewers": [],
+  "labels": [
+   "1st contribution",
+   "Category:Runner Core",
+   "Community contribution",
+   "group::runner core",
+   "linked-issue",
+   "primitives::runner functions runtime",
+   "section::primitives",
+   "type::bug",
+   "workflow::in dev"
+  ],
+  "source_branch": "fix-health-check-container-leak-on-cancel",
+  "target_branch": "main",
+  "sha": "b9d94c680c3aa8806028ca412a1ae80e4d0e22b4",
+  "has_conflicts": false,
+  "detailed_merge_status": "not_approved",
+  "merge_when_pipeline_succeeds": false,
+  "merge_user": null,
+  "source_project_id": 86938235,
+  "target_project_id": 250833,
+  "upvotes": 0,
+  "downvotes": 0,
+  "created_at": "2026-09-26T21:26:19.852Z",
+  "updated_at": "2026-09-27T00:30:24.316Z",
+  "merged_at": null,
+  "closed_at": null,
+  "changes_count": null
+ }
+]
