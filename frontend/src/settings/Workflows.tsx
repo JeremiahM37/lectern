@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { SettingsApi } from "./Settings";
+import { t, useLocale } from "../i18n";
 
 export interface ProjectWorkflow {
   id: "spec-kit" | "maestro" | string;
@@ -33,11 +34,12 @@ export function Workflows({
   defaultAgent: string;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [agent, setAgent] = useState(defaultAgent === "codex" ? "codex" : "claude");
   const [workflows, setWorkflows] = useState<ProjectWorkflow[]>([]);
   const [busy, setBusy] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [status, setStatus] = useState("Loading available workflows…");
+  const [status, setStatus] = useState(() => t("agentSettings.workflows.loading"));
   const generation = useRef(0);
   const mounted = useRef(true);
 
@@ -52,7 +54,7 @@ export function Workflows({
     const mine = ++generation.current;
     setBusy(true);
     setHasError(false);
-    setStatus("Loading available workflows…");
+    setStatus(t("agentSettings.workflows.loading"));
     try {
       const result = await api.request<WorkflowsResponse>(
         `/projects/${projectId}/workflows?agent=${encodeURIComponent(agent)}`,
@@ -60,7 +62,7 @@ export function Workflows({
       if (!mounted.current || mine !== generation.current) return;
       const rows = Array.isArray(result.workflows) ? result.workflows : [];
       setWorkflows(rows);
-      setStatus(`${rows.length} workflow${rows.length === 1 ? "" : "s"} available for ${providerLabel(agent)}`);
+      setStatus(t("agentSettings.workflows.available", { count: rows.length, provider: providerLabel(agent) }));
     } catch (error) {
       if (!mounted.current || mine !== generation.current) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -92,7 +94,11 @@ export function Workflows({
             row.id === workflow.id ? { ...row, enabled: Boolean(result.enabled) } : row,
           ),
         );
-        setStatus(`${workflow.name} ${result.enabled ? "enabled" : "disabled"}. Start a new ${providerLabel(agent)} session to use the change.`);
+        setStatus(
+          result.enabled
+            ? t("agentSettings.workflows.enabledStatus", { name: workflow.name, provider: providerLabel(agent) })
+            : t("agentSettings.workflows.disabledStatus", { name: workflow.name, provider: providerLabel(agent) }),
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -106,18 +112,17 @@ export function Workflows({
   }
 
   return (
-    <section className="project-workflows">
-      <h4>Project workflows</h4>
+    <section className="project-workflows" data-setting="projects.workflows">
+      <h4>{t("agentSettings.workflows.title")}</h4>
       <p>
-        Choose a workflow, then use its commands in a new agent session. Disabling keeps
-        your specs, plans, and other project documents.
+        {t("agentSettings.workflows.intro")}
       </p>
       <p className="workflows-status" role="status">{status}</p>
       <label>
-        Provider
+        {t("agentSettings.skills.provider")}
         <select
           className="workflows-agent"
-          aria-label="Workflows provider"
+          aria-label={t("agentSettings.workflows.providerLabel")}
           value={agent}
           disabled={busy}
           onChange={(event) => setAgent(event.target.value)}
@@ -127,10 +132,10 @@ export function Workflows({
         </select>
       </label>
       <button className="workflows-reload" disabled={busy} onClick={() => void load()}>
-        {busy ? "Loading…" : hasError ? "Retry" : "Reload"}
+        {busy ? t("agentSettings.workflows.loadingShort") : hasError ? t("agentSettings.workflows.retry") : t("agentSettings.skills.reload")}
       </button>
       {!workflows.length && !busy && (
-        <p>No optional workflows are available for this provider.</p>
+        <p>{t("agentSettings.workflows.none")}</p>
       )}
       {workflows.map((workflow) => (
         <article className="workflow-card" key={workflow.id}>
@@ -138,30 +143,30 @@ export function Workflows({
             <h5>{workflow.name}</h5>
             <p>{workflow.description}</p>
             <p className="workflow-version">
-              Pinned version: <code>{workflow.version}</code>{" · "}
+              {t("agentSettings.workflows.pinnedVersion")}{" "}<code>{workflow.version}</code>{" · "}
               <a href={workflow.upstream_url} target="_blank" rel="noreferrer">
-                Upstream project
+                {t("agentSettings.workflows.upstream")}
               </a>
             </p>
           </div>
           <button
             className="workflow-toggle"
-            aria-label={`${workflow.enabled ? "Disable" : "Enable"} ${workflow.name}`}
+            aria-label={workflow.enabled ? t("agentSettings.workflows.disableNamed", { name: workflow.name }) : t("agentSettings.workflows.enableNamed", { name: workflow.name })}
             disabled={busy}
             onClick={() => void toggle(workflow)}
           >
-            {workflow.enabled ? "Enabled" : "Enable"}
+            {workflow.enabled ? t("agentSettings.workflows.enabled") : t("agentSettings.workflows.enable")}
           </button>
           {workflow.enabled && (
             <div className="workflow-commands">
-              <b>Commands</b>
+              <b>{t("agentSettings.workflows.commands")}</b>
               <ul>
                 {workflow.commands.map((command) => (
                   <li key={command}><code>{displayCommand(command, agent)}</code></li>
                 ))}
               </ul>
               <p className="workflow-reload-note">
-                Start a new {providerLabel(agent)} session after enabling or disabling this workflow.
+                {t("agentSettings.workflows.reloadNote", { provider: providerLabel(agent) })}
               </p>
             </div>
           )}

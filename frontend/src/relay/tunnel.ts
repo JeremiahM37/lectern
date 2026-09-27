@@ -3,6 +3,7 @@
 // and WebSockets multiplexed over it. The relay sees only ciphertext.
 import { Initiator, keyPairFromSecret, generateKeyPair, prologue, b64url, unb64url, type KeyPair, type StaticKey, type Transport } from "./noise";
 import { nativeBridge } from "../native/bridge";
+import { t } from "../i18n";
 import { Frame, MAX_CHUNK, WS_FINAL, WS_MORE, decodeFrame, encodeFrame, fromJSON, jsonBytes, type TunnelFrame } from "./frames";
 
 // Captured before any shim replaces the global: the tunnel itself always
@@ -53,11 +54,11 @@ function deviceURL(relay: string, ch: string): string {
 /** Why a relay connection failed, from its close code (internal/relay/server). */
 export function closeReason(code: number): string {
   switch (code) {
-    case 4401: return "The relay did not recognise this device.";
-    case 4404: return "Lectern is not connected to the relay.";
-    case 4408: return "The relay timed out.";
-    case 4429: return "The relay is busy; retrying.";
-    default: return "The relay connection dropped.";
+    case 4401: return t("app.relay.unrecognised");
+    case 4404: return t("app.relay.hostOffline");
+    case 4408: return t("app.relay.timedOut");
+    case 4429: return t("app.relay.busy");
+    default: return t("app.relay.dropped");
   }
 }
 
@@ -88,7 +89,7 @@ function connect(o: { relay: string; ch: string; hk: string; routeToken: string;
       try { ws.close(); } catch { /* already closed */ }
       reject(err);
     };
-    const timer = setTimeout(() => fail(new Error("The relay did not answer in time.")), o.timeoutMs ?? 20000);
+    const timer = setTimeout(() => fail(new Error(t("app.relay.noAnswer"))), o.timeoutMs ?? 20000);
     ws.onopen = () => ws.send(JSON.stringify({ t: "auth", token: o.routeToken }));
     ws.onclose = (ev) => fail(Object.assign(new Error(closeReason(ev.code)), { closeCode: ev.code }));
     ws.onerror = () => { /* onclose follows with the code */ };
@@ -131,7 +132,7 @@ export function nativeDeviceKey(): StaticKey | undefined {
 function deviceKey(p: Pairing): KeyPair | StaticKey {
   if (!p.deviceSecret) {
     const key = nativeDeviceKey();
-    if (!key) throw new Error("This device's key is missing; pair it again.");
+    if (!key) throw new Error(t("app.relay.keyMissing"));
     return key;
   }
   return keyPairFromSecret(unb64url(p.deviceSecret));
@@ -141,7 +142,7 @@ function deviceKey(p: Pairing): KeyPair | StaticKey {
  * The pairing code only ever leaves the phone inside Noise message 1,
  * encrypted to the pinned host key. */
 export async function pairDevice(payload: PairPayload, name: string): Promise<Pairing> {
-  if (payload.v !== 1) throw new Error("This pairing code is from a newer Lectern.");
+  if (payload.v !== 1) throw new Error(t("app.relay.newerCode"));
   const native = nativeDeviceKey();
   const keys = native ?? generateKeyPair();
   let conn: Conn;
@@ -149,12 +150,12 @@ export async function pairDevice(payload: PairPayload, name: string): Promise<Pa
     conn = await connect({ relay: payload.relay, ch: payload.ch, hk: payload.hk, routeToken: payload.rt,
       key: keys, hello: { v: 1, pair: { code: payload.c, name } } });
   } catch (err) {
-    if (err instanceof HandshakeError && err.code === "invalid_code") throw new Error("That pairing code was already used or has expired.");
+    if (err instanceof HandshakeError && err.code === "invalid_code") throw new Error(t("app.relay.codeUsed"));
     throw err;
   }
   conn.ws.close();
   const w = conn.welcome;
-  if (!w.route_token || !w.device_id) throw new Error("Lectern did not complete the pairing.");
+  if (!w.route_token || !w.device_id) throw new Error(t("app.relay.incomplete"));
   return { v: 1, relay: payload.relay, ch: payload.ch, hk: payload.hk, sk: payload.sk,
     deviceSecret: "secretKey" in keys ? b64url(keys.secretKey) : "", routeToken: w.route_token, deviceId: w.device_id, name: w.name || name };
 }
@@ -193,7 +194,7 @@ export class RelayTunnel extends EventTarget {
     this.stopped = false;
     this.pairing = await this.load();
     if (!this.pairing) {
-      this.setStatus("revoked", "This device is not paired.");
+      this.setStatus("revoked", t("app.relay.notPaired"));
       return;
     }
     void this.loop();
@@ -216,14 +217,14 @@ export class RelayTunnel extends EventTarget {
         await this.run(conn);
       } catch (err) {
         if (err instanceof HandshakeError && (err.code === "unknown_device" || err.code === "version")) {
-          this.setStatus("revoked", err.code === "version" ? "This app is older than Lectern; reinstall it." : "Lectern no longer recognises this device. It was revoked or idle too long.");
+          this.setStatus("revoked", err.code === "version" ? t("app.relay.appTooOld") : t("app.relay.revoked"));
           return;
         }
         // The relay refuses an unknown route with 4401. The host registers
         // its routes the moment it connects, so a refusal can be momentary
         // at most once; twice in a row means the route was removed.
         if ((err as { closeCode?: number }).closeCode === 4401 && ++this.refusals >= 2) {
-          this.setStatus("revoked", "The relay no longer accepts this device. It was probably revoked.");
+          this.setStatus("revoked", t("app.relay.refused"));
           return;
         }
         this.setStatus("offline", err instanceof Error ? err.message : String(err));

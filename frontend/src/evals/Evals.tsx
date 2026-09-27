@@ -3,6 +3,7 @@ import type { Project } from "../types";
 import type { JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import { DiffViewer } from "../review/DiffViewer";
+import { t, useLocale } from "../i18n";
 import "./evals.css";
 
 export interface EvalsApi {
@@ -122,6 +123,11 @@ interface CaseComparison {
 
 type NewVariant = { agent: string; model: string; permissionMode: string };
 
+// A run, result or comparison status as people read it; unknown ones show as sent.
+function statusLabel(status: string): string {
+  return t(`board.evals.status.${status}`, undefined, status);
+}
+
 function statusColor(status: string): string {
   switch (status) {
     case "passed":
@@ -149,6 +155,7 @@ export function Evals({
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? 0);
   const [suites, setSuites] = useState<Suite[]>([]);
   const [suiteID, setSuiteID] = useState<number>();
@@ -217,7 +224,7 @@ export function Evals({
   }
 
   async function createSuite() {
-    if (!newSuiteName.trim()) return onNotice("Name required", true);
+    if (!newSuiteName.trim()) return onNotice(t("board.evals.nameRequired"), true);
     try {
       const s = await api.request<Suite>("/evals/suites", {
         method: "POST",
@@ -241,8 +248,8 @@ export function Evals({
       );
       await loadSuites(projectId);
       onNotice(
-        `Imported ${result.imported.length} suite(s)` +
-          (result.failed.length ? `, ${result.failed.length} failed` : ""),
+        t("board.evals.imported", { n: result.imported.length }) +
+          (result.failed.length ? t("board.evals.importFailed", { n: result.failed.length }) : ""),
         result.failed.length > 0 && result.imported.length === 0,
       );
     } catch (e) {
@@ -274,7 +281,7 @@ export function Evals({
   }
 
   async function createReplaySuiteFromPreview() {
-    if (!replayName.trim()) return onNotice("Name required", true);
+    if (!replayName.trim()) return onNotice(t("board.evals.nameRequired"), true);
     setReplayBusy(true);
     try {
       const result = await api.request<{ suite: Suite }>("/evals/replay/suites", {
@@ -286,7 +293,7 @@ export function Evals({
       setShowReplayImport(false);
       await loadSuites(projectId);
       await openSuite(result.suite.id);
-      onNotice("Replay suite created");
+      onNotice(t("board.evals.replayCreated"));
     } catch (e) {
       onNotice(String(e), true);
     } finally {
@@ -297,7 +304,7 @@ export function Evals({
   async function addCase() {
     if (!suiteID) return;
     if (!newCase.name.trim() || !newCase.prompt.trim())
-      return onNotice("Name and prompt are required", true);
+      return onNotice(t("board.evals.namePromptRequired"), true);
     try {
       await api.request(`/evals/suites/${suiteID}/cases`, { method: "POST", body: newCase });
       setNewCase({ name: "", prompt: "", base_ref: "", check_command: "", timeout_s: 900, setup_command: "" });
@@ -333,7 +340,7 @@ export function Evals({
       });
       setRuns(await api.request<Run[]>(`/evals/suites/${suiteID}/runs`));
       await openRun(run.id);
-      onNotice("Run started");
+      onNotice(t("board.evals.runStarted"));
     } catch (e) {
       onNotice(String(e), true);
     } finally {
@@ -355,8 +362,8 @@ export function Evals({
   // Poll a live run so the matrix fills in without a manual refresh.
   useEffect(() => {
     if (!runID || runView?.run.status === "done" || runView?.run.status === "cancelled") return;
-    const t = setInterval(() => void openRun(runID), 2000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void openRun(runID), 2000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runID, runView?.run.status]);
 
@@ -374,7 +381,7 @@ export function Evals({
     const ids = Array.from(compareWith);
     const [a, b] = ids;
     if (ids.length !== 2 || a == null || b == null)
-      return onNotice("Pick exactly two runs to compare", true);
+      return onNotice(t("board.evals.pickTwo"), true);
     try {
       const result = await api.request<{ cases: CaseComparison[] }>(
         `/evals/runs/${a}/compare/${b}`,
@@ -416,16 +423,16 @@ export function Evals({
   }, [runView]);
 
   return (
-    <Modal id="evals-sheet" open className="sheet evals-sheet" aria-label="Agent tests" onCancel={onClose}>
+    <Modal id="evals-sheet" open className="sheet evals-sheet" aria-label={t("board.evals.title")} onCancel={onClose}>
       <header className="sheet-head">
-        <h2>Agent tests</h2>
+        <h2>{t("board.evals.title")}</h2>
         <button onClick={onClose}>✕</button>
       </header>
 
       {!suite && (
         <>
           <label>
-            Project
+            {t("board.evals.project")}
             <select id="ev-project" value={projectId} onChange={(e) => setProjectId(Number(e.target.value))}>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -436,7 +443,7 @@ export function Evals({
           </label>
           <div className="btnrow">
             <button id="ev-import-repo" className="b" disabled={busy} onClick={() => void importFromRepo()}>
-              Import from repo (.lectern/evals/*.yaml)
+              {t("board.evals.importFromRepo")}
             </button>
             <button
               id="ev-replay-import-open"
@@ -444,19 +451,17 @@ export function Evals({
               disabled={busy}
               onClick={() => setShowReplayImport((v) => !v)}
             >
-              + New replay suite from merged PRs
+              {t("board.evals.newReplaySuite")}
             </button>
           </div>
           {showReplayImport && (
             <div className="ev-replay-import">
               <p className="subhint">
-                Builds cases from the project's own last N merged PRs, so a run answers "which
-                agent/model is best for MY repository" against ground truth instead of a hand-written
-                prompt. See docs/replay-evals.md.
+                {t("board.evals.replayIntro")}
               </p>
               <div className="ev-replay-form">
                 <label>
-                  PRs to consider
+                  {t("board.evals.prsToConsider")}
                   <input
                     id="ev-replay-n"
                     type="number"
@@ -467,7 +472,7 @@ export function Evals({
                   />
                 </label>
                 <label>
-                  Max changed lines
+                  {t("board.evals.maxChangedLines")}
                   <input
                     id="ev-replay-max-lines"
                     type="number"
@@ -477,15 +482,17 @@ export function Evals({
                   />
                 </label>
                 <button id="ev-replay-preview" className="b" disabled={replayBusy} onClick={() => void previewReplay()}>
-                  Preview
+                  {t("board.evals.preview")}
                 </button>
               </div>
               {replayPreview && (
                 <>
                   <p className="subhint">
-                    Source: {replayPreview.source === "gh" ? "gh CLI" : "git log (gh unavailable)"} ·{" "}
-                    {replayPreview.candidates.filter((c) => c.accepted).length} of{" "}
-                    {replayPreview.candidates.length} PRs would be imported
+                    {t("board.evals.previewSummary", {
+                      source: replayPreview.source === "gh" ? t("board.evals.sourceGh") : t("board.evals.sourceGitLog"),
+                      accepted: replayPreview.candidates.filter((c) => c.accepted).length,
+                      total: replayPreview.candidates.length,
+                    })}
                   </p>
                   <div className="ev-candidate-list">
                     {replayPreview.candidates.map((c) => (
@@ -494,31 +501,30 @@ export function Evals({
                         className={`ev-candidate-row ${c.accepted ? "ev-candidate-ok" : "ev-candidate-skip"}`}
                       >
                         <span className={`ev-badge ${c.accepted ? "ev-pass" : "ev-queued"}`}>
-                          {c.accepted ? "included" : "skipped"}
+                          {c.accepted ? t("board.evals.included") : t("board.evals.skipped")}
                         </span>
                         <div>
                           <b>
-                            PR #{c.pr_number}: {c.title}
+                            {t("board.evals.prTitle", { n: c.pr_number, title: c.title })}
                           </b>
                           <span className="subhint">
                             {c.accepted
-                              ? `${c.changed_lines} changed lines${
-                                  c.case?.matched_tests?.length
-                                    ? ` · tests: ${c.case.matched_tests.join(", ")}`
-                                    : ""
-                                }`
+                              ? t("board.evals.changedLines", { n: c.changed_lines }) +
+                                (c.case?.matched_tests?.length
+                                  ? t("board.evals.matchedTests", { tests: c.case.matched_tests.join(", ") })
+                                  : "")
                               : c.skip_reason}
                           </span>
                         </div>
                       </article>
                     ))}
                     {replayPreview.candidates.length === 0 && (
-                      <p className="subhint">No merged PRs found for this project.</p>
+                      <p className="subhint">{t("board.evals.noMergedPrs")}</p>
                     )}
                   </div>
                   <div className="ev-new-suite">
                     <label>
-                      Suite name
+                      {t("board.evals.suiteName")}
                       <input
                         id="ev-replay-name"
                         value={replayName}
@@ -531,7 +537,7 @@ export function Evals({
                       disabled={replayBusy || !replayPreview.candidates.some((c) => c.accepted)}
                       onClick={() => void createReplaySuiteFromPreview()}
                     >
-                      + Create suite from {replayPreview.candidates.filter((c) => c.accepted).length} PR(s)
+                      {t("board.evals.createFromPrs", { n: replayPreview.candidates.filter((c) => c.accepted).length })}
                     </button>
                   </div>
                 </>
@@ -545,19 +551,19 @@ export function Evals({
                 <span className="subhint">{s.description}</span>
               </article>
             ))}
-            {suites.length === 0 && <p className="subhint">No suites yet for this project.</p>}
+            {suites.length === 0 && <p className="subhint">{t("board.evals.noSuites")}</p>}
           </div>
           <div className="ev-new-suite">
             <label>
-              New suite name
+              {t("board.evals.newSuiteName")}
               <input id="ev-new-suite-name" value={newSuiteName} onChange={(e) => setNewSuiteName(e.target.value)} />
             </label>
             <label>
-              Description
+              {t("board.evals.description")}
               <input value={newSuiteDesc} onChange={(e) => setNewSuiteDesc(e.target.value)} />
             </label>
             <button id="ev-create-suite" className="b ok" onClick={() => void createSuite()}>
-              + Create suite
+              {t("board.evals.createSuite")}
             </button>
           </div>
         </>
@@ -573,21 +579,21 @@ export function Evals({
                 setCompareWith(new Set());
               }}
             >
-              ← Suites
+              {t("board.evals.backToSuites")}
             </button>
             <b>{suite.name}</b>
           </div>
 
-          <h3>Cases</h3>
+          <h3>{t("board.evals.cases")}</h3>
           <div className="ev-case-list">
             {cases.map((c) => (
               <article key={c.id} className="ev-case-row">
                 <div>
                   <b>
-                    {c.is_replay && <span className="ev-badge ev-queued">PR #{c.source_pr_number}</span>} {c.name}
+                    {c.is_replay && <span className="ev-badge ev-queued">{t("board.evals.prNumber", { n: c.source_pr_number ?? "" })}</span>} {c.name}
                   </b>
                   <span className="subhint">
-                    {c.check_command || "no check command (falls back to project verify)"}
+                    {c.check_command || t("board.evals.noCheckCommand")}
                   </span>
                 </div>
                 <button className="b no" onClick={() => void deleteCase(c.id)}>
@@ -595,33 +601,33 @@ export function Evals({
                 </button>
               </article>
             ))}
-            {cases.length === 0 && <p className="subhint">No cases yet.</p>}
+            {cases.length === 0 && <p className="subhint">{t("board.evals.noCases")}</p>}
           </div>
           <div className="ev-new-case">
             <input
-              placeholder="case name"
+              placeholder={t("board.evals.caseNamePlaceholder")}
               id="ev-case-name"
               value={newCase.name}
               onChange={(e) => setNewCase({ ...newCase, name: e.target.value })}
             />
             <textarea
-              placeholder="prompt"
+              placeholder={t("board.evals.promptPlaceholder")}
               id="ev-case-prompt"
               value={newCase.prompt}
               onChange={(e) => setNewCase({ ...newCase, prompt: e.target.value })}
             />
             <input
-              placeholder="base_ref (default branch if empty)"
+              placeholder={t("board.evals.baseRefPlaceholder")}
               value={newCase.base_ref}
               onChange={(e) => setNewCase({ ...newCase, base_ref: e.target.value })}
             />
             <input
-              placeholder="check_command (falls back to project verify)"
+              placeholder={t("board.evals.checkCommandPlaceholder")}
               value={newCase.check_command}
               onChange={(e) => setNewCase({ ...newCase, check_command: e.target.value })}
             />
             <input
-              placeholder="setup_command (run first, optional)"
+              placeholder={t("board.evals.setupCommandPlaceholder")}
               value={newCase.setup_command}
               onChange={(e) => setNewCase({ ...newCase, setup_command: e.target.value })}
             />
@@ -632,17 +638,17 @@ export function Evals({
               onChange={(e) => setNewCase({ ...newCase, timeout_s: Number(e.target.value) })}
             />
             <button id="ev-add-case" className="b ok" onClick={() => void addCase()}>
-              + Add case
+              {t("board.evals.addCase")}
             </button>
           </div>
 
-          <h3>Runs</h3>
+          <h3>{t("board.evals.runs")}</h3>
           <div className="ev-run-list">
             {runs.map((r) => (
               <article key={r.id} className="ev-run-row">
                 <input
                   type="checkbox"
-                  aria-label={`Select run ${r.id} to compare`}
+                  aria-label={t("board.evals.selectRun", { id: r.id })}
                   checked={compareWith.has(r.id)}
                   onChange={(e) => {
                     setCompareWith((prev) => {
@@ -653,31 +659,31 @@ export function Evals({
                     });
                   }}
                 />
-                <span className={`ev-badge ${statusColor(r.status)}`}>{r.status}</span>
+                <span className={`ev-badge ${statusColor(r.status)}`}>{statusLabel(r.status)}</span>
                 <span>
-                  run #{r.id} · {r.repeats} repeat(s)
+                  {t("board.evals.runRow", { id: r.id, repeats: r.repeats })}
                 </span>
                 <button className="b" onClick={() => void openRun(r.id)}>
-                  Open
+                  {t("board.evals.open")}
                 </button>
               </article>
             ))}
-            {runs.length === 0 && <p className="subhint">No runs yet.</p>}
+            {runs.length === 0 && <p className="subhint">{t("board.evals.noRuns")}</p>}
           </div>
           {compareWith.size === 2 && (
             <button className="b ok" onClick={() => void runCompare()}>
-              Compare selected runs
+              {t("board.evals.compareSelected")}
             </button>
           )}
           {comparison && (
             <div className="ev-compare">
               <h4>
-                Run #{comparison.a} → #{comparison.b}
+                {t("board.evals.compareHeading", { a: comparison.a, b: comparison.b })}
               </h4>
               <table>
                 <thead>
                   <tr>
-                    <th>Case</th>
+                    <th>{t("board.evals.case")}</th>
                     <th>A</th>
                     <th>B</th>
                     <th>Δ</th>
@@ -686,11 +692,11 @@ export function Evals({
                 <tbody>
                   {comparison.cases.map((c) => (
                     <tr key={c.case_id} className={`ev-cmp-${c.status}`}>
-                      <td>{cases.find((cs) => cs.id === c.case_id)?.name ?? `case ${c.case_id}`}</td>
+                      <td>{cases.find((cs) => cs.id === c.case_id)?.name ?? t("board.evals.caseFallback", { id: c.case_id })}</td>
                       <td>{Math.round(c.pass_rate_a * 100)}%</td>
                       <td>{Math.round(c.pass_rate_b * 100)}%</td>
                       <td>
-                        {c.delta > 0 ? "▲" : c.delta < 0 ? "▼" : "="} {c.status}
+                        {c.delta > 0 ? "▲" : c.delta < 0 ? "▼" : "="} {statusLabel(c.status)}
                       </td>
                     </tr>
                   ))}
@@ -699,7 +705,7 @@ export function Evals({
             </div>
           )}
 
-          <h3>New run</h3>
+          <h3>{t("board.evals.newRun")}</h3>
           <div className="ev-variants">
             {variants.map((v, i) => (
               <div className="variant-row" key={i}>
@@ -715,7 +721,7 @@ export function Evals({
                   <option value="gemini">gemini</option>
                 </select>
                 <input
-                  placeholder="model"
+                  placeholder={t("board.evals.modelPlaceholder")}
                   value={v.model}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -752,11 +758,11 @@ export function Evals({
                 setVariants((v) => [...v, { agent: "claude", model: "", permissionMode: "" }])
               }
             >
-              + Add variant
+              {t("board.evals.addVariant")}
             </button>
           </div>
           <label>
-            Repeats
+            {t("board.evals.repeats")}
             <input
               type="number"
               min={1}
@@ -768,12 +774,11 @@ export function Evals({
           {cases.some((c) => c.is_replay) && (
             <label className="ev-with-judge">
               <input type="checkbox" checked={withJudge} onChange={(e) => setWithJudge(e.target.checked)} />
-              Run judge (compares each replay cell's diff against its reference — uses the
-              judge_agent/judge_model setting)
+              {t("board.evals.runJudge")}
             </label>
           )}
           <button id="ev-run-suite" className="b ok" disabled={busy || cases.length === 0} onClick={() => void startRun()}>
-            ▶ Run suite
+            {t("board.evals.runSuite")}
           </button>
         </>
       )}
@@ -784,23 +789,23 @@ export function Evals({
             <button className="b" onClick={() => setRunID(undefined)}>
               ← {suite.name}
             </button>
-            <span className={`ev-badge ${statusColor(runView.run.status)}`}>{runView.run.status}</span>
+            <span className={`ev-badge ${statusColor(runView.run.status)}`}>{statusLabel(runView.run.status)}</span>
             {["queued", "running"].includes(runView.run.status) && (
               <button className="b no" onClick={() => void cancelRun()}>
-                ■ Cancel
+                {t("board.evals.cancel")}
               </button>
             )}
           </div>
 
-          <h3>Matrix</h3>
+          <h3>{t("board.evals.matrix")}</h3>
           <div className="ev-matrix-wrap">
             <table className="ev-matrix">
               <thead>
                 <tr>
-                  <th>Case</th>
+                  <th>{t("board.evals.case")}</th>
                   {runView.variants.map((v, i) => (
                     <th key={i}>
-                      v{i + 1}: {v.agent}
+                      {t("board.evals.variantShort", { n: i + 1 })}: {v.agent}
                       {v.model && ` · ${v.model}`}
                     </th>
                   ))}
@@ -833,10 +838,10 @@ export function Evals({
           {openCell && (
             <div className="ev-cell-detail">
               <header>
-                <b className={`ev-badge ${statusColor(openCell.status)}`}>{openCell.status}</b>
+                <b className={`ev-badge ${statusColor(openCell.status)}`}>{statusLabel(openCell.status)}</b>
                 {openCell.duration_s != null && ` · ${openCell.duration_s.toFixed(1)}s`}
                 {openCell.cost_usd != null && ` · $${openCell.cost_usd.toFixed(3)}`}
-                {openCell.check_rc != null && ` · check rc=${openCell.check_rc}`}
+                {openCell.check_rc != null && t("board.evals.checkRc", { rc: openCell.check_rc })}
                 <button className="b" onClick={() => setOpenCell(undefined)}>
                   ✕
                 </button>
@@ -851,37 +856,37 @@ export function Evals({
                       <div className="ev-similarity-row">
                         {openCell.similarity_files != null && (
                           <span className="ev-badge ev-queued">
-                            files match: {Math.round(openCell.similarity_files * 100)}%
+                            {t("board.evals.filesMatch", { pct: Math.round(openCell.similarity_files * 100) })}
                           </span>
                         )}
                         {openCell.similarity_lines != null && (
                           <span className="ev-badge ev-queued">
-                            lines match: {Math.round(openCell.similarity_lines * 100)}%
+                            {t("board.evals.linesMatch", { pct: Math.round(openCell.similarity_lines * 100) })}
                           </span>
                         )}
                         {openCell.size_ratio != null && (
-                          <span className="ev-badge ev-queued">size ratio: {openCell.size_ratio.toFixed(2)}x</span>
+                          <span className="ev-badge ev-queued">{t("board.evals.sizeRatio", { ratio: openCell.size_ratio.toFixed(2) })}</span>
                         )}
                         {openCell.judge_status === "done" && (
                           <span className={`ev-badge ${openCell.judge_match ? "ev-pass" : "ev-fail"}`}>
-                            judge: {openCell.judge_match ? "match" : "no match"}
+                            {t("board.evals.judgeResult", { result: openCell.judge_match ? t("board.evals.judgeMatch") : t("board.evals.judgeNoMatch") })}
                           </span>
                         )}
                         {openCell.judge_status === "queued" && (
-                          <span className="ev-badge ev-running">judge: pending</span>
+                          <span className="ev-badge ev-running">{t("board.evals.judgePending")}</span>
                         )}
                       </div>
                     )}
                     {openCell.judge_reason && <p className="subhint">{openCell.judge_reason}</p>}
                     {cellDiff && (
                       <>
-                        <h4>Attempt diff</h4>
+                        <h4>{t("board.evals.attemptDiff")}</h4>
                         <DiffViewer files={cellDiff.files} stats={cellDiff.stats} wrap={false} />
                       </>
                     )}
                     {isReplay && openCellCase?.reference_files && openCellCase.reference_files.length > 0 && (
                       <>
-                        <h4>Reference diff (PR #{openCellCase.source_pr_number})</h4>
+                        <h4>{t("board.evals.referenceDiff", { n: openCellCase.source_pr_number ?? "" })}</h4>
                         <DiffViewer files={openCellCase.reference_files} stats={[]} wrap={false} />
                       </>
                     )}
@@ -891,18 +896,18 @@ export function Evals({
             </div>
           )}
 
-          <h3>Leaderboard</h3>
+          <h3>{t("board.evals.leaderboard")}</h3>
           <table className="ev-leaderboard">
             <thead>
               <tr>
-                <th>Variant</th>
-                <th>Pass rate</th>
-                <th>Mean duration</th>
-                <th>Total cost</th>
-                <th>$/pass</th>
-                <th>Mean tokens</th>
-                {runView.leaderboard.some((r) => r.scored_count > 0) && <th>Similarity to reference</th>}
-                {runView.leaderboard.some((r) => r.judged_count > 0) && <th>Matches reference</th>}
+                <th>{t("board.evals.variant")}</th>
+                <th>{t("board.evals.passRate")}</th>
+                <th>{t("board.evals.meanDuration")}</th>
+                <th>{t("board.evals.totalCost")}</th>
+                <th>{t("board.compare.costPerPass")}</th>
+                <th>{t("board.evals.meanTokens")}</th>
+                {runView.leaderboard.some((r) => r.scored_count > 0) && <th>{t("board.evals.similarity")}</th>}
+                {runView.leaderboard.some((r) => r.judged_count > 0) && <th>{t("board.evals.matchesReference")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -911,7 +916,7 @@ export function Evals({
                 return (
                   <tr key={row.variant_idx}>
                     <td>
-                      v{row.variant_idx + 1}
+                      {t("board.evals.variantShort", { n: row.variant_idx + 1 })}
                       {v && `: ${v.agent}${v.model ? ` · ${v.model}` : ""}`}
                     </td>
                     <td>
@@ -921,14 +926,18 @@ export function Evals({
                     <td>${row.total_cost_usd.toFixed(3)}</td>
                     <td>{row.cost_per_pass ? `$${row.cost_per_pass.toFixed(3)}` : "—"}</td>
                     <td>
-                      {row.mean_input_tokens ? Math.round(row.mean_input_tokens) : 0}in/
-                      {row.mean_output_tokens ? Math.round(row.mean_output_tokens) : 0}out
+                      {t("board.evals.tokensInOut", {
+                        input: row.mean_input_tokens ? Math.round(row.mean_input_tokens) : 0,
+                        output: row.mean_output_tokens ? Math.round(row.mean_output_tokens) : 0,
+                      })}
                     </td>
                     {runView.leaderboard.some((r) => r.scored_count > 0) && (
                       <td>
                         {row.scored_count
-                          ? `${Math.round(row.mean_similarity_files * 100)}% files / ` +
-                            `${Math.round(row.mean_similarity_lines * 100)}% lines`
+                          ? t("board.evals.similarityValue", {
+                              files: Math.round(row.mean_similarity_files * 100),
+                              lines: Math.round(row.mean_similarity_lines * 100),
+                            })
                           : "—"}
                       </td>
                     )}

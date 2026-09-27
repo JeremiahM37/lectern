@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { Approval } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { approvalSummary } from "./approval-summary";
@@ -25,6 +26,7 @@ export function VoiceMode({
   disabled?: boolean;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const first = approvals[0];
   const pendingApproval: PendingApproval | undefined = first
     ? { id: first.id, toolName: first.tool_name, summary: approvalSummary(first) || first.tool_name }
@@ -44,9 +46,7 @@ export function VoiceMode({
   if (!voice.supported)
     return (
       <p className="voice-mode-unsupported sub" id="voice-mode-unsupported">
-        Voice mode needs a browser with the Web Speech API (Chrome or Edge on
-        desktop and Android). It is hidden here because this browser does not
-        support it.
+        {t("sessions.voice.unsupported")}
       </p>
     );
 
@@ -62,7 +62,7 @@ export function VoiceMode({
         disabled={disabled}
         onClick={voice.toggleActive}
       >
-        {voice.active ? "🔊 Voice mode on" : "🎧 Voice mode"}
+        {voice.active ? t("sessions.voice.toggleOn") : t("sessions.voice.toggle")}
       </button>
       {voice.active && (
         <div className="voice-mode-panel" id="voice-mode-panel">
@@ -71,12 +71,11 @@ export function VoiceMode({
               className={`voice-mode-dot${voice.speaking ? " speaking" : voice.listening ? " listening" : ""}`}
               aria-hidden="true"
             />
-            {voice.speaking ? "Speaking…" : voice.listening ? "Listening…" : pushToTalk ? "Hold the mic to talk" : "Idle"}
+            {voice.speaking ? t("sessions.voice.speaking") : voice.listening ? t("sessions.voice.listening") : pushToTalk ? t("sessions.voice.holdMic") : t("sessions.voice.idle")}
           </div>
           {pushToTalk ? (
             <p className="sub">
-              This browser cannot listen continuously, so voice mode falls back to
-              push-to-talk: hold the button below, speak, then release.
+              {t("sessions.voice.pushToTalkHelp")}
             </p>
           ) : null}
           {!!voice.transcript && (
@@ -97,7 +96,7 @@ export function VoiceMode({
               onPointerLeave={voice.pressEnd}
               onPointerCancel={voice.pressEnd}
             >
-              🎙 Hold to talk
+              {t("sessions.voice.holdToTalk")}
             </button>
           )}
           {!!voice.statusMessage && (
@@ -107,31 +106,30 @@ export function VoiceMode({
           )}
           {voice.pendingSend !== undefined && (
             <div className="voice-mode-pending" id="voice-mode-pending">
-              <span>Sending: “{voice.pendingSend}”</span>
+              <span>{t("sessions.voice.pendingSend", { text: voice.pendingSend })}</span>
               <button type="button" className="b warn" id="voice-mode-cancel-send" onClick={voice.cancelPendingSend}>
-                Cancel
+                {t("sessions.voice.cancel")}
               </button>
             </div>
           )}
           <div className="voice-mode-hints sub">
-            Say “send it” or pause to send · “approve”/“deny” when asked ·
-            “interrupt” to stop the agent · “read that again” · “exit voice mode”
+            {t("sessions.voice.hints")}
           </div>
           <details
             id="voice-mode-settings"
             onToggle={(event) => setShowSettings(event.currentTarget.open)}
           >
-            <summary>⚙ Voice settings</summary>
+            <summary>{t("sessions.voice.settings")}</summary>
             {showSettings && (
               <div className="voice-mode-settings-body">
                 <label>
-                  Voice
+                  {t("sessions.voice.voice")}
                   <select
                     id="voice-mode-voice"
                     value={voice.settings.voiceURI}
                     onChange={(event) => voice.updateSettings({ voiceURI: event.target.value })}
                   >
-                    <option value="">Browser default</option>
+                    <option value="">{t("sessions.voice.browserDefault")}</option>
                     {voices.map((row) => (
                       <option key={row.voiceURI} value={row.voiceURI}>
                         {row.name} ({row.lang})
@@ -140,7 +138,7 @@ export function VoiceMode({
                   </select>
                 </label>
                 <label>
-                  Speaking rate
+                  {t("sessions.voice.rate")}
                   <input
                     id="voice-mode-rate"
                     type="range"
@@ -153,7 +151,7 @@ export function VoiceMode({
                   <span>{voice.settings.rate.toFixed(1)}×</span>
                 </label>
                 <label>
-                  Language
+                  {t("sessions.voice.language")}
                   <input
                     id="voice-mode-lang"
                     type="text"
@@ -169,7 +167,7 @@ export function VoiceMode({
                     checked={voice.settings.autoRead}
                     onChange={(event) => voice.updateSettings({ autoRead: event.target.checked })}
                   />
-                  Read replies aloud automatically
+                  {t("sessions.voice.autoRead")}
                 </label>
               </div>
             )}

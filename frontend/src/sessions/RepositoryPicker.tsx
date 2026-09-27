@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { Project } from "../types";
 export interface RepositorySelection {
   project_id: number;
@@ -15,6 +16,7 @@ export function RepositoryPicker({
   value: RepositorySelection[];
   onChange: (value: RepositorySelection[]) => void;
 }) {
+  useLocale();
   const primary = projects.find((project) => project.id === primaryID),
     available = projects.filter(
       (project) =>
@@ -41,16 +43,15 @@ export function RepositoryPicker({
   return (
     <details>
       <summary>
-        Additional repositories{value.length ? ` (${value.length})` : ""}
+        {value.length ? t("sessions.repoPicker.summaryCount", { n: value.length }) : t("sessions.repoPicker.summary")}
       </summary>
       <p className="subhint">
-        Add up to seven other projects on the same target. Each gets separate
-        files on the new branch.
+        {t("sessions.repoPicker.help")}
       </p>
       <select
         className="f"
         ref={picker}
-        aria-label="Additional repository"
+        aria-label={t("sessions.repoPicker.pickerLabel")}
         value={
           available.some((project) => String(project.id) === selected)
             ? selected
@@ -66,7 +67,7 @@ export function RepositoryPicker({
             </option>
           ))
         ) : (
-          <option value="">No other projects on this target</option>
+          <option value="">{t("sessions.repoPicker.noOthers")}</option>
         )}
       </select>
       <button
@@ -82,9 +83,9 @@ export function RepositoryPicker({
           );
         }}
       >
-        Add repository
+        {t("sessions.repoPicker.add")}
       </button>
-      <div ref={rows} aria-label="Selected repositories">
+      <div ref={rows} aria-label={t("sessions.repoPicker.selected")}>
         {value.map((row) => {
           const project = projects.find(
             (project) => project.id === row.project_id,
@@ -94,11 +95,11 @@ export function RepositoryPicker({
             <div key={row.project_id} className="workspace-repository">
               <strong>{project.name}</strong>
               <label className="f">
-                Base for {project.name}
+                {t("sessions.repoPicker.baseFor", { name: project.name })}
                 <input
                   className="f"
-                  aria-label={`Base for ${project.name}`}
-                  placeholder="HEAD — current committed revision"
+                  aria-label={t("sessions.repoPicker.baseFor", { name: project.name })}
+                  placeholder={t("sessions.repoPicker.basePlaceholder")}
                   value={row.base}
                   onChange={(event) =>
                     onChange(
@@ -114,7 +115,7 @@ export function RepositoryPicker({
               <button
                 className="b"
                 type="button"
-                aria-label={`Remove ${project.name}`}
+                aria-label={t("sessions.repoPicker.removeNamed", { name: project.name })}
                 onClick={() => {
                   onChange(
                     value.filter((item) => item.project_id !== row.project_id),
@@ -122,7 +123,7 @@ export function RepositoryPicker({
                   picker.current?.focus();
                 }}
               >
-                Remove
+                {t("sessions.repoPicker.remove")}
               </button>
             </div>
           );

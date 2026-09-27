@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { Approval, DuplicatePromptPair, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
@@ -42,15 +43,15 @@ type Item =
   | { key: string; reason: "failed-task" | "review-task"; task: TaskView }
   | { key: string; reason: "duplicate-work"; pair: DuplicatePromptPair };
 
-const REASON: Record<Item["reason"], string> = {
-  approval: "Approval needed",
-  waiting: "Wants you",
-  "failed-session": "Setup failed",
-  "stopped-session": "Session ended",
-  "failed-task": "Task failed",
-  "review-task": "Ready to review",
-  "duplicate-work": "Possible duplicate work",
-};
+const REASON = (): Record<Item["reason"], string> => ({
+  approval: t("sessions.needsYou.reason.approval"),
+  waiting: t("sessions.needsYou.reason.waiting"),
+  "failed-session": t("sessions.needsYou.reason.failedSession"),
+  "stopped-session": t("sessions.needsYou.reason.stoppedSession"),
+  "failed-task": t("sessions.needsYou.reason.failedTask"),
+  "review-task": t("sessions.needsYou.reason.reviewTask"),
+  "duplicate-work": t("sessions.needsYou.reason.duplicateWork"),
+});
 const RANK: Record<Item["reason"], number> = {
   approval: 0,
   waiting: 1,
@@ -75,6 +76,7 @@ export function NeedsYou({
   onNotice,
   pushPrompt,
 }: Props) {
+  useLocale();
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicatePromptPair[]>([]);
@@ -213,23 +215,23 @@ export function NeedsYou({
     <section
       className="needs-you"
       id="needs-you"
-      aria-label="Needs you"
+      aria-label={t("sessions.needsYou.title")}
       data-stale={stale ? "true" : undefined}
     >
       {showPrompt && (
         <div className="ny-push-prompt" id="needs-you-push-prompt" role="status">
-          <span>Get a phone alert when a session needs you.</span>
+          <span>{t("sessions.needsYou.pushPrompt")}</span>
           <div className="ny-push-prompt-actions">
             <button className="b ok" id="needs-you-push-enable" onClick={pushPrompt!.onEnable}>
-              Enable phone alerts
+              {t("sessions.needsYou.pushEnable")}
             </button>
             <button
               className="b"
               id="needs-you-push-dismiss"
-              aria-label="Dismiss phone alerts prompt"
+              aria-label={t("sessions.needsYou.pushDismissLabel")}
               onClick={pushPrompt!.onDismiss}
             >
-              Not now
+              {t("sessions.needsYou.pushDismiss")}
             </button>
           </div>
         </div>
@@ -237,11 +239,11 @@ export function NeedsYou({
       {(items.length > 0 || stale) && (
         <>
           <header>
-            <h3>Needs you</h3>
+            <h3>{t("sessions.needsYou.title")}</h3>
             {items.length > 0 && <span className="ny-count">{items.length}</span>}
             {stale && (
               <span className="ny-stale" id="needs-you-stale" role="status">
-                Couldn’t refresh — showing the last known state
+                {t("sessions.needsYou.stale")}
               </span>
             )}
           </header>
@@ -255,16 +257,16 @@ export function NeedsYou({
                 data-stale={stale ? "true" : undefined}
               >
                 <div className="ny-why">
-                  <span className="ny-reason">{REASON[item.reason]}</span>
+                  <span className="ny-reason">{REASON()[item.reason]}</span>
                   <span className="ny-what">
                     {"approval" in item
                       ? item.approval.session_name ||
                         item.approval.task_title ||
-                        `Attempt ${item.approval.attempt_id}`
+                        t("sessions.needsYou.attempt", { id: item.approval.attempt_id ?? "" })
                       : "session" in item
                         ? item.session.name
                         : "pair" in item
-                          ? `${item.pair.session_a} & ${item.pair.session_b}`
+                          ? t("sessions.needsYou.pairNames", { a: item.pair.session_a, b: item.pair.session_b })
                           : item.task.title}
                   </span>
                   <span className="ny-where">{describe(item)}</span>
@@ -291,13 +293,13 @@ export function NeedsYou({
           aria-expanded={showAll}
           onClick={() => setShowAll((open) => !open)}
         >
-          {showAll ? "Show fewer" : `Show all ${items.length}`}
+          {showAll ? t("sessions.needsYou.showFewer") : t("sessions.needsYou.showAll", { n: items.length })}
         </button>
       )}
       {reviewCount > 0 && (
         <a className="ny-review-link" id="needs-you-review-link" href="#board">
-          {reviewCount} {reviewCount === 1 ? "task" : "tasks"} ready to review
-          <span aria-hidden="true"> → Board</span>
+          {t("sessions.needsYou.reviewLink", { count: reviewCount })}
+          <span aria-hidden="true"> {t("sessions.needsYou.toBoard")}</span>
         </a>
       )}
     </section>
@@ -310,14 +312,14 @@ export function NeedsYou({
         .join(" · ");
     if ("session" in item) {
       if (item.reason === "failed-session")
-        return item.session.setup_error || "workspace setup did not finish";
-      if (item.reason === "stopped-session") return "its terminal is gone";
-      return [item.session.agent, item.session.project_name || "unassigned"]
+        return item.session.setup_error || t("sessions.needsYou.setupUnfinished");
+      if (item.reason === "stopped-session") return t("sessions.needsYou.terminalGone");
+      return [item.session.agent, item.session.project_name || t("sessions.needsYou.unassigned")]
         .filter(Boolean)
         .join(" · ");
     }
     if ("pair" in item)
-      return `Their last prompts overlap ${Math.round(item.pair.score * 100)}% — check they aren't building the same thing`;
+      return t("sessions.needsYou.overlap", { percent: Math.round(item.pair.score * 100) });
     return [item.task.project_name, item.task.agent].filter(Boolean).join(" · ");
   }
 
@@ -326,7 +328,8 @@ export function NeedsYou({
   // already handed, so this needs no extra fetch. A row not present here
   // (rare — the session list and the approval poll are on separate ticks)
   // degrades to a plain hash link rather than disappearing.
-  function sessionAction(sessionID: number, label = "Open session") {
+  function sessionAction(sessionID: number, label?: string) {
+    label ??= t("sessions.needsYou.openSession");
     const session = rows.find((row) => row.id === sessionID);
     if (session)
       return (
@@ -368,17 +371,17 @@ export function NeedsYou({
           >
             <input
               autoFocus
-              placeholder="Reason (optional)"
+              placeholder={t("sessions.needsYou.reasonPlaceholder")}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              aria-label="Reason for denying"
+              aria-label={t("sessions.needsYou.reasonLabel")}
             />
             {dictationSupported && (
               <button
                 type="button"
                 className={dictating ? "b mic-recording" : "b"}
                 id="needs-you-deny-mic"
-                aria-label={dictating ? "Stop dictating" : "Dictate reason"}
+                aria-label={dictating ? t("sessions.needsYou.stopDictating") : t("sessions.needsYou.dictate")}
                 aria-pressed={dictating}
                 onClick={() => toggleDictation(reason)}
               >
@@ -386,7 +389,7 @@ export function NeedsYou({
               </button>
             )}
             <button className="b" type="submit" disabled={isBusy}>
-              Send
+              {t("sessions.needsYou.send")}
             </button>
             <button
               className="b"
@@ -396,7 +399,7 @@ export function NeedsYou({
                 setReason("");
               }}
             >
-              Cancel
+              {t("sessions.needsYou.cancel")}
             </button>
           </form>
         );
@@ -404,7 +407,7 @@ export function NeedsYou({
       return (
         <>
           <button className="b ok" disabled={isBusy} onClick={() => void decide(approval, "approved")}>
-            Approve
+            {t("sessions.needsYou.approve")}
           </button>
           {/* Only a session-scoped approval has a session for the rule to
               live against for the rest of — a task attempt's approval has
@@ -416,11 +419,11 @@ export function NeedsYou({
               disabled={isBusy}
               onClick={() => void decide(approval, "approved", { forSession: true })}
             >
-              Allow for session
+              {t("sessions.needsYou.allowForSession")}
             </button>
           )}
           <button className="b" disabled={isBusy} onClick={() => void decide(approval, "denied")}>
-            Deny
+            {t("sessions.needsYou.deny")}
           </button>
           <button
             className="b ny-deny-more"
@@ -430,10 +433,10 @@ export function NeedsYou({
               setReason("");
             }}
           >
-            Deny with reason…
+            {t("sessions.needsYou.denyWithReason")}
           </button>
           {!!approval.session_id && sessionAction(approval.session_id)}
-          {!approval.session_id && !!approval.task_id && taskAction(approval.task_id, "Open task")}
+          {!approval.session_id && !!approval.task_id && taskAction(approval.task_id, t("sessions.needsYou.openTask"))}
         </>
       );
     }
@@ -441,7 +444,7 @@ export function NeedsYou({
       if (item.reason !== "waiting") {
         return (
           <button className="b" onClick={() => onShowSession(item.session)}>
-            Show session
+            {t("sessions.needsYou.showSession")}
           </button>
         );
       }
@@ -451,10 +454,10 @@ export function NeedsYou({
         return (
           <>
             <button className="b ok ny-terminal" onClick={() => onAttach(item.session)}>
-              ⌨ Terminal
+              {t("sessions.needsYou.terminal")}
             </button>
             <button className="b" onClick={() => onReview(item.session)}>
-              Review
+              {t("sessions.needsYou.review")}
             </button>
           </>
         );
@@ -462,13 +465,13 @@ export function NeedsYou({
       return (
         <>
           <button className="b ok ny-chat" onClick={() => onChat(item.session)}>
-            Chat
+            {t("sessions.needsYou.chat")}
           </button>
           <button className="b" onClick={() => onAttach(item.session)}>
-            ⌨ Terminal
+            {t("sessions.needsYou.terminal")}
           </button>
           <button className="b" onClick={() => onReview(item.session)}>
-            Review
+            {t("sessions.needsYou.review")}
           </button>
         </>
       );
@@ -476,14 +479,14 @@ export function NeedsYou({
     if ("pair" in item) {
       return (
         <>
-          {sessionAction(item.pair.session_a_id, `Open ${item.pair.session_a}`)}
-          {sessionAction(item.pair.session_b_id, `Open ${item.pair.session_b}`)}
+          {sessionAction(item.pair.session_a_id, t("sessions.needsYou.openNamed", { name: item.pair.session_a }))}
+          {sessionAction(item.pair.session_b_id, t("sessions.needsYou.openNamed", { name: item.pair.session_b }))}
         </>
       );
     }
     return taskAction(
       item.task.id,
-      item.reason === "review-task" ? "Review" : "Open task",
+      item.reason === "review-task" ? t("sessions.needsYou.review") : t("sessions.needsYou.openTask"),
     );
   }
 }

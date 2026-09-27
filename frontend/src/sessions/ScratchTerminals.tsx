@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionView } from "../types";
 import { SessionGroups, type GroupMode } from "./SessionGroups";
 
@@ -22,6 +23,7 @@ export function ScratchTerminals({
   onToggle: (key: string, open: boolean) => void;
   render: (session: SessionView) => ReactNode;
 }) {
+  useLocale();
   // Collapsing a group in one list must not collapse the same label in the
   // other; the shared preference is still one stored set, namespaced here.
   const prefix = "scratch:";
@@ -37,11 +39,10 @@ export function ScratchTerminals({
       aria-labelledby="scratch-terminals-title"
     >
       <h3 className="session-section-title" id="scratch-terminals-title">
-        Scratch terminals
+        {t("sessions.scratch.title")}
       </h3>
       <p className="session-section-sub">
-        Blank shells with no project. Attach to use one, or make it a project to
-        keep its files and terminal with your work.
+        {t("sessions.scratch.sub")}
       </p>
       <div className="session-grid">
         {items.length ? (
@@ -56,8 +57,8 @@ export function ScratchTerminals({
         ) : (
           <div className="hint">
             {query
-              ? "No scratch terminals match your search."
-              : "No scratch terminals. Open a blank shell from the Terminals tab and it waits here, out of the way of your sessions."}
+              ? t("sessions.scratch.noMatch")
+              : t("sessions.scratch.empty")}
           </div>
         )}
       </div>

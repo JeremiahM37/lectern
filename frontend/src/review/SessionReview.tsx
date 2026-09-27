@@ -22,6 +22,7 @@ import { PREF_KEYS, useStoredFlag, useStoredPref } from "./prefs";
 import type { DraftComment, DiffResponse, RepoDiff, StoredComment, ViewedMark } from "./types";
 import type { JsonValue } from "../api";
 import type { SessionCheck } from "../types";
+import { t, useLocale } from "../i18n";
 
 // A subset of the app's `api.request`, the same seam TaskDetail uses — so
 // this panel can be opened both from the top-level app (the full DeckApi)
@@ -63,6 +64,7 @@ export function SessionReview({
   onClose(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const [tab, setTab] = useState<Tab>("changes");
   const [diff, setDiff] = useState<DiffResponse>();
   const [loading, setLoading] = useState(true);
@@ -249,7 +251,7 @@ export function SessionReview({
         { method: "POST", body: { comment_ids: drafts.map((d) => d.c.id), summary } },
       );
       onNotice(
-        `Sent ${String(result.comments)} comment(s) to the session as one message (round ${result.round}).`,
+        t("review.session.sent", { n: String(result.comments), round: result.round }),
       );
       setSummary("");
       loadState();
@@ -265,16 +267,16 @@ export function SessionReview({
     if (n.state === "draft")
       return (
         <button type="button" className="b no dl-note-btn" onClick={() => void updateComment(id, {}, "DELETE")}>
-          Delete
+          {t("review.session.delete")}
         </button>
       );
     return (
       <>
         <button type="button" className="b ok dl-note-btn" onClick={() => void updateComment(id, { status: "resolved" })}>
-          Resolve
+          {t("review.action.resolve")}
         </button>
         <button type="button" className="b dl-note-btn" onClick={() => reopen(id)}>
-          Reopen
+          {t("review.action.reopen")}
         </button>
       </>
     );
@@ -343,37 +345,37 @@ export function SessionReview({
   const addressedCount = placed.filter((p) => p.state === "addressed").length;
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "changes", label: `Changes (${totalFiles})` },
-    { id: "commit", label: "Commit" },
-    ...(conflicts > 0 ? [{ id: "conflicts" as Tab, label: `Conflicts (${conflicts})` }] : []),
-    { id: "checks", label: "Checks" },
+    { id: "changes", label: t("review.session.tabChanges", { n: totalFiles }) },
+    { id: "commit", label: t("review.session.tabCommit") },
+    ...(conflicts > 0 ? [{ id: "conflicts" as Tab, label: t("review.session.tabConflicts", { n: conflicts }) }] : []),
+    { id: "checks", label: t("review.session.tabChecks") },
   ];
 
   return (
-    <Modal className="sheet task-detail review-panel review-workspace" id="session-review" aria-label="Review and merge">
+    <Modal className="sheet task-detail review-panel review-workspace" id="session-review" aria-label={t("review.session.label")}>
       <div className="sheet-head">
-        <h2>Review &amp; merge{name ? ` — ${name}` : ""}</h2>
+        <h2>{name ? t("review.session.titleNamed", { name }) : t("review.session.title")}</h2>
         <button className="b" onClick={onClose}>
-          Close
+          {t("review.session.close")}
         </button>
       </div>
-      <div className="review-tabs" role="tablist" aria-label="Review">
-        {tabs.map((t) => (
+      <div className="review-tabs" role="tablist" aria-label={t("review.session.tabsLabel")}>
+        {tabs.map((tb) => (
           <button
-            key={t.id}
+            key={tb.id}
             type="button"
             role="tab"
-            aria-selected={tab === t.id}
-            className={"review-tab" + (t.id === "conflicts" ? " warn" : "")}
-            onClick={() => setTab(t.id)}
+            aria-selected={tab === tb.id}
+            className={"review-tab" + (tb.id === "conflicts" ? " warn" : "")}
+            onClick={() => setTab(tb.id)}
           >
-            {t.label}
+            {tb.label}
           </button>
         ))}
         {multi && (
-          <select aria-label="Repository" value={repo} onChange={(e) => setRepo(e.target.value)}>
-            {tab === "changes" && <option value="">All repositories</option>}
-            {tab !== "changes" && !repo && <option value="">choose one…</option>}
+          <select aria-label={t("review.session.repository")} value={repo} onChange={(e) => setRepo(e.target.value)}>
+            {tab === "changes" && <option value="">{t("review.session.allRepositories")}</option>}
+            {tab !== "changes" && !repo && <option value="">{t("review.session.chooseOne")}</option>}
             {repos.map((r) => (
               <option key={repoKey(r)} value={repoKey(r)}>
                 {repoKey(r)}
@@ -382,33 +384,33 @@ export function SessionReview({
           </select>
         )}
       </div>
-      {loading && <p className="sub">Loading the live diff…</p>}
+      {loading && <p className="sub">{t("review.session.loading")}</p>}
       {!loading && loadError && <p className="sub error">{loadError}</p>}
 
       {!loading && !loadError && diff && tab === "changes" && (
         <>
           <header className="diffhead review-toolbar-sticky">
-            <span>{totalFiles} file(s) changed</span>
+            <span>{t("review.session.filesChanged", { n: totalFiles })}</span>
             <DiffModeToggle mode={mode} onChange={setMode} />
             <button className={"wrapbtn" + (wrap ? " on" : "")} aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
-              ⏎ wrap: {wrap ? "on" : "off"}
+              {wrap ? t("review.session.wrapOn") : t("review.session.wrapOff")}
             </button>
             <button className={"wrapbtn" + (showTree ? " on" : "")} aria-pressed={showTree} onClick={() => setShowTree(!showTree)}>
-              🗂 files
+              {t("review.session.files")}
             </button>
             <button
               className={"wrapbtn" + (showAuthors ? " on" : "")}
               aria-pressed={showAuthors}
-              title="Mark lines written by the agent (◆) and by you (●)"
+              title={t("review.session.authorsHint")}
               onClick={() => setShowAuthors(!showAuthors)}
             >
-              ◆ authors
+              {t("review.session.authors")}
             </button>
             <span className="hunk-nav">
-              <button type="button" className="wrapbtn" aria-label="Previous hunk" onClick={() => hunk(-1)}>
+              <button type="button" className="wrapbtn" aria-label={t("review.session.prevHunk")} onClick={() => hunk(-1)}>
                 ▲
               </button>
-              <button type="button" className="wrapbtn" aria-label="Next hunk" onClick={() => hunk(1)}>
+              <button type="button" className="wrapbtn" aria-label={t("review.session.nextHunk")} onClick={() => hunk(1)}>
                 ▼
               </button>
             </span>
@@ -421,18 +423,18 @@ export function SessionReview({
                 setFocus(first >= 0 ? first : 0);
               }}
             >
-              Review file by file
+              {t("review.session.fileByFile")}
             </button>
           </header>
           {showAuthors && attribution && (
             <p className="sub authors-legend">
-              <span className="a-agent">◆ agent</span> <span className="a-human">● you</span>
-              {!attribution.hook_evidence && " · uncommitted lines are only attributed once the agent reports an edit"}
+              <span className="a-agent">{t("review.session.legendAgent")}</span> <span className="a-human">{t("review.session.legendYou")}</span>
+              {!attribution.hook_evidence && t("review.session.legendNoEvidence")}
             </p>
           )}
           {(openCount > 0 || addressedCount > 0) && (
             <p className="sub review-round-summary" role="status">
-              Sent comments: {addressedCount} changed by the agent, {openCount} not changed yet.
+              {t("review.session.roundSummary", { addressed: addressedCount, open: openCount })}
             </p>
           )}
           <div className={"review-body" + (showTree ? " with-tree" : "")}>
@@ -472,7 +474,7 @@ export function SessionReview({
               file: d.c.file,
               line: d.placement?.line ?? d.c.line,
               side: d.c.side,
-              text: d.c.round ? `${d.c.text} (raised again)` : d.c.text,
+              text: d.c.round ? t("review.tray.raisedAgain", { text: d.c.text }) : d.c.text,
               code: d.c.code,
             }))}
             summary={summary}
@@ -480,14 +482,14 @@ export function SessionReview({
             onRemove={(key) => void updateComment(Number(key), {}, "DELETE")}
             onSend={() => void sendReview()}
             busy={sending}
-            sendLabel={drafts.length > 1 ? `Send ${drafts.length} comments to agent` : "Send to agent"}
+            sendLabel={drafts.length > 1 ? t("review.session.sendMany", { n: drafts.length }) : t("review.session.sendOne")}
           />
         </>
       )}
 
       {!loading && tab === "commit" && (
         multi && !repo ? (
-          <p className="sub">Choose the repository to commit in.</p>
+          <p className="sub">{t("review.session.chooseCommitRepo")}</p>
         ) : (
           <GitPanel
             api={api}
@@ -503,7 +505,7 @@ export function SessionReview({
 
       {!loading && tab === "conflicts" && (
         multi && !repo ? (
-          <p className="sub">Choose the repository with the conflict.</p>
+          <p className="sub">{t("review.session.chooseConflictRepo")}</p>
         ) : (
           <ConflictResolver
             api={api}
@@ -534,7 +536,7 @@ export function SessionReview({
           footer={
             drafts.length > 0 ? (
               <button type="button" className="b ok" disabled={sending} onClick={() => void sendReview()}>
-                Send {drafts.length} 💬
+                {t("review.focus.send", { n: drafts.length })}
               </button>
             ) : null
           }
@@ -553,6 +555,7 @@ function ChecksSection({
   sessionId: number;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const [checks, setChecks] = useState<SessionCheck[]>();
   const [running, setRunning] = useState(false);
   const poll = useRef<number | undefined>(undefined);
@@ -587,12 +590,12 @@ function ChecksSection({
   return (
     <section className="review-check-history">
       <h3>
-        Checks
+        {t("review.checks.title")}
         <button type="button" className="b" disabled={running} onClick={() => void runNow()}>
-          {running ? "Starting…" : "Run check"}
+          {running ? t("review.checks.starting") : t("review.checks.run")}
         </button>
       </h3>
-      {checks && checks.length === 0 && <p className="sub">No checks have run yet.</p>}
+      {checks && checks.length === 0 && <p className="sub">{t("review.checks.none")}</p>}
       {checks && checks.length > 0 && (
         <ul className="review-check-list">
           {checks.map((c) => (
@@ -600,7 +603,7 @@ function ChecksSection({
               <span className={`chip check-chip check-${c.status}`}>{c.status}</span>
               <code>{c.command}</code>
               <span className="sub">
-                {c.finished_at ? new Date(c.finished_at * 1000).toLocaleString() : "running…"}
+                {c.finished_at ? new Date(c.finished_at * 1000).toLocaleString() : t("review.checks.running")}
               </span>
               {c.output_tail && <pre className="review-check-output">{c.output_tail}</pre>}
             </li>

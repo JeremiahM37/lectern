@@ -1,6 +1,6 @@
 import { errorMessage } from "./model";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import { usePref } from "../prefs/store";
 import { allTerminalThemes } from "../theme/terminal-themes";
 import { saveTerminalPrefs, THEMES_KEY, useTerminalPrefs } from "../theme/terminal-prefs";
@@ -30,6 +30,7 @@ export function Dialog({
   onClose: () => void;
   actions?: ReactNode;
 }) {
+  useLocale();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
@@ -48,7 +49,7 @@ export function Dialog({
         <h2>{title}</h2>
         {actions}
         <button data-close onClick={onClose}>
-          Close
+          {t("terminal.close")}
         </button>
       </div>
       {children}
@@ -66,6 +67,7 @@ export function Appearance({
   onPrefs: (prefs: Prefs) => void;
   onClose: () => void;
 }) {
+  useLocale();
   // The colour scheme and spacing follow the person to every device; the
   // font size is this device's own.
   const person = useTerminalPrefs();
@@ -151,6 +153,7 @@ export function HistoryDialog({
   shell: boolean;
   onClose: () => void;
 }) {
+  useLocale();
   const [data, setData] = useState<History>();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
@@ -207,7 +210,7 @@ export function HistoryDialog({
   return (
     <Dialog
       id="history-dialog"
-      title="Session history"
+      title={t("terminalPage.history.title")}
       onClose={onClose}
       actions={
         <>
@@ -215,7 +218,7 @@ export function HistoryDialog({
             id="history-refresh"
             onClick={() => setRefresh((old) => old + 1)}
           >
-            Refresh
+            {t("terminalPage.common.refresh")}
           </button>
           <button
             id="history-save"
@@ -227,7 +230,7 @@ export function HistoryDialog({
               )
             }
           >
-            Download
+            {t("terminalPage.common.download")}
           </button>
         </>
       }
@@ -236,8 +239,8 @@ export function HistoryDialog({
         <input
           id="history-query"
           autoFocus
-          placeholder="Search full tmux history"
-          aria-label="Search full history"
+          placeholder={t("terminalPage.history.placeholder")}
+          aria-label={t("terminalPage.history.searchLabel")}
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -257,15 +260,16 @@ export function HistoryDialog({
           {query
             ? ranges.length
               ? `${index + 1} / ${ranges.length}${ranges.length === 2000 ? "+" : ""}`
-              : "No matches"
+              : t("terminal.noMatches")
             : ""}
         </span>
       </div>
       <p id="history-note">
         {error ||
           (!data
-            ? "Loading history…"
-            : `Snapshot of ${shell ? "companion shell" : "agent"} tmux history · up to ${data.limit_lines.toLocaleString()} retained lines${data.truncated ? " · limited to final 8 MiB" : ""}`)}
+            ? t("terminalPage.history.loading")
+            : t(shell ? "terminalPage.history.snapshotShell" : "terminalPage.history.snapshotAgent", { lines: data.limit_lines.toLocaleString() }) +
+              (data.truncated ? t("terminalPage.history.truncated") : ""))}
       </p>
       <pre ref={container} id="history-text">
         {highlighted}
@@ -358,7 +362,7 @@ function PDFPreview({ blob }: { blob: Blob }) {
       element.height = Math.floor(viewport.height * ratio);
       element.style.width = viewport.width + "px";
       const context = element.getContext("2d");
-      if (!context) throw new Error("Canvas unavailable");
+      if (!context) throw new Error(t("terminalPage.pdf.canvasUnavailable"));
       render = source.render({
         canvasContext: context,
         viewport,
@@ -381,20 +385,20 @@ function PDFPreview({ blob }: { blob: Blob }) {
     <>
       <div className="pdf-controls">
         <button disabled={busy || page <= 1} onClick={() => setPage(page - 1)}>
-          Previous page
+          {t("terminalPage.pdf.previous")}
         </button>
         <span id="pdf-page">
           {error ||
-            (!busy && pdf ? `Page ${page} of ${pdf.numPages}` : "Loading PDF…")}
+            (!busy && pdf ? t("terminalPage.pdf.pageOf", { page, pages: pdf.numPages }) : t("terminalPage.pdf.loading"))}
         </span>
         <button
           disabled={busy || !pdf || page >= pdf.numPages}
           onClick={() => setPage(page + 1)}
         >
-          Next page
+          {t("terminalPage.pdf.next")}
         </button>
       </div>
-      <canvas ref={canvas} aria-label="PDF page" />
+      <canvas ref={canvas} aria-label={t("terminalPage.pdf.pageLabel")} />
     </>
   );
 }
@@ -418,6 +422,7 @@ export function WorkspaceFiles({
   onInsert: (text: string) => void;
   initialPath?: string;
 }) {
+  useLocale();
   const [listing, setListing] = useState<FileListing>();
   const [dir, setDir] = useState(".");
   const [refresh, setRefresh] = useState(0);
@@ -471,7 +476,7 @@ export function WorkspaceFiles({
       const text =
         kind === "text"
           ? (blob.size > 1024 * 1024
-              ? "Preview limited to first 1 MiB. Download for the full file.\n\n"
+              ? t("terminalPage.files.previewLimited") + "\n\n"
               : "") + (await blob.slice(0, 1024 * 1024).text())
           : "";
       if (current !== generation.current) return;
@@ -503,14 +508,14 @@ export function WorkspaceFiles({
     <>
       <Dialog
         id="files-dialog"
-        title="Workspace files"
+        title={t("terminalPage.files.title")}
         onClose={onClose}
         actions={
           <button
             id="files-refresh"
             onClick={() => setRefresh((old) => old + 1)}
           >
-            Refresh
+            {t("terminalPage.common.refresh")}
           </button>
         }
       >
@@ -520,7 +525,7 @@ export function WorkspaceFiles({
             disabled={dir === "."}
             onClick={() => setDir(dir.split("/").slice(0, -1).join("/") || ".")}
           >
-            ↑ Parent
+            {t("terminalPage.files.parent")}
           </button>
           <span id="files-path">{listing?.path || dir}</span>
         </div>
@@ -538,24 +543,24 @@ export function WorkspaceFiles({
               </button>
               <span>
                 {file.directory
-                  ? "folder"
-                  : `${Math.ceil(file.size / 1024)} KiB`}
+                  ? t("terminalPage.files.folder")
+                  : t("terminalPage.files.size", { size: Math.ceil(file.size / 1024) })}
               </span>
               {!file.directory && (
-                <button onClick={() => insert(file.path)}>Insert path</button>
+                <button onClick={() => insert(file.path)}>{t("terminalPage.files.insertPath")}</button>
               )}
             </div>
           ))}
-          {listing && !listing.entries.length && "This folder is empty."}
+          {listing && !listing.entries.length && t("terminalPage.files.empty")}
         </div>
         <p>
-          Up to 500 entries per folder · previews and downloads up to 25 MiB
+          {t("terminalPage.files.limits")}
         </p>
       </Dialog>
       {preview && (
         <Dialog
           id="preview-dialog"
-          title={preview.path.split("/").pop() || "Preview"}
+          title={preview.path.split("/").pop() || t("terminalPage.files.preview")}
           onClose={() => {
             setPreview(undefined);
             URL.revokeObjectURL(url.current);
@@ -564,14 +569,14 @@ export function WorkspaceFiles({
           actions={
             <>
               <button id="preview-insert" onClick={() => insert(preview.path)}>
-                Insert path
+                {t("terminalPage.files.insertPath")}
               </button>
               <a
                 id="preview-download"
                 href={preview.url}
                 download={preview.path.split("/").pop()}
               >
-                Download
+                {t("terminalPage.common.download")}
               </a>
             </>
           }
@@ -584,7 +589,7 @@ export function WorkspaceFiles({
             ) : preview.kind === "text" ? (
               <pre>{preview.text}</pre>
             ) : (
-              "Binary file. Use Download to open it on your device."
+              t("terminalPage.files.binary")
             )}
           </div>
         </Dialog>
@@ -601,59 +606,56 @@ export function Desktop({
   onClose: () => void;
   onNotice: (text: string) => void;
 }) {
+  useLocale();
   return (
-    <Dialog id="desktop-dialog" title="Open in your terminal" onClose={onClose}>
+    <Dialog id="desktop-dialog" title={t("terminalPage.desktop.title")} onClose={onClose}>
       <p>
-        Attach to this same session in your default terminal. Closing either
-        terminal leaves the session running.
+        {t("terminalPage.desktop.intro")}
       </p>
       <a id="desktop-open" className="button primary" href={info.desktop_uri}>
-        Open in terminal
+        {t("terminalPage.tools.openInTerminal")}
       </a>
-      <h3>First-time setup</h3>
+      <h3>{t("terminalPage.desktop.firstTime")}</h3>
       <div className="desktop-platforms">
         <section>
           <span className="platform-label">Linux</span>
-          <h3>Your default terminal</h3>
-          <p>Download the launcher, then run:</p>
+          <h3>{t("terminalPage.desktop.defaultTerminal")}</h3>
+          <p>{t("terminalPage.desktop.runLinux")}</p>
           <code>bash setup-lectern-terminal.sh</code>
           <a href="/desktop/setup-lectern-terminal.sh" download>
-            Download Linux setup
+            {t("terminalPage.desktop.downloadLinux")}
           </a>
         </section>
         <section>
           <span className="platform-label">Windows</span>
-          <h3>Your default terminal</h3>
-          <p>Download the launcher, then run in PowerShell:</p>
+          <h3>{t("terminalPage.desktop.defaultTerminal")}</h3>
+          <p>{t("terminalPage.desktop.runWindows")}</p>
           <code>
             powershell -ExecutionPolicy Bypass -File .\setup-lectern.ps1
           </code>
           <a href="/desktop/setup-lectern.ps1" download>
-            Download Windows setup
+            {t("terminalPage.desktop.downloadWindows")}
           </a>
         </section>
       </div>
       <p>
-        Both use your <code>lectern</code> SSH alias. Your terminal theme and
-        existing sessions stay intact.
+        {t("terminalPage.desktop.aliasBefore")} <code>lectern</code> {t("terminalPage.desktop.aliasAfter")}
       </p>
       <a href="/desktop/README.txt" target="_blank" rel="noopener">
-        Connection and setup instructions ↗
+        {t("terminalPage.desktop.instructions")}
       </a>
       <details className="manual-connection">
-        <summary>Manage Lectern entirely from a terminal</summary>
+        <summary>{t("terminalPage.desktop.cliSummary")}</summary>
         <p>
-          Install the terminal client, then run <code>lectern</code>.
-          Sessions, tasks, routines, settings and context uploads are available
-          without the web UI.
+          {t("terminalPage.desktop.cliBefore")} <code>lectern</code>{t("terminalPage.desktop.cliAfter")}
         </p>
         <p>
           <a href="/desktop/install-lectern-cli.sh" download>
-            Linux client installer
+            {t("terminalPage.desktop.linuxInstaller")}
           </a>{" "}
           ·{" "}
           <a href="/desktop/install-lectern-cli.ps1" download>
-            Windows client installer
+            {t("terminalPage.desktop.windowsInstaller")}
           </a>
         </p>
         <code id="cli-install-command">
@@ -664,24 +666,24 @@ export function Desktop({
         </code>
       </details>
       <details className="manual-connection">
-        <summary>Connect from an already-open terminal</summary>
-        <p>Run this in your terminal:</p>
+        <summary>{t("terminalPage.desktop.manualSummary")}</summary>
+        <p>{t("terminalPage.desktop.runThis")}</p>
         <textarea
           id="desktop-command"
           readOnly
           rows={3}
-          aria-label="Manual SSH command"
+          aria-label={t("terminalPage.desktop.manualLabel")}
           value={info.desktop_command}
         />
         <button
           id="desktop-copy"
           onClick={() => {
             void copyClipboard(info.desktop_command)
-              .then(() => onNotice("SSH command copied."))
+              .then(() => onNotice(t("terminalPage.desktop.copied")))
               .catch((error) => onNotice(errorMessage(error)));
           }}
         >
-          Copy command
+          {t("terminalPage.desktop.copyCommand")}
         </button>
       </details>
     </Dialog>
@@ -701,6 +703,7 @@ export function Snippets({
   onSend: (command: QuickCommand) => void;
   onClose: () => void;
 }) {
+  useLocale();
   const [globalRaw] = usePref<unknown>(GLOBAL_KEY, undefined);
   const [projectRaw] = usePref<unknown>(projectId ? projectKey(projectId) : "quick-commands:none", NO_THEMES);
   const everywhere = globalRaw === undefined ? readGlobal() : cleanQuickCommands(globalRaw);

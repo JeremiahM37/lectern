@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionView, Target } from "../types";
 import type { JsonValue } from "../api";
 import type { SessionsApi } from "./Sessions";
+import { t, useLocale } from "../i18n";
 type Conv = { id: string; modified: number; title: string };
 type Msg = {
   role: string;
@@ -36,6 +37,7 @@ export function NativeHistory({
   onSession(s: SessionView, action?: "fork" | "resume"): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [data, setData] = useState<HistoryList>(),
     [cid, setCid] = useState(""),
     [messages, setMessages] = useState<Msg[]>([]),
@@ -44,13 +46,13 @@ export function NativeHistory({
     [isolated, setIsolated] = useState(false),
     [branch, setBranch] = useState(""),
     [base, setBase] = useState(""),
-    [name, setName] = useState(session.name + " · fork"),
+    [name, setName] = useState(() => t("conversation.saved.forkName", { name: session.name })),
     [pending, setPending] = useState(false),
-    [status, setStatus] = useState("Finding saved conversations…");
+    [status, setStatus] = useState(() => t("conversation.saved.finding"));
   const generation = useRef(0);
   async function list() {
     const g = ++generation.current;
-    setStatus("Finding saved conversations…");
+    setStatus(t("conversation.saved.finding"));
     try {
       const d = await api.request<HistoryList>(
         `/sessions/${session.id}/conversations`,
@@ -66,9 +68,9 @@ export function NativeHistory({
       setStatus(
         d.conversations.length
           ? selected
-            ? "Loading saved messages…"
-            : "Choose a saved conversation to see available actions."
-          : "No saved conversations found in this workspace.",
+            ? t("conversation.saved.loading")
+            : t("conversation.saved.choose")
+          : t("conversation.saved.none"),
       );
       if (selected && selected === cid) void read();
     } catch (e) {
@@ -78,7 +80,7 @@ export function NativeHistory({
   async function read(older = false) {
     if (!cid) return;
     const g = ++generation.current;
-    setStatus("Loading saved messages…");
+    setStatus(t("conversation.saved.loading"));
     try {
       const page = await api.request<HistoryPage>(
         `/sessions/${session.id}/conversations/${encodeURIComponent(cid)}${older && before != null ? `?before=${before}` : ""}`,
@@ -124,15 +126,15 @@ export function NativeHistory({
   const explanation =
     data?.current?.state === "identified"
       ? data.current.saved
-        ? "The current terminal’s conversation is marked in the list."
-        : "The current terminal has not saved readable messages yet."
+        ? t("conversation.saved.currentMarked")
+        : t("conversation.saved.currentUnsaved")
       : data?.current?.state === "ambiguous"
-        ? "Several conversations are active in this terminal. Choose one explicitly."
-        : "The current conversation could not be identified. Choose one explicitly.";
+        ? t("conversation.saved.ambiguous")
+        : t("conversation.saved.unidentified");
   return (
     <Modal
       className="native-history"
-      aria-label="Saved conversations"
+      aria-label={t("conversation.saved.title")}
       onCancel={(e) => {
         if (pending) e.preventDefault();
         else onClose();
@@ -140,23 +142,23 @@ export function NativeHistory({
     >
       <header>
         <div>
-          <h2>Saved conversations</h2>
+          <h2>{t("conversation.saved.title")}</h2>
           <p className="nh-name">{session.name}</p>
         </div>
         <button className="nh-close" disabled={pending} onClick={onClose}>
-          Close
+          {t("conversation.saved.close")}
         </button>
       </header>
       <p className="nh-explain" hidden={!!action}>
         {explanation}
         {data?.scan_limited &&
-          " Showing up to 500 discovered transcript files, prioritizing the current terminal."}
+          t("conversation.saved.scanLimited")}
       </p>
       <div className="nh-controls" hidden={!!action}>
         <select
           hidden={!!action}
           className="nh-select"
-          aria-label="Conversation"
+          aria-label={t("conversation.saved.conversation")}
           value={cid}
           disabled={pending}
           onChange={(e) => {
@@ -167,10 +169,10 @@ export function NativeHistory({
             setCid(e.target.value);
           }}
         >
-          <option value="">Choose a saved conversation</option>
+          <option value="">{t("conversation.saved.chooseOption")}</option>
           {data?.conversations.map((c) => (
             <option value={c.id} key={c.id}>
-              {c.id === data.current?.id ? "Current terminal · " : ""}
+              {c.id === data.current?.id ? t("conversation.saved.currentTerminal") : ""}
               {new Date(c.modified * 1000).toLocaleString()} · {c.title} ·{" "}
               {c.id.slice(0, 8)}
             </option>
@@ -182,7 +184,7 @@ export function NativeHistory({
           disabled={pending}
           onClick={() => void list()}
         >
-          Refresh
+          {t("conversation.saved.refresh")}
         </button>
         <button
           className="nh-fork"
@@ -190,10 +192,10 @@ export function NativeHistory({
           disabled={!cid || pending || !data?.fork_supported}
           onClick={() => {
             setAction("fork");
-            setName(session.name + " · fork");
+            setName(t("conversation.saved.forkName", { name: session.name }));
           }}
         >
-          Fork conversation
+          {t("conversation.saved.fork")}
         </button>
         {data?.resume_supported && (
           <button
@@ -202,10 +204,10 @@ export function NativeHistory({
             disabled={!cid || pending}
             onClick={() => {
               setAction("resume");
-              setName(session.name + " · resumed");
+              setName(t("conversation.saved.resumedName", { name: session.name }));
             }}
           >
-            Resume conversation
+            {t("conversation.saved.resume")}
           </button>
         )}
       </div>
@@ -216,24 +218,24 @@ export function NativeHistory({
         {messages.map((m, i) =>
           m.role === "tool" ? (
             <details key={i} className="nh-message nh-tool">
-              <summary>Tool activity</summary>
+              <summary>{t("conversation.saved.toolActivity")}</summary>
               <pre>{m.text}</pre>
               {m.truncated && (
-                <small>Long message shortened in this view.</small>
+                <small>{t("conversation.saved.longShortened")}</small>
               )}
             </details>
           ) : (
             <article key={i} className={`nh-message nh-${m.role}`}>
               <b>
                 {m.role === "user"
-                  ? "You"
+                  ? t("conversation.saved.you")
                   : m.role === "assistant"
-                    ? "Assistant"
-                    : "Tool activity"}
+                    ? t("conversation.saved.assistant")
+                    : t("conversation.saved.toolActivity")}
               </b>
               <pre>{m.text}</pre>
               {m.truncated && (
-                <small>Long message shortened in this view.</small>
+                <small>{t("conversation.saved.longShortened")}</small>
               )}
             </article>
           ),
@@ -245,7 +247,7 @@ export function NativeHistory({
           disabled={pending}
           onClick={() => void read(true)}
         >
-          Load earlier messages
+          {t("conversation.saved.loadEarlier")}
         </button>
       )}
       {action && (
@@ -258,16 +260,16 @@ export function NativeHistory({
         >
           <p>
             {action === "resume"
-              ? "Continue this same saved conversation in its original workspace? The previous terminal must be stopped."
+              ? t("conversation.saved.confirmResume")
               : isolated
-                ? "Fork into a new Git worktree. Uncommitted changes stay in the original workspace."
-                : "Create an independent conversation using the same workspace files."}
+                ? t("conversation.saved.confirmIsolated")
+                : t("conversation.saved.confirmShared")}
           </p>
           <label>
-            New session name
+            {t("conversation.saved.newName")}
             <input
               className="nh-fork-name"
-              aria-label="Session name"
+              aria-label={t("conversation.saved.sessionName")}
               disabled={pending}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -276,24 +278,24 @@ export function NativeHistory({
           {action === "fork" && (
             <>
               <label>
-                Workspace
+                {t("conversation.saved.workspace")}
                 <select
-                  aria-label="Workspace"
+                  aria-label={t("conversation.saved.workspace")}
                   className="nh-workspace"
                   disabled={pending}
                   value={isolated ? "isolated" : "shared"}
                   onChange={(e) => setIsolated(e.target.value === "isolated")}
                 >
-                  <option value="shared">Use the same files</option>
-                  <option value="isolated">New isolated Git worktree</option>
+                  <option value="shared">{t("conversation.saved.sameFiles")}</option>
+                  <option value="isolated">{t("conversation.saved.isolatedWorktree")}</option>
                 </select>
               </label>
               {isolated && (
                 <>
                   <label>
-                    New branch (blank = automatic)
+                    {t("conversation.saved.newBranch")}
                     <input
-                      aria-label="New branch"
+                      aria-label={t("conversation.saved.newBranchLabel")}
                       className="nh-branch"
                       disabled={pending}
                       value={branch}
@@ -301,9 +303,9 @@ export function NativeHistory({
                     />
                   </label>
                   <label>
-                    Base commit or branch (blank = HEAD)
+                    {t("conversation.saved.base")}
                     <input
-                      aria-label="Base commit or branch"
+                      aria-label={t("conversation.saved.baseLabel")}
                       className="nh-base"
                       disabled={pending}
                       value={base}
@@ -315,7 +317,7 @@ export function NativeHistory({
             </>
           )}
           <button className="nh-create" disabled={pending}>
-            {action === "resume" ? "Start resumed session" : "Create fork"}
+            {action === "resume" ? t("conversation.saved.startResumed") : t("conversation.saved.createFork")}
           </button>
           <button
             disabled={pending}
@@ -323,7 +325,7 @@ export function NativeHistory({
             className="nh-cancel"
             onClick={() => setAction(undefined)}
           >
-            Cancel
+            {t("conversation.saved.cancel")}
           </button>
         </form>
       )}

@@ -4,6 +4,7 @@ import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
 import { inApp } from "../native/bridge";
 import { forgetPairing, preferDirect, relayFlagged, setPreferDirect } from "../relay/store";
+import { t, useLocale } from "../i18n";
 
 // Settings → Devices → Encrypted relay (docs/relay.md). The server half is
 // internal/api/relay.go.
@@ -43,6 +44,7 @@ export function relayPairURL(fragment: string, shellURL: string | undefined, ori
 }
 
 function ThisDevice() {
+  useLocale();
   const tunnel = typeof window !== "undefined" ? window.__lecternRelay : undefined;
   const [, rerender] = useState(0);
   useEffect(() => {
@@ -57,36 +59,37 @@ function ThisDevice() {
     if (!inApp()) return null;
     return (
       <div className="relay-this-device" data-testid="app-this-device">
-        <h4>This app</h4>
-        <p className="subhint">Connected directly to {window.location.host}.</p>
-        <button className="b" onClick={() => { if (confirm("Disconnect this app from Lectern?")) void forgetPairing(); }}>Disconnect this app</button>
+        <h4>{t("settings.relay.thisApp")}</h4>
+        <p className="subhint">{t("settings.relay.directTo", { host: window.location.host })}</p>
+        <button className="b" onClick={() => { if (confirm(t("settings.relay.disconnectConfirm"))) void forgetPairing(); }}>{t("settings.relay.disconnect")}</button>
       </div>
     );
   }
   const direct = preferDirect();
   async function forget() {
-    if (!confirm("Forget this device's relay pairing? You will need a new QR code to pair it again.")) return;
+    if (!confirm(t("settings.relay.forgetConfirm"))) return;
     await forgetPairing();
     window.location.reload();
   }
   return (
     <div className="relay-this-device" data-testid="relay-this-device">
-      <h4>This device</h4>
+      <h4>{t("settings.relay.thisDevice")}</h4>
       <p className="subhint">
         {direct
-          ? "Paired over the relay, but set to connect directly."
-          : `Connected through the encrypted relay: ${tunnel?.status ?? "starting"}${tunnel?.detail ? ` — ${tunnel.detail}` : ""}`}
+          ? t("settings.relay.pairedDirect")
+          : `${t("settings.relay.through", { status: tunnel?.status ?? t("settings.relay.starting") })}${tunnel?.detail ? ` — ${tunnel.detail}` : ""}`}
       </p>
       {!inApp() && <label className="devices-toggle">
         <input type="checkbox" checked={direct} onChange={(e) => { setPreferDirect(e.target.checked); window.location.reload(); }} />
-        Connect directly instead of through the relay
+        {t("settings.relay.preferDirect")}
       </label>}
-      <button className="b" onClick={() => void forget()}>Forget this pairing</button>
+      <button className="b" onClick={() => void forget()}>{t("settings.relay.forget")}</button>
     </div>
   );
 }
 
 export function RelayPanel({ api, onNotice }: { api: SettingsApi; onNotice(t: string, e?: boolean): void }) {
+  useLocale();
   const [status, setStatus] = useState<RelayStatus>();
   const [minted, setMinted] = useState<Minted>();
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -120,7 +123,7 @@ export function RelayPanel({ api, onNotice }: { api: SettingsApi; onNotice(t: st
   }
 
   async function revoke(d: RelayDevice) {
-    if (!confirm(`Revoke ${d.name}? Its key is deleted and its connection closed at once.`)) return;
+    if (!confirm(t("settings.relay.revokeConfirm", { name: d.name }))) return;
     try {
       await api.request(`/relay/devices/${d.id}`, { method: "DELETE" });
       load();
@@ -133,43 +136,41 @@ export function RelayPanel({ api, onNotice }: { api: SettingsApi; onNotice(t: st
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
     <article className="devices-panel relay-panel" data-testid="relay-panel">
-      <h3>Encrypted relay</h3>
+      <h3 data-setting="devices.relay">{t("settings.relay.title")}</h3>
       <p className="subhint">
-        Reach Lectern from a phone with no VPN and no open port. Lectern and the
-        phone both connect out to a relay, which passes only end-to-end encrypted
-        messages and cannot read them. See docs/relay.md.
+        {t("settings.relay.hint")}
       </p>
       <ThisDevice />
       {!status ? null : !status.configured ? (
-        <p className="subhint">Not set up. Run <code>lectern relay</code> somewhere both sides can reach and set <code>LECTERN_RELAY_URL</code> and <code>LECTERN_RELAY_HOST_SECRET</code>.</p>
+        <p className="subhint">{t("settings.relay.notSetUp1")} <code>lectern relay</code> {t("settings.relay.notSetUp2")} <code>LECTERN_RELAY_URL</code> {t("settings.relay.notSetUp3")} <code>LECTERN_RELAY_HOST_SECRET</code>{t("settings.relay.notSetUp4")}</p>
       ) : (
         <>
           <p className="subhint" data-testid="relay-state">
-            {status.connected ? "Connected to " : "Not connected to "}<code>{status.relay_url}</code>
+            {status.connected ? t("settings.relay.connectedTo") : t("settings.relay.notConnectedTo")} <code>{status.relay_url}</code>
             {!status.connected && status.error ? ` — ${status.error}` : ""}
-            <br />Lectern key <code>{status.host_fingerprint}</code> · shell key <code>{status.shell_fingerprint}</code>
+            <br />{t("settings.relay.lecternKey")} <code>{status.host_fingerprint}</code> · {t("settings.relay.shellKey")} <code>{status.shell_fingerprint}</code>
           </p>
           <button className="b" onClick={() => void mint()} disabled={busy || !status.connected}>
-            {busy ? "Generating…" : "Pair a phone over the relay"}
+            {busy ? t("settings.devices.generating") : t("settings.relay.pair")}
           </button>
           {minted && !expired && (
             <div className="pairing-mint" data-testid="relay-pairing-mint">
               <QRCode value={relayPairURL(minted.fragment, minted.shell_url, origin)} size={220} />
               <div className="pairing-mint-code">
                 <p className="subhint">
-                  Scan with the phone's camera. It opens Lectern on{" "}
-                  <code>{minted.shell_url || origin}</code> once to install the app, then uses the relay.
+                  {t("settings.relay.scanBefore")}{" "}
+                  <code>{minted.shell_url || origin}</code> {t("settings.relay.scanAfter")}
                 </p>
-                <p className="subhint">Lectern key: <code>{minted.host_fingerprint}</code></p>
-                <a className="relay-pair-link" href={relayPairURL(minted.fragment, minted.shell_url, origin)}>Pairing link</a>
-                <p className="subhint">Expires in {secondsLeft}s · single use</p>
+                <p className="subhint">{t("settings.relay.lecternKeyColon")} <code>{minted.host_fingerprint}</code></p>
+                <a className="relay-pair-link" href={relayPairURL(minted.fragment, minted.shell_url, origin)}>{t("settings.relay.link")}</a>
+                <p className="subhint">{t("settings.devices.expires", { seconds: secondsLeft })}</p>
               </div>
             </div>
           )}
-          {minted && expired && <p className="subhint">That code expired. Generate a new one.</p>}
-          <h4>Relay devices</h4>
+          {minted && expired && <p className="subhint">{t("settings.devices.expired")}</p>}
+          <h4>{t("settings.relay.devices")}</h4>
           {status.devices.length === 0 ? (
-            <p className="subhint">No devices paired over the relay.</p>
+            <p className="subhint">{t("settings.relay.none")}</p>
           ) : (
             <ul className="device-list">
               {status.devices.map((d) => (
@@ -177,10 +178,10 @@ export function RelayPanel({ api, onNotice }: { api: SettingsApi; onNotice(t: st
                   <div className="device-info">
                     <strong>{d.name}</strong>
                     <span className="subhint">
-                      {d.connected ? "Connected now · " : ""}key <code>{d.fingerprint}</code> · paired {formatAgo(d.paired_at)} · last seen {formatAgo(d.last_seen_at)}
+                      {d.connected ? `${t("settings.relay.connectedNow")} · ` : ""}{t("settings.relay.key")} <code>{d.fingerprint}</code> · {t("settings.relay.pairedSeen", { paired: formatAgo(d.paired_at), seen: formatAgo(d.last_seen_at) })}
                     </span>
                   </div>
-                  <button className="b" onClick={() => void revoke(d)}>Revoke</button>
+                  <button className="b" onClick={() => void revoke(d)}>{t("settings.devices.revoke")}</button>
                 </li>
               ))}
             </ul>

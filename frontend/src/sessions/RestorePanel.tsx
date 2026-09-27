@@ -1,4 +1,5 @@
 import React from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionsApi } from "./Sessions";
 import { closedAge, type RestorableSession } from "./restore";
 
@@ -22,6 +23,7 @@ export function RestorePanel({
   onElsewhere,
   refreshVersion = 0,
 }: RestorePanelProps) {
+  const locale = useLocale();
   const [rows, setRows] = React.useState<RestorableSession[]>(),
     [busy, setBusy] = React.useState(false),
     [query, setQuery] = React.useState(""),
@@ -63,36 +65,36 @@ export function RestorePanel({
         .join(" ")
         .toLocaleLowerCase();
       if (!terms.every((term) => haystack.includes(term))) continue;
-      const key = row.project_name || "No project";
+      const key = row.project_name || t("sessions.restorePanel.noProject");
       out.set(key, [...(out.get(key) || []), row]);
     }
     return [...out.entries()];
-  }, [rows, query]);
+  }, [rows, query, locale]);
 
   return (
-    <section className="recent-closed" aria-label="Restore sessions">
+    <section className="recent-closed" aria-label={t("sessions.restorePanel.label")}>
       <div className="recent-closed-head">
         <div>
-          <h3>Restore</h3>
-          <p>Closed, archived and interrupted sessions, newest first.</p>
+          <h3>{t("sessions.restorePanel.title")}</h3>
+          <p>{t("sessions.restorePanel.sub")}</p>
         </div>
-        {busy && <span className="hint">Loading…</span>}
+        {busy && <span className="hint">{t("sessions.restorePanel.loading")}</span>}
       </div>
       <input
         id="restore-search"
         className="f"
         type="search"
-        placeholder="Search names, projects, folders or the last message"
-        aria-label="Search restorable sessions"
+        placeholder={t("sessions.restorePanel.searchPlaceholder")}
+        aria-label={t("sessions.restorePanel.searchLabel")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
       {!rows ? (
-        <p className="hint">Loading restorable sessions…</p>
+        <p className="hint">{t("sessions.restorePanel.loadingRows")}</p>
       ) : rows.length === 0 ? (
-        <p className="hint">Nothing to restore.</p>
+        <p className="hint">{t("sessions.restorePanel.empty")}</p>
       ) : groups.length === 0 ? (
-        <p className="hint">No closed session matches your search.</p>
+        <p className="hint">{t("sessions.restorePanel.noMatch")}</p>
       ) : (
         groups.map(([project, items]) => (
           <div className="restore-group" key={project}>
@@ -106,10 +108,10 @@ export function RestorePanel({
                 >
                   <div className="recent-details">
                     <strong>
-                      {session.name || "Unnamed session"}
+                      {session.name || t("sessions.restorePanel.unnamed")}
                       {session.likely_match && (
-                        <span className="restore-likely" title="Matched by folder, agent and time">
-                          likely match
+                        <span className="restore-likely" title={t("sessions.restorePanel.likelyTitle")}>
+                          {t("sessions.restorePanel.likely")}
                         </span>
                       )}
                     </strong>
@@ -119,7 +121,7 @@ export function RestorePanel({
                         ? "shell"
                         : session.model
                           ? `${session.agent} · ${session.model}`
-                          : session.agent || "unknown agent"}{" "}
+                          : session.agent || t("sessions.restorePanel.unknownAgent")}{" "}
                       · {closedAge(session.ended_at ?? session.updated_at)}
                     </span>
                     {session.preview && (
@@ -140,7 +142,7 @@ export function RestorePanel({
                         );
                       }}
                     >
-                      {actionID === session.id ? "Restoring…" : session.action_label}
+                      {actionID === session.id ? t("sessions.restorePanel.restoring") : session.action_label}
                     </button>
                     {session.agent !== "shell" && session.action !== "track" && (
                       <button
@@ -148,7 +150,7 @@ export function RestorePanel({
                         disabled={busy || actionID === session.id}
                         onClick={() => onElsewhere(session)}
                       >
-                        Other agent…
+                        {t("sessions.restorePanel.otherAgent")}
                       </button>
                     )}
                   </div>

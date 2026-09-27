@@ -4,6 +4,7 @@ import { ApiError } from "../api/client";
 import { DiffViewer } from "./DiffViewer";
 import type { Hunk } from "./diffModel";
 import type { CommitResult, CommitStep, FilePatch, GitFile, GitStatus } from "./types";
+import { t, useLocale } from "../i18n";
 
 export interface ReviewApi {
   request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -26,6 +27,7 @@ export function ConfirmButton({
   className?: string;
   disabled?: boolean;
 }) {
+  useLocale();
   const [asking, setAsking] = useState(false);
   if (!asking)
     return (
@@ -37,7 +39,7 @@ export function ConfirmButton({
     <span className="confirm-inline" role="group">
       {prompt && <span className="confirm-prompt">{prompt}</span>}
       <button type="button" className="b" onClick={() => setAsking(false)}>
-        Cancel
+        {t("review.action.cancel")}
       </button>
       <button
         type="button"
@@ -84,6 +86,7 @@ export function GitPanel({
   onNotice(text: string, error?: boolean): void;
   onShowConflicts?(): void;
 }) {
+  useLocale();
   const base = `/sessions/${sessionId}/git`;
   const q = repo ? `?repo=${encodeURIComponent(repo)}` : "";
   const [status, setStatus] = useState<GitStatus>();
@@ -158,18 +161,18 @@ export function GitPanel({
       const hunk = (op: string) => ({ path: f.path, op, index: h.index, fingerprint: fp });
       return scope === "staged" ? (
         <button type="button" className="b" disabled={!!busy} onClick={() => void act("hunk", "/hunk", hunk("unstage"))}>
-          Unstage hunk
+          {t("review.git.unstageHunk")}
         </button>
       ) : (
         <>
           <button type="button" className="b ok" disabled={!!busy} onClick={() => void act("hunk", "/hunk", hunk("stage"))}>
-            Stage hunk
+            {t("review.git.stageHunk")}
           </button>
           <ConfirmButton
-            label="Discard hunk"
-            confirm="Discard"
+            label={t("review.git.discardHunk")}
+            confirm={t("review.git.discard")}
             disabled={!!busy}
-            onConfirm={() => void act("hunk", "/hunk", hunk("discard"), "Discarded that hunk.")}
+            onConfirm={() => void act("hunk", "/hunk", hunk("discard"), t("review.git.discardedHunk"))}
           />
         </>
       );
@@ -203,7 +206,7 @@ export function GitPanel({
                     disabled={!!busy}
                     onClick={() => void act("unstage", "/unstage", { paths: [f.path] })}
                   >
-                    Unstage
+                    {t("review.git.unstage")}
                   </button>
                 ) : (
                   <>
@@ -213,14 +216,14 @@ export function GitPanel({
                       disabled={!!busy}
                       onClick={() => void act("stage", "/stage", { paths: [f.path] })}
                     >
-                      Stage
+                      {t("review.git.stage")}
                     </button>
                     <ConfirmButton
-                      label="Discard"
-                      confirm={f.new_file ? "Delete file" : "Discard changes"}
+                      label={t("review.git.discard")}
+                      confirm={f.new_file ? t("review.git.deleteFile") : t("review.git.discardChanges")}
                       disabled={!!busy}
                       onConfirm={() =>
-                        void act("discard", "/discard", { paths: [f.path] }, `Discarded ${f.path}.`)
+                        void act("discard", "/discard", { paths: [f.path] }, t("review.git.discardedPath", { path: f.path }))
                       }
                     />
                   </>
@@ -250,7 +253,11 @@ export function GitPanel({
         { method: "POST", body: { repo } },
       );
       setMessage(out.message);
-      onNotice(`Commit message written by ${out.agent}${out.model ? ` (${out.model})` : ""}.`);
+      onNotice(
+        out.model
+          ? t("review.git.messageByModel", { agent: out.agent, model: out.model })
+          : t("review.git.messageBy", { agent: out.agent }),
+      );
     } catch (e) {
       onNotice(e instanceof Error ? e.message : String(e), true);
     } finally {
@@ -294,7 +301,7 @@ export function GitPanel({
       });
       setResult(out);
       const failed = out.steps.find((s) => Number(s.rc) !== 0);
-      onNotice(failed ? `Commit step "${failed.step}" failed.` : amend ? "Amended." : "Committed.", Boolean(failed));
+      onNotice(failed ? t("review.git.stepFailed", { step: failed.step }) : amend ? t("review.git.amended") : t("review.git.committed"), Boolean(failed));
       if (!failed) {
         setAmend(false);
         if (amend && allowPushedAmend) setForceAsk(true);
@@ -320,7 +327,7 @@ export function GitPanel({
       setResult({ steps: out.steps });
       setForceAsk(false);
       const failed = out.steps.find((s) => Number(s.rc) !== 0);
-      onNotice(failed ? "Force push refused: origin moved since you looked. Refresh and check." : "Force pushed.", !!failed);
+      onNotice(failed ? t("review.git.forceRefused") : t("review.git.forcePushed"), !!failed);
     }
   }
 
@@ -330,45 +337,48 @@ export function GitPanel({
       message,
       output: result.hook_failure.output,
       hooks: result.hook_failure.hooks ?? [],
-    }, "Sent the hook output to the agent.");
+    }, t("review.git.hookSent"));
   }
 
   if (error) return <p className="sub error">{error}</p>;
-  if (!status) return <p className="sub">Loading git status…</p>;
+  // Sentences with markup inside: the text around the <code>/<b> element.
+  const openPr = t("review.git.openPr").split("{gh}");
+  const alreadyPushed = t("review.git.alreadyPushed").split("{refs}");
+  if (!status) return <p className="sub">{t("review.git.loading")}</p>;
 
   return (
     <section className="git-panel" aria-label="Git">
       <header className="git-branch">
-        <span className="chip info">⎇ {status.branch || "detached"}</span>
+        <span className="chip info">⎇ {status.branch || t("review.git.detached")}</span>
         {status.upstream ? (
           <span className="sub">
             {status.upstream} · ↑{status.ahead} ↓{status.behind}
           </span>
         ) : (
-          <span className="sub">{status.remote_sha ? "on origin" : "not pushed yet"}</span>
+          <span className="sub">{status.remote_sha ? t("review.git.onOrigin") : t("review.git.notPushed")}</span>
         )}
-        {status.hooks.length > 0 && <span className="sub">hooks: {status.hooks.join(", ")}</span>}
+        {status.hooks.length > 0 && <span className="sub">{t("review.git.hooks", { hooks: status.hooks.join(", ") })}</span>}
         <button type="button" className="b" onClick={refresh}>
-          Refresh
+          {t("review.git.refresh")}
         </button>
       </header>
 
       {status.operation && (
         <div className="git-operation" role="status">
-          <b>A {status.operation} is in progress.</b>{" "}
+          <b>{t("review.git.inProgress", { operation: status.operation })}</b>{" "}
           {conflicted.length > 0
-            ? `${conflicted.length} file(s) still in conflict.`
-            : "All conflicts are resolved — commit to finish it."}
+            ? t("review.git.stillInConflict", { n: conflicted.length })
+            : t("review.git.allResolved")}
           <span className="git-operation-actions">
             {conflicted.length > 0 && onShowConflicts && (
               <button type="button" className="b ok" onClick={onShowConflicts}>
-                Resolve conflicts
+                {t("review.git.resolveConflicts")}
               </button>
             )}
             <ConfirmButton
-              label={`Abort ${status.operation}`}
-              confirm={`Abort the ${status.operation}`}
-              onConfirm={() => void act("abort", "/abort", {}, `Aborted the ${status.operation}.`)}
+              label={t("review.git.abort", { operation: status.operation })}
+              confirm={t("review.git.abortThe", { operation: status.operation })}
+              onConfirm={() => void act("abort", "/abort", {}, t("review.git.aborted", { operation: status.operation }))}
             />
           </span>
         </div>
@@ -376,7 +386,7 @@ export function GitPanel({
 
       <div className="git-section">
         <h3>
-          Staged ({staged.length})
+          {t("review.git.staged", { n: staged.length })}
           {staged.length > 0 && (
             <button
               type="button"
@@ -384,15 +394,15 @@ export function GitPanel({
               disabled={!!busy}
               onClick={() => void act("unstage", "/unstage", { paths: staged.map((f) => f.path) })}
             >
-              Unstage all
+              {t("review.git.unstageAll")}
             </button>
           )}
         </h3>
-        {staged.length ? fileList(staged, "staged") : <p className="sub">Nothing staged. Commit takes every change.</p>}
+        {staged.length ? fileList(staged, "staged") : <p className="sub">{t("review.git.nothingStaged")}</p>}
       </div>
       <div className="git-section">
         <h3>
-          Changes ({unstaged.length})
+          {t("review.git.changes", { n: unstaged.length })}
           {unstaged.length > 0 && (
             <button
               type="button"
@@ -400,23 +410,23 @@ export function GitPanel({
               disabled={!!busy}
               onClick={() => void act("stage", "/stage", { paths: unstaged.map((f) => f.path) })}
             >
-              Stage all
+              {t("review.git.stageAll")}
             </button>
           )}
         </h3>
-        {unstaged.length ? fileList(unstaged, "unstaged") : <p className="sub">No unstaged changes.</p>}
-        {status.truncated && <p className="sub review-truncated">Some patches were too large to show.</p>}
+        {unstaged.length ? fileList(unstaged, "unstaged") : <p className="sub">{t("review.git.noUnstaged")}</p>}
+        {status.truncated && <p className="sub review-truncated">{t("review.git.truncated")}</p>}
       </div>
 
       <section className="review-commit-form">
-        <h3>Commit</h3>
+        <h3>{t("review.git.commitHeading")}</h3>
         {status.on_base_branch && (
           <p className="sub error">
-            This session works directly on {status.branch}; commit from an isolated worktree instead.
+            {t("review.git.onBaseBranch", { branch: status.branch })}
           </p>
         )}
         <label className="f" htmlFor={`commit-msg-${sessionId}`}>
-          Commit message
+          {t("review.git.commitMessage")}
         </label>
         <textarea
           id={`commit-msg-${sessionId}`}
@@ -427,7 +437,7 @@ export function GitPanel({
         />
         <div className="btnrow">
           <button type="button" className="b" disabled={!!busy} onClick={() => void writeMessage()}>
-            {busy === "message" ? "Writing…" : "✨ Write message"}
+            {busy === "message" ? t("review.git.writing") : t("review.git.writeMessage")}
           </button>
         </div>
         <label className="review-checkbox">
@@ -439,35 +449,37 @@ export function GitPanel({
               if (e.target.checked && !message.trim()) setMessage(status.head_message);
             }}
           />
-          Amend the last commit{status.head_pushed ? " (already pushed)" : ""}
+          {status.head_pushed ? t("review.git.amendLastPushed") : t("review.git.amendLast")}
         </label>
         <label className="review-checkbox">
           <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} />
-          Push to origin
+          {t("review.git.pushToOrigin")}
         </label>
         <label className="review-checkbox">
           <input type="checkbox" checked={pr} disabled={!push} onChange={(e) => setPr(e.target.checked)} />
-          Open a PR (needs <code>gh</code> on the target)
+          {openPr[0]}
+          <code>gh</code>
+          {openPr[1]}
         </label>
         {pr && (
           <>
             <label className="f">
-              PR title
+              {t("review.git.prTitle")}
               <input className="f" value={prTitle} onChange={(e) => setPrTitle(e.target.value)} placeholder={message} />
             </label>
             <label className="f">
-              PR body
+              {t("review.git.prBody")}
               <textarea className="f" rows={4} value={prBody} onChange={(e) => setPrBody(e.target.value)} />
             </label>
             <button type="button" className="b" disabled={!!busy} onClick={() => void generateDescription()}>
-              {busy === "describe" ? "Generating…" : "✨ Generate description"}
+              {busy === "describe" ? t("review.git.generating") : t("review.git.generateDescription")}
             </button>
           </>
         )}
         <p className="sub commit-scope">
           {staged.length
-            ? `Commits the ${staged.length} staged file${staged.length === 1 ? "" : "s"}.`
-            : "Nothing is staged, so this commits every change."}
+            ? t("review.git.commitsStaged", { count: staged.length })
+            : t("review.git.commitsEverything")}
         </p>
         <button
           type="button"
@@ -475,21 +487,22 @@ export function GitPanel({
           disabled={!!busy || !message.trim() || status.on_base_branch || !status.session_live}
           onClick={() => void commit()}
         >
-          {busy === "commit" ? "Committing…" : amend ? "⎇ Amend commit" : "⎇ Commit"}
+          {busy === "commit" ? t("review.git.committing") : amend ? t("review.git.amendCommit") : t("review.git.commit")}
         </button>
 
         {pushedGuard && (
           <div className="git-guard" role="alert">
             <p>
-              The last commit is already on <b>{pushedGuard.join(", ")}</b>. Amending it rewrites published history,
-              and origin will then need a force push.
+              {alreadyPushed[0]}
+              <b>{pushedGuard.join(", ")}</b>
+              {alreadyPushed[1]}
             </p>
             <div className="btnrow">
               <button type="button" className="b" onClick={() => setPushedGuard(undefined)}>
-                Keep it
+                {t("review.git.keepIt")}
               </button>
               <button type="button" className="b no" onClick={() => void commit(true)}>
-                Amend anyway
+                {t("review.git.amendAnyway")}
               </button>
             </div>
           </div>
@@ -499,15 +512,13 @@ export function GitPanel({
           <div className="git-force">
             {forceAsk || diverged ? (
               <ConfirmButton
-                label="Force push (with lease)…"
-                confirm="Force push"
+                label={t("review.git.forcePushLease")}
+                confirm={t("review.git.forcePush")}
                 className="b warn"
                 prompt={
-                  <>
-                    Replace origin/{status.branch}
-                    {status.remote_sha ? ` (${short(status.remote_sha)})` : ""} with your {short(status.head)}? The push
-                    is refused if origin has moved since this status was loaded.
-                  </>
+                  status.remote_sha
+                    ? t("review.git.forcePromptRemote", { branch: status.branch, remote: short(status.remote_sha), head: short(status.head) })
+                    : t("review.git.forcePrompt", { branch: status.branch, head: short(status.head) })
                 }
                 onConfirm={() => void forcePush()}
               />
@@ -519,7 +530,7 @@ export function GitPanel({
           <ul className="review-commit-steps">
             {result.steps.map((s, i) => (
               <li key={i} data-ok={Number(s.rc) === 0}>
-                <b>{s.step}</b>: {Number(s.rc) === 0 ? "ok" : "failed"}
+                <b>{s.step}</b>: {Number(s.rc) === 0 ? t("review.git.stepOk") : t("review.git.stepFailedShort")}
                 {s.url && (
                   <>
                     {" — "}
@@ -536,10 +547,10 @@ export function GitPanel({
         {result?.hook_failure && (
           <div className="git-hook-failure" role="alert">
             <p>
-              The {(result.hook_failure.hooks ?? []).join("/") || "commit"} hook rejected this commit.
+              {t("review.git.hookRejected", { hooks: (result.hook_failure.hooks ?? []).join("/") || t("review.git.hookCommit") })}
             </p>
             <button type="button" className="b ok" disabled={!!busy} onClick={() => void fixWithAgent()}>
-              🛠 Fix with agent
+              {t("review.git.fixWithAgent")}
             </button>
           </div>
         )}

@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { TerminalApp, type SharedTool } from "./App";
 import { Review } from "./Review";
 import { Dialog } from "./dialogs";
+import { t, useLocale } from "../i18n";
 import { json, type TerminalInfo } from "./model";
 import { NativeHistory, NativeSearch } from "../sessions/SavedConversations";
 import type { SessionsApi } from "../sessions/Sessions";
@@ -40,6 +41,7 @@ type ToolState =
   | { tool: "message"; message: string }
   | undefined;
 function Page() {
+  useLocale();
   const parts = location.pathname.split("/"),
     kind = parts[2] || "session",
     id = parts[3] || "1";
@@ -63,7 +65,7 @@ function Page() {
         setState({ tool, info });
         return;
       }
-      setState({ tool: "message", message: "Loading…" });
+      setState({ tool: "message", message: t("terminalPage.main.loading") });
       if (tool === "saved") {
         const session = await json<SessionView>(
           "/api/sessions/" + encodeURIComponent(id),
@@ -98,9 +100,7 @@ function Page() {
           session={state.session}
           onClose={close}
           onSession={() =>
-            notice(
-              "Fork started. Find it in Sessions; this terminal stays attached.",
-            )
+            notice(t("terminalPage.notice.forkStarted"))
           }
           onNotice={notice}
         />
@@ -111,15 +111,13 @@ function Page() {
           targets={state.targets}
           onClose={close}
           onFork={() =>
-            notice(
-              "Fork started. Find it in Sessions; this terminal stays attached.",
-            )
+            notice(t("terminalPage.notice.forkStarted"))
           }
           onNotice={notice}
         />
       )}
       {state?.tool === "message" && (
-        <Dialog id="terminal-message" title="Terminal" onClose={close}>
+        <Dialog id="terminal-message" title={t("terminalPage.main.terminal")} onClose={close}>
           <p role="status">{state.message}</p>
         </Dialog>
       )}

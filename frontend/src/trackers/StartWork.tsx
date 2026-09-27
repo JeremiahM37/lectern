@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 import { Modal } from "../sessions/Modal";
 import { errorText, type Notice, type TrackerApi } from "./api";
 import { itemMark } from "./logic";
@@ -36,6 +37,7 @@ export function StartWork({
   onStarted(result: StartedWork): void;
   onNotice: Notice;
 }) {
+  useLocale();
   const [mode, setMode] = useState<"session" | "task">("session");
   const [agents, setAgents] = useState<string[]>([]);
   const [agent, setAgent] = useState("");
@@ -82,28 +84,28 @@ export function StartWork({
         }}
       >
         <header className="sheet-head">
-          <h2 id="th-start-title">Start work on {itemMark(item)}</h2>
-          <button type="button" className="x" aria-label="Close" onClick={onClose}>
+          <h2 id="th-start-title">{t("trackers.start.title", { mark: itemMark(item) })}</h2>
+          <button type="button" className="x" aria-label={t("trackers.close")} onClick={onClose}>
             ×
           </button>
         </header>
         <p className="th-muted th-start-title">{title}</p>
         {!pr && (
-          <div className="th-seg" role="radiogroup" aria-label="Start as">
+          <div className="th-seg" role="radiogroup" aria-label={t("trackers.start.startAs")}>
             <button type="button" role="radio" aria-checked={mode === "session"} className={mode === "session" ? "on" : ""} onClick={() => setMode("session")}>
-              Session
-              <small>interactive, own worktree</small>
+              {t("trackers.start.session")}
+              <small>{t("trackers.start.sessionHint")}</small>
             </button>
             <button type="button" role="radio" aria-checked={mode === "task"} className={mode === "task" ? "on" : ""} onClick={() => setMode("task")}>
-              Task
-              <small>on the board, runs headless</small>
+              {t("trackers.start.task")}
+              <small>{t("trackers.start.taskHint")}</small>
             </button>
           </div>
         )}
         <label>
-          Agent
+          {t("trackers.start.agent")}
           <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-            <option value="">Project default</option>
+            <option value="">{t("trackers.start.projectDefault")}</option>
             {agents.map((a) => (
               <option key={a} value={a}>
                 {a}
@@ -112,34 +114,40 @@ export function StartWork({
           </select>
         </label>
         {pr ? (
-          <p className="th-muted">The session starts in a new worktree at the pull request's head and is told how to push to it.</p>
+          <p className="th-muted">{t("trackers.start.prHint")}</p>
         ) : mode === "session" ? (
           <label>
-            Branch
+            {t("trackers.start.branch")}
             <input id="th-start-branch" value={branch} onChange={(e) => setBranch(e.target.value)} spellCheck={false} autoCapitalize="off" />
           </label>
         ) : null}
         {!pr && (
           <label>
-            Base branch
-            <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="project default" spellCheck={false} autoCapitalize="off" />
+            {t("trackers.start.baseBranch")}
+            <input value={base} onChange={(e) => setBase(e.target.value)} placeholder={t("trackers.start.basePlaceholder")} spellCheck={false} autoCapitalize="off" />
           </label>
         )}
         <label>
-          Note for the agent (optional)
-          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything the issue does not say" />
+          {t("trackers.start.note")}
+          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("trackers.start.notePlaceholder")} />
         </label>
         {!pr && mode === "task" && (
           <label className="th-check">
-            <input type="checkbox" checked={dispatch} onChange={(e) => setDispatch(e.target.checked)} /> Dispatch now
+            <input type="checkbox" checked={dispatch} onChange={(e) => setDispatch(e.target.checked)} /> {t("trackers.start.dispatchNow")}
           </label>
         )}
         <div className="btnrow">
           <button type="submit" className="b ok grow" id="th-start-go" disabled={busy}>
-            {busy ? "Starting…" : pr || mode === "session" ? "Start session" : dispatch ? "Create and dispatch task" : "Create task"}
+            {busy
+              ? t("trackers.starting")
+              : pr || mode === "session"
+                ? t("trackers.startSession")
+                : dispatch
+                  ? t("trackers.start.createAndDispatch")
+                  : t("trackers.start.createTask")}
           </button>
           <button type="button" className="b" onClick={onClose}>
-            Cancel
+            {t("trackers.cancel")}
           </button>
         </div>
       </form>

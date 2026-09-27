@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DraftComment } from "./types";
+import { t, useLocale } from "../i18n";
 
 /**
  * The pending-comments tray: every drafted comment plus an optional overall
@@ -25,6 +26,7 @@ export function CommentTray({
   busy?: boolean;
   sendLabel: string;
 }) {
+  useLocale();
   const [writingSummary, setWritingSummary] = useState(false);
   // On a phone the tray is docked over the diff: start it folded to one
   // line (count + send), and let a tap open the list and the summary.
@@ -37,9 +39,9 @@ export function CommentTray({
     // phone the diff keeps the screen.
     return (
       <div className="review-tray review-tray-empty" id="review-tray">
-        <span className="sub">No comments yet — tap a line to comment.</span>
+        <span className="sub">{t("review.tray.empty")}</span>
         <button type="button" className="b" onClick={() => setWritingSummary(true)}>
-          Write an overall note
+          {t("review.tray.writeSummary")}
         </button>
       </div>
     );
@@ -49,8 +51,8 @@ export function CommentTray({
       <details className="review-tray-list" open={openByDefault || writingSummary}>
         <summary>
           {comments.length === 0
-            ? "No comments yet"
-            : `${comments.length} comment${comments.length === 1 ? "" : "s"}`}
+            ? t("review.tray.noComments")
+            : t("review.tray.comments", { count: comments.length })}
         </summary>
         <ul>
           {comments.map((c) => (
@@ -62,7 +64,7 @@ export function CommentTray({
                 <button
                   type="button"
                   className="b no review-tray-remove"
-                  aria-label={`Remove comment on ${c.file}:${c.line}`}
+                  aria-label={t("review.tray.remove", { file: c.file, line: c.line })}
                   onClick={() => onRemove(c.key)}
                 >
                   ✕
@@ -74,11 +76,11 @@ export function CommentTray({
           ))}
         </ul>
         <label className="f review-tray-summary">
-          Overall summary (optional)
+          {t("review.tray.summaryLabel")}
           <textarea
             className="f"
             rows={2}
-            placeholder="Anything to say beyond the inline comments…"
+            placeholder={t("review.tray.summaryPlaceholder")}
             value={summary}
             onChange={(e) => onSummaryChange(e.target.value)}
           />
@@ -90,7 +92,7 @@ export function CommentTray({
         disabled={!canSend}
         onClick={onSend}
       >
-        {busy ? "Sending…" : sendLabel}
+        {busy ? t("review.tray.sending") : sendLabel}
       </button>
     </div>
   );

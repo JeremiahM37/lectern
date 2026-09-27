@@ -1,7 +1,7 @@
-// English, the source catalog. Every key the app looks up is here; another
-// language is a file of the same shape that may leave keys out (they fall
-// back to English). Placeholders are {name}; plural forms are key.one/key.other.
-import { SHORTCUTS } from "../shortcuts/registry";
+// English: the app chrome, workspace, terminal and settings added with the
+// workspace. Other areas have their own files beside this one. Placeholders
+// are {name}; plural forms are key.one/key.other.
+import { SHORTCUTS } from "../../shortcuts/registry";
 
 const en: Record<string, string> = {
   // App chrome
@@ -174,7 +174,7 @@ const en: Record<string, string> = {
   "settings.appearance.zoom": "Zoom",
   "settings.appearance.language": "Language",
   "settings.appearance.browserLanguage": "Browser default",
-  "settings.appearance.languageHint": "English is complete. The pseudo-locale marks every translated string, to show what is still untranslated.",
+  "settings.appearance.languageHint": "Browser default follows each device's own language. The pseudo-locale marks every string that goes through translation, to show any that do not.",
   "settings.workspace.layouts": "Saved layouts",
   "settings.workspace.layoutsHint": "Save the current arrangement of panes from the Layouts menu in Terminals. Saved layouts follow you to every device.",
   "settings.workspace.quick": "Quick commands",
@@ -208,6 +208,35 @@ const en: Record<string, string> = {
   "settings.workspace.findWord": "Whole words",
   "settings.workspace.findRegex": "Regular expression",
   "settings.workspace.kitty": "The kitty keyboard protocol needs a newer terminal engine than this version uses; it will be enabled when that release is stable.",
+  // Settings search: names of controls in the older sections.
+  "settings.index.machines.name": "Machine name",
+  "settings.index.machines.host": "Hostname",
+  "settings.index.machines.user": "SSH user",
+  "settings.index.machines.port": "SSH port",
+  "settings.index.machines.key": "SSH key path",
+  "settings.index.machines.connect": "Connect your AI tools",
+  "settings.index.projects.import": "Import projects",
+  "settings.index.projects.mcp": "Project MCP servers",
+  "settings.index.projects.skills": "Project skills",
+  "settings.index.projects.workflows": "Project workflows",
+  "settings.index.projects.triggers": "Triggers",
+  "settings.index.projects.permission": "New session permission mode",
+  "settings.index.notifications.push": "Push notifications on this device",
+  "settings.index.notifications.sessionAlerts": "Session alerts",
+  "settings.index.notifications.sinks": "Alert channels (webhooks)",
+  "settings.index.devices.paired": "Paired devices",
+  "settings.index.devices.relay": "Encrypted relay",
+  "settings.index.about.spend": "Spend",
+  "settings.index.about.outcomes": "Outcomes",
+  "settings.index.about.signedIn": "Signed in",
+  "settings.index.about.build": "Running build",
+  "settings.index.budgets.budgets": "Budgets",
+  "settings.index.budgets.prices": "Model prices",
+  "settings.index.budgets.limits": "When an agent hits its usage limit",
+  "settings.index.agents.runners": "Agent runners",
+  "settings.index.agents.profiles": "Launch profiles",
+  "settings.index.agents.starters": "Starter profiles",
+  "settings.index.agents.menus": "Show in menus",
   "settings.shortcuts.title": "Keyboard shortcuts",
   "settings.shortcuts.summary": "{total} actions, {assigned} with a key. Anything can be given a key, changed or removed.",
   "settings.shortcuts.search": "Search shortcuts",

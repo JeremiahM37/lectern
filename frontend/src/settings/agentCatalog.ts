@@ -1,5 +1,6 @@
 // Pure helpers behind the searchable "Add agent" catalog. Kept out of
 // AgentEditor.tsx so node:test can exercise them without a DOM.
+import { t } from "../i18n";
 
 export interface CatalogCapability {
   available: boolean;
@@ -64,15 +65,15 @@ export function groupCatalog<T extends CatalogEntryLike>(entries: T[], query: st
 // The capabilities shown as chips on a catalog row, in a fixed order, with the
 // server's own reason when one is missing — so an operator sees what an agent
 // cannot do before adding it.
-const CHIP_LABELS: [string, string][] = [
-  ["resume", "Resume"],
-  ["fork", "Fork"],
-  ["model", "Model"],
-  ["yolo", "Auto-approve"],
-  ["task", "Tasks"],
+const CHIP_LABELS = (): [string, string][] => [
+  ["resume", t("agentSettings.catalog.chip.resume")],
+  ["fork", t("agentSettings.catalog.chip.fork")],
+  ["model", t("agentSettings.catalog.chip.model")],
+  ["yolo", t("agentSettings.catalog.chip.yolo")],
+  ["task", t("agentSettings.catalog.chip.task")],
   ["acp", "ACP"],
   ["mcp", "MCP"],
-  ["skills", "Skills"],
+  ["skills", t("agentSettings.catalog.chip.skills")],
 ];
 
 export interface CapabilityChip {
@@ -84,14 +85,14 @@ export interface CapabilityChip {
 
 export function capabilityChips(entry: CatalogEntryLike): CapabilityChip[] {
   const caps = entry.capabilities || {};
-  return CHIP_LABELS.flatMap(([key, label]) => {
+  return CHIP_LABELS().flatMap(([key, label]) => {
     const c = caps[key];
     if (!c) return [];
     return [{
       key,
       label,
       available: Boolean(c.available),
-      title: c.reason || (c.available ? `${label} is supported` : `${label} isn't available`),
+      title: c.reason || (c.available ? t("agentSettings.catalog.supported", { label }) : t("agentSettings.catalog.unavailable", { label })),
     }];
   });
 }

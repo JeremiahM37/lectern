@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { InteractiveWorkspace, Project, SessionView } from "../types";
 import { Modal } from "./Modal";
 import type { SessionsApi } from "./Sessions";
@@ -23,6 +24,7 @@ export function WorkspaceExtension({
   onChanged(): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [projects, setProjects] = useState<Project[]>([]),
     [workspace, setWorkspace] = useState<InteractiveWorkspace>(),
     [operation, setOperation] = useState<Operation>(),
@@ -120,33 +122,31 @@ export function WorkspaceExtension({
   const status =
     error ||
     (!workspace
-      ? "Loading workspace…"
+      ? t("sessions.workspaceExtension.loading")
       : operation
-        ? `Addition ${operation.id}: ${operation.state}${operation.cancel_requested ? " · cancellation requested" : ""}${operation.error ? " · " + operation.error : ""}`
+        ? `${t("sessions.workspaceExtension.operation", { id: operation.id, state: operation.state })}${operation.cancel_requested ? " · " + t("sessions.workspaceExtension.cancelRequested") : ""}${operation.error ? " · " + operation.error : ""}`
         : ready
           ? available.length
-            ? "Ready to add a repository."
-            : "No other projects on this target."
-          : "Workspace needs recovery before another repository can be added. Allocated files are retained.");
+            ? t("sessions.workspaceExtension.ready")
+            : t("sessions.workspaceExtension.noOthers")
+          : t("sessions.workspaceExtension.needsRecovery"));
   return (
     <Modal
       className="launch-profiles"
-      aria-label="Workspace repositories"
+      aria-label={t("sessions.workspaceExtension.title")}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
       }}
     >
       <header>
-        <h2>Workspace repositories</h2>
+        <h2>{t("sessions.workspaceExtension.title")}</h2>
         <button type="button" onClick={onClose}>
-          Close
+          {t("sessions.workspaceExtension.close")}
         </button>
       </header>
       <p>
-        Add a registered project on the same target. Its checkout uses this
-        workspace’s branch and runs its project setup command. Your existing
-        terminal stays available.
+        {t("sessions.workspaceExtension.intro")}
       </p>
       <pre
         className="we-progress"
@@ -167,9 +167,9 @@ export function WorkspaceExtension({
           }}
         >
           <label>
-            Project
+            {t("sessions.workspaceExtension.project")}
             <select
-              aria-label="Project"
+              aria-label={t("sessions.workspaceExtension.project")}
               required
               value={project}
               onChange={(e) => setProject(e.target.value)}
@@ -182,20 +182,20 @@ export function WorkspaceExtension({
             </select>
           </label>
           <label>
-            Base (optional)
+            {t("sessions.workspaceExtension.base")}
             <input
               maxLength={512}
               value={base}
               onChange={(e) => setBase(e.target.value)}
-              placeholder="Default branch"
+              placeholder={t("sessions.workspaceExtension.basePlaceholder")}
             />
           </label>
           <p className="we-hook">
             {available.find((p) => String(p.id) === project)?.setup_cmd ||
-              "No project setup command."}
+              t("sessions.workspaceExtension.noSetup")}
           </p>
           <button type="submit" disabled={busy || !project}>
-            Add repository
+            {t("sessions.workspaceExtension.add")}
           </button>
         </form>
       )}
@@ -204,7 +204,7 @@ export function WorkspaceExtension({
       </p>
       <div className="lp-buttons">
         <button type="button" disabled={busy} onClick={() => void refresh()}>
-          Refresh progress
+          {t("sessions.workspaceExtension.refresh")}
         </button>
         {active(operation) && (
           <button
@@ -212,7 +212,7 @@ export function WorkspaceExtension({
             disabled={busy}
             onClick={() => void mutate("cancel")}
           >
-            Cancel addition
+            {t("sessions.workspaceExtension.cancel")}
           </button>
         )}
         {operation?.state === "recovering" && (
@@ -221,7 +221,7 @@ export function WorkspaceExtension({
             disabled={busy}
             onClick={() => void mutate("recover")}
           >
-            Check interrupted addition
+            {t("sessions.workspaceExtension.recover")}
           </button>
         )}
       </div>

@@ -10,6 +10,7 @@ import { pairDevice, type PairPayload } from "./tunnel";
 import { pinShellKey, pinShellNow, savePairing } from "./store";
 import { unb64url } from "./noise";
 import { inApp } from "../native/bridge";
+import { t, useLocale } from "../i18n";
 
 export function parsePairFragment(hash: string): PairPayload | undefined {
   const match = /[#&]p=([A-Za-z0-9_-]+)/.exec(hash);
@@ -34,6 +35,7 @@ export function fingerprint(keyB64: string): string {
 type Status = "idle" | "working" | "done" | "error";
 
 export default function RelayPair() {
+  useLocale();
   const [payload] = useState(() => parsePairFragment(window.location.hash));
   const [name, setName] = useState(() => suggestedDeviceName(navigator.userAgent));
   const [status, setStatus] = useState<Status>("idle");
@@ -61,7 +63,7 @@ export default function RelayPair() {
         await pinShellKey(payload.sk);
         await pinShellNow();
       }
-      const pairing = await pairDevice(payload, name.trim() || "Relay device");
+      const pairing = await pairDevice(payload, name.trim() || t("app.relayPair.defaultName"));
       await savePairing(pairing);
       setStatus("done");
       window.location.href = "/";
@@ -75,10 +77,9 @@ export default function RelayPair() {
     return (
       <main className="pair-page">
         <div className="pair-card">
-          <h1>Pair over the relay</h1>
+          <h1>{t("app.relayPair.titleShort")}</h1>
           <p role="alert" className="pair-error">
-            This link has no pairing code. Open Settings → Devices → Encrypted
-            relay on your Lectern and scan a fresh QR code.
+            {t("app.relayPair.noCode")}
           </p>
         </div>
       </main>
@@ -90,18 +91,17 @@ export default function RelayPair() {
   return (
     <main className="pair-page">
       <div className="pair-card" data-testid="relay-pair">
-        <h1>Pair over the encrypted relay</h1>
+        <h1>{t("app.relayPair.title")}</h1>
         <p>
-          This phone will reach Lectern through <strong>{relayHost}</strong>.
-          The relay only passes encrypted messages; it cannot read or change them.
+          {t("app.relayPair.through")}<strong>{relayHost}</strong>{t("app.relayPair.throughAfter")}
         </p>
         <p>
-          Lectern's key: <code className="relay-fingerprint">{fingerprint(payload.hk)}</code>
-          <br />It should match the one shown under the QR code.
+          {t("app.relayPair.key")}<code className="relay-fingerprint">{fingerprint(payload.hk)}</code>
+          <br />{t("app.relayPair.keyMatch")}
         </p>
         <form onSubmit={(event) => void submit(event)}>
           <label>
-            Name this device
+            {t("app.pair.name")}
             <input id="relay-pair-name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} />
           </label>
           {status === "error" && (
@@ -110,7 +110,7 @@ export default function RelayPair() {
             </p>
           )}
           <button id="relay-pair-submit" type="submit" disabled={status === "working" || status === "done"}>
-            {status === "working" ? "Pairing…" : status === "done" ? "Paired" : "Pair this device"}
+            {status === "working" ? t("app.pair.pairing") : status === "done" ? t("app.relayPair.paired") : t("app.pair.title")}
           </button>
         </form>
       </div>

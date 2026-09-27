@@ -3,6 +3,7 @@ import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
 import { RelayPanel } from "./RelayPanel";
+import { t, useLocale } from "../i18n";
 // devices.css is imported by main.tsx, matching connect-tools.css's own
 // comment: this module gets its own node:test unit coverage (Devices.test.ts)
 // and tsx's plain Node runtime has no loader for a bare .css import.
@@ -47,6 +48,7 @@ export function Devices({
   api: SettingsApi;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [settings, setSettings] = useState<PairingSettings>();
   const [devices, setDevices] = useState<PairedDevice[]>([]);
   const [minted, setMinted] = useState<MintedCode>();
@@ -92,13 +94,13 @@ export function Devices({
   async function saveIdleDays() {
     const n = Number(idleDays);
     if (!Number.isFinite(n) || n <= 0) {
-      onNotice("Idle days must be a positive number", true);
+      onNotice(t("settings.devices.idleInvalid"), true);
       return;
     }
     try {
       const s = await api.request<PairingSettings>("/pair/settings", { method: "PUT", body: { idle_days: n } });
       setSettings(s);
-      onNotice("Saved");
+      onNotice(t("settings.devices.saved"));
     } catch (error) {
       onNotice(String(error), true);
     }
@@ -117,7 +119,7 @@ export function Devices({
   }
 
   async function revoke(id: number) {
-    if (!confirm("Revoke this device? It will be signed out immediately.")) return;
+    if (!confirm(t("settings.devices.revokeConfirm"))) return;
     try {
       await api.request(`/pair/devices/${id}`, { method: "DELETE" });
       setDevices((old) => old.filter((d) => d.id !== id));
@@ -132,19 +134,13 @@ export function Devices({
   return (
     <>
     <article className="devices-panel">
-      <h3>Devices</h3>
+      <h3>{t("settings.section.devices")}</h3>
       <p className="subhint">
-        Pair a phone that has no Tailscale, so it can use Lectern through an
-        ordinary public tunnel (Cloudflare Tunnel, <code>tailscale funnel</code>).
-        A paired device can do everything your own browser can, including
-        approving actions.
+        {t("settings.devices.introBefore")} <code>tailscale funnel</code>{t("settings.devices.introAfter")}
       </p>
       {settings.untrusted_origin_hint && (
         <p className="subhint pairing-hint" role="alert">
-          You reached this Settings page over a connection that is neither
-          Tailscale nor local. Consider turning device pairing on below,
-          rather than relying on whatever is exposing this address —
-          see docs/remote-access.md.
+          {t("settings.devices.untrusted")}
         </p>
       )}
       <label className="devices-toggle">
@@ -154,16 +150,16 @@ export function Devices({
           disabled={settings.env_forced}
           onChange={(e) => void toggle(e.target.checked)}
         />
-        Allow pairing new devices
+        {t("settings.devices.allow")}
         {settings.env_forced && (
-          <span className="subhint"> (forced on by LECTERN_DEVICE_PAIRING)</span>
+          <span className="subhint"> {t("settings.devices.forced")}</span>
         )}
       </label>
       {settings.enabled && (
         <>
           <div className="devices-idle">
             <label>
-              Sign a device out after this many idle days
+              {t("settings.devices.idleDays")}
               <input
                 type="number"
                 min={1}
@@ -174,28 +170,28 @@ export function Devices({
             </label>
           </div>
           <button className="b" onClick={() => void mint()} disabled={busy}>
-            {busy ? "Generating…" : "Pair a phone"}
+            {busy ? t("settings.devices.generating") : t("settings.devices.pair")}
           </button>
           {minted && !expired && (
             <div className="pairing-mint" data-testid="pairing-mint">
               <QRCode value={pairURL(minted.code)} size={200} />
               <div className="pairing-mint-code">
                 <p className="subhint">
-                  Scan with your phone's camera, or open{" "}
+                  {t("settings.devices.scanBefore")}{" "}
                   <code>{typeof window !== "undefined" ? window.location.origin : ""}/pair</code>{" "}
-                  and type this code:
+                  {t("settings.devices.scanAfter")}
                 </p>
                 <code className="pairing-code-text">{groupCode(minted.code)}</code>
-                <p className="subhint">Expires in {secondsLeft}s · single use</p>
+                <p className="subhint">{t("settings.devices.expires", { seconds: secondsLeft })}</p>
               </div>
             </div>
           )}
           {minted && expired && (
-            <p className="subhint">That code expired. Generate a new one.</p>
+            <p className="subhint">{t("settings.devices.expired")}</p>
           )}
-          <h4>Paired devices</h4>
+          <h4 data-setting="devices.paired">{t("settings.devices.paired")}</h4>
           {devices.length === 0 ? (
-            <p className="subhint">No devices paired yet.</p>
+            <p className="subhint">{t("settings.devices.none")}</p>
           ) : (
             <ul className="device-list">
               {devices.map((d) => (
@@ -203,12 +199,12 @@ export function Devices({
                   <div className="device-info">
                     <strong>{d.name}</strong>
                     <span className="subhint">
-                      Paired {formatAgo(d.paired_at)} · last seen {formatAgo(d.last_seen_at)}
+                      {t("settings.devices.pairedSeen", { paired: formatAgo(d.paired_at), seen: formatAgo(d.last_seen_at) })}
                       {d.user_agent ? ` · ${d.user_agent}` : ""}
                     </span>
                   </div>
                   <button className="b" onClick={() => void revoke(d.id)}>
-                    Revoke
+                    {t("settings.devices.revoke")}
                   </button>
                 </li>
               ))}

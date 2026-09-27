@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { createDeckApi } from "../api";
 import type { LiveView, Target } from "../types";
+import { t, useLocale } from "../i18n";
 
 type Api = ReturnType<typeof createDeckApi>;
 
@@ -14,7 +15,7 @@ export function liveAddress(view: LiveView, here: Location = location) {
 
 function remaining(view: LiveView) {
   const minutes = Math.max(0, Math.round((view.expires_at - Date.now() / 1000) / 60));
-  return minutes >= 90 ? `${Math.round(minutes / 60)}h left` : `${minutes}m left`;
+  return minutes >= 90 ? t("board.media.hoursLeft", { n: Math.round(minutes / 60) }) : t("board.media.minutesLeft", { n: minutes });
 }
 
 function LiveCard({
@@ -28,6 +29,7 @@ function LiveCard({
   onChanged: () => void;
   onNotice: (text: string, error?: boolean) => void;
 }) {
+  useLocale();
   const [control, setControl] = useState(false),
     [show, setShow] = useState(view.kind === "desktop"),
     [address, setAddress] = useState(""),
@@ -43,28 +45,28 @@ function LiveCard({
       <header>
         <h3>{view.title}</h3>
         <div className="media-meta">
-          <span className="chip live-chip" title="Anyone who can reach Lectern can open this until it is stopped">
-            ● exposed
+          <span className="chip live-chip" title={t("board.media.exposedTitle")}>
+            {t("board.media.exposed")}
           </span>
           <span className="chip">{view.target_name}</span>
           <span className="chip">
-            {view.kind === "desktop" ? "desktop " + display : "localhost:" + view.port}
+            {view.kind === "desktop" ? t("board.media.desktopDisplay", { display }) : "localhost:" + view.port}
           </span>
           <span className="media-when">{remaining(view)}</span>
         </div>
       </header>
       {view.kind === "desktop" && (
         <p className="media-note">
-          Anything started with <code>DISPLAY={display}</code> draws here.{" "}
+          {t("board.media.displayBefore")}<code>DISPLAY={display}</code>{t("board.media.displayAfter")}{" "}
           <button
             className="live-copy"
             onClick={() =>
               void navigator.clipboard
                 ?.writeText(`DISPLAY=${display}`)
-                .then(() => onNotice(`Copied DISPLAY=${display}`))
+                .then(() => onNotice(t("board.media.copied", { text: `DISPLAY=${display}` })))
             }
           >
-            Copy
+            {t("board.media.copy")}
           </button>
           {view.detail?.browser_error ? " · " + view.detail.browser_error : ""}
         </p>
@@ -83,7 +85,7 @@ function LiveCard({
         )
       ) : (
         <small className="media-file">
-          This page is secure and a forwarded port is not, so it opens in its own tab.
+          {t("board.media.insecurePort")}
         </small>
       )}
       {view.kind === "desktop" && (
@@ -101,33 +103,33 @@ function LiveCard({
           }}
         >
           <input
-            aria-label="Open an address in this desktop's browser"
-            placeholder="http://127.0.0.1:3000 — opens in a browser on that machine"
+            aria-label={t("board.media.openAddressLabel")}
+            placeholder={t("board.media.openAddressPlaceholder")}
             value={address}
             onChange={(event) => setAddress(event.target.value)}
           />
           <button className="b" disabled={busy || !address.trim()}>
-            Open
+            {t("board.media.open")}
           </button>
         </form>
       )}
       <footer>
         {view.kind === "desktop" && embeddable && (
           <button className="b" aria-pressed={control} onClick={() => setControl(!control)}>
-            {control ? "Watch only" : "Take control"}
+            {control ? t("board.media.watchOnly") : t("board.media.takeControl")}
           </button>
         )}
         {view.kind === "port" && embeddable && (
           <button className="b" aria-expanded={show} onClick={() => setShow(!show)}>
-            {show ? "Hide preview" : "Show preview"}
+            {show ? t("board.media.hidePreview") : t("board.media.showPreview")}
           </button>
         )}
         <a className="b" href={view.kind === "desktop" ? desktopURL.replace("view_only=1", "view_only=0") : target} target="_blank" rel="noopener noreferrer">
-          Open ↗
+          {t("board.media.openNewTab")}
         </a>
         <button
           className="b danger"
-          aria-label={"Stop " + view.title}
+          aria-label={t("board.media.stopLabel", { title: view.title })}
           onClick={() =>
             void api
               .request<null>(`/live/${view.id}`, { method: "DELETE" })
@@ -135,7 +137,7 @@ function LiveCard({
               .catch((error) => onNotice(String(error), true))
           }
         >
-          Stop
+          {t("board.media.stop")}
         </button>
       </footer>
     </article>
@@ -155,6 +157,7 @@ export function Live({
   onChanged: () => void;
   onNotice: (text: string, error?: boolean) => void;
 }) {
+  useLocale();
   const [machine, setMachine] = useState(""),
     [port, setPort] = useState(""),
     [busy, setBusy] = useState("");
@@ -173,12 +176,12 @@ export function Live({
       .finally(() => setBusy(""));
   };
   return (
-    <section id="live" aria-label="Live views">
+    <section id="live" aria-label={t("board.media.liveViews")}>
       <div className="live-bar">
         <label>
-          On
-          <select aria-label="Machine" value={machine} onChange={(event) => setMachine(event.target.value)}>
-            <option value="">default machine</option>
+          {t("board.media.on")}
+          <select aria-label={t("board.media.machine")} value={machine} onChange={(event) => setMachine(event.target.value)}>
+            <option value="">{t("board.media.defaultMachine")}</option>
             {targets.map((target) => (
               <option key={target.id} value={target.id}>
                 {target.name}
@@ -189,16 +192,16 @@ export function Live({
         <button
           className="b"
           id="live-desktop"
-          aria-label="Live desktop"
+          aria-label={t("board.media.liveDesktop")}
           disabled={!!busy}
-          title="Start a desktop on that machine and watch it here"
+          title={t("board.media.liveDesktopTitle")}
           onClick={() => open("desktops", { title: "Live desktop" })}
         >
           {busy === "desktops" ? (
-            "Starting…"
+            t("board.media.starting")
           ) : (
             <>
-              ＋<span className="wide-only"> Live</span> desktop
+              ＋<span className="wide-only">{t("board.media.addLiveWide")}</span>{t("board.media.addDesktop")}
             </>
           )}
         </button>
@@ -210,15 +213,15 @@ export function Live({
           }}
         >
           <input
-            aria-label="Port on that machine's localhost"
+            aria-label={t("board.media.portLabel")}
             inputMode="numeric"
-            placeholder="port"
-            title="A port on that machine's localhost"
+            placeholder={t("board.media.portPlaceholder")}
+            title={t("board.media.portTitle")}
             value={port}
             onChange={(event) => setPort(event.target.value.replace(/\D/g, "").slice(0, 5))}
           />
           <button className="b" id="live-expose" disabled={!!busy || !(Number(port) > 0)}>
-            {busy === "ports" ? "Exposing…" : "Expose"}
+            {busy === "ports" ? t("board.media.exposing") : t("board.media.expose")}
           </button>
         </form>
       </div>

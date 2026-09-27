@@ -12,6 +12,7 @@ import {
   type Recognition,
   type RecognitionResult,
 } from "../voice";
+import { t } from "../i18n";
 import type { SessionsApi } from "./Sessions";
 
 // ---- text hygiene for read-back --------------------------------------------
@@ -28,7 +29,7 @@ const FENCED_CODE = /```[\s\S]*?```/g;
 // mangled into stray words.
 export function stripForSpeech(text: string): string {
   return text
-    .replace(FENCED_CODE, " Code omitted. ")
+    .replace(FENCED_CODE, " " + t("sessions.voice.codeOmitted") + " ")
     .replace(ANSI, "")
     .replace(BOX_DRAWING, " ")
     .replace(/[ \t]+/g, " ")
@@ -258,23 +259,23 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
       sendTimer.current = undefined;
     }
     setPendingSend(undefined);
-    setStatusMessage("Cancelled — nothing was sent.");
+    setStatusMessage(t("sessions.voice.cancelled"));
   }, []);
 
   const queueSend = useCallback((text: string) => {
     if (!text.trim()) return;
     setPendingSend(text);
-    setStatusMessage("Sending… tap to cancel");
+    setStatusMessage(t("sessions.voice.sending"));
     sendTimer.current = window.setTimeout(() => {
       sendTimer.current = undefined;
       setPendingSend(undefined);
       const { api, sessionId, onNotice } = latest.current;
       void api
         .request(`/sessions/${sessionId}/send`, { method: "POST", body: { text } })
-        .then(() => setStatusMessage("Sent to the session."))
+        .then(() => setStatusMessage(t("sessions.voice.sent")))
         .catch((error) => {
           onNotice(String(error), true);
-          setStatusMessage(`Could not send: ${String(error)}`);
+          setStatusMessage(t("sessions.voice.sendFailed", { error: String(error) }));
         });
     }, SEND_DELAY_MS);
   }, []);
@@ -286,18 +287,18 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
         case "ignore":
           return;
         case "exit":
-          setStatusMessage("Exiting voice mode.");
-          speak("Exiting voice mode.");
+          setStatusMessage(t("sessions.voice.exiting"));
+          speak(t("sessions.voice.exiting"));
           setActive(false);
           return;
         case "read-again":
           if (lastSpoken.current.length) speakChunks(lastSpoken.current);
-          else setStatusMessage("Nothing to read back yet.");
+          else setStatusMessage(t("sessions.voice.nothingToRead"));
           return;
         case "interrupt":
           void api
             .request(`/sessions/${sessionId}/send`, { method: "POST", body: { key: "escape" } })
-            .then(() => setStatusMessage("Interrupt sent."))
+            .then(() => setStatusMessage(t("sessions.voice.interruptSent")))
             .catch((error) => onNotice(String(error), true));
           return;
         case "approve":
@@ -307,7 +308,7 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
           void api
             .request(`/approvals/${pendingApproval.id}/decision`, { method: "POST", body: { decision } })
             .then(() => {
-              const echo = decision === "approved" ? "Approved." : "Denied.";
+              const echo = decision === "approved" ? t("sessions.voice.approved") : t("sessions.voice.denied");
               setStatusMessage(echo);
               speak(echo);
               // Leave announcedApproval pointed at this id: the poll that
@@ -378,9 +379,9 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
       if (code === "not-allowed" || code === "service-not-allowed") {
         deniedPermission = true;
         setActive(false);
-        latest.current.onNotice("Microphone permission was denied.", true);
+        latest.current.onNotice(t("sessions.voice.micDenied"), true);
       } else if (code && code !== "no-speech" && code !== "aborted") {
-        latest.current.onNotice(`Voice mode: ${code}.`, true);
+        latest.current.onNotice(t("sessions.voice.recognitionError", { code }), true);
       }
     };
     listener.onend = () => {
@@ -429,7 +430,7 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
     listener.onerror = (event) => {
       setListening(false);
       if (event?.error === "not-allowed" || event?.error === "service-not-allowed")
-        latest.current.onNotice("Microphone permission was denied.", true);
+        latest.current.onNotice(t("sessions.voice.micDenied"), true);
     };
     try {
       listener.start();
@@ -538,7 +539,7 @@ export function useVoiceMode(inputs: VoiceModeInputs) {
     }
     if (announcedApproval.current === approval.id) return;
     announcedApproval.current = approval.id;
-    const line = `Claude wants to run ${approval.summary || approval.toolName}. Say approve or deny.`;
+    const line = t("sessions.voice.approvalPrompt", { action: approval.summary || approval.toolName });
     setStatusMessage(line);
     speak(line);
   }, [active, inputs.pendingApproval, speak]);

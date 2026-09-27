@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Target } from "../types";
 import { Modal } from "../sessions/Modal";
 import type { SettingsApi } from "./Settings";
+import { t, useLocale } from "../i18n";
 interface Command {
   name: string;
   state: "available" | "missing" | "unchecked";
@@ -17,13 +18,14 @@ export function AgentCommands({
   target: Target;
   onClose(): void;
 }) {
+  useLocale();
   const [rows, setRows] = useState<Command[]>([]),
-    [status, setStatus] = useState("Checking target commands…");
+    [status, setStatus] = useState(() => t("agentSettings.commands.checking"));
   async function load() {
-    setStatus("Checking target commands…");
+    setStatus(t("agentSettings.commands.checking"));
     try {
       setRows(await api.request<Command[]>(`/targets/${target.id}/agents`));
-      setStatus("Command lookup complete. No agents were started.");
+      setStatus(t("agentSettings.commands.complete"));
     } catch (e) {
       setRows([]);
       setStatus(e instanceof Error ? e.message : String(e));
@@ -33,13 +35,12 @@ export function AgentCommands({
     void load();
   }, []);
   return (
-    <Modal className="agent-commands" aria-label="Agent commands" onCancel={onClose}>
-      <h2>Agent commands</h2>
-      <button onClick={onClose}>Close</button>
+    <Modal className="agent-commands" aria-label={t("agentSettings.commands.title")} onCancel={onClose}>
+      <h2>{t("agentSettings.commands.title")}</h2>
+      <button onClick={onClose}>{t("agentSettings.editor.close")}</button>
       <p>{target.name}</p>
       <p>
-        Checks commands on this target’s default PATH. This does not check login
-        or model access.
+        {t("agentSettings.commands.intro")}
       </p>
       <p className="ac-status" role="status">{status}</p>
       <ul className="ac-results">
@@ -48,16 +49,16 @@ export function AgentCommands({
             <b>{r.name}</b>
             <span>
               {r.state === "available"
-                ? "Found"
+                ? t("agentSettings.commands.found")
                 : r.state === "missing"
-                  ? "Not found"
-                  : "Not checked"}{" "}
+                  ? t("agentSettings.commands.notFound")
+                  : t("agentSettings.commands.notChecked")}{" "}
               — {r.path || r.detail}
             </span>
           </li>
         ))}
       </ul>
-      <button onClick={() => void load()}>Check again</button>
+      <button onClick={() => void load()}>{t("agentSettings.commands.checkAgain")}</button>
     </Modal>
   );
 }

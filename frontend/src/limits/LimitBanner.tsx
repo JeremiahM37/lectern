@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { RequestOptions } from "../api";
 import type { LimitHold } from "../types";
 import { choiceLabel, limitChoices, limitLabel, type LimitChoice } from "./limit-label";
+import { t, useLocale } from "../i18n";
 import "./limits.css";
 
 interface Api {
@@ -26,11 +27,12 @@ export function LimitBanner({
   // stopped agent.
   onPickAgent?(): void;
 }) {
+  useLocale();
   const [busy, setBusy] = useState(false);
   async function choose(choice: LimitChoice) {
     if (choice === "handoff" && !hold.fallback) {
       if (onPickAgent) onPickAgent();
-      else onNotice("Set a fallback agent in the project's usage-limit policy to hand off.", true);
+      else onNotice(t("app.limit.noFallback"), true);
       return;
     }
     setBusy(true);
@@ -40,14 +42,14 @@ export function LimitBanner({
       await api.request(`/limits/${hold.id}/choose`, { method: "POST", body });
       onNotice(
         choice === "dismiss"
-          ? "Limit dismissed."
+          ? t("app.limit.dismissed")
           : choice === "handoff"
-            ? `Handing off to ${hold.fallback}.`
+            ? t("app.limit.handingOffNotice", { agent: String(hold.fallback) })
             : choice === "swap"
-              ? `Swapping to ${hold.swap_to?.label || "another account"}.`
+              ? t("app.limit.swappingNotice", { account: hold.swap_to?.label || t("app.limit.anotherAccount") })
               : choice === "resume_now"
-                ? "Resuming now."
-                : "Lectern will resume it after the reset.",
+                ? t("app.limit.resumingNow")
+                : t("app.limit.willResume"),
       );
       await onRefresh();
     } catch (error) {
@@ -83,6 +85,7 @@ export function LimitBanner({
 
 // LimitChip is the compact form for a board card.
 export function LimitChip({ hold }: { hold: LimitHold }) {
+  useLocale();
   return (
     <span className="chip warn limit-chip" title={hold.message}>
       ⏸ {limitLabel(hold)}

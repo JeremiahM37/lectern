@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { t, useLocale } from "../i18n";
 export function ActionMenu({
   name,
   children,
@@ -6,6 +7,7 @@ export function ActionMenu({
   name: string;
   children: ReactNode;
 }) {
+  useLocale();
   const root = useRef<HTMLDetailsElement>(null),
     panel = useRef<HTMLDivElement>(null);
   function position() {
@@ -73,7 +75,7 @@ export function ActionMenu({
   }, []);
   return (
     <details ref={root} className="action-menu" onToggle={position}>
-      <summary aria-label={`More actions for ${name}`}>More ···</summary>
+      <summary aria-label={t("sessions.actionMenu.label", { name })}>{t("sessions.actionMenu.more")}</summary>
       <div
         ref={panel}
         className="action-menu-panel"

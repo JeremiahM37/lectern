@@ -6,6 +6,7 @@
 // board, no SSE, no other API calls before the exchange succeeds.
 import { useEffect, useState } from "react";
 import { nativeBridge } from "../native/bridge";
+import { t, useLocale } from "../i18n";
 
 // Pure logic, deliberately free of any live window/navigator access beyond
 // an explicit string argument — same split push.ts uses for its own
@@ -23,16 +24,17 @@ export function suggestedDeviceName(userAgent: string): string {
   const ua = userAgent || "";
   if (/iPad/.test(ua)) return "iPad";
   if (/iPhone/.test(ua)) return "iPhone";
-  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android phone" : "Android tablet";
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? t("app.pair.androidPhone") : t("app.pair.androidTablet");
   if (/Macintosh/.test(ua)) return "Mac";
-  if (/Windows/.test(ua)) return "Windows PC";
+  if (/Windows/.test(ua)) return t("app.pair.windowsPc");
   if (/Linux/.test(ua)) return "Linux";
-  return "My device";
+  return t("app.pair.myDevice");
 }
 
 type Status = "idle" | "working" | "error";
 
 export default function Pair() {
+  useLocale();
   const [code, setCode] = useState(() => parseCodeFromHash(window.location.hash));
   const [name, setName] = useState(() => suggestedDeviceName(navigator.userAgent));
   const [status, setStatus] = useState<Status>("idle");
@@ -58,7 +60,7 @@ export default function Pair() {
         }),
       });
       const body = (await response.json().catch(() => ({}))) as { detail?: string; token?: string };
-      if (!response.ok) throw new Error(body.detail || `Pairing failed (${response.status})`);
+      if (!response.ok) throw new Error(body.detail || t("app.pair.failed", { status: response.status }));
       // The Android app keeps the device token itself (encrypted with a
       // Keystore key) so its background notification actions can use it,
       // and hands it to the WebView as a cookie (docs/android.md).
@@ -86,14 +88,13 @@ export default function Pair() {
   return (
     <main className="pair-page">
       <div className="pair-card">
-        <h1>Pair this device</h1>
+        <h1>{t("app.pair.title")}</h1>
         <p>
-          Enter the code shown on your Lectern's Settings → Devices page, or
-          scan its QR code with your camera.
+          {t("app.pair.intro")}
         </p>
         <form onSubmit={(event) => void submit(event)}>
           <label>
-            Pairing code
+            {t("app.pair.code")}
             <input
               id="pair-code"
               autoFocus
@@ -107,7 +108,7 @@ export default function Pair() {
             />
           </label>
           <label>
-            Name this device
+            {t("app.pair.name")}
             <input
               id="pair-name"
               value={name}
@@ -121,7 +122,7 @@ export default function Pair() {
             </p>
           )}
           <button id="pair-submit" type="submit" disabled={status === "working" || !code.trim()}>
-            {status === "working" ? "Pairing…" : "Pair device"}
+            {status === "working" ? t("app.pair.pairing") : t("app.pair.submit")}
           </button>
         </form>
       </div>

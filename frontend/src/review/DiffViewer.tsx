@@ -16,6 +16,7 @@ import {
 } from "./diffModel";
 import { ImageDiff, type ImageSource } from "./ImageDiff";
 import type { DraftComment, FilePatch, FileStat } from "./types";
+import { t, useLocale } from "../i18n";
 
 /** A comment shown inline under its line. Drafts from the task view carry no
  * state; stored session comments carry where they stand after the agent's
@@ -53,12 +54,12 @@ export interface DiffViewerProps {
   idPrefix?: string;
 }
 
-const STATE_LABEL: Record<CommentState, string> = {
-  draft: "Draft",
-  open: "Sent · not changed yet",
-  addressed: "Agent changed this",
-  resolved: "Resolved",
-};
+const STATE_LABEL = (): Record<CommentState, string> => ({
+  draft: t("review.state.draft"),
+  open: t("review.diff.stateOpen"),
+  addressed: t("review.state.addressed"),
+  resolved: t("review.state.resolved"),
+});
 
 type Target = { file: string; line: number; side: "old" | "new"; code: string };
 
@@ -118,6 +119,7 @@ export function DiffViewer({
   fileActions,
   idPrefix = "",
 }: DiffViewerProps) {
+  useLocale();
   const [active, setActive] = useState<Target>();
   const [draftText, setDraftText] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -140,8 +142,8 @@ export function DiffViewer({
     setDraftText("");
   }
 
-  const notesAt = (path: string, t: { line: number; side: string } | undefined) =>
-    t ? (comments ?? []).filter((c) => c.file === path && c.line === t.line && c.side === t.side) : [];
+  const notesAt = (path: string, at: { line: number; side: string } | undefined) =>
+    at ? (comments ?? []).filter((c) => c.file === path && c.line === at.line && c.side === at.side) : [];
 
   function composer(file: ParsedFile) {
     return (
@@ -149,7 +151,7 @@ export function DiffViewer({
         <textarea
           autoFocus
           rows={2}
-          placeholder="Leave a comment on this line…"
+          placeholder={t("review.diff.commentPlaceholder")}
           value={draftText}
           onChange={(e) => setDraftText(e.target.value)}
           onKeyDown={(e) => {
@@ -165,7 +167,7 @@ export function DiffViewer({
         />
         <div className="dl-composer-actions">
           <button type="button" className="b" onClick={() => setActive(undefined)}>
-            Cancel
+            {t("review.action.cancel")}
           </button>
           <button
             type="button"
@@ -173,7 +175,7 @@ export function DiffViewer({
             disabled={!draftText.trim()}
             onClick={() => submit(file)}
           >
-            Add comment
+            {t("review.diff.addComment")}
           </button>
         </div>
       </div>
@@ -188,8 +190,8 @@ export function DiffViewer({
           <div key={n.key} className="dl-note" data-state={n.state ?? "draft"}>
             <div className="dl-note-head">
               <span className={`dl-note-state s-${n.state ?? "draft"}`}>
-                {STATE_LABEL[n.state ?? "draft"]}
-                {n.round ? ` · round ${n.round}` : ""}
+                {STATE_LABEL()[n.state ?? "draft"]}
+                {n.round ? t("review.diff.round", { round: n.round }) : ""}
               </span>
               {noteActions?.(n)}
             </div>
@@ -200,8 +202,8 @@ export function DiffViewer({
     );
   }
 
-  function isOpen(path: string, t: Omit<Target, "file"> | undefined) {
-    return !!(active && t && active.file === path && active.line === t.line && active.side === t.side);
+  function isOpen(path: string, at: Omit<Target, "file"> | undefined) {
+    return !!(active && at && active.file === path && active.line === at.line && active.side === at.side);
   }
 
   function gutter(line: DiffLine | undefined, path: string, which: "both" | "old" | "new") {
@@ -217,9 +219,9 @@ export function DiffViewer({
           <span
             className={"dl-auth" + (author ? ` dl-auth-${author}` : "")}
             title={
-              author === "agent" ? "Written by the agent" : author === "human" ? "Written by you" : undefined
+              author === "agent" ? t("review.diff.writtenByAgent") : author === "human" ? t("review.diff.writtenByYou") : undefined
             }
-            aria-label={author === "agent" ? "agent" : author === "human" ? "you" : undefined}
+            aria-label={author === "agent" ? t("review.diff.authorAgent") : author === "human" ? t("review.diff.authorYou") : undefined}
           />
         )}
       </>
@@ -244,7 +246,7 @@ export function DiffViewer({
             {gutter(line, f.path, "both")}
             <span className="dl-text">{line.text || " "}</span>
             {here.length > 0 && (
-              <span className="dl-comment-badge" title={`${here.length} comment(s) on this line`}>
+              <span className="dl-comment-badge" title={t("review.diff.commentsOnLine", { n: here.length })}>
                 💬 {here.length}
               </span>
             )}
@@ -303,10 +305,10 @@ export function DiffViewer({
       {repoLabel && <p className="sub review-repo-label">{repoLabel}</p>}
       {truncated && (
         <p className="sub review-truncated">
-          This diff was too large to show in full and has been truncated.
+          {t("review.diff.truncated")}
         </p>
       )}
-      {files.length === 0 && <p className="sub">No changes.</p>}
+      {files.length === 0 && <p className="sub">{t("review.diff.noChanges")}</p>}
       {files.map((f, fileIndex) => {
         const file = parsed.get(f.path) ?? parseFile(f.patch);
         const s = stats.find((x) => x.path === f.path) ?? countLines(file);
@@ -333,7 +335,7 @@ export function DiffViewer({
             <summary>
               <span className="dfile-path">{f.path}</span>
               {counts && (counts.agent > 0 || counts.human > 0) && (
-                <span className="dfile-authors" title="Added lines by author">
+                <span className="dfile-authors" title={t("review.diff.addedByAuthor")}>
                   {counts.agent > 0 && <span className="a-agent">◆ {counts.agent}</span>}
                   {counts.human > 0 && <span className="a-human">● {counts.human}</span>}
                 </span>
@@ -356,7 +358,7 @@ export function DiffViewer({
                       setOpen((o) => ({ ...o, [f.path]: !e.target.checked }));
                     }}
                   />
-                  Viewed
+                  {t("review.diff.viewed")}
                 </label>
               )}
             </summary>
@@ -376,7 +378,7 @@ export function DiffViewer({
                         className="b img-diff-text"
                         onClick={() => setTextForImage((o) => ({ ...o, [f.path]: true }))}
                       >
-                        Show as text
+                        {t("review.diff.showAsText")}
                       </button>
                     )}
                   </>
@@ -397,7 +399,7 @@ export function DiffViewer({
                 )}
                 {!image && file.hunks.length === 0 && !notable.length && (
                   <div className="dl-row dl-meta">
-                    <span className="dl-text">No textual changes.</span>
+                    <span className="dl-text">{t("review.diff.noTextual")}</span>
                   </div>
                 )}
               </div>

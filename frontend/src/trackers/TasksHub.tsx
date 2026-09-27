@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { Project } from "../types";
 import { errorText, type Notice, type TrackerApi } from "./api";
 import { Avatar, ChecksBadge, Labels, ReviewBadge, StatePill } from "./bits";
@@ -13,14 +14,20 @@ type Tab = "all" | "pr" | "issue" | `c${number}`;
 type Filter = "open" | "assigned" | "review" | "authored" | "closed" | "all";
 type View = "list" | "board" | "table";
 
-const FILTERS: { key: Filter; label: string; pr?: boolean }[] = [
-  { key: "open", label: "Open" },
-  { key: "assigned", label: "Assigned to me" },
-  { key: "review", label: "Review requested", pr: true },
-  { key: "authored", label: "Created by me" },
-  { key: "closed", label: "Closed" },
-  { key: "all", label: "All" },
+const FILTERS = (): { key: Filter; label: string; pr?: boolean }[] => [
+  { key: "open", label: t("trackers.hub.filter.open") },
+  { key: "assigned", label: t("trackers.hub.filter.assigned") },
+  { key: "review", label: t("trackers.hub.filter.review"), pr: true },
+  { key: "authored", label: t("trackers.hub.filter.authored") },
+  { key: "closed", label: t("trackers.hub.filter.closed") },
+  { key: "all", label: t("trackers.hub.filter.all") },
 ];
+
+const VIEW_LABEL = (): Record<View, string> => ({
+  list: t("trackers.hub.view.list"),
+  board: t("trackers.hub.view.board"),
+  table: t("trackers.hub.view.table"),
+});
 
 function filterQuery(f: Filter): string {
   switch (f) {
@@ -71,6 +78,7 @@ export function TasksHub({
   onOpenTask(id: number): void;
   onSettings(projectId: number): void;
 }) {
+  useLocale();
   const initial = parseTasksHash(location.hash);
   const [projectId, setProjectId] = useState<number | undefined>(() => initial.project ?? (Number(store("lec-tasks-project", "0")) || undefined));
   const [selected, setSelected] = useState<ItemRef | undefined>(initial.ref);
@@ -183,10 +191,14 @@ export function TasksHub({
 
   function started(res: StartedWork) {
     if (res.kind === "session" && res.session) {
-      onNotice(`Started session "${res.session.name}"${res.branch ? ` on ${res.branch}` : ""}`);
+      onNotice(
+        res.branch
+          ? t("trackers.hub.startedSessionOn", { name: res.session.name, branch: res.branch })
+          : t("trackers.hub.startedSession", { name: res.session.name }),
+      );
       onOpenSession(res.session.id, res.session.name);
     } else if (res.task) {
-      onNotice(`Created task #${res.task.id}`);
+      onNotice(t("trackers.hub.createdTask", { id: res.task.id }));
       onOpenTask(res.task.id);
     }
   }
@@ -196,8 +208,8 @@ export function TasksHub({
       <section className="tasks-hub">
         <div className="page-heading">
           <div>
-            <h2>Tasks</h2>
-            <p>Add a project first; its repository's pull requests and issues show up here.</p>
+            <h2>{t("trackers.hub.title")}</h2>
+            <p>{t("trackers.hub.noProjects")}</p>
           </div>
         </div>
       </section>
@@ -221,7 +233,7 @@ export function TasksHub({
     <section className={`tasks-hub ${selected ? "has-detail" : ""} th-view-${view}`}>
       <div className="page-heading th-heading">
         <div>
-          <h2>Tasks</h2>
+          <h2>{t("trackers.hub.title")}</h2>
           <p>
             {forge?.repo ? (
               <>
@@ -232,13 +244,13 @@ export function TasksHub({
                 {conns.length > 0 && <> · {conns.map((c) => c.name).join(" · ")}</>}
               </>
             ) : (
-              "Pull requests and issues from GitHub, GitLab, Linear and Jira"
+              t("trackers.hub.subtitle")
             )}
           </p>
         </div>
         <div className="th-head-actions">
           {projects.length > 1 && (
-            <select aria-label="Project" value={pid} onChange={(e) => { setProjectId(Number(e.target.value)); open(undefined); }}>
+            <select aria-label={t("trackers.hub.project")} value={pid} onChange={(e) => { setProjectId(Number(e.target.value)); open(undefined); }}>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -246,23 +258,23 @@ export function TasksHub({
               ))}
             </select>
           )}
-          <button className="b" onClick={() => void load()} disabled={loading} aria-label="Refresh">
-            {loading ? "Loading…" : "Refresh"}
+          <button className="b" onClick={() => void load()} disabled={loading} aria-label={t("trackers.hub.refresh")}>
+            {loading ? t("trackers.loading") : t("trackers.hub.refresh")}
           </button>
           {pid && (
             <button className="b" onClick={() => onSettings(pid)}>
-              Connect…
+              {t("trackers.hub.connect")}
             </button>
           )}
         </div>
       </div>
 
-      <div className="th-tabs" role="tablist" aria-label="Source">
+      <div className="th-tabs" role="tablist" aria-label={t("trackers.hub.source")}>
         {(
           [
-            ["all", "All"],
-            ["pr", `${forge?.kind === "gitlab" ? "Merge requests" : "Pull requests"}`, counts.pr],
-            ["issue", "Issues", counts.issue],
+            ["all", t("trackers.hub.tab.all")],
+            ["pr", forge?.kind === "gitlab" ? t("trackers.hub.tab.mergeRequests") : t("trackers.hub.tab.pullRequests"), counts.pr],
+            ["issue", t("trackers.hub.tab.issues"), counts.issue],
             ...conns.map((c) => [`c${c.id}`, c.name] as const),
           ] as [Tab, string, number?][]
         ).map(([key, label, n]) => (
@@ -275,8 +287,8 @@ export function TasksHub({
       </div>
 
       <div className="th-toolbar">
-        <div className="th-chips" role="group" aria-label="Filter">
-          {FILTERS.filter((f) => !f.pr || tab === "pr" || tab === "all").map((f) => (
+        <div className="th-chips" role="group" aria-label={t("trackers.hub.filter")}>
+          {FILTERS().filter((f) => !f.pr || tab === "pr" || tab === "all").map((f) => (
             <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key}
               onClick={() => { setFilter(f.key); save("lec-tasks-filter", f.key); }}>
               {f.label}
@@ -284,7 +296,7 @@ export function TasksHub({
           ))}
         </div>
         {teams.length > 1 && (
-          <select className="th-team" aria-label="Linear team" value={team} onChange={(e) => setTeam(e.target.value)}>
+          <select className="th-team" aria-label={t("trackers.hub.linearTeam")} value={team} onChange={(e) => setTeam(e.target.value)}>
             {teams.map((t) => (
               <option key={t.key} value={t.key}>
                 {t.name} ({t.key})
@@ -292,12 +304,12 @@ export function TasksHub({
             ))}
           </select>
         )}
-        <input className="th-search" type="search" aria-label="Search tasks" placeholder="Search title, id, branch, person, label" value={text} onChange={(e) => setText(e.target.value)} />
+        <input className="th-search" type="search" aria-label={t("trackers.hub.search")} placeholder={t("trackers.hub.searchPlaceholder")} value={text} onChange={(e) => setText(e.target.value)} />
         {showBoardToggle && (
-          <div className="th-viewtoggle" role="group" aria-label="View">
+          <div className="th-viewtoggle" role="group" aria-label={t("trackers.hub.view")}>
             {(["list", "board", "table"] as View[]).map((v) => (
               <button key={v} className={view === v ? "on" : ""} aria-pressed={view === v} onClick={() => { setView(v); save("lec-tasks-view", v); }}>
-                {v.charAt(0).toUpperCase() + v.slice(1)}
+                {VIEW_LABEL()[v]}
               </button>
             ))}
           </div>
@@ -309,7 +321,7 @@ export function TasksHub({
           {forge.error}{" "}
           {pid && (
             <button className="b" onClick={() => onSettings(pid)}>
-              Set up
+              {t("trackers.hub.setUp")}
             </button>
           )}
         </p>
@@ -323,8 +335,8 @@ export function TasksHub({
 
       <div className="th-body">
         <div className="th-list" aria-busy={loading}>
-          {!loading && data && items.length === 0 && <p className="th-empty">Nothing here{text ? " matching that search" : ""}.</p>}
-          {!data && loading && <p className="th-empty">Loading…</p>}
+          {!loading && data && items.length === 0 && <p className="th-empty">{text ? t("trackers.hub.emptySearch") : t("trackers.hub.empty")}</p>}
+          {!data && loading && <p className="th-empty">{t("trackers.loading")}</p>}
           {view === "list" && (
             <ul className="th-rows">
               {items.map((it) => (
@@ -339,13 +351,13 @@ export function TasksHub({
                         <span className="th-num">{itemMark(it)}</span>
                         <StatePill item={it} />
                         {it.kind === "pr" && it.head && <code className="th-branch">{it.head}</code>}
-                        {it.author && <span>by {it.author}</span>}
+                        {it.author && <span>{t("trackers.hub.by", { name: it.author })}</span>}
                         <span>{ago(it.updated_at)}</span>
                       </span>
                       <span className="th-row-badges">
                         <ChecksBadge checks={it.checks} />
                         <ReviewBadge review={it.review} />
-                        {it.conflicts && <span className="th-badge th-conflicts">conflicts</span>}
+                        {it.conflicts && <span className="th-badge th-conflicts">{t("trackers.conflictsBadge")}</span>}
                         {it.priority && it.priority !== "No priority" && <span className="th-badge">{it.priority}</span>}
                         <Labels labels={it.labels} />
                       </span>
@@ -361,11 +373,11 @@ export function TasksHub({
               <table className="th-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Assignees</th>
-                    <th>Updated</th>
+                    <th>{t("trackers.hub.col.id")}</th>
+                    <th>{t("trackers.hub.col.title")}</th>
+                    <th>{t("trackers.hub.col.status")}</th>
+                    <th>{t("trackers.hub.col.assignees")}</th>
+                    <th>{t("trackers.hub.col.updated")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -413,7 +425,7 @@ export function TasksHub({
             </div>
           )}
         </div>
-        {detail && <aside className="th-detail" aria-label="Details">{detail}</aside>}
+        {detail && <aside className="th-detail" aria-label={t("trackers.hub.details")}>{detail}</aside>}
       </div>
     </section>
   );

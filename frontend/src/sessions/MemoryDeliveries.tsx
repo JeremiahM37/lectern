@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { JsonValue } from "../api";
+import { t, useLocale } from "../i18n";
 import { formatAge } from "./usageFormat";
 import {
   deliverySummary,
@@ -101,7 +102,7 @@ export function useMemoryDeliveries(
     try {
       await api.request(itemPath(item.id, "feedback"), { method: "POST", body: { helpful } });
       mark(item, helpful ? "helpful" : "irrelevant");
-      onNotice(helpful ? "Thank you — that tunes ranking." : "Noted as not relevant.");
+      onNotice(helpful ? t("sessions.memoryDeliveries.thanksHelpful") : t("sessions.memoryDeliveries.notedIrrelevant"));
     } catch (e) {
       onNotice(String(e), true);
     }
@@ -109,16 +110,16 @@ export function useMemoryDeliveries(
 
   async function challenge(item: MemoryItem) {
     if (!item.id) return;
-    const reason = prompt("Why is this memory wrong or out of date?");
+    const reason = prompt(t("sessions.memoryDeliveries.challengePrompt"));
     if (reason == null) return;
     if (!reason.trim()) {
-      onNotice("A challenge needs a reason — otherwise nobody can review it.", true);
+      onNotice(t("sessions.memoryDeliveries.challengeNeedsReason"), true);
       return;
     }
     try {
       await api.request(itemPath(item.id, "challenge"), { method: "POST", body: { reason: reason.trim() } });
       mark(item, "challenged");
-      onNotice("Reported as wrong — the memory store will keep the claim and your objection side by side.");
+      onNotice(t("sessions.memoryDeliveries.challengeSent"));
     } catch (e) {
       onNotice(String(e), true);
     }
@@ -135,11 +136,13 @@ export function MemoryDeliveries(props: {
   id: number;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const state = useMemoryDeliveries(props.api, props.kind, props.id, props.onNotice);
   return <MemorySection state={state} />;
 }
 
 export function MemorySection({ state }: { state: MemoryDeliveriesState }) {
+  useLocale();
   return (
     <details
       className="conversation-memory"
@@ -148,29 +151,28 @@ export function MemorySection({ state }: { state: MemoryDeliveriesState }) {
       }}
     >
       <summary>
-        Memory{state.deliveries?.length ? ` · ${state.deliveries.length}` : ""}
+        {t("sessions.memoryDeliveries.summary")}{state.deliveries?.length ? ` · ${state.deliveries.length}` : ""}
       </summary>
       <div className="memory-body">
-        {state.busy && !state.deliveries && <p className="sub">Reading what was delivered…</p>}
+        {state.busy && !state.deliveries && <p className="sub">{t("sessions.memoryDeliveries.reading")}</p>}
         {state.error && (
           <p className="sub">
-            What was delivered is unavailable, so this is not “nothing was”. {state.error}
+            {t("sessions.memoryDeliveries.unavailable")} {state.error}
           </p>
         )}
         {state.deliveries && state.deliveries.length === 0 && (
           <p className="sub">
-            Nothing has been injected here yet. Project memory is added at launch and when a message
-            retrieves something new.
+            {t("sessions.memoryDeliveries.empty")}
           </p>
         )}
         {state.deliveries?.map((delivery) => (
           <section className="memory-delivery" key={delivery.id}>
             <header>
-              <b>{formatAge(delivery.at) || "just now"}</b>
+              <b>{formatAge(delivery.at) || t("sessions.memoryDeliveries.justNow")}</b>
               <span className="memory-summary">{deliverySummary(delivery)}</span>
             </header>
             {delivery.items.length === 0 ? (
-              <p className="sub">The store sent context without naming the records it came from.</p>
+              <p className="sub">{t("sessions.memoryDeliveries.unnamedRecords")}</p>
             ) : (
               <ul className="memory-items">
                 {delivery.items.map((item, index) => (
@@ -190,7 +192,7 @@ export function MemorySection({ state }: { state: MemoryDeliveriesState }) {
             or a store that was down when the panel was first opened. */}
         {(state.deliveries || state.error) && (
           <button className="b" disabled={state.busy} onClick={state.load}>
-            Refresh
+            {t("sessions.memory.refresh")}
           </button>
         )}
       </div>
@@ -209,6 +211,7 @@ function MemoryItemRow({
   onReview(item: MemoryItem, helpful: boolean): void;
   onChallenge(item: MemoryItem): void;
 }) {
+  useLocale();
   return (
     <li data-verdict={verdict}>
       <div className="memory-item-head">
@@ -217,30 +220,30 @@ function MemoryItemRow({
       </div>
       {item.snippet && (
         <details className="memory-snippet">
-          <summary>What it said</summary>
+          <summary>{t("sessions.memoryDeliveries.whatItSaid")}</summary>
           <p>{item.snippet}</p>
         </details>
       )}
       {!item.id ? (
-        <small>This store did not name the record, so it cannot be reviewed from here.</small>
+        <small>{t("sessions.memoryDeliveries.cannotReview")}</small>
       ) : verdict ? (
         <small className="memory-verdict" data-verdict={verdict}>
           {verdict === "helpful"
-            ? "Marked helpful ✓"
+            ? t("sessions.memoryDeliveries.markedHelpful")
             : verdict === "irrelevant"
-              ? "Marked not relevant"
-              : "Reported as wrong — sent for review"}
+              ? t("sessions.memoryDeliveries.markedIrrelevant")
+              : t("sessions.memoryDeliveries.markedWrong")}
         </small>
       ) : (
         <div className="memory-actions">
           <button className="b" onClick={() => onReview(item, true)}>
-            Helpful
+            {t("sessions.memoryDeliveries.helpful")}
           </button>
           <button className="b" onClick={() => onReview(item, false)}>
-            Not relevant
+            {t("sessions.memoryDeliveries.notRelevant")}
           </button>
           <button className="b warn" onClick={() => onChallenge(item)}>
-            This is wrong
+            {t("sessions.memoryDeliveries.thisIsWrong")}
           </button>
         </div>
       )}
@@ -260,11 +263,12 @@ export function MemoryTimelineEntry({
    *  would claim a re-dispatched attempt's memory was this attempt's. */
   attempt?: number;
 }) {
+  useLocale();
   const names = delivery.items.map(itemLabel).join(" · ");
   return (
     <article className="ev e-memory">
       <div className="k">
-        memory{attempt != null ? ` · A${attempt}` : ""} · {formatAge(delivery.at) || "just now"}
+        {t("sessions.memoryDeliveries.timelineKind")}{attempt != null ? " · " + t("sessions.memoryDeliveries.attempt", { n: attempt }) : ""} · {formatAge(delivery.at) || t("sessions.memoryDeliveries.justNow")}
       </div>
       <pre className="body dim">
         {deliverySummary(delivery)}
