@@ -271,6 +271,77 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(manifest['source_archive_sha256'], receipt['source_archive_sha256'])
         self.assertEqual(receipt['source_archive_sha256'], RUNNER.digest_file(self.jobs / self.source / 'artifact.tar.gz'))
 
+    def test_general_planner_evidence_preserves_links_without_host_reads(self):
+        work=self.jobs/self.source/'work'
+        secret=self.root/'host-secret';secret.write_bytes(b'NEVER READ HOST TARGET')
+        external=self.root/'host-directory';external.mkdir();(external/'hidden').write_bytes(b'NEVER TRAVERSE HOST DIRECTORY')
+        (work/'local-alias').symlink_to('code.py')
+        (work/'external-alias').symlink_to(secret)
+        (work/'directory-alias').symlink_to(external,target_is_directory=True)
+        (work/'broken').symlink_to('../../missing')
+        os.link(work/'code.py',work/'hardlinked-code.py')
+        (self.jobs/self.source/'artifact.tar.gz').chmod(0o600)
+        self.archive(self.source)
+        source_digest=RUNNER.digest_file(self.jobs/self.source/'artifact.tar.gz')
+        original_digest=RUNNER.digest_file
+        def guarded_digest(path):
+            self.assertNotEqual(Path(path),secret)
+            self.assertNotEqual(Path(path),external/'hidden')
+            self.assertFalse(Path(path).is_symlink(),'link text must never be opened for hashing')
+            return original_digest(path)
+        def guarded_chown(path,*args,**kwargs):
+            if Path(path).is_symlink():self.assertFalse(kwargs.get('follow_symlinks',True))
+        with patch.object(RUNNER,'digest_file',side_effect=guarded_digest),patch.object(RUNNER.os,'chown',side_effect=guarded_chown):
+            receipt=RUNNER.copy_archive_review(self.destination,self.source)
+            self.assertEqual(receipt,RUNNER.copy_archive_review(self.destination,self.source))
+        evidence=self.jobs/self.destination/'work/.lectern-review'/self.source
+        copied=evidence/'work'
+        self.assertEqual(receipt['evidence_digest_scheme'],'general-evidence-v1')
+        self.assertEqual(receipt['source_archive_sha256'],source_digest)
+        self.assertEqual(os.readlink(copied/'external-alias'),str(secret))
+        self.assertEqual(os.readlink(copied/'broken'),'../../missing')
+        self.assertEqual((copied/'hardlinked-code.py').read_bytes(),b'assert True\n')
+        self.assertEqual((copied/'hardlinked-code.py').stat().st_nlink,1)
+        self.assertNotEqual((copied/'hardlinked-code.py').stat().st_ino,(copied/'code.py').stat().st_ino)
+        manifest=json.loads((evidence/'manifest.json').read_text())
+        self.assertNotIn('NEVER READ',json.dumps(manifest));self.assertNotIn('directory-alias/hidden',[r['path'] for r in manifest['files']])
+        self.assertIn({'path':'external-alias','mode':0o777,'sha256':None,'link':str(secret),'kind':'symlink'},manifest['files'])
+        with self.assertRaises(ValueError):RUNNER.completion_extract_archive(self.source,self.root/'strict-doc')
+        (copied/'local-alias').unlink();(copied/'local-alias').symlink_to('different.py')
+        with self.assertRaisesRegex(RuntimeError,'evidence changed'):RUNNER.copy_archive_review(self.destination,self.source)
+
+    def test_general_evidence_rejects_link_parent_escape_cycle_and_expansion(self):
+        def member(name,kind=tarfile.REGTYPE,target='',data=b'x'):
+            value=tarfile.TarInfo(name);value.type=kind;value.mode=0o755 if kind==tarfile.DIRTYPE else 0o644
+            value.linkname=target;value.size=len(data) if kind==tarfile.REGTYPE else 0
+            return value,data
+        root=member('work',tarfile.DIRTYPE)
+        cases=[
+            [root,member('work/escape',tarfile.SYMTYPE,str(self.root)),member('work/escape/host-written')],
+            [root,member('work/hard',tarfile.LNKTYPE,'../outside')],
+            [root,member('work/a',tarfile.LNKTYPE,'work/b'),member('work/b',tarfile.LNKTYPE,'work/a')],
+            [root,member('work/link',tarfile.SYMTYPE,'target'),member('work/hard',tarfile.LNKTYPE,'work/link')],
+            [root,member('work/file',data=b'1234'),member('work/hard',tarfile.LNKTYPE,'work/file')],
+        ]
+        for index,items in enumerate(cases):
+            with self.subTest(index=index):
+                archive=self.jobs/self.source/'artifact.tar.gz';archive.chmod(0o600)
+                with tarfile.open(archive,'w:gz') as out:
+                    for entry,data in items:out.addfile(entry,io.BytesIO(data) if entry.isfile() else None)
+                archive.chmod(0o440)
+                (self.jobs/self.source/'artifact-state/receipt.json').write_text(json.dumps({'state':'ready','sha256':RUNNER.digest_file(archive)}))
+                with patch.object(RUNNER,'COMPLETION_MAX_BYTES',7 if index==4 else 1900*1024**2):
+                    with self.assertRaises(ValueError):RUNNER.evidence_extract_archive(self.source,self.root/('unsafe-'+str(index)))
+        self.assertFalse((self.root/'host-written').exists())
+
+    def test_plain_evidence_keeps_legacy_digest_and_receipt_verification(self):
+        receipt=RUNNER.copy_archive_review(self.destination,self.source)
+        copied=self.jobs/self.destination/'work/.lectern-review'/self.source/'work'
+        self.assertEqual(receipt['evidence_tree_sha256'],RUNNER.completion_inspect(copied))
+        ready=self.jobs/self.destination/'completion'/('archive-review-'+self.source+'-ready.json')
+        legacy=dict(receipt);legacy.pop('evidence_digest_scheme');RUNNER.completion_write(ready,legacy)
+        self.assertEqual(RUNNER.copy_archive_review(self.destination,self.source),legacy)
+
     def test_prepare_ownership_failure_cannot_publish_readiness(self):
         source_work = self.jobs / self.source / 'work'
         source_work.chmod(0o700)
@@ -319,11 +390,11 @@ class CompletionTests(unittest.TestCase):
         self.assertTrue((copied / self.reviewer / 'work/review.md').exists())
 
     def test_archive_copy_crash_reuses_only_matching_partial_namespace(self):
-        original_extract = RUNNER.completion_extract_archive
+        original_extract = RUNNER.evidence_extract_archive
         def interrupt(source, destination):
             result = original_extract(source, destination)
             raise OSError('interrupted after archive extraction')
-        with patch.object(RUNNER, 'completion_extract_archive', interrupt):
+        with patch.object(RUNNER, 'evidence_extract_archive', interrupt):
             with self.assertRaises(OSError):
                 RUNNER.copy_archive_review(self.destination, self.source)
         receipt = RUNNER.copy_archive_review(self.destination, self.source)
@@ -443,6 +514,30 @@ for path, mode in [(archive, 'ab'), (baseline, 'rb'), (baseline, 'ab')]:
 """
         result = subprocess.run(['/usr/sbin/runuser', '-u', 'admin', '--', '/usr/bin/python3', '-c', probe, str(public), str(job / 'completion/baseline/WORKSHOP.md')], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ordinary_copy_preserves_directory_modes_and_inherited_review_tree(self):
+        source = self.jobs / self.source / 'work'
+        source.chmod(0o750)
+        evidence = source / '.lectern-review' / self.reviewer / 'work'
+        evidence.mkdir(parents=True)
+        (evidence / 'private').mkdir(mode=0o700)
+        (evidence / 'public').mkdir(mode=0o755)
+        (evidence / 'public/proof.txt').write_text('unchanged evidence')
+        (evidence / 'public/proof.txt').chmod(0o444)
+        (evidence / 'public').chmod(0o555)
+        before = RUNNER.completion_inspect(source / '.lectern-review')
+        for mask in (0o077, 0o022):
+            destination = self.new_job({})
+            previous = os.umask(mask)
+            try:
+                RUNNER.copy_job(destination, self.source)
+            finally:
+                os.umask(previous)
+            copied = self.jobs / destination / 'work'
+            self.assertEqual(copied.stat().st_mode & 0o777, 0o750)
+            self.assertEqual(RUNNER.completion_inspect(copied / '.lectern-review'), before)
+            self.assertEqual((copied / '.lectern-review' / self.reviewer / 'work/private').stat().st_mode & 0o777, 0o700)
+            self.assertEqual((copied / '.lectern-review' / self.reviewer / 'work/public').stat().st_mode & 0o777, 0o555)
 
     def test_real_overlay_derived_reviewer_and_raw_archive_preserved(self):
         self.assert_real_cli()

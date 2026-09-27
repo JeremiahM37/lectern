@@ -280,7 +280,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges):
+def bwrap(p, provider, assets, work, bridges, python_project=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -300,7 +300,10 @@ def bwrap(p, provider, assets, work, bridges):
                 '--setenv', 'GOTOOLCHAIN', 'local', '--setenv', 'GOENV', 'off',
                 '--setenv', 'GOWORK', 'off',
                 '--setenv', 'PATH', '/usr/local/go/bin:/usr/bin:/bin']
-    cmd += python_test_runtime_mount()
+    if python_project is None:
+        cmd += python_test_runtime_mount()
+    else:
+        cmd += python_project_mount(python_project)
     cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
             '--tmpfs', '/home', '--dir', '/home/agent', '--dir', '/etc',
             '--ro-bind', '/etc/ssl/certs', '/etc/ssl/certs',
@@ -381,7 +384,12 @@ def execute(job):
         target = Path('/tmp') / name
         target.mkdir(mode=0o755)
         run(['/usr/bin/mount', '--bind', str(p / name), str(target)])
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges')
+    project_bundle = python_project_bundle(job)
+    project_mount = None
+    if project_bundle is not None:
+        project_mount = Path('/tmp/python-project'); project_mount.mkdir()
+        run(['/usr/bin/mount', '--bind', str(project_bundle), str(project_mount)])
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount)
     def drop():
         os.setgroups([])
         os.setgid(GID)
@@ -786,6 +794,467 @@ def python_test_bundle():
             trusted(item); actual_files.add(item.relative_to(site).as_posix())
     if actual_files != seen: raise ValueError('unlisted Python runtime content')
     return bundle
+
+
+# Project dependencies are installed by a fixed data-only helper, never pip on
+# the host. The resolver and imports run in separate, credential-free sandboxes.
+PYTHON_HELPER = Path('/usr/local/libexec/lectern-python-project-dependencies.py')
+PYTHON_PIP_SOURCE = Path('/home/admin/.venvs/verify/lib/python3.13/site-packages')
+
+
+class PythonUnsupported(ValueError):
+    pass
+
+
+def python_project_mount(bundle):
+    # Both names expose the SAME unified immutable environment. Existing audited
+    # commands referring to the original pytest path survive dependency recovery.
+    result=[]
+    for prefix in ('python-project','python-test'):
+        result+=['--ro-bind',str(bundle/'site-packages'),'/opt/'+prefix,
+                 '--ro-bind',str(bundle/'manifest.json'),'/opt/'+prefix+'-runtime.json']
+    return result+['--setenv','PYTHONPATH','/opt/python-project',
+                   '--setenv','PYTHONDONTWRITEBYTECODE','1',
+                   '--setenv','LECTERN_PYTHON_TEST_RUNTIME_STATUS','verified',
+                   '--setenv','LECTERN_PYTHON_PROJECT_RUNTIME_STATUS','verified']
+
+
+def python_helper(path=None):
+    import importlib.util
+    path = PYTHON_HELPER if path is None else path
+    info = regular(path)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        raise ValueError('untrusted Python dependency helper')
+    spec = importlib.util.spec_from_file_location('lectern_python_dependencies', path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode; sys.dont_write_bytecode = True
+    try: spec.loader.exec_module(module)
+    finally: sys.dont_write_bytecode = previous
+    return module
+
+
+def python_private(path):
+    path.mkdir(mode=0o700, exist_ok=True)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise ValueError('unsafe private Python dependency directory')
+    return path
+
+
+def python_request(job):
+    p = job_path(job); source = p / 'python-requirement.json'
+    info = regular(source)
+    if info.st_size > 16384 or info.st_mode & 0o022 or info.st_uid not in (0,pwd.getpwnam('admin').pw_uid):
+        raise ValueError('unsafe Python requirement envelope')
+    request = json.loads(source.read_text())
+    required={'schema_version','kind','requirements','imports','source_job','source_archive_sha256','admission_sha256'}
+    optional={'expected_input_key','expected_bundle_key'}
+    if not required.issubset(request) or set(request)-required-optional or request['schema_version'] != 1 or request['kind'] != 'python_wheels':
+        raise ValueError('unsupported Python requirement envelope')
+    job_path(request['source_job'])
+    expected=[request.get(k,'') for k in ('expected_input_key','expected_bundle_key')]
+    if bool(expected[0])!=bool(expected[1]):raise ValueError('incomplete inherited Python identity')
+    for field in ('source_archive_sha256','admission_sha256',*([ 'expected_input_key','expected_bundle_key'] if expected[0] else [])):
+        value = request[field]
+        if not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value): raise ValueError('invalid Python source binding')
+    for field in ('requirements','imports'):
+        values = request[field]
+        if not isinstance(values,list) or not 0<len(values)<=32 or any(not isinstance(x,str) or not x or len(x)>512 or '\n' in x or '\x00' in x for x in values):
+            raise ValueError('invalid bounded Python requirements')
+        request[field] = sorted(set(values))
+    if archive_identity(request['source_job'])['sha256'] != request['source_archive_sha256']:
+        raise ValueError('Python request source archive identity mismatch')
+    stage = python_private(p / 'python-prerequisite')
+    sealed = stage / 'request.json'
+    if sealed.exists():
+        if completion_json(sealed) != request: raise ValueError('Python requirement changed after admission')
+    else: completion_write(sealed,request)
+    return stage, request
+
+
+def python_freeze_helper(stage, source):
+    info=regular(source)
+    if info.st_uid!=0 or info.st_mode&0o022 or info.st_size>256*1024:raise ValueError('untrusted Python helper snapshot source')
+    target=stage/'helper.py'
+    if not target.exists():
+        temporary=stage/'helper.pending'
+        if temporary.exists():regular(temporary);temporary.unlink()
+        with temporary.open('xb') as out:
+            out.write(source.read_bytes());out.flush();os.fsync(out.fileno())
+        temporary.chmod(0o555);os.chown(temporary,0,0);os.replace(temporary,target)
+    info=regular(target)
+    if info.st_uid!=0 or info.st_mode&0o222:raise ValueError('untrusted frozen Python helper')
+    return target
+
+
+def python_cached_identity(key, bundle_key, request):
+    if any(len(value)!=64 or any(c not in '0123456789abcdef' for c in value) for value in (key,bundle_key)):
+        raise ValueError('invalid inherited Python cache key')
+    cache=DEPENDENCIES/'python-project'
+    for directory in (DEPENDENCIES,cache):
+        info=directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe inherited Python cache')
+    identity=completion_json(cache/(key+'.identity.json'))
+    semantic={k:identity[k] for k in ('requirements','imports','tooling_requirements','runtime_digest')}
+    if identity.get('input_key')!=key or hashlib.sha256(json.dumps(semantic,sort_keys=True,separators=(',',':')).encode()).hexdigest()!=key or identity['requirements']!=request['requirements'] or identity['imports']!=request['imports']:
+        raise ValueError('inherited Python semantic identity mismatch')
+    if hashlib.sha256(json.dumps(identity['runtime'],sort_keys=True,separators=(',',':')).encode()).hexdigest()!=identity['runtime_digest']:
+        raise ValueError('inherited Python runtime identity mismatch')
+    index=completion_json(cache/(key+'.json'))
+    if index.get('bundle_key')!=bundle_key:raise ValueError('inherited Python bundle selection mismatch')
+    return identity
+
+
+def python_identity(stage, request):
+    target=stage/'identity.json'
+    if target.exists(): return completion_json(target)
+    expected=request.get('expected_input_key','')
+    if expected:
+        result=python_cached_identity(expected,request['expected_bundle_key'],request)
+        frozen=python_freeze_helper(stage,DEPENDENCIES/'python-project'/(expected+'.helper.py'))
+        if digest_file(frozen)!=result['runtime']['helper_sha256']:raise ValueError('inherited Python helper identity mismatch')
+        completion_write(target,result)
+        return result
+    frozen=python_freeze_helper(stage,PYTHON_HELPER)
+    helper=python_helper(frozen)
+    base,manifest=python_toolkit_identity()
+    records=list(PYTHON_PIP_SOURCE.glob('pip-*.dist-info/RECORD'))
+    if len(records)!=1: raise PythonUnsupported('trusted pip resolver unavailable; exactly one installed resolver is required')
+    regular(records[0])
+    runtime={'python_sha256':digest_file(Path('/usr/bin/python3').resolve()),
+             'python_version':platform.python_version(), 'helper_sha256':digest_file(frozen),
+             'pip_record_sha256':digest_file(records[0]), 'pytest_key':manifest['key'], 'policy':helper.POLICY}
+    runtime_digest=hashlib.sha256(helper.canonical(runtime)).hexdigest()
+    semantic={'requirements':request['requirements'],'imports':request['imports'],
+              'tooling_requirements':[name+'=='+version for name,version in sorted(manifest['packages'].items())],
+              'runtime_digest':runtime_digest}
+    result=dict(semantic,input_key=hashlib.sha256(helper.canonical(semantic)).hexdigest(),runtime=runtime)
+    completion_write(target,result)
+    return result
+
+
+def python_toolkit_identity():
+    root=DEPENDENCIES/'python'
+    for path in (DEPENDENCIES,root):
+        info=path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022: raise ValueError('unsafe Python toolkit directory')
+    active=root/'active.json';info=regular(active)
+    if info.st_uid!=0 or info.st_mode&0o222 or info.st_size>1024: raise ValueError('unsafe Python toolkit selector')
+    key=json.loads(active.read_text()).get('key','')
+    if len(key)!=64 or any(c not in '0123456789abcdef' for c in key):raise ValueError('invalid Python toolkit key')
+    base=root/key;info=base.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe Python toolkit bundle')
+    path=base/'manifest.json';info=regular(path)
+    if info.st_uid!=0 or info.st_mode&0o222 or info.st_size>2*1024**2:raise ValueError('unsafe Python toolkit manifest')
+    manifest=json.loads(path.read_text());body=dict(manifest);body.pop('key',None)
+    if hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest()!=key or manifest.get('key')!=key or manifest.get('checksum_verified') is not True or set(manifest.get('packages',{}))!={'pytest','pluggy','iniconfig','packaging','pygments'}:raise ValueError('Python toolkit provenance mismatch')
+    return base,manifest
+
+
+def python_unit(job): return 'lectern-python-dependencies-'+job+'.service'
+
+
+def python_active(job):
+    return completion_service_active(python_unit(job))
+
+
+def python_binding(request, identity):
+    return dict(capability='python_wheels',input_key=identity['input_key'],runtime_digest=identity['runtime_digest'],
+                **{k:request[k] for k in ('source_job','source_archive_sha256','admission_sha256')})
+
+
+def python_dependencies(job):
+    if status(job)['state']=='running': raise ValueError('Python preparation requires a stopped worker')
+    stage,request=python_request(job)
+    cancellation=(stage/'cancel.json').read_bytes() if (stage/'cancel.json').exists() else b''
+    with (stage/'guard').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        try:
+            identity=python_identity(stage,request)
+        except (FileNotFoundError,PythonUnsupported) as exc:
+            # Optional capability absence cannot fail the whole workshop. The
+            # source envelope was independently validated before entering here.
+            receipt=dict(capability='python_wheels',state='unavailable',unsupported=True,initialization_unavailable=True,
+                         reason='Trusted Python prerequisite runtime unavailable: '+str(exc)[:250],
+                         **{k:request[k] for k in ('source_job','source_archive_sha256','admission_sha256')})
+            completion_write(stage/'receipt.json',receipt)
+            return receipt
+        binding=python_binding(request,identity)
+        (stage/'heartbeat').touch()
+        receipt=completion_json(stage/'receipt.json') if (stage/'receipt.json').exists() else dict(binding)
+        if receipt.get('initialization_unavailable'):
+            receipt=dict(binding)
+        if any(receipt.get(k)!=v for k,v in binding.items()): raise ValueError('Python recovery binding mismatch')
+        if receipt.get('state')=='verified':
+            # Full bytes are reverified by the trusted launcher before mounting.
+            python_project_bundle(job, full=False)
+            return receipt
+        if cancellation!=((stage/'cancel.json').read_bytes() if (stage/'cancel.json').exists() else b''):
+            return dict(receipt,state='waiting',reason='Python launch cancelled by controller')
+        if python_active(job): return dict(receipt,state='recovering')
+        if receipt.get('state')=='recovering':
+            receipt.update(state='waiting',reason='Python provisioner interrupted',retry_at=time.time()+30)
+            completion_write(stage/'receipt.json',receipt)
+        if receipt.get('unsupported'): return dict(receipt,state='unavailable')
+        if receipt.get('attempts',0)>=3:
+            if time.time()-receipt.get('started_at',0)<21600: return dict(receipt,state='unavailable')
+            receipt.update(attempts=0,retry_at=0)
+        if receipt.get('retry_at',0)>time.time(): return dict(receipt,state='waiting')
+        if shutil.disk_usage(ROOT).free<24*1024**3:
+            return dict(receipt,state='waiting',reason='Python provisioning needs 4 GiB above the storage floor')
+        receipt.update(state='recovering',attempts=receipt.get('attempts',0)+1,started_at=time.time())
+        completion_write(stage/'receipt.json',receipt)
+        run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+python_unit(job),
+             '--property=RuntimeMaxSec=600','--property=MemoryMax=2G','--property=MemorySwapMax=0',
+             '--property=CPUQuota=200%','--property=TasksMax=128','--property=KillMode=control-group',
+             '--property=PrivateMounts=yes','--property=UMask=0077',INSTALL,'_python-dependencies','--job',job],pass_fds=(lock.fileno(),))
+        return receipt
+
+
+def python_dependencies_stop(job):
+    stage=job_path(job)/'python-prerequisite'
+    if stage.exists():
+        python_private(stage)
+        completion_write(stage/'cancel.json',{'epoch':str(uuid.uuid4())})
+        with (stage/'guard').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            if python_active(job): run(['/usr/bin/systemctl','stop',python_unit(job)],pass_fds=(lock.fileno(),))
+            if python_active(job): raise RuntimeError('Python provisioner did not stop')
+            if (stage/'receipt.json').exists():
+                receipt=completion_json(stage/'receipt.json')
+                if receipt.get('state')=='recovering':
+                    receipt.update(state='waiting',reason='Python provisioning interrupted by controller',retry_at=0,
+                                   attempts=max(0,receipt.get('attempts',1)-1))
+                    completion_write(stage/'receipt.json',receipt)
+    return {'state':'stopped'}
+
+
+def python_project_bundle(job, full=True):
+    p=job_path(job)
+    if not (p/'python-requirement.json').exists(): return None
+    stage,request=python_request(job);identity=completion_json(stage/'identity.json');receipt=completion_json(stage/'receipt.json')
+    binding=python_binding(request,identity)
+    if receipt.get('state')!='verified' or any(receipt.get(k)!=v for k,v in binding.items()): raise ValueError('Python project prerequisites not verified')
+    if request.get('expected_input_key') and (receipt.get('input_key')!=request['expected_input_key'] or receipt.get('bundle_key')!=request['expected_bundle_key']):raise ValueError('inherited Python environment changed')
+    key=receipt.get('bundle_key','')
+    if len(key)!=64 or any(c not in '0123456789abcdef' for c in key): raise ValueError('invalid Python project bundle key')
+    root=DEPENDENCIES/'python-project';bundle=root/key
+    for directory in (DEPENDENCIES,root,bundle,bundle/'site-packages'):
+        info=directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022: raise ValueError('unsafe Python project bundle')
+    manifest_path=bundle/'manifest.json';info=regular(manifest_path)
+    if info.st_uid!=0 or info.st_mode&0o222 or info.st_size>32*1024**2: raise ValueError('unsafe Python project manifest')
+    manifest=json.loads(manifest_path.read_text());body=dict(manifest);body.pop('key',None)
+    if hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest()!=key or manifest.get('key')!=key or manifest.get('input_key')!=identity['input_key'] or manifest.get('runtime_digest')!=identity['runtime_digest'] or manifest.get('checksum_verified') is not True:
+        raise ValueError('Python project manifest identity mismatch')
+    if full:
+        if digest_file(Path('/usr/bin/python3').resolve())!=identity['runtime']['python_sha256']: raise ValueError('Python interpreter changed since dependency verification')
+        seen=set();total=0;site=bundle/'site-packages'
+        rows=manifest.get('files',[])
+        if not rows or len(rows)>100000: raise ValueError('Python project inventory size')
+        for row in rows:
+            name=row['path'];parts=name.split('/')
+            if not name or name.startswith('/') or '\\' in name or any(c in ('','.','..') for c in parts) or name in seen: raise ValueError('invalid Python project member')
+            seen.add(name);path=site/name
+            for parent in path.parents:
+                if parent==site:break
+                pi=parent.lstat()
+                if not stat.S_ISDIR(pi.st_mode) or pi.st_uid!=0 or pi.st_mode&0o222: raise ValueError('unsafe Python project directory')
+            st=regular(path);total+=st.st_size
+            if st.st_uid!=0 or st.st_mode&0o222 or st.st_size!=row['size'] or digest_file(path)!=row['sha256'] or total>1024**3: raise ValueError('Python project bytes changed')
+        actual=set()
+        for path in site.rglob('*'):
+            info=path.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                if info.st_uid!=0 or info.st_mode&0o222:raise ValueError('unsafe Python bundle directory')
+            else: regular(path);actual.add(path.relative_to(site).as_posix())
+        if seen!=actual:raise ValueError('Python project inventory mismatch')
+    return bundle
+
+
+def python_sandbox_command(command, probe=False):
+    cmd=['/usr/bin/bwrap','--die-with-parent','--new-session','--unshare-all','--cap-drop','ALL',
+         '--clearenv','--tmpfs','/','--ro-bind','/usr','/usr']
+    for path in ('/lib','/lib64','/bin'):
+        if Path(path).exists():cmd+=['--ro-bind',path,path]
+    cmd+=['--proc','/proc','--dev','/dev','--tmpfs','/tmp','--dir','/etc',
+          '--ro-bind','/etc/ssl/certs','/etc/ssl/certs',
+          '--ro-bind','/tmp/python-helper','/helper.py','--ro-bind','/tmp/python-tooling','/tooling',
+          '--ro-bind' if probe else '--bind','/tmp/python-fetch','/fetch',
+          '--setenv','HOME','/tmp','--setenv','PATH','/usr/bin:/bin','--setenv','PYTHONDONTWRITEBYTECODE','1','--chdir','/tmp']
+    if probe:cmd+=['--bind','/tmp/python-proof','/proof']
+    else:cmd+=['--ro-bind','/tmp/python-dependency.sock','/dependency.sock']
+    launch=('/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/dependency.sock &\nsleep .2\n' if not probe else '')
+    launch+='exec /usr/bin/python3 -I -S /helper.py '+command
+    return cmd+['--','/bin/sh','-c',launch]
+
+
+def python_sandbox_run(job,stage,command,probe=False):
+    def drop():
+        resource.setrlimit(resource.RLIMIT_FSIZE,(64*1024**2,64*1024**2))
+        os.setgroups([]);os.setgid(GID);os.setuid(UID)
+    with (stage/(command+'.log')).open('w') as log:
+        process=subprocess.Popen(python_sandbox_command(command,probe),preexec_fn=drop,close_fds=True,stdout=log,stderr=log)
+        try:
+            deadline=time.monotonic()+480
+            while process.poll() is None:
+                if time.monotonic()>deadline or not 0<=time.time()-(stage/'heartbeat').stat().st_mtime<60:
+                    raise RuntimeError('Python controller heartbeat expired or bounded step timed out')
+                time.sleep(1)
+        finally:
+            if process.poll() is None:
+                # Kill the entire fixed unit, including detached resolver children.
+                run(['/usr/bin/systemctl','kill','--kill-whom=all','--signal=SIGKILL',python_unit(job)])
+        if process.returncode:
+            exception=(PythonUnsupported('requested wheels or import environment are unsupported') if process.returncode==2
+                       else RuntimeError('Python '+command+' failed'))
+            exception.diagnostic=python_failure_diagnostic(stage/(command+'.log'))
+            raise exception
+
+
+def python_failure_diagnostic(path):
+    info=regular(path)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>64*1024**2:
+        raise ValueError('unsafe Python diagnostic log')
+    with path.open('rb') as log:
+        log.seek(max(0,info.st_size-12000))
+        raw=log.read(12000).decode('utf-8',errors='replace')
+    # Fixed credential-free sandbox only. Retain evidence as labelled text, never
+    # parse package output as a privileged command or a verification receipt.
+    cleaned=''.join(c for c in raw if c in '\n\t' or c.isprintable())
+    cleaned=cleaned.encode('utf-8')[:12000].decode('utf-8',errors='ignore')
+    return 'Untrusted isolated prerequisite output (last 12000 bytes):\n'+cleaned
+
+
+def python_probe_receipt(path, identity, request):
+    # Imported package code owns this output. Validate the filesystem object
+    # before root opens it: symlinks/FIFOs must never become host reads.
+    try:
+        info=regular(path)
+        if info.st_size>32768:raise ValueError('offline import proof exceeds limit')
+        observed=json.loads(path.read_text())
+        wanted=sorted(set(request['imports']+['pytest']))
+        rows=observed.get('imports',[])
+        if observed.get('input_key')!=identity['input_key'] or observed.get('network')!='unshared-no-socket' or observed.get('python_version')!=identity['runtime']['python_version'] or not isinstance(rows,list) or len(rows)!=len(wanted) or sorted(x['module'] for x in rows)!=wanted:
+            raise ValueError('incomplete offline import proof')
+        if any(not isinstance(row.get('origin'),str) or not row['origin'].startswith('/bundle/site-packages/') for row in rows):
+            raise ValueError('unexpected import origin')
+        return observed
+    except (ValueError,KeyError,TypeError,OSError) as exc:
+        raise PythonUnsupported('unsafe or incomplete offline import proof') from exc
+
+
+def python_dependencies_execute(job):
+    current=Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+    if not current.endswith('/'+python_unit(job)):raise ValueError('Python provisioning outside matching unit')
+    stage,request=python_request(job);identity=completion_json(stage/'identity.json');receipt=completion_json(stage/'receipt.json')
+    DEPENDENCIES.mkdir(mode=0o755,exist_ok=True)
+    helper=python_helper(stage/'helper.py')
+    with (DEPENDENCIES/'.provision.lock').open('a') as lock:
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            receipt.update(state='waiting',reason='another prerequisite is being provisioned',retry_at=time.time()+30,attempts=max(0,receipt.get('attempts',1)-1))
+            completion_write(stage/'receipt.json',receipt);return 0
+        try:
+            if shutil.disk_usage(ROOT).free<24*1024**3 or allocated_storage()>STORAGE_LIMIT-4*1024**3:raise RuntimeError('insufficient Python prerequisite storage headroom')
+            if digest_file(stage/'helper.py')!=identity['runtime']['helper_sha256']:raise ValueError('frozen Python helper changed after admission')
+            if digest_file(Path('/usr/bin/python3').resolve())!=identity['runtime']['python_sha256']:raise PythonUnsupported('Python interpreter changed after admission; audited environment rebind required')
+            cache=python_private(DEPENDENCIES/'python-project');index=cache/(identity['input_key']+'.json')
+            if index.exists():
+                cached=completion_json(index)
+                receipt.update(state='verified',bundle_key=cached['bundle_key'],lock_sha256=cached['lock_sha256'],proof_sha256=cached['proof_sha256'])
+                completion_write(stage/'receipt.json',receipt)
+                python_project_bundle(job)
+                return 0
+            dependency_volume(stage);fetch=ensure_work(stage)
+            tooling=stage/'tooling'
+            if tooling.exists():shutil.rmtree(tooling)
+            tool_identity=helper.snapshot_pip(PYTHON_PIP_SOURCE,tooling)
+            if tool_identity['record_sha256']!=identity['runtime']['pip_record_sha256']:raise PythonUnsupported('pip resolver changed after admission; audited environment rebind required')
+            data={k:identity[k] for k in ('requirements','imports','tooling_requirements','input_key')}
+            (fetch/'input.json').write_bytes(helper.canonical(data))
+            # Restore only a root-sealed full lock; mutable partial resolver output
+            # is never sufficient to alter a previously admitted resolution.
+            if (stage/'lock.json').exists():shutil.copyfile(stage/'lock.json',fetch/'lock.json')
+            elif (fetch/'lock.json').exists():(fetch/'lock.json').unlink()
+            for item in (fetch,*fetch.rglob('*')):
+                if item.is_symlink():raise ValueError('linked dependency staging path')
+                if not item.is_dir():regular(item)
+                os.chown(item,UID,GID)
+            proof=stage/'proof';proof.mkdir(exist_ok=True);proof.chmod(0o700);os.chown(proof,UID,GID)
+            run(['/usr/bin/mount','--make-rprivate','/'])
+            run(['/usr/bin/mount','-t','tmpfs','-o','mode=0755,size=16m,nosuid,nodev','python-staging','/tmp'])
+            sources={'python-fetch':fetch,'python-tooling':tooling,'python-proof':proof,'python-helper':stage/'helper.py',
+                     'python-dependency.sock':job_path(job)/'python-dependency.sock'}
+            if not stat.S_ISSOCK(sources['python-dependency.sock'].lstat().st_mode):raise ValueError('Python registry bridge must be a socket')
+            for name,source in sources.items():
+                target=Path('/tmp')/name
+                if source.is_dir():target.mkdir()
+                else:target.touch()
+                run(['/usr/bin/mount','--bind',str(source),str(target)])
+            python_sandbox_run(job,stage,'resolve')
+            lock_info=regular(fetch/'lock.json')
+            if lock_info.st_size>32*1024**2:raise PythonUnsupported('resolved lock exceeds inventory limit')
+            lock_data=json.loads((fetch/'lock.json').read_text())
+            if lock_data.get('input_key')!=identity['input_key']:raise ValueError('resolved lock input mismatch')
+            if not 0<len(lock_data.get('wheels',[]))<=helper.MAX_DISTS or sum(row['bytes'] for row in lock_data['wheels'])>helper.MAX_DOWNLOAD:
+                raise PythonUnsupported('resolved wheel budget exceeded')
+            for row in lock_data['wheels']:
+                helper.relative(row['filename'])
+                if '/' in row['filename']:raise PythonUnsupported('invalid resolved wheel basename')
+                if helper.wheel_info(fetch/'wheels'/row['filename'])!=row:raise ValueError('resolved wheel lock mismatch')
+            if (stage/'lock.json').exists():
+                if completion_json_large(stage/'lock.json')!=lock_data:raise ValueError('frozen resolution changed')
+            else:completion_write(stage/'lock.json',lock_data)
+            python_sandbox_run(job,stage,'install')
+            before=helper.verify_install(fetch)
+            python_sandbox_run(job,stage,'probe',probe=True)
+            after=helper.verify_install(fetch)
+            if before!=after:raise ValueError('probe changed immutable installation')
+            python_probe_receipt(proof/'probe.json',identity,request)
+            manifest=dict(after,schema_version=1,kind='python-project-runtime',input_key=identity['input_key'],runtime_digest=identity['runtime_digest'],checksum_verified=True,
+                          proof_sha256=digest_file(proof/'probe.json'),policy=helper.POLICY)
+            key=hashlib.sha256(helper.canonical(manifest)).hexdigest();manifest['key']=key
+            pending=cache/('.pending-'+job)
+            if pending.exists():shutil.rmtree(pending)
+            pending.mkdir();shutil.copytree(fetch/'site-packages',pending/'site-packages')
+            (pending/'manifest.json').write_bytes(helper.canonical(manifest))
+            for item in (pending,*pending.rglob('*')):
+                os.chown(item,0,0);item.chmod(0o555 if item.is_dir() else 0o444)
+            bundle=cache/key
+            if bundle.exists():shutil.rmtree(pending)
+            else:os.rename(pending,bundle)
+            receipt.update(state='verified',bundle_key=key,lock_sha256=manifest['lock_sha256'],proof_sha256=manifest['proof_sha256'],verified_at=time.time())
+            completion_write(stage/'receipt.json',receipt)
+            python_project_bundle(job)
+            # Publish the replay identity and fixed helper before the index that
+            # makes this environment reusable by another assignment.
+            identity_path=cache/(identity['input_key']+'.identity.json')
+            helper_path=cache/(identity['input_key']+'.helper.py')
+            if identity_path.exists():
+                if completion_json(identity_path)!=identity:raise ValueError('cached Python identity changed')
+            else:completion_write(identity_path,identity)
+            if not helper_path.exists():
+                helper_pending=cache/('.helper-'+job)
+                if helper_pending.exists():regular(helper_pending);helper_pending.unlink()
+                with helper_pending.open('xb') as out:
+                    out.write((stage/'helper.py').read_bytes());out.flush();os.fsync(out.fileno())
+                os.chown(helper_pending,0,0);helper_pending.chmod(0o444)
+                os.replace(helper_pending,helper_path)
+            if digest_file(helper_path)!=identity['runtime']['helper_sha256']:raise ValueError('cached Python helper differs')
+            completion_write(index,{k:receipt[k] for k in ('bundle_key','lock_sha256','proof_sha256')})
+        except Exception as exc:
+            unsupported=isinstance(exc,(helper.Unsupported,PythonUnsupported))
+            receipt.update(state='unavailable' if unsupported else 'waiting',unsupported=unsupported,reason=str(exc)[:400],retry_at=time.time()+900)
+            if getattr(exc,'diagnostic',None):receipt['diagnostic']=exc.diagnostic
+            completion_write(stage/'receipt.json',receipt)
+    return 0 if receipt.get('state')=='verified' else 1
+
+
+def completion_json_large(path):
+    info=regular(path)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>32*1024**2:raise ValueError('unsafe dependency lock')
+    return json.loads(path.read_text())
 
 
 def go_dependency_key(work):
@@ -1201,6 +1670,15 @@ def copy_job(job, source, review=False):
                 'sha256': hashlib.sha256(data).hexdigest()}, indent=2))
             for entry in (reports, saved, report_copy, receipt):
                 os.chown(entry, admin.pw_uid, admin.pw_gid)
+    # mkdir honors the service umask. Preserve inherited directory permissions
+    # only after population/report handoff, so read-only evidence stays exact.
+    # lstat avoids following directory symlinks supplied by an isolated worker.
+    for item in reversed(paths):
+        info = item.lstat()
+        if stat.S_ISDIR(info.st_mode):
+            (dest / item.relative_to(src)).chmod(info.st_mode & 0o777)
+    if not review:
+        dest.chmod(src.lstat().st_mode & 0o777)
     return {'state': 'copied', 'entries': len(paths), 'bytes': total}
 
 
@@ -1505,6 +1983,146 @@ def completion_extract_archive(source, destination, allow_stopped=False):
     return digest
 
 
+def evidence_member_parts(name):
+    parts=Path(name).parts
+    if not parts or parts[0]!='work' or name!='/'.join(parts) or '..' in parts or '\\' in name or len(os.fsencode(name))>4096:
+        raise ValueError('unsafe evidence archive member path')
+    return parts
+
+
+def evidence_extract_archive(source, destination):
+    """Restore untrusted evidence without interpreting any archived link target.
+
+    Symlinks are literal data. Hardlinks are expanded into independent regular
+    files using only validated tar members, never filesystem link resolution.
+    """
+    if status(source)['state']!='done':raise ValueError('archive evidence requires a completed source')
+    archive=job_path(source)/'artifact.tar.gz'
+    expected=archive_identity(source)['sha256']
+    if digest_file(archive)!=expected:raise RuntimeError('evidence archive checksum mismatch')
+    for parent in (destination,*destination.parents):
+        if parent.is_symlink():raise ValueError('linked evidence destination ancestor')
+    if destination.exists():
+        if not destination.is_dir() or any(destination.iterdir()):raise ValueError('evidence extraction destination must be empty')
+    else:destination.mkdir(parents=True,mode=0o700)
+    with tarfile.open(archive,'r:gz') as tar:
+        members={};metadata_bytes=0
+        for member in tar:
+            evidence_member_parts(member.name)
+            metadata_bytes+=len(os.fsencode(member.name))+len(os.fsencode(member.linkname))
+            if member.name in members or len(members)>=100000 or metadata_bytes>32*1024**2:
+                raise ValueError('duplicate or excessive evidence archive metadata')
+            if member.mode&~0o777 or not (member.isdir() or member.isfile() or member.issym() or member.islnk()):
+                raise ValueError('evidence archive special file or permission bits')
+            if member.size<0 or member.size>COMPLETION_MAX_BYTES:raise ValueError('invalid evidence file size')
+            if not member.isfile() and member.size!=0:raise ValueError('unexpected evidence link/directory payload')
+            if member.issym() and (not member.linkname or '\x00' in member.linkname or len(os.fsencode(member.linkname))>4096):
+                raise ValueError('invalid evidence symlink text')
+            if member.islnk():evidence_member_parts(member.linkname)
+            members[member.name]=member
+        if 'work' not in members or not members['work'].isdir():raise ValueError('evidence archive needs directory root')
+        for name,member in members.items():
+            parts=evidence_member_parts(name)
+            for count in range(1,len(parts)):
+                ancestor=members.get('/'.join(parts[:count]))
+                if ancestor is None or not ancestor.isdir():raise ValueError('evidence member parent is not an archive directory')
+        resolved={};total=0
+        for name,member in members.items():
+            if not (member.isfile() or member.islnk()):continue
+            current=member;chain=set()
+            while current.islnk():
+                if current.name in resolved:
+                    current=resolved[current.name];break
+                if current.name in chain:raise ValueError('cyclic evidence hardlink')
+                chain.add(current.name)
+                if current.linkname not in members:raise ValueError('evidence hardlink target is absent')
+                current=members[current.linkname]
+            if not current.isfile():raise ValueError('evidence hardlink must terminate at archive regular contents')
+            for linked in chain:resolved[linked]=current
+            resolved[name]=current;total+=current.size
+            if total>COMPLETION_MAX_BYTES:raise ValueError('expanded evidence archive exceeds 1900 MiB')
+        # All ancestor relationships are known before the first archive write.
+        # Open directory descriptors with NOFOLLOW for every data destination.
+        root_fd=os.open(destination,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        def parent_fd(name):
+            fd=os.dup(root_fd)
+            try:
+                for part in evidence_member_parts(name)[1:-1]:
+                    child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
+                    os.close(fd);fd=child
+                return fd
+            except BaseException:
+                os.close(fd);raise
+        try:
+            for name,member in sorted(members.items(),key=lambda row:(len(Path(row[0]).parts),row[0])):
+                if name=='work' or not member.isdir():continue
+                fd=parent_fd(name)
+                try:os.mkdir(Path(name).name,mode=0o700,dir_fd=fd)
+                finally:os.close(fd)
+            for name,content in sorted(resolved.items()):
+                fd=parent_fd(name)
+                try:
+                    out_fd=os.open(Path(name).name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=fd)
+                    with os.fdopen(out_fd,'wb') as out,tar.extractfile(content) as src:
+                        shutil.copyfileobj(src,out)
+                        if out.tell()!=content.size:raise ValueError('truncated evidence archive contents')
+                        os.fchmod(out.fileno(),members[name].mode)
+                finally:os.close(fd)
+            # Create link objects LAST. Their text is never used in a host open,
+            # chmod, chown, traversal, byte count, digest or file copy.
+            for name,member in sorted(members.items()):
+                if not member.issym():continue
+                fd=parent_fd(name)
+                try:os.symlink(member.linkname,Path(name).name,dir_fd=fd)
+                finally:os.close(fd)
+            for name,member in sorted(members.items(),key=lambda row:len(Path(row[0]).parts),reverse=True):
+                if not member.isdir():continue
+                if name=='work':os.fchmod(root_fd,member.mode);continue
+                fd=parent_fd(name)
+                try:
+                    child=os.open(Path(name).name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd)
+                    try:os.fchmod(child,member.mode)
+                    finally:os.close(child)
+                finally:os.close(fd)
+        finally:os.close(root_fd)
+    if digest_file(archive)!=expected:raise RuntimeError('evidence archive changed during extraction')
+    return expected
+
+
+def evidence_inventory(root):
+    """Hash regular bytes and link text separately; never follow a link."""
+    info=root.lstat()
+    if not stat.S_ISDIR(info.st_mode):raise ValueError('evidence root must be a directory')
+    rows=[];total=0;stack=[root]
+    while stack:
+        directory=stack.pop()
+        for item in sorted(directory.iterdir()):
+            st=item.lstat();name=item.relative_to(root).as_posix()
+            if len(rows)>=100000 or st.st_mode&0o7000:raise ValueError('invalid evidence inventory size or mode')
+            row={'path':name,'mode':stat.S_IMODE(st.st_mode),'sha256':None,'link':None}
+            if stat.S_ISLNK(st.st_mode):row.update(kind='symlink',link=os.readlink(item))
+            elif stat.S_ISDIR(st.st_mode):row['kind']='directory';stack.append(item)
+            else:
+                regular(item);total+=st.st_size
+                if total>COMPLETION_MAX_BYTES:raise ValueError('evidence inventory exceeds size limit')
+                row.update(kind='file',size=st.st_size,sha256=digest_file(item))
+            rows.append(row)
+    return sorted(rows,key=lambda row:row['path'])
+
+
+def evidence_tree_identity(root, scheme=None):
+    rows=evidence_inventory(root)
+    has_links=any(row['kind']=='symlink' for row in rows)
+    if scheme is None:scheme='general-evidence-v1' if has_links else 'documentary-tree-v1'
+    if scheme=='documentary-tree-v1':
+        if has_links:raise ValueError('links added to legacy evidence tree')
+        return scheme,completion_inspect(root),rows
+    if scheme!='general-evidence-v1':raise ValueError('unknown evidence digest scheme')
+    data={'scheme':scheme,'root_mode':stat.S_IMODE(root.lstat().st_mode),'files':rows}
+    digest=hashlib.sha256(json.dumps(data,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    return scheme,digest,rows
+
+
 def copy_archive_review(job, source):
     """Give a plan auditor exact exported evidence rather than mutable work."""
     destination = job_path(job)
@@ -1527,7 +2145,8 @@ def copy_archive_review(job, source):
             receipt = completion_json(published)
             if receipt.get('source_archive_sha256') != identity or receipt.get('source_job') != source:
                 raise RuntimeError('archive review source identity changed')
-            if completion_inspect(evidence / 'work') != receipt.get('evidence_tree_sha256'):
+            _,actual,_=evidence_tree_identity(evidence/'work',receipt.get('evidence_digest_scheme','documentary-tree-v1'))
+            if actual != receipt.get('evidence_tree_sha256'):
                 raise RuntimeError('published archived review evidence changed')
             return receipt
         if intent.exists():
@@ -1542,21 +2161,17 @@ def copy_archive_review(job, source):
                 raise ValueError('archive review evidence already exists')
             completion_write(intent, expected)
         copied = evidence / 'work'
-        digest = completion_extract_archive(source, copied)
+        digest = evidence_extract_archive(source, copied)
         if digest != identity:
             raise RuntimeError('archive changed during review copy')
-        manifest = []
-        for item in completion_paths(copied):
-            manifest.append({'path': str(item.relative_to(copied)),
-                'kind': 'directory' if item.is_dir() else 'file',
-                'sha256': None if item.is_dir() else digest_file(item), 'link': None})
+        scheme,tree_hash,manifest=evidence_tree_identity(copied)
         (evidence / 'manifest.json').write_text(json.dumps({'source_job': source,
-            'source_archive_sha256': digest, 'purpose': 'untrusted archived evidence, not approval', 'files': manifest}, indent=2))
-        tree_hash = completion_inspect(copied)
+            'source_archive_sha256': digest, 'purpose': 'untrusted archived evidence, not approval; symlink targets are literal untrusted text',
+            'evidence_digest_scheme':scheme,'evidence_tree_sha256':tree_hash,'files': manifest}, indent=2))
         admin = pwd.getpwnam('admin')
         for item in (evidence_root, evidence, *evidence.rglob('*')):
-            os.chown(item, admin.pw_uid, admin.pw_gid)
-        receipt = dict(expected, state='copied', evidence_tree_sha256=tree_hash)
+            os.chown(item, admin.pw_uid, admin.pw_gid, follow_symlinks=False)
+        receipt = dict(expected, state='copied', evidence_tree_sha256=tree_hash, evidence_digest_scheme=scheme)
         completion_write(published, receipt)
         return receipt
 
@@ -2138,7 +2753,7 @@ def completion_resume(job, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
@@ -2151,7 +2766,13 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'archive-identity':
+    if args.command == 'python-dependencies':
+        out = python_dependencies(args.job)
+    elif args.command == 'python-dependencies-stop':
+        out = python_dependencies_stop(args.job)
+    elif args.command == '_python-dependencies':
+        return python_dependencies_execute(args.job)
+    elif args.command == 'archive-identity':
         out = archive_identity(args.job)
     elif args.command == '_copy-derived':
         return completion_copy_execute(args.job, args.from_job, 'derived')

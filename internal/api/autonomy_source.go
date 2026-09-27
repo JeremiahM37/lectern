@@ -118,7 +118,10 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 		}
 		p.SourceRevision = revision
 	}
-	return s.pinAutoDocumentation(ctx, a, items)
+	if err := s.pinAutoDocumentation(ctx, a, items); err != nil {
+		return err
+	}
+	return s.pinAutoRequirementDiagnoses(ctx, a, items)
 }
 
 func (s *Server) autoSourceContext(ctx context.Context, id, requestedRevision string) (map[string]any, error) {

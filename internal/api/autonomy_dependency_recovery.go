@@ -170,27 +170,45 @@ func (s *Server) recoverAutoPrerequisites(ctx context.Context, a *autoRecord, j 
 // a completed builder awaiting review. Other work can proceed without turning
 // an unavailable prerequisite into either approval or a permanent dead end.
 func autoDeferPrerequisite(a *autoRecord, j *autoJob, now time.Time) bool {
-	if len(a.DeferredRuns) >= 16 {
-		return false
-	}
-	previous := a.State
-	a.DeferredRuns = append(a.DeferredRuns, previous)
-	j.Status = "deferred"
 	j.Summary = "Not started: prerequisite unavailable: " + j.Recovery.Reason
-	a.State = nil
-	autoNewCycle(a, now)
-	a.State.Backlog = append([]autonomy.Proposal(nil), previous.Backlog...)
+	autoDeferRequirements(a, j, now)
 	return true
 }
 
 func autoResumeRecovered(a *autoRecord) bool {
+	// Held overflow is durable history, not an active polling slot. Resume only
+	// independently released/verified work; never discard it in rotating Runs.
+	for i, state := range a.HeldRuns {
+		ids := state.ActiveTaskIDs()
+		if len(ids) != 1 {
+			continue
+		}
+		j := autoFindJob(a, ids[0])
+		if j != nil && j.Status == "deferred" && autoDeferredReady(j) {
+			if a.State != nil {
+				a.Runs = append(a.Runs, a.State)
+			}
+			a.State = state
+			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
+			j.Status = "prepared"
+			if j.PendingPythonRequest != nil {
+				j.Status = "stopped"
+			}
+			a.NextCycleScheduled = false
+			a.NextCycleAt = time.Time{}
+			a.RetryAt = time.Time{}
+			a.Status = string(state.Phase)
+			a.Reason = "Retained overflow prerequisite is ready for same-assignment recovery"
+			return true
+		}
+	}
 	for i, state := range a.DeferredRuns {
 		ids := state.ActiveTaskIDs()
 		if len(ids) != 1 {
 			continue
 		}
 		job := autoFindJob(a, ids[0])
-		if job == nil || job.Status != "deferred" || job.Recovery == nil || job.Recovery.State != "verified" {
+		if job == nil || job.Status != "deferred" || !autoDeferredReady(job) {
 			continue
 		}
 		if a.State != nil {
@@ -199,6 +217,9 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
+		if job.PendingPythonRequest != nil {
+			job.Status = "stopped"
+		}
 		a.NextCycleScheduled = false
 		a.NextCycleAt = time.Time{}
 		a.RetryAt = time.Time{}
@@ -213,11 +234,12 @@ func autoResumeRecovered(a *autoRecord) bool {
 // enabled/quota checks. Active recovery is refreshed each controller tick;
 // failed/cooling-down capabilities are probed at most every five minutes.
 func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, now time.Time) {
+	autoPromoteHeldPrerequisites(a)
 	// Give an active download its heartbeat before probing cold blockers.
 	var running int64
 	for _, state := range a.DeferredRuns {
 		for _, id := range state.ActiveTaskIDs() {
-			if j := autoFindJob(a, id); j != nil && j.Recovery != nil && j.Recovery.State == "recovering" {
+			if j := autoFindJob(a, id); j != nil && ((j.Recovery != nil && j.Recovery.State == "recovering") || (j.PythonRecovery != nil && j.PythonRecovery.State == "recovering")) {
 				running = id
 			}
 		}
@@ -228,26 +250,51 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 				continue
 			}
 			j := autoFindJob(a, id)
+			if j != nil && !j.RequirementHold && j.Status == "deferred" && j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified") && !now.Before(j.RecoveryCheckAt) {
+				j.RecoveryCheckAt = now.Add(5 * time.Minute)
+				_, err := s.recoverAutoPython(ctx, a, j)
+				if err != nil {
+					a.Reason = "Python prerequisite recovery: " + err.Error()
+				}
+				if j.PythonRecovery != nil && j.PythonRecovery.State == "recovering" {
+					j.RecoveryCheckAt = now.Add(20 * time.Second)
+				} else {
+					autoRotateColdPrerequisite(a, state, j)
+				}
+				return
+			}
 			if j == nil || j.Status != "deferred" || j.Recovery == nil || j.Recovery.State == "verified" || now.Before(j.RecoveryCheckAt) {
 				continue
 			}
 			j.RecoveryCheckAt = now.Add(5 * time.Minute)
 			if err := s.ensureAutoBridges(j); err != nil {
 				j.Recovery.Reason = err.Error()
+				if j.Recovery.State != "recovering" {
+					autoRotateColdPrerequisite(a, state, j)
+				}
 				return
 			}
 			raw, err := s.runAutoCommand(ctx, "dependencies", "--job", j.ID)
 			if err != nil {
 				j.Recovery.Reason = err.Error()
+				if j.Recovery.State != "recovering" {
+					autoRotateColdPrerequisite(a, state, j)
+				}
 				return
 			}
 			var receipt autoRecoveryReceipt
 			if json.Unmarshal(raw, &receipt) != nil {
 				j.Recovery.Reason = "Invalid prerequisite receipt"
+				if j.Recovery.State != "recovering" {
+					autoRotateColdPrerequisite(a, state, j)
+				}
 				return
 			}
 			if _, err = autoRecoveryReady(receipt); err != nil {
 				j.Recovery.Reason = err.Error()
+				if j.Recovery.State != "recovering" {
+					autoRotateColdPrerequisite(a, state, j)
+				}
 				return
 			}
 			j.Recovery = &receipt
@@ -255,7 +302,83 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 				j.RecoveryCheckAt = now.Add(20 * time.Second)
 			} else {
 				s.closeAutoBridge(j.ID)
+				autoRotateColdPrerequisite(a, state, j)
 			}
+			return
+		}
+	}
+}
+
+func autoDeferredReady(j *autoJob) bool {
+	if j.RequirementHold {
+		return false
+	}
+	if j.PendingPythonRequest != nil {
+		return true
+	}
+	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil {
+		return false
+	}
+	if j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified" || j.PythonNeedsChange) {
+		return false
+	}
+	return j.Recovery != nil && (j.Recovery.State == "verified" || j.Recovery.State == "not_applicable")
+}
+
+func autoPromoteHeldPrerequisites(a *autoRecord) {
+	// Unsupported needs do not consume an active polling slot. Diagnosis works
+	// against the retained assignment wherever it is held.
+	for i := 0; i < len(a.DeferredRuns); {
+		state := a.DeferredRuns[i]
+		ids := state.ActiveTaskIDs()
+		if len(ids) == 1 {
+			j := autoFindJob(a, ids[0])
+			if j != nil && j.RequirementHold {
+				a.HeldRuns = append(a.HeldRuns, state)
+				a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
+				continue
+			}
+		}
+		i++
+	}
+	for i := 0; i < len(a.HeldRuns) && len(a.DeferredRuns) < 16; {
+		state := a.HeldRuns[i]
+		ids := state.ActiveTaskIDs()
+		if len(ids) == 1 {
+			j := autoFindJob(a, ids[0])
+			if j != nil && j.Status == "deferred" && !j.RequirementHold {
+				a.DeferredRuns = append(a.DeferredRuns, state)
+				a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
+				continue
+			}
+		}
+		i++
+	}
+}
+
+func autoRotateColdPrerequisite(a *autoRecord, state *autonomy.State, j *autoJob) {
+	if autoDeferredReady(j) {
+		return
+	}
+	waiting := false
+	for _, held := range a.HeldRuns {
+		ids := held.ActiveTaskIDs()
+		if len(ids) == 1 {
+			other := autoFindJob(a, ids[0])
+			if other != nil && !other.RequirementHold && other.Status == "deferred" {
+				waiting = true
+				break
+			}
+		}
+	}
+	if !waiting {
+		return
+	}
+	for i, current := range a.DeferredRuns {
+		if current == state {
+			a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
+			a.HeldRuns = append(a.HeldRuns, state)
+			autoPromoteHeldPrerequisites(a)
 			return
 		}
 	}

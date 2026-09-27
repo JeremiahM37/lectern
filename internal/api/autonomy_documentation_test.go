@@ -339,3 +339,34 @@ func TestDocumentationMalformedTransportDoesNotConsumeAdmission(t *testing.T) {
 		t.Fatal("schema correction changed reserved allowance")
 	}
 }
+
+func TestDocumentationOffDuringPreparedCopyRetainsSameUUID(t *testing.T) {
+	s, a, _ := documentationFixture(t)
+	response := documentationRunner(t)
+	j := &autoJob{ID: "same-prepared-job", Role: "builder", Status: "prepared", DocumentationCopies: []autoDocumentationCopy{{Command: "copy-archive-review", SourceJob: "planner", SHA: strings.Repeat("a", 64)}}}
+	a.Jobs = append(a.Jobs, j)
+	docResponse(t, response, map[string]string{"state": "stopped"})
+	s.stopAutoJobs(context.Background(), a, "off")
+	if j.Status != "prepared" || !j.DocumentationStopped {
+		t.Fatal("OFF reclassified unlaunched copy")
+	}
+	if err := s.saveAuto(a); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := s.loadAuto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored := loaded.Jobs[len(loaded.Jobs)-1]
+	docResponse(t, response, map[string]string{"state": "copying"})
+	if ready, err := s.pollAutoDocumentationCopies(context.Background(), loaded, restored); err != nil || ready {
+		t.Fatal(ready, err)
+	}
+	docResponse(t, response, map[string]string{"state": "copied", "source_archive_sha256": strings.Repeat("a", 64)})
+	if ready, err := s.pollAutoDocumentationCopies(context.Background(), loaded, restored); err != nil || !ready {
+		t.Fatal(ready, err)
+	}
+	if restored.ID != j.ID || restored.Status != "prepared" || len(restored.DocumentationCopies) != 0 {
+		t.Fatal("copy retry allocated or relaunched a different job")
+	}
+}

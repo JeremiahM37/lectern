@@ -438,3 +438,81 @@ tradeoffs still use independent decision audits; explicit user decisions and
 public/destructive/core-policy boundaries remain binding. Unclear access policy
 permits investigation and conservative candidates without widening privileges
 or exposing additional data; it does not imply permission to apply to production.
+
+### Planner evidence through implementation and review
+
+Both plan auditors inspect the completed planner's evidence. An ordinary initial
+builder also receives the approved revision's exported archive under
+`.lectern-review/<planner-job>/work`, with a controller-generated manifest next
+to it. Planner `/work/...` references resolve relative to that snapshot, rather
+than implying that those files exist at the builder's project root. The copy is
+queued after any inherited project copy and finishes before the worker starts.
+
+Later checkpoints and the final reviewer inherit the same evidence. Copies
+preserve file bytes and directory permissions, and the runner mounts
+`.lectern-review` read-only. This preserves historical evidence without making
+its claims authoritative or substituting it for fresh source checks. Documentary
+completion does not acquire this new subtree: its frozen baseline and restricted
+overlay remain the source of its evidence.
+
+General evidence preserves literal symlink targets without reading through them
+and restores validated archive hardlinks as independent regular files. Link-bearing
+trees carry an explicit digest scheme; existing regular-file receipts retain their
+identities. Documentary baselines continue to reject links.
+
+### Reported prerequisites and Python project dependencies
+
+Reports may include optional `requirements` observations. An explicit blocked
+builder or blocked, nonapproving reviewer can retain its assignment while the
+controller resolves a supported prerequisite. An ordinary substantive rejection
+still follows the normal review and repair rules. The controller binds recovery
+to the reporting task, retained archive, admission and exact environment; reports
+cannot supply host commands, arbitrary URLs or a claim that verification passed.
+The requirement ledger groups repeated observations, while each resumed job needs
+its own bound receipt. A verified environment already tried by that assignment
+does not justify relaunching it unchanged.
+
+The `python_wheels` capability accepts exact distribution pins, explicit import
+names and the condition `offline_imports_available`. Names are case-insensitive.
+The fixed resolver uses a dedicated PyPI broker inside a credential-free sandbox;
+project code and home directories are absent. Only compatible universal Python
+wheels are supported. Source builds, editable installs, local/VCS references,
+native wheels and startup hooks remain unavailable. The resolver includes the
+existing pytest pins in the same environment to detect version conflicts rather
+than silently choosing between two independent package paths.
+
+The first complete resolution freezes wheel identities and hashes before
+installation. Repeated attempts reuse that lock. Installation validates wheel
+members and recorded content, and imports run in a separate sandbox without the
+registry socket. Registry hashes establish artifact identity, not publisher
+trust or application correctness. Workers receive a read-only verified bundle;
+the source checkout under test must not be replaced with a released package.
+Independent project tests remain necessary after provisioning.
+
+Install `tools/python-project-dependencies.py` as
+`/usr/local/libexec/lectern-python-project-dependencies.py`, owned by root and mode
+0555, alongside the runner. Its identity is part of the provisioned environment.
+Recovery helpers are bounded, cancellable and subject to storage and quota
+gates. Provisioning does not grant publication, production deployment or changes
+to core safeguards.
+
+An unsupported prerequisite on retained execution can be investigated with
+`diagnose_requirement` on a normal proposal. Its source evidence and original
+acceptance are pinned before both plan audits. Diagnosis reservations belong to
+the affected original task, so a shared requirement does not consume another
+project's opportunity to investigate. A rejected diagnosis can use the existing
+bounded repair process while retaining that reservation; it cannot be renamed
+as ordinary implementation or use documentary recovery to reset its allowance.
+An independently confirmed supported remedy returns to provisioning for the
+original task. It never approves the original implementation by implication.
+If the reviewed remedy fails an exactly bound provisioning attempt, its failure
+receipt becomes immutable evidence for a correction under the same reservation
+and repair cap. Both new plan auditors receive the original and diagnostic
+evidence. The prior review approval remains historical fact; it is not rewritten
+as a rejection to make the retry possible.
+
+Blocked assignments beyond the active recovery queue remain durable held
+states, separate from truncated completed history. Retaining them must not stop
+new planning or discard their original audits and acceptance. Planner-only
+observations without a retained execution target are recorded, but this diagnosis
+path does not invent an execution assignment for them.

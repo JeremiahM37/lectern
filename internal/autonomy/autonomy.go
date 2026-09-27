@@ -156,6 +156,7 @@ const (
 )
 
 type Proposal struct {
+	DiagnoseRequirement string   `json:"diagnose_requirement,omitempty"`
 	DocumentationTaskID int64    `json:"documentation_task_id,omitempty"`
 	ProjectID           int64    `json:"project_id"`
 	SourceRevision      string   `json:"source_revision,omitempty"`
@@ -227,20 +228,23 @@ func validateNoWork(r *NoWorkReport, required bool) error {
 }
 
 type PlanReport struct {
-	NoWork  *NoWorkReport `json:"no_work,omitempty"`
-	Items   []Proposal    `json:"items"`
-	Backlog []Proposal    `json:"backlog,omitempty"`
+	Requirements []Requirement `json:"requirements,omitempty"`
+	NoWork       *NoWorkReport `json:"no_work,omitempty"`
+	Items        []Proposal    `json:"items"`
+	Backlog      []Proposal    `json:"backlog,omitempty"`
 }
 type Verdict struct {
-	Outcome string `json:"outcome,omitempty"`
-	Approve *bool  `json:"approve"`
-	Reason  string `json:"reason"`
+	Requirements []Requirement `json:"requirements,omitempty"`
+	Outcome      string        `json:"outcome,omitempty"`
+	Approve      *bool         `json:"approve"`
+	Reason       string        `json:"reason"`
 }
 type BuildReport struct {
-	Outcome  string            `json:"outcome,omitempty"`
-	Summary  string            `json:"summary"`
-	Evidence []string          `json:"evidence"`
-	Decision *DecisionProposal `json:"decision,omitempty"`
+	Requirements []Requirement     `json:"requirements,omitempty"`
+	Outcome      string            `json:"outcome,omitempty"`
+	Summary      string            `json:"summary"`
+	Evidence     []string          `json:"evidence"`
+	Decision     *DecisionProposal `json:"decision,omitempty"`
 }
 type DecisionProposal struct {
 	Title        string   `json:"title"`
@@ -431,6 +435,15 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 	a := s.Assignments[idx]
 	if a.Completed || a.Round != s.Revision || a.Item != s.Item || a.Step != s.Step {
 		return errors.New("duplicate or obsolete report")
+	}
+	var requirements struct {
+		Requirements []Requirement `json:"requirements"`
+	}
+	if err := json.Unmarshal(raw, &requirements); err != nil {
+		return err
+	}
+	if err := ValidateRequirements(requirements.Requirements); err != nil {
+		return err
 	}
 	switch a.Role {
 	case "planner":

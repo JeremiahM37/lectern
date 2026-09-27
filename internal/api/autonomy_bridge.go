@@ -203,13 +203,13 @@ func (s *Server) ensureAutoBridges(j *autoJob) error {
 			}
 		}
 	}()
-	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch} {
+	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch, "python-dependency.sock": autoPythonDependencyBroker()} {
 		dir := filepath.Join(autoRoot, j.ID, "bridges")
 		if e := os.MkdirAll(dir, 0755); e != nil {
 			return e
 		}
 		path := filepath.Join(dir, name)
-		if name == "dependency.sock" {
+		if name == "dependency.sock" || name == "python-dependency.sock" {
 			path = filepath.Join(autoRoot, j.ID, name)
 		}
 		if st, e := os.Lstat(path); e == nil {
@@ -253,7 +253,25 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "requirements unavailable", 503)
 			return
 		}
-		rows := []map[string]any{}
+		query, queryErr := url.ParseQuery(r.URL.RawQuery)
+		if queryErr != nil || len(query) > 1 || (len(query) == 1 && len(query["key"]) != 1) {
+			http.Error(w, "invalid requirement query", 400)
+			return
+		}
+		if key := query.Get("key"); key != "" {
+			if !autoHash256(key) {
+				http.Error(w, "invalid requirement key", 400)
+				return
+			}
+			entry := a.Requirements[key]
+			if entry == nil {
+				http.Error(w, "requirement not found", 404)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"requirement": entry, "diagnoses": autoRequirementDiagnoses(a, key)})
+			return
+		}
+		rows := autoRequirementRows(a)
 		seen := map[string]bool{}
 		for i := len(a.Jobs) - 1; i >= 0 && len(rows) < 60; i-- {
 			j := a.Jobs[i]

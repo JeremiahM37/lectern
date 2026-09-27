@@ -40,3 +40,24 @@ func autoPlanEvidence(a *autoRecord) (*autoJob, error) {
 func autoPlanEvidencePath(job *autoJob) string {
 	return fmt.Sprintf("/work/.lectern-review/%s/work", job.ID)
 }
+
+// Planning happens before item execution. Its assignment remains at item/step
+// zero even when a later item or checkpoint consumes the approved plan.
+func autoApprovedPlanEvidence(a *autoRecord) (*autoJob, error) {
+	if a == nil || a.State == nil {
+		return nil, errors.New("planner evidence requires both approving plan audits")
+	}
+	for _, role := range []string{"auditor_a", "auditor_b"} {
+		verdict, ok := a.State.Audits[role]
+		if !ok || verdict.Approve == nil || !*verdict.Approve {
+			return nil, errors.New("planner evidence requires both approving plan audits")
+		}
+	}
+	view := *a
+	state := *a.State
+	state.Phase = autonomy.Audit
+	state.Item = 0
+	state.Step = 0
+	view.State = &state
+	return autoPlanEvidence(&view)
+}

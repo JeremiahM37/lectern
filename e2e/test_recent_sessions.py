@@ -85,10 +85,22 @@ def test_restore_lists_groups_searches_and_tracks_again_narrow(page, real_termin
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 
     rows.first.get_by_role("button", name="Track again").click()
+    # Restore rows reopen and attach the tracked terminal. The refreshed card
+    # can appear briefly before navigation, so waiting for it here races the
+    # intended terminal view rather than verifying the completed action.
+    expect(page.locator("#terminal-workspace")).to_be_visible(timeout=20000)
+    expect(page).to_have_url(t["url"] + f"/#terminals/session/{t['id']}")
+    expect(page.get_by_role("tab", name="Real terminal", exact=True)).to_have_attribute(
+        "aria-selected", "true"
+    )
+    restored = t["api"](f"/sessions/{t['id']}")
+    assert restored["ended_at"] is None
+    assert restored["origin"] == "discovered"
+
+    page.goto(t["url"] + "/#sessions")
     expect(page.locator(".scard", has_text="Real terminal")).to_contain_text(
         "adopted"
     )
-    assert t["api"](f"/sessions/{t['id']}")["ended_at"] is None
 
 
 def test_stop_tracking_offers_undo(page, real_terminal):
