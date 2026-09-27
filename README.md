@@ -5,7 +5,7 @@
 **Run every coding agent you use — Claude Code, Codex, Gemini, OpenCode, Aider, Cursor and more —
 on machines you own, and drive them from your terminal, your phone, or a claude.ai chat.**
 
-![version](https://img.shields.io/badge/version-2.4.1-8b5cf6)
+![version](https://img.shields.io/badge/version-2.5.0-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
 ![PWA](https://img.shields.io/badge/phone-PWA-19c37d)
@@ -95,9 +95,9 @@ The same control loop runs in an installable phone app:
 - No Tailscale? Run **`lectern relay`** on any small server and pair a phone
   by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
   WireGuard); the relay only passes sealed frames and never serves app code.
-- An **Android app prototype** bundles the same web app; download the
-  [signed v0.1.0 APK published with Lectern v2.4.1](https://github.com/JeremiahM37/lectern/releases/download/v2.4.1/lectern-android-0.1.0-prototype.apk)
-  or [build it from source](docs/android.md). It
+- An **Android app prototype** bundles the same web app;
+  [build it from source](docs/android.md). (The v0.1.0 APK on the v2.4.1
+  release opens terminals incorrectly; that is fixed in the source.) It
   keeps the relay key in Keystore, and takes Approve / Deny / Reply from the
   notification with no Lectern screen open, via UnifiedPush and ntfy.
 
