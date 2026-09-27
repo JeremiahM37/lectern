@@ -110,8 +110,9 @@ The same control loop runs in an installable phone app:
   your phone when it goes green. → [CI loop](docs/ci-loop.md)
 - **Usage limits:** when Claude, Codex or Gemini hits its limit, the card and
   your phone show when it resets. Lectern can resume the same agent after the
-  reset, or hand the work to another agent in the same workspace.
-  → [Rate limits](docs/rate-limits.md)
+  reset, hand the work to another agent in the same workspace, or (opt-in)
+  continue the same conversation under another of your signed-in accounts of
+  that CLI. → [Rate limits](docs/rate-limits.md), [Accounts](docs/accounts.md)
 - **Best-of-N with a judge, and delegated builds:** a cheap worker builds and a
   lead reviews and integrates.
 - **Replay evals:** find out which agent or model is best *for your repo*,

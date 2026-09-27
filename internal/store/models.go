@@ -170,6 +170,9 @@ type Attempt struct {
 	// NotBefore holds a queued attempt back until its provider's usage limit
 	// has reset (docs/rate-limits.md); nil promotes it as soon as a slot frees.
 	NotBefore *float64 `json:"not_before,omitempty"`
+	// AccountID is the registered login this attempt runs under (docs/accounts.md);
+	// nil is the CLI's own default login.
+	AccountID *int64 `json:"account_id,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.
@@ -267,6 +270,9 @@ type Session struct {
 	// ResumeGuess is the conversation a lost adopted session most likely had:
 	// the only one in its folder last written when it was last active.
 	ResumeGuess string `json:"-"`
+	// AccountID is the registered login (agent_accounts, docs/accounts.md)
+	// this session's agent runs under; nil is the CLI's own default login.
+	AccountID *int64 `json:"account_id,omitempty"`
 
 	// HookToken authenticates POST /api/hook/session/{id}/* (see
 	// internal/agentevents). Never serialized: it is a bearer secret handed to

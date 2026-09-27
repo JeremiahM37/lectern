@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/accounts"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
@@ -494,6 +495,9 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 	if kw.Agent != "" {
 		agent = kw.Agent
 	}
+	if dir := s.accountDir(att, agent, false); dir != "" {
+		env[accounts.EnvKey(agent)] = dir
+	}
 	spec := drivers.Spec{
 		Agent: agent, Worktree: wt, TmuxSession: sess,
 		PermissionMode: effPermissionMode(c, att), Model: firstNonEmpty(att.Model, c.Task.Model),
@@ -704,6 +708,9 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 	agent := effAgent(c, att)
 	if kw.Agent != "" {
 		agent = kw.Agent
+	}
+	if dir := s.accountDir(att, agent, isSandbox); dir != "" {
+		env[accounts.EnvKey(agent)] = dir
 	}
 	return s.Launcher.Command(agents.LaunchSpec{
 		Agent:          agent,
@@ -1398,6 +1405,9 @@ type AttemptOpts struct {
 	// NotBefore holds the attempt in the queue until then — a task requeued
 	// for its provider's usage-limit reset (docs/rate-limits.md).
 	NotBefore *float64
+	// AccountID runs the attempt under a registered login of its CLI
+	// (docs/accounts.md); nil is the CLI's own default.
+	AccountID *int64
 }
 
 // CreateAttempt queues attempt N+1 for a task.
@@ -1424,7 +1434,7 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 		TaskID: task.ID, N: n, Status: "queued", Token: token, Prompt: o.Prompt,
 		ResumeSession: o.ResumeSession, WorktreePath: o.WorktreePath,
 		Branch: o.Branch, Model: o.Model, Agent: o.Agent, PermissionMode: o.PermissionMode,
-		NotBefore: o.NotBefore,
+		NotBefore: o.NotBefore, AccountID: o.AccountID,
 	}
 	c := &runCtx{Task: task, Project: project}
 	launchConfig, err := s.taskLaunchConfig(att, c)

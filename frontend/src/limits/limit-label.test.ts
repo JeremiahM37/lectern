@@ -46,3 +46,13 @@ test("one-tap choices follow the hold's state and policy", () => {
   assert.equal(choiceLabel("handoff", hold({ fallback: "codex · gpt-5" })), "Hand off to codex · gpt-5");
   assert.equal(choiceLabel("handoff", hold({})), "Hand off…");
 });
+
+test("an account swap is offered when another account is free, and shown while it runs", () => {
+  const free = { id: 7, label: "work" };
+  assert.deepEqual(limitChoices(hold({ reset_at: at1540, swap_to: free }), now), ["swap", "wait", "handoff", "dismiss"]);
+  assert.equal(choiceLabel("swap", hold({ swap_to: free })), "Swap to work");
+  assert.deepEqual(limitChoices(hold({ state: "swapping", to_account: "work" }), now), []);
+  assert.equal(limitLabel(hold({ state: "swapping", to_account: "work" }), now, "en-US"), "Limit — swapping to work…");
+  assert.equal(limitLabel(hold({ state: "resuming", to_account: "work" }), now, "en-US"), "Swapped to work — resuming…");
+  assert.equal(limitLabel(hold({ state: "swapped", to_account: "work" }), now, "en-US"), "Limit — continues on work");
+});

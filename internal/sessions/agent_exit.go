@@ -62,8 +62,11 @@ func buildAgentProbe(names []string) string {
 	var b strings.Builder
 	b.WriteString(AgentProbeMarker + " ")
 	for _, name := range names {
-		fmt.Fprintf(&b, `if lec_p=$(tmux display-message -p -t %s '#{pane_pid}	#{pane_current_command}	#{pane_tty}' 2>/dev/null); then `+
-			`lec_pid=$(printf '%%s' "$lec_p" | cut -f1); lec_cur=$(printf '%%s' "$lec_p" | cut -f2); lec_tty=$(printf '%%s' "$lec_p" | cut -f3); `+
+		// One field per display-message: tmux 3.5 prints a tab inside a
+		// format as "_", so a tab-separated triple cannot be split again.
+		t := shellq.Quote("=" + name + ":")
+		fmt.Fprintf(&b, `if lec_pid=$(tmux display-message -p -t %s '#{pane_pid}' 2>/dev/null); then `+
+			`lec_cur=$(tmux display-message -p -t `+t+` '#{pane_current_command}' 2>/dev/null); lec_tty=$(tmux display-message -p -t `+t+` '#{pane_tty}' 2>/dev/null); `+
 			`lec_root=$(ps -o args= -p "$lec_pid" 2>/dev/null); lec_all=$(ps -o args= -t "${lec_tty#/dev/}" 2>/dev/null); `+
 			`printf '%%s\tok\t%%s\t%%s\t%%s\n' %s "$(printf '%%s' "$lec_root" | base64 | tr -d '\r\n')" "$(printf '%%s' "$lec_cur" | base64 | tr -d '\r\n')" "$(printf '%%s' "$lec_all" | base64 | tr -d '\r\n')"; `+
 			`else printf '%%s\tmissing\t\t\t\n' %s; fi; `,

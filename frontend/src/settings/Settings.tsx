@@ -16,6 +16,7 @@ import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
 import { ModelPrices } from "./ModelPrices";
 import { LimitPolicyEditor } from "./LimitPolicy";
+import { AccountsPanel } from "./Accounts";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
@@ -171,6 +172,7 @@ export function Settings({
             ["devices", "Devices"],
             ["about", "Usage & about"],
             ["budgets", "Budgets"],
+            ["accounts", "Accounts"],
             ["agents", "Agents"],
           ] as const
         ).map(([k, v]) => (
@@ -180,7 +182,7 @@ export function Settings({
             aria-selected={tab === k}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "agents"];
+              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents"];
               const next = tabs[(tabs.indexOf(k) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
               setTab(next);
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
@@ -250,6 +252,9 @@ export function Settings({
           <ModelPrices api={api} onNotice={onNotice} />
           <LimitPolicyEditor api={api} onNotice={onNotice} />
         </>
+      )}{" "}
+      {tab === "accounts" && (
+        <AccountsPanel api={api} targets={targets} onNotice={onNotice} onOpenTerminal={onOpenTerminal} />
       )}{" "}
       {tab === "agents" && (
         <Agents

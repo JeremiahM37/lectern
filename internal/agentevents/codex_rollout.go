@@ -36,6 +36,17 @@ type CodexUsage struct {
 	InputTokens   int // cumulative, for usage_daily delta booking
 	CachedInput   int // cumulative part of InputTokens served from cache
 	OutputTokens  int // cumulative, for usage_daily delta booking
+	// RateLimits are the account's usage windows as codex last reported them
+	// (docs/accounts.md): the same numbers as Claude's statusline rate_limits.
+	RateLimits []CodexRateWindow
+}
+
+// CodexRateWindow is one of codex's usage windows: how full it is, how long
+// it is, and when it resets (unix seconds).
+type CodexRateWindow struct {
+	UsedPercent   float64 `json:"used_percent"`
+	WindowMinutes int     `json:"window_minutes"`
+	ResetsAt      int64   `json:"resets_at"`
 }
 
 // The types below mirror the real rollout JSONL shape captured from a codex
@@ -53,8 +64,12 @@ type codexRolloutLine struct {
 }
 
 type codexEventMsg struct {
-	Type string               `json:"type"`
-	Info *codexTokenCountInfo `json:"info"`
+	Type       string               `json:"type"`
+	Info       *codexTokenCountInfo `json:"info"`
+	RateLimits *struct {
+		Primary   *CodexRateWindow `json:"primary"`
+		Secondary *CodexRateWindow `json:"secondary"`
+	} `json:"rate_limits"`
 }
 
 type codexTokenCountInfo struct {
@@ -82,6 +97,7 @@ type codexTurnContext struct {
 // IngestStatusline has for a bad statusline body.
 func ParseCodexRolloutUsage(data []byte) (*CodexUsage, bool) {
 	var info *codexTokenCountInfo
+	var windows []CodexRateWindow
 	model := ""
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		line = bytes.TrimSpace(line)
@@ -101,6 +117,14 @@ func ParseCodexRolloutUsage(data []byte) (*CodexUsage, bool) {
 			if msg.Type == "token_count" && msg.Info != nil && msg.Info.ModelContextWindow > 0 {
 				info = msg.Info
 			}
+			if msg.Type == "token_count" && msg.RateLimits != nil {
+				windows = windows[:0]
+				for _, w := range []*CodexRateWindow{msg.RateLimits.Primary, msg.RateLimits.Secondary} {
+					if w != nil && w.WindowMinutes > 0 {
+						windows = append(windows, *w)
+					}
+				}
+			}
 		case "turn_context":
 			var tc codexTurnContext
 			if err := json.Unmarshal(outer.Payload, &tc); err == nil && tc.Model != "" {
@@ -118,6 +142,7 @@ func ParseCodexRolloutUsage(data []byte) (*CodexUsage, bool) {
 		InputTokens:   info.TotalTokenUsage.InputTokens,
 		CachedInput:   info.TotalTokenUsage.CachedInputTokens,
 		OutputTokens:  info.TotalTokenUsage.OutputTokens,
+		RateLimits:    windows,
 	}
 	if usage.ContextSize > 0 {
 		pct := usage.ContextTokens * 100 / usage.ContextSize
@@ -144,6 +169,13 @@ const codexRolloutTailBytes = 200_000
 // poll_wire.go's PollCommand frames tmux panes, so one target round trip
 // covers every codex session on it.
 func CodexRolloutTailCommand(threadIDs []string) string {
+	return CodexRolloutTailCommandIn(threadIDs, nil)
+}
+
+// CodexRolloutTailCommandIn is CodexRolloutTailCommand for sessions whose
+// CODEX_HOME is not ~/.codex (a session on another account, docs/accounts.md):
+// homes maps a thread id to its CODEX_HOME.
+func CodexRolloutTailCommandIn(threadIDs []string, homes map[string]string) string {
 	var cmd strings.Builder
 	seen := map[string]bool{}
 	for _, id := range threadIDs {
@@ -158,8 +190,12 @@ func CodexRolloutTailCommand(threadIDs []string) string {
 		// charset overlaps a UUID exactly, so a valid id renders unquoted
 		// (an ordinary glob-adjacent word) while anything else is neutralised
 		// as an inert literal instead of being interpreted by the shell.
+		home := "$HOME/.codex"
+		if h := homes[id]; h != "" {
+			home = shellq.Quote(h)
+		}
 		fmt.Fprintf(&cmd,
-			`lec_codex_file=$(ls -t $HOME/.codex/sessions/*/*/*/rollout-*-%s.jsonl 2>/dev/null | head -1); `+
+			`lec_codex_file=$(ls -t `+home+`/sessions/*/*/*/rollout-*-%s.jsonl 2>/dev/null | head -1); `+
 				`if [ -n "$lec_codex_file" ]; then lec_codex_payload=$(tail -c %d "$lec_codex_file" | base64 | tr -d '\r\n'); lec_codex_state=ok; else lec_codex_payload=''; lec_codex_state=missing; fi; `+
 				`printf '%%s\t%%s\t%%s\n' %s "$lec_codex_state" "$lec_codex_payload"; `,
 			shellq.Quote(id), codexRolloutTailBytes, shellq.Quote(base64.StdEncoding.EncodeToString([]byte(id))))

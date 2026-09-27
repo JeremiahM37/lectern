@@ -151,6 +151,10 @@ const clientHelp = `Lectern — web and terminal control
   lectern live list | lectern live stop ID
   lectern agent list
   lectern agent save JSON|@file|-
+  lectern account list            Logins the swap limit policy moves work between
+  lectern account add AGENT LABEL [--machine NAME] [--dir PATH]
+  lectern account login ID        Sign an account in, in a terminal
+  lectern account remove ID
   lectern skill list PROJECT [--agent AGENT]
   lectern skill attached PROJECT [--agent AGENT]
   lectern skill attach PROJECT SKILL_ID [--agent AGENT]
@@ -398,6 +402,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		data, err = c.Request(strings.ToUpper(args[0]), args[1], body, "application/json")
 	case "skill":
 		data, err = skillCommand(c, args)
+	case "account":
+		return accountCommand(cfg, args, base, token, local, os.Stdout)
 	case "agent":
 		data, err = agentCommand(c, args)
 	case "post":

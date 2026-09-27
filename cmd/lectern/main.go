@@ -42,7 +42,7 @@ import (
 var clientVerbs = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
-	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true,
+	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true, "account": true,
 	"help": true, "--help": true, "-h": true,
 }
 
