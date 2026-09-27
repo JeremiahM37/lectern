@@ -152,3 +152,120 @@ def test_issue_starts_a_task_on_phone(browser, forge_server):
         assert any(t["title"] == "[8] Document the retry budget" and "Explain the window" in t["prompt"] for t in tasks)
     finally:
         ctx.close()
+
+
+def _post(base, path, body):
+    req = urllib.request.Request(base + "/api" + path, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    return json.load(urllib.request.urlopen(req, timeout=15))
+
+
+@pytest.mark.parametrize("viewport", [PHONE, DESKTOP], ids=["phone", "desktop"])
+def test_reactions_and_merge_queue(browser, forge_server, viewport):
+    ctx, page = _page(browser, viewport)
+    try:
+        page.goto(forge_server + "/#tasks/1/github/pr/14")
+        detail = page.locator(".th-detail")
+        expect(detail.locator("[data-pr='14']")).to_be_visible()
+        detail.get_by_role("button", name="Add a reaction to #14").click()
+        detail.get_by_role("menuitem", name="React hooray").click()
+        expect(page.locator("#toasts")).to_contain_text("Reaction added")
+        expect(detail.locator(".th-pr-head .th-reactions")).to_contain_text("🎉 1")
+        comment = detail.locator(".th-comment").first
+        comment.get_by_role("button", name="Add a reaction to riley's comment").click()
+        comment.get_by_role("menuitem", name="React heart").click()
+        expect(comment).to_contain_text("❤️ 1")
+
+        for n in (17, 12):
+            pr = _api(forge_server, f"/projects/1/forge/prs/{n}")
+            _post(forge_server, f"/projects/1/forge/prs/{n}/merge", {"method": "merge", "auto": True, "confirm": True, "head_sha": pr["head_sha"]})
+        page.goto(forge_server + "/#tasks/1")
+        page.reload()
+        page.locator(".th-tabs").get_by_role("tab", name="Merge queue").click()
+        queue = page.locator(".th-queue-list")
+        expect(queue.locator("li")).to_have_count(2)
+        expect(queue.locator("li").first).to_contain_text("#17")
+        expect(queue.locator("li").first).to_contain_text("awaiting checks")
+        queue.get_by_role("button", name="Remove #17 from the merge queue").click()
+        page.locator("#th-dequeue-go").click()
+        expect(page.locator("#toasts")).to_contain_text("#17 removed from the merge queue")
+        expect(queue.locator("li")).to_have_count(1)
+        expect(queue.locator(".th-queue-pos")).to_have_text("1")
+        assert _api(forge_server, "/projects/1/forge/prs/17")["auto_merge"] is None
+    finally:
+        ctx.close()
+
+
+class _FakeLinear:
+    """A tiny Linear GraphQL stand-in on a local port for the editor test."""
+
+    def __init__(self):
+        import http.server
+        import threading
+        state = self.state = {"description": "Search is slow.", "saved": []}
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+                q = body.get("query", "")
+                issue = {"id": "u1", "identifier": "ENG-21", "title": "Index titles", "url": "https://linear.example/ENG-21",
+                         "branchName": "eng-21-index-titles", "description": state["description"],
+                         "state": {"id": "s1", "name": "Todo", "type": "unstarted"}, "team": {"id": "t", "key": "ENG"},
+                         "labels": {"nodes": []}, "children": {"nodes": []}, "comments": {"nodes": []}, "updatedAt": "2026-09-27T09:00:00Z"}
+                if "issueUpdate" in q:
+                    state["description"] = body["variables"]["d"]
+                    state["saved"].append(body["variables"]["d"])
+                    out = {"data": {"issueUpdate": {"success": True}}}
+                elif "issues(filter" in q:
+                    out = {"data": {"issues": {"nodes": [issue]}}}
+                elif "workflowStates" in q:
+                    out = {"data": {"workflowStates": {"nodes": [{"id": "s1", "name": "Todo", "type": "unstarted"}]}}}
+                elif "teams(" in q:
+                    out = {"data": {"teams": {"nodes": [{"id": "t", "key": "ENG", "name": "Engineering"}]}}}
+                else:
+                    out = {"data": {"issue": issue}}
+                raw = json.dumps(out).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        self.srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}/graphql"
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown()
+
+
+@pytest.mark.parametrize("viewport", [PHONE, DESKTOP], ids=["phone", "desktop"])
+def test_linear_description_rich_editor(browser, forge_server, viewport):
+    fake = _FakeLinear()
+    ctx, page = _page(browser, viewport)
+    try:
+        conn = _post(forge_server, "/projects/1/trackers", {"kind": "linear", "config": {"team_key": "ENG", "api_url": fake.url},
+                                                           "secrets": {"api_key": "lin_api_e2e"}})
+        page.goto(forge_server + f"/#tasks/1/linear/issue/ENG-21/{conn['id']}")
+        detail = page.locator(".th-detail")
+        expect(detail).to_contain_text("Search is slow.")
+        desc = detail.locator(".th-desc")
+        desc.get_by_role("button", name="Edit").click()
+        box = desc.get_by_role("textbox", name="Description")
+        box.fill("Search is slow on big workspaces.")
+        # select "big" and make it bold with the toolbar
+        box.evaluate("t => { const i = t.value.indexOf('big'); t.setSelectionRange(i, i + 3); }")
+        desc.get_by_role("button", name="Bold (Ctrl+B)").click()
+        expect(box).to_have_value("Search is slow on **big** workspaces.")
+        desc.get_by_role("button", name="Preview").click()
+        expect(desc.locator(".th-editor-preview strong")).to_have_text("big")
+        desc.get_by_role("button", name="Save description").click()
+        expect(page.locator("#toasts")).to_contain_text("Description saved")
+        assert fake.state["saved"] == ["Search is slow on **big** workspaces."]
+        expect(detail.locator(".th-desc strong")).to_have_text("big")
+    finally:
+        ctx.close()
+        fake.close()

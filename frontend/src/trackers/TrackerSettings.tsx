@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorText, type Notice, type TrackerApi } from "./api";
-import { SOURCE_NAME } from "./logic";
+import { isForge, SOURCE_NAME } from "./logic";
 import type { Source, TrackerConnection, TrackersResponse } from "./types";
 
 type Draft = Record<string, string>;
@@ -13,6 +13,25 @@ const FIELDS: Record<Source, { key: string; label: string; secret?: boolean; pla
   gitlab: [
     { key: "repo", label: "Project path", placeholder: "group/subgroup/project", hint: "Leave empty to use the clone's origin remote." },
     { key: "host", label: "Host", placeholder: "gitlab.com", hint: "For a self-managed GitLab." },
+  ],
+  bitbucket: [
+    { key: "repo", label: "Repository", placeholder: "workspace/repo or PROJECT/repo", hint: "Leave empty to use the clone's origin remote." },
+    { key: "host", label: "Host", placeholder: "bitbucket.org", hint: "For Bitbucket Data Center, its host name." },
+    { key: "flavor", label: "Deployment", options: ["", "cloud", "server"], hint: "Empty guesses from the host: bitbucket.org is Cloud." },
+    { key: "base_url", label: "API URL (optional)", placeholder: "https://bitbucket.example.com", hint: "Data Center behind a path prefix." },
+    { key: "username", label: "Account (Cloud)", placeholder: "you@example.com", hint: "Cloud API token or app password: the account it belongs to. Leave empty for a repository/workspace access token." },
+    { key: "token", label: "Token", secret: true, hint: "Cloud: API token, app password or access token. Data Center: an HTTP access token." },
+  ],
+  gitea: [
+    { key: "host", label: "Host", placeholder: "codeberg.org" },
+    { key: "repo", label: "Repository", placeholder: "owner/repo", hint: "Leave empty to use the clone's origin remote." },
+    { key: "base_url", label: "API URL (optional)", placeholder: "https://git.example.com/api/v1" },
+    { key: "token", label: "Access token", secret: true, hint: "Settings → Applications → a token with repository and issue scopes." },
+  ],
+  azure: [
+    { key: "repo", label: "Repository", placeholder: "organisation/project/repo", hint: "Leave empty to use the clone's origin remote." },
+    { key: "base_url", label: "Server URL (optional)", placeholder: "https://devops.example.com/tfs", hint: "Only for Azure DevOps Server." },
+    { key: "token", label: "Personal access token", secret: true, hint: "Scopes: Code (read & write), Work Items (read & write)." },
   ],
   linear: [
     { key: "team_key", label: "Team key", placeholder: "ENG", hint: "The team the hub opens on." },
@@ -29,6 +48,9 @@ const FIELDS: Record<Source, { key: string; label: string; secret?: boolean; pla
 };
 
 const SECRET_KEYS = new Set(["api_key", "token"]);
+
+// The flavor select's option labels, per kind.
+const FLAVOR: Record<string, string> = { "": "Guess from the host", cloud: "Cloud", server: "Server / Data Center" };
 
 /** A project's tracker connections for the Tasks hub. Keys and tokens are
  * write-only here: the server only ever reports whether one is set. */
@@ -120,7 +142,7 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
               <select value={draft[f.key] || ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                 {f.options.map((o) => (
                   <option key={o} value={o}>
-                    {o ? (o === "cloud" ? "Jira Cloud" : "Server / Data Center") : "Guess from URL"}
+                    {FLAVOR[o]}
                   </option>
                 ))}
               </select>
@@ -155,7 +177,8 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
       <h4>Tasks hub</h4>
       <p>
         Where this project's pull requests and issues come from. GitHub and GitLab use the <code>gh</code> / <code>glab</code> login on this
-        project's machine; Linear and Jira need a key, which is kept on the server and never shown again.
+        project's machine; Bitbucket, Gitea/Forgejo, Azure DevOps, Linear and Jira need a token, which is kept on the server and never
+        shown again.
       </p>
       <p className="th-forge-line">
         {forge?.repo ? (
@@ -200,10 +223,10 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
         form(adding)
       ) : (
         <div className="btnrow">
-          {(["linear", "jira", "github", "gitlab"] as Source[]).map((k) => (
+          {(["linear", "jira", "github", "gitlab", "bitbucket", "gitea", "azure"] as Source[]).map((k) => (
             <button key={k} className="b" onClick={() => { setAdding(k); setEditing(undefined); setDraft({}); }}>
               + {SOURCE_NAME[k]}
-              {k === "github" || k === "gitlab" ? " repository" : ""}
+              {isForge(k) ? " repository" : ""}
             </button>
           ))}
         </div>
