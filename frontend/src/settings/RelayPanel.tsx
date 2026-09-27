@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { inApp } from "../native/bridge";
 import { forgetPairing, preferDirect, relayFlagged, setPreferDirect } from "../relay/store";
 
 // Settings → Devices → Encrypted relay (docs/relay.md). The server half is
@@ -50,7 +51,18 @@ function ThisDevice() {
     tunnel.addEventListener("status", on);
     return () => tunnel.removeEventListener("status", on);
   }, [tunnel]);
-  if (!relayFlagged()) return null;
+  if (!relayFlagged()) {
+    // The Android app connected straight to this Lectern: the one place to
+    // disconnect it and pair again (docs/android.md).
+    if (!inApp()) return null;
+    return (
+      <div className="relay-this-device" data-testid="app-this-device">
+        <h4>This app</h4>
+        <p className="subhint">Connected directly to {window.location.host}.</p>
+        <button className="b" onClick={() => { if (confirm("Disconnect this app from Lectern?")) void forgetPairing(); }}>Disconnect this app</button>
+      </div>
+    );
+  }
   const direct = preferDirect();
   async function forget() {
     if (!confirm("Forget this device's relay pairing? You will need a new QR code to pair it again.")) return;
@@ -65,10 +77,10 @@ function ThisDevice() {
           ? "Paired over the relay, but set to connect directly."
           : `Connected through the encrypted relay: ${tunnel?.status ?? "starting"}${tunnel?.detail ? ` — ${tunnel.detail}` : ""}`}
       </p>
-      <label className="devices-toggle">
+      {!inApp() && <label className="devices-toggle">
         <input type="checkbox" checked={direct} onChange={(e) => { setPreferDirect(e.target.checked); window.location.reload(); }} />
         Connect directly instead of through the relay
-      </label>
+      </label>}
       <button className="b" onClick={() => void forget()}>Forget this pairing</button>
     </div>
   );

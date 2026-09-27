@@ -31,6 +31,8 @@ import { requestSwitch, type SwitchRequest } from "./continuity/handoff";
 import { SessionLineage } from "./continuity/SessionLineage";
 import { SwitchProgressPanel, type PendingSwitch } from "./continuity/SwitchProgress";
 import { envFromWindow, pushAvailability } from "./push";
+import { inApp, nativeBridge } from "./native/bridge";
+import { PUSH_EVENT, enableNativePush, syncNativePush } from "./native/push";
 import { applyBadge, computeBadgeCount } from "./badge";
 import type { NoticeAction } from "./types";
 const SWITCH_STORAGE = 'lec-pending-switches';
@@ -176,7 +178,9 @@ export default function App() {
       action: "terminal" | "reply";
       version: number;
     }>();
-  const pushAvail = useMemo(() => pushAvailability(envFromWindow(window)), []);
+  // The Android app pushes through UnifiedPush (native/push.ts), not the
+  // browser's PushManager, so it is always able to.
+  const pushAvail = useMemo(() => (inApp() ? { available: true } : pushAvailability(envFromWindow(window))), []);
   const switching = useRef(pendingSwitches), completingSwitches = useRef(new Set<number>());
   const saveSwitches = useCallback((next: Record<string,PendingSwitch>)=>{
     switching.current = next; setPendingSwitches(next);
@@ -591,7 +595,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", key);
   }, []);
   useEffect(() => {
-    if (navigator.serviceWorker)
+    // The Android app's shell is its signed APK; it installs no worker.
+    if (navigator.serviceWorker && !inApp())
       void navigator.serviceWorker
         .register("/sw.js")
         .catch((error) => notice("Offline support: " + String(error), true));
@@ -605,6 +610,19 @@ export default function App() {
       return;
     }
     let cancelled = false;
+    if (inApp()) {
+      // Re-send the app's endpoint whenever the distributor issues a new one.
+      const sync = () =>
+        void syncNativePush(api.request)
+          .then((endpoint) => !cancelled && setPushEndpoint(endpoint ?? null))
+          .catch(() => !cancelled && setPushEndpoint(null));
+      sync();
+      window.addEventListener(PUSH_EVENT, sync);
+      return () => {
+        cancelled = true;
+        window.removeEventListener(PUSH_EVENT, sync);
+      };
+    }
     void (async () => {
       try {
         const registration = await navigator.serviceWorker.getRegistration();
@@ -636,6 +654,18 @@ export default function App() {
     navigator.serviceWorker?.controller?.postMessage({ type: "lec-badge-count", count });
   }, [approvals, sessions]);
   async function enablePush() {
+    if (inApp()) {
+      try {
+        setPushEndpoint(await enableNativePush(api.request));
+        setPushPromptGone(true);
+        dismissPushPrompt();
+        notice("Push enabled on this device — sending a test notification");
+        await api.request("/settings/test-notification", { method: "POST" });
+      } catch (error) {
+        notice("Push: " + String(error), true);
+      }
+      return;
+    }
     try {
       if (!navigator.serviceWorker || !window.Notification)
         throw new Error("Notifications require a supported secure browser.");
@@ -687,7 +717,10 @@ export default function App() {
   async function unsubscribePush(endpoint: string) {
     try {
       await api.request("/push/subscribe", { method: "DELETE", body: { endpoint } });
-      if (pushEndpoint === endpoint) {
+      if (pushEndpoint === endpoint && inApp()) {
+        nativeBridge()?.disablePush();
+        setPushEndpoint(null);
+      } else if (pushEndpoint === endpoint) {
         try {
           const registration = await navigator.serviceWorker?.getRegistration();
           const subscription = await registration?.pushManager.getSubscription();

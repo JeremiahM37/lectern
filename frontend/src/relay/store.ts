@@ -2,7 +2,12 @@
 // service worker can read too (it needs the pinned shell key), plus one
 // localStorage flag so the page can decide synchronously, before any module
 // fetches anything, whether to route through the relay.
+//
+// In the Android app the pairing lives on the native side instead
+// (native/bridge.ts): its route token encrypted with a Keystore key, its
+// device key in Keystore itself.
 import type { Pairing } from "./tunnel";
+import { nativeBridge } from "../native/bridge";
 
 const DB = "lectern-relay";
 const STORE = "kv";
@@ -32,6 +37,11 @@ async function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRe
 }
 
 export async function loadPairing(): Promise<Pairing | undefined> {
+  const bridge = nativeBridge();
+  if (bridge) {
+    const raw = bridge.relayPairing();
+    return raw ? (JSON.parse(raw) as Pairing) : undefined;
+  }
   try {
     return (await tx<Pairing | undefined>("readonly", (s) => s.get("pairing"))) ?? undefined;
   } catch {
@@ -47,6 +57,11 @@ export async function pinShellKey(key: string): Promise<void> {
 
 /** Saves the pairing and turns the relay transport on for this origin. */
 export async function savePairing(p: Pairing): Promise<void> {
+  const bridge = nativeBridge();
+  if (bridge) {
+    bridge.saveRelayPairing(JSON.stringify(p));
+    return;
+  }
   await tx("readwrite", (s) => s.put(p, "pairing"));
   await tx("readwrite", (s) => s.put(p.sk, "shell-key"));
   try {
@@ -78,11 +93,18 @@ export async function pinShellNow(timeoutMs = 60000): Promise<void> {
  * device that was once paired keeps refusing unsigned shells until the app is
  * reinstalled. */
 export async function forgetPairing(): Promise<void> {
+  const bridge = nativeBridge();
+  if (bridge) {
+    bridge.forgetPairing();
+    return;
+  }
   await tx("readwrite", (s) => s.delete("pairing"));
   try { localStorage.removeItem(FLAG); } catch { /* ignore */ }
 }
 
 export function relayFlagged(): boolean {
+  const bridge = nativeBridge();
+  if (bridge) return bridge.mode() === "relay";
   try {
     return localStorage.getItem(FLAG) === "1";
   } catch {
@@ -91,6 +113,7 @@ export function relayFlagged(): boolean {
 }
 
 export function preferDirect(): boolean {
+  if (nativeBridge()) return false; // the app picks its transport natively
   try {
     return localStorage.getItem(TRANSPORT_PREF) === "direct";
   } catch {

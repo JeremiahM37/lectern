@@ -27,6 +27,8 @@ import "./shell/mobile.css";
 // authenticated session before the exchange has even happened.
 const root = createRoot(document.getElementById("root")!);
 const path = window.location.pathname;
-flushSync(() =>
+// The Android app's unseen page for notification buttons (native/action.ts).
+if (path === "/native-action") void import("./native/action").then((m) => m.runNativeAction());
+else flushSync(() =>
   root.render(path === "/pair" ? <Pair /> : path === "/relay-pair" ? <RelayPair /> : <><RelayBanner tunnel={relayTunnel} /><App /></>),
 );

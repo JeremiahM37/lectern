@@ -170,6 +170,8 @@ moment can replace the worker. So:
   the pinned worker keeps running.
 - The relay is never the install origin, so it can never swap the code. That
   is the property this feature promises.
+- The [Android app](android.md) avoids the install origin altogether: its
+  copy of the app is inside the signed APK.
 
 ## What the relay can still learn
 
@@ -207,12 +209,13 @@ detected, but availability is not protected.
 - **Notification buttons.** Approve/Deny on a push notification needs a
   Lectern window open on the phone, because only a page holds the tunnel.
   With none open the notification reports that the decision failed; tapping
-  it opens the app.
+  it opens the app. The [Android app](android.md) does not have this limit.
 - **Media and downloads** (images, video, file downloads) go through the
   service worker, which hands them to an open page to fetch over the tunnel.
 - **Device key storage.** The phone's X25519 private key is kept in the
   browser's IndexedDB for that origin. Anyone who can use that browser
-  profile can use the key; revoke a lost phone from Settings.
+  profile can use the key; revoke a lost phone from Settings. The
+  [Android app](android.md) keeps it in Android Keystore instead.
 - **One relay URL.** `LECTERN_RELAY_URL` is also what the QR code tells the
   phone, so both sides must reach the relay at the same address.
 

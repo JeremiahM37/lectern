@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { x25519 } from "@noble/curves/ed25519.js";
 import { Initiator, generateKeyPair, keyPairFromSecret, prologue, b64url, unb64url } from "./noise";
 
 // Produced by internal/relay/vectors_test.go with github.com/flynn/noise.
@@ -69,4 +70,21 @@ test("fresh key pairs and base64url round trip", () => {
     assert.deepEqual(unb64url(b64url(b)), b);
   }
   assert.ok(!/[+/=]/.test(b64url(a.publicKey)));
+});
+
+test("a key held elsewhere (Android Keystore) gives the same handshake through its DH", () => {
+  const secret = hex(vectors.device_static);
+  const pair = keyPairFromSecret(secret);
+  let calls = 0;
+  const held = { publicKey: pair.publicKey, dh: (peer: Uint8Array) => { calls++; return x25519.getSharedSecret(secret, peer); } };
+  const ini = new Initiator(held, hex(vectors.host_public), prologue(vectors.channel), keyPairFromSecret(hex(vectors.device_ephemeral)));
+  assert.equal(toHex(ini.writeMessage1(utf8(vectors.hello))), vectors.message1);
+  assert.equal(new TextDecoder().decode(ini.readMessage2(hex(vectors.message2)).payload), vectors.welcome);
+  assert.equal(calls, 2); // ss and se, nothing else touches the static key
+});
+
+test("an all-zero DH result from a delegated key is refused", () => {
+  const held = { publicKey: new Uint8Array(32).fill(9), dh: () => new Uint8Array(32) };
+  const ini = new Initiator(held, hex(vectors.host_public), prologue(vectors.channel));
+  assert.throws(() => ini.writeMessage1(utf8("x")), /invalid public key/);
 });

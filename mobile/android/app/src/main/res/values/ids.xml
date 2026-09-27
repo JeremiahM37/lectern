@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="scan" type="id" />
+    <item name="link" type="id" />
+    <item name="connect" type="id" />
+</resources>

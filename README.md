@@ -92,8 +92,11 @@ The same control loop runs in an installable phone app:
 - No Tailscale? Run **`lectern relay`** on any small server and pair a phone
   by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
   WireGuard); the relay only passes sealed frames and never serves app code.
+- An **Android app** (prototype, build from source) bundles the same web app,
+  keeps the relay key in Keystore, and takes Approve / Deny / Reply from the
+  notification with no Lectern screen open, via UnifiedPush and ntfy.
 
-→ [Mobile sessions](docs/mobile-sessions.md) · [Relay](docs/relay.md) · [Remote access](docs/remote-access.md)
+→ [Mobile sessions](docs/mobile-sessions.md) · [Relay](docs/relay.md) · [Remote access](docs/remote-access.md) · [Android app](docs/android.md)
 
 ![Lectern on a phone](docs/media/phone.gif)
 
@@ -151,8 +154,8 @@ Corrections are welcome.
 
 **Where others are ahead:**
 - Orca, HAPI, Agent Orchestrator and Happy ship native phone apps. Lectern is an
-  installable web app; on iPhone that means no Approve/Deny buttons on the
-  notification itself.
+  installable web app plus an unpublished Android prototype; on iPhone that
+  means no Approve/Deny buttons on the notification itself.
 - Orca (30+), Agent Orchestrator (28) and Agent of Empires (about 20) list more
   agents out of the box. Lectern has 3 built in, a catalog of 10 more, and any
   CLI as a custom agent.

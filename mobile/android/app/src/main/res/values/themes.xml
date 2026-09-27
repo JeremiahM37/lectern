@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lectern_bg">#080B14</color>
+    <color name="lectern_fg">#E6E9F2</color>
+    <color name="lectern_accent">#7C8CFF</color>
+    <style name="Theme.Lectern" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/lectern_bg</item>
+        <item name="android:statusBarColor">@color/lectern_bg</item>
+        <item name="android:navigationBarColor">@color/lectern_bg</item>
+        <item name="android:colorAccent">@color/lectern_accent</item>
+        <item name="android:colorPrimary">@color/lectern_bg</item>
+    </style>
+</resources>

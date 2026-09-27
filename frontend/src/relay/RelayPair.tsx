@@ -9,6 +9,7 @@ import { suggestedDeviceName } from "../pairing/Pair";
 import { pairDevice, type PairPayload } from "./tunnel";
 import { pinShellKey, pinShellNow, savePairing } from "./store";
 import { unb64url } from "./noise";
+import { inApp } from "../native/bridge";
 
 export function parsePairFragment(hash: string): PairPayload | undefined {
   const match = /[#&]p=([A-Za-z0-9_-]+)/.exec(hash);
@@ -43,8 +44,9 @@ export default function RelayPair() {
     if (window.location.hash) history.replaceState(null, "", "/relay-pair");
     // Install the app shell now, from the origin this page came from: after
     // pairing, the service worker serves it from cache and accepts only
-    // updates signed by this Lectern (docs/relay.md).
-    void navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
+    // updates signed by this Lectern (docs/relay.md). The Android app needs
+    // none of this: its shell is the signed APK itself (docs/android.md).
+    if (!inApp()) void navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
   }, []);
 
   async function submit(event: React.FormEvent) {
@@ -55,8 +57,10 @@ export default function RelayPair() {
     try {
       // Pin first: if the app on this origin is not the one this Lectern
       // signs, stop before any key is paired.
-      await pinShellKey(payload.sk);
-      await pinShellNow();
+      if (!inApp()) {
+        await pinShellKey(payload.sk);
+        await pinShellNow();
+      }
       const pairing = await pairDevice(payload, name.trim() || "Relay device");
       await savePairing(pairing);
       setStatus("done");

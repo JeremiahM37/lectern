@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lectern</string>
+    <string name="connect_title">Connect to Lectern</string>
+    <string name="connect_body">On your Lectern, open Settings → Devices and show a pairing QR code: either \"Pair a phone over the relay\" (end-to-end encrypted, works from anywhere) or \"Pair a phone\" (direct). Scan it here, or paste its link. You can also paste your Lectern\'s address if this phone reaches it over Tailscale.</string>
+    <string name="scan">Scan QR code</string>
+    <string name="paste_hint">Pairing link or Lectern address</string>
+    <string name="connect">Connect</string>
+    <string name="bad_link">That is not a Lectern pairing link or address.</string>
+    <string name="channel_approvals">Approvals</string>
+    <string name="channel_activity">Session activity</string>
+    <string name="channel_status">Action results</string>
+</resources>

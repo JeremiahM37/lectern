@@ -1,7 +1,8 @@
 // The phone's end of the encrypted relay (docs/relay.md): one WebSocket to
 // the relay, one Noise session to the host, and any number of HTTP exchanges
 // and WebSockets multiplexed over it. The relay sees only ciphertext.
-import { Initiator, keyPairFromSecret, generateKeyPair, prologue, b64url, unb64url, type Transport } from "./noise";
+import { Initiator, keyPairFromSecret, generateKeyPair, prologue, b64url, unb64url, type KeyPair, type StaticKey, type Transport } from "./noise";
+import { nativeBridge } from "../native/bridge";
 import { Frame, MAX_CHUNK, WS_FINAL, WS_MORE, decodeFrame, encodeFrame, fromJSON, jsonBytes, type TunnelFrame } from "./frames";
 
 // Captured before any shim replaces the global: the tunnel itself always
@@ -15,7 +16,9 @@ export interface Pairing {
   ch: string;
   hk: string; // host X25519 public key, pinned
   sk: string; // shell signing key, pinned
-  deviceSecret: string; // this device's X25519 private key
+  // This device's X25519 private key. Empty in the Android app, which keeps
+  // the key in Keystore and only lends its DH (nativeDeviceKey).
+  deviceSecret: string;
   routeToken: string;
   deviceId: number;
   name: string;
@@ -72,7 +75,7 @@ interface Conn {
 
 // connect opens the relay socket, authenticates to the relay with the route
 // token and runs Noise IK against the pinned host key.
-function connect(o: { relay: string; ch: string; hk: string; routeToken: string; secret: Uint8Array; hello: unknown; timeoutMs?: number }): Promise<Conn> {
+function connect(o: { relay: string; ch: string; hk: string; routeToken: string; key: KeyPair | StaticKey; hello: unknown; timeoutMs?: number }): Promise<Conn> {
   return new Promise((resolve, reject) => {
     const ws = new NativeWebSocket(deviceURL(o.relay, o.ch));
     ws.binaryType = "arraybuffer";
@@ -94,7 +97,7 @@ function connect(o: { relay: string; ch: string; hk: string; routeToken: string;
         let msg: { t?: string; error?: string } = {};
         try { msg = JSON.parse(ev.data); } catch { /* handled below */ }
         if (msg.t !== "ok" || initiator) return; // an "error" is followed by a close
-        initiator = new Initiator(keyPairFromSecret(o.secret), unb64url(o.hk), prologue(o.ch));
+        initiator = new Initiator(o.key, unb64url(o.hk), prologue(o.ch));
         ws.send(initiator.writeMessage1(jsonBytes(o.hello)));
         return;
       }
@@ -114,16 +117,37 @@ function connect(o: { relay: string; ch: string; hk: string; routeToken: string;
   });
 }
 
+/** The device key the Android app holds in Keystore, or undefined in a
+ * browser. Its private half never enters this page. */
+export function nativeDeviceKey(): StaticKey | undefined {
+  const bridge = nativeBridge();
+  if (!bridge) return undefined;
+  return {
+    publicKey: unb64url(bridge.relayPublicKey()),
+    dh: (peer) => unb64url(bridge.relayDH(b64url(peer))),
+  };
+}
+
+function deviceKey(p: Pairing): KeyPair | StaticKey {
+  if (!p.deviceSecret) {
+    const key = nativeDeviceKey();
+    if (!key) throw new Error("This device's key is missing; pair it again.");
+    return key;
+  }
+  return keyPairFromSecret(unb64url(p.deviceSecret));
+}
+
 /** Pairs this device using a scanned QR payload and returns what to store.
  * The pairing code only ever leaves the phone inside Noise message 1,
  * encrypted to the pinned host key. */
 export async function pairDevice(payload: PairPayload, name: string): Promise<Pairing> {
   if (payload.v !== 1) throw new Error("This pairing code is from a newer Lectern.");
-  const keys = generateKeyPair();
+  const native = nativeDeviceKey();
+  const keys = native ?? generateKeyPair();
   let conn: Conn;
   try {
     conn = await connect({ relay: payload.relay, ch: payload.ch, hk: payload.hk, routeToken: payload.rt,
-      secret: keys.secretKey, hello: { v: 1, pair: { code: payload.c, name } } });
+      key: keys, hello: { v: 1, pair: { code: payload.c, name } } });
   } catch (err) {
     if (err instanceof HandshakeError && err.code === "invalid_code") throw new Error("That pairing code was already used or has expired.");
     throw err;
@@ -132,7 +156,7 @@ export async function pairDevice(payload: PairPayload, name: string): Promise<Pa
   const w = conn.welcome;
   if (!w.route_token || !w.device_id) throw new Error("Lectern did not complete the pairing.");
   return { v: 1, relay: payload.relay, ch: payload.ch, hk: payload.hk, sk: payload.sk,
-    deviceSecret: b64url(keys.secretKey), routeToken: w.route_token, deviceId: w.device_id, name: w.name || name };
+    deviceSecret: "secretKey" in keys ? b64url(keys.secretKey) : "", routeToken: w.route_token, deviceId: w.device_id, name: w.name || name };
 }
 
 type StreamHandler = (f: TunnelFrame | null) => void;
@@ -186,7 +210,7 @@ export class RelayTunnel extends EventTarget {
       const p = this.pairing;
       try {
         const conn = await connect({ relay: p.relay, ch: p.ch, hk: p.hk, routeToken: p.routeToken,
-          secret: unb64url(p.deviceSecret), hello: { v: 1 } });
+          key: deviceKey(p), hello: { v: 1 } });
         this.backoff = 1000;
         this.refusals = 0;
         await this.run(conn);
