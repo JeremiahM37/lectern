@@ -10,4 +10,17 @@
     <string name="channel_approvals">Approvals</string>
     <string name="channel_activity">Session activity</string>
     <string name="channel_status">Action results</string>
+    <string name="add_title">Add a Lectern</string>
+    <string name="link_from">This link pairs with %1$s. Check it is yours, then tap Connect.</string>
+    <string name="back_to_lecterns">Back</string>
+    <string name="hosts_title">Your Lecterns</string>
+    <string name="add_host">Add a Lectern</string>
+    <string name="no_hosts">No Lectern paired yet.</string>
+    <string name="via_relay">Encrypted relay</string>
+    <string name="hosts_hint">Tap to open. Hold to rename or remove. Notifications say which Lectern they came from.</string>
+    <string name="rename">Rename</string>
+    <string name="remove">Remove</string>
+    <string name="remove_title">Remove %1$s?</string>
+    <string name="remove_body">This phone forgets the pairing, its key and its notifications. The Lectern keeps its own record of this device until you revoke it in Settings → Devices.</string>
+    <string name="shortcut_hosts">Switch Lectern</string>
 </resources>

@@ -15,6 +15,8 @@ export interface PushData {
   approval_id?: number;
   session_id?: number;
   limit_id?: number;
+  /** A "dismiss" push: the tag of the notification to withdraw. */
+  tag?: string;
 }
 
 export interface NotificationPlan {
@@ -187,4 +189,27 @@ export function confirmationNotification(
       body: "Open lectern to decide from the app instead.",
     };
   return { title: decision === "approved" ? "Approved" : "Denied", body: "Sent from the notification." };
+}
+
+// ---- withdrawing a notification (internal/sinks Dismiss) ----
+// When an approval is decided anywhere — another phone, the desk, the
+// terminal, or it expired — Lectern pushes {kind:"dismiss", tag} to every
+// device, and each closes its own copy. A browser requires every push to
+// leave something visible unless a window of the app is on screen, so when
+// the withdrawn entry was the last one showing, a silent replacement under
+// the same tag says what happened instead of the browser's generic notice.
+
+export interface Dismissal {
+  tag: string;
+  title: string;
+  body: string;
+}
+
+export function dismissalOf(data: PushData): Dismissal | null {
+  if (data.kind !== "dismiss" || typeof data.tag !== "string" || !/^[a-z]+-[A-Za-z0-9_-]{1,80}$/.test(data.tag)) return null;
+  return { tag: data.tag, title: data.title || "Handled on another device", body: data.body || "" };
+}
+
+export function replacementNeeded(stillShowing: number, windowVisible: boolean): boolean {
+  return stillShowing === 0 && !windowVisible;
 }

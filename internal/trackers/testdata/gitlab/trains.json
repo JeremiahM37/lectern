@@ -1,0 +1,44 @@
+[
+ {
+  "id": 10435337,
+  "status": "merged",
+  "target_branch": "main",
+  "created_at": "2026-09-25T11:20:03.541Z",
+  "merged_at": "2026-09-25T12:39:20.317Z",
+  "merge_request": {
+   "iid": 7306,
+   "title": "Fix after_script timeout clamping to job timeout",
+   "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/7306",
+   "state": "merged"
+  },
+  "user": {
+   "username": "user10"
+  },
+  "pipeline": {
+   "id": 2882112705,
+   "status": "success",
+   "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/pipelines/2882112705"
+  }
+ },
+ {
+  "id": 10417584,
+  "status": "merged",
+  "target_branch": "main",
+  "created_at": "2026-09-24T12:34:01.586Z",
+  "merged_at": "2026-09-24T14:18:51.578Z",
+  "merge_request": {
+   "iid": 7468,
+   "title": "go: Update module gitlab.com/gitlab-org/step-runner to v0.45.0",
+   "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/7468",
+   "state": "merged"
+  },
+  "user": {
+   "username": "user1"
+  },
+  "pipeline": {
+   "id": 2878781944,
+   "status": "success",
+   "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/pipelines/2878781944"
+  }
+ }
+]

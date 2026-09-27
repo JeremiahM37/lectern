@@ -102,6 +102,10 @@ const catalog: Record<string, string> = {
   "conversation.chat.stopDictating": "Arrêter la dictée",
   "conversation.chat.dictate": "Dicter un message",
   "conversation.chat.listening": "🔴 Écoute…",
+  "conversation.chat.transcribing": "⏳ Transcription…",
+  "conversation.chat.recording": "🔴 Enregistrement · touchez pour arrêter",
+  "conversation.chat.transcribingLabel": "Transcription en cours",
+  "conversation.chat.onLectern": "La dictée est transcrite sur votre Lectern",
   "conversation.chat.send": "Envoyer",
   "conversation.chat.offlineNotice": "Hors ligne — rien n’est envoyé tant que vous êtes déconnecté. Votre brouillon est enregistré sur cet appareil et y reste à la reconnexion.",
 
@@ -234,6 +238,7 @@ const catalog: Record<string, string> = {
   "conversation.saved.currentUnsaved": "Le terminal actuel n’a pas encore enregistré de messages lisibles.",
   "conversation.saved.ambiguous": "Plusieurs conversations sont actives dans ce terminal. Choisissez-en une explicitement.",
   "conversation.saved.unidentified": "La conversation actuelle n’a pas pu être identifiée. Choisissez-en une explicitement.",
+  "conversation.saved.unreadable": "{agent} · {id} — Lectern peut reprendre et dupliquer cette conversation, mais ne lit pas ses messages.",
   "conversation.saved.title": "Conversations enregistrées",
   "conversation.saved.close": "Fermer",
   "conversation.saved.scanLimited": " Affichage de 500 fichiers de transcription au maximum, en priorité ceux du terminal actuel.",

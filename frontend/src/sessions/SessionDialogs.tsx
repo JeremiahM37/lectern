@@ -272,7 +272,7 @@ export function NewSession({
           <h2>{t("sessions.dialogs.newSession.title")}</h2>
           <button
             className="x"
-            aria-label={t("sessions.dialogs.newSession.close")}
+            aria-label={t("sessions.dialogs.newSession.close")} data-close
             onClick={onClose}
           >
             ✕

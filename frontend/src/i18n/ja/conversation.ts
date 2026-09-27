@@ -102,6 +102,10 @@ const catalog: Record<string, string> = {
   "conversation.chat.stopDictating": "音声入力を停止",
   "conversation.chat.dictate": "音声でメッセージを入力",
   "conversation.chat.listening": "🔴 聞き取り中…",
+  "conversation.chat.transcribing": "⏳ 文字起こし中…",
+  "conversation.chat.recording": "🔴 録音中 · タップで停止",
+  "conversation.chat.transcribingLabel": "文字起こし中",
+  "conversation.chat.onLectern": "音声入力はお使いの Lectern で文字起こしされます",
   "conversation.chat.send": "送信",
   "conversation.chat.offlineNotice": "オフライン — 接続が切れている間は何も送信されません。下書きはこのデバイスに保存され、再接続後もここに残ります。",
 
@@ -234,6 +238,7 @@ const catalog: Record<string, string> = {
   "conversation.saved.currentUnsaved": "現在のターミナルには、まだ読み取れるメッセージが保存されていません。",
   "conversation.saved.ambiguous": "このターミナルでは複数の会話が有効です。明示的に 1 つ選んでください。",
   "conversation.saved.unidentified": "現在の会話を特定できませんでした。明示的に 1 つ選んでください。",
+  "conversation.saved.unreadable": "{agent} · {id} — Lectern はこの会話を再開・フォークできますが、メッセージは読み取りません。",
   "conversation.saved.title": "保存済みの会話",
   "conversation.saved.close": "閉じる",
   "conversation.saved.scanLimited": " 見つかったトランスクリプトファイルを最大 500 個まで、現在のターミナルを優先して表示しています。",

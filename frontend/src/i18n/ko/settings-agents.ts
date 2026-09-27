@@ -69,6 +69,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.saveRunner": "러너 저장",
 
   "agentSettings.catalog.chip.resume": "재개",
+  "agentSettings.catalog.chip.exact": "정확한 재개",
   "agentSettings.catalog.chip.fork": "포크",
   "agentSettings.catalog.chip.model": "모델",
   "agentSettings.catalog.chip.yolo": "자동 승인",

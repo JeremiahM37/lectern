@@ -312,9 +312,7 @@ const catalog: Record<string, string> = {
   // {name} is a connection's name.
   "trackers.settings.confirmDisconnect": "Disconnect {name}?",
   "trackers.settings.name": "Name",
-  "trackers.settings.flavor.cloud": "Jira Cloud",
   "trackers.settings.flavor.server": "Server / Data Center",
-  "trackers.settings.flavor.guess": "Guess from URL",
   "trackers.settings.secretSet": "•••••• set — leave empty to keep",
   // Verb: save the edited connection.
   "trackers.settings.save": "Save",
@@ -323,7 +321,6 @@ const catalog: Record<string, string> = {
   "trackers.settings.title": "Tasks hub",
   // Followed by the command names "gh / glab", then trackers.settings.intro2.
   "trackers.settings.intro1": "Where this project's pull requests and issues come from. GitHub and GitLab use the",
-  "trackers.settings.intro2": "login on this project's machine; Linear and Jira need a key, which is kept on the server and never shown again.",
   "trackers.settings.setHere": "set here",
   "trackers.settings.fromOrigin": "from the origin remote",
   "trackers.settings.checking": "Checking the repository…",
@@ -337,6 +334,126 @@ const catalog: Record<string, string> = {
   "trackers.settings.disconnect": "Disconnect",
   "trackers.settings.addSource": "+ {source}",
   "trackers.settings.addRepository": "+ {source} repository",
+
+  // Tasks hub tabs and reactions (merge from connect-ui)
+  // Tab name Azure DevOps uses for its issues.
+  "trackers.hub.tab.workItems": "Work items",
+  // Tab: GitHub's merge queue.
+  "trackers.hub.tab.mergeQueue": "Merge queue",
+  // Tab: GitLab's merge train.
+  "trackers.hub.tab.mergeTrain": "Merge train",
+  "trackers.notice.reactionAdded": "Reaction added",
+  // Button on an existing reaction. {emoji} is the emoji, {n} how many people used it.
+  "trackers.reactions.reactCount": "React {emoji} ({n})",
+  // {emoji} is a reaction name such as +1, heart or rocket.
+  "trackers.reactions.react": "React {emoji}",
+  // {label} is an item such as "#12" or a comment (trackers.reactions.commentBy).
+  "trackers.reactions.add": "Add a reaction to {label}",
+  // {name} is the comment author's login.
+  "trackers.reactions.commentBy": "{name}'s comment",
+  // Stands in for trackers.reactions.commentBy when the author is unknown.
+  "trackers.reactions.thisComment": "this's comment",
+
+  // IssuePage: editing the description
+  // Verb: edit the description.
+  "trackers.issue.edit": "Edit",
+  "trackers.issue.lossyWarning": "This description has formatting the editor cannot keep (a table, panel, colour or attachment). Saving replaces it.",
+  "trackers.issue.saving": "Saving…",
+  "trackers.issue.saveDescription": "Save description",
+  "trackers.issue.descriptionSaved": "Description saved",
+
+  // RichEditor
+  "trackers.editor.bold": "Bold (Ctrl+B)",
+  "trackers.editor.italic": "Italic (Ctrl+I)",
+  "trackers.editor.strike": "Strikethrough",
+  "trackers.editor.code": "Inline code",
+  // Noun: insert a link.
+  "trackers.editor.link": "Link (Ctrl+K)",
+  "trackers.editor.heading": "Heading",
+  "trackers.editor.bullet": "Bulleted list",
+  "trackers.editor.number": "Numbered list",
+  // Noun: a block quote.
+  "trackers.editor.quote": "Quote",
+  "trackers.editor.codeblock": "Code block",
+  // {label} is the field's name, e.g. "Comment".
+  "trackers.editor.toolbar": "{label} formatting",
+  // Tab: type the text (as opposed to Preview).
+  "trackers.editor.write": "Write",
+  "trackers.editor.preview": "Preview",
+  "trackers.editor.nothingToPreview": "Nothing to preview.",
+
+  // format.ts: sample text inserted when nothing is selected
+  "trackers.format.hint.bold": "bold text",
+  "trackers.format.hint.italic": "italic text",
+  "trackers.format.hint.strike": "struck text",
+  // Noun: sample code.
+  "trackers.format.hint.code": "code",
+  "trackers.format.hint.link": "link text",
+
+  // MergeQueue
+  // Fills {word} in the sentences below: GitHub's queue.
+  "trackers.queue.word.queue": "merge queue",
+  // Fills {word} in the sentences below: GitLab's train.
+  "trackers.queue.word.train": "merge train",
+  // {n} is a pull request number; {word} is trackers.queue.word.*.
+  "trackers.queue.removed": "#{n} removed from the {word}",
+  "trackers.queue.targetBranch": "Target branch",
+  "trackers.queue.defaultBranch": "default branch",
+  // Verb: show the queue for the branch.
+  "trackers.queue.show": "Show",
+  "trackers.queue.unsupported": "This code host has no {word}.",
+  // Followed by a branch name, then trackers.queue.end.
+  "trackers.queue.empty": "Nothing is waiting in the {word} for",
+  // Ends the sentence begun by trackers.queue.empty.
+  "trackers.queue.end": ".",
+  // {base} is a branch name.
+  "trackers.queue.listLabel": "{word} for {base}",
+  "trackers.queue.position": "position {n}",
+  // {status} is the pipeline state from GitLab, e.g. "running".
+  "trackers.queue.pipeline": "pipeline {status}",
+  // {eta} is trackers.queue.eta.*.
+  "trackers.queue.mergesIn": "merges in {eta}",
+  "trackers.queue.eta.minute": "about a minute",
+  "trackers.queue.eta.minutes": "about {n} min",
+  "trackers.queue.eta.hours": "about {n} h",
+  // {ago} is a relative time such as "3h ago".
+  "trackers.queue.queued": "queued {ago}",
+  "trackers.queue.removeLabel": "Remove #{n} from the {word}",
+  // Verb: take the pull request out of the queue.
+  "trackers.queue.remove": "Remove",
+  "trackers.queue.removing": "Removing…",
+  "trackers.queue.confirmTitle": "Remove #{n} from the {word}?",
+  // {title} is the pull request title; followed by a branch name, then trackers.queue.leavesEnd or leavesEndTrain.
+  "trackers.queue.leaves": "{title} leaves the {word} for",
+  "trackers.queue.leavesEnd": ". It stays open.",
+  // GitLab only: merge-when-ready is GitLab's auto-merge.
+  "trackers.queue.leavesEndTrain": " and its merge-when-ready is turned off. It stays open.",
+
+  // TrackerSettings: Bitbucket, Gitea and Azure DevOps
+  "trackers.settings.field.apiUrl": "API URL (optional)",
+  // Bitbucket Cloud account the token belongs to.
+  "trackers.settings.field.cloudAccount": "Account (Cloud)",
+  "trackers.settings.field.accessToken": "Access token",
+  "trackers.settings.field.serverUrl": "Server URL (optional)",
+  "trackers.settings.field.pat": "Personal access token",
+  // Placeholder: sample repository paths; keep workspace/repo and PROJECT/repo as they are.
+  "trackers.settings.placeholder.bitbucketRepo": "workspace/repo or PROJECT/repo",
+  "trackers.settings.hint.bitbucketHost": "For Bitbucket Data Center, its host name.",
+  "trackers.settings.hint.bitbucketDeployment": "Empty guesses from the host: bitbucket.org is Cloud.",
+  "trackers.settings.hint.bitbucketApiUrl": "Data Center behind a path prefix.",
+  "trackers.settings.hint.bitbucketAccount": "Cloud API token or app password: the account it belongs to. Leave empty for a repository/workspace access token.",
+  "trackers.settings.hint.bitbucketToken": "Cloud: API token, app password or access token. Data Center: an HTTP access token.",
+  // Settings → Applications is the path in Gitea's own menus.
+  "trackers.settings.hint.giteaToken": "Settings → Applications → a token with repository and issue scopes.",
+  "trackers.settings.hint.azureServerUrl": "Only for Azure DevOps Server.",
+  // Code and Work Items are Azure DevOps scope names.
+  "trackers.settings.hint.azureToken": "Scopes: Code (read & write), Work Items (read & write).",
+  // Deployment option: work it out from the host name.
+  "trackers.settings.flavor.guessHost": "Guess from the host",
+  // Deployment option: the vendor's cloud service.
+  "trackers.settings.flavor.cloudAny": "Cloud",
+  // Follows the command names "gh / glab" after trackers.settings.intro1.
+  "trackers.settings.intro2Tokens": "login on this project's machine; Bitbucket, Gitea/Forgejo, Azure DevOps, Linear and Jira need a token, which is kept on the server and never shown again.",
 };
 
 export default catalog;

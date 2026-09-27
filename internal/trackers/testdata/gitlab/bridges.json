@@ -1,0 +1,18 @@
+[
+ {
+  "id": 16761759438,
+  "name": "user8",
+  "stage": "postrelease",
+  "status": "created",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/jobs/16761759438",
+  "downstream_pipeline": null
+ },
+ {
+  "id": 16761759437,
+  "name": "user9",
+  "stage": "postrelease",
+  "status": "created",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/jobs/16761759437",
+  "downstream_pipeline": null
+ }
+]

@@ -5,8 +5,10 @@
 // /pair needs no server-side route of its own). Deliberately minimal: no
 // board, no SSE, no other API calls before the exchange succeeds.
 import { useEffect, useState } from "react";
-import { nativeBridge } from "../native/bridge";
+import { inApp, nativeBridge } from "../native/bridge";
 import { t, useLocale } from "../i18n";
+import { androidIntentLink, onAndroid } from "./links";
+import { OpenInAppNote } from "./PairLinkActions";
 
 // Pure logic, deliberately free of any live window/navigator access beyond
 // an explicit string argument — same split push.ts uses for its own
@@ -36,6 +38,10 @@ type Status = "idle" | "working" | "error";
 export default function Pair() {
   useLocale();
   const [code, setCode] = useState(() => parseCodeFromHash(window.location.hash));
+  // Read before the code is stripped from the address bar below.
+  const [intent] = useState(() =>
+    !inApp() && onAndroid(navigator.userAgent) ? androidIntentLink(window.location.href) : undefined,
+  );
   const [name, setName] = useState(() => suggestedDeviceName(navigator.userAgent));
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
@@ -92,6 +98,7 @@ export default function Pair() {
         <p>
           {t("app.pair.intro")}
         </p>
+        <OpenInAppNote intent={intent} />
         <form onSubmit={(event) => void submit(event)}>
           <label>
             {t("app.pair.code")}

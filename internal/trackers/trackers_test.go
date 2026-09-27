@@ -56,8 +56,8 @@ func (f *fakeExec) Run(_ context.Context, cmd string, _ executor.RunOpts) (execu
 }
 
 func (f *fakeExec) ReadFile(context.Context, string, int64) ([]byte, error) { return nil, nil }
-func (f *fakeExec) WriteFile(context.Context, string, []byte) error       { return nil }
-func (f *fakeExec) Close() error                                          { return nil }
+func (f *fakeExec) WriteFile(context.Context, string, []byte) error         { return nil }
+func (f *fakeExec) Close() error                                            { return nil }
 
 func (f *fakeExec) ran(sub string) string {
 	f.mu.Lock()
@@ -76,11 +76,11 @@ func TestParseRemote(t *testing.T) {
 		want     RepoRef
 		err      bool
 	}{
-		{"https://github.com/acme/widgets.git", "", RepoRef{"github", "github.com", "acme/widgets"}, false},
-		{"git@github.com:acme/widgets.git", "", RepoRef{"github", "github.com", "acme/widgets"}, false},
-		{"ssh://git@github.example.com:22/acme/widgets", "", RepoRef{"github", "github.example.com", "acme/widgets"}, false},
-		{"https://gitlab.com/group/sub/proj.git", "", RepoRef{"gitlab", "gitlab.com", "group/sub/proj"}, false},
-		{"git@code.internal:team/app.git", "gitlab", RepoRef{"gitlab", "code.internal", "team/app"}, false},
+		{"https://github.com/acme/widgets.git", "", RepoRef{Kind: "github", Host: "github.com", Path: "acme/widgets"}, false},
+		{"git@github.com:acme/widgets.git", "", RepoRef{Kind: "github", Host: "github.com", Path: "acme/widgets"}, false},
+		{"ssh://git@github.example.com:22/acme/widgets", "", RepoRef{Kind: "github", Host: "github.example.com", Path: "acme/widgets"}, false},
+		{"https://gitlab.com/group/sub/proj.git", "", RepoRef{Kind: "gitlab", Host: "gitlab.com", Path: "group/sub/proj"}, false},
+		{"git@code.internal:team/app.git", "gitlab", RepoRef{Kind: "gitlab", Host: "code.internal", Path: "team/app"}, false},
 		{"git@code.internal:team/app.git", "", RepoRef{}, true},
 		{"https://github.com/a/b/c", "", RepoRef{}, true},
 		{"/srv/git/app.git", "", RepoRef{}, true},
@@ -91,20 +91,20 @@ func TestParseRemote(t *testing.T) {
 			t.Errorf("ParseRemote(%q,%q) = %+v, %v", c.in, c.hint, got, err)
 		}
 	}
-	if s := (RepoRef{"github", "ghe.corp", "a/b"}).Slug(); s != "ghe.corp/a/b" {
+	if s := (RepoRef{Kind: "github", Host: "ghe.corp", Path: "a/b"}).Slug(); s != "ghe.corp/a/b" {
 		t.Errorf("enterprise slug = %q", s)
 	}
 }
 
 func TestBranchName(t *testing.T) {
 	for in, want := range map[[2]string]string{
-		{"42", "Fix login timeout!"}:          "42-fix-login-timeout",
-		{"ENG-12", "Add SSO (Okta) support"}:  "ENG-12-add-sso-okta-support",
-		{"PROJ-7", ""}:                        "PROJ-7",
-		{"", "   "}:                           "work",
-		{"9", "Ünïcode — only…"}:              "9-n-code-only",
-		{"1", strings.Repeat("word ", 30)}:    "1-word-word-word-word-word-word-word-word-word",
-		{"x y", "a..b"}:                       "x-y-a-b",
+		{"42", "Fix login timeout!"}:         "42-fix-login-timeout",
+		{"ENG-12", "Add SSO (Okta) support"}: "ENG-12-add-sso-okta-support",
+		{"PROJ-7", ""}:                       "PROJ-7",
+		{"", "   "}:                          "work",
+		{"9", "Ünïcode — only…"}:             "9-n-code-only",
+		{"1", strings.Repeat("word ", 30)}:   "1-word-word-word-word-word-word-word-word-word",
+		{"x y", "a..b"}:                      "x-y-a-b",
 	} {
 		if got := BranchName(in[0], in[1]); got != want {
 			t.Errorf("BranchName(%q,%q) = %q, want %q", in[0], in[1], got, want)
@@ -161,7 +161,7 @@ func TestRichTextADF(t *testing.T) {
 	 {"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]},{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"mention","attrs":{"text":"@Jo"}}]}]}]},
 	 {"type":"codeBlock","content":[{"type":"text","text":"make test"}]}]}`
 	got := richText(json.RawMessage(doc))
-	want := "## Steps\n\nRotate the token\nthen sync\n\n- one\n- @Jo\n\n```\nmake test\n```"
+	want := "## Steps\n\nRotate the **token**\nthen sync\n\n- one\n- @Jo\n\n```\nmake test\n```"
 	if got != want {
 		t.Fatalf("richText =\n%q\nwant\n%q", got, want)
 	}
@@ -187,14 +187,14 @@ func TestListJQL(t *testing.T) {
 
 func TestCLIErrorClassification(t *testing.T) {
 	f := (&fakeExec{}).fail("pr list", 4, "To get started with GitHub CLI, please run:  gh auth login")
-	g := NewGitHub(f, RepoRef{"github", "github.com", "a/b"})
+	g := NewGitHub(f, RepoRef{Kind: "github", Host: "github.com", Path: "a/b"})
 	_, err := g.List(context.Background(), "pr", Filter{})
 	ce, ok := err.(*CLIError)
 	if !ok || !ce.Auth || !strings.Contains(ce.Msg, "gh auth login") {
 		t.Fatalf("err = %#v", err)
 	}
 	f2 := (&fakeExec{}).fail("pr list", 127, "bash: gh: command not found")
-	_, err = NewGitHub(f2, RepoRef{"github", "github.com", "a/b"}).List(context.Background(), "pr", Filter{})
+	_, err = NewGitHub(f2, RepoRef{Kind: "github", Host: "github.com", Path: "a/b"}).List(context.Background(), "pr", Filter{})
 	if ce, ok := err.(*CLIError); !ok || !ce.Auth || !strings.Contains(ce.Msg, "not installed") {
 		t.Fatalf("err = %#v", err)
 	}

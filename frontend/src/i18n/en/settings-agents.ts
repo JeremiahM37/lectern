@@ -86,6 +86,8 @@ const catalog: Record<string, string> = {
   // agentCatalog (capability chips on catalog rows)
   // "Resume" here is a noun: resuming a previous conversation.
   "agentSettings.catalog.chip.resume": "Resume",
+  // "Exact resume" is a noun: reopening the very same saved conversation by its id.
+  "agentSettings.catalog.chip.exact": "Exact resume",
   // "Fork" here is a noun: branching a conversation.
   "agentSettings.catalog.chip.fork": "Fork",
   "agentSettings.catalog.chip.model": "Model",

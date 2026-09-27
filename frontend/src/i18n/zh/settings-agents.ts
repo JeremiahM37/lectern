@@ -68,6 +68,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.acpEnvironment": "ACP 环境变量（KEY=value 行；已有值会被遮盖并保留）",
   "agentSettings.editor.saveRunner": "保存运行器",
   "agentSettings.catalog.chip.resume": "继续",
+  "agentSettings.catalog.chip.exact": "精确继续",
   "agentSettings.catalog.chip.fork": "分叉",
   "agentSettings.catalog.chip.model": "模型",
   "agentSettings.catalog.chip.yolo": "自动批准",

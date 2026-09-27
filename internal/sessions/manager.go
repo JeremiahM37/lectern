@@ -102,11 +102,14 @@ type Manager struct {
 	agentProbedAt             map[int64]time.Time
 	agentProbeEvery           time.Duration
 	checkpointMu              sync.Mutex
-	checkpoints               map[int64]context.CancelFunc
-	checkpointGeneration      map[int64]uint64
-	checkpointWG              sync.WaitGroup
-	checkpointClosed          bool
-	contextDelivered          map[int64]contextDelivery
+	// launched is when each launch ran, the lower bound of the catalog
+	// conversation capture window (catalog_conversations.go).
+	launched             launchTimes
+	checkpoints          map[int64]context.CancelFunc
+	checkpointGeneration map[int64]uint64
+	checkpointWG         sync.WaitGroup
+	checkpointClosed     bool
+	contextDelivered     map[int64]contextDelivery
 }
 
 // New builds a session manager.
@@ -933,10 +936,27 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		}
 		isolationOpts.ProxySocket = socketPath
 	}
+	// A catalog CLI that accepts a session id for a new conversation gets one
+	// Lectern chooses, recorded before the process starts, so the session is
+	// exact from its first message (catalog_conversations.go).
+	assignedID := ""
+	resumeID := firstNonEmpty(o.RecoveryCID, o.ResumeID)
+	if spec.AssignsSessionID(o.Resume, resumeID, forkID) {
+		assignedID = newConversationID()
+		if err := m.DB.Update("sessions", sess.ID, map[string]any{"native_recovery_cid": assignedID}); err != nil {
+			m.end(sess.ID, StatusDead)
+			return nil, err
+		}
+	}
+	if assignedID == "" && spec.Sessions != nil && !o.Resume && resumeID == "" {
+		m.snapshotCatalogConversations(ctx, sess.ID, ex, spec, workdir)
+	}
+	m.launched.set(sess.ID, store.Now())
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
-		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: firstNonEmpty(o.RecoveryCID, o.ResumeID), ForkID: forkID,
-		Prompt: argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
+		SessionID: assignedID,
+		Prompt:    argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
@@ -1157,6 +1177,9 @@ func (m *Manager) endWith(id int64, status, reason string) {
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
 		"status": status, "ended_at": now, "updated_at": now, "end_reason": reason})
+	if reason != EndFailed {
+		m.finishCatalogCapture(id)
+	}
 }
 
 // ---- driving -----------------------------------------------------------------
@@ -1272,6 +1295,7 @@ func (m *Manager) Kill(ctx context.Context, id int64) error {
 	if fresh, err := m.DB.Session(id); err == nil {
 		m.publish(fresh)
 	}
+	m.finishCatalogCapture(id)
 	return nil
 }
 

@@ -331,6 +331,9 @@ export interface Session {
   setup_error?: string;
   archived_at: number | null;
   resume_id?: string;
+  // Lectern can list this session's saved conversations (Claude, Codex, and
+  // catalog agents that say where they keep sessions).
+  saved_conversations?: boolean;
   group_path: string;
   id: number;
   project_id: number | null;

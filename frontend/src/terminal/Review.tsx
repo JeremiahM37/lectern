@@ -144,7 +144,7 @@ export function Review({
         </div>
         <button
           className="review-close"
-          aria-label={t("terminalPage.review.close")}
+          aria-label={t("terminalPage.review.close")} data-close
           onClick={onClose}
         >
           ×

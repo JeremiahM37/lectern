@@ -69,6 +69,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.saveRunner": "Enregistrer l’exécuteur",
 
   "agentSettings.catalog.chip.resume": "Reprise",
+  "agentSettings.catalog.chip.exact": "Reprise exacte",
   "agentSettings.catalog.chip.fork": "Fork",
   "agentSettings.catalog.chip.model": "Modèle",
   "agentSettings.catalog.chip.yolo": "Approbation auto",

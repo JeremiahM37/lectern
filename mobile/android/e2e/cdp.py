@@ -8,10 +8,11 @@ pkg = os.environ.get("PKG", "io.github.jeremiahm37.lectern.debug")
 
 async def main():
     pid = subprocess.check_output(ADB + ["shell", "pidof", pkg], text=True).split()[0]
-    subprocess.run(ADB + ["forward", "tcp:19222", f"localabstract:webview_devtools_remote_{pid}"], check=True, capture_output=True)
+    port = os.environ.get("CDP_PORT", "19222")
+    subprocess.run(ADB + ["forward", f"tcp:{port}", f"localabstract:webview_devtools_remote_{pid}"], check=True, capture_output=True)
     want = sys.argv[2] if len(sys.argv) > 2 else ""
     async with aiohttp.ClientSession() as s:
-        targets = await (await s.get("http://127.0.0.1:19222/json")).json()
+        targets = await (await s.get(f"http://127.0.0.1:{port}/json")).json()
         pages = [t for t in targets if t.get("type") == "page" and want in t.get("url", "")]
         if not pages:
             raise SystemExit("no page; have: " + str([t.get("url") for t in targets]))

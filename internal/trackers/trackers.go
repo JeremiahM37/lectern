@@ -77,6 +77,9 @@ type Reaction struct {
 
 // Event is one entry of a conversation timeline.
 type Event struct {
+	// ID is what React takes to react to this comment; empty when the host
+	// cannot react to it.
+	ID        string     `json:"id,omitempty"`
 	Kind      string     `json:"kind"` // comment | review | commit | event
 	Author    string     `json:"author,omitempty"`
 	Body      string     `json:"body,omitempty"`
@@ -135,14 +138,14 @@ type AutoMerge struct {
 // PRDetail is everything the pull request page shows.
 type PRDetail struct {
 	Item
-	Body         string       `json:"body"`
-	HeadSHA      string       `json:"head_sha"`
-	CrossRepo    bool         `json:"cross_repo"`
-	Mergeable    string       `json:"mergeable"`   // mergeable | conflicting | unknown
-	MergeState   string       `json:"merge_state"` // clean | blocked | behind | dirty | unstable | draft | unknown
-	AutoMerge    *AutoMerge   `json:"auto_merge"`
-	Reviewers    []Reviewer   `json:"reviewers"`
-	Timeline     []Event      `json:"timeline"`
+	Body       string     `json:"body"`
+	HeadSHA    string     `json:"head_sha"`
+	CrossRepo  bool       `json:"cross_repo"`
+	Mergeable  string     `json:"mergeable"`   // mergeable | conflicting | unknown
+	MergeState string     `json:"merge_state"` // clean | blocked | behind | dirty | unstable | draft | unknown
+	AutoMerge  *AutoMerge `json:"auto_merge"`
+	Reviewers  []Reviewer `json:"reviewers"`
+	Timeline   []Event    `json:"timeline"`
 	// CheckRuns is every check; Item.Checks is their one-word rollup.
 	CheckRuns    []Check      `json:"check_runs"`
 	Additions    int          `json:"additions"`
@@ -175,6 +178,11 @@ type IssueDetail struct {
 	ParentItem  *Item        `json:"parent_item,omitempty"`
 	Transitions []Transition `json:"transitions"`
 	Team        string       `json:"team,omitempty"`
+	// Editable is set when the description can be edited here (Linear,
+	// Jira); BodyLossy when saving an edit would drop formatting the editor
+	// cannot represent (a Jira table, panel or colour).
+	Editable  bool `json:"editable,omitempty"`
+	BodyLossy bool `json:"body_lossy,omitempty"`
 	// UID is the tracker's internal id where it differs from ID (Linear's
 	// UUID), for mutations that want it.
 	UID string `json:"uid,omitempty"`
@@ -219,6 +227,50 @@ type Forge interface {
 	// FetchRefs is what `git fetch origin` needs to have a PR's base and
 	// head locally: the base branch, then the head.
 	FetchRefs(pr *PRDetail) (base, head string)
+	// React adds an emoji reaction (one of Emojis) to the item itself
+	// (subject "") or to one of its comments (an Event.ID).
+	React(ctx context.Context, kind string, n int, subject, emoji string) error
+}
+
+// Emojis are the reactions every host that has them shares, keyed the way
+// GitHub names them; each adapter maps them to its own names.
+var Emojis = []string{"+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"}
+
+// ValidEmoji reports whether e is one of Emojis.
+func ValidEmoji(e string) bool {
+	for _, x := range Emojis {
+		if x == e {
+			return true
+		}
+	}
+	return false
+}
+
+// EmojiGlyph is how a reaction name is shown.
+var EmojiGlyph = map[string]string{"+1": "👍", "-1": "👎", "laugh": "😄", "hooray": "🎉", "confused": "😕", "heart": "❤️", "rocket": "🚀", "eyes": "👀"}
+
+// QueueEntry is one pull request waiting in a merge queue (GitHub) or merge
+// train (GitLab).
+type QueueEntry struct {
+	// ID is what Dequeue takes.
+	ID         string `json:"id"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	Author     string `json:"author,omitempty"`
+	Position   int    `json:"position"`
+	Status     string `json:"status"`
+	EnqueuedAt string `json:"enqueued_at,omitempty"`
+	// ETASeconds is the host's own estimate, when it gives one.
+	ETASeconds int    `json:"eta_seconds,omitempty"`
+	Pipeline   string `json:"pipeline,omitempty"`
+}
+
+// Queuer is a forge with a merge queue.
+type Queuer interface {
+	Queue(ctx context.Context, base string) ([]QueueEntry, error)
+	Dequeue(ctx context.Context, entry QueueEntry) error
+	DefaultBranch(ctx context.Context) (string, error)
 }
 
 // ErrUnsupported is returned for an action a host does not have.
@@ -228,10 +280,13 @@ var ErrUnsupported = errors.New("this code host does not support that action")
 
 // RepoRef names a repository on a code host.
 type RepoRef struct {
-	Kind string `json:"kind"` // github | gitlab
+	Kind string `json:"kind"` // github | gitlab | bitbucket | gitea | azure
 	Host string `json:"host"`
-	// Path is "owner/repo", or "group/sub/repo" on GitLab.
+	// Path is "owner/repo", "group/sub/repo" on GitLab, "PROJECT/repo" on
+	// Bitbucket Data Center, "org/project/repo" on Azure DevOps.
 	Path string `json:"path"`
+	// Flavor tells Bitbucket Cloud ("cloud") from Data Center ("server").
+	Flavor string `json:"flavor,omitempty"`
 }
 
 // Slug is the -R argument both CLIs take: OWNER/REPO on github.com, else
@@ -249,12 +304,22 @@ func (r RepoRef) WebURL() string {
 	if host == "" {
 		host = "github.com"
 	}
+	switch {
+	case r.Kind == "azure":
+		if org, rest, ok := strings.Cut(r.Path, "/"); ok {
+			project, repo, _ := strings.Cut(rest, "/")
+			return "https://" + host + "/" + org + "/" + project + "/_git/" + repo
+		}
+	case r.Kind == "bitbucket" && r.Flavor == "server":
+		project, repo, _ := strings.Cut(r.Path, "/")
+		return "https://" + host + "/projects/" + project + "/repos/" + repo
+	}
 	return "https://" + host + "/" + r.Path
 }
 
 var (
 	scpRemoteRe = regexp.MustCompile(`^(?:[^@/\s]+@)?([^:/\s]+):(.+)$`)
-	pathRe      = regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+$`)
+	pathRe      = regexp.MustCompile(`^[A-Za-z0-9_.%-]+(?:/[A-Za-z0-9_.%-]+)+$`)
 )
 
 // ParseRemote reads a git remote URL (https, ssh:// or scp-like) into a
@@ -264,32 +329,71 @@ func ParseRemote(remote, kindHint string) (RepoRef, error) {
 	remote = strings.TrimSpace(remote)
 	var host, p string
 	if u, err := url.Parse(remote); err == nil && u.Scheme != "" && u.Host != "" {
-		host, p = u.Hostname(), u.Path
+		host, p = u.Hostname(), u.EscapedPath()
 	} else if m := scpRemoteRe.FindStringSubmatch(remote); m != nil {
 		host, p = m[1], m[2]
 	} else {
 		return RepoRef{}, fmt.Errorf("cannot read a repository from remote %q", remote)
 	}
-	p = strings.TrimSuffix(strings.Trim(p, "/"), ".git")
-	if !pathRe.MatchString(p) {
-		return RepoRef{}, fmt.Errorf("remote %q does not name an owner/repository", remote)
-	}
 	host = strings.ToLower(host)
+	p = strings.TrimSuffix(strings.Trim(p, "/"), ".git")
 	kind := kindHint
 	if kind == "" {
-		switch {
-		case strings.Contains(host, "gitlab"):
-			kind = "gitlab"
-		case strings.Contains(host, "github"):
-			kind = "github"
-		default:
+		kind = hostKind(host)
+		if kind == "" {
 			return RepoRef{}, fmt.Errorf("%s is not a code host Lectern recognises; set the host kind in the project's tracker settings", host)
 		}
 	}
-	if kind == "github" && strings.Count(p, "/") != 1 {
-		return RepoRef{}, fmt.Errorf("%q is not an owner/repository path", p)
+	ref := RepoRef{Kind: kind, Host: host}
+	switch kind {
+	case "azure":
+		// dev.azure.com/ORG/PROJECT/_git/REPO, ORG.visualstudio.com/PROJECT/_git/REPO,
+		// ssh.dev.azure.com:v3/ORG/PROJECT/REPO
+		p = strings.TrimPrefix(p, "v3/")
+		p = strings.Replace(p, "/_git/", "/", 1)
+		if org, ok := strings.CutSuffix(host, ".visualstudio.com"); ok {
+			p = org + "/" + p
+		}
+		ref.Host = "dev.azure.com"
+		if strings.Count(p, "/") != 2 {
+			return RepoRef{}, fmt.Errorf("%q is not an Azure DevOps organisation/project/repository", p)
+		}
+	case "bitbucket":
+		ref.Flavor = "server"
+		if host == "bitbucket.org" {
+			ref.Flavor = "cloud"
+		}
+		p = strings.TrimPrefix(p, "scm/")
+		if strings.Count(p, "/") != 1 {
+			return RepoRef{}, fmt.Errorf("%q is not a Bitbucket workspace/repository", p)
+		}
+	case "github", "gitea":
+		if strings.Count(p, "/") != 1 {
+			return RepoRef{}, fmt.Errorf("%q is not an owner/repository path", p)
+		}
 	}
-	return RepoRef{Kind: kind, Host: host, Path: p}, nil
+	if !pathRe.MatchString(p) {
+		return RepoRef{}, fmt.Errorf("remote %q does not name an owner/repository", remote)
+	}
+	ref.Path = p
+	return ref, nil
+}
+
+// hostKind guesses a code host from its name; "" when the name says nothing.
+func hostKind(host string) string {
+	switch {
+	case host == "dev.azure.com" || host == "ssh.dev.azure.com" || strings.HasSuffix(host, ".visualstudio.com"):
+		return "azure"
+	case strings.Contains(host, "bitbucket"):
+		return "bitbucket"
+	case host == "codeberg.org" || strings.Contains(host, "gitea") || strings.Contains(host, "forgejo"):
+		return "gitea"
+	case strings.Contains(host, "gitlab"):
+		return "gitlab"
+	case strings.Contains(host, "github"):
+		return "github"
+	}
+	return ""
 }
 
 // ---- branch names --------------------------------------------------------

@@ -4,13 +4,14 @@ import type { Project } from "../types";
 import { errorText, type Notice, type TrackerApi } from "./api";
 import { Avatar, ChecksBadge, Labels, ReviewBadge, StatePill } from "./bits";
 import { IssuePage } from "./IssuePage";
-import { ago, boardColumns, itemMark, matches, parseTasksHash, sameRef, SOURCE_NAME, tasksHash } from "./logic";
+import { ago, boardColumns, issuesLabel, itemMark, matches, parseTasksHash, sameRef, SOURCE_NAME, tasksHash } from "./logic";
+import { MergeQueue } from "./MergeQueue";
 import { PRPage } from "./PRPage";
 import type { StartedWork } from "./StartWork";
 import type { Item, ItemRef, Transition, TrackersResponse, WorkResponse, WorkSource } from "./types";
 import "./trackers.css";
 
-type Tab = "all" | "pr" | "issue" | `c${number}`;
+type Tab = "all" | "pr" | "issue" | "queue" | `c${number}`;
 type Filter = "open" | "assigned" | "review" | "authored" | "closed" | "all";
 type View = "list" | "board" | "table";
 
@@ -133,9 +134,12 @@ export function TasksHub({
   useEffect(() => {
     if (tab.startsWith("c") && trackers && !connTab) setTab("all");
   }, [tab, trackers, connTab]);
+  useEffect(() => {
+    if (tab === "queue" && trackers && !(trackers.forge.kind === "github" || trackers.forge.kind === "gitlab")) setTab("all");
+  }, [tab, trackers]);
 
   const load = useCallback(async () => {
-    if (!pid) return;
+    if (!pid || tab === "queue") return;
     const g = ++generation.current;
     setLoading(true);
     setError("");
@@ -218,11 +222,13 @@ export function TasksHub({
   const forge = trackers?.forge;
   const forgeName = forge?.kind ? SOURCE_NAME[forge.kind] : "GitHub";
   const showBoardToggle = true;
+  const queueable = forge?.kind === "github" || forge?.kind === "gitlab";
   const detail =
     selected && pid ? (
       selected.kind === "pr" ? (
         <PRPage key={`${selected.source}/${selected.id}`} api={api} projectId={pid} item={selected} onClose={() => open(undefined)} onOpen={open}
-          onNotice={onNotice} onChanged={() => void load()} onStarted={started} />
+          onNotice={onNotice} onChanged={() => void load()} onStarted={started}
+          onQueue={queueable ? () => { setTab("queue"); open(undefined); } : undefined} />
       ) : (
         <IssuePage key={`${selected.source}/${selected.connection_id}/${selected.id}`} api={api} projectId={pid} item={selected} onClose={() => open(undefined)}
           onOpen={open} onNotice={onNotice} onChanged={() => void load()} onStarted={started} />
@@ -274,7 +280,8 @@ export function TasksHub({
           [
             ["all", t("trackers.hub.tab.all")],
             ["pr", forge?.kind === "gitlab" ? t("trackers.hub.tab.mergeRequests") : t("trackers.hub.tab.pullRequests"), counts.pr],
-            ["issue", t("trackers.hub.tab.issues"), counts.issue],
+            ["issue", issuesLabel(forge?.kind), counts.issue],
+            ...(queueable ? [["queue", forge?.kind === "gitlab" ? t("trackers.hub.tab.mergeTrain") : t("trackers.hub.tab.mergeQueue")] as const] : []),
             ...conns.map((c) => [`c${c.id}`, c.name] as const),
           ] as [Tab, string, number?][]
         ).map(([key, label, n]) => (
@@ -286,6 +293,7 @@ export function TasksHub({
         ))}
       </div>
 
+      {tab !== "queue" && (
       <div className="th-toolbar">
         <div className="th-chips" role="group" aria-label={t("trackers.hub.filter")}>
           {FILTERS().filter((f) => !f.pr || tab === "pr" || tab === "all").map((f) => (
@@ -315,6 +323,7 @@ export function TasksHub({
           </div>
         )}
       </div>
+      )}
 
       {forge?.error && !forge.repo && (tab === "all" || tab === "pr" || tab === "issue") && (
         <p className="th-banner" role="status">
@@ -335,9 +344,12 @@ export function TasksHub({
 
       <div className="th-body">
         <div className="th-list" aria-busy={loading}>
-          {!loading && data && items.length === 0 && <p className="th-empty">{text ? t("trackers.hub.emptySearch") : t("trackers.hub.empty")}</p>}
+          {tab === "queue" && pid && queueable && (
+            <MergeQueue api={api} projectId={pid} source={forge!.kind as "github" | "gitlab"} onOpen={open} onNotice={onNotice} />
+          )}
+          {tab !== "queue" && !loading && data && items.length === 0 && <p className="th-empty">{text ? t("trackers.hub.emptySearch") : t("trackers.hub.empty")}</p>}
           {!data && loading && <p className="th-empty">{t("trackers.loading")}</p>}
-          {view === "list" && (
+          {tab !== "queue" && view === "list" && (
             <ul className="th-rows">
               {items.map((it) => (
                 <li key={`${it.source}/${it.connection_id || 0}/${it.kind}/${it.id}`}>
@@ -368,7 +380,7 @@ export function TasksHub({
               ))}
             </ul>
           )}
-          {view === "table" && items.length > 0 && (
+          {tab !== "queue" && view === "table" && items.length > 0 && (
             <div className="th-table-wrap">
               <table className="th-table">
                 <thead>
@@ -402,7 +414,7 @@ export function TasksHub({
               </table>
             </div>
           )}
-          {view === "board" && (
+          {tab !== "queue" && view === "board" && (
             <div className="th-board">
               {boardColumns(items, connTab?.kind === "linear" && (filter === "all" || filter === "open") ? states.filter((s) => filter === "all" || !["completed", "canceled"].includes(s.type || "")) : []).map((col) => (
                 <div className="th-col" key={col.key}>

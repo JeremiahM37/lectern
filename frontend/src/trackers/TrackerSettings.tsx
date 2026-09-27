@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { t, useLocale } from "../i18n";
 import { errorText, type Notice, type TrackerApi } from "./api";
-import { SOURCE_NAME } from "./logic";
+import { isForge, SOURCE_NAME } from "./logic";
 import type { Source, TrackerConnection, TrackersResponse } from "./types";
 
 type Draft = Record<string, string>;
@@ -15,6 +15,25 @@ const FIELDS = (): Record<Source, { key: string; label: string; secret?: boolean
   gitlab: [
     { key: "repo", label: t("trackers.settings.field.projectPath"), placeholder: "group/subgroup/project", hint: t("trackers.settings.hint.originRemote") },
     { key: "host", label: t("trackers.settings.field.host"), placeholder: "gitlab.com", hint: t("trackers.settings.hint.gitlabSelfManaged") },
+  ],
+  bitbucket: [
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: t("trackers.settings.placeholder.bitbucketRepo"), hint: t("trackers.settings.hint.originRemote") },
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "bitbucket.org", hint: t("trackers.settings.hint.bitbucketHost") },
+    { key: "flavor", label: t("trackers.settings.field.deployment"), options: ["", "cloud", "server"], hint: t("trackers.settings.hint.bitbucketDeployment") },
+    { key: "base_url", label: t("trackers.settings.field.apiUrl"), placeholder: "https://bitbucket.example.com", hint: t("trackers.settings.hint.bitbucketApiUrl") },
+    { key: "username", label: t("trackers.settings.field.cloudAccount"), placeholder: "you@example.com", hint: t("trackers.settings.hint.bitbucketAccount") },
+    { key: "token", label: t("trackers.settings.field.token"), secret: true, hint: t("trackers.settings.hint.bitbucketToken") },
+  ],
+  gitea: [
+    { key: "host", label: t("trackers.settings.field.host"), placeholder: "codeberg.org" },
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: "owner/repo", hint: t("trackers.settings.hint.originRemote") },
+    { key: "base_url", label: t("trackers.settings.field.apiUrl"), placeholder: "https://git.example.com/api/v1" },
+    { key: "token", label: t("trackers.settings.field.accessToken"), secret: true, hint: t("trackers.settings.hint.giteaToken") },
+  ],
+  azure: [
+    { key: "repo", label: t("trackers.settings.field.repository"), placeholder: "organisation/project/repo", hint: t("trackers.settings.hint.originRemote") },
+    { key: "base_url", label: t("trackers.settings.field.serverUrl"), placeholder: "https://devops.example.com/tfs", hint: t("trackers.settings.hint.azureServerUrl") },
+    { key: "token", label: t("trackers.settings.field.pat"), secret: true, hint: t("trackers.settings.hint.azureToken") },
   ],
   linear: [
     { key: "team_key", label: t("trackers.settings.field.teamKey"), placeholder: "ENG", hint: t("trackers.settings.hint.teamKey") },
@@ -31,6 +50,13 @@ const FIELDS = (): Record<Source, { key: string; label: string; secret?: boolean
 });
 
 const SECRET_KEYS = new Set(["api_key", "token"]);
+
+// The flavor select's option labels, per kind.
+const FLAVOR = (): Record<string, string> => ({
+  "": t("trackers.settings.flavor.guessHost"),
+  cloud: t("trackers.settings.flavor.cloudAny"),
+  server: t("trackers.settings.flavor.server"),
+});
 
 /** A project's tracker connections for the Tasks hub. Keys and tokens are
  * write-only here: the server only ever reports whether one is set. */
@@ -123,7 +149,7 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
               <select value={draft[f.key] || ""} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                 {f.options.map((o) => (
                   <option key={o} value={o}>
-                    {o ? (o === "cloud" ? t("trackers.settings.flavor.cloud") : t("trackers.settings.flavor.server")) : t("trackers.settings.flavor.guess")}
+                    {FLAVOR()[o]}
                   </option>
                 ))}
               </select>
@@ -157,7 +183,7 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
     <section className="project-trackers">
       <h4>{t("trackers.settings.title")}</h4>
       <p>
-        {t("trackers.settings.intro1")} <code>gh</code> / <code>glab</code> {t("trackers.settings.intro2")}
+        {t("trackers.settings.intro1")} <code>gh</code> / <code>glab</code> {t("trackers.settings.intro2Tokens")}
       </p>
       <p className="th-forge-line">
         {forge?.repo ? (
@@ -202,9 +228,9 @@ export function TrackerSettings({ api, projectId, onNotice }: { api: TrackerApi;
         form(adding)
       ) : (
         <div className="btnrow">
-          {(["linear", "jira", "github", "gitlab"] as Source[]).map((k) => (
+          {(["linear", "jira", "github", "gitlab", "bitbucket", "gitea", "azure"] as Source[]).map((k) => (
             <button key={k} className="b" onClick={() => { setAdding(k); setEditing(undefined); setDraft({}); }}>
-              {k === "github" || k === "gitlab"
+              {isForge(k)
                 ? t("trackers.settings.addRepository", { source: SOURCE_NAME[k] })
                 : t("trackers.settings.addSource", { source: SOURCE_NAME[k] })}
             </button>

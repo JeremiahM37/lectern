@@ -102,6 +102,10 @@ const catalog: Record<string, string> = {
   "conversation.chat.stopDictating": "Dejar de dictar",
   "conversation.chat.dictate": "Dictar mensaje",
   "conversation.chat.listening": "🔴 Escuchando…",
+  "conversation.chat.transcribing": "⏳ Transcribiendo…",
+  "conversation.chat.recording": "🔴 Grabando · toca para detener",
+  "conversation.chat.transcribingLabel": "Transcribiendo",
+  "conversation.chat.onLectern": "El dictado se transcribe en tu Lectern",
   "conversation.chat.send": "Enviar",
   "conversation.chat.offlineNotice": "Sin conexión: no se envía nada mientras estés desconectado. Tu borrador se guarda en este dispositivo y sigue aquí cuando vuelvas a conectarte.",
 
@@ -234,6 +238,7 @@ const catalog: Record<string, string> = {
   "conversation.saved.currentUnsaved": "El terminal actual aún no ha guardado mensajes legibles.",
   "conversation.saved.ambiguous": "Hay varias conversaciones activas en este terminal. Elige una explícitamente.",
   "conversation.saved.unidentified": "No se pudo identificar la conversación actual. Elige una explícitamente.",
+  "conversation.saved.unreadable": "{agent} · {id} — Lectern puede reanudar y bifurcar esta conversación, pero no lee sus mensajes.",
   "conversation.saved.title": "Conversaciones guardadas",
   "conversation.saved.close": "Cerrar",
   "conversation.saved.scanLimited": " Se muestran hasta 500 archivos de transcripción encontrados, con prioridad para el terminal actual.",

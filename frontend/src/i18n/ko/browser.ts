@@ -119,6 +119,8 @@ const catalog: Record<string, string> = {
   "browser.desk.allow": "에이전트 제어 허용",
   "browser.desk.alt": "데스크톱 {display}",
   "browser.desk.capturing": "캡처하는 중…",
+  "browser.menu.more": "브라우저 컨트롤 더 보기",
+  "browser.menu.label": "브라우저 컨트롤",
 };
 
 export default catalog;

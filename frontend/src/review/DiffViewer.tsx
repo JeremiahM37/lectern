@@ -50,6 +50,13 @@ export interface DiffViewerProps {
   hunkActions?(file: FilePatch, hunk: Hunk): ReactNode;
   /** Buttons in a file's header (stage, unstage, discard). */
   fileActions?(file: FilePatch): ReactNode;
+  /** Checkboxes on added and removed lines, for staging chosen lines. The
+   * line index counts the hunk's body lines, as the server's hunk action
+   * does. */
+  lineChecks?: {
+    checked(path: string, hunk: number, line: number): boolean;
+    toggle(path: string, hunk: number, line: number): void;
+  };
   /** Prefix for element ids, so two viewers on one page never collide. */
   idPrefix?: string;
 }
@@ -117,6 +124,7 @@ export function DiffViewer({
   noteActions,
   hunkActions,
   fileActions,
+  lineChecks,
   idPrefix = "",
 }: DiffViewerProps) {
   useLocale();
@@ -232,17 +240,36 @@ export function DiffViewer({
     return h.lines.map((line, i) => {
       const target = commentable ? commentTarget(line) : undefined;
       const here = target ? notesAt(f.path, target) : [];
+      const checkable = lineChecks && (line.kind === "add" || line.kind === "del");
+      const checked = checkable && lineChecks.checked(f.path, h.index, i);
       return (
         <Fragment key={`${h.index}-${i}`}>
           <div
-            className={`dl-row ${lineClass(line)}${target ? " dl-commentable" : ""}`}
+            className={`dl-row ${lineClass(line)}${target || checkable ? " dl-commentable" : ""}${checked ? " dl-checked" : ""}`}
             data-file-index={fileIndex}
             onClick={() => {
+              if (checkable) {
+                lineChecks.toggle(f.path, h.index, i);
+                return;
+              }
               if (!target) return;
               setActive({ file: f.path, ...target });
               setDraftText("");
             }}
           >
+            {lineChecks && (
+              <span className="dl-check">
+                {checkable && (
+                  <input
+                    type="checkbox"
+                    aria-label={t("review.diff.chooseLine", { line: String(line.newLine ?? line.oldLine) })}
+                    checked={!!checked}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => lineChecks.toggle(f.path, h.index, i)}
+                  />
+                )}
+              </span>
+            )}
             {gutter(line, f.path, "both")}
             <span className="dl-text">{line.text || " "}</span>
             {here.length > 0 && (

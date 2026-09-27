@@ -140,6 +140,11 @@ const catalog: Record<string, string> = {
   "conversation.chat.stopDictating": "Stop dictating",
   "conversation.chat.dictate": "Dictate message",
   "conversation.chat.listening": "🔴 Listening…",
+  "conversation.chat.transcribing": "⏳ Transcribing…",
+  "conversation.chat.recording": "🔴 Recording · tap to stop",
+  // Screen-reader label of the mic button while speech is being turned into text.
+  "conversation.chat.transcribingLabel": "Transcribing",
+  "conversation.chat.onLectern": "Dictation is transcribed on your Lectern",
   "conversation.chat.send": "Send",
   "conversation.chat.offlineNotice": "Offline — nothing is sent while you are disconnected. Your draft is saved on this device and stays here when you reconnect.",
 
@@ -308,6 +313,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.currentUnsaved": "The current terminal has not saved readable messages yet.",
   "conversation.saved.ambiguous": "Several conversations are active in this terminal. Choose one explicitly.",
   "conversation.saved.unidentified": "The current conversation could not be identified. Choose one explicitly.",
+  // {agent} is the agent name (e.g. Claude), {id} the conversation id.
+  "conversation.saved.unreadable": "{agent} · {id} — Lectern can resume and fork this conversation but does not read its messages.",
   "conversation.saved.title": "Saved conversations",
   "conversation.saved.close": "Close",
   "conversation.saved.scanLimited": " Showing up to 500 discovered transcript files, prioritizing the current terminal.",

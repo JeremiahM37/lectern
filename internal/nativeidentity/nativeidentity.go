@@ -15,3 +15,6 @@ var ConversationsScript string
 
 //go:embed conversation_live.py
 var ConversationLiveScript string
+
+//go:embed catalog_sessions.py
+var CatalogSessionsScript string

@@ -3,4 +3,7 @@
     <item name="scan" type="id" />
     <item name="link" type="id" />
     <item name="connect" type="id" />
+    <item name="cancel" type="id" />
+    <item name="link_from" type="id" />
+    <item name="add_host" type="id" />
 </resources>

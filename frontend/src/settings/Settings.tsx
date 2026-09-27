@@ -1,3 +1,4 @@
+import { AppHosts, VoiceSettings } from "./PhonePanels";
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { IsolationConfig, Project, Target } from "../types";
@@ -238,6 +239,8 @@ export function Settings({
           onNotice={onNotice}
         />
       )}{" "}
+      {tab === "notifications" && <VoiceSettings />}
+      {tab === "devices" && <AppHosts />}
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (
         <section>
@@ -343,7 +346,7 @@ function TargetEditor({ api, onClose, onChanged }: {
   const [error, setError] = useState("");
   return <Modal className="sheet machine-sheet" aria-label={t("settings.targets.addMachine")} onCancel={onClose}>
     <div className="sheet-head"><h2>{t("settings.targets.addMachine")}</h2>
-    <button type="button" onClick={onClose} aria-label={t("settings.common.close")}>×</button></div>
+    <button type="button" onClick={onClose} aria-label={t("settings.common.close")} data-close>×</button></div>
     <form onSubmit={async (event) => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);

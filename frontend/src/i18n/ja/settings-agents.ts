@@ -69,6 +69,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.saveRunner": "ランナーを保存",
 
   "agentSettings.catalog.chip.resume": "再開",
+  "agentSettings.catalog.chip.exact": "正確な再開",
   "agentSettings.catalog.chip.fork": "フォーク",
   "agentSettings.catalog.chip.model": "モデル",
   "agentSettings.catalog.chip.yolo": "自動承認",

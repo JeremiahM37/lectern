@@ -78,7 +78,7 @@ export function FileTree({
   }
 
   return (
-    <nav className="ftree" aria-label={t("review.tree.label")}>
+    <div className="ftree" role="navigation" aria-label={t("review.tree.label")}>
       <div className="ftree-head">
         <input
           type="search"
@@ -93,6 +93,6 @@ export function FileTree({
       </div>
       <ul>{tree.map((n) => node(n, 0))}</ul>
       {!shown.length && <p className="sub">{t("review.tree.noMatch")}</p>}
-    </nav>
+    </div>
   );
 }

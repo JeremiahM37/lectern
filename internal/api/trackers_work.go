@@ -111,12 +111,12 @@ func shortDate(at string) string {
 	return at
 }
 
-var sourceLabel = map[string]string{"github": "GitHub", "gitlab": "GitLab", "linear": "Linear", "jira": "Jira"}
+var sourceLabel = forgeName
 
 // workItem reads the item a start request names.
 func (s *Server) workItem(ctx context.Context, proj *store.Project, in startWorkIn) (*trackers.IssueDetail, error) {
 	switch in.Source {
-	case "github", "gitlab":
+	case "github", "gitlab", "bitbucket", "gitea", "azure":
 		f, err := s.projectForge(ctx, proj)
 		if err != nil {
 			return nil, err
@@ -133,7 +133,7 @@ func (s *Server) workItem(ctx context.Context, proj *store.Project, in startWork
 		}
 		return s.trackerIssueDetail(ctx, c, in.ID)
 	}
-	return nil, invalid("source must be github, gitlab, linear or jira")
+	return nil, invalid("source must be github, gitlab, bitbucket, gitea, azure, linear or jira")
 }
 
 // startWork is POST /api/projects/{id}/work/start. A session gets its own

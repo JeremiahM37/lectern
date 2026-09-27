@@ -262,3 +262,20 @@ def test_hunk_staging_and_file_by_file_review_on_a_phone(page, real_terminal):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
     focus.get_by_role("button", name="Leave file-by-file review").click()
     expect(review.locator(".ftree-check, .dfile-viewed")).not_to_have_count(0)
+
+
+@pytest.mark.parametrize("real_terminal", [{"agent_script": STUB_AGENT}], indirect=True)
+def test_line_level_staging_of_a_new_file(page, real_terminal):
+    t = real_terminal
+    sess, wt, _ = start_session(t, "Line review")
+    (wt / "notes.md").write_text("keep one\nleave out\nkeep two\n")
+    review = open_review(page, t, "Line review")
+    review.get_by_role("tab", name="Commit").click()
+    file = review.locator(".git-section", has_text="Changes (").locator(".git-file", has_text="notes.md")
+    file.locator(".git-file-name").click()
+    file.get_by_role("checkbox", name="Choose line 1").check()
+    file.locator(".dl-add", has_text="keep two").click()
+    file.get_by_role("button", name="Stage 2 lines").click()
+    expect(review.locator(".git-section", has_text="Staged (1)")).to_be_visible(timeout=15000)
+    assert git(wt, "show", ":notes.md") == "keep one\nkeep two"
+    assert (wt / "notes.md").read_text() == "keep one\nleave out\nkeep two\n"

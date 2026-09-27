@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // newReviewSession launches an isolated-worktree session on a real repo and
@@ -549,5 +550,155 @@ func TestRealReviewCommentsRoundTripAndBatchSend(t *testing.T) {
 	h.decode("DELETE", fmt.Sprintf("%s/comments/%d", base, b.id()), nil, 200, nil)
 	if code := h.status("DELETE", fmt.Sprintf("/api/sessions/%d/review/comments/%d", id+1000, a.id()), nil); code != 404 {
 		t.Fatalf("another session's comment: %d", code)
+	}
+}
+
+func postHook(t *testing.T, h *harness, id int64, toolInput, toolResponse map[string]any) {
+	t.Helper()
+	sess, err := h.App.DB.Session(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Edit",
+		"tool_input": toolInput, "tool_response": toolResponse})
+	if code, raw := h.rawRequest("POST", fmt.Sprintf("/api/hook/session/%d/PostToolUse", id), string(body), sess.HookToken); code != 200 {
+		t.Fatalf("hook: %d %s", code, raw)
+	}
+}
+
+func TestRealGitStagesChosenLinesAndNewFileHunks(t *testing.T) {
+	h, _, id, wt, _ := newReviewSession(t)
+	gitIn(t, wt, "config", "user.name", "Test")
+	gitIn(t, wt, "config", "user.email", "t@example.invalid")
+	writeReviewFile(t, filepath.Join(wt, "f.txt"), "a\nb\nc\nd\n")
+	gitIn(t, wt, "add", "f.txt")
+	commitIn(t, wt, "f")
+	writeReviewFile(t, filepath.Join(wt, "f.txt"), "a\nB1\nB2\nc\nd\n")
+	writeReviewFile(t, filepath.Join(wt, "new.txt"), "n1\nn2\nn3\n")
+	base := fmt.Sprintf("/api/sessions/%d/git", id)
+	fp := func(path, scope string) string {
+		return hunkFingerprints(gitFile(h.get(base), path), scope)[0]
+	}
+
+	// Hunk body: " a", "-b", "+B1", "+B2", " c", " d". Stage only "-b" and "+B1".
+	h.post(base+"/hunk", obj{"path": "f.txt", "op": "stage", "index": 0, "fingerprint": fp("f.txt", "unstaged"), "lines": []int{1, 2}}, 200)
+	if got := gitIn(t, wt, "show", ":f.txt"); got != "a\nB1\nc\nd\n" {
+		t.Fatalf("staging two lines: index is %q", got)
+	}
+	if code := h.status("POST", base+"/hunk", obj{"path": "f.txt", "op": "stage", "index": 0,
+		"fingerprint": fp("f.txt", "unstaged"), "lines": []int{0}}); code != 409 {
+		t.Fatalf("choosing a context line: %d", code)
+	}
+	// Unstage just "+B1" again: the staged removal of "b" stays.
+	h.post(base+"/hunk", obj{"path": "f.txt", "op": "unstage", "index": 0, "fingerprint": fp("f.txt", "staged"), "lines": []int{2}}, 200)
+	if got := gitIn(t, wt, "show", ":f.txt"); got != "a\nc\nd\n" {
+		t.Fatalf("unstaging one line: index is %q", got)
+	}
+	if got := readFile(t, filepath.Join(wt, "f.txt")); got != "a\nB1\nB2\nc\nd\n" {
+		t.Fatalf("staging must never touch the working file: %q", got)
+	}
+
+	// A new, untracked file: stage its first and last line only.
+	h.post(base+"/hunk", obj{"path": "new.txt", "op": "stage", "index": 0, "fingerprint": fp("new.txt", "unstaged"), "lines": []int{0, 2}}, 200)
+	if got := gitIn(t, wt, "show", ":new.txt"); got != "n1\nn3\n" {
+		t.Fatalf("partly staging a new file: index is %q", got)
+	}
+	h.post(base+"/hunk", obj{"path": "new.txt", "op": "unstage", "index": 0, "fingerprint": fp("new.txt", "staged"), "lines": []int{1}}, 200)
+	if got := gitIn(t, wt, "show", ":new.txt"); got != "n1\n" {
+		t.Fatalf("partly unstaging a new file: index is %q", got)
+	}
+	// Discarding one line of an untracked file edits the file...
+	writeReviewFile(t, filepath.Join(wt, "scratch.txt"), "keep\ndrop\n")
+	h.post(base+"/hunk", obj{"path": "scratch.txt", "op": "discard", "index": 0, "fingerprint": fp("scratch.txt", "unstaged"), "lines": []int{1}}, 200)
+	if got := readFile(t, filepath.Join(wt, "scratch.txt")); got != "keep\n" {
+		t.Fatalf("discarding one line of a new file: %q", got)
+	}
+	// ...and discarding its whole hunk removes it.
+	h.post(base+"/hunk", obj{"path": "scratch.txt", "op": "discard", "index": 0, "fingerprint": fp("scratch.txt", "unstaged")}, 200)
+	if _, err := os.Stat(filepath.Join(wt, "scratch.txt")); !os.IsNotExist(err) {
+		t.Fatalf("a fully discarded new file must be gone: %v", err)
+	}
+}
+
+// Agent marks are pruned: hashes no longer in the file, files that no longer
+// differ from the base, and every mark of a long-ended session.
+func TestRealAttributionPrunesAgentMarks(t *testing.T) {
+	h, _, id, wt, _ := newReviewSession(t)
+	app := filepath.Join(wt, "app.py")
+	writeReviewFile(t, app, "def main():\n    pass\n    kept()\n    replaced()\n")
+	writeReviewFile(t, filepath.Join(wt, "other.py"), "agent_only = 1\n")
+	postHook(t, h, id, map[string]any{"file_path": app}, map[string]any{"structuredPatch": []any{
+		map[string]any{"lines": []any{"+    kept()", "+    replaced()"}}}})
+	postHook(t, h, id, map[string]any{"file_path": filepath.Join(wt, "other.py")}, map[string]any{"structuredPatch": []any{
+		map[string]any{"lines": []any{"+agent_only = 1"}}}})
+	count := func() int {
+		n, err := h.App.DB.CountAgentLineMarks(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(); n != 3 {
+		t.Fatalf("recorded marks: %d", n)
+	}
+	// A human rewrites one agent line and reverts the other file entirely.
+	writeReviewFile(t, app, "def main():\n    pass\n    kept()\n    mine()\n")
+	if err := os.Remove(filepath.Join(wt, "other.py")); err != nil {
+		t.Fatal(err)
+	}
+	file := h.get(fmt.Sprintf("/api/sessions/%d/attribution", id)).list("repos")[0].sub("files").sub("app.py")
+	if fmt.Sprint(file["agent"]) != "[[3 3]]" || fmt.Sprint(file["human"]) != "[[4 4]]" {
+		t.Fatalf("attribution after the edit: %v", file)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("only kept() should still be marked, got %d marks", n)
+	}
+
+	// An ended session's marks go once it is past the retention period.
+	if err := h.App.DB.Update("sessions", id, map[string]any{"ended_at": store.Now() - 15*24*3600}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.App.DB.PruneEndedAgentLineMarks(store.Now() - 14*24*3600); err != nil || n != 1 || count() != 0 {
+		t.Fatalf("pruning an ended session: %d %v, %d left", n, err, count())
+	}
+}
+
+// A session in its own checkout, whose base branch does not exist there,
+// still shows its uncommitted work.
+func TestRealLiveDiffFallsBackToHeadWithoutTheBaseBranch(t *testing.T) {
+	h, proj, repo := newRealSessionHarness(t)
+	gitIn(t, repo, "branch", "-m", "main", "trunk")
+	var row obj
+	h.decode("POST", "/api/sessions", obj{"project_id": proj.ID, "agent": "review-real-agent", "yolo": false}, 201, &row)
+	writeReviewFile(t, filepath.Join(repo, "app.py"), "def main():\n    print('uncommitted')\n")
+	var diff obj
+	h.decode("GET", fmt.Sprintf("/api/sessions/%d/diff", int64(row.num("id"))), nil, 200, &diff)
+	files := diff.list("repos")[0].list("files")
+	if len(files) != 1 || !strings.Contains(files[0].str("patch"), "uncommitted") {
+		t.Fatalf("expected the uncommitted change against HEAD: %v", diff)
+	}
+}
+
+// codexApplyPatchHook is a PostToolUse payload captured verbatim from codex
+// 0.157.0 (`codex exec` against a local stand-in model provider, no login),
+// with only the session ids shortened and cwd templated.
+const codexApplyPatchHook = `{"session_id":"s","turn_id":"t","cwd":%q,"hook_event_name":"PostToolUse","model":"gpt-5.5",` +
+	`"permission_mode":"bypassPermissions","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: hello.txt\n+hello from the agent\n+second line\n*** End Patch\n"},` +
+	`"tool_response":"Exit code: 0\nWall time: 0.1 seconds\nOutput:\nSuccess. Updated the following files:\nA hello.txt\n","tool_use_id":"call_1"}`
+
+func TestRealAttributionFromARealCodexApplyPatchHook(t *testing.T) {
+	h, _, id, wt, _ := newReviewSession(t)
+	writeReviewFile(t, filepath.Join(wt, "hello.txt"), "hello from the agent\nsecond line\nmine\n")
+	sess, err := h.App.DB.Session(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, raw := h.rawRequest("POST", fmt.Sprintf("/api/hook/session/%d/PostToolUse", id),
+		fmt.Sprintf(codexApplyPatchHook, wt), sess.HookToken); code != 200 {
+		t.Fatalf("hook: %d %s", code, raw)
+	}
+	file := h.get(fmt.Sprintf("/api/sessions/%d/attribution", id)).list("repos")[0].sub("files").sub("hello.txt")
+	if fmt.Sprint(file["agent"]) != "[[1 2]]" || fmt.Sprint(file["human"]) != "[[3 3]]" {
+		t.Fatalf("codex patch lines should be the agent's, the third line yours: %v", file)
 	}
 }

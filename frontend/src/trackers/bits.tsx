@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { t, useLocale } from "../i18n";
 import { Markdown } from "../sessions/markdown";
-import { ago, labelStyle } from "./logic";
+import { ago, EMOJIS, hasStatuses, labelStyle } from "./logic";
+import { RichEditor } from "./RichEditor";
 import type { Check, Item, Label, Reaction, TimelineEvent } from "./types";
 
 // Small pieces the list, the pull request page and the issue page share.
@@ -19,7 +20,7 @@ export function StatePill({ item }: { item: Pick<Item, "kind" | "state" | "draft
   useLocale();
   let tone = "open",
     text = item.state;
-  if (item.source === "linear" || item.source === "jira") {
+  if (hasStatuses(item)) {
     tone = { completed: "merged", done: "merged", canceled: "closed", started: "open", indeterminate: "open" }[item.status_type || ""] || "neutral";
   } else if (item.draft && item.state === "open") {
     tone = text = "draft";
@@ -108,6 +109,42 @@ export function Reactions({ reactions }: { reactions?: Reaction[] }) {
   );
 }
 
+/** Reaction counts plus an add-reaction button, where the host takes them. */
+export function ReactionBar({ reactions, onReact, label }: { reactions?: Reaction[]; onReact?(emoji: string): Promise<void>; label: string }) {
+  useLocale();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!onReact) return <Reactions reactions={reactions} />;
+  return (
+    <span className="th-reactions">
+      {(reactions || []).map((r) => {
+        const name = EMOJIS.find(([, g]) => g === r.emoji)?.[0];
+        return (
+          <button key={r.emoji} type="button" className="th-reaction" disabled={busy || !name} aria-label={t("trackers.reactions.reactCount", { emoji: r.emoji, n: r.count })}
+            onClick={() => { if (!name) return; setBusy(true); void onReact(name).finally(() => setBusy(false)); }}>
+            {r.emoji} {r.count}
+          </button>
+        );
+      })}
+      <span className="th-react-add">
+        <button type="button" className="th-reaction th-react-open" aria-label={t("trackers.reactions.add", { label })} aria-expanded={open} onClick={() => setOpen(!open)}>
+          ☺+
+        </button>
+        {open && (
+          <span className="th-react-menu" role="menu">
+            {EMOJIS.map(([name, glyph]) => (
+              <button key={name} type="button" role="menuitem" aria-label={t("trackers.reactions.react", { emoji: name })} disabled={busy}
+                onClick={() => { setOpen(false); setBusy(true); void onReact(name).finally(() => setBusy(false)); }}>
+                {glyph}
+              </button>
+            ))}
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 export function Avatar({ name }: { name?: string }) {
   useLocale();
   const initial = (name || "?").replace(/^@/, "").slice(0, 1).toUpperCase();
@@ -133,10 +170,13 @@ const REVIEW_WORD = (): Record<string, string> => ({
 export function Timeline({
   events,
   onComment,
+  onReact,
   placeholder,
 }: {
   events: TimelineEvent[];
   onComment?(body: string): Promise<void>;
+  /** react to a comment by its id; absent where the host has no reactions */
+  onReact?(subject: string, emoji: string): Promise<void>;
   placeholder?: string;
 }) {
   useLocale();
@@ -156,7 +196,8 @@ export function Timeline({
             <div className="th-md">
               <Markdown text={e.body || ""} />
             </div>
-            <Reactions reactions={e.reactions} />
+            <ReactionBar reactions={e.reactions} label={e.author ? t("trackers.reactions.commentBy", { name: e.author }) : t("trackers.reactions.thisComment")}
+              onReact={onReact && e.id ? (emoji) => onReact(e.id!, emoji) : undefined} />
           </article>
         ) : (
           <div key={i} className={`th-event th-event-${e.kind}${e.state ? " th-event-" + e.state : ""}`}>
@@ -192,7 +233,7 @@ export function Timeline({
               .finally(() => setBusy(false));
           }}
         >
-          <textarea aria-label={t("trackers.timeline.commentField")} placeholder={placeholder ?? t("trackers.timeline.placeholder")} value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} />
+          <RichEditor label={t("trackers.timeline.commentField")} placeholder={placeholder ?? t("trackers.timeline.placeholder")} value={draft} onChange={setDraft} rows={3} />
           <button className="b ok" type="submit" disabled={busy || !draft.trim()}>
             {busy ? t("trackers.timeline.posting") : t("trackers.timeline.comment")}
           </button>

@@ -148,6 +148,10 @@ const catalog: Record<string, string> = {
   // {display} is a display name such as ":1".
   "browser.desk.alt": "Desktop {display}",
   "browser.desk.capturing": "Capturing…",
+
+  // BrowserPane: phone layout, where the less-used controls sit in a menu
+  "browser.menu.more": "More browser controls",
+  "browser.menu.label": "Browser controls",
 };
 
 export default catalog;

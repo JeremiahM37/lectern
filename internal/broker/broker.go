@@ -220,7 +220,26 @@ func (br *Broker) Decide(id int64, decision, note, decidedBy string) *store.Appr
 	} else {
 		br.Bus.Publish(taskChannel(fresh.TaskID), "approval", fresh)
 	}
+	// Every phone that was asked now drops the question, whoever answered it
+	// and wherever. A policy decision follows a quiet Create that notified
+	// nobody, so there is nothing to withdraw.
+	if decidedBy != "policy" {
+		br.Notifier.Dismiss(sinks.ApprovalTag(id), dismissTitle(decision, decidedBy), "Nothing left to do here.")
+	}
 	return fresh
+}
+
+func dismissTitle(decision, decidedBy string) string {
+	switch {
+	case decision == "expired":
+		return "Approval expired"
+	case decidedBy == "system":
+		return "Approval no longer needed"
+	case decision == "approved":
+		return "Approved on another device"
+	default:
+		return "Denied on another device"
+	}
 }
 
 // ExpireForAttempt resolves any approval still pending for an attempt that has

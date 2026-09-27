@@ -2,9 +2,11 @@
 
 **Review & merge** is where you read what a session changed, tell its agent
 what to fix, and commit the result. Open it from a session card
-(**More → Review & merge**) or from the conversation view. The installed app
+(**More → Review & merge**), from the conversation view, or with **Review
+changes** on a session's terminal page. The installed app
 and the Android app show the same page, with the phone layout described
-below.
+below. The terminal page's button opens the workspace for sessions only.
+Project shells and task attempts keep the read-only changes view.
 
 Implementation: `frontend/src/review/`, `internal/api/session_review.go`,
 `review_git.go`, `review_comments.go`, `review_attribution.go` and the
@@ -53,6 +55,10 @@ Lectern works this out from two things it already sees:
 2. **Git history.** A committed line belongs to the agent when the commit
    that last touched it has an agent co-author trailer or an agent author.
 
+Codex's `apply_patch` payload was checked against a real one: codex 0.157
+run against a stand-in model server, with no login. The test uses that
+payload verbatim.
+
 Lines are matched by content, so a line you edit becomes yours. A line the
 agent wrote and you committed stays the agent's. Uncommitted lines are only
 marked once the session's agent has reported at least one edit; before that,
@@ -60,6 +66,12 @@ Lectern cannot say either way, and leaves them unmarked. Blank lines are
 never marked.
 
 `GET /api/sessions/{id}/attribution` returns the line ranges per file.
+
+Marks are pruned so the table does not grow forever. Each attribution request
+drops the marks for lines that are no longer anywhere in a changed file, and
+every mark for a file that no longer differs from the base. It skips this
+when the diff was truncated. Marks of a session that ended more than 14 days
+ago are dropped at most once an hour.
 
 ## Comments to the agent
 
@@ -119,7 +131,14 @@ and the working tree split into **Staged** and **Changes**.
   once. Open a file to do the same per hunk. A hunk is named by its index and
   a fingerprint of its text, and the server checks both again before
   applying anything. A stale click is refused rather than applied to the
-  wrong hunk. New files are staged or discarded as a whole.
+  wrong hunk.
+- **Single lines.** Tick added or removed lines in a hunk and the buttons
+  become **Stage 2 lines**, **Unstage 2 lines** or **Discard 2 lines**. It
+  works like `git add -p` editing: an unticked addition is left out, an
+  unticked removal stays as context.
+- **New files** can be staged, unstaged and discarded by hunk or by line too.
+  Lectern gives the index an empty entry for the file to apply against.
+  Discarding every line of a new file deletes it.
 - **Discard** asks first, inline. It restores tracked files from the index
   and deletes untracked ones.
 - **✨ Write message** asks a cheap model for a commit message. The model
@@ -195,6 +214,24 @@ viewed.
 ![Phone: file by file](media/review/phone-file-by-file.png)
 ![Phone: commit](media/review/phone-commit.png)
 ![Phone: conflicts](media/review/phone-conflict.png)
+
+### In the Android app
+
+The Android app shows this same page. It was checked on an Android 14
+emulator with the debug APK built from this branch, paired directly, using
+real taps and typing:
+
+- comments written with the keyboard up;
+- two comments sent as one message;
+- file-by-file review moving through the files by hunk;
+- one line of a new file staged.
+
+<p>
+<img src="media/review/android-changes.png" width="216" alt="Android: sent comments on the diff">
+<img src="media/review/android-comment.png" width="216" alt="Android: writing a comment with the keyboard up">
+<img src="media/review/android-file-by-file.png" width="216" alt="Android: file by file">
+<img src="media/review/android-line-staging.png" width="216" alt="Android: staging one line">
+</p>
 
 ## Who can do what
 

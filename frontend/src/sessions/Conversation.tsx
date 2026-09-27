@@ -665,6 +665,8 @@ export function Conversation({
   const {
     supported: dictationSupported,
     dictating,
+    transcribing,
+    engine: dictationEngine,
     toggle: toggleDictation,
     stop: stopDictation,
   } = useDictation({
@@ -800,7 +802,7 @@ export function Conversation({
         <button
           className="b"
           id="conversation-close"
-          aria-label={t("conversation.chat.close")}
+          aria-label={t("conversation.chat.close")} data-close
           onClick={onClose}
         >
           ✕
@@ -1227,12 +1229,14 @@ export function Conversation({
             type="button"
             className={dictating ? "b mic-recording" : "b"}
             id="conversation-mic"
-            aria-label={dictating ? t("conversation.chat.stopDictating") : t("conversation.chat.dictate")}
+            aria-label={transcribing ? t("conversation.chat.transcribingLabel") : dictating ? t("conversation.chat.stopDictating") : t("conversation.chat.dictate")}
+            title={dictationEngine === "host" ? t("conversation.chat.onLectern") : undefined}
             hidden={!dictationSupported}
             aria-pressed={dictating}
+            aria-busy={transcribing}
             onClick={dictate}
           >
-            {dictating ? t("conversation.chat.listening") : "🎙"}
+            {transcribing ? t("conversation.chat.transcribing") : dictating ? (dictationEngine === "host" ? t("conversation.chat.recording") : t("conversation.chat.listening")) : "🎙"}
           </button>
           <button
             type="submit"

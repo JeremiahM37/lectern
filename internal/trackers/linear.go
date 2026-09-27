@@ -134,6 +134,7 @@ type lnIssue struct {
 	} `json:"children"`
 	Comments *struct {
 		Nodes []struct {
+			ID        string  `json:"id"`
 			Body      string  `json:"body"`
 			CreatedAt string  `json:"createdAt"`
 			User      *lnUser `json:"user"`
@@ -258,7 +259,7 @@ func (l *Linear) Issue(ctx context.Context, id string) (*IssueDetail, error) {
 	}
 	q := `query($id: String!) { issue(id: $id) { ` + lnIssueFields + ` description
 	  children(first: 100) { nodes { ` + lnIssueFields + ` } }
-	  comments(first: 100) { nodes { body createdAt user { name displayName email } } } } }`
+	  comments(first: 100) { nodes { id body createdAt user { name displayName email } } } } }`
 	if err := l.do(ctx, q, map[string]any{"id": id}, &res); err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func (l *Linear) Issue(ctx context.Context, id string) (*IssueDetail, error) {
 	}
 	i := res.Issue
 	d := &IssueDetail{Item: i.item(), Body: i.Description, CreatedAt: i.CreatedAt, Children: []Item{},
-		Timeline: []Event{}, Transitions: []Transition{}, BranchName: i.BranchName, UID: i.ID}
+		Timeline: []Event{}, Transitions: []Transition{}, BranchName: i.BranchName, UID: i.ID, Editable: true}
 	if d.BranchName == "" {
 		d.BranchName = BranchName(i.Identifier, i.Title)
 	}
@@ -287,7 +288,7 @@ func (l *Linear) Issue(ctx context.Context, id string) (*IssueDetail, error) {
 	}
 	if i.Comments != nil {
 		for _, c := range i.Comments.Nodes {
-			d.Timeline = append(d.Timeline, Event{Kind: "comment", Author: c.User.label(), Body: c.Body, At: c.CreatedAt})
+			d.Timeline = append(d.Timeline, Event{ID: c.ID, Kind: "comment", Author: c.User.label(), Body: c.Body, At: c.CreatedAt})
 		}
 		sort.SliceStable(d.Timeline, func(a, b int) bool { return d.Timeline[a].At < d.Timeline[b].At })
 	}
@@ -337,4 +338,48 @@ func (l *Linear) Viewer(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return res.Viewer.label(), nil
+}
+
+// SetDescription replaces an issue's description (Linear stores Markdown).
+func (l *Linear) SetDescription(ctx context.Context, issueID, md string) error {
+	var res struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+	const q = `mutation($id: String!, $d: String!) { issueUpdate(id: $id, input: {description: $d}) { success } }`
+	if err := l.do(ctx, q, map[string]any{"id": issueID, "d": md}, &res); err != nil {
+		return err
+	}
+	if !res.IssueUpdate.Success {
+		return fmt.Errorf("linear did not update the issue")
+	}
+	return nil
+}
+
+// React adds an emoji reaction to an issue (subject "") or a comment.
+func (l *Linear) React(ctx context.Context, issueID, commentID, emoji string) error {
+	glyph := EmojiGlyph[emoji]
+	if glyph == "" {
+		return fmt.Errorf("unknown reaction %q", emoji)
+	}
+	input := map[string]any{"emoji": glyph}
+	if commentID != "" {
+		input["commentId"] = commentID
+	} else {
+		input["issueId"] = issueID
+	}
+	var res struct {
+		ReactionCreate struct {
+			Success bool `json:"success"`
+		} `json:"reactionCreate"`
+	}
+	const q = `mutation($input: ReactionCreateInput!) { reactionCreate(input: $input) { success } }`
+	if err := l.do(ctx, q, map[string]any{"input": input}, &res); err != nil {
+		return err
+	}
+	if !res.ReactionCreate.Success {
+		return fmt.Errorf("linear did not add the reaction")
+	}
+	return nil
 }

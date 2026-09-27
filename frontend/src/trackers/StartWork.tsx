@@ -85,7 +85,7 @@ export function StartWork({
       >
         <header className="sheet-head">
           <h2 id="th-start-title">{t("trackers.start.title", { mark: itemMark(item) })}</h2>
-          <button type="button" className="x" aria-label={t("trackers.close")} onClick={onClose}>
+          <button type="button" className="x" aria-label={t("trackers.close")} data-close onClick={onClose}>
             ×
           </button>
         </header>

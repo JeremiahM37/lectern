@@ -1,3 +1,5 @@
+import { SwipeRow } from "../mobile/SwipeRow";
+import { sessionSwipes } from "../mobile/sessionSwipes";
 import { ScratchReview } from "./ScratchReview";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -472,7 +474,16 @@ export function Sessions({
         idle_seconds: session.idle_seconds + elapsed,
         uptime_seconds: session.uptime_seconds + elapsed,
       };
+    const swipes = sessionSwipes(session, approvalBySession.get(session.id), {
+      decide: (id) => api.request(`/approvals/${id}/decision`, { method: "POST", body: { decision: "approved" } }),
+      request: (path, init) => api.request(path, init),
+      closed,
+      refresh: refreshAll,
+      notice: onNotice,
+      confirm: (text) => confirm(text),
+    });
     return (
+      <SwipeRow key={session.id} id={String(session.id)} left={swipes.left} right={swipes.right}>
       <SessionCard
         key={session.id}
         session={display}
@@ -509,6 +520,7 @@ export function Sessions({
         }}
         onDiscover={() => setSheet("discover")}
       />
+      </SwipeRow>
     );
   }
   return (
@@ -835,7 +847,7 @@ export function Sessions({
           <h2>{archiveText.name}</h2>
           <button
             className="b"
-            aria-label={t("sessions.list.closeArchivedOutput")}
+            aria-label={t("sessions.list.closeArchivedOutput")} data-close
             onClick={() => setArchiveText(undefined)}
           >
             {t("sessions.list.close")}
@@ -874,7 +886,7 @@ function GroupEditor({
     >
       <div className="sheet-head">
         <h2>{t("sessions.groupEditor.title")}</h2>
-        <button className="x" aria-label={t("sessions.groupEditor.close")} onClick={onClose}>
+        <button className="x" aria-label={t("sessions.groupEditor.close")} data-close onClick={onClose}>
           ✕
         </button>
       </div>

@@ -388,7 +388,7 @@ export function NativeSearch({
         <h2>{t("conversation.search.title")}</h2>
         <button
           className="ns-close"
-          aria-label={t("conversation.search.closeLabel")}
+          aria-label={t("conversation.search.closeLabel")} data-close
           disabled={forkPending}
           onClick={close}
         >

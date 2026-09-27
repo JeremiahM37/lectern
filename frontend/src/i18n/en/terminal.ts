@@ -95,27 +95,8 @@ const catalog: Record<string, string> = {
   "terminalPage.returnLive": "↓ Live",
 
   // Key bar
-  "terminalPage.keybar.label": "Terminal keys",
   "terminalPage.keybar.hideKeyboard": "Hide keyboard",
   "terminalPage.keybar.showKeyboard": "Show keyboard",
-  "terminalPage.keybar.holdCtrl": "Hold Ctrl for the next key",
-  "terminalPage.keybar.holdAlt": "Hold Alt for the next key",
-  "terminalPage.keybar.escape": "Send Escape",
-  "terminalPage.keybar.tab": "Send Tab",
-  "terminalPage.keybar.backtab": "Send Shift-Tab",
-  "terminalPage.keybar.left": "Send Left arrow",
-  "terminalPage.keybar.up": "Send Up arrow",
-  "terminalPage.keybar.down": "Send Down arrow",
-  "terminalPage.keybar.right": "Send Right arrow",
-  "terminalPage.keybar.interrupt": "Send Ctrl-C",
-  "terminalPage.keybar.slash": "Send slash",
-  "terminalPage.keybar.dash": "Send dash",
-  "terminalPage.keybar.pipe": "Send pipe",
-  "terminalPage.keybar.tilde": "Send tilde",
-  "terminalPage.keybar.home": "Send Home",
-  "terminalPage.keybar.end": "Send End",
-  "terminalPage.keybar.pageup": "Send Page Up",
-  "terminalPage.keybar.pagedown": "Send Page Down",
 
   // Compose dialog
   "terminalPage.compose.help": "Edit a longer prompt here. Insert puts it in the terminal; Send also presses Enter.",

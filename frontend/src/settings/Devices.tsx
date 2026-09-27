@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { PairLinkActions } from "../pairing/PairLinkActions";
 import { RelayPanel } from "./RelayPanel";
 import { t, useLocale } from "../i18n";
 // devices.css is imported by main.tsx, matching connect-tools.css's own
@@ -183,6 +184,7 @@ export function Devices({
                 </p>
                 <code className="pairing-code-text">{groupCode(minted.code)}</code>
                 <p className="subhint">{t("settings.devices.expires", { seconds: secondsLeft })}</p>
+                <PairLinkActions link={pairURL(minted.code)} onNotice={onNotice} />
               </div>
             </div>
           )}

@@ -119,6 +119,8 @@ const catalog: Record<string, string> = {
   "browser.desk.allow": "Autoriser le contrôle par l’agent",
   "browser.desk.alt": "Bureau {display}",
   "browser.desk.capturing": "Capture…",
+  "browser.menu.more": "Plus de commandes du navigateur",
+  "browser.menu.label": "Commandes du navigateur",
 };
 
 export default catalog;

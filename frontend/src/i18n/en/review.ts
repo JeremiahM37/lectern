@@ -89,6 +89,8 @@ const catalog: Record<string, string> = {
   "review.diff.viewed": "Viewed",
   "review.diff.showAsText": "Show as text",
   "review.diff.noTextual": "No textual changes.",
+  // Screen-reader label for a checkbox that picks one line for staging; {line} is a line number.
+  "review.diff.chooseLine": "Choose line {line}",
 
   // ConflictResolver
   "review.conflicts.acceptOurs": "Accept ours",
@@ -157,6 +159,15 @@ const catalog: Record<string, string> = {
   // Verb: throw away the changes.
   "review.git.discard": "Discard",
   "review.git.discardedHunk": "Discarded that hunk.",
+  // Hunk buttons when some lines of the hunk are ticked; {count} is how many.
+  "review.git.unstageLines.one": "Unstage {count} line",
+  "review.git.unstageLines.other": "Unstage {count} lines",
+  "review.git.stageLines.one": "Stage {count} line",
+  "review.git.stageLines.other": "Stage {count} lines",
+  "review.git.discardLines.one": "Discard {count} line",
+  "review.git.discardLines.other": "Discard {count} lines",
+  "review.git.discardedLines.one": "Discarded that {count} line.",
+  "review.git.discardedLines.other": "Discarded that {count} lines.",
   // Verb.
   "review.git.unstage": "Unstage",
   // Verb.

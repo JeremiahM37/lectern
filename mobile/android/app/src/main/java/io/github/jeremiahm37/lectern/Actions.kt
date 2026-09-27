@@ -51,11 +51,13 @@ object Actions {
     private const val EXTRA_ACTION = "action"
     private const val EXTRA_TARGET = "target"
     private const val EXTRA_ABOUT = "about"
+    private const val EXTRA_HOST = "host"
 
-    fun intent(context: Context, id: Int, tag: String, action: String, target: Long, about: String, mutable: Boolean = false): PendingIntent {
+    fun intent(context: Context, id: Int, host: Host, tag: String, action: String, target: Long, about: String, mutable: Boolean = false): PendingIntent {
         val intent = Intent(context, ActionReceiver::class.java)
             .setAction("$action:$tag")
             .putExtra(EXTRA_ID, id)
+            .putExtra(EXTRA_HOST, host.id)
             .putExtra(EXTRA_TAG, tag)
             .putExtra(EXTRA_ACTION, action)
             .putExtra(EXTRA_TARGET, target)
@@ -83,13 +85,15 @@ object Actions {
     fun handle(context: Context, intent: Intent) {
         val id = intent.getIntExtra(EXTRA_ID, 0)
         val action = intent.getStringExtra(EXTRA_ACTION) ?: return
+        val host = Hosts(context).get(intent.getStringExtra(EXTRA_HOST)) ?: return
         val target = intent.getLongExtra(EXTRA_TARGET, 0)
         val reply = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Notifications.REPLY_KEY)?.toString()
         val plan = plan(action, target, reply) ?: return
         val about = intent.getStringExtra(EXTRA_ABOUT).orEmpty()
-        Notifications.result(context, id, plan.doing, about, ongoing = true)
+        Notifications.result(context, id, host, plan.doing, about, ongoing = true)
         enqueue(context, "action-$id", Data.Builder()
             .putInt(EXTRA_ID, id)
+            .putString(EXTRA_HOST, host.id)
             .putString(EXTRA_ABOUT, about)
             .putString("method", plan.method)
             .putString("path", plan.path)
@@ -98,11 +102,12 @@ object Actions {
             .build())
     }
 
-    /** Registers a new push endpoint with Lectern while no page is open. */
-    fun enqueueSubscribe(context: Context) {
-        val sub = Push.subscription(context) ?: return
+    /** Registers a new push endpoint with a Lectern while no page of it is open. */
+    fun enqueueSubscribe(context: Context, host: Host) {
+        val sub = Push.subscription(context, host) ?: return
         val body = JSONObject().put("endpoint", sub.getString("endpoint")).put("keys", sub.getJSONObject("keys"))
-        enqueue(context, "push-subscribe", Data.Builder()
+        enqueue(context, "push-subscribe-${host.id}", Data.Builder()
+            .putString(EXTRA_HOST, host.id)
             .putString("method", "POST")
             .putString("path", "/api/push/subscribe")
             .putString("body", body.toString())
@@ -118,26 +123,26 @@ object Actions {
         WorkManager.getInstance(context).enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, work)
     }
 
-    /** One API call as this device. Returns (HTTP status, body); status 0 is
-     * a failure to reach Lectern at all. */
-    suspend fun call(context: Context, method: String, path: String, body: String?): Pair<Int, String> {
-        val store = SecureStore(context)
-        return when (store.mode) {
-            Bridge.MODE_DIRECT -> withContext(Dispatchers.IO) { direct(store, method, path, body) }
-            Bridge.MODE_RELAY -> relay(context, method, path, body)
+    /** One API call to a paired Lectern, as this device. Returns (HTTP
+     * status, body); status 0 is a failure to reach Lectern at all. */
+    suspend fun call(context: Context, host: Host?, method: String, path: String, body: String?): Pair<Int, String> {
+        if (host == null || !host.paired) return 0 to "This app is no longer paired with that Lectern."
+        return when (host.mode) {
+            Bridge.MODE_DIRECT -> withContext(Dispatchers.IO) { direct(context, host, method, path, body) }
+            Bridge.MODE_RELAY -> relay(context, host, method, path, body)
             else -> 0 to "This app is not connected to a Lectern."
         }
     }
 
-    private fun direct(store: SecureStore, method: String, path: String, body: String?): Pair<Int, String> = try {
-        val conn = URL(store.origin + path).openConnection() as HttpURLConnection
+    private fun direct(context: Context, host: Host, method: String, path: String, body: String?): Pair<Int, String> = try {
+        val conn = URL(host.origin + path).openConnection() as HttpURLConnection
         conn.requestMethod = method
         conn.connectTimeout = 15000
         conn.readTimeout = 20000
         conn.setRequestProperty("Accept", "application/json")
         // A paired device's bearer token; without one (a phone Lectern admits
         // by its Tailscale identity) the request carries no credential at all.
-        store.getSecret(SecureStore.DEVICE_TOKEN)?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+        Hosts(context).secret(host.id, SecureStore.DEVICE_TOKEN)?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
         if (body != null) {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
@@ -151,13 +156,13 @@ object Actions {
     }
 
     /** Runs the call through the encrypted relay in an unseen WebView. */
-    private suspend fun relay(context: Context, method: String, path: String, body: String?): Pair<Int, String> {
+    private suspend fun relay(context: Context, target: Host, method: String, path: String, body: String?): Pair<Int, String> {
         val requestId = UUID.randomUUID().toString()
         val spec = JSONObject().put("id", requestId).put("method", method).put("path", path)
         if (body != null) spec.put("body", JSONObject(body))
         val result = CompletableDeferred<JSONObject>()
         val origin = AtomicReference<String?>(null)
-        val host = object : Bridge.Host {
+        val owner = object : Bridge.Owner {
             override val pageOrigin: String? get() = origin.get()
             override fun actionResult(json: JSONObject) {
                 if (json.optString("id") == requestId) result.complete(json)
@@ -165,8 +170,8 @@ object Actions {
         }
         val view = withContext(Dispatchers.Main) {
             WebView(context.applicationContext).also { v ->
-                WebShell.configure(v, Bridge(context, host), onOrigin = { origin.set(it) }, onExternal = {})
-                v.loadUrl(Shell.APP_ORIGIN + "/native-action#a=" + DeviceKey.b64(spec.toString().toByteArray()))
+                WebShell.configure(v, Bridge(context, owner) { target.id }, origin = { target.origin }, onOrigin = { origin.set(it) }, onExternal = {})
+                v.loadUrl(target.origin + "/native-action#a=" + DeviceKey.b64(spec.toString().toByteArray()))
             }
         }
         return try {
@@ -190,17 +195,19 @@ class ActionReceiver : BroadcastReceiver() {
 class ActionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val id = inputData.getInt("notification_id", 0)
-        val (status, body) = Actions.call(applicationContext, inputData.getString("method")!!, inputData.getString("path")!!, inputData.getString("body"))
-        Log.i("LecternAction", "${inputData.getString("path")} -> $status")
+        val host = Hosts(applicationContext).get(inputData.getString("host"))
+        val (status, body) = Actions.call(applicationContext, host, inputData.getString("method")!!, inputData.getString("path")!!, inputData.getString("body"))
+        Log.i("LecternAction", "${host?.id} ${inputData.getString("path")} -> $status")
         inputData.getString("subscribe")?.let { endpoint ->
-            if (status in 200..299) Push.confirmed(applicationContext, endpoint)
+            if (host == null) return Result.success()
+            if (status in 200..299) Push.confirmed(applicationContext, host, endpoint)
             return if (status in 200..299) Result.success() else Result.retry()
         }
         if (status in 200..299) {
-            Notifications.result(applicationContext, id, inputData.getString("done") ?: "Done", inputData.getString("about").orEmpty())
+            Notifications.result(applicationContext, id, host, inputData.getString("done") ?: "Done", inputData.getString("about").orEmpty())
         } else {
             val why = if (status == 0) body else "Lectern answered $status: ${Actions.detail(body)}"
-            Notifications.result(applicationContext, id, "Could not complete that", why)
+            Notifications.result(applicationContext, id, host, "Could not complete that", why)
         }
         return Result.success()
     }

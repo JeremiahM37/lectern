@@ -1,6 +1,6 @@
 // Wire shapes for the Tasks hub (internal/trackers, internal/api/trackers*.go).
 
-export type Source = "github" | "gitlab" | "linear" | "jira";
+export type Source = "github" | "gitlab" | "bitbucket" | "gitea" | "azure" | "linear" | "jira";
 
 export interface Label {
   name: string;
@@ -51,6 +51,8 @@ export interface Reaction {
 }
 
 export interface TimelineEvent {
+  /** what a reaction to this comment names; absent when it cannot take one */
+  id?: string;
   kind: "comment" | "review" | "commit" | "event";
   author?: string;
   body?: string;
@@ -147,6 +149,8 @@ export interface IssueDetail extends Item {
   team?: string;
   uid?: string;
   branch_name: string;
+  editable?: boolean;
+  body_lossy?: boolean;
 }
 
 export interface Conflicts {
@@ -166,7 +170,7 @@ export interface TrackerConnection {
 }
 
 export interface ForgeInfo {
-  kind?: "github" | "gitlab";
+  kind?: "github" | "gitlab" | "bitbucket" | "gitea" | "azure";
   host?: string;
   repo?: string;
   url?: string;
@@ -192,4 +196,24 @@ export interface ItemRef {
   kind: "pr" | "issue";
   id: string;
   connection_id?: number;
+}
+
+export interface QueueEntry {
+  id: string;
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  position: number;
+  status: string;
+  enqueued_at?: string;
+  eta_seconds?: number;
+  pipeline?: string;
+}
+
+export interface QueueResponse {
+  supported: boolean;
+  kind: string;
+  base?: string;
+  entries: QueueEntry[];
 }

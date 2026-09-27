@@ -31,6 +31,10 @@ func TestTrackerWritesNeedAHuman(t *testing.T) {
 		{"POST", "/api/projects/1/forge/issues/1/state", `{"open":false}`},
 		{"POST", "/api/projects/1/forge/prs/1/resolve", `{}`},
 		{"POST", "/api/projects/1/forge/prs/1/fix-checks", `{}`},
+		{"POST", "/api/projects/1/forge/prs/1/reactions", `{"emoji":"+1"}`},
+		{"POST", "/api/trackers/1/issues/ENG-1/reactions", `{"emoji":"+1"}`},
+		{"POST", "/api/trackers/1/issues/ENG-1/description", `{"body":"x"}`},
+		{"POST", "/api/projects/1/forge/queue/remove", `{"base":"main","id":"x"}`},
 	}
 	for _, p := range []auth.Principal{
 		{Kind: auth.KindLocal},

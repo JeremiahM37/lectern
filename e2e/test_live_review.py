@@ -22,35 +22,35 @@ def prepare(t):
 
 
 @pytest.mark.parametrize('width',[1280,390])
-def test_live_review_keeps_terminal_attached_and_handles_mobile(page,real_terminal,width):
+def test_terminal_review_opens_the_workspace_and_keeps_terminal_attached(page,real_terminal,width):
     t=real_terminal;prepare(t);page.set_viewport_size({'width':width,'height':820})
     open_terminal(page,t);terminal_tool(page,'#review')
-    dialog=page.get_by_role('dialog',name='Review changes');expect(dialog).to_be_visible()
-    dialog.get_by_role('button',name='M a.txt').click()
-    expect(dialog.locator('.review-patch')).to_contain_text('+working proof')
-    expect(dialog.locator('.review-patch')).to_contain_text('-staged proof')
-    assert dialog.locator('.review-number').filter(has_text='1').count()>=2
-    dialog.locator('.review-scope').select_option('staged')
-    expect(dialog.locator('.review-patch')).to_contain_text('+staged proof')
-    expect(dialog.locator('.review-patch')).to_contain_text('-original')
-    dialog.locator('.review-scope').select_option('working')
-    dialog.locator('.review-filter').fill('<img')
-    dialog.get_by_role('button',name='?? <img src=x onerror=alert(1)>.txt',exact=True).click()
-    expect(dialog.locator('.review-patch')).to_contain_text('<script>window.reviewInjected=true</script>')
+    review=page.locator('#session-review');expect(review).to_be_visible()
+    # The live diff against HEAD: staged and working changes together.
+    expect(review.locator('.dfile',has_text='a.txt')).to_contain_text('+working proof',timeout=15000)
+    expect(review.locator('.dfile',has_text='a.txt')).to_contain_text('-original')
+    expect(review.locator('.dfile',has_text='b.txt')).to_contain_text('+second file')
+    # A hostile file name and content are shown as text, never run.
+    expect(review).to_contain_text('<script>window.reviewInjected=true</script>')
     assert page.evaluate('window.reviewInjected') is None
-    assert dialog.locator('img,script').count()==0
-    dialog.locator('.review-filter').fill('b.txt')
-    dialog.get_by_role('button',name='?? b.txt',exact=True).click()
-    expect(dialog.locator('.review-patch')).to_contain_text('+second file')
+    assert review.locator('.dcode img,.dcode script').count()==0
+    # Staged and working changes are separate on the Commit tab.
+    review.get_by_role('tab',name='Commit').click()
+    staged=review.locator('.git-section',has_text='Staged (1)')
+    expect(staged).to_contain_text('a.txt',timeout=15000)
+    staged.locator('.git-file-name',has_text='a.txt').click()
+    expect(staged.locator('.dcode')).to_contain_text('+staged proof')
+    review.get_by_role('tab',name='Changes').click()
     (t['root']/'b.txt').write_text('updated proof\n')
-    dialog.get_by_role('button',name='Refresh',exact=True).click()
-    dialog.locator('.review-filter').fill('b.txt')
-    dialog.get_by_role('button',name='?? b.txt',exact=True).click()
-    expect(dialog.locator('.review-patch')).to_contain_text('+updated proof')
-    assert dialog.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
-    assert dialog.locator('.review-detail').evaluate('(el)=>el.getBoundingClientRect().height')>200
+    review.get_by_role('button',name='Close').click()
+    terminal_tool(page,'#review')
+    review=page.locator('#session-review')
+    expect(review.locator('.dfile',has_text='b.txt')).to_contain_text('+updated proof',timeout=15000)
+    assert review.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
     page.screenshot(path=f'/tmp/lectern-live-review-{width}.png')
-    dialog.get_by_role('button',name='Close review').click()
+    review.get_by_role('button',name='Close').click()
+    # The app's styles leave with the workspace; the terminal keeps its own.
+    assert page.locator('style[data-lectern-review]').count()==0
     expect(page.locator('#connection')).to_have_text('Connected')
     page.locator('#agent-terminal').click();type_command(page,'echo still-attached')
     expect(page.locator('#agent-terminal .xterm-screen')).to_contain_text('still-attached')
@@ -85,7 +85,10 @@ def test_review_ignores_slow_previous_file_response(page,real_terminal):
         if(String(args[0]).includes('/changes?') && String(args[0]).includes('path=b.txt'))
           await new Promise(resolve=>setTimeout(resolve,700));
         return response;};''')
-    open_terminal(page,t);terminal_tool(page,'#review')
+    # The session card's "Review changes" keeps the read-only changes view.
+    page.goto(t['url']+'/');page.locator('.tab[data-tab="sessions"]').click()
+    page.get_by_text('More ···',exact=True).first.click()
+    page.get_by_role('button',name='Review changes',exact=True).click()
     dialog=page.get_by_role('dialog',name='Review changes')
     dialog.get_by_role('button',name='?? b.txt',exact=True).click()
     dialog.get_by_role('button',name='M a.txt').click()

@@ -198,7 +198,7 @@ export function Palette({
         <button
           ref={close}
           type="button"
-          aria-label={t("app.palette.close")}
+          aria-label={t("app.palette.close")} data-close
           onClick={onClose}
         >
           <span className="command-close-text">Esc</span>

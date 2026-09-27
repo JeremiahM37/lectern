@@ -219,3 +219,68 @@ func (db *DB) CountAgentLineMarks(sessionID int64) (int, error) {
 	err := db.QueryRow(`SELECT COUNT(*) FROM agent_line_marks WHERE session_id=?`, sessionID).Scan(&n)
 	return n, err
 }
+
+// DeleteAgentLineMarks drops the given hashes recorded for one path.
+func (db *DB) DeleteAgentLineMarks(sessionID int64, path string, hashes []string) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	return db.inTx(func(tx *sql.Tx) error {
+		stmt, err := tx.Prepare(`DELETE FROM agent_line_marks WHERE session_id=? AND path=? AND line_hash=?`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		for _, h := range hashes {
+			if _, err := stmt.Exec(sessionID, path, h); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// AgentLineMarkPaths lists the paths a session has marks for below dir (an
+// absolute directory, without a trailing slash).
+func (db *DB) AgentLineMarkPaths(sessionID int64, dir string) ([]string, error) {
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	rows, err := db.Query(`SELECT DISTINCT path FROM agent_line_marks WHERE session_id=? AND substr(path, 1, ?)=?`,
+		sessionID, len(prefix), prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// DeleteAgentLineMarksForPaths drops every mark a session holds for these
+// paths.
+func (db *DB) DeleteAgentLineMarksForPaths(sessionID int64, paths []string) error {
+	return db.inTx(func(tx *sql.Tx) error {
+		for _, p := range paths {
+			if _, err := tx.Exec(`DELETE FROM agent_line_marks WHERE session_id=? AND path=?`, sessionID, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PruneEndedAgentLineMarks drops the marks of sessions that ended before
+// cutoff (epoch seconds); attribution is only ever asked of a live diff.
+func (db *DB) PruneEndedAgentLineMarks(cutoff float64) (int64, error) {
+	res, err := db.Exec(`DELETE FROM agent_line_marks WHERE session_id IN
+		(SELECT id FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ?)`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

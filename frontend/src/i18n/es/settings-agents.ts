@@ -69,6 +69,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.saveRunner": "Guardar ejecutor",
 
   "agentSettings.catalog.chip.resume": "Reanudación",
+  "agentSettings.catalog.chip.exact": "Reanudación exacta",
   "agentSettings.catalog.chip.fork": "Bifurcación",
   "agentSettings.catalog.chip.model": "Modelo",
   "agentSettings.catalog.chip.yolo": "Aprobación automática",

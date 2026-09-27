@@ -119,6 +119,8 @@ const catalog: Record<string, string> = {
   "browser.desk.allow": "エージェントの操作を許可",
   "browser.desk.alt": "デスクトップ {display}",
   "browser.desk.capturing": "キャプチャ中…",
+  "browser.menu.more": "その他のブラウザー操作",
+  "browser.menu.label": "ブラウザー操作",
 };
 
 export default catalog;

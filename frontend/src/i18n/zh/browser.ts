@@ -107,6 +107,8 @@ const catalog: Record<string, string> = {
   "browser.desk.allow": "允许智能体控制",
   "browser.desk.alt": "桌面 {display}",
   "browser.desk.capturing": "正在截取…",
+  "browser.menu.more": "更多浏览器控件",
+  "browser.menu.label": "浏览器控件",
 };
 
 export default catalog;

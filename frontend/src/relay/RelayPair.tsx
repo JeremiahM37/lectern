@@ -11,6 +11,8 @@ import { pinShellKey, pinShellNow, savePairing } from "./store";
 import { unb64url } from "./noise";
 import { inApp } from "../native/bridge";
 import { t, useLocale } from "../i18n";
+import { androidIntentLink, onAndroid } from "../pairing/links";
+import { OpenInAppNote } from "../pairing/PairLinkActions";
 
 export function parsePairFragment(hash: string): PairPayload | undefined {
   const match = /[#&]p=([A-Za-z0-9_-]+)/.exec(hash);
@@ -37,6 +39,10 @@ type Status = "idle" | "working" | "done" | "error";
 export default function RelayPair() {
   useLocale();
   const [payload] = useState(() => parsePairFragment(window.location.hash));
+  // Read before the payload is stripped from the address bar below.
+  const [intent] = useState(() =>
+    !inApp() && onAndroid(navigator.userAgent) ? androidIntentLink(window.location.href) : undefined,
+  );
   const [name, setName] = useState(() => suggestedDeviceName(navigator.userAgent));
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
@@ -95,6 +101,7 @@ export default function RelayPair() {
         <p>
           {t("app.relayPair.through")}<strong>{relayHost}</strong>{t("app.relayPair.throughAfter")}
         </p>
+        <OpenInAppNote intent={intent} />
         <p>
           {t("app.relayPair.key")}<code className="relay-fingerprint">{fingerprint(payload.hk)}</code>
           <br />{t("app.relayPair.keyMatch")}

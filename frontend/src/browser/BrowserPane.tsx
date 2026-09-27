@@ -143,6 +143,8 @@ export function BrowserPane({
     [frame, setFrame] = useState(""),
     [tab, setTab] = useState<"page" | "desktop">("page"),
     [finding, setFinding] = useState(false),
+    [menu, setMenu] = useState(false),
+    [compact, setCompact] = useState(PHONE),
     [findText, setFindText] = useState(""),
     [findResult, setFindResult] = useState<{ matches: number; index: number }>(),
     [profiles, setProfiles] = useState<Profiles>(),
@@ -198,6 +200,14 @@ export function BrowserPane({
       .then((out) => setDesks(out.views.filter((v) => v.kind === "desktop" && v.session_id === sessionId)))
       .catch(() => undefined);
   }, [stableApi, sessionId, refresh, loadPorts, relay]);
+
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const mq = matchMedia("(max-width: 700px)");
+    const on = () => setCompact(mq.matches);
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
 
   // ---- shared browser: the stream ----
   const handlePicker = useCallback((msg: PickerMessage | null, additive = false) => {
@@ -261,6 +271,13 @@ export function BrowserPane({
 
   const act = useCallback(
     async (body: Record<string, JsonValue>) => {
+      // Control changes go on the stream when it is open, behind any input
+      // already sent, so a hand-back cannot be overtaken by earlier typing.
+      const ws = socket.current;
+      if (body.action === "control" && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "control", mode: body.mode }));
+        return undefined;
+      }
       setBusy(String(body.action));
       try {
         const out = await stableApi.request<{ status?: Status }>(`/sessions/${sessionId}/browser`, { method: "POST", body });
@@ -637,35 +654,24 @@ export function BrowserPane({
   const workspacePorts = ports?.filter((p) => p.in_workspace) ?? [];
   const otherPorts = ports?.filter((p) => !p.in_workspace) ?? [];
 
-  return (
-    <section className={`browser-pane${agentOn ? " agent-driving" : ""}`} aria-label={t("browser.pane.label", { name })} data-mode={mode}>
-      <header className="browser-bar">
-        <div className="browser-tabs" role="tablist">
-          <button role="tab" aria-selected={tab === "page"} className="b" onClick={() => setTab("page")}>
-            {t("browser.pane.tabBrowser")}
-          </button>
-          {desks.length > 0 && (
-            <button role="tab" aria-selected={tab === "desktop"} className="b" onClick={() => setTab("desktop")}>
-              {t("browser.pane.tabDesktop")}
-            </button>
-          )}
-        </div>
-        <button className="b browser-close" aria-label={t("browser.pane.close")} onClick={onClose}>
-          ✕
-        </button>
-      </header>
-      {tab === "page" && (
-        <>
-          <div className="browser-toolbar">
+  // Every control once; the layout places them. A phone gets one row (back,
+  // address, Go, a menu for the rest, close) so the page keeps the screen.
+  const backButton = (
             <button className="b" aria-label={t("browser.toolbar.back")} disabled={!shared && history.current.back === 0} onClick={() => nav("back")}>
               ◀
             </button>
+  );
+  const forwardButton = (
             <button className="b" aria-label={t("browser.toolbar.forward")} disabled={!shared && history.current.forward === 0} onClick={() => nav("forward")}>
               ▶
             </button>
+  );
+  const reloadButton = (
             <button className="b" aria-label={t("browser.toolbar.reload")} onClick={() => nav("reload")}>
               ⟳
             </button>
+  );
+  const addressForm = (
             <form
               className="browser-address"
               onSubmit={(e) => {
@@ -687,9 +693,13 @@ export function BrowserPane({
                 {t("browser.toolbar.go")}
               </button>
             </form>
+  );
+  const portsButton = (
             <button className="b" aria-expanded={showPorts} onClick={() => { setShowPorts(!showPorts); if (!showPorts) loadPorts(); }}>
               {t("browser.toolbar.ports")}
             </button>
+  );
+  const deviceSelect = (
             <select aria-label={t("browser.toolbar.deviceSize")} value={deviceId} onChange={(e) => pickDevice(e.target.value)}>
               {DEVICES.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -697,12 +707,18 @@ export function BrowserPane({
                 </option>
               ))}
             </select>
+  );
+  const designButton = (
             <button className={design ? "b on" : "b"} aria-pressed={design} onClick={() => void toggleDesign()}>
               {t("browser.toolbar.design")}
             </button>
+  );
+  const openButton = (
             <button className="b" aria-label={t("browser.toolbar.openInTab")} onClick={() => void openInTab()}>
               ⤢
             </button>
+  );
+  const findButton = (
             <button
               className={finding ? "b on" : "b"}
               aria-pressed={finding}
@@ -712,8 +728,138 @@ export function BrowserPane({
             >
               {t("browser.toolbar.find")}
             </button>
+  );
+  const modeRadios = (
+    <>
+            <label>
+              <input type="radio" name={`browser-mode-${sessionId}`} checked={shared} onChange={() => void switchMode("shared")} /> {t("browser.mode.shared")}
+            </label>
+            <label title={relay ? t("browser.mode.relayOnlyShared") : status?.views_disabled_reason || t("browser.mode.liveTitle")}>
+              <input type="radio" name={`browser-mode-${sessionId}`} checked={mode === "direct"} disabled={!directPossible} onChange={() => void switchMode("direct")} /> {t("browser.mode.live")}
+            </label>
+    </>
+  );
+  const profileSelect = (
+    <>
+            {profiles && (
+              <label className="browser-profile" title={t("browser.profile.where", { where: profiles.where })}>
+                {t("browser.profile.label")}{" "}
+                <select
+                  aria-label={t("browser.profile.select")}
+                  value={status?.running ? status.profile : profiles.default}
+                  onChange={(e) => void pickProfile(e.target.value)}
+                >
+                  {profiles.profiles.map((p) => (
+                    <option key={p} value={p}>
+                      {p === "temporary" ? t("browser.profile.temporary") : p}
+                    </option>
+                  ))}
+                  <option value="__new">{t("browser.profile.new")}</option>
+                </select>
+              </label>
+            )}
+    </>
+  );
+  const cookiesButton = (
+            <button className="b" aria-expanded={showCookies} onClick={() => setShowCookies(!showCookies)}>
+              {t("browser.cookies.button")}
+            </button>
+  );
+  const whereText = (
+    <>
+            {shared && running && (
+              <span className="browser-where">
+                {status?.where === "host" ? t("browser.where.host") : t("browser.where.session")}
+              </span>
+            )}
+    </>
+  );
+  const viewTabs = (
+        <div className="browser-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === "page"} className="b" onClick={() => setTab("page")}>
+            {t("browser.pane.tabBrowser")}
+          </button>
+          {desks.length > 0 && (
+            <button role="tab" aria-selected={tab === "desktop"} className="b" onClick={() => setTab("desktop")}>
+              {t("browser.pane.tabDesktop")}
+            </button>
+          )}
+        </div>
+  );
+  const closeButton = (
+        <button className="b browser-close" aria-label={t("browser.pane.close")} data-close onClick={onClose}>
+          ✕
+        </button>
+  );
+
+  return (
+    <section className={`browser-pane${agentOn ? " agent-driving" : ""}`} aria-label={t("browser.pane.label", { name })} data-mode={mode}>
+      {compact ? (
+        <div className="browser-toolbar browser-compact">
+          {backButton}
+          {addressForm}
+          <button
+            className={menu ? "b on" : "b"}
+            aria-label={t("browser.menu.more")}
+            aria-expanded={menu}
+            onClick={() => setMenu(!menu)}
+          >
+            ⋯
+          </button>
+          {closeButton}
+        </div>
+      ) : (
+        <header className="browser-bar">
+          {viewTabs}
+          {closeButton}
+        </header>
+      )}
+      {compact && menu && (
+        <div
+          className="browser-menu"
+          aria-label={t("browser.menu.label")}
+          onClick={(e) => {
+            // Choosing something closes the menu; a select or radio closes it on change.
+            if ((e.target as HTMLElement).closest("button")) setMenu(false);
+          }}
+          onChange={() => setMenu(false)}
+        >
+          <div className="browser-menu-row">
+            {forwardButton}
+            {reloadButton}
+            {designButton}
+            {findButton}
+            {openButton}
+            {portsButton}
+            {cookiesButton}
           </div>
-          {shared && running && status && status.tabs.length > 0 && (
+          <div className="browser-menu-row">
+            {deviceSelect}
+            {profileSelect}
+          </div>
+          <div className="browser-menu-row browser-modes">
+            {modeRadios}
+            {whereText}
+          </div>
+          {desks.length > 0 && <div className="browser-menu-row">{viewTabs}</div>}
+        </div>
+      )}
+      {tab === "page" && (
+        <>
+          {!compact && (
+            <div className="browser-toolbar">
+              {backButton}
+              {forwardButton}
+              {reloadButton}
+              {addressForm}
+              {portsButton}
+              {deviceSelect}
+              {designButton}
+              {openButton}
+              {findButton}
+            </div>
+          )}
+          {shared && running && status && status.tabs.length > (compact ? 1 : 0) && (
             <div className="browser-tabstrip" role="tablist" aria-label={t("browser.tabs.label")}>
               {status.tabs.map((tb) => (
                 <span key={tb.id} className={tb.active ? "browser-tab on" : "browser-tab"}>
@@ -765,39 +911,14 @@ export function BrowserPane({
               </span>
             </form>
           )}
-          <div className="browser-modes">
-            <label>
-              <input type="radio" name={`browser-mode-${sessionId}`} checked={shared} onChange={() => void switchMode("shared")} /> {t("browser.mode.shared")}
-            </label>
-            <label title={relay ? t("browser.mode.relayOnlyShared") : status?.views_disabled_reason || t("browser.mode.liveTitle")}>
-              <input type="radio" name={`browser-mode-${sessionId}`} checked={mode === "direct"} disabled={!directPossible} onChange={() => void switchMode("direct")} /> {t("browser.mode.live")}
-            </label>
-            {profiles && (
-              <label className="browser-profile" title={t("browser.profile.where", { where: profiles.where })}>
-                {t("browser.profile.label")}{" "}
-                <select
-                  aria-label={t("browser.profile.select")}
-                  value={status?.running ? status.profile : profiles.default}
-                  onChange={(e) => void pickProfile(e.target.value)}
-                >
-                  {profiles.profiles.map((p) => (
-                    <option key={p} value={p}>
-                      {p === "temporary" ? t("browser.profile.temporary") : p}
-                    </option>
-                  ))}
-                  <option value="__new">{t("browser.profile.new")}</option>
-                </select>
-              </label>
-            )}
-            <button className="b" aria-expanded={showCookies} onClick={() => setShowCookies(!showCookies)}>
-              {t("browser.cookies.button")}
-            </button>
-            {shared && running && (
-              <span className="browser-where">
-                {status?.where === "host" ? t("browser.where.host") : t("browser.where.session")}
-              </span>
-            )}
-          </div>
+          {!compact && (
+            <div className="browser-modes">
+              {modeRadios}
+              {profileSelect}
+              {cookiesButton}
+              {whereText}
+            </div>
+          )}
           {showCookies && (
             <div className="browser-cookies" aria-label={t("browser.cookies.label")}>
               <p>{t("browser.cookies.intro")}</p>

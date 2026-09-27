@@ -102,6 +102,10 @@ const catalog: Record<string, string> = {
   "conversation.chat.stopDictating": "받아쓰기 중지",
   "conversation.chat.dictate": "메시지 받아쓰기",
   "conversation.chat.listening": "🔴 듣는 중…",
+  "conversation.chat.transcribing": "⏳ 받아쓰는 중…",
+  "conversation.chat.recording": "🔴 녹음 중 · 탭하여 중지",
+  "conversation.chat.transcribingLabel": "받아쓰는 중",
+  "conversation.chat.onLectern": "받아쓰기는 사용자의 Lectern에서 변환됩니다",
   "conversation.chat.send": "전송",
   "conversation.chat.offlineNotice": "오프라인 — 연결이 끊긴 동안에는 아무것도 전송되지 않습니다. 초안은 이 기기에 저장되며 다시 연결해도 그대로 남아 있습니다.",
 
@@ -234,6 +238,7 @@ const catalog: Record<string, string> = {
   "conversation.saved.currentUnsaved": "현재 터미널에는 아직 읽을 수 있는 메시지가 저장되지 않았습니다.",
   "conversation.saved.ambiguous": "이 터미널에서 여러 대화가 활성 상태입니다. 하나를 직접 선택하세요.",
   "conversation.saved.unidentified": "현재 대화를 식별할 수 없습니다. 하나를 직접 선택하세요.",
+  "conversation.saved.unreadable": "{agent} · {id} — Lectern은 이 대화를 재개하고 포크할 수 있지만 메시지는 읽지 않습니다.",
   "conversation.saved.title": "저장된 대화",
   "conversation.saved.close": "닫기",
   "conversation.saved.scanLimited": " 발견된 대화 기록 파일을 최대 500개까지 표시하며, 현재 터미널을 우선합니다.",
