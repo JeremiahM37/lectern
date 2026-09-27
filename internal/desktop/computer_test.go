@@ -92,7 +92,7 @@ func TestComputerUseByAccessibilityRef(t *testing.T) {
 			t.Skipf("needs %s", b)
 		}
 	}
-	if out, _ := exec.Command("python3", "-c", "import gi;gi.require_version('Atspi','2.0')").CombinedOutput(); len(out) > 0 {
+	if out, _ := exec.Command("/usr/bin/python3", "-c", "import gi;gi.require_version('Atspi','2.0')").CombinedOutput(); len(out) > 0 {
 		t.Skip("needs python3-gi with Atspi")
 	}
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

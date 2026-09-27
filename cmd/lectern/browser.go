@@ -27,7 +27,11 @@ const browserUsage = `usage: lectern browser ACTION [ARGS] [--session ID]
   screenshot FILE [--selector S]
   back | forward | reload
   resize WIDTHxHEIGHT [--mobile]
-  status | close`
+  tabs | tab new [URL] | tab select ID | tab close ID
+  find TEXT [--backwards]
+  downloads
+  status | close
+  --tab ID acts on that tab instead of the active one`
 
 const computerUsage = `usage: lectern computer ACTION [ARGS] [--session ID] [--live ID]
   snapshot                    the accessibility tree, with [ref=N]s
@@ -98,7 +102,7 @@ func saveShot(out map[string]any, file string) error {
 
 func browserCommand(c *console.Client, args []string) ([]byte, error) {
 	args, flags, err := commonFlags(args, map[string]bool{"session": true, "selector": true, "at": true,
-		"screenshot": true, "limit": true})
+		"screenshot": true, "limit": true, "tab": true})
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +113,13 @@ func browserCommand(c *console.Client, args []string) ([]byte, error) {
 	body := map[string]any{"action": action}
 	if err := withSession(body, flags); err != nil {
 		return nil, err
+	}
+	if v := flags["tab"]; v != "" {
+		id, err := strconv.Atoi(v)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("--tab takes a tab id")
+		}
+		body["tab"] = id
 	}
 	need := func(n int, what string) error {
 		if len(rest) != n {
@@ -200,7 +211,34 @@ func browserCommand(c *console.Client, args []string) ([]byte, error) {
 			return nil, fmt.Errorf("resize takes WIDTHxHEIGHT, e.g. 390x844")
 		}
 		body["width"], body["height"], body["mobile"] = wi, hi, flags["mobile"] == "true"
-	case "back", "forward", "reload", "status", "close":
+	case "tab":
+		if len(rest) == 0 {
+			return nil, fmt.Errorf("usage: lectern browser tab new [URL] | select ID | close ID")
+		}
+		switch rest[0] {
+		case "new":
+			body["action"] = "tab_new"
+			if len(rest) > 1 {
+				body["url"] = rest[1]
+			}
+		case "select", "close":
+			if len(rest) != 2 {
+				return nil, fmt.Errorf("usage: lectern browser tab %s ID", rest[0])
+			}
+			id, err := strconv.Atoi(rest[1])
+			if err != nil {
+				return nil, fmt.Errorf("a tab id is a number")
+			}
+			body["action"], body["tab"] = "tab_"+rest[0], id
+		default:
+			return nil, fmt.Errorf("usage: lectern browser tab new [URL] | select ID | close ID")
+		}
+	case "find":
+		if err := need(1, "TEXT [--backwards]"); err != nil {
+			return nil, err
+		}
+		body["text"], body["backwards"] = rest[0], flags["backwards"] == "true"
+	case "back", "forward", "reload", "status", "close", "tabs", "downloads":
 	default:
 		return nil, fmt.Errorf("unknown browser action %q\n%s", action, browserUsage)
 	}

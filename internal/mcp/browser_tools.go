@@ -27,7 +27,7 @@ func sessionHints(args map[string]any) map[string]any {
 func (s *Server) browserCall(action string, args map[string]any, keys ...string) (any, error) {
 	body := sessionHints(args)
 	body["action"] = action
-	for _, k := range keys {
+	for _, k := range append(keys, "tab") {
 		if v, ok := args[k]; ok {
 			body[k] = v
 		}
@@ -152,6 +152,38 @@ func init() {
 			},
 		},
 		tool{
+			Name: "browser_tabs",
+			Description: "List, open, switch or close the tabs of this session's browser. Every browser tool acts on the " +
+				"active tab unless you pass tab; a link that opens a new window becomes a tab of its own.",
+			Schema: obj(map[string]any{"action": str("list (default) | new | select | close"),
+				"tab": num("the tab id, for select and close"), "url": str("address for a new tab"), "session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				action := map[string]string{"new": "tab_new", "select": "tab_select", "close": "tab_close"}[argStr(args, "action")]
+				if action == "" {
+					action = "tabs"
+				}
+				return s.browserCall(action, args, "url")
+			},
+		},
+		tool{
+			Name:        "browser_find",
+			Description: "Find text in the page, as a browser's own find does: selects and scrolls to the next match and counts them all.",
+			Schema: obj(map[string]any{"text": str("what to find"), "backwards": flag("find the previous match"),
+				"session_id": sessionArg}, "text"),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.browserCall("find", args, "text", "backwards")
+			},
+		},
+		tool{
+			Name: "browser_downloads",
+			Description: "Files this session's browser downloaded. They are saved in your workspace under .lectern/downloads " +
+				"(excluded from git); read them from there.",
+			Schema: obj(map[string]any{"session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.browserCall("downloads", args)
+			},
+		},
+		tool{
 			Name:        "browser_close",
 			Description: "Close this session's browser when you are done with it.",
 			Schema:      obj(map[string]any{"session_id": sessionArg}),
@@ -231,6 +263,16 @@ func init() {
 			},
 		},
 	)
+	// Browser tools that act on a page take an optional tab.
+	for i := range tools {
+		t := &tools[i]
+		if !strings.HasPrefix(t.Name, "browser_") || t.Name == "browser_tabs" || t.Name == "browser_close" || t.Name == "browser_downloads" {
+			continue
+		}
+		if props, ok := t.Schema["properties"].(map[string]any); ok {
+			props["tab"] = num("the tab to act on (see browser_tabs); omit for the active tab")
+		}
+	}
 	// A browser or a desktop on the operator's machine is driven by that
 	// session's own agent, never by a remote chat through the web connector.
 	for _, t := range tools {

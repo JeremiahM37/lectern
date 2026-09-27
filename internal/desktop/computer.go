@@ -207,8 +207,14 @@ func (d *Desktop) a11yRun(ctx context.Context, run Runner, args ...string) (stri
 dir=%s; export DISPLAY=:%d
 [ -d "$dir" ] || { echo "ERROR the desktop is gone"; exit 0; }
 [ -f "$dir/a11y" ] || { echo NOA11Y; exit 0; }
-command -v python3 >/dev/null 2>&1 || { echo "MISSING python3"; exit 0; }
-python3 -c %s %s 2>"$dir/a11y-script.err" || echo "ERROR $(tail -n 1 "$dir/a11y-script.err")"
+# The AT-SPI bindings come from the system; a virtualenv's python3 first on
+# PATH would not have them.
+py=""
+for p in python3 /usr/bin/python3; do
+  command -v "$p" >/dev/null 2>&1 && "$p" -c 'import gi' 2>/dev/null && { py="$p"; break; }
+done
+[ -n "$py" ] || { echo "MISSING python3-gi gir1.2-atspi-2.0"; exit 0; }
+"$py" -c %s %s 2>"$dir/a11y-script.err" || echo "ERROR $(tail -n 1 "$dir/a11y-script.err")"
 `, shellQuote(d.Dir), d.Display, shellQuote(a11yScript), strings.Join(quoted, " ")))
 	if err != nil {
 		return "", err
