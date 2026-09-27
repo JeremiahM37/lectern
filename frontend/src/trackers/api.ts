@@ -1,4 +1,5 @@
 import type { JsonValue } from "../api";
+import { isForge } from "./logic";
 import type { ItemRef } from "./types";
 
 // The slice of the app's api client the Tasks hub needs, so it can be
@@ -11,7 +12,7 @@ export type Notice = (text: string, error?: boolean) => void;
 
 /** Where an issue's detail lives: the project's forge, or a connection. */
 export function issuePath(projectId: number, ref: ItemRef): string {
-  if (ref.source === "github" || ref.source === "gitlab")
+  if (isForge(ref.source))
     return `/projects/${projectId}/forge/issues/${encodeURIComponent(ref.id)}`;
   return `/trackers/${ref.connection_id}/issues/${encodeURIComponent(ref.id)}`;
 }

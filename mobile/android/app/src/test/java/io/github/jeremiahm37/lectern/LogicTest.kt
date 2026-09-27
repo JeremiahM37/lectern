@@ -49,4 +49,46 @@ class LogicTest {
         assertEquals("/", MainActivity.safePath("https://evil.example/"))
         assertEquals("/", MainActivity.safePath(null))
     }
+
+    @Test
+    fun appPairingLinksAreRecognised() {
+        // frontend/src/pairing/links.ts makes these from the https links.
+        assertEquals(Link.Relay("eyJ2IjoxfQ"), Link.parse("lectern://pair?p=eyJ2IjoxfQ"))
+        assertEquals(
+            Link.DirectPair("http://10.0.2.2:19210", "ABCD1234"),
+            Link.parse("lectern://pair?origin=http%3A%2F%2F10.0.2.2%3A19210&code=ABCD1234"),
+        )
+        assertNull(Link.parse("lectern://pair?origin=javascript%3Aalert(1)&code=X"))
+        assertNull(Link.parse("lectern://pair?origin=https%3A%2F%2Fh.example&code=A%20B"))
+        assertNull(Link.parse("lectern://pair?p=../../x"))
+        assertNull(Link.parse("lectern://evil?p=abc"))
+        assertNull(Link.parse("lectern://pair"))
+    }
+
+    @Test
+    fun relayPairingsEachHaveAPrivateOrigin() {
+        assertTrue(Shell.isRelayOrigin(Shell.APP_ORIGIN))
+        assertTrue(Shell.isRelayOrigin(Shell.relayOrigin("h2")))
+        assertFalse(Shell.isRelayOrigin("https://app.lectern.invalid.evil.example"))
+        assertFalse(Shell.isRelayOrigin("http://h2.app.lectern.invalid"))
+        assertFalse(Shell.isRelayOrigin("https://lectern.example"))
+    }
+
+    @Test
+    fun hostsAreNamedFromWhereTheyAre() {
+        assertEquals("aiserver.example.ts.net", Hosts.labelFor(Bridge.MODE_DIRECT, "https://aiserver.example.ts.net:8443", null))
+        assertEquals("Lectern via relay.example.com", Hosts.labelFor(Bridge.MODE_RELAY, Shell.relayOrigin("h2"), """{"relay":"wss://relay.example.com"}"""))
+        assertEquals("Lectern (relay)", Hosts.labelFor(Bridge.MODE_RELAY, Shell.APP_ORIGIN, null))
+    }
+
+    @Test
+    fun aDismissalNamesTheNotificationItRemoves() {
+        val shown = org.json.JSONObject().put("kind", "approval").put("approval_id", 7)
+        val gone = org.json.JSONObject().put("kind", "dismiss").put("tag", "approval-7")
+        assertEquals(Notifications.tagOf(shown), Notifications.tagOf(gone))
+        val host = Host("h2", "Work", Bridge.MODE_DIRECT, "https://w.example", true, "k", "h2")
+        val other = host.copy(id = "h3")
+        // The same approval number on two Lecterns is two notifications.
+        assertFalse(Notifications.idOf(Notifications.scopedTag(host, "approval-7")) == Notifications.idOf(Notifications.scopedTag(other, "approval-7")))
+    }
 }

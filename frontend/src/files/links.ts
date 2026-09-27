@@ -87,26 +87,3 @@ export function linkAt(links: TextLink[], index: number): TextLink | undefined {
   return links.find((link) => index >= link.start && index < link.end);
 }
 
-/**
- * An OSC 8 hyperlink's target, as some programs print them: a web address,
- * or a file:// address inside the workspace, optionally ending in #L12 or
- * :12:3. Anything else is not opened.
- */
-export function hyperlinkTarget(uri: string, workdir: string): TextLink | undefined {
-  if (/^https?:\/\//i.test(uri)) return { start: 0, end: 0, text: uri, url: uri };
-  const match = /^file:\/\/[^/]*(\/[^#?]*)(?:#L(\d+)(?:C(\d+))?)?$/i.exec(uri);
-  if (!match) return undefined;
-  let file = decodeURIComponent(match[1]!);
-  let line = match[2] ? Number(match[2]) : undefined,
-    column = match[3] ? Number(match[3]) : undefined;
-  const suffix = /:(\d+)(?::(\d+))?$/.exec(file);
-  if (!line && suffix) {
-    line = Number(suffix[1]);
-    column = suffix[2] ? Number(suffix[2]) : undefined;
-    file = file.slice(0, suffix.index);
-  }
-  if (!file.startsWith(workdir + "/")) return undefined;
-  const path = file.slice(workdir.length + 1).replace(/\/+$/, "");
-  if (!path || path.split("/").some((part) => part === "..")) return undefined;
-  return { start: 0, end: 0, text: uri, path, line, column };
-}

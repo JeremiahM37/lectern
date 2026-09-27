@@ -107,6 +107,11 @@ export function Workbench({
   useEffect(() => {
     if (open) loadStatus();
   }, [open, revision, loadStatus]);
+  // The explorer stays mounted while the panel is closed; opening it reads
+  // the folders again rather than showing what was there before.
+  useEffect(() => {
+    if (open) setRevision((value) => value + 1);
+  }, [open]);
 
   // ---- live: the target says when a shown folder or an open file changes.
   const watchDirs = useMemo(() => [...expanded, ...docs.docs.map((item) => dirOf(item.path) || ".")], [expanded, docs.docs]);

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 and later draw this splash while the app starts: the
+         lectern mark on the app's own background, no white flash. -->
+    <style name="Theme.Lectern" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/lectern_bg</item>
+        <item name="android:statusBarColor">@color/lectern_bg</item>
+        <item name="android:navigationBarColor">@color/lectern_bg</item>
+        <item name="android:colorAccent">@color/lectern_accent</item>
+        <item name="android:colorPrimary">@color/lectern_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/lectern_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/lectern_bg</item>
+    </style>
+</resources>

@@ -35,6 +35,18 @@ type Spec struct {
 	// before shell quoting; {dir} follows the recorded working directory.
 	ResumeIDArgs []string `json:"resume_id_args,omitempty"`
 	ForkArgs     []string `json:"fork_args,omitempty"`
+	// SessionIDArgs name a NEW conversation at launch, with {id} replaced by a
+	// UUID Lectern generates and records on the session, e.g.
+	// ["--session-id", "{id}"]. With it, Restore, Recent and Switch can resume
+	// exactly that conversation later without ever reading the CLI's storage.
+	SessionIDArgs []string `json:"session_id_args,omitempty"`
+	// ForkSessionID says SessionIDArgs may also name a fork's new
+	// conversation (claude-style --resume X --fork-session --session-id Y).
+	ForkSessionID bool `json:"fork_session_id,omitempty"`
+	// Sessions says where the CLI lists its saved conversations, so a session
+	// Lectern could not name at launch still gets its id bound afterwards, and
+	// an id is checked against the workspace before it is resumed or forked.
+	Sessions *SessionsSpec `json:"sessions,omitempty"`
 	// PromptArg says the opening message can be a positional argument. When it
 	// cannot, lectern falls back to typing the message once the pane settles.
 	PromptArg bool `json:"prompt_arg,omitempty"`
@@ -91,6 +103,56 @@ type Spec struct {
 	// Builtin marks the three that ship with lectern, so the UI can show which
 	// are yours.
 	Builtin bool `json:"builtin,omitempty"`
+}
+
+// SessionsSpec is one way to list a CLI's saved conversations
+// (internal/nativeidentity/catalog_sessions.py reads it on the target). Exactly
+// one source is set:
+//   - Command prints JSON (an array, or one object per line), run in the
+//     working directory; {bin} is the resolved binary.
+//   - Files are glob candidates for session files; the first whose $VARS are
+//     all set is used. {slug} is the workspace path with every non-alphanumeric
+//     character replaced by "-". Header keeps only lines whose "type" matches;
+//     Whole reads each file as one JSON document instead of JSON lines.
+//   - SQLite are candidate database paths (first with its $VARS set), read
+//     with Query.
+//
+// ID, Dir, Created, Updated and Title name the fields (dot paths); ID "@stem"
+// is the file name without its extension. Dir is compared with the workspace;
+// leave it empty only when the listing is already scoped to the working
+// directory. Created/Updated accept epoch seconds, milliseconds or ISO-8601.
+type SessionsSpec struct {
+	Command string   `json:"command,omitempty"`
+	Files   []string `json:"files,omitempty"`
+	Header  string   `json:"header,omitempty"`
+	Whole   bool     `json:"whole,omitempty"`
+	SQLite  []string `json:"sqlite,omitempty"`
+	Query   string   `json:"query,omitempty"`
+	ID      string   `json:"id"`
+	Dir     string   `json:"dir,omitempty"`
+	Created string   `json:"created"`
+	Updated string   `json:"updated,omitempty"`
+	Title   string   `json:"title,omitempty"`
+}
+
+// validate rejects a sessions source Lectern could not read.
+func (s *SessionsSpec) validate() error {
+	sources := 0
+	for _, set := range []bool{s.Command != "", len(s.Files) > 0, len(s.SQLite) > 0} {
+		if set {
+			sources++
+		}
+	}
+	if sources != 1 {
+		return fmt.Errorf("sessions needs exactly one of command, files or sqlite")
+	}
+	if len(s.SQLite) > 0 && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.Query)), "select ") {
+		return fmt.Errorf("sessions.query must be a SELECT")
+	}
+	if strings.TrimSpace(s.ID) == "" || strings.TrimSpace(s.Created) == "" {
+		return fmt.Errorf("sessions needs id and created field names")
+	}
+	return nil
 }
 
 // ACPSpec is the ACP invocation for a configured agent: the command to spawn
@@ -303,6 +365,17 @@ func ValidateSpecs(raw string) error {
 				return fmt.Errorf("agent %q: invalid yolo_env var name %q", name, k)
 			}
 		}
+		if len(c.SessionIDArgs) > 0 && !wholePlaceholder(c.SessionIDArgs, "{id}") {
+			return fmt.Errorf("agent %q: session_id_args must contain {id} as a whole argument or after =", name)
+		}
+		if c.ForkSessionID && len(c.SessionIDArgs) == 0 {
+			return fmt.Errorf("agent %q: fork_session_id needs session_id_args", name)
+		}
+		if c.Sessions != nil {
+			if err := c.Sessions.validate(); err != nil {
+				return fmt.Errorf("agent %q: %w", name, err)
+			}
+		}
 		if len(c.PromptArgs) > 0 {
 			found := false
 			for _, arg := range c.PromptArgs {
@@ -318,6 +391,33 @@ func ValidateSpecs(raw string) error {
 		}
 	}
 	return nil
+}
+
+// wholePlaceholder reports whether args carry placeholder as one argument or
+// as the value of a joined --flag={id}.
+func wholePlaceholder(args []string, placeholder string) bool {
+	for _, arg := range args {
+		if arg == placeholder || strings.HasSuffix(arg, "="+placeholder) {
+			return true
+		}
+	}
+	return false
+}
+
+// AssignsSessionID reports whether a launch with these options names its new
+// conversation itself: a fresh launch, or a fork when the CLI allows it.
+func (s Spec) AssignsSessionID(resume bool, resumeID, forkID string) bool {
+	if len(s.SessionIDArgs) == 0 || resume || resumeID != "" {
+		return false
+	}
+	return forkID == "" || s.ForkSessionID
+}
+
+// ExactConversations reports whether Lectern can bind this agent's sessions
+// to an exact conversation id: the built-ins by process evidence, a catalog
+// agent by naming it at launch or by reading where the CLI lists them.
+func (s Spec) ExactConversations() bool {
+	return s.Name == "claude" || s.Name == "codex" || len(s.SessionIDArgs) > 0 || s.Sessions != nil
 }
 
 // TakesPrompt reports whether the opening message can ride on the command
@@ -418,8 +518,11 @@ type Start struct {
 	Resume     bool
 	ResumeID   string
 	ForkID     string
-	Prompt     string
-	EnvPrefix  string
+	// SessionID names the new conversation through SessionIDArgs; set only
+	// when AssignsSessionID is true.
+	SessionID string
+	Prompt    string
+	EnvPrefix string
 	// Yolo runs the agent without its approval prompts. On by default for
 	// interactive sessions: you are sitting in the terminal watching it, which
 	// is the supervision, and being asked to confirm every edit in a session you
@@ -455,6 +558,11 @@ func (s Spec) invocation(o Start) string {
 		}
 	} else if o.Resume && len(s.ResumeArgs) > 0 {
 		parts = append(parts, s.ResumeArgs...)
+	}
+	if o.SessionID != "" {
+		for _, arg := range s.SessionIDArgs {
+			parts = append(parts, shellq.Quote(strings.ReplaceAll(arg, "{id}", o.SessionID)))
+		}
 	}
 	if o.Yolo && len(s.YoloArgs) > 0 {
 		parts = append(parts, s.YoloArgs...)
@@ -696,6 +804,10 @@ const (
 	CapYolo       Capability = "yolo"
 	CapACP        Capability = "acp"
 	CapTask       Capability = "task"
+	// CapExact is resuming or forking one exact conversation later: the
+	// built-ins by process evidence, catalog agents by an id named at launch
+	// or read from where the CLI lists its sessions.
+	CapExact Capability = "exact"
 )
 
 // CapabilityState is whether one Capability is available for a Spec, and —
@@ -717,6 +829,7 @@ var capabilityLabels = map[Capability]string{
 	CapYolo:       "Yolo / auto-approve",
 	CapACP:        "The Agent Client Protocol",
 	CapTask:       "Background tasks",
+	CapExact:      "Exact resume",
 }
 
 func (s Spec) displayName() string {
@@ -765,6 +878,7 @@ func (s Spec) Capabilities() map[Capability]CapabilityState {
 		CapYolo:       state(len(s.YoloArgs) > 0 || len(s.YoloEnv) > 0, CapYolo),
 		CapACP:        state(s.ACP != nil, CapACP),
 		CapTask:       state(s.Builtin || s.Task != nil || s.ACP != nil, CapTask),
+		CapExact:      state(s.ExactConversations() && len(s.ResumeIDArgs) > 0, CapExact),
 	}
 }
 

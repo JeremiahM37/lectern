@@ -14,8 +14,13 @@ import android.webkit.WebViewClient
 object WebShell {
     const val BRIDGE = "LecternNative"
 
+    /**
+     * [origin] is the origin of the Lectern this view shows (it changes when
+     * the visible app switches Lecterns). Its app files come from the APK;
+     * a relay origin never reaches the network at all.
+     */
     @SuppressLint("SetJavaScriptEnabled")
-    fun configure(view: WebView, bridge: Bridge, onOrigin: (String) -> Unit, onExternal: ((Uri) -> Unit)? = null) {
+    fun configure(view: WebView, bridge: Bridge, origin: () -> String?, onOrigin: (String) -> Unit, onExternal: ((Uri) -> Unit)? = null) {
         val shell = Shell(view.context)
         view.settings.apply {
             javaScriptEnabled = true
@@ -29,10 +34,11 @@ object WebShell {
         view.addJavascriptInterface(bridge, BRIDGE)
         view.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(v: WebView, request: WebResourceRequest): WebResourceResponse? {
-                val origin = Shell.originOf(request.url.toString())
-                val appOrigin = SecureStore(v.context).origin.ifEmpty { Shell.APP_ORIGIN }
-                if (origin == Shell.APP_ORIGIN) return shell.respond(request, relayOrigin = true)
-                if (origin == appOrigin) return shell.respond(request, relayOrigin = false)
+                val requested = Shell.originOf(request.url.toString())
+                val app = origin()
+                if (app != null && requested == app) return shell.respond(request, relayOrigin = Shell.isRelayOrigin(app))
+                // Another pairing's private origin: never the network.
+                if (Shell.isRelayOrigin(requested)) return Shell.notFound()
                 return null
             }
 
@@ -41,9 +47,9 @@ object WebShell {
             }
 
             override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                val origin = Shell.originOf(request.url.toString())
-                val appOrigin = SecureStore(v.context).origin.ifEmpty { Shell.APP_ORIGIN }
-                if (origin == appOrigin || origin == Shell.APP_ORIGIN) return false
+                val requested = Shell.originOf(request.url.toString())
+                if (requested == origin()) return false
+                if (Shell.isRelayOrigin(requested)) return true
                 // Anything else leaves the app: the bridge only ever serves
                 // this Lectern's own pages.
                 onExternal?.invoke(request.url) ?: runCatching {

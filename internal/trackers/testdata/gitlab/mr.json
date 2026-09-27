@@ -1,0 +1,47 @@
+{
+ "iid": 7480,
+ "title": "Draft: Share the Go build and test cache through gobuildcache",
+ "description": "## What does this MR do?\n\nShares the Go build and test cache between all CI jobs through a bucket, using [gobuildcache](https://github.com/saracen/gobuildcache) as `GOCACHEPROG`, and makes test results reusable across pipelines.\n\nSupersedes https://gitlab.com/gitlab-org/gitlab-runner/-/merge_request",
+ "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/7480",
+ "state": "opened",
+ "draft": true,
+ "author": {
+  "id": 1000,
+  "username": "user1",
+  "public_email": "",
+  "name": "user2",
+  "state": "active",
+  "locked": false,
+  "avatar_url": "https://example.invalid/avatar",
+  "web_url": "https://gitlab.com/user",
+  "bot": false
+ },
+ "assignees": [],
+ "reviewers": [],
+ "labels": [
+  "type::maintenance"
+ ],
+ "source_branch": "ajwalker/gobuildcache",
+ "target_branch": "main",
+ "sha": "83201beb0704196679466ba5dce3ea83b9e86225",
+ "has_conflicts": false,
+ "detailed_merge_status": "draft_status",
+ "merge_when_pipeline_succeeds": false,
+ "merge_user": null,
+ "head_pipeline": {
+  "id": 2886735593,
+  "status": "running",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/pipelines/2886735593",
+  "sha": "05fd21eff4dd600e18e0ab223e107feb4afa5aa7",
+  "ref": "refs/merge-requests/7480/merge"
+ },
+ "source_project_id": 250833,
+ "target_project_id": 250833,
+ "upvotes": 0,
+ "downvotes": 0,
+ "created_at": "2026-09-25T17:08:39.530Z",
+ "updated_at": "2026-09-27T09:57:19.780Z",
+ "merged_at": null,
+ "closed_at": null,
+ "changes_count": "11"
+}

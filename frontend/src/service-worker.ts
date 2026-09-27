@@ -111,7 +111,7 @@ worker.addEventListener('fetch',event=>{
   catch{return await cache.match(request)||(request.mode==='navigate'?await cache.match('/'):undefined)||new Response('Lectern is offline',{status:503});}
  })());
 });
-import {actionURL,buildNotificationPlan,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,limitChoiceForAction,limitChoiceRequestInit,limitChoiceURL,limitConfirmation,type PushData} from './sw-actions';
+import {actionURL,buildNotificationPlan,dismissalOf,replacementNeeded,confirmationNotification,decisionForAction,decisionRequestInit,decisionURL,limitChoiceForAction,limitChoiceRequestInit,limitChoiceURL,limitConfirmation,type PushData} from './sw-actions';
 import {applyBadge,needsBadge,type BadgeNavigator} from './badge';
 // The open page tells this worker its last-known badge count on every SSE
 // refresh (postMessage — a worker has no other way to read live app state).
@@ -134,6 +134,19 @@ worker.addEventListener('message',event=>{
 });
 worker.addEventListener('push',event=>{
  let data:PushData={};try{data=event.data?.json() as PushData||{};}catch{}
+ const dismissal=dismissalOf(data);
+ if(dismissal){
+  event.waitUntil((async()=>{
+   const matched=await worker.registration.getNotifications({tag:dismissal.tag});
+   for(const n of matched)n.close();
+   if(matched.length&&badgeCount>0){badgeCount-=1;applyBadge(navigator as unknown as BadgeNavigator,badgeCount);}
+   const showing=(await worker.registration.getNotifications()).length;
+   const windows=await worker.clients.matchAll({type:'window'}) as readonly WindowClient[];
+   if(replacementNeeded(showing,windows.some(c=>c.visibilityState==='visible')))
+    await worker.registration.showNotification(dismissal.title,{body:dismissal.body,tag:dismissal.tag,silent:true,renotify:false,icon:'/icon.svg',badge:'/icon.svg',data:{url:'/'}} as NotificationOptions);
+  })());
+  return;
+ }
  const plan=buildNotificationPlan(data);
  if(needsBadge(data.kind)){badgeCount+=1;applyBadge(navigator as unknown as BadgeNavigator,badgeCount);}
  event.waitUntil(worker.registration.showNotification(plan.title,plan.options));

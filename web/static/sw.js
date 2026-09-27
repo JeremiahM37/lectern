@@ -2134,6 +2134,13 @@
       };
     return { title: decision === "approved" ? "Approved" : "Denied", body: "Sent from the notification." };
   }
+  function dismissalOf(data) {
+    if (data.kind !== "dismiss" || typeof data.tag !== "string" || !/^[a-z]+-[A-Za-z0-9_-]{1,80}$/.test(data.tag)) return null;
+    return { tag: data.tag, title: data.title || "Handled on another device", body: data.body || "" };
+  }
+  function replacementNeeded(stillShowing, windowVisible) {
+    return stillShowing === 0 && !windowVisible;
+  }
 
   // src/badge.ts
   function applyBadge(nav, count) {
@@ -2152,7 +2159,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-1d44bb87f5c4";
+  var CACHE = "lectern-react-9eee9a36a792";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2201,7 +2208,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-CxIwETDs.js","/react/assets/Workbench-CNu1FsDa.js","/react/assets/action-B1jcWoOh.js","/react/assets/app-Bx0IcP-g.css","/react/assets/app-CseV7Rjm.js","/react/assets/i18n-NWNo7b1M.js","/react/assets/light-Bb4koojK.css","/react/assets/light.generated-DrLDumt7.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-67YaBlui.css","/react/assets/terminal-j_Kd4d33.js"]);
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-CpXsDtA5.js","/react/assets/Workbench-BV1ZtWxd.js","/react/assets/action-BN79Rxdy.js","/react/assets/app-CMQy0b9R.css","/react/assets/app-CtEGJ2q0.js","/react/assets/i18n-DGLbtDJu.js","/react/assets/light-BM5dRsla.css","/react/assets/light.generated-B0gxo6iu.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-CEIzRNOw.js","/react/assets/terminal-aJsDM0ds.css"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {
@@ -2310,6 +2317,22 @@
     try {
       data = event.data?.json() || {};
     } catch {
+    }
+    const dismissal = dismissalOf(data);
+    if (dismissal) {
+      event.waitUntil((async () => {
+        const matched = await worker.registration.getNotifications({ tag: dismissal.tag });
+        for (const n of matched) n.close();
+        if (matched.length && badgeCount > 0) {
+          badgeCount -= 1;
+          applyBadge(navigator, badgeCount);
+        }
+        const showing = (await worker.registration.getNotifications()).length;
+        const windows = await worker.clients.matchAll({ type: "window" });
+        if (replacementNeeded(showing, windows.some((c) => c.visibilityState === "visible")))
+          await worker.registration.showNotification(dismissal.title, { body: dismissal.body, tag: dismissal.tag, silent: true, renotify: false, icon: "/icon.svg", badge: "/icon.svg", data: { url: "/" } });
+      })());
+      return;
     }
     const plan = buildNotificationPlan(data);
     if (needsBadge(data.kind)) {

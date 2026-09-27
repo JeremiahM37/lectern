@@ -33,7 +33,12 @@ type Pattern struct {
 	// Source is where the message text was read from.
 	Source string
 	// Samples are verbatim messages; patterns_test.go matches every one.
+	// Where a CLI fills a placeholder, the sample fills it the way that CLI
+	// would and Source says so.
 	Samples []string
+	// Unless excludes a matching line that is not a stop: a CLI that prints
+	// the same opening when it is about to switch to a fallback on its own.
+	Unless *regexp.Regexp
 }
 
 // Table is every recognised limit message, most specific first.
@@ -105,6 +110,108 @@ var Table = []Pattern{
 			"You have exhausted your daily quota on this model.",
 		},
 	},
+	// ---- catalog agents ------------------------------------------------
+	// Strings read from each CLI's own bundle (catalog verification,
+	// docs/agents.md); none of these CLIs documents its limit text.
+	{
+		Name: "grok-usage-limit", Agent: "grok",
+		Re:      regexp.MustCompile(`^You hit your (?:free usage|weekly) limit\.`),
+		Source:  "grok 1.0.41 binary: status-402 upsell strings",
+		Samples: []string{"You hit your free usage limit.", "You hit your weekly limit."},
+	},
+	{
+		Name: "grok-plan-limit", Agent: "grok",
+		Re:     regexp.MustCompile(`^You(?:'|’)ve (?:hit the (?:rate|credit) limit for your plan|hit your spending cap|reached your free Grok Build usage limit for now)\.`),
+		Source: "grok 1.0.41 binary: plan limit strings (the credit, spending-cap and free-usage ones use a typographic apostrophe)",
+		Samples: []string{
+			"You've hit the rate limit for your plan.",
+			"You’ve hit the credit limit for your plan.",
+			"You’ve hit your spending cap.",
+			"You’ve reached your free Grok Build usage limit for now. Get SuperGrok for much higher limits, or try again later: https://grok.com/supergrok?referrer=grok-build",
+		},
+	},
+	{
+		Name: "devin-quota-exhausted", Agent: "devin",
+		Re:      regexp.MustCompile(`^Purchase on-demand usage or turn on auto-reload, or wait for your quota to reset\.`),
+		Source:  "devin 3000.11.3 binary: the \"Quota exhausted\" notice body",
+		Samples: []string{"Purchase on-demand usage or turn on auto-reload, or wait for your quota to reset."},
+	},
+	{
+		Name: "droid-standard-limit", Agent: "droid",
+		Re:     regexp.MustCompile(`^Standard Usage limit reached\. Select an option below to continue using Droid\.`),
+		Source: "droid 0.228.0 binary: limit picker text (\"Standard resets <date>.\" follows when the reset date is known)",
+		Samples: []string{
+			"Standard Usage limit reached. Select an option below to continue using Droid.",
+			"Standard Usage limit reached. Select an option below to continue using Droid. Standard resets Oct 3.",
+		},
+	},
+	{
+		Name: "droid-provider-quota", Agent: "droid",
+		Re:     regexp.MustCompile(`^Your model provider(?:'|’)s usage quota is exhausted\.`),
+		Source: "droid 0.228.0 binary: BYOK quota error (resetAt filled by droid)",
+		Samples: []string{
+			"Your model provider's usage quota is exhausted. Wait for the reset, raise the limit with your provider, or switch to another model with `/model`.",
+			"Your model provider's usage quota is exhausted. Limits reset at 3:40 PM. Wait for the reset, raise the limit with your provider, or switch to another model with `/model`.",
+		},
+	},
+	{
+		Name: "droid-org-limit", Agent: "droid",
+		Re:      regexp.MustCompile(`^Your organization(?:'|’)s usage limit was reached\. Runs resume automatically once the limit resets\.`),
+		Source:  "droid 0.228.0 binary",
+		Samples: []string{"Your organization's usage limit was reached. Runs resume automatically once the limit resets."},
+	},
+	{
+		Name: "kiro-monthly-limit", Agent: "kiro",
+		Re:      regexp.MustCompile(`^The monthly usage limit has been reached`),
+		Source:  "kiro-cli-chat 2.24.1 binary: error message table",
+		Samples: []string{"The monthly usage limit has been reached"},
+	},
+	{
+		Name: "qwen-quota-exhausted", Agent: "qwen",
+		Re:      regexp.MustCompile(`^Please retry after the reset time, or switch to another API key / auth method\.`),
+		Source:  "qwen 0.24.6 formatQuotaExhaustedMessage: \"Quota exhausted: <provider message>\" then this fixed line; the provider message in the sample is illustrative",
+		Samples: []string{"Quota exhausted: free tier quota exceeded, will reset at 00:00 UTC\n\nPlease retry after the reset time, or switch to another API key / auth method."},
+	},
+	{
+		Name: "opencode-quota-exceeded", Agent: "opencode",
+		Re:      regexp.MustCompile(`^Quota exceeded\. Check your plan and billing details\.`),
+		Source:  "opencode 1.18.32, kilo 7.8.1 and mimo 0.1.15 binaries (shared OpenCode error text)",
+		Samples: []string{"Quota exceeded. Check your plan and billing details."},
+	},
+	{
+		Name: "codebuff-out-of-credits", Agent: "codebuff",
+		Re:      regexp.MustCompile(`^Out of credits\. Please add credits at \S+/usage`),
+		Source:  "codebuff 1.0.688 binary (~/.config/manicode/codebuff): `Out of credits. Please add credits at ${appUrl}/usage`, appUrl defaulting to https://codebuff.com",
+		Samples: []string{"Out of credits. Please add credits at https://codebuff.com/usage"},
+	},
+	{
+		Name: "autohand-plan-limit", Agent: "autohand",
+		Re:     regexp.MustCompile(`^You(?:'|’)ve reached your (?:\S+ )?plan limit\. Run /upgrade`),
+		Source: "autohand-cli 0.9.8 dist: \"You've reached your {{plan}} plan limit. Run /upgrade to move to {{next}}.\" (placeholders filled)",
+		Samples: []string{
+			"You've reached your plan limit. Run /upgrade to review your plan.",
+			"You've reached your Pro plan limit. Run /upgrade to move to Max.",
+		},
+	},
+	{
+		Name: "goose-out-of-credits", Agent: "goose",
+		Re:     regexp.MustCompile(`^Please (?:add credits to your account|check your account with your provider to add more credits), then resend your message to continue\.`),
+		Source: "goose 1.52.0 binary: credits_exhausted error text",
+		Samples: []string{
+			"Please add credits to your account, then resend your message to continue.",
+			"Please check your account with your provider to add more credits, then resend your message to continue.",
+		},
+	},
+	{
+		Name: "hermes-credits-exhausted", Agent: "hermes",
+		Re:     regexp.MustCompile(`^(?:❌ )?Billing or credits exhausted(?: —|:) `),
+		Unless: regexp.MustCompile(`switching to fallback provider`),
+		Source: "hermes 0.21.5 agent/turn_recovery.py and conversation_loop.py (the \"switching to fallback provider\" variant continues on its own and is not a stop); the summary after the dash in the samples is illustrative",
+		Samples: []string{
+			"❌ Billing or credits exhausted — Nous Portal: insufficient credits",
+			"Billing or credits exhausted: Nous Portal: insufficient credits",
+		},
+	},
 }
 
 // Hit is one detected limit message.
@@ -139,7 +246,7 @@ func DetectLines(text string, now time.Time) (Hit, bool) {
 		}
 		for _, p := range Table {
 			loc := p.Re.FindStringSubmatchIndex(line)
-			if loc == nil {
+			if loc == nil || (p.Unless != nil && p.Unless.MatchString(line)) {
 				continue
 			}
 			context := line

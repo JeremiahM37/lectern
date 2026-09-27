@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same lectern in one colour, for Android 13 themed icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M34,40 L74,32 L76,44 L36,52 Z M51,50 L57,49 L58,74 L50,74 Z M40,74 L68,74 L68,79 L40,79 Z" />
+</vector>

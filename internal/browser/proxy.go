@@ -350,6 +350,15 @@ func (v *View) modify(resp *http.Response, port int) error {
 			h.Add("Set-Cookie", dropCookieDomain(c))
 		}
 	}
+	// A page the browser keeps in its cache comes back without a request, so
+	// turning Design Mode on would reload the copy that has no picker. Many
+	// dev and static servers let HTML be cached heuristically (Last-Modified,
+	// no Cache-Control): python -m http.server does. So no document this view
+	// serves is stored; its scripts, styles and images cache as the app says.
+	if Injectable(true, resp.Request, resp) {
+		h.Set("Cache-Control", "no-store")
+		h.Del("Expires")
+	}
 	if !Injectable(v.Design(), resp.Request, resp) {
 		return nil
 	}

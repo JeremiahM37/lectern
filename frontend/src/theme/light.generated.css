@@ -6,6 +6,7 @@
 
 /* frontend/src/browser/browser.css */
 :root[data-theme="light"] .desk-shot { background: var(--bg); }
+:root[data-theme="light"] .browser-menu { box-shadow: 0 12px 32px rgba(15, 23, 42, 0.17); }
 
 /* frontend/src/continuity/continuity.css */
 :root[data-theme="light"] .switch-progress { box-shadow: 0 10px 30px rgba(15, 23, 42, 0.21); }

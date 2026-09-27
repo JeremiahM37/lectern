@@ -26,6 +26,8 @@ export interface Snapshot {
   unresponsive: boolean;
   // A connection attempt failed while the device reports no network at all.
   offline: boolean;
+  // Text is selected in the live terminal (a long press on a phone).
+  selection: boolean;
 }
 export interface EngineOptions {
   url: string;
@@ -41,12 +43,18 @@ export interface EngineOptions {
   matches: (index: number, count: number) => void;
   // A deliberate horizontal flick on the terminal body, for the tab bar.
   swipe?: (direction: 1 | -1) => void;
+  // A tapped link in the output (links.ts): a web address or a workspace file.
+  openLink?: (link: TerminalLink) => void;
+  // The workspace, for turning tapped paths into files the viewer can open.
+  workdir?: () => string;
   // Whether a program may copy to the clipboard with OSC 52, and what to do
   // with text it copies.
   osc52?: () => boolean;
   clipboard?: (text: string) => void;
 }
 import { installAndroidInput } from "./android-input";
+import { hyperlinkTarget, linkAt, type TerminalLink } from "./links";
+import { haptic } from "../mobile/haptics";
 export class Engine {
   private controlsPrefix = false;
   private androidInput?: ReturnType<typeof installAndroidInput>;
@@ -130,9 +138,18 @@ export class Engine {
     this.term.loadAddon(this.search);
     this.term.loadAddon(
       new WebLinksAddon((_event, url) => {
-        if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener");
+        if (/^https?:\/\//i.test(url)) this.open({ kind: "url", url, text: url });
       }),
     );
+    // OSC 8 hyperlinks (ls --hyperlink, compilers, test runners): web
+    // addresses open, file:// links into the workspace open in the viewer.
+    this.term.options.linkHandler = {
+      allowNonHttpProtocols: true,
+      activate: (_event, uri) => {
+        const link = hyperlinkTarget(uri, options.workdir?.() || "");
+        if (link) this.open(link);
+      },
+    };
     this.term.open(options.host);
     // OSC 52: a program (tmux, vim, a remote shell) sets the clipboard. Writes
     // are honoured when allowed; a request to read the clipboard ("?") never
@@ -175,6 +192,19 @@ export class Engine {
         dispose: () => textarea.removeEventListener("focus", claim),
       });
     }
+    this.disposables.push(
+      this.term.onSelectionChange(() => {
+        const has = this.term.hasSelection();
+        if (has !== this.selection) {
+          this.selection = has;
+          this.changed();
+        }
+      }),
+    );
+    // A long press is a selection here, never the browser's context menu.
+    options.host.addEventListener("contextmenu", (event) => {
+      if (navigator.maxTouchPoints > 0) event.preventDefault();
+    }, { signal: this.lifetime.signal });
     this.observer = new ResizeObserver(() => this.scheduleFit());
     this.observer.observe(options.host);
     this.term.textarea?.addEventListener("blur", () => {
@@ -221,7 +251,14 @@ export class Engine {
       enabled: () => this.connected && !this.paused && !this.stopped,
       // Held still, the terminal becomes text: the buffer as the phone's own
       // selectable type, which is the only kind a phone can select and copy.
-      longPress: () => this.freeze(true),
+      // Held still, the word under the finger is selected in the live
+      // buffer, and the same finger drags the selection. Output keeps
+      // arriving; Tools → Pause view still gives the whole buffer as
+      // native text.
+      longPress: (point) => this.selectAt(point),
+      selectMove: (point) => this.extendTo(point),
+      selectEnd: () => this.changed(),
+      tap: (point) => this.tapAt(point),
       promptPan: pixels => this.panPrompt(pixels),
       // A live selection owns a horizontal drag: it is how text is extended,
       // not how the next terminal is chosen.
@@ -309,7 +346,106 @@ export class Engine {
         retained: this.readingRetainedHistory,
         unresponsive: this.unresponsive,
         offline: this.offline,
+        selection: this.selection,
       });
+  }
+  selection = false;
+  private anchor?: { start: [number, number]; end: [number, number] };
+  // The buffer cell under a point on screen: column, and absolute row.
+  private cellAt(point: { x: number; y: number }) {
+    const screen = this.term.element?.querySelector<HTMLElement>(".xterm-screen");
+    if (!screen || !this.term.cols || !this.term.rows) return undefined;
+    const box = screen.getBoundingClientRect();
+    const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v));
+    const col = clamp(Math.floor(((point.x - box.left) * this.term.cols) / box.width), this.term.cols - 1);
+    const row = clamp(Math.floor(((point.y - box.top) * this.term.rows) / box.height), this.term.rows - 1);
+    return { col, row: this.term.buffer.active.viewportY + row, box };
+  }
+  // A run of non-blank cells: a word, a path, a URL, a number.
+  private wordAt(col: number, row: number): [number, number] {
+    const line = this.term.buffer.active.getLine(row);
+    if (!line) return [col, col];
+    const word = (x: number) => {
+      const cell = line.getCell(x);
+      if (!cell) return false;
+      return cell.getWidth() === 0 || (cell.getChars() !== "" && !/\s/.test(cell.getChars()));
+    };
+    if (!word(col)) return [col, col];
+    let start = col,
+      end = col;
+    while (start > 0 && word(start - 1)) start--;
+    while (end < this.term.cols - 1 && word(end + 1)) end++;
+    return [start, end];
+  }
+  private selectRange(a: [number, number], b: [number, number]) {
+    const [first, last] = a[1] < b[1] || (a[1] === b[1] && a[0] <= b[0]) ? [a, b] : [b, a];
+    this.term.select(first[0], first[1], (last[1] - first[1]) * this.term.cols + last[0] - first[0] + 1);
+  }
+  selectAt(point: { x: number; y: number }): boolean {
+    const cell = this.cellAt(point);
+    if (!cell) return false;
+    const [start, end] = this.wordAt(cell.col, cell.row);
+    this.anchor = { start: [start, cell.row], end: [end, cell.row] };
+    this.selectRange(this.anchor.start, this.anchor.end);
+    haptic("tick");
+    return true;
+  }
+  extendTo(point: { x: number; y: number }) {
+    const cell = this.cellAt(point);
+    if (!cell || !this.anchor) return;
+    // Near the top or bottom edge the view scrolls, so a selection can grow
+    // past what is on screen.
+    if (point.y < cell.box.top + 18) this.term.scrollLines(-1);
+    else if (point.y > cell.box.bottom - 18) this.term.scrollLines(1);
+    const here: [number, number] = [cell.col, cell.row];
+    const before = cell.row < this.anchor.start[1] || (cell.row === this.anchor.start[1] && cell.col < this.anchor.start[0]);
+    this.selectRange(before ? here : this.anchor.start, before ? this.anchor.end : here);
+  }
+  /** Grows the selection to whole lines, for copying a command or a stack
+   * trace without aiming at its first and last character. */
+  selectLines() {
+    const at = this.term.getSelectionPosition();
+    if (!at) return;
+    this.term.selectLines(at.start.y, at.end.x === 0 && at.end.y > at.start.y ? at.end.y - 1 : at.end.y);
+  }
+  /** The link a selection or tap is on, if it is one. */
+  selectedLink(): TerminalLink | undefined {
+    const at = this.term.getSelectionPosition();
+    if (!at || at.start.y !== at.end.y) return undefined;
+    const text = this.term.buffer.active.getLine(at.start.y)?.translateToString(true) || "";
+    return linkAt(text, at.start.x, this.options.workdir?.() || "");
+  }
+  private tapAt(point: { x: number; y: number }): boolean {
+    if (this.term.hasSelection()) {
+      this.term.clearSelection();
+      return true;
+    }
+    const cell = this.cellAt(point);
+    if (!cell) return false;
+    const link = this.hyperlinkAt(cell.col, cell.row) ??
+      linkAt(this.term.buffer.active.getLine(cell.row)?.translateToString(true) || "", cell.col, this.options.workdir?.() || "");
+    if (!link || (link.kind === "file" && !this.options.workdir?.())) return false;
+    this.open(link);
+    return true;
+  }
+  // xterm has no public way to read an OSC 8 link under a cell; its own
+  // hover uses these internals. Guarded, so a future xterm simply falls back
+  // to the text-based detection above.
+  private hyperlinkAt(col: number, row: number): TerminalLink | undefined {
+    try {
+      const cell = this.term.buffer.active.getLine(row)?.getCell(col) as unknown as
+        { hasExtendedAttrs?(): number; extended?: { urlId?: number } } | undefined;
+      const id = cell?.hasExtendedAttrs?.() ? cell.extended?.urlId : 0;
+      const service = (this.term as unknown as { _core?: { _oscLinkService?: { getLinkData(id: number): { uri: string } | undefined } } })._core?._oscLinkService;
+      const uri = id && service ? service.getLinkData(id)?.uri : undefined;
+      return uri ? hyperlinkTarget(uri, this.options.workdir?.() || "") : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  private open(link: TerminalLink) {
+    haptic("tick");
+    this.options.openLink?.(link);
   }
   private armSilence() {
     ++this.unansweredKeys;
@@ -619,11 +755,11 @@ export class Engine {
     this.term.options.theme = resolveTerminalTheme(prefs.theme);
     if (!this.paused) this.scheduleFit();
   }
-  // File references and addresses in the output open on click, and on a tap
-  // on phones, where xterm's own link handling never sees one (files/links.ts).
+  // File references in the output, underlined on hover and opened at their
+  // line on click (files/terminalLinks.ts). Taps go through tapAt above.
   fileLinks(workdir: string, preview: (path: string, line?: number, column?: number) => void) {
     this.disposables.push(
-      installTerminalLinks(this.term, this.options.host, workdir, (link) => {
+      installTerminalLinks(this.term, workdir, (link) => {
         if (link.url) window.open(link.url, "_blank", "noopener");
         else if (link.path) preview(link.path, link.line, link.column);
       }),

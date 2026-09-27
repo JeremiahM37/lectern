@@ -45,7 +45,9 @@ func TestLimitedTaskIsRequeuedForTheResetOnce(t *testing.T) {
 	if next.ResumeSession == "" || next.WorktreePath != first.WorktreePath || next.Agent != first.Agent {
 		t.Fatalf("continuation does not resume the same agent in the same worktree: %+v", next)
 	}
-	view := h.get(fmt.Sprintf("/api/tasks/%d", task.id()))
+	// The task's own status moves to queued just after the continuation is
+	// recorded, in the same scheduler call.
+	view := h.waitStatus(task.id(), "queued")
 	limit := view.sub("limit")
 	if view.str("status") != "queued" || limit.str("state") != limits.StateRequeued || limit.num("reset_at") == 0 {
 		t.Fatalf("task view: status=%s limit=%v", view.str("status"), limit)

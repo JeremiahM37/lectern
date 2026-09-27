@@ -27,5 +27,5 @@ export function serviceWorkerPlugin():Plugin{return {name:'typed-service-worker'
  if(!outputFile)throw new Error('esbuild produced no output for service-worker.ts');
  const source=outputFile.text;
  const version=createHash('sha256').update(assets.join('\n')+source).digest('hex').slice(0,12);
- this.emitFile({type:'asset',fileName:'sw.js',source:source.replaceAll('__CACHE_NAME__',JSON.stringify('lectern-react-'+version)).replaceAll('__STATIC_ASSETS__',JSON.stringify(['/','/icon.svg','/manifest.webmanifest','/fonts.css','/fonts/inter-latin.woff2','/fonts/inter-latin-ext.woff2',...assets.map(name=>'/react/'+name)]))});
+ this.emitFile({type:'asset',fileName:'sw.js',source:source.replaceAll('__CACHE_NAME__',JSON.stringify('lectern-react-'+version)).replaceAll('__STATIC_ASSETS__',JSON.stringify(['/','/icon.svg','/icon-192.png','/manifest.webmanifest','/fonts.css','/fonts/inter-latin.woff2','/fonts/inter-latin-ext.woff2',...assets.map(name=>'/react/'+name)]))});
 }};}

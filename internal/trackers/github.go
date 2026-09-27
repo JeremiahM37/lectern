@@ -61,6 +61,7 @@ type ghCheck struct {
 }
 
 type ghComment struct {
+	ID        string            `json:"id"`
 	Author    ghActor           `json:"author"`
 	Body      string            `json:"body"`
 	CreatedAt string            `json:"createdAt"`
@@ -69,6 +70,7 @@ type ghComment struct {
 }
 
 type ghReview struct {
+	ID          string  `json:"id"`
 	Author      ghActor `json:"author"`
 	Body        string  `json:"body"`
 	State       string  `json:"state"`
@@ -479,13 +481,13 @@ func ghReviewers(p ghPR) []Reviewer {
 func ghTimeline(p ghPR) []Event {
 	var ev []Event
 	for _, c := range p.Comments {
-		ev = append(ev, Event{Kind: "comment", Author: c.Author.Login, Body: c.Body, At: c.CreatedAt, URL: c.URL, Reactions: ghReactions(c.Reactions)})
+		ev = append(ev, Event{ID: c.ID, Kind: "comment", Author: c.Author.Login, Body: c.Body, At: c.CreatedAt, URL: c.URL, Reactions: ghReactions(c.Reactions)})
 	}
 	for _, r := range p.Reviews {
 		if r.State == "PENDING" {
 			continue
 		}
-		ev = append(ev, Event{Kind: "review", Author: r.Author.Login, Body: r.Body, State: ghReviewState(r.State), At: r.SubmittedAt})
+		ev = append(ev, Event{ID: r.ID, Kind: "review", Author: r.Author.Login, Body: r.Body, State: ghReviewState(r.State), At: r.SubmittedAt})
 	}
 	for _, c := range p.Commits {
 		author := ""
@@ -592,7 +594,7 @@ func (g *GitHub) Issue(ctx context.Context, n int) (*IssueDetail, error) {
 	d := &IssueDetail{Item: g.issueItem(i), Body: i.Body, Reactions: ghReactions(i.Reactions), CreatedAt: i.CreatedAt,
 		Children: []Item{}, Transitions: []Transition{}, BranchName: BranchName(strconv.Itoa(i.Number), i.Title)}
 	for _, c := range i.Comments {
-		d.Timeline = append(d.Timeline, Event{Kind: "comment", Author: c.Author.Login, Body: c.Body, At: c.CreatedAt, URL: c.URL, Reactions: ghReactions(c.Reactions)})
+		d.Timeline = append(d.Timeline, Event{ID: c.ID, Kind: "comment", Author: c.Author.Login, Body: c.Body, At: c.CreatedAt, URL: c.URL, Reactions: ghReactions(c.Reactions)})
 	}
 	if d.Timeline == nil {
 		d.Timeline = []Event{}
@@ -724,4 +726,120 @@ func (g *GitHub) Users(ctx context.Context) ([]User, error) {
 // repository for same-repository and fork PRs alike.
 func (g *GitHub) FetchRefs(pr *PRDetail) (string, string) {
 	return "refs/heads/" + pr.Base, "refs/pull/" + pr.ID + "/head"
+}
+
+func (g *GitHub) graphql(ctx context.Context, out any, query string, vars ...string) error {
+	args := []string{"api"}
+	if g.ref.Host != "" && g.ref.Host != "github.com" {
+		args = append(args, "--hostname", g.ref.Host)
+	}
+	args = append(args, "graphql", "-f", "query="+query)
+	for i := 0; i+1 < len(vars); i += 2 {
+		args = append(args, "-f", vars[i]+"="+vars[i+1])
+	}
+	var env struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := g.json(ctx, &env, args...); err != nil {
+		return err
+	}
+	if len(env.Errors) > 0 {
+		return &CLIError{Msg: "GitHub: " + env.Errors[0].Message}
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(env.Data, out)
+}
+
+var ghReactionContent = map[string]string{"+1": "THUMBS_UP", "-1": "THUMBS_DOWN", "laugh": "LAUGH", "hooray": "HOORAY",
+	"confused": "CONFUSED", "heart": "HEART", "rocket": "ROCKET", "eyes": "EYES"}
+
+// React adds a reaction through GraphQL's addReaction, which takes the node
+// id of the pull request, issue, comment or review.
+func (g *GitHub) React(ctx context.Context, kind string, n int, subject, emoji string) error {
+	content := ghReactionContent[emoji]
+	if content == "" {
+		return fmt.Errorf("unknown reaction %q", emoji)
+	}
+	if subject == "" {
+		sub := "issue"
+		if kind == "pr" {
+			sub = "pr"
+		}
+		var node struct {
+			ID string `json:"id"`
+		}
+		if err := g.json(ctx, &node, sub, "view", strconv.Itoa(n), "-R", g.ref.Slug(), "--json", "id"); err != nil {
+			return err
+		}
+		subject = node.ID
+	}
+	return g.graphql(ctx, nil, `mutation($s:ID!,$c:ReactionContent!){addReaction(input:{subjectId:$s,content:$c}){reaction{content}}}`,
+		"s", subject, "c", content)
+}
+
+// Queue reads the base branch's merge queue.
+func (g *GitHub) Queue(ctx context.Context, base string) ([]QueueEntry, error) {
+	owner, name, _ := strings.Cut(g.ref.Path, "/")
+	var res struct {
+		Repository struct {
+			MergeQueue *struct {
+				Entries struct {
+					Nodes []struct {
+						ID          string `json:"id"`
+						Position    int    `json:"position"`
+						State       string `json:"state"`
+						EnqueuedAt  string `json:"enqueuedAt"`
+						ETA         *int   `json:"estimatedTimeToMerge"`
+						PullRequest struct {
+							Number int     `json:"number"`
+							Title  string  `json:"title"`
+							URL    string  `json:"url"`
+							Author ghActor `json:"author"`
+						} `json:"pullRequest"`
+					} `json:"nodes"`
+				} `json:"entries"`
+			} `json:"mergeQueue"`
+		} `json:"repository"`
+	}
+	const q = `query($o:String!,$n:String!,$b:String!){repository(owner:$o,name:$n){mergeQueue(branch:$b){entries(first:100){nodes{id position state enqueuedAt estimatedTimeToMerge pullRequest{number title url author{login}}}}}}}`
+	if err := g.graphql(ctx, &res, q, "o", owner, "n", name, "b", base); err != nil {
+		return nil, err
+	}
+	out := []QueueEntry{}
+	if res.Repository.MergeQueue == nil {
+		return out, nil
+	}
+	for _, e := range res.Repository.MergeQueue.Entries.Nodes {
+		qe := QueueEntry{ID: e.ID, Number: e.PullRequest.Number, Title: e.PullRequest.Title, URL: e.PullRequest.URL,
+			Author: e.PullRequest.Author.Login, Position: e.Position, Status: strings.ToLower(e.State), EnqueuedAt: e.EnqueuedAt}
+		if e.ETA != nil {
+			qe.ETASeconds = *e.ETA
+		}
+		out = append(out, qe)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out, nil
+}
+
+// Dequeue removes an entry from the merge queue.
+func (g *GitHub) Dequeue(ctx context.Context, e QueueEntry) error {
+	return g.graphql(ctx, nil, `mutation($id:ID!){dequeuePullRequest(input:{id:$id}){mergeQueueEntry{id}}}`, "id", e.ID)
+}
+
+// DefaultBranch is the repository's default branch, the queue view's default.
+func (g *GitHub) DefaultBranch(ctx context.Context) (string, error) {
+	var r struct {
+		Ref struct {
+			Name string `json:"name"`
+		} `json:"defaultBranchRef"`
+	}
+	if err := g.json(ctx, &r, "repo", "view", g.ref.Slug(), "--json", "defaultBranchRef"); err != nil {
+		return "", err
+	}
+	return r.Ref.Name, nil
 }

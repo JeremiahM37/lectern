@@ -61,16 +61,76 @@ check), `added` (an agent by that name is already registered) and
 `capabilities`. The MCP and skills entries depend on the agent keeping the
 preset's name: Lectern wires both by agent name.
 
-Exact resume and fork need the CLI's own session id. Lectern captures that id
-itself only for the built-in agents; for a catalog agent, resume reopens the
-CLI's most recent session in the directory unless an id is already known (for
-example from a task takeover). `sessions_hint` says where each CLI lists them.
+## Exact conversations for catalog agents
+
+Restore, Recent, the saved-conversation picker, fork and `lectern restore`
+continue one exact conversation, never "the latest one in this folder".
+Claude and Codex are bound by process evidence. A catalog agent is bound in
+one of two ways, both set in its definition:
+
+- **Named at launch** (`session_id_args`, e.g. `["--session-id", "{id}"]`):
+  Lectern generates a UUID, records it on the session and passes it to the
+  CLI. `fork_session_id` also names a fork's new conversation. Used for Qwen
+  Code, OpenClaude, Copilot CLI and Grok. An id named this way is used as is
+  on Restore — Qwen Code, for one, leaves a conversation out of its own
+  listing until the process has exited — so a session closed before its first
+  message restores to a conversation the CLI never saved, and the CLI says so.
+- **Matched afterwards** (`sessions`): Lectern reads where the CLI lists its
+  conversations — a JSON listing command (`opencode session list --format
+  json`), session files (Pi's JSONL headers, Vibe's `meta.json`) or a SQLite
+  table (Hermes) — and binds the one conversation in this folder that did not
+  exist when the session launched and has been written since. It binds
+  nothing when more than one qualifies, when another session already holds
+  it, or when another unbound session of the same agent was running in the
+  same folder. A session left unbound gets the picker, not a guess. Capture
+  runs while the session is alive and once more after it ends, for CLIs that
+  list a conversation only then. The listing that records what existed runs
+  before the CLI starts, and capture waits a few seconds after the launch:
+  run beside a starting CLI, a listing command can race it initialising the
+  same store (Crush once failed to start that way).
+
+The same listing validates an id before Restore, Recent or fork uses it, and
+feeds the saved-conversation picker. Lectern lists these conversations but
+does not read their messages, so the picker shows titles and times only.
+`sessions_hint` says where each CLI lists them for anyone resuming by hand.
+
+| Agent | How it is bound | Checked live |
+|---|---|---|
+| OpenCode, Kilo Code, MiMo Code | `session list --format json` | bind, Restore, fork, `lectern restore` |
+| Qwen Code | named at launch; forks from `sessions list --json` | bind, Restore, fork, `lectern restore` |
+| OpenClaude | named at launch, forks too | bind, Restore, fork, `lectern restore` |
+| Goose | `session list --format json` | bind, Restore, fork, `lectern restore` |
+| Pi, oh-my-pi | session file headers | bind, Restore, fork (Pi), `lectern restore` |
+| Crush | `session list --json` (per folder) | bind, Restore, `lectern restore` |
+| Cline | `history --json` | bind, Restore, `lectern restore` |
+| Hermes | `~/.hermes/state.db` | bind, Restore, `lectern restore` |
+| Mistral Vibe | `logs/session/*/meta.json` | bind, Restore, `lectern restore` |
+| Copilot CLI, Grok | named at launch | flags from `--help` only (need an account) |
+
+"Checked live" means: each CLI ran in Lectern against a local stand-in
+OpenAI-compatible server (no account), answered an opening prompt, was bound,
+stopped, restored through the API and again through `lectern restore`, and the
+restored CLI's next request to the model carried the earlier reply
+(`tools/catalog-probe/live_exact.py`, with `fake_openai.py` as the server). Every
+other catalog agent resumes only its most recent conversation in the folder,
+or by an id you give it: their session stores could not be read without an
+account (Kimi, Devin, Kiro, Cursor, Auggie, Amp, Droid, Antigravity, Continue,
+Codebuff, Command Code, Autohand, Rovo Dev) or are an internal format Lectern
+does not read (Muse). Cursor's `create-chat` returns a new chat id and would
+suit naming at launch, but it needs a Cursor login to test.
+
+Two first-run screens got in the way of those checks and will greet a real
+user once: MiMo Code asks to accept `--yolo` the first time, and OpenClaude
+asks to accept bypass mode (its folder-trust prompt is answered by Lectern
+now, like Claude Code's). Crush's input box is not one Lectern recognises as
+a prompt, so its opening message is not typed in automatically.
 
 ## Capability degradation
 
 `GET /api/agents` and `GET /api/agents/capabilities` report, per agent, a
-`capabilities` map keyed by `resume`, `fork`, `model`, `models_list`, `yolo`,
-`acp` and `task` (`internal/sessions.Spec.Capabilities`). Each entry is
+`capabilities` map keyed by `resume`, `exact`, `fork`, `model`, `models_list`,
+`yolo`, `acp` and `task` (`internal/sessions.Spec.Capabilities`); `exact` is
+resuming one exact conversation later (see above). Each entry is
 `{"available": true}` or `{"available": false, "reason": "<Feature> isn't
 available for <Agent>"}` — driven by which registry fields are populated, so
 a picker can grey out a Resume button with an explanatory reason ("Resume isn't
@@ -193,9 +253,10 @@ routine takeover keeps the original MCP policy when project settings change.
 See [context-parity.md](context-parity.md).
 
 Claude and Codex support exact-ID resume and fork in the interactive web and
-terminal clients. Gemini and custom agents expose those actions only when their
-definition provides the corresponding argument templates; Lectern never falls
-back to an unrelated last conversation.
+terminal clients, and so do catalog agents that name or list their
+conversations (above). Gemini and other custom agents expose those actions only
+when their definition provides the corresponding argument templates; Lectern
+never falls back to an unrelated last conversation.
 
 ## Binary not found
 

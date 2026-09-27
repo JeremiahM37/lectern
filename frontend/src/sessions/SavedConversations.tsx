@@ -22,6 +22,9 @@ interface HistoryPage {
   messages: Msg[];
   before: number | null;
   conversation: { agent: string };
+  // false for a catalog agent: Lectern can list, resume and fork its
+  // conversations but does not read their messages.
+  messages_readable?: boolean;
 }
 export function NativeHistory({
   api,
@@ -86,7 +89,11 @@ export function NativeHistory({
       if (g !== generation.current) return;
       setMessages((v) => (older ? [...page.messages, ...v] : page.messages));
       setBefore(page.before);
-      setStatus(`${page.conversation.agent} · ${cid}`);
+      setStatus(
+        page.messages_readable === false
+          ? `${page.conversation.agent} · ${cid} — Lectern can resume and fork this conversation but does not read its messages.`
+          : `${page.conversation.agent} · ${cid}`,
+      );
     } catch (e) {
       if (g === generation.current) setStatus(String(e));
     }

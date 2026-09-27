@@ -399,6 +399,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		m.publish(fresh)
 		if status == StatusDead && s.Status != StatusDead {
 			m.Log.Info("session ended", "session", s.ID, "name", s.Name)
+			m.finishCatalogCapture(s.ID)
 			if s.Origin == "discovered" && (s.Agent == "claude" || s.Agent == "codex") {
 				go func(id int64) {
 					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

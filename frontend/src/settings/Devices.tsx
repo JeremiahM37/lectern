@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { PairLinkActions } from "../pairing/PairLinkActions";
 import { RelayPanel } from "./RelayPanel";
 // devices.css is imported by main.tsx, matching connect-tools.css's own
 // comment: this module gets its own node:test unit coverage (Devices.test.ts)
@@ -187,6 +188,7 @@ export function Devices({
                 </p>
                 <code className="pairing-code-text">{groupCode(minted.code)}</code>
                 <p className="subhint">Expires in {secondsLeft}s · single use</p>
+                <PairLinkActions link={pairURL(minted.code)} onNotice={onNotice} />
               </div>
             </div>
           )}
