@@ -70,7 +70,9 @@ Lectern tells you plainly when a CLI can't do something.
 ### Nothing gets lost
 
 - **Restore** brings back anything that ended: closed, archived, crashed, or
-  cut off by a reboot, with its conversation when one was saved. Ending a
+  cut off by a reboot, with its exact conversation when one was saved — for
+  Claude, Codex and the catalog agents that name or list their sessions
+  (OpenCode, Qwen Code, Goose, Pi and more; see docs/agents.md). Ending a
   session offers **Undo**, an agent that exits shows **Revive**, and
   `lectern restore` does the same from any terminal.
 - Sessions stay grouped by project and machine.

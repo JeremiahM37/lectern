@@ -33,11 +33,34 @@ quotes the message).
 | `gemini-usage-limit` | `Usage limit reached for gemini-2.5-pro.` / `Access resets at 3:40 PM PST.` |
 | `gemini-quota-exhausted` | `You have exhausted your capacity on this model. Your quota will reset after 19h14m47s.` |
 
+| `grok-usage-limit`, `grok-plan-limit` | `You hit your weekly limit.` / `You’ve hit the credit limit for your plan.` |
+| `devin-quota-exhausted` | `Purchase on-demand usage or turn on auto-reload, or wait for your quota to reset.` |
+| `droid-standard-limit`, `droid-provider-quota`, `droid-org-limit` | `Standard Usage limit reached. Select an option below to continue using Droid.` |
+| `kiro-monthly-limit` | `The monthly usage limit has been reached` |
+| `qwen-quota-exhausted` | `Please retry after the reset time, or switch to another API key / auth method.` |
+| `opencode-quota-exceeded` (OpenCode, Kilo, MiMo) | `Quota exceeded. Check your plan and billing details.` |
+| `codebuff-out-of-credits` | `Out of credits. Please add credits at https://codebuff.com/usage` |
+| `autohand-plan-limit` | `You've reached your plan limit. Run /upgrade to review your plan.` |
+| `goose-out-of-credits` | `Please add credits to your account, then resend your message to continue.` |
+| `hermes-credits-exhausted` | `❌ Billing or credits exhausted — …` (not its "switching to fallback provider" notice) |
+
 Samples come from Claude Code 2.1.283's bundle, the Codex 0.157.0 binary and
-gemini-cli 0.61.0's source and tests. Catalog and custom agents are checked
-against the same table: they usually wrap one of these CLIs or print the
-provider's message as-is. An agent that words its limit differently is not
-detected until a pattern is added.
+gemini-cli 0.61.0's source and tests. The catalog agents' come from the
+bundles and binaries installed for the catalog verification (versions in
+docs/agents.md), read as strings: none of those CLIs documents its limit text,
+and none of these was seen in a live limited session. None of the catalog
+messages carries a reset time Lectern can read, so the wait policy retries
+them on its backoff schedule rather than at a known time.
+
+No limit message could be found in the bundles of Copilot CLI and Cursor (the
+text comes from their servers), Amp, Kimi Code, Cline, Continue, Crush, Auggie,
+Mistral Vibe, Command Code, Muse, Antigravity, ZCode, Pi and oh-my-pi; Rovo Dev
+could not be inspected. OpenClaude prints Claude Code's own messages, which the
+Claude patterns already match. Transient "rate limit, try again in a moment"
+notices are deliberately not patterns: they clear on their own. Catalog and
+custom agents are checked against the whole table: many wrap one of these CLIs
+or print the provider's message as-is. An agent that words its limit
+differently is not detected until a pattern is added.
 
 ## Policy
 

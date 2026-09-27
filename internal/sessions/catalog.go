@@ -1,5 +1,7 @@
 package sessions
 
+import "strings"
+
 // CatalogPreset is a one-click starting point for Settings → Agents: a Spec
 // for a popular third-party coding CLI, plus the metadata a reviewer needs to
 // trust it. Unlike Builtins(), lectern does not maintain these binaries —
@@ -88,11 +90,17 @@ const catalogVerifiedAt = "2026-09-27"
 // exactly like every other agent. ACP is preferred over a Task command
 // whenever both exist, because it carries every permission mode and project
 // MCP servers itself.
+// openclaudeTrust is claudeTrust for OpenClaude's own config file: the same
+// projects[dir].hasTrustDialogAccepted key, in ~/.openclaude.json (or
+// $OPENCLAUDE_CONFIG_DIR). Without it the first launch in a folder stops at
+// the trust dialog before the opening message.
+var openclaudeTrust = strings.NewReplacer("CLAUDE_CONFIG_DIR", "OPENCLAUDE_CONFIG_DIR", ".claude.json", ".openclaude.json").Replace(claudeTrust)
+
 func Catalog() []CatalogPreset {
 	return []CatalogPreset{
 		// ---- Popular -----------------------------------------------------
 		{
-			Spec: Spec{Name: "opencode", Command: "opencode", ModelFlag: "--model",
+			Spec: Spec{Name: "opencode", Sessions: &SessionsSpec{Command: "{bin} session list --format json", ID: "id", Dir: "directory", Created: "created", Updated: "updated", Title: "title"}, Command: "opencode", ModelFlag: "--model",
 				PromptArgs: []string{"--prompt", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--session", "{id}"},
 				ForkArgs: []string{"--session", "{id}", "--fork"},
@@ -123,7 +131,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "cursor-agent 2026.09.26-dd393fe", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "copilot", Command: "copilot", ModelFlag: "--model",
+			Spec: Spec{Name: "copilot", SessionIDArgs: []string{"--session-id", "{id}"}, Command: "copilot", ModelFlag: "--model",
 				PromptArgs: []string{"-i", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume={id}"},
 				YoloArgs: []string{"--yolo"},
@@ -153,7 +161,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "amp 0.0.1790496040", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "qwen", Command: "qwen", ModelFlag: "-m",
+			Spec: Spec{Name: "qwen", SessionIDArgs: []string{"--session-id", "{id}"}, Sessions: &SessionsSpec{Command: "{bin} sessions list --json --limit 200", ID: "sessionId", Dir: "cwd", Created: "startTime", Updated: "mtime", Title: "prompt"}, Command: "qwen", ModelFlag: "-m",
 				PromptArgs: []string{"-i", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				ForkArgs: []string{"--resume", "{id}", "--fork-session"},
@@ -183,7 +191,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "kimi 2.1.1", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "goose", Command: "goose", Args: []string{"session"}, ModelFlag: "--model",
+			Spec: Spec{Name: "goose", Sessions: &SessionsSpec{Command: "{bin} session list --format json", ID: "id", Dir: "working_dir", Created: "created_at", Updated: "updated_at", Title: "name"}, Command: "goose", Args: []string{"session"}, ModelFlag: "--model",
 				ResumeArgs:   []string{"--resume"},
 				ResumeIDArgs: []string{"--resume", "--session-id", "{id}"},
 				ForkArgs:     []string{"--resume", "--session-id", "{id}", "--fork"},
@@ -214,7 +222,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:  "aider 0.86.2", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "crush", Command: "crush",
+			Spec: Spec{Name: "crush", Sessions: &SessionsSpec{Command: "{bin} session list --json", ID: "id", Created: "created", Updated: "modified", Title: "title"}, Command: "crush",
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--session", "{id}"},
 				YoloArgs: []string{"--yolo"},
 				Task: &TaskSpec{Args: []string{"run"}, PromptTemplate: "{prompt}", OutputMode: "plain",
@@ -228,7 +236,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:  "crush v0.96.1", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "cline", Command: "cline", Args: []string{"-i"}, PromptArg: true,
+			Spec: Spec{Name: "cline", Sessions: &SessionsSpec{Command: "{bin} history --json --limit 200", ID: "sessionId", Dir: "cwd", Created: "startedAt", Updated: "updatedAt", Title: "metadata.title"}, Command: "cline", Args: []string{"-i"}, PromptArg: true,
 				ModelFlag: "-m", ResumeIDArgs: []string{"--id", "{id}"},
 				YoloArgs: []string{"--auto-approve", "true"},
 				ACP:      &ACPSpec{Command: "cline", Args: []string{"--acp"}}},
@@ -242,7 +250,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "cline 3.0.65", Unverified: []string{"prompt_arg"}, VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "grok", Command: "grok", ModelFlag: "-m",
+			Spec: Spec{Name: "grok", SessionIDArgs: []string{"--session-id", "{id}"}, ForkSessionID: true, Command: "grok", ModelFlag: "-m",
 				PromptArgs: []string{"--", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				ForkArgs: []string{"--resume", "{id}", "--fork-session"},
@@ -296,7 +304,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "muse 1.4.0", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "mimo", Command: "mimo", Args: []string{"--trust"}, ModelFlag: "-m",
+			Spec: Spec{Name: "mimo", Sessions: &SessionsSpec{Command: "{bin} session list --format json", ID: "id", Dir: "directory", Created: "created", Updated: "updated", Title: "title"}, Command: "mimo", Args: []string{"--trust"}, ModelFlag: "-m",
 				PromptArgs: []string{"--prompt", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--session", "{id}"},
 				ForkArgs: []string{"--session", "{id}", "--fork"},
@@ -395,7 +403,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "cn 1.5.47", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "kilo", Command: "kilo", ModelFlag: "-m",
+			Spec: Spec{Name: "kilo", Sessions: &SessionsSpec{Command: "{bin} session list --format json", ID: "id", Dir: "directory", Created: "created", Updated: "updated", Title: "title"}, Command: "kilo", ModelFlag: "-m",
 				PromptArgs: []string{"--prompt", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--session", "{id}"},
 				ForkArgs: []string{"--session", "{id}", "--fork"},
@@ -411,7 +419,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "kilo 7.8.1", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "vibe", Command: "vibe", Args: []string{"--trust"}, PromptArg: true,
+			Spec: Spec{Name: "vibe", Sessions: &SessionsSpec{Files: []string{"$VIBE_HOME/logs/session/session_*/meta.json", "~/.vibe/logs/session/session_*/meta.json"}, Whole: true, ID: "session_id", Dir: "origin_directory", Created: "start_time", Updated: "bumped_at", Title: "title"}, Command: "vibe", Args: []string{"--trust"}, PromptArg: true,
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				YoloArgs: []string{"--auto-approve"},
 				ACP:      &ACPSpec{Command: "vibe-acp"}},
@@ -511,7 +519,7 @@ func Catalog() []CatalogPreset {
 		},
 		// ---- Open source & community ------------------------------------
 		{
-			Spec: Spec{Name: "pi", Command: "pi", PromptArg: true, ModelFlag: "--model",
+			Spec: Spec{Name: "pi", Sessions: &SessionsSpec{Files: []string{"$PI_CODING_AGENT_SESSION_DIR/*/*.jsonl", "$PI_CODING_AGENT_DIR/sessions/*/*.jsonl", "~/.pi/agent/sessions/*/*.jsonl"}, Header: "session", ID: "id", Dir: "cwd", Created: "timestamp"}, Command: "pi", PromptArg: true, ModelFlag: "--model",
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--session", "{id}"},
 				ForkArgs: []string{"--fork", "{id}"},
 				Task: &TaskSpec{PromptTemplate: "-p {prompt}", OutputMode: "plain",
@@ -526,7 +534,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "pi 0.73.1", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "omp", Command: "omp", PromptArg: true, ModelFlag: "--model",
+			Spec: Spec{Name: "omp", Sessions: &SessionsSpec{Files: []string{"~/.omp/agent/sessions/*/*.jsonl"}, Header: "session", ID: "id", Dir: "cwd", Created: "timestamp"}, Command: "omp", PromptArg: true, ModelFlag: "--model",
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				YoloArgs: []string{"--auto-approve"},
 				ACP:      &ACPSpec{Command: "omp", Args: []string{"acp"}}},
@@ -539,7 +547,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "omp 18.3.4", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "hermes", Command: "hermes", Args: []string{"chat"}, ModelFlag: "-m",
+			Spec: Spec{Name: "hermes", Sessions: &SessionsSpec{SQLite: []string{"$HERMES_HOME/state.db", "~/.hermes/state.db"}, Query: "SELECT id, cwd, started_at, last_activity_at, title FROM sessions WHERE coalesce(archived, 0) = 0 AND coalesce(hidden, 0) = 0", ID: "id", Dir: "cwd", Created: "started_at", Updated: "last_activity_at", Title: "title"}, Command: "hermes", Args: []string{"chat"}, ModelFlag: "-m",
 				PromptArgs: []string{"-q", "{prompt}"},
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				YoloArgs: []string{"--yolo"},
@@ -554,7 +562,7 @@ func Catalog() []CatalogPreset {
 			VerifiedBy:   "hermes 0.21.5", VerifiedAt: catalogVerifiedAt,
 		},
 		{
-			Spec: Spec{Name: "openclaude", Command: "openclaude", PromptArg: true, ModelFlag: "--model",
+			Spec: Spec{Name: "openclaude", TrustCommand: openclaudeTrust, SessionIDArgs: []string{"--session-id", "{id}"}, ForkSessionID: true, Sessions: &SessionsSpec{Files: []string{"~/.openclaude/projects/{slug}/*.jsonl"}, ID: "@stem", Dir: "cwd", Created: "timestamp"}, Command: "openclaude", PromptArg: true, ModelFlag: "--model",
 				ResumeArgs: []string{"--continue"}, ResumeIDArgs: []string{"--resume", "{id}"},
 				ForkArgs: []string{"--resume", "{id}", "--fork-session"},
 				YoloArgs: []string{"--dangerously-skip-permissions"},

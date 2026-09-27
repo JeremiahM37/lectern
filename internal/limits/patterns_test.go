@@ -148,3 +148,20 @@ func TestDetectEventReadsTaskStreams(t *testing.T) {
 		t.Fatal("tool output (a file the agent read) is not the agent's own limit")
 	}
 }
+
+// A CLI that announces it is switching to a fallback provider carries on by
+// itself; only its final "exhausted" message is a stop.
+func TestFallbackAnnouncementIsNotALimit(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	if hit, ok := DetectLines("⚠️ Billing or credits exhausted — switching to fallback provider...", now); ok {
+		t.Fatalf("fallback announcement detected as %q", hit.Pattern)
+	}
+	if _, ok := DetectLines("❌ Billing or credits exhausted — no fallback configured", now); !ok {
+		t.Fatal("final exhaustion not detected")
+	}
+	// Qwen's first line carries a provider-specific message; the fixed line
+	// after it is what is matched.
+	if _, ok := DetectLines("Quota exhausted: something", now); ok {
+		t.Fatal("a provider message alone must not match")
+	}
+}

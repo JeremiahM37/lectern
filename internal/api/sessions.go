@@ -29,9 +29,13 @@ import (
 // sessionView is a session plus the two things a card always needs: how long it
 // has been quiet, and whether a handoff is currently being written.
 type sessionView struct {
-	LaunchProfile string                `json:"launch_profile,omitempty"`
-	CanRestore    bool                  `json:"can_restore"`
-	Workspace     *worktree.Interactive `json:"workspace,omitempty"`
+	LaunchProfile string `json:"launch_profile,omitempty"`
+	CanRestore    bool   `json:"can_restore"`
+	// SavedConversations says Lectern can list this session's saved
+	// conversations: Claude and Codex, and catalog agents with a sessions
+	// source.
+	SavedConversations bool                  `json:"saved_conversations"`
+	Workspace          *worktree.Interactive `json:"workspace,omitempty"`
 	*store.Session
 	IdleSeconds     float64 `json:"idle_seconds"`
 	UptimeSeconds   float64 `json:"uptime_seconds"`
@@ -118,11 +122,13 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 			v.Workspace.RedactOwnership()
 		}
 	}
+	v.SavedConversations = row.Agent == "claude" || row.Agent == "codex"
 	if row.LaunchConfigJSON != "" {
 		var cfg sessions.LaunchConfiguration
 		if json.Unmarshal([]byte(row.LaunchConfigJSON), &cfg) == nil {
 			v.LaunchProfile = cfg.ProfileName
 			v.Isolation = cfg.Isolation
+			v.SavedConversations = v.SavedConversations || cfg.Spec.Sessions != nil
 		}
 	}
 	if wraps, err := s.DB.SessionWraps(row.ID); err == nil {
@@ -276,11 +282,8 @@ func (s *Server) canResumeRecent(row *store.Session) bool {
 	if row.Origin == "discovered" && row.Status != sessions.StatusDead {
 		return false
 	}
-	if row.Agent != "claude" && row.Agent != "codex" {
-		return false
-	}
 	config, err := s.Sessions.SessionLaunchConfiguration(row)
-	return err == nil && len(config.Spec.ResumeIDArgs) > 0
+	return err == nil && len(config.Spec.ResumeIDArgs) > 0 && config.Spec.ExactConversations()
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {

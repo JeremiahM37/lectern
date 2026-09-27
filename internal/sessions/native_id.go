@@ -133,6 +133,19 @@ func (m *Manager) runNativeCheckpoint(ctx context.Context, sessionID int64, agen
 		if err != nil {
 			return false
 		}
+		if agent != "claude" && agent != "codex" {
+			// Catalog agents have no process evidence to read; bind their
+			// conversation from where the CLI lists it (catalog_conversations.go).
+			// Once bound it stays bound, so the worker can stop.
+			config, err := m.SessionLaunchConfiguration(row)
+			if err != nil || config.Spec.Sessions == nil || row.ResumeID != "" {
+				return false
+			}
+			captureCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+			bound := m.captureCatalogConversation(captureCtx, ex, row, config.Spec)
+			cancel()
+			return bound == "" && ctx.Err() == nil
+		}
 		captureCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		cid := CaptureNativeID(captureCtx, ex, agent, workdir, home, tmux, row.TrackingIdentity)
 		cancel()

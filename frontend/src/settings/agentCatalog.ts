@@ -66,6 +66,7 @@ export function groupCatalog<T extends CatalogEntryLike>(entries: T[], query: st
 // cannot do before adding it.
 const CHIP_LABELS: [string, string][] = [
   ["resume", "Resume"],
+  ["exact", "Exact resume"],
   ["fork", "Fork"],
   ["model", "Model"],
   ["yolo", "Auto-approve"],
