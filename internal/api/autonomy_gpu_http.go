@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
@@ -76,8 +75,7 @@ func autoGPUQualification(root string) (autoGPUQualifiedRuntime, error) {
 	if e != nil {
 		return out, e
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || st.Uid != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0222 != 0 || info.Size() > 65536 {
+	if !autoGPUOwnedByRoot(info) || !info.Mode().IsRegular() || info.Mode().Perm()&0222 != 0 || info.Size() > 65536 {
 		return out, errors.New("GPU qualification is not immutable root evidence")
 	}
 	raw, e := os.ReadFile(path)
