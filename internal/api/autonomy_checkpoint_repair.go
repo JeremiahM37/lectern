@@ -82,6 +82,9 @@ func (s *Server) autoRepairContinuation(a *autoRecord, projectID, taskID int64) 
 	if err != nil {
 		return nil, err
 	}
+	if j.PrivateIntegrationAttempt > 0 {
+		return nil, fmt.Errorf("private integration corrections require the original integration source and a new audited bounded attempt")
+	}
 	if j.ExpertRecoveryRoot > 0 {
 		return nil, fmt.Errorf("expert recovery lineage cannot acquire ordinary repair attempts")
 	}
@@ -130,6 +133,7 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 		return err
 	}
 	roots := map[int64]bool{}
+	privateRoots := map[string]bool{}
 	for i, p := range items {
 		if err := autoValidateExpertProposal(p); err != nil {
 			return err
@@ -145,13 +149,16 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 			roots[pin.RootTaskID] = true
 		}
 		count := 0
-		for _, id := range []int64{p.ContinueTaskID, p.RepairTaskID, p.DocumentationTaskID, p.ExpertRecoveryTaskID} {
+		for _, id := range []int64{p.ContinueTaskID, p.RepairTaskID, p.DocumentationTaskID, p.ExpertRecoveryTaskID, p.IntegrationTaskID} {
 			if id < 0 {
 				return fmt.Errorf("negative source task")
 			}
 			if id > 0 {
 				count++
 			}
+		}
+		if p.SourceIntegrationID != "" {
+			count++
 		}
 		if p.SourceRevision != "" {
 			count++
@@ -164,6 +171,23 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 		}
 		if p.ContinueTaskID > 0 && p.RepairTaskID > 0 {
 			return fmt.Errorf("item %d: continuation and repair are mutually exclusive", i)
+		}
+		if p.IntegrationTaskID > 0 || p.ExpertRecoveryTaskID > 0 {
+			pin, e := autoPrivateProposalPin(a, p)
+			if e != nil {
+				return e
+			}
+			if pin != nil {
+				if privateRoots[pin.RootID] {
+					return fmt.Errorf("duplicate private integration root in one plan")
+				}
+				privateRoots[pin.RootID] = true
+			}
+		}
+		if p.SourceIntegrationID != "" {
+			if _, e := autoPrivateIntegrationSource(a, p.SourceIntegrationID, p.ProjectID); e != nil {
+				return e
+			}
 		}
 		var err error
 		if p.DocumentationTaskID > 0 {

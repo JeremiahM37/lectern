@@ -191,7 +191,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 			a.State = state
 			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
 			j.Status = "prepared"
-			if j.PendingPythonRequest != nil {
+			if j.PendingPythonRequest != nil || j.PythonTestNeedsResume {
 				j.Status = "stopped"
 			}
 			a.NextCycleScheduled = false
@@ -217,7 +217,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
-		if job.PendingPythonRequest != nil {
+		if job.PendingPythonRequest != nil || job.PythonTestNeedsResume {
 			job.Status = "stopped"
 		}
 		a.NextCycleScheduled = false
@@ -250,6 +250,14 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 				continue
 			}
 			j := autoFindJob(a, id)
+			if j != nil && !j.RequirementHold && j.Status == "deferred" && !autoPrivateToolingReady(j) && !now.Before(j.RecoveryCheckAt) {
+				j.RecoveryCheckAt = now.Add(5 * time.Minute)
+				if _, err := s.recoverAutoPrivateTooling(ctx, a, j); err != nil {
+					a.Reason = "Selected test tooling pending: " + err.Error()
+				}
+				autoRotateColdPrerequisite(a, state, j)
+				return
+			}
 			if j != nil && !j.RequirementHold && j.Status == "deferred" && j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified") && !now.Before(j.RecoveryCheckAt) {
 				j.RecoveryCheckAt = now.Add(5 * time.Minute)
 				_, err := s.recoverAutoPython(ctx, a, j)
@@ -310,6 +318,9 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 }
 
 func autoDeferredReady(j *autoJob) bool {
+	if !autoPrivateToolingReady(j) {
+		return false
+	}
 	if j.RequirementHold {
 		return false
 	}

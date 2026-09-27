@@ -29,6 +29,8 @@ import uuid
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 EXPERT_PROBE_HELPER = Path('/usr/local/libexec/lectern-autonomy-expert-probe.py')
+PRIVATE_INTEGRATION_HELPER = Path('/usr/local/libexec/lectern-autonomy-private-integration.py')
+INTEGRATION_ROOT = ROOT.parent / 'integrations'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
 DEPENDENCIES = ROOT.parent / 'dependencies'
 AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
@@ -281,7 +283,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None):
+def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -302,7 +304,7 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None)
                 '--setenv', 'GOWORK', 'off',
                 '--setenv', 'PATH', '/usr/local/go/bin:/usr/bin:/bin']
     if python_project is None:
-        cmd += python_test_runtime_mount()
+        cmd += python_test_runtime_mount(python_test_key)
     else:
         cmd += python_project_mount(python_project)
     cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
@@ -362,7 +364,9 @@ def execute(job):
     if not current.endswith('/' + unit(job)):
         raise RuntimeError('execution outside matching job cgroup refused')
     bpf_attached('/sys/fs/cgroup' + current)
-    provider = json.loads(meta.read_text())['provider']
+    job_config = json.loads(meta.read_text())
+    provider = job_config['provider']
+    expected_test_key = job_config.get('python_test_key') or None
     # Bubblewrap canonicalizes source paths, so a /proc/self/fd directory
     # reference would still traverse the protected host job parent. Stage
     # mounts in a *private* supervisor mount namespace instead; these mounts
@@ -399,7 +403,11 @@ def execute(job):
             browser_source=browser_runtime(project_manifest['browser_key'],project_manifest['packages']['playwright'])
             browser_mount=Path('/tmp/browser-runtime');browser_mount.mkdir()
             run(['/usr/bin/mount','--bind',str(browser_source),str(browser_mount)])
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount)
+    if expected_test_key:
+        verify_expected_python_test(job, expected_test_key)
+    if project_bundle is not None and expected_test_key:
+        raise PythonUnsupported('exact tooling-only environment conflicts with project runtime')
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key)
     def drop():
         os.setgroups([])
         os.setgid(GID)
@@ -508,6 +516,10 @@ def launch_state(job):
 
 
 def start(args):
+    expected_test_key = getattr(args, 'python_test_key', None)
+    if expected_test_key:
+        runtime = python_test_runtime_status(expected_test_key)
+        if runtime['state'] != 'verified': return runtime
     duration = getattr(args, 'runtime_seconds', 1800)
     if type(duration) is not int or not 1 <= duration <= 1800: raise ValueError('runtime_seconds must be between 1 and 1800')
     with launch_lock(args.job) as launch_fd:
@@ -585,7 +597,7 @@ def start_locked(args, launch_fd):
     # The trusted supervisor stages these in private mounts before dropping
     # UID. The host job parent remains inaccessible to nobody; admin may
     # replace its broker sockets when the controller restarts.
-    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model, 'runtime_seconds': getattr(args, 'runtime_seconds', 1800),
+    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model, 'python_test_key': getattr(args, 'python_test_key', None), 'runtime_seconds': getattr(args, 'runtime_seconds', 1800),
                                                'selftest_hold': args.hold_seconds if args.provider == 'selftest' else 0,
                                                'network_selftest': args.network_selftest if args.provider == 'selftest' else False}))
     write_new(p / 'heartbeat', '', 0o600)
@@ -659,6 +671,11 @@ def status_unlocked(job):
     result=status_raw_unlocked(job)
     if (job_path(job)/'worker-usage.json').exists():
         result.update(usage_elapsed(job,result['state']=='running'))
+    failure=job_path(job)/'python-test-runtime.json'
+    if failure.exists():
+        result['python_test_runtime']=completion_json(failure)
+        if result['python_test_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
     return result
 
 
@@ -777,12 +794,13 @@ def storage_status():
             'allocated_bytes': used, 'limit_bytes': STORAGE_LIMIT, 'free_bytes': free}
 
 
-def python_test_runtime_mount():
+def python_test_runtime_mount(key=None):
     # Optional tooling must not prevent unrelated workers from launching. An
     # invalid bundle is never mounted; its unavailability is explicit in-worker.
     try:
-        bundle = python_test_bundle()
+        bundle = python_test_bundle(key)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if key: raise PythonUnsupported('expected Python tooling runtime unavailable: ' + str(error)[:200]) from error
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__
         return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'unavailable',
                 '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_REASON', reason[:200]]
@@ -794,7 +812,39 @@ def python_test_runtime_mount():
             '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
 
 
-def python_test_bundle(key=None):
+def python_test_diagnostic(error):
+    if isinstance(error, FileNotFoundError): return 'missing'
+    if 'interpreter mismatch' in str(error): return 'incompatible'
+    return 'integrity'
+
+
+def verify_expected_python_test(job, key):
+    try:
+        return python_test_bundle(key)
+    except (OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        value={'capability':'python_test_runtime','key':key,'state':'unavailable','executed':False,
+               'scope':'full content validation before model execution','reason':str(error)[:300],'diagnostic':python_test_diagnostic(error)}
+        completion_write(job_path(job)/'python-test-runtime.json',value)
+        raise PythonUnsupported('expected Python tooling content unavailable: '+str(error)[:200]) from error
+
+
+def python_test_runtime_status(key, job=None):
+    if not isinstance(key, str) or len(key)!=64 or any(c not in '0123456789abcdef' for c in key):
+        raise ValueError('exact Python tooling key must be SHA256')
+    if job:
+        failure=job_path(job)/'python-test-runtime.json'
+        if failure.exists():
+            value=completion_json(failure)
+            if value.get('key')==key and value.get('capability')=='python_test_runtime': return value
+    value={'capability':'python_test_runtime','key':key,'scope':'metadata preflight; full content verified before model execution'}
+    try:
+        python_test_bundle(key, full=False)
+        return dict(value,state='verified')
+    except (OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        return dict(value,state='unavailable',reason=str(error)[:300],diagnostic=python_test_diagnostic(error))
+
+
+def python_test_bundle(key=None, full=True):
     root = DEPENDENCIES / 'python'
     active = root / 'active.json'
     if key is None and not active.exists() and not active.is_symlink():
@@ -827,6 +877,7 @@ def python_test_bundle(key=None):
         raise ValueError('unexpected Python runtime packages')
     rows = data.get('files', [])
     if not rows or len(rows) > 10000: raise ValueError('Python runtime file limit')
+    if not full: return bundle
     seen = set(); total = 0
     for row in rows:
         name = row['path']; parts = name.split('/')
@@ -1730,7 +1781,7 @@ def allocated_storage():
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES) for row in os.walk(root, followlinks=False)):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT) for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:
@@ -2192,6 +2243,12 @@ def evidence_extract_archive(source, destination):
     if status(source)['state'] not in ('done','failed','stopped'):raise ValueError('archive evidence requires a terminal source')
     archive=job_path(source)/'artifact.tar.gz'
     expected=archive_identity(source)['sha256']
+    return evidence_extract_verified_archive(archive,expected,destination)
+
+
+def evidence_extract_verified_archive(archive,expected,destination):
+    info=regular(archive)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or not isinstance(expected,str) or len(expected)!=64 or any(c not in '0123456789abcdef' for c in expected):raise ValueError('unsafe immutable evidence archive')
     if digest_file(archive)!=expected:raise RuntimeError('evidence archive checksum mismatch')
     for parent in (destination,*destination.parents):
         if parent.is_symlink():raise ValueError('linked evidence destination ancestor')
@@ -3225,9 +3282,35 @@ def expert_probe(command, job, probe, stream=None, offset=0):
     return module.dispatch(globals(), command, job, probe, stream, offset)
 
 
+def private_integration(args):
+    helper = PRIVATE_INTEGRATION_HELPER
+    phases = {'integration-prepare':'prepare','integration-audit-copy':'audit','integration-review-copy':'review','integration-seal':'seal','integration-test':'check','integration-test-status':'check','integration-test-output':'check','integration-publish':'publish','private-source-copy':'consume','integration-rollback':'rollback'}
+    phase = phases.get(args.command, args.phase)
+    if args.command not in ('integration-tip', 'integration-stop'):
+        module = python_helper(helper)
+        module.R = __import__('types').SimpleNamespace(**globals())
+        try:
+            _, stage, _, _ = module.request(args.job, args.integration_id, phase, args.check_id)
+        except FileNotFoundError:
+            if args.command != 'integration-test-status': raise
+            stage = None
+        if stage is not None and (stage / 'helper.py').exists(): helper = stage / 'helper.py'
+        if args.command == '_integration' and (stage is None or helper != stage / 'helper.py'):
+            raise ValueError('integration helper was not frozen')
+    module = python_helper(helper)
+    return module.dispatch(globals(), args.command, args.job, args.integration_id, phase, args.generation, args.check_id, args.stream, args.offset, args.project_id)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('--python-test-key')
+    parser.add_argument('--key')
+    parser.add_argument('--integration-id')
+    parser.add_argument('--generation', type=int, default=1)
+    parser.add_argument('--check-id')
+    parser.add_argument('--project-id', type=int)
+    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback'])
     parser.add_argument('--job')
     parser.add_argument('--probe-id')
     parser.add_argument('--stream', choices=['stdout', 'stderr'])
@@ -3245,7 +3328,12 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command in ('expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe'):
+    if args.command == 'python-test-runtime':
+        out = python_test_runtime_status(args.key, args.job)
+    elif args.command in ('integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback'):
+        out = private_integration(args)
+        if args.command == '_integration': return out
+    elif args.command in ('expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe'):
         out = expert_probe(args.command, args.job, args.probe_id, args.stream, args.offset)
         if args.command == '_expert-probe': return out
     elif args.command == 'archive-report':

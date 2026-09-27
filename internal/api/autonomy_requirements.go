@@ -52,15 +52,16 @@ type autoRequirementOccurrence struct {
 	Evidence    []string `json:"evidence"`
 }
 type autoRequirement struct {
-	Environments map[string]*autoPythonReceipt `json:"environments,omitempty"`
-	Key          string                        `json:"key"`
-	Request      autonomy.Requirement          `json:"request"`
-	State        string                        `json:"state"`
-	Reason       string                        `json:"reason,omitempty"`
-	RecoveryJob  string                        `json:"recovery_job,omitempty"`
-	Receipt      *autoPythonReceipt            `json:"receipt,omitempty"`
-	Occurrences  []autoRequirementOccurrence   `json:"occurrences"`
-	UpdatedAt    time.Time                     `json:"updated_at"`
+	ToolingReceipt *autoPrivateToolingReceipt    `json:"tooling_receipt,omitempty"`
+	Environments   map[string]*autoPythonReceipt `json:"environments,omitempty"`
+	Key            string                        `json:"key"`
+	Request        autonomy.Requirement          `json:"request"`
+	State          string                        `json:"state"`
+	Reason         string                        `json:"reason,omitempty"`
+	RecoveryJob    string                        `json:"recovery_job,omitempty"`
+	Receipt        *autoPythonReceipt            `json:"receipt,omitempty"`
+	Occurrences    []autoRequirementOccurrence   `json:"occurrences"`
+	UpdatedAt      time.Time                     `json:"updated_at"`
 }
 
 var autoPythonPin = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)==([a-zA-Z0-9][a-zA-Z0-9.!+_-]*)$`)
@@ -445,6 +446,9 @@ func autoRequirementRows(a *autoRecord) []map[string]any {
 // A review or retained continuation must receive the same verified test
 // environment as its source. Provisioning still independently revalidates it.
 func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
+	if e := autoInheritPrivateTooling(a, j); e != nil {
+		return e
+	}
 	if j.PythonRequest != nil || a.State == nil || a.State.Item < 0 || a.State.Item >= len(a.State.Items) {
 		return nil
 	}
@@ -463,6 +467,20 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 	} else if j.Role == "builder" {
 		p := a.State.Items[a.State.Item]
 		id := p.ContinueTaskID
+		if p.IntegrationTaskID > 0 {
+			if pin, e := autoPrivatePin(a, p); e == nil {
+				id = pin.ReviewTaskID
+			} else {
+				return e
+			}
+		}
+		if p.SourceIntegrationID != "" {
+			v := autoPrivateFind(a, p.SourceIntegrationID)
+			if v == nil || v.Publication == nil {
+				return errors.New("private source runtime owner unavailable")
+			}
+			id = v.ReviewerTaskID
+		}
 		if id == 0 {
 			id = p.RepairTaskID
 		}

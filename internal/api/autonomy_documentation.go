@@ -103,6 +103,9 @@ func (s *Server) autoDocumentationSource(a *autoRecord, p autonomy.Proposal) (*a
 	if e != nil {
 		return bad(e)
 	}
+	if j.PrivateIntegrationAttempt > 0 {
+		return bad(errors.New("private integration cannot acquire documentary allowance"))
+	}
 	if j.ExpertRecoveryRoot > 0 {
 		return bad(errors.New("expert recovery lineage cannot acquire documentary allowance"))
 	}

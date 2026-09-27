@@ -243,6 +243,29 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/private-integrations":
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			http.Error(w, "invalid integration query", 400)
+			return
+		}
+		a, err := s.loadAuto()
+		if err != nil {
+			http.Error(w, "private integration catalog unavailable", 503)
+			return
+		}
+		body, status := autoPrivateIntegrationDiscovery(autoPrivateIntegrationRows(a), query)
+		if status == http.StatusOK && query.Get("integration_id") != "" {
+			detail, err := autoPrivateIntegrationDetail(a, query.Get("integration_id"))
+			if err != nil {
+				http.Error(w, "private integration details unavailable", 503)
+				return
+			}
+			body = map[string]any{"integration": detail, "scope": "Historical private integration evidence; current canonical and deployed presence require separate verification"}
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, status, body)
+		return
 	case "/capabilities":
 		writeJSON(w, 200, autoCapabilityCatalog(filepath.Join(filepath.Dir(autoRoot), "dependencies"), autoRunner, autoPythonProvisioner))
 		return

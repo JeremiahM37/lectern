@@ -13,6 +13,7 @@ import (
 
 const autoPythonProvisioner = "/usr/local/libexec/lectern-python-project-dependencies.py"
 const autoExpertProbeHelper = "/usr/local/libexec/lectern-autonomy-expert-probe.py"
+const autoPrivateIntegrationHelper = "/usr/local/libexec/lectern-autonomy-private-integration.py"
 
 // This is discovery of a registered mechanism, not proof that a particular
 // package resolves or that a running worker received an environment. Only the
@@ -33,7 +34,24 @@ func autoCapabilityCatalog(dependencies, runner, pythonHelper string) map[string
 	helperInfo := autoCapabilityInstallation(pythonHelper)
 	catalog := autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
 	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoExpertProbeCapability(runnerInfo, autoCapabilityInstallation(autoExpertProbeHelper)))
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoPrivateIntegrationCapability(runnerInfo, autoCapabilityInstallation(autoPrivateIntegrationHelper)))
 	return catalog
+}
+
+func autoPrivateIntegrationCapability(runner, helper map[string]any) map[string]any {
+	status := "unavailable"
+	if runner["status"] == "installed" && helper["status"] == "installed" {
+		status = "on_demand"
+	}
+	return map[string]any{
+		"capability": "reviewed_private_integration", "status": status, "helper": helper,
+		"discovery": "GET /private-integrations lists retained integration attempts and published private revisions. Follow details_uri and next_after.",
+		"proposal":  "Use integration_task_id for an approved source artifact, project_id for the registered destination and integration_paths for the explicit destination change scope. The controller pins immutable source/reviewer evidence and destination base before both plan audits.",
+		"workflow":  "Adapt the selected work against the pinned destination. A separate reviewer tests the sealed combined candidate and assesses acceptance. Only controller-verified candidate, test and review bindings can authorize a managed private commit.",
+		"consumer":  "Future independently audited work selects a verified immutable publication using source_integration_id. A private revision is a distinct source from the canonical repository and does not imply that a service was deployed.",
+		"limits":    "Changed canonical HEAD does not invalidate historical private bytes or imply current integration. Inspect base/current-presence evidence before choosing a revision. Operational retries retain ownership and history; failed or rejected attempts are not approvals.",
+		"authority": "Private managed repository only. No public push, canonical worktree overwrite, deployment, or alteration of quota and approval controls. Manual integration attestations remain separate from machine-verified results.",
+	}
 }
 
 func autoExpertProbeCapability(runner, helper map[string]any) map[string]any {

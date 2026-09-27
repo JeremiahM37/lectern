@@ -169,9 +169,15 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if e != nil {
 		return e
 	}
+	id, privateAttempt, e := s.reserveAutoPrivate(c, a, role, id, expertAttempt)
+	if e != nil {
+		return e
+	}
+	privateSource := role == "builder" && a.State.Item < len(a.State.Items) && a.State.Items[a.State.Item].SourceIntegrationID != ""
+	privateWorkspace := privateAttempt != nil || privateSource
 	dir := filepath.Join(autoRoot, id)
 	work := filepath.Join(dir, "work")
-	if expertAttempt == nil {
+	if expertAttempt == nil && !privateWorkspace {
 		if _, e = s.runAutoCommand(c, "prepare", "--job", id); e != nil {
 			return e
 		}
@@ -215,7 +221,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	}
 	// Only builders need a project snapshot. Reviewer gets the completed work
 	// copied by the trusted runner (which never executes its contents on the host).
-	continued := documentation != nil || expertAttempt != nil
+	continued := documentation != nil || expertAttempt != nil || privateWorkspace
 	if role == "builder" && a.State.Step > 0 {
 		if pendingCopy, e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
 			return e
@@ -263,7 +269,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			return e
 		}
 	}
-	if role == "reviewer" || strings.HasPrefix(role, "decision_") {
+	if (role == "reviewer" || strings.HasPrefix(role, "decision_")) && privateAttempt == nil {
 		if pendingCopy, e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
 			return e
 		}
@@ -271,6 +277,21 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	progressCopies, err := autoProgressCopies(a, role)
 	if err != nil {
 		return err
+	}
+	if privateAttempt != nil && expertAttempt != nil && role == "reviewer" {
+		p := a.State.Items[a.State.Item]
+		pin, err := autoExpertPin(a, p)
+		if err != nil {
+			return err
+		}
+		progressCopies = append(progressCopies, autoDocumentationCopy{Command: "copy-archive-review", SourceJob: pin.SourceJob, SHA: pin.SourceSHA}, autoDocumentationCopy{Command: "copy-archive-review", SourceJob: pin.ReviewJob, SHA: pin.ReviewSHA})
+	}
+	if privateAttempt != nil {
+		for i := range progressCopies {
+			if progressCopies[i].Command == "copy-archive-work" {
+				progressCopies[i].Command = "copy-archive-review"
+			}
+		}
 	}
 	copies = append(copies, progressCopies...)
 	if pendingCopy != nil {
@@ -280,7 +301,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	// checkpoint. Acceptance often cites these files; auditors seeing them alone
 	// leaves builders unable to satisfy the same acceptance. Later checkpoints
 	// and reviewers inherit this read-only evidence with the builder artifact.
-	if role == "builder" && a.State.Step == 0 && documentation == nil {
+	if ((role == "builder" && a.State.Step == 0) || (role == "reviewer" && privateAttempt != nil)) && documentation == nil {
 		planner, err := autoApprovedPlanEvidence(a)
 		if err != nil {
 			return err
@@ -301,13 +322,13 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		return e
 	}
 	prompt := s.autoPrompt(c, a, role, project)
-	if expertAttempt == nil {
+	if expertAttempt == nil && !privateWorkspace {
 		if e = os.WriteFile(filepath.Join(dir, "prompt.txt"), []byte(prompt), 0600); e != nil {
 			return e
 		}
 	}
 	var task *store.Task
-	if expertAttempt != nil {
+	if expertAttempt != nil || privateWorkspace {
 		rows, err := s.DB.TasksWhere("created_by=? AND project_id=? AND labels_json LIKE ?", autoOwner, project.ID, "%expert-job:"+id+"%")
 		if err != nil {
 			return err
@@ -320,7 +341,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		}
 	}
 	labels := []string{"autonomous", a.State.Date, role}
-	if expertAttempt != nil {
+	if expertAttempt != nil || privateWorkspace {
 		labels = append(labels, "expert-job:"+id)
 	}
 	if task == nil {
@@ -349,6 +370,9 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if e = autoProgressBinding(a, j, expertAttempt); e != nil {
 		return e
 	}
+	if e = s.bindAutoPrivate(a, j, privateAttempt); e != nil {
+		return e
+	}
 	if role == "builder" {
 		j.Admission = autoNewAdmission(a, j)
 	}
@@ -372,6 +396,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *store.Project) string {
 	var b strings.Builder
 	b.WriteString(autoProgressPrompt(a, role))
+	b.WriteString(autoPrivatePrompt(a, role))
 	b.WriteString(autoDiagnosisPrompt(a))
 	b.WriteString(autoEnvironmentSelectionPrompt(a))
 	b.WriteString("Capability discovery: read /capabilities before treating an old missing dependency or tool as still unavailable. This registry distinguishes registered on-demand provisioners from actual per-worker delivery. Python project wheels now have a bounded registered provisioner separate from the default pytest /test-runtime; that endpoint's limited scope does not mean project dependencies have no recovery path. Inspect exact requirements and supported constraints; an installed helper alone does not prove any package resolves or that this process gained an environment. Keep existing project source, original acceptance and repair limits.\n")
@@ -470,7 +495,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 }
 
 func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob) error {
-	if old.ExpertRecoveryAttempt > 0 {
+	if old.ExpertRecoveryAttempt > 0 || old.PrivateIntegrationRoot != "" {
 		raw, err := s.runAutoCommand(ctx, "status", "--job", old.ID)
 		if err != nil {
 			return err
@@ -486,6 +511,9 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 		}
 		if err = s.saveAuto(a); err != nil {
 			return err
+		}
+		if old.PrivateIntegrationRoot != "" {
+			return s.resumeAutoPrivate(ctx, a, old)
 		}
 		return s.resumeAutoProgress(ctx, a, old)
 	}

@@ -156,6 +156,10 @@ const (
 )
 
 type Proposal struct {
+	IntegrationTaskID          int64    `json:"integration_task_id,omitempty"`
+	IntegrationPin             string   `json:"integration_pin,omitempty"`
+	IntegrationPaths           []string `json:"integration_paths,omitempty"`
+	SourceIntegrationID        string   `json:"source_integration_id,omitempty"`
 	ExpertRecoveryTaskID       int64    `json:"expert_recovery_task_id,omitempty"`
 	ExpertProgressKey          string   `json:"expert_progress_key,omitempty"`
 	DiagnoseTaskID             int64    `json:"diagnose_task_id,omitempty"`
@@ -491,7 +495,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if !validExpertProposal(p) {
+			if !validExpertProposal(p) || !validPrivateProposal(p) {
 				return fmt.Errorf("proposal %d expert_recovery_task_id requires a controller-issued lowercase SHA256 expert_progress_key and cannot combine diagnosis selectors", index)
 			}
 			if p.ProjectID <= 0 || p.EnvironmentDiagnosisTaskID < 0 || p.DiagnoseTaskID < 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
@@ -570,6 +574,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				}
 				if s.Items[s.Item].ExpertRecoveryTaskID > 0 {
 					return errors.New("expert recovery cannot authorize implementation decision rounds")
+				}
+				if s.Items[s.Item].IntegrationTaskID > 0 {
+					return errors.New("private integration cannot authorize implementation decision rounds")
 				}
 			}
 			if err := validateDecision(*r.Decision); err != nil {
@@ -689,6 +696,12 @@ func (s *State) ActiveTaskIDs() []int64 {
 
 func proposalSources(p Proposal) int {
 	n := 0
+	if p.IntegrationTaskID > 0 {
+		n++
+	}
+	if p.SourceIntegrationID != "" {
+		n++
+	}
 	if p.ExpertRecoveryTaskID > 0 {
 		n++
 	}
@@ -705,6 +718,25 @@ func proposalSources(p Proposal) int {
 		n++
 	}
 	return n
+}
+
+func validPrivateProposal(p Proposal) bool {
+	hash := func(s string) bool { return len(s) == 64 && strings.Trim(s, "0123456789abcdef") == "" }
+	if p.SourceIntegrationID != "" && !hash(p.SourceIntegrationID) {
+		return false
+	}
+	if p.IntegrationTaskID == 0 {
+		return p.IntegrationPin == "" && len(p.IntegrationPaths) == 0
+	}
+	if p.IntegrationTaskID < 0 || (p.IntegrationPin != "" && !hash(p.IntegrationPin)) || len(p.IntegrationPaths) == 0 || len(p.IntegrationPaths) > 64 || p.DiagnoseTaskID != 0 || p.DiagnoseRequirement != "" {
+		return false
+	}
+	for _, path := range p.IntegrationPaths {
+		if len(path) == 0 || len(path) > 512 {
+			return false
+		}
+	}
+	return true
 }
 
 func validExpertProposal(p Proposal) bool {

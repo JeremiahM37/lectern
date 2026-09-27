@@ -136,8 +136,9 @@ func autoProgressBinding(a *autoRecord, j *autoJob, attempt *autoExpertRecoveryA
 }
 
 func autoProgressCharge(a *autoRecord, j *autoJob, raw []byte) error {
+	privateErr := autoPrivateCharge(a, j, raw)
 	if j.ExpertRecoveryAttempt == 0 {
-		return nil
+		return privateErr
 	}
 	var status struct {
 		Elapsed *int64 `json:"elapsed_milliseconds"`
@@ -145,25 +146,44 @@ func autoProgressCharge(a *autoRecord, j *autoJob, raw []byte) error {
 	if json.Unmarshal(raw, &status) != nil || status.Elapsed == nil {
 		return errors.New("expert execution accounting unavailable")
 	}
-	v, err := autoExpertAttempt(a, j)
-	if err != nil {
-		return err
+	v, e := autoExpertAttempt(a, j)
+	if e != nil {
+		return e
 	}
 	if j.Role == "reviewer" {
-		return autoChargeExpertReview(v, j.ID, *status.Elapsed)
+		e = autoChargeExpertReview(v, j.ID, *status.Elapsed)
+	} else {
+		e = autoChargeExpertRecovery(v, j.ID, *status.Elapsed)
 	}
-	return autoChargeExpertRecovery(v, j.ID, *status.Elapsed)
+	if e != nil {
+		return e
+	}
+	return privateErr
 }
 
 func autoProgressRemaining(a *autoRecord, j *autoJob) (time.Duration, error) {
-	v, err := autoExpertAttempt(a, j)
-	if err != nil {
-		return 0, err
+	left := 30 * time.Minute
+	if j.PrivateIntegrationAttempt > 0 {
+		v, e := autoPrivateAttempt(a, j)
+		if e != nil {
+			return 0, e
+		}
+		left = autoPrivateRoleRemaining(v, j.Role == "reviewer")
 	}
-	if j.Role == "reviewer" {
-		return autoExpertReviewRemaining(v), nil
+	if j.ExpertRecoveryAttempt > 0 {
+		v, e := autoExpertAttempt(a, j)
+		if e != nil {
+			return 0, e
+		}
+		remaining := autoExpertRemaining(v)
+		if j.Role == "reviewer" {
+			remaining = autoExpertReviewRemaining(v)
+		}
+		if remaining < left {
+			left = remaining
+		}
 	}
-	return autoExpertRemaining(v), nil
+	return left, nil
 }
 
 func autoProgressPrompt(a *autoRecord, role string) string {
@@ -182,6 +202,9 @@ func autoProgressPrompt(a *autoRecord, role string) string {
 // Exhaustion preserves evidence before ending this lease. It does not invent a
 // reviewer verdict, approve artifacts, or change original repair counters.
 func (s *Server) endAutoProgressBudget(ctx context.Context, a *autoRecord, j *autoJob) (bool, error) {
+	if j.PrivateIntegrationAttempt > 0 {
+		return s.endAutoPrivateBudget(ctx, a, j)
+	}
 	if j.ExpertRecoveryAttempt == 0 {
 		return false, nil
 	}
@@ -329,6 +352,9 @@ func (s *Server) autoProgressResumePrompt(j *autoJob) error {
 		return err
 	}
 	prompt := autoResumePrompt(task.Prompt, j.ReportError)
+	if j.PrivateIntegrationAttempt > 0 && j.Role == "reviewer" && j.ReportError != "" {
+		prompt = append(prompt, []byte("\nPRIVATE REVIEW CORRECTION: You may execute missing independent /integration-tests against the same sealed candidate to establish required evidence, then cite its exact receipt_sha256 in reason. Preserve the candidate, all original acceptance, prior checks and cumulative budgets. Do not change production files to make a report pass. If acceptance is not established, reject honestly.\n")...)
+	}
 	return os.WriteFile(filepath.Join(autoRoot, j.ID, "prompt.txt"), prompt, 0600)
 }
 

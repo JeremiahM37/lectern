@@ -30,19 +30,22 @@ type autoExpertRecoveryLedger struct {
 	Probes   map[string]*autoExpertProbeLease       `json:"probes"`
 }
 type autoExpertRecoveryPin struct {
-	Key                 string   `json:"key"`
-	RootTaskID          int64    `json:"root_task_id"`
-	ProjectID           int64    `json:"project_id"`
-	SourceTaskID        int64    `json:"source_task_id"`
-	ReviewTaskID        int64    `json:"review_task_id"`
-	SourceJob           string   `json:"source_job"`
-	ReviewJob           string   `json:"review_job"`
-	SourceSHA           string   `json:"source_archive_sha256"`
-	ReviewSHA           string   `json:"review_archive_sha256"`
-	Acceptance          []string `json:"original_acceptance"`
-	SourceAcceptance    []string `json:"source_acceptance"`
-	AcceptanceSHA       string   `json:"acceptance_sha256"`
-	SourceAcceptanceSHA string   `json:"source_acceptance_sha256"`
+	PrivateIntegration     *autoPrivateIntegrationPin `json:"private_integration,omitempty"`
+	PrivateSourceAttemptID string                     `json:"private_source_attempt_id,omitempty"`
+	PrivateCandidate       *autoPrivateCandidate      `json:"private_candidate,omitempty"`
+	Key                    string                     `json:"key"`
+	RootTaskID             int64                      `json:"root_task_id"`
+	ProjectID              int64                      `json:"project_id"`
+	SourceTaskID           int64                      `json:"source_task_id"`
+	ReviewTaskID           int64                      `json:"review_task_id"`
+	SourceJob              string                     `json:"source_job"`
+	ReviewJob              string                     `json:"review_job"`
+	SourceSHA              string                     `json:"source_archive_sha256"`
+	ReviewSHA              string                     `json:"review_archive_sha256"`
+	Acceptance             []string                   `json:"original_acceptance"`
+	SourceAcceptance       []string                   `json:"source_acceptance"`
+	AcceptanceSHA          string                     `json:"acceptance_sha256"`
+	SourceAcceptanceSHA    string                     `json:"source_acceptance_sha256"`
 }
 
 // This is a controller-normalized projection of the root-owned runner receipt,
@@ -144,6 +147,11 @@ func autoExpertRoot(a *autoRecord, id int64) int64 {
 	if j == nil {
 		return 0
 	}
+	if j.PrivateIntegrationRoot != "" && a.PrivateIntegration != nil {
+		if run := a.PrivateIntegration.Runs[j.PrivateIntegrationRoot]; run != nil && len(run.Attempts) > 0 {
+			return run.Attempts[0].TaskID
+		}
+	}
 	if j.ExpertRecoveryRoot > 0 {
 		return j.ExpertRecoveryRoot
 	}
@@ -173,6 +181,9 @@ func autoExpertPinKey(p *autoExpertRecoveryPin) string {
 // Pinning is read-only evidence admission, available before audits/probes. The
 // caller persists the returned ledger before exposing its key in the catalog.
 func (s *Server) pinAutoExpertRecovery(ctx context.Context, a *autoRecord, project, source int64) (*autoExpertRecoveryPin, error) {
+	if j := autoFindJob(a, source); j != nil && j.PrivateIntegrationRoot != "" {
+		return s.pinAutoExpertPrivate(ctx, a, project, source)
+	}
 	j, e := s.autoContinuation(a, project, source)
 	if e != nil {
 		return nil, e
@@ -247,6 +258,9 @@ func autoExpertPin(a *autoRecord, p autonomy.Proposal) (*autoExpertRecoveryPin, 
 	if rid, _, ok := autoRejectedCheckpoint(a, pin.SourceTaskID); !ok || rid != pin.ReviewTaskID {
 		return nil, errors.New("expert source no longer has the pinned independent rejection")
 	}
+	if e := autoValidateExpertPrivatePin(a, pin); e != nil {
+		return nil, e
+	}
 	return pin, nil
 }
 func autoExpertAuditOwner(a *autoRecord, role string) (*autoJob, error) {
@@ -280,6 +294,9 @@ func autoReserveExpertProbe(a *autoRecord, p autonomy.Proposal, role, requestKey
 	}
 	pin, e := autoExpertPin(a, p)
 	if e != nil {
+		return nil, e
+	}
+	if e := autoPrivateExpertInvestigationCurrent(a, pin); e != nil {
 		return nil, e
 	}
 	owner, e := autoExpertAuditOwner(a, role)
@@ -481,6 +498,9 @@ func autoExpertAuditEvidence(a *autoRecord, p autonomy.Proposal, pin *autoExpert
 func autoExpertRecoveryEligible(a *autoRecord, p autonomy.Proposal, now time.Time) (*autoExpertRecoveryPin, error) {
 	pin, e := autoExpertPin(a, p)
 	if e != nil {
+		return nil, e
+	}
+	if e := autoPrivateExpertInvestigationCurrent(a, pin); e != nil {
 		return nil, e
 	}
 	attempts := a.ExpertRecovery.Attempts[pin.RootTaskID]
@@ -809,6 +829,9 @@ func autoExpertProbeOwnerValid(a *autoRecord, lease *autoExpertProbeLease, owner
 // lineage. Distinct acceptance is necessary, not semantic novelty proof: both
 // auditors still compare scope and materially new executed causal evidence.
 func autoExpertLaterRejectedMilestone(a *autoRecord, pin *autoExpertRecoveryPin, approved *autoExpertRecoveryAttempt) bool {
+	if pin.PrivateIntegration != nil && autoPrivateLaterRejectedBase(a, pin, approved) {
+		return true
+	}
 	if approved == nil || approved.TaskID <= 0 || pin.SourceTaskID == approved.TaskID {
 		return false
 	}

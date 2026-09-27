@@ -106,6 +106,14 @@ func (s *Server) recoverAutoReport(ctx context.Context, a *autoRecord, now time.
 
 func autoReportRepairReady(a *autoRecord, j *autoJob, now time.Time) bool {
 	if j.ReportRepairs >= 2 {
+		if j.PrivateIntegrationAttempt > 0 {
+			if v, e := autoPrivateAttempt(a, j); e == nil {
+				v.Status = "unavailable"
+			} else {
+				a.Reason = e.Error()
+				return false
+			}
+		}
 		if j.ExpertRecoveryAttempt > 0 {
 			v, err := autoExpertAttempt(a, j)
 			if err != nil {
