@@ -20,6 +20,11 @@ steps:
       - shell: python3 tools/test_node_dependencies.py
       - shell: python3 tools/test_node_project_dependencies.py
       - shell: sudo python3 tools/test_provision_node_runtime.py
+      - shell: python3 tools/test_autonomy_gpu_lease.py
+      - shell: python3 tools/test_autonomy_gpu_executor.py
+      - shell: python3 tools/test_autonomy_gpu_telemetry.py
+      - shell: python3 tools/test_autonomy_gpu_runtime.py
+      - shell: python3 tools/test_autonomy_gpu_snapshot.py
       - shell: python3 tools/test_autonomy_go_runtime.py
       - shell: python3 tools/test_autonomy_launch.py
       - shell: python3 tools/test_autonomy_expert_probe.py
@@ -38,6 +43,9 @@ steps:
 
   - name: go, frontend and browser suites pass
     actions:
+      - shell:
+          cmd: go vet ./...
+          timeout: 180
       - shell:
           # All three suites run at once, each in its own isolated namespace;
           # the browser suite is split across parallel workers. Serially this

@@ -107,6 +107,8 @@ type autoJob struct {
 }
 type autoRecord struct {
 	GoProbeRuntimes             map[string]*autoGoProbeRuntime               `json:"go_probe_runtimes,omitempty"`
+	GPUResearch                 *autonomy.GPUResearchLedger                  `json:"gpu_research,omitempty"`
+	GPUExperiments              map[string]*autoGPUExperiment                `json:"gpu_experiments,omitempty"`
 	MaintenanceValidationCursor string                                       `json:"maintenance_validation_cursor,omitempty"`
 	MaintenanceStatus           *autoMaintenanceSchedulerStatus              `json:"maintenance_status,omitempty"`
 	MaintenanceTransactions     map[string]*autoMaintenanceTransaction       `json:"maintenance_transactions,omitempty"`
@@ -292,6 +294,9 @@ func (s *Server) stopAutoJobsScoped(ctx context.Context, a *autoRecord, reason s
 	if err := s.stopAutoGoProbeRuntimes(ctx, a); err != nil {
 		stopErrors = append(stopErrors, err.Error())
 	}
+	if err := s.pollAutoGPU(ctx, a, false); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
 	if maintenance {
 		if err := s.pollAutoMaintenance(ctx, a, false); err != nil {
 			stopErrors = append(stopErrors, "Maintenance recovery: "+err.Error())
@@ -407,7 +412,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		if err := s.reconcileAutoPrivateTests(ctx, a); err != nil {
 			a.Reason = "Private test observation pending: " + err.Error()
 		}
-		if autoGoProbePending(a) || len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) || autoPrivatePending(a) || autoMaintenanceValidationStopPending(a) || autoMaintenanceTransactionsPending(a) {
+		if autoGoProbePending(a) || autoGPUPending(a) || len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) || autoPrivatePending(a) || autoMaintenanceValidationStopPending(a) || autoMaintenanceTransactionsPending(a) {
 			s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 			_ = s.saveAuto(a)
 			return
@@ -432,9 +437,12 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	maintenanceErr = errors.Join(maintenanceErr, s.reconcileEndedMaintenanceValidations(ctx, a))
 	quotaFetched := false
 	var quotaErr error
-	if autoMaintenanceWorkPending(a) {
+	if autoMaintenanceWorkPending(a) || autoGPUPending(a) {
 		quotaFetched = true
 		quotaErr = refreshAutoQuota(ctx, a)
+		if err := s.pollAutoGPU(ctx, a, quotaErr == nil); err != nil {
+			a.Reason = "GPU research reconciliation: " + err.Error()
+		}
 		// Even unavailable quota must reach the owned rollback/stop reconciler.
 		maintenanceErr = errors.Join(maintenanceErr, s.pollAutoMaintenance(ctx, a, quotaErr == nil))
 	}

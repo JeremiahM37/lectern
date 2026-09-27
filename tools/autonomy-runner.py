@@ -2111,7 +2111,7 @@ def allocated_storage():
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT, SERVER_OBSERVATIONS_ROOT, SERVER_MAINTENANCE_ROOT, SERVER_MAINTENANCE_TOOLS) for row in os.walk(root, followlinks=False)):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT, SERVER_OBSERVATIONS_ROOT, SERVER_MAINTENANCE_ROOT, SERVER_MAINTENANCE_TOOLS, ROOT.parent / "gpu-snapshots", ROOT.parent / "gpu-research") for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:
@@ -3716,9 +3716,33 @@ def server_maintenance(args):
     return module.dispatch(globals(),args.command,args.job,operation,args.phase,args.generation)
 
 
+def gpu_research(command,job,key,offset=0):
+    # Fixed trusted helper only; caller never supplies executable or host paths.
+    helper_path=Path('/usr/local/libexec/lectern-autonomy-gpu-runtime.py')
+    info=regular(helper_path)
+    if info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe GPU runtime helper')
+    import importlib.util,sys
+    spec=importlib.util.spec_from_file_location('autonomy_gpu_runtime',helper_path)
+    helper=importlib.util.module_from_spec(spec)
+    previous=sys.dont_write_bytecode;sys.dont_write_bytecode=True
+    try:spec.loader.exec_module(helper)
+    finally:sys.dont_write_bytecode=previous
+    runner=sys.modules[__name__]
+    if command.startswith('gpu-source-'):
+        source=helper.module(helper.companion('autonomy-gpu-snapshot.py'),'gpu_snapshot')
+        if command=='gpu-source-prepare':return source.start(runner,helper.L,job,key,helper.freeze_tools)
+        if command=='gpu-source-status':return source.status(runner,helper.L,job,key)
+        if command=='gpu-source-manifest':return source.manifest(runner,helper.L,job,key,offset)
+        return source.stop(runner,helper.L,job,key)
+    if command=='gpu-research':return helper.launch(runner,job,key)
+    if command=='gpu-research-status':return helper.status(runner,job,key)
+    if command=='gpu-research-output':return helper.output(runner,job,key,offset)
+    return helper.stop(runner,job,key)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['go-runtime','go-runtime-stop','_go-runtime','node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['gpu-source-prepare','gpu-source-status','gpu-source-manifest','gpu-source-stop','gpu-research','gpu-research-status','gpu-research-stop','gpu-research-output','go-runtime','go-runtime-stop','_go-runtime','node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--dependency-key')
     parser.add_argument('--source-sha256')
     parser.add_argument('--operation-id')
@@ -3739,6 +3763,7 @@ def main():
     parser.add_argument('--copy-generation', type=int)
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
+    parser.add_argument('--gpu-id')
     parser.add_argument('--provider', choices=['codex', 'claude'])
     parser.add_argument('--model')
     parser.add_argument('--network-selftest', action='store_true', help='selftest through the real scoped public egress proxy')
@@ -3748,6 +3773,9 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
+    if args.command.startswith('gpu-'):
+        out=gpu_research(args.command,args.job,args.gpu_id,args.offset)
+        print(json.dumps(out,sort_keys=True,separators=(',',':')));return 0
     if args.command in ('server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect') or (args.command=='server-maintenance-status' and args.phase=='inspect'):
         out=server_maintenance_inspect(args)
         if args.command=='_server-maintenance-inspect':return out

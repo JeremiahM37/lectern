@@ -432,6 +432,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 	b.WriteString(autoProgressPrompt(a, role))
 	b.WriteString(autoPrivatePrompt(a, role))
 	b.WriteString(autoMaintenancePrompt(a, role))
+	b.WriteString(autoGPUResearchPrompt(role))
 	b.WriteString(autoDiagnosisPrompt(a))
 	b.WriteString(autoEnvironmentSelectionPrompt(a))
 	b.WriteString("Capability discovery: read /capabilities before treating an old missing dependency or tool as still unavailable. This registry distinguishes registered on-demand provisioners from actual per-worker delivery. Python project wheels now have a bounded registered provisioner separate from the default pytest /test-runtime; that endpoint's limited scope does not mean project dependencies have no recovery path. Inspect exact requirements and supported constraints; an installed helper alone does not prove any package resolves or that this process gained an environment. Keep existing project source, original acceptance and repair limits.\n")

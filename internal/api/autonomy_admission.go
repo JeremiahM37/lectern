@@ -59,6 +59,10 @@ func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
 // Bind identity to the controller-created socket, never a worker query parameter.
 func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/research-runs" {
+			s.autoGPUBridge(jobID, w, r)
+			return
+		}
 		if r.URL.Path == "/maintenance-validation" {
 			s.autoMaintenanceValidationBridge(jobID, w, r)
 			return
