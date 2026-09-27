@@ -924,4 +924,13 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 	// The CI loop commits and pushes a task's fix attempt itself (docs/ci-loop.md).
 	"ALTER TABLE ci_watches ADD COLUMN pushed_attempt_id INTEGER NOT NULL DEFAULT 0",
+	// Per-person UI preferences that follow them across devices: theme,
+	// shortcuts, saved layouts, quick commands (docs/workspace.md).
+	`CREATE TABLE IF NOT EXISTS ui_prefs(
+  owner TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at REAL NOT NULL,
+  PRIMARY KEY(owner, key)
+)`,
 }

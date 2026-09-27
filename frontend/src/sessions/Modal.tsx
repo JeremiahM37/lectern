@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ComponentProps } from "react";
+import { useContext, useEffect, useRef, type ComponentProps } from "react";
+import { PaneEmbedContext } from "../workspace/registry";
 export function Modal({
   open: _open,
   onClick,
@@ -7,13 +8,18 @@ export function Modal({
   ...props
 }: ComponentProps<"dialog">) {
   const ref = useRef<HTMLDialogElement>(null);
+  // In a workspace pane the dialog sits in the layout instead of over it.
+  const embedded = useContext(PaneEmbedContext);
   useEffect(() => {
     const prior = document.activeElement as HTMLElement | null;
     const d = ref.current;
-    if (d && !d.open) d.showModal();
+    if (d && !d.open) {
+      if (embedded) d.show();
+      else d.showModal();
+    }
     return () => {
       if (d?.open) d.close();
-      prior?.focus?.();
+      if (!embedded) prior?.focus?.();
     };
   }, []);
   return (

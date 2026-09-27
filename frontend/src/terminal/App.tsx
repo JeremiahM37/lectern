@@ -20,7 +20,6 @@ import {
   Snippets,
   WorkspaceFiles,
 } from "./dialogs";
-import { loadSnippets, saveSnippets, snippetBytes } from "./snippets";
 import {
   copyClipboard,
   FONT_MAX,
@@ -29,11 +28,19 @@ import {
   loadPrefs,
   quote,
   request,
-  themes,
   type Attachment,
   type Prefs,
   type TerminalInfo,
 } from "./model";
+import { commandBytes, commandsFor } from "../quick/commands";
+import { resolveTerminalTheme, saveTerminalPrefs, useTerminalPrefs, readTerminalPrefs } from "../theme/terminal-prefs";
+import { allTerminalThemes } from "../theme/terminal-themes";
+import { customThemes } from "../theme/terminal-prefs";
+import { installShortcutListener, useShortcuts, chordsFor } from "../shortcuts/dispatch";
+import { displayChord } from "../shortcuts/chords";
+import { t, useLocale } from "../i18n";
+import { useAppearance } from "../theme/appearance";
+import { resolveMode } from "../theme/app-theme";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 export type SharedTool = "review" | "saved" | "search";
@@ -52,6 +59,7 @@ interface Callbacks {
   matches: (id: string, index: number, count: number) => void;
   preview: (path: string) => void;
   swipe: (id: string, direction: 1 | -1) => void;
+  clipboard: (text: string) => void;
 }
 function Pane({
   spec,
@@ -100,6 +108,8 @@ function Pane({
       swipe: (direction) => latest.current.callbacks.swipe(spec.id, direction),
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
+      osc52: () => readTerminalPrefs().osc52,
+      clipboard: (text) => latest.current.callbacks.clipboard(text),
     });
     engine.current = instance;
     latest.current.callbacks.engine(spec.id, instance);
@@ -144,7 +154,7 @@ function Pane({
         ref={host}
         hidden={state.paused}
         style={{
-          background: (themes[prefs.theme] || themes.slate)?.background,
+          background: resolveTerminalTheme(prefs.theme).background,
         }}
       />
       <pre
@@ -238,6 +248,7 @@ export function TerminalApp({
   externalNotice?: string;
 }) {
   const base = `/api/term/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+  useLocale();
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   const [info, setInfo] = useState<TerminalInfo>();
   const [infoAttempt, setInfoAttempt] = useState(0);
@@ -250,7 +261,7 @@ export function TerminalApp({
     "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | "keyboard-report" | null
   >(null);
   const [keyboardReport, setKeyboardReport] = useState("");
-  const [snippets, setSnippets] = useState(loadSnippets);
+  const [projectId, setProjectId] = useState<number | null>(kind === "project" && /^\d+$/.test(id) ? Number(id) : null);
   const [draft, setDraft] = useState("");
   const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [historyPane, setHistoryPane] = useState("agent");
@@ -294,8 +305,11 @@ export function TerminalApp({
       if (document.hidden) return;
       try {
         const response = await request(`/api/sessions/${encodeURIComponent(id)}`);
-        const row = (await response.json()) as { agent_exited_at?: number | null; ended_at?: number | null };
-        if (!stopped) setAgentExited(!!row.agent_exited_at && !row.ended_at);
+        const row = (await response.json()) as { agent_exited_at?: number | null; ended_at?: number | null; project_id?: number | null };
+        if (!stopped) {
+          setAgentExited(!!row.agent_exited_at && !row.ended_at);
+          setProjectId(row.project_id ?? null);
+        }
       } catch {}
     };
     void check();
@@ -318,10 +332,18 @@ export function TerminalApp({
   }
   // The terminal is drawn at the size for the device it is on; the two are
   // stored apart so resizing on the phone never shrinks the desk.
-  const shown = useMemo(
-    () => (mobile ? { ...prefs, fontSize: prefs.mobileFontSize } : prefs),
-    [prefs, mobile],
-  );
+  // The scheme and spacing chosen for this person (Settings → Workspace &
+  // terminal) win over what this device last had.
+  const person = useTerminalPrefs();
+  // With no scheme chosen anywhere, the terminal follows the app: the default
+  // dark scheme in the dark theme, Paper in the light one.
+  const appearance = useAppearance();
+  const appMode = resolveMode(appearance.theme, matchMedia("(prefers-color-scheme: dark)").matches);
+  const shown = useMemo(() => {
+    const base = mobile ? { ...prefs, fontSize: prefs.mobileFontSize } : prefs;
+    const fallback = base.theme === "slate" && appMode === "light" ? "light" : base.theme;
+    return { ...base, theme: person.theme || fallback, lineHeight: person.lineHeight || base.lineHeight };
+  }, [prefs, mobile, person.theme, person.lineHeight, appMode]);
   const [fontHint, setFontHint] = useState("");
   const savePrefs = useCallback((next: Prefs) => {
     setPrefs(next);
@@ -478,6 +500,11 @@ export function TerminalApp({
     matches: match,
     preview,
     swipe,
+    clipboard: (text) => {
+      void copyClipboard(text, () => current()?.term.focus())
+        .then(() => setNotice(t("terminal.copiedByProgram", { count: text.length })))
+        .catch(() => setNotice(t("terminal.copyBlocked")));
+    },
   };
   useEffect(() => {
     const abort = new AbortController();
@@ -822,13 +849,31 @@ export function TerminalApp({
     );
     return () => abort.abort();
   }, [upload]);
-  function find(back = false, value = query) {
+  // Find in scrollback: plain text by default, with case, whole-word and
+  // regular-expression switches that are remembered as this person's defaults.
+  const [findError, setFindError] = useState("");
+  function find(back = false, value = query, flags = person) {
     const addon = current()?.search;
+    setFindError("");
     if (!value) {
       addon?.clearDecorations();
+      setMatches("");
       return;
     }
+    if (flags.findRegex) {
+      try {
+        new RegExp(value);
+      } catch {
+        addon?.clearDecorations();
+        setFindError(t("terminal.findBadPattern"));
+        setMatches("");
+        return;
+      }
+    }
     const options = {
+      regex: flags.findRegex,
+      caseSensitive: flags.findCase,
+      wholeWord: flags.findWord,
       decorations: {
         matchBackground: "#66512c",
         activeMatchBackground: "#b7a0ff",
@@ -836,13 +881,106 @@ export function TerminalApp({
         activeMatchColorOverviewRuler: "#b7a0ff",
       },
     };
-    if (back) addon?.findPrevious(value, options);
-    else addon?.findNext(value, options);
+    const found = back ? addon?.findPrevious(value, options) : addon?.findNext(value, options);
+    if (found === false) setMatches(t("terminal.noMatches"));
   }
+  const openFind = () => {
+    setSearch(true);
+    requestAnimationFrame(() => {
+      searchInput.current?.focus();
+      searchInput.current?.select();
+    });
+  };
+  const closeFind = () => {
+    setSearch(false);
+    current()?.search.clearDecorations();
+    current()?.term.focus();
+  };
+  const toggleFind = (key: "findCase" | "findWord" | "findRegex") => {
+    const next = { ...person, [key]: !person[key] };
+    saveTerminalPrefs({ [key]: next[key] });
+    find(false, query, next);
+    searchInput.current?.focus();
+  };
   function close() {
     setDialog(null);
     setPreviewPath(undefined);
   }
+  const chordLabel = (action: string) => {
+    const chord = chordsFor(action)[0];
+    return chord ? displayChord(chord) : t("terminal.noChord");
+  };
+  // Keys: this frame's own actions run here; app actions pressed while the
+  // terminal has focus are posted to the app when the terminal can spare the
+  // chord (shortcuts/chords.ts terminalSafe).
+  useEffect(() => installShortcutListener({ contexts: ["terminal"], forward: embedded ? ["global", "workspace"] : undefined }), [embedded]);
+  // Tell the workspace this pane has focus: a click inside a frame does not
+  // reach the page around it.
+  useEffect(() => {
+    if (!embedded) return;
+    const tell = () => parent.postMessage({ type: "lec-terminal-focus" }, location.origin);
+    addEventListener("focusin", tell);
+    addEventListener("pointerdown", tell, { capture: true });
+    return () => {
+      removeEventListener("focusin", tell);
+      removeEventListener("pointerdown", tell, { capture: true });
+    };
+  }, [embedded]);
+  const scroll = (fn: (engine: Engine) => void) => () => {
+    const engine = current();
+    if (!engine) return false;
+    fn(engine);
+  };
+  const sendQuick = (n: number) => () => {
+    const engine = current();
+    const row = commandsFor(projectId)[n - 1];
+    if (!engine || !row || !engine.connected) return false;
+    engine.input(commandBytes(row.command));
+    engine.term.scrollToBottom();
+  };
+  const themeIds = () => allTerminalThemes(customThemes()).map((row) => row.id);
+  useShortcuts({
+    "terminal.find": openFind,
+    "terminal.findNext": () => { if (!search) openFind(); else find(); },
+    "terminal.findPrev": () => { if (!search) openFind(); else find(true); },
+    "terminal.history": () => showHistory(activeRef.current),
+    "terminal.copy": () => {
+      const engine = current();
+      if (!engine) return false;
+      void engine.copySelection().catch((error) => setNotice(errorMessage(error)));
+    },
+    "terminal.paste": () => {
+      const engine = current();
+      if (!engine || !navigator.clipboard?.readText) return false;
+      void navigator.clipboard.readText().then((text) => engine.paste(text)).catch((error) => setNotice(errorMessage(error)));
+    },
+    "terminal.selectAll": scroll((engine) => engine.term.selectAll()),
+    "terminal.clear": scroll((engine) => engine.term.clear()),
+    "terminal.fontBigger": () => setShownFont(shown.fontSize + 1),
+    "terminal.fontSmaller": () => setShownFont(shown.fontSize - 1),
+    "terminal.fontReset": () => setShownFont(mobile ? 11 : 15),
+    "terminal.scrollTop": scroll((engine) => engine.term.scrollToTop()),
+    "terminal.scrollBottom": scroll((engine) => { engine.freeze(false); engine.term.scrollToBottom(); }),
+    "terminal.pageUp": scroll((engine) => engine.term.scrollPages(-1)),
+    "terminal.pageDown": scroll((engine) => engine.term.scrollPages(1)),
+    "terminal.pause": scroll((engine) => engine.freeze(!engine.paused)),
+    "terminal.reconnect": scroll((engine) => { if (engine.paused) engine.freeze(false); void engine.connect(); }),
+    "terminal.splitShell": () => { if (!info?.shell_url) return false; setSplit((old) => !old); },
+    "terminal.files": () => { if (!info?.files_available) return false; setDialog("files"); },
+    "terminal.attach": () => { if (!info?.files_available) return false; file.current?.click(); },
+    "terminal.compose": () => setDialog("compose"),
+    "terminal.quickCommands": () => setDialog("snippets"),
+    "terminal.appearance": () => setDialog("appearance"),
+    "terminal.themeNext": () => {
+      const ids = themeIds(), at = ids.indexOf(shown.theme);
+      saveTerminalPrefs({ theme: ids[(at + 1) % ids.length]! });
+    },
+    "terminal.review": () => { if (!info) return false; onShared("review", info); },
+    "terminal.saved": () => { if (!info || kind !== "session") return false; onShared("saved", info); },
+    "terminal.tools": openControls,
+    "terminal.native": () => { if (!info?.desktop_uri) return false; location.href = info.desktop_uri; },
+    ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`terminal.quickCommand${n}`, sendQuick(n)])),
+  });
   const specs: PaneSpec[] = info
     ? [
         {
@@ -1000,14 +1138,8 @@ export function TerminalApp({
             >
               Review changes
             </button>
-            <button
-              id="find"
-              onClick={() => {
-                setSearch(true);
-                requestAnimationFrame(() => searchInput.current?.focus());
-              }}
-            >
-              Find in terminal
+            <button id="find" onClick={openFind}>
+              {t("terminal.findInTerminal")}
             </button>
             <button
               id="history"
@@ -1082,41 +1214,43 @@ export function TerminalApp({
         {notice}
       </div>
       {search && (
-        <div id="searchbar">
+        <div id="searchbar" role="search" aria-label={t("terminal.find")}>
           <input
             id="search-input"
             ref={searchInput}
-            placeholder="Find in terminal"
-            aria-label="Find in terminal"
+            placeholder={t("terminal.find")}
+            aria-label={t("terminal.find")}
+            aria-invalid={!!findError}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
               find(false, event.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") find(event.shiftKey);
-              if (event.key === "Escape") {
-                setSearch(false);
-                current()?.search.clearDecorations();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                find(event.shiftKey);
               }
+              if (event.key === "Escape") closeFind();
             }}
           />
-          <button id="previous" onClick={() => find(true)}>
+          <div className="find-toggles" role="group" aria-label={t("terminal.findOptions")}>
+            <button id="find-case" aria-pressed={person.findCase} title={t("settings.workspace.findCase")} aria-label={t("settings.workspace.findCase")} onClick={() => toggleFind("findCase")}>Aa</button>
+            <button id="find-word" aria-pressed={person.findWord} title={t("settings.workspace.findWord")} aria-label={t("settings.workspace.findWord")} onClick={() => toggleFind("findWord")}><u>ab</u></button>
+            <button id="find-regex" aria-pressed={person.findRegex} title={t("settings.workspace.findRegex")} aria-label={t("settings.workspace.findRegex")} onClick={() => toggleFind("findRegex")}>.*</button>
+          </div>
+          <span id="matches" role="status">{findError || matches}</span>
+          <button id="previous" aria-label={t("terminal.findPrevious")} title={t("terminal.findPrevious")} onClick={() => find(true)}>
             ↑
           </button>
-          <button id="next" onClick={() => find()}>
+          <button id="next" aria-label={t("terminal.findNext")} title={t("terminal.findNext")} onClick={() => find()}>
             ↓
           </button>
-          <span id="matches">{matches}</span>
-          <button
-            id="search-close"
-            onClick={() => {
-              setSearch(false);
-              current()?.search.clearDecorations();
-              current()?.term.focus();
-            }}
-          >
-            Close
+          <button id="search-close" onClick={closeFind}>
+            {t("terminal.close")}
           </button>
         </div>
       )}
@@ -1224,6 +1358,15 @@ export function TerminalApp({
         >
           ⚡
         </button>
+        <button style={{ order: 1 }}
+          data-terminal-key="find"
+          aria-label={t("terminal.searchThis")}
+          title={t("terminal.searchThis")}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={openFind}
+        >
+          ⌕
+        </button>
         {keyOrder.map((key) =>
           key === "ctrl" || key === "alt" ? (
             <button
@@ -1271,8 +1414,7 @@ export function TerminalApp({
       <footer>
         <span id="workspace-path">{info?.workdir}</span>
         <span>
-          Drop files or paste a screenshot · Ctrl+Shift+F history · Ctrl+Shift+V
-          paste
+          {t("terminal.footer", { find: chordLabel("terminal.find"), history: chordLabel("terminal.history"), paste: chordLabel("terminal.paste") })}
         </span>
       </footer>
       {dialog === "compose" && (
@@ -1331,15 +1473,11 @@ export function TerminalApp({
       )}
       {dialog === "snippets" && (
         <Snippets
-          snippets={snippets}
-          onChange={(next) => {
-            setSnippets(next);
-            saveSnippets(next);
-          }}
-          onSend={(snippet) => {
+          projectId={projectId}
+          onSend={(command) => {
             const engine = current();
             if (!engine) return;
-            engine.input(snippetBytes(snippet));
+            engine.input(commandBytes(command));
             engine.term.scrollToBottom();
           }}
           onClose={close}

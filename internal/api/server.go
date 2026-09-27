@@ -379,6 +379,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test-notification", s.testNotification)
+	mux.HandleFunc("GET /api/ui/prefs", s.getUIPrefs)
+	mux.HandleFunc("PUT /api/ui/prefs/{key}", s.putUIPref)
+	mux.HandleFunc("DELETE /api/ui/prefs/{key}", s.deleteUIPref)
 	// ---- connect-your-tools card: wiring an MCP client to this Lectern ----
 	mux.HandleFunc("GET /api/mcp-clients", s.listMCPClients)
 	mux.HandleFunc("POST /api/mcp-clients/{id}/install", s.installMCPClient)

@@ -19,6 +19,10 @@ import { LimitPolicyEditor } from "./LimitPolicy";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
+import { AppearancePanel, ShortcutsPanel, WorkspacePanel } from "./Personal";
+import { SettingsSearch } from "./SettingsSearch";
+import { focusSetting, SECTIONS } from "./search-index";
+import { t, useLocale } from "../i18n";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
 }
@@ -104,13 +108,16 @@ export function Settings({
   pushEndpoint?: string | null;
   onUnsubscribePush?(endpoint: string): void;
   initialSection?: string;
-  section?: { name: string; version: number };
+  section?: { name: string; version: number; focus?: string };
   projectEdit?: { id: number; version: number };
   launchProfilesVersion?: number;
   onExternalActionConsumed?: (kind: "section" | "project" | "launchProfiles") => void;
   onMetadataRefresh?(): void;
   onOpenTerminal?(url: string, title: string): void;
 }) {
+  useLocale();
+  const [searchFocus, setSearchFocus] = useState(0),
+    [focused, setFocused] = useState<string>();
   const [tab, setTab] = useState(initialSection),
     [targets, setTargets] = useState<Target[]>([]),
     [projects, setProjects] = useState<Project[]>([]),
@@ -140,7 +147,15 @@ export function Settings({
     void load().catch((e) => onNotice(String(e), true));
   }, []);
   useEffect(() => {
-    if (section?.version) { setTab(section.name); onExternalActionConsumed("section"); }
+    if (!section?.version) return;
+    setTab(section.name);
+    // A palette or search hit names the control to bring into view.
+    if (section.focus === "search") setSearchFocus(Date.now());
+    else if (section.focus) {
+      setFocused(section.focus);
+      requestAnimationFrame(() => focusSetting({ id: section.focus!, match: undefined }));
+    }
+    onExternalActionConsumed("section");
   }, [section?.version]);
   useEffect(() => {
     if (!projectEdit?.version) return;
@@ -157,30 +172,25 @@ export function Settings({
   return (
     <section className="settings-page">
       <header>
-        <h2>Settings</h2>
-        <p>Machines, projects and preferences in one place.</p>
+        <h2>{t("settings.title")}</h2>
+        <p>{t("settings.subtitle")}</p>
       </header>
+      <SettingsSearch focusVersion={searchFocus} onPick={(entry) => {
+        setTab(entry.section);
+        setFocused(entry.id);
+        requestAnimationFrame(() => focusSetting(entry));
+      }} />
       <ConnectTools api={api} onNotice={onNotice} />
       <Delegation api={api} agents={agents} projects={projects} onNotice={onNotice} onChanged={load} />
       <nav role="tablist">
-        {(
-          [
-            ["machines", "Targets"],
-            ["projects", "Projects"],
-            ["notifications", "Notifications"],
-            ["devices", "Devices"],
-            ["about", "Usage & about"],
-            ["budgets", "Budgets"],
-            ["agents", "Agents"],
-          ] as const
-        ).map(([k, v]) => (
+        {SECTIONS.map(([k, key]) => [k, t(key)] as const).map(([k, v]) => (
           <button
             data-settings={k}
             role="tab"
             aria-selected={tab === k}
             onKeyDown={(e) => {
               if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-              const tabs = ["machines", "projects", "notifications", "devices", "about", "budgets", "agents"];
+              const tabs = SECTIONS.map(([key]) => key);
               const next = tabs[(tabs.indexOf(k) + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]!;
               setTab(next);
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
@@ -251,6 +261,9 @@ export function Settings({
           <LimitPolicyEditor api={api} onNotice={onNotice} />
         </>
       )}{" "}
+      {tab === "appearance" && <AppearancePanel />}
+      {tab === "workspace" && <WorkspacePanel projects={projects} />}
+      {tab === "shortcuts" && <ShortcutsPanel focus={focused} />}
       {tab === "agents" && (
         <Agents
           api={api}

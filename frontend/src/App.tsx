@@ -19,7 +19,17 @@ import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
 import { SessionReview } from "./review/SessionReview";
 import { Evals } from "./evals/Evals";
-import { TerminalTabs, useTerminalTabs } from "./terminal/TerminalTabs";
+import { TerminalTabs, useTerminalTabs } from "./workspace/Workspace";
+import { FloatingTerminal } from "./workspace/FloatingTerminal";
+import type { PaneServices } from "./workspace/registry";
+import { loadPrefs } from "./prefs/store";
+import { chordsFor, hasShortcutHandler, installForwardedShortcuts, installShortcutListener, runShortcut, useShortcuts } from "./shortcuts/dispatch";
+import { displayChord } from "./shortcuts/chords";
+import { SHORTCUTS } from "./shortcuts/registry";
+import { currentAppearance, saveAppearance, uiZoom } from "./theme/appearance";
+import { ACCENT_PRESETS, ZOOM_STEPS, resolveMode } from "./theme/app-theme";
+import { t, useLocale } from "./i18n";
+import { settingsIndex } from "./settings/search-index";
 import { Palette, type Command } from "./shell/Palette";
 import { FirstRun } from "./shell/FirstRun";
 import { Deck, Approvals } from "./shell/LiveViews";
@@ -96,16 +106,17 @@ const tabs = [
   "evals",
 ] as const;
 type Tab = (typeof tabs)[number];
-const labels: Record<Tab, string> = {
-  board: "Board",
-  sessions: "Sessions",
-  terminals: "Terminals",
-  media: "Media",
-  deck: "Deck",
-  approvals: "Approvals",
-  targets: "Settings",
-  evals: "Agent tests",
+const labelKeys: Record<Tab, string> = {
+  board: "nav.board",
+  sessions: "nav.sessions",
+  terminals: "nav.terminals",
+  media: "nav.media",
+  deck: "nav.deck",
+  approvals: "nav.approvals",
+  targets: "nav.settings",
+  evals: "nav.evals",
 };
+const label = (tab: Tab) => t(labelKeys[tab]);
 // "evals" opens a modal over the current view rather than a page of its own
 // (see showEvals below) — everywhere a tab click would otherwise navigate,
 // it toggles that modal instead. Kept out of `view`/`isTab`'s routing so an
@@ -119,6 +130,7 @@ const mediaSessionOf = (hash: string) => {
   return match ? Number(match[1]) : null;
 };
 export default function App() {
+  useLocale();
   const [view, setView] = useState<Tab>("board"),
     [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
@@ -149,7 +161,7 @@ export default function App() {
       kind: "new" | "discover";
       version: number;
     }>(),
-    [section, setSection] = useState({ name: "machines", version: 0 }),
+    [section, setSection] = useState<{ name: string; version: number; focus?: string }>({ name: "machines", version: 0 }),
     [projectEdit, setProjectEdit] = useState<{ id: number; version: number }>(),
     [launchProfilesVersion, setLaunchProfilesVersion] = useState(0),
     [manageProfiles, setManageProfiles] = useState(false),
@@ -417,10 +429,62 @@ export default function App() {
     navigate("#sessions");
     setSessionAction({ kind, version: Date.now() });
   };
-  const settings = (name: string) => {
-    setSection({ name, version: Date.now() });
+  const settings = (name: string, focus?: string) => {
+    setSection({ name, version: Date.now(), focus });
     navigate("#targets");
   };
+  // What a workspace pane can reach (workspace/registry.tsx).
+  const services = useMemo<PaneServices>(() => ({
+    api,
+    sessions,
+    notice,
+    attach: (id) => void attach(id),
+    openPane: (ref, options) => {
+      setConversation(undefined);
+      terminals.openPane(ref, options);
+    },
+    closePane: (id) => terminals.close(id),
+  }), [api, sessions, notice, attach, terminals.openPane, terminals.close]);
+  const setTheme = (theme: "system" | "dark" | "light") => saveAppearance({ theme });
+  const zoomStep = (delta: number) => {
+    const zoom = currentAppearance().zoom;
+    const index = ZOOM_STEPS.findIndex((step) => step >= zoom - 1e-6);
+    saveAppearance({ zoom: ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, (index < 0 ? 2 : index) + delta))]! });
+  };
+  const goto = (tab: Tab) => () => navigate(tab === "terminals" ? terminals.hash : "#" + tab);
+  useShortcuts({
+    "palette.open": () => setPalette((old) => !old),
+    "search.saved": () => setSearch(true),
+    "settings.open": () => settings(section.name === "machines" ? "machines" : section.name),
+    "settings.shortcuts": () => settings("shortcuts"),
+    "settings.search": () => settings(section.name, "search"),
+    "theme.toggle": () => setTheme(resolveMode(currentAppearance().theme, matchMedia("(prefers-color-scheme: dark)").matches) === "dark" ? "light" : "dark"),
+    "theme.system": () => setTheme("system"),
+    "theme.dark": () => setTheme("dark"),
+    "theme.light": () => setTheme("light"),
+    "zoom.in": () => zoomStep(1),
+    "zoom.out": () => zoomStep(-1),
+    "zoom.reset": () => saveAppearance({ zoom: 1 }),
+    "accent.next": () => {
+      const index = ACCENT_PRESETS.findIndex((preset) => preset.value === currentAppearance().accent);
+      saveAppearance({ accent: ACCENT_PRESETS[(index + 1) % ACCENT_PRESETS.length]!.value });
+    },
+    "nav.board": goto("board"),
+    "nav.sessions": goto("sessions"),
+    "nav.terminals": goto("terminals"),
+    "nav.media": goto("media"),
+    "nav.deck": goto("deck"),
+    "nav.approvals": goto("approvals"),
+    "nav.targets": goto("targets"),
+    "nav.evals": () => setShowEvals(true),
+    ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "agents", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
+    "session.new": () => sessionCommand("new"),
+    "session.discover": () => sessionCommand("discover"),
+    "task.new": () => newTask(),
+    "routines.open": () => { navigate("#board"); setRoutinesVersion((old) => old + 1); },
+    "profiles.manage": () => setManageProfiles(true),
+    "terminal.new": () => void newTerminal(),
+  });
   useEffect(() => {
     const apply = () => {
       let raw = "";
@@ -491,7 +555,11 @@ export default function App() {
     void refresh().catch((error) => {
       if (alive) notice(String(error), true);
     });
+    // Preferences that follow this person between devices (theme, shortcuts,
+    // layouts, quick commands); the stream says when another device changed one.
+    void loadPrefs().catch(() => {});
     const stream = new EventSource(withToken("/api/stream"));
+    stream.addEventListener("ui_prefs", () => void loadPrefs().catch(() => {}));
     let opened = false;
     stream.onopen = () => {
       setConnected(true);
@@ -568,7 +636,7 @@ export default function App() {
     const fit = () =>
       document.documentElement.style.setProperty(
         "--terminal-top",
-        `${element.getBoundingClientRect().bottom}px`,
+        `${element.getBoundingClientRect().bottom / uiZoom()}px`,
       );
     const observer = new ResizeObserver(fit);
     observer.observe(element);
@@ -579,20 +647,20 @@ export default function App() {
       window.removeEventListener("resize", fit);
     };
   }, []);
+  // One listener serves every registered shortcut (shortcuts/registry.ts);
+  // terminal frames post the app chords pressed inside them.
+  const viewRefForKeys = useRef(view);
+  viewRefForKeys.current = view;
   useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        !event.isComposing &&
-        event.key.toLowerCase() === "k"
-      ) {
-        event.preventDefault();
-        setPalette((old) => !old);
-      }
+    const off = installShortcutListener({
+      contexts: ["global", "workspace"],
+      active: (context) => context !== "workspace" || viewRefForKeys.current === "terminals",
+    });
+    const forwarded = installForwardedShortcuts();
+    return () => {
+      off();
+      forwarded();
     };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
   }, []);
   useEffect(() => {
     // The Android app's shell is its signed APK; it installs no worker.
@@ -750,6 +818,7 @@ export default function App() {
   const commands: Command[] = [
     {
       id: "routines",
+      shortcut: chordsFor("routines.open"),
       title: "Routines",
       category: "Actions",
       detail: "Saved jobs and active runs",
@@ -761,6 +830,7 @@ export default function App() {
     },
     {
       id: "new-session",
+      shortcut: chordsFor("session.new"),
       title: "New session",
       category: "Actions",
       detail: "Start an interactive agent",
@@ -769,6 +839,7 @@ export default function App() {
     },
     {
       id: "new-task",
+      shortcut: chordsFor("task.new"),
       title: "New task",
       category: "Actions",
       detail: "Plan or dispatch work",
@@ -777,6 +848,7 @@ export default function App() {
     },
     {
       id: "saved-search",
+      shortcut: chordsFor("search.saved"),
       title: "Search saved conversations",
       category: "Actions",
       keywords: "history messages content native",
@@ -784,6 +856,7 @@ export default function App() {
     },
     {
       id: "discover",
+      shortcut: chordsFor("session.discover"),
       title: "Find running agents",
       category: "Actions",
       keywords: "adopt restore untracked",
@@ -791,6 +864,7 @@ export default function App() {
     },
     {
       id: "launch-profiles",
+      shortcut: chordsFor("profiles.manage"),
       title: "Manage launch profiles",
       category: "Actions",
       keywords: "profiles accounts configuration",
@@ -803,9 +877,10 @@ export default function App() {
           ? "Task board"
           : tab === "terminals"
             ? "Open terminals"
-            : labels[tab],
+            : label(tab),
       category: "Navigate",
       keywords: "navigate view",
+      shortcut: chordsFor("nav." + tab),
       run: () => navigate(tab === "terminals" ? terminals.hash : "#" + tab),
     })),
     ...[
@@ -822,6 +897,29 @@ export default function App() {
       detail: "Settings",
       keywords,
       run: () => settings(name!),
+    })),
+    // Every registered action that can run here, with its chord, except the
+    // ones the palette already lists above under their own names.
+    ...SHORTCUTS.filter((row) => row.context !== "terminal" && !row.id.startsWith("nav.") && !["palette.open", "search.saved", "session.new", "session.discover", "task.new", "routines.open", "profiles.manage"].includes(row.id) && !row.id.startsWith("settings.") && hasShortcutHandler(row.id)).map((row) => ({
+      id: "action-" + row.id,
+      title: t("shortcut." + row.id, undefined, row.title),
+      category: t("palette.actions"),
+      detail: row.category,
+      keywords: row.keywords,
+      shortcut: chordsFor(row.id),
+      run: () => {
+        if (row.context === "workspace" && view !== "terminals") navigate(terminals.hash);
+        requestAnimationFrame(() => runShortcut(row.id));
+      },
+    })),
+    // Individual settings, so "accent" or "push" lands on the control itself.
+    ...settingsIndex().filter((entry) => ["appearance", "workspace", "shortcuts"].includes(entry.section)).map((entry) => ({
+      id: "setting-" + entry.id,
+      title: entry.label,
+      category: t("palette.settings"),
+      detail: entry.sectionLabel,
+      keywords: entry.keywords,
+      run: () => settings(entry.section, entry.id),
     })),
     ...sessions.map((session) => ({
       id: `session-${session.id}`,
@@ -874,18 +972,18 @@ export default function App() {
           <h1>
             lec<b>tern</b>
           </h1>
-          <span className="brand-sub">mission control</span>
+          <span className="brand-sub">{t("shell.brandSub")}</span>
         </div>
         <button
           id="command-open"
-          aria-label="Search sessions and actions"
+          aria-label={t("shell.searchLabel")}
           aria-haspopup="dialog"
-          title="Search (Ctrl+K or ⌘K)"
+          title={t("shell.searchTitle")}
           onClick={() => setPalette(true)}
         >
           <Icon name="search" size={18} />
-          <span className="command-label">Search anything…</span>
-          <kbd>Ctrl K</kbd>
+          <span className="command-label">{t("shell.searchAnything")}</span>
+          {chordsFor("palette.open")[0] && <kbd>{displayChord(chordsFor("palette.open")[0]!)}</kbd>}
         </button>
         <div className="top-status">
           <span
@@ -893,7 +991,7 @@ export default function App() {
             className={`led ${connected ? "led-on" : "led-err"}`}
             title="live connection"
           />
-          <span id="conn-label">{connected ? "LIVE" : "RECONNECTING"}</span>
+          <span id="conn-label">{connected ? t("shell.live") : t("shell.reconnecting")}</span>
         </div>
       </header>
       <main id="view" hidden={view === "terminals"}>
@@ -1018,6 +1116,7 @@ export default function App() {
         onNew={newTerminal}
         onBrowse={() => navigate("#sessions")}
         onSearch={() => setPalette(true)}
+        services={services}
         switcher={(()=>{
           const active = sessions.find(s=>terminals.active===`/terminal/session/${s.id}` && s.agent!=='shell' && !s.ended_at && s.status!=='dead' && s.setup_state!=='creating');
           if(!active) return null;
@@ -1028,6 +1127,7 @@ export default function App() {
           </>;
         })()}
       />
+      <FloatingTerminal services={services} onDock={(tab) => terminals.open(tab.path, tab.label)} />
       {switchSession && <QuickSwitch api={api} session={switchSession} onClose={()=>setSwitchSession(undefined)} onStarted={(source,afterWrap,request:SwitchRequest)=>{
         saveSwitches({...switching.current,[String(source.id)]:{after:afterWrap,generation:1,destination:request.destination,agent:request.agent,model:request.model,profile:request.profile}});
         notice('Switching… waiting for the current agent to save its handoff.');
@@ -1042,7 +1142,7 @@ export default function App() {
         onClick={newTask}
       >
         <Icon name="plus" size={24} />
-        <span>New task</span>
+        <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar">
         {tabs.map((tab) => (
@@ -1063,7 +1163,7 @@ export default function App() {
             <span className="tab-ic" aria-hidden="true">
               <Icon name={tab} />
             </span>
-            {labels[tab]}
+            {label(tab)}
             {tab === "sessions" && (
               <b id="sess-badge" className="badge dim" hidden={!live}>
                 {live}
@@ -1100,7 +1200,7 @@ export default function App() {
           className={`action-menu ${["media", "deck", "approvals", "targets"].includes(view) ? "on" : ""}`}
         >
           <summary aria-label="More pages">
-            <span aria-hidden="true">···</span>More
+            <span aria-hidden="true">···</span>{t("nav.more")}
             <b id="more-badge" className="badge" hidden={!approvals.length}>
               {approvals.length}
             </b>
@@ -1117,7 +1217,7 @@ export default function App() {
                     ?.removeAttribute("open");
                 }}
               >
-                {tab === "deck" ? "Deck · live overview" : labels[tab]}
+                {tab === "deck" ? t("nav.deckOverview") : label(tab)}
               </button>
             ))}
           </div>
