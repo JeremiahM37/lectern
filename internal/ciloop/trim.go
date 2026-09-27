@@ -108,3 +108,22 @@ func Redact(s string) string {
 func trimJobLog(raw string) string {
 	return Redact(tail(Redact(cleanLog(raw)), jobTailLines, jobTailBytes))
 }
+
+// Bounds on a log shown to a person rather than sent to an agent: a person
+// can scroll, so it keeps far more, but a multi-megabyte log still is not
+// worth shipping to a phone.
+const (
+	viewTailLines = 2000
+	viewTailBytes = 200000
+)
+
+// ViewLog is trimJobLog for a person: the same cleaning and redaction with a
+// much larger tail. Redacted because the page travels to phones and relay
+// clients like everything else.
+func ViewLog(raw string) string {
+	return Redact(tail(Redact(cleanLog(raw)), viewTailLines, viewTailBytes))
+}
+
+// TrimForAgent is the loop's own per-job trimming, for a failure report
+// built outside the loop (a GitLab job's log in "Fix checks with agent").
+func TrimForAgent(raw string) string { return trimJobLog(raw) }

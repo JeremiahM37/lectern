@@ -43,6 +43,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   def("nav.deck", "Go to the deck", "Navigation", "global", ["Alt+Shift+5"], "overview"),
   def("nav.approvals", "Go to approvals", "Navigation", "global", ["Alt+Shift+6"]),
   def("nav.targets", "Go to settings", "Navigation", "global", ["Alt+Shift+7"]),
+  def("nav.tasks", "Go to tasks", "Navigation", "global", ["Alt+Shift+8"], "issues pull requests"),
   def("nav.evals", "Open agent tests", "Navigation", "global", [], "evals"),
   def("settings.machines", "Settings: targets", "Settings", "global", [], "machines ssh"),
   def("settings.projects", "Settings: projects", "Settings", "global", [], "repositories"),

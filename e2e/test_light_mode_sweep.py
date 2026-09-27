@@ -89,12 +89,17 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
         page.wait_for_timeout(500)
         sweep.check("task-diff")
     page.keyboard.press("Escape")
-    for name in ("sessions", "media", "approvals"):
+    # Every page the navigation offers, including ones added later.
+    pages = page.evaluate("""() => [...new Set([...document.querySelectorAll('#tabbar .tab[data-tab], [data-nav-target]')]
+        .map((el) => el.dataset.tab || el.dataset.navTarget))]""")
+    for name in pages:
+        if name in ("board", "targets", "evals", "terminals"):
+            continue
+        if name == "deck" and label == "phone":
+            continue
         nav(page, name)
+        page.wait_for_timeout(400)
         sweep.check(name)
-    if label == "desk":
-        nav(page, "deck")
-        sweep.check("deck")
     nav(page, "targets")
     for section in ("machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "appearance", "workspace", "shortcuts"):
         tab = page.locator(f'[data-settings="{section}"]')

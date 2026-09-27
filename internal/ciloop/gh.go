@@ -176,6 +176,31 @@ func failedLog(ctx context.Context, ex executor.Executor, prURL, link string) (s
 	return res.Stdout, true
 }
 
+// JobLog fetches one GitHub Actions job's log for a person to read (the
+// pull request page's check drill-down): the failed steps when there are
+// any, else the whole job. It shares failedLog's command and repository
+// resolution; ok is false for a check that is not an Actions job.
+func JobLog(ctx context.Context, ex executor.Executor, prURL, link string) (string, bool) {
+	raw, ok := failedLog(ctx, ex, prURL, link)
+	if !ok || !strings.HasPrefix(raw, "(log unavailable") {
+		return raw, ok
+	}
+	m := runLinkRe.FindStringSubmatch(link)
+	cmd := "gh run view " + m[1] + " -R " + executor.ShellQuote(repoArg(prURL)) + " --log"
+	if m[2] != "" {
+		cmd += " --job " + m[2]
+	}
+	res, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
+	if err != nil || !res.OK() || strings.TrimSpace(res.Stdout) == "" {
+		return raw, true
+	}
+	return res.Stdout, true
+}
+
+// IsActionsLink reports whether a check link is a GitHub Actions job, the
+// only kind JobLog can read.
+func IsActionsLink(link string) bool { return runLinkRe.MatchString(link) }
+
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s

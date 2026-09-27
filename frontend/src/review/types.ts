@@ -36,6 +36,10 @@ export interface DraftComment {
   side: "old" | "new";
   text: string;
   code?: string;
+  /** Up to two lines either side, so the comment can be found again after
+   * the file changes (diffModel.placeComment). */
+  context_before?: string;
+  context_after?: string;
 }
 
 let draftKeySeq = 0;
@@ -56,4 +60,78 @@ export function toWireComments(
     text,
     ...(code ? { code } : {}),
   }));
+}
+
+// ---- review workspace (docs/review.md) ------------------------------------
+
+export interface GitFile {
+  path: string;
+  status: string;
+  previous_path?: string | null;
+  conflicted: boolean;
+  untracked: boolean;
+  new_file: boolean;
+  staged: boolean;
+  unstaged: boolean;
+  staged_patch: string;
+  unstaged_patch: string;
+  staged_hunks: string[];
+  unstaged_hunks: string[];
+}
+
+export interface GitStatus {
+  branch: string;
+  head: string;
+  upstream: string;
+  remote_sha: string;
+  ahead: number;
+  behind: number;
+  head_pushed: boolean;
+  head_message: string;
+  operation: string;
+  merge_message: string;
+  hooks: string[];
+  files: GitFile[];
+  truncated: boolean;
+  base: string;
+  on_base_branch: boolean;
+  session_live: boolean;
+}
+
+export interface CommitStep {
+  step: string;
+  rc: number;
+  output?: string;
+  url?: string;
+}
+
+export interface CommitResult {
+  steps: CommitStep[];
+  failed?: string;
+  detail?: string;
+  hook_failure?: { hooks: string[] | null; output: string };
+}
+
+export interface StoredComment {
+  id: number;
+  repo: string;
+  file: string;
+  side: "old" | "new";
+  line: number;
+  code: string;
+  context_before: string;
+  context_after: string;
+  text: string;
+  status: "draft" | "sent" | "resolved";
+  round: number;
+  author: string;
+  created_at: number;
+  sent_at: number | null;
+  resolved_at: number | null;
+}
+
+export interface ViewedMark {
+  repo: string;
+  path: string;
+  fingerprint: string;
 }

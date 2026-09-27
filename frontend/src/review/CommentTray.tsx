@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { DraftComment } from "./types";
 
 /**
@@ -24,10 +25,28 @@ export function CommentTray({
   busy?: boolean;
   sendLabel: string;
 }) {
+  const [writingSummary, setWritingSummary] = useState(false);
+  // On a phone the tray is docked over the diff: start it folded to one
+  // line (count + send), and let a tap open the list and the summary.
+  const [openByDefault] = useState(
+    () => !(typeof window !== "undefined" && window.matchMedia?.("(max-width: 480px)").matches),
+  );
   const canSend = !busy && (comments.length > 0 || summary.trim() !== "");
+  if (comments.length === 0 && !summary && !writingSummary) {
+    // Nothing drafted: a one-line hint instead of a docked form, so on a
+    // phone the diff keeps the screen.
+    return (
+      <div className="review-tray review-tray-empty" id="review-tray">
+        <span className="sub">No comments yet — tap a line to comment.</span>
+        <button type="button" className="b" onClick={() => setWritingSummary(true)}>
+          Write an overall note
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="review-tray" id="review-tray">
-      <details className="review-tray-list" open={comments.length > 0}>
+      <details className="review-tray-list" open={openByDefault || writingSummary}>
         <summary>
           {comments.length === 0
             ? "No comments yet"
@@ -54,17 +73,17 @@ export function CommentTray({
             </li>
           ))}
         </ul>
+        <label className="f review-tray-summary">
+          Overall summary (optional)
+          <textarea
+            className="f"
+            rows={2}
+            placeholder="Anything to say beyond the inline comments…"
+            value={summary}
+            onChange={(e) => onSummaryChange(e.target.value)}
+          />
+        </label>
       </details>
-      <label className="f review-tray-summary">
-        Overall summary (optional)
-        <textarea
-          className="f"
-          rows={2}
-          placeholder="Anything to say beyond the inline comments…"
-          value={summary}
-          onChange={(e) => onSummaryChange(e.target.value)}
-        />
-      </label>
       <button
         type="button"
         className="b ok review-tray-send"

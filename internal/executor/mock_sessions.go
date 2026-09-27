@@ -239,6 +239,7 @@ func firstLine(s string) string {
 }
 
 var mockIdentitySeed = regexp.MustCompile(`@lectern-tracking-identity '?([a-f0-9]{32})'?`)
+
 // The condition compares a format that reads the option under either name,
 // so the identity is the last thing before the closing brace.
 var mockIdentityCondition = regexp.MustCompile(`#\{==:.*,([a-f0-9]{32})\}`)

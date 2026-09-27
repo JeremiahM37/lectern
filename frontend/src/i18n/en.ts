@@ -13,6 +13,7 @@ const en: Record<string, string> = {
   "shell.searchTitle": "Search (Ctrl+K or ⌘K)",
   "nav.board": "Board",
   "nav.sessions": "Sessions",
+  "nav.tasks": "Tasks",
   "nav.terminals": "Terminals",
   "nav.media": "Media",
   "nav.deck": "Deck",

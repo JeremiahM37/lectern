@@ -162,3 +162,26 @@
   .browser-toolbar select { max-width: 110px; }
   .browser-toolbar .browser-address { order: -1; flex-basis: 100%; }
 }
+.browser-tabstrip { display: flex; gap: 4px; padding: 0 8px 6px; overflow-x: auto; }
+.browser-tab { display: inline-flex; align-items: center; max-width: 200px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); }
+.browser-tab.on { border-color: var(--accent); background: var(--accent-wash); }
+.browser-tab button, .browser-tab-new {
+  background: none; border: 0; color: var(--ink); padding: 5px 8px; min-height: 30px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
+}
+.browser-tab button:first-child { max-width: 160px; }
+.browser-tab-new { border: 1px dashed var(--line-2); border-radius: 8px; }
+.browser-find, .browser-cookies { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px 8px; }
+.browser-find input, .browser-cookies input:not([type="file"]) {
+  flex: 1 1 180px; min-width: 0; padding: 6px 8px; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line-2); border-radius: 8px; font: 13px var(--sans, sans-serif);
+}
+.browser-cookies { border-bottom: 1px solid var(--line); }
+.browser-cookies p { flex-basis: 100%; margin: 0; color: var(--ink-dim); }
+.browser-cookies label:not(.b) { display: flex; flex: 1 1 260px; gap: 6px; align-items: center; }
+.browser-chrome-import { display: flex; flex: 1 1 300px; gap: 6px; }
+.browser-profile select { min-height: 30px; background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; }
+.browser-downloads { list-style: none; margin: 0; padding: 6px 10px; display: grid; gap: 4px; border-top: 1px solid var(--line); }
+.browser-downloads li { display: flex; align-items: center; gap: 8px; }
+.browser-downloads li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-downloads small { color: var(--ink-dim); }

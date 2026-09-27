@@ -18,6 +18,7 @@ import { LaunchProfiles } from "./settings/LaunchProfiles";
 import { Settings } from "./settings/Settings";
 import { Review } from "./terminal/Review";
 import { SessionReview } from "./review/SessionReview";
+import { TasksHub } from "./trackers/TasksHub";
 import { Evals } from "./evals/Evals";
 import { TerminalTabs, useTerminalTabs } from "./workspace/Workspace";
 import { FloatingTerminal } from "./workspace/FloatingTerminal";
@@ -98,6 +99,7 @@ function savedSwitches(): Record<string, PendingSwitch> {
 const tabs = [
   "board",
   "sessions",
+  "tasks",
   "terminals",
   "media",
   "deck",
@@ -109,6 +111,7 @@ type Tab = (typeof tabs)[number];
 const labelKeys: Record<Tab, string> = {
   board: "nav.board",
   sessions: "nav.sessions",
+  tasks: "nav.tasks",
   terminals: "nav.terminals",
   media: "nav.media",
   deck: "nav.deck",
@@ -471,6 +474,7 @@ export default function App() {
     },
     "nav.board": goto("board"),
     "nav.sessions": goto("sessions"),
+    "nav.tasks": goto("tasks"),
     "nav.terminals": goto("terminals"),
     "nav.media": goto("media"),
     "nav.deck": goto("deck"),
@@ -1075,6 +1079,20 @@ export default function App() {
               void refresh().catch((error) => notice(String(error), true))
             }
             onNotice={notice}
+          />
+        )}{" "}
+        {view === "tasks" && (
+          <TasksHub
+            api={api}
+            projects={projects}
+            refreshVersion={version}
+            onNotice={notice}
+            onOpenSession={(id, name) => setConversation({ kind: "session", id, name })}
+            onOpenTask={openTask}
+            onSettings={(id) => {
+              settings("projects");
+              setProjectEdit({ id, version: Date.now() });
+            }}
           />
         )}{" "}
         {view === "deck" && <Deck tasks={tasks} api={api} onTask={openTask} />}{" "}
