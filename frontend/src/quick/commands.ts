@@ -5,7 +5,7 @@
 // The terminal key bar, the Snippets sheet, Settings and the numbered
 // shortcuts all read this one list.
 import type { JsonValue } from "../api/client";
-import { getPref, setPref } from "../prefs/store";
+import { getPref, prefsLoaded, setPref, subscribePrefs } from "../prefs/store";
 import { defaultSnippets, loadSnippets } from "../terminal/snippets";
 
 export interface QuickCommand {
@@ -48,12 +48,28 @@ export function cleanQuickCommands(value: unknown): QuickCommand[] {
 
 // Before commands were stored on the server, each device kept its own
 // snippets; the first read on such a device carries them over.
+// The carried-over list gets fixed ids (a key on the key row refers to a
+// command by id).
+function carriedOverList(): QuickCommand[] {
+  const legacy = loadSnippets();
+  return cleanQuickCommands((legacy.length ? legacy : defaultSnippets).map((row, index) => ({ id: `default-${index}`, text: row.text, enter: row.enter })));
+}
+
 export function readGlobal(): QuickCommand[] {
   const stored = getPref<unknown>(GLOBAL_KEY, undefined);
-  if (stored !== undefined) return cleanQuickCommands(stored);
-  const legacy = loadSnippets();
-  return cleanQuickCommands((legacy.length ? legacy : defaultSnippets).map((row) => ({ text: row.text, enter: row.enter })));
+  return stored !== undefined ? cleanQuickCommands(stored) : carriedOverList();
 }
+
+// Once the server's preferences are known and hold no list, the carried-over
+// one is saved, so every device and the key row share the same commands.
+// Before they load, an empty local copy says nothing about the server's.
+let carriedOver = false;
+export function carryOverQuickCommands() {
+  if (carriedOver || !prefsLoaded()) return;
+  carriedOver = true;
+  if (getPref<unknown>(GLOBAL_KEY, undefined) === undefined) writeScope({ kind: "global" }, carriedOverList());
+}
+subscribePrefs(carryOverQuickCommands);
 
 export function readScope(scope: QuickScope): QuickCommand[] {
   return scope.kind === "global" ? readGlobal() : cleanQuickCommands(getPref<unknown>(projectKey(scope.id), []));
