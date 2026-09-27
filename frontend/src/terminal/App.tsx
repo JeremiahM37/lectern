@@ -18,8 +18,8 @@ import {
   Dialog,
   HistoryDialog,
   Snippets,
-  WorkspaceFiles,
 } from "./dialogs";
+import { Workbench, type FileRequest } from "../files/Workbench";
 import { loadSnippets, saveSnippets, snippetBytes } from "./snippets";
 import {
   copyClipboard,
@@ -50,7 +50,7 @@ interface Callbacks {
   history: (id: string) => void;
   controls: () => void;
   matches: (id: string, index: number, count: number) => void;
-  preview: (path: string) => void;
+  preview: (path: string, line?: number, column?: number) => void;
   swipe: (id: string, direction: 1 | -1) => void;
 }
 function Pane({
@@ -104,8 +104,8 @@ function Pane({
     engine.current = instance;
     latest.current.callbacks.engine(spec.id, instance);
     if (info.files_available)
-      instance.fileLinks(info.workdir, (path) =>
-        latest.current.callbacks.preview(path),
+      instance.fileLinks(info.workdir, (path, line, column) =>
+        latest.current.callbacks.preview(path, line, column),
       );
     return () => {
       instance.dispose();
@@ -247,14 +247,17 @@ export function TerminalApp({
   const [notice, setNotice] = useState("");
   const [uploading, setUploading] = useState(0);
   const [dialog, setDialog] = useState<
-    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | "keyboard-report" | null
+    "appearance" | "history" | "desktop" | "snippets" | "compose" | "keyboard-report" | null
   >(null);
   const [keyboardReport, setKeyboardReport] = useState("");
   const [snippets, setSnippets] = useState(loadSnippets);
   const [draft, setDraft] = useState("");
   const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [historyPane, setHistoryPane] = useState("agent");
-  const [previewPath, setPreviewPath] = useState<string>();
+  // Workspace files beside the terminal (files/Workbench.tsx).
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [fileRequest, setFileRequest] = useState<FileRequest>();
+  const [fileCommand, setFileCommand] = useState<{ name: "quick" | "search"; nonce: number }>();
   const [search, setSearch] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [mobile, setMobile] = useState(false);
@@ -426,9 +429,9 @@ export function TerminalApp({
     setKeyboardReport(formatKeyboardReport(report));
     setDialog("keyboard-report");
   }, []);
-  const preview = useCallback((path: string) => {
-    setPreviewPath(path);
-    setDialog("files");
+  const preview = useCallback((path: string, line?: number, column?: number) => {
+    setFileRequest({ path, target: line ? { line, column } : undefined, nonce: Date.now() });
+    setFilesOpen(true);
   }, []);
   const register = useCallback((id: string, engine: Engine | null) => {
     if (engine) {
@@ -841,7 +844,6 @@ export function TerminalApp({
   }
   function close() {
     setDialog(null);
-    setPreviewPath(undefined);
   }
   const specs: PaneSpec[] = info
     ? [
@@ -912,7 +914,8 @@ export function TerminalApp({
         <button
           id="files"
           disabled={!info?.files_available}
-          onClick={() => setDialog("files")}
+          aria-pressed={filesOpen}
+          onClick={() => setFilesOpen((old) => !old)}
         >
           Files
         </button>
@@ -966,9 +969,23 @@ export function TerminalApp({
             <button
               id="compact-files"
               disabled={!info?.files_available}
-              onClick={() => setDialog("files")}
+              onClick={() => setFilesOpen(true)}
             >
               Files
+            </button>
+            <button
+              id="go-to-file"
+              disabled={!info?.files_available}
+              onClick={() => setFileCommand({ name: "quick", nonce: Date.now() })}
+            >
+              Go to file
+            </button>
+            <button
+              id="search-files"
+              disabled={!info?.files_available}
+              onClick={() => setFileCommand({ name: "search", nonce: Date.now() })}
+            >
+              Search in files
             </button>
             <span id="compact-workspace">{info?.workdir}</span>
             <button id="compose" disabled={!state?.connected} onClick={() => setDialog("compose")}>
@@ -1120,6 +1137,7 @@ export function TerminalApp({
           </button>
         </div>
       )}
+      <div id="workspace-row">
       <main id="workspace">
         {info &&
           specs.map((spec) => (
@@ -1133,6 +1151,26 @@ export function TerminalApp({
             />
           ))}
       </main>
+      {info?.files_available && (
+        <Workbench
+          base={base}
+          info={info}
+          open={filesOpen}
+          request={fileRequest}
+          command={fileCommand}
+          onOpenChange={setFilesOpen}
+          onNotice={setNotice}
+          onInsert={(text) => {
+            const engine = current();
+            if (!engine)
+              throw new Error(
+                "Terminal disconnected. Reconnect before inserting a path.",
+              );
+            engine.paste(text);
+          }}
+        />
+      )}
+      </div>
       {mobile && state?.paused && (
         <div id="select-bar" role="toolbar" aria-label="Text selection">
           <span>Hold any text to select it</span>
@@ -1271,8 +1309,8 @@ export function TerminalApp({
       <footer>
         <span id="workspace-path">{info?.workdir}</span>
         <span>
-          Drop files or paste a screenshot · Ctrl+Shift+F history · Ctrl+Shift+V
-          paste
+          Drop files or paste a screenshot · Ctrl+Shift+P go to file · Ctrl+Shift+F
+          history · Ctrl+Shift+V paste
         </span>
       </footer>
       {dialog === "compose" && (
@@ -1311,22 +1349,6 @@ export function TerminalApp({
           url={engines.current.get(historyPane)!.options.url}
           shell={historyPane !== "agent"}
           onClose={close}
-        />
-      )}
-      {dialog === "files" && info && (
-        <WorkspaceFiles
-          base={base}
-          info={info}
-          initialPath={previewPath}
-          onClose={close}
-          onInsert={(text) => {
-            const engine = current();
-            if (!engine)
-              throw new Error(
-                "Terminal disconnected. Reconnect before inserting a path.",
-              );
-            engine.paste(text);
-          }}
         />
       )}
       {dialog === "snippets" && (

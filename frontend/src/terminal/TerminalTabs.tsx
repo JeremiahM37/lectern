@@ -116,6 +116,9 @@ export function TerminalTabs({controller,visible,machines,projects,onNew,onBrows
   return()=>abort.abort();
  },[placeActions]);
  useEffect(()=>{if(actions.current)actions.current.open=false;},[controller.active,visible]);
+ // Ctrl/Cmd+P with focus on this page (not inside a terminal) opens the shown
+ // terminal's Go to file, as it does inside the terminal page (files/Workbench.tsx).
+ useEffect(()=>{if(!visible)return;const key=(event:KeyboardEvent)=>{if(!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='p')return;const frame=panels.current?.querySelector<HTMLIFrameElement>('.terminal-tabpanel:not([hidden]) iframe');if(!frame?.contentWindow)return;event.preventDefault();frame.focus();frame.contentWindow.dispatchEvent(new KeyboardEvent('keydown',{key:'p',code:'KeyP',ctrlKey:true,bubbles:true,cancelable:true}));};addEventListener('keydown',key);return()=>removeEventListener('keydown',key);},[visible]);
  const [focus,setFocus]=useState<PaneSlot>('primary');
  const [ratio,setRatio]=useState(()=>{try{const saved=Number(localStorage.getItem(SPLIT_STORAGE));return saved>=20&&saved<=80?saved:50;}catch{return 50;}});const ratioRef=useRef(ratio);ratioRef.current=ratio;
  const relative=useCallback((delta:number)=>{const value=latest.current.controller,index=value.tabs.findIndex(tab=>tab.path===value.active),next=value.tabs[index+delta];if(!next)return false;value.select(next.path);return true;},[]);

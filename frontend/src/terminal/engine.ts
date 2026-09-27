@@ -3,6 +3,7 @@ import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { installTerminalLinks } from "../files/terminalLinks";
 import { installTerminalScroll } from "./scroll";
 import {
   copyClipboard,
@@ -600,32 +601,13 @@ export class Engine {
     this.term.options.theme = themes[prefs.theme] || themes.slate;
     if (!this.paused) this.scheduleFit();
   }
-  fileLinks(workdir: string, preview: (path: string) => void) {
+  // File references and addresses in the output open on click, and on a tap
+  // on phones, where xterm's own link handling never sees one (files/links.ts).
+  fileLinks(workdir: string, preview: (path: string, line?: number, column?: number) => void) {
     this.disposables.push(
-      this.term.registerLinkProvider({
-        provideLinks: (y, callback) => {
-          const text =
-              this.term.buffer.active.getLine(y - 1)?.translateToString() || "",
-            links = [];
-          for (const match of text.matchAll(
-            /(?:\/|\.\/)?[\w@.+~-]+(?:\/[\w@.+~-]+)*\.[a-zA-Z0-9]{1,12}(?::\d+(?::\d+)?)?/g,
-          )) {
-            let value = match[0].replace(/:\d+(?::\d+)?$/, "");
-            if (value.startsWith("/") && !value.startsWith(workdir + "/"))
-              continue;
-            if (value.startsWith(workdir + "/"))
-              value = value.slice(workdir.length + 1);
-            links.push({
-              text: match[0],
-              range: {
-                start: { x: match.index + 1, y },
-                end: { x: match.index + match[0].length, y },
-              },
-              activate: () => preview(value),
-            });
-          }
-          callback(links);
-        },
+      installTerminalLinks(this.term, this.options.host, workdir, (link) => {
+        if (link.url) window.open(link.url, "_blank", "noopener");
+        else if (link.path) preview(link.path, link.line, link.column);
       }),
     );
   }

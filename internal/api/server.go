@@ -361,6 +361,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/term/{kind}/{id}/files", s.terminalFiles)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/changes", s.terminalChanges)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/file", s.terminalFile)
+	// ---- workspace files: editing, Quick Open, search (workspace_files.go) ----
+	mux.HandleFunc("PUT /api/term/{kind}/{id}/file", s.workspaceWrite)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/stat", s.workspaceStat)
+	mux.HandleFunc("POST /api/term/{kind}/{id}/fileops", s.workspaceOp)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/archive", s.workspaceArchive)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/index", s.workspaceIndex)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/git-status", s.workspaceGitStatus)
+	mux.HandleFunc("GET /api/term/{kind}/{id}/search", s.workspaceSearch)
 	mux.HandleFunc("POST /api/term/{kind}/{id}/activity", s.terminalActivity)
 	// ---- attached terminals (proxied on this origin; see termproxy.go) ----
 	mux.HandleFunc("/term/{kind}/{id}", s.termProxy)

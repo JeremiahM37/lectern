@@ -12,7 +12,16 @@ import {createHash} from 'node:crypto';
 // and IIFE output keeps the emitted sw.js a plain classic script exactly
 // like the previous single-file transpile did.
 export function serviceWorkerPlugin():Plugin{return {name:'typed-service-worker',generateBundle(_options,bundle){
- const assets=Object.keys(bundle).filter(name=>/\.(js|css)$/.test(name)).sort();
+ // Precache what the pages can load: entries, their static imports and
+ // their dynamic imports, with CSS. The file editor, viewers and diagram
+ // renderer are the exception (large and optional): they are fetched when
+ // first used and then kept by the runtime rule for /react/assets, so an
+ // installed phone never downloads megabytes it may not need.
+ const optional=/\/src\/files\/(monaco|viewers)\.tsx?$|\/node_modules\/(mermaid|monaco-editor)\//;
+ const kept=new Set<string>();
+ const visit=(name:string)=>{const item=bundle[name];if(!item||kept.has(name))return;if(item.type==='chunk'&&!item.isEntry&&item.facadeModuleId&&optional.test(item.facadeModuleId))return;kept.add(name);if(item.type!=='chunk')return;item.imports.forEach(visit);item.dynamicImports.forEach(visit);const meta=(item as {viteMetadata?:{importedCss?:Set<string>}}).viteMetadata;meta?.importedCss?.forEach(css=>kept.add(css));};
+ for(const item of Object.values(bundle))if(item.type==='chunk'&&item.isEntry)visit(item.fileName);
+ const assets=[...kept].filter(name=>/\.(js|css)$/.test(name)).sort();
  const result=buildSync({entryPoints:['src/service-worker.ts'],bundle:true,write:false,format:'iife',target:'es2022',platform:'browser',logLevel:'silent'});
  const outputFile=result.outputFiles[0];
  if(!outputFile)throw new Error('esbuild produced no output for service-worker.ts');

@@ -27,10 +27,12 @@ binary; clients do not contact a CDN.
   consume output. Live returns to current output. It does not stop the agent.
 - Split shell starts a separate persistent tmux session in the same workspace.
   Hiding the shell closes only its browser connection. Reopening attaches to it.
-- Files lists the workspace with parent-folder navigation, path insertion,
-  raster-image/PDF/text previews, and byte-preserving downloads. Symlinks out of
-  the workspace, nonregular files, and files over 25 MiB are refused. HTML/SVG
-  render as source text. PDF.js renders pages without a browser plugin.
+- Files opens the workspace beside the terminal: an explorer with git colours,
+  an editor with conflict-checked saving, viewers (Markdown, HTML in a
+  sandbox, Mermaid, CSV, notebooks, images, PDF), Go to file (Ctrl+P) and
+  project search. Paths in the output open the file at the line. See
+  [files.md](files.md). Symlinks out of the workspace, nonregular files, and
+  files over 25 MiB are refused. PDF.js renders pages without a browser plugin.
 - Reconnect view reopens only the selected browser connection and redraws it.
   The tmux session and agent keep running. Resizing returns the live viewport to
   the current screen; Pause view remains a fixed snapshot.
