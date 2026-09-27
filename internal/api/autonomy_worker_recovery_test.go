@@ -98,6 +98,16 @@ func TestWorkerRecoveryObservationIdempotentAndExpertBudgetUntouched(t *testing.
 func TestWorkerRecoveryPersistsArchiveCopyBeforePrepareAndNoLiveSource(t *testing.T) {
 	s, a, _, id := repairFixture(t)
 	old := &autoJob{ID: "11111111-1111-4111-8111-111111111111", TaskID: id, Role: "builder", Status: "stopped", WorkerFailures: 4, WorkerFailureRecorded: true, WorkerRecoveryAt: time.Now().Add(-time.Second), WorkerRecoveryArchive: strings.Repeat("a", 64), ReportRepairs: 1, RepairSourceTaskID: 201, RepairAttemptTaskID: id, Admission: &autoAdmission{TaskID: id, JobID: "origin"}}
+	pending, err := autoNodeInputs(nodeRequirement())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.NodeRequest = &autoNodeRequest{Requirements: []string{"old@1.0.0"}}
+	old.PendingNodeRequest = pending
+	old.NodeGeneration = 4
+	old.NodeStopped = true
+	old.NodeStopRequested = true
+	old.NodeNeedsResume = true
 	a.Jobs = append(a.Jobs, old)
 	a.State.Assignments = []autonomy.Assignment{{TaskID: id, Role: "builder"}}
 	root := t.TempDir()
@@ -136,6 +146,9 @@ esac
 	next := autoFindJob(a, id)
 	if next.ID == old.ID || next.TaskID != old.TaskID || next.WorkerFailures != 4 || next.WorkerFailureRecorded || !next.WorkerRecoveryAt.IsZero() || next.ReportRepairs != 1 || next.RepairAttemptTaskID != old.RepairAttemptTaskID || store.J(old) != original {
 		t.Fatal("retry reset evidence/counters", next)
+	}
+	if next.NodeNeedsResume || next.NodeGeneration != 1 || next.NodeStopped || next.NodeStopRequested || next.PendingNodeRequest != nil || !next.NodeNeedsChange || store.J(next.NodeRequest) != store.J(pending) {
+		t.Fatal("Node remedy or consumed marker lost in actual resume", next)
 	}
 	if len(next.DocumentationCopies) != 1 || next.DocumentationCopies[0].Command != "copy-archive-resume" || next.DocumentationCopies[0].SHA != old.WorkerRecoveryArchive {
 		t.Fatal("missing exact asynchronous transport")
@@ -198,20 +211,31 @@ func TestWorkerRecoveryPreparedPeerKeepsUnstartedCopyUUID(t *testing.T) {
 	a.Config.Continuous = true
 	first := &autoJob{ID: "first", TaskID: id, Role: "auditor_a", Status: "failed", WorkerFailures: 2}
 	peer := &autoJob{ID: "not-created-yet", TaskID: id + 1, Role: "auditor_b", Status: "prepared", DocumentationCopies: []autoDocumentationCopy{{Command: "copy-archive-resume", SourceJob: "older", SHA: strings.Repeat("a", 64), Generation: 1}}}
+	peer.NodeRequest = &autoNodeRequest{Kind: "node_packages"}
+	peer.NodeGeneration = 2
 	a.Jobs = append(a.Jobs, first, peer)
 	a.State.Assignments = []autonomy.Assignment{{TaskID: id, Role: "auditor_a"}, {TaskID: id + 1, Role: "auditor_b"}}
 	root := t.TempDir()
 	t.Setenv("PATH", root+":"+os.Getenv("PATH"))
+	stopFile := filepath.Join(root, "node-stop")
+	t.Setenv("NODE_PEER_STOP", stopFile)
+	os.WriteFile(stopFile, []byte(`{"state":"stopped","job":"not-created-yet","generation":1}`), 0600)
 	script := `#!/bin/sh
 case "$3" in
+node-dependencies-stop) cat "$NODE_PEER_STOP" ;;
 completion-stop) echo '{"state":"stopped"}' ;;
 archive-identity) echo '{"state":"ready","sha256":"` + strings.Repeat("a", 64) + `"}' ;;
 *) exit 99 ;;
 esac
 `
 	os.WriteFile(filepath.Join(root, "sudo"), []byte(script), 0700)
+	held, firstErr := s.deferAutoInterruptedWorker(context.Background(), a, first, []byte(`{"state":"failed","exit_code":124}`), time.Now())
+	if held || firstErr == nil || peer.NodeStopped || len(a.DeferredRuns) > 0 {
+		t.Fatal("unconfirmed Node helper released paired work", firstErr)
+	}
+	os.WriteFile(stopFile, []byte(`{"state":"stopped","job":"not-created-yet","generation":2}`), 0600)
 	handled, err := s.deferAutoInterruptedWorker(context.Background(), a, first, []byte(`{"state":"failed","exit_code":124}`), time.Now())
-	if !handled || err != nil || !peer.WorkerRecoveryPrepared || !peer.DocumentationStopped {
+	if !handled || err != nil || !peer.WorkerRecoveryPrepared || !peer.DocumentationStopped || !peer.NodeStopped {
 		t.Fatal("unstarted UUID treated as executed worker", err)
 	}
 	if !autoResumePairedWorkerRecovery(a, first.WorkerRecoveryAt) || peer.Status != "prepared" || peer.ID != "not-created-yet" || len(peer.DocumentationCopies) != 1 || !peer.WorkerRecoveryAt.IsZero() {
