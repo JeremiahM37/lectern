@@ -115,6 +115,12 @@ func (db *DB) RecentLimitHolds(limit int) ([]*LimitHold, error) {
 	return db.limitHolds(`1=1 ORDER BY id DESC LIMIT ?`, limit)
 }
 
+// LimitHoldsAfter lists holds with an id above after, oldest first — how
+// plugin hooks see each new limit hit once.
+func (db *DB) LimitHoldsAfter(after int64) ([]*LimitHold, error) {
+	return db.limitHolds(`id > ? ORDER BY id LIMIT 100`, after)
+}
+
 // InsertLimitHold records a new hold. At most one hold per session or attempt
 // may be open (a partial unique index enforces it), so a detection that races
 // another one returns the hold that won instead of an error.

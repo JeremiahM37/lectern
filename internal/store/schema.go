@@ -1024,4 +1024,49 @@ var migrations = []string{
   attempt_id INTEGER PRIMARY KEY REFERENCES attempts(id),
   env_json TEXT NOT NULL DEFAULT '{}'
 )`,
+	// Plugins (docs/plugins.md): what is installed and the consent that pins
+	// it, the marketplaces plugins are found in, and a record of hook runs.
+	// A bundled plugin has a row only once someone changes its state.
+	// secrets_json holds values a person set for the plugin; like
+	// projects.mcp_json it is credential-bearing and never returned by the API.
+	`CREATE TABLE IF NOT EXISTS plugins(
+  id TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  ref TEXT NOT NULL DEFAULT '',
+  index_name TEXT NOT NULL DEFAULT '',
+  subdir TEXT NOT NULL DEFAULT '',
+  commit_sha TEXT NOT NULL DEFAULT '',
+  tree_sha TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL DEFAULT '',
+  format TEXT NOT NULL DEFAULT 'lectern',
+  consented_hash TEXT NOT NULL DEFAULT '',
+  consented_caps_json TEXT NOT NULL DEFAULT '[]',
+  consented_by TEXT NOT NULL DEFAULT '',
+  consented_at REAL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  project_ids_json TEXT NOT NULL DEFAULT '[]',
+  secrets_json TEXT NOT NULL DEFAULT '{}',
+  installed_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+)`,
+	`CREATE TABLE IF NOT EXISTS plugin_sources(
+  name TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  ref TEXT NOT NULL DEFAULT '',
+  added_at REAL NOT NULL
+)`,
+	`CREATE TABLE IF NOT EXISTS plugin_hook_runs(
+  id INTEGER PRIMARY KEY,
+  plugin_id TEXT NOT NULL,
+  event TEXT NOT NULL,
+  run TEXT NOT NULL,
+  project_id INTEGER,
+  started_at REAL NOT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  ok INTEGER NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT ''
+)`,
+	"CREATE INDEX IF NOT EXISTS idx_plugin_hook_runs ON plugin_hook_runs(plugin_id, id)",
 }
