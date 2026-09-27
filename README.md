@@ -77,7 +77,7 @@ Lectern tells you plainly when a CLI can't do something.
 - Every saved Claude and Codex conversation on your machines is searchable,
   including ones Lectern never launched.
 
-![Restoring a recently closed session](docs/media/recently-closed.gif)
+![Restoring a session: ending one offers Undo, and Restore brings its conversation back](docs/media/recently-closed.gif)
 
 ### Your phone is the remote
 
