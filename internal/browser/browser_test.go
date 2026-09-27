@@ -11,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -404,5 +406,46 @@ func TestHostBrowserSeesTheTargetsLocalhost(t *testing.T) {
 	st, err := b.Navigate(ctx, fmt.Sprintf("http://localhost:%d/", closed))
 	if err != nil || st.Title != "Fixture app" {
 		t.Fatalf("host browser via proxy: %+v %v", st, err)
+	}
+}
+
+// Two servers can share a machine: a browser another server still keeps alive
+// survives a launch; one abandoned for 5 minutes is reaped.
+func TestLaunchReapsOnlyAbandonedBrowsers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	first, err := Launch(ctx, localRun, testOwner(), LaunchOptions{})
+	if err == ErrNoBrowser {
+		t.Skip("no Chromium on this machine")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Stop(context.Background(), localRun, first.Dir)
+	second, err := Launch(ctx, localRun, testOwner(), LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Stop(context.Background(), localRun, second.Dir)
+	if _, err := os.Stat(first.Dir); err != nil {
+		t.Fatalf("a live browser of another server was reaped: %v", err)
+	}
+	if err := KeepAlive(ctx, localRun, first.Dir); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(filepath.Join(first.Dir, "alive"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	third, err := Launch(ctx, localRun, testOwner(), LaunchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Stop(context.Background(), localRun, third.Dir)
+	if _, err := os.Stat(first.Dir); !os.IsNotExist(err) {
+		t.Fatalf("an abandoned browser survived: %v", err)
+	}
+	if _, err := os.Stat(second.Dir); err != nil {
+		t.Fatalf("the kept browser was reaped: %v", err)
 	}
 }

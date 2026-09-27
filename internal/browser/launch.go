@@ -79,11 +79,15 @@ func Launch(ctx context.Context, run Runner, owner string, opts LaunchOptions) (
 OWNER=%s; W=%d; H=%d
 for old in /tmp/lectern-browser-??????; do
   [ -d "$old" ] && [ ! -L "$old" ] || continue
-  [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] || reap "$old"
+  [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] && continue
+  # Another server's browser stays while that server keeps it alive: two
+  # Lecterns can share a machine. One not touched for 5 minutes is abandoned.
+  if [ -n "$(find "$old/alive" -mmin -5 2>/dev/null)" ]; then continue; fi
+  reap "$old"
 done
 [ -n "$bin" ] || { echo NOBROWSER; exit 0; }
 dir=$(mktemp -d /tmp/lectern-browser-XXXXXX) || { echo "ERROR could not create state directory"; exit 0; }
-chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"
+chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"; : >"$dir/alive"
 sandbox=""; [ "$(id -u)" = 0 ] && sandbox="--no-sandbox"
 headless="--headless=new"; case "$bin" in *headless_shell) headless="";; esac
 start() {
@@ -129,6 +133,21 @@ echo "OK $dir $port $path $bin"
 		}
 	}
 	return nil, fmt.Errorf("the machine did not report a browser: %s", strings.TrimSpace(out))
+}
+
+// KeepAlive tells other servers on the machine this browser is still in use;
+// Launch reaps one whose owner stopped doing this.
+func KeepAlive(ctx context.Context, run Runner, dirs ...string) error {
+	var b strings.Builder
+	b.WriteString("# lectern-browser-alive\n")
+	for _, d := range dirs {
+		if browserDir.MatchString(d) {
+			fmt.Fprintf(&b, "[ -d %[1]s ] && touch %[1]s/alive\n", shellQuote(d))
+		}
+	}
+	b.WriteString("true\n")
+	_, err := run(ctx, b.String())
+	return err
 }
 
 // Stop ends a browser and removes its profile.

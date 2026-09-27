@@ -49,6 +49,7 @@ type sessionBrowser struct {
 	binary    string
 	stopOnce  sync.Once
 	stopFn    func()
+	keepAlive func()
 	sessionID int64
 
 	mu         sync.Mutex
@@ -154,12 +155,21 @@ func (s *Server) reapBrowsers() {
 			delete(st.views, key)
 		}
 	}
+	alive := map[*sessionBrowser]bool{}
+	for _, sb := range st.sessions {
+		alive[sb] = true
+	}
 	st.mu.Unlock()
 	for _, sb := range stop {
 		sb.stop()
 	}
 	for _, v := range closeViews {
 		v.Close()
+	}
+	for sb := range alive {
+		if sb.keepAlive != nil {
+			go sb.keepAlive()
+		}
 	}
 }
 
@@ -299,6 +309,11 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		return nil, err
 	}
 	sb.b, sb.binary = b, proc.Binary
+	sb.keepAlive = func() {
+		c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = browser.KeepAlive(c, run, proc.Dir)
+	}
 	sb.stopFn = func() {
 		b.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
