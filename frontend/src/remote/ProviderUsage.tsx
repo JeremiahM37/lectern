@@ -5,7 +5,6 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import { formatCost, formatCountdown, formatTokens } from "../sessions/usageFormat";
-import "./remote.css";
 
 interface Win {
   agent: string;

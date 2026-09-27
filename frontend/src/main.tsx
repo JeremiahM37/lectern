@@ -20,6 +20,7 @@ import "./settings/agent-catalog.css";
 import "./settings/devices.css";
 import "./settings/model-prices.css";
 import "./settings/accounts.css";
+import "./remote/remote.css";
 import "./pairing/pair.css";
 import "./review/review.css";
 // Last, so a phone's density overrides every view's desktop sizing.

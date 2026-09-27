@@ -7,7 +7,6 @@ import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import { availableAgents, raceAgents, type RaceMode } from "../remote/race";
 import "../claims/claims.css";
-import "../remote/remote.css";
 import "./board.css";
 
 type AgentSpec = {

@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { Modal } from "../sessions/Modal";
 import type { Target } from "../types";
 import type { RemoteApi } from "./MachineRemote";
-import "./remote.css";
 
 interface Host {
   alias: string;

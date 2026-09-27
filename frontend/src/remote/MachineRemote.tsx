@@ -8,7 +8,6 @@ import type { LiveView, Target } from "../types";
 import { liveAddress } from "../media/Live";
 import { usePref } from "../prefs/store";
 import { EDITOR_PREF, EDITORS, editorLink, sshOptions, type EditorId, type SSHOptions } from "./editor";
-import "./remote.css";
 
 export interface RemoteApi {
   request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;

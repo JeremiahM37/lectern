@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { Target } from "../types";
 import type { RemoteApi } from "./MachineRemote";
-import "./remote.css";
 
 export interface SandboxConfig {
   provider?: "proxmox" | "docker" | "script";
