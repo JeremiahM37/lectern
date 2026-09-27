@@ -56,6 +56,8 @@ func liveDiffRepo(ctx context.Context, ex executor.Executor, dir, baseRef string
 	ref := baseRef
 	if mb, err := worktree.MergeBase(ctx, ex, dir, baseRef); err == nil && strings.TrimSpace(mb) != "" {
 		ref = strings.TrimSpace(mb)
+	} else {
+		ref = existingRef(ctx, ex, dir, baseRef)
 	}
 	patch, stats, err := worktree.CaptureDiff(ctx, ex, dir, ref)
 	if err != nil {
@@ -67,6 +69,26 @@ func liveDiffRepo(ctx context.Context, ex executor.Executor, dir, baseRef string
 		truncated = true
 	}
 	return repoDiff{BaseRef: ref, Stats: stats, Files: worktree.SplitPatch(patch), Truncated: truncated, Dir: dir}, nil
+}
+
+// emptyTree is git's well-known empty tree: the base of a repository with no
+// commits yet.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// existingRef is ref when it names a commit in dir, else HEAD (a checkout
+// with no such base branch, say an adopted session in its own repository
+// on "master"), else the empty tree (nothing committed at all), so the live
+// diff always shows at least the uncommitted work.
+func existingRef(ctx context.Context, ex executor.Executor, dir, ref string) string {
+	q := executor.ShellQuote
+	for _, candidate := range []string{ref, "HEAD"} {
+		r, err := ex.Run(ctx, "git -C "+q(dir)+" rev-parse -q --verify "+q(candidate+"^{commit}"),
+			executor.RunOpts{Timeout: 15})
+		if err == nil && r.OK() {
+			return candidate
+		}
+	}
+	return emptyTree
 }
 
 // resolveBaseRef mirrors the fallback tasks already use in scheduler.go

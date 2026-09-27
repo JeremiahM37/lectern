@@ -236,7 +236,7 @@ textarea.conflict-result { font-family: var(--mono); font-size: 12.5px; white-sp
   .focus-nav .b { flex: 1 1 22%; padding-left: 6px; padding-right: 6px; font-size: 12.5px; }
 }
 
-.review-tray.review-tray-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; position: static; box-shadow: none; margin-top: 14px; border-radius: var(--r); }
+.review-tray.review-tray-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; position: static; box-shadow: none; margin: 14px 0 0; border-radius: var(--r); }
 @media (max-width: 480px) {
   .sheet.review-workspace .review-tray:not(.review-tray-empty) { margin: 16px -12px -12px; }
 }
@@ -246,3 +246,9 @@ textarea.conflict-result { font-family: var(--mono); font-size: 12.5px; white-sp
   .sheet.review-workspace .review-tray-list ul { max-height: 28dvh; overflow: auto; }
   .sheet.review-workspace .review-tray-summary textarea { min-height: 48px; }
 }
+
+/* line-level staging */
+.dcode .dl-check { flex: none; width: 26px; display: inline-flex; align-items: center; justify-content: center; }
+.dcode .dl-check input { width: 15px; height: 15px; margin: 0; cursor: pointer; }
+.dcode .dl-checked { box-shadow: inset 3px 0 var(--accent); }
+@media (pointer: coarse) { .dcode .dl-check { width: 34px; } .dcode .dl-check input { width: 20px; height: 20px; } }

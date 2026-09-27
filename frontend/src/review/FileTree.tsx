@@ -76,7 +76,7 @@ export function FileTree({
   }
 
   return (
-    <nav className="ftree" aria-label="Changed files">
+    <div className="ftree" role="navigation" aria-label="Changed files">
       <div className="ftree-head">
         <input
           type="search"
@@ -91,6 +91,6 @@ export function FileTree({
       </div>
       <ul>{tree.map((n) => node(n, 0))}</ul>
       {!shown.length && <p className="sub">No matching files.</p>}
-    </nav>
+    </div>
   );
 }

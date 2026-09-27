@@ -23,11 +23,41 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
+
+// agentMarkRetention is how long a session's agent marks outlive the
+// session: long enough to review what an ended session left behind.
+const agentMarkRetention = 14 * 24 * time.Hour
+
+var (
+	agentMarkPruneMu   sync.Mutex
+	agentMarkPrunedAt  time.Time
+	agentMarkPruneTick = time.Hour
+)
+
+// pruneEndedAgentMarks drops the marks of sessions that ended more than
+// agentMarkRetention ago, at most once per agentMarkPruneTick.
+func (s *Server) pruneEndedAgentMarks() {
+	agentMarkPruneMu.Lock()
+	due := time.Since(agentMarkPrunedAt) >= agentMarkPruneTick
+	if due {
+		agentMarkPrunedAt = time.Now()
+	}
+	agentMarkPruneMu.Unlock()
+	if !due {
+		return
+	}
+	cutoff := store.Now() - agentMarkRetention.Seconds()
+	if _, err := s.DB.PruneEndedAgentLineMarks(cutoff); err != nil {
+		s.Log.Warn("attribution: could not prune ended sessions' marks", "err", err)
+	}
+}
 
 // maxMarkedLinesPerEdit bounds what one hook event can record, so a huge
 // generated file cannot flood the table.
@@ -211,6 +241,7 @@ func (s *Server) recordAgentLines(sess *store.Session, event string, body []byte
 	if event != agentevents.EventPostToolUse || len(body) == 0 {
 		return
 	}
+	s.pruneEndedAgentMarks()
 	var in attributionHookInput
 	if json.Unmarshal(body, &in) != nil || in.ToolInput == nil {
 		return
@@ -322,6 +353,8 @@ type repoAttribution struct {
 type blameOut struct {
 	AgentCommits []string                     `json:"agent_commits"`
 	Files        map[string]map[string]string `json:"files"`
+	// Hashes is every non-blank line of each requested file, for pruning.
+	Hashes map[string][]string `json:"hashes"`
 }
 
 // attributeRepo classifies every added line of one repository's live diff.
@@ -334,30 +367,31 @@ func (s *Server) attributeRepo(ctx context.Context, ex executor.Executor, sessio
 		if i >= 300 {
 			break
 		}
-		lines := addedLines(f.Patch)
-		if len(lines) == 0 {
-			continue
-		}
-		perFile[f.Path] = lines
 		absPaths = append(absPaths, path.Join(d.Dir, f.Path))
+		lines := addedLines(f.Patch)
 		nums := make([]int, len(lines))
 		for j, l := range lines {
 			nums[j] = l.n
 		}
 		ranges[f.Path] = lineRanges(nums)
-	}
-	if len(perFile) == 0 {
-		return out, nil
+		if len(lines) > 0 {
+			perFile[f.Path] = lines
+		}
 	}
 	marks, err := s.DB.AgentLineMarks(sessionID, absPaths)
 	if err != nil {
 		return out, err
 	}
 	var blame blameOut
-	if err := runReviewGit(ctx, ex, d.Dir, "blame", map[string]any{"base": d.BaseRef, "files": ranges}, &blame); err != nil {
-		// No history to consult (an unborn branch, say): attribute from the
-		// hook record alone.
-		blame = blameOut{}
+	blameErr := error(nil)
+	if len(ranges) > 0 {
+		blameErr = runReviewGit(ctx, ex, d.Dir, "blame",
+			map[string]any{"base": d.BaseRef, "files": ranges, "hashes": true}, &blame)
+		if blameErr != nil {
+			// No history to consult (an unborn branch, say): attribute from
+			// the hook record alone.
+			blame = blameOut{}
+		}
 	}
 	agentCommits := map[string]bool{}
 	for _, sha := range blame.AgentCommits {
@@ -382,7 +416,54 @@ func (s *Server) attributeRepo(ctx context.Context, ex executor.Executor, sessio
 			out.Files[file] = fileAttribution{Agent: lineRanges(agent), Human: lineRanges(human)}
 		}
 	}
+	// Only a complete picture of the repository may prune: a truncated diff
+	// or a failed read could make live marks look stale.
+	if blameErr == nil && !d.Truncated && len(d.Files) <= 300 {
+		if err := s.pruneRepoMarks(sessionID, d, marks, blame.Hashes); err != nil {
+			s.Log.Warn("attribution: could not prune agent marks", "session", sessionID, "err", err)
+		}
+	}
 	return out, nil
+}
+
+// pruneRepoMarks drops a session's agent marks that can no longer matter for
+// one repository: hashes of lines that are in none of a changed file's
+// current lines, and every mark for a file that no longer differs from the
+// base at all. A later agent edit records its lines again.
+func (s *Server) pruneRepoMarks(sessionID int64, d repoDiff, marks map[string]map[string]bool, hashes map[string][]string) error {
+	inDiff := map[string]bool{}
+	for _, f := range d.Files {
+		abs := path.Join(d.Dir, f.Path)
+		inDiff[abs] = true
+		current, ok := hashes[f.Path]
+		if !ok {
+			continue
+		}
+		present := make(map[string]bool, len(current))
+		for _, h := range current {
+			present[h] = true
+		}
+		var stale []string
+		for h := range marks[abs] {
+			if !present[h] {
+				stale = append(stale, h)
+			}
+		}
+		if err := s.DB.DeleteAgentLineMarks(sessionID, abs, stale); err != nil {
+			return err
+		}
+	}
+	all, err := s.DB.AgentLineMarkPaths(sessionID, d.Dir)
+	if err != nil {
+		return err
+	}
+	var gone []string
+	for _, p := range all {
+		if !inDiff[p] {
+			gone = append(gone, p)
+		}
+	}
+	return s.DB.DeleteAgentLineMarksForPaths(sessionID, gone)
 }
 
 // sessionAttribution is GET /api/sessions/{id}/attribution: which added lines
@@ -392,6 +473,7 @@ func (s *Server) sessionAttribution(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.pruneEndedAgentMarks()
 	ex, err := s.sessionExecutor(row)
 	if err != nil {
 		respondErr(w, err)

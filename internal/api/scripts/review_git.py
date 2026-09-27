@@ -249,10 +249,57 @@ def do_discard():
     return dict(ok=True, discarded=discarded)
 
 
+EMPTY_BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391'
+
+
+def pick_lines(hunk, chosen, reverse):
+    """A hunk reduced to the chosen body lines (indices after the @@ line).
+    Applied forward, an unchosen addition is dropped and an unchosen removal
+    becomes context; applied in reverse (-R) it is the mirror image. This is
+    how `git add -p`'s line editing builds its patches."""
+    lines = hunk.splitlines(keepends=True)
+    body = lines[1:]
+    for i in chosen:
+        if not isinstance(i, int) or i < 0 or i >= len(body) or body[i][:1] not in '+-':
+            raise Refused('Choose added or removed lines in this hunk')
+    keep_marker, drop = '-' if reverse else '+', '+' if reverse else '-'
+    out = [lines[0]]
+    dropped = False
+    for i, line in enumerate(body):
+        tag = line[:1]
+        if tag == '\\':
+            if not dropped:
+                out.append(line)
+            continue
+        dropped = False
+        if tag in '+-' and i not in chosen:
+            if tag == keep_marker:
+                dropped = True
+                continue
+            line = ' ' + line[1:]
+        out.append(line)
+    return ''.join(out)
+
+
+def as_modification(header, rel):
+    """A new file's patch header, rewritten as a change to an existing (empty)
+    file, so part of it can be applied: git only applies a new-file patch
+    whole."""
+    out = []
+    for line in header.splitlines(keepends=True):
+        if line.startswith(('new file mode', 'index ', 'deleted file mode')):
+            continue
+        if line.startswith('--- /dev/null'):
+            line = '--- a/%s\n' % rel
+        out.append(line)
+    return ''.join(out)
+
+
 def do_hunk():
-    """Stage, unstage or discard one hunk, found again by index and checked
-    against the fingerprint the client saw, so a stale click never applies a
-    different hunk than the one on screen."""
+    """Stage, unstage or discard one hunk, or chosen lines of it. The hunk is
+    found again by index and checked against the fingerprint the client saw,
+    so a stale click never applies a different change than the one on screen.
+    New files can be staged, unstaged and discarded in part, too."""
     op = params.get('op')
     scope = {'stage': 'unstaged', 'discard': 'unstaged', 'unstage': 'staged'}.get(op)
     if not scope:
@@ -260,8 +307,6 @@ def do_hunk():
     f = entry_for(params.get('path'))
     if f['conflicted']:
         raise Refused('This file has a merge conflict; resolve it instead')
-    if f['new_file'] and scope == 'unstaged':
-        raise Refused('A new file is staged or discarded as a whole')
     patch, cut = file_patch(f, scope)
     if cut:
         raise Refused('This diff is too large to stage by hunk')
@@ -274,13 +319,45 @@ def do_hunk():
         raise Refused('The file changed since this diff was shown; refresh and try again')
     if 'Binary files' in header or 'GIT binary patch' in header:
         raise Refused('Binary changes are staged as a whole file')
-    single = (header + hunk).encode('utf-8', 'surrogateescape')
+    reverse = op in ('unstage', 'discard')
+    chosen = params.get('lines')
+    if chosen is not None:
+        if not isinstance(chosen, list) or not chosen:
+            raise Refused('Choose at least one line')
+        hunk = pick_lines(hunk, set(chosen), reverse)
+    rel = f['path']
+    new_file = 'new file mode' in header or header.find('--- /dev/null') >= 0
+    if new_file:
+        header = as_modification(header, rel)
     args = ['apply', '--whitespace=nowarn', '--recount']
     if op in ('stage', 'unstage'):
         args.append('--cached')
-    if op in ('unstage', 'discard'):
+    if reverse:
         args.append('-R')
-    git(args + ['-'], stdin=single)
+    restore = None
+    if new_file and op == 'stage':
+        # Give the index an empty entry for the file to apply against, and
+        # put the old entry (none, or intent-to-add) back if that fails.
+        full = os.path.join(workspace, rel)
+        mode = '100755' if os.access(full, os.X_OK) else '100644'
+        restore = f['status']
+        empty = out(['hash-object', '-w', '--stdin'], stdin=b'') or EMPTY_BLOB
+        git(['update-index', '--add', '--cacheinfo', '%s,%s,%s' % (mode, empty, rel)])
+    try:
+        git(args + ['-'], stdin=(header + hunk).encode('utf-8', 'surrogateescape'))
+    except Refused:
+        if restore is not None:
+            git(['rm', '-q', '-f', '--cached', '--', rel])
+            if restore == ' A':
+                git(['add', '-N', '--', rel])
+        raise
+    full = os.path.join(workspace, rel)
+    if (op == 'discard' and f['new_file'] and not f['staged'] and os.path.isfile(full)
+            and not os.path.islink(full) and os.path.getsize(full) == 0):
+        # Every line of a file that never existed is gone: so is the file.
+        if f['status'] == ' A':
+            git(['rm', '-q', '-f', '--cached', '--', rel])
+        os.unlink(full)
     return dict(ok=True)
 
 
@@ -440,9 +517,24 @@ def do_blame():
             if AGENT_TRAILER.search(body) or AGENT_AUTHOR.search(name + ' ' + email):
                 agent_commits.append(sha)
     files = {}
+    hashes = {}
     for rel, ranges in list((params.get('files') or {}).items())[:300]:
         rel = safe_path(rel)
-        if not os.path.isfile(os.path.join(workspace, rel)):
+        full = os.path.join(workspace, rel)
+        if not os.path.isfile(full) or os.path.islink(full):
+            hashes[rel] = []
+            continue
+        if params.get('hashes'):
+            # Every line's identity, as review_attribution.go's lineHash
+            # computes it, so stale agent marks for this file can be dropped.
+            seen = set()
+            with open(full, 'rb') as fh:
+                for raw_line in fh.read(BLOB_LIMIT).split(b'\n'):
+                    line = raw_line.rstrip(b' \t\r')
+                    if line.strip():
+                        seen.add(hashlib.sha1(line).hexdigest()[:16])
+            hashes[rel] = sorted(seen)
+        if not ranges:
             continue
         args = ['blame', '--porcelain']
         for a, b in ranges[:200]:
@@ -454,7 +546,7 @@ def do_blame():
             if m:
                 lines[m.group(2)] = m.group(1)
         files[rel] = lines
-    return dict(agent_commits=agent_commits, files=files, zero=ZERO)
+    return dict(agent_commits=agent_commits, files=files, hashes=hashes, zero=ZERO)
 
 
 ACTIONS = dict(status=do_status, stage=do_stage, unstage=do_unstage, discard=do_discard, hunk=do_hunk,

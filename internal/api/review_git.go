@@ -177,6 +177,9 @@ type gitHunkIn struct {
 	Op          string `json:"op"` // stage | unstage | discard
 	Index       int    `json:"index"`
 	Fingerprint string `json:"fingerprint"`
+	// Lines, when set, applies only these lines of the hunk: indices into
+	// the hunk's body (the lines after its @@ header).
+	Lines []int `json:"lines,omitempty"`
 }
 
 // gitHunk is POST /api/sessions/{id}/git/hunk.
@@ -193,8 +196,11 @@ func (s *Server) gitHunk(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := runReviewGit(r.Context(), ex, target.dir, "hunk", map[string]any{"op": body.Op, "path": body.Path,
-		"index": body.Index, "fingerprint": body.Fingerprint}, nil); err != nil {
+	params := map[string]any{"op": body.Op, "path": body.Path, "index": body.Index, "fingerprint": body.Fingerprint}
+	if body.Lines != nil {
+		params["lines"] = body.Lines
+	}
+	if err := runReviewGit(r.Context(), ex, target.dir, "hunk", params, nil); err != nil {
 		respondReviewGitErr(w, err)
 		return
 	}

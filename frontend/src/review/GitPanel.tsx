@@ -91,6 +91,9 @@ export function GitPanel({
   const [busy, setBusy] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reload, setReload] = useState(0);
+  // Lines ticked for line-level staging, per scope, file and hunk. Any git
+  // action reloads the patches, so the choice is cleared with it.
+  const [chosen, setChosen] = useState<Record<string, number[]>>({});
 
   const [message, setMessageState] = useState(defaultMessage ?? "");
   const messageTouched = useRef(false);
@@ -115,6 +118,7 @@ export function GitPanel({
       .then((s) => {
         if (!live) return;
         setStatus(s);
+        setChosen({});
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
       })
@@ -151,25 +155,46 @@ export function GitPanel({
   const unstaged = files.filter((f) => f.unstaged);
   const diverged = !!status && !!status.remote_sha && status.remote_sha !== status.head;
 
+  const chosenKey = (scope: string, path: string, hunk: number) => `${scope}\0${path}\0${hunk}`;
+  function lineChecks(scope: "staged" | "unstaged") {
+    return {
+      checked: (path: string, hunk: number, line: number) => !!chosen[chosenKey(scope, path, hunk)]?.includes(line),
+      toggle: (path: string, hunk: number, line: number) =>
+        setChosen((c) => {
+          const key = chosenKey(scope, path, hunk);
+          const now = c[key] ?? [];
+          return { ...c, [key]: now.includes(line) ? now.filter((x) => x !== line) : [...now, line] };
+        }),
+    };
+  }
+
   function hunkButtons(f: GitFile, scope: "staged" | "unstaged") {
     return (_patch: FilePatch, h: Hunk) => {
       const fp = (scope === "staged" ? f.staged_hunks : f.unstaged_hunks)[h.index];
-      if (!fp || (scope === "unstaged" && f.new_file)) return null;
-      const hunk = (op: string) => ({ path: f.path, op, index: h.index, fingerprint: fp });
+      if (!fp) return null;
+      const lines = chosen[chosenKey(scope, f.path, h.index)] ?? [];
+      const what = lines.length ? `${lines.length} line${lines.length === 1 ? "" : "s"}` : "hunk";
+      const hunk = (op: string) => ({
+        path: f.path,
+        op,
+        index: h.index,
+        fingerprint: fp,
+        ...(lines.length ? { lines } : {}),
+      });
       return scope === "staged" ? (
         <button type="button" className="b" disabled={!!busy} onClick={() => void act("hunk", "/hunk", hunk("unstage"))}>
-          Unstage hunk
+          Unstage {what}
         </button>
       ) : (
         <>
           <button type="button" className="b ok" disabled={!!busy} onClick={() => void act("hunk", "/hunk", hunk("stage"))}>
-            Stage hunk
+            Stage {what}
           </button>
           <ConfirmButton
-            label="Discard hunk"
+            label={`Discard ${what}`}
             confirm="Discard"
             disabled={!!busy}
-            onConfirm={() => void act("hunk", "/hunk", hunk("discard"), "Discarded that hunk.")}
+            onConfirm={() => void act("hunk", "/hunk", hunk("discard"), `Discarded that ${what}.`)}
           />
         </>
       );
@@ -232,6 +257,7 @@ export function GitPanel({
                   stats={[]}
                   wrap={false}
                   hunkActions={hunkButtons(f, scope)}
+                  lineChecks={lineChecks(scope)}
                   idPrefix={`git-${scope}-`}
                 />
               )}
