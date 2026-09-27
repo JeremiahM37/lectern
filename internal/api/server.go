@@ -452,6 +452,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/git/hunk", s.gitHunk)
 	mux.HandleFunc("POST /api/sessions/{id}/git/commit", s.gitCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/commit-message", s.gitCommitMessage)
+	mux.HandleFunc("POST /api/sessions/{id}/git/push", s.gitPush)
 	mux.HandleFunc("POST /api/sessions/{id}/git/fix-hook", s.gitFixHook)
 	mux.HandleFunc("GET /api/sessions/{id}/git/conflicts", s.gitConflicts)
 	mux.HandleFunc("POST /api/sessions/{id}/git/resolve", s.gitResolve)

@@ -289,6 +289,47 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci})
 }
 
+// gitPush is POST /api/sessions/{id}/git/push: push the branch, plainly or
+// with --force-with-lease pinned to the remote commit the client last saw.
+func (s *Server) gitPush(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Repo           string `json:"repo"`
+		ForceWithLease bool   `json:"force_with_lease"`
+		Lease          string `json:"lease"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		httpError(w, 422, "%s", err.Error())
+		return
+	}
+	if body.Lease != "" && !shaRe.MatchString(body.Lease) {
+		httpError(w, 422, "lease must be a commit id")
+		return
+	}
+	if body.ForceWithLease && !s.humanPrincipal(w, r, "force pushing") {
+		return
+	}
+	row, ex, target, ok := s.reviewRepo(w, r, body.Repo)
+	if !ok || !liveSession(w, row) {
+		return
+	}
+	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
+	var step map[string]any
+	var err error
+	if body.ForceWithLease {
+		step, err = worktree.ForcePushWithLease(r.Context(), ex, target.dir, target.branch, body.Lease)
+	} else {
+		step, err = worktree.Push(r.Context(), ex, target.dir, target.branch)
+	}
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"steps": []map[string]any{step}})
+}
+
 // ---- AI commit message ------------------------------------------------------
 
 func buildCommitMessagePrompt(diff string) string {
@@ -370,7 +411,7 @@ func (s *Server) gitCommitMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	diff := res.Stdout
 	if strings.TrimSpace(diff) == "" {
-		res, err = ex.Run(r.Context(), "git add -A -N && git diff HEAD --no-color --no-ext-diff", executor.RunOpts{Cwd: target.dir, Timeout: 60})
+		res, err = ex.Run(r.Context(), worktree.IntentToAddUntracked(target.dir)+" && git diff HEAD --no-color --no-ext-diff", executor.RunOpts{Cwd: target.dir, Timeout: 60})
 		if err != nil {
 			respondErr(w, err)
 			return

@@ -254,6 +254,21 @@ func TestRealGitAmendGuardAndForceWithLease(t *testing.T) {
 	if got := strings.TrimSpace(gitIn(t, bare, "log", "-1", "--format=%s", branch)); got != "rewrite final" {
 		t.Fatalf("the remote did not get the rewritten commit: %q", got)
 	}
+	// The standalone push action: rewrite again locally, then a stale lease is
+	// refused by git and the current one goes through.
+	h.post(base+"/commit", obj{"message": "rewrite once more", "stage_all": true, "amend": true, "allow_pushed_amend": true}, 200)
+	out = h.post(base+"/push", obj{"force_with_lease": true, "lease": pushed}, 200)
+	if out.list("steps")[0].num("rc") == 0 {
+		t.Fatalf("a lease on the old remote commit must fail: %v", out)
+	}
+	current := strings.TrimSpace(gitIn(t, bare, "rev-parse", branch))
+	out = h.post(base+"/push", obj{"force_with_lease": true, "lease": current}, 200)
+	if out.list("steps")[0].num("rc") != 0 {
+		t.Fatalf("a lease on the current remote commit must succeed: %v", out)
+	}
+	if got := strings.TrimSpace(gitIn(t, bare, "log", "-1", "--format=%s", branch)); got != "rewrite once more" {
+		t.Fatalf("the remote did not get the second rewrite: %q", got)
+	}
 	if code := h.status("POST", base+"/commit", obj{"message": "x", "force_with_lease": true, "lease": "not a sha"}); code != 422 {
 		t.Fatalf("a malformed lease: %d", code)
 	}
@@ -337,6 +352,12 @@ func TestRealGitConflictResolution(t *testing.T) {
 	}
 
 	base := fmt.Sprintf("/api/sessions/%d/git", id)
+	// Opening the live diff mid-merge must leave the conflict alone (it used
+	// to re-add every path and wipe the unmerged index entries).
+	h.get(fmt.Sprintf("/api/sessions/%d/diff", id))
+	if st := gitIn(t, wt, "status", "--porcelain"); !strings.Contains(st, "UU app.py") {
+		t.Fatalf("the live diff disturbed the conflict:\n%s", st)
+	}
 	list := h.get(base + "/conflicts")
 	if list.str("operation") != "merge" || len(list.list("files")) != 2 {
 		t.Fatalf("conflicts: %v", list)
@@ -394,8 +415,14 @@ func TestRealGitAbortMerge(t *testing.T) {
 	writeReviewFile(t, filepath.Join(repo, "app.py"), "b\n")
 	commitIn(t, repo, "m")
 	_, _ = gitCmd(wt, "merge", "main")
+	// A new file the live diff marks intent-to-add must not block the abort.
+	writeReviewFile(t, filepath.Join(wt, "untracked.txt"), "keep me\n")
+	h.get(fmt.Sprintf("/api/sessions/%d/diff", id))
 	base := fmt.Sprintf("/api/sessions/%d/git", id)
 	h.post(base+"/abort", obj{}, 200)
+	if readFile(t, filepath.Join(wt, "untracked.txt")) != "keep me\n" {
+		t.Fatal("abort must never touch an untracked file")
+	}
 	if h.get(base).str("operation") != "" || readFile(t, filepath.Join(wt, "app.py")) != "a\n" {
 		t.Fatal("abort must restore the pre-merge state")
 	}

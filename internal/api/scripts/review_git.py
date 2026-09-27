@@ -392,6 +392,11 @@ def do_abort():
     op = operation()
     if op not in ('merge', 'rebase', 'cherry-pick', 'revert'):
         raise Refused('No merge or rebase is in progress')
+    # Intent-to-add entries (the live diff marks new files that way) make
+    # git refuse to abort; drop just those marks, never the files.
+    ita = [f['path'] for f in status_entries() if f['status'] == ' A']
+    if ita:
+        git(['rm', '-q', '--cached', '--', *ita])
     git([op, '--abort'])
     return dict(ok=True, aborted=op)
 
