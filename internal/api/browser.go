@@ -911,8 +911,27 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 			var msg struct {
 				Type  string        `json:"type"`
 				Event browser.Input `json:"event"`
+				Mode  string        `json:"mode"`
 			}
-			if json.Unmarshal(data, &msg) != nil || msg.Type != "input" || !canDrive {
+			if json.Unmarshal(data, &msg) != nil || !canDrive {
+				continue
+			}
+			// Control changes travel on this socket too, so they apply in the
+			// order the operator made them: a hand-back right after typing
+			// must not be undone by keystrokes that were still in flight.
+			if msg.Type == "control" {
+				if msg.Mode == controlAgent || msg.Mode == controlUser || msg.Mode == controlStopped {
+					sb.mu.Lock()
+					sb.control = msg.Mode
+					if msg.Mode != controlAgent {
+						sb.lastAgent = time.Time{}
+					}
+					sb.mu.Unlock()
+					_ = sendState()
+				}
+				continue
+			}
+			if msg.Type != "input" {
 				continue
 			}
 			// Pressing, typing or scrolling takes over from the agent; merely

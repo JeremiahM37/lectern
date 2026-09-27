@@ -265,6 +265,13 @@ export function BrowserPane({
 
   const act = useCallback(
     async (body: Record<string, JsonValue>) => {
+      // Control changes go on the stream when it is open, behind any input
+      // already sent, so a hand-back cannot be overtaken by earlier typing.
+      const ws = socket.current;
+      if (body.action === "control" && ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "control", mode: body.mode }));
+        return undefined;
+      }
       setBusy(String(body.action));
       try {
         const out = await stableApi.request<{ status?: Status }>(`/sessions/${sessionId}/browser`, { method: "POST", body });

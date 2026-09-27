@@ -241,6 +241,9 @@ def test_the_agent_drives_the_shared_browser_while_the_operator_watches_and_take
     page.keyboard.press('End')
     page.keyboard.type('!')
     pane.get_by_role('button', name='Hand back to agent').click()
+    # The hand-back follows the keystrokes on the same stream, so they can
+    # no longer take control back after it.
+    expect(pane.locator('.browser-control')).to_contain_text('may drive')
     value, = mcp(t, ('browser_evaluate', {'expression': "document.querySelector('#name').value"}))
     assert '"value": "Ada!"' in value['text'], value
     # Design Mode in the shared browser: the element comes from the live page.
