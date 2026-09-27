@@ -127,44 +127,6 @@ The same control loop runs in an installable phone app:
   targets with 65 MB of memory; approvals round-trip in about 7 ms.
   → [Benchmark](docs/benchmarks/scale.md)
 
-## How it compares
-
-✓ yes · ◐ partly · ✗ no · ? couldn't verify. Every cell is checked against each
-project's own docs or source, with sources in [docs/comparison.md](docs/comparison.md).
-Corrections are welcome.
-
-| | Lectern | Orca | HAPI | Agent Orchestrator | Agent of Empires | Happy | Vibe Kanban | Conductor |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Start and manage sessions from a claude.ai or ChatGPT chat | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
-| Terminal dashboard across machines, open many at once | ✓ | ◐ | ◐ | ✗ | ◐ | ? | ✗ | ✗ |
-| Switch a live session to another agent, keeping context | ✓ | ? | ? | ✓ | ◐ | ◐ | ✗ | ? |
-| Agents on your own machines: SSH, Proxmox, sandboxes | ✓ | ◐ | ◐ | ◐ | ◐ | ✗ | ✗ | ◐ |
-| Approve, deny or reply from the phone notification | ✓ | ◐ | ✓ | ◐ | ◐ | ◐ | ✗ | ◐ |
-| Allow once / for this session / deny with feedback | ✓ | ◐ | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
-| Free voice mode with spoken approvals | ✓ | ◐ | ◐ paid | ◐ | ◐ | ◐ paid | ? | ? |
-| End-to-end encrypted relay, no VPN needed | ✓ | ✓ | ✓ | ◐ | ◐ | ✓ | ◐ | ? |
-| Task board with worktrees, diff review and PRs | ✓ | ✓ | ◐ | ✓ | ◐ | ◐ | ✓ | ◐ |
-| Best-of-N with a judge, and delegated builds | ✓ | ◐ | ◐ | ◐ | ◐ | ✗ | ? | ? |
-| Evals replayed from your own merged PRs | ✓ | ? | ? | ? | ? | ? | ? | ✗ |
-| Agents aware of each other (claim board) | ✓ | ◐ | ✓ | ◐ | ? | ✗ | ? | ✗ |
-| Adopts agent sessions you started elsewhere | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ | ? | ? |
-| MCP server so other agents can drive it | ✓ | ✗ | ◐ | ✗ | ✗ | ◐ | ✓ | ✓ |
-| Native iOS / Android apps | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ |
-| Self-hosted and open source | ✓ MIT | ✓ MIT | ✓ AGPL | ✓ Apache | ✓ MIT | ✓ MIT | ✓ Apache | ✗ |
-
-**Where others are ahead:**
-- Orca, HAPI, Agent Orchestrator and Happy ship native phone apps. Lectern is an
-  installable web app plus an unpublished Android prototype; on iPhone that
-  means no Approve/Deny buttons on the notification itself.
-- Orca (30+), Agent Orchestrator (28) and Agent of Empires (about 20) list more
-  agents out of the box. Lectern has 3 built in, a catalog of 10 more, and any
-  CLI as a custom agent.
-- Orca swaps to another account when one hits its usage limit. Lectern waits
-  for the reset or hands off to a different agent.
-- Agent of Empires has a plugin system and a multi-user edition with SSO.
-- Conductor, which is hosted and proprietary, also drives sessions from
-  claude.ai and ChatGPT.
-
 ## Install
 
 | | |
