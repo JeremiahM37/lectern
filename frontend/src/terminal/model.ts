@@ -1,6 +1,7 @@
 import type { ITheme } from "@xterm/xterm";
 import { ApiError, authToken, withToken } from "../api/client";
 import { builtinTerminalThemes } from "../theme/terminal-themes";
+import { t } from "../i18n";
 export { withToken };
 export interface TerminalInfo {
   kind: string;
@@ -129,9 +130,7 @@ export async function copyClipboard(text: string, restoreFocus?: () => void) {
       previous.focus({ preventScroll: true });
   }
   if (!copied)
-    throw new Error(
-      "Clipboard access is unavailable. Use your browser's Copy command.",
-    );
+    throw new Error(t("terminalPage.errors.clipboard"));
 }
 export function downloadBlob(blob: Blob, name: string) {
   const link = document.createElement("a"),

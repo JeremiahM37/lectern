@@ -32,7 +32,8 @@ export const ACCENT_PRESETS: { name: string; value: string }[] = [
 export type TokenName =
   | "bg" | "bg-soft" | "panel" | "panel-2" | "line" | "line-2"
   | "ink" | "ink-dim" | "ink-faint"
-  | "accent" | "accent-soft" | "indigo" | "cyan" | "amber" | "red" | "green";
+  | "accent" | "accent-soft" | "accent-fill" | "indigo" | "cyan" | "blue" | "amber" | "red" | "green"
+  | "on-accent" | "on-fill" | "overlay" | "scrim" | "paper";
 export type Palette = Record<TokenName, string>;
 
 export const palettes: Record<"dark" | "light", Palette> = {
@@ -48,11 +49,20 @@ export const palettes: Record<"dark" | "light", Palette> = {
     "ink-faint": "#8793a7",
     accent: "#8b5cf6",
     "accent-soft": "#a78bfa",
+    "accent-fill": "#7860d2",
     indigo: "#818cf8",
     cyan: "#38bdf8",
+    blue: "#60a5fa",
     amber: "#fbbf24",
     red: "#f87171",
     green: "#34d399",
+    "on-accent": "#ffffff",
+    "on-fill": "#0b0a1a",
+    overlay: "#ffffff",
+    scrim: "#000000",
+    // The page a document is drawn on (PDF pages, HTML previews, plots):
+    // white in both themes, as the document was made.
+    paper: "#ffffff",
   },
   light: {
     bg: "#f4f5f9",
@@ -66,17 +76,24 @@ export const palettes: Record<"dark" | "light", Palette> = {
     "ink-faint": "#565f73",
     accent: "#7c3aed",
     "accent-soft": "#6d28d9",
+    "accent-fill": "#6d28d9",
     indigo: "#4338ca",
     cyan: "#0369a1",
+    blue: "#1d4ed8",
     amber: "#92400e",
     red: "#b91c1c",
     green: "#047857",
+    "on-accent": "#ffffff",
+    "on-fill": "#ffffff",
+    overlay: "#0f172a",
+    scrim: "#0f172a",
+    paper: "#ffffff",
   },
 };
 
 // Which tokens are text, and which surfaces text is drawn on. The contrast test
 // walks exactly these pairs.
-export const TEXT_TOKENS: TokenName[] = ["ink", "ink-dim", "ink-faint", "accent-soft", "indigo", "cyan", "amber", "red", "green"];
+export const TEXT_TOKENS: TokenName[] = ["ink", "ink-dim", "ink-faint", "accent-soft", "indigo", "cyan", "blue", "amber", "red", "green"];
 export const SURFACE_TOKENS: TokenName[] = ["bg", "bg-soft", "panel", "panel-2"];
 
 export function resolveMode(mode: ThemeMode, prefersDark: boolean): "dark" | "light" {
@@ -89,6 +106,7 @@ export function themeTokens(mode: "dark" | "light", accent = ""): Palette & { "a
   const base = { ...palettes[mode] };
   if (accent && parseColor(accent)) {
     base.accent = accent;
+    base["accent-fill"] = ensureContrast(mode === "dark" ? mix(accent, "#000000", 0.1) : accent, "#ffffff", 4.5);
     const soft = mode === "dark" ? mix(accent, "#ffffff", 0.25) : mix(accent, "#000000", 0.15);
     base["accent-soft"] = SURFACE_TOKENS.reduce((color, surface) => ensureContrast(color, base[surface]), soft);
   }
@@ -114,7 +132,7 @@ export function normalizeAppearance(value: unknown): Appearance {
 
 // The terminal page names its surfaces differently; map the same palette onto
 // its tokens so its chrome follows the app theme too.
-const terminalNames: Record<string, TokenName> = { bg: "bg", surface: "panel", line: "line", ink: "ink", muted: "ink-dim", accent: "accent-soft" };
+const terminalNames: Record<string, TokenName> = { surface: "panel", muted: "ink-dim" };
 
 export function applyAppearance(
   appearance: Appearance,
@@ -127,10 +145,9 @@ export function applyAppearance(
   root.dataset.theme = mode;
   root.classList.toggle("dark", mode === "dark");
   root.style.colorScheme = mode;
-  // The terminal page gets the surface and ink tokens too (the generated
-  // light overrides use them), plus its own names; its --accent keeps the
-  // terminal's meaning (the readable accent).
-  for (const [name, value] of Object.entries(tokens)) if (!options.terminal || !["accent", "accent-wash"].includes(name)) root.style.setProperty("--" + name, value);
+  // Both documents use the same tokens; the terminal page also has two
+  // older names for its surfaces.
+  for (const [name, value] of Object.entries(tokens)) root.style.setProperty("--" + name, value);
   if (options.terminal) for (const [name, token] of Object.entries(terminalNames)) root.style.setProperty("--" + name, tokens[token]);
   root.style.setProperty("--ui-zoom", String(appearance.zoom));
   const meta = document.querySelector('meta[name="theme-color"]');

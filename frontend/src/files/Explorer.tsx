@@ -426,7 +426,7 @@ export function Explorer({
         {rows(".", 0)}
       </div>
       {menu && (
-        <div className="wb-menu" role="menu" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 320) }}>
+        <div className="wb-menu" role="menu" data-back-overlay="50" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 320) }}>
           <p className="wb-menu-title">{menu.entry.path}</p>
           {menuItems(menu.entry).map(([label, action]) => (
             <button

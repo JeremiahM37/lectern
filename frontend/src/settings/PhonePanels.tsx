@@ -2,13 +2,14 @@
 // (Settings → Notifications), and, in the Android app, which Lecterns this
 // app is paired with (Settings → Devices). docs/mobile-sessions.md,
 // docs/android.md.
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import { useEffect, useState } from "react";
 import { speechCtor } from "../voice";
 import { hostVoice, setVoicePreference, voicePreference, type HostVoice, type VoicePreference } from "../voice-host";
 import { appHosts, inApp, nativeBridge } from "../native/bridge";
 
 export function VoiceSettings() {
+  useLocale();
   const [pref, setPref] = useState<VoicePreference>(voicePreference);
   const [host, setHost] = useState<HostVoice>();
   useEffect(() => {
@@ -49,6 +50,7 @@ export function VoiceSettings() {
 
 /** The Android app's paired Lecterns. Nothing in a browser. */
 export function AppHosts() {
+  useLocale();
   const bridge = nativeBridge();
   const [hosts, setHosts] = useState(appHosts);
   useEffect(() => {

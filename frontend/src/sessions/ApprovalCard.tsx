@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { Approval } from "../types";
 import { ToolCardBody, ToolCardHeader } from "./tool-views/ToolCard";
 import type { ToolCard } from "./tool-views/chatCards";
+import { t, useLocale } from "../i18n";
 
 export interface ApprovalDecisionOptions {
   forSession?: boolean;
@@ -25,10 +26,10 @@ const WRAPPERS = new Set([
 
 /** The label for "allow for this session", or null when that scope would be too broad. */
 export function sessionScopeLabel(tool: string, input: Record<string, unknown>): string | null {
-  if (tool !== "Bash") return `Allow ${tool} this session`;
+  if (tool !== "Bash") return t("conversation.approval.allowTool", { tool });
   const first = String(input.command ?? "").trim().split(/\s+/)[0] || "";
   if (!first || WRAPPERS.has(first) || /[/=$`(]/.test(first)) return null;
-  return `Allow “${first} …” commands this session`;
+  return t("conversation.approval.allowCommand", { command: first });
 }
 
 export function ApprovalCard({
@@ -41,6 +42,7 @@ export function ApprovalCard({
   /** Only NeedsYou needs this — Conversation.tsx already has its own "open task" link and closes itself instead. */
   onOpenTask?(taskId: number): void;
 }) {
+  useLocale();
   const [busy, setBusy] = useState<Busy>(null);
   const [denying, setDenying] = useState(false);
   const [note, setNote] = useState("");
@@ -70,14 +72,14 @@ export function ApprovalCard({
   return (
     <div className="approval-card" data-decided={decided ? approval.status : undefined}>
       <div className="approval-head">
-        <strong>Approval needed: {approval.tool_name}</strong>
+        <strong>{t("conversation.approval.needed", { tool: approval.tool_name })}</strong>
         <ToolCardHeader card={card} />
       </div>
       <ToolCardBody card={card} />
       {!decided && (
         <div className="approval-actions">
           <button type="button" className="b ok" disabled={busy !== null} onClick={() => void act("once", "approved")}>
-            {busy === "once" ? "Allowing…" : "Allow once"}
+            {busy === "once" ? t("conversation.approval.allowing") : t("conversation.approval.allowOnce")}
           </button>
           {/* Only a session-scoped approval has a session to remember the
               rule against — a task attempt's approval has no persistent
@@ -89,26 +91,26 @@ export function ApprovalCard({
               disabled={busy !== null}
               onClick={() => void act("session", "approved", { forSession: true })}
             >
-              {busy === "session" ? "Allowing…" : sessionLabel}
+              {busy === "session" ? t("conversation.approval.allowing") : sessionLabel}
             </button>
           )}
           {!denying ? (
             <button type="button" className="b warn" disabled={busy !== null} onClick={() => setDenying(true)}>
-              Deny…
+              {t("conversation.approval.deny")}
             </button>
           ) : (
             <div className="approval-deny">
-              <label htmlFor={`approval-note-${approval.id}`}>Tell the agent why (optional)</label>
+              <label htmlFor={`approval-note-${approval.id}`}>{t("conversation.approval.why")}</label>
               <textarea
                 id={`approval-note-${approval.id}`}
                 rows={2}
                 value={note}
-                placeholder="e.g. not touching prod from a phone"
+                placeholder={t("conversation.approval.notePlaceholder")}
                 onChange={(e) => setNote(e.target.value)}
               />
               <div className="approval-deny-actions">
                 <button type="button" className="b" disabled={busy !== null} onClick={() => setDenying(false)}>
-                  Cancel
+                  {t("conversation.approval.cancel")}
                 </button>
                 <button
                   type="button"
@@ -116,7 +118,7 @@ export function ApprovalCard({
                   disabled={busy !== null}
                   onClick={() => void act("deny", "denied", { note: note.trim() || undefined })}
                 >
-                  {busy === "deny" ? "Denying…" : "Deny with feedback"}
+                  {busy === "deny" ? t("conversation.approval.denying") : t("conversation.approval.denyWithFeedback")}
                 </button>
               </div>
             </div>
@@ -126,11 +128,11 @@ export function ApprovalCard({
       {!!approval.task_id &&
         (onOpenTask ? (
           <button type="button" className="b link-button" onClick={() => onOpenTask(approval.task_id!)}>
-            Open task
+            {t("conversation.approval.openTask")}
           </button>
         ) : (
           <a className="b link-button" href={`#task/${approval.task_id}`}>
-            Open task
+            {t("conversation.approval.openTask")}
           </a>
         ))}
     </div>

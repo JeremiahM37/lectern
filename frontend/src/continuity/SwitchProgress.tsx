@@ -4,6 +4,7 @@ import {
   type SessionApi,
   type SwitchProgress as Progress,
 } from './handoff';
+import { t, useLocale } from '../i18n';
 import './continuity.css';
 
 export type PendingSwitch = {
@@ -22,14 +23,15 @@ export type PendingSwitch = {
 };
 
 const stepLabels = (progress: Progress) => [
-  'Saving context',
-  progress.destination ? `Starting ${progress.destination}` : 'Starting the new session',
-  'Ready',
+  t('app.switch.saving'),
+  progress.destination ? t('app.switch.starting', { destination: progress.destination }) : t('app.switch.startingNew'),
+  t('app.switch.ready'),
 ];
 
 // SwitchSteps is the honest three-beat progress the operator asked for. It is
 // exported so the picker and the persistent banner show identical wording.
 export function SwitchSteps({ progress }: { progress: Progress }) {
+  useLocale();
   const labels = stepLabels(progress);
   const reached = progress.phase === 'ready' ? 3 : progress.phase === 'starting' ? 1 : 0;
   return (
@@ -74,6 +76,7 @@ export function SwitchProgressPanel({
   onReopen(source: number): void;
   onDismiss(source: number): void;
 }) {
+  useLocale();
   const entries = Object.entries(pending);
   if (!entries.length) return null;
   return (
@@ -124,7 +127,7 @@ function SwitchProgressRow({
       onReady(source, progress.successor);
     } else if (progress.phase === 'failed') {
       reported.current = stamp;
-      onFailed(source, progress.error || 'The switch did not complete. Your original session is still available.');
+      onFailed(source, progress.error || t('app.switch.incomplete'));
     }
   }, [pending.generation, progress, source, onReady, onFailed]);
   // A successor that exists but could not be opened is not a failed switch: the
@@ -132,24 +135,24 @@ function SwitchProgressRow({
   const blocked = !!pending.successor && !!pending.error;
   const failed = progress.phase === 'failed' || blocked;
   const failure =
-    pending.error || progress.error || 'The switch did not complete. Your original session is still available.';
+    pending.error || progress.error || t('app.switch.incomplete');
   return (
     <section
       className={`switch-progress ${failed ? 'failed' : ''}`}
-      aria-label={`Switch session ${source} progress`}
+      aria-label={t('app.switch.progressLabel', { id: source })}
     >
       <div className="switch-progress-head">
         <strong>
           {blocked
-            ? 'New session started — could not open it'
+            ? t('app.switch.openFailed')
             : failed
-              ? 'Switch failed'
-              : `Switching${pending.destination ? ` to ${pending.destination}` : ''}`}
+              ? t('app.switch.failed')
+              : pending.destination ? t('app.switch.switchingTo', { destination: pending.destination }) : t('app.switch.switching')}
         </strong>
         {failed && (
           <button
             className="switch-progress-x"
-            aria-label="Dismiss switch progress"
+            aria-label={t('app.switch.dismiss')}
             onClick={() => onDismiss(source)}
           >
             ✕
@@ -162,11 +165,11 @@ function SwitchProgressRow({
           <p role="alert">{failure}</p>
           {pending.successor ? (
             <button className="b" onClick={() => onReopen(source)}>
-              Open new session
+              {t('app.switch.openNew')}
             </button>
           ) : (
             <button className="b" onClick={() => onRetry(source)}>
-              Retry
+              {t('app.switch.retry')}
             </button>
           )}
         </div>

@@ -45,14 +45,14 @@
 .ns-read-status {
   padding: 8px 18px !important;
   font-size: 13px;
-  color: #b5bfd5;
+  color: var(--ink-dim);
   overflow-wrap: anywhere;
 }
 .ns-progress,
 .ns-advanced {
   padding: 8px 18px;
   font-size: 13px;
-  color: #b5bfd5;
+  color: var(--ink-dim);
 }
 .ns-progress div {
   max-height: 120px;
@@ -77,7 +77,7 @@
   gap: 5px;
   padding: 12px;
   margin: 8px 0;
-  background: #171c2b;
+  background: var(--panel);
 }
 .ns-result strong,
 .ns-result small,
@@ -87,7 +87,7 @@
   max-width: 100%;
 }
 .ns-result small {
-  color: #adb6ce;
+  color: var(--ink-dim);
 }
 .ns-result span {
   font-size: 14px;
@@ -97,13 +97,13 @@
 }
 .ns-location {
   font-size: 13px;
-  color: #b5bfd5;
+  color: var(--ink-dim);
   overflow-wrap: anywhere;
   padding-top: 8px;
 }
 .native-search .ns-match {
-  border-color: #b8a4ff;
-  box-shadow: inset 3px 0 #b8a4ff;
+  border-color: color-mix(in srgb, var(--accent-soft) 75%, var(--ink));
+  box-shadow: inset 3px 0 color-mix(in srgb, var(--accent-soft) 75%, var(--ink));
 }
 .ns-advanced p {
   padding: 8px 0;

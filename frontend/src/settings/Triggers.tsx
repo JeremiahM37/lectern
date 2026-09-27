@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { SettingsApi } from "./Settings";
+import { t, useLocale } from "../i18n";
 
 // A trigger source is how a project picks up work on its own — a labelled
 // GitHub issue, a Slack mention, a labelled Linear issue — instead of a
@@ -62,18 +63,18 @@ const DEFAULT_SECRETS: Record<TriggerSource["kind"], string> = {
 
 // The one secret a Linear or Jira source cannot be created without; asked
 // for beside the Add button so adding one does not fail validation.
-const ADD_SECRET: Partial<Record<TriggerSource["kind"], { key: string; label: string }>> = {
-  linear: { key: "api_key", label: "Linear API key" },
-  jira: { key: "token", label: "Jira API token or personal access token" },
-};
+const ADD_SECRET = (): Partial<Record<TriggerSource["kind"], { key: string; label: string }>> => ({
+  linear: { key: "api_key", label: t("agentSettings.triggers.linearApiKey") },
+  jira: { key: "token", label: t("agentSettings.triggers.jiraToken") },
+});
 
 export function timeAgo(sec?: number): string {
-  if (!sec) return "never";
+  if (!sec) return t("agentSettings.triggers.never");
   const delta = Date.now() / 1000 - sec;
-  if (delta < 60) return "just now";
-  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-  return `${Math.floor(delta / 86400)}d ago`;
+  if (delta < 60) return t("agentSettings.triggers.justNow");
+  if (delta < 3600) return t("agentSettings.triggers.minutesAgo", { n: Math.floor(delta / 60) });
+  if (delta < 86400) return t("agentSettings.triggers.hoursAgo", { n: Math.floor(delta / 3600) });
+  return t("agentSettings.triggers.daysAgo", { n: Math.floor(delta / 86400) });
 }
 
 export function Triggers({
@@ -85,6 +86,7 @@ export function Triggers({
   projectId: number;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [sources, setSources] = useState<TriggerSource[]>([]);
   const [events, setEvents] = useState<TriggerEvent[]>([]);
   const [busy, setBusy] = useState(false);
@@ -103,7 +105,7 @@ export function Triggers({
       setSources(s);
       setEvents(e);
     } catch (error) {
-      onNotice(`Triggers: ${(error as Error).message}`, true);
+      onNotice(t("agentSettings.triggers.loadFailed", { message: (error as Error).message }), true);
     }
   }
   useEffect(() => {
@@ -122,6 +124,8 @@ export function Triggers({
     );
   }
 
+  const addSecret = ADD_SECRET();
+
   async function addSource() {
     setBusy(true);
     try {
@@ -131,11 +135,11 @@ export function Triggers({
           kind: newKind,
           name: KIND_LABEL[newKind],
           config: JSON.parse(DEFAULT_CONFIG[newKind]),
-          secrets: ADD_SECRET[newKind] && newSecret.trim() ? { [ADD_SECRET[newKind]!.key]: newSecret.trim() } : {},
+          secrets: addSecret[newKind] && newSecret.trim() ? { [addSecret[newKind]!.key]: newSecret.trim() } : {},
         },
       });
       setNewSecret("");
-      onNotice(`${KIND_LABEL[newKind]} trigger added — configure it below`);
+      onNotice(t("agentSettings.triggers.added", { kind: KIND_LABEL[newKind] }));
       await load();
     } catch (error) {
       onNotice((error as Error).message, true);
@@ -159,13 +163,13 @@ export function Triggers({
     try {
       config = JSON.parse(d.config);
     } catch {
-      onNotice("Config must be valid JSON", true);
+      onNotice(t("agentSettings.triggers.configInvalid"), true);
       return;
     }
     try {
       secrets = d.secrets.trim() ? JSON.parse(d.secrets) : {};
     } catch {
-      onNotice("Secrets must be valid JSON", true);
+      onNotice(t("agentSettings.triggers.secretsInvalid"), true);
       return;
     }
     setBusy(true);
@@ -184,7 +188,7 @@ export function Triggers({
           ...(secretsChanged ? { secrets } : {}),
         },
       });
-      onNotice(`${s.name || KIND_LABEL[s.kind]} saved`);
+      onNotice(t("agentSettings.triggers.saved", { name: s.name || KIND_LABEL[s.kind] }));
       await load();
     } catch (error) {
       onNotice((error as Error).message, true);
@@ -194,7 +198,7 @@ export function Triggers({
   }
 
   async function remove(s: TriggerSource) {
-    if (!confirm(`Delete the ${KIND_LABEL[s.kind]} trigger "${s.name || s.kind}"?`)) return;
+    if (!confirm(t("agentSettings.triggers.confirmDelete", { kind: KIND_LABEL[s.kind], name: s.name || s.kind }))) return;
     try {
       await api.request(`/triggers/${s.id}`, { method: "DELETE" });
       await load();
@@ -204,7 +208,7 @@ export function Triggers({
   }
 
   async function test(s: TriggerSource) {
-    setTestResults((r) => ({ ...r, [s.id]: "Testing…" }));
+    setTestResults((r) => ({ ...r, [s.id]: t("agentSettings.triggers.testing") }));
     try {
       const res = await api.request<{ ok: boolean; message?: string; error?: string }>(`/triggers/${s.id}/test`, { method: "POST" });
       setTestResults((r) => ({ ...r, [s.id]: res.ok ? `✓ ${res.message}` : `✗ ${res.error}` }));
@@ -214,35 +218,33 @@ export function Triggers({
   }
 
   return (
-    <section className="project-triggers">
-      <h4>Triggers</h4>
+    <section className="project-triggers" data-setting="projects.triggers">
+      <h4>{t("agentSettings.triggers.title")}</h4>
       <p>
-        Let this project pick up work on its own: a labelled GitHub issue or an @mention, a Slack
-        message or /lectern command, or a labelled Linear or Jira issue. Every source needs an author
-        allowlist before it can act — see docs/triggers.md.
+        {t("agentSettings.triggers.intro")}
       </p>
       <div className="trigger-add">
-        <select aria-label="Trigger kind" value={newKind} onChange={(e) => setNewKind(e.target.value as TriggerSource["kind"])} disabled={busy}>
+        <select aria-label={t("agentSettings.triggers.kind")} value={newKind} onChange={(e) => setNewKind(e.target.value as TriggerSource["kind"])} disabled={busy}>
           <option value="github">GitHub</option>
           <option value="slack">Slack</option>
           <option value="linear">Linear</option>
           <option value="jira">Jira</option>
         </select>
-        {ADD_SECRET[newKind] && (
+        {addSecret[newKind] && (
           <input
             type="password"
             autoComplete="new-password"
-            aria-label={ADD_SECRET[newKind]!.label}
-            placeholder={ADD_SECRET[newKind]!.label}
+            aria-label={addSecret[newKind]!.label}
+            placeholder={addSecret[newKind]!.label}
             value={newSecret}
             onChange={(e) => setNewSecret(e.target.value)}
           />
         )}
         <button onClick={() => void addSource()} disabled={busy}>
-          Add trigger
+          {t("agentSettings.triggers.add")}
         </button>
       </div>
-      {sources.length === 0 && <p>No triggers configured for this project yet.</p>}
+      {sources.length === 0 && <p>{t("agentSettings.triggers.none")}</p>}
       {sources.map((s) => {
         const d = draftFor(s);
         const isOpen = open[s.id] ?? false;
@@ -250,34 +252,34 @@ export function Triggers({
           <article className="trigger-source-row" key={s.id}>
             <div className="trigger-source-head">
               <b>{KIND_LABEL[s.kind]}</b>
-              <span className="trigger-source-name">{s.name || "(unnamed)"}</span>
+              <span className="trigger-source-name">{s.name || t("agentSettings.triggers.unnamed")}</span>
               <span className={`trigger-status trigger-status-${s.status}`}>{s.status}</span>
-              <span className="trigger-last-poll">last poll: {timeAgo(s.last_poll_at)}</span>
+              <span className="trigger-last-poll">{t("agentSettings.triggers.lastPoll", { time: timeAgo(s.last_poll_at) })}</span>
             </div>
             {s.last_error && <p className="trigger-error" role="status">{s.last_error}</p>}
             <div className="trigger-source-actions">
               <label>
-                <input type="checkbox" checked={s.enabled} onChange={() => void toggle(s)} /> Enabled
+                <input type="checkbox" checked={s.enabled} onChange={() => void toggle(s)} /> {t("agentSettings.triggers.enabled")}
               </label>
-              <button onClick={() => setOpen((o) => ({ ...o, [s.id]: !isOpen }))}>{isOpen ? "Hide settings" : "Edit"}</button>
-              <button onClick={() => void test(s)}>Test connection</button>
+              <button onClick={() => setOpen((o) => ({ ...o, [s.id]: !isOpen }))}>{isOpen ? t("agentSettings.triggers.hideSettings") : t("agentSettings.triggers.edit")}</button>
+              <button onClick={() => void test(s)}>{t("agentSettings.triggers.testConnection")}</button>
               <button className="trigger-delete" onClick={() => void remove(s)}>
-                Delete
+                {t("agentSettings.triggers.delete")}
               </button>
             </div>
             {testResults[s.id] && <p className="trigger-test-result" role="status">{testResults[s.id]}</p>}
             {isOpen && (
               <div className="trigger-source-edit">
                 <label>
-                  Name
+                  {t("agentSettings.editor.name")}
                   <input value={d.name} onChange={(e) => setDrafts((ds) => ({ ...ds, [s.id]: { ...d, name: e.target.value } }))} />
                 </label>
                 <label>
-                  Poll interval (seconds, GitHub/Linear/Jira only)
+                  {t("agentSettings.triggers.pollInterval")}
                   <input value={d.interval} onChange={(e) => setDrafts((ds) => ({ ...ds, [s.id]: { ...d, interval: e.target.value } }))} />
                 </label>
                 <label>
-                  Config (JSON)
+                  {t("agentSettings.triggers.config")}
                   <textarea
                     className="trigger-config"
                     value={d.config}
@@ -285,8 +287,7 @@ export function Triggers({
                   />
                 </label>
                 <label>
-                  Secrets (JSON — {Object.entries(s.secrets).filter(([, v]) => v).length} of {Object.keys(s.secrets).length || 0} set;
-                  leave blank to keep them unchanged)
+                  {t("agentSettings.triggers.secrets", { set: Object.entries(s.secrets).filter(([, v]) => v).length, total: Object.keys(s.secrets).length || 0 })}
                   <textarea
                     className="trigger-secrets"
                     placeholder={DEFAULT_SECRETS[s.kind]}
@@ -295,15 +296,15 @@ export function Triggers({
                   />
                 </label>
                 <button onClick={() => void save(s)} disabled={busy}>
-                  Save
+                  {t("agentSettings.triggers.save")}
                 </button>
               </div>
             )}
           </article>
         );
       })}
-      <h4>Recent events</h4>
-      {events.length === 0 && <p>No events yet.</p>}
+      <h4>{t("agentSettings.triggers.recentEvents")}</h4>
+      {events.length === 0 && <p>{t("agentSettings.triggers.noEvents")}</p>}
       <ul className="trigger-events">
         {events.map((e) => (
           <li className="trigger-event-row" key={e.id}>
@@ -312,7 +313,7 @@ export function Triggers({
             <span className="trigger-event-author">{e.author || "—"}</span>
             <span className={`trigger-event-action trigger-event-${e.action}`}>
               {e.action === "task_created" && e.task_id
-                ? `→ task #${e.task_id} (${e.task_status || "?"})`
+                ? t("agentSettings.triggers.taskCreated", { id: e.task_id, status: e.task_status || "?" })
                 : e.reason || e.action}
             </span>
           </li>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionsApi } from "./Sessions";
 
 interface Change {
@@ -15,14 +16,14 @@ interface ProjectLink {
   topic: string;
   link: { mode: string; basis: string; paths: { path: string; exists: boolean; notes: number }[] };
 }
-const BASIS: Record<string, string> = {
-  managed: "its own provisioned note — an exact link",
-  configured: "paths the operator named",
-  guessed: "guessed from the project's name",
-  all: "the whole store",
-  manual: "nothing automatically; agents look things up themselves",
-  off: "nothing; project memory is off",
-};
+const BASIS = (): Record<string, string> => ({
+  managed: t("sessions.memory.basis.managed"),
+  configured: t("sessions.memory.basis.configured"),
+  guessed: t("sessions.memory.basis.guessed"),
+  all: t("sessions.memory.basis.all"),
+  manual: t("sessions.memory.basis.manual"),
+  off: t("sessions.memory.basis.off"),
+});
 interface Activity {
   session: string;
   provider: string;
@@ -46,6 +47,7 @@ export function SessionMemory({
   sessionId: number;
   projectId: number | null;
 }) {
+  useLocale();
   const [activity, setActivity] = useState<Activity>(),
     [link, setLink] = useState<ProjectLink>(),
     [loading, setLoading] = useState(false);
@@ -66,7 +68,7 @@ export function SessionMemory({
           session: "",
           provider: "",
           status: "unavailable",
-          message: "Lectern could not be reached.",
+          message: t("sessions.memory.unreachable"),
           counts: {},
           changes: [],
         }),
@@ -80,40 +82,38 @@ export function SessionMemory({
         if (event.currentTarget.open && !activity && !loading) load();
       }}
     >
-      <summary>Memory</summary>
+      <summary>{t("sessions.memory.summary")}</summary>
       {link && link.status !== "disabled" && (
         <div className="session-memory-link" data-status={link.status}>
           <p className="sub">
-            <b>Project memory {link.status}.</b> This project reads{" "}
-            {BASIS[link.link.basis] || link.link.basis}.
+            <b>{t("sessions.memory.projectStatus", { status: link.status })}</b>{" "}
+            {t("sessions.memory.reads", { basis: BASIS()[link.link.basis] || link.link.basis })}
             {link.status === "unlinked" &&
-              " None of those notes exists, so sessions here start with no project memory and nothing says so."}
+              " " + t("sessions.memory.unlinkedNote")}
           </p>
           {link.link.paths.length > 0 && (
             <ul>
               {link.link.paths.map((entry) => (
                 <li key={entry.path} data-exists={entry.exists}>
                   {entry.exists ? "✓" : "✗"} <code>{entry.path}</code>
-                  {entry.notes > 1 ? ` · ${entry.notes} notes` : ""}
+                  {entry.notes > 1 ? " · " + t("sessions.memory.notes", { n: entry.notes }) : ""}
                 </li>
               ))}
             </ul>
           )}
         </div>
       )}
-      {activity && <p className="session-memory-heading">Written by this session</p>}
-      {loading && <p className="sub">Asking the memory store…</p>}
-      {activity?.status === "disabled" && <p className="sub">No memory provider is configured.</p>}
+      {activity && <p className="session-memory-heading">{t("sessions.memory.writtenHeading")}</p>}
+      {loading && <p className="sub">{t("sessions.memory.asking")}</p>}
+      {activity?.status === "disabled" && <p className="sub">{t("sessions.memory.noProvider")}</p>}
       {activity?.status === "unavailable" && (
         <p className="sub">
-          The memory store could not answer, so this is not “nothing written”. {activity.message}
+          {t("sessions.memory.unavailable")} {activity.message}
         </p>
       )}
       {activity?.status === "empty" && (
         <p className="sub">
-          Nothing is recorded under <code>{activity.session}</code>. An agent started before
-          sessions carried this key, or one whose memory server was not given it, writes under no
-          session at all.
+          {t("sessions.memory.emptyBefore")}{" "}<code>{activity.session}</code>{t("sessions.memory.emptyAfter")}
         </p>
       )}
       {activity?.status === "ready" && (
@@ -121,15 +121,15 @@ export function SessionMemory({
           <p className="sub">
             {Object.entries(activity.counts)
               .filter(([, count]) => count > 0)
-              .map(([kind, count]) => `${count} ${kind}`)
+              .map(([kind, count]) => t("sessions.memory.kindCount", { n: count, kind }))
               .join(" · ")}{" "}
-            under <code>{activity.session}</code>
+            {t("sessions.memory.under")}{" "}<code>{activity.session}</code>
           </p>
           <ul className="session-memory-list">
             {activity.changes.map((change, index) => (
               <li key={index} data-kind={change.kind}>
                 <b>{change.kind}</b> {change.text}
-                {change.replaced_text && <small>was: {change.replaced_text}</small>}
+                {change.replaced_text && <small>{t("sessions.memory.was", { text: change.replaced_text })}</small>}
                 <small>
                   {change.agent}
                   {change.path ? " · " + change.path : ""}
@@ -141,7 +141,7 @@ export function SessionMemory({
       )}
       {activity && (
         <button className="b" disabled={loading} onClick={load}>
-          Refresh
+          {t("sessions.memory.refresh")}
         </button>
       )}
     </details>

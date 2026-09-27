@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { OutcomeRow, OutcomesReport } from "../types";
 import { formatCost } from "../sessions/usageFormat";
+import { t, useLocale } from "../i18n";
 
 export interface OutcomesPanelApi {
   request<T>(path: string): Promise<T>;
@@ -18,19 +19,19 @@ type SortKey = keyof Pick<
   "cost_usd" | "cost_per_pass" | "cost_per_accepted" | "cost_per_100_lines" | "passes_per_10usd" | "median_time_to_pass_s"
 >;
 
-const GROUPS: { key: Group; label: string }[] = [
-  { key: "agent", label: "Agent" },
-  { key: "model", label: "Model" },
-  { key: "project", label: "Project" },
+const GROUPS = (): { key: Group; label: string }[] => [
+  { key: "agent", label: t("agentSettings.outcomes.group.agent") },
+  { key: "model", label: t("agentSettings.outcomes.group.model") },
+  { key: "project", label: t("agentSettings.outcomes.group.project") },
 ];
 
-const COLUMNS: { key: SortKey; label: string; fmt(v?: number): string }[] = [
-  { key: "cost_usd", label: "Total cost", fmt: (v) => formatCost(v ?? 0) },
-  { key: "cost_per_pass", label: "$/pass", fmt: fmtCost },
-  { key: "cost_per_accepted", label: "$/accepted", fmt: fmtCost },
-  { key: "cost_per_100_lines", label: "$/100 lines", fmt: fmtCost },
-  { key: "passes_per_10usd", label: "Passes/$10", fmt: (v) => (v == null ? "—" : v.toFixed(1)) },
-  { key: "median_time_to_pass_s", label: "Median time to pass", fmt: fmtDuration },
+const COLUMNS = (): { key: SortKey; label: string; fmt(v?: number): string }[] => [
+  { key: "cost_usd", label: t("agentSettings.outcomes.col.totalCost"), fmt: (v) => formatCost(v ?? 0) },
+  { key: "cost_per_pass", label: t("agentSettings.outcomes.col.perPass"), fmt: fmtCost },
+  { key: "cost_per_accepted", label: t("agentSettings.outcomes.col.perAccepted"), fmt: fmtCost },
+  { key: "cost_per_100_lines", label: t("agentSettings.outcomes.col.per100Lines"), fmt: fmtCost },
+  { key: "passes_per_10usd", label: t("agentSettings.outcomes.col.passesPer10"), fmt: (v) => (v == null ? "—" : v.toFixed(1)) },
+  { key: "median_time_to_pass_s", label: t("agentSettings.outcomes.col.medianTime"), fmt: fmtDuration },
 ];
 
 function fmtCost(v?: number): string {
@@ -38,10 +39,11 @@ function fmtCost(v?: number): string {
 }
 function fmtDuration(v?: number): string {
   if (v == null) return "—";
-  return v < 90 ? `${v.toFixed(0)}s` : `${(v / 60).toFixed(1)}m`;
+  return v < 90 ? t("agentSettings.outcomes.seconds", { n: v.toFixed(0) }) : t("agentSettings.outcomes.minutes", { n: (v / 60).toFixed(1) });
 }
 
 export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
+  useLocale();
   const [days, setDays] = useState(30);
   const [group, setGroup] = useState<Group>("agent");
   const [report, setReport] = useState<OutcomesReport>();
@@ -83,7 +85,7 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
   }
 
   if (error) return <p className="usage-error">{error}</p>;
-  if (!report) return <p>Loading outcomes…</p>;
+  if (!report) return <p>{t("agentSettings.outcomes.loading")}</p>;
 
   const maxCost = Math.max(0.0001, ...rows.map((r) => r.cost_usd));
 
@@ -91,9 +93,9 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
     <div className="outcomes-panel">
       <section className="usage-totals">
         <label className="usage-days">
-          Group by{" "}
+          {t("agentSettings.outcomes.groupBy")}{" "}
           <select value={group} onChange={(e) => setGroup(e.target.value as Group)}>
-            {GROUPS.map((g) => (
+            {GROUPS().map((g) => (
               <option key={g.key} value={g.key}>
                 {g.label}
               </option>
@@ -101,19 +103,19 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
           </select>
         </label>
         <label className="usage-days">
-          Window{" "}
+          {t("agentSettings.usage.window")}{" "}
           <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
             {[7, 14, 30, 90].map((n) => (
               <option key={n} value={n}>
-                {n} days
+                {t("agentSettings.usage.days", { n })}
               </option>
             ))}
           </select>
         </label>
       </section>
 
-      <section aria-label="Spend comparison">
-        <h4>Spend by {group}</h4>
+      <section aria-label={t("agentSettings.outcomes.spendComparison")}>
+        <h4>{group === "agent" ? t("agentSettings.outcomes.spendByAgent") : group === "model" ? t("agentSettings.outcomes.spendByModel") : t("agentSettings.outcomes.spendByProject")}</h4>
         <ol className="usage-top-list outcomes-bars">
           {rows.map((r) => (
             <li key={r.key} className="outcomes-bar-row">
@@ -124,21 +126,21 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
               <b>{formatCost(r.cost_usd)}</b>
             </li>
           ))}
-          {rows.length === 0 && <li className="sub">Nothing yet — run a task or a check to see outcomes here.</li>}
+          {rows.length === 0 && <li className="sub">{t("agentSettings.outcomes.empty")}</li>}
         </ol>
       </section>
 
-      <section aria-label="Outcomes table">
-        <h4>Cost per outcome</h4>
+      <section aria-label={t("agentSettings.outcomes.table")}>
+        <h4>{t("agentSettings.outcomes.costPerOutcome")}</h4>
         <div style={{ overflowX: "auto" }}>
           <table className="usage-table outcomes-table">
             <thead>
               <tr>
-                <th>{group === "agent" ? "Agent" : group === "model" ? "Model" : "Project"}</th>
-                <th>Passed</th>
-                <th>Accepted</th>
-                <th title="Pull requests / commits reported by Claude Code's OpenTelemetry counters">PRs / commits</th>
-                {COLUMNS.map((c) => (
+                <th>{group === "agent" ? t("agentSettings.outcomes.group.agent") : group === "model" ? t("agentSettings.outcomes.group.model") : t("agentSettings.outcomes.group.project")}</th>
+                <th>{t("agentSettings.outcomes.passed")}</th>
+                <th>{t("agentSettings.outcomes.accepted")}</th>
+                <th title={t("agentSettings.outcomes.shippedTitle")}>{t("agentSettings.outcomes.shipped")}</th>
+                {COLUMNS().map((c) => (
                   <th key={c.key}>
                     <button
                       type="button"
@@ -159,15 +161,15 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
                   <td>
                     {r.label}
                     {r.partial && (
-                      <span className="outcomes-flag" title="Some of this row's cost has no measured or estimated source">
+                      <span className="outcomes-flag" title={t("agentSettings.outcomes.partialTitle")}>
                         {" "}
-                        partial
+                        {t("agentSettings.outcomes.partial")}
                       </span>
                     )}
                     {r.estimated && !r.partial && (
-                      <span className="outcomes-flag" title="Some of this row's cost is a token-based estimate, not a measured figure">
+                      <span className="outcomes-flag" title={t("agentSettings.outcomes.estimatedTitle")}>
                         {" "}
-                        estimated
+                        {t("agentSettings.outcomes.estimated")}
                       </span>
                     )}
                   </td>
@@ -189,7 +191,7 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={10} className="sub">
-                    Nothing yet.
+                    {t("agentSettings.usage.nothingYet")}
                   </td>
                 </tr>
               )}
@@ -197,9 +199,7 @@ export function OutcomesPanel({ api }: { api: OutcomesPanelApi }) {
           </table>
         </div>
         <p className="sub">
-          Costs prefer exact OpenTelemetry figures, then the agent's own reported cost, then a configured per-model
-          token estimate — rows marked "partial" or "estimated" are not fully measured. PRs / commits come from
-          Claude Code's OpenTelemetry counters; "—" means nothing in the row reported them. See docs/outcomes.md.
+          {t("agentSettings.outcomes.footnote")}
         </p>
       </section>
     </div>

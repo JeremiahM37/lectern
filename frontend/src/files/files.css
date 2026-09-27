@@ -173,7 +173,7 @@ body.wb-resizing .terminal-host {
   background: var(--panel-2);
 }
 .wb-row.active {
-  background: color-mix(in srgb, var(--accent-soft) 22%, transparent);
+  background: var(--accent-wash);
 }
 .wb-row.drop {
   border-color: var(--accent-soft);
@@ -278,7 +278,7 @@ body.wb-resizing .terminal-host {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 10px 30px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--scrim) 30%, transparent);
 }
 .wb-menu button,
 .wb-menu a,
@@ -394,9 +394,9 @@ body.wb-resizing .terminal-host {
   border-radius: 0 5px 5px 0;
 }
 .wb-editor button.primary {
-  background: var(--accent-soft);
-  border-color: var(--accent-soft);
-  color: var(--panel);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
 }
 .wb-editor button.primary:disabled {
   background: var(--panel);
@@ -715,7 +715,7 @@ body.wb-resizing .terminal-host {
   min-height: 0;
   height: 100%;
   border: 0;
-  background: white;
+  background: var(--paper);
 }
 .kind-html .wb-md-scroll {
   display: flex;
@@ -772,7 +772,7 @@ body.wb-resizing .terminal-host {
 .wb-pdf-stage canvas {
   display: block;
   margin: 0 auto;
-  background: white;
+  background: var(--paper);
 }
 .wb-table {
   display: flex;
@@ -872,7 +872,7 @@ body.wb-resizing .terminal-host {
   display: block;
   max-width: calc(100% - 52px);
   margin: 6px 0 0 52px;
-  background: white;
+  background: var(--paper);
 }
 .wb-nb-html {
   margin: 6px 0 0 52px;
@@ -981,7 +981,7 @@ body.wb-resizing .terminal-host {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: color-mix(in srgb, #000 40%, transparent);
+  background: color-mix(in srgb, var(--scrim) 40%, transparent);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -995,7 +995,7 @@ body.wb-resizing .terminal-host {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 20px 60px color-mix(in srgb, #000 35%, transparent);
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--scrim) 35%, transparent);
   overflow: hidden;
 }
 .wb-quick-row {
@@ -1030,7 +1030,7 @@ body.wb-resizing .terminal-host {
   overflow: hidden;
 }
 .wb-quick-item[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent-soft) 24%, transparent);
+  background: var(--accent-wash);
 }
 .wb-quick-item.ignored {
   opacity: 0.7;

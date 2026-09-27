@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionsApi } from "./Sessions";
 
 interface ScratchEntry {
@@ -19,8 +20,12 @@ interface ScratchResult {
   purged: number;
 }
 
-const size = (kb: number) => (kb < 1024 ? kb + " KiB" : (kb / 1024).toFixed(kb < 10240 ? 1 : 0) + " MiB");
-const age = (days: number) => (days < 1 ? "today" : Math.floor(days) + "d idle");
+const size = (kb: number) =>
+  kb < 1024
+    ? t("sessions.scratchReview.kib", { size: kb })
+    : t("sessions.scratchReview.mib", { size: (kb / 1024).toFixed(kb < 10240 ? 1 : 0) });
+const age = (days: number) =>
+  days < 1 ? t("sessions.scratchReview.today") : t("sessions.scratchReview.idleDays", { days: Math.floor(days) });
 
 // Scratch directories pile up on disk: every blank shell and project-less
 // session makes one. This is the cleanup review, separate from the Scratch
@@ -35,6 +40,7 @@ export function ScratchReview({
   api: SessionsApi;
   onNotice: (text: string, error?: boolean) => void;
 }) {
+  useLocale();
   const [result, setResult] = useState<ScratchResult>(),
     [loading, setLoading] = useState(false),
     [busy, setBusy] = useState("");
@@ -56,7 +62,7 @@ export function ScratchReview({
     if (
       action === "discard" &&
       !confirm(
-        `Discard ${entry.name}?\n\n${entry.reasons.join("\n")}\n\nIt moves to the scratch trash and can be recovered from there until it is purged.`,
+        t("sessions.scratchReview.confirmDiscard", { name: entry.name, reasons: entry.reasons.join("\n") }),
       )
     )
       return;
@@ -78,22 +84,22 @@ export function ScratchReview({
         if (event.currentTarget.open && !result && !loading) load();
       }}
     >
-      <summary>Scratch directory cleanup</summary>
+      <summary>{t("sessions.scratchReview.summary")}</summary>
       <div className="scratch-body">
-        {loading && <p className="sub">Inspecting scratch directories…</p>}
+        {loading && <p className="sub">{t("sessions.scratchReview.inspecting")}</p>}
         {result && (
           <>
             <p className="sub" id="scratch-summary">
               {work.length
-                ? `${work.length} hold work that no project claims. `
-                : "Nothing unclaimed is waiting on you. "}
+                ? t("sessions.scratchReview.holdWork", { n: work.length })
+                : t("sessions.scratchReview.nothingUnclaimed")}{" "}
               {empty.length
-                ? `${empty.length} are empty and idle over ${result.days} days; the server removes those on its own.`
-                : "No empty ones are due for removal."}
+                ? t("sessions.scratchReview.emptyIdle", { n: empty.length, days: result.days })
+                : t("sessions.scratchReview.noneDue")}
             </p>
             {unreachable.map((target) => (
               <p className="sub" key={target.target_name}>
-                {target.target_name} could not be inspected: {target.error}
+                {t("sessions.scratchReview.uninspectable", { target: target.target_name, error: target.error ?? "" })}
               </p>
             ))}
             {work.map((entry) => (
@@ -111,24 +117,24 @@ export function ScratchReview({
                 <button
                   className="b"
                   disabled={busy === entry.path}
-                  title="Never remove this directory automatically"
+                  title={t("sessions.scratchReview.keepTitle")}
                   onClick={() => decide(entry, "keep")}
                 >
-                  Keep
+                  {t("sessions.scratchReview.keep")}
                 </button>
                 <button
                   className="b danger"
                   disabled={busy === entry.path}
-                  title="Move to the scratch trash"
+                  title={t("sessions.scratchReview.discardTitle")}
                   onClick={() => decide(entry, "discard")}
                 >
-                  Discard
+                  {t("sessions.scratchReview.discard")}
                 </button>
               </div>
             ))}
             <div className="scratch-actions">
               <button className="b" disabled={loading} onClick={load}>
-                Refresh
+                {t("sessions.memory.refresh")}
               </button>
               {empty.length > 0 && (
                 <button
@@ -140,7 +146,7 @@ export function ScratchReview({
                     api
                       .request<ScratchResult>("/scratch/sweep", { method: "POST", body: {} })
                       .then((done) => {
-                        onNotice(`Removed ${done.trashed.length} empty scratch workspaces.`);
+                        onNotice(t("sessions.scratchReview.removed", { n: done.trashed.length }));
                         load();
                       })
                       .catch((error) => {
@@ -149,7 +155,7 @@ export function ScratchReview({
                       });
                   }}
                 >
-                  Remove the {empty.length} empty ones now
+                  {t("sessions.scratchReview.removeEmpty", { n: empty.length })}
                 </button>
               )}
             </div>

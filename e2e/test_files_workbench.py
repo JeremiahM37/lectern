@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
+from conftest import DESKTOP, PHONE as PHONE_VIEW
 from test_terminal_workspace import real_terminal, open_terminal, capture, type_command  # noqa: F401
 
 PHONE = dict(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, device_scale_factor=2)
@@ -554,3 +555,98 @@ def test_rich_markdown_editing_and_live_watch(page, real_terminal):
     text = (root / 'notes.md').read_text()
     assert text.startswith('---\ntitle: Kept\n---\n'), text
     assert '# Notes' in text and '[ ] todo' in text, text
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("page", [DESKTOP, PHONE_VIEW], indirect=True, ids=["desk", "phone"])
+def test_files_light_mode_sweep(page, real_terminal, theme):
+    """Every file screen passes the contrast audit in both themes."""
+    from test_light_mode_sweep import Sweep, light
+    t = real_terminal
+    root = t['root']
+    seed(root)
+    (root / 'docs').mkdir()
+    (root / 'docs' / 'guide.md').write_text('---\ntitle: Guide\n---\n# Guide\n\nSome **bold** text.\n\n- [ ] task\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```mermaid\nflowchart LR\n  A --> B\n```\n')
+    (root / 'data.csv').write_text('name,count\nAda,2\nBo,3\n')
+    (root / 'nb.ipynb').write_text(json.dumps({'nbformat': 4, 'metadata': {}, 'cells': [
+        {'cell_type': 'markdown', 'source': ['# Result']},
+        {'cell_type': 'code', 'execution_count': 1, 'source': 'print(2)', 'outputs': [{'output_type': 'stream', 'name': 'stdout', 'text': ['2\n']}]}]}))
+    light(page, theme)
+    label = 'phone' if page.viewport_size['width'] < 600 else 'desk'
+    sweep = Sweep(page, label + '-files', theme)
+    page.goto(f"{t['url']}/terminal/session/{t['id']}")
+    expect(page.locator('#connection')).to_have_text('Connected', timeout=20000)
+    page.locator('#files').click()
+    expect(row(page, 'src')).to_be_visible()
+    row(page, 'src').get_by_role('button', name='src', exact=True).click()
+    sweep.check('explorer')
+    page.get_by_role('button', name='app.py', exact=True).click()
+    if label == 'desk':
+        monaco_ready(page)
+    else:
+        expect(page.locator('.wb-plain')).to_be_visible()
+    sweep.check('code')
+    page.locator('#preview-dialog [data-close]').click()
+    row(page, 'docs').get_by_role('button', name='docs', exact=True).click()
+    page.get_by_role('button', name='guide.md', exact=True).click()
+    expect(page.locator('#preview-body .wb-mermaid svg')).to_be_visible(timeout=20000)
+    sweep.check('markdown')
+    page.get_by_role('button', name='Rich').click()
+    expect(page.locator('#preview-body .wb-rich')).to_be_visible(timeout=20000)
+    sweep.check('rich')
+    page.locator('#preview-dialog [data-close]').click()
+    for name, ready_selector in (('data.csv', '#preview-body tbody tr'), ('nb.ipynb', '#preview-body .wb-nb-output')):
+        page.get_by_role('button', name=name, exact=True).click()
+        expect(page.locator(ready_selector).first).to_be_visible(timeout=20000)
+        sweep.check(name)
+        page.locator('#preview-dialog [data-close]').click()
+    page.locator('#files-quick-open').click()
+    page.locator('#quick-open-input').fill('app')
+    expect(page.locator('#quick-open-0')).to_be_visible(timeout=10000)
+    sweep.check('go-to-file')
+    page.locator('.wb-quick-close').click()
+    page.locator('#files-search-tab').click()
+    page.locator('#files-search-input').fill('needle')
+    expect(page.locator('.wb-search-hit').first).to_be_visible(timeout=15000)
+    sweep.check('search')
+    if label == 'desk':
+        # The workspace panes: a file pane and an explorer pane beside a terminal.
+        page.goto(f"{t['url']}/#terminals/session/{t['id']}")
+        page.frame_locator('#terminal-workspace iframe').first.locator('#agent-terminal .xterm-screen').wait_for(timeout=20000)
+        page.locator('.terminal-tablist').click()
+        page.keyboard.press('Control+p')
+        page.locator('#workspace-quick-open #quick-open-input').fill('app.py')
+        expect(page.locator('#workspace-quick-open #quick-open-0')).to_be_visible(timeout=10000)
+        sweep.check('workspace-go-to-file')
+        page.keyboard.press('Enter')
+        expect(page.locator('.terminal-tabpanel[data-pane-kind="file"] .wb-monaco[data-ready]')).to_be_visible(timeout=20000)
+        page.locator('.terminal-actions > summary').first.click()
+        page.get_by_role('menuitem', name='Open files beside').click()
+        expect(page.locator('.terminal-tabpanel[data-pane-kind="files"] .wb-row').first).to_be_visible(timeout=20000)
+        sweep.check('workspace-panes')
+    sweep.done()
+
+
+@pytest.mark.parametrize("page", [PHONE_VIEW], indirect=True)
+def test_android_back_key_closes_file_overlays_top_first(page, real_terminal):
+    t = real_terminal
+    (t['root'] / 'hello.md').write_text('# Hi\n')
+    page.goto(f"{t['url']}/#terminals/session/{t['id']}")
+    f = page.frame_locator('#terminal-workspace iframe').first
+    expect(f.locator('#agent-terminal .xterm-screen')).to_be_visible(timeout=20000)
+    f.locator('#terminal-tools-summary').click()
+    f.locator('#compact-files').click()
+    f.get_by_role('button', name='hello.md', exact=True).click()
+    expect(f.locator('#preview-dialog')).to_be_visible()
+    f.locator('#preview-body').click()
+    page.keyboard.press('Control+Alt+P')
+    expect(f.locator('#quick-open')).to_be_visible()
+    # What the Android app calls on its back key: Go to file, then the file,
+    # then the panel close, each one step.
+    assert page.evaluate('window.__lecternBack()')
+    expect(f.locator('#quick-open')).to_have_count(0)
+    assert page.evaluate('window.__lecternBack()')
+    expect(f.locator('#preview-dialog')).to_have_count(0)
+    expect(f.locator('#files-dialog')).to_be_visible()
+    assert page.evaluate('window.__lecternBack()')
+    expect(f.locator('#files-dialog')).to_be_hidden()

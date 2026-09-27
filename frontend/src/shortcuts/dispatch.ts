@@ -110,6 +110,17 @@ export function handleShortcutKey(event: KeyboardEvent & KeyLike, options: Liste
       event.preventDefault();
       event.stopPropagation();
       parent.postMessage({ type: "lec-shortcut", id: forwarded, shift: event.shiftKey, ctrl: event.ctrlKey }, location.origin);
+      // A held modifier may be let go before the app has moved focus to its
+      // own document (the recent-tab switcher commits on release), so the
+      // release is passed on too.
+      if (event.ctrlKey || event.altKey || event.metaKey) {
+        const release = (up: KeyboardEvent) => {
+          if (!["Control", "Alt", "Meta"].includes(up.key)) return;
+          removeEventListener("keyup", release, true);
+          parent.postMessage({ type: "lec-shortcut-release" }, location.origin);
+        };
+        addEventListener("keyup", release, true);
+      }
       return true;
     }
   }
@@ -128,10 +139,14 @@ export function installForwardedShortcuts(onForwarded?: (id: string) => void) {
   const listener = (event: MessageEvent) => {
     if (event.origin !== location.origin || !event.data || typeof event.data !== "object") return;
     const data = event.data as { type?: unknown; id?: unknown };
-    if (data.type !== "lec-shortcut" || typeof data.id !== "string") return;
     // Only frames this page embeds may drive it.
     const frames = [...document.querySelectorAll("iframe")].map((frame) => frame.contentWindow);
     if (!frames.includes(event.source as Window)) return;
+    if (data.type === "lec-shortcut-release") {
+      window.dispatchEvent(new Event("lec-shortcut-release"));
+      return;
+    }
+    if (data.type !== "lec-shortcut" || typeof data.id !== "string") return;
     onForwarded?.(data.id);
     runShortcut(data.id);
   };

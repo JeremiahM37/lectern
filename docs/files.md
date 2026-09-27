@@ -199,7 +199,9 @@ matter intact.
 That check found that every terminal in the app was broken: the app's asset
 shell answered `/terminal/session/N` with the main page, so a terminal tab
 showed a second copy of the app. The shell now serves the terminal page for
-those addresses (`Shell.kt`, with a unit test).
+those addresses (`Shell.kt`, with a unit test). The published 0.1.0 APK on the
+v2.4.1 release has the same fault: installed on the same emulator and paired,
+attaching a terminal shows stacked copies of the app instead of the terminal.
 
 <p>
 <img src="media/files/android-terminal-link.png" width="216" alt="Android: a tapped path opens at its line">

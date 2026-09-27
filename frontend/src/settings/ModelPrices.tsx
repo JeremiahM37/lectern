@@ -12,9 +12,19 @@ import {
   type PriceRow,
   type SeenModel,
 } from "./modelPrices";
+import { t, useLocale } from "../i18n";
 
 interface Api {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
+}
+
+// The lower-case rate name inside a row's field label and placeholder.
+function fieldName(field: "input" | "cached" | "output"): string {
+  return field === "input"
+    ? t("agentSettings.prices.field.input")
+    : field === "cached"
+      ? t("agentSettings.prices.field.cached")
+      : t("agentSettings.prices.field.output");
 }
 
 interface PricesResponse {
@@ -29,6 +39,7 @@ export function ModelPrices({
   api: Api;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [rows, setRows] = useState<PriceRow[]>();
   const [seen, setSeen] = useState<SeenModel[]>([]);
 
@@ -45,9 +56,9 @@ export function ModelPrices({
 
   if (!rows) {
     return (
-      <article id="model-prices" className="budgets-editor">
-        <h3>Model prices</h3>
-        <p>Loading prices…</p>
+      <article id="model-prices" className="budgets-editor" data-setting="budgets.prices">
+        <h3>{t("agentSettings.prices.title")}</h3>
+        <p>{t("agentSettings.prices.loading")}</p>
       </article>
     );
   }
@@ -71,19 +82,17 @@ export function ModelPrices({
       })
       .then((r) => {
         apply(r);
-        onNotice("Model prices saved");
+        onNotice(t("agentSettings.prices.saved"));
       })
       .catch((e) => onNotice(String(e), true));
   }
 
   return (
-    <article id="model-prices" className="budgets-editor">
-      <h3>Model prices</h3>
+    <article id="model-prices" className="budgets-editor" data-setting="budgets.prices">
+      <h3>{t("agentSettings.prices.title")}</h3>
       <p className="subhint">
-        USD per 1M tokens, used to estimate spend for agents that report tokens
-        but no cost (Codex). A row named after an agent (e.g. <code>codex</code>
-        ) covers its models without their own row. Cached input is optional;
-        left blank it is billed at the input rate.
+        {t("agentSettings.prices.introBefore")}{" "}<code>codex</code>
+        {t("agentSettings.prices.introAfter")}
       </p>
       {notice && (
         <p
@@ -94,39 +103,39 @@ export function ModelPrices({
           {notice}
         </p>
       )}
-      <div className="mp-grid" role="table" aria-label="Model prices">
+      <div className="mp-grid" role="table" aria-label={t("agentSettings.prices.title")}>
         <div className="mp-row mp-head" role="row">
-          <span role="columnheader">Model or agent</span>
-          <span role="columnheader">Input</span>
-          <span role="columnheader">Cached input</span>
-          <span role="columnheader">Output</span>
+          <span role="columnheader">{t("agentSettings.prices.modelOrAgent")}</span>
+          <span role="columnheader">{t("agentSettings.prices.input")}</span>
+          <span role="columnheader">{t("agentSettings.prices.cachedInput")}</span>
+          <span role="columnheader">{t("agentSettings.prices.output")}</span>
           <span />
         </div>
         {rows.map((row, i) => (
           <div className="mp-row" role="row" key={i}>
             <input
               type="text"
-              aria-label="Model or agent"
-              placeholder="model or agent"
+              aria-label={t("agentSettings.prices.modelOrAgent")}
+              placeholder={t("agentSettings.prices.modelOrAgentPlaceholder")}
               value={row.name}
               onChange={(e) => update(i, "name", e.target.value)}
             />
             {(["input", "cached", "output"] as const).map((field) => (
               <input
                 key={field}
-                aria-label={`${row.name || "new"} ${field} per 1M`}
+                aria-label={t("agentSettings.prices.rateLabel", { name: row.name || t("agentSettings.prices.newRow"), field: fieldName(field) })}
                 type="number"
                 min="0"
                 step="0.001"
                 inputMode="decimal"
-                placeholder={`${field} $`}
+                placeholder={t("agentSettings.prices.ratePlaceholder", { field: fieldName(field) })}
                 value={row[field]}
                 onChange={(e) => update(i, field, e.target.value)}
               />
             ))}
             <button
               className="b"
-              aria-label={`Remove ${row.name}`}
+              aria-label={t("agentSettings.prices.remove", { name: row.name })}
               onClick={() => setRows((list) => list?.filter((_, j) => j !== i))}
             >
               ✕
@@ -142,8 +151,7 @@ export function ModelPrices({
             <span className="mp-name">
               <b>{s.model || s.agent}</b>{" "}
               <span className="sub">
-                ({s.agent}, no price · {s.tokens.toLocaleString()} tokens / 30
-                days)
+                {t("agentSettings.prices.unpricedRow", { agent: s.agent, tokens: s.tokens.toLocaleString() })}
               </span>
             </span>
             <button
@@ -160,7 +168,7 @@ export function ModelPrices({
                 ])
               }
             >
-              Set price
+              {t("agentSettings.prices.setPrice")}
             </button>
           </div>
         ))}
@@ -180,10 +188,10 @@ export function ModelPrices({
             ])
           }
         >
-          + Add price
+          {t("agentSettings.prices.addPrice")}
         </button>
         <button id="model-prices-save" disabled={!prices} onClick={save}>
-          Save prices
+          {t("agentSettings.prices.save")}
         </button>
       </div>
     </article>

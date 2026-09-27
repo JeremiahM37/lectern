@@ -8,6 +8,7 @@ import type { FilePatch, FileStat } from "../../review/types";
 import { describeTool, type ToolCategory } from "./describe";
 import { buildMultiEditPatch, buildNewFilePatch, buildReplacePatch, parseCodexPatch } from "./patch";
 import type { ToolCard } from "./chatCards";
+import { t, useLocale } from "../../i18n";
 
 const ICON: Record<ToolCategory, string> = {
   read: "📄",
@@ -64,14 +65,14 @@ function statsFor(files: FilePatch[]): FileStat[] {
 
 function Todos({ input }: { input: Record<string, unknown> }) {
   const todos = Array.isArray(input.todos) ? input.todos : [];
-  if (!todos.length) return <p className="sub">No items.</p>;
+  if (!todos.length) return <p className="sub">{t("conversation.toolCard.noItems")}</p>;
   return (
     <ul className="tool-todos">
       {todos.map((todo, i) => {
-        const t = todo as Record<string, unknown>;
-        const status = str(t.status) ?? "pending";
+        const item = todo as Record<string, unknown>;
+        const status = str(item.status) ?? "pending";
         const mark = status === "completed" ? "☑" : status === "in_progress" ? "◐" : "☐";
-        const text = str(t.content) ?? str(t.activeForm) ?? JSON.stringify(t);
+        const text = str(item.content) ?? str(item.activeForm) ?? JSON.stringify(item);
         return (
           <li key={i} data-status={status}>
             <span className="tool-todo-mark">{mark}</span> {text}
@@ -99,7 +100,7 @@ function PrettyArgs({ input, category }: { input: Record<string, unknown>; categ
   if (!Object.keys(rest).length) return null;
   return (
     <details className="tool-args">
-      <summary>Arguments</summary>
+      <summary>{t("conversation.toolCard.arguments")}</summary>
       <pre>{JSON.stringify(rest, null, 2)}</pre>
     </details>
   );
@@ -107,13 +108,13 @@ function PrettyArgs({ input, category }: { input: Record<string, unknown>; categ
 
 function Output({ card }: { card: ToolCard }) {
   if (card.status === "pending") return null;
-  if (card.status === "running") return <p className="sub tool-running">Running…</p>;
+  if (card.status === "running") return <p className="sub tool-running">{t("conversation.toolCard.running")}</p>;
   if (card.output == null) return null;
   return (
     <div className="tool-output" data-error={card.isError ? "true" : undefined}>
-      <div className="tool-output-label">{card.isError ? "Failed" : "Output"}</div>
-      <pre>{card.output || "(no output)"}</pre>
-      {card.outputTruncated && <p className="sub">Output was shortened.</p>}
+      <div className="tool-output-label">{card.isError ? t("conversation.toolCard.failed") : t("conversation.toolCard.output")}</div>
+      <pre>{card.output || t("conversation.toolCard.noOutput")}</pre>
+      {card.outputTruncated && <p className="sub">{t("conversation.toolCard.outputShortened")}</p>}
     </div>
   );
 }
@@ -122,6 +123,7 @@ function Output({ card }: { card: ToolCard }) {
  * (as its <summary>) and the always-open approval card (which has nothing
  * to collapse — you have to see it to decide). */
 export function ToolCardHeader({ card }: { card: ToolCard }) {
+  useLocale();
   const summary = describeTool(card.name, card.input);
   return (
     <>
@@ -132,12 +134,12 @@ export function ToolCardHeader({ card }: { card: ToolCard }) {
       {summary.subtitle && <span className="tool-sep">·</span>}
       {summary.subtitle && <span className="tool-subtitle">{summary.subtitle}</span>}
       {card.status === "running" && (
-        <span className="tool-spinner" aria-label="running">
+        <span className="tool-spinner" aria-label={t("conversation.toolCard.runningLabel")}>
           …
         </span>
       )}
       {card.status === "done" && card.isError && (
-        <span className="tool-fail" aria-label="failed">
+        <span className="tool-fail" aria-label={t("conversation.toolCard.failedLabel")}>
           ✕
         </span>
       )}
@@ -148,6 +150,7 @@ export function ToolCardHeader({ card }: { card: ToolCard }) {
 /** The command/diff/args/output body, independent of whether it sits inside
  * a collapsed <details> or is shown outright (an approval). */
 export function ToolCardBody({ card }: { card: ToolCard }) {
+  useLocale();
   const summary = describeTool(card.name, card.input);
   const isEdit = summary.category === "edit" && card.name !== "TodoWrite";
   return (
@@ -181,6 +184,7 @@ export function ToolCardBody({ card }: { card: ToolCard }) {
 }
 
 export function ToolCardView({ card }: { card: ToolCard }) {
+  useLocale();
   const summary = describeTool(card.name, card.input);
   return (
     <details className="tool-card" data-category={summary.category}>

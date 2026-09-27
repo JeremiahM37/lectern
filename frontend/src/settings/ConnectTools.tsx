@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
+import { t, useLocale } from "../i18n";
 // connect-tools.css is imported by main.tsx and settings/harness.tsx, not
 // here: this module has its own node:test unit tests (ConnectTools.test.ts,
 // pulled in transitively by Settings.test.ts too), and tsx's plain Node
@@ -58,18 +59,18 @@ export function vscodeDeepLink(lecternPath: string, remote: boolean, origin: str
 // it: "used 2 min ago", falling back to coarser units as the gap grows.
 export function formatAgo(atSeconds: number, nowMs: number = Date.now()): string {
   const deltaSeconds = Math.max(0, Math.round(nowMs / 1000 - atSeconds));
-  if (deltaSeconds < 45) return "just now";
+  if (deltaSeconds < 45) return t("settings.connect.justNow");
   const minutes = Math.round(deltaSeconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return t("settings.connect.minAgo", { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("settings.connect.hoursAgo", { n: hours });
   const days = Math.round(hours / 24);
-  return `${days}d ago`;
+  return t("settings.connect.daysAgo", { n: days });
 }
 
 export function statusLine(c: MCPClientInfo): string {
-  if (c.last_seen) return `✓ ${c.name} connected · used ${formatAgo(c.last_seen.at)}`;
-  if (c.installed === true) return `✓ ${c.detail || "Already connected"}`;
+  if (c.last_seen) return t("settings.connect.usedAgo", { name: c.name, ago: formatAgo(c.last_seen.at) });
+  if (c.installed === true) return `✓ ${c.detail || t("settings.connect.alreadyConnected")}`;
   return c.detail;
 }
 
@@ -80,6 +81,7 @@ export function ConnectTools({
   api: SettingsApi;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [clients, setClients] = useState<MCPClientInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [remote, setRemote] = useState(false);
@@ -109,7 +111,7 @@ export function ConnectTools({
         { method: "POST" },
       );
       setResults((old) => ({ ...old, [id]: result }));
-      onNotice(result.ok ? "Connected" : result.output || "Install failed", !result.ok);
+      onNotice(result.ok ? t("settings.connect.connected") : result.output || t("settings.connect.installFailed"), !result.ok);
       load();
     } catch (e) {
       setResults((old) => ({ ...old, [id]: { ok: false, output: String(e) } }));
@@ -122,18 +124,17 @@ export function ConnectTools({
   function copy(text: string) {
     if (navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(text).then(
-        () => onNotice("Copied"),
-        () => onNotice("Could not copy — select and copy manually", true),
+        () => onNotice(t("settings.connect.copied")),
+        () => onNotice(t("settings.connect.copyFailed"), true),
       );
     }
   }
 
   return (
     <section className="connect-tools" aria-labelledby="connect-tools-heading">
-      <h3 id="connect-tools-heading">Connect your AI tools</h3>
+      <h3 id="connect-tools-heading" data-setting="machines.connect">{t("settings.connect.title")}</h3>
       <p className="subhint">
-        Hook up Claude Code, Codex, or another MCP client so it can see and steer this
-        Lectern.
+        {t("settings.connect.hint")}
       </p>
       <label className="connect-remote-toggle">
         <input
@@ -141,11 +142,11 @@ export function ConnectTools({
           checked={remote}
           onChange={(e) => setRemote(e.target.checked)}
         />{" "}
-        This computer is not the Lectern host
+        {t("settings.connect.remote")}
       </label>
       {!loaded && (
         <p role="status" className="sub">
-          Loading…
+          {t("settings.common.loading")}
         </p>
       )}
       <div className="connect-tools-grid" id="connect-tools-grid">
@@ -167,15 +168,15 @@ export function ConnectTools({
                     className="b"
                     type="button"
                     disabled={busy === c.id}
-                    aria-label={`Connect ${c.name}`}
+                    aria-label={t("settings.connect.connectName", { name: c.name })}
                     onClick={() => void install(c.id)}
                   >
-                    {busy === c.id ? "Connecting…" : c.installed ? "Reinstall" : "Connect"}
+                    {busy === c.id ? t("settings.connect.connecting") : c.installed ? t("settings.connect.reinstall") : t("settings.connect.connect")}
                   </button>
                 )}
                 {c.id === "claude-desktop" && (
                   <a className="b connect-deeplink" href="claude://">
-                    Open Claude Desktop
+                    {t("settings.connect.openClaudeDesktop")}
                   </a>
                 )}
                 {c.id === "cursor" && c.lectern_path && (
@@ -183,7 +184,7 @@ export function ConnectTools({
                     className="b connect-deeplink"
                     href={cursorDeepLink(c.lectern_path, remote, origin)}
                   >
-                    Connect Cursor
+                    {t("settings.connect.connectCursor")}
                   </a>
                 )}
                 {c.id === "vscode" && c.lectern_path && (
@@ -191,7 +192,7 @@ export function ConnectTools({
                     className="b connect-deeplink"
                     href={vscodeDeepLink(c.lectern_path, remote, origin)}
                   >
-                    Connect VS Code
+                    {t("settings.connect.connectVscode")}
                   </a>
                 )}
                 {c.external_url && (
@@ -201,7 +202,7 @@ export function ConnectTools({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open claude.ai connectors
+                    {t("settings.connect.openClaudeConnectors")}
                   </a>
                 )}
                 {c.id === "web-connectors" && (
@@ -211,7 +212,7 @@ export function ConnectTools({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open ChatGPT settings
+                    {t("settings.connect.openChatgpt")}
                   </a>
                 )}
               </div>
@@ -228,7 +229,7 @@ export function ConnectTools({
                 <div className="connect-snippet">
                   <pre>{shown}</pre>
                   <button className="b" type="button" onClick={() => copy(shown)}>
-                    Copy command
+                    {t("settings.connect.copyCommand")}
                   </button>
                 </div>
               )}
@@ -240,7 +241,7 @@ export function ConnectTools({
                     type="button"
                     onClick={() => copy(claudeDesktopConfig(c.lectern_path!, remote, origin))}
                   >
-                    Copy config
+                    {t("settings.connect.copyConfig")}
                   </button>
                 </div>
               )}

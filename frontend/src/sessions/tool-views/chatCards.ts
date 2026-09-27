@@ -5,6 +5,7 @@
 // — mirroring how Happy's ToolView carries `result` on the same `tool`
 // object rather than as a second message. Pure and DOM-free, unit-tested in
 // chatCards.test.ts.
+import { t } from "../../i18n";
 
 export interface ConversationItem {
   id: string;
@@ -61,7 +62,7 @@ export function buildChatCards(items: ConversationItem[]): ChatCard[] {
         const card: ToolCard = {
           kind: "tool",
           id: item.id,
-          name: item.tool_name || "Tool",
+          name: item.tool_name || t("conversation.chatCards.tool"),
           input: item.input || {},
           status: "running",
         };
@@ -83,7 +84,7 @@ export function buildChatCards(items: ConversationItem[]): ChatCard[] {
           cards.push({
             kind: "tool",
             id: item.id,
-            name: "Tool result",
+            name: t("conversation.chatCards.toolResult"),
             input: {},
             output: item.output,
             isError: item.is_error,

@@ -60,6 +60,7 @@ export function QuickOpen({
   return (
     <div
       className="wb-quick-backdrop"
+      data-back-overlay="30"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -96,7 +97,7 @@ export function QuickOpen({
             }
           }}
         />
-        <button className="wb-quick-close" aria-label={t("files.quickClose")} onClick={onClose}>
+        <button className="wb-quick-close" data-close aria-label={t("files.quickClose")} onClick={onClose}>
           Esc
         </button>
         </div>

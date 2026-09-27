@@ -1,4 +1,5 @@
 import type { JsonValue } from "../api";
+import { t } from "../i18n";
 
 // The saved shape returned by GET/POST/PUT /api/launch-profiles. Description and
 // instructions are optional so the UI keeps working against a server that has
@@ -37,9 +38,13 @@ export type LaunchProfileDraft = {
   instructions: string;
 };
 
-export const INSTRUCTIONS_HELP =
-  "Sent to the agent when a session starts. Resumes and forks keep the original briefing. " +
-  "Team workflows use the chosen agent's available delegation tools.";
+// The help text under "Workflow instructions", in the current language.
+export function instructionsHelp(): string {
+  return t("agentSettings.profiles.instructionsHelp");
+}
+
+// English only, for callers not yet switched to instructionsHelp().
+export const INSTRUCTIONS_HELP = instructionsHelp();
 
 export function formattedEnvironment(env_json?: string): string {
   try {
@@ -91,7 +96,7 @@ export function parseEnvironment(
   try {
     parsed = JSON.parse(value);
   } catch {
-    return { error: "Environment must be valid JSON." };
+    return { error: t("agentSettings.profiles.envInvalidJson") };
   }
   if (
     !parsed ||
@@ -99,7 +104,7 @@ export function parseEnvironment(
     typeof parsed !== "object" ||
     Object.values(parsed).some((v) => typeof v !== "string")
   )
-    return { error: "Environment must be a JSON object with string values." };
+    return { error: t("agentSettings.profiles.envNotObject") };
   return { env: parsed as Record<string, string> };
 }
 

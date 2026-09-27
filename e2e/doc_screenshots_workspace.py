@@ -177,6 +177,25 @@ def test_phone_shots(page, real_terminal):
     emit(page, 'phone-light-sessions.png')
 
 
+
+def test_language_shots(browser, real_terminal):
+    t = real_terminal
+    for locale, name in (("ja-JP", "phone-japanese-sessions.png"), ("fr-FR", "phone-french-sessions.png")):
+        context = browser.new_context(viewport=PHONE, locale=locale)
+        page = context.new_page()
+        page.goto(t['url'] + '/#sessions')
+        page.wait_for_timeout(1200)
+        emit(page, name)
+        context.close()
+    context = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN')
+    page = context.new_page()
+    page.goto(t['url'] + '/#targets')
+    page.locator('[data-settings="appearance"]').click()
+    page.wait_for_timeout(600)
+    emit(page, 'desktop-chinese-appearance.png')
+    context.close()
+
+
 if __name__ == '__main__':
     log, out = Path(sys.argv[1]), Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)

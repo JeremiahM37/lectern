@@ -5,6 +5,7 @@
 // Modeled on Happy's knownTools registry (packages/happy-app/sources/
 // components/tools/knownTools.tsx): title/subtitle/category per known tool
 // name, one shared fallback for anything not listed.
+import { t } from "../../i18n";
 
 export type ToolCategory =
   | "read"
@@ -63,47 +64,47 @@ export function describeTool(
   switch (name) {
     case "Read":
     case "read":
-      return { title: str(input.file_path) ?? "Read file", category: "read" };
+      return { title: str(input.file_path) ?? t("conversation.describe.readFile"), category: "read" };
     case "Write":
-      return { title: str(input.file_path) ?? "Write file", category: "edit" };
+      return { title: str(input.file_path) ?? t("conversation.describe.writeFile"), category: "edit" };
     case "Edit":
-      return { title: str(input.file_path) ?? "Edit file", category: "edit" };
+      return { title: str(input.file_path) ?? t("conversation.describe.editFile"), category: "edit" };
     case "MultiEdit": {
       const path = str(input.file_path);
       const count = Array.isArray(input.edits) ? input.edits.length : 0;
       return {
-        title: path ?? "Edit file",
-        subtitle: count > 1 ? `${count} edits` : undefined,
+        title: path ?? t("conversation.describe.editFile"),
+        subtitle: count > 1 ? t("conversation.describe.edits", { count }) : undefined,
         category: "edit",
       };
     }
     case "NotebookEdit":
-      return { title: str(input.notebook_path) ?? "Edit notebook", category: "edit" };
+      return { title: str(input.notebook_path) ?? t("conversation.describe.editNotebook"), category: "edit" };
     case "Bash":
     case "GeminiBash": {
       const cmd = commandOf(input);
-      return { title: "Terminal", subtitle: cmd ? truncate(cmd, 140) : undefined, category: "terminal" };
+      return { title: t("conversation.describe.terminal"), subtitle: cmd ? truncate(cmd, 140) : undefined, category: "terminal" };
     }
     case "exec_command":
     case "shell": {
       const cmd = commandOf(input);
-      return { title: cmd ? truncate(cmd, 140) : "Terminal", category: "terminal" };
+      return { title: cmd ? truncate(cmd, 140) : t("conversation.describe.terminal"), category: "terminal" };
     }
     case "Grep": {
       const pattern = str(input.pattern);
       return {
-        title: "Search",
-        subtitle: pattern ? `pattern: ${truncate(pattern, 100)}` : undefined,
+        title: t("conversation.describe.search"),
+        subtitle: pattern ? t("conversation.describe.pattern", { pattern: truncate(pattern, 100) }) : undefined,
         category: "search",
       };
     }
     case "Glob":
-      return { title: str(input.pattern) ?? "Find files", category: "search" };
+      return { title: str(input.pattern) ?? t("conversation.describe.findFiles"), category: "search" };
     case "LS":
-      return { title: str(input.path) ? basename(str(input.path)!) : "List files", category: "search" };
+      return { title: str(input.path) ? basename(str(input.path)!) : t("conversation.describe.listFiles"), category: "search" };
     case "WebFetch": {
       const url = str(input.url);
-      let host = url ?? "Fetch URL";
+      let host = url ?? t("conversation.describe.fetchUrl");
       if (url) {
         try {
           host = new URL(url).hostname;
@@ -115,26 +116,26 @@ export function describeTool(
     }
     case "WebSearch": {
       const query = str(input.query);
-      return { title: "Web search", subtitle: query ? truncate(query, 100) : undefined, category: "web" };
+      return { title: t("conversation.describe.webSearch"), subtitle: query ? truncate(query, 100) : undefined, category: "web" };
     }
     case "TodoWrite": {
       const count = Array.isArray(input.todos) ? input.todos.length : 0;
-      return { title: "Plan", subtitle: count ? `${count} item${count === 1 ? "" : "s"}` : undefined, category: "todo" };
+      return { title: t("conversation.describe.plan"), subtitle: count ? t("conversation.describe.items", { count }) : undefined, category: "todo" };
     }
     case "Task":
     case "Agent": {
       const description = str(input.description) ?? str(input.prompt);
-      return { title: description ? truncate(description, 100) : "Subagent task", category: "task" };
+      return { title: description ? truncate(description, 100) : t("conversation.describe.subagentTask"), category: "task" };
     }
     case "ExitPlanMode":
     case "exit_plan_mode":
-      return { title: "Plan proposal", category: "task" };
+      return { title: t("conversation.describe.planProposal"), category: "task" };
     case "AskUserQuestion":
     case "request_user_input":
-      return { title: "Question", category: "question" };
+      return { title: t("conversation.describe.question"), category: "question" };
     case "apply_patch":
     case "CodexPatch":
-      return { title: "Apply changes", category: "edit" };
+      return { title: t("conversation.describe.applyChanges"), category: "edit" };
     default:
       return { title: name, category: "other" };
   }

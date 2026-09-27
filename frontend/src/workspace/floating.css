@@ -1,6 +1,6 @@
 /* Floating terminal (FloatingTerminal.tsx). */
 #floating-terminal { position: fixed; z-index: 150; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line-2);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .5); overflow: hidden; }
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--scrim) 50%, transparent); overflow: hidden; }
 #floating-terminal[hidden] { display: flex !important; visibility: hidden; pointer-events: none; }
 #floating-terminal.floating-window { border-radius: 12px; }
 #floating-terminal.floating-maximized { inset: calc(var(--terminal-top, 57px) + 8px) 12px 12px; border-radius: 12px; }

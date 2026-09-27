@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Claim, SessionView } from "../types";
 import { claimScopeLabel } from "./ClaimsPanel";
+import { t, useLocale } from "../i18n";
 import "./claims.css";
 
 // SessionClaims is the Claim board's per-session view (docs/claims.md point
@@ -18,6 +19,7 @@ export function SessionClaims({
   request<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T>;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
@@ -65,9 +67,9 @@ export function SessionClaims({
         className="chip"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
-        title="Active claims in this repository"
+        title={t("board.claims.sessionChipTitle")}
       >
-        📌 {claims.length} claim{claims.length === 1 ? "" : "s"}
+        {t("board.claims.sessionChip", { count: claims.length })}
       </button>
       {expanded && (
         <div className="session-claims">
@@ -78,7 +80,7 @@ export function SessionClaims({
                 {c.holder}
               </span>
               <span className="claims-scope">
-                {c.scope_kind} {claimScopeLabel(c)}
+                {t(`board.claims.kind.${c.scope_kind}`, undefined, c.scope_kind)} {claimScopeLabel(c)}
               </span>
               {c.intent && <em>“{c.intent}”</em>}
               {c.session_id === session.id && (
@@ -88,7 +90,7 @@ export function SessionClaims({
                   disabled={busy === c.id}
                   onClick={() => void release(c.id)}
                 >
-                  Release
+                  {t("board.claims.release")}
                 </button>
               )}
             </div>

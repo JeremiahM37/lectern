@@ -1,6 +1,7 @@
 // The Browser pane's pure logic, kept apart from React so it can be tested:
 // device presets, mapping a click on the streamed picture back into the page,
 // Design Mode's selection list and the messages the picker may send.
+import { t } from "../i18n";
 
 export interface Viewport {
   width: number;
@@ -15,10 +16,11 @@ export interface Device {
   viewport: Viewport;
 }
 
+// Labels are getters so they are looked up in the language shown when read.
 export const DEVICES: Device[] = [
-  { id: "phone", label: "Phone", viewport: { width: 390, height: 844, mobile: true, scale: 2 } },
-  { id: "tablet", label: "Tablet", viewport: { width: 820, height: 1180, mobile: true, scale: 2 } },
-  { id: "desktop", label: "Desktop", viewport: { width: 1280, height: 800, mobile: false, scale: 1 } },
+  { id: "phone", get label() { return t("browser.device.phone"); }, viewport: { width: 390, height: 844, mobile: true, scale: 2 } },
+  { id: "tablet", get label() { return t("browser.device.tablet"); }, viewport: { width: 820, height: 1180, mobile: true, scale: 2 } },
+  { id: "desktop", get label() { return t("browser.device.desktop"); }, viewport: { width: 1280, height: 800, mobile: false, scale: 1 } },
 ];
 
 export function device(id: string): Device {

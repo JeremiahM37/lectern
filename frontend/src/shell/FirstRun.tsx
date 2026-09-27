@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 
 interface AgentCheck {
   name: string;
@@ -40,6 +41,7 @@ type Item = { label: string; ok: boolean; detail?: string };
 // this never shows again. Every row that can be wrong carries its own fix;
 // the one thing it asks you to do is the same button, always available.
 export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTarget, onStartSession, onOpenConnectTools }: FirstRunProps) {
+  useLocale();
   const [status, setStatus] = useState<OnboardingStatus>();
   const [error, setError] = useState("");
 
@@ -60,39 +62,39 @@ export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTa
   const agentsFound = (status?.agents || []).filter((a) => a.found);
   const agentsOK = agentsFound.length > 0;
   const items: Item[] = [
-    { label: "A machine", ok: hasTarget, detail: hasTarget ? undefined : "add this machine or an SSH target in Settings" },
+    { label: t("app.firstRun.machine"), ok: hasTarget, detail: hasTarget ? undefined : t("app.firstRun.machineDetail") },
     {
-      label: "Agent CLI on this server",
+      label: t("app.firstRun.agentCli"),
       ok: agentsOK,
       detail: agentsOK
         ? agentsFound.map((a) => a.name).join(", ")
-        : "install Claude Code, Codex, or Gemini so Lectern has something to launch",
+        : t("app.firstRun.agentCliDetail"),
     },
     {
-      label: "tmux ready",
+      label: t("app.firstRun.tmux"),
       ok: !!status?.tmux.ok,
       detail: status?.tmux.ok ? status.tmux.detail : status?.tmux.fix,
     },
     {
-      label: "git ready",
+      label: t("app.firstRun.git"),
       ok: !!status?.git.ok,
       detail: status?.git.ok ? status.git.detail : status?.git.fix,
     },
-    { label: "Python 3 ready", ok: !!status?.python?.ok, detail: status?.python?.ok ? status.python.detail : status?.python?.fix },
-    { label: "A project", ok: hasProject, detail: hasProject ? undefined : "optional — a blank room works with no project" },
-    { label: "First session", ok: hasSession },
+    { label: t("app.firstRun.python"), ok: !!status?.python?.ok, detail: status?.python?.ok ? status.python.detail : status?.python?.fix },
+    { label: t("app.firstRun.project"), ok: hasProject, detail: hasProject ? undefined : t("app.firstRun.projectDetail") },
+    { label: t("app.firstRun.firstSession"), ok: hasSession },
   ];
   const loading = !status && !error;
 
   return (
     <section className="first-run" aria-labelledby="first-run-heading">
-      <h2 id="first-run-heading">Get started</h2>
+      <h2 id="first-run-heading">{t("app.firstRun.title")}</h2>
       <p className="first-run-sub">
-        Lectern dispatches AI coding agents onto machines you own. Here's what's ready so far.
+        {t("app.firstRun.intro")}
       </p>
       {error && (
         <p className="first-run-error">
-          Couldn't read setup status ({error}) — you can still start a session.
+          {t("app.firstRun.statusError", { error })}
         </p>
       )}
       <ul className="first-run-checklist" aria-busy={loading}>
@@ -107,15 +109,14 @@ export function FirstRun({ request, hasProject, hasSession, hasTarget, onSetupTa
         ))}
       </ul>
       <button type="button" className="first-run-cta" onClick={hasTarget ? onStartSession : onSetupTarget}>
-        {hasTarget ? "Start your first session" : "Add your first machine"}
+        {hasTarget ? t("app.firstRun.startSession") : t("app.firstRun.addMachine")}
       </button>
       <p className="first-run-hint">
-        For SSH machines, install and sign in to your agent CLI on that machine. Docker does
-        not inherit host tools or logins. You can also open a blank shell without an agent.
+        {t("app.firstRun.hint")}
       </p>
       {onOpenConnectTools && (
         <button type="button" className="first-run-connect-link" onClick={onOpenConnectTools}>
-          Connect Claude Code, Codex, or another AI tool to this Lectern →
+          {t("app.firstRun.connectTools")}
         </button>
       )}
     </section>

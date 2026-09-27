@@ -298,7 +298,7 @@ export function Workbench({
           }
         />
       )}
-      <aside id="files-dialog" className="wb-panel" hidden={!open} style={layout} aria-label={t("files.title")} data-watch={watchMode}>
+      <aside id="files-dialog" className="wb-panel" data-back-overlay="10" hidden={!open} style={layout} aria-label={t("files.title")} data-watch={watchMode}>
         <div className="wb-resize" role="separator" aria-label={t("files.resizeExplorer")} onPointerDown={(event) => drag(event, "explorer")} />
         <div className="dialog-head wb-panel-head">
           <div className="wb-side-tabs" role="tablist" aria-label={t("files.title")}>

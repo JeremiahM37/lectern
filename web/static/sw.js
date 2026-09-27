@@ -2159,7 +2159,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-9eee9a36a792";
+  var CACHE = "lectern-react-e68aed38a16a";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2208,7 +2208,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-CpXsDtA5.js","/react/assets/Workbench-BV1ZtWxd.js","/react/assets/action-BN79Rxdy.js","/react/assets/app-CMQy0b9R.css","/react/assets/app-CtEGJ2q0.js","/react/assets/i18n-DGLbtDJu.js","/react/assets/light-BM5dRsla.css","/react/assets/light.generated-B0gxo6iu.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-CEIzRNOw.js","/react/assets/terminal-aJsDM0ds.css"]);
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-D6u1KJ7W.js","/react/assets/Workbench-BKbac2o5.js","/react/assets/action-BRruxN04.js","/react/assets/app-CfZg_V1f.css","/react/assets/app-ZIwdoa74.js","/react/assets/es-Uqe3jmYi.js","/react/assets/fr-BcncokfB.js","/react/assets/ja-CnnlYkXI.js","/react/assets/jsx-runtime-CF7zqPVb.js","/react/assets/ko-G-_m1q8L.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-CDab6GIq.js","/react/assets/terminal-CijH37Vv.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-CuB5guio.js","/react/assets/zh-Dmi7f-9M.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

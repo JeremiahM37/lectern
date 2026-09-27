@@ -1,11 +1,12 @@
 // "Offline · showing what Lectern said 4 min ago", over any screen whose
 // data came from this device's cache (api/offline.ts) rather than from
 // Lectern just now. It goes away by itself when a request gets through.
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import { useEffect, useState } from "react";
 import { offlineCache, staleAge, type OfflineState } from "../api/offline";
 
 export function OfflineBanner({ onRetry }: { onRetry: () => void }) {
+  useLocale();
   const [state, setState] = useState<OfflineState>(offlineCache.state);
   const [, tick] = useState(0);
   useEffect(() => {

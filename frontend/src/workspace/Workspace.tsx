@@ -214,6 +214,11 @@ function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice, onPla
 
 // ---- recent-tab switcher --------------------------------------------------------
 
+// Pane ids in recent-use order, then any never shown.
+function mruOrder(state: WorkspaceState) {
+  return [...state.mru, ...state.panes.map((row) => row.id)].filter((id, i, all) => all.indexOf(id) === i && pane(state, id));
+}
+
 function MruSwitcher({ state, index, onMove, onChoose, onCancel }: {
   state: WorkspaceState;
   index: number;
@@ -222,7 +227,7 @@ function MruSwitcher({ state, index, onMove, onChoose, onCancel }: {
   onCancel: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  const order = [...state.mru, ...state.panes.map((row) => row.id)].filter((id, i, all) => all.indexOf(id) === i && pane(state, id));
+  const order = mruOrder(state);
   const chosen = order[((index % order.length) + order.length) % order.length];
   useEffect(() => {
     box.current?.focus({ preventScroll: true });
@@ -239,9 +244,7 @@ function MruSwitcher({ state, index, onMove, onChoose, onCancel }: {
         else if (event.key === "ArrowDown" || event.key === "ArrowRight") onMove(1);
         else if (event.key === "ArrowUp" || event.key === "ArrowLeft") onMove(-1);
       }}
-      onKeyUp={(event) => {
-        if ((event.key === "Control" || event.key === "Alt" || event.key === "Meta") && chosen) onChoose(chosen);
-      }}>
+>
       <p>{t("workspace.recentTabs")}</p>
       <ol>
         {order.map((id) => {
@@ -285,7 +288,36 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
     [dragging, setDragging] = useState<string | null>(null),
     [drop, setDrop] = useState<{ group: string; edge: Edge } | null>(null),
     [insertAt, setInsertAt] = useState<number | null>(null),
-    [mru, setMru] = useState<number | null>(null);
+    [mru, setMruState] = useState<number | null>(null);
+  // The recent-tab switcher's position, kept in a ref as well as state: the
+  // modifier's release can arrive (from this document, or relayed from a
+  // terminal frame) before React has drawn the switcher, and must still
+  // commit the choice.
+  const mruRef = useRef<number | null>(null);
+  const setMru = useCallback((next: number | null | ((old: number | null) => number | null)) => {
+    const value = typeof next === "function" ? next(mruRef.current) : next;
+    mruRef.current = value;
+    setMruState(value);
+  }, []);
+  const commitMru = useCallback(() => {
+    const index = mruRef.current;
+    if (index === null) return;
+    const order = mruOrder(latest.current.controller.state);
+    const chosen = order[((index % order.length) + order.length) % order.length];
+    setMru(null);
+    if (chosen) latest.current.controller.select(chosen);
+  }, [setMru]);
+  useEffect(() => {
+    const keyup = (event: KeyboardEvent) => {
+      if (event.key === "Control" || event.key === "Alt" || event.key === "Meta") commitMru();
+    };
+    addEventListener("lec-shortcut-release", commitMru);
+    addEventListener("keyup", keyup, true);
+    return () => {
+      removeEventListener("lec-shortcut-release", commitMru);
+      removeEventListener("keyup", keyup, true);
+    };
+  }, [commitMru]);
   const dragActive = useRef(false);
   const list = useRef<HTMLDivElement>(null),
     actions = useRef<HTMLDetailsElement>(null),

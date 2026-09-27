@@ -1,0 +1,49 @@
+/* The theme's colour tokens: the only stylesheet allowed to name a colour
+   (theme/no-hardcoded-colours.test.ts). These are the dark values, painted
+   before any script runs; theme/app-theme.ts sets the active theme's values
+   on <html> and must agree with this list (theme.test.ts checks). Every other
+   stylesheet uses var(--token) or color-mix() of tokens. */
+:root {
+  color-scheme: dark;
+  --bg: #0c1018;
+  --bg-soft: #101620;
+  --panel: #151b26;
+  --panel-2: #1d2533;
+  --line: #27303e;
+  --line-2: #384457;
+  --ink: #e2e8f0;
+  --ink-dim: #97a2bd;
+  --ink-faint: #8793a7;
+  --accent: #8b5cf6;
+  --accent-soft: #a78bfa;
+  --accent-fill: #7860d2;
+  --accent-wash: rgba(139, 92, 246, 0.14);
+  --indigo: #818cf8;
+  --cyan: #38bdf8;
+  --blue: #60a5fa;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --green: #34d399;
+  /* Text on the accent button fill, and on the bright status fills (badges):
+     dark on the dark theme's bright fills, white on the light theme's deep ones. */
+  --on-accent: #ffffff;
+  --on-fill: #0b0a1a;
+  /* Translucent layers: a light wash over a surface, and a dark scrim or shadow. */
+  --overlay: #ffffff;
+  --scrim: #000000;
+  /* The page a document is drawn on (PDF, HTML previews, plots), white in both themes. */
+  --paper: #ffffff;
+
+  /* Composites built from the tokens above. */
+  --shadow: 0 1px 2px color-mix(in srgb, var(--scrim) 40%, transparent), 0 8px 24px -12px color-mix(in srgb, var(--scrim) 70%, transparent);
+  --glow: 0 0 0 1px var(--accent-wash), 0 6px 24px -8px color-mix(in srgb, var(--accent) 45%, transparent);
+  /* Names older stylesheets use for the same roles. */
+  --surface: var(--panel);
+  --muted: var(--ink-dim);
+  --border: var(--line-2);
+  --bg-alt: var(--bg-soft);
+  --text: var(--ink);
+  --panel-bg: var(--panel);
+  --warn-bg: color-mix(in srgb, var(--amber) 10%, transparent);
+  --warn-border: color-mix(in srgb, var(--amber) 40%, transparent);
+}

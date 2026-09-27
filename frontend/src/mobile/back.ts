@@ -53,10 +53,23 @@ export function closeTopmost(root: Document = document): boolean {
       const cancel = new Event("cancel", { cancelable: true });
       dialog.dispatchEvent(cancel);
       if (!cancel.defaultPrevented) {
-        const button = dialog.querySelector<HTMLElement>("[data-close], button[aria-label='Close'], .modal-close, .sheet-close");
+        const button = dialog.querySelector<HTMLElement>("[data-close], .modal-close, .sheet-close");
         if (button) button.click();
         else dialog.close();
       }
+      return true;
+    }
+    // Panels drawn over the page without a <dialog> (the file panel, an
+    // open file, Go to file) say so with data-back-overlay="<layer>"; the
+    // highest visible layer closes through its own [data-close] button, or
+    // by Escape when it has none.
+    const overlays = [...doc.querySelectorAll<HTMLElement>("[data-back-overlay]")].filter((element) => element.getClientRects().length > 0);
+    overlays.sort((a, b) => Number(a.dataset.backOverlay) - Number(b.dataset.backOverlay));
+    const overlay = overlays[overlays.length - 1];
+    if (overlay) {
+      const button = overlay.querySelector<HTMLElement>(":scope > [data-close], :scope > * > [data-close], [data-close]");
+      if (button) button.click();
+      else doc.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return true;
     }
     const menus = [...doc.querySelectorAll<HTMLDetailsElement>(MENUS)];

@@ -3,6 +3,7 @@
 // GET/PUT /api/budgets (internal/api/budgets.go).
 import { useEffect, useState } from "react";
 import type { BudgetConfig, BudgetLimit, BudgetStatus } from "../types";
+import { t, useLocale } from "../i18n";
 
 export interface BudgetsPanelApi {
   request<T>(p: string, o?: { method?: string; body?: unknown }): Promise<T>;
@@ -16,6 +17,7 @@ function numOrZero(v: string): number {
 }
 
 export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice(t: string, e?: boolean): void }) {
+  useLocale();
   const [status, setStatus] = useState<BudgetStatus>();
   const [overall, setOverall] = useState<BudgetLimit>(emptyLimit);
   const [perAgent, setPerAgent] = useState<[string, BudgetLimit][]>([]);
@@ -65,7 +67,7 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
       .then((s) => {
         setStatus(s);
         applyConfig(s.config);
-        onNotice("Budgets saved");
+        onNotice(t("agentSettings.budgets.saved"));
       })
       .catch((e) => onNotice(String(e), true));
   }
@@ -79,28 +81,25 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
   // entirely rather than trying to merge concurrent writes.
   if (!status) {
     return (
-      <article id="budgets-panel" className="budgets-editor">
-        <h3>Budgets</h3>
-        <p>Loading budgets…</p>
+      <article id="budgets-panel" className="budgets-editor" data-setting="budgets.budgets">
+        <h3>{t("agentSettings.budgets.title")}</h3>
+        <p>{t("agentSettings.budgets.loading")}</p>
       </article>
     );
   }
 
   return (
-    <article id="budgets-panel" className="budgets-editor">
-      <h3>Budgets</h3>
+    <article id="budgets-panel" className="budgets-editor" data-setting="budgets.budgets">
+      <h3>{t("agentSettings.budgets.title")}</h3>
       <p className="subhint">
-        Daily and weekly USD spend caps, overall and per agent, plus a per-task budget (set on the task
-        itself). "Warn" only alerts; "Stop" refuses new dispatches and session launches once a limit
-        reaches 100%, and cancels a task over its own budget — an interactive session is never killed,
-        only told.
+        {t("agentSettings.budgets.intro")}
       </p>
 
       <fieldset>
-        <legend>Overall</legend>
+        <legend>{t("agentSettings.usage.overall")}</legend>
         <div className="limit-row">
           <label>
-            Daily cap (USD)
+            {t("agentSettings.budgets.dailyCap")}
             <input
               id="budget-overall-daily"
               type="number"
@@ -108,11 +107,11 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
               step="0.01"
               value={overall.daily_usd || ""}
               onChange={(e) => { const v = numOrZero(e.target.value); setOverall((prev) => ({ ...prev, daily_usd: v })); }}
-              placeholder="no cap"
+              placeholder={t("agentSettings.budgets.noCap")}
             />
           </label>
           <label>
-            Weekly cap (USD)
+            {t("agentSettings.budgets.weeklyCap")}
             <input
               id="budget-overall-weekly"
               type="number"
@@ -120,32 +119,32 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
               step="0.01"
               value={overall.weekly_usd || ""}
               onChange={(e) => { const v = numOrZero(e.target.value); setOverall((prev) => ({ ...prev, weekly_usd: v })); }}
-              placeholder="no cap"
+              placeholder={t("agentSettings.budgets.noCap")}
             />
           </label>
           <label>
-            Mode
+            {t("agentSettings.budgets.mode")}
             <select
               id="budget-overall-mode"
               value={overall.mode}
               onChange={(e) => { const v = e.target.value as BudgetLimit["mode"]; setOverall((prev) => ({ ...prev, mode: v })); }}
             >
-              <option value="warn">Warn only</option>
-              <option value="stop">Stop at 100%</option>
+              <option value="warn">{t("agentSettings.budgets.warnOnly")}</option>
+              <option value="stop">{t("agentSettings.budgets.stopAt100")}</option>
             </select>
           </label>
         </div>
         {status?.overall && (status.overall.daily?.blocked || status.overall.weekly?.blocked) && (
-          <p className="budget-blocked-note">The overall budget is currently exhausted in stop mode.</p>
+          <p className="budget-blocked-note">{t("agentSettings.budgets.overallExhausted")}</p>
         )}
       </fieldset>
 
       <fieldset>
-        <legend>Per agent</legend>
+        <legend>{t("agentSettings.budgets.perAgent")}</legend>
         {perAgent.map(([name, limit], i) => (
           <div className="per-agent-row" key={i}>
             <input
-              placeholder="agent name (e.g. claude, codex)"
+              placeholder={t("agentSettings.budgets.agentNamePlaceholder")}
               value={name}
               onChange={(e) => {
                 const val = e.target.value;
@@ -156,7 +155,7 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
               type="number"
               min="0"
               step="0.01"
-              placeholder="daily $"
+              placeholder={t("agentSettings.budgets.dailyPlaceholder")}
               value={limit.daily_usd || ""}
               onChange={(e) => {
                 const val = numOrZero(e.target.value);
@@ -167,7 +166,7 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
               type="number"
               min="0"
               step="0.01"
-              placeholder="weekly $"
+              placeholder={t("agentSettings.budgets.weeklyPlaceholder")}
               value={limit.weekly_usd || ""}
               onChange={(e) => {
                 const val = numOrZero(e.target.value);
@@ -181,8 +180,8 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
                 setPerAgent((list) => list.map((row, j) => (j === i ? [row[0], { ...row[1], mode: val }] : row)));
               }}
             >
-              <option value="warn">Warn</option>
-              <option value="stop">Stop</option>
+              <option value="warn">{t("agentSettings.budgets.warn")}</option>
+              <option value="stop">{t("agentSettings.budgets.stop")}</option>
             </select>
             <button className="b" onClick={() => setPerAgent((list) => list.filter((_, j) => j !== i))}>
               ✕
@@ -194,26 +193,26 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
           id="budget-add-agent"
           onClick={() => setPerAgent((list) => [...list, ["", { ...emptyLimit }]])}
         >
-          + Add agent limit
+          {t("agentSettings.budgets.addAgentLimit")}
         </button>
       </fieldset>
 
       <fieldset>
-        <legend>Alerts</legend>
+        <legend>{t("agentSettings.budgets.alerts")}</legend>
         <label>
-          Spend thresholds (%)
+          {t("agentSettings.budgets.spendThresholds")}
           <input value={thresholds} onChange={(e) => setThresholds(e.target.value)} placeholder="75,90,100" />
         </label>
         <label>
-          Claude quota thresholds (%)
+          {t("agentSettings.budgets.quotaThresholds")}
           <input value={quotaThresholds} onChange={(e) => setQuotaThresholds(e.target.value)} placeholder="75,90" />
         </label>
         <label>
           <input type="checkbox" checked={anomalyEnabled} onChange={(e) => setAnomalyEnabled(e.target.checked)} />{" "}
-          Cost anomaly detection
+          {t("agentSettings.budgets.anomalyDetection")}
         </label>
         <label>
-          Anomaly multiplier (x trailing 7-day median $/hour)
+          {t("agentSettings.budgets.anomalyMultiplier")}
           <input
             value={anomalyMultiplier}
             onChange={(e) => setAnomalyMultiplier(e.target.value)}
@@ -223,7 +222,7 @@ export function BudgetsPanel({ api, onNotice }: { api: BudgetsPanelApi; onNotice
       </fieldset>
 
       <button id="budget-save" onClick={save}>
-        Save budgets
+        {t("agentSettings.budgets.save")}
       </button>
     </article>
   );

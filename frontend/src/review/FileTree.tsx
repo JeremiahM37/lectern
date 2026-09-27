@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { buildTree, type TreeNode } from "./diffModel";
+import { t, useLocale } from "../i18n";
 
 export interface TreeFile {
   path: string;
@@ -23,6 +24,7 @@ export function FileTree({
   selected?: string;
   onSelect(path: string): void;
 }) {
+  useLocale();
   const [query, setQuery] = useState("");
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
@@ -66,7 +68,7 @@ export function FileTree({
             <b className="a">+{f?.additions ?? 0}</b> <b className="d">−{f?.deletions ?? 0}</b>
           </span>
           {f?.viewed && (
-            <span className="ftree-check" aria-label="viewed">
+            <span className="ftree-check" aria-label={t("review.tree.viewed")}>
               ✓
             </span>
           )}
@@ -76,21 +78,21 @@ export function FileTree({
   }
 
   return (
-    <div className="ftree" role="navigation" aria-label="Changed files">
+    <div className="ftree" role="navigation" aria-label={t("review.tree.label")}>
       <div className="ftree-head">
         <input
           type="search"
-          placeholder="Filter files"
-          aria-label="Filter changed files"
+          placeholder={t("review.tree.filter")}
+          aria-label={t("review.tree.filterLabel")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <span className="sub">
-          {viewedCount}/{files.length} viewed
+          {t("review.tree.viewedCount", { viewed: viewedCount, total: files.length })}
         </span>
       </div>
       <ul>{tree.map((n) => node(n, 0))}</ul>
-      {!shown.length && <p className="sub">No matching files.</p>}
+      {!shown.length && <p className="sub">{t("review.tree.noMatch")}</p>}
     </div>
   );
 }

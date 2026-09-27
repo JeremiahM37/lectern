@@ -90,7 +90,7 @@ function Pane({
   const [state, setState] = useState<Snapshot>({
     connected: false,
     paused: false,
-    status: "Connecting…",
+    status: t("terminalPage.status.connecting"),
     frozen: "",
     retained: false,
     unresponsive: false,
@@ -311,7 +311,7 @@ export function TerminalApp({
       const next = (await response.json()) as { id: number };
       location.replace(`/terminal/session/${next.id}${location.search}`);
     } catch (error) {
-      setNotice(`Could not restart the agent: ${(error as Error).message}`);
+      setNotice(t("terminalPage.notice.reviveFailed", { error: (error as Error).message }));
       setReviving(false);
     }
   }
@@ -457,7 +457,7 @@ export function TerminalApp({
   );
   const match = useCallback((id: string, index: number, count: number) => {
     if (id === activeRef.current)
-      setMatches(count ? `${index + 1} / ${count}` : "No matches");
+      setMatches(count ? `${index + 1} / ${count}` : t("terminal.noMatches"));
   }, []);
   // The tab bar owns the tab list; a deliberate flick inside the terminal body
   // is relayed to it, because only the frame knows the gesture was a flick.
@@ -755,15 +755,15 @@ export function TerminalApp({
     async (files: File[], pane = engines.current.get(activeRef.current)) => {
       const data = infoRef.current;
       if (!data?.files_available)
-        throw new Error("Uploads unavailable for this workspace.");
+        throw new Error(t("terminalPage.notice.uploadsUnavailable"));
       if (!pane?.connected)
-        throw new Error("Connect to the terminal before uploading.");
+        throw new Error(t("terminalPage.notice.connectBeforeUpload"));
       setUploading((old) => old + 1);
       try {
         for (const file of files) {
           if (file.size > 25 * 1024 * 1024)
-            throw new Error(`${file.name}: exceeds 25 MiB`);
-          setNotice(`Uploading ${file.name}…`);
+            throw new Error(t("terminalPage.notice.tooLarge", { name: file.name }));
+          setNotice(t("terminalPage.notice.uploading", { name: file.name }));
           const form = new FormData();
           form.append(
             "file",
@@ -777,10 +777,10 @@ export function TerminalApp({
           try {
             pane.paste(quote(attachment.path) + " ");
             setNotice(
-              `${attachment.name} uploaded. Path inserted; press Enter when ready.`,
+              t("terminalPage.notice.uploaded", { name: attachment.name }),
             );
           } catch (error) {
-            setNotice(`Uploaded to ${attachment.path}. ${errorMessage(error)}`);
+            setNotice(t("terminalPage.notice.uploadedTo", { path: attachment.path, error: errorMessage(error) }));
             return;
           }
         }
@@ -996,33 +996,33 @@ export function TerminalApp({
         {
           id: "agent",
           url: info.terminal_url,
-          label: kind === "project" ? "Project shell" : "Agent",
+          label: kind === "project" ? t("terminalPage.pane.projectShell") : t("terminalPage.pane.agent"),
         },
         ...(split && info.shell_url
-          ? [{ id: "shell", url: info.shell_url, label: "Companion shell" }]
+          ? [{ id: "shell", url: info.shell_url, label: t("terminalPage.pane.companionShell") }]
           : []),
       ]
     : [];
   return (
     <>
       <header>
-        <a href="/" title="Back to Lectern">
+        <a href="/" title={t("terminalPage.header.back")}>
           ◈ lectern
         </a>
         <span id="identity">
-          {info ? info.tmux_session + " · " + info.target : "Connecting…"}
+          {info ? info.tmux_session + " · " + info.target : t("terminalPage.status.connecting")}
         </span>
         <span id="connection" role="status">
           {state?.connected
-            ? "Connected"
+            ? t("terminalPage.status.connected")
             : state?.offline
-              ? "Offline"
+              ? t("terminalPage.status.offline")
               : state
-                ? "Reconnecting…"
-                : "Connecting"}
+                ? t("terminalPage.status.reconnecting")
+                : t("terminalPage.status.connectingPlain")}
         </span>
       </header>
-      <nav aria-label="Terminal tools">
+      <nav aria-label={t("terminalPage.tools.navLabel")}>
         <span
           id="compact-status"
           className={
@@ -1031,19 +1031,19 @@ export function TerminalApp({
           role="status"
           aria-label={
             state?.connected
-              ? "Terminal connected"
+              ? t("terminalPage.status.terminalConnected")
               : state?.offline
-                ? "Terminal offline"
-                : "Terminal reconnecting"
+                ? t("terminalPage.status.terminalOffline")
+                : t("terminalPage.status.terminalReconnecting")
           }
-          title={state?.status || "Connecting"}
+          title={state?.status || t("terminalPage.status.connectingPlain")}
         />
         <button
           id="upload"
           disabled={!info?.files_available || uploading > 0}
           onClick={() => file.current?.click()}
         >
-          Attach files
+          {t("terminalPage.tools.attach")}
         </button>
         <input
           ref={file}
@@ -1063,10 +1063,10 @@ export function TerminalApp({
           aria-pressed={filesOpen}
           onClick={() => setFilesOpen((old) => !old)}
         >
-          Files
+          {t("terminalPage.tools.files")}
         </button>
         <a id="desktop" className="button" href={info?.desktop_uri}>
-          Open in terminal
+          {t("terminalPage.tools.openInTerminal")}
         </a>
         <details
           id="terminal-tools"
@@ -1084,8 +1084,8 @@ export function TerminalApp({
             placeTools();
             setToolsOpen(details.open);
           }}>
-            {state?.paused ? "Paused · Tools" : "Tools"}
-            <span className="terminal-controls-hint"> · Ctrl+] then m</span>
+            {state?.paused ? t("terminalPage.tools.pausedToggle") : t("terminalPage.tools.toggle")}
+            <span className="terminal-controls-hint">{t("terminalPage.tools.hint")}</span>
           </summary>
           <div
             className="action-menu-panel"
@@ -1099,25 +1099,25 @@ export function TerminalApp({
             }}
           >
             <p className="terminal-controls-help">
-              Controls: <kbd>Ctrl+]</kbd> then <kbd>m</kbd><br />
-              Esc returns to typing. Ctrl+] twice sends Ctrl+].
+              {t("terminalPage.tools.helpControls")} <kbd>Ctrl+]</kbd> {t("terminalPage.tools.helpThen")} <kbd>m</kbd><br />
+              {t("terminalPage.tools.helpEsc")}
             </p>
             <a id="compact-desktop" className="button" href={info?.desktop_uri}>
-              Open in terminal
+              {t("terminalPage.tools.openInTerminal")}
             </a>
             <button
               id="compact-upload"
               disabled={!info?.files_available || uploading > 0}
               onClick={() => file.current?.click()}
             >
-              Attach files
+              {t("terminalPage.tools.attach")}
             </button>
             <button
               id="compact-files"
               disabled={!info?.files_available}
               onClick={() => setFilesOpen(true)}
             >
-              Files
+              {t("terminalPage.tools.files")}
             </button>
             <button
               id="go-to-file"
@@ -1135,10 +1135,10 @@ export function TerminalApp({
             </button>
             <span id="compact-workspace">{info?.workdir}</span>
             <button id="compose" disabled={!state?.connected} onClick={() => setDialog("compose")}>
-              Write or paste text
+              {t("terminalPage.tools.compose")}
             </button>
             <button id="mobile-snippets" disabled={!state?.connected} onClick={() => setDialog("snippets")}>
-              Saved replies
+              {t("terminalPage.tools.savedReplies")}
             </button>
             <button id="customize-keys" onClick={openKeybar}>
               {t("keybar.customizeRow")}
@@ -1148,7 +1148,7 @@ export function TerminalApp({
               disabled={!info}
               onClick={() => info && onShared("search", info)}
             >
-              Search saved conversations
+              {t("terminalPage.tools.searchSaved")}
             </button>
             {kind === "session" && (
               <button
@@ -1156,7 +1156,7 @@ export function TerminalApp({
                 disabled={!info}
                 onClick={() => info && onShared("saved", info)}
               >
-                Saved conversations
+                {t("terminalPage.tools.saved")}
               </button>
             )}
             <button
@@ -1164,7 +1164,7 @@ export function TerminalApp({
               disabled={!info}
               onClick={() => info && onShared("review", info)}
             >
-              Review changes
+              {t("terminalPage.review.title")}
             </button>
             <button id="find" onClick={openFind}>
               {t("terminal.findInTerminal")}
@@ -1174,25 +1174,25 @@ export function TerminalApp({
               disabled={!state}
               onClick={() => showHistory(active)}
             >
-              Session history
+              {t("terminalPage.history.title")}
             </button>
             <button
               id="desktop-setup"
               disabled={!info}
               onClick={() => setDialog("desktop")}
             >
-              Terminal connection setup
+              {t("terminalPage.tools.desktopSetup")}
             </button>
             <a
               className="button"
               href="/#projects"
-              aria-label="Open project MCP settings"
+              aria-label={t("terminalPage.tools.mcpSettingsLabel")}
             >
-              Project MCP settings
+              {t("terminalPage.tools.mcpSettings")}
             </a>
             {mobile && (
               <button id="report-keyboard" className="tools-diagnostic" onClick={reportKeyboard}>
-                Report keyboard layout
+                {t("terminalPage.tools.reportKeyboard")}
               </button>
             )}
             <button
@@ -1203,17 +1203,17 @@ export function TerminalApp({
                 if (split) setActive("agent");
               }}
             >
-              {split ? "Hide shell" : "Split shell"}
+              {split ? t("terminalPage.tools.hideShell") : t("terminalPage.tools.splitShell")}
             </button>
             <button id="preferences" onClick={() => setDialog("appearance")}>
-              Appearance
+              {t("terminalPage.tools.appearance")}
             </button>
             <button
               id="pause"
               aria-pressed={state?.paused || false}
               onClick={() => current()?.freeze(!state?.paused)}
             >
-              {state?.paused ? "Resume view" : "Pause view"}
+              {state?.paused ? t("terminalPage.tools.resumeView") : t("terminalPage.tools.pauseView")}
             </button>
             <button
               id="bottom"
@@ -1222,18 +1222,18 @@ export function TerminalApp({
                 current()?.term.scrollToBottom();
               }}
             >
-              Jump to live
+              {t("terminalPage.tools.jumpToLive")}
             </button>
             <button
               id="reconnect"
-              title="Reconnect this view and redraw the terminal; the agent keeps running"
+              title={t("terminalPage.tools.reconnectHint")}
               onClick={() => {
                 const engine = current();
                 if (engine?.paused) engine.freeze(false);
                 void engine?.connect();
               }}
             >
-              Reconnect view
+              {t("terminalPage.tools.reconnect")}
             </button>
           </div>
         </details>
@@ -1317,19 +1317,19 @@ export function TerminalApp({
       )}
       </div>
       {mobile && state?.paused && (
-        <div id="select-bar" role="toolbar" aria-label="Text selection">
-          <span>Hold any text to select it</span>
+        <div id="select-bar" role="toolbar" aria-label={t("terminalPage.select.label")}>
+          <span>{t("terminalPage.select.hint")}</span>
           <button
             id="select-copy-all"
             onClick={() => {
               const engine = current();
               if (!engine) return;
               void copyClipboard(engine.options.frozen.textContent || "", () => {})
-                .then(() => setNotice("Copied the whole screen buffer."))
+                .then(() => setNotice(t("terminalPage.notice.copiedScreen")))
                 .catch((error) => setNotice(errorMessage(error)));
             }}
           >
-            Copy all
+            {t("terminalPage.select.copyAll")}
           </button>
           <button
             id="select-done"
@@ -1343,7 +1343,7 @@ export function TerminalApp({
               setTimeout(() => engine?.term.focus(), 60);
             }}
           >
-            Done
+            {t("terminalPage.select.done")}
           </button>
         </div>
       )}
@@ -1352,47 +1352,45 @@ export function TerminalApp({
       )}
       {fontHint && (
         <div id="font-hint" role="status">
-          {fontHint} · {current()?.term.cols ?? 0} columns
+          {t("terminalPage.fontHint", { size: fontHint, columns: current()?.term.cols ?? 0 })}
         </div>
       )}
       {state?.unresponsive && !unresponsiveDismissed && (
         <div id="unresponsive" role="alert">
           <p>
-            <b>The agent is not reacting to your keystrokes.</b> It is still running, but it has taken several keys and drawn
-            nothing back{kind === "session" ? " — its process has probably hung. Restarting it resumes this same conversation." : "."}
+            <b>{t("terminalPage.unresponsive.title")}</b> {kind === "session" ? t("terminalPage.unresponsive.bodySession") : t("terminalPage.unresponsive.body")}
           </p>
           <div className="unresponsive-actions">
             {kind === "session" && (
               <button className="primary" disabled={reviving} onClick={() => void revive()}>
-                {reviving ? "Restarting…" : "Restart agent, keep conversation"}
+                {reviving ? t("terminalPage.unresponsive.restarting") : t("terminalPage.unresponsive.restart")}
               </button>
             )}
-            <button onClick={() => setUnresponsiveDismissed(true)}>Dismiss</button>
+            <button onClick={() => setUnresponsiveDismissed(true)}>{t("terminalPage.banner.dismiss")}</button>
           </div>
         </div>
       )}
       {agentExited && !exitDismissed && !(state?.unresponsive && !unresponsiveDismissed) && (
         <div id="agent-exited" role="alert">
           <p>
-            <b>The agent exited.</b> This terminal is at a shell prompt. Revive starts the agent again here,
-            resuming its conversation when one was saved.
+            <b>{t("terminalPage.exited.title")}</b> {t("terminalPage.exited.body")}
           </p>
           <div className="unresponsive-actions">
             <button className="primary" disabled={reviving} onClick={() => void revive()}>
-              {reviving ? "Reviving…" : "↻ Revive"}
+              {reviving ? t("terminalPage.exited.reviving") : t("terminalPage.exited.revive")}
             </button>
-            <button onClick={() => setExitDismissed(true)}>Dismiss</button>
+            <button onClick={() => setExitDismissed(true)}>{t("terminalPage.banner.dismiss")}</button>
           </div>
         </div>
       )}
       {mobile && state?.retained && !state.paused && (
         <button id="return-live" onPointerDown={event => event.preventDefault()}
           onClick={() => { current()?.leaveRetainedHistory(); current()?.term.scrollToBottom(); }}>
-          ↓ Live
+          {t("terminalPage.returnLive")}
         </button>
       )}
-      {mobile && <button id="terminal-keyboard" aria-label={keyboardFocused ? "Hide keyboard" : "Show keyboard"}
-        title={keyboardFocused ? "Hide keyboard" : "Show keyboard"} aria-pressed={keyboardFocused}
+      {mobile && <button id="terminal-keyboard" aria-label={keyboardFocused ? t("terminalPage.keybar.hideKeyboard") : t("terminalPage.keybar.showKeyboard")}
+        title={keyboardFocused ? t("terminalPage.keybar.hideKeyboard") : t("terminalPage.keybar.showKeyboard")} aria-pressed={keyboardFocused}
         disabled={!state?.connected || state.paused} onPointerDown={event => event.preventDefault()}
         onClick={() => {
           const engine = current();
@@ -1425,19 +1423,19 @@ export function TerminalApp({
         </span>
       </footer>
       {dialog === "compose" && (
-        <Dialog id="compose-dialog" title="Write or paste text" onClose={close}>
-          <p>Edit a longer prompt here. Insert puts it in the terminal; Send also presses Enter.</p>
-          <textarea id="terminal-draft" aria-label="Text to insert in terminal" autoFocus
+        <Dialog id="compose-dialog" title={t("terminalPage.tools.compose")} onClose={close}>
+          <p>{t("terminalPage.compose.help")}</p>
+          <textarea id="terminal-draft" aria-label={t("terminalPage.compose.textLabel")} autoFocus
             value={draft} onChange={event => setDraft(event.target.value)} rows={5} />
           <div className="compose-actions">
             <button disabled={!draft || !state?.connected} onClick={() => {
               current()?.paste(draft); setDraft(""); close();
-            }}>Insert</button>
+            }}>{t("terminalPage.compose.insert")}</button>
             <button className="primary" disabled={!draft || !state?.connected} onClick={() => {
               const engine = current();
               if (!engine) return;
               engine.paste(draft); engine.input("\r"); setDraft(""); close();
-            }}>Send ↵</button>
+            }}>{t("terminalPage.compose.send")}</button>
           </div>
         </Dialog>
       )}
@@ -1491,23 +1489,22 @@ export function TerminalApp({
       {dialog === "keyboard-report" && (
         <Dialog
           id="keyboard-report-dialog"
-          title="Keyboard layout report"
+          title={t("terminalPage.keyboardReport.title")}
           onClose={close}
           actions={
             <button
               onClick={() =>
                 void copyClipboard(keyboardReport, () => {}).then(() =>
-                  setNotice("Copied. Paste it into a message."),
+                  setNotice(t("terminalPage.notice.copiedReport")),
                 )
               }
             >
-              Copy
+              {t("terminalPage.keyboardReport.copy")}
             </button>
           }
         >
           <p className="dialog-help">
-            The exact numbers this device's browser reports right now — paste this
-            into a message rather than describing what you see.
+            {t("terminalPage.keyboardReport.help")}
           </p>
           <textarea id="keyboard-report-text" readOnly rows={16} value={keyboardReport} />
         </Dialog>

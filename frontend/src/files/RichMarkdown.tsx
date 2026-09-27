@@ -29,6 +29,11 @@ export default function RichMarkdown({
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor>(undefined);
   const prefix = useRef("");
+  // The file as loaded, and the Markdown the editor first writes for it. An
+  // update that still serialises to that is normalisation, not an edit, and
+  // reports the file unchanged.
+  const original = useRef(value);
+  const baseline = useRef<string | undefined>(undefined);
   const latest = useRef({ onChange, onSave });
   latest.current = { onChange, onSave };
   const [, setTick] = useState(0);
@@ -56,11 +61,15 @@ export default function RichMarkdown({
           return false;
         },
       },
-      onUpdate: ({ editor: current }) => latest.current.onChange(prefix.current + current.getMarkdown()),
+      onUpdate: ({ editor: current }) => {
+        const markdown = current.getMarkdown();
+        latest.current.onChange(markdown === baseline.current ? original.current : prefix.current + markdown);
+      },
       onSelectionUpdate: () => setTick((n) => n + 1),
       onTransaction: () => setTick((n) => n + 1),
     });
     editor.current = instance;
+    baseline.current = instance.getMarkdown();
     return () => {
       instance.destroy();
       editor.current = undefined;
@@ -68,7 +77,11 @@ export default function RichMarkdown({
   }, []);
   // A reload from disk replaces the document.
   useEffect(() => {
-    if (revision && editor.current) editor.current.commands.setContent(load(value), { contentType: "markdown", emitUpdate: false });
+    if (revision && editor.current) {
+      original.current = value;
+      editor.current.commands.setContent(load(value), { contentType: "markdown", emitUpdate: false });
+      baseline.current = editor.current.getMarkdown();
+    }
   }, [revision]);
   useEffect(() => {
     editor.current?.setEditable(!readOnly);

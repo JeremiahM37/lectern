@@ -1,0 +1,508 @@
+// English strings for this area of the app. Keys are "area.name"; values may
+// hold {placeholders}. Every other language has a file of the same name.
+const catalog: Record<string, string> = {
+  // Board
+  // Task statuses, shown as column headings and filter chips.
+  "board.status.backlog": "backlog",
+  "board.status.queued": "queued",
+  "board.status.running": "running",
+  "board.status.review": "review",
+  "board.status.done": "done",
+  "board.status.failed": "failed",
+  "board.status.cancelled": "cancelled",
+  "board.orchestrateNeedsDelegation": "Orchestrate needs Delegated builds ON — open Settings",
+  // {text} is the start of the task description.
+  "board.orchestrating": "Orchestrating — {text}",
+  "board.dispatched": "Dispatched — {text}",
+  // {from} and {to} are task statuses.
+  "board.badDrop": "{from} → {to}: not a thing. Drag to queued or done.",
+  // {status} is a task status such as "done".
+  "board.clearConfirm": "Clear every {status} card?",
+  // Verb: remove the cards in this column.
+  "board.clear": "clear",
+  "board.card.deleteLabel": "Delete {title}",
+  "board.card.deleteConfirm": "Delete “{title}”?",
+  "board.card.chatLabel": "Chat with this task",
+  // Verb (button).
+  "board.card.chat": "Chat",
+  "board.usage.costEstimated": "Estimated from the model price table",
+  // {tokens} is a formatted number of output tokens.
+  "board.usage.tokens": "{tokens} tok",
+  "board.usage.contextUsed": "{used} / {size} tokens used",
+  // Short for "context window".
+  "board.usage.ctx": "ctx",
+  "board.card.verified": "✓ verified",
+  "board.card.verifyFailed": "✗ verify",
+  "board.card.highPriority": "▲ high",
+  "board.card.orchestrated": "✦ orchestrated",
+  "board.empty": "Nothing here",
+  "board.showMore": "show {n} more",
+  "board.title": "Task board",
+  "board.routines": "Routines",
+  "board.claims": "Claims",
+  "board.quick.modeLabel": "Quick bar mode",
+  "board.quick.dispatchTitle": "One agent takes the task as written",
+  "board.quick.dispatch": "⚡ Dispatch",
+  "board.quick.orchestrateTitle": "A lead plans it, the worker builds it, the lead reviews and merges",
+  "board.quick.orchestrate": "✦ Orchestrate",
+  "board.quick.orchestratePlaceholder": "Describe the outcome, hit ⏎ — Lectern plans, builds and reviews it",
+  "board.quick.dispatchPlaceholder": "Describe it, hit ⏎ — instant dispatch",
+  "board.quick.filter": "Filter…",
+  // {lead} is an agent name or "the project's agent"; the worker agent's name follows in bold.
+  "board.quick.hintLead": "A lead ({lead}) writes the plan and brief, ",
+  "board.quick.hintProjectAgent": "the project's agent",
+  "board.quick.hintWorker": " builds it in its own worktree, the lead reviews, fixes and merges it into this task. Want to pick the lead, model or permissions?",
+  "board.quick.openFullForm": "Open the full form",
+  // The next four pieces form one sentence around a bold phrase and a link.
+  "board.quick.needsBefore": "Orchestrate needs ",
+  "board.quick.needsDelegated": "Delegated builds ON",
+  "board.quick.needsMiddle": " with a worker that answers — ",
+  "board.quick.openSettings": "open Settings",
+  "board.quick.needsAfter": ". Dispatch still works.",
+
+  // CompareView
+  "board.compare.checkPass": "check ✓ pass",
+  // {rc} is the check command's exit code.
+  "board.compare.checkFail": "check ✗ fail (rc {rc})",
+  "board.compare.noCheck": "no check run",
+  "board.compare.noDiff": "no diff yet",
+  // {files} changed files, {add} lines added, {del} lines deleted.
+  "board.compare.diffSummary": "{files} file(s) · +{add}/-{del}",
+  "board.compare.intro": "{n} attempts, side by side.",
+  "board.compare.waitAll": "Wait for every attempt to finish first",
+  "board.compare.judging": "Dispatching judge…",
+  // Verb (button): ask a judge agent to pick the best attempt.
+  "board.compare.judge": "⚖ Judge",
+  // The next pieces read: Judge picked <b>attempt #2</b> — reason
+  "board.compare.judgePicked": "Judge picked ",
+  "board.compare.attemptN": "attempt #{n}",
+  "board.compare.judgeDash": " —",
+  "board.compare.agent": "Agent",
+  "board.compare.permission": "Permission",
+  // Noun: the verification check.
+  "board.compare.check": "Check",
+  "board.compare.duration": "Duration",
+  "board.compare.costTokens": "Cost / tokens",
+  // {input} and {output} are token counts.
+  "board.compare.tokensInOut": " · {input}in/{output}out",
+  // Cost per passing attempt.
+  "board.compare.costPerPass": "$/pass",
+  // Noun: the code changes.
+  "board.compare.diff": "Diff",
+  "board.compare.viewDiff": "± View diff",
+  "board.compare.pick": "✓ Pick this one",
+
+  // CreateTask
+  "board.create.checkingCapability": "checking capability…",
+  // {profile} is a capability profile name from the server; {mcp} and {memory} are the phrases below.
+  "board.create.capability": "{profile} · {mcp} · {memory}",
+  // {servers} is a comma-separated list of MCP server names.
+  "board.create.mcpServers": "MCP {servers}",
+  "board.create.noMcp": "no MCP",
+  "board.create.sharedMemory": "shared memory",
+  "board.create.noMemory": "no memory",
+  "board.create.titleRequired": "Title required",
+  "board.create.fableConfirm": "Dispatch on Fable 5? It's the most capable model and uses the most of your Claude Code plan. Continue?",
+  "board.create.budgetInvalid": "Budget must be a non-negative number",
+  "board.create.orchestrating": "Orchestrating",
+  "board.create.dispatched": "Dispatched",
+  "board.create.savedToBacklog": "Saved to backlog",
+  "board.create.template": "Template",
+  "board.create.noTemplate": "— none —",
+  "board.create.project": "Project",
+  "board.create.deniedNoPrompt": " · denied with no prompt",
+  "board.create.orchestrateLabel": "Orchestrate",
+  // The next four pieces read: A lead plans…, <b>worker</b> builds it… choose the <b>lead</b> (Claude Code or Codex).
+  "board.create.orchLeadPlans": "A lead plans the prompt and writes the brief, ",
+  "board.create.orchWorkerBuilds": " builds it in its own worktree, the lead reviews, fixes and merges it into this task. Agent and model below choose the ",
+  // Noun: the lead agent.
+  "board.create.orchLead": "lead",
+  "board.create.orchLeadAgents": " (Claude Code or Codex).",
+  // Followed by the link "open Settings" and a full stop.
+  "board.create.orchNeeds": "Needs Delegated builds ON with a worker that answers — ",
+  "board.create.title": "Title",
+  // An example task title.
+  "board.create.titlePlaceholder": "Add /health endpoint",
+  "board.create.promptOrchestrate": "What should be built? The lead turns this into a plan and a brief.",
+  "board.create.prompt": "Prompt — what should the agent do?",
+  "board.create.promptPlaceholder": "Describe intent. Be specific about files, behavior, and how to verify.",
+  "board.create.overlapWarning": "⚠ This looks like it might already be claimed:",
+  "board.create.overlapAdvice": "Check their work or ask the operator before dispatching.",
+  "board.create.permissions": "Permissions",
+  "board.create.permGated": "Gated — Claude Code only",
+  "board.create.permAcceptEdits": "Accept edits — file changes auto-approved",
+  "board.create.permPlan": "Plan only — no changes",
+  "board.create.permBypass": "Bypass — sandboxed targets only",
+  "board.create.agent": "Agent",
+  "board.create.leadAgentsOnly": "Only Claude Code or Codex can lead an orchestrated task",
+  "board.create.moreAgents": "More agents…",
+  "board.create.model": "Model",
+  // Placeholder: leave blank to use the default model.
+  "board.create.modelDefault": "default",
+  "board.create.attempts": "Attempts",
+  "board.create.addAttempt": "+ Add attempt",
+  "board.create.attemptsHint": "The agent/model/permission above is attempt 1. Every extra row below runs the same prompt in its own worktree, in parallel — pick the best one when they land.",
+  "board.create.customAgentModel": "custom agent/model",
+  // {name} is a launch profile name.
+  "board.create.profileOption": "profile: {name}",
+  "board.create.sameAgent": "same agent ({agent})",
+  "board.create.modelPlaceholder": "model",
+  "board.create.samePermission": "same permission",
+  "board.create.variantAcceptEdits": "accept edits",
+  "board.create.variantPlan": "plan only",
+  "board.create.variantBypass": "bypass",
+  "board.create.removeAttempt": "Remove attempt {n}",
+  "board.create.priority": "Priority",
+  "board.create.priorityLow": "low",
+  "board.create.priorityNormal": "normal",
+  "board.create.priorityHigh": "high",
+  "board.create.budget": "Budget (USD) — optional",
+  "board.create.noCap": "no cap",
+  "board.create.budgetHint": "Cancels this task's own running attempt once it spends this much.",
+  "board.create.budgetBlocked": "A stop-mode budget is currently exhausted — dispatch may be refused. See Settings → Budgets.",
+  "board.create.saveToBacklog": "Save to backlog",
+  "board.create.dispatchToBoard": "Dispatch to board",
+  "board.create.dispatchAndChat": "Dispatch & chat",
+
+  // Routines
+  "board.routines.pickProject": "Pick at least one project",
+  "board.routines.updated": "Routine updated",
+  "board.routines.saved": "Routine saved",
+  "board.routines.started.one": "Started {count} task",
+  "board.routines.started.other": "Started {count} tasks",
+  // Appended to the "Started … tasks" notice.
+  "board.routines.couldNotRun": " · {n} could not run",
+  "board.routines.intro": "A job you keep asking for, saved. One button runs it across every project you picked; give it a schedule and it runs itself.",
+  "board.routines.startedRuns": "Started routine runs",
+  // A task that is ready for someone to take over interactively.
+  "board.routines.interactive": "interactive",
+  "board.routines.empty": "No routines yet. If you have typed the same request at an agent twice, it belongs here.",
+  // After a routine's name when it is switched off.
+  "board.routines.off": " (off)",
+  "board.routines.noProjects": "no projects",
+  "board.routines.projectDefault": "project default",
+  "board.routines.manualOnly": "manual only",
+  // {when} is a date and time, or "pending".
+  "board.routines.next": " · next {when}",
+  "board.routines.pending": "pending",
+  "board.routines.runNow": "▶ Run now",
+  "board.routines.pause": "Pause",
+  "board.routines.resume": "Resume",
+  "board.routines.edit": "Edit",
+  "board.routines.deleteConfirm": "Delete the routine “{name}”? The tasks it already created stay on the board.",
+  "board.routines.delete": "Delete",
+  "board.routines.editing": "Editing “{name}”",
+  "board.routines.new": "+ New routine",
+  "board.routines.name": "Name",
+  "board.routines.projects": "Projects",
+  "board.routines.prompt": "What should the agent do?",
+  "board.routines.schedule": "Schedule",
+  "board.routines.agent": "Agent",
+  "board.routines.model": "Model",
+  "board.routines.permissionMode": "Permission mode",
+  "board.routines.saveChanges": "Save changes",
+  "board.routines.save": "Save routine",
+  "board.routines.cancel": "Cancel",
+
+  // TaskDetail
+  "board.detail.reviewSent": "Sent {n} comment(s) as request-changes feedback.",
+  "board.detail.badLiveEvent": "Could not read a live task event.",
+  "board.detail.pickConfirm": "Pick attempt #{n} as the winner? The other attempt(s)' worktrees will be removed.",
+  "board.detail.picked": "Attempt #{n} picked.",
+  "board.detail.judgeDispatched": "Judge dispatched — its verdict will appear here when it finishes.",
+  "board.detail.loadingLabel": "Loading task",
+  "board.detail.loading": "Loading task…",
+  "board.detail.label": "Task details",
+  // Short for "attempt {n}".
+  "board.detail.attemptShort": "⑂ A{n}",
+  // Verb (button): compare the attempts side by side.
+  "board.detail.compare": "⊞ Compare",
+  "board.detail.openSession": "Open session",
+  "board.detail.retryTakeover": "Retry takeover",
+  "board.detail.takeOver": "Take over as session",
+  "board.detail.dispatch": "▶ Dispatch",
+  "board.detail.retry": "↻ Retry",
+  "board.detail.cancel": "■ Cancel",
+  "board.detail.markDone": "✓ Mark done",
+  "board.detail.whatShouldChange": "What should change?",
+  "board.detail.requestChanges": "↺ Request changes",
+  "board.detail.timeline": "Timeline",
+  // Button: show the code changes.
+  "board.detail.diff": "± Diff",
+  "board.detail.commitMessage": "Commit message:",
+  "board.detail.pushConfirm": "Also push the branch to origin?",
+  "board.detail.prConfirm": "…and open a PR (needs gh on the target)?",
+  // Verb (button).
+  "board.detail.commit": "⎇ Commit",
+  "board.detail.cleanConfirm": "Remove the worktree(s)? Uncommitted changes are lost.",
+  "board.detail.clean": "Clean worktree",
+  "board.detail.terminal": "⌨ Terminal",
+  "board.detail.deleteConfirm": "Delete “{title}”? Removes its attempts, events, diffs and worktrees. Cannot be undone.",
+  "board.detail.delete": "Delete",
+  "board.detail.steerPlaceholder": "Send a message to the running agent…",
+  "board.detail.send": "Send",
+  "board.detail.takeoverReady": "Continued in an interactive session.",
+  "board.detail.takingOver": "Taking over this run… Its worktree is preserved.",
+  // Noun: the task's prompt, as a timeline label.
+  "board.detail.promptLabel": "prompt",
+  // {n} is the attempt number, {files} a count of files.
+  "board.detail.diffHead": "attempt #{n} · {files} file(s) changed",
+  // {state} is "on" or "off".
+  "board.detail.wrap": "⏎ wrap: {state}",
+  "board.detail.wrapOn": "on",
+  "board.detail.wrapOff": "off",
+  "board.detail.sendReview": "Send as request-changes feedback",
+
+  // TaskDetail timeline event labels
+  "board.event.sessionStart": "session start",
+  "board.event.agent": "agent",
+  "board.event.tool": "tool",
+  "board.event.result": "↳ result",
+  "board.event.error": " · ERROR",
+  // {outcome} is PASS ✓ or FAIL ✗.
+  "board.event.autoVerify": "auto-verify · {outcome}",
+  "board.event.pass": "PASS ✓",
+  "board.event.fail": "FAIL ✗",
+  // {verdict} comes from the reviewer as-is.
+  "board.event.reviewerVerdict": "reviewer verdict · {verdict}",
+  "board.event.finished": "finished · {subtype}",
+  "board.event.usageLimit": "usage limit",
+  "board.event.stoppedByLimit": "Stopped by the usage limit",
+  // {when} is a date and time.
+  "board.event.resets": " · resets {when}",
+
+  // ClaimsPanel
+  // {id} is a task number.
+  "board.claims.taskScope": "task #{id}",
+  "board.claims.justNow": "just now",
+  "board.claims.minutesAgo": "{n}m ago",
+  "board.claims.hoursAgo": "{n}h ago",
+  "board.claims.expiring": "expiring",
+  "board.claims.inMinutes": "in {n}m",
+  "board.claims.inHours": "in {n}h",
+  "board.claims.needProjectScope": "give a project and a scope",
+  "board.claims.title": "Claim board",
+  // The next two pieces surround the tool name claim_work.
+  "board.claims.introBefore": "Who is doing what, right now — claimed by an agent (automatically, or with",
+  "board.claims.introAfter": ") or by you. Advisory only: nothing is blocked, this just keeps everyone from duplicating the same work.",
+  "board.claims.filterByProject": "Filter by project",
+  "board.claims.allRepositories": "All repositories",
+  "board.claims.cancel": "Cancel",
+  "board.claims.claimForMe": "Claim for me…",
+  "board.claims.projectToClaim": "Project to claim in",
+  "board.claims.scopeKind": "Scope kind",
+  "board.claims.kindTopicOption": "Topic",
+  "board.claims.kindPathsOption": "Paths (comma-separated globs)",
+  "board.claims.kindTaskOption": "Task id",
+  // What a claim covers: a topic, file paths or a task.
+  "board.claims.kind.topic": "topic",
+  "board.claims.kind.paths": "paths",
+  "board.claims.kind.task": "task",
+  "board.claims.scope": "Scope",
+  // An example topic someone might claim.
+  "board.claims.topicPlaceholder": "rename button in session card",
+  "board.claims.intent": "Intent",
+  "board.claims.intentPlaceholder": "what you're doing (shown to others)",
+  "board.claims.ttlMinutes": "TTL minutes",
+  // Verb (button).
+  "board.claims.claim": "Claim",
+  "board.claims.loading": "Loading…",
+  "board.claims.empty": "Nothing claimed right now.",
+  "board.claims.autoTitle": "Created automatically",
+  // Badge: the claim was made automatically.
+  "board.claims.auto": "auto",
+  // {claimed} is e.g. "5m ago"; {expires} is e.g. "in 2h".
+  "board.claims.times": "claimed {claimed} · expires {expires}",
+  "board.claims.extend": "Extend",
+  "board.claims.release": "Release",
+
+  // SessionClaims
+  "board.claims.sessionChipTitle": "Active claims in this repository",
+  "board.claims.sessionChip.one": "📌 {count} claim",
+  "board.claims.sessionChip.other": "📌 {count} claims",
+
+  // Evals (agent tests)
+  // Run, result and run-comparison statuses.
+  "board.evals.status.queued": "queued",
+  "board.evals.status.running": "running",
+  "board.evals.status.done": "done",
+  "board.evals.status.cancelled": "cancelled",
+  "board.evals.status.passed": "passed",
+  "board.evals.status.failed": "failed",
+  "board.evals.status.error": "error",
+  "board.evals.status.timeout": "timeout",
+  "board.evals.status.unchanged": "unchanged",
+  "board.evals.status.regression": "regression",
+  "board.evals.status.improvement": "improvement",
+  "board.evals.nameRequired": "Name required",
+  "board.evals.imported": "Imported {n} suite(s)",
+  // Appended to "Imported {n} suite(s)".
+  "board.evals.importFailed": ", {n} failed",
+  "board.evals.replayCreated": "Replay suite created",
+  "board.evals.namePromptRequired": "Name and prompt are required",
+  "board.evals.runStarted": "Run started",
+  "board.evals.pickTwo": "Pick exactly two runs to compare",
+  "board.evals.title": "Agent tests",
+  "board.evals.project": "Project",
+  "board.evals.importFromRepo": "Import from repo (.lectern/evals/*.yaml)",
+  "board.evals.newReplaySuite": "+ New replay suite from merged PRs",
+  "board.evals.replayIntro": "Builds cases from the project's own last N merged PRs, so a run answers \"which agent/model is best for MY repository\" against ground truth instead of a hand-written prompt. See docs/replay-evals.md.",
+  "board.evals.prsToConsider": "PRs to consider",
+  "board.evals.maxChangedLines": "Max changed lines",
+  // Verb (button).
+  "board.evals.preview": "Preview",
+  // {source} is one of the two phrases below; {accepted} and {total} are counts of PRs.
+  "board.evals.previewSummary": "Source: {source} · {accepted} of {total} PRs would be imported",
+  "board.evals.sourceGh": "gh CLI",
+  "board.evals.sourceGitLog": "git log (gh unavailable)",
+  "board.evals.included": "included",
+  "board.evals.skipped": "skipped",
+  "board.evals.prTitle": "PR #{n}: {title}",
+  "board.evals.changedLines": "{n} changed lines",
+  // {tests} is a comma-separated list of test names.
+  "board.evals.matchedTests": " · tests: {tests}",
+  "board.evals.noMergedPrs": "No merged PRs found for this project.",
+  "board.evals.suiteName": "Suite name",
+  "board.evals.createFromPrs": "+ Create suite from {n} PR(s)",
+  "board.evals.noSuites": "No suites yet for this project.",
+  "board.evals.newSuiteName": "New suite name",
+  "board.evals.description": "Description",
+  "board.evals.createSuite": "+ Create suite",
+  "board.evals.backToSuites": "← Suites",
+  "board.evals.cases": "Cases",
+  "board.evals.prNumber": "PR #{n}",
+  "board.evals.noCheckCommand": "no check command (falls back to project verify)",
+  "board.evals.noCases": "No cases yet.",
+  "board.evals.caseNamePlaceholder": "case name",
+  "board.evals.promptPlaceholder": "prompt",
+  // base_ref, check_command and setup_command are field names; keep them as-is.
+  "board.evals.baseRefPlaceholder": "base_ref (default branch if empty)",
+  "board.evals.checkCommandPlaceholder": "check_command (falls back to project verify)",
+  "board.evals.setupCommandPlaceholder": "setup_command (run first, optional)",
+  "board.evals.addCase": "+ Add case",
+  "board.evals.runs": "Runs",
+  "board.evals.selectRun": "Select run {id} to compare",
+  "board.evals.runRow": "run #{id} · {repeats} repeat(s)",
+  // Verb (button).
+  "board.evals.open": "Open",
+  "board.evals.noRuns": "No runs yet.",
+  "board.evals.compareSelected": "Compare selected runs",
+  "board.evals.compareHeading": "Run #{a} → #{b}",
+  // Noun: a test case (table column heading).
+  "board.evals.case": "Case",
+  "board.evals.caseFallback": "case {id}",
+  "board.evals.newRun": "New run",
+  "board.evals.modelPlaceholder": "model",
+  "board.evals.addVariant": "+ Add variant",
+  "board.evals.repeats": "Repeats",
+  "board.evals.runJudge": "Run judge (compares each replay cell's diff against its reference — uses the judge_agent/judge_model setting)",
+  "board.evals.runSuite": "▶ Run suite",
+  "board.evals.cancel": "■ Cancel",
+  "board.evals.matrix": "Matrix",
+  // Short for "variant {n}".
+  "board.evals.variantShort": "v{n}",
+  // {rc} is the check command's exit code.
+  "board.evals.checkRc": " · check rc={rc}",
+  "board.evals.filesMatch": "files match: {pct}%",
+  "board.evals.linesMatch": "lines match: {pct}%",
+  "board.evals.sizeRatio": "size ratio: {ratio}x",
+  // {result} is "match" or "no match".
+  "board.evals.judgeResult": "judge: {result}",
+  "board.evals.judgeMatch": "match",
+  "board.evals.judgeNoMatch": "no match",
+  "board.evals.judgePending": "judge: pending",
+  "board.evals.attemptDiff": "Attempt diff",
+  "board.evals.referenceDiff": "Reference diff (PR #{n})",
+  "board.evals.leaderboard": "Leaderboard",
+  "board.evals.variant": "Variant",
+  "board.evals.passRate": "Pass rate",
+  "board.evals.meanDuration": "Mean duration",
+  "board.evals.totalCost": "Total cost",
+  "board.evals.meanTokens": "Mean tokens",
+  "board.evals.similarity": "Similarity to reference",
+  "board.evals.matchesReference": "Matches reference",
+  // {input} and {output} are token counts.
+  "board.evals.tokensInOut": "{input}in/{output}out",
+  // {files} and {lines} are percentages.
+  "board.evals.similarityValue": "{files}% files / {lines}% lines",
+
+  // Media
+  "board.media.daysAgo": "{n}d ago",
+  "board.media.loadFailed": "Could not load this file.",
+  "board.media.loading": "Loading…",
+  "board.media.truncated": "\n… truncated; download for the rest",
+  // {url} is the address the agent posted.
+  "board.media.postedExposed": "Posted as {url}, which only that machine can open. It is exposed above until you stop it.",
+  "board.media.exposePort": "Expose localhost:{port} so this device can open it",
+  "board.media.postedRewritten": "Posted as {url}. It opens on this server's address, so the site has to listen on 0.0.0.0 rather than on loopback alone.",
+  "board.media.hideLivePreview": "Hide live preview",
+  "board.media.showLivePreview": "Show live preview",
+  "board.media.insecureSite": "This page is secure and the site is not, so it opens in a new tab.",
+  // {name} is a file name.
+  "board.media.noPreview": "{name} cannot be previewed here; download it to open it.",
+  "board.media.previewFile": "Preview {name}",
+  // Fallback name for a session with no name; {id} is its number.
+  "board.media.session": "Session {id}",
+  "board.media.title": "Media",
+  "board.media.summary": "{n} posted · recordings, files and live sites your agents want you to see.",
+  "board.media.nothingPosted": "Nothing posted yet.",
+  // Label before a list of sessions: show media posted from…
+  "board.media.from": "From",
+  "board.media.showFrom": "Show media from",
+  "board.media.everySession": "Every session",
+  // The next two pieces surround the tool name post_media.
+  "board.media.emptyBefore": "Agents post here with the ",
+  "board.media.emptyAfter": " tool — ask one to “record a demo and post it”. From a shell, inside a session or not:",
+  "board.media.noSession": "no session",
+  // Noun: the post is a web link.
+  "board.media.link": "link",
+  "board.media.download": "Download",
+  "board.media.deleteLabel": "Delete {title}",
+  "board.media.deleteConfirm": "Delete this post? The file is removed from Lectern.",
+  "board.media.delete": "Delete",
+
+  // Live
+  "board.media.hoursLeft": "{n}h left",
+  "board.media.minutesLeft": "{n}m left",
+  "board.media.exposedTitle": "Anyone who can reach Lectern can open this until it is stopped",
+  "board.media.exposed": "● exposed",
+  // {display} is an X display number such as :99.
+  "board.media.desktopDisplay": "desktop {display}",
+  // The next two pieces surround DISPLAY=:99 (a shell setting).
+  "board.media.displayBefore": "Anything started with ",
+  "board.media.displayAfter": " draws here.",
+  // {text} is the copied text, e.g. DISPLAY=:99.
+  "board.media.copied": "Copied {text}",
+  "board.media.copy": "Copy",
+  "board.media.insecurePort": "This page is secure and a forwarded port is not, so it opens in its own tab.",
+  "board.media.openAddressLabel": "Open an address in this desktop's browser",
+  "board.media.openAddressPlaceholder": "http://127.0.0.1:3000 — opens in a browser on that machine",
+  // Verb (button): open the typed address.
+  "board.media.open": "Open",
+  "board.media.watchOnly": "Watch only",
+  "board.media.takeControl": "Take control",
+  "board.media.hidePreview": "Hide preview",
+  "board.media.showPreview": "Show preview",
+  "board.media.openNewTab": "Open ↗",
+  "board.media.stopLabel": "Stop {title}",
+  // Verb (button).
+  "board.media.stop": "Stop",
+  "board.media.liveViews": "Live views",
+  // Label before the machine picker: start it on…
+  "board.media.on": "On",
+  "board.media.machine": "Machine",
+  "board.media.defaultMachine": "default machine",
+  "board.media.liveDesktop": "Live desktop",
+  "board.media.liveDesktopTitle": "Start a desktop on that machine and watch it here",
+  "board.media.starting": "Starting…",
+  // The button reads "＋ Live desktop"; " Live" is hidden on narrow screens.
+  "board.media.addLiveWide": " Live",
+  "board.media.addDesktop": " desktop",
+  "board.media.portLabel": "Port on that machine's localhost",
+  "board.media.portPlaceholder": "port",
+  "board.media.portTitle": "A port on that machine's localhost",
+  "board.media.exposing": "Exposing…",
+  "board.media.expose": "Expose",
+};
+
+export default catalog;

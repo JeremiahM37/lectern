@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionCheck, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 
@@ -26,6 +27,7 @@ export function CheckBadge({
   api: SessionsApi;
   onNotice: (text: string, error?: boolean) => void;
 }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<SessionCheck | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,7 +37,7 @@ export function CheckBadge({
     setBusy(true);
     try {
       await api.request(`/sessions/${s.id}/checks`, { method: "POST" });
-      onNotice("Check started");
+      onNotice(t("sessions.check.started"));
     } catch (error) {
       onNotice(String(error), true);
     } finally {
@@ -71,14 +73,14 @@ export function CheckBadge({
         >
           {STATUS_ICON[lc.status] || "?"}{" "}
           {lc.status === "running"
-            ? "checking…"
+            ? t("sessions.check.running")
             : lc.status === "passed"
-              ? "check passed"
+              ? t("sessions.check.passed")
               : lc.status === "failed"
-                ? "check failed"
+                ? t("sessions.check.failed")
                 : lc.status === "error"
-                  ? "check error"
-                  : "check skipped"}
+                  ? t("sessions.check.error")
+                  : t("sessions.check.skipped")}
         </button>
       )}
       <button
@@ -87,12 +89,12 @@ export function CheckBadge({
         disabled={busy}
         onClick={() => void runNow()}
       >
-        {busy ? "Starting…" : "Run check"}
+        {busy ? t("sessions.check.starting") : t("sessions.check.run")}
       </button>
       {expanded && (
         <div className="check-detail">
           <code>{detail?.command || lc?.command}</code>
-          <pre>{detail?.output_tail || "(no output captured)"}</pre>
+          <pre>{detail?.output_tail || t("sessions.check.noOutput")}</pre>
         </div>
       )}
     </span>

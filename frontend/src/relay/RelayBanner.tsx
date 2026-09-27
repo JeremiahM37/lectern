@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import type { RelayTunnel } from "./tunnel";
+import { t, useLocale } from "../i18n";
 
 // A thin bar that appears only when the encrypted relay is not connected, so
 // a phone that cannot reach Lectern says why instead of showing stale data.
 export function RelayBanner({ tunnel }: { tunnel?: RelayTunnel }) {
+  useLocale();
   const [, rerender] = useState(0);
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -25,8 +27,8 @@ export function RelayBanner({ tunnel }: { tunnel?: RelayTunnel }) {
   return (
     <div className="relay-banner" role="status" data-status={tunnel.status}>
       {tunnel.status === "revoked"
-        ? <>This device is no longer paired. {tunnel.detail} Pair it again from Settings → Devices on your Lectern.</>
-        : <>Reaching Lectern through the encrypted relay… {tunnel.detail}</>}
+        ? <>{t("app.relayBanner.revoked", { detail: tunnel.detail })}</>
+        : <>{t("app.relayBanner.reaching", { detail: tunnel.detail })}</>}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project, TaskView } from "../types";
 import type { BoardApi } from "./Board";
 import { Modal } from "../sessions/Modal";
+import { t, useLocale } from "../i18n";
 import "./board.css";
 
 interface Routine {
@@ -35,6 +36,7 @@ export function Routines({
   onChanged(): void;
   onNotice(t: string, e?: boolean): void;
 }) {
+  useLocale();
   const [rows, setRows] = useState<Routine[]>([]),
     [runs, setRuns] = useState<TaskView[]>([]),
     [editing, setEditing] = useState<number>();
@@ -46,13 +48,13 @@ export function Routines({
     [agent, setAgent] = useState(""),
     [model, setModel] = useState("");
   async function load() {
-    const [r, t] = await Promise.all([
+    const [r, all] = await Promise.all([
       api.request<Routine[]>("/routines"),
       api.tasks(),
     ]);
     setRows(r);
     setRuns(
-      t.filter(
+      all.filter(
         (x) =>
           x.created_by?.startsWith("routine:") &&
           (["queued", "running", "review"].includes(x.status) ||
@@ -85,7 +87,7 @@ export function Routines({
   }
   async function save() {
     if (!ids.length) {
-      onNotice("Pick at least one project", true);
+      onNotice(t("board.routines.pickProject"), true);
       return;
     }
     const body = {
@@ -101,7 +103,7 @@ export function Routines({
       method: editing ? "PATCH" : "POST",
       body,
     });
-    onNotice(editing ? "Routine updated" : "Routine saved");
+    onNotice(editing ? t("board.routines.updated") : t("board.routines.saved"));
     reset();
     await load();
   }
@@ -110,54 +112,52 @@ export function Routines({
       method: "POST",
     });
     onNotice(
-      `Started ${x.tasks.length} task${x.tasks.length === 1 ? "" : "s"}${x.failed.length ? ` · ${x.failed.length} could not run` : ""}`,
+      t("board.routines.started", { count: x.tasks.length }) + (x.failed.length ? t("board.routines.couldNotRun", { n: x.failed.length }) : ""),
     );
     onChanged();
     await load();
   }
   return (
-    <Modal id="sheet" open className="sheet routines" aria-label="Routines" onCancel={onClose}>
+    <Modal id="sheet" open className="sheet routines" aria-label={t("board.routines")} onCancel={onClose}>
       <header className="sheet-head">
-        <h2>Routines</h2>
+        <h2>{t("board.routines")}</h2>
         <button onClick={onClose}>✕</button>
       </header>
       <p>
-        A job you keep asking for, saved. One button runs it across every
-        project you picked; give it a schedule and it runs itself.
+        {t("board.routines.intro")}
       </p>
       {runs.length > 0 && (
         <section>
-          <h3>Started routine runs</h3>
-          {runs.map((t) => (
-            <button key={t.id} onClick={() => onTask(t)}>
-              {t.title} · {t.project_name} ·{" "}
-              {t.takeover?.status === "ready" ? "interactive" : t.status}
+          <h3>{t("board.routines.startedRuns")}</h3>
+          {runs.map((task) => (
+            <button key={task.id} onClick={() => onTask(task)}>
+              {task.title} · {task.project_name} ·{" "}
+              {task.takeover?.status === "ready" ? t("board.routines.interactive") : t(`board.status.${task.status}`, undefined, task.status)}
             </button>
           ))}
         </section>
       )}
       {rows.length === 0 && (
         <p>
-          No routines yet. If you have typed the same request at an agent twice,
-          it belongs here.
+          {t("board.routines.empty")}
         </p>
       )}
       <div id="rt-list">{rows.map((r) => (
         <article className="rowcard" key={r.id}>
           <h3>
             {r.name}
-            {!r.enabled && " (off)"}
+            {!r.enabled && t("board.routines.off")}
           </h3>
           <p>
             {r.project_ids
               .map((id) => projects.find((p) => p.id === id)?.name)
               .filter(Boolean)
-              .join(", ") || "no projects"}
+              .join(", ") || t("board.routines.noProjects")}
           </p>
           <p>
-            {r.agent || "project default"}
-            {r.model && ` · ${r.model}`} · {r.schedule || "manual only"}
-            {r.schedule && ` · next ${r.next_run_at ? new Date(r.next_run_at * 1000).toLocaleString() : "pending"}`}
+            {r.agent || t("board.routines.projectDefault")}
+            {r.model && ` · ${r.model}`} · {r.schedule || t("board.routines.manualOnly")}
+            {r.schedule && t("board.routines.next", { when: r.next_run_at ? new Date(r.next_run_at * 1000).toLocaleString() : t("board.routines.pending") })}
           </p>
           <div className="btnrow">
             <button
@@ -165,7 +165,7 @@ export function Routines({
                 void run(r).catch((e) => onNotice(String(e), true))
               }
             >
-              ▶ Run now
+              {t("board.routines.runNow")}
             </button>
             {r.schedule && (
               <button
@@ -178,15 +178,15 @@ export function Routines({
                     .then(load)
                 }
               >
-                {r.enabled ? "Pause" : "Resume"}
+                {r.enabled ? t("board.routines.pause") : t("board.routines.resume")}
               </button>
             )}
-            <button onClick={() => edit(r)}>Edit</button>
+            <button onClick={() => edit(r)}>{t("board.routines.edit")}</button>
             <button
               onClick={() => {
                 if (
                   confirm(
-                    `Delete the routine “${r.name}”? The tasks it already created stay on the board.`,
+                    t("board.routines.deleteConfirm", { name: r.name }),
                   )
                 ) {
                   void api
@@ -195,19 +195,19 @@ export function Routines({
                 }
               }}
             >
-              Delete
+              {t("board.routines.delete")}
             </button>
           </div>
         </article>
       ))}</div>
       <details open={editing != null}>
-        <summary id="rt-legend">{editing ? `Editing “${name}”` : `+ New routine`}</summary>
+        <summary id="rt-legend">{editing ? t("board.routines.editing", { name }) : t("board.routines.new")}</summary>
         <label>
-          Name
+          {t("board.routines.name")}
           <input id="rt-name" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
-          Projects
+          {t("board.routines.projects")}
           <select
             id="rt-projects"
             multiple
@@ -224,7 +224,7 @@ export function Routines({
           </select>
         </label>
         <label>
-          What should the agent do?
+          {t("board.routines.prompt")}
           <textarea
             id="rt-prompt"
             value={prompt}
@@ -232,7 +232,7 @@ export function Routines({
           />
         </label>
         <label>
-          Schedule
+          {t("board.routines.schedule")}
           <input
             id="rt-schedule"
             value={schedule}
@@ -241,19 +241,19 @@ export function Routines({
           />
         </label>
         <label>
-          Agent
+          {t("board.routines.agent")}
           <input
             value={agent}
             onChange={(e) => setAgent(e.target.value)}
-            placeholder="project default"
+            placeholder={t("board.routines.projectDefault")}
           />
         </label>
         <label>
-          Model
+          {t("board.routines.model")}
           <input value={model} onChange={(e) => setModel(e.target.value)} />
         </label>
         <label>
-          Permission mode
+          {t("board.routines.permissionMode")}
           <select
             value={permission}
             onChange={(e) => setPermission(e.target.value)}
@@ -268,9 +268,9 @@ export function Routines({
           id="rt-save"
           onClick={() => void save().catch((e) => onNotice(String(e), true))}
         >
-          {editing ? "Save changes" : "Save routine"}
+          {editing ? t("board.routines.saveChanges") : t("board.routines.save")}
         </button>
-        {editing && <button onClick={reset}>Cancel</button>}
+        {editing && <button onClick={reset}>{t("board.routines.cancel")}</button>}
       </details>
     </Modal>
   );

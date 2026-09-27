@@ -2,6 +2,7 @@ import { errorMessage } from "./model";
 import { useContext, useEffect, useRef, useState } from "react";
 import { PaneEmbedContext } from "../workspace/registry";
 import { json } from "./model";
+import { t, useLocale } from "../i18n";
 import "./review.css";
 interface ChangedFile {
   path: string;
@@ -29,6 +30,7 @@ export function Review({
   name?: string;
   onClose: () => void;
 }) {
+  useLocale();
   const root = useRef<HTMLDialogElement>(null),
     patch = useRef<HTMLDivElement>(null);
   const [scope, setScope] = useState<"working" | "staged">("working");
@@ -83,7 +85,7 @@ export function Review({
     newLine = 0;
   const lines = (
     data?.patch ||
-    "No textual changes (the file may have been renamed or its permissions changed)."
+    t("terminalPage.review.noTextual")
   )
     .split("\n")
     .map((line, index) => {
@@ -128,7 +130,7 @@ export function Review({
     <dialog
       ref={root}
       className={`code-review ${wrap ? "review-wrapped" : ""}`}
-      aria-label="Review changes"
+      aria-label={t("terminalPage.review.title")}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -137,12 +139,12 @@ export function Review({
     >
       <header>
         <div>
-          <h2>Review changes</h2>
+          <h2>{t("terminalPage.review.title")}</h2>
           <p className="review-name">{name || `${kind} ${id}`}</p>
         </div>
         <button
           className="review-close"
-          aria-label="Close review"
+          aria-label={t("terminalPage.review.close")} data-close
           onClick={onClose}
         >
           ×
@@ -153,10 +155,10 @@ export function Review({
           className="review-repository-label"
           hidden={(data?.repositories?.length || 0) < 2}
         >
-          Repository
+          {t("terminalPage.review.repository")}
           <select
             className="review-repository"
-            aria-label="Repository"
+            aria-label={t("terminalPage.review.repository")}
             value={repository}
             onChange={(event) => {
               setRepository(event.target.value);
@@ -172,7 +174,7 @@ export function Review({
           </select>
         </label>
         <label>
-          Changes
+          {t("terminalPage.review.changes")}
           <select
             className="review-scope"
             value={scope}
@@ -182,11 +184,10 @@ export function Review({
             }}
           >
             <option value="working">
-              Working tree (
-              {data?.files.filter((file) => file.working).length || 0})
+              {t("terminalPage.review.working", { files: data?.files.filter((file) => file.working).length || 0 })}
             </option>
             <option value="staged">
-              Staged ({data?.files.filter((file) => file.staged).length || 0})
+              {t("terminalPage.review.staged", { files: data?.files.filter((file) => file.staged).length || 0 })}
             </option>
           </select>
         </label>
@@ -195,7 +196,7 @@ export function Review({
           className="review-refresh"
           onClick={() => setRefresh((old) => old + 1)}
         >
-          Refresh
+          {t("terminalPage.common.refresh")}
         </button>
         <button
           className="review-wrap"
@@ -205,30 +206,30 @@ export function Review({
             localStorage.setItem("lec-review-wrap", wrap ? "0" : "1");
           }}
         >
-          Wrap lines
+          {t("terminalPage.review.wrap")}
         </button>
       </div>
       <p className="review-status" role="status">
         {busy
-          ? "Loading changes…"
+          ? t("terminalPage.review.loading")
           : error ||
             (!data
               ? ""
               : data.truncated
-                ? "Large diff: showing the first 512 KiB. Open the file for the remainder."
-                : `${data.files.filter((file) => file[scope]).length} changed files · Updated ${new Date().toLocaleTimeString()}`)}
+                ? t("terminalPage.review.truncated")
+                : t("terminalPage.review.summary", { files: data.files.filter((file) => file[scope]).length, time: new Date().toLocaleTimeString() }))}
       </p>
       <div className="review-layout">
         <aside>
           <input
             className="review-filter"
             type="search"
-            placeholder="Find a changed file"
-            aria-label="Find a changed file"
+            placeholder={t("terminalPage.review.filter")}
+            aria-label={t("terminalPage.review.filter")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <div className="review-files" aria-label="Changed files">
+          <div className="review-files" aria-label={t("terminalPage.review.changedFiles")}>
             {files.map((file) => (
               <button
                 key={file.path}
@@ -242,28 +243,28 @@ export function Review({
               </button>
             ))}
             {!files.length &&
-              (query ? "No matching files." : "No changes in this view.")}
+              (query ? t("terminalPage.review.noMatching") : t("terminalPage.review.noChanges"))}
           </div>
         </aside>
         <section className="review-detail">
-          <div className="review-path">{data?.path || "No file selected"}</div>
+          <div className="review-path">{data?.path || t("terminalPage.review.noFile")}</div>
           <div
             className="review-patch"
             ref={patch}
             tabIndex={0}
-            aria-label="File diff"
+            aria-label={t("terminalPage.review.diff")}
             aria-busy={busy}
           >
             {error
-              ? "Changes could not be loaded. Refresh to try again."
+              ? t("terminalPage.review.loadFailed")
               : data?.path
                 ? lines
-                : "Nothing to review here. Check the other changes view or refresh after editing."}
+                : t("terminalPage.review.nothing")}
           </div>
         </section>
       </div>
       <footer>
-        Read-only snapshot · Refresh to see the agent’s latest edits
+        {t("terminalPage.review.footer")}
       </footer>
     </dialog>
   );

@@ -400,7 +400,7 @@ export function DocPanel(props: DocPanelProps) {
   }
 
   return (
-    <section id={props.sectionId} className={"wb-editor " + (props.className || "")} style={props.style} aria-label={t("files.fileLabel", { path: doc.path })}>
+    <section id={props.sectionId} className={"wb-editor " + (props.className || "")} style={props.style} data-back-overlay={props.sectionId ? "20" : undefined} aria-label={t("files.fileLabel", { path: doc.path })}>
       {props.before}
       {props.showTabs && (
         <div className="wb-tabs" role="tablist" aria-label={t("files.openFiles")}>
@@ -474,7 +474,7 @@ export function DocPanel(props: DocPanelProps) {
         <a id="preview-download" className="button wb-icon-button" href={doc.url || undefined} download={nameOf(doc.path)} aria-label={t("files.download")} title={t("files.download")}>
           <FileIcon name="download" />
         </a>
-        <details className="wb-doc-menu" open={menu} onToggle={(event) => setMenu(event.currentTarget.open)}>
+        <details className="wb-doc-menu" data-back-close open={menu} onToggle={(event) => setMenu(event.currentTarget.open)}>
           <summary aria-label={t("files.actions")} title={t("files.actions")}>
             ⋯
           </summary>
@@ -621,11 +621,11 @@ function DiffView({ diff, onClose }: { diff: { path: string; disk: string; mine:
     };
   }, [diff]);
   return (
-    <div className="wb-quick-backdrop" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="wb-quick-backdrop" data-back-overlay="40" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="wb-diff" role="dialog" aria-label={t("files.diffLabel", { path: diff.path })}>
         <div className="dialog-head">
           <h2>{t("files.diffTitle", { name: nameOf(diff.path) })}</h2>
-          <button onClick={onClose}>{t("files.closeButton")}</button>
+          <button data-close onClick={onClose}>{t("files.closeButton")}</button>
         </div>
         {error ? <p className="wb-error">{error}</p> : <div ref={host} className="wb-diff-host" />}
       </div>

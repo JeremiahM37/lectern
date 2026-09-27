@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, useLocale } from "../i18n";
 import type { SessionView } from "../types";
 
 // AwarenessOverlapChip is the "⚠ overlaps #N" chip (docs/agent-events.md
@@ -9,6 +10,7 @@ import type { SessionView } from "../types";
 // component needs no fetch of its own; tapping it only expands what is
 // already in hand.
 export function AwarenessOverlapChip({ session: s }: { session: SessionView }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   const overlap = s.awareness_overlap;
   if (!overlap) return null;
@@ -18,16 +20,15 @@ export function AwarenessOverlapChip({ session: s }: { session: SessionView }) {
         type="button"
         className="chip warn awareness-overlap-chip"
         aria-expanded={expanded}
-        title={`Shares recently-edited files with session #${overlap.session_id} (${overlap.name})`}
+        title={t("sessions.overlap.title", { id: overlap.session_id, name: overlap.name })}
         onClick={() => setExpanded((open) => !open)}
       >
-        ⚠ overlaps #{overlap.session_id}
+        {t("sessions.overlap.chip", { id: overlap.session_id })}
       </button>
       {expanded && (
         <div className="awareness-overlap-detail">
           <div>
-            Also edited by <strong>{overlap.name}</strong> (session #{overlap.session_id}) in the
-            last 30 minutes:
+            {t("sessions.overlap.detailBefore")}<strong>{overlap.name}</strong>{t("sessions.overlap.detailAfter", { id: overlap.session_id })}
           </div>
           <ul>
             {overlap.files.map((f) => (

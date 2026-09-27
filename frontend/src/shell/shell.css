@@ -18,19 +18,19 @@
   flex: none;
   min-height: 36px;
   padding: 6px 14px;
-  border: 1px solid var(--accent, #7aa2f7);
+  border: 1px solid var(--accent);
   border-radius: 8px;
   background: transparent;
-  color: var(--accent, #7aa2f7);
+  color: var(--accent);
   font-weight: 600;
   cursor: pointer;
 }
 .token-dialog {
   max-width: 30rem;
   width: calc(100% - 2rem);
-  background: var(--panel, #131829);
-  color: var(--ink, #eee);
-  border: 1px solid var(--line, #374151);
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 24px;
 }
@@ -41,7 +41,7 @@
 .token-dialog input {
   min-width: 0;
   padding: 12px;
-  background: var(--bg, #080b14);
+  background: var(--bg);
   color: inherit;
 }
 .pane-head {
@@ -120,10 +120,10 @@
   max-width: 34rem;
   margin: 24px auto;
   padding: 20px;
-  background: var(--panel, #131829);
-  border: 1px solid var(--line, #374151);
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg, 14px);
-  color: var(--ink, #eee);
+  color: var(--ink);
 }
 .first-run h2 {
   margin: 0 0 4px;
@@ -131,12 +131,12 @@
 }
 .first-run-sub {
   margin: 0 0 16px;
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
   font-size: 0.92rem;
 }
 .first-run-error {
   margin: 0 0 12px;
-  color: var(--amber, #fbbf24);
+  color: var(--amber);
   font-size: 0.88rem;
 }
 .first-run-checklist {
@@ -153,12 +153,12 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: var(--panel-2, #1f2937);
-  border: 1px solid var(--line-2, #374151);
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
   min-width: 0;
 }
 .first-run-checklist li.ok {
-  border-color: var(--green, #34d399);
+  border-color: var(--green);
 }
 .first-run-mark {
   font-weight: 700;
@@ -167,16 +167,16 @@
   text-align: center;
 }
 .first-run-checklist li.ok .first-run-mark {
-  color: var(--green, #34d399);
+  color: var(--green);
 }
 .first-run-checklist li.pending .first-run-mark {
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
 }
 .first-run-label {
   font-weight: 600;
 }
 .first-run-detail {
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
   font-size: 0.85rem;
   flex-basis: 100%;
   overflow-wrap: anywhere;
@@ -188,14 +188,14 @@
   font-weight: 600;
   border-radius: var(--r-lg, 14px);
   border: 0;
-  background: var(--accent, #8b5cf6);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   cursor: pointer;
 }
 .first-run-hint {
   margin: 12px 0 0;
   font-size: 0.82rem;
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
 }
 .first-run-connect-link {
   display: block;
@@ -203,16 +203,16 @@
   margin: 14px 0 0;
   padding: 10px;
   background: transparent;
-  border: 1px dashed var(--line-2, #374151);
+  border: 1px dashed var(--line-2);
   border-radius: var(--r, 10px);
-  color: var(--ink-dim, #97a2bd);
+  color: var(--ink-dim);
   font-size: 0.85rem;
   text-align: center;
   cursor: pointer;
 }
 .first-run-connect-link:hover {
-  color: var(--ink, #eee);
-  border-color: var(--accent, #8b5cf6);
+  color: var(--ink);
+  border-color: var(--accent);
 }
 @media (max-width: 420px) {
   .first-run {
