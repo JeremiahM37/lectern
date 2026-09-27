@@ -222,40 +222,56 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 	// simultaneous attaches cannot be handed the same port. Doing this in two
 	// steps is what let the board's "attach" buttons collide: both callers saw
 	// the port free, both spawned on it, and the loser's ttyd could not bind.
-	m.mu.Lock()
-	if s, ok := m.procs[a.Key]; ok {
-		port := s.port
-		m.mu.Unlock()
-		return port, nil
-	}
-	port, err := m.freePortLocked()
-	if err != nil {
-		m.mu.Unlock()
-		return 0, err
-	}
-	m.procs[a.Key] = &session{port: port, started: time.Now()} // reserved, not yet running
-	m.mu.Unlock()
-
-	cmd, err := m.Spawn(port, a.BasePath(), argv)
-	if err != nil {
-		m.release(a.Key)
-		return 0, fmt.Errorf("ttyd failed to start: %w", err)
-	}
-	exited := make(chan struct{})
-	if cmd.Process != nil { // test doubles may hand back a command never started
-		go func() { _ = cmd.Wait(); close(exited) }()
-	}
-	// Wait until it is listening, for at most the fixed 300ms this used to
-	// sleep unconditionally: that sleep was nearly all of an attach's latency,
-	// and ttyd binds in a few milliseconds. An exit in the meantime means it
-	// could not start (a port taken after all, a bad argument).
-	if !waitListening(ctx, port, exited, BindWait) {
-		select {
-		case <-exited:
-			m.release(a.Key)
-			return 0, errors.New("ttyd exited immediately")
-		default:
+	//
+	// That lock only covers this process. Another program on the machine —
+	// a second Lectern (the service beside a `lectern local` runtime, or
+	// parallel test servers) scanning the same range — can take the port
+	// between the free check and ttyd's bind. That ttyd exits at once, so the
+	// attach retries on another port instead of failing with a 503.
+	var cmd *exec.Cmd
+	var port int
+	skip := map[int]bool{}
+	for attempt := 0; ; attempt++ {
+		m.mu.Lock()
+		if s, ok := m.procs[a.Key]; ok {
+			port := s.port
+			m.mu.Unlock()
+			return port, nil
 		}
+		port, err = m.freePortSkippingLocked(skip)
+		if err != nil {
+			m.mu.Unlock()
+			return 0, err
+		}
+		m.procs[a.Key] = &session{port: port, started: time.Now()} // reserved, not yet running
+		m.mu.Unlock()
+
+		cmd, err = m.Spawn(port, a.BasePath(), argv)
+		if err != nil {
+			m.release(a.Key)
+			return 0, fmt.Errorf("ttyd failed to start: %w", err)
+		}
+		exited := make(chan struct{})
+		if cmd.Process != nil { // test doubles may hand back a command never started
+			go func() { _ = cmd.Wait(); close(exited) }()
+		}
+		// Wait until it is listening, for at most the fixed 300ms this used to
+		// sleep unconditionally: that sleep was nearly all of an attach's latency,
+		// and ttyd binds in a few milliseconds. An exit in the meantime means it
+		// could not start (a port taken after all, a bad argument).
+		if !waitListening(ctx, port, exited, BindWait) {
+			select {
+			case <-exited:
+				m.release(a.Key)
+				if attempt+1 < attachAttempts && ctx.Err() == nil {
+					skip[port] = true
+					continue
+				}
+				return 0, errors.New("ttyd exited immediately")
+			default:
+			}
+		}
+		break
 	}
 	m.mu.Lock()
 	m.procs[a.Key] = &session{port: port, cmd: cmd, started: time.Now()}
@@ -312,8 +328,18 @@ func (m *Manager) reap() {
 // freePortLocked picks a port not already reserved here and not answering on
 // the loopback interface. The caller must hold m.mu, which is what makes the
 // choice and the reservation atomic.
-func (m *Manager) freePortLocked() (int, error) {
+// attachAttempts bounds how many ports one attach tries when ttyd cannot bind.
+const attachAttempts = 5
+
+func (m *Manager) freePortLocked() (int, error) { return m.freePortSkippingLocked(nil) }
+
+// freePortSkippingLocked is freePortLocked, passing over ports this attach
+// already failed to bind.
+func (m *Manager) freePortSkippingLocked(skip map[int]bool) (int, error) {
 	used := map[int]bool{}
+	for port := range skip {
+		used[port] = true
+	}
 	for _, s := range m.procs {
 		used[s.port] = true
 	}

@@ -393,3 +393,30 @@ func TestAttachReportsATerminalThatExits(t *testing.T) {
 		t.Fatal("a terminal that never started kept its port")
 	}
 }
+
+// Another program — a second Lectern scanning the same range — can take the
+// chosen port between the free check and ttyd's bind. That ttyd exits at once;
+// the attach moves to another port instead of failing.
+func TestAttachMovesPastAPortTakenByAnotherProgram(t *testing.T) {
+	m, _ := fakeManager(t)
+	var tried []int
+	m.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+		tried = append(tried, port)
+		if len(tried) == 1 {
+			cmd := exec.Command("false") // could not bind
+			return cmd, cmd.Start()
+		}
+		cmd := exec.Command("sleep", "30")
+		return cmd, cmd.Start()
+	}
+	port, err := m.Attach(context.Background(), Attachment{Key: "session:3", TmuxSession: "lec-s3"}, target("local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tried) != 2 || tried[0] == tried[1] || port != tried[1] {
+		t.Fatalf("expected a second, different port: tried %v, got %d", tried, port)
+	}
+	if got, ok := m.PortFor("session:3"); !ok || got != port {
+		t.Fatalf("the working terminal was not recorded: %d %v", got, ok)
+	}
+}
