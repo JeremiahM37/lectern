@@ -2,7 +2,9 @@
 // opens a pull request for a task or session on a project that opted in, it
 // watches the PR's checks through the target's own `gh`, and when they fail
 // it sends the owning agent a short failure report — failing job names and a
-// trimmed, redacted log tail — asking it to fix and push. It stops on pass,
+// trimmed, redacted log tail — asking it to fix them. A session's agent
+// pushes its own fix; a task's headless follow-up usually cannot run git, so
+// Lectern commits and pushes what it leaves (commit.go). It stops on pass,
 // merge, close or the attempt cap, and pushes a phone notification when CI
 // goes green after fixes or when it gives up.
 //
@@ -227,6 +229,9 @@ func (w *Watcher) Poll(ctx context.Context, id int64) {
 			w.finish(cw, StateError, "the fix request could not be delivered: "+msg, nil)
 			return
 		}
+		if target.Kind != "sandbox" && w.commitFix(ctx, ex, cw, info.HeadSHA) {
+			return
+		}
 	}
 
 	now := w.now()
@@ -270,7 +275,7 @@ func (w *Watcher) Poll(ctx context.Context, id int64) {
 		w.finish(cw, StateCapped, strings.Join(names, ", "), fields)
 	default:
 		n := cw.Attempts + 1
-		report := w.report(ctx, ex, cw, info.HeadSHA, failing, n)
+		report := w.report(ctx, ex, cw, info.HeadSHA, failing, n, w.liveSession(cw) == nil)
 		if err := w.deliver(ctx, cw, n, report); err != nil {
 			if errors.Is(err, errNoRecipient) {
 				w.finish(cw, StateError, err.Error(), fields)
@@ -418,8 +423,13 @@ func plural(n int, one, many string) string {
 
 // report is the message the agent receives: which checks failed, where, and
 // the end of each failing job's log, trimmed and redacted.
+//
+// lecternCommits is set when the report goes to a task as a headless
+// follow-up attempt: that agent usually cannot run git (acceptEdits asks for
+// approval on every git command, with nobody there to give it), so Lectern
+// commits and pushes what it leaves behind (commitFix) and the report says so.
 func (w *Watcher) report(ctx context.Context, ex executor.Executor, cw *store.CIWatch,
-	sha string, failing []check, n int) string {
+	sha string, failing []check, n int, lecternCommits bool) string {
 	var b strings.Builder
 	short := sha
 	if len(short) > 7 {
@@ -470,6 +480,13 @@ func (w *Watcher) report(ctx context.Context, ex executor.Executor, cw *store.CI
 	if cw.Branch != "" {
 		branch = cw.Branch
 	}
+	if lecternCommits {
+		fmt.Fprintf(&b, "\nPlease fix these failures in this worktree. You do not need to commit or push: "+
+			"when you finish, Lectern commits your changes and pushes them to %s so the same pull request "+
+			"updates. That holds even if the original task said not to commit or push; for this CI fix, "+
+			"Lectern does the git part. It is watching the checks and will tell you if they still fail.\n", branch)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "\nPlease fix these failures, commit, and push to %s so the same pull request updates. "+
 		"Lectern is watching the checks and will tell you if they still fail.\n", branch)
 	return b.String()
@@ -482,14 +499,11 @@ var errNoRecipient = errors.New("no live agent to send the CI failure to")
 // into), otherwise as a task message, which the scheduler turns into a
 // resumed follow-up attempt in the same worktree once the task is idle.
 func (w *Watcher) deliver(ctx context.Context, cw *store.CIWatch, n int, text string) error {
-	if cw.SessionID != nil {
-		return w.sendSession(ctx, *cw.SessionID, text)
+	if id := w.liveSession(cw); id != nil {
+		return w.sendSession(ctx, *id, text)
 	}
 	if cw.TaskID == nil {
 		return errNoRecipient
-	}
-	if tk, err := w.DB.Takeover(*cw.TaskID); err == nil && tk != nil && tk.SessionID != nil {
-		return w.sendSession(ctx, *tk.SessionID, text)
 	}
 	_, err := w.DB.Exec(`INSERT INTO task_messages(task_id,request_id,text,interrupt,created_at)
 		VALUES(?,?,?,0,?) ON CONFLICT(task_id,request_id) DO NOTHING`,
@@ -499,6 +513,22 @@ func (w *Watcher) deliver(ctx context.Context, cw *store.CIWatch, n int, text st
 	}
 	if w.Bus != nil {
 		w.Bus.Publish("board", "task_message", map[string]any{"task_id": *cw.TaskID})
+	}
+	return nil
+}
+
+// liveSession is the interactive session a fix request is typed into: the
+// session that owns the PR, or the one its task was taken over into. nil
+// means the owner is a task that gets it as a headless follow-up attempt.
+func (w *Watcher) liveSession(cw *store.CIWatch) *int64 {
+	if cw.SessionID != nil {
+		return cw.SessionID
+	}
+	if cw.TaskID == nil {
+		return nil
+	}
+	if tk, err := w.DB.Takeover(*cw.TaskID); err == nil && tk != nil && tk.SessionID != nil {
+		return tk.SessionID
 	}
 	return nil
 }

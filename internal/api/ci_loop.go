@@ -15,10 +15,17 @@ import (
 // armCIFromSteps arms the CI loop for the PR a commit request opened — or,
 // when `gh pr create` reported that one already exists for the branch, for
 // that one. It returns nil when there is no PR or the project has not opted
-// in; an arming failure is logged, never turned into a failed commit.
+// in; an arming failure is logged, never turned into a failed commit. A
+// successful push also makes the owner's active watches look again now,
+// instead of after their backoff.
 func (s *Server) armCIFromSteps(o ciloop.Owner, steps []map[string]any) *ciloop.View {
 	if s.CILoop == nil {
 		return nil
+	}
+	for _, step := range steps {
+		if rc, _ := step["rc"].(int); step["step"] == "push" && rc == 0 {
+			s.CILoop.Pushed(o)
+		}
 	}
 	url := ""
 	for _, step := range steps {
