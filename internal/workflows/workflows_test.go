@@ -2,6 +2,8 @@ package workflows
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,5 +42,47 @@ func TestPythonWorkflowAdapters(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("workflow adapter tests failed: %v\n%s", err, output)
+	}
+}
+
+// The bundled workflows moved from a Go map and their own embed into the
+// bundled plugins. testdata/golden.json was captured from the old code: the
+// definitions, and the digest that names each staged directory on a target
+// (~/.lectern/workflows/<id>/<version>-<digest>), must not change, or every
+// existing project attachment would stop matching its staged source.
+func TestBundledPluginsProduceTheSameWorkflowsAsBefore(t *testing.T) {
+	raw, err := os.ReadFile("testdata/golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var golden []struct {
+		Definition
+		Digest string `json:"digest"`
+		Files  int    `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &golden); err != nil {
+		t.Fatal(err)
+	}
+	defs := Definitions()
+	if len(defs) != len(golden) {
+		t.Fatalf("got %d workflows, want %d", len(defs), len(golden))
+	}
+	for i, g := range golden {
+		d := defs[i]
+		if d.ID != g.ID || d.Name != g.Name || d.Description != g.Description || d.Version != g.Version ||
+			d.UpstreamURL != g.UpstreamURL || strings.Join(d.Commands, "|") != strings.Join(g.Commands, "|") {
+			t.Fatalf("workflow %s changed:\n got %+v\nwant %+v", g.ID, d, g.Definition)
+		}
+		files, err := Files(g.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != g.Files || SourceDigest(files) != g.Digest {
+			t.Fatalf("workflow %s staged source changed: %d files digest %s, want %d files digest %s",
+				g.ID, len(files), SourceDigest(files), g.Files, g.Digest)
+		}
+		if !d.Bundled || d.Kind != "workflow" || d.Entry != "lectern-"+g.ID {
+			t.Fatalf("workflow %s: bundled=%v kind=%q entry=%q", g.ID, d.Bundled, d.Kind, d.Entry)
+		}
 	}
 }

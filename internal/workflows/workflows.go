@@ -1,33 +1,27 @@
-// Package workflows describes the optional, bundled project workflows.
+// Package workflows stages project workflows and plugin skills onto targets.
 //
-// The source files are compiled into Lectern and copied to the target only
-// when an operator enables a workflow. The target copy is versioned and
+// Workflows are plugin contributions: the bundled ones (Spec Kit, Maestro,
+// Delegated build) come from the binary's own plugins in internal/pluginpkg,
+// installed plugins add more through internal/plugins. The source files are
+// copied to the target only when an operator enables a workflow. The target copy is versioned and
 // immutable: a later enable verifies existing bytes instead of replacing them.
 package workflows
 
 import (
 	"context"
 	"crypto/sha256"
-	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/pluginpkg"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
-
-// bundled contains the pinned wrapper and upstream support files. The all:
-// prefix is intentional: upstream repositories can contain files beginning
-// with '.' or '_', and those files are part of the pinned source as well.
-//
-//go:embed all:bundled
-var bundled embed.FS
 
 type Definition struct {
 	ID          string   `json:"id"`
@@ -36,6 +30,16 @@ type Definition struct {
 	Version     string   `json:"version"`
 	UpstreamURL string   `json:"upstream_url"`
 	Commands    []string `json:"commands"`
+	// Kind is "workflow", or "skill" for a plugin skill: a workflow with no
+	// commands, enabled the same way.
+	Kind string `json:"kind,omitempty"`
+	// PluginID is the plugin that contributes it; Entry is the skill
+	// directory it becomes in the project.
+	PluginID string `json:"plugin_id,omitempty"`
+	Entry    string `json:"entry,omitempty"`
+	// Bundled marks the binary's own workflows, whose ids and attachment
+	// records predate plugins and are kept exactly.
+	Bundled bool `json:"bundled,omitempty"`
 }
 
 type File struct {
@@ -44,127 +48,128 @@ type File struct {
 	Mode uint32
 }
 
-// These are deliberately a closed list. New installations start disabled and
-// cannot be enabled by inventing an arbitrary source path or workflow id.
-var definitions = map[string]Definition{
-	"spec-kit": {
-		ID:          "spec-kit",
-		Name:        "Spec Kit",
-		Description: "Specification-first development with constitution, planning, tasks, and implementation workflows.",
-		Version:     "d848fb4e18f44640ad6b42e60a280551ee90cdce",
-		UpstreamURL: "https://github.com/github/spec-kit",
-		Commands: []string{
-			"lectern-spec-kit constitution",
-			"lectern-spec-kit specify",
-			"lectern-spec-kit clarify",
-			"lectern-spec-kit plan",
-			"lectern-spec-kit tasks",
-			"lectern-spec-kit analyze",
-			"lectern-spec-kit checklist",
-			"lectern-spec-kit implement",
-			"lectern-spec-kit converge",
-		},
-	},
-	"delegate": {
-		ID:          "delegate",
-		Name:        "Delegated build",
-		Description: "The lead plans and reviews; a cheaper worker agent builds, as a Lectern task in its own worktree. Needs Delegated builds ON in Settings.",
-		Version:     "bcc7f9eaee051126c0ce821a55194d0b20425b22",
-		UpstreamURL: "https://github.com/ethanplusai/astra-flash-orchestrator",
-		Commands: []string{
-			"lectern-delegate",
-		},
-	},
-	"maestro": {
-		ID:          "maestro",
-		Name:        "Maestro",
-		Description: "Curated agent workflow guidance for diagnosing, fortifying, refining, reflecting, and teaching Maestro.",
-		Version:     "00f9115d446a8ba26b8f18f6ed306bc4a21807c3",
-		UpstreamURL: "https://github.com/sharpdeveye/maestro",
-		Commands: []string{
-			"lectern-maestro diagnose",
-			"lectern-maestro fortify",
-			"lectern-maestro refine",
-			"lectern-maestro reflect",
-			"lectern-maestro agent-workflow",
-			"lectern-maestro teach-maestro",
-		},
-	},
+// Source is a workflow with the files it stages.
+type Source struct {
+	Definition
+	Files []File
+}
+
+// FromPlugin lists a plugin's workflows and skills as sources. A bundled
+// plugin's workflows keep their bare ids (spec-kit, maestro, delegate) so
+// existing project attachments still match; any other plugin's are
+// namespaced "<plugin id>:<id>".
+func FromPlugin(pkg *pluginpkg.Package) ([]Source, error) {
+	m := pkg.Manifest
+	bundled := m.Bundled()
+	id := func(local string) string {
+		if bundled {
+			return local
+		}
+		return m.ID + ":" + local
+	}
+	var out []Source
+	add := func(d Definition, dir string) error {
+		files, err := filesUnder(pkg.Files, dir)
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", d.Kind, d.ID, err)
+		}
+		out = append(out, Source{Definition: d, Files: files})
+		return nil
+	}
+	for _, w := range m.Contributes.Workflows {
+		d := Definition{ID: id(w.ID), Name: w.Name, Description: w.Description, Version: w.Version,
+			UpstreamURL: w.UpstreamURL, Commands: append([]string{}, w.Commands...), Kind: "workflow",
+			PluginID: m.ID, Entry: m.EntryFor(w.ID, w.Entry), Bundled: bundled}
+		if d.Version == "" {
+			d.Version = m.Version
+		}
+		if d.UpstreamURL == "" {
+			d.UpstreamURL = m.Homepage
+		}
+		if err := add(d, w.Path); err != nil {
+			return nil, err
+		}
+	}
+	for _, s := range m.Contributes.Skills {
+		name := s.Name
+		if name == "" {
+			name = s.ID
+		}
+		d := Definition{ID: id(s.ID), Name: name, Description: s.Description, Version: m.Version,
+			UpstreamURL: m.Homepage, Commands: []string{}, Kind: "skill", PluginID: m.ID,
+			Entry: m.EntryFor(s.ID, s.Entry), Bundled: bundled}
+		if err := add(d, s.Path); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func filesUnder(all []pluginpkg.File, dir string) ([]File, error) {
+	var out []File
+	for _, f := range pluginpkg.SubFiles(all, dir) {
+		out = append(out, File{Path: strings.Split(f.Path, "/"), Data: f.Data, Mode: f.Mode})
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.Join(out[i].Path, "/") < strings.Join(out[j].Path, "/") })
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no files under %s", dir)
+	}
+	for _, f := range out {
+		if strings.Join(f.Path, "/") == "SKILL.md" {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("missing SKILL.md")
+}
+
+// bundledSources are the workflows the binary's own plugins contribute.
+func bundledSources() []Source {
+	pkgs, err := pluginpkg.Bundled()
+	if err != nil {
+		return nil
+	}
+	var out []Source
+	for _, pkg := range pkgs {
+		srcs, err := FromPlugin(pkg)
+		if err != nil {
+			continue
+		}
+		out = append(out, srcs...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 func DefinitionFor(id string) (Definition, bool) {
-	d, ok := definitions[id]
-	if !ok {
-		return Definition{}, false
+	for _, s := range bundledSources() {
+		if s.ID == id {
+			d := s.Definition
+			d.Commands = append([]string(nil), d.Commands...)
+			return d, true
+		}
 	}
-	d.Commands = append([]string(nil), d.Commands...)
-	return d, true
+	return Definition{}, false
 }
 
+// Definitions lists the bundled workflows. Installed plugins add theirs
+// through internal/plugins.
 func Definitions() []Definition {
-	out := make([]Definition, 0, len(definitions))
-	for _, d := range definitions {
+	var out []Definition
+	for _, s := range bundledSources() {
+		d := s.Definition
+		d.Commands = append([]string(nil), d.Commands...)
 		out = append(out, d)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	for i := range out {
-		out[i].Commands = append([]string(nil), out[i].Commands...)
 	}
 	return out
 }
 
 func Files(id string) ([]File, error) {
-	if _, ok := DefinitionFor(id); !ok {
-		return nil, fmt.Errorf("unknown workflow %q", id)
-	}
-	root := filepath.ToSlash(filepath.Join("bundled", id))
-	var out []File
-	err := fs.WalkDir(bundled, root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("bundled workflow file %q is not regular", path)
-		}
-		b, err := fs.ReadFile(bundled, path)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return fmt.Errorf("bundled workflow path escapes source: %q", path)
-		}
-		filePath := strings.Split(filepath.ToSlash(rel), "/")
-		mode := uint32(0o644)
-		// Embedded files do not reliably retain executable bits across all Go
-		// toolchains. Workflow helpers are invoked as programs by users, so make
-		// the executable intent explicit for the script formats we ship.
-		if strings.HasSuffix(path, ".py") || strings.HasSuffix(path, ".sh") {
-			mode = 0o755
-		}
-		out = append(out, File{Path: filePath, Data: b, Mode: mode})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(out, func(i, j int) bool { return strings.Join(out[i].Path, "/") < strings.Join(out[j].Path, "/") })
-	if len(out) == 0 {
-		return nil, fmt.Errorf("workflow %q has no bundled files", id)
-	}
-	seenSkill := false
-	for _, f := range out {
-		if strings.Join(f.Path, "/") == "SKILL.md" {
-			seenSkill = true
+	for _, s := range bundledSources() {
+		if s.ID == id {
+			return s.Files, nil
 		}
 	}
-	if !seenSkill {
-		return nil, fmt.Errorf("workflow %q is missing bundled SKILL.md", id)
-	}
-	return out, nil
+	return nil, fmt.Errorf("unknown workflow %q", id)
 }
 
 func SourceDigest(files []File) string {
@@ -179,9 +184,7 @@ func SourceDigest(files []File) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Stage copies a bundled source to a target-local immutable version path. It
-// uses only Executor.Run, so SSH targets execute the same checks remotely and
-// bytes never land in the Lectern control-plane filesystem.
+// Stage copies a bundled workflow to a target-local immutable version path.
 func Stage(ctx context.Context, ex executor.Executor, id string) (string, string, error) {
 	d, ok := DefinitionFor(id)
 	if !ok {
@@ -191,25 +194,55 @@ func Stage(ctx context.Context, ex executor.Executor, id string) (string, string
 	if err != nil {
 		return "", "", err
 	}
-	homeResult, err := ex.Run(ctx, `printf '%s' "$HOME"`, executor.RunOpts{Timeout: 20})
+	return StageSource(ctx, ex, Source{Definition: d, Files: files})
+}
+
+// StageSource copies a workflow or skill to a target-local immutable version
+// path, ~/.lectern/workflows/<id>/<version>-<digest>. It uses only
+// Executor.Run, so SSH targets execute the same checks remotely and bytes
+// never land in the Lectern control-plane filesystem.
+func StageSource(ctx context.Context, ex executor.Executor, src Source) (string, string, error) {
+	home, err := targetHome(ctx, ex)
 	if err != nil {
 		return "", "", err
 	}
-	if !homeResult.OK() {
-		return "", "", fmt.Errorf("target home lookup failed: %s", strings.TrimSpace(homeResult.Stderr))
+	digest := SourceDigest(src.Files)
+	root := filepath.Join(home, ".lectern", "workflows", src.ID, src.Version+"-"+digest[:16])
+	if err := StageFiles(ctx, ex, root, src.Files); err != nil {
+		return "", "", fmt.Errorf("stage workflow %s: %w", src.ID, err)
 	}
-	home := strings.TrimSpace(homeResult.Stdout)
-	if filepath.IsAbs(home) == false || home == "." || strings.ContainsAny(home, "\r\n") {
-		return "", "", fmt.Errorf("target returned an unsafe home path")
-	}
-	digest := SourceDigest(files)
-	root := filepath.Join(home, ".lectern", "workflows", id, d.Version+"-"+digest[:16])
+	return root, digest, nil
+}
+
+// StageFiles writes files under root on the target, verifying rather than
+// replacing anything already there.
+func StageFiles(ctx context.Context, ex executor.Executor, root string, files []File) error {
 	for _, f := range files {
 		if err := stageFile(ctx, ex, root, f.Path, f.Data, f.Mode); err != nil {
-			return "", "", fmt.Errorf("stage workflow %s/%s: %w", id, strings.Join(f.Path, "/"), err)
+			return fmt.Errorf("%s: %w", strings.Join(f.Path, "/"), err)
 		}
 	}
-	return root, SourceDigest(files), nil
+	return nil
+}
+
+func targetHome(ctx context.Context, ex executor.Executor) (string, error) {
+	homeResult, err := ex.Run(ctx, `printf '%s' "$HOME"`, executor.RunOpts{Timeout: 20})
+	if err != nil {
+		return "", err
+	}
+	if !homeResult.OK() {
+		return "", fmt.Errorf("target home lookup failed: %s", strings.TrimSpace(homeResult.Stderr))
+	}
+	home := strings.TrimSpace(homeResult.Stdout)
+	if !filepath.IsAbs(home) || home == "." || strings.ContainsAny(home, "\r\n") {
+		return "", fmt.Errorf("target returned an unsafe home path")
+	}
+	return home, nil
+}
+
+// TargetHome is the target user's $HOME, checked to be a plain absolute path.
+func TargetHome(ctx context.Context, ex executor.Executor) (string, error) {
+	return targetHome(ctx, ex)
 }
 
 const stageScript = `

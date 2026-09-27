@@ -1,0 +1,25 @@
+# Maestro, vendored at a pinned upstream commit under workflow/upstream/
+# (MIT). workflow/SKILL.md is Lectern's wrapper.
+id: lectern.maestro
+name: Maestro
+version: 00f9115d446a8ba26b8f18f6ed306bc4a21807c3
+description: Curated agent workflow guidance for diagnosing, fortifying, refining, reflecting, and teaching Maestro.
+author: sharpdeveye (upstream), Lectern (wrapper)
+homepage: https://github.com/sharpdeveye/maestro
+license: MIT
+contributes:
+  workflows:
+    - id: maestro
+      name: Maestro
+      description: Curated agent workflow guidance for diagnosing, fortifying, refining, reflecting, and teaching Maestro.
+      path: workflow
+      entry: lectern-maestro
+      version: 00f9115d446a8ba26b8f18f6ed306bc4a21807c3
+      upstream_url: https://github.com/sharpdeveye/maestro
+      commands:
+        - lectern-maestro diagnose
+        - lectern-maestro fortify
+        - lectern-maestro refine
+        - lectern-maestro reflect
+        - lectern-maestro agent-workflow
+        - lectern-maestro teach-maestro

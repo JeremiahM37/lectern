@@ -1,0 +1,1140 @@
+# The agent catalog: one-click presets for Settings → Agents → Add from
+# catalog. Each entry is a sessions.CatalogPreset — a launch Spec plus how it
+# was verified (see internal/sessions/catalog.go for what each field means).
+# Re-check an entry against its Source before trusting one whose verified_at
+# has aged.
+id: lectern.agent-catalog
+name: Agent catalog
+version: 2026.09.27
+description: Presets for popular coding-agent CLIs, each with the flags Lectern checked and how.
+author: Lectern
+homepage: https://github.com/JeremiahM37/lectern/blob/main/docs/agents.md
+license: MIT
+capabilities:
+  agents: true
+contributes:
+  agents:
+  - name: opencode
+    command: opencode
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    fork_args:
+    - --session
+    - '{id}'
+    - --fork
+    sessions:
+      command: '{bin} session list --format json'
+      id: id
+      dir: directory
+      created: created
+      updated: updated
+      title: title
+    prompt_args:
+    - --prompt
+    - '{prompt}'
+    yolo_args:
+    - --auto
+    acp:
+      command: opencode
+      args:
+      - acp
+    display_name: OpenCode
+    vendor: SST / Anomaly
+    group: Popular
+    icon:
+      glyph: OC
+      color: '#3f3f46'
+    homepage: https://opencode.ai/docs/cli/
+    description: Open-source terminal agent. `--auto` approves every permission that is not explicitly denied. Project MCP servers and skills are passed to interactive sessions.
+    install_hint: 'curl -fsSL https://opencode.ai/install | bash  (or: npm i -g opencode-ai)'
+    sessions_hint: opencode session list
+    source: opencode --help ; https://opencode.ai/docs/cli/
+    verified_by: opencode 1.18.32
+    verified_at: '2026-09-27'
+  - name: cursor-agent
+    command: cursor-agent
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    prompt_arg: true
+    yolo_args:
+    - --force
+    acp:
+      command: cursor-agent
+      args:
+      - acp
+    display_name: Cursor Agent CLI
+    vendor: Cursor
+    group: Popular
+    icon:
+      glyph: Cu
+      color: '#18181b'
+    homepage: https://cursor.com/docs/cli/overview
+    description: Cursor's terminal agent. `cursor-agent acp` is not listed in --help (Cursor documents it as an advanced mode) but answers the ACP handshake.
+    install_hint: curl https://cursor.com/install -fsS | bash
+    sessions_hint: cursor-agent ls
+    source: cursor-agent --help ; https://cursor.com/docs/cli/reference/parameters
+    verified_by: cursor-agent 2026.09.26-dd393fe
+    verified_at: '2026-09-27'
+  - name: copilot
+    command: copilot
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume={id}
+    session_id_args:
+    - --session-id
+    - '{id}'
+    prompt_args:
+    - -i
+    - '{prompt}'
+    yolo_args:
+    - --yolo
+    acp:
+      command: copilot
+      args:
+      - --acp
+    display_name: GitHub Copilot CLI
+    vendor: GitHub
+    group: Popular
+    icon:
+      glyph: GH
+      color: '#24292f'
+    homepage: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli
+    description: GitHub's terminal agent. `-i` opens the session with the first prompt; `-p` would run one-shot and exit. Project MCP servers and skills are passed to interactive sessions.
+    install_hint: npm install -g @github/copilot
+    sessions_hint: '`copilot --resume` opens a picker; ids live under ~/.copilot/session-state/'
+    source: copilot --help ; https://github.com/github/copilot-cli
+    verified_by: copilot 1.0.88
+    verified_at: '2026-09-27'
+  - name: amp
+    command: amp
+    resume_args:
+    - threads
+    - continue
+    - --last
+    resume_id_args:
+    - threads
+    - continue
+    - '{id}'
+    task:
+      args:
+      - --stream-json
+      prompt_template: -x {prompt}
+      output_mode: claude
+    display_name: Amp
+    vendor: Amp (Sourcegraph)
+    group: Popular
+    icon:
+      glyph: A
+      color: '#be123c'
+    homepage: https://ampcode.com/manual
+    description: 'Amp has no model flag (`--mode low|medium|high|ultra` picks model and tools together) and no auto-approve flag: approvals are off only with `amp.dangerouslyAllowAll` in its settings file. Tasks use `-x` with Claude-compatible stream JSON. Project MCP servers and skills are passed through.'
+    install_hint: curl -fsSL https://ampcode.com/install.sh | bash
+    sessions_hint: amp threads list
+    source: amp --help ; https://ampcode.com/docs/cli ; https://ampcode.com/docs/customize/skills
+    verified_by: amp 0.0.1790496040
+    verified_at: '2026-09-27'
+  - name: qwen
+    command: qwen
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    fork_args:
+    - --resume
+    - '{id}'
+    - --fork-session
+    session_id_args:
+    - --session-id
+    - '{id}'
+    sessions:
+      command: '{bin} sessions list --json --limit 200'
+      id: sessionId
+      dir: cwd
+      created: startTime
+      updated: mtime
+      title: prompt
+    prompt_args:
+    - -i
+    - '{prompt}'
+    yolo_args:
+    - --yolo
+    acp:
+      command: qwen
+      args:
+      - --acp
+    display_name: Qwen Code
+    vendor: Alibaba Qwen
+    group: Popular
+    icon:
+      glyph: Q
+      color: '#6d28d9'
+    homepage: https://github.com/QwenLM/qwen-code
+    description: Alibaba's terminal agent. A bare positional prompt runs one-shot, so the first message goes through `-i`. Project MCP servers and skills are passed to interactive sessions.
+    install_hint: npm install -g @qwen-code/qwen-code@latest
+    sessions_hint: qwen sessions list
+    source: qwen --help ; https://github.com/QwenLM/qwen-code
+    verified_by: qwen 0.24.6
+    verified_at: '2026-09-27'
+  - name: kimi
+    command: kimi
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    yolo_args:
+    - --auto
+    acp:
+      command: kimi
+      args:
+      - acp
+    display_name: Kimi Code CLI
+    vendor: Moonshot AI
+    group: Popular
+    icon:
+      glyph: K
+      color: '#0f766e'
+    homepage: https://moonshotai.github.io/kimi-code/
+    description: Moonshot's terminal agent. `--auto` is its never-ask mode (`--yolo` still asks for risky actions). No opening-prompt flag keeps the session interactive, so the first message is typed in.
+    install_hint: 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash  (or: npm i -g @moonshot-ai/kimi-code)'
+    sessions_hint: kimi session list (sessions are scoped to the working directory)
+    source: kimi --help ; https://moonshotai.github.io/kimi-code/
+    verified_by: kimi 2.1.1
+    verified_at: '2026-09-27'
+  - name: goose
+    command: goose
+    args:
+    - session
+    model_flag: --model
+    resume_args:
+    - --resume
+    resume_id_args:
+    - --resume
+    - --session-id
+    - '{id}'
+    fork_args:
+    - --resume
+    - --session-id
+    - '{id}'
+    - --fork
+    sessions:
+      command: '{bin} session list --format json'
+      id: id
+      dir: working_dir
+      created: created_at
+      updated: updated_at
+      title: name
+    yolo_env:
+      GOOSE_MODE: auto
+    acp:
+      command: goose
+      args:
+      - acp
+    display_name: Goose
+    vendor: Block / AAIF
+    group: Popular
+    icon:
+      glyph: G
+      color: '#171717'
+    homepage: https://goose-docs.ai/docs/guides/goose-cli-commands
+    description: Open-source agent. Auto-approve is the GOOSE_MODE=auto environment variable, set only when the session is launched in yolo mode. `goose session` takes no opening prompt, so it is typed in.
+    install_hint: curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash
+    sessions_hint: goose session list
+    source: goose session --help ; https://goose-docs.ai/docs/guides/goose-cli-commands
+    verified_by: goose 1.52.0
+    verified_at: '2026-09-27'
+  - name: aider
+    command: aider
+    model_flag: --model
+    resume_args:
+    - --restore-chat-history
+    yolo_args:
+    - --yes-always
+    task:
+      prompt_template: --message {prompt}
+      output_mode: plain
+      permission_args:
+        bypassPermissions:
+        - --yes-always
+    display_name: Aider
+    vendor: Aider
+    group: Popular
+    icon:
+      glyph: Ai
+      color: '#15803d'
+    homepage: https://aider.chat/docs/
+    description: 'AI pair programming in the terminal. Its positional arguments are files, so the opening message is typed in. It keeps one chat history per directory: resume restores it, and there are no session ids.'
+    install_hint: python -m pip install aider-install && aider-install
+    source: aider --help ; https://aider.chat/docs/config/options.html
+    verified_by: aider 0.86.2
+    verified_at: '2026-09-27'
+  - name: crush
+    command: crush
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    sessions:
+      command: '{bin} session list --json'
+      id: id
+      created: created
+      updated: modified
+      title: title
+    yolo_args:
+    - --yolo
+    task:
+      args:
+      - run
+      prompt_template: '{prompt}'
+      output_mode: plain
+      resume_args:
+      - --continue
+    display_name: Crush
+    vendor: Charm
+    group: Popular
+    icon:
+      glyph: Cr
+      color: '#db2777'
+    homepage: https://github.com/charmbracelet/crush
+    description: Charm's terminal agent. The interactive command has no model flag and takes no opening prompt; model choice is a runtime picker.
+    install_hint: 'brew install charmbracelet/tap/crush  (or: npm install -g @charmland/crush)'
+    source: crush --help ; github.com/charmbracelet/crush
+    verified_by: crush v0.96.1
+    verified_at: '2026-09-27'
+  - name: cline
+    command: cline
+    args:
+    - -i
+    model_flag: -m
+    resume_id_args:
+    - --id
+    - '{id}'
+    sessions:
+      command: '{bin} history --json --limit 200'
+      id: sessionId
+      dir: cwd
+      created: startedAt
+      updated: updatedAt
+      title: metadata.title
+    prompt_arg: true
+    yolo_args:
+    - --auto-approve
+    - 'true'
+    acp:
+      command: cline
+      args:
+      - --acp
+    display_name: Cline CLI
+    vendor: Cline
+    group: Popular
+    icon:
+      glyph: Cl
+      color: '#1d4ed8'
+    homepage: https://docs.cline.bot/cline-cli/overview
+    description: Cline's standalone CLI (`-i` opens its TUI). Auto-approve is Cline's own default; with yolo off it still auto-approves unless you add `--auto-approve false`. There is no resume-last flag.
+    install_hint: npm i -g cline
+    sessions_hint: cline history
+    source: cline --help ; https://github.com/cline/cline
+    verified_by: cline 3.0.65
+    unverified:
+    - prompt_arg
+    verified_at: '2026-09-27'
+  - name: grok
+    command: grok
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    fork_args:
+    - --resume
+    - '{id}'
+    - --fork-session
+    session_id_args:
+    - --session-id
+    - '{id}'
+    fork_session_id: true
+    prompt_args:
+    - --
+    - '{prompt}'
+    yolo_args:
+    - --permission-mode
+    - bypassPermissions
+    acp:
+      command: grok
+      args:
+      - agent
+      - stdio
+    display_name: Grok CLI
+    vendor: xAI
+    group: Popular
+    icon:
+      glyph: X
+      color: '#000000'
+    homepage: https://x.ai/cli
+    description: xAI's terminal agent. `grok agent stdio` speaks ACP. The opening prompt follows `--` so text starting with a dash is not read as a flag.
+    install_hint: curl -fsSL https://x.ai/cli/install.sh | bash
+    sessions_hint: grok sessions list
+    source: grok --help ; grok agent --help ; https://x.ai/cli/install.sh
+    verified_by: grok 1.0.41
+    verified_at: '2026-09-27'
+  - name: antigravity
+    command: agy
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --conversation
+    - '{id}'
+    prompt_args:
+    - --prompt-interactive
+    - '{prompt}'
+    yolo_args:
+    - --dangerously-skip-permissions
+    task:
+      prompt_template: --print {prompt}
+      output_mode: plain
+      permission_args:
+        acceptEdits:
+        - --mode
+        - accept-edits
+        bypassPermissions:
+        - --dangerously-skip-permissions
+        plan:
+        - --mode
+        - plan
+    display_name: Antigravity CLI
+    vendor: Google
+    group: Popular
+    icon:
+      glyph: Ag
+      color: '#1a73e8'
+    homepage: https://antigravity.google/docs/cli/overview
+    description: Google's Antigravity terminal agent (`agy`). No ACP mode; background tasks use `--print`. Needs a Google sign-in or GEMINI_API_KEY.
+    install_hint: curl -fsSL https://antigravity.google/cli/install.sh | bash
+    sessions_hint: /resume inside agy lists conversations
+    source: agy --help ; https://antigravity.google/docs/cli/install
+    verified_by: agy 1.2.12
+    verified_at: '2026-09-27'
+  - name: muse
+    command: muse
+    args:
+    - --trust-workspace
+    model_flag: --model
+    resume_args:
+    - resume
+    - --last
+    resume_id_args:
+    - resume
+    - '{id}'
+    yolo_args:
+    - --yolo
+    task:
+      args:
+      - exec
+      prompt_template: '{prompt}'
+      output_mode: plain
+      permission_args:
+        bypassPermissions:
+        - --yolo
+    display_name: Muse Code
+    vendor: Meta
+    group: Vendor agents
+    icon:
+      glyph: M
+      color: '#0668e1'
+    homepage: https://dev.meta.ai/docs/muse-code
+    description: Meta's terminal agent. Launch trusts the workspace for that run only. The opening message is typed in because Muse reads a subcommand-shaped prompt as a command. No ACP (its `muse serve` speaks Meta's own protocol); MCP servers live only in its settings file.
+    install_hint: curl -fsSL https://dev.meta.ai/install.sh | sh
+    sessions_hint: '`muse resume` opens a picker; ids are session UUIDs or names'
+    source: muse --help ; muse resume --help ; muse exec --help ; https://dev.meta.ai/docs/muse-code/extending
+    verified_by: muse 1.4.0
+    verified_at: '2026-09-27'
+  - name: mimo
+    command: mimo
+    args:
+    - --trust
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    fork_args:
+    - --session
+    - '{id}'
+    - --fork
+    sessions:
+      command: '{bin} session list --format json'
+      id: id
+      dir: directory
+      created: created
+      updated: updated
+      title: title
+    prompt_args:
+    - --prompt
+    - '{prompt}'
+    yolo_args:
+    - --yolo
+    acp:
+      command: mimo
+      args:
+      - acp
+    display_name: MiMo Code
+    vendor: Xiaomi
+    group: Vendor agents
+    icon:
+      glyph: Mi
+      color: '#ff6900'
+    homepage: https://mimo.xiaomi.com/coder
+    description: Xiaomi's terminal agent, built on OpenCode. Project MCP servers (MIMOCODE_CONFIG) and skills are passed to interactive sessions.
+    install_hint: curl -fsSL https://mimo.xiaomi.com/install | bash
+    sessions_hint: mimo session list
+    source: mimo --help ; https://mimo.xiaomi.com/coder
+    verified_by: mimo 0.1.15
+    verified_at: '2026-09-27'
+  - name: devin
+    command: devin
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    prompt_args:
+    - --
+    - '{prompt}'
+    yolo_args:
+    - --permission-mode
+    - dangerous
+    acp:
+      command: devin
+      args:
+      - acp
+    display_name: Devin CLI
+    vendor: Cognition
+    group: Vendor agents
+    icon:
+      glyph: D
+      color: '#0e7490'
+    homepage: https://docs.devin.ai/cli
+    description: Cognition's local agent. Its approve-everything mode is `--permission-mode dangerous` (the modes are auto, accept-edits, smart and dangerous). Needs a Devin account.
+    install_hint: curl -fsSL https://cli.devin.ai/install.sh | bash
+    sessions_hint: devin list
+    source: devin --help ; https://docs.devin.ai/cli
+    verified_by: devin 3000.11.3
+    verified_at: '2026-09-27'
+  - name: droid
+    command: droid
+    resume_args:
+    - --resume
+    - --last
+    resume_id_args:
+    - --resume
+    - '{id}'
+    fork_args:
+    - --fork
+    - '{id}'
+    prompt_arg: true
+    yolo_args:
+    - --auto
+    - high
+    task:
+      args:
+      - exec
+      prompt_template: '{prompt}'
+      output_mode: plain
+      permission_args:
+        acceptEdits:
+        - --auto
+        - low
+        bypassPermissions:
+        - --skip-permissions-unsafe
+    display_name: Droid
+    vendor: Factory
+    group: Vendor agents
+    icon:
+      glyph: Dr
+      color: '#ea580c'
+    homepage: https://docs.factory.ai/cli/getting-started/quickstart
+    description: Factory's terminal agent. The interactive command has no model flag (only `droid exec -m`) and there is no ACP mode. `droid exec` is read-only unless given an autonomy level, so plan-mode tasks are not offered.
+    install_hint: curl -fsSL https://app.factory.ai/cli | sh
+    sessions_hint: '`droid resume` opens a picker; `droid search <text>` finds sessions'
+    source: droid --help ; droid exec --help
+    verified_by: droid 0.228.0
+    verified_at: '2026-09-27'
+  - name: kiro
+    command: kiro-cli
+    args:
+    - chat
+    model_flag: --model
+    resume_args:
+    - --resume
+    resume_id_args:
+    - --resume-id
+    - '{id}'
+    prompt_arg: true
+    yolo_args:
+    - --trust-all-tools
+    models_command: '{bin} chat --list-models --format json'
+    acp:
+      command: kiro-cli
+      args:
+      - acp
+    display_name: Kiro CLI
+    vendor: AWS
+    group: Vendor agents
+    icon:
+      glyph: Ki
+      color: '#7c3aed'
+    homepage: https://kiro.dev/docs/cli/
+    description: AWS's Kiro terminal agent. Needs a Kiro login before anything, including `kiro-cli acp`, starts.
+    install_hint: curl -fsSL https://cli.kiro.dev/install | bash
+    sessions_hint: kiro-cli chat --list-sessions
+    source: kiro-cli chat --help ; kiro-cli acp --help ; https://kiro.dev/docs/cli/
+    verified_by: kiro-cli 2.24.1
+    unverified:
+    - models_command
+    verified_at: '2026-09-27'
+  - name: auggie
+    command: auggie
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    prompt_arg: true
+    acp:
+      command: auggie
+      args:
+      - --acp
+    display_name: Auggie
+    vendor: Augment Code
+    group: Vendor agents
+    icon:
+      glyph: Au
+      color: '#16a34a'
+    homepage: https://docs.augmentcode.com/cli/overview
+    description: Augment's terminal agent. There is no approve-everything flag — tool policy is per tool (`--permission tool:allow`), so yolo is not offered. Needs an Augment account.
+    install_hint: npm install -g @augmentcode/auggie
+    sessions_hint: auggie session list
+    source: auggie --help ; auggie session --help
+    verified_by: auggie 0.36.0
+    verified_at: '2026-09-27'
+  - name: cn
+    command: cn
+    resume_args:
+    - --resume
+    fork_args:
+    - --fork
+    - '{id}'
+    prompt_arg: true
+    yolo_args:
+    - --auto
+    task:
+      prompt_template: -p {prompt}
+      output_mode: plain
+      permission_args:
+        bypassPermissions:
+        - --auto
+        plan:
+        - --readonly
+    display_name: Continue CLI
+    vendor: Continue
+    group: Vendor agents
+    icon:
+      glyph: Co
+      color: '#0891b2'
+    homepage: https://docs.continue.dev/guides/cli
+    description: Continue's terminal agent (`cn`). `--resume` reopens only the last session; a session id can only be forked. `--model` adds a Continue Hub model rather than choosing one, so it is not wired as the model flag. No ACP mode.
+    install_hint: npm i -g @continuedev/cli
+    sessions_hint: cn ls
+    source: cn --help ; https://docs.continue.dev/guides/cli
+    verified_by: cn 1.5.47
+    verified_at: '2026-09-27'
+  - name: kilo
+    command: kilo
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    fork_args:
+    - --session
+    - '{id}'
+    - --fork
+    sessions:
+      command: '{bin} session list --format json'
+      id: id
+      dir: directory
+      created: created
+      updated: updated
+      title: title
+    prompt_args:
+    - --prompt
+    - '{prompt}'
+    yolo_args:
+    - --auto
+    acp:
+      command: kilo
+      args:
+      - acp
+    display_name: Kilo Code CLI
+    vendor: Kilo Code
+    group: Vendor agents
+    icon:
+      glyph: Kc
+      color: '#ca8a04'
+    homepage: https://kilo.ai/docs/cli
+    description: Kilo Code's terminal agent, built on OpenCode. Project MCP servers (KILO_CONFIG) and skills are passed to interactive sessions.
+    install_hint: npm install -g @kilocode/cli
+    sessions_hint: kilo session list
+    source: kilo --help ; https://kilo.ai/docs/cli
+    verified_by: kilo 7.8.1
+    verified_at: '2026-09-27'
+  - name: vibe
+    command: vibe
+    args:
+    - --trust
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    sessions:
+      files:
+      - $VIBE_HOME/logs/session/session_*/meta.json
+      - ~/.vibe/logs/session/session_*/meta.json
+      whole: true
+      id: session_id
+      dir: origin_directory
+      created: start_time
+      updated: bumped_at
+      title: title
+    prompt_arg: true
+    yolo_args:
+    - --auto-approve
+    acp:
+      command: vibe-acp
+    display_name: Mistral Vibe
+    vendor: Mistral AI
+    group: Vendor agents
+    icon:
+      glyph: V
+      color: '#fa520f'
+    homepage: https://github.com/mistralai/mistral-vibe
+    description: Mistral's terminal agent. There is no model flag (the model is VIBE_ACTIVE_MODEL or its config). ACP is the separate `vibe-acp` binary installed alongside it. `--trust` trusts the directory for that run only.
+    install_hint: 'curl -LsSf https://mistral.ai/vibe/install.sh | bash  (or: uv tool install mistral-vibe)'
+    sessions_hint: '`vibe --resume` opens a picker'
+    source: vibe --help ; https://github.com/mistralai/mistral-vibe
+    verified_by: vibe 2.25.8
+    verified_at: '2026-09-27'
+  - name: rovodev
+    command: acli
+    args:
+    - rovodev
+    - run
+    resume_args:
+    - --restore
+    resume_id_args:
+    - --restore
+    - '{id}'
+    yolo_args:
+    - --yolo
+    task:
+      args:
+      - rovodev
+      - run
+      prompt_template: '{prompt}'
+      output_mode: plain
+      permission_args:
+        bypassPermissions:
+        - --yolo
+    display_name: Rovo Dev CLI
+    vendor: Atlassian
+    group: Vendor agents
+    icon:
+      glyph: R
+      color: '#0052cc'
+    homepage: https://support.atlassian.com/rovo/docs/install-and-run-rovo-dev-cli-on-your-device/
+    description: Atlassian's agent, run as `acli rovodev run`. A positional instruction runs once and exits, so the opening message is typed in. Model choice is the /models command. Needs a Rovo Dev API token; its --help is not readable before login, so flags come from Atlassian's command reference.
+    install_hint: 'install the Atlassian CLI (acli): https://developer.atlassian.com/cloud/acli/guides/install-acli/ , then acli rovodev auth login'
+    sessions_hint: /sessions inside Rovo Dev
+    source: https://support.atlassian.com/rovo/docs/rovo-dev-cli-commands/
+    verified_by: docs
+    verified_at: '2026-09-27'
+  - name: codebuff
+    command: codebuff
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --continue
+    - '{id}'
+    prompt_arg: true
+    display_name: Codebuff
+    vendor: Codebuff
+    group: Vendor agents
+    icon:
+      glyph: Cb
+      color: '#65a30d'
+    homepage: https://www.codebuff.com/docs/help/quick-start
+    description: 'Codebuff''s terminal agent. Interactive only: no model flag (`--lite`/`--max` pick a tier), no auto-approve flag, no headless or ACP mode.'
+    install_hint: npm install -g codebuff
+    source: codebuff --help
+    verified_by: codebuff 1.0.688
+    verified_at: '2026-09-27'
+  - name: command-code
+    command: command-code
+    args:
+    - --trust
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    fork_args:
+    - --resume
+    - '{id}'
+    - --fork-session
+    prompt_arg: true
+    yolo_args:
+    - --yolo
+    task:
+      prompt_template: -p {prompt}
+      output_mode: plain
+      permission_args:
+        acceptEdits:
+        - --permission-mode
+        - accept-edits
+        bypassPermissions:
+        - --yolo
+        plan:
+        - --permission-mode
+        - plan
+    display_name: Command Code
+    vendor: Command Code
+    group: Vendor agents
+    icon:
+      glyph: Cm
+      color: '#475569'
+    homepage: https://commandcode.ai/docs/quickstart
+    description: Command Code's terminal agent. Launch passes `--trust` so the first-run trust prompt does not swallow the opening message. No ACP mode.
+    install_hint: npm i -g command-code
+    sessions_hint: '`command-code --resume` opens a picker; /session-file shows the current id'
+    source: command-code --help
+    verified_by: command-code 1.66.0
+    verified_at: '2026-09-27'
+  - name: autohand
+    command: autohand
+    model_flag: --model
+    resume_id_args:
+    - resume
+    - '{id}'
+    fork_args:
+    - --fork
+    - '{id}'
+    yolo_args:
+    - --unrestricted
+    acp:
+      command: autohand
+      args:
+      - --acp
+    display_name: Autohand Code
+    vendor: Autohand
+    group: Vendor agents
+    icon:
+      glyph: Ah
+      color: '#9333ea'
+    homepage: https://github.com/autohandai/code-cli
+    description: Autohand's terminal agent. A positional prompt runs once and exits, so the opening message is typed in. `autohand resume` without an id opens a picker, so there is no resume-last.
+    install_hint: 'curl -fsSL https://autohand.ai/install.sh | bash  (or: npm i -g autohand-cli)'
+    sessions_hint: '`autohand resume` opens the project picker'
+    source: autohand --help ; https://github.com/autohandai/code-cli
+    verified_by: autohand 0.9.8
+    verified_at: '2026-09-27'
+  - name: zcode
+    command: zcode
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    yolo_args:
+    - --mode
+    - yolo
+    task:
+      prompt_template: --prompt {prompt}
+      output_mode: plain
+      permission_args:
+        acceptEdits:
+        - --mode
+        - edit
+        bypassPermissions:
+        - --mode
+        - yolo
+        plan:
+        - --mode
+        - plan
+    display_name: ZCode
+    vendor: Z.ai
+    group: Vendor agents
+    icon:
+      glyph: Z
+      color: '#2563eb'
+    homepage: https://zcode.z.ai/en/docs
+    description: Z.ai's agent. Z.ai publishes only the desktop app; its bundled runtime (0.16.9) has these flags but no terminal UI, and no standalone `zcode` install is documented. Add this only if you already have a `zcode` CLI with its TUI. No model flag or ACP mode.
+    install_hint: no standalone CLI is published — see https://zcode.z.ai/en/docs/install
+    sessions_hint: /resume inside ZCode (ids look like sess_…)
+    source: zcode --help from the ZCode 3.14.3 AppImage runtime ; https://zcode.z.ai/en/docs
+    verified_by: zcode 0.16.9 (desktop bundle)
+    unverified:
+    - command
+    - install_hint
+    verified_at: '2026-09-27'
+  - name: pi
+    command: pi
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --session
+    - '{id}'
+    fork_args:
+    - --fork
+    - '{id}'
+    sessions:
+      files:
+      - $PI_CODING_AGENT_SESSION_DIR/*/*.jsonl
+      - $PI_CODING_AGENT_DIR/sessions/*/*.jsonl
+      - ~/.pi/agent/sessions/*/*.jsonl
+      header: session
+      id: id
+      dir: cwd
+      created: timestamp
+    prompt_arg: true
+    task:
+      prompt_template: -p {prompt}
+      output_mode: plain
+      permission_args:
+        plan:
+        - --tools
+        - read,grep,find,ls
+    display_name: Pi
+    vendor: pi.dev
+    group: Open source & community
+    icon:
+      glyph: π
+      color: '#44403c'
+    homepage: https://pi.dev
+    description: Minimal open-source agent. Pi has no approval prompts at all, so there is nothing for yolo to switch off; plan-mode tasks restrict it to read-only tools. No MCP by design, no ACP.
+    install_hint: npm install -g @mariozechner/pi-coding-agent
+    sessions_hint: session files under ~/.pi/agent/sessions/; --session takes a partial UUID
+    source: pi --help ; @mariozechner/pi-coding-agent README
+    verified_by: pi 0.73.1
+    verified_at: '2026-09-27'
+  - name: omp
+    command: omp
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    sessions:
+      files:
+      - ~/.omp/agent/sessions/*/*.jsonl
+      header: session
+      id: id
+      dir: cwd
+      created: timestamp
+    prompt_arg: true
+    yolo_args:
+    - --auto-approve
+    acp:
+      command: omp
+      args:
+      - acp
+    display_name: oh-my-pi
+    vendor: omp.sh
+    group: Open source & community
+    icon:
+      glyph: ω
+      color: '#57534e'
+    homepage: https://omp.sh
+    description: Batteries-included fork of Pi (`omp`), with approvals, MCP and an ACP mode. Runs on Bun.
+    install_hint: curl -fsSL https://omp.sh/install | sh
+    sessions_hint: session files under ~/.omp/agent/sessions/; --resume takes an id prefix or path
+    source: omp --help ; https://omp.sh
+    verified_by: omp 18.3.4
+    verified_at: '2026-09-27'
+  - name: hermes
+    command: hermes
+    args:
+    - chat
+    model_flag: -m
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    sessions:
+      sqlite:
+      - $HERMES_HOME/state.db
+      - ~/.hermes/state.db
+      query: SELECT id, cwd, started_at, last_activity_at, title FROM sessions WHERE coalesce(archived, 0) = 0 AND coalesce(hidden, 0) = 0
+      id: id
+      dir: cwd
+      created: started_at
+      updated: last_activity_at
+      title: title
+    prompt_args:
+    - -q
+    - '{prompt}'
+    yolo_args:
+    - --yolo
+    acp:
+      command: hermes
+      args:
+      - acp
+    display_name: Hermes Agent
+    vendor: Nous Research
+    group: Open source & community
+    icon:
+      glyph: H
+      color: '#b45309'
+    homepage: https://hermes-agent.nousresearch.com/docs/
+    description: Nous Research's agent. `hermes chat -q` seeds an interactive session on a terminal. Its `-z` one-shot mode bypasses every approval, so background tasks use ACP instead.
+    install_hint: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+    sessions_hint: hermes sessions list (the id is also printed on exit)
+    source: hermes --help ; hermes chat --help
+    verified_by: hermes 0.21.5
+    verified_at: '2026-09-27'
+  - name: openclaude
+    command: openclaude
+    model_flag: --model
+    resume_args:
+    - --continue
+    resume_id_args:
+    - --resume
+    - '{id}'
+    fork_args:
+    - --resume
+    - '{id}'
+    - --fork-session
+    session_id_args:
+    - --session-id
+    - '{id}'
+    fork_session_id: true
+    sessions:
+      files:
+      - ~/.openclaude/projects/{slug}/*.jsonl
+      id: '@stem'
+      dir: cwd
+      created: timestamp
+    prompt_arg: true
+    trust_command: "python3 - {dir} <<'ADKTRUST'\nimport json, os, sys, tempfile\nconfig = os.environ.get(\"OPENCLAUDE_CONFIG_DIR\")\npath = os.path.join(os.path.expanduser(config), \".openclaude.json\") if config else os.path.expanduser(\"~/.openclaude.json\")\nos.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)\ntry:\n    with open(path) as f:\n        doc = json.load(f)\nexcept Exception:\n    doc = {}\nentry = doc.setdefault(\"projects\", {}).setdefault(sys.argv[1], {})\nif entry.get(\"hasTrustDialogAccepted\") is not True:\n    entry[\"hasTrustDialogAccepted\"] = True\n    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or \".\")\n    with os.fdopen(fd, \"w\") as f:\n        json.dump(doc, f, indent=2)\n    os.replace(tmp, path)\nADKTRUST"
+    yolo_args:
+    - --dangerously-skip-permissions
+    task:
+      args:
+      - --output-format
+      - stream-json
+      - --verbose
+      prompt_template: -p {prompt}
+      output_mode: claude
+      permission_args:
+        acceptEdits:
+        - --permission-mode
+        - acceptEdits
+        bypassPermissions:
+        - --permission-mode
+        - bypassPermissions
+        plan:
+        - --permission-mode
+        - plan
+    display_name: OpenClaude
+    vendor: Gitlawb
+    group: Open source & community
+    icon:
+      glyph: Oc
+      color: '#c2410c'
+    homepage: https://openclaude.gitlawb.com/
+    description: Open-source fork of Claude Code that talks to other providers (`--provider`). Same flags and stream JSON as Claude Code; project MCP servers are not yet translated for it.
+    install_hint: npm install -g @gitlawb/openclaude
+    source: openclaude --help
+    verified_by: openclaude 0.31.0
+    verified_at: '2026-09-27'
+  - name: claude-code-acp
+    command: claude-code-acp
+    acp:
+      command: npx
+      args:
+      - -y
+      - '@agentclientprotocol/claude-agent-acp'
+    display_name: Claude Code (ACP)
+    vendor: Agent Client Protocol
+    group: ACP adapters
+    icon:
+      glyph: C
+      color: '#d97757'
+    homepage: https://github.com/agentclientprotocol/claude-agent-acp
+    description: The ACP adapter for Claude Code (formerly Zed's @zed-industries/claude-code-acp, now deprecated) — needs a Claude Code login exactly like the built-in claude agent. For background tasks only. See docs/acp.md.
+    install_hint: needs npx on the launch host; no separate global install
+    source: npm @agentclientprotocol/claude-agent-acp ; docs/acp.md
+    verified_by: claude-agent-acp 0.81.2
+    verified_at: '2026-09-27'
+  - name: codex-acp
+    command: codex-acp
+    acp:
+      command: npx
+      args:
+      - -y
+      - '@agentclientprotocol/codex-acp'
+    display_name: Codex (ACP)
+    vendor: Agent Client Protocol
+    group: ACP adapters
+    icon:
+      glyph: Cx
+      color: '#404040'
+    homepage: https://github.com/agentclientprotocol/codex-acp
+    description: The ACP adapter for Codex (formerly Zed's @zed-industries/codex-acp, now deprecated) — ships a platform-specific native binary. For background tasks only. See docs/acp.md.
+    install_hint: needs npx on the launch host; no separate global install
+    source: npm @agentclientprotocol/codex-acp ; docs/acp.md
+    verified_by: codex-acp 1.13.1
+    verified_at: '2026-09-27'
+  - name: gemini-acp
+    command: gemini
+    acp:
+      command: gemini
+      args:
+      - --experimental-acp
+    display_name: Gemini CLI (ACP)
+    vendor: Google
+    group: ACP adapters
+    icon:
+      glyph: Ge
+      color: '#4285f4'
+    homepage: https://github.com/google-gemini/gemini-cli
+    description: Gemini CLI's own ACP mode — gemini itself must be installed (it is also lectern's built-in `gemini` agent). 0.61 calls the flag deprecated in favour of `--acp`; both still answer.
+    install_hint: npm install -g @google/gemini-cli
+    source: gemini --help ; docs/acp.md
+    verified_by: gemini 0.61.0
+    verified_at: '2026-09-27'

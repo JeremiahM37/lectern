@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "internal/workflows/bundled/spec-kit/workflow.py"
+HELPER = ROOT / "internal/pluginpkg/bundled/spec-kit/workflow/workflow.py"
 spec = importlib.util.spec_from_file_location("speckit_adapter", HELPER)
 adapter = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True

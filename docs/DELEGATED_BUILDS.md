@@ -9,7 +9,7 @@ and the worker's report once, then accepts or sends one round of findings back.
 The workflow is adapted from
 [astra-flash-orchestrator](https://github.com/ethanplusai/astra-flash-orchestrator)
 (MIT; its skill, references and templates are vendored unmodified under
-`internal/workflows/bundled/delegate/upstream/`). What Lectern changes is the
+`internal/pluginpkg/bundled/delegate/workflow/upstream/`). What Lectern changes is the
 transport. There the worker is a native Codex subagent reached through a
 router; here it is a **task**, which is what Lectern already knew how to run:
 
