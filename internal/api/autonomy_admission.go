@@ -95,25 +95,24 @@ func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 		for _, j := range a.Jobs {
 			if r.URL.Path == "/prerequisite" && j.ID == jobID {
 				w.Header().Set("Cache-Control", "no-store")
-				if j.PythonTestRecovery != nil {
-					value := map[string]any{"python_test_runtime": j.PythonTestRecovery}
+				if j.PythonTestRecovery == nil && j.PythonRecovery == nil && j.NodeRecovery == nil {
+					writeJSON(w, http.StatusOK, j.Recovery)
+				} else {
+					value := map[string]any{}
 					if j.Recovery != nil {
 						raw, _ := json.Marshal(j.Recovery)
 						_ = json.Unmarshal(raw, &value)
 					}
+					if j.PythonTestRecovery != nil {
+						value["python_test_runtime"] = j.PythonTestRecovery
+					}
 					if j.PythonRecovery != nil {
 						value["python"] = j.PythonRecovery
 					}
+					if j.NodeRecovery != nil {
+						value["node"] = j.NodeRecovery
+					}
 					writeJSON(w, http.StatusOK, value)
-				} else if j.PythonRecovery == nil {
-					writeJSON(w, http.StatusOK, j.Recovery)
-				} else {
-					// Keep the existing top-level Go receipt contract while exposing
-					// Python evidence belonging to this same socket-bound worker.
-					writeJSON(w, http.StatusOK, struct {
-						*autoRecoveryReceipt
-						Python *autoPythonReceipt `json:"python"`
-					}{j.Recovery, j.PythonRecovery})
 				}
 				return
 			}

@@ -30,6 +30,7 @@ type autoExpertRecoveryLedger struct {
 	Probes   map[string]*autoExpertProbeLease       `json:"probes"`
 }
 type autoExpertRecoveryPin struct {
+	NodeSource             *autoExpertNodeSource      `json:"node_source,omitempty"`
 	PrivateIntegration     *autoPrivateIntegrationPin `json:"private_integration,omitempty"`
 	PrivateSourceAttemptID string                     `json:"private_source_attempt_id,omitempty"`
 	PrivateCandidate       *autoPrivateCandidate      `json:"private_candidate,omitempty"`
@@ -52,33 +53,35 @@ type autoExpertRecoveryPin struct {
 // not an additional worker report format. ReceiptSHA authenticates the full
 // runner envelope (including its mount policy and resource limits).
 type autoExpertProbeReceipt struct {
-	Reason              string    `json:"reason,omitempty"`
-	Executed            *bool     `json:"executed,omitempty"`
-	RequestKey          string    `json:"request_key"`
-	Profile             string    `json:"profile"`
-	ReceiptSHA          string    `json:"receipt_sha256"`
-	ProbeID             string    `json:"probe_id"`
-	ProgressKey         string    `json:"progress_key"`
-	SourceSHA           string    `json:"source_archive_sha256"`
-	RootAcceptanceSHA   string    `json:"root_acceptance_sha256"`
-	SourceAcceptanceSHA string    `json:"source_acceptance_sha256"`
-	SourceTreeSHA       string    `json:"source_tree_sha256"`
-	ScriptSHA           string    `json:"script_sha256"`
-	FixturesSHA         string    `json:"fixtures_sha256"`
-	ArgvSHA             string    `json:"argv_sha256"`
-	RuntimeSHA          string    `json:"runtime_digest"`
-	PolicySHA           string    `json:"launch_policy_sha256"`
-	OutputSHA           string    `json:"output_manifest_sha256"`
-	OwnerJob            string    `json:"owner_job"`
-	OwnerTask           int64     `json:"owner_task"`
-	Role                string    `json:"role"`
-	StartedAt           time.Time `json:"started_at"`
-	EndedAt             time.Time `json:"ended_at"`
-	ExitCode            *int      `json:"exit_code"`
-	State               string    `json:"state"`
-	Truncated           bool      `json:"truncated"`
+	Runtime             *autoExpertProbeRuntime `json:"runtime,omitempty"`
+	Reason              string                  `json:"reason,omitempty"`
+	Executed            *bool                   `json:"executed,omitempty"`
+	RequestKey          string                  `json:"request_key"`
+	Profile             string                  `json:"profile"`
+	ReceiptSHA          string                  `json:"receipt_sha256"`
+	ProbeID             string                  `json:"probe_id"`
+	ProgressKey         string                  `json:"progress_key"`
+	SourceSHA           string                  `json:"source_archive_sha256"`
+	RootAcceptanceSHA   string                  `json:"root_acceptance_sha256"`
+	SourceAcceptanceSHA string                  `json:"source_acceptance_sha256"`
+	SourceTreeSHA       string                  `json:"source_tree_sha256"`
+	ScriptSHA           string                  `json:"script_sha256"`
+	FixturesSHA         string                  `json:"fixtures_sha256"`
+	ArgvSHA             string                  `json:"argv_sha256"`
+	RuntimeSHA          string                  `json:"runtime_digest"`
+	PolicySHA           string                  `json:"launch_policy_sha256"`
+	OutputSHA           string                  `json:"output_manifest_sha256"`
+	OwnerJob            string                  `json:"owner_job"`
+	OwnerTask           int64                   `json:"owner_task"`
+	Role                string                  `json:"role"`
+	StartedAt           time.Time               `json:"started_at"`
+	EndedAt             time.Time               `json:"ended_at"`
+	ExitCode            *int                    `json:"exit_code"`
+	State               string                  `json:"state"`
+	Truncated           bool                    `json:"truncated"`
 }
 type autoExpertProbeLease struct {
+	Runtime             *autoExpertProbeRuntime `json:"runtime,omitempty"`
 	StopAttempts        int                     `json:"stop_attempts,omitempty"`
 	StopRequestedAt     time.Time               `json:"stop_requested_at,omitempty"`
 	StopConfirmed       bool                    `json:"stop_confirmed,omitempty"`
@@ -220,6 +223,9 @@ func (s *Server) pinAutoExpertRecovery(ctx context.Context, a *autoRecord, proje
 		return nil, e
 	}
 	p := &autoExpertRecoveryPin{RootTaskID: root, ProjectID: project, SourceTaskID: source, ReviewTaskID: rid, SourceJob: j.ID, ReviewJob: reviewer.ID, SourceSHA: sourceSHA, ReviewSHA: reviewSHA, Acceptance: original, SourceAcceptance: selected, AcceptanceSHA: autoSHA([]byte(store.J(original))), SourceAcceptanceSHA: autoSHA([]byte(store.J(selected)))}
+	if e := autoPinExpertNodeSource(p, j); e != nil {
+		return nil, e
+	}
 	p.Key = autoExpertPinKey(p)
 	l := autoExpertLedger(a)
 	if old := l.Pins[p.Key]; old != nil {
@@ -344,6 +350,9 @@ func autoRecordExpertProbe(a *autoRecord, r autoExpertProbeReceipt) error {
 	pin := a.ExpertRecovery.Pins[lease.ProgressKey]
 	if pin == nil || r.ProgressKey != pin.Key || r.SourceSHA != pin.SourceSHA || r.RootAcceptanceSHA != pin.AcceptanceSHA || r.SourceAcceptanceSHA != pin.SourceAcceptanceSHA || r.OwnerJob != lease.OwnerJob || r.OwnerTask != lease.OwnerTask || r.Role != lease.Role || r.RequestKey != lease.RequestKey || r.Profile != "ordinary180" {
 		return errors.New("probe receipt owner/source binding mismatch")
+	}
+	if err := autoExpertNodeReceiptRuntime(lease, r); err != nil {
+		return err
 	}
 	if r.State != "exited" {
 		allowed := map[string]bool{"failed": true, "timeout": true, "output_limit": true, "cancelled": true, "interrupted": true, "unavailable": true}

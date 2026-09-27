@@ -324,6 +324,7 @@ func autoQueueProgressResume(a *autoRecord, old *autoJob, id, sha string) (*auto
 	j.LaunchRetryPaid = false
 	j.DocumentationStopped = false
 	autoPreparePythonResume(old, &j)
+	autoPrepareNodeResume(old, &j)
 	j.DocumentationCopies = []autoDocumentationCopy{{Command: "copy-archive-resume", SourceJob: old.ID, SHA: sha}}
 	if old.ReportError != "" {
 		j.ReportRepairs++

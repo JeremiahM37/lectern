@@ -78,6 +78,9 @@ func (s *Server) pinAutoExpertPrivate(ctx context.Context, a *autoRecord, projec
 		return nil, errors.New("private recovery original approved input changed")
 	}
 	pin := &autoExpertRecoveryPin{PrivateIntegration: base, PrivateSourceAttemptID: v.ID, PrivateCandidate: v.Candidate, RootTaskID: rootTask, ProjectID: project, SourceTaskID: source, ReviewTaskID: rid, SourceJob: j.ID, ReviewJob: review.ID, SourceSHA: sourceSHA, ReviewSHA: reviewSHA, Acceptance: original, SourceAcceptance: selected, AcceptanceSHA: autoSHA([]byte(store.J(original))), SourceAcceptanceSHA: autoSHA([]byte(store.J(selected)))}
+	if e := autoPinExpertNodeSource(pin, j); e != nil {
+		return nil, e
+	}
 	pin.Key = autoExpertPinKey(pin)
 	raw, _ := json.Marshal(pin)
 	var frozen autoExpertRecoveryPin

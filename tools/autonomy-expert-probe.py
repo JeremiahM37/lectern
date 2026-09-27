@@ -90,9 +90,7 @@ def validate_request(job,probe,raw):
         data=base64.b64decode(item['content'],validate=True);total+=len(data)
         if total>512*1024:raise ValueError('fixtures exceed 512 KiB')
     runtime=request['runtime']
-    if not isinstance(runtime,dict) or set(runtime)!={'python_bundle_key','python_input_key','browser_key','python_test_key'}:raise ValueError('invalid probe runtime envelope')
-    if any(v!='' and not hexkey(v) for v in runtime.values()):raise ValueError('invalid probe runtime identity')
-    if bool(runtime['python_bundle_key'])!=bool(runtime['python_input_key']) or (runtime['python_bundle_key'] and runtime['python_test_key']) or (runtime['browser_key'] and not runtime['python_bundle_key']):raise ValueError('conflicting probe runtime selection')
+    validate_runtime(runtime)
     return request,key
 
 def request_for(job,probe):
@@ -182,6 +180,7 @@ def start(job,probe):
         if R.status(job)['state']!='running':return dict(value,state='waiting',reason='admitted auditor is not running')
         if shutil.disk_usage(R.ROOT).free<24*1024**3:return dict(value,state='waiting',reason='probe requires storage headroom')
         helper=R.python_freeze_helper(stage,R.EXPERT_PROBE_HELPER)
+        freeze_node_tools(stage,request)
         launcher=freeze_launcher(stage)
         value.update(state='preparing');write(stage/'receipt.json',value)
         profile=PROFILE[request['profile']]
@@ -222,6 +221,67 @@ def stop(job,probe):
             else:seal_receipt(stage,dict(old,state='cancelled',executed=False,reason='probe preparation stopped',charged_ms=0))
     return {'state':'stopped','probe_id':probe}
 
+NODE_RUNTIME_FIELDS={'node_bundle_key','node_input_key','node_lock_sha256','node_runtime_digest'}
+PYTHON_RUNTIME_FIELDS={'python_bundle_key','python_input_key','browser_key','python_test_key'}
+
+def validate_runtime(runtime):
+    if not isinstance(runtime,dict) or not PYTHON_RUNTIME_FIELDS <= set(runtime) or set(runtime)-PYTHON_RUNTIME_FIELDS-NODE_RUNTIME_FIELDS:raise ValueError('invalid probe runtime envelope')
+    if any(not isinstance(v,str) or (v!='' and not hexkey(v)) for v in runtime.values()):raise ValueError('invalid probe runtime identity')
+    supplied=set(runtime)&NODE_RUNTIME_FIELDS
+    if supplied and (supplied!=NODE_RUNTIME_FIELDS or not all(runtime[k] for k in NODE_RUNTIME_FIELDS)):raise ValueError('incomplete Node runtime selection')
+    if bool(runtime['python_bundle_key'])!=bool(runtime['python_input_key']) or (runtime['python_bundle_key'] and runtime['python_test_key']) or (runtime['browser_key'] and not runtime['python_bundle_key']):raise ValueError('conflicting probe runtime selection')
+
+NODE_HELPER_FILES=('autonomy-node-runtime.py','node-project-dependencies.py','node-dependencies.py')
+
+def frozen_node_tools(stage):
+    root=stage/'node-tools'
+    private(root)
+    data=json.loads(read(root/'manifest.json',16384))
+    if set(data)!=set(NODE_HELPER_FILES):raise ValueError('incomplete frozen Node test helper inventory')
+    for name,digest in data.items():
+        if not hexkey(digest) or sha(read(root/name,1024**2))!=digest:raise ValueError('Node test helper changed before import')
+    return root,data
+
+def freeze_node_tools(stage,request):
+    if not request.get('runtime',{}).get('node_bundle_key'):return
+    root=stage/'node-tools'
+    if root.exists():frozen_node_tools(stage);return
+    parent=Path(R.NODE_RUNTIME_HELPER).parent
+    contents={}
+    for name in NODE_HELPER_FILES:
+        path=parent/name;info=R.regular(path)
+        if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>1024**2:raise ValueError('untrusted Node test helper source')
+        contents[name]=path.read_bytes()
+    if any((parent/name).read_bytes()!=raw for name,raw in contents.items()):raise ValueError('Node helper source changed during snapshot')
+    import tempfile
+    temporary=Path(tempfile.mkdtemp(prefix='.node-tools-',dir=stage))
+    try:
+        rows={}
+        for name,raw in contents.items():
+            with (temporary/name).open('xb') as f:f.write(raw);f.flush();os.fsync(f.fileno())
+            (temporary/name).chmod(0o400);rows[name]=sha(raw)
+        with (temporary/'manifest.json').open('xb') as f:f.write(canonical(rows));f.flush();os.fsync(f.fileno())
+        (temporary/'manifest.json').chmod(0o400)
+        fd=os.open(temporary,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+        os.rename(temporary,root)
+        fd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    finally:
+        if temporary.exists():shutil.rmtree(temporary)
+    frozen_node_tools(stage)
+
+def node_runtime_for(stage,request):
+    desired=request['runtime']
+    if not desired.get('node_bundle_key'):return None
+    validate_runtime(desired)
+    root,identities=frozen_node_tools(stage)
+    module=R.python_helper(root/'autonomy-node-runtime.py')
+    project,tooling=module.lookup_by_keys(R,desired['node_bundle_key'],desired['node_input_key'],desired['node_lock_sha256'],desired['node_runtime_digest'],full=True)
+    return project,tooling,identities
+
 def runtime_for(job,request):
     desired=request['runtime'];bundle=browser=None
     if desired['python_bundle_key']:
@@ -257,6 +317,10 @@ def prepare(stage,request):
 
 def sandbox_command(request,bundle=False,browser=False):
     cmd=['/usr/bin/bwrap','--die-with-parent','--new-session','--unshare-all','--cap-drop','ALL','--clearenv','--tmpfs','/','--ro-bind','/usr','/usr']
+    # Host administration commands may contain configuration credentials. Node
+    # comes from the verified /opt runtime, never these host-local directories.
+    for path in ('/usr/local/bin','/usr/local/sbin','/usr/local/etc'):
+        if Path(path).exists():cmd+=['--tmpfs',path]
     for path in ('/lib','/lib64','/bin'):
         if Path(path).exists():cmd+=['--ro-bind',path,path]
     cmd+=['--proc','/proc','--dev','/dev','--bind','/tmp/expert-scratch/tmp','/dev/shm','--dir','/etc','--dir','/home',
@@ -267,17 +331,27 @@ def sandbox_command(request,bundle=False,browser=False):
           '--setenv','LANG','C.UTF-8']
     if bundle:cmd+=R.python_project_mount(Path('/tmp/expert-runtime'))
     if browser:cmd+=R.browser_runtime_mount(Path('/tmp/expert-browser'))
+    if request['runtime'].get('node_bundle_key'):
+        cmd+=['--ro-bind','/tmp/expert-node-project','/opt/node-project','--ro-bind','/tmp/expert-node-tooling','/opt/node',
+              '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:/usr/bin:/bin',
+              '--setenv','NODE_PATH','/opt/node-project/node_modules','--setenv','NPM_CONFIG_OFFLINE','true',
+              '--setenv','NPM_CONFIG_CACHE','/tmp/node-cache','--setenv','NPM_CONFIG_USERCONFIG','/home/agent/.npmrc',
+              '--setenv','NPM_CONFIG_GLOBALCONFIG','/tmp/global.npmrc']
     # Normal site initialization is deliberately AFTER isolation, matching the
     # verified runtime. Source precedes site; absolute entrypoint is frozen.
     return cmd+['--remount-ro','/','--','/usr/bin/python3','/probe/main.py',*request['argv']]
 
-def mount_inputs(stage,request,bundle,browser):
+def mount_inputs(stage,request,bundle,browser,node=None):
     if ctypes.CDLL(None,use_errno=True).unshare(0x00020000)!=0:raise OSError(ctypes.get_errno(),'probe mount namespace unavailable')
     R.run(['/usr/bin/mount','--make-rprivate','/'])
     R.run(['/usr/bin/mount','-t','tmpfs','-o','mode=0755,size=16m,nosuid,nodev','expert-stage','/tmp'])
     sources={'expert-source':stage/'source','expert-inputs':stage/'inputs'}
     if bundle:sources['expert-runtime']=bundle
     if browser:sources['expert-browser']=browser
+    if node:
+        sources['expert-node-project']=node[0]/'payload/project'
+        sources['expert-node-cache']=node[0]/'payload/cache'
+        sources['expert-node-tooling']=node[1]/'runtime'
     for name,source in sources.items():
         target=Path('/tmp')/name;target.mkdir();R.run(['/usr/bin/mount','--bind',str(source),str(target)])
     scratch=Path('/tmp/expert-scratch');scratch.mkdir()
@@ -285,6 +359,21 @@ def mount_inputs(stage,request,bundle,browser):
     os.chown(scratch,R.UID,R.GID)
     for name in ('tmp','home'):
         directory=scratch/name;directory.mkdir(mode=0o700);os.chown(directory,R.UID,R.GID)
+    if node:
+        # Genuine npm/npx discovers installed packages through cwd ancestors.
+        # Expose the selected immutable tree to scratch and copied projects;
+        # npm's registry cache alone need not contain public-origin metadata.
+        modules=scratch/'node_modules'
+        modules.symlink_to('/opt/node-project/node_modules',target_is_directory=True)
+        os.chown(modules,R.UID,R.GID,follow_symlinks=False)
+        cache=scratch/'tmp/node-cache'
+        shutil.copytree('/tmp/expert-node-cache',cache,symlinks=True)
+        for path in (cache,*cache.rglob('*')):
+            os.chown(path,R.UID,R.GID,follow_symlinks=False)
+            if not path.is_symlink():path.chmod(0o700 if path.is_dir() else 0o600)
+        config=scratch/'home/.npmrc'
+        config.write_text('offline=true\ncache=/tmp/node-cache\naudit=false\nfund=false\nupdate-notifier=false\n')
+        config.chmod(0o600);os.chown(config,R.UID,R.GID)
 
 def members(job,probe):
     path=Path('/sys/fs/cgroup/system.slice')/unit(job,probe)/'cgroup.procs'
@@ -369,10 +458,13 @@ def execute(job,probe):
     try:
         if not fresh_owner(job):raise RuntimeError('auditor heartbeat is not fresh')
         tree,script,fixtures,argv=prepare(stage,request)
+        node=node_runtime_for(stage,request)
         bundle,browser,runtime=runtime_for(job,request)
         policy=sha(canonical({'schema_version':1,'helper_sha256':R.digest_file(stage/'helper.py'),'runner_sha256':R.digest_file(Path(R.__file__)),'launcher_sha256':R.digest_file(stage/'entry.py'),'profile':PROFILE[request['profile']],'entrypoint':'python3 /probe/main.py','source_mount':'readonly /source; /work alias','network':'unshared-no-socket'}))
         value.update(source_tree_sha256=tree,script_sha256=script,fixtures_sha256=fixtures,argv_sha256=argv,runtime_digest=runtime,launch_policy_sha256=policy,runtime=request['runtime'])
-        mount_inputs(stage,request,bundle,browser)
+        if node:policy=sha(canonical({'base':policy,'node_helpers':node[2]}))
+        value['launch_policy_sha256']=policy
+        mount_inputs(stage,request,bundle,browser,node)
         result=capture(job,probe,stage,request,bundle,browser,value)
         return 0 if result['state']=='exited' else 1
     except (ValueError,FileNotFoundError,R.PythonUnsupported) as exc:

@@ -43,6 +43,10 @@ func autoDecodeBoundPrivateTestReceipt(raw []byte, integration string, lease *au
 		if len(lease.RequestRaw) == 0 || json.Unmarshal(lease.RequestRaw, &request) != nil || evidence.Runtime == nil || request.Runtime != *evidence.Runtime {
 			return r, errors.New("private test executed runtime does not match reserved request")
 		}
+		r.NodeBundleKey = evidence.Runtime.NodeBundle
+		r.NodeInputKey = evidence.Runtime.NodeInput
+		r.NodeLockSHA = evidence.Runtime.NodeLock
+		r.NodeRuntimeDigest = evidence.Runtime.NodeRuntime
 		r.PythonBundleKey = evidence.Runtime.PythonBundle
 		r.PythonInputKey = evidence.Runtime.PythonInput
 		r.BrowserKey = evidence.Runtime.Browser

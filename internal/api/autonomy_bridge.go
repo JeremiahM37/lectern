@@ -202,13 +202,13 @@ func (s *Server) ensureAutoBridges(j *autoJob) error {
 			}
 		}
 	}()
-	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch, "python-dependency.sock": autoPythonDependencyBroker()} {
+	for name, handler := range map[string]http.HandlerFunc{"network.sock": autoProxy, "bridge.sock": s.autoJobReadBridge(j.ID), "dependency.sock": autoDependencyFetch, "python-dependency.sock": autoPythonDependencyBroker(), "node-dependency.sock": autoNodeDependencyBroker()} {
 		dir := filepath.Join(autoRoot, j.ID, "bridges")
 		if e := os.MkdirAll(dir, 0755); e != nil {
 			return e
 		}
 		path := filepath.Join(dir, name)
-		if name == "dependency.sock" || name == "python-dependency.sock" {
+		if name == "dependency.sock" || name == "python-dependency.sock" || name == "node-dependency.sock" {
 			path = filepath.Join(autoRoot, j.ID, name)
 		}
 		if st, e := os.Lstat(path); e == nil {

@@ -36,3 +36,21 @@ func TestRequirementSchemaRejectsUnboundedAndMalformedRequests(t *testing.T) {
 		t.Fatal("invalid capability")
 	}
 }
+
+func TestNodeTypedRequirementPreservesNormalReportLifecycle(t *testing.T) {
+	s, _ := NewState("2026-09-26")
+	s.Phase = Build
+	s.Items = []Proposal{{ProjectID: 1, Title: "actual Node test"}}
+	s.RegisterTask("builder", 2)
+	r := BuildReport{Outcome: "blocked", Summary: "MCP executable absent", Evidence: []string{"actual npx failure"}, Requirements: []Requirement{{Capability: "node_packages", SchemaVersion: 1, Requirements: []string{"@playwright/mcp@0.0.80"}, Binaries: []string{"playwright-mcp"}, Condition: "offline_node_available", Evidence: []string{"source exact invocation"}}}}
+	raw, _ := json.Marshal(r)
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	if e := s.ApplyReport(cfg, 2, raw); e != nil {
+		t.Fatal(e)
+	}
+	r.Requirements[0].PackageJSON = string(make([]byte, 513))
+	if e := ValidateRequirements(r.Requirements); e == nil {
+		t.Fatal("unbounded archive path")
+	}
+}

@@ -191,7 +191,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 			a.State = state
 			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
 			j.Status = "prepared"
-			if j.PendingPythonRequest != nil || j.PythonTestNeedsResume {
+			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume {
 				j.Status = "stopped"
 			}
 			a.NextCycleScheduled = false
@@ -217,7 +217,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
-		if job.PendingPythonRequest != nil || job.PythonTestNeedsResume {
+		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume {
 			job.Status = "stopped"
 		}
 		a.NextCycleScheduled = false
@@ -239,7 +239,7 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 	var running int64
 	for _, state := range a.DeferredRuns {
 		for _, id := range state.ActiveTaskIDs() {
-			if j := autoFindJob(a, id); j != nil && ((j.Recovery != nil && j.Recovery.State == "recovering") || (j.PythonRecovery != nil && j.PythonRecovery.State == "recovering")) {
+			if j := autoFindJob(a, id); j != nil && ((j.Recovery != nil && j.Recovery.State == "recovering") || (j.PythonRecovery != nil && j.PythonRecovery.State == "recovering") || (j.NodeRecovery != nil && j.NodeRecovery.State == "recovering")) {
 				running = id
 			}
 		}
@@ -265,6 +265,18 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 					a.Reason = "Python prerequisite recovery: " + err.Error()
 				}
 				if j.PythonRecovery != nil && j.PythonRecovery.State == "recovering" {
+					j.RecoveryCheckAt = now.Add(20 * time.Second)
+				} else {
+					autoRotateColdPrerequisite(a, state, j)
+				}
+				return
+			}
+			if j != nil && !j.RequirementHold && j.Status == "deferred" && j.NodeRequest != nil && (j.NodeRecovery == nil || j.NodeRecovery.State != "verified") && !now.Before(j.RecoveryCheckAt) {
+				j.RecoveryCheckAt = now.Add(5 * time.Minute)
+				if _, err := s.recoverAutoNode(ctx, a, j); err != nil {
+					a.Reason = "Node prerequisite recovery: " + err.Error()
+				}
+				if j.NodeRecovery != nil && j.NodeRecovery.State == "recovering" {
 					j.RecoveryCheckAt = now.Add(20 * time.Second)
 				} else {
 					autoRotateColdPrerequisite(a, state, j)
@@ -324,13 +336,16 @@ func autoDeferredReady(j *autoJob) bool {
 	if j.RequirementHold {
 		return false
 	}
-	if j.PendingPythonRequest != nil {
+	if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil {
 		return true
 	}
-	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil {
+	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil && j.NodeRequest == nil {
 		return false
 	}
 	if j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified" || j.PythonNeedsChange) {
+		return false
+	}
+	if j.NodeRequest != nil && (j.NodeRecovery == nil || j.NodeRecovery.State != "verified" || j.NodeNeedsChange) {
 		return false
 	}
 	return j.Recovery != nil && (j.Recovery.State == "verified" || j.Recovery.State == "not_applicable")

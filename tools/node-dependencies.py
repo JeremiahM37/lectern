@@ -7,6 +7,7 @@ must succeed separately before a bundle can be advertised as usable.
 """
 import base64
 import hashlib
+import gzip
 import io
 import json
 import re
@@ -78,7 +79,7 @@ def registry_tarball(url, name, version):
     # Exact path prevents URL credentials, redirects, queries, encoded traversal,
     # external dependencies and arbitrary endpoints on the registry origin.
     expected = '/' + name + '/-/' + name.split('/')[-1] + '-' + version + '.tgz'
-    if parsed.scheme != 'https' or parsed.netloc != 'registry.npmjs.org' or parsed.path != expected or parsed.query or parsed.fragment:
+    if url != 'https://registry.npmjs.org' + expected or parsed.scheme != 'https' or parsed.netloc != 'registry.npmjs.org' or parsed.path != expected or parsed.query or parsed.fragment:
         raise ValueError('noncanonical public registry tarball')
     return url
 
@@ -129,7 +130,12 @@ def validate_tarball(data, entry):
     names = set()
     package = None
     files = {}
-    with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+    # Bound the entire stream, including PAX headers/padding, before tar parsing.
+    with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+        expanded = compressed.read(MAX_UNPACKED + 1)
+    if len(expanded) > MAX_UNPACKED:
+        raise ValueError('expanded tar stream exceeds limit')
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode='r:') as archive:
         for member in archive:
             name = member.name
             path = PurePosixPath(name)

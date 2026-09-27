@@ -509,7 +509,10 @@ def check_request(data):
   if total>512*1024:raise ValueError('test fixture size limit')
   rows.append({'path':name,'sha256':sha(content),'bytes':len(content)})
  runtime=data.get('runtime')
- if not isinstance(runtime,dict) or set(runtime)!={'python_bundle_key','python_input_key','browser_key','python_test_key'} or any(v!='' and not key(v) for v in runtime.values()):raise ValueError('invalid test runtime')
+ pyfields={'python_bundle_key','python_input_key','browser_key','python_test_key'}
+ nodefields={'node_bundle_key','node_input_key','node_lock_sha256','node_runtime_digest'}
+ if not isinstance(runtime,dict) or not pyfields<=set(runtime) or set(runtime)-pyfields-nodefields or any(not isinstance(v,str) or (v!='' and not key(v)) for v in runtime.values()):raise ValueError('invalid test runtime')
+ if set(runtime)&nodefields and (not nodefields<=set(runtime) or not all(runtime[k] for k in nodefields)):raise ValueError('incomplete Node test runtime')
  if bool(runtime['python_bundle_key'])!=bool(runtime['python_input_key']) or (runtime['python_bundle_key'] and runtime['python_test_key']) or (runtime['browser_key'] and not runtime['python_bundle_key']):raise ValueError('conflicting test runtime')
  return rows
 
@@ -530,13 +533,15 @@ def check_operation(run,stage,data,value):
  for row in data['fixtures']:
   path=inputs/row['path'];path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(base64.b64decode(row['content'],validate=True));path.chmod(0o444)
  freeze_tree(inputs)
+ node=expert.node_runtime_for(stage,data)
  bundle,browser,runtime=expert.runtime_for(data['owner_job'],data)
  value.update(check_id=value['request_sha256'],candidate_receipt_sha256=sealed['receipt_sha256'],candidate_tree_sha256=meta['tree_sha256'],source_tree_sha256=meta['tree_sha256'],runtime_digest=runtime,runtime=data['runtime'],script_sha256=sha(data['script'].encode()),fixtures_sha256=sha(canonical(sorted(rows,key=lambda row:row['path']))),argv_sha256=sha(canonical(data['argv'])),profile='integration600',limits=CHECK_PROFILE,executed=False,projection_status='readonly sealed candidate mounted at /source and /work; behavior coverage requires semantic review')
  value['launch_policy_sha256']=sha(canonical({'driver':R.digest_file(stage/'helper.py'),'expert':R.digest_file(stage/'expert.py'),'runner':R.digest_file(stage/'runner.py'),'profile':CHECK_PROFILE,'candidate':'readonly','network':'unshared-no-socket'}))
  # Shared helper checks its fixed local cancel marker. Attempt-wide generation
  # revocation is also observed on every capture heartbeat, not just launch.
  fresh=expert.fresh_owner;expert.fresh_owner=lambda job:fresh(job) and value['generation']>revoked(run)
- expert.mount_inputs(stage,data,bundle,browser)
+ if node:value['launch_policy_sha256']=sha(canonical({'base':value['launch_policy_sha256'],'node_helpers':node[2]}))
+ expert.mount_inputs(stage,data,bundle,browser,node)
  return expert.capture(data['owner_job'],value['operation_id'],stage,data,bundle,browser,value)
 
 def publication_for(integration):
@@ -689,6 +694,9 @@ def freeze_file(source,target):
 
 def launcher(stage):
  freeze_file(R.PRIVATE_INTEGRATION_HELPER,stage/'helper.py');freeze_file(Path(R.__file__),stage/'runner.py');freeze_file(R.EXPERT_PROBE_HELPER,stage/'expert.py')
+ expert=R.python_helper(stage/'expert.py');expert.R=R
+ request_path=stage/'request.json'
+ if request_path.exists():expert.freeze_node_tools(stage,json.loads(request_path.read_text()))
  entry=stage/'entry.py'
  if not entry.exists():
   source="import importlib.util,sys\nfrom pathlib import Path\np=Path(__file__).parent\ns=importlib.util.spec_from_file_location('frozen_runner',p/'runner.py');r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\n"

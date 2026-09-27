@@ -28,6 +28,19 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
+	NodeGeneration            int                        `json:"node_generation,omitempty"`
+	NodeStopRequested         bool                       `json:"node_stop_requested,omitempty"`
+	NodeRequest               *autoNodeRequest           `json:"node_request,omitempty"`
+	PendingNodeRequest        *autoNodeRequest           `json:"pending_node_request,omitempty"`
+	NodeRecovery              *autoNodeReceipt           `json:"node_recovery,omitempty"`
+	NodeStopped               bool                       `json:"node_stopped,omitempty"`
+	NodeUsedBundle            string                     `json:"node_used_bundle,omitempty"`
+	NodePreviousBundle        string                     `json:"node_previous_bundle,omitempty"`
+	NodeNeedsResume           bool                       `json:"node_needs_resume,omitempty"`
+	NodeNeedsChange           bool                       `json:"node_needs_change,omitempty"`
+	NodeExpectedInput         string                     `json:"node_expected_input,omitempty"`
+	NodeExpectedBundle        string                     `json:"node_expected_bundle,omitempty"`
+	NodeExpectedLock          string                     `json:"node_expected_lock,omitempty"`
 	MaintenancePin            string                     `json:"maintenance_pin,omitempty"`
 	MaintenanceAdmission      *autoMaintenanceAdmitted   `json:"maintenance_admission,omitempty"`
 	PythonTestNeedsResume     bool                       `json:"python_test_needs_resume,omitempty"`
@@ -285,6 +298,11 @@ func (s *Server) stopAutoJobsScoped(ctx context.Context, a *autoRecord, reason s
 		}
 	}
 	for _, j := range a.Jobs {
+		if autoNodePending(j) {
+			if err := s.stopAutoNode(ctx, a, j); err != nil {
+				stopErrors = append(stopErrors, "Node stop: "+err.Error())
+			}
+		}
 		if autoPythonPending(j) {
 			if _, err := s.runAutoCommand(ctx, "python-dependencies-stop", "--job", j.ID); err != nil {
 				stopErrors = append(stopErrors, "Python stop: "+err.Error())
@@ -379,7 +397,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			return
 		}
 		for _, j := range a.Jobs {
-			if autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
+			if autoNodePending(j) || autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 				_ = s.saveAuto(a)
 				break
@@ -540,6 +558,12 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		}
 		if json.Unmarshal(raw, &st) != nil {
 			s.stopAutoJobs(ctx, a, "Invalid runner status")
+			return
+		}
+		if handled, err := s.handleAutoNodeLaunchFailure(ctx, a, j, raw); handled || err != nil {
+			if err != nil {
+				a.Reason = "Node runtime recovery pending: " + err.Error()
+			}
 			return
 		}
 		if handled, err := s.handleAutoPrivateToolingFailure(ctx, a, j, raw); handled || err != nil {
@@ -713,6 +737,17 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		return nil
 	}
+	ready, err = s.recoverAutoNode(ctx, a, j)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		if j.NodeRecovery != nil && j.NodeRecovery.State == "unavailable" && j.Status == "prepared" {
+			autoDeferRequirements(a, j, time.Now())
+			return s.saveAuto(a)
+		}
+		return nil
+	}
 	toolingReady, toolingErr := s.recoverAutoPrivateTooling(ctx, a, j)
 	if toolingErr != nil {
 		return toolingErr
@@ -731,6 +766,9 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	}
 	if j.PythonRecovery != nil && j.PythonRecovery.State == "verified" {
 		j.PythonUsedBundle = j.PythonRecovery.BundleKey
+	}
+	if j.NodeRecovery != nil && j.NodeRecovery.State == "verified" {
+		j.NodeUsedBundle = j.NodeRecovery.BundleKey
 	}
 	j.Status = "starting"
 	if j.ExpertRecoveryAttempt > 0 {

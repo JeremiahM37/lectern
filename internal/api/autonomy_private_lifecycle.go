@@ -883,6 +883,7 @@ func autoQueuePrivateResume(a *autoRecord, old *autoJob, id, sha string) (*autoJ
 	j.PythonTestNeedsResume = false
 	j.PythonTestRecovery = nil
 	autoPreparePythonResume(old, &j)
+	autoPrepareNodeResume(old, &j)
 	j.DocumentationCopies = []autoDocumentationCopy{{Command: "copy-archive-resume", SourceJob: old.ID, SHA: sha, Generation: 1}}
 	if old.ReportError != "" {
 		j.ReportRepairs++
@@ -1037,6 +1038,10 @@ func (s *Server) endAutoPrivateOperation(ctx context.Context, a *autoRecord, j *
 	return s.saveAuto(a)
 }
 func autoPrivateCheckMatchesRuntime(j *autoJob, t autoPrivateTestReceipt) bool {
+	var node autoExpertProbeRuntime
+	if autoSelectNodeTestRuntime(j, &node) != nil || t.NodeBundleKey != node.NodeBundle || t.NodeInputKey != node.NodeInput || t.NodeLockSHA != node.NodeLock || t.NodeRuntimeDigest != node.NodeRuntime {
+		return false
+	}
 	if j.PythonUsedBundle == "" && j.PythonExpectedTestKey != "" && t.PythonTestKey != j.PythonExpectedTestKey {
 		return false
 	}

@@ -113,6 +113,10 @@ type autoPrivateCandidate struct {
 	ReceiptSHA        string `json:"receipt_sha256"`
 }
 type autoPrivateTestReceipt struct {
+	NodeBundleKey       string          `json:"node_bundle_key,omitempty"`
+	NodeInputKey        string          `json:"node_input_key,omitempty"`
+	NodeLockSHA         string          `json:"node_lock_sha256,omitempty"`
+	NodeRuntimeDigest   string          `json:"node_runtime_digest,omitempty"`
 	PythonInputKey      string          `json:"python_input_key,omitempty"`
 	PythonTestKey       string          `json:"python_test_key,omitempty"`
 	ReceiptEvidence     json.RawMessage `json:"receipt_evidence,omitempty"`

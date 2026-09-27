@@ -12,7 +12,7 @@ import tempfile
 import ipaddress
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import pwd
 import resource
@@ -30,6 +30,7 @@ ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 EXPERT_PROBE_HELPER = Path('/usr/local/libexec/lectern-autonomy-expert-probe.py')
 PRIVATE_INTEGRATION_HELPER = Path('/usr/local/libexec/lectern-autonomy-private-integration.py')
+NODE_RUNTIME_HELPER = Path('/usr/local/libexec/autonomy-node-runtime.py')
 SERVER_OPERATIONS_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-operations.py')
 SERVER_REGISTRY = Path('/etc/lectern/server-targets.json')
 SERVER_OBSERVATIONS_ROOT = ROOT.parent / 'server-observations'
@@ -289,7 +290,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None):
+def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None, node_project=None, node_runtime=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -299,6 +300,8 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None,
     for path in ('/lib', '/lib64', '/bin', '/sbin'):
         if Path(path).exists():
             cmd += ['--ro-bind', path, path]
+    for local in ('/usr/local/bin','/usr/local/sbin','/usr/local/etc'):
+        if Path(local).exists():cmd += ['--tmpfs',local]
     bundle = go_dependency_bundle(Path(work))
     if bundle is not None:
         cmd += ['--ro-bind', str(bundle / 'mod'), '/opt/go-modules',
@@ -324,6 +327,22 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None,
             '--bind', str(work), '/work', '--chdir', '/work']
     if browser is not None:
         cmd += browser_runtime_mount(browser)
+    if node_project is not None:
+        q=json.loads((p/'node-requirement.json').read_text())
+        project_dir=str(PurePosixPath(q.get('package_json','package.json')).parent)
+        destination='/work'+('/'+project_dir if project_dir!='.' else '')+'/node_modules'
+        cmd += ['--ro-bind',str(node_runtime),'/opt/node',
+                '--ro-bind',str(node_project/'payload/project'),'/opt/node-project',
+                '--ro-bind',str(node_project/'payload/cache'),'/opt/node-cache',
+                '--ro-bind',str(node_project/'payload/project/node_modules'),destination,
+                '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:/usr/local/go/bin:/usr/bin:/bin',
+                '--setenv','NODE_PATH','/opt/node-project/node_modules',
+                '--setenv','NPM_CONFIG_CACHE','/tmp/node-cache',
+                '--setenv','NPM_CONFIG_OFFLINE','true',
+                '--setenv','NPM_CONFIG_USERCONFIG','/tmp/node-user.npmrc',
+                '--setenv','NPM_CONFIG_GLOBALCONFIG','/tmp/node-global.npmrc',
+                '--setenv','NPM_CONFIG_AUDIT','false','--setenv','NPM_CONFIG_FUND','false',
+                '--setenv','NPM_CONFIG_UPDATE_NOTIFIER','false']
     cmd += review_evidence_mount(work)
     cmd += ['--ro-bind', str(bridges), '/bridges',
             '--symlink', '/bridges/network.sock', '/network.sock',
@@ -355,7 +374,8 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None,
         cli = ['/agent', '-p', '--verbose', '--output-format', 'stream-json',
                '--dangerously-skip-permissions', '--strict-mcp-config',
                '--mcp-config', '{"mcpServers":{}}', *model_args]
-    launch = '/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/network.sock &\nexec ' + shlex.join(cli)
+    node_setup='set -e\ncp -a /opt/node-cache /tmp/node-cache\nchmod -R u+w /tmp/node-cache\n' if node_project is not None else ''
+    launch = node_setup + '/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/network.sock &\nexec ' + shlex.join(cli)
     # Explicitly close inherited host directory descriptors before any untrusted
     # process can walk '..' through one, even if bwrap changes its fd policy.
     return cmd + ['--', '/usr/bin/python3', '-c',
@@ -413,7 +433,21 @@ def execute(job):
         verify_expected_python_test(job, expected_test_key)
     if project_bundle is not None and expected_test_key:
         raise PythonUnsupported('exact tooling-only environment conflicts with project runtime')
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key)
+    node_project=None
+    if (p/'node-requirement.json').exists():
+        try:node_project=node_call('bundle',job)
+        except (OSError,ValueError) as error:
+            node_call('validation_failure',job,error)
+            raise
+    node_mount=node_runtime_mount=None
+    if node_project is not None:
+        node_manifest=json.loads((node_project/'manifest.json').read_text())
+        node_runtime,_=node_module(job).tooling(sys.modules[__name__],node_manifest['runtime_digest'])
+        node_mount=Path('/tmp/node-project');node_mount.mkdir()
+        node_runtime_mount=Path('/tmp/node-runtime');node_runtime_mount.mkdir()
+        run(['/usr/bin/mount','--bind',str(node_project),str(node_mount)])
+        run(['/usr/bin/mount','--bind',str(node_runtime/'runtime'),str(node_runtime_mount)])
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key, node_mount, node_runtime_mount)
     def drop():
         os.setgroups([])
         os.setgid(GID)
@@ -690,6 +724,11 @@ def status_unlocked(job):
     if failure.exists():
         result['python_test_runtime']=completion_json(failure)
         if result['python_test_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
+    node_failure=job_path(job)/'node-runtime.json'
+    if node_failure.exists():
+        result['node_runtime']=completion_json(node_failure)
+        if result['node_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
             result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
     return result
 
@@ -1038,6 +1077,24 @@ def browser_probe_receipt(path,key):
         return proof
     except (ValueError,OSError,TypeError) as exc:raise PythonUnsupported('unsafe or incomplete offline browser proof') from exc
 
+
+def node_module(job=None):
+    path=NODE_RUNTIME_HELPER
+    if job is not None:
+        frozen=job_path(job)/'node-prerequisite/tools'
+        if (frozen/'manifest.json').exists():
+            records=completion_json(frozen/'manifest.json')
+            if set(records)!={'autonomy-node-runtime.py','node-project-dependencies.py','node-dependencies.py','autonomy-runner.py'}:
+                raise ValueError('incomplete Node executable manifest')
+            for name,digest in records.items():
+                target=frozen/name;info=regular(target)
+                if info.st_uid!=0 or info.st_mode&0o222 or digest_file(target)!=digest:
+                    raise ValueError('frozen Node executable changed before import')
+            path=frozen/'autonomy-node-runtime.py'
+    return python_helper(path)
+
+def node_call(command,job,*args):
+    return getattr(node_module(job),command )(sys.modules[__name__],job,*args)
 
 def python_helper(path=None):
     import importlib.util
@@ -3376,7 +3433,7 @@ def server_maintenance(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['copy-derived-review','_copy-derived-review','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--operation-id')
     parser.add_argument('--observation-id')
     parser.add_argument('--python-test-key')
@@ -3423,6 +3480,12 @@ def main():
         out=archive_report_stop(args.job)
     elif args.command == '_archive-report':
         return archive_report_execute(args.job)
+    elif args.command == 'node-dependencies':
+        out = node_call('launch',args.job,args.generation)
+    elif args.command == 'node-dependencies-stop':
+        out = node_call('stop',args.job,args.generation)
+    elif args.command == '_node-dependencies':
+        return node_call('execute',args.job,args.generation)
     elif args.command == 'python-dependencies':
         out = python_dependencies(args.job)
     elif args.command == 'python-dependencies-stop':

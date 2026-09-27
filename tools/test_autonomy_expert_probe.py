@@ -36,6 +36,41 @@ class ProbeTests(unittest.TestCase):
   cmd=H.sandbox_command(self.req)
   self.assertIn('--unshare-all',cmd);self.assertIn('--clearenv',cmd);self.assertIn('--remount-ro',cmd)
   self.assertNotIn('-S',cmd);self.assertFalse(any('bridge' in arg or '.codex' in arg for arg in cmd))
+  for path in ('/usr/local/bin','/usr/local/sbin','/usr/local/etc'):
+   if Path(path).exists():self.assertIn(['--tmpfs',path],[cmd[i:i+2] for i in range(len(cmd)-1)])
+ def select_node(self):
+  self.req['runtime'].update({name:chr(97+i)*64 for i,name in enumerate(sorted(H.NODE_RUNTIME_FIELDS))})
+ def test_node_requires_complete_exact_runtime_identity(self):
+  self.select_node();raw,_,probe=self.encoded();H.validate_request(self.owner,probe,raw)
+  for field in H.NODE_RUNTIME_FIELDS:
+   saved=self.req['runtime'].pop(field);raw,_,probe=self.encoded()
+   with self.subTest(field=field),self.assertRaises(ValueError):H.validate_request(self.owner,probe,raw)
+   self.req['runtime'][field]=saved
+  self.req['runtime']['node_path']='/host';raw,_,probe=self.encoded()
+  with self.assertRaises(ValueError):H.validate_request(self.owner,probe,raw)
+ def test_node_helper_snapshot_retained_and_tamper_rejected_before_import(self):
+  self.select_node();stage=self.root/'stage';stage.mkdir();installed=self.root/'installed';installed.mkdir()
+  for name in H.NODE_HELPER_FILES:
+   (installed/name).write_text('# original '+name);(installed/name).chmod(0o400)
+  H.R.NODE_RUNTIME_HELPER=installed/H.NODE_HELPER_FILES[0]
+  H.freeze_node_tools(stage,self.req);root,identities=H.frozen_node_tools(stage)
+  source=installed/H.NODE_HELPER_FILES[0];source.chmod(0o600);source.write_text('# new installed version')
+  H.freeze_node_tools(stage,self.req);self.assertEqual(H.frozen_node_tools(stage)[1],identities)
+  selected=root/H.NODE_HELPER_FILES[0];selected.chmod(0o600);selected.write_text('# tampered snapshot')
+  with patch.object(H.R,'python_helper',side_effect=AssertionError('must reject before import')):
+   with self.assertRaises(ValueError):H.node_runtime_for(stage,self.req)
+ def test_node_lookup_requires_full_verification_of_all_four_pins(self):
+  self.select_node();runtime=self.req['runtime'];lookup=SimpleNamespace(lookup_by_keys=lambda *a,**kw:None)
+  with patch.object(H,'frozen_node_tools',return_value=(self.root,{'helper':'proof'})),patch.object(H.R,'python_helper',return_value=lookup),patch.object(lookup,'lookup_by_keys',return_value=(self.root/'project',self.root/'tooling')) as call:
+   actual=H.node_runtime_for(self.root,self.req)
+   call.assert_called_once_with(H.R,runtime['node_bundle_key'],runtime['node_input_key'],runtime['node_lock_sha256'],runtime['node_runtime_digest'],full=True)
+   self.assertEqual(actual,(self.root/'project',self.root/'tooling',{'helper':'proof'}))
+ def test_node_namespace_uses_offline_cache_and_frozen_tooling(self):
+  self.select_node();cmd=H.sandbox_command(self.req)
+  self.assertIn('/opt/node-project/node_modules/.bin:/opt/node/bin:/usr/bin:/bin',cmd)
+  self.assertIn(['--setenv','NPM_CONFIG_OFFLINE','true'],[cmd[i:i+3] for i in range(len(cmd)-2)])
+  self.assertIn(['--ro-bind','/tmp/expert-node-tooling','/opt/node'],[cmd[i:i+3] for i in range(len(cmd)-2)])
+  self.assertNotIn('--share-net',cmd)
  def test_cancelled_reservation_cannot_launch(self):
   raw,key,probe=self.encoded();stage=self.root/'stage';stage.mkdir();(stage/'cancel.json').write_text('{}')
   records=[]

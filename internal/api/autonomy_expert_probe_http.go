@@ -20,6 +20,10 @@ import (
 var autoExpertJobID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type autoExpertProbeRuntime struct {
+	NodeBundle   string `json:"node_bundle_key,omitempty"`
+	NodeInput    string `json:"node_input_key,omitempty"`
+	NodeLock     string `json:"node_lock_sha256,omitempty"`
+	NodeRuntime  string `json:"node_runtime_digest,omitempty"`
 	PythonBundle string `json:"python_bundle_key"`
 	PythonInput  string `json:"python_input_key"`
 	Browser      string `json:"browser_key"`
@@ -85,6 +89,14 @@ func autoExpertProbeRequestBytes(a *autoRecord, j *autoJob, input *autoExpertPro
 		runtime.Browser = j.PythonRecovery.BrowserKey
 	} else {
 		runtime.PythonTest = testKey
+	}
+	if e := autoSelectNodeTestRuntime(j, &runtime); e != nil {
+		return selected, nil, e
+	}
+	if runtime.NodeBundle == "" {
+		if e := autoUseExpertNodeSource(a, pin, &runtime); e != nil {
+			return selected, nil, e
+		}
 	}
 	fixtures := input.Fixtures
 	if fixtures == nil {
@@ -204,6 +216,9 @@ func (s *Server) autoExpertProbeBridgeAt(root, jobID string, w http.ResponseWrit
 	var lease *autoExpertProbeLease
 	if e == nil {
 		lease, e = autoReserveExpertProbe(a, p, owner.Role, autoSHA(raw), []string{owner.Provider}, time.Now())
+	}
+	if e == nil {
+		e = autoBindExpertNodeRuntime(lease, raw)
 	}
 	if e == nil {
 		e = s.saveAuto(a)
