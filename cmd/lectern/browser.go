@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/console"
 	"github.com/JeremiahM37/lectern/v2/internal/mediapost"
@@ -101,6 +102,11 @@ func saveShot(out map[string]any, file string) error {
 }
 
 func browserCommand(c *console.Client, args []string) ([]byte, error) {
+	// The first action starts the browser, which on a slow disk can take a
+	// minute or more; the default client timeout is too short for that.
+	if c.HTTP != nil && c.HTTP.Timeout < 3*time.Minute {
+		c.HTTP.Timeout = 3 * time.Minute
+	}
 	args, flags, err := commonFlags(args, map[string]bool{"session": true, "selector": true, "at": true,
 		"screenshot": true, "limit": true, "tab": true})
 	if err != nil {

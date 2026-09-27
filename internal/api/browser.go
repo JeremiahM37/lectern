@@ -283,10 +283,10 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		}
 		return nil, err
 	}
-	startCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	startCtx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 	sb := &sessionBrowser{sessionID: sess.ID, control: controlAgent, lastUsed: time.Now(), profile: profile}
-	run := runnerFor(ex, 60)
+	run := runnerFor(ex, 120)
 	proc, err := browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height, Profile: profile})
 	var proxy *browser.LoopbackProxy
 	cdpDial := browser.Dial(dialer.DialTarget)
@@ -298,7 +298,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		if err != nil {
 			return nil, err
 		}
-		run = runnerFor(executor.NewLocal(), 60)
+		run = runnerFor(executor.NewLocal(), 120)
 		proc, err = browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height,
 			ProxyPort: proxy.Port, Profile: profile})
 		cdpDial = func(ctx context.Context, addr string) (net.Conn, error) {
@@ -753,7 +753,7 @@ func (s *Server) postSessionBrowser(w http.ResponseWriter, r *http.Request) {
 	if !s.requireHuman(w, r, "driving the session browser") {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 150*time.Second)
 	defer cancel()
 	if a.Action == "control" {
 		sb := s.browserFor(sess.ID)
@@ -822,7 +822,7 @@ func (s *Server) agentBrowser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "no such session")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 150*time.Second)
 	defer cancel()
 	out, err := s.act(ctx, sess, a, true)
 	if err != nil {

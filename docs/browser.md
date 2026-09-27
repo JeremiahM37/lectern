@@ -270,5 +270,8 @@ agent (MCP or `lectern browser`) ── POST /api/browser, /api/computer ─┘
   path, which carries the connection over its stdin and stdout; a wrapper
   that does not pass input through (`docker exec` without `-i`) is refused
   with a message saying so. This was checked against a real container.
+- A first start can be slow on a throttled disk (a CI runner, a small VM),
+  so Lectern waits up to 90 seconds while the browser is still running, and
+  reports a failed start by its last real error line.
 - Screencast frames are JPEG, at most 1.5× the viewport, so they fit the
   relay's message size.
