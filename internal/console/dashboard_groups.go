@@ -55,7 +55,7 @@ func (m *dashboard) groupTree(rows []row) []row {
 			}
 			child.count++
 			status := str(r["status"])
-			if r["setup_state"] == "failed" {
+			if r["setup_state"] == "failed" || agentExited(r) {
 				status = "failed"
 			}
 			switch status {

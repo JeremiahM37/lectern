@@ -127,9 +127,10 @@ b. **PreToolUse edit warning**: an `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
    `claims_edit_warning` (default **on**).
 c. **Launch-time topic check.** `GET /api/claims/topic-overlap?project_id=&text=`
    scores a prospective prompt/title against every active `topic` claim in
-   that project's repository; the New task dialog calls it (debounced) and
-   shows a warning banner naming the overlapping claim(s) *before* dispatch
-   — advisory, the button still works. The same claim also shows up in the
+   that project's repository. The New task dialog (title + prompt) and the
+   New session dialog (name + first message) both call it (debounced) and
+   show a warning banner naming the overlapping claim(s) *before* dispatch
+   or launch — advisory, the button still works. The same claim also shows up in the
    next briefing (point a) once the session is actually running, so the
    warning is not a one-off the agent never sees again.
 
@@ -207,7 +208,10 @@ convention: default **on**, off only when explicitly set to `"0"`.
   path via the REST endpoint (the same endpoint `claim_work` calls), the
   other's real PreToolUse hook call gets the actual warning text, the
   Claims panel shows and releases it live with no reload, and a separate
-  test covers the SessionStart topic-claim briefing.
+  test covers the SessionStart topic-claim briefing. Another opens the New
+  session dialog against a project with a topic claim: an unrelated first
+  message shows nothing, a matching one shows the warning, and the session
+  still starts.
 
 ## Not done
 
@@ -215,7 +219,4 @@ No dedicated frontend unit test for `ClaimsPanel`/`SessionClaims` (covered
 by the e2e test, which exercises them against a real server, the same
 precedent `AwarenessOverlapChip` set). No board-wide
 `GET /api/awareness`-style dedicated overlap-chip endpoint for claims — the
-session view's own claims fetch already covers it. The New Session dialog
-does not yet run the topic-overlap check the New Task dialog does — a
-follow-up once that dialog has an equivalent free-text field to check
-against.
+session view's own claims fetch already covers it.

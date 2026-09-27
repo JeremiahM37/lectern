@@ -1,0 +1,26 @@
+.relay-banner {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  text-align: center;
+  background: var(--bg-alt, #12151f);
+  color: var(--ink, #e7ebf3);
+  border-bottom: 1px solid var(--border, #262c3d);
+}
+.relay-banner[data-status="revoked"] {
+  background: #3a1d24;
+}
+.relay-this-device {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.relay-fingerprint {
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}

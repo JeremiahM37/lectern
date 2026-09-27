@@ -178,6 +178,9 @@ CREATE TABLE IF NOT EXISTS sessions(
   last_activity_at REAL, created_at REAL, updated_at REAL, ended_at REAL,
   end_reason TEXT NOT NULL DEFAULT '',
   reopened_as INTEGER,
+  agent_exited_at REAL,
+  relaunched_at REAL,
+  resume_guess TEXT NOT NULL DEFAULT '',
   native_recovery_cid TEXT NOT NULL DEFAULT '',
   boot_id TEXT NOT NULL DEFAULT '',
   tracking_identity TEXT NOT NULL DEFAULT '',
@@ -688,6 +691,86 @@ CREATE TABLE IF NOT EXISTS pairing_devices(
   paired_at REAL NOT NULL,
   last_seen_at REAL NOT NULL
 );
+-- limit_holds (internal/limits, docs/rate-limits.md): one row per time an
+-- agent was stopped by its provider's usage limit. Exactly one of session_id
+-- (a live session) or attempt_id (a headless task attempt, with its task_id)
+-- is set. state is the whole lifecycle — waiting/resuming/handing_off while
+-- open, then resumed/cleared/handed_off/requeued/redispatched/failed/
+-- gave_up/dismissed once resolved_at is set. Every automatic action is a
+-- compare-and-swap on state, so a restart can never repeat a nudge or a
+-- handoff: the row, not process memory, records that it already happened.
+CREATE TABLE IF NOT EXISTS limit_holds(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER,
+  task_id INTEGER,
+  attempt_id INTEGER,
+  agent TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  pattern TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  detected_at REAL NOT NULL,
+  reset_at REAL,
+  policy TEXT NOT NULL DEFAULT 'notify',
+  state TEXT NOT NULL DEFAULT 'waiting',
+  due_at REAL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  nudged_at REAL,
+  reset_notified_at REAL,
+  resolved_at REAL,
+  successor_id INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_holds_open_session
+  ON limit_holds(session_id) WHERE resolved_at IS NULL AND session_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_holds_open_attempt
+  ON limit_holds(attempt_id) WHERE resolved_at IS NULL AND attempt_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_limit_holds_task ON limit_holds(task_id);
+CREATE INDEX IF NOT EXISTS idx_limit_holds_session ON limit_holds(session_id);
+-- limit_policies: what to do when a limit is hit — scope 'global' (id 0),
+-- 'project' or 'session'. The narrowest scope that has a row wins.
+CREATE TABLE IF NOT EXISTS limit_policies(
+  scope TEXT NOT NULL,
+  scope_id INTEGER NOT NULL,
+  policy_json TEXT NOT NULL,
+  updated_at REAL NOT NULL,
+  PRIMARY KEY(scope, scope_id)
+);
+-- End-to-end encrypted relay (internal/relay/host, docs/relay.md). The host's
+-- own keys (one row), pending pairings (code and route token hashed, like
+-- pairing_codes) and paired relay devices, identified by their X25519 public
+-- key. The device's private key never leaves the phone.
+CREATE TABLE IF NOT EXISTS relay_identity(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  route_key BLOB NOT NULL,
+  noise_private BLOB NOT NULL,
+  noise_public BLOB NOT NULL,
+  shell_key BLOB NOT NULL,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS relay_pairings(
+  code_hash TEXT PRIMARY KEY,
+  route_hash TEXT NOT NULL,
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  owner_human INTEGER NOT NULL DEFAULT 0,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS relay_devices(
+  id INTEGER PRIMARY KEY,
+  public_key TEXT UNIQUE NOT NULL,
+  route_hash TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  owner_kind TEXT NOT NULL DEFAULT '',
+  owner_login TEXT NOT NULL DEFAULT '',
+  owner_node TEXT NOT NULL DEFAULT '',
+  owner_human INTEGER NOT NULL DEFAULT 0,
+  paired_at REAL NOT NULL,
+  last_seen_at REAL NOT NULL
+);
 `
 
 // migrations are additive: they bring a database created by an older build up to
@@ -812,4 +895,28 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN end_reason TEXT NOT NULL DEFAULT ''",
 	// The session a Restore started in this record's place.
 	"ALTER TABLE sessions ADD COLUMN reopened_as INTEGER",
+	// Budgets (docs/budgets.md): the part of cost_usd that was estimated from
+	// the model price table rather than reported (interactive Codex), so the
+	// Usage page can label it.
+	"ALTER TABLE usage_daily ADD COLUMN estimated_usd REAL NOT NULL DEFAULT 0",
+	// Cost per outcome (docs/outcomes.md): Claude Code's OTel PR/commit
+	// counters. Sessions keep the highest cumulative reading seen; facts copy
+	// it (NULL = no OTel reading, so "none shipped" and "unknown" differ).
+	"ALTER TABLE sessions ADD COLUMN otel_pull_requests INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE sessions ADD COLUMN otel_commits INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE outcome_facts ADD COLUMN pull_requests INTEGER",
+	"ALTER TABLE outcome_facts ADD COLUMN commits INTEGER",
+	// Usage-limit continuity (docs/rate-limits.md): an attempt requeued until
+	// its provider's limit resets is queued now but not promoted before this.
+	"ALTER TABLE attempts ADD COLUMN not_before REAL",
+	// When the agent in a still-open terminal exited (store.Session.AgentExitedAt).
+	"ALTER TABLE sessions ADD COLUMN agent_exited_at REAL",
+	// When restart recovery relaunched this session (store.Session.RelaunchedAt).
+	"ALTER TABLE sessions ADD COLUMN relaunched_at REAL",
+	// The likely conversation of an adopted session that was lost
+	// (store.Session.ResumeGuess).
+	"ALTER TABLE sessions ADD COLUMN resume_guess TEXT NOT NULL DEFAULT ''",
+	// Interactive Gemini MCP (docs/context-parity.md): what a session wrote
+	// into its Lectern workspace's .gemini/settings.json, for cleanup at end.
+	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 }

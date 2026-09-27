@@ -29,9 +29,11 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
+	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
@@ -89,6 +91,15 @@ type Server struct {
 	// treats a nil Pairing as "off"), so a build or test harness that never
 	// wires one simply never offers /pair.
 	Pairing *pairing.Store
+	// Limits is the usage-limit tracker (internal/limits, docs/rate-limits.md):
+	// the one-tap choices on a card or push go through it. Nil disables the
+	// endpoints.
+	Limits *limits.Tracker
+	// Relay is the end-to-end encrypted relay connection (internal/relay/
+	// host, relay.go in this package); nil unless LECTERN_RELAY_URL is set.
+	// RelayStore holds the relay keys and devices and is set either way.
+	Relay      *relayhost.Host
+	RelayStore *relayhost.Store
 	// Activity records recent real terminal input per session, for the
 	// alert-suppression rule in docs/agent-events.md section 3. Nil is safe
 	// (terminalActivity then just has nowhere to record — no suppression,
@@ -298,6 +309,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/sessions/recent", s.recentSessions)
 	mux.HandleFunc("GET /api/sessions/restorable", s.restorableSessions)
+	mux.HandleFunc("GET /api/sessions/relaunched", s.relaunchedSessions)
+	mux.HandleFunc("POST /api/sessions/relaunched/dismiss", s.dismissRelaunched)
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("POST /api/shells", s.createShell)
 	mux.HandleFunc("GET /api/sessions/discover", s.discoverSessions)
@@ -390,6 +403,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/usage", s.usageReport)
+	mux.HandleFunc("GET /api/limits", s.listLimits)
+	mux.HandleFunc("POST /api/limits/{id}/choose", s.chooseLimit)
+	mux.HandleFunc("GET /api/limits/policy", s.getLimitPolicy)
+	mux.HandleFunc("PUT /api/limits/policy", s.putLimitPolicy)
 	mux.HandleFunc("GET /api/budgets", s.getBudgets)
 	mux.HandleFunc("PUT /api/budgets", s.putBudgets)
 	mux.HandleFunc("GET /api/outcomes", s.getOutcomes)
@@ -415,6 +432,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/pair/devices/{id}", s.revokePairedDevice)
 	mux.HandleFunc("GET /api/pair/settings", s.getPairingSettings)
 	mux.HandleFunc("PUT /api/pair/settings", s.putPairingSettings)
+	// ---- end-to-end encrypted relay (docs/relay.md): owner-only, plus the
+	// public signed shell manifest a paired phone's service worker checks ----
+	mux.HandleFunc("GET /api/relay", s.getRelay)
+	mux.HandleFunc("POST /api/relay/pair", s.mintRelayPairing)
+	mux.HandleFunc("DELETE /api/relay/devices/{id}", s.revokeRelayDevice)
+	mux.HandleFunc("GET /shell-manifest.json", s.getShellManifest)
 
 	// ---- review: live diffs, commit/push/PR and inline comments ----
 	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)

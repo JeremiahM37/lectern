@@ -24,9 +24,11 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
+	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
@@ -142,7 +144,23 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// Wired here rather than duplicating the hook-event plumbing: every
 	// session-lifecycle push (docs/agent-events.md section 3) rides the
 	// same ingest path session state itself does.
-	events.OnHookEvent = alertWatcher.HandleHookEvent
+	// Usage-limit continuity (internal/limits, docs/rate-limits.md): it sees
+	// every pane through the session poll, Claude's StopFailure/tool hooks
+	// through the same ingest path as alerts, and advances its holds on the
+	// scheduler tick. It runs before alerts so a limit-caused StopFailure is
+	// already a hold when alerts decide whether to send a generic "error".
+	limitTracker := limits.New(db, b, notifier, log)
+	limitTracker.Sessions = sessMgr
+	limitTracker.Tasks = sched
+	if cfg.LimitSettle > 0 {
+		limitTracker.Timing.Settle = cfg.LimitSettle
+	}
+	sessMgr.Limits = limitTracker
+	sched.Limits = limitTracker.Tick
+	events.OnHookEvent = func(sess *store.Session, event string, body []byte, state string, changed bool) {
+		limitTracker.HandleHookEvent(sess, event, body, state, changed)
+		alertWatcher.HandleHookEvent(sess, event, body, state, changed)
+	}
 
 	// checksRunner is the one place a project's check command (verify_cmd, or
 	// an auto-detected .verify.yaml) actually runs — for a task's finished
@@ -205,7 +223,18 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
-		Pairing: pairingStore, CILoop: ciWatcher,
+		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
+	}
+	if cfg.RelayURL != "" {
+		if cfg.RelayHostSecret == "" {
+			log.Error("LECTERN_RELAY_URL is set but LECTERN_RELAY_HOST_SECRET is not; the relay stays off")
+		} else {
+			// The relay serves Lectern's own handler, auth middleware
+			// included, to each paired phone (docs/relay.md).
+			srv.Relay = relayhost.New(relayhost.Config{
+				URL: cfg.RelayURL, Secret: cfg.RelayHostSecret, Store: srv.RelayStore, Handler: srv.Handler(), Log: log,
+			})
+		}
 	}
 	triggersMgr.CreateTask = srv.CreateTriggerTask
 	// a routine is a saved task, so the API layer owns firing it; the scheduler
@@ -304,8 +333,20 @@ func cloneStringMap(in map[string]string) map[string]string {
 // Handler is the HTTP handler for this app.
 func (a *App) Handler() http.Handler { return a.Server.Handler() }
 
+// StartRelay connects to the end-to-end encrypted relay when one is
+// configured. It returns at once; the connection retries in the background
+// until Close.
+func (a *App) StartRelay() {
+	if a.Server.Relay != nil {
+		go a.Server.Relay.Run(context.Background())
+	}
+}
+
 // Close stops the scheduler and releases the database.
 func (a *App) Close() {
+	if a.Server.Relay != nil {
+		a.Server.Relay.Close()
+	}
 	if a.Sched != nil {
 		a.Sched.Stop()
 	}

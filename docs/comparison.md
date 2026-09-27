@@ -5,7 +5,7 @@
 
 Legend: ✓ = yes (verified) · **partial** = partially, qualifier follows · ✗ = no (positively established) · ? = could not verify (never treated as "no")
 
-Sources current as of 2026-09-26. Lectern verified against `/mnt/bulk/lectern-connect-ui` (README.md + docs/*.md + internal/* source). All other products verified via `gh api`/`gh search`/`gh issue list` against their own repos, or WebFetch against their own docs sites. Every non-"?" cell is cited in the Evidence list below by `[row-product]`.
+Sources current as of 2026-09-26. Lectern verified against its own repository (README.md, docs/*.md and internal/* source). All other products verified via `gh api`/`gh search`/`gh issue list` against their own repos, or WebFetch against their own docs sites. Every non-"?" cell is cited in the Evidence list below by `[row-product]`.
 
 | # | Row | Lectern | Happy | Claude Squad | Vibe Kanban | agent-deck | Conductor | Claude Code (web/app) | Codex (cloud/app/CLI) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -23,7 +23,7 @@ Sources current as of 2026-09-26. Lectern verified against `/mnt/bulk/lectern-co
 | 12 | Graduated approvals (once / session / deny+feedback) | ✓ all three | **partial** modes + remembered grants, no deny-with-feedback | ✗ blanket autoyes only | **partial/✗** binary approve/request-changes only | **partial** quick-approve + YOLO, no granularity | **partial** approval gate, no granularity | **partial** 2 levels, no deny+feedback | **partial** 3 modes, no deny+feedback confirmed |
 | 13 | Chat view renders tool calls as cards with diffs | ✓ | ✓ | ✗ diff tab only | ✓ | ? | ✗ separate panels | **partial** diff view, not per-call cards | **partial** diff review, not confirmed as cards |
 | 14 | Voice mode (talk + spoken approvals); paid vs free | ✓ free, Web Speech API | **partial** ElevenLabs, 20min free/30d then paid | ✗ | ? | ? | ? | ✗ dictation only, excluded from cloud, no spoken approvals | ✓ ChatGPT Voice (subscription tier unconfirmed) |
-| 15 | Works without VPN: relay/pairing; E2E vs just paired | ✓ pairing, explicitly not E2E | ✓ E2E-encrypted relay | n/a local binary | **partial** pairing relay, no E2E claim | **partial** bots + token, no relay/E2E | ? | n/a hosted web service | n/a hosted web service |
+| 15 | Works without VPN: relay/pairing; E2E vs just paired | ✓ `lectern relay`: end-to-end encrypted (Noise IK), self-hosted, relay never serves app code; or Tailscale | ✓ E2E-encrypted relay | n/a local binary | **partial** pairing relay, no E2E claim | **partial** bots + token, no relay/E2E | ? | n/a hosted web service | n/a hosted web service |
 | 16 | Task board/kanban: isolated worktrees + diff review + PR creation | ✓ all three | **partial** worktree+diff yes, no kanban, no PR creation found | **partial** worktree+diff yes, PR creation not automatic (`gh pr create` never called) | ✓ all three (project sunsetting) | ✗ kanban only via 3rd-party tool | **partial** worktree+PR yes, no kanban board | ✓ thread board + branch + diff + PR | **partial** worktree+PR yes, no kanban UI documented |
 | 17 | Best-of-N with a judge / delegated builds (worker+lead) | ✓ | ✗ roadmap only | ✗ | ? | ? | ? | **partial** reviewer-fleet/team-lead, different mechanism | ? |
 | 18 | Evals on your own repo (replay from merged PRs) | ✓ | ? | ✗ | ? | ? (roadmap idea only) | ✗ (Checks ≠ eval runner) | ✗ plugin-eval only, not repo-wide | ? |
@@ -35,7 +35,7 @@ Sources current as of 2026-09-26. Lectern verified against `/mnt/bulk/lectern-co
 
 ## Evidence
 
-**Lectern** (source of truth `/mnt/bulk/lectern-connect-ui`):
+**Lectern** (this repository):
 1. `docs/use-from-chat.md`: "Brainstorm in claude.ai... say 'start a Lectern session that builds this'"; `docs/sessions-mcp.md` documents `start_session`/`send_to_session`/`end_session` MCP tools.
 2. `docs/use-from-chat.md`: "Status: ChatGPT is supported by the connector but **not yet tested end to end**. claude.ai is."
 3. `docs/use-from-chat.md`: "Files you upload to the chat, including PDFs and images, are handed over as the real file."
@@ -43,14 +43,14 @@ Sources current as of 2026-09-26. Lectern verified against `/mnt/bulk/lectern-co
 5. README: `lectern claude` / `lectern codex` "in any folder."
 6. `docs/agents.md`: 3 first-class/experimental built-ins (claude/codex/gemini table) + catalog presets "Gemini CLI's ACP mode, OpenCode, Aider, Goose, Amp, Cursor Agent CLI, GitHub Copilot CLI, Qwen Code, Crush, Kimi Code CLI, Cline CLI, plus the Zed ACP adapters for Claude Code and Codex" (13) + "Custom command…" unlimited.
 7. `docs/mobile-sessions.md` "Switch agent or model": "Switching saves a fresh handoff and starts the destination with that context. It keeps the original session running."
-8. README: "Recently closed brings back a session you closed by mistake, with its conversation."
+8. `docs/terminal-client.md` "Restoring sessions": one Restore list for closed, archived, crashed and reboot-lost sessions, resumed with their conversation; Undo after ending; `lectern restore`.
 9. README: "Lectern finds and adopts Claude and Codex sessions you started outside it"; `docs/terminal-client.md` "Promote conversation."
 10. README: "Runs anywhere: your laptop, anything reachable over SSH, a Proxmox container, or an ephemeral sandbox."
 11. `docs/mobile-sessions.md`: push notifications with "Open terminal" and "Reply" actions; approvals "from the app or straight from the notification."
 12. `docs/mobile-sessions.md`: "Allow once... Allow for this session... Deny with feedback opens a note that is sent back to the agent."
 13. `docs/mobile-sessions.md` "Chat cards and graduated approvals": per-tool-type card rendering with real diffs for Read/Edit/Write/MultiEdit.
 14. `docs/mobile-sessions.md` "Voice mode": "no vendor keys, no metered API," spoken approvals via Web Speech API.
-15. `docs/remote-access.md`: device pairing over a public tunnel; explicitly "Full E2E encryption would protect against a threat (a malicious relay) that does not exist in this deployment."
+15. `docs/relay.md`: `lectern relay` passes only Noise IK–encrypted frames between a host and its paired devices; the relay never serves app code, and the pinned app shell refuses unsigned updates.
 16. `docs/DELEGATED_BUILDS.md` (worktree + diff); `internal/triggers/gitops.go`: `gh pr create --head ... --title ... --body ...`; `internal/api/session_review.go`: "Review and merge: live diffs, commit/push/PR."
 17. `docs/evals.md`: "the same Best-of-N machinery... `POST /api/tasks/{id}/dispatch`'s `variants` array"; `docs/replay-evals.md`: "the same judge machinery Best-of-N uses (`judge_agent`/`judge_model`)"; `docs/DELEGATED_BUILDS.md`: worker+lead review workflow.
 18. `docs/replay-evals.md`: suite built from a project's own merged-PR history, graded against the PR's accepted diff.

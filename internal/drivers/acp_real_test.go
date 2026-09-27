@@ -398,3 +398,86 @@ func TestACPDriverInitializeFailureSurfacesClearError(t *testing.T) {
 		t.Errorf("error does not explain what failed: %v", err)
 	}
 }
+
+// stubACPRecordsMCP writes session/new's mcpServers into the worktree and
+// ends its one turn, so a test can see exactly what the driver sent.
+const stubACPRecordsMCP = `#!/usr/bin/env python3
+import sys, json, os
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n"); sys.stdout.flush()
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    msg = json.loads(raw)
+    method = msg.get("method")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": 1,
+              "agentCapabilities": {"mcpCapabilities": {"http": True, "sse": False}}, "authMethods": []}})
+    elif method == "session/new":
+        with open(os.path.join(msg["params"]["cwd"], "mcp-servers.json"), "w") as f:
+            json.dump(msg["params"]["mcpServers"], f)
+        send({"jsonrpc": "2.0", "id": msg["id"], "result": {"sessionId": "sess-mcp"}})
+    elif method == "session/prompt":
+        send({"jsonrpc": "2.0", "id": msg["id"], "result": {"stopReason": "end_turn"}})
+sys.exit(0)
+`
+
+func TestACPDriverSendsProjectMCPServersInSessionNew(t *testing.T) {
+	testutil.RequireIsolated(t)
+	requireRealTools(t)
+	dir := t.TempDir()
+	isolateTmux(t)
+	wt := filepath.Join(dir, "wt")
+	os.MkdirAll(wt, 0o755)
+	stub := filepath.Join(dir, "fake-acp-mcp")
+	os.WriteFile(stub, []byte(stubACPRecordsMCP), 0o755)
+
+	ex := executor.NewLocal()
+	ctx := context.Background()
+	servers := []any{
+		map[string]any{"name": "ops", "command": "python3", "args": []string{"-m", "ops"}, "env": []any{map[string]any{"name": "T", "value": "v"}}},
+		map[string]any{"type": "http", "name": "web", "url": "https://x/mcp", "headers": []any{}},
+	}
+	run, err := acpDriver{}.Start(ctx, ex, Spec{
+		Bin: stub, Worktree: wt, TmuxSession: "lec-drv-acp-mcp", Prompt: "go",
+		PollInterval: 30 * time.Millisecond, MCPServers: servers,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	var got []byte
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err = os.ReadFile(filepath.Join(wt, "mcp-servers.json")); err == nil && len(got) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	want := `[{"args": ["-m", "ops"], "command": "python3", "env": [{"name": "T", "value": "v"}], "name": "ops"}, ` +
+		`{"headers": [], "name": "web", "type": "http", "url": "https://x/mcp"}]`
+	if string(got) != want {
+		t.Fatalf("session/new mcpServers:\n got %s\nwant %s", got, want)
+	}
+	if err := run.Cancel(ctx); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := run.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	// The same agent does not advertise sse, so an sse server must fail the
+	// start instead of silently dropping it.
+	wt2 := filepath.Join(dir, "wt-sse")
+	os.MkdirAll(wt2, 0o755)
+	_, err = acpDriver{}.Start(ctx, ex, Spec{
+		Bin: stub, Worktree: wt2, TmuxSession: "lec-drv-acp-mcp-sse", Prompt: "go",
+		PollInterval: 30 * time.Millisecond,
+		MCPServers:   []any{map[string]any{"type": "sse", "name": "feeds", "url": "https://x/sse", "headers": []any{}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "sse") {
+		t.Fatalf("an unadvertised sse transport must fail the start, got %v", err)
+	}
+}

@@ -693,3 +693,68 @@ func TestSSHSkillLifecycleUsesRealTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Agents beyond Claude and Codex that read Agent Skills use the shared
+// .agents/skills project directory, plus their own user directories; an agent
+// with no known skills mechanism is refused rather than given files it ignores.
+func TestNonClaudeCodexAgentsDiscoverAndLinkAgentsSkills(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	repo := filepath.Join(root, "repo")
+	work := filepath.Join(root, "work")
+	write := func(dir, name string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: d\n---\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".agents", "skills"), "review")
+	write(filepath.Join(home, ".gemini", "skills"), "gemini-own")
+	write(filepath.Join(home, ".config", "opencode", "skills"), "opencode-own")
+	write(filepath.Join(home, ".qwen", "skills"), "qwen-own")
+	write(filepath.Join(home, ".copilot", "skills"), "copilot-own")
+	for _, dir := range []string{repo, work} {
+		if err := exec.Command("git", "init", "-q", dir).Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ex := executor.NewLocal()
+	ctx := context.Background()
+	p := &store.Project{RepoPath: repo}
+	for agent, own := range map[string]string{"gemini": "gemini-own", "opencode": "opencode-own", "qwen": "qwen-own", "copilot": "copilot-own"} {
+		xs, err := Discover(ctx, ex, p, agent)
+		if err != nil {
+			t.Fatalf("%s: %v", agent, err)
+		}
+		names := map[string]Skill{}
+		for _, x := range xs {
+			names[x.EntryName] = x
+		}
+		if _, ok := names[own]; !ok {
+			t.Fatalf("%s should see its own user skill %s: %+v", agent, own, xs)
+		}
+		review, ok := names["review"]
+		if !ok || !strings.HasPrefix(review.Source, "repo:") {
+			t.Fatalf("%s should see the repository's .agents/skills: %+v", agent, xs)
+		}
+		dst, _, err := Materialize(ctx, ex, p, review, agent, work, 40, false)
+		if err != nil {
+			t.Fatalf("%s: %v", agent, err)
+		}
+		if dst != filepath.Join(work, ".agents", "skills", "review") {
+			t.Fatalf("%s linked into %s, want .agents/skills", agent, dst)
+		}
+		if err := Remove(ctx, ex, p, &store.ProjectSkill{SourcePath: review.SourcePath, TargetRel: ".agents/skills/review",
+			ExcludeMarker: "# lectern-owned-skill:40"}, work); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Discover(ctx, ex, p, "aider"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("an agent without a skills mechanism must be refused, got %v", err)
+	}
+}

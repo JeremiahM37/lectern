@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { RelayPanel } from "./RelayPanel";
 // devices.css is imported by main.tsx, matching connect-tools.css's own
 // comment: this module gets its own node:test unit coverage (Devices.test.ts)
 // and tsx's plain Node runtime has no loader for a bare .css import.
@@ -125,10 +126,11 @@ export function Devices({
     }
   }
 
-  if (!settings) return null;
+  if (!settings) return <RelayPanel api={api} onNotice={onNotice} />;
   const expired = !!minted && secondsLeft <= 0;
 
   return (
+    <>
     <article className="devices-panel">
       <h3>Devices</h3>
       <p className="subhint">
@@ -215,6 +217,8 @@ export function Devices({
         </>
       )}
     </article>
+    <RelayPanel api={api} onNotice={onNotice} />
+    </>
   );
 }
 

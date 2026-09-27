@@ -242,3 +242,45 @@ def test_claims_briefing_on_session_start(browser, claims_server):
     assert "Coordinate" in ctx
 
     context.close()
+
+
+def test_new_session_dialog_warns_about_topic_claim(browser, claims_server):
+    """The New session dialog runs the same advisory topic-overlap check the
+    New task dialog does, against the name and first message, and still lets
+    the session start."""
+    base, db_path = claims_server
+    projects = json.load(urllib.request.urlopen(base + "/api/projects", timeout=10))
+    pid = projects[0]["id"]
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("UPDATE projects SET repo_key=?, repo_toplevel=? WHERE id=?",
+                     ("3:/repo3/.git", "/repo3", pid))
+        conn.commit()
+    finally:
+        conn.close()
+    _post_json(
+        f"{base}/api/claims",
+        {"project_id": pid, "scope_kind": "topic", "scope": "rename button in session card",
+         "holder": "codex-peer", "intent": "rename button in session card"},
+    )
+
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto(base)
+    _tab(page, "sessions")
+    page.click("#sess-new")
+    page.select_option("#ns-project", str(pid))
+    open_advanced(page)
+    warning = page.locator("#new-session-claim-overlap")
+    page.fill("#ns-prime", "upgrade the docker base image")
+    page.wait_for_timeout(900)
+    expect(warning).to_have_count(0)
+    page.fill("#ns-prime", "please rename the button in the session card")
+    expect(warning).to_be_visible(timeout=5000)
+    expect(warning).to_contain_text("codex-peer")
+    expect(warning).to_contain_text("rename button in session card")
+    # Advisory only: the launch button still works.
+    page.fill("#ns-name", "warned-but-started")
+    page.click("#ns-go")
+    expect(page.locator(".scard", has_text="warned-but-started")).to_be_visible(timeout=15000)
+    context.close()

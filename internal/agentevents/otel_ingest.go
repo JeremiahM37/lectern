@@ -50,6 +50,13 @@ func (in *Ingester) IngestOTelMetrics(s *store.Session, body []byte) error {
 	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
 		return err
 	}
+	// PR/commit counters are cumulative per process; keeping the highest
+	// reading never double counts, and a resumed process restarting at zero
+	// cannot lower it.
+	if _, err := in.DB.Exec(`UPDATE sessions SET otel_pull_requests = MAX(otel_pull_requests, ?),
+		otel_commits = MAX(otel_commits, ?) WHERE id = ?`, m.PullRequests, m.Commits, s.ID); err != nil {
+		return err
+	}
 
 	date := time.Now().UTC().Format("2006-01-02")
 	if err := in.DB.UpsertUsageDelta(date, s.ID, s.Agent, model, costDelta, inputDelta, outputDelta); err != nil {

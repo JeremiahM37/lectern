@@ -3,11 +3,10 @@
 // handing it the operator's static LECTERN_AUTH_TOKEN.
 //
 // Lectern's normal identity story — trust whoever tailscaled says you are —
-// has no answer for a device that was never on the tailnet at all. Full
-// end-to-end encryption (as github.com/slopus/happy does, for a relay it does
-// not own) buys little here: this server already belongs to the person
-// connecting to it. The simplest secure equivalent is device pairing: the
-// owner, already authenticated in a browser or session that can decide
+// has no answer for a device that was never on the tailnet at all. When the
+// owner trusts the tunnel in front of Lectern, device pairing is the simple
+// answer; when they do not, the end-to-end encrypted relay (internal/relay,
+// docs/relay.md) is. With pairing, the owner, already authenticated in a browser or session that can decide
 // approvals, mints a short-lived, single-use code; the new device exchanges
 // it once for its own long-lived, individually revocable credential. From
 // then on the device authenticates as that same owner — it IS the owner's

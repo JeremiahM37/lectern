@@ -117,6 +117,14 @@ func NormalizeClaude(raw map[string]any) []Event {
 		}
 	}
 	if t == "rate_limit_event" {
+		// Except the one tick that matters: "rejected" is the run being
+		// stopped by the account's usage limit (internal/limits reads it).
+		info, _ := raw["rate_limit_info"].(map[string]any)
+		if status, _ := info["status"].(string); status == "rejected" {
+			return []Event{{"rate_limit", map[string]any{
+				"status": status, "resets_at": info["resetsAt"],
+				"rate_limit_type": str(info["rateLimitType"])}}}
+		}
 		return nil
 	}
 	if t == "system" {
@@ -188,6 +196,9 @@ func NormalizeClaude(raw map[string]any) []Event {
 			"result":      clip(str(raw["result"]), 4000),
 			"session_id":  str(raw["session_id"]),
 		}
+		if isErr, _ := raw["is_error"].(bool); isErr {
+			payload["is_error"] = true
+		}
 		// Usage/context fields the result event carries (see
 		// docs/agent-events.md's usage section: "Tasks ... gain the same
 		// context fields where the driver reports them"), stored into
@@ -234,21 +245,29 @@ func normalizeCodex(raw map[string]any) []Event {
 			"session_id": str(raw["thread_id"]), "model": "codex", "tools": []any{}}}}
 	case "turn.started", "thread.completed":
 		return nil
+	case "error":
+		// A stream-level error, e.g. the usage-limit message.
+		return []Event{{"error", map[string]any{"message": clip(str(raw["message"]), 2000)}}}
+	case "turn.failed":
+		errObj, _ := raw["error"].(map[string]any)
+		return []Event{{"error", map[string]any{"message": clip(str(errObj["message"]), 2000)}}}
 	case "turn.completed":
 		usage, _ := raw["usage"].(map[string]any)
-		var tokens, inputTokens any
+		var tokens, inputTokens, cachedInput any
 		if usage != nil {
 			tokens = usage["output_tokens"]
 			inputTokens = usage["input_tokens"]
+			cachedInput = usage["cached_input_tokens"]
 		}
-		// codex has no per-turn cost figure in this event (unlike Claude's
-		// total_cost_usd) — cost is unknown for codex by design, per
-		// docs/agent-events.md's "cost unknown for codex -> show tokens
-		// instead of $".
+		// codex has no cost figure in this event (unlike Claude's
+		// total_cost_usd). The scheduler fills in an estimate from the
+		// operator's model price table when one is configured, labelled
+		// cost_source:"estimated" (internal/outcomes.EstimateResult).
 		return []Event{{"result", map[string]any{
 			"subtype": "success", "cost_usd": nil, "num_turns": nil,
 			"duration_ms": nil, "result": "", "session_id": "",
-			"tokens": tokens, "output_tokens": tokens, "input_tokens": inputTokens}}}
+			"tokens": tokens, "output_tokens": tokens, "input_tokens": inputTokens,
+			"cached_input_tokens": cachedInput}}}
 	case "item.started", "item.completed":
 		item, _ := raw["item"].(map[string]any)
 		if item == nil {

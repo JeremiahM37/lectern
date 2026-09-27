@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
@@ -9,14 +10,15 @@ import (
 // Admission is a durable reservation, not an artifact approval. It is captured
 // only by the controller after source validation and workspace preparation.
 type autoAdmission struct {
-	JobID               string                      `json:"job_id"`
-	TaskID              int64                       `json:"task_id"`
-	Date                string                      `json:"date"`
-	Cycle               int                         `json:"cycle"`
-	Proposal            autonomy.Proposal           `json:"proposal"`
-	RepairAttemptTaskID int64                       `json:"repair_attempt_task_id,omitempty"`
-	PlanAudits          map[string]autonomy.Verdict `json:"plan_audits"`
-	Scope               string                      `json:"scope"`
+	Documentation       *autoDocumentationReservation `json:"documentation,omitempty"`
+	JobID               string                        `json:"job_id"`
+	TaskID              int64                         `json:"task_id"`
+	Date                string                        `json:"date"`
+	Cycle               int                           `json:"cycle"`
+	Proposal            autonomy.Proposal             `json:"proposal"`
+	RepairAttemptTaskID int64                         `json:"repair_attempt_task_id,omitempty"`
+	PlanAudits          map[string]autonomy.Verdict   `json:"plan_audits"`
+	Scope               string                        `json:"scope"`
 }
 
 func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
@@ -27,9 +29,14 @@ func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
 	for role, v := range a.State.Audits {
 		audits[role] = v
 	}
+	var documentation *autoDocumentationReservation
+	if original := a.DocumentationReservations[j.DocumentationRoot]; original != nil {
+		raw, _ := json.Marshal(original)
+		_ = json.Unmarshal(raw, &documentation)
+	}
 	return &autoAdmission{JobID: j.ID, TaskID: j.TaskID, Date: a.State.Date, Cycle: a.State.Cycle,
 		Proposal: a.State.Items[a.State.Item], RepairAttemptTaskID: j.RepairAttemptTaskID, PlanAudits: audits,
-		Scope: "Reserved isolated assignment only. No artifact approval, publication, deployment or additional repair attempt authorized. Future catalog availability does not revoke this reservation."}
+		Documentation: documentation, Scope: "Reserved isolated assignment only. No artifact approval, publication, deployment or additional repair attempt authorized. Future catalog availability does not revoke this reservation."}
 }
 
 // Bind identity to the controller-created socket, never a worker query parameter.

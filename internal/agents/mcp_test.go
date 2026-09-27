@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -214,5 +215,103 @@ func TestInteractiveMCPInstallRejectsParentReplacementBeforeTraversal(t *testing
 	}
 	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
 		t.Fatalf("foreign replacement target changed: %v", err)
+	}
+}
+
+func adapterFixture() map[string]any {
+	return map[string]any{"mcpServers": map[string]any{
+		"ops":   map[string]any{"command": "python3", "args": []any{"-m", "ops"}, "env": map[string]any{"TOKEN": "t"}},
+		"web":   map[string]any{"type": "http", "url": "https://mcp.example/mcp", "headers": map[string]any{"Authorization": "Bearer x"}},
+		"feeds": map[string]any{"type": "sse", "url": "https://mcp.example/sse"},
+	}}
+}
+
+func decodeJSON(t *testing.T, raw []byte) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestOpenCodeMCPPayloadTranslatesLocalAndRemote(t *testing.T) {
+	raw, err := OpenCodeMCPPayload(adapterFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcp := decodeJSON(t, raw)["mcp"].(map[string]any)
+	ops := mcp["ops"].(map[string]any)
+	if ops["type"] != "local" || fmt.Sprint(ops["command"]) != "[python3 -m ops]" || ops["environment"].(map[string]any)["TOKEN"] != "t" {
+		t.Fatalf("stdio server not translated to an OpenCode local server: %v", ops)
+	}
+	web := mcp["web"].(map[string]any)
+	if web["type"] != "remote" || web["url"] != "https://mcp.example/mcp" || web["headers"].(map[string]any)["Authorization"] != "Bearer x" {
+		t.Fatalf("http server not translated to an OpenCode remote server: %v", web)
+	}
+	if mcp["feeds"].(map[string]any)["type"] != "remote" {
+		t.Fatalf("sse server should be remote: %v", mcp["feeds"])
+	}
+}
+
+func TestQwenMCPPayloadUsesHTTPURLForStreamableHTTP(t *testing.T) {
+	raw, err := QwenMCPPayload(adapterFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers := decodeJSON(t, raw)["mcpServers"].(map[string]any)
+	if servers["web"].(map[string]any)["httpUrl"] != "https://mcp.example/mcp" || servers["web"].(map[string]any)["url"] != nil {
+		t.Fatalf("http server must use httpUrl for Qwen: %v", servers["web"])
+	}
+	if servers["feeds"].(map[string]any)["url"] != "https://mcp.example/sse" {
+		t.Fatalf("sse server must use url: %v", servers["feeds"])
+	}
+	ops := servers["ops"].(map[string]any)
+	if ops["command"] != "python3" || fmt.Sprint(ops["args"]) != "[-m ops]" || ops["env"].(map[string]any)["TOKEN"] != "t" {
+		t.Fatalf("stdio server changed: %v", ops)
+	}
+}
+
+func TestCopilotMCPPayloadKeepsClaudeDocument(t *testing.T) {
+	raw, err := CopilotMCPPayload(map[string]any{"ops": map[string]any{"command": "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"mcpServers":{"ops":{"command":"x"}}}` {
+		t.Fatalf("copilot reads the Claude document as is, got %s", raw)
+	}
+}
+
+func TestACPMCPServersUsesNameValuePairsAndReportsTransports(t *testing.T) {
+	servers, needHTTP, needSSE, err := ACPMCPServers(adapterFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !needHTTP || !needSSE || len(servers) != 3 {
+		t.Fatalf("want http+sse and three servers, got %v %v %v", needHTTP, needSSE, servers)
+	}
+	raw, _ := json.Marshal(servers)
+	want := `[{"headers":[],"name":"feeds","type":"sse","url":"https://mcp.example/sse"},` +
+		`{"args":["-m","ops"],"command":"python3","env":[{"name":"TOKEN","value":"t"}],"name":"ops"},` +
+		`{"headers":[{"name":"Authorization","value":"Bearer x"}],"name":"web","type":"http","url":"https://mcp.example/mcp"}]`
+	if string(raw) != want {
+		t.Fatalf("ACP servers:\n got %s\nwant %s", raw, want)
+	}
+}
+
+func TestMCPAdaptersRejectUntranslatableFields(t *testing.T) {
+	bad := map[string]any{"ops": map[string]any{"command": "x", "cwd": "/srv"}}
+	for name, fn := range map[string]func(map[string]any) ([]byte, error){
+		"opencode": OpenCodeMCPPayload, "qwen": QwenMCPPayload, "copilot": CopilotMCPPayload,
+	} {
+		if _, err := fn(bad); err == nil || !strings.Contains(err.Error(), `"cwd"`) {
+			t.Errorf("%s should refuse a field it cannot carry, got %v", name, err)
+		}
+	}
+	if _, _, _, err := ACPMCPServers(bad); err == nil {
+		t.Error("ACP should refuse a field it cannot carry")
+	}
+	if _, ok := MCPAdapterFor("gemini"); ok {
+		t.Error("gemini has no per-session MCP file and must not claim an adapter")
 	}
 }

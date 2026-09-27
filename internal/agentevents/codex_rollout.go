@@ -34,6 +34,7 @@ type CodexUsage struct {
 	ContextSize   int // model_context_window
 	ContextPct    int // ContextTokens/ContextSize, capped at 100
 	InputTokens   int // cumulative, for usage_daily delta booking
+	CachedInput   int // cumulative part of InputTokens served from cache
 	OutputTokens  int // cumulative, for usage_daily delta booking
 }
 
@@ -62,9 +63,10 @@ type codexTokenCountInfo struct {
 }
 
 type codexTokenUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	TotalTokens       int `json:"total_tokens"`
 }
 
 // turn_context carries the model name (rollout's session_meta does not).
@@ -114,6 +116,7 @@ func ParseCodexRolloutUsage(data []byte) (*CodexUsage, bool) {
 		ContextTokens: info.TotalTokenUsage.TotalTokens,
 		ContextSize:   info.ModelContextWindow,
 		InputTokens:   info.TotalTokenUsage.InputTokens,
+		CachedInput:   info.TotalTokenUsage.CachedInputTokens,
 		OutputTokens:  info.TotalTokenUsage.OutputTokens,
 	}
 	if usage.ContextSize > 0 {

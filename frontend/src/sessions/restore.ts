@@ -10,6 +10,8 @@ export interface RestorableSession extends SessionView {
   action: "resume" | "track" | "relaunch" | "shell" | "handoff" | "history" | "fresh";
   action_label: string;
   note: string;
+  // A lost adopted session's conversation matched by folder and time.
+  likely_match?: boolean;
   preview: string;
   preview_kind?: "prompt" | "screen";
   superseded_by?: number;

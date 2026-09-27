@@ -34,7 +34,7 @@ def _seed_attempt(db_path, project_id, agent, model, cost_usd, check_passed, acc
         )
         task_id = cur.lastrowid
         rc = 0 if check_passed else 1
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO attempts(task_id, n, status, model, started_at, finished_at, "
             "result_json, verify_json) VALUES (?,1,'done',?,?,?,?,?)",
             (
@@ -47,6 +47,7 @@ def _seed_attempt(db_path, project_id, agent, model, cost_usd, check_passed, acc
             ),
         )
         conn.commit()
+        return cur.lastrowid
     finally:
         conn.close()
 
@@ -60,8 +61,18 @@ def test_outcomes_table_ranks_attempts_by_spend_and_shows_cost_per_pass(browser,
     # accepted codex attempt — codex should outrank claude by total spend,
     # and each row's own $/pass should be its own cost (one passing attempt
     # each).
-    _seed_attempt(db_path, project_id, "claude", "opus", 1.0, check_passed=True, accepted=True)
+    claude_attempt = _seed_attempt(db_path, project_id, "claude", "opus", 1.0, check_passed=True, accepted=True)
     _seed_attempt(db_path, project_id, "codex", "gpt-6", 9.0, check_passed=True, accepted=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT INTO otel_attempt_usage(attempt_id, model, cost_usd, input_tokens, output_tokens, "
+            "lines_added, lines_removed, pull_requests, commits, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (claude_attempt, "opus", 1.0, 10, 5, 0, 0, 1, 2, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     context = browser.new_context()
     page = context.new_page()
@@ -83,6 +94,10 @@ def test_outcomes_table_ranks_attempts_by_spend_and_shows_cost_per_pass(browser,
     second_row = rows.nth(1)
     expect(second_row).to_contain_text("claude")
     expect(second_row).to_contain_text("$1.00")
+
+    # Only the claude attempt reported OTel PR/commit counters; codex shows "—".
+    expect(second_row.locator(".outcomes-shipped")).to_have_text("1 / 2")
+    expect(first_row.locator(".outcomes-shipped")).to_have_text("—")
 
     # The spend-comparison bar list reflects the same ranking.
     bars = page.locator(".outcomes-bar-row")

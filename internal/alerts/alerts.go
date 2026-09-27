@@ -152,6 +152,12 @@ func (w *Watcher) HandleHookEvent(sess *store.Session, event string, body []byte
 	if !changed || state == "" {
 		return
 	}
+	// A StopFailure the usage-limit tracker has turned into a hold already
+	// has its own push (internal/limits); a generic "hit an error" on top of
+	// it would only say less.
+	if event == agentevents.EventStopFailure && w.limitHeld(sess) {
+		return
+	}
 	switch state {
 	case agentevents.StateWaitingPermission:
 		w.fire(sess, KeyWaitingPermission, "waiting_permission", "Needs permission",
@@ -166,6 +172,14 @@ func (w *Watcher) HandleHookEvent(sess *store.Session, event string, body []byte
 		w.fire(sess, KeyError, "error", "Error",
 			fmt.Sprintf("%s hit an error", label(sess)))
 	}
+}
+
+func (w *Watcher) limitHeld(sess *store.Session) bool {
+	if sess == nil || w.DB == nil {
+		return false
+	}
+	h, err := w.DB.OpenLimitHoldForSession(sess.ID)
+	return err == nil && h.Open()
 }
 
 func (w *Watcher) handlePreCompact(sess *store.Session, body []byte) {

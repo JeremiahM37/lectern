@@ -1,5 +1,5 @@
 import { ScratchReview } from "./ScratchReview";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Approval,
   InteractiveWorkspace,
@@ -119,6 +119,7 @@ export function Sessions({
     [recentOpen, setRecentOpen] = useState(false),
     [restoreElsewhere, setRestoreElsewhere] = useState<SessionView>(),
     [restoringAll, setRestoringAll] = useState(false),
+    [relaunched, setRelaunched] = useState<SessionView[]>([]),
     [errors, setErrors] = useState<Record<number, string>>({}),
     [clock, setClock] = useState(Date.now()),
     // Pending session-scoped approvals (docs/agent-events.md section 3),
@@ -416,6 +417,38 @@ export function Sessions({
       run: () => void reopen(session, {}, { attach: false }),
     });
   }
+  // Sessions restart recovery brought back on its own, until dismissed.
+  useEffect(() => {
+    const abort = new AbortController();
+    void api
+      .request<SessionView[]>("/sessions/relaunched", { signal: abort.signal })
+      .then((next) => {
+        if (!abort.signal.aborted && Array.isArray(next)) setRelaunched(next);
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [api, refreshVersion]);
+  async function dismissRelaunched() {
+    setRelaunched([]);
+    try {
+      await api.request("/sessions/relaunched/dismiss", { method: "POST", body: {} });
+    } catch (error) {
+      onNotice(String(error), true);
+    }
+  }
+  async function revive(session: SessionView) {
+    try {
+      const next = await api.request<SessionView>(`/sessions/${session.id}/revive`, {
+        method: "POST",
+        body: {},
+      });
+      await refreshAll();
+      onNotice(`Revived “${next.name || session.name}”.`);
+      await attach(next, true);
+    } catch (error) {
+      onNotice(String(error), true);
+    }
+  }
   const interrupted = rows.filter(
     (session) => session.status === "interrupted" && !session.ended_at,
   );
@@ -462,6 +495,7 @@ export function Sessions({
         onHistory={setHistory}
         onWorkspace={setWorkspaceSession}
         onRestore={(session) => void reopen(session)}
+        onRevive={(session) => void revive(session)}
         onClosed={closed}
         onArchive={(session) => {
           void api
@@ -519,6 +553,26 @@ export function Sessions({
           + New session
         </button>
       </div>
+      {relaunched.length > 0 && (
+        <div className="restore-banner relaunch-notice" role="status">
+          <span>
+            Relaunched {relaunched.length} session{relaunched.length === 1 ? "" : "s"} after a
+            restart:{" "}
+            {relaunched.map((session, index) => (
+              <Fragment key={session.id}>
+                {index > 0 && ", "}
+                <button className="linkish" onClick={() => showSession(session)}>
+                  {session.name || `#${session.id}`}
+                </button>
+              </Fragment>
+            ))}
+            .
+          </span>
+          <button className="b" id="relaunch-dismiss" onClick={() => void dismissRelaunched()}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {interrupted.length > 0 && (
         <div className="restore-banner" role="status">
           <span>

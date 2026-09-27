@@ -351,3 +351,90 @@ also forces three real download failures, reloads persisted deferred state, and
 verifies resumption after registry recovery. Only retry/cooldown timestamps in
 the disposable fixture are accelerated. It calls no model API or tmux.
 Ordinary project verification skips these host integration tests.
+
+### Planner evidence for plan audits
+
+Plan auditors receive a separate snapshot of the completed planner for their
+exact revision, item and step, at `.lectern-review/PLANNER_JOB/work`, with a
+controller-generated file manifest in its parent directory. Both auditors get
+the same planner evidence; their verdicts and working directories are not shared.
+The runner mounts `.lectern-review` read-only for all new and resumed workers,
+including historical evidence supplied to repairs. Run experiments from disposable
+copies. A symlink's external target is not protected by that read-only mount:
+validate regular-file hashes or establish the target's provenance separately.
+
+### Documentary completion after exhausted repairs
+
+`/documentation` lists rejected checkpoints for consideration when their ordinary
+repair allowance is exhausted. A planner may select `documentation_task_id`,
+exclusively with source/continuation/repair selectors. Catalog presence does not
+establish that the work is complete: both independent plan auditors must inspect
+the exact rejected source and reviewer archives and establish that only
+documentary corrections remain. Missing executable regression tests, dependencies
+or production changes are outside this capability.
+
+The controller pins source and review archive hashes before the plan audits. It
+retains both the original root acceptance criteria and the selected repair's
+criteria, separately from the new completion criteria. A durable reservation
+allows one documentary attempt per exhausted root; operational restarts retain
+that reservation. It neither resets ordinary repair counts nor changes the
+original rejection into approval.
+
+The runner prepares from verified archives and freezes a separate baseline.
+Only content changes to existing `WORKSHOP.md` and flat nonexecutable UTF-8
+`.md`/`.txt` files in `.lectern-completion` are permitted. Limits are 64 documents,
+1 MiB each and 8 MiB total. Existing modes and all other inherited files must
+remain unchanged. The current root `autonomy-report.json` is transport retained
+separately; historical reports, test output, manifests and Git files are not
+excluded from validation. `.lectern-completion/original-WORKSHOP.md` is reserved
+for the controller's preserved original.
+
+Before final review, the controller reconstructs a separate artifact from the
+frozen baseline and validated documents. Production files come from the baseline,
+including when a candidate temporarily edited and restored them. Reviewers use
+that reconstructed artifact and rerun substantive checks in disposable copies;
+they must not execute examples from the new documents. Continuations, downloads
+and integration receipts use the same derived artifact identity. The raw candidate
+and rejected source archives remain available as historical evidence.
+
+Preparation and reconstruction are bounded background operations with persisted
+receipts. An interrupted operation resumes its reserved work; readiness is
+published only after workspace ownership is usable. A forbidden candidate change
+is a substantive rejection, while infrastructure failures retain evidence for
+operational recovery. Cancellation stops the job's recovery helpers and preserves
+their receipts. These mechanisms grant no public, destructive, production
+deployment or core-policy authority.
+
+### Escalation after repeated review failures
+
+Ordinary builders retain economical routing. When an original build and its
+repair have both been independently rejected, the next permitted repair uses
+the expert model tier. This changes model selection only: the audited proposal,
+remaining repair allowance, independent review and fresh quota reserve checks
+are unchanged. Process failures, report-schema retries, missing dependencies and
+pending reviews alone do not trigger escalation.
+
+### Offline Python test tooling
+
+`tools/provision-python-test-bundle.py` builds a fixed pytest runtime from the
+trusted installed verification environment, checking installed RECORD hashes
+without importing package code or accessing the network. Only pytest, pluggy,
+iniconfig, packaging and pygments are copied. This proves consistency with that
+local environment, not independent registry authenticity. The immutable bundle
+has a content-addressed key, per-file hashes and read-only files. A root-owned
+`dependencies/python/active.json` selects it; workers cannot select host paths.
+
+The runner verifies ownership, manifest identity, interpreter family and every
+file before mounting it read-only. `python3 -m pytest` uses this runtime through
+PYTHONPATH. `/test-runtime` advertises provisioned versions; the worker's
+`LECTERN_PYTHON_TEST_RUNTIME_STATUS` and `/opt/python-test-runtime.json` describe
+what was actually mounted. Invalid optional tooling is omitted with an explicit
+reason, so a Python upgrade cannot stop unrelated Go or planning work. Existing
+workers retain their launch environment. This does not supply Django, project
+requirements, browser dependencies or arbitrary installation rights.
+
+Reversible technical choices in isolated private work are delegated. Material
+tradeoffs still use independent decision audits; explicit user decisions and
+public/destructive/core-policy boundaries remain binding. Unclear access policy
+permits investigation and conservative candidates without widening privileges
+or exposing additional data; it does not imply permission to apply to production.

@@ -43,6 +43,11 @@ type Row struct {
 	LinesKept  int64 `json:"lines_kept"`
 	EvalTotal  int   `json:"eval_total"`
 	EvalPassed int   `json:"eval_passed"`
+	// PullRequests/Commits sum Claude Code's OTel counters over the facts
+	// that reported them; nil when none did, so the UI shows "—" rather than
+	// a misleading 0 for agents that have no such telemetry.
+	PullRequests *int64 `json:"pull_requests,omitempty"`
+	Commits      *int64 `json:"commits,omitempty"`
 	// Partial is true when any fact contributing to this row has no real
 	// cost figure at all (cost_source == "", i.e. not even an estimate) —
 	// the UI's "derived from partial data" flag (docs/outcomes.md).
@@ -140,6 +145,8 @@ func Aggregate(db *store.DB, cutoffDate string, group GroupKind, projectName map
 		if f.TimeToPassS != nil {
 			timesByKey[key] = append(timesByKey[key], *f.TimeToPassS)
 		}
+		row.PullRequests = addCount(row.PullRequests, f.PullRequests)
+		row.Commits = addCount(row.Commits, f.Commits)
 	}
 
 	sort.Strings(order)
@@ -172,6 +179,17 @@ func Aggregate(db *store.DB, cutoffDate string, group GroupKind, projectName map
 	// GET /api/usage's by_agent_model already uses.
 	sort.Slice(out, func(i, j int) bool { return out[i].CostUSD > out[j].CostUSD })
 	return out, nil
+}
+
+func addCount(total, v *int64) *int64 {
+	if v == nil {
+		return total
+	}
+	sum := *v
+	if total != nil {
+		sum += *total
+	}
+	return &sum
 }
 
 func median(vals []float64) float64 {

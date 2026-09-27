@@ -17,15 +17,16 @@ import (
 const autoIntegrationsKey = "autonomy_private_integrations_v1"
 
 type autoIntegrationInput struct {
-	TaskID          int64    `json:"task_id"`
-	JobID           string   `json:"job_id"`
-	ProjectID       int64    `json:"project_id"`
-	Revision        string   `json:"revision"`
-	ReportSHA256    string   `json:"report_sha256"`
-	ScopeType       string   `json:"scope_type"`
-	IntegratedScope string   `json:"integrated_scope"`
-	RemainingScope  string   `json:"remaining_scope"`
-	Evidence        []string `json:"evidence"`
+	DerivedArchiveSHA256 string   `json:"derived_archive_sha256,omitempty"`
+	TaskID               int64    `json:"task_id"`
+	JobID                string   `json:"job_id"`
+	ProjectID            int64    `json:"project_id"`
+	Revision             string   `json:"revision"`
+	ReportSHA256         string   `json:"report_sha256"`
+	ScopeType            string   `json:"scope_type"`
+	IntegratedScope      string   `json:"integrated_scope"`
+	RemainingScope       string   `json:"remaining_scope"`
+	Evidence             []string `json:"evidence"`
 }
 
 type autoIntegration struct {
@@ -66,6 +67,9 @@ func (s *Server) validateAutoIntegration(ctx context.Context, a *autoRecord, in 
 	j := autoIntegrationJob(a, in)
 	if j == nil {
 		return bad("integration must identify a completed builder job and task")
+	}
+	if j.DocumentationRoot > 0 && (j.Documentation == nil || !autoHash256(j.Documentation.DerivedSHA) || in.DerivedArchiveSHA256 != j.Documentation.DerivedSHA) {
+		return bad("integration must identify verified derived documentary artifact")
 	}
 	task, err := s.DB.Task(in.TaskID)
 	if err != nil || task.ProjectID != in.ProjectID {

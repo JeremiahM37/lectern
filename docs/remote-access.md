@@ -8,18 +8,21 @@ borrowed one, a network that blocks it. This document is for that case: how
 to put Lectern behind an ordinary public HTTPS tunnel and still keep it
 locked down to the one person who owns it.
 
-We looked at Happy's approach first (github.com/slopus/happy,
-`docs/encryption.md`): a phone talks to Claude Code/Codex through an
-end-to-end-encrypted relay it does not own, so the relay operator is
-untrusted by design. That threat model does not apply here — **Lectern is
-already the owner's own server**; the thing a public tunnel adds is exposure
-to the open internet, not a relay operator to distrust. Full E2E encryption
-would protect against a threat (a malicious relay) that does not exist in
-this deployment. The simpler, correct-for-this-case answer is **device
-pairing**: an already-authenticated owner mints a short-lived, single-use
-code; a new device exchanges it once for its own long-lived, individually
-revocable credential. See `internal/pairing`'s package doc for the
-implementation notes.
+There are now two ways to do that:
+
+- **Device pairing behind your own HTTPS tunnel** (this page). The tunnel
+  (Cloudflare, `tailscale funnel`) terminates TLS in front of Lectern, so it
+  sees every request in the clear. That is fine when you trust whoever runs
+  the tunnel. An already-authenticated owner mints a short-lived, single-use
+  code; a new device exchanges it once for its own long-lived, individually
+  revocable credential. See `internal/pairing`'s package doc.
+- **The end-to-end encrypted relay** ([relay.md](relay.md)). Lectern and the
+  phone both connect out to a relay that only passes Noise-encrypted frames,
+  so nobody on the path, including whoever runs the relay, can read or
+  change the traffic. It needs no inbound port at all. Use it when you do
+  not want to trust the path, or cannot open one. Happy
+  (github.com/slopus/happy) also relays end-to-end encrypted traffic, with a
+  different design (relay.md compares them).
 
 ## Setting it up
 

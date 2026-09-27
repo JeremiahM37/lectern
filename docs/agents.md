@@ -152,8 +152,21 @@ to Codex with `-c` overrides; Codex keeps its normal `~/.codex` home. The same
 project MCP declaration reaches fresh, resumed, and forked interactive sessions
 for Claude and Codex. Claude receives a private absolute MCP document and can
 enforce `strict_mcp`; Codex receives additive overrides and rejects `strict_mcp`,
-including when the declaration is empty. Gemini and custom agents receive no
-automatic MCP translation unless their custom launch definition supplies it.
+including when the declaration is empty. Interactive OpenCode, Qwen Code and
+GitHub Copilot CLI sessions get the servers through one private file their CLI
+reads beside the user's own config, and every ACP agent's tasks (including
+Gemini CLI, OpenCode, Goose, Kimi and Cline over ACP) get them in ACP
+`session/new`. Interactive Gemini CLI sessions get them merged into
+`.gemini/settings.json` only in a Lectern-created worktree or scratch workspace,
+never in the project's own checkout. Aider, Amp, Cursor, Crush and non-ACP
+custom tasks get no automatic translation; see
+[context-parity.md](context-parity.md#mcp-servers) for which agent gets what.
+
+Project skills (Agent Skills `SKILL.md` directories) are linked into
+`.claude/skills` for Claude and into the shared `.agents/skills` for Codex,
+Gemini CLI, Qwen Code, OpenCode and GitHub Copilot CLI. Other agents have no
+confirmed skills directory and are refused; see
+[terminal-client.md](terminal-client.md#project-skills).
 
 Project MCP is managed from PWA project settings, the terminal dashboard's MCP
 action, or `PUT /api/projects/ID/mcp` through the CLI API. Responses redact

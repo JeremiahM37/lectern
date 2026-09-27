@@ -301,6 +301,7 @@ func (m *Manager) pollTargetGroup(ctx context.Context, targetID int64, group []*
 		}
 		m.applyPane(s, pane.Text, pane.Missing)
 	}
+	m.probeAgents(ctx, ex, targetID, group)
 	m.pollCodexUsage(ctx, ex, group)
 	return ""
 }
@@ -320,7 +321,7 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		// Keep any target allocation for inspection; do not launch twice.
 		now := store.Now()
 		if err := m.DB.Update("sessions", s.ID, map[string]any{"setup_state": "failed", "setup_error": "Setup was interrupted; inspect the workspace before retrying", "status": StatusDead, "ended_at": now, "updated_at": now, "end_reason": EndFailed}); err == nil {
-			m.IsolationProxies.Stop(s.ID)
+			m.releaseSessionResources(s.ID)
 			if fresh, err := m.DB.Session(s.ID); err == nil {
 				m.publish(fresh)
 			}
@@ -376,6 +377,9 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 	if err := m.DB.Update("sessions", s.ID, fields); err != nil {
 		return
 	}
+	if !missing {
+		m.Limits.ObservePane(s, pane, HasBusyMarker(pane))
+	}
 	if !changed {
 		return
 	}
@@ -389,12 +393,19 @@ func (m *Manager) applyPane(s *store.Session, pane string, missing bool) {
 		m.Checks.OnAgentStop(s.ID)
 	}
 	if status == StatusDead && s.Status != StatusDead {
-		m.IsolationProxies.Stop(s.ID)
+		m.releaseSessionResources(s.ID)
 	}
 	if fresh, err := m.DB.Session(s.ID); err == nil {
 		m.publish(fresh)
 		if status == StatusDead && s.Status != StatusDead {
 			m.Log.Info("session ended", "session", s.ID, "name", s.Name)
+			if s.Origin == "discovered" && (s.Agent == "claude" || s.Agent == "codex") {
+				go func(id int64) {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+					defer cancel()
+					m.MatchLostAdopted(ctx, id)
+				}(s.ID)
+			}
 		}
 	}
 }

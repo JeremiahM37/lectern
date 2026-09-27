@@ -81,6 +81,10 @@ func (m *Manager) recoverAfterBoot(ctx context.Context, target *store.Target, ex
 		_, err = m.launch(ctx, LaunchOpts{ReservedID: row.ID, Configuration: config, TargetID: target.ID, ProjectID: row.ProjectID, GroupPath: row.GroupPath, Name: row.Name, Agent: row.Agent, Model: row.Model, Workdir: row.Workdir, ResumeID: row.ResumeID, RecoveryCID: row.NativeRecoveryCID})
 		if err != nil {
 			_ = m.DB.Update("sessions", row.ID, map[string]any{"status": StatusInterrupted, "ended_at": nil, "updated_at": time.Now().UnixNano() / 1e9})
+		} else {
+			// Remembered so Sessions can say what came back on its own.
+			_ = m.DB.Update("sessions", row.ID, map[string]any{"relaunched_at": store.Now()})
+			m.Log.Info("session relaunched after restart", "session", row.ID, "name", row.Name)
 		}
 		m.lifecycleMu.Unlock()
 	}

@@ -102,7 +102,7 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 	}
 	for i := range items {
 		p := &items[i]
-		if p.ContinueTaskID > 0 || p.RepairTaskID > 0 {
+		if p.ContinueTaskID > 0 || p.RepairTaskID > 0 || p.DocumentationTaskID > 0 {
 			continue
 		}
 		project, err := s.autoSourceProject(p.ProjectID)
@@ -118,7 +118,7 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 		}
 		p.SourceRevision = revision
 	}
-	return nil
+	return s.pinAutoDocumentation(ctx, a, items)
 }
 
 func (s *Server) autoSourceContext(ctx context.Context, id, requestedRevision string) (map[string]any, error) {

@@ -180,7 +180,7 @@ func (s *Server) autoRoute(a *autoRecord, role string, now time.Time) (string, s
 	if role == "auditor_a" || role == "reviewer" || role == "decision_a" {
 		order = []string{"claude", "codex"}
 	}
-	expert := a.State.Item < len(a.State.Items) && a.State.Items[a.State.Item].Expert
+	expert := autoExpertBuilder(a)
 	var catalog []string
 	if home, err := os.UserHomeDir(); err == nil {
 		if data, err := autoReadRegular(filepath.Join(home, ".codex", "models_cache.json"), 4<<20); err == nil {
@@ -226,6 +226,9 @@ func (s *Server) autoContinuation(a *autoRecord, projectID, taskID int64) (*auto
 // Cross-cycle reuse is stricter than the within-cycle review/decision copies:
 // only an explicitly approved final review can promote a builder checkpoint.
 func autoCheckpointApproved(a *autoRecord, taskID int64) bool {
+	if j := autoFindJob(a, taskID); j != nil && j.DocumentationRoot > 0 && (j.Documentation == nil || j.Documentation.State != "ready" || !autoHash256(j.Documentation.DerivedSHA)) {
+		return false
+	}
 	if j := autoFindJob(a, taskID); j != nil && j.ReviewOutcome != "" && j.ReviewOutcome != "completed" {
 		return false
 	}
@@ -268,17 +271,16 @@ func (s *Server) autoApprovedContinuation(a *autoRecord, projectID, taskID int64
 	return j, nil
 }
 
-func (s *Server) copyAutoBuilder(ctx context.Context, a *autoRecord, jobID string, projectID int64) error {
+func (s *Server) copyAutoBuilder(ctx context.Context, a *autoRecord, jobID string, projectID int64) (*autoDocumentationCopy, error) {
 	for i := len(a.State.Assignments) - 1; i >= 0; i-- {
 		as := a.State.Assignments[i]
 		if as.Role == "builder" && as.Item == a.State.Item && as.Completed {
 			j, err := s.autoContinuation(a, projectID, as.TaskID)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			_, err = s.runAutoCommand(ctx, "copy", "--job", jobID, "--from-job", j.ID)
-			return err
+			return s.copyAutoPromoted(ctx, jobID, j)
 		}
 	}
-	return fmt.Errorf("builder artifacts missing")
+	return nil, fmt.Errorf("builder artifacts missing")
 }

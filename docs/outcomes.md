@@ -16,11 +16,13 @@ and Best-of-N compare cards (`frontend/src/board/CompareView.tsx`).
 
 ## What is measured
 
-An **outcome fact** is one row per finished task attempt or per checked
-interactive session (`outcome_facts`, see `internal/store/schema.go`), each
-carrying: agent, model, project, date, cost, its cost's source, whether its
-check passed, whether it was accepted, lines kept (accepted changes only),
-whether an eval graded it a pass, and time to a passing check. The table is
+An **outcome fact** is one row per finished task attempt, and per
+interactive session that ran a check or (per Claude Code's OTel counters)
+opened a PR or made a commit (`outcome_facts`, see
+`internal/store/schema.go`). Each carries: agent, model, project, date, cost,
+its cost's source, whether its check passed, whether it was accepted, lines
+kept (accepted changes only), whether an eval graded it a pass, time to a
+passing check, and OTel PR/commit counts (null when not reported). The table is
 a **recomputed cache**, not its own source of truth — `outcomes.Rebuild`
 derives it fresh from `attempts`/`tasks`/`session_checks`/`eval_results`/
 `otel_attempt_usage` on every `GET /api/outcomes` call (cheap at homelab
@@ -106,7 +108,7 @@ Claude Code's own documented names verbatim:
 | `claude_code.cost.usage` | cumulative session/attempt cost, USD |
 | `claude_code.token.usage` | cumulative tokens by `type` (input/output/cacheRead/cacheCreation — the latter two fold into "input", matching how Claude's own statusline and result payloads are already treated) |
 | `claude_code.lines_of_code.count` | cumulative lines added/removed |
-| `claude_code.pull_request.count` | cumulative PRs opened (parsed; not yet surfaced in the UI — see Caveats) |
+| `claude_code.pull_request.count` | cumulative PRs opened (the Outcomes table's PRs / commits column) |
 | `claude_code.commit.count` | cumulative commits (same) |
 
 and `claude_code.api_request` log records, opportunistically, for any
@@ -143,6 +145,11 @@ cumulative reading. `internal/outcomes.Rebuild` reads this ahead of
    (`internal/outcomes/prices.go`, settings key `model_prices`). A fresh
    install estimates nothing: an unconfigured model's cost is reported as
    unknown (`cost_source: ""`), never silently invented.
+   An entry may also set `cached_input_per_1m` to bill cached input (Codex
+   reports it) at its own rate. A model with no entry falls back to the agent's name, so pricing `codex`
+   covers Codex runs that report no model. For Codex the scheduler already
+   writes this estimate into `result_json` while the attempt runs (see
+   [budgets](budgets.md)); it keeps its `estimated` label here.
 
 Once a session's OTel exporter has reported in even once,
 `IngestStatusline` **stops** booking its own `usage_daily` deltas and
@@ -167,6 +174,9 @@ never both contribute to the same fact's `cost_usd`.
 - **`passes_per_10usd`** — `passed / cost_usd * 10`.
 - **`median_time_to_pass_s`** — median, not mean, so one slow outlier does
   not dominate the headline number.
+- **`pull_requests`** / **`commits`** — summed OTel counters over the facts
+  that reported them; omitted when none did (the UI's "PRs / commits"
+  column shows "—").
 
 Every derived field is `null` (rendered "—" in the UI) when its denominator
 is zero — never a divide-by-zero artifact.
@@ -187,11 +197,13 @@ certain than it is.
 
 ## Caveats
 
-- `claude_code.pull_request.count`/`claude_code.commit.count` are parsed
-  (and covered by the OTLP fixture tests) but not yet wired into
-  `outcome_facts` or the UI — a real "did this attempt ship a PR/commit"
-  signal is a natural follow-up but was left out of this pass to keep
-  "accepted" to one unambiguous definition (task done + latest attempt).
+- PR/commit counts come only from Claude Code's OTel counters, so other
+  agents show "—" (unknown) rather than 0. They are reported alongside
+  "accepted", not folded into it: accepted still means task done + latest
+  attempt. A session keeps the highest cumulative reading it has sent, so a
+  resumed process that restarts its counters from zero does not lower it,
+  but also does not add the new process's PRs/commits until they exceed the
+  earlier total.
 - `claude_code.api_request`'s `cost_usd`/token attributes are not part of
   Claude Code's documented event schema as of this writing; the parser
   reads them opportunistically and degrades to nothing when absent, so this

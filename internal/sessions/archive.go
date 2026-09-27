@@ -124,7 +124,7 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 	if err != nil {
 		return nil, err
 	}
-	m.IsolationProxies.Stop(id)
+	m.releaseSessionResources(id)
 	fresh, err := m.DB.Session(id)
 	if err == nil {
 		m.publish(fresh)

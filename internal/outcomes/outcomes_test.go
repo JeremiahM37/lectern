@@ -1,6 +1,7 @@
 package outcomes
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -293,5 +294,76 @@ func TestRebuildSessionUsesLatestCheckAndOtelPrecedence(t *testing.T) {
 	}
 	if f.CostUSD != cost {
 		t.Errorf("cost_usd = %v, want %v", f.CostUSD, cost)
+	}
+}
+
+// Claude Code's OTel PR/commit counters reach outcome facts: an attempt with
+// an OTel row carries them, one without has nil (unknown, not zero), and a
+// session with no check still becomes a fact once it has shipped a commit.
+func TestRebuildCarriesOTelPullRequestAndCommitCounts(t *testing.T) {
+	db := testDB(t)
+	proj := fixtureProject(t, db)
+	withOtel := fixtureAttempt(t, db, proj, "done")
+	if err := db.UpsertOtelAttemptUsage(withOtel.ID, "opus", 1, 10, 5, 3, 1, 1, 2, store.Now()); err != nil {
+		t.Fatal(err)
+	}
+	withoutOtel := fixtureAttempt(t, db, proj, "done")
+
+	target, err := db.InsertTarget(&store.Target{Name: "t2", Kind: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped, err := db.InsertSession(&store.Session{TargetID: target.ID, Name: "shipped", Agent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle, err := db.InsertSession(&store.Session{TargetID: target.ID, Name: "idle", Agent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := store.Now()
+	for _, s := range []struct {
+		id      int64
+		commits int
+	}{{shipped.ID, 4}, {idle.ID, 0}} {
+		if err := db.Update("sessions", s.id, map[string]any{"cost_usd": 2.0, "otel_active_at": now,
+			"updated_at": now, "otel_commits": s.commits}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := Rebuild(db, 30); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := db.OutcomeFactsSince("2000-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[string]*store.OutcomeFact{}
+	for _, f := range facts {
+		byKey[f.Scope+strconv.FormatInt(f.RefID, 10)] = f
+	}
+	a := byKey["attempt"+strconv.FormatInt(withOtel.ID, 10)]
+	if a == nil || a.PullRequests == nil || *a.PullRequests != 1 || a.Commits == nil || *a.Commits != 2 {
+		t.Fatalf("attempt with OTel should carry 1 PR / 2 commits, got %+v", a)
+	}
+	b := byKey["attempt"+strconv.FormatInt(withoutOtel.ID, 10)]
+	if b == nil || b.PullRequests != nil || b.Commits != nil {
+		t.Fatalf("attempt without OTel should report unknown counts, got %+v", b)
+	}
+	s := byKey["session"+strconv.FormatInt(shipped.ID, 10)]
+	if s == nil || s.Commits == nil || *s.Commits != 4 || s.PullRequests == nil || *s.PullRequests != 0 {
+		t.Fatalf("a session that committed should be a fact with 4 commits, got %+v", s)
+	}
+	if byKey["session"+strconv.FormatInt(idle.ID, 10)] != nil {
+		t.Fatal("a session with no check and nothing shipped is not an outcome")
+	}
+
+	rows, err := Aggregate(db, "2000-01-01", GroupAgent, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].PullRequests == nil || *rows[0].PullRequests != 1 || rows[0].Commits == nil || *rows[0].Commits != 6 {
+		t.Fatalf("aggregate should sum 1 PR / 6 commits across reporting facts, got %+v", rows)
 	}
 }

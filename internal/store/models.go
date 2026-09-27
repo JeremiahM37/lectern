@@ -167,6 +167,9 @@ type Attempt struct {
 	// see the column's own comment in store/schema.go for why this exists
 	// separately from ResultJSON, which only ever lands once, at finish.
 	LiveCostUSD float64 `json:"live_cost_usd,omitempty"`
+	// NotBefore holds a queued attempt back until its provider's usage limit
+	// has reset (docs/rate-limits.md); nil promotes it as soon as a slot frees.
+	NotBefore *float64 `json:"not_before,omitempty"`
 }
 
 // Event is one normalised line of an agent's output stream.
@@ -256,6 +259,14 @@ type Session struct {
 	// process left running), handed_off, dismissed or failed (a launch that
 	// never started). Empty on rows that ended before this column existed.
 	EndReason string `json:"end_reason,omitempty"`
+	// AgentExitedAt is set while the agent has exited but its terminal is
+	// still open at a shell prompt; nil while the agent runs.
+	AgentExitedAt *float64 `json:"agent_exited_at,omitempty"`
+	// RelaunchedAt is when restart recovery last relaunched this session.
+	RelaunchedAt *float64 `json:"relaunched_at,omitempty"`
+	// ResumeGuess is the conversation a lost adopted session most likely had:
+	// the only one in its folder last written when it was last active.
+	ResumeGuess string `json:"-"`
 
 	// HookToken authenticates POST /api/hook/session/{id}/* (see
 	// internal/agentevents). Never serialized: it is a bearer secret handed to

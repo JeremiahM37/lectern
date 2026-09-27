@@ -52,8 +52,15 @@ func (s *Server) getOutcomes(w http.ResponseWriter, r *http.Request) {
 // getModelPrices/putModelPrices back the optional per-model $/1M-token table
 // (docs/outcomes.md "Estimates"): used only to estimate cost for an agent
 // that reports tokens but no dollar figure of its own.
+// GET also lists the agents/models that reported tokens without dollars in
+// the last 30 days ("seen"), so Settings can point at the ones still unpriced.
 func (s *Server) getModelPrices(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, outcomes.LoadPrices(s.DB))
+	seen, err := outcomes.SeenTokenOnlyModels(s.DB, float64(time.Now().Add(-30*24*time.Hour).Unix()))
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"prices": outcomes.LoadPrices(s.DB).Prices, "seen": seen})
 }
 
 func (s *Server) putModelPrices(w http.ResponseWriter, r *http.Request) {
@@ -62,10 +69,9 @@ func (s *Server) putModelPrices(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
-	saved, err := outcomes.SavePrices(s.DB, body)
-	if err != nil {
+	if _, err := outcomes.SavePrices(s.DB, body); err != nil {
 		httpError(w, 400, "%s", err.Error())
 		return
 	}
-	writeJSON(w, 200, saved)
+	s.getModelPrices(w, r)
 }

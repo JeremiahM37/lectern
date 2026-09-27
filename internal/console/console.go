@@ -257,9 +257,9 @@ func (u *UI) skillsSettings(path string, project map[string]any) error {
 }
 
 func (u *UI) skillProvider(current string) string {
-	next, err := u.ask("Provider (claude/codex)", current)
-	if err != nil || (next != "claude" && next != "codex") {
-		u.say("Provider must be claude or codex.")
+	next, err := u.ask("Provider (claude/codex/gemini/qwen/opencode/copilot)", current)
+	if err != nil || !skillProviderKnown(next) {
+		u.say("Provider must be one of claude, codex, gemini, qwen, opencode or copilot.")
 		return current
 	}
 	return next

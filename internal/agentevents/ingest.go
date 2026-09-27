@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
+	"github.com/JeremiahM37/lectern/v2/internal/outcomes"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -304,8 +305,10 @@ func (in *Ingester) publishSession(s *store.Session) {
 // (unlike Claude's confusingly-named total_input_tokens, which is a
 // per-request footprint — see the comment on IngestStatusline), so the same
 // "diff against whatever usage_daily already booked" delta math applies
-// unchanged. There is no cost figure: docs/agent-events.md calls for tokens
-// instead of a dollar amount for codex, so cost_usd is left untouched.
+// unchanged. Codex reports no cost figure, so sessions.cost_usd is left
+// untouched; when the operator has priced the model (or "codex") in the model
+// price table, the token delta's estimated cost is booked into usage_daily
+// (labelled via estimated_usd) so budgets and the Usage page see the spend.
 func (in *Ingester) IngestCodexUsage(s *store.Session, usage *CodexUsage) error {
 	now := store.Now()
 	bookedInput, bookedOutput, err := in.DB.UsageDailySessionTotals(s.ID)
@@ -331,7 +334,27 @@ func (in *Ingester) IngestCodexUsage(s *store.Session, usage *CodexUsage) error 
 	}
 
 	date := time.Now().UTC().Format("2006-01-02")
-	if err := in.DB.UpsertUsageDelta(date, s.ID, s.Agent, usage.Model, 0, inputDelta, outputDelta); err != nil {
+	// Price the cumulative reading (so cached input keeps its own rate) and
+	// book only what is not already booked for this session.
+	estimate := 0.0
+	priceModel := usage.Model
+	if priceModel == "" {
+		priceModel = s.Model
+	}
+	if inputDelta > 0 || outputDelta > 0 {
+		total, ok := outcomes.LoadPrices(in.DB).EstimateTokens(s.Agent, priceModel, outcomes.Tokens{
+			Input: int64(usage.InputTokens), CachedInput: int64(usage.CachedInput), Output: int64(usage.OutputTokens)})
+		if ok {
+			booked, err := in.DB.UsageDailySessionEstimated(s.ID)
+			if err != nil {
+				return err
+			}
+			if total > booked {
+				estimate = total - booked
+			}
+		}
+	}
+	if err := in.DB.UpsertEstimatedUsageDelta(date, s.ID, s.Agent, usage.Model, estimate, inputDelta, outputDelta); err != nil {
 		return err
 	}
 

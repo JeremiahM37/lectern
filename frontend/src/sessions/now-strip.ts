@@ -5,7 +5,7 @@
 // DOM involved.
 import type { SessionView } from "../types";
 
-export type NowState = "working" | "waiting" | "done" | "error";
+export type NowState = "working" | "waiting" | "exited" | "done" | "error";
 
 export interface NowItem {
   id: number;
@@ -20,11 +20,13 @@ export interface NowItem {
 export function sessionNowState(session: SessionView): NowState {
   if (session.setup_state === "failed") return "error";
   if (session.status === "dead") return "done";
+  // The agent quit and left a shell prompt: not waiting for a reply.
+  if (session.agent_exited_at && !session.ended_at) return "exited";
   if (session.status === "waiting") return "waiting";
   return "working"; // running, starting, idle
 }
 
-const RANK: Record<NowState, number> = { waiting: 0, error: 1, working: 2, done: 3 };
+const RANK: Record<NowState, number> = { waiting: 0, exited: 1, error: 1, working: 2, done: 3 };
 
 // nowItems is what the strip shows: every non-archived session (archiving is
 // the person's own "stop showing me this" signal, so it is the one thing

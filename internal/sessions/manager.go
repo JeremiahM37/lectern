@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -79,6 +81,10 @@ type Manager struct {
 	TargetPollTimeout time.Duration
 	PollWait          time.Duration
 
+	// Limits sees every pane capture so a usage-limit stop is noticed
+	// (internal/limits, docs/rate-limits.md). Nil disables detection.
+	Limits *limits.Tracker
+
 	lifecycleMu               sync.Mutex
 	pollMu                    sync.Mutex
 	reachOnce                 sync.Once
@@ -93,6 +99,8 @@ type Manager struct {
 	workspaceCancelDeliveries map[int64]bool
 	setupLaunching            map[int64]bool
 	handoffs                  *handoffState // switches in flight and how far they have got
+	agentProbedAt             map[int64]time.Time
+	agentProbeEvery           time.Duration
 	checkpointMu              sync.Mutex
 	checkpoints               map[int64]context.CancelFunc
 	checkpointGeneration      map[int64]uint64
@@ -418,12 +426,16 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if agent == "" {
 		agent = "claude"
 	}
+	// lecternWorkspace is true when this launch created workdir itself; see
+	// the Gemini MCP branch below, the only thing that writes into a workspace.
+	lecternWorkspace := false
 	if workdir == "" && o.Scratch {
 		ex, err := m.Reg.For(target)
 		if err != nil {
 			return nil, err
 		}
 		workdir, err = m.makeScratch(ctx, ex, firstNonEmpty(o.Name, agent))
+		lecternWorkspace = true
 		if err != nil {
 			return nil, err
 		}
@@ -704,6 +716,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			return nil, fmt.Errorf("session %d worktree: %w (allocation retained in ended sessions)", sess.ID, err)
 		}
 		workdir = plan.Path
+		lecternWorkspace = true
 		if err := m.DB.Update("sessions", sess.ID, map[string]any{"workdir": workdir, "worktree_json": store.J(plan)}); err != nil {
 			m.end(sess.ID, StatusDead)
 			return nil, err
@@ -731,6 +744,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// Materialize only Lectern-owned runtime files; Codex receives additive
 	// -c overrides so its normal CODEX_HOME remains intact.
 	var toolArgs []string
+	mcpEnvPrefix := ""
 	if project != nil {
 		mcp := store.UnjObj(project.MCPJSON)
 		if agent == "claude" && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
@@ -777,6 +791,35 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 					return nil, err
 				}
 			}
+		} else if adapter, ok := agentcfg.MCPAdapterFor(agent); ok && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
+			// OpenCode, Qwen Code and Copilot CLI read one extra private file
+			// alongside the user's own MCP config (see MCPAdapterFor).
+			if project.StrictMCP != 0 {
+				m.end(sess.ID, StatusDead)
+				return nil, fmt.Errorf("strict_mcp is unsupported for %s additive configuration", agent)
+			}
+			args, mcpEnv, mcpErr := m.installAdapterMCP(ctx, ex, sess.ID, env, adapter, mcp)
+			if mcpErr == nil {
+				mcpEnvPrefix, mcpErr = EnvPrefix(mcpEnv)
+			}
+			if mcpErr != nil {
+				m.end(sess.ID, StatusDead)
+				return nil, mcpErr
+			}
+			toolArgs = args
+		} else if agent == "gemini" && !o.SkipProjectMCP && len(mcp) > 0 {
+			// Interactive Gemini reads servers only from settings files; the
+			// workspace file is written only in a workspace Lectern created.
+			if project.StrictMCP != 0 {
+				m.end(sess.ID, StatusDead)
+				return nil, fmt.Errorf("strict_mcp is unsupported for gemini additive configuration")
+			}
+			trustEnv, geminiErr := m.installGeminiWorkspaceMCP(ctx, ex, sess, env, workdir, lecternWorkspace, mcp)
+			if geminiErr != nil {
+				m.end(sess.ID, StatusDead)
+				return nil, geminiErr
+			}
+			mcpEnvPrefix = trustEnv
 		}
 	}
 	// answer the CLI's "do you trust this folder?" before it can ask: starting an
@@ -874,7 +917,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: firstNonEmpty(o.RecoveryCID, o.ResumeID), ForkID: forkID,
-		Prompt: argPrompt, EnvPrefix: envPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		Prompt: argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
@@ -885,7 +928,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.end(sess.ID, "dead")
 		return nil, executor.Errf("tmux launch failed: %s", strings.TrimSpace(r.Stderr))
 	}
-	m.DB.Update("sessions", sess.ID, map[string]any{"status": StatusStarting, "ended_at": nil})
+	m.DB.Update("sessions", sess.ID, map[string]any{"status": StatusStarting, "ended_at": nil, "agent_exited_at": nil})
 	if o.Prime != "" && argPrompt == "" {
 		// the fallback path: wait until the pane settles before typing, rather
 		// than guessing a delay and landing in whatever the CLI put on screen
@@ -1078,7 +1121,7 @@ func (m *Manager) endWith(id int64, status, reason string) {
 	// nothing was ever started for this id, and the one place every
 	// stop/kill/dead-detection path converges, so it is the one place the
 	// egress proxy's lifetime needs to be tied to.
-	m.IsolationProxies.Stop(id)
+	m.releaseSessionResources(id)
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
 		"status": status, "ended_at": now, "updated_at": now, "end_reason": reason})
@@ -1132,6 +1175,13 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 	return nil
 }
 
+// SendNudge types text into a session exactly as given, without the
+// automatic memory context SendText prepends: the usage-limit resume
+// (internal/limits) must be able to find its own words in the pane.
+func (m *Manager) SendNudge(ctx context.Context, id int64, text string) error {
+	return m.sendText(ctx, id, text, false)
+}
+
 // SendKey presses one allowlisted key in a session — Escape to interrupt a turn,
 // Enter to accept, and so on.
 func (m *Manager) SendKey(ctx context.Context, id int64, key string) error {
@@ -1182,7 +1232,7 @@ func (m *Manager) Kill(ctx context.Context, id int64) error {
 		}
 		err = m.DB.Update("sessions", id, fields)
 	}
-	m.IsolationProxies.Stop(id)
+	m.releaseSessionResources(id)
 	m.lifecycleMu.Unlock()
 	if err != nil {
 		return err
@@ -1289,4 +1339,165 @@ func (m *Manager) resolve(id int64) (*store.Session, executor.Executor, error) {
 		return nil, nil, err
 	}
 	return sess, ex, nil
+}
+
+// installAdapterMCP writes a translated project MCP declaration to a private
+// runtime file on the target and returns how the agent is pointed at it:
+// launch arguments and/or an environment variable naming the file.
+func (m *Manager) installAdapterMCP(ctx context.Context, ex executor.Executor, id int64, env map[string]string,
+	adapter agentcfg.MCPAdapter, mcp map[string]any) ([]string, map[string]string, error) {
+	raw, err := adapter.Payload(mcp)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce, err := interactiveMCPNonce()
+	if err != nil {
+		return nil, nil, err
+	}
+	stateEnv, err := agentcfg.MCPStateEnvPrefix(env)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommand(agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
+	if err != nil || !result.OK() {
+		return nil, nil, fmt.Errorf("could not secure interactive MCP runtime")
+	}
+	path, err := agentcfg.PrivateMCPPath(result.Stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	var args []string
+	for _, arg := range adapter.Args {
+		args = append(args, strings.ReplaceAll(arg, "{path}", path))
+	}
+	var vars map[string]string
+	if adapter.EnvVar != "" {
+		vars = map[string]string{adapter.EnvVar: path}
+	}
+	return args, vars, nil
+}
+
+// installGeminiWorkspaceMCP merges the project's MCP servers into
+// <workdir>/.gemini/settings.json when workdir is a Lectern workspace (created
+// by this launch, recorded as an earlier session's interactive worktree, or
+// inside the target's scratch root). It returns the environment prefix that
+// marks the workspace trusted, since Gemini ignores workspace settings in an
+// untrusted folder. A checkout of the user's own gets nothing written.
+func (m *Manager) installGeminiWorkspaceMCP(ctx context.Context, ex executor.Executor, sess *store.Session,
+	env map[string]string, workdir string, created bool, mcp map[string]any) (string, error) {
+	servers, err := agentcfg.GeminiMCPServers(mcp)
+	if err != nil {
+		return "", err
+	}
+	owned := created
+	if !owned {
+		plan, err := m.lecternWorktreeAt(sess.TargetID, workdir)
+		if err != nil {
+			return "", err
+		}
+		owned = plan
+	}
+	stateEnv, err := agentcfg.MCPStateEnvPrefix(env)
+	if err != nil {
+		return "", err
+	}
+	r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(workdir, sess.ID, owned, servers), executor.RunOpts{Timeout: 30})
+	if err != nil {
+		return "", err
+	}
+	out, err := agentcfg.ParseGeminiWorkspaceMCP(r.Stdout)
+	if err != nil {
+		return "", err
+	}
+	if out.Skipped != "" {
+		m.Log.Info("gemini MCP not written to workspace", "session", sess.ID, "reason", out.Skipped)
+		return "", nil
+	}
+	cleanup := map[string]string{"kind": "gemini", "workdir": workdir}
+	for _, key := range []string{"HOME", "XDG_STATE_HOME"} {
+		if v, ok := env[key]; ok {
+			cleanup[key] = v
+		}
+	}
+	if err := m.DB.Update("sessions", sess.ID, map[string]any{"workspace_mcp_json": store.J(cleanup)}); err != nil {
+		return "", err
+	}
+	return EnvPrefix(map[string]string{"GEMINI_CLI_TRUST_WORKSPACE": "true"})
+}
+
+// lecternWorktreeAt reports whether directory is the path of an interactive
+// worktree Lectern created for any session on the target.
+func (m *Manager) lecternWorktreeAt(targetID int64, directory string) (bool, error) {
+	rows, err := m.DB.Query(`SELECT worktree_json FROM sessions WHERE target_id=? AND worktree_json<>''`, targetID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return false, err
+		}
+		var plan worktree.Interactive
+		if json.Unmarshal([]byte(raw), &plan) == nil && plan.Path != "" && path.Clean(plan.Path) == path.Clean(directory) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// cleanupWorkspaceMCP removes the Gemini servers a session wrote into its
+// workspace. It runs in the background from every end path; the target-side
+// ledger keeps them while another Lectern session still uses the workspace.
+func (m *Manager) cleanupWorkspaceMCP(id int64) {
+	var raw string
+	if err := m.DB.QueryRow(`SELECT workspace_mcp_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil || raw == "" {
+		return
+	}
+	go func() {
+		info := map[string]string{}
+		if json.Unmarshal([]byte(raw), &info) != nil || info["kind"] != "gemini" || info["workdir"] == "" {
+			return
+		}
+		sess, err := m.DB.Session(id)
+		if err != nil || sess.EndedAt == nil {
+			// Relaunched (resumed) before cleanup ran: the servers are in use again.
+			return
+		}
+		target, err := m.DB.Target(sess.TargetID)
+		if err != nil {
+			return
+		}
+		ex, err := m.Reg.For(target)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		stateEnv, err := agentcfg.MCPStateEnvPrefix(map[string]string{"HOME": info["HOME"], "XDG_STATE_HOME": info["XDG_STATE_HOME"]})
+		if info["HOME"] == "" && info["XDG_STATE_HOME"] == "" {
+			stateEnv, err = "", nil
+		}
+		if err != nil {
+			return
+		}
+		r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(info["workdir"], id, false, nil), executor.RunOpts{Timeout: 30})
+		if err == nil {
+			_, err = agentcfg.ParseGeminiWorkspaceMCP(r.Stdout)
+		}
+		if err != nil {
+			m.Log.Warn("could not remove gemini MCP servers from workspace", "session", id, "err", err)
+			return
+		}
+		m.DB.Update("sessions", id, map[string]any{"workspace_mcp_json": ""})
+	}()
+}
+
+// releaseSessionResources frees what a session holds outside its own process:
+// the isolation egress proxy and any MCP servers written into its workspace.
+// Every path that ends a session calls it; both halves are no-ops when the
+// session never had the resource.
+func (m *Manager) releaseSessionResources(id int64) {
+	m.IsolationProxies.Stop(id)
+	m.cleanupWorkspaceMCP(id)
 }

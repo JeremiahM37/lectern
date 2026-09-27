@@ -110,6 +110,9 @@ type refsMsg struct {
 	// surfaces), so instead of hiding anything it simply sorts shown agents
 	// to the top in the saved order and leaves the rest below them.
 	agentMenuOrder []string
+	// relaunched is what restart recovery brought back since the notice was
+	// last dismissed.
+	relaunched []row
 	err            error
 }
 type tickMsg time.Time
@@ -189,6 +192,7 @@ type dashboard struct {
 	recentSelected                      int
 	recentPending                       row
 	recentQuery                         string
+	relaunchShown                       bool
 	recentSearching                     bool
 	attachAfterRefresh                  bool
 	// controlOnly hides the actions that open another native terminal, so the
@@ -326,6 +330,9 @@ func (m *dashboard) references() tea.Cmd {
 				break
 			}
 		}
+		if b, e := c.JSON("GET", "/sessions/relaunched", nil); e == nil {
+			_ = json.Unmarshal(b, &out.relaunched)
+		}
 		if out.err == nil {
 			if b, e := c.JSON("GET", "/agents/menu", nil); e == nil {
 				var menu struct {
@@ -435,7 +442,7 @@ func (m *dashboard) filter() {
 	m.visible = nil
 	for _, r := range m.rows {
 		s := str(r["status"])
-		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" {
+		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) {
 			continue
 		}
 		if status != "" && s != status {
@@ -814,6 +821,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = v.profiles
 		if v.err != nil {
 			m.notice = "Reference lists: " + clean(v.err.Error())
+		} else if len(v.relaunched) > 0 && !m.relaunchShown {
+			// Once per dashboard run; Dismiss in the web clears it for good.
+			m.relaunchShown = true
+			names := make([]string, 0, len(v.relaunched))
+			for _, r := range v.relaunched {
+				names = append(names, name(r))
+			}
+			m.notice = fmt.Sprintf("Relaunched %d session(s) after a restart: %s", len(v.relaunched), strings.Join(names, ", "))
 		}
 		return m, nil
 	case resultMsg:
@@ -862,6 +877,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.form = nil
 		m.pending = nil
+		if v.label == reviveLabel {
+			var revived row
+			if json.Unmarshal(v.data, &revived) == nil && id(revived) != "" {
+				m.focusSessionID = id(revived)
+				m.attachAfterRefresh = true
+				v.notice = "Revived " + name(revived) + "; attaching"
+			}
+		}
 		if v.label == restoreLabel {
 			m.recentPending = nil
 			m.recentOpen = false
@@ -1151,6 +1174,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadRecentSessions()
 		case "U":
 			return m, m.undoLastClose()
+		case "R":
+			if r := m.current(); sections[m.section] == "sessions" && r != nil && m.selectedGroup() == nil {
+				if !agentExited(r) {
+					m.notice = "R revives an agent that exited; this one is still running"
+					return m, nil
+				}
+				return m, m.choose(reviveAction(r))
+			}
 		case "O":
 			return m, m.olderNative()
 		case "?":
@@ -1616,6 +1647,9 @@ func (m *dashboard) listView(height int) string {
 			continue
 		}
 		s := str(r["status"])
+		if agentExited(r) {
+			s = "agent exited"
+		}
 		if r["setup_state"] == "creating" {
 			s = "setting up"
 			if r["setup_cancel_requested"] == true {
@@ -1692,6 +1726,7 @@ const dashboardHelp = ` Keyboard shortcuts
  m             All actions      f        Find and track running agents
  C             Restore closed, archived or interrupted sessions
  U             Undo: reopen the session closed last
+ R             Revive an agent that exited to a shell prompt
  h             Full history     v        Review task diff
  F             Search saved conversation text across targets
  H             Saved conversations / fork   O Earlier saved messages

@@ -1,9 +1,21 @@
-# lectern — Design Document
+# Lectern — Design Document
 
-> **Working name.** `lectern` is a placeholder; final name decided before publishing.
 > **One-liner:** Self-hosted, mobile-first mission control for AI coding agents running on *your own* infrastructure — Proxmox LXCs, VMs, Raspberry Pis, any box with SSH.
 
-Status: v0.1 in development · Started 2026-07-14 · Lives at `/home/admin/projects/lectern/`
+Status: released (v2.3.x) · Started 2026-07-14 · Repository `github.com/JeremiahM37/lectern`
+
+**Naming.** The project shipped as **AgentDeck** through v2.2 and was renamed
+**Lectern** in v2.3 (2026-09-21): the binary, service, `LECTERN_*` settings and
+`~/projects/lectern`. Older `AGENTDECK_*` environment names are still read. The
+sections below are the original design record; where they say "lectern" in lower
+case or describe v0.1 plans, they are historical.
+
+**Current state (2026-09).** The v0.1–v0.4 roadmap in §9 has shipped, and the scope
+has grown well past it: interactive tmux sessions alongside tasks, a terminal
+dashboard, many agent CLIs besides Claude Code (built-ins plus a catalog, headless
+work over ACP), native conversation history and search, budgets, cost per outcome,
+claims, a claude.ai connector and remote access. `README.md` and `docs/` describe
+what exists now; this document explains why it was built the way it was.
 
 ---
 

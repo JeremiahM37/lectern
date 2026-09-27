@@ -123,6 +123,9 @@ type Spec struct {
 	// "npx -y @zed-industries/claude-code-acp", or ["--experimental-acp"] for
 	// gemini). Bin carries the command itself; unused by every other driver.
 	ACPArgs []string
+	// MCPServers are ACP session/new mcpServers entries for the acp driver
+	// (agents.ACPMCPServers); nil sends an empty list.
+	MCPServers []any
 
 	// Driver overrides Select's answer. Run(...) uses it when set; StartFor
 	// callers (the scheduler) already know the kind and pass it directly.

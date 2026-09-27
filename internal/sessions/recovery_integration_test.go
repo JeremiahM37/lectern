@@ -92,7 +92,7 @@ func mustCwd() string { p,_:=os.Getwd(); return p }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.EndedAt != nil || after.BootID != newBoot {
+	if after.EndedAt != nil || after.BootID != newBoot || after.RelaunchedAt == nil {
 		t.Fatalf("recovery did not retain live row: %+v", after)
 	}
 	var args []byte

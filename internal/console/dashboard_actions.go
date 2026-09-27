@@ -324,6 +324,9 @@ func (m *dashboard) rowActions() []dashboardAction {
 		if r["archived_at"] != nil {
 			return append([]dashboardAction{{Label: "Unarchive record", Method: "DELETE", Path: path + "/archive"}, read("Archived terminal output", "/archive/history"), op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group")}, workspaceActions(r, path)...)
 		}
+		if r["agent_exited_at"] != nil && r["ended_at"] == nil {
+			actions = append(actions, reviveAction(r))
+		}
 		archive := dashboardAction{Label: "Stop and archive", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": true}, Warning: "Stop this terminal process and move its record to Archive? Captured output, saved conversations and worktree files are retained. Unarchiving will not restart it."}
 		if r["ended_at"] != nil {
 			actions = []dashboardAction{op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group"), read("Handoff summaries", "/wraps"), {Label: "Archive stopped record", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": false}}}
@@ -1143,6 +1146,20 @@ func (m *dashboard) mcpSettingsLoaded(data []byte, path string) tea.Cmd {
 	})
 }
 
+// skillProviderChoices mirrors internal/skills.SupportedAgents: the agents
+// whose CLI reads Agent Skills.
+var skillProviderChoices = []choice{{"Claude Code", "claude"}, {"Codex", "codex"}, {"Gemini CLI", "gemini"},
+	{"Qwen Code", "qwen"}, {"OpenCode", "opencode"}, {"GitHub Copilot CLI", "copilot"}}
+
+func skillProviderKnown(agent string) bool {
+	for _, c := range skillProviderChoices {
+		if c.Value == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // skillsSettingsForm keeps discovery and attachment records visible in the
 // terminal. Skill IDs remain target-local; the dashboard only submits the
 // selected provider and ID back to the dedicated endpoints.
@@ -1155,7 +1172,7 @@ func (m *dashboard) skillsSettingsForm() tea.Cmd {
 	c := m.client
 	projectID := id(r)
 	agent := str(r["default_agent"])
-	if agent != "claude" && agent != "codex" {
+	if !skillProviderKnown(agent) {
 		agent = "claude"
 	}
 	path := "/projects/" + projectID + "/skills"
@@ -1237,7 +1254,7 @@ func (m *dashboard) skillsSettingsLoaded(msg skillsLoadedMsg) tea.Cmd {
 		sources = strings.Join(sourceList, "\n")
 	}
 	return m.openForm("Project skills — target-local catalog", []field{
-		optionField("agent", "Provider", envelope.Agent, []choice{{"Claude Code", "claude"}, {"Codex", "codex"}}, true),
+		optionField("agent", "Provider", envelope.Agent, skillProviderChoices, true),
 		optionField("operation", "Operation", "attach", []choice{{"Attach discovered skill", "attach"}, {"Detach attached skill", "detach"}, {"Save target directories", "sources"}}, true),
 		optionField("skill_id", "Skill (name · source)", skillChoices[0].Value, skillChoices, false),
 		optionField("attachment_id", "Attachment (name · source)", attachmentChoices[0].Value, attachmentChoices, false),
@@ -1593,3 +1610,17 @@ func workspaceActions(r row, path string) []dashboardAction {
 	}
 	return nil
 }
+
+const reviveLabel = "Revive agent"
+
+// reviveAction restarts an agent that exited and left its terminal at a shell
+// prompt, resuming its conversation when one was saved.
+func reviveAction(r row) dashboardAction {
+	warning := "Start the agent again? Its saved conversation is resumed in a new terminal; with none saved it starts fresh in the same folder."
+	if r["origin"] == "discovered" {
+		warning += " Your own shell is left open and no longer tracked."
+	}
+	return dashboardAction{Label: reviveLabel, Method: "POST", Path: "/sessions/" + id(r) + "/revive", Body: map[string]any{}, Warning: warning}
+}
+
+func agentExited(r row) bool { return r["agent_exited_at"] != nil && r["ended_at"] == nil }

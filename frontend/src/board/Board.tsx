@@ -1,3 +1,4 @@
+import { LimitChip } from "../limits/LimitBanner";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Claim, Project, TaskView } from "../types";
 import type { JsonValue } from "../api";
@@ -7,7 +8,7 @@ import { TaskDetail } from "./TaskDetail";
 import { ClaimsPanel } from "../claims/ClaimsPanel";
 import { QuotaChip } from "../sessions/QuotaChip";
 import { CIChip } from "../review/CIChip";
-import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import "./board.css";
 
 type QuickMode = "dispatch" | "orchestrate";
@@ -308,7 +309,11 @@ export function Board({
                   const u = resultUsage(task.attempt?.result);
                   return (
                     <>
-                      {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+                      {u.costUSD != null && (
+                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                          {formatResultCost(u)}
+                        </span>
+                      )}
                       {u.costUSD == null && u.outputTokens != null && (
                         <span className="chip">{formatTokens(u.outputTokens)} tok</span>
                       )}
@@ -329,6 +334,7 @@ export function Board({
                   <span className="chip warn">▲ high</span>
                 )}
                 {task.agent && task.agent !== "claude" && <span className="chip tgt">{task.agent}</span>}
+                {task.limit && <LimitChip hold={task.limit} />}
                 {task.labels?.includes("orchestrated") && <span className="chip orch">✦ orchestrated</span>}
                 {task.attempts.length > 1 && (
                   <span className="chip info">⑂ ×{task.attempts.length}</span>

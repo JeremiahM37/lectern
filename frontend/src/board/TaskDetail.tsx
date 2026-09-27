@@ -1,3 +1,4 @@
+import { LimitBanner } from "../limits/LimitBanner";
 import { useEffect, useState } from "react";
 import type { Event, TaskView } from "../types";
 import { withToken, type JsonValue } from "../api";
@@ -7,7 +8,7 @@ import { CommentTray } from "../review/CommentTray";
 import { CompareView, type JudgeVerdict } from "./CompareView";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
-import { contextClass, formatCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
 import {
   MemorySection,
   MemoryTimelineEntry,
@@ -255,12 +256,26 @@ export function TaskDetail({
           </>
         )}
       </div>
+      {task.limit && (
+        <LimitBanner
+          hold={task.limit}
+          api={api}
+          onNotice={onNotice}
+          onRefresh={async () => {
+            setTask(await api.task(taskId));
+          }}
+        />
+      )}
       {task.attempt?.result && (() => {
         const u = resultUsage(task.attempt!.result);
         if (u.costUSD == null && u.outputTokens == null && u.contextPct == null) return null;
         return (
           <div className="usage-line">
-            {u.costUSD != null && <span className="chip cost">{formatCost(u.costUSD)}</span>}
+            {u.costUSD != null && (
+                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                          {formatResultCost(u)}
+                        </span>
+                      )}
             {u.costUSD == null && u.outputTokens != null && (
               <span className="chip">{formatTokens(u.outputTokens)} tok</span>
             )}
@@ -551,7 +566,9 @@ function EventRow({ event }: { event: Event }) {
                 ? `reviewer verdict · ${String(p.verdict ?? "")}`
                 : event.type === "result"
                   ? `finished · ${String(p.subtype ?? "")}`
-                  : event.type;
+                  : event.type === "rate_limit"
+                    ? "usage limit"
+                    : event.type;
   const body =
     event.type === "text"
       ? p.text
@@ -565,7 +582,11 @@ function EventRow({ event }: { event: Event }) {
               ? String(p.notes ?? "").slice(-400)
               : event.type === "result"
                 ? String(p.result ?? "")
-                : JSON.stringify(p).slice(0, 300);
+                : event.type === "error"
+                  ? String(p.message ?? "")
+                  : event.type === "rate_limit"
+                    ? `Stopped by the usage limit${p.resets_at ? ` · resets ${new Date(Number(p.resets_at) * 1000).toLocaleString()}` : ""}`
+                    : JSON.stringify(p).slice(0, 300);
   return (
     <article className={`ev e-${event.type}`}>
       <div className="k">{label}</div>
