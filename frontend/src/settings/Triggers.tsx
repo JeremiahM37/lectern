@@ -8,7 +8,7 @@ import type { SettingsApi } from "./Settings";
 
 interface TriggerSource {
   id: number;
-  kind: "github" | "slack" | "linear";
+  kind: "github" | "slack" | "linear" | "jira";
   name: string;
   enabled: boolean;
   config: Record<string, unknown>;
@@ -39,18 +39,32 @@ const KIND_LABEL: Record<TriggerSource["kind"], string> = {
   github: "GitHub",
   slack: "Slack",
   linear: "Linear",
+  jira: "Jira",
 };
 
 const DEFAULT_CONFIG: Record<TriggerSource["kind"], string> = {
   github: JSON.stringify({ repo: "owner/repo", label: "lectern", mention_handle: "@lectern", allowed_authors: [] }, null, 2),
   slack: JSON.stringify({ channel: "", allowed_users: [] }, null, 2),
   linear: JSON.stringify({ team_key: "ENG", label: "lectern", allowed_users: [] }, null, 2),
+  jira: JSON.stringify(
+    { base_url: "https://yourteam.atlassian.net", email: "you@example.com", project_key: "OPS", label: "lectern", allowed_users: [], done_transition: "Done" },
+    null,
+    2,
+  ),
 };
 
 const DEFAULT_SECRETS: Record<TriggerSource["kind"], string> = {
   github: "{}",
   slack: JSON.stringify({ app_token: "", bot_token: "" }, null, 2),
   linear: JSON.stringify({ api_key: "" }, null, 2),
+  jira: JSON.stringify({ token: "" }, null, 2),
+};
+
+// The one secret a Linear or Jira source cannot be created without; asked
+// for beside the Add button so adding one does not fail validation.
+const ADD_SECRET: Partial<Record<TriggerSource["kind"], { key: string; label: string }>> = {
+  linear: { key: "api_key", label: "Linear API key" },
+  jira: { key: "token", label: "Jira API token or personal access token" },
 };
 
 export function timeAgo(sec?: number): string {
@@ -75,6 +89,7 @@ export function Triggers({
   const [events, setEvents] = useState<TriggerEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [newKind, setNewKind] = useState<TriggerSource["kind"]>("github");
+  const [newSecret, setNewSecret] = useState("");
   const [testResults, setTestResults] = useState<Record<number, string>>({});
   const [open, setOpen] = useState<Record<number, boolean>>({});
   const [drafts, setDrafts] = useState<Record<number, { name: string; config: string; secrets: string; interval: string }>>({});
@@ -112,8 +127,14 @@ export function Triggers({
     try {
       await api.request(`/projects/${projectId}/triggers`, {
         method: "POST",
-        body: { kind: newKind, name: KIND_LABEL[newKind], config: JSON.parse(DEFAULT_CONFIG[newKind]), secrets: {} },
+        body: {
+          kind: newKind,
+          name: KIND_LABEL[newKind],
+          config: JSON.parse(DEFAULT_CONFIG[newKind]),
+          secrets: ADD_SECRET[newKind] && newSecret.trim() ? { [ADD_SECRET[newKind]!.key]: newSecret.trim() } : {},
+        },
       });
+      setNewSecret("");
       onNotice(`${KIND_LABEL[newKind]} trigger added — configure it below`);
       await load();
     } catch (error) {
@@ -197,7 +218,7 @@ export function Triggers({
       <h4>Triggers</h4>
       <p>
         Let this project pick up work on its own: a labelled GitHub issue or an @mention, a Slack
-        message or /lectern command, or a labelled Linear issue. Every source needs an author
+        message or /lectern command, or a labelled Linear or Jira issue. Every source needs an author
         allowlist before it can act — see docs/triggers.md.
       </p>
       <div className="trigger-add">
@@ -205,7 +226,18 @@ export function Triggers({
           <option value="github">GitHub</option>
           <option value="slack">Slack</option>
           <option value="linear">Linear</option>
+          <option value="jira">Jira</option>
         </select>
+        {ADD_SECRET[newKind] && (
+          <input
+            type="password"
+            autoComplete="new-password"
+            aria-label={ADD_SECRET[newKind]!.label}
+            placeholder={ADD_SECRET[newKind]!.label}
+            value={newSecret}
+            onChange={(e) => setNewSecret(e.target.value)}
+          />
+        )}
         <button onClick={() => void addSource()} disabled={busy}>
           Add trigger
         </button>
@@ -241,7 +273,7 @@ export function Triggers({
                   <input value={d.name} onChange={(e) => setDrafts((ds) => ({ ...ds, [s.id]: { ...d, name: e.target.value } }))} />
                 </label>
                 <label>
-                  Poll interval (seconds, GitHub/Linear only)
+                  Poll interval (seconds, GitHub/Linear/Jira only)
                   <input value={d.interval} onChange={(e) => setDrafts((ds) => ({ ...ds, [s.id]: { ...d, interval: e.target.value } }))} />
                 </label>
                 <label>

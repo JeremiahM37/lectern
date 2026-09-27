@@ -6,6 +6,7 @@ import { fetchAgentMenu, saveAgentMenu } from "../agents/menu";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
 import { Triggers } from "./Triggers";
+import { TrackerSettings } from "../trackers/TrackerSettings";
 import { Delegation } from "./Delegation";
 import { ConnectTools } from "./ConnectTools";
 import { Devices } from "./Devices";
@@ -913,6 +914,7 @@ function ProjectCard({
         onNotice={onNotice}
       />
       <Triggers api={api} projectId={p.id} onNotice={onNotice} />
+      <TrackerSettings api={api} projectId={p.id} onNotice={onNotice} />
       <button
         onClick={() => {
           if (confirm(`Delete ${p.name}?`))
