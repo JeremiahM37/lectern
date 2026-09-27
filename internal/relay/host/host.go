@@ -42,6 +42,8 @@ type Host struct {
 	lastErr   string
 	sessions  map[uint32]*session
 	closed    bool
+	acks      map[int64]chan struct{}
+	nextAck   int64
 	cancelRun context.CancelFunc
 }
 
@@ -202,6 +204,11 @@ func (h *Host) connectOnce(ctx context.Context) error {
 		return fmt.Errorf("relay refused this host: %s", ready.Error)
 	}
 
+	// Routes first: the relay turns phones away as "offline" until it has
+	// them, and nothing here (a pairing, say) may count as connected before.
+	if err := h.syncRoutes(ctx, c); err != nil {
+		return err
+	}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -211,10 +218,6 @@ func (h *Host) connectOnce(ctx context.Context) error {
 	h.mu.Unlock()
 	h.cfg.Log.Info("relay: connected", "relay", h.cfg.URL, "channel", id.Channel())
 	defer h.dropConnection(c)
-
-	if err := h.syncRoutes(ctx, c); err != nil {
-		return err
-	}
 	kctx, stop := context.WithCancel(ctx)
 	defer stop()
 	go keepalive(kctx, c)
@@ -225,8 +228,18 @@ func (h *Host) connectOnce(ctx context.Context) error {
 		}
 		if typ == websocket.MessageText {
 			var msg relay.Control
-			if json.Unmarshal(b, &msg) == nil && msg.T == "error" {
-				h.cfg.Log.Warn("relay: error from relay", "error", msg.Error)
+			if json.Unmarshal(b, &msg) == nil {
+				switch msg.T {
+				case "error":
+					h.cfg.Log.Warn("relay: error from relay", "error", msg.Error)
+				case "ack":
+					h.mu.Lock()
+					if done := h.acks[msg.ID]; done != nil {
+						close(done)
+						delete(h.acks, msg.ID)
+					}
+					h.mu.Unlock()
+				}
 			}
 			continue
 		}
@@ -346,6 +359,44 @@ func (h *Host) control(msg relay.Control) error {
 	return writeJSON(context.Background(), c, msg)
 }
 
+// ackTimeout bounds how long an action waits for the relay to confirm a
+// route change.
+const ackTimeout = 10 * time.Second
+
+// controlAcked sends a control message and waits until the relay has applied
+// it. A pairing QR code is only shown once its route really works: otherwise
+// a fast phone can reach the relay before the route does and be refused.
+func (h *Host) controlAcked(msg relay.Control) error {
+	h.mu.Lock()
+	c := h.conn
+	if c == nil {
+		h.mu.Unlock()
+		return ErrOffline
+	}
+	if h.acks == nil {
+		h.acks = map[int64]chan struct{}{}
+	}
+	h.nextAck++
+	msg.ID = h.nextAck
+	done := make(chan struct{})
+	h.acks[msg.ID] = done
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.acks, msg.ID)
+		h.mu.Unlock()
+	}()
+	if err := writeJSON(context.Background(), c, msg); err != nil {
+		return err
+	}
+	select {
+	case <-done:
+		return nil
+	case <-time.After(ackTimeout):
+		return errors.New("relay: the relay did not confirm the route change")
+	}
+}
+
 // write sends one routing frame to the relay.
 func (h *Host) write(b []byte) error {
 	c := h.current()
@@ -372,7 +423,7 @@ func (h *Host) MintPairing(owner auth.Principal) (Pairing, error) {
 	if err != nil {
 		return Pairing{}, err
 	}
-	if err := h.control(relay.Control{T: "route_add", Hash: p.RouteHash, TTL: int(PairingTTL.Seconds()) + 60, Once: true}); err != nil {
+	if err := h.controlAcked(relay.Control{T: "route_add", Hash: p.RouteHash, TTL: int(PairingTTL.Seconds()) + 60, Once: true}); err != nil {
 		return Pairing{}, err
 	}
 	return p, nil
@@ -385,7 +436,7 @@ func (h *Host) Revoke(id int64) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
-	_ = h.control(relay.Control{T: "route_del", Hash: d.routeHash})
+	_ = h.controlAcked(relay.Control{T: "route_del", Hash: d.routeHash})
 	h.mu.Lock()
 	var drop []*session
 	for _, s := range h.sessions {
