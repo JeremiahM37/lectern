@@ -349,14 +349,26 @@ def test_the_pane_is_full_screen_on_a_phone(page, real_terminal, shop):
     pane = open_pane(page, t)
     box = pane.bounding_box()
     assert box['width'] >= 389 and box['height'] >= 800, box
+    # One row of controls; everything else is in a menu.
+    pane.get_by_role('button', name='More browser controls').click()
     expect(pane.get_by_label('Device size')).to_have_value('phone')
-    pane.get_by_role('radio', name='Shared browser').check()
+    # Choosing closes the menu.
+    pane.get_by_role('radio', name='Shared browser').click()
+    expect(pane.locator('.browser-menu')).to_have_count(0)
     pane.get_by_label('Address').fill(f'localhost:{shop}')
     pane.get_by_role('button', name='Go').click()
     expect(pane.locator('.browser-screen img')).to_be_visible(timeout=30000)
+    # The page, not the controls, has the screen: at most a fifth of it is chrome.
+    stage = pane.locator('.browser-stage').bounding_box()
+    assert stage['y'] - box['y'] <= 844 * 0.2, stage
     vp = page.request.get(f"{t['url']}/api/sessions/{t['id']}/browser").json()['state']['viewport']
     assert vp['width'] == 390 and vp['mobile'], vp
     evidence(page, 'phone.png')
+    pane.get_by_role('button', name='More browser controls').click()
+    expect(pane.locator('.browser-menu')).to_be_visible()
+    evidence(page, 'phone-menu.png')
+    pane.get_by_role('button', name='More browser controls').click()
+    expect(pane.locator('.browser-menu')).to_have_count(0)
 
 
 RELAY_PORT = _unused_port()
@@ -405,14 +417,17 @@ def test_the_shared_browser_and_design_mode_work_over_the_relay(browser, browser
         phone.click('#relay-pair-submit')
         expect(phone.locator('#conn-label')).to_have_text('LIVE', timeout=20000)
         pane = open_pane(phone, t)
+        pane.get_by_role('button', name='More browser controls').click()
         expect(pane.get_by_role('radio', name='Live page')).to_be_disabled()
         expect(pane.get_by_role('radio', name='Shared browser')).to_be_checked()
+        pane.get_by_role('button', name='More browser controls').click()
         pane.get_by_label('Address').fill(f'localhost:{shop}')
         pane.get_by_role('button', name='Go').click()
         img = pane.locator('.browser-screen img')
         expect(img).to_be_visible(timeout=30000)
         evidence(phone, 'relay-phone.png')
         # Design Mode through the tunnel: the pick, and the send.
+        pane.get_by_role('button', name='More browser controls').click()
         pane.get_by_role('button', name='Design').click()
         expect(pane.locator('.browser-design')).to_be_visible()
         vp = t['api'](f"/sessions/{t['id']}/browser")['state']['viewport']
