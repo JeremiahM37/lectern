@@ -158,10 +158,10 @@ def test_tapping_a_path_or_address_in_output_opens_it(page,real_terminal):
     host.evaluate(TAP,[p['x']+8,p['y']])
     preview=f.locator('#preview-dialog')
     expect(preview).to_contain_text('A useful artifact')
-    expect(preview.locator('h2')).to_have_text('hello.txt')
+    expect(preview.locator('.wb-tab.active')).to_contain_text('hello.txt')
     preview.locator('[data-close]').click()
     f.locator('#files-dialog [data-close]').first.click()
-    expect(f.locator('#files-dialog')).to_have_count(0)
+    expect(f.locator('#files-dialog')).to_be_hidden()
     # An address opens in the browser, without the sentence's full stop.
     p=point(f,'https://example.com/docs. ok')
     host.evaluate(TAP,[p['x']+30,p['y']])
@@ -169,7 +169,7 @@ def test_tapping_a_path_or_address_in_output_opens_it(page,real_terminal):
     # Plain words are not links: a tap there is an ordinary tap.
     p=point(f,'see hello')
     host.evaluate(TAP,[p['x']+2,p['y']])
-    expect(f.locator('#files-dialog')).to_have_count(0)
+    expect(f.locator('#files-dialog')).to_be_hidden()
 
 
 @pytest.mark.parametrize('page',[PHONE],indirect=True)
