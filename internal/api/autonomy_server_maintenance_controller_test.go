@@ -18,8 +18,8 @@ func maintenanceControllerFixture(t *testing.T) (*autoRecord, *autoMaintenanceTr
 	pin := j.MaintenanceAdmission.Pin
 	reg.ResourceID = pin.TargetID + "/" + pin.ServiceID
 	reg.Digest = pin.RegistrySHA
-	reg.Min = autoMaintenanceLimits{50, 256 << 20, 64}
-	reg.Max = autoMaintenanceLimits{200, 2 << 30, 512}
+	reg.Min = autoMaintenanceLimits{CPUPercent: 50, MemoryBytes: 256 << 20, Tasks: 64}
+	reg.Max = autoMaintenanceLimits{CPUPercent: 200, MemoryBytes: 2 << 30, Tasks: 512}
 	reg.MemoryHeadroomBytes = 0
 	j.MaintenanceAdmission.Audits = auth.Audits
 	j.MaintenanceAdmission.Audits[0].JobID = "44444444-4444-4444-8444-444444444444"

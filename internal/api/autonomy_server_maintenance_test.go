@@ -9,8 +9,8 @@ import (
 
 func maintenanceFixture() (autoMaintenanceAuthority, autoMaintenanceRegistry, autoMaintenanceGate, time.Time) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	r := autoMaintenanceRegistry{ResourceID: "local/temp-api", Digest: autoSHA([]byte("registry")), Stateless: true, Min: autoMaintenanceLimits{10, 128 << 20, 16}, Max: autoMaintenanceLimits{200, 2 << 30, 512}, MemoryHeadroomBytes: 64 << 20}
-	a := autoMaintenanceAuthority{ExecutedValidationSHA: autoSHA([]byte("executed validation")), CandidateReviewSHA: autoSHA([]byte("candidate review")), PlanSHA: autoSHA([]byte("audited plan")), TaskID: 1, JobID: "11111111-1111-4111-8111-111111111111", ResourceID: r.ResourceID, RegistrySHA: r.Digest, BeforeSHA: autoSHA([]byte("before")), Limits: autoMaintenanceLimits{50, 256 << 20, 64}}
+	r := autoMaintenanceRegistry{ResourceID: "local/temp-api", Digest: autoSHA([]byte("registry")), Stateless: true, Min: autoMaintenanceLimits{CPUPercent: 10, MemoryBytes: 128 << 20, Tasks: 16}, Max: autoMaintenanceLimits{CPUPercent: 200, MemoryBytes: 2 << 30, Tasks: 512}, MemoryHeadroomBytes: 64 << 20}
+	a := autoMaintenanceAuthority{ExecutedValidationSHA: autoSHA([]byte("executed validation")), CandidateReviewSHA: autoSHA([]byte("candidate review")), PlanSHA: autoSHA([]byte("audited plan")), TaskID: 1, JobID: "11111111-1111-4111-8111-111111111111", ResourceID: r.ResourceID, RegistrySHA: r.Digest, BeforeSHA: autoSHA([]byte("before")), Limits: autoMaintenanceLimits{CPUPercent: 50, MemoryBytes: 256 << 20, Tasks: 64}}
 	a.CandidateSHA = autoMaintenanceCandidate(a.Limits)
 	b := autoMaintenanceBinding(a)
 	a.Audits = [2]autoMaintenanceEvidence{{autoSHA([]byte("auditA")), b, 2, "22222222-2222-4222-8222-222222222222", true}, {autoSHA([]byte("auditB")), b, 3, "33333333-3333-4333-8333-333333333333", true}}

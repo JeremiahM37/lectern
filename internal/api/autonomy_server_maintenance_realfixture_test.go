@@ -113,7 +113,7 @@ func TestMaintenanceRealControllerFixture(t *testing.T) {
 	}
 	b := tx.Binding
 	jobs = filepath.Join(base, "jobs")
-	registry := autoMaintenanceRegistry{ResourceID: "fixture/sensor", Digest: cfg.RegistrySHA, Stateless: true, Min: autoMaintenanceLimits{50, 256 << 20, 64}, Max: autoMaintenanceLimits{200, 2 << 30, 512}, MemoryHeadroomBytes: 32 << 20}
+	registry := autoMaintenanceRegistry{ResourceID: "fixture/sensor", Digest: cfg.RegistrySHA, Stateless: true, Min: autoMaintenanceLimits{CPUPercent: 50, MemoryBytes: 256 << 20, Tasks: 64}, Max: autoMaintenanceLimits{CPUPercent: 200, MemoryBytes: 2 << 30, Tasks: 512}, MemoryHeadroomBytes: 32 << 20}
 	statePath := filepath.Join(base, "controller-state.json")
 	save := func() error {
 		raw, e := json.Marshal(a)

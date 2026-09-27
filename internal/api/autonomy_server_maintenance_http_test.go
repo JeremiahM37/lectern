@@ -18,7 +18,7 @@ func maintenanceHTTPFixture(t *testing.T) (*Server, *autoRecord, *autoJob, strin
 	a := &autoRecord{Config: autonomy.DefaultConfig(), State: &autonomy.State{Phase: autonomy.Review}}
 	expertQuota(a, time.Now())
 	a.Config.Enabled = true
-	pin := autoMaintenancePlanPin{ProjectID: 1, TargetID: "local", ServiceID: "temp-api", RegistrySHA: autoSHA([]byte("registry")), BeforeSHA: autoSHA([]byte("before")), Limits: autoMaintenanceLimits{50, 256 << 20, 64}, Acceptance: []string{"healthy"}}
+	pin := autoMaintenancePlanPin{ProjectID: 1, TargetID: "local", ServiceID: "temp-api", RegistrySHA: autoSHA([]byte("registry")), BeforeSHA: autoSHA([]byte("before")), Limits: autoMaintenanceLimits{CPUPercent: 50, MemoryBytes: 256 << 20, Tasks: 64}, Acceptance: []string{"healthy"}}
 	pin.CandidateSHA = autoMaintenanceCandidate(pin.Limits)
 	pin.Key = autoMaintenancePinHash(pin)
 	j := &autoJob{ID: "11111111-1111-4111-8111-111111111111", TaskID: 20, Role: "reviewer", Status: "running", Provider: "codex", MaintenancePin: pin.Key, MaintenanceAdmission: &autoMaintenanceAdmitted{Pin: pin, TaskID: 10, JobID: "22222222-2222-4222-8222-222222222222"}}
