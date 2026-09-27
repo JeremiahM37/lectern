@@ -74,3 +74,17 @@ def test_install_consent_and_contributions_visible(page, server):
         assert not errors, errors
     finally:
         page.request.delete(f"{server}/api/plugins/example.hello")
+
+
+def test_turning_off_the_agent_catalog_asks_first(page, server):
+    page.goto(server + "/#settings/plugins")
+    card = page.locator('[data-plugin="lectern.agent-catalog"]')
+    expect(card.locator(".plugin-status")).to_have_text("on")
+    with page.expect_event("dialog") as info:
+        card.get_by_role("button", name="Turn off").click()
+    dialog = info.value
+    message = dialog.message
+    dialog.dismiss()
+    assert "Add from catalog" in message and "will be empty" in message, message
+    # Dismissed: nothing changed.
+    expect(card.locator(".plugin-status")).to_have_text("on")

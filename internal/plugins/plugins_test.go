@@ -280,6 +280,8 @@ func TestContributionsFlowToTheirPlacesAndRespectScope(t *testing.T) {
 
 func gitServer(t *testing.T) (string, string) {
 	t.Helper()
+	AllowLoopbackHTTP = true
+	t.Cleanup(func() { AllowLoopbackHTTP = false })
 	backend := filepath.Join(strings.TrimSpace(run(t, "", "git", "--exec-path")), "git-http-backend")
 	root := t.TempDir()
 	srv := httptest.NewServer(&cgi.Handler{Path: backend, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}})
@@ -364,10 +366,22 @@ func TestGitURLsThatRunProgramsAreRefused(t *testing.T) {
 			t.Errorf("%q was allowed", u)
 		}
 	}
-	for _, u := range []string{"https://github.com/a/b.git", "git@github.com:a/b.git", "ssh://git@host/x", "file:///tmp/x", "http://127.0.0.1:8080/x.git"} {
+	for _, u := range []string{"https://github.com/a/b.git", "git@github.com:a/b.git", "ssh://git@host/x", "file:///tmp/x"} {
 		if err := CheckGitURL(u); err != nil {
 			t.Errorf("%q: %v", u, err)
 		}
+	}
+	// Plain http to this machine is for tests only, and off by default.
+	if err := CheckGitURL("http://127.0.0.1:8080/x.git"); err == nil {
+		t.Error("loopback http allowed outside tests")
+	}
+	AllowLoopbackHTTP = true
+	defer func() { AllowLoopbackHTTP = false }()
+	if err := CheckGitURL("http://127.0.0.1:8080/x.git"); err != nil {
+		t.Error(err)
+	}
+	if err := CheckGitURL("http://example.com/x.git"); err == nil {
+		t.Error("remote http allowed")
 	}
 }
 

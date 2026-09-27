@@ -108,7 +108,7 @@ func TestPluginChangesNeedASignedInPerson(t *testing.T) {
 }
 
 func TestPluginContributionsReachTheirPlaces(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.Auth = "none" })
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none"; c.PluginsAllowUnauthenticated = true })
 	pid := h.seededProjectID()
 	pv := h.post("/api/plugins/preview", obj{"kind": "path", "path": writeAPIPlugin(t)}, 200)
 	// Consenting to a different capability list than the preview's is refused.
@@ -166,7 +166,7 @@ func TestPluginContributionsReachTheirPlaces(t *testing.T) {
 // a local contribution: a custom agent, a project's MCP servers, and a
 // workflow already enabled for a project under the pre-plugin ids.
 func TestExistingConfigurationMigratesUntouched(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.Auth = "none" })
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none"; c.PluginsAllowUnauthenticated = true })
 	pid := h.seededProjectID()
 	db := h.App.DB
 	if err := db.SetSetting("agents", `[{"name":"mybot","command":"mybot --tui"}]`); err != nil {
@@ -228,7 +228,7 @@ func TestExistingConfigurationMigratesUntouched(t *testing.T) {
 // A task's agent gets enabled plugins' MCP servers next to the project's
 // own; on a name clash the project's server is the one used.
 func TestPluginMCPServersReachTaskLaunches(t *testing.T) {
-	h := newHarness(t, func(c *config.Config) { c.Auth = "none" })
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none"; c.PluginsAllowUnauthenticated = true })
 	pid := h.seededProjectID()
 	pv := h.post("/api/plugins/preview", obj{"kind": "path", "path": writeAPIPlugin(t)}, 200)
 	h.post("/api/plugins/install", obj{"hash": pv.str("hash"), "accept": pv["accept"]}, 200)
@@ -252,5 +252,78 @@ func TestPluginMCPServersReachTaskLaunches(t *testing.T) {
 	h.run(pid, "project wins", "go", obj{"agent": "claude"})
 	if snap := lastSnapshot(); !strings.Contains(snap, "mine.example") || strings.Contains(snap, "mcp.example.com") {
 		t.Fatalf("project server did not win: %s", snap)
+	}
+}
+
+// With LECTERN_AUTH=none there is no identity to tell a person from an agent,
+// so plugin changes are refused unless the operator opted in — and the
+// refusal says how.
+func TestPluginChangesRefusedWithoutAuthUnlessAllowed(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none" })
+	dir := writeAPIPlugin(t)
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/api/plugins/preview"}, {"POST", "/api/plugins/install"}, {"PUT", "/api/plugins/lectern.spec-kit"},
+		{"POST", "/api/plugins/acme.kit/update"}, {"POST", "/api/plugins/acme.kit/trust"},
+		{"PUT", "/api/plugins/acme.kit/secrets"}, {"POST", "/api/plugin-sources"}, {"DELETE", "/api/plugins/acme.kit"},
+	} {
+		code, body := h.request(c.method, c.path, obj{"kind": "path", "path": dir}, nil)
+		if code != 403 || !strings.Contains(string(body), "LECTERN_PLUGINS_ALLOW_UNAUTHENTICATED=1") {
+			t.Errorf("%s %s: %d %s", c.method, c.path, code, body)
+		}
+	}
+	if code := h.status("GET", "/api/plugins", nil); code != 200 {
+		t.Fatalf("reading plugins: %d", code)
+	}
+}
+
+// Turning a plugin off detaches its skills from the projects they were on,
+// and the detail view lists them first so the confirmation can say so.
+func TestDisablingAPluginDetachesItsProjectSkills(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none"; c.PluginsAllowUnauthenticated = true })
+	pid := h.seededProjectID()
+	db := h.App.DB
+	p, _ := db.Project(pid)
+	// A pending (never materialized) attachment: detaching it touches no files.
+	if _, err := db.InsertProjectSkill(&store.ProjectSkill{ProjectID: pid, TargetID: p.TargetID, Agent: "claude",
+		SkillID: "lectern-workflow/spec-kit", SourceID: "lectern-bundled/spec-kit",
+		SourcePath: "/x", EntryName: "lectern-spec-kit", TargetRel: ".claude/skills/lectern-spec-kit"}); err != nil {
+		t.Fatal(err)
+	}
+	detail := h.get("/api/plugins/lectern.spec-kit")
+	att := detail.list("attachments")
+	if len(att) != 1 || att[0].str("name") != "Spec Kit" || att[0].str("agent") != "claude" || att[0].num("project_id") != float64(pid) {
+		t.Fatalf("attachments %v", detail["attachments"])
+	}
+	out := h.request2("PUT", "/api/plugins/lectern.spec-kit", obj{"enabled": false}, 200)
+	if len(out.list("detached")) != 1 {
+		t.Fatalf("detached %v problems %v", out["detached"], out["detach_problems"])
+	}
+	rows, _ := db.ProjectSkills(pid, "")
+	if len(rows) != 0 {
+		t.Fatalf("attachment left behind: %+v", rows[0])
+	}
+	if len(h.get("/api/plugins/lectern.spec-kit").list("attachments")) != 0 {
+		t.Fatal("detail still lists the attachment")
+	}
+}
+
+// A session with no project (scratch) gets the MCP servers of plugins
+// enabled everywhere, and not those of a plugin scoped to chosen projects.
+func TestScratchSessionsGetGlobalPluginMCPServers(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Auth = "none"; c.PluginsAllowUnauthenticated = true })
+	pv := h.post("/api/plugins/preview", obj{"kind": "path", "path": writeAPIPlugin(t)}, 200)
+	h.post("/api/plugins/install", obj{"hash": pv.str("hash"), "accept": pv["accept"]}, 200)
+	h.post("/api/sessions", obj{"name": "scratch mcp", "agent": "claude", "scratch": true}, 201)
+	servers, _ := installedMCPPayload(t, h)["mcpServers"].(map[string]any)
+	if servers["kitdocs"] == nil {
+		t.Fatalf("scratch session servers %v", servers)
+	}
+	h.request2("PUT", "/api/plugins/acme.kit", obj{"project_ids": []int64{h.seededProjectID()}}, 200)
+	before := len(h.mock().CmdLog())
+	h.post("/api/sessions", obj{"name": "scratch scoped", "agent": "claude", "scratch": true}, 201)
+	for _, c := range h.mock().CmdLog()[before:] {
+		if strings.Contains(c, "interactive MCP") {
+			t.Fatalf("a project-scoped plugin's server reached a scratch session: %s", c)
+		}
 	}
 }

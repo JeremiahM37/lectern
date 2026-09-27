@@ -111,6 +111,11 @@ const catalog: Record<string, string> = {
   "plugins.sources.add": "소스 추가",
   "plugins.sources.added": "소스를 추가했습니다",
   "plugins.sources.remove": "소스 {name} 제거",
+  "plugins.disableConfirm": "{name}을(를) 끌까요?",
+  "plugins.disableCatalog": "다시 켤 때까지 설정 → 에이전트 → “카탈로그에서 추가”가 비어 있습니다. 이미 추가한 에이전트는 계속 동작합니다.",
+  "plugins.disableDetach": "다음 스킬이 각 프로젝트에서 꺼집니다:",
+  "plugins.detachItem": "{project}의 {name} ({agent})",
+  "plugins.detachProblems": "변경된 스킬 파일 일부는 그대로 두었습니다: {items}",
 };
 
 export default catalog;

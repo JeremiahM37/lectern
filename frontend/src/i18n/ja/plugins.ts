@@ -111,6 +111,11 @@ const catalog: Record<string, string> = {
   "plugins.sources.add": "ソースを追加",
   "plugins.sources.added": "ソースを追加しました",
   "plugins.sources.remove": "ソース {name} を削除",
+  "plugins.disableConfirm": "{name} をオフにしますか?",
+  "plugins.disableCatalog": "オンに戻すまで、設定 → エージェント → 「カタログから追加」は空になります。すでに追加したエージェントはそのまま動作します。",
+  "plugins.disableDetach": "次のスキルは各プロジェクトでオフになります:",
+  "plugins.detachItem": "{project} の {name}({agent})",
+  "plugins.detachProblems": "変更されていたため、一部のスキルのファイルは残しました: {items}",
 };
 
 export default catalog;

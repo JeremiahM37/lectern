@@ -111,6 +111,11 @@ const catalog: Record<string, string> = {
   "plugins.sources.add": "Añadir fuente",
   "plugins.sources.added": "Fuente añadida",
   "plugins.sources.remove": "Quitar la fuente {name}",
+  "plugins.disableConfirm": "¿Desactivar {name}?",
+  "plugins.disableCatalog": "Ajustes → Agentes → «Añadir desde el catálogo» estará vacío hasta que lo vuelvas a activar. Los agentes que ya añadiste siguen funcionando.",
+  "plugins.disableDetach": "Estas skills se desactivarán en sus proyectos:",
+  "plugins.detachItem": "{name} en {project} ({agent})",
+  "plugins.detachProblems": "Se conservaron algunos archivos de skills porque cambiaron: {items}",
 };
 
 export default catalog;

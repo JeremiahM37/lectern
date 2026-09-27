@@ -771,20 +771,26 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// -c overrides so its normal CODEX_HOME remains intact.
 	var toolArgs []string
 	mcpEnvPrefix := ""
+	// A session with no project still gets the servers of plugins enabled
+	// everywhere (a scratch session is where a person tries a tool first).
+	projectMCP, strictMCP, projectID := map[string]any{}, 0, int64(0)
 	if project != nil {
-		mcp := store.UnjObj(project.MCPJSON)
+		projectMCP, strictMCP, projectID = store.UnjObj(project.MCPJSON), project.StrictMCP, project.ID
+	}
+	if project != nil || m.PluginMCP != nil {
+		mcp := projectMCP
 		// Servers from enabled plugins join every agent below that has an MCP
 		// translation; the others ignore mcp, as they ignore the project's.
 		_, adapted := agentcfg.MCPAdapterFor(agent)
 		if m.PluginMCP != nil && !o.SkipProjectMCP && spec.Builtin && (agent == "claude" || agent == "codex" || agent == "gemini") || m.PluginMCP != nil && !o.SkipProjectMCP && adapted {
-			extra, pluginErr := m.PluginMCP(ctx, ex, sess.TargetID, project.ID, agentcfg.ProjectServerNames(mcp))
+			extra, pluginErr := m.PluginMCP(ctx, ex, sess.TargetID, projectID, agentcfg.ProjectServerNames(mcp))
 			if pluginErr != nil {
 				m.Log.Warn("plugin MCP servers left out of this session", "session", sess.ID, "err", pluginErr)
 			} else {
 				mcp = agentcfg.MergeMCP(mcp, extra)
 			}
 		}
-		if agent == "claude" && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
+		if agent == "claude" && !o.SkipProjectMCP && (len(mcp) > 0 || strictMCP != 0) {
 			raw, mcpErr := agentcfg.MCPPayload(mcp)
 			if mcpErr != nil {
 				m.end(sess.ID, StatusDead)
@@ -813,11 +819,11 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 				return nil, pathErr
 			}
 			toolArgs = []string{"--mcp-config", configPath}
-			if project.StrictMCP != 0 {
+			if strictMCP != 0 {
 				toolArgs = append(toolArgs, "--strict-mcp-config")
 			}
 		} else if agent == "codex" && !o.SkipProjectMCP {
-			if project.StrictMCP != 0 {
+			if strictMCP != 0 {
 				m.end(sess.ID, StatusDead)
 				return nil, fmt.Errorf("strict_mcp is unsupported for Codex additive configuration")
 			}
@@ -828,10 +834,10 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 					return nil, err
 				}
 			}
-		} else if adapter, ok := agentcfg.MCPAdapterFor(agent); ok && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
+		} else if adapter, ok := agentcfg.MCPAdapterFor(agent); ok && !o.SkipProjectMCP && (len(mcp) > 0 || strictMCP != 0) {
 			// OpenCode, Qwen Code and Copilot CLI read one extra private file
 			// alongside the user's own MCP config (see MCPAdapterFor).
-			if project.StrictMCP != 0 {
+			if strictMCP != 0 {
 				m.end(sess.ID, StatusDead)
 				return nil, fmt.Errorf("strict_mcp is unsupported for %s additive configuration", agent)
 			}
@@ -847,7 +853,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		} else if agent == "gemini" && !o.SkipProjectMCP && len(mcp) > 0 {
 			// Interactive Gemini reads servers only from settings files; the
 			// workspace file is written only in a workspace Lectern created.
-			if project.StrictMCP != 0 {
+			if strictMCP != 0 {
 				m.end(sess.ID, StatusDead)
 				return nil, fmt.Errorf("strict_mcp is unsupported for gemini additive configuration")
 			}

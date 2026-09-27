@@ -98,6 +98,15 @@ interface Source {
 }
 
 type Mode = "install" | "update" | "trust";
+interface Attachment {
+  id: number;
+  project_id: number;
+  project: string;
+  agent: string;
+  name: string;
+}
+// The bundled plugin that fills Settings → Agents → Add from catalog.
+const CATALOG_PLUGIN = "lectern.agent-catalog";
 
 const KINDS = ["agents", "mcp_servers", "skills", "workflows", "hooks", "sandbox_providers", "quick_commands", "themes", "palette_commands"];
 const short = (sha?: string) => (sha ? sha.slice(0, 12) : "");
@@ -377,10 +386,33 @@ export function Plugins({ api, projects, onNotice }: { api: SettingsApi; project
     }
   }
 
+  // What turning a plugin off or removing it takes away, said before it
+  // happens: its skills leave the projects they are on, and the bundled
+  // agent catalog leaves "Add from catalog" empty.
+  async function consequences(row: PluginRow): Promise<string[]> {
+    const lines: string[] = [];
+    if (row.id === CATALOG_PLUGIN) lines.push(t("plugins.disableCatalog"));
+    const detail = await api.request<{ attachments?: Attachment[] }>(`/plugins/${encodeURIComponent(row.id)}`);
+    const attached = detail.attachments || [];
+    if (attached.length) {
+      lines.push(t("plugins.disableDetach"));
+      for (const a of attached) lines.push("• " + t("plugins.detachItem", { name: a.name, project: a.project, agent: a.agent }));
+    }
+    return lines;
+  }
+  function reportDetach(result: { detach_problems?: string[] }) {
+    if (result.detach_problems?.length) onNotice(t("plugins.detachProblems", { items: result.detach_problems.join("; ") }), true);
+  }
+
   async function toggle(row: PluginRow) {
     try {
-      await api.request(`/plugins/${encodeURIComponent(row.id)}`, { method: "PUT", body: { enabled: !row.enabled } });
+      if (row.enabled) {
+        const lines = await consequences(row);
+        if (lines.length && !window.confirm([t("plugins.disableConfirm", { name: row.name }), "", ...lines].join("\n"))) return;
+      }
+      const result = await api.request<{ detach_problems?: string[] }>(`/plugins/${encodeURIComponent(row.id)}`, { method: "PUT", body: { enabled: !row.enabled } });
       onNotice(row.enabled ? t("plugins.disabledNotice", { name: row.name }) : t("plugins.enabledNotice", { name: row.name }));
+      reportDetach(result);
       await changed();
     } catch (error) {
       onNotice(errorText(error), true);
@@ -388,10 +420,12 @@ export function Plugins({ api, projects, onNotice }: { api: SettingsApi; project
   }
 
   async function remove(row: PluginRow) {
-    if (!window.confirm(t("plugins.removeConfirm", { name: row.name }))) return;
     try {
-      await api.request(`/plugins/${encodeURIComponent(row.id)}`, { method: "DELETE" });
+      const lines = await consequences(row);
+      if (!window.confirm([t("plugins.removeConfirm", { name: row.name }), ...(lines.length ? ["", ...lines] : [])].join("\n"))) return;
+      const result = await api.request<{ detach_problems?: string[] }>(`/plugins/${encodeURIComponent(row.id)}`, { method: "DELETE" });
       onNotice(t("plugins.removed", { name: row.name }));
+      reportDetach(result);
       await changed();
     } catch (error) {
       onNotice(errorText(error), true);

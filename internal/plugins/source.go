@@ -40,9 +40,14 @@ type fetched struct {
 
 var scpLike = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._/~-]+$`)
 
-// CheckGitURL admits https, ssh and scp-like git URLs, file:// for local
-// testing, and http only to this machine. git's ext:: and fd:: transports run
-// programs, and a plain-http fetch from elsewhere could be changed in flight.
+// AllowLoopbackHTTP admits http:// git URLs to this machine. Only tests set
+// it (they serve repositories with git-http-backend); nothing in the binary
+// or its configuration can.
+var AllowLoopbackHTTP = false
+
+// CheckGitURL admits https, ssh and scp-like git URLs and file:// paths.
+// git's ext:: and fd:: transports run programs, and a plain-http fetch could
+// be changed in flight.
 func CheckGitURL(raw string) error {
 	if scpLike.MatchString(raw) {
 		return nil
@@ -55,6 +60,9 @@ func CheckGitURL(raw string) error {
 	case "https", "ssh", "file":
 		return nil
 	case "http":
+		if !AllowLoopbackHTTP {
+			return fmt.Errorf("http git URLs are not allowed; use https")
+		}
 		host := u.Hostname()
 		if host == "localhost" {
 			return nil
@@ -62,7 +70,7 @@ func CheckGitURL(raw string) error {
 		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 			return nil
 		}
-		return fmt.Errorf("http git URLs are allowed only to this machine; use https")
+		return fmt.Errorf("http git URLs are not allowed; use https")
 	}
 	return fmt.Errorf("git URL scheme %q is not allowed (use https, ssh or file)", u.Scheme)
 }
@@ -74,7 +82,14 @@ var refRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 func gitEnv() []string {
 	return append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_ALLOW_PROTOCOL=https:ssh:file:http", "GIT_ASKPASS=/bin/false")
+		"GIT_ALLOW_PROTOCOL="+allowedProtocols(), "GIT_ASKPASS=/bin/false")
+}
+
+func allowedProtocols() string {
+	if AllowLoopbackHTTP {
+		return "https:ssh:file:http"
+	}
+	return "https:ssh:file"
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {

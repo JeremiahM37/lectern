@@ -111,6 +111,11 @@ const catalog: Record<string, string> = {
   "plugins.sources.add": "添加插件源",
   "plugins.sources.added": "已添加插件源",
   "plugins.sources.remove": "移除插件源 {name}",
+  "plugins.disableConfirm": "关闭 {name}？",
+  "plugins.disableCatalog": "在你重新开启之前，设置 → 智能体 →“从目录添加”将为空。已添加的智能体会继续工作。",
+  "plugins.disableDetach": "这些技能将在其项目中关闭：",
+  "plugins.detachItem": "{project} 中的 {name}（{agent}）",
+  "plugins.detachProblems": "部分技能文件因已被修改而保留：{items}",
 };
 
 export default catalog;

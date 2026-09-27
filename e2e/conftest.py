@@ -169,7 +169,9 @@ def _stop(proc, port: int):
 
 @pytest.fixture(scope="session")
 def server():
-    proc = _start(PORT, {})
+    # This server runs with no sign-in (loopback, mock), where plugin changes
+    # are refused unless explicitly allowed; the plugin tests need them.
+    proc = _start(PORT, {"LECTERN_PLUGINS_ALLOW_UNAUTHENTICATED": "1"})
     try:
         yield BASE
     finally:

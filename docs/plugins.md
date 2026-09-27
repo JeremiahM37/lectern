@@ -156,9 +156,10 @@ is a decision a person makes, the same way trusting a sandbox hooks file is.
 - **A person consents.** Install, enable, update, trust, scope changes and
   secrets need a signed-in person (Tailscale identity, access token or paired
   device), like deciding an approval. A process on the server, the MCP server
-  and every agent are refused. In `LECTERN_AUTH=none` there is no identity,
-  so everyone who reaches Lectern is the operator — the same caveat approvals
-  carry (DESIGN.md §4.7).
+  and every agent are refused. In `LECTERN_AUTH=none` there is no identity to
+  tell a person from an agent, so plugin changes are refused there unless
+  `LECTERN_PLUGINS_ALLOW_UNAUTHENTICATED=1` is set; reading and using plugins
+  already installed still works.
 - **Pinned to content.** The consent names the exact content hash — sha256 over
   every file's path, mode and bytes — and, for git, the commit and tree hash.
   The files live in `lectern-plugins/store/<hash>/`, never edited in place.
@@ -170,9 +171,9 @@ is a decision a person makes, the same way trusting a sandbox hooks file is.
   must still name the whole list the preview showed: a client cannot accept
   one list and install another.
 - **Limits.** At most 2000 files and 50 MB. Symlinks, absolute paths and `..`
-  are refused. Git URLs must be `https://`, `ssh://` or `git@host:path`
-  (`file://`, or `http://` to this machine only, for local testing), so git's
-  `ext::` transports cannot run.
+  are refused. Git URLs must be `https://`, `ssh://`, `git@host:path` or
+  `file://`, so git's `ext::` transports cannot run. Plain `http://` is
+  refused; only the test suite can allow it, to this machine.
 - **Bundled plugins** are trusted as part of the binary. They can be disabled
   but not removed.
 
@@ -194,9 +195,14 @@ the contributions that belong to a project — MCP servers, skills, workflows,
 hooks and quick commands. Agents, themes and palette commands are global.
 
 Turning a plugin off stops its MCP servers, hooks, quick commands, themes and
-palette commands at once, and hides its skills and workflows from Project
-workflows. A skill already turned on for a project stays listed there, so it
-can be turned off; it is not removed behind your back.
+palette commands at once, and turns its skills and workflows off in every
+project they were on; the confirmation lists them first. A skill file someone
+changed is kept and reported, as Project workflows' own switch does. Turning
+off the bundled agent catalog empties "Add from catalog" (agents already
+added keep working), and the confirmation says so.
+
+A session with no project (a scratch session) gets the MCP servers of plugins
+enabled everywhere, never those of a plugin scoped to chosen projects.
 
 ## Installing
 

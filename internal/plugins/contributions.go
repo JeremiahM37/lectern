@@ -82,13 +82,18 @@ var (
 )
 
 // MCPServers returns the MCP servers active plugins add to a launch on a
-// project's target, keyed by server name. A server that refers to
+// project's target (0: no project), keyed by server name. A server that refers to
 // ${LECTERN_PLUGIN_ROOT} gets the plugin copied onto the target first. taken
 // holds names the project already uses: the project's own server wins, and
 // between two plugins the first by id does.
 func (m *Manager) MCPServers(ctx context.Context, ex executor.Executor, targetID, projectID int64, taken map[string]bool) (map[string]any, error) {
 	out := map[string]any{}
 	for _, p := range m.ActiveFor(projectID) {
+		// A launch with no project (a scratch session) gets only plugins
+		// enabled everywhere, never one scoped to chosen projects.
+		if projectID == 0 && len(p.ProjectIDs) > 0 {
+			continue
+		}
 		servers := p.Manifest.Contributes.MCPServers
 		if len(servers) == 0 {
 			continue

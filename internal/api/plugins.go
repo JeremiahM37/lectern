@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/plugins"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/workflows"
 )
 
 // Plugins (docs/plugins.md). Reading is open to any caller the API admits;
@@ -45,9 +47,20 @@ func (s *Server) pluginsReady(w http.ResponseWriter) bool {
 	return true
 }
 
+// UnauthenticatedPluginsRefused is the error for a plugin change in
+// LECTERN_AUTH=none, word for word what the UI and CLI show.
+const UnauthenticatedPluginsRefused = "plugin changes are refused while LECTERN_AUTH=none: with no sign-in, any process that reaches Lectern (an agent included) would count as you. Turn on authentication, or set LECTERN_PLUGINS_ALLOW_UNAUTHENTICATED=1 to allow them anyway"
+
 // pluginPerson gates a plugin change and names who made it.
 func (s *Server) pluginPerson(w http.ResponseWriter, r *http.Request, what string) (string, bool) {
-	if !s.pluginsReady(w) || !s.requireHuman(w, r, what) {
+	if !s.pluginsReady(w) {
+		return "", false
+	}
+	if s.Auth != nil && s.Auth.Mode == auth.ModeNone && (s.Cfg == nil || !s.Cfg.PluginsAllowUnauthenticated) {
+		httpError(w, 403, "%s", UnauthenticatedPluginsRefused)
+		return "", false
+	}
+	if !s.requireHuman(w, r, what) {
 		return "", false
 	}
 	p, _ := auth.FromContext(r.Context())
@@ -155,6 +168,8 @@ func (s *Server) getPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, _ := s.DB.PluginHookRuns(p.ID, 20)
 	v["hook_runs"] = runs
+	// What turning it off or removing it would detach from projects.
+	v["attachments"] = s.pluginAttachments(p)
 	writeJSON(w, 200, v)
 }
 
@@ -268,6 +283,7 @@ func (s *Server) putPlugin(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	before, _ := s.Plugins.Get(r.PathValue("id"))
 	p, err := s.Plugins.SetEnabled(r.PathValue("id"), in.Enabled, scope)
 	var ce *plugins.ConsentError
 	if errors.As(err, &ce) {
@@ -278,8 +294,14 @@ func (s *Server) putPlugin(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "%s", err)
 		return
 	}
+	v := pluginView(p)
+	if in.Enabled != nil && !*in.Enabled {
+		// Off means off: its skills leave the projects they were turned on
+		// for, not just the list of what can be turned on.
+		v["detached"], v["detach_problems"] = s.detachPlugin(r, before)
+	}
 	s.Bus.Publish("board", "plugins", map[string]any{"id": p.ID})
-	writeJSON(w, 200, pluginView(p))
+	writeJSON(w, 200, v)
 }
 
 func (s *Server) deletePlugin(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +309,11 @@ func (s *Server) deletePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	var detached []pluginAttachment
+	var problems []string
+	if p, ok := s.Plugins.Get(id); ok && !p.Bundled {
+		detached, problems = s.detachPlugin(r, p)
+	}
 	if err := s.Plugins.Remove(id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			httpError(w, 404, "no such plugin")
@@ -296,7 +323,7 @@ func (s *Server) deletePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Bus.Publish("board", "plugins", map[string]any{"id": id})
-	writeJSON(w, 200, map[string]any{"removed": id})
+	writeJSON(w, 200, map[string]any{"removed": id, "detached": detached, "detach_problems": problems})
 }
 
 func (s *Server) putPluginSecrets(w http.ResponseWriter, r *http.Request) {
@@ -388,4 +415,66 @@ func (s *Server) pluginSandboxHooks(ref string) ([]byte, error) {
 
 func agentsServerNames(raw string) map[string]bool {
 	return agents.ProjectServerNames(store.UnjObj(raw))
+}
+
+// pluginAttachment is a skill or workflow of a plugin that is turned on for
+// a project: what disabling or removing the plugin detaches.
+type pluginAttachment struct {
+	ID        int64  `json:"id"`
+	ProjectID int64  `json:"project_id"`
+	Project   string `json:"project"`
+	Agent     string `json:"agent"`
+	Name      string `json:"name"`
+	row       *store.ProjectSkill
+	project   *store.Project
+}
+
+func (s *Server) pluginAttachments(p *plugins.Plugin) []pluginAttachment {
+	out := []pluginAttachment{}
+	if p == nil || p.Pkg == nil {
+		return out
+	}
+	srcs, err := workflows.FromPlugin(p.Pkg)
+	if err != nil || len(srcs) == 0 {
+		return out
+	}
+	projects, err := s.DB.Projects()
+	if err != nil {
+		return out
+	}
+	for _, proj := range projects {
+		rows, err := s.DB.ProjectSkills(proj.ID, "")
+		if err != nil {
+			continue
+		}
+		for _, row := range rows {
+			for _, src := range srcs {
+				if row.SkillID == workflowSkillID(src.ID) && row.SourceID == workflowSourceID(src.Definition) {
+					out = append(out, pluginAttachment{ID: row.ID, ProjectID: proj.ID, Project: proj.Name,
+						Agent: row.Agent, Name: src.Name, row: row, project: proj})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// detachPlugin turns off every project skill a plugin contributed, on the
+// machine as well as in the database. A file someone changed is kept, as
+// Project workflows' own off switch keeps it, and reported.
+func (s *Server) detachPlugin(r *http.Request, p *plugins.Plugin) (detached []pluginAttachment, problems []string) {
+	detached, problems = []pluginAttachment{}, []string{}
+	for _, a := range s.pluginAttachments(p) {
+		_, ex, err := s.skillExecutor(r, a.project, a.project.TargetID)
+		if err == nil {
+			err = s.disableProjectWorkflow(r, a.project, ex, a.row)
+			ex.Close()
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s (%s, %s): %v", a.Name, a.Project, a.Agent, err))
+			continue
+		}
+		detached = append(detached, a)
+	}
+	return detached, problems
 }

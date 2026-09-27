@@ -113,6 +113,11 @@ const catalog: Record<string, string> = {
   "plugins.sources.add": "Add source",
   "plugins.sources.added": "Source added",
   "plugins.sources.remove": "Remove source {name}",
+  "plugins.disableConfirm": "Turn off {name}?",
+  "plugins.disableCatalog": "Settings → Agents → “Add from catalog” will be empty until you turn it back on. Agents you already added keep working.",
+  "plugins.disableDetach": "These skills will be turned off in their projects:",
+  "plugins.detachItem": "{name} in {project} ({agent})",
+  "plugins.detachProblems": "Some skill files were kept because they changed: {items}",
 };
 
 export default catalog;
