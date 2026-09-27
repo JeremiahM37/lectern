@@ -12,6 +12,7 @@ import (
 )
 
 const autoPythonProvisioner = "/usr/local/libexec/lectern-python-project-dependencies.py"
+const autoExpertProbeHelper = "/usr/local/libexec/lectern-autonomy-expert-probe.py"
 
 // This is discovery of a registered mechanism, not proof that a particular
 // package resolves or that a running worker received an environment. Only the
@@ -30,7 +31,26 @@ func autoCapabilityInstallation(path string) map[string]any {
 func autoCapabilityCatalog(dependencies, runner, pythonHelper string) map[string]any {
 	runnerInfo := autoCapabilityInstallation(runner)
 	helperInfo := autoCapabilityInstallation(pythonHelper)
-	return autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
+	catalog := autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoExpertProbeCapability(runnerInfo, autoCapabilityInstallation(autoExpertProbeHelper)))
+	return catalog
+}
+
+func autoExpertProbeCapability(runner, helper map[string]any) map[string]any {
+	status := "unavailable"
+	if runner["status"] == "installed" && helper["status"] == "installed" {
+		status = "on_demand"
+	}
+	return map[string]any{
+		"capability": "expert_recovery_investigation", "status": status, "helper": helper,
+		"discovery":    "GET /expert-recovery; current planner pins exhausted source checkpoints with POST /expert-recovery using project_id and source_task_id",
+		"proposal":     "expert_recovery_task_id and expert_progress_key select the pinned source under normal independent plan audits",
+		"request":      "During that audit each assigned auditor uses POST /expert-probes with progress_key, Python script and optional fixtures, argv and profile ordinary180. GET /expert-probes discovers its existing probe IDs, including same-assignment report corrections; GET /expert-probes?id=ID polls and records execution evidence.",
+		"execution":    "Offline isolated process, immutable source, separate bounded scratch, at most180seconds. Current profile does not provide network access or host commands.",
+		"verification": "Execution receipts establish mounted source, runtime, inputs and outputs. Both independent auditors must assess causal relevance and materially changed strategy against prior failures; execution alone is not proof of progress.",
+		"limits":       "Durable per-root investigation and repair budgets; unchanged conditions cannot renew eligibility through time, renamed work or rewritten logs. Original acceptance and failed history remain binding.",
+		"authority":    "Investigation and independently admitted private repair only. No publication, host-wide permission, automatic approval or quota override.",
+	}
 }
 
 func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, helperInfo map[string]any) map[string]any {

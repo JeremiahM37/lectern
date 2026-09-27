@@ -156,6 +156,8 @@ const (
 )
 
 type Proposal struct {
+	ExpertRecoveryTaskID       int64    `json:"expert_recovery_task_id,omitempty"`
+	ExpertProgressKey          string   `json:"expert_progress_key,omitempty"`
 	DiagnoseTaskID             int64    `json:"diagnose_task_id,omitempty"`
 	EnvironmentDiagnosisTaskID int64    `json:"environment_diagnosis_task_id,omitempty"`
 	DiagnoseRequirement        string   `json:"diagnose_requirement,omitempty"`
@@ -235,11 +237,27 @@ type PlanReport struct {
 	Items        []Proposal    `json:"items"`
 	Backlog      []Proposal    `json:"backlog,omitempty"`
 }
+
+// ExpertRecoveryAudit is a semantic judgment bound to controller-owned probe
+// receipts. Hashes alone do not prove causal relevance or novelty.
+type ExpertRecoveryAudit struct {
+	SourceTaskID      int64    `json:"source_task_id"`
+	ProgressKey       string   `json:"progress_key"`
+	ProbeIDs          []string `json:"probe_ids"`
+	FailureFamily     string   `json:"failure_family"`
+	PriorAttempt      int      `json:"prior_attempt"`
+	MaterialChange    bool     `json:"material_change"`
+	CausalExplanation string   `json:"causal_explanation"`
+	DifferentStrategy string   `json:"different_strategy"`
+	StopCriterion     string   `json:"stop_criterion"`
+}
+
 type Verdict struct {
-	Requirements []Requirement `json:"requirements,omitempty"`
-	Outcome      string        `json:"outcome,omitempty"`
-	Approve      *bool         `json:"approve"`
-	Reason       string        `json:"reason"`
+	ExpertRecovery []ExpertRecoveryAudit `json:"expert_recovery,omitempty"`
+	Requirements   []Requirement         `json:"requirements,omitempty"`
+	Outcome        string                `json:"outcome,omitempty"`
+	Approve        *bool                 `json:"approve"`
+	Reason         string                `json:"reason"`
 }
 type BuildReport struct {
 	Requirements []Requirement     `json:"requirements,omitempty"`
@@ -473,6 +491,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
+			if !validExpertProposal(p) {
+				return fmt.Errorf("proposal %d expert_recovery_task_id requires a controller-issued lowercase SHA256 expert_progress_key and cannot combine diagnosis selectors", index)
+			}
 			if p.ProjectID <= 0 || p.EnvironmentDiagnosisTaskID < 0 || p.DiagnoseTaskID < 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
 				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative mutually exclusive continue_task_id/repair_task_id and a unique title within its list", index)
 			}
@@ -543,8 +564,13 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			}
 		}
 		if r.Decision != nil {
-			if s.Item >= 0 && s.Item < len(s.Items) && s.Items[s.Item].DocumentationTaskID > 0 {
-				return errors.New("documentary completion cannot authorize implementation decision rounds")
+			if s.Item >= 0 && s.Item < len(s.Items) {
+				if s.Items[s.Item].DocumentationTaskID > 0 {
+					return errors.New("documentary completion cannot authorize implementation decision rounds")
+				}
+				if s.Items[s.Item].ExpertRecoveryTaskID > 0 {
+					return errors.New("expert recovery cannot authorize implementation decision rounds")
+				}
 			}
 			if err := validateDecision(*r.Decision); err != nil {
 				return err
@@ -663,6 +689,9 @@ func (s *State) ActiveTaskIDs() []int64 {
 
 func proposalSources(p Proposal) int {
 	n := 0
+	if p.ExpertRecoveryTaskID > 0 {
+		n++
+	}
 	if p.SourceRevision != "" {
 		n++
 	}
@@ -676,4 +705,11 @@ func proposalSources(p Proposal) int {
 		n++
 	}
 	return n
+}
+
+func validExpertProposal(p Proposal) bool {
+	if p.ExpertRecoveryTaskID == 0 {
+		return p.ExpertProgressKey == ""
+	}
+	return p.ExpertRecoveryTaskID > 0 && len(p.ExpertProgressKey) == 64 && strings.Trim(p.ExpertProgressKey, "0123456789abcdef") == "" && p.DiagnoseTaskID == 0 && p.DiagnoseRequirement == ""
 }

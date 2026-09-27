@@ -28,6 +28,7 @@ import uuid
 
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
+EXPERT_PROBE_HELPER = Path('/usr/local/libexec/lectern-autonomy-expert-probe.py')
 ASSET_CACHE = ROOT.parent / 'binary-cache'
 DEPENDENCIES = ROOT.parent / 'dependencies'
 AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
@@ -404,6 +405,7 @@ def execute(job):
         os.setgid(GID)
         os.setuid(UID)
     with (p / 'assets/prompt.txt').open('rb') as prompt:
+        usage_begin(job)
         process = subprocess.Popen(command, stdin=prompt, preexec_fn=drop, close_fds=True)
         while process.poll() is None:
             try:
@@ -411,15 +413,18 @@ def execute(job):
                 fresh = 0 <= time.time() - heartbeat.st_mtime < 60
             except OSError:
                 fresh = False
-            if not fresh:
+            expired = usage_elapsed(job, True)['elapsed_milliseconds'] >= json.loads((p/'job.json').read_text()).get('runtime_seconds', 1800)*1000
+            if not fresh or expired:
+                usage_finish(job)
                 write_new(p / 'result.json', json.dumps({'state': 'failed', 'exit_code': 124,
-                                                       'reason': 'controller heartbeat expired'}))
+                                                       'reason': 'worker runtime limit reached' if expired else 'controller heartbeat expired'}))
                 # Exact job cgroup only, including this trusted supervisor. No
                 # detached grandchildren may outlive the usage monitor.
                 run(['/usr/bin/systemctl', 'kill', '--kill-whom=all', '--signal=SIGKILL', unit(job)])
                 raise RuntimeError('job cgroup termination unexpectedly returned')
-            time.sleep(2)
+            time.sleep(.1)
         result = process
+    usage_finish(job)
     write_new(p / 'result.json', json.dumps({'state': 'done' if result.returncode == 0 else 'failed',
                                            'exit_code': result.returncode}))
     return result.returncode
@@ -503,6 +508,8 @@ def launch_state(job):
 
 
 def start(args):
+    duration = getattr(args, 'runtime_seconds', 1800)
+    if type(duration) is not int or not 1 <= duration <= 1800: raise ValueError('runtime_seconds must be between 1 and 1800')
     with launch_lock(args.job) as launch_fd:
         phase = launch_state_unlocked(args.job)['state']
         if phase == 'running':
@@ -578,7 +585,7 @@ def start_locked(args, launch_fd):
     # The trusted supervisor stages these in private mounts before dropping
     # UID. The host job parent remains inaccessible to nobody; admin may
     # replace its broker sockets when the controller restarts.
-    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model,
+    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model, 'runtime_seconds': getattr(args, 'runtime_seconds', 1800),
                                                'selftest_hold': args.hold_seconds if args.provider == 'selftest' else 0,
                                                'network_selftest': args.network_selftest if args.provider == 'selftest' else False}))
     write_new(p / 'heartbeat', '', 0o600)
@@ -586,7 +593,9 @@ def start_locked(args, launch_fd):
     for name in ('output.jsonl', 'stderr.log'):
         write_new(p / name, '')
     cmd = ['/usr/bin/systemd-run', '--quiet', '--unit=' + unit(args.job)]
-    for prop in properties() + ['StandardOutput=append:' + str(p / 'output.jsonl'),
+    worker_properties = [prop for prop in properties() if not prop.startswith('RuntimeMaxSec=')]
+    worker_properties.append('RuntimeMaxSec=' + str(getattr(args, 'runtime_seconds', 1800) + 120))
+    for prop in worker_properties + ['StandardOutput=append:' + str(p / 'output.jsonl'),
                                 'StandardError=append:' + str(p / 'stderr.log')]:
         cmd += ['--property=' + prop]
     run(cmd + [INSTALL, '_execute', '--job', args.job], env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}, pass_fds=(launch_fd,))
@@ -613,12 +622,47 @@ def stop(job):
         active = result.stdout.strip()
         if active in ('active', 'activating', 'deactivating', 'reloading'):
             run(['/usr/bin/systemctl', 'stop', unit(job)])
+            usage_finish(job, confirmed_stop=True)
         elif active not in ('inactive', 'failed'):
             raise RuntimeError('runner unit status unavailable during stop')
         return status_unlocked(job)
 
 
+def usage_begin(job):
+    p=job_path(job)
+    completion_write(p/'worker-usage.json', {'schema_version':1, 'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'started_monotonic_ns':time.monotonic_ns(), 'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()})
+
+
+def usage_finish(job, confirmed_stop=False):
+    p=job_path(job); path=p/'worker-usage.json'
+    if not path.exists(): return
+    value=completion_json(path)
+    if 'elapsed_milliseconds' in value:return
+    value.update(usage_elapsed(job, True), ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    if confirmed_stop:value['usage_accounting']='monotonic_until_confirmed_stop'
+    completion_write(path,value)
+
+
+def usage_elapsed(job, active):
+    p=job_path(job);path=p/'worker-usage.json'
+    if not path.exists():return {'elapsed_milliseconds':0,'usage_accounting':'not_started'}
+    value=completion_json(path)
+    if 'elapsed_milliseconds' in value:return {name:value[name] for name in ('elapsed_milliseconds','usage_accounting')}
+    maximum=json.loads((p/'job.json').read_text()).get('runtime_seconds',1800)*1000
+    if active and value.get('boot_id')==Path('/proc/sys/kernel/random/boot_id').read_text().strip():
+        elapsed=max(0,(time.monotonic_ns()-value['started_monotonic_ns'])//1000000)
+        return {'elapsed_milliseconds':elapsed,'usage_accounting':'monotonic_process_interval'}
+    return {'elapsed_milliseconds':maximum,'usage_accounting':'reserved_limit_unknown_end'}
+
+
 def status_unlocked(job):
+    result=status_raw_unlocked(job)
+    if (job_path(job)/'worker-usage.json').exists():
+        result.update(usage_elapsed(job,result['state']=='running'))
+    return result
+
+
+def status_raw_unlocked(job):
     p = job_path(job)
     r = subprocess.run(['/usr/bin/systemctl', 'show', unit(job), '--property=ActiveState,ExecMainStatus,Result'],
                        text=True, capture_output=True)
@@ -750,10 +794,10 @@ def python_test_runtime_mount():
             '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
 
 
-def python_test_bundle():
+def python_test_bundle(key=None):
     root = DEPENDENCIES / 'python'
     active = root / 'active.json'
-    if not active.exists() and not active.is_symlink():
+    if key is None and not active.exists() and not active.is_symlink():
         return None
     def trusted(path, directory=False):
         st = path.lstat()
@@ -762,8 +806,9 @@ def python_test_bundle():
             raise ValueError('unsafe Python runtime path')
         return st
     for path in (DEPENDENCIES, root): trusted(path, True)
-    if trusted(active).st_size > 1024: raise ValueError('oversized Python runtime selection')
-    key = json.loads(active.read_text()).get('key', '')
+    if key is None:
+        if trusted(active).st_size > 1024: raise ValueError('oversized Python runtime selection')
+        key = json.loads(active.read_text()).get('key', '')
     if len(key) != 64 or any(c not in '0123456789abcdef' for c in key):
         raise ValueError('invalid Python runtime key')
     bundle = root / key
@@ -2271,6 +2316,48 @@ def evidence_tree_identity(root, scheme=None):
     return scheme,digest,rows
 
 
+def copy_archive_work(job, source, preserve_report=False):
+    destination=job_path(job)
+    if job==source or (destination/'job.json').exists():raise ValueError('archive work needs fresh destination')
+    stage=completion_stage(job,create=True)
+    expected={'source_job':source,'source_archive_sha256':archive_identity(source)['sha256']}
+    kind='archive-resume' if preserve_report else 'archive-work'
+    intent=stage/(kind+'-intent.json');published=stage/(kind+'-ready.json')
+    if intent.exists():
+        if completion_json(intent)!=expected:raise ValueError('archive work source changed')
+    else:
+        if any(ensure_work(destination).iterdir()):raise ValueError('archive work destination must be empty before reservation')
+        completion_write(intent,expected)
+    if published.exists():return completion_json(published)
+    work=ensure_work(destination)
+    # Only a destination with our durable intent and no launched worker may be reset.
+    for item in work.iterdir():
+        if item.is_dir() and not item.is_symlink():shutil.rmtree(item)
+        else:item.unlink()
+    copied=stage/'archive-work-staging'
+    if copied.exists():shutil.rmtree(copied)
+    digest=evidence_extract_archive(source,copied)
+    if digest!=expected['source_archive_sha256']:raise ValueError('archive source changed during extraction')
+    scheme,tree,_=evidence_tree_identity(copied,scheme='general-evidence-v1')
+    # Copy symlinks as data; copytree preserves directory and file modes.
+    shutil.copytree(copied,work,symlinks=True,dirs_exist_ok=True)
+    prior=work/'autonomy-report.json'
+    if not preserve_report and (prior.exists() or prior.is_symlink()):
+        if regular(prior).st_size>128*1024:raise ValueError('archived report transport exceeds limit')
+        reports=work/'.lectern-reports'
+        if reports.is_symlink() or (reports.exists() and not reports.is_dir()):raise ValueError('unsafe archived report handoff root')
+        reports.mkdir(exist_ok=True)
+        saved=reports/source
+        saved.mkdir()
+        data=prior.read_bytes();prior.rename(saved/'autonomy-report.json')
+        (saved/'manifest.json').write_text(json.dumps(dict(source_job=source,source_archive_sha256=digest,original_path='autonomy-report.json',sha256=hashlib.sha256(data).hexdigest(),purpose='prior archived report evidence, not current submission or approval')))
+    admin=pwd.getpwnam('admin')
+    for item in (work,*work.rglob('*')):os.chown(item,admin.pw_uid,admin.pw_gid,follow_symlinks=False)
+    receipt=dict(expected,state='copied',source_tree_sha256=tree,evidence_digest_scheme=scheme,transport_handoff='root report retained for same-task correction' if preserve_report else 'autonomy-report.json moved to .lectern-reports/<source_job> when present')
+    completion_write(published,receipt)
+    return receipt
+
+
 def copy_archive_review(job, source):
     """Give a plan auditor exact exported evidence rather than mutable work."""
     destination = job_path(job)
@@ -2451,6 +2538,8 @@ def archive_identity(job):
 
 def completion_copy_unit(job, source, kind):
     job_path(job); job_path(source)
+    if kind in ('archive-work','archive-resume'):
+        return 'lectern-completion-copy-' + ('work-' if kind=='archive-work' else 'report-resume-') + job + '.service'
     if kind == 'resume':
         return 'lectern-completion-resume-' + job + '.service'
     if kind == 'derived':
@@ -2461,6 +2550,7 @@ def completion_copy_unit(job, source, kind):
 
 
 def completion_copy_receipt(stage, source, kind):
+    if kind in ('archive-work','archive-resume'): return stage / ('copy-work.json' if kind=='archive-work' else 'copy-report-resume.json')
     if kind == 'resume':
         return stage / 'copy-resume.json'
     if kind == 'derived':
@@ -2471,7 +2561,77 @@ def completion_copy_receipt(stage, source, kind):
     raise ValueError('unknown completion copy kind')
 
 
-def completion_copy_status(job, source, kind):
+def archive_copy_stage(job):
+    destination=job_path(job)
+    if not destination.exists():
+        destination.mkdir(mode=0o770)
+        os.chown(destination,0,pwd.getpwnam('admin').pw_gid);destination.chmod(0o770)
+    return completion_stage(job,create=True)
+
+
+def archive_copy_generation(value):
+    if type(value) is not int or not 1<=value<=2**31-1:raise ValueError('invalid archive copy generation')
+    return value
+
+
+def archive_copy_revoked(stage):
+    path=stage/'archive-copy-revoked.json'
+    return completion_json(path)['generation'] if path.exists() else 0
+
+
+def archive_copy_status(job,source,kind,generation):
+    archive_copy_generation(generation);job_path(source)
+    destination=job_path(job)
+    if job==source or (destination/'job.json').exists():raise ValueError('archive copy needs unlaunched distinct destination')
+    stage=archive_copy_stage(job);path=completion_copy_receipt(stage,source,kind)
+    with (stage/'archive-copy.lock').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return {'state':'waiting','copy_source_job':source,'copy_generation':generation,'reason':'archive copy launch or stop in progress'}
+        authority=stage/'archive-copy-authority.json'
+        old=completion_json(authority) if authority.exists() else {}
+        if old and (old['source_job']!=source or old['kind']!=kind):raise ValueError('reserved archive copy input cannot change')
+        if generation<=archive_copy_revoked(stage) or generation<old.get('generation',0):
+            return {'state':'waiting','copy_source_job':source,'copy_generation':generation,'reason':'archive copy generation revoked','revoked':True}
+        completion_write(authority,{'generation':generation,'source_job':source,'kind':kind})
+        receipt=completion_json(path) if path.exists() else {}
+        if completion_service_active(completion_copy_unit(job,source,kind)):
+            return {'state':'copying','copy_source_job':source,'copy_generation':generation}
+        if receipt.get('state')=='copied':return dict(receipt,copy_generation=generation)
+        if receipt.get('retry_at',0)>time.time():return dict(receipt,copy_generation=generation)
+        request={'state':'copying','copy_source_job':source,'copy_generation':generation}
+        completion_launch_capacity()
+        completion_write(path,request)
+        # Revocation is written before stop tries this guard. Recheck before
+        # spawning, then retain guard ownership through systemd-run's lifetime.
+        if generation<=archive_copy_revoked(stage):return dict(request,state='waiting',revoked=True)
+        command='_copy-archive-work' if kind=='archive-work' else '_copy-archive-resume'
+        run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+completion_copy_unit(job,source,kind),
+             '--property=RuntimeMaxSec=600','--property=MemoryMax=2G','--property=CPUQuota=200%',
+             '--property=TasksMax=32','--property=KillMode=control-group','--property=UMask=0077',
+             '--property=LimitFSIZE=2147483648',INSTALL,command,'--job',job,'--from-job',source,
+             '--copy-generation',str(generation)],pass_fds=(guard.fileno(),))
+        return request
+
+
+def archive_copy_stop(job,generation=None):
+    stage=archive_copy_stage(job);authority=stage/'archive-copy-authority.json'
+    with (stage/'archive-copy-revoke.lock').open('a') as guard:
+        fcntl.flock(guard,fcntl.LOCK_EX)
+        known=completion_json(authority).get('generation',0) if authority.exists() else 0
+        maximum=max(known,archive_copy_revoked(stage),1 if generation is None else archive_copy_generation(generation))
+        completion_write(stage/'archive-copy-revoked.json',{'generation':maximum})
+    with (stage/'archive-copy.lock').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return False
+        for kind in ('archive-work','archive-resume'):
+            name=completion_copy_unit(job,job,kind)
+            if completion_service_active(name):run(['/usr/bin/systemctl','stop','--no-block',name],pass_fds=(guard.fileno(),),timeout=3)
+            if completion_service_active(name):return False
+    return True
+
+
+def completion_copy_status(job, source, kind, generation=1):
+    if kind in ('archive-work','archive-resume'):return archive_copy_status(job,source,kind,generation)
     destination = job_path(job)
     job_path(source)
     if job == source or (destination / 'job.json').exists():
@@ -2508,14 +2668,52 @@ def completion_copy_status(job, source, kind):
             return receipt
 
 
-def completion_copy_execute(job, source, kind):
+def completion_archive_volume(job):
+    """Recover only our reserved, never-launched destination volume."""
+    p=job_path(job);stage=completion_stage(job);marker=stage/'archive-volume.json'
+    if (p/'job.json').exists():raise ValueError('cannot prepare volume of launched job')
+    image=p/'work.ext4';work=p/'work'
+    if not marker.exists():
+        if image.exists() or work.exists():return ensure_work(p)
+        completion_write(marker,{'state':'preparing','job':job,'capacity_bytes':2*1024**3})
+    recorded=completion_json(marker)
+    if recorded.get('job')!=job or recorded.get('capacity_bytes')!=2*1024**3:raise ValueError('archive volume reservation differs')
+    if recorded.get('state')=='ready':return ensure_work(p)
+    work.mkdir(exist_ok=True)
+    if work.is_symlink():raise ValueError('linked destination volume')
+    if os.path.ismount(work):
+        ensure_work(p)
+    else:
+        if any(work.iterdir()):raise ValueError('unmounted destination contains unreserved files')
+        if image.exists():
+            info=regular(image)
+            if info.st_uid!=os.geteuid() or info.st_size!=2*1024**3:raise ValueError('unsafe partial archive volume')
+        else:
+            fd=os.open(image,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            try:os.ftruncate(fd,2*1024**3);os.fsync(fd)
+            finally:os.close(fd)
+        run(['/usr/sbin/mkfs.ext4','-q','-F',str(image)])
+        run(['/usr/bin/mount','-o','loop,nosuid,nodev',str(image),str(work)])
+        ensure_work(p)
+    lost=work/'lost+found'
+    if lost.exists():lost.rmdir()
+    admin=pwd.getpwnam('admin');os.chown(work,admin.pw_uid,admin.pw_gid)
+    completion_write(marker,dict(recorded,state='ready'))
+    return work
+
+
+def completion_copy_execute(job, source, kind, generation=1):
     stage = completion_stage(job)
     path = completion_copy_receipt(stage, source, kind)
+    if kind in ('archive-work','archive-resume'):
+        authority=completion_json(stage/'archive-copy-authority.json')
+        if authority!={'generation':generation,'source_job':source,'kind':kind} or generation<=archive_copy_revoked(stage):return 1
     with ARTIFACT_LOCK.open('a') as global_lock:
         fcntl.flock(global_lock, fcntl.LOCK_EX)
         try:
             completion_capacity()
-            operation = {'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
+            if kind in ('archive-work','archive-resume'):completion_archive_volume(job)
+            operation = {'archive-resume':lambda job,source:copy_archive_work(job,source,preserve_report=True),'archive-work':copy_archive_work,'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
             receipt = operation(job, source)
             completion_write(path, dict(receipt, copy_source_job=source))
             return 0
@@ -2678,7 +2876,7 @@ def completion_unit(job):
 
 
 def completion_service_active(name):
-    result = subprocess.run(['/usr/bin/systemctl', 'show', name, '--property=ActiveState'], capture_output=True, text=True)
+    result = subprocess.run(['/usr/bin/systemctl', 'show', name, '--property=ActiveState'], capture_output=True, text=True, timeout=3)
     if result.returncode:
         raise RuntimeError('completion validator unit state unavailable')
     values = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
@@ -2692,8 +2890,10 @@ def completion_active(job):
     return completion_service_active(completion_unit(job))
 
 
-def completion_stop(job):
+def completion_stop(job, generation=None):
     """Cancel only this job's bounded documentary helpers, retaining all state."""
+    if generation is not None or (job_path(job)/'completion/archive-copy-authority.json').exists():
+        if not archive_copy_stop(job,generation):return {'state':'stopping'}
     names = [completion_prepare_unit(job), completion_unit(job)]
     stage = job_path(job) / 'completion'
     if stage.exists():
@@ -2701,7 +2901,9 @@ def completion_stop(job):
         for path in sorted(stage.glob('copy-*.json')):
             receipt = completion_json(path)
             source = receipt.get('copy_source_job')
-            if path.name == 'copy-resume.json':
+            if path.name in ('copy-work.json','copy-report-resume.json'):
+                continue
+            elif path.name == 'copy-resume.json':
                 names.append(completion_copy_unit(job, source, 'resume'))
             elif path.name == 'copy-derived.json':
                 names.append(completion_copy_unit(job, source, 'derived'))
@@ -3005,10 +3207,33 @@ def completion_resume(job, source):
         return receipt
 
 
+def expert_probe(command, job, probe, stream=None, offset=0):
+    job_path(job)
+    if not probe or len(probe) != 64 or any(c not in '0123456789abcdef' for c in probe):
+        raise ValueError('invalid expert probe ID')
+    stage = job_path(job) / 'expert-probes' / probe
+    helper = EXPERT_PROBE_HELPER
+    if stage.exists():
+        for directory in (stage.parent, stage):
+            st = directory.lstat()
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
+                raise ValueError('unsafe expert probe state')
+        if (stage / 'helper.py').exists(): helper = stage / 'helper.py'
+    if command == '_expert-probe' and helper == EXPERT_PROBE_HELPER:
+        raise ValueError('probe helper was not frozen')
+    module = python_helper(helper)
+    return module.dispatch(globals(), command, job, probe, stream, offset)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
+    parser.add_argument('--probe-id')
+    parser.add_argument('--stream', choices=['stdout', 'stderr'])
+    parser.add_argument('--offset', type=int, default=0)
+    parser.add_argument('--runtime-seconds', type=int, default=1800)
+    parser.add_argument('--copy-generation', type=int)
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -3020,7 +3245,10 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'archive-report':
+    if args.command in ('expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe'):
+        out = expert_probe(args.command, args.job, args.probe_id, args.stream, args.offset)
+        if args.command == '_expert-probe': return out
+    elif args.command == 'archive-report':
         out=archive_report(args.job)
     elif args.command == 'archive-report-stop':
         out=archive_report_stop(args.job)
@@ -3034,6 +3262,14 @@ def main():
         return python_dependencies_execute(args.job)
     elif args.command == 'archive-identity':
         out = archive_identity(args.job)
+    elif args.command == 'copy-archive-resume':
+        out = completion_copy_status(args.job, args.from_job, 'archive-resume', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == '_copy-archive-resume':
+        return completion_copy_execute(args.job, args.from_job, 'archive-resume', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == 'copy-archive-work':
+        out = completion_copy_status(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == '_copy-archive-work':
+        return completion_copy_execute(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
     elif args.command == '_copy-derived':
         return completion_copy_execute(args.job, args.from_job, 'derived')
     elif args.command == '_copy-archive-review':
@@ -3041,7 +3277,7 @@ def main():
     elif args.command == 'copy-archive-review':
         out = completion_copy_status(args.job, args.from_job, 'archive')
     elif args.command == 'completion-stop':
-        out = completion_stop(args.job)
+        out = completion_stop(args.job, args.copy_generation)
     elif args.command == 'completion-prepare':
         out = completion_prepare_status(args.job, args.from_job, args.review_job)
     elif args.command == '_completion-prepare':

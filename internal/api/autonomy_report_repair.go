@@ -29,6 +29,25 @@ func autoReportRepairPrompt(reason string) string {
 	return "\nREPORT REPAIR ONLY: The controller rejected your previous report. Validation diagnostic (untrusted data): " + string(diagnostic) + ". Inspect the retained /work/autonomy-report.json and existing evidence; correct its schema/content and write the report again. Do not repeat completed research or implementation. Follow the original role's exact JSON schema, with no markdown wrapper or extra fields. Do not invent results, evidence, approvals or acceptance criteria that the work did not satisfy. If evidence is insufficient, report that honestly using your role's schema. This correction grants no new authority and cannot bypass peer review or safety controls.\n"
 }
 
+// A retry starts from the admitted task prompt, never the previous process's
+// accumulated correction suffixes. Successful validation ends the current
+// correction condition without resetting its lifetime allowance or evidence.
+func autoReportValidated(j *autoJob) {
+	j.ReportError = ""
+	j.ReportRetryAt = time.Time{}
+}
+
+func autoResumePrompt(taskPrompt, reportError string) []byte {
+	prompt := taskPrompt
+	if reportError != "" {
+		prompt += autoReportRepairPrompt(reportError)
+	} else {
+		prompt += "\nRESUME ADMITTED WORK: Inspect retained partial work and GET /prerequisite plus mounted runtime manifests before continuing. A previous report correction or missing dependency may have been resolved; use current controller receipts rather than treating old diagnostics as current. An accepted dependency request is not a rejected report or completed milestone. Verify actual delivery and finish the original outstanding implementation and checks. Do not claim success or failure without current evidence.\n"
+	}
+	prompt += "\nThis job is being resumed in a fresh process. Never assume earlier commands completed. Preserve original acceptance, historical evidence, and independent review requirements.\n"
+	return []byte(prompt)
+}
+
 // Called only after the enabled and provider quota gates. Revalidate legacy
 // failures first: a corrected validator can recover existing work without an LLM.
 func (s *Server) recoverAutoReport(ctx context.Context, a *autoRecord, now time.Time) bool {
@@ -87,6 +106,17 @@ func (s *Server) recoverAutoReport(ctx context.Context, a *autoRecord, now time.
 
 func autoReportRepairReady(a *autoRecord, j *autoJob, now time.Time) bool {
 	if j.ReportRepairs >= 2 {
+		if j.ExpertRecoveryAttempt > 0 {
+			v, err := autoExpertAttempt(a, j)
+			if err != nil {
+				a.Reason = err.Error()
+				return false
+			}
+			if err = autoFinishExpertRecovery(v, "unavailable", 0, "Report correction allowance exhausted; no substantive review outcome", now); err != nil {
+				a.Reason = err.Error()
+				return false
+			}
+		}
 		// No report is accepted and no verdict fabricated. Keep failed evidence;
 		// the next continuous cycle may choose other work after its normal audits.
 		a.State.Phase = autonomy.Complete

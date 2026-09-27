@@ -328,3 +328,42 @@ Research document reads buffer at most 2 MiB plus one detection byte before resp
 ### Interrupted worker launch
 
 A runner-owned per-job lock serializes launch and Stop. A durable start-intent marker precedes startup mutations. `launch-state` distinguishes an unused job, a launcher still holding its lock, a running unit, and a consumed terminal launch (including legacy partial assets). The controller reconciles persisted `starting` jobs before calling start again: live launches are retained, while consumed launches pass through the existing evidence export and operational recovery path into a fresh UUID with the same task, admission, audits and repair-attempt identity. Missing units or observation timeouts alone never authorize duplicate starts. Invalid launch receipts fail closed. Stop waits for an in-flight launch and records a marker that prevents a subsequent delayed start.
+
+### Recovery after ordinary repairs are exhausted
+
+`/capabilities` advertises `expert_recovery_investigation` when its trusted runner
+and helper are installed. The current planner can pin an independently rejected
+checkpoint through `POST /expert-recovery` with `project_id` and `source_task_id`.
+The resulting catalog preserves the original acceptance, selected checkpoint,
+archive identities and previous attempts. A proposal selects that pin using
+`expert_recovery_task_id` and `expert_progress_key`.
+
+Both assigned plan auditors independently investigate through `POST /expert-probes`.
+They supply a Python script, optional base64 fixtures and arguments; the controller
+supplies source, runtime and ownership. The `ordinary180` profile runs offline for
+at most 180 seconds against immutable source with bounded scratch and output.
+`GET /expert-probes` lists only that auditor's probes, including evidence inherited
+after a same-assignment report correction. Polling `GET /expert-probes?id=ID`
+records the trusted execution receipt. Polling never launches another process.
+
+Receipts prove what was mounted and executed, not that the script exercised the
+right code or demonstrated causality. Both auditors must connect new evidence to
+a materially different repair strategy and a concrete stopping criterion.
+Timeouts, cancellation, truncated output and unexecuted requests cannot serve as
+successful progress evidence. Unchanged conditions stay ineligible despite new
+titles, elapsed cooldowns or altered logs. Investigation and build/review costs
+remain bounded across process retries. An approved scope stays closed; a later
+independently rejected descendant milestone must establish its ancestry, changed
+acceptance and fresh evidence before qualifying.
+
+Expert workspace setup and retry copies run asynchronously with persisted owners.
+Cancellation generations prevent delayed old requests from starting after OFF;
+an enabled, quota-admitted resume can authorize a new generation for the retained
+destination. Report corrections preserve the malformed report and previous evidence.
+Once report validation succeeds, its current error is cleared without resetting
+the cumulative correction allowance. Resume prompts start from the original
+database assignment rather than accumulating obsolete correction instructions.
+
+These mechanisms authorize bounded private investigation and reviewed repairs.
+They do not authorize publication, change the quota reserve, approve their own
+results, or prove that the workshop operates indefinitely without intervention.

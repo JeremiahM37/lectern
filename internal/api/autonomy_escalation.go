@@ -10,7 +10,7 @@ func autoExpertBuilder(a *autoRecord) bool {
 		return false
 	}
 	p := a.State.Items[a.State.Item]
-	if p.Expert || p.DiagnoseRequirement != "" || p.DiagnoseTaskID > 0 {
+	if p.ExpertRecoveryTaskID > 0 || p.Expert || p.DiagnoseRequirement != "" || p.DiagnoseTaskID > 0 {
 		return true
 	}
 	if p.RepairTaskID <= 0 {

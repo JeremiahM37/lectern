@@ -165,11 +165,16 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			return errors.New("repair requires both current plan audits")
 		}
 	}
-	id := autoUUID()
+	id, expertAttempt, e := s.reserveAutoProgress(c, a, role, autoUUID())
+	if e != nil {
+		return e
+	}
 	dir := filepath.Join(autoRoot, id)
 	work := filepath.Join(dir, "work")
-	if _, e = s.runAutoCommand(c, "prepare", "--job", id); e != nil {
-		return e
+	if expertAttempt == nil {
+		if _, e = s.runAutoCommand(c, "prepare", "--job", id); e != nil {
+			return e
+		}
 	}
 	if role == "auditor_a" || role == "auditor_b" {
 		planner, err := autoPlanEvidence(a)
@@ -210,7 +215,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	}
 	// Only builders need a project snapshot. Reviewer gets the completed work
 	// copied by the trusted runner (which never executes its contents on the host).
-	continued := documentation != nil
+	continued := documentation != nil || expertAttempt != nil
 	if role == "builder" && a.State.Step > 0 {
 		if pendingCopy, e = s.copyAutoBuilder(c, a, id, project.ID); e != nil {
 			return e
@@ -263,6 +268,11 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			return e
 		}
 	}
+	progressCopies, err := autoProgressCopies(a, role)
+	if err != nil {
+		return err
+	}
+	copies = append(copies, progressCopies...)
 	if pendingCopy != nil {
 		copies = append(copies, *pendingCopy)
 	}
@@ -291,12 +301,33 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		return e
 	}
 	prompt := s.autoPrompt(c, a, role, project)
-	if e = os.WriteFile(filepath.Join(dir, "prompt.txt"), []byte(prompt), 0600); e != nil {
-		return e
+	if expertAttempt == nil {
+		if e = os.WriteFile(filepath.Join(dir, "prompt.txt"), []byte(prompt), 0600); e != nil {
+			return e
+		}
 	}
-	task, e := s.DB.InsertTask(&store.Task{ProjectID: project.ID, Title: fmt.Sprintf("Workshop %s · cycle %d · %s · step %d", a.State.Date, a.State.Cycle, role, a.State.Step), Prompt: prompt, Status: "backlog", Priority: 3, LabelsJSON: store.J([]string{"autonomous", a.State.Date, role}), Agent: provider, Model: model, PermissionMode: "plan", CreatedBy: autoOwner})
-	if e != nil {
-		return e
+	var task *store.Task
+	if expertAttempt != nil {
+		rows, err := s.DB.TasksWhere("created_by=? AND project_id=? AND labels_json LIKE ?", autoOwner, project.ID, "%expert-job:"+id+"%")
+		if err != nil {
+			return err
+		}
+		if len(rows) > 1 {
+			return errors.New("duplicate expert task identity")
+		}
+		if len(rows) == 1 {
+			task = rows[0]
+		}
+	}
+	labels := []string{"autonomous", a.State.Date, role}
+	if expertAttempt != nil {
+		labels = append(labels, "expert-job:"+id)
+	}
+	if task == nil {
+		task, e = s.DB.InsertTask(&store.Task{ProjectID: project.ID, Title: fmt.Sprintf("Workshop %s · cycle %d · %s · step %d", a.State.Date, a.State.Cycle, role, a.State.Step), Prompt: prompt, Status: "backlog", Priority: 3, LabelsJSON: store.J(labels), Agent: provider, Model: model, PermissionMode: "plan", CreatedBy: autoOwner})
+		if e != nil {
+			return e
+		}
 	}
 	j := &autoJob{DocumentationCopies: copies, ID: id, TaskID: task.ID, Role: role, Provider: provider, Model: model, Status: "prepared", ArtifactPath: work, StartedAt: time.Now()}
 	if role == "builder" && a.State.Items[a.State.Item].RepairTaskID > 0 {
@@ -314,6 +345,9 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if documentation != nil {
 		j.DocumentationRoot = documentation.RootTaskID
 		documentation.TaskID = task.ID
+	}
+	if e = autoProgressBinding(a, j, expertAttempt); e != nil {
+		return e
 	}
 	if role == "builder" {
 		j.Admission = autoNewAdmission(a, j)
@@ -337,6 +371,7 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 }
 func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *store.Project) string {
 	var b strings.Builder
+	b.WriteString(autoProgressPrompt(a, role))
 	b.WriteString(autoDiagnosisPrompt(a))
 	b.WriteString(autoEnvironmentSelectionPrompt(a))
 	b.WriteString("Capability discovery: read /capabilities before treating an old missing dependency or tool as still unavailable. This registry distinguishes registered on-demand provisioners from actual per-worker delivery. Python project wheels now have a bounded registered provisioner separate from the default pytest /test-runtime; that endpoint's limited scope does not mean project dependencies have no recovery path. Inspect exact requirements and supported constraints; an installed helper alone does not prove any package resolves or that this process gained an environment. Keep existing project source, original acceptance and repair limits.\n")
@@ -423,6 +458,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 	} else {
 		b.WriteString("Inspect and test the builder's actual files in /work independently against the acceptance criteria. You may run tests and investigate; do not approve based on its prose alone. Reject unsupported claims or unsafe work. An honest blocked or incomplete stop does not satisfy acceptance criteria: approve=false unless the planned milestone itself was completed with evidence. Do not approve merely because the builder accurately described its inability to proceed. Write /work/autonomy-report.json exactly {\"outcome\":\"completed|blocked|incomplete\",\"approve\":true,\"reason\":\"specific commands and observed results\"}. Choose one outcome value. approve=true requires outcome=completed based on your independent verification of the actual work. A builder waiting for this automatic review may conservatively label itself incomplete; that label is not a veto if you independently verify every acceptance criterion. Explain how any claimed blocker was resolved. An unresolved implementation, test or evidence gap still requires approve=false. For blocked/incomplete work use approve=false; this preserves evidence without promoting it. A completed experiment with negative results can be completed work if the predeclared experimental milestone was fully performed.\n")
 	}
+	b.WriteString(autoExpertRecoveryPrompt(a, role))
 	b.WriteString(autoRequirementsPrompt)
 	if s.Memory != nil {
 		facts, e := s.Memory.Recall(ctx, p.Name, 8)
@@ -434,6 +470,25 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 }
 
 func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob) error {
+	if old.ExpertRecoveryAttempt > 0 {
+		raw, err := s.runAutoCommand(ctx, "status", "--job", old.ID)
+		if err != nil {
+			return err
+		}
+		if err = autoProgressCharge(a, old, raw); err != nil {
+			left, e := autoProgressRemaining(a, old)
+			if e != nil || left > 0 {
+				return err
+			}
+		}
+		if ended, err := s.endAutoProgressBudget(ctx, a, old); ended || err != nil {
+			return err
+		}
+		if err = s.saveAuto(a); err != nil {
+			return err
+		}
+		return s.resumeAutoProgress(ctx, a, old)
+	}
 	if old.Role == "builder" && old.DocumentationRoot > 0 {
 		if err := s.snapshotAutoJob(ctx, old); err != nil {
 			return fmt.Errorf("%w: preserving documentary retry source: %v", errAutoArtifactPending, err)
@@ -449,14 +504,11 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 			return e
 		}
 	}
-	prompt, e := autoReadRegular(filepath.Join(autoRoot, old.ID, "prompt.txt"), 512<<10)
+	task, e := s.DB.Task(old.TaskID)
 	if e != nil {
 		return e
 	}
-	if old.ReportError != "" {
-		prompt = append(prompt, []byte(autoReportRepairPrompt(old.ReportError))...)
-	}
-	prompt = append(prompt, []byte("\nThis job is being resumed after an interruption or failed attempt in a fresh process. Inspect retained partial work before continuing. Never assume earlier commands completed.\n")...)
+	prompt := autoResumePrompt(task.Prompt, old.ReportError)
 	if e = os.WriteFile(filepath.Join(autoRoot, id, "prompt.txt"), prompt, 0600); e != nil {
 		return e
 	}
@@ -472,6 +524,17 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 		j.ReportRetryAt = time.Time{}
 	}
 	j.ID = id
+	if j.ExpertRecoveryAttempt > 0 {
+		v, err := autoExpertAttempt(a, &j)
+		if err != nil {
+			return err
+		}
+		if j.Role == "builder" {
+			v.JobID = id
+		} else if j.Role == "reviewer" {
+			v.ReviewerJob = id
+		}
+	}
 	if j.DocumentationRoot > 0 {
 		if r := a.DocumentationReservations[j.DocumentationRoot]; r != nil {
 			r.JobID = id

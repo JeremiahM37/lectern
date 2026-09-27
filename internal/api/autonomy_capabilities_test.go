@@ -15,6 +15,26 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
+func TestExpertProbeCapabilityReportsAvailabilityAndEvidenceLimits(t *testing.T) {
+	installed := map[string]any{"status": "installed"}
+	missing := map[string]any{"status": "unavailable"}
+	for _, pair := range [][2]map[string]any{{installed, missing}, {missing, installed}} {
+		if autoExpertProbeCapability(pair[0], pair[1])["status"] != "unavailable" {
+			t.Fatal("advertised missing capability")
+		}
+	}
+	got := autoExpertProbeCapability(installed, installed)
+	if got["status"] != "on_demand" {
+		t.Fatal("installed mechanism undiscoverable")
+	}
+	raw, _ := json.Marshal(got)
+	for _, text := range []string{"POST /expert-probes", "GET /expert-recovery", "same-assignment report corrections", "execution alone is not proof of progress", "Original acceptance", "No publication"} {
+		if !strings.Contains(string(raw), text) {
+			t.Fatal("missing practical contract", text)
+		}
+	}
+}
+
 func TestCapabilityDiscoveryDoesNotInventInstalledEnvironments(t *testing.T) {
 	root := t.TempDir()
 	got := autoCapabilityCatalog(root, filepath.Join(root, "missing-runner"), filepath.Join(root, "missing-helper"))

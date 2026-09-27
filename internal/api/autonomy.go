@@ -29,23 +29,25 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	DiagnosisReservation string                    `json:"diagnosis_reservation,omitempty"`
-	DiagnosisRequirement string                    `json:"diagnosis_requirement,omitempty"`
-	PythonUsedBundle     string                    `json:"python_used_bundle,omitempty"`
-	PythonExpectedInput  string                    `json:"python_expected_input,omitempty"`
-	PythonExpectedBundle string                    `json:"python_expected_bundle,omitempty"`
-	RequirementHold      bool                      `json:"requirement_hold,omitempty"`
-	RequirementIDs       []string                  `json:"requirement_ids,omitempty"`
-	PythonRequest        *autoPythonRequest        `json:"python_request,omitempty"`
-	PendingPythonRequest *autoPythonRequest        `json:"pending_python_request,omitempty"`
-	PythonRecovery       *autoPythonReceipt        `json:"python_recovery,omitempty"`
-	PythonStopped        bool                      `json:"python_stopped,omitempty"`
-	PythonPreviousBundle string                    `json:"python_previous_bundle,omitempty"`
-	PythonNeedsChange    bool                      `json:"python_needs_change,omitempty"`
-	DocumentationStopped bool                      `json:"documentation_stopped,omitempty"`
-	DocumentationCopies  []autoDocumentationCopy   `json:"documentation_copies,omitempty"`
-	DocumentationRoot    int64                     `json:"documentation_root,omitempty"`
-	Documentation        *autoDocumentationReceipt `json:"documentation,omitempty"`
+	ExpertRecoveryRoot    int64                     `json:"expert_recovery_root,omitempty"`
+	ExpertRecoveryAttempt int                       `json:"expert_recovery_attempt,omitempty"`
+	DiagnosisReservation  string                    `json:"diagnosis_reservation,omitempty"`
+	DiagnosisRequirement  string                    `json:"diagnosis_requirement,omitempty"`
+	PythonUsedBundle      string                    `json:"python_used_bundle,omitempty"`
+	PythonExpectedInput   string                    `json:"python_expected_input,omitempty"`
+	PythonExpectedBundle  string                    `json:"python_expected_bundle,omitempty"`
+	RequirementHold       bool                      `json:"requirement_hold,omitempty"`
+	RequirementIDs        []string                  `json:"requirement_ids,omitempty"`
+	PythonRequest         *autoPythonRequest        `json:"python_request,omitempty"`
+	PendingPythonRequest  *autoPythonRequest        `json:"pending_python_request,omitempty"`
+	PythonRecovery        *autoPythonReceipt        `json:"python_recovery,omitempty"`
+	PythonStopped         bool                      `json:"python_stopped,omitempty"`
+	PythonPreviousBundle  string                    `json:"python_previous_bundle,omitempty"`
+	PythonNeedsChange     bool                      `json:"python_needs_change,omitempty"`
+	DocumentationStopped  bool                      `json:"documentation_stopped,omitempty"`
+	DocumentationCopies   []autoDocumentationCopy   `json:"documentation_copies,omitempty"`
+	DocumentationRoot     int64                     `json:"documentation_root,omitempty"`
+	Documentation         *autoDocumentationReceipt `json:"documentation,omitempty"`
 	// A paid runner-start cooldown belongs only to this interrupted launch.
 	LaunchRetryPaid     bool                 `json:"launch_retry_paid,omitempty"`
 	RecoveryCheckAt     time.Time            `json:"recovery_check_at,omitempty"`
@@ -72,6 +74,7 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
+	ExpertRecovery            *autoExpertRecoveryLedger                   `json:"expert_recovery,omitempty"`
 	HistoricalReportPending   map[string]bool                             `json:"historical_report_pending,omitempty"`
 	EnvironmentPins           map[int64]*autoVerifiedDiagnosisEnvironment `json:"environment_pins,omitempty"`
 	HeldRuns                  []*autonomy.State                           `json:"held_runs,omitempty"`
@@ -239,6 +242,9 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 }
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
 	var stopErrors []string
+	if err := s.stopAutoExpertProbes(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
 	for id := range a.HistoricalReportPending {
 		if _, err := s.runAutoCommand(ctx, "archive-report-stop", "--job", id); err != nil {
 			stopErrors = append(stopErrors, "Historical report stop: "+err.Error())
@@ -255,10 +261,8 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 			}
 		}
 		if autoDocumentationStopPending(j) {
-			if _, err := s.runAutoCommand(ctx, "completion-stop", "--job", j.ID); err != nil {
-				stopErrors = append(stopErrors, "Documentary stop: "+err.Error())
-			} else {
-				j.DocumentationStopped = true
+			if err := s.stopAutoProgressCopies(ctx, a, j); err != nil {
+				stopErrors = append(stopErrors, "Evidence copy stop: "+err.Error())
 			}
 		}
 		if (j.Status == "prepared" || j.Status == "deferred") && j.Recovery != nil {
@@ -277,6 +281,20 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 			if _, e := s.runAutoCommand(ctx, "stop", "--job", j.ID); e != nil {
 				stopErrors = append(stopErrors, e.Error())
 				continue
+			}
+			if j.ExpertRecoveryAttempt > 0 {
+				raw, err := s.runAutoCommand(ctx, "status", "--job", j.ID)
+				if err != nil {
+					stopErrors = append(stopErrors, err.Error())
+					continue
+				}
+				if err = autoProgressCharge(a, j, raw); err != nil {
+					left, e := autoProgressRemaining(a, j)
+					if e != nil || left > 0 {
+						stopErrors = append(stopErrors, err.Error())
+						continue
+					}
+				}
 			}
 			s.closeAutoBridge(j.ID)
 			j.Status = "stopped"
@@ -318,7 +336,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
-		if len(a.HistoricalReportPending) > 0 {
+		if len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) {
 			s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 			_ = s.saveAuto(a)
 			return
@@ -483,6 +501,24 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			s.stopAutoJobs(ctx, a, "Invalid runner status")
 			return
 		}
+		if err := autoProgressCharge(a, j, raw); err != nil {
+			left, e := autoProgressRemaining(a, j)
+			if e != nil || left > 0 {
+				s.stopAutoJobs(ctx, a, err.Error())
+				return
+			}
+		}
+		// A completed successful process may use its full allowance and still
+		// submit evidence for review. Exhaustion forbids another execution;
+		// it must not discard a valid final report already produced.
+		if st.State != "done" || st.ExitCode == nil || *st.ExitCode != 0 {
+			if ended, err := s.endAutoProgressBudget(ctx, a, j); ended || err != nil {
+				if err != nil {
+					a.Reason = err.Error()
+				}
+				return
+			}
+		}
 		if st.State == "running" {
 			j.LaunchRetryPaid = false
 			return
@@ -558,6 +594,9 @@ func autoFindJob(a *autoRecord, id int64) *autoJob {
 	return nil
 }
 func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
+	if ended, err := s.endAutoProgressBudget(ctx, a, j); ended || err != nil {
+		return err
+	}
 	if j.Status == "prepared" && len(j.DocumentationCopies) > 0 {
 		ready, e := s.pollAutoDocumentationCopies(ctx, a, j)
 		if e != nil || !ready {
@@ -619,12 +658,31 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		j.PythonUsedBundle = j.PythonRecovery.BundleKey
 	}
 	j.Status = "starting"
+	if j.ExpertRecoveryAttempt > 0 {
+		v, err := autoExpertAttempt(a, j)
+		if err != nil {
+			return err
+		}
+		if j.Role == "reviewer" {
+			v.Status = "reviewing"
+		} else {
+			v.Status = "implementing"
+		}
+	}
 	if e := s.saveAuto(a); e != nil {
 		return e
 	}
 
 	model := j.Model
-	if _, e := s.runAutoCommand(ctx, "start", "--job", j.ID, "--provider", j.Provider, "--model", model, "--prompt", filepath.Join(autoRoot, j.ID, "prompt.txt")); e != nil {
+	args := []string{"start", "--job", j.ID, "--provider", j.Provider, "--model", model, "--prompt", filepath.Join(autoRoot, j.ID, "prompt.txt")}
+	if j.ExpertRecoveryAttempt > 0 {
+		left, err := autoProgressRemaining(a, j)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--runtime-seconds", fmt.Sprint(int64(left/time.Second)))
+	}
+	if _, e := s.runAutoCommand(ctx, args...); e != nil {
 		return e
 	}
 	j.Status = "running"
@@ -696,6 +754,7 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		return &autoReportError{e}
 	}
+	autoReportValidated(j)
 	if intercepted, err := s.recordAutoRequirements(ctx, a, j, []byte(report)); err != nil {
 		return err
 	} else if intercepted {
@@ -725,6 +784,13 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	}
 	s.closeAutoBridge(j.ID)
 	j.Status = "done"
+	if j.Role == "builder" && j.ExpertRecoveryAttempt > 0 {
+		v, err := autoExpertAttempt(a, j)
+		if err != nil {
+			return err
+		}
+		v.Status = "awaiting_review"
+	}
 	j.Summary = clipEnd(report, 3000)
 	ended := store.Now()
 	rc := 0
@@ -754,6 +820,19 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 						builder.Rejected = !verdict.AcceptsWork()
 						builder.ReviewReason = verdict.Reason
 						builder.ReviewTaskID = j.TaskID
+						if builder.ExpertRecoveryAttempt > 0 {
+							v, err := autoExpertAttempt(a, builder)
+							if err != nil {
+								return err
+							}
+							outcome := "rejected"
+							if builder.Approved {
+								outcome = "approved"
+							}
+							if err = autoFinishExpertRecovery(v, outcome, j.TaskID, verdict.Reason, time.Now()); err != nil {
+								return err
+							}
+						}
 						if r := a.DocumentationReservations[builder.DocumentationRoot]; r != nil {
 							if builder.Approved {
 								r.Outcome = "approved"
@@ -817,6 +896,9 @@ func (s *Server) ScheduleAutonomyTick(ctx context.Context) {
 func autoValidateWorkerReport(a *autoRecord, j *autoJob, report []byte) (autonomy.State, error) {
 	var next autonomy.State
 	if err := json.Unmarshal([]byte(store.J(a.State)), &next); err != nil {
+		return next, err
+	}
+	if err := validateAutoExpertAuditReport(a, j.Role, report); err != nil {
 		return next, err
 	}
 	err := next.ApplyReport(a.Config, j.TaskID, report)

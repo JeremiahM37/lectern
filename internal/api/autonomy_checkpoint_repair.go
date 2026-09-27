@@ -64,6 +64,9 @@ func autoRepairRoot(a *autoRecord, taskID int64) int64 {
 		if d := a.RequirementDiagnoses[j.DiagnosisReservation]; j.DiagnosisRequirement != "" && d != nil {
 			return d.RootTaskID
 		}
+		if j.ExpertRecoveryRoot > 0 {
+			return j.ExpertRecoveryRoot
+		}
 		if j.DocumentationRoot > 0 {
 			return j.DocumentationRoot
 		}
@@ -78,6 +81,9 @@ func (s *Server) autoRepairContinuation(a *autoRecord, projectID, taskID int64) 
 	j, err := s.autoContinuation(a, projectID, taskID)
 	if err != nil {
 		return nil, err
+	}
+	if j.ExpertRecoveryRoot > 0 {
+		return nil, fmt.Errorf("expert recovery lineage cannot acquire ordinary repair attempts")
 	}
 	if j.DocumentationRoot > 0 {
 		return nil, fmt.Errorf("documentary completion cannot acquire ordinary repair attempts")
@@ -125,8 +131,21 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 	}
 	roots := map[int64]bool{}
 	for i, p := range items {
+		if err := autoValidateExpertProposal(p); err != nil {
+			return err
+		}
+		if p.ExpertRecoveryTaskID > 0 {
+			pin, err := autoExpertPin(a, p)
+			if err != nil {
+				return err
+			}
+			if roots[pin.RootTaskID] {
+				return fmt.Errorf("duplicate expert root")
+			}
+			roots[pin.RootTaskID] = true
+		}
 		count := 0
-		for _, id := range []int64{p.ContinueTaskID, p.RepairTaskID, p.DocumentationTaskID} {
+		for _, id := range []int64{p.ContinueTaskID, p.RepairTaskID, p.DocumentationTaskID, p.ExpertRecoveryTaskID} {
 			if id < 0 {
 				return fmt.Errorf("negative source task")
 			}

@@ -469,6 +469,9 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 		if id == 0 {
 			id = p.DocumentationTaskID
 		}
+		if id == 0 {
+			id = p.ExpertRecoveryTaskID
+		}
 		if id > 0 {
 			source = autoFindJob(a, id)
 		}

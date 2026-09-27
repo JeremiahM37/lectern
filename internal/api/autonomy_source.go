@@ -100,12 +100,15 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 	if err := s.observeAutoHistoricalDiagnoses(ctx, a, items); err != nil {
 		return err
 	}
+	if err := s.validateAutoExpertSources(ctx, a, items); err != nil {
+		return err
+	}
 	if err := s.validateAutoSources(a, items); err != nil {
 		return err
 	}
 	for i := range items {
 		p := &items[i]
-		if p.ContinueTaskID > 0 || p.RepairTaskID > 0 || p.DocumentationTaskID > 0 {
+		if p.ContinueTaskID > 0 || p.RepairTaskID > 0 || p.DocumentationTaskID > 0 || p.ExpertRecoveryTaskID > 0 {
 			continue
 		}
 		project, err := s.autoSourceProject(p.ProjectID)
