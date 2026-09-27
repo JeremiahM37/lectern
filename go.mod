@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.5
 	github.com/coder/websocket v1.8.14
 	github.com/flynn/noise v1.1.0
+	github.com/google/uuid v1.6.0
 	golang.org/x/crypto v0.51.0
 	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -26,7 +27,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
