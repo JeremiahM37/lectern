@@ -45,6 +45,21 @@ interface Status {
   views: ViewInfo[];
   views_enabled: boolean;
   views_disabled_reason?: string;
+  tabs: { id: number; url: string; title: string; active: boolean }[];
+  active_tab?: number;
+  downloads: { url: string; name: string; path: string; state: string; received: number; total: number }[];
+  profile: string;
+}
+
+interface Profiles {
+  profiles: string[];
+  current: string;
+  default: string;
+  where: string;
+}
+
+function size(n: number) {
+  return n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
 }
 
 interface Port {
@@ -121,6 +136,14 @@ export function BrowserPane({
     [note, setNote] = useState(""),
     [frame, setFrame] = useState(""),
     [tab, setTab] = useState<"page" | "desktop">("page"),
+    [finding, setFinding] = useState(false),
+    [findText, setFindText] = useState(""),
+    [findResult, setFindResult] = useState<{ matches: number; index: number }>(),
+    [profiles, setProfiles] = useState<Profiles>(),
+    [showCookies, setShowCookies] = useState(false),
+    [cookieDomains, setCookieDomains] = useState(""),
+    [chromeDir, setChromeDir] = useState(""),
+    [cookieResult, setCookieResult] = useState(""),
     [desks, setDesks] = useState<LiveView[]>([]);
   const frameRef = useRef<HTMLIFrameElement>(null),
     shotRef = useRef<HTMLImageElement>(null),
@@ -160,6 +183,10 @@ export function BrowserPane({
       setMode(st.running || !st.views_enabled || relay ? "shared" : "direct");
     });
     loadPorts();
+    void stableApi
+      .request<Profiles>(`/sessions/${sessionId}/browser/profiles`)
+      .then(setProfiles)
+      .catch(() => undefined);
     void stableApi
       .request<{ views: LiveView[] }>("/live")
       .then((out) => setDesks(out.views.filter((v) => v.kind === "desktop" && v.session_id === sessionId)))
@@ -531,6 +558,63 @@ export function BrowserPane({
     }
   };
 
+  const find = async (backwards = false) => {
+    if (!findText) return;
+    const out = await act({ action: "find", text: findText, backwards });
+    const r = (out as { find?: { matches: number; index: number } } | undefined)?.find;
+    if (r) setFindResult(r);
+  };
+  const pickProfile = async (label: string) => {
+    let name = label;
+    if (label === "__new") {
+      name = (window.prompt("Name the new profile (lowercase letters, digits, - or _):") || "").trim().toLowerCase();
+      if (!name) return;
+    }
+    const target = normalizeAddress(address || status?.state?.url || "") || "about:blank";
+    await act({ action: "open", profile: name, url: target === "about:blank" ? "" : target, ...vpBody() });
+    await refresh();
+    const p = await stableApi.request<Profiles>(`/sessions/${sessionId}/browser/profiles`).catch(() => undefined);
+    if (p) setProfiles(p);
+  };
+  const importCookies = async (from: "file" | "chrome", file?: File) => {
+    setCookieResult("Importing…");
+    try {
+      let body: FormData | Record<string, JsonValue>;
+      if (from === "file" && file) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("domains", cookieDomains);
+        body = form;
+      } else body = { profile_dir: chromeDir.trim() || "auto", domains: cookieDomains };
+      const out = await stableApi.request<{ imported: number; skipped: Record<string, number>; sites: number }>(
+        `/sessions/${sessionId}/browser/cookies`,
+        { method: "POST", body: body as JsonValue },
+      );
+      const skipped = Object.entries(out.skipped || {}).map(([why, n]) => `${n} ${why}`).join(", ");
+      setCookieResult(`Imported ${out.imported} cookies for ${out.sites} sites${skipped ? ` · skipped ${skipped}` : ""}`);
+      void refresh();
+    } catch (error) {
+      setCookieResult(errorText(error));
+    }
+  };
+  const saveDownload = async (d: Status["downloads"][number]) => {
+    const i = d.path.indexOf("/.lectern/downloads/");
+    const rel = i >= 0 ? d.path.slice(i + 1) : d.path;
+    try {
+      const token = authToken();
+      const res = await fetch(`/api/term/session/${sessionId}/file?path=${encodeURIComponent(rel)}`, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+      if (!res.ok) throw new Error(`Could not fetch ${d.name} (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = d.name;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (error) {
+      notice(errorText(error), true);
+    }
+  };
+
   const shared = mode === "shared";
   const running = !!status?.running;
   const control = status?.control ?? "agent";
@@ -605,7 +689,68 @@ export function BrowserPane({
             <button className="b" aria-label="Open in a new tab" onClick={() => void openInTab()}>
               ⤢
             </button>
+            <button
+              className={finding ? "b on" : "b"}
+              aria-pressed={finding}
+              onClick={() =>
+                shared ? setFinding(!finding) : notice("In a live page, use your own browser's find (Ctrl+F); it searches the frame too.")
+              }
+            >
+              Find
+            </button>
           </div>
+          {shared && running && status && status.tabs.length > 0 && (
+            <div className="browser-tabstrip" role="tablist" aria-label="Tabs">
+              {status.tabs.map((t) => (
+                <span key={t.id} className={t.active ? "browser-tab on" : "browser-tab"}>
+                  <button role="tab" aria-selected={t.active} title={t.url} onClick={() => void act({ action: "tab_select", tab: t.id })}>
+                    {t.title || (t.url === "about:blank" ? "New tab" : t.url)}
+                  </button>
+                  <button aria-label={`Close tab ${t.title || t.url}`} onClick={() => void act({ action: "tab_close", tab: t.id })}>
+                    ×
+                  </button>
+                </span>
+              ))}
+              <button className="browser-tab-new" aria-label="New tab" onClick={() => void act({ action: "tab_new" })}>
+                +
+              </button>
+            </div>
+          )}
+          {finding && shared && (
+            <form
+              className="browser-find"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void find(false);
+              }}
+            >
+              <input
+                aria-label="Find in page"
+                placeholder="Find in page"
+                value={findText}
+                autoFocus
+                onChange={(e) => {
+                  setFindText(e.target.value);
+                  setFindResult(undefined);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && e.shiftKey) {
+                    e.preventDefault();
+                    void find(true);
+                  } else if (e.key === "Escape") setFinding(false);
+                }}
+              />
+              <button type="button" className="b" aria-label="Previous match" onClick={() => void find(true)}>
+                ▲
+              </button>
+              <button className="b" aria-label="Next match">
+                ▼
+              </button>
+              <span role="status">
+                {findResult ? (findResult.matches ? `${findResult.index} of ${findResult.matches}` : "No matches") : ""}
+              </span>
+            </form>
+          )}
           <div className="browser-modes">
             <label>
               <input type="radio" name={`browser-mode-${sessionId}`} checked={shared} onChange={() => void switchMode("shared")} /> Shared browser
@@ -613,12 +758,75 @@ export function BrowserPane({
             <label title={relay ? "Over the relay only the shared browser can be shown" : status?.views_disabled_reason || "Frame the dev server directly"}>
               <input type="radio" name={`browser-mode-${sessionId}`} checked={mode === "direct"} disabled={!directPossible} onChange={() => void switchMode("direct")} /> Live page
             </label>
+            {profiles && (
+              <label className="browser-profile" title={`Profiles live in ${profiles.where}`}>
+                Profile{" "}
+                <select
+                  aria-label="Browser profile"
+                  value={status?.running ? status.profile : profiles.default}
+                  onChange={(e) => void pickProfile(e.target.value)}
+                >
+                  {profiles.profiles.map((p) => (
+                    <option key={p} value={p}>
+                      {p === "temporary" ? "temporary (cleared on close)" : p}
+                    </option>
+                  ))}
+                  <option value="__new">New profile…</option>
+                </select>
+              </label>
+            )}
+            <button className="b" aria-expanded={showCookies} onClick={() => setShowCookies(!showCookies)}>
+              Cookies
+            </button>
             {shared && running && (
               <span className="browser-where">
                 Chromium on {status?.where === "host" ? "the Lectern host" : "the session's machine"}
               </span>
             )}
           </div>
+          {showCookies && (
+            <div className="browser-cookies" aria-label="Import cookies">
+              <p>
+                Sign the session's browser in by importing cookies into its current profile. Everything is read and
+                decrypted on the session's machine; Lectern only sees how many were imported.
+              </p>
+              <label>
+                Only these sites (optional){" "}
+                <input
+                  aria-label="Only these sites"
+                  placeholder="example.com, github.com"
+                  value={cookieDomains}
+                  onChange={(e) => setCookieDomains(e.target.value)}
+                />
+              </label>
+              <label className="b">
+                From a cookies file…
+                <input
+                  type="file"
+                  aria-label="Cookies file"
+                  accept=".txt,.json,text/plain,application/json"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void importCookies("file", f);
+                  }}
+                />
+              </label>
+              <span className="browser-chrome-import">
+                <input
+                  aria-label="Chrome profile directory"
+                  placeholder="Chrome profile on that machine (auto)"
+                  value={chromeDir}
+                  onChange={(e) => setChromeDir(e.target.value)}
+                />
+                <button className="b" onClick={() => void importCookies("chrome")}>
+                  From Chrome
+                </button>
+              </span>
+              {cookieResult && <p role="status">{cookieResult}</p>}
+            </div>
+          )}
           {showPorts && (
             <div className="browser-ports" role="list" aria-label="Listening ports">
               {!ports && !portsError && <span>Looking for listening ports…</span>}
@@ -758,6 +966,23 @@ export function BrowserPane({
               </div>
             )}
           </div>
+          {shared && running && status && status.downloads.length > 0 && (
+            <ul className="browser-downloads" aria-label="Downloads">
+              {status.downloads.slice(-5).map((d) => (
+                <li key={d.path + d.state}>
+                  <span title={d.path}>{d.name}</span>
+                  <small>
+                    {d.state === "completed" ? size(d.received) : d.state === "canceled" ? "canceled" : `${size(d.received)}${d.total ? " of " + size(d.total) : ""}…`}
+                  </small>
+                  {d.state === "completed" && (
+                    <button className="b" onClick={() => void saveDownload(d)}>
+                      Save
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           {design && (
             <div className="browser-design" aria-label="Design Mode">
               <p className="browser-hover">{hover ? hover : "Hover to see an element's path; click to pick it. Shift-click adds more."}</p>
