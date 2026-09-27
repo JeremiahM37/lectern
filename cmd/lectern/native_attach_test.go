@@ -440,7 +440,7 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 		"set -g status-left-length 100",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach '",
+		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl-b d detach '",
 	} {
 		if !strings.Contains(plan.conf, want) {
 			t.Errorf("config is missing %q:\n%s", want, plan.conf)

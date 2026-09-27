@@ -191,8 +191,8 @@ directory and removes it when the attachment ends.
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
 
-The top status line keeps **Ctrl+\\ send file**, **Double-click open path** and **Ctrl+] m** visible while you are attached, including
-in narrow terminals. Direct SSH launchers also get this bar from the server;
+The top status line keeps **Ctrl+\\ send file**, **Ctrl+] m** and **Double-click open path** visible while you are attached; a narrow terminal keeps at least the first
+two. Direct SSH launchers also get this bar from the server;
 updated clients that provide their own controls mark the connection to avoid
 a second wrapper. Update an older installed native client and reattach to use
 the current behavior. The menu is the same

@@ -263,10 +263,11 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 	// Sending a file is the most-used control, so it gets its own one-chord
 	// key and leads the row. Ctrl+\ is free in shells, Claude Code and Codex
 	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
-	// Double-click opens a path or link an agent printed, on this machine.
-	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl-b d detach "
+	// Double-click opens a path or link an agent printed, on this machine; it
+	// follows the controls key so a narrow terminal still shows Ctrl+] m.
+	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl-b d detach "
 	if p.controls.TabView {
-		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Double-click#[default] open path · #[bold]Ctrl+] m#[default] controls · Ctrl+] d close tab "
+		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
