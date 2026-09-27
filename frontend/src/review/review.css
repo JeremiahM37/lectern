@@ -221,7 +221,9 @@ textarea.conflict-result { font-family: var(--mono); font-size: 12.5px; white-sp
 @media (max-width: 760px) {
   .sheet.review-workspace { width: 100vw; max-width: 100vw; margin: auto 0 0; padding: 12px; max-height: 100dvh; border-radius: 14px 14px 0 0; }
   .sheet.review-workspace .sheet-head { top: -12px; }
-  .review-toolbar-sticky { top: 40px; }
+  /* On a phone the file-by-file reviewer is the navigation; the toolbar
+     scrolls away with the page instead of pinning three rows of buttons. */
+  .review-toolbar-sticky { position: static; }
   .review-body.with-tree { display: block; }
   .ftree { position: static; max-height: 40dvh; margin-bottom: 10px; }
   .conflict-sides, .conflict-sides.three { grid-template-columns: 1fr; }
@@ -237,4 +239,10 @@ textarea.conflict-result { font-family: var(--mono); font-size: 12.5px; white-sp
 .review-tray.review-tray-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; position: static; box-shadow: none; margin-top: 14px; border-radius: var(--r); }
 @media (max-width: 480px) {
   .sheet.review-workspace .review-tray:not(.review-tray-empty) { margin: 16px -12px -12px; }
+}
+.review-tray-item { min-width: 0; overflow: hidden; }
+.review-tray-code { white-space: pre; max-width: 100%; }
+@media (max-width: 480px) {
+  .sheet.review-workspace .review-tray-list ul { max-height: 28dvh; overflow: auto; }
+  .sheet.review-workspace .review-tray-summary textarea { min-height: 48px; }
 }

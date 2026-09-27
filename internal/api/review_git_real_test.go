@@ -195,6 +195,10 @@ func TestRealGitAmendGuardAndForceWithLease(t *testing.T) {
 	base := fmt.Sprintf("/api/sessions/%d/git", id)
 
 	writeReviewFile(t, filepath.Join(wt, "app.py"), "def main():\n    print('v1')\n")
+	// Nothing committed on the session branch yet: HEAD is main's commit.
+	if code := h.status("POST", base+"/commit", obj{"message": "x", "stage_all": true, "amend": true}); code != 409 {
+		t.Fatalf("amending the base branch's commit: %d", code)
+	}
 	out := h.post(base+"/commit", obj{"message": "first", "stage_all": true}, 200)
 	if out.list("steps")[0].num("rc") != 0 {
 		t.Fatalf("commit: %v", out)

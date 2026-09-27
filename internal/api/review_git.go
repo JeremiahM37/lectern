@@ -261,6 +261,16 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "%s", err.Error())
 		return
 	}
+	if body.Amend && target.base != "" {
+		// Before the session's first commit, HEAD is the base branch's own
+		// commit: amending it would rewrite the base, not this work.
+		res, err := ex.Run(r.Context(), "git merge-base --is-ancestor HEAD "+executor.ShellQuote(target.base),
+			executor.RunOpts{Cwd: target.dir, Timeout: 30})
+		if err == nil && res.OK() {
+			httpError(w, 409, "the last commit belongs to %s, not to this session; make a new commit instead", target.base)
+			return
+		}
+	}
 	hooks := activeCommitHooks(r.Context(), ex, target.dir)
 	steps, err := worktree.Commit(r.Context(), ex, target.dir, target.branch, worktree.CommitOptions{
 		Message: body.Message, StageAll: body.StageAll, Amend: body.Amend, AllowPushedAmend: body.AllowPushedAmend,
