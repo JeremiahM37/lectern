@@ -282,9 +282,23 @@ func TestMultiWorkspaceLegacyReceiptGuardsLiveProcessGroups(t *testing.T) {
 }
 
 func TestMultiWorkspaceLockProbeOverlapRetriesWithoutOverlapping(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git unavailable")
+	for _, bin := range []string{"git", "python3", "tmux"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skip(bin + " unavailable")
+		}
 	}
+	// Removal checks active terminals after acquiring the workspace lock. This
+	// lock-only test must not observe other packages' tmux startup/shutdown on
+	// the isolated suite's shared default socket.
+	socketRoot, err := os.MkdirTemp("", "lec-lock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMUX_TMPDIR", socketRoot)
+	t.Setenv("TMUX", "")
+	tmuxSocket := filepath.Join(socketRoot, "tmux.sock")
+	t.Setenv("ADK_TEST_TMUX_SOCKET", tmuxSocket)
+	t.Cleanup(func() { testutil.CleanupTmuxSocket(t, tmuxSocket); os.RemoveAll(socketRoot) })
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	if err := os.Mkdir(repo, 0700); err != nil {

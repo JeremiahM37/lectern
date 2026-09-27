@@ -3,6 +3,7 @@ import type { JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import type { SettingsApi } from "./Settings";
 import type { Target } from "../types";
+import { capabilityChips, groupCatalog, type CatalogCapability } from "./agentCatalog";
 export interface AgentSpec {
   name: string;
   command: string;
@@ -10,10 +11,12 @@ export interface AgentSpec {
   args?: string[];
   model_flag?: string;
   prompt_arg?: boolean;
+  prompt_args?: string[];
   resume_args?: string[];
   resume_id_args?: string[];
   fork_args?: string[];
   yolo_args?: string[];
+  yolo_env?: Record<string, JsonValue>;
   models_command?: string;
   trust_command?: string;
   env?: Record<string, JsonValue>;
@@ -41,13 +44,20 @@ export interface AgentSpec {
 // what used to be a handful of presets hardcoded in this file.
 export interface CatalogPreset extends AgentSpec {
   display_name: string;
+  vendor?: string;
+  group?: string;
+  icon?: { glyph: string; color: string };
+  homepage?: string;
   description: string;
   install_hint: string;
+  sessions_hint?: string;
   source: string;
+  verified_by?: string;
   unverified?: string[];
   verified_at: string;
   installed: boolean;
   added: boolean;
+  capabilities?: Record<string, CatalogCapability>;
 }
 // targetHasBinary reports whether any target's last probe found `key` — used
 // to grey out an ACP preset whose binary nothing has confirmed yet, rather
@@ -88,7 +98,10 @@ function args(v: string, label: string) {
   return x as string[];
 }
 function envText(a?: AgentSpec) {
-  return Object.entries(a?.env || {})
+  return mapText(a?.env);
+}
+function mapText(m?: Record<string, JsonValue>) {
+  return Object.entries(m || {})
     .map(([k, v]) => `${k}=${typeof v === "object" ? "••••" : String(v)}`)
     .join("\n");
 }
@@ -131,6 +144,9 @@ export function AgentEditor({
     [modelFlag, setModelFlag] = useState(source?.model_flag || ""),
     [providerURL, setProviderURL] = useState(typeof source?.env?.OPENAI_BASE_URL === "string" ? source.env.OPENAI_BASE_URL : ""),
     [promptArg, setPromptArg] = useState(Boolean(source?.prompt_arg)),
+    [promptArgs, setPromptArgs] = useState(
+      JSON.stringify(source?.prompt_args || [], null, 2),
+    ),
     [resume, setResume] = useState(
       JSON.stringify(source?.resume_args || [], null, 2),
     ),
@@ -145,7 +161,9 @@ export function AgentEditor({
     [yolo, setYolo] = useState(
       JSON.stringify(source?.yolo_args || [], null, 2),
     ),
+    [yoloEnv, setYoloEnv] = useState(mapText(source?.yolo_env)),
     [environment, setEnvironment] = useState(envText(source)),
+    [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState<CatalogPreset[]>([]),
     [taskOn, setTaskOn] = useState(Boolean(source?.task)),
     [taskCommand, setTaskCommand] = useState(source?.task?.command || ""),
@@ -195,6 +213,8 @@ export function AgentEditor({
     setFixed(JSON.stringify(p.args || [], null, 2));
     setModelFlag(p.model_flag || "");
     setPromptArg(Boolean(p.prompt_arg));
+    setPromptArgs(JSON.stringify(p.prompt_args || [], null, 2));
+    setYoloEnv(mapText(p.yolo_env));
     setResume(JSON.stringify(p.resume_args || [], null, 2));
     setResumeID(JSON.stringify(p.resume_id_args || [], null, 2));
     setForkArgs(JSON.stringify(p.fork_args || [], null, 2));
@@ -259,10 +279,12 @@ export function AgentEditor({
       args: args(fixed, "Fixed arguments"),
       model_flag: modelFlag.trim(),
       prompt_arg: promptArg,
+      prompt_args: args(promptArgs, "Opening prompt arguments"),
       resume_args: args(resume, "Resume arguments"),
       resume_id_args: args(resumeID, "Resume-by-ID arguments"),
       fork_args: args(forkArgs, "Fork arguments"),
       yolo_args: args(yolo, "Yolo arguments"),
+      yolo_env: env(yoloEnv, source?.yolo_env),
       models_command: modelsCommand.trim(),
       trust_command: trustCommand.trim(),
       env: env(environment, { ...source?.env, ...(providerURL.trim() ? { OPENAI_BASE_URL: providerURL.trim() } : {}) }),
@@ -324,55 +346,113 @@ export function AgentEditor({
         Close
       </button>
       {!source && (
-        <label>
-          Starter template (catalog — one click, then edit anything below)
-          <select
-            value={presetChoice}
-            onChange={(e) => {
-              setPresetChoice(e.target.value);
-              preset(e.target.value);
-            }}
-          >
-            <option value="custom">Custom runner</option>
-            {catalog
-              .filter((p) => !p.added)
-              .map((p) => {
-                // The two Zed adapter presets need npx, not their own
-                // placeholder Command; gemini-acp needs `gemini` itself.
-                // Everything else's Installed() already checked the CLI
-                // this preset actually launches.
-                const needsBinary =
-                  p.name === "claude-code-acp" || p.name === "codex-acp"
-                    ? "npx"
-                    : p.name === "gemini-acp"
-                      ? "gemini"
-                      : "";
-                const targetKnown = needsBinary
-                  ? targetHasBinary(targets || [], needsBinary)
-                  : undefined;
-                // Only the two Zed npx adapters are ever actually disabled:
-                // their launch definitively fails without npx on whatever
-                // target runs them. A plain preset's own `installed` is
-                // host-local (there is no per-target remote check), so it is
-                // shown as a hint, never used to block a starter template —
-                // the CLI may well be installed on a different target.
-                const disabled = needsBinary ? targetKnown === false : false;
-                const reason = needsBinary
-                  ? targetKnown === false
-                    ? ` — ${needsBinary} not detected on any target`
-                    : ""
-                  : !p.installed
-                    ? " — not installed on this host"
-                    : "";
-                return (
-                  <option key={p.name} value={p.name} disabled={disabled}>
-                    {p.display_name}
-                    {reason}
-                  </option>
-                );
-              })}
-          </select>
-        </label>
+        <section className="agent-catalog" aria-label="Agent catalog">
+          <label>
+            Starter template (catalog — one click, then edit anything below)
+            <input
+              type="search"
+              aria-label="Search agent catalog"
+              placeholder={`Search ${catalog.length || ""} agents by name, command or vendor`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          <div className="agent-catalog-list">
+            <button
+              type="button"
+              className="agent-catalog-item agent-catalog-custom"
+              aria-pressed={presetChoice === "custom"}
+              onClick={() => setPresetChoice("custom")}
+            >
+              <span className="agent-catalog-icon" aria-hidden="true">+</span>
+              <span className="agent-catalog-text">
+                <b>Custom runner</b>
+                <span className="agent-catalog-meta">Any other CLI — fill in the fields below</span>
+              </span>
+            </button>
+            {groupCatalog(catalog, query).map((section) => (
+              <div key={section.group} className="agent-catalog-group" role="group" aria-label={section.group}>
+                <h3>{section.group}</h3>
+                {section.items.map((p) => {
+                  // The two Zed adapter presets need npx, not their own
+                  // placeholder Command; gemini-acp needs `gemini` itself.
+                  // Everything else's Installed() already checked the CLI
+                  // this preset actually launches.
+                  const needsBinary =
+                    p.name === "claude-code-acp" || p.name === "codex-acp"
+                      ? "npx"
+                      : p.name === "gemini-acp"
+                        ? "gemini"
+                        : "";
+                  const targetKnown = needsBinary
+                    ? targetHasBinary(targets || [], needsBinary)
+                    : undefined;
+                  // Only the two Zed npx adapters are ever disabled for a
+                  // binary: their launch definitively fails without npx on
+                  // whatever target runs them. A plain preset's own
+                  // `installed` is host-local (there is no per-target remote
+                  // check), so it is a hint, never a block — the CLI may well
+                  // be installed on a different target.
+                  const disabled = p.added || (needsBinary ? targetKnown === false : false);
+                  const note = p.added
+                    ? "already added"
+                    : needsBinary && targetKnown === false
+                      ? `${needsBinary} not detected on any target`
+                      : p.installed
+                        ? "installed here"
+                        : "";
+                  return (
+                    <button
+                      type="button"
+                      key={p.name}
+                      data-preset={p.name}
+                      className="agent-catalog-item"
+                      aria-pressed={presetChoice === p.name}
+                      disabled={disabled}
+                      onClick={() => {
+                        setPresetChoice(p.name);
+                        preset(p.name);
+                      }}
+                    >
+                      <span
+                        className="agent-catalog-icon"
+                        aria-hidden="true"
+                        style={p.icon ? { background: p.icon.color } : undefined}
+                      >
+                        {p.icon?.glyph || p.display_name.slice(0, 1)}
+                      </span>
+                      <span className="agent-catalog-text">
+                        <b>{p.display_name}</b>
+                        <span className="agent-catalog-meta">
+                          {p.vendor ? `${p.vendor} · ` : ""}
+                          <code>{p.command}</code>
+                          {note && ` · ${note}`}
+                        </span>
+                        <span className="agent-catalog-chips">
+                          {capabilityChips(p).map((c) => (
+                            <span
+                              key={c.key}
+                              className={c.available ? "agent-cap on" : "agent-cap off"}
+                              title={c.title}
+                            >
+                              {c.available ? "" : "no "}
+                              {c.label}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {catalog.length > 0 && groupCatalog(catalog, query).length === 0 && (
+              <p className="sub">
+                No catalog agent matches “{query}”. Custom runner works for any other CLI.
+              </p>
+            )}
+          </div>
+        </section>
       )}
       {!source &&
         presetChoice !== "custom" &&
@@ -389,7 +469,9 @@ export function AgentEditor({
                   them):</b> {p.unverified.join(", ")}.
                 </>
               )}
-              {" "}Source: {p.source} (checked {p.verified_at}).
+              {p.sessions_hint && <> Session ids: <code>{p.sessions_hint}</code>.</>}
+              {" "}Checked {p.verified_at} against{" "}
+              {p.verified_by === "docs" ? "the vendor's docs" : p.verified_by || "its docs"} ({p.source}).
               {!p.installed && <> Install: <code>{p.install_hint}</code></>}
             </p>
           );
@@ -426,6 +508,10 @@ export function AgentEditor({
         Opening prompt is a positional argument
       </label>
       <label>
+        Opening prompt arguments (JSON array; {"{prompt}"} is the message — for a CLI that takes it through a flag)
+        <textarea value={promptArgs} onChange={(e) => setPromptArgs(e.target.value)} />
+      </label>
+      <label>
         Resume arguments (resume the CLI's own last conversation)
         <textarea value={resume} onChange={(e) => setResume(e.target.value)} />
       </label>
@@ -448,6 +534,10 @@ export function AgentEditor({
       <label>
         Yolo arguments
         <textarea value={yolo} onChange={(e) => setYolo(e.target.value)} />
+      </label>
+      <label>
+        Yolo environment (KEY=value lines, set only for yolo launches)
+        <textarea value={yoloEnv} onChange={(e) => setYoloEnv(e.target.value)} />
       </label>
       <label>
         Environment (KEY=value lines; existing values are masked and retained)

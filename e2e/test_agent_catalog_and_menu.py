@@ -4,7 +4,7 @@ menus -> a real session -> a real handoff switch.
 The executable is a tiny fixture script, not a real third-party CLI — Lectern
 never assumes an operator's chosen agent is installed on this host, and this
 suite must not depend on one being. The Cursor Agent CLI catalog preset is
-used only to prove the "Starter template" dropdown is populated from
+used only to prove the searchable starter catalog is populated from
 GET /api/agents/catalog and prefills real fields; its Command is then
 overridden to the stub so the session that follows is a genuine tmux launch.
 """
@@ -107,9 +107,10 @@ def test_catalog_preset_menu_visibility_session_and_switch(page, real_terminal, 
     page.locator('[data-settings="agents"]').click()
     page.get_by_role("button", name="Add agent", exact=True).click()
     dialog = page.get_by_role("dialog", name="Add agent", exact=True)
-    starter = dialog.get_by_label("Starter template", exact=False)
-    expect(starter.get_by_role("option", name=re.compile("Cursor Agent CLI"))).to_have_count(1, timeout=10000)
-    starter.select_option("cursor-agent")
+    dialog.get_by_label("Search agent catalog").fill("cursor")
+    starter = dialog.locator('[data-preset="cursor-agent"]')
+    expect(starter).to_contain_text("Cursor Agent CLI", timeout=10000)
+    starter.click()
     # The preset really did populate real, researched fields...
     expect(dialog.get_by_label("Model flag", exact=True)).to_have_value("--model")
     expect(dialog.get_by_label("Opening prompt is a positional argument", exact=True)).to_be_checked()

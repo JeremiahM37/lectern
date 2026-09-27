@@ -12,7 +12,7 @@ const sessionCols = `s.id, s.project_id, s.target_id, s.name, s.agent, s.model,
 	s.context_used_pct, s.context_tokens, s.context_size, s.cost_usd, s.lines_added, s.lines_removed,
 	s.rate_5h_pct, s.rate_5h_reset, s.rate_7d_pct, s.rate_7d_reset, s.usage_at, s.codex_thread_id, s.precompact_at,
 	s.repo_key, s.repo_toplevel, s.awareness_briefing_hash, s.awareness_briefing_at,
-	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at, s.end_reason, s.agent_exited_at, s.relaunched_at, s.resume_guess`
+	s.last_prompt_excerpt, s.last_prompt_at, s.otel_active_at, s.end_reason, s.agent_exited_at, s.relaunched_at, s.resume_guess, s.account_id`
 
 func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, error) {
 	var s Session
@@ -23,7 +23,7 @@ func scanSession(sc interface{ Scan(...any) error }, withJoin bool) (*Session, e
 		&s.ContextUsedPct, &s.ContextTokens, &s.ContextSize, &s.CostUSD, &s.LinesAdded, &s.LinesRemoved,
 		&s.Rate5hPct, &s.Rate5hReset, &s.Rate7dPct, &s.Rate7dReset, &s.UsageAt, &s.CodexThreadID, &s.PrecompactAt,
 		&s.RepoKey, &s.RepoToplevel, &s.AwarenessBriefingHash, &s.AwarenessBriefingAt,
-		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt, &s.EndReason, &s.AgentExitedAt, &s.RelaunchedAt, &s.ResumeGuess}
+		&s.LastPromptExcerpt, &s.LastPromptAt, &s.OtelActiveAt, &s.EndReason, &s.AgentExitedAt, &s.RelaunchedAt, &s.ResumeGuess, &s.AccountID}
 	if withJoin {
 		var projectName sql.NullString
 		dest = append(dest, &projectName, &s.TargetName, &s.TargetKind)

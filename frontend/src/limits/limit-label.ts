@@ -21,7 +21,11 @@ export function limitLabel(h: LimitHold, now: number = Date.now() / 1000, locale
   const reset = h.reset_at ? clock(h.reset_at, now, locale) : "";
   switch (h.state) {
     case "resuming":
-      return "Limit reset — resuming…";
+      return h.to_account ? `Swapped to ${h.to_account} — resuming…` : "Limit reset — resuming…";
+    case "swapping":
+      return `Limit — swapping to ${h.to_account || "another account"}…`;
+    case "swapped":
+      return `Limit — continues on ${h.to_account || "another account"}`;
     case "handing_off":
       return `Limit — handing off${h.fallback ? ` to ${h.fallback}` : ""}…`;
     case "requeued":
@@ -35,7 +39,7 @@ export function limitLabel(h: LimitHold, now: number = Date.now() / 1000, locale
   return reset ? `Limit — resets ${reset}` : "Limit — reset time unknown";
 }
 
-export type LimitChoice = "wait" | "resume_now" | "handoff" | "dismiss";
+export type LimitChoice = "wait" | "resume_now" | "handoff" | "swap" | "dismiss";
 
 // limitChoices is what the card offers for a hold. Nothing while Lectern is
 // in the middle of acting on it.
@@ -43,6 +47,7 @@ export function limitChoices(h: LimitHold, now: number = Date.now() / 1000): Lim
   if (h.state !== "waiting") return [];
   const out: LimitChoice[] = [];
   const reset = h.reset_at && h.reset_at <= now;
+  if (h.swap_to) out.push("swap");
   if (reset) out.push("resume_now");
   else if (h.policy !== "wait") out.push("wait");
   out.push("handoff", "dismiss");
@@ -57,6 +62,8 @@ export function choiceLabel(c: LimitChoice, h: LimitHold): string {
       return "Resume now";
     case "handoff":
       return h.fallback ? `Hand off to ${h.fallback}` : "Hand off…";
+    case "swap":
+      return `Swap to ${h.swap_to?.label || "another account"}`;
     case "dismiss":
       return "Dismiss";
   }

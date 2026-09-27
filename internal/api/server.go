@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,12 @@ type Server struct {
 
 	// live holds forwarded ports and desktops; see live.go.
 	live liveState
+	// browsers holds each session's shared browser and dev server views; see
+	// browser.go.
+	browsers browserState
+	// TLS is the tailnet listener's TLS config when it runs, so a dev server
+	// view can answer https too and be framed by a page served over TLS.
+	TLS *tls.Config
 
 	uploadMu    sync.Mutex
 	uploadCount int
@@ -235,6 +242,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/live/desktops", s.openLiveDesktop)
 	mux.HandleFunc("POST /api/live/{id}/browser", s.liveBrowser)
 	mux.HandleFunc("DELETE /api/live/{id}", s.closeLive)
+	mux.HandleFunc("GET /api/live/{id}/computer", s.liveComputer)
+	mux.HandleFunc("POST /api/live/{id}/computer", s.liveComputer)
+	mux.HandleFunc("GET /api/live/{id}/screenshot", s.liveScreenshot)
+	// ---- the Browser pane, Design Mode and agent browser tools (browser.go) ----
+	mux.HandleFunc("GET /api/sessions/{id}/browser", s.getSessionBrowser)
+	mux.HandleFunc("POST /api/sessions/{id}/browser", s.postSessionBrowser)
+	mux.HandleFunc("DELETE /api/sessions/{id}/browser", s.deleteSessionBrowser)
+	mux.HandleFunc("GET /api/sessions/{id}/browser/stream", s.browserStream)
+	mux.HandleFunc("POST /api/sessions/{id}/browser/views", s.openBrowserView)
+	mux.HandleFunc("DELETE /api/browser/views/{view}", s.closeBrowserView)
+	mux.HandleFunc("GET /api/sessions/{id}/ports", s.sessionPorts)
+	mux.HandleFunc("POST /api/sessions/{id}/design", s.sendDesign)
+	mux.HandleFunc("POST /api/browser", s.agentBrowser)
+	mux.HandleFunc("POST /api/computer", s.agentComputer)
 	mux.HandleFunc("GET /api/media", s.listMedia)
 	mux.HandleFunc("POST /api/media", s.postMedia)
 	mux.HandleFunc("GET /api/media/{id}/content", s.mediaContent)
@@ -407,6 +428,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/limits/{id}/choose", s.chooseLimit)
 	mux.HandleFunc("GET /api/limits/policy", s.getLimitPolicy)
 	mux.HandleFunc("PUT /api/limits/policy", s.putLimitPolicy)
+	mux.HandleFunc("GET /api/accounts", s.listAccounts)
+	mux.HandleFunc("POST /api/accounts", s.addAccount)
+	mux.HandleFunc("DELETE /api/accounts/{id}", s.deleteAccount)
+	mux.HandleFunc("POST /api/accounts/{id}/login", s.accountLogin)
 	mux.HandleFunc("GET /api/budgets", s.getBudgets)
 	mux.HandleFunc("PUT /api/budgets", s.putBudgets)
 	mux.HandleFunc("GET /api/outcomes", s.getOutcomes)
@@ -731,6 +756,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 	}
 	s.autoMu.Unlock()
 	s.liveShutdown()
+	s.browserShutdown()
 	s.DrainStreams()
 	s.Terminals.Shutdown()
 	s.Notifier.Wait()

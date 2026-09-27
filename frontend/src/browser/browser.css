@@ -1,0 +1,164 @@
+/* The Browser pane (docs/browser.md). On a wide screen it sits beside the
+   conversation; on a phone it takes the whole screen. */
+.browser-pane {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg, #080b14);
+  color: var(--ink, #e2e8f0);
+  padding-top: env(safe-area-inset-top);
+  font-size: 13px;
+}
+.browser-pane.agent-driving { box-shadow: inset 0 0 0 2px var(--amber, #fbbf24); }
+@media (min-width: 1100px) {
+  .conversation.with-browser { left: 0; transform: none; width: 100vw; padding-right: 58vw; }
+  .conversation.with-browser .browser-pane {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 58vw;
+    border-left: 1px solid var(--line-2, #313a58);
+  }
+}
+.browser-pane .b { min-height: 34px; padding: 4px 10px; }
+.browser-pane .b.on { border-color: var(--accent, #8b5cf6); background: var(--accent-wash, rgba(139, 92, 246, .14)); }
+.browser-pane .b.warn { color: var(--red, #f87171); }
+.browser-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line, #232a42);
+}
+.browser-tabs { display: flex; gap: 6px; }
+.browser-tabs [aria-selected="true"] { border-color: var(--accent, #8b5cf6); }
+.browser-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.browser-address { display: flex; flex: 1 1 220px; min-width: 0; gap: 6px; }
+.browser-address input {
+  flex: 1;
+  min-width: 0;
+  font: 13px var(--mono, monospace);
+  padding: 6px 8px;
+  background: var(--panel, #131829);
+  color: var(--ink, #e2e8f0);
+  border: 1px solid var(--line-2, #313a58);
+  border-radius: 8px;
+}
+.browser-toolbar select {
+  min-height: 34px;
+  background: var(--panel, #131829);
+  color: var(--ink, #e2e8f0);
+  border: 1px solid var(--line-2, #313a58);
+  border-radius: 8px;
+}
+.browser-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  padding: 0 10px 6px;
+  color: var(--ink-dim, #97a2bd);
+}
+.browser-modes label { display: inline-flex; gap: 5px; align-items: center; }
+.browser-where { margin-left: auto; font-size: 12px; }
+.browser-ports { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 8px; border-bottom: 1px solid var(--line, #232a42); }
+.browser-ports .port { display: inline-flex; flex-direction: column; align-items: flex-start; font-family: var(--mono, monospace); }
+.browser-ports .port small { font-family: var(--sans, sans-serif); color: var(--ink-dim, #97a2bd); font-size: 11px; }
+.browser-ports .port.in-workspace { border-color: var(--green, #34d399); }
+.browser-ports .dim { opacity: .7; }
+.browser-error { color: var(--red, #f87171); }
+.browser-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line, #232a42);
+  border-bottom: 1px solid var(--line, #232a42);
+  color: var(--ink-dim, #97a2bd);
+}
+.agent-driving .browser-control, .desk.agent-driving .browser-control { color: var(--amber, #fbbf24); font-weight: 600; }
+.browser-control.control-user span { color: var(--green, #34d399); }
+.browser-control.control-stopped span { color: var(--red, #f87171); }
+.browser-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg-soft, #0d1120);
+}
+.browser-screen { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; outline: none; }
+.browser-screen:focus-visible { box-shadow: 0 0 0 2px var(--accent, #8b5cf6); }
+.browser-screen img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+  touch-action: none;
+  user-select: none;
+  cursor: default;
+}
+.browser-frame-wrap { position: relative; width: 100%; max-width: 100%; max-height: 100%; overflow: hidden; background: #fff; }
+.browser-frame-wrap iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  transform: scale(var(--frame-scale, 1));
+  background: #fff;
+}
+.browser-empty { color: var(--ink-dim, #97a2bd); text-align: center; padding: 20px; max-width: 460px; }
+.browser-empty .b { margin: 4px; }
+.browser-design {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line-2, #313a58);
+  background: var(--panel, #131829);
+}
+.browser-hover { margin: 0; font: 12px var(--mono, monospace); color: var(--accent-soft, #a78bfa); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-multi { color: var(--ink-dim, #97a2bd); font-size: 12px; }
+.browser-picked { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-height: 110px; overflow: auto; }
+.browser-picked li { display: flex; align-items: center; gap: 8px; }
+.browser-picked code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.browser-picked small { color: var(--ink-dim, #97a2bd); white-space: nowrap; }
+.browser-picked .b { min-height: 26px; padding: 0 8px; }
+.browser-design textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 13px var(--sans, sans-serif);
+  padding: 6px 8px;
+  background: var(--bg, #080b14);
+  color: var(--ink, #e2e8f0);
+  border: 1px solid var(--line-2, #313a58);
+  border-radius: 8px;
+  resize: vertical;
+}
+.browser-desktops { flex: 1; overflow: auto; padding: 8px; display: grid; gap: 12px; align-content: start; }
+.desk { border: 1px solid var(--line-2, #313a58); border-radius: 10px; overflow: hidden; }
+.desk header { padding: 6px 10px; }
+.desk.agent-driving { border-color: var(--amber, #fbbf24); }
+.desk-shot { display: block; width: 100%; height: auto; background: #000; }
+@media (max-width: 700px) {
+  /* A phone shows the page at its own width and scrolls, rather than
+     shrinking a tall page to fit. */
+  .browser-stage { align-items: flex-start; padding: 0; }
+  .browser-screen { height: auto; }
+  .browser-screen img { width: 100%; max-height: none; }
+  .browser-toolbar select { max-width: 110px; }
+  .browser-toolbar .browser-address { order: -1; flex-basis: 100%; }
+}

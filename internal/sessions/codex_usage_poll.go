@@ -19,17 +19,23 @@ import (
 func (m *Manager) pollCodexUsage(ctx context.Context, ex executor.Executor, group []*store.Session) {
 	byThread := map[string]*store.Session{}
 	ids := make([]string, 0, len(group))
+	homes := map[string]string{}
 	for _, s := range group {
 		if s.Agent != "codex" || s.CodexThreadID == "" {
 			continue
 		}
 		byThread[s.CodexThreadID] = s
 		ids = append(ids, s.CodexThreadID)
+		// A session on another account (docs/accounts.md) writes its rollout
+		// under that account's CODEX_HOME.
+		if cfg, err := m.SessionLaunchConfiguration(s); err == nil && cfg.Spec.Env["CODEX_HOME"] != "" {
+			homes[s.CodexThreadID] = cfg.Spec.Env["CODEX_HOME"]
+		}
 	}
 	if len(ids) == 0 {
 		return
 	}
-	r, err := ex.Run(ctx, agentevents.CodexRolloutTailCommand(ids), executor.RunOpts{Timeout: 20})
+	r, err := ex.Run(ctx, agentevents.CodexRolloutTailCommandIn(ids, homes), executor.RunOpts{Timeout: 20})
 	if err != nil || !r.OK() {
 		// Same posture as the pane poll above: an unreachable target or a
 		// missing rollout file is not evidence of anything wrong with the

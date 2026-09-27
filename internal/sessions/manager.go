@@ -188,6 +188,14 @@ type LaunchOpts struct {
 	// git repository, so whatever the work turns into can later be promoted to a
 	// project and dispatched against without moving anything.
 	Scratch bool
+	// SkipPrime types nothing into the new process: an account swap resumes a
+	// conversation that already has its briefing, and the limits tracker
+	// types the one nudge itself.
+	SkipPrime bool
+	// AccountID records which registered login (docs/accounts.md) this launch
+	// runs under; nil leaves the row's account as it is. The caller puts the
+	// account's directory in the environment.
+	AccountID *int64
 	// Isolation overrides the project's (or the built-in) default sandbox
 	// tier for this one launch — nil defers to that default entirely. See
 	// internal/isolation. Ignored for a continuation (o.Configuration != nil
@@ -214,6 +222,10 @@ type shellRoom struct {
 	name      string
 	workdir   string
 	projectID *int64
+	// env and command, when set, are extra KEY=value words (EnvPrefix) and a
+	// shell command run instead of an interactive shell — the account sign-in.
+	env     string
+	command string
 }
 
 // LaunchShell creates a tracked, agent-free shell room on a target.
@@ -304,7 +316,11 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	shellEnv := map[string]string{}
 	identityEnv(shellEnv, sess.ID)
 	identity, _ := EnvPrefix(shellEnv)
-	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + "\"${SHELL:-/bin/sh}\" -i"
+	program := "\"${SHELL:-/bin/sh}\" -i"
+	if room.command != "" {
+		program = "bash -c " + shellq.Quote(room.command)
+	}
+	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + room.env + program
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		m.end(sess.ID, StatusDead)
@@ -453,7 +469,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	} else {
 		sess, err = m.DB.InsertSession(&store.Session{
 			ResumeID: o.ResumeID, GroupPath: group, ProjectID: o.ProjectID, TargetID: o.TargetID, Name: name, Agent: agent,
-			Model: o.Model, Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID,
+			Model: o.Model, Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID, AccountID: o.AccountID,
 		})
 	}
 	if err != nil {
@@ -520,11 +536,14 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if recalled.Context != "" {
 		o.Prime = recalled.Context + "\n" + o.Prime
 	}
+	if o.SkipPrime {
+		o.Prime = ""
+	}
 	// resuming replays a conversation, and the CLIs do not accept an opening
 	// message alongside that — so a prime on a resumed session still has to be
 	// typed in once it is up
 	argPrompt := ""
-	if o.Prime != "" && !o.Resume && o.ResumeID == "" && spec.PromptArg {
+	if o.Prime != "" && !o.Resume && o.ResumeID == "" && spec.TakesPrompt() {
 		argPrompt = o.Prime
 	}
 	// agent-wide env first, then the project's, so a project can point one agent
@@ -928,7 +947,11 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.end(sess.ID, "dead")
 		return nil, executor.Errf("tmux launch failed: %s", strings.TrimSpace(r.Stderr))
 	}
-	m.DB.Update("sessions", sess.ID, map[string]any{"status": StatusStarting, "ended_at": nil, "agent_exited_at": nil})
+	started := map[string]any{"status": StatusStarting, "ended_at": nil, "agent_exited_at": nil}
+	if o.AccountID != nil {
+		started["account_id"] = *o.AccountID
+	}
+	m.DB.Update("sessions", sess.ID, started)
 	if o.Prime != "" && argPrompt == "" {
 		// the fallback path: wait until the pane settles before typing, rather
 		// than guessing a delay and landing in whatever the CLI put on screen
@@ -1021,17 +1044,35 @@ func scratchSlug(label string) string {
 func (m *Manager) primeWhenReady(id int64, text string, recalled memory.ContextResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	if !m.waitReady(ctx, id) {
+		m.Log.Warn("gave up priming: the pane never settled at a prompt", "session", id)
+		return
+	}
+	if err := m.sendText(ctx, id, text, false); err != nil {
+		m.Log.Warn("priming session failed", "session", id, "err", err)
+	} else {
+		// The opening message carried the recalled context, so this is
+		// the moment the delivery happened — not the launch that raced
+		// the pane.
+		m.recordContext(id, recalled)
+		m.recordDelivery(id, recalled)
+	}
+}
+
+// waitReady waits, until ctx ends, for a session's pane to stop changing at
+// an input prompt, and reports whether it did.
+func (m *Manager) waitReady(ctx context.Context, id int64) bool {
 	var last string
 	stable := 0
 	for i := 0; i < 45; i++ {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(2 * time.Second):
 		}
 		sess, ex, err := m.resolve(id)
 		if err != nil {
-			return
+			return false
 		}
 		out, err := ex.Run(ctx, PollCommand([]string{sess.TmuxSession}),
 			RunOptsShort())
@@ -1054,19 +1095,10 @@ func (m *Manager) primeWhenReady(id int64, text string, recalled memory.ContextR
 		}
 		// settled for two consecutive polls and showing an input prompt
 		if stable >= 1 && DeriveStatus(pane, Hash(pane)) == StatusWaiting {
-			if err := m.sendText(ctx, id, text, false); err != nil {
-				m.Log.Warn("priming session failed", "session", id, "err", err)
-			} else {
-				// The opening message carried the recalled context, so this is
-				// the moment the delivery happened — not the launch that raced
-				// the pane.
-				m.recordContext(id, recalled)
-				m.recordDelivery(id, recalled)
-			}
-			return
+			return true
 		}
 	}
-	m.Log.Warn("gave up priming: the pane never settled at a prompt", "session", id)
+	return false
 }
 
 // ProjectEnv is the environment a project asks its agents to run with — the

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
@@ -328,6 +329,18 @@ func (in *Ingester) IngestCodexUsage(s *store.Session, usage *CodexUsage) error 
 	}
 	if usage.Model != "" {
 		fields["model"] = usage.Model
+	}
+	// Codex's windows fill the same columns as Claude's statusline: a window
+	// shorter than a day is the "5h" one, anything longer the weekly one.
+	for _, w := range usage.RateLimits {
+		slot := "rate_7d"
+		if w.WindowMinutes < 24*60 {
+			slot = "rate_5h"
+		}
+		fields[slot+"_pct"] = int(math.Round(w.UsedPercent))
+		if w.ResetsAt > 0 {
+			fields[slot+"_reset"] = float64(w.ResetsAt)
+		}
 	}
 	if err := in.DB.Update("sessions", s.ID, fields); err != nil {
 		return err
