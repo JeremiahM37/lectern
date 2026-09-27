@@ -5,13 +5,18 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // TestPlainCommandsPreferHostedService runs the real binary with both a real
@@ -140,4 +145,50 @@ func runCLISplit(bin string, env []string, args ...string) ([]byte, string, erro
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	return out, stderr.String(), err
+}
+
+// TestExplicitAPINeverProbes: with LECTERN_API set, the CLI talks only to it.
+// A Lectern-shaped server on LECTERN_PORT (what the probe would find) sees no
+// request, nothing is printed about the choice, and no local runtime starts —
+// on a pipe and on a terminal, where the choice note would otherwise print.
+func TestExplicitAPINeverProbes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local runtime currently uses POSIX process locks")
+	}
+	bin := filepath.Join(t.TempDir(), "lectern")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, out)
+	}
+	var probes atomic.Int64
+	decoy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probes.Add(1)
+		_, _ = w.Write([]byte(`{"ok":true,"version":"9.9.9","build":{"version":"9.9.9"}}`))
+	}))
+	defer decoy.Close()
+	explicit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"explicit":true}`))
+	}))
+	defer explicit.Close()
+	state := t.TempDir()
+	env := append(localTestEnv(state), "LECTERN_PORT="+decoy.URL[strings.LastIndex(decoy.URL, ":")+1:], "LECTERN_API="+explicit.URL)
+
+	out, stderr, err := runCLISplit(bin, env, "api", "GET", "/health")
+	if err != nil || !bytes.Contains(out, []byte(`"explicit":true`)) || stderr != "" {
+		t.Fatalf("explicit API: err=%v out=%s stderr=%q", err, out, stderr)
+	}
+	if _, err := exec.LookPath("script"); err == nil {
+		// script(1) gives the CLI a terminal on stdin, stdout and stderr.
+		cmd := exec.Command("script", "-qec", shellq.Quote(bin)+" api GET /health", "/dev/null")
+		cmd.Env = env
+		tty, err := cmd.CombinedOutput()
+		if err != nil || !bytes.Contains(tty, []byte(`"explicit":true`)) || bytes.Contains(tty, []byte("lectern:")) {
+			t.Fatalf("explicit API on a terminal: err=%v output=%q", err, tty)
+		}
+	}
+	if n := probes.Load(); n != 0 {
+		t.Fatalf("explicit LECTERN_API still probed the local service port %d time(s)", n)
+	}
+	if _, err := os.Stat(filepath.Join(state, "lectern", "local")); !os.IsNotExist(err) {
+		t.Fatalf("explicit LECTERN_API touched the local runtime: %v", err)
+	}
 }

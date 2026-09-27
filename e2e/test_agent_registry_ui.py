@@ -17,7 +17,7 @@ import time
 import pytest
 from playwright.sync_api import expect
 
-from conftest import _binary
+from conftest import _binary, tmux_chord
 from test_terminal_workspace import real_terminal
 
 
@@ -165,7 +165,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
                 output += os.read(master, 65536)
         assert b"CUSTOM ECHO pty-proof" in output
     finally:
-        os.write(master, b"\x02d")
+        tmux_chord(master, b"\x02d")
         try:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:

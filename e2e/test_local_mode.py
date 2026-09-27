@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ROOT, _binary
+from conftest import ROOT, _binary, tmux_chord
 
 
 @pytest.fixture(autouse=True)
@@ -288,7 +288,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
         # Let the shell finish repainting before sending the tmux prefix and
         # detach key, as a real terminal user would.
         time.sleep(0.5)
-        os.write(master, b"\x02d")
+        tmux_chord(master, b"\x02d")
         attached.wait(timeout=15)
         assert attached.returncode == 0
     finally:
@@ -367,7 +367,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
         os.write(master, b"printf 'LOCAL_%s\\n' 'REATTACH_SENTINEL'\r")
         _read_until(master, b"LOCAL_REATTACH_SENTINEL")
         time.sleep(0.5)
-        os.write(master, b"\x02d")
+        tmux_chord(master, b"\x02d")
         reattached.wait(timeout=15)
         assert reattached.returncode == 0
     finally:

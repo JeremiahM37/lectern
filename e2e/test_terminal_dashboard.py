@@ -17,7 +17,7 @@ import urllib.request
 
 import pyte
 import pytest
-from conftest import _binary
+from conftest import _binary, CHORD_GAP, TMUX_PREFIXES
 from test_terminal_workspace import real_terminal
 
 
@@ -63,7 +63,12 @@ class Dashboard:
             self.pump()
             if text not in self.text:return
         raise AssertionError(f'Still showing {text!r}:\n{self.text}')
-    def send(self,data):os.write(self.master,data.encode());self.pump(.15)
+    def send(self,data):
+        # A prefix chord (Ctrl-b d, Ctrl-] m, ...) goes as two writes; see
+        # conftest.tmux_chord.
+        if len(data)>1 and data[0].encode() in TMUX_PREFIXES:
+            os.write(self.master,data[0].encode());self.pump(CHORD_GAP);data=data[1:]
+        os.write(self.master,data.encode());self.pump(.15)
     def resize(self,cols,rows):
         self.screen.resize(rows,cols)
         fcntl.ioctl(self.slave,termios.TIOCSWINSZ,struct.pack('HHHH',rows,cols,0,0))

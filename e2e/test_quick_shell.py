@@ -17,7 +17,7 @@ import termios
 import time
 from pathlib import Path
 
-from conftest import _binary
+from conftest import _binary, tmux_chord
 from test_remote_acceptance import _ssh, remote_terminal
 from test_local_mode import _local_env, _run as _local_run, local_binary
 from test_terminal_workspace import real_terminal
@@ -92,7 +92,7 @@ def _wait_file(path: Path, expected: str, timeout=15):
 
 
 def _detach(master, child):
-    os.write(master, b"\x02d")
+    tmux_chord(master, b"\x02d")
     child.wait(timeout=15)
     assert child.returncode == 0
 
@@ -222,7 +222,7 @@ def test_tui_quick_shell_action_is_real_and_cancellable(real_terminal):
         _wait_file(Path(row["workdir"]) / "quick-shell-tui.txt", "tui-proof")
         # The initial dashboard frame also contains the product name, so only
         # accept a freshly-read frame as proof that detach returned to it.
-        os.write(master, b"\x02d")
+        tmux_chord(master, b"\x02d")
         output = _read_until(master, b"Lectern", 20, b"")
         assert child.poll() is None
         os.write(master, b"q")

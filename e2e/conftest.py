@@ -71,6 +71,29 @@ def _binary() -> str:
     return str(out)
 
 
+# Prefix bytes a test types before a tmux key: Ctrl-b (agent tmux), Ctrl-g
+# (workspace tmux) and Ctrl-] (Lectern's attachment controls).
+TMUX_PREFIXES = b"\x02\x07\x1d"
+CHORD_GAP = 0.2
+
+
+def tmux_chord(fd, chord, gap=CHORD_GAP):
+    """Type a tmux prefix chord such as Ctrl-b d the way a person does.
+
+    Written as one burst, tmux may take "\\x02d" for pasted text: pasted keys
+    are delivered to the pane, not matched against key bindings, so the prefix
+    is typed into the shell instead of detaching. A person never presses both
+    within a millisecond, so the prefix and the key go in separate writes.
+    """
+    if isinstance(chord, str):
+        chord = chord.encode()
+    if len(chord) > 1 and chord[0] in TMUX_PREFIXES:
+        os.write(fd, chord[:1])
+        time.sleep(gap)
+        chord = chord[1:]
+    os.write(fd, chord)
+
+
 # A developer often runs this suite from inside a Lectern session, whose
 # environment names the real memory provider, carries its token, and says which
 # live session and recovery checkpoint it belongs to. Inherited, every project a

@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from conftest import _binary
+from conftest import _binary, tmux_chord
 from test_terminal_workspace import real_terminal
 
 
@@ -109,7 +109,7 @@ def test_menu_and_direct_attach_use_portable_term(real_terminal,tmp_path):
             deadline=time.time()+5
             while time.time()<deadline and not (t['root']/(proof+'.txt')).exists():time.sleep(.05)
             assert (t['root']/(proof+'.txt')).read_text()==proof
-            os.write(master,b'\x02d')
+            tmux_chord(master, b"\x02d")
             if menu:
                 until(b'Action:');os.write(master,b'b\n')
                 until(b'Choose:');os.write(master,b'b\n')

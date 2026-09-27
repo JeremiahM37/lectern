@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import OUTSIDE_WORLD, _binary, _unused_port
+from conftest import OUTSIDE_WORLD, _binary, _unused_port, tmux_chord
 
 STUB_AGENT = '''#!/bin/bash
 echo "stub agent ready"
@@ -122,7 +122,7 @@ def test_lectern_claude_creates_and_attaches_session_for_cwd(one_command_server,
 
         # Ctrl-b d detaches; the CLI, which handed the process image over to
         # the attachment, exits with it.
-        os.write(master, b"\x02d")
+        tmux_chord(master, b"\x02d")
         deadline = time.monotonic() + 15
         while child.poll() is None and time.monotonic() < deadline:
             try:
