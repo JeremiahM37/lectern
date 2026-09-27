@@ -14,18 +14,24 @@ const GAP_LEADING = -0.005,
   CAPITAL = 0.7,
   AFTER_DOT = 0.6;
 
-function bonuses(text: string): Float64Array {
-  const out = new Float64Array(text.length);
+// Scratch space reused by every call: ranking thousands of paths per
+// keystroke must not allocate matrices for each one.
+let bonus = new Float64Array(256),
+  D = new Float64Array(256 * 8),
+  M = new Float64Array(256 * 8);
+
+function fillBonuses(text: string) {
   let previous = "/";
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!;
-    if (previous === "/") out[i] = AFTER_SLASH;
-    else if (previous === "-" || previous === "_" || previous === " ") out[i] = AFTER_WORD;
-    else if (previous === ".") out[i] = AFTER_DOT;
-    else if (c >= "A" && c <= "Z" && previous >= "a" && previous <= "z") out[i] = CAPITAL;
+    let value = 0;
+    if (previous === "/") value = AFTER_SLASH;
+    else if (previous === "-" || previous === "_" || previous === " ") value = AFTER_WORD;
+    else if (previous === ".") value = AFTER_DOT;
+    else if (c >= "A" && c <= "Z" && previous >= "a" && previous <= "z") value = CAPITAL;
+    bonus[i] = value;
     previous = c;
   }
-  return out;
 }
 
 /** In-order subsequence test, case-insensitive. Cheap filter before scoring. */
@@ -50,29 +56,31 @@ export function score(needle: string, text: string, positions?: number[]): numbe
     positions?.push(...Array.from({ length: n }, (_, i) => i));
     return Infinity;
   }
-  const bonus = bonuses(text);
-  // D: best score ending in a match at j; M: best score up to j.
-  const D: Float64Array[] = [],
-    M: Float64Array[] = [];
+  if (bonus.length < m) bonus = new Float64Array(m * 2);
+  if (D.length < n * m) {
+    D = new Float64Array(n * m * 2);
+    M = new Float64Array(n * m * 2);
+  }
+  fillBonuses(text);
+  // D[i*m+j]: best score ending in a match of needle[i] at j; M: best up to j.
   for (let i = 0; i < n; i++) {
-    const d = new Float64Array(m),
-      s = new Float64Array(m);
     let best = -Infinity;
     const gap = i === n - 1 ? GAP_TRAILING : GAP_INNER;
+    const row = i * m,
+      prev = row - m,
+      char = needle[i];
     for (let j = 0; j < m; j++) {
-      if (lower[j] === needle[i]) {
+      if (lower[j] === char) {
         let value = -Infinity;
         if (!i) value = j * GAP_LEADING + bonus[j]!;
-        else if (j) value = Math.max(M[i - 1]![j - 1]! + bonus[j]!, D[i - 1]![j - 1]! + CONSECUTIVE);
-        d[j] = value;
-        s[j] = best = Math.max(value, best + gap);
+        else if (j) value = Math.max(M[prev + j - 1]! + bonus[j]!, D[prev + j - 1]! + CONSECUTIVE);
+        D[row + j] = value;
+        M[row + j] = best = Math.max(value, best + gap);
       } else {
-        d[j] = -Infinity;
-        s[j] = best = best + gap;
+        D[row + j] = -Infinity;
+        M[row + j] = best = best + gap;
       }
     }
-    D.push(d);
-    M.push(s);
   }
   if (positions) {
     // Walk back through the matrices to find which characters matched.
@@ -81,8 +89,9 @@ export function score(needle: string, text: string, positions?: number[]): numbe
     const found: number[] = [];
     for (let i = n - 1; i >= 0; i--) {
       for (; j >= 0; j--) {
-        if (D[i]![j]! !== -Infinity && (forceMatch || D[i]![j]! === M[i]![j]!)) {
-          forceMatch = i > 0 && j > 0 && M[i]![j]! === D[i - 1]![j - 1]! + CONSECUTIVE;
+        const at = i * m + j;
+        if (D[at]! !== -Infinity && (forceMatch || D[at]! === M[at]!)) {
+          forceMatch = i > 0 && j > 0 && M[at]! === D[at - m - 1]! + CONSECUTIVE;
           found.push(j);
           j--;
           break;
@@ -91,7 +100,7 @@ export function score(needle: string, text: string, positions?: number[]): numbe
     }
     positions.push(...found.reverse());
   }
-  return M[n - 1]![m - 1]!;
+  return M[(n - 1) * m + m - 1]!;
 }
 
 export interface Ranked {

@@ -361,6 +361,21 @@ CHAR_POINT = '''([text, offset]) => {
 }'''
 
 
+def click_link(page, text, offset):
+    # xterm finds a link when the pointer rests on it, then shows a pointer
+    # cursor; clicking before that does nothing.
+    point = page.evaluate(CHAR_POINT, [text, offset])
+    for nudge in (0, 1, 2, 3):
+        page.mouse.move(point['x'] - 3 + nudge, point['y'])
+        page.mouse.move(point['x'] + nudge, point['y'])
+        try:
+            page.wait_for_selector('#agent-terminal .xterm-cursor-pointer', timeout=3000)
+            break
+        except Exception:
+            continue
+    page.mouse.click(point['x'], point['y'])
+
+
 def test_terminal_path_links_and_line_deep_links(page, real_terminal):
     t = real_terminal
     root = t['root']
@@ -369,21 +384,29 @@ def test_terminal_path_links_and_line_deep_links(page, real_terminal):
     open_terminal(page, t)
     type_command(page, "printf 'error at %s\\n' src/app.py:4:2")
     expect(page.locator('#agent-terminal .xterm-rows')).to_contain_text('error at src/app.py:4:2')
-    point = page.evaluate(CHAR_POINT, ['error at src/app.py', 12])
-    page.mouse.move(point['x'] - 2, point['y'])
-    page.mouse.move(point['x'], point['y'])
-    page.mouse.click(point['x'], point['y'])
+    click_link(page, 'error at src/app.py', 12)
     expect(page.locator('#preview-dialog')).to_be_visible()
     monaco_ready(page)
     expect(page.locator('#preview-body .wb-target-line')).to_have_count(1)
     assert '#L4' in page.url
-    # The address is a deep link: a fresh page opens the file at the line.
+    # The address is a deep link. Changing only its fragment moves the line.
     page.goto(f"{t['url']}/terminal/session/{t['id']}?open=src%2Fapp.py#L2")
     monaco_ready(page)
     expect(page.locator('#preview-body .wb-target-line')).to_have_count(1)
-    top = page.evaluate("document.querySelector('#preview-body .wb-target-line').getBoundingClientRect().top")
-    second = page.locator('#preview-body .view-line', has_text='two')
-    assert abs(second.bounding_box()['y'] - top) < 4
+    # The same page only changed its fragment; the highlight moves to line 2.
+    page.wait_for_function('''() => {
+      const target = document.querySelector('#preview-body .wb-target-line');
+      const line = [...document.querySelectorAll('#preview-body .view-line')].find(l => l.textContent === 'two');
+      return target && line && Math.abs(target.getBoundingClientRect().top - line.getBoundingClientRect().top) < 4;
+    }''')
+    # A fresh load of a deep link does the same.
+    page.goto(f"{t['url']}/terminal/session/{t['id']}?open=src%2Fapp.py&fresh=1#L5")
+    monaco_ready(page)
+    page.wait_for_function('''() => {
+      const target = document.querySelector('#preview-body .wb-target-line');
+      const line = [...document.querySelectorAll('#preview-body .view-line')].find(l => l.textContent === 'five');
+      return target && line && Math.abs(target.getBoundingClientRect().top - line.getBoundingClientRect().top) < 4;
+    }''')
 
 
 def test_phone_reads_edits_and_taps_terminal_paths(browser, real_terminal):

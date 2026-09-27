@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { highlights, parseQuery, rank } from "./fuzzy";
 import { naturalCompare, sortEntries } from "./natsort";
-import { findLinks, linkAt } from "./links";
+import { findLinks, hyperlinkTarget, linkAt } from "./links";
 import { fileLink, lineHash, parseLineHash, readDeepLink } from "./deeplink";
 import { detectDelimiter, parseDelimited } from "./csv";
 import { parseNotebook } from "./notebook";
@@ -70,13 +70,15 @@ test("ranking 5,000 paths fits comfortably inside the 200 ms budget", () => {
   const words = ["api", "server", "client", "store", "model", "view", "util", "test", "handler", "config"];
   for (let i = 0; i < 5000; i++) paths.push(`pkg/${words[i % 10]}/${words[(i * 7) % 10]}_${i}.go`);
   rank("warm", paths);
+  // CPU time, not wall time: the suite runs beside other suites on shared cores.
   let slowest = 0;
   for (const query of ["srv", "handlerconf", "store_49", "a", "util test"]) {
-    const started = performance.now();
+    const started = process.cpuUsage();
     rank(query, paths);
-    slowest = Math.max(slowest, performance.now() - started);
+    const used = process.cpuUsage(started);
+    slowest = Math.max(slowest, (used.user + used.system) / 1000);
   }
-  assert.ok(slowest < 150, `slowest query took ${slowest.toFixed(1)} ms`);
+  assert.ok(slowest < 150, `slowest query took ${slowest.toFixed(1)} ms of CPU`);
 });
 
 test("explorer order is natural: folders first, file2 before file10", () => {
@@ -192,4 +194,14 @@ test("file kinds and editor languages", () => {
   assert.equal(languageFor("src/App.tsx"), "typescript");
   assert.equal(languageFor("Dockerfile"), "dockerfile");
   assert.equal(languageFor("x.unknown"), "plaintext");
+});
+
+test("OSC 8 hyperlinks open workspace files and web addresses only", () => {
+  const work = "/home/me/repo";
+  assert.deepEqual(hyperlinkTarget("file://host/home/me/repo/src/a%20b.ts#L7C2", work), { start: 0, end: 0, text: "file://host/home/me/repo/src/a%20b.ts#L7C2", path: "src/a b.ts", line: 7, column: 2 });
+  assert.equal(hyperlinkTarget("file:///home/me/repo/x.go:12:3", work)?.line, 12);
+  assert.equal(hyperlinkTarget("file:///etc/passwd", work), undefined);
+  assert.equal(hyperlinkTarget("file:///home/me/repo/../other/x", work), undefined);
+  assert.equal(hyperlinkTarget("javascript:alert(1)", work), undefined);
+  assert.equal(hyperlinkTarget("https://example.com", work)?.url, "https://example.com");
 });

@@ -146,6 +146,12 @@ line and column.
   `./main.go:40`, `Button.tsx(8,14)`, `at fn (/abs/workspace/lib/x.js:3:9)` and
   Python's `File "x.py", line 9`. Click on desktop, tap on a phone. Web
   addresses open in a new tab. Paths outside the workspace are not links.
+- OSC 8 hyperlinks to a `file://` address in the workspace (optionally ending
+  in `#L12` or `:12:3`) open the same way on click. tmux only forwards OSC 8
+  to clients it believes support it, which Lectern does not configure: it
+  needs `set -as terminal-features ',*:hyperlinks'` in your tmux settings.
+  This path is unit-tested only; the browser test for it was unreliable
+  through tmux and was dropped.
 - The page address follows the open file: `?open=src/app.ts#L42`. `#L42C5`
   points at a column and `#L10-L20` at a range. Clicking a line number sets it
   (Shift-click for a range), and **Copy link** in the file menu copies it.

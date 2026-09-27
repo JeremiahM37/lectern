@@ -1,5 +1,5 @@
 import type { IDisposable, Terminal } from "@xterm/xterm";
-import { findLinks, linkAt, type TextLink } from "./links";
+import { findLinks, hyperlinkTarget, linkAt, type TextLink } from "./links";
 
 // One buffer row as text, with the mapping between string indexes and cells.
 // A wide character fills two cells but is one character of text.
@@ -42,6 +42,15 @@ export function installTerminalLinks(term: Terminal, host: HTMLElement, workdir:
       );
     },
   });
+  // OSC 8 hyperlinks: xterm hands their address here instead of asking to
+  // navigate to it.
+  term.options.linkHandler = {
+    allowNonHttpProtocols: true,
+    activate: (_event, uri) => {
+      const link = hyperlinkTarget(uri, workdir);
+      if (link) activate(link);
+    },
+  };
   let down: { x: number; y: number; at: number; id: number } | undefined;
   let consumed = false;
   const pointerDown = (event: PointerEvent) => {
@@ -80,6 +89,7 @@ export function installTerminalLinks(term: Terminal, host: HTMLElement, workdir:
   return {
     dispose() {
       provider.dispose();
+      term.options.linkHandler = null;
       host.removeEventListener("pointerdown", pointerDown, true);
       host.removeEventListener("pointerup", pointerUp, true);
       host.removeEventListener("touchend", touchEnd, true);
