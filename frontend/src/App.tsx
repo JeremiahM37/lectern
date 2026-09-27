@@ -46,6 +46,10 @@ import { inApp, nativeBridge } from "./native/bridge";
 import { PUSH_EVENT, enableNativePush, syncNativePush } from "./native/push";
 import { applyBadge, computeBadgeCount } from "./badge";
 import type { NoticeAction } from "./types";
+import { offlineCache } from "./api/offline";
+import { OfflineBanner } from "./mobile/OfflineBanner";
+import { PullToRefresh } from "./mobile/PullToRefresh";
+import { noteView, setViewNavigator, useBackClose } from "./mobile/back";
 const SWITCH_STORAGE = 'lec-pending-switches';
 const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
 // The Needs-you push prompt is one-time and dismissible: once a person taps
@@ -219,6 +223,7 @@ export default function App() {
   const api = useMemo(
     () =>
       createDeckApi({
+        offline: offlineCache,
         onUnauthorized: () => {
           // Over the encrypted relay there is no token to type: a 401 means
           // this device was revoked, which the relay banner explains.
@@ -263,6 +268,17 @@ export default function App() {
     }
   }, []);
   const terminals = useTerminalTabs(navigate);
+  // The Android back key (mobile/back.ts): overlays first, then the views
+  // visited, and only then out of the app.
+  useEffect(() => setViewNavigator(navigate), [navigate]);
+  // Deferred, so the first view the app routes to on start is the first
+  // one recorded, not the default it renders for a moment before that.
+  useEffect(() => {
+    const timer = window.setTimeout(() => noteView("#" + view), 0);
+    return () => clearTimeout(timer);
+  }, [view]);
+  useBackClose(!!review, () => setReview(undefined));
+  useBackClose(!!mergeReview, () => setMergeReview(undefined));
   const mediaCounts = useMemo(() => {
     const counts: Record<number, number> = {};
     for (const row of media)
@@ -297,6 +313,12 @@ export default function App() {
     const failed = results.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") throw failed.reason;
   }, [api]);
+  // Pull to refresh and the offline banner's Retry (mobile/).
+  const retryOffline = useCallback(
+    () => void refresh().catch(() => undefined),
+    [refresh],
+  );
+  const viewElement = useCallback(() => document.getElementById("view"), []);
   const openTerminal = useCallback(
     (url: string, label?: string) => {
       setConversation(undefined);
@@ -556,9 +578,11 @@ export default function App() {
   }, [terminals.open]);
   useEffect(() => {
     let alive = true;
-    void refresh().catch((error) => {
-      if (alive) notice(String(error), true);
-    });
+    // Offline, the banner already says so; a toast per poll would not help.
+    const failed = (error: unknown) => {
+      if (alive && !offlineCache.state.stale) notice(String(error), true);
+    };
+    void refresh().catch(failed);
     // Preferences that follow this person between devices (theme, shortcuts,
     // layouts, quick commands); the stream says when another device changed one.
     void loadPrefs().catch(() => {});
@@ -567,12 +591,11 @@ export default function App() {
     let opened = false;
     stream.onopen = () => {
       setConnected(true);
-      if (opened) void refresh().catch((error) => notice(String(error), true));
+      if (opened) void refresh().catch(failed);
       opened = true;
     };
     stream.onerror = () => setConnected(false);
-    const update = () =>
-      void refresh().catch((error) => notice(String(error), true));
+    const update = () => void refresh().catch(failed);
     for (const event of [
       "task",
       "approval",
@@ -999,6 +1022,8 @@ export default function App() {
         </div>
       </header>
       <main id="view" hidden={view === "terminals"}>
+        <OfflineBanner onRetry={retryOffline} />
+        <PullToRefresh target={viewElement} onRefresh={refresh} />
         {version > 0 && projects.length === 0 && sessions.length === 0 && (
           <FirstRun
             request={api.request}

@@ -340,9 +340,11 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		_ = browser.KeepAlive(c, run, proc.Dir)
 	}
 	sb.stopFn = func() {
-		b.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		quit, stop := context.WithTimeout(c, 10*time.Second)
+		b.Quit(quit)
+		stop()
 		if err := browser.Stop(c, run, proc.Dir); err != nil {
 			s.Log.Warn("browser: did not stop cleanly", "session", sess.ID, "err", err)
 		}
@@ -909,8 +911,27 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 			var msg struct {
 				Type  string        `json:"type"`
 				Event browser.Input `json:"event"`
+				Mode  string        `json:"mode"`
 			}
-			if json.Unmarshal(data, &msg) != nil || msg.Type != "input" || !canDrive {
+			if json.Unmarshal(data, &msg) != nil || !canDrive {
+				continue
+			}
+			// Control changes travel on this socket too, so they apply in the
+			// order the operator made them: a hand-back right after typing
+			// must not be undone by keystrokes that were still in flight.
+			if msg.Type == "control" {
+				if msg.Mode == controlAgent || msg.Mode == controlUser || msg.Mode == controlStopped {
+					sb.mu.Lock()
+					sb.control = msg.Mode
+					if msg.Mode != controlAgent {
+						sb.lastAgent = time.Time{}
+					}
+					sb.mu.Unlock()
+					_ = sendState()
+				}
+				continue
+			}
+			if msg.Type != "input" {
 				continue
 			}
 			// Pressing, typing or scrolling takes over from the agent; merely

@@ -86,6 +86,12 @@ func autoArchiveSource(ctx context.Context, dir, revision, dest string) error {
 	err = autoExtract(pipe, dest)
 	if err != nil {
 		_ = cmd.Process.Kill()
+	} else {
+		// The tar reader stops at the end-of-archive marker, but git still
+		// writes record padding after it. Under load Linux can shrink a pipe
+		// to one page, so git would block on that write while Wait blocks on
+		// git. Drain it first.
+		_, _ = io.Copy(io.Discard, pipe)
 	}
 	waitErr := cmd.Wait()
 	if err != nil {

@@ -11,7 +11,9 @@ screenshot as real files.
 ## Opening it
 
 Open a session's chat and press **◎ Browser**. On a wide screen the pane sits
-beside the conversation; on a phone it takes the whole screen.
+beside the conversation; on a phone it takes the whole screen, with one row of
+controls (back, address, Go, **⋯** for everything else, close) so the page
+keeps nearly all of it.
 
 - **Ports** lists what is listening on the session's machine. Ports opened by
   a process in the session's workspace are marked *this workspace* and come
@@ -216,7 +218,9 @@ the agent is in control, and has **Stop agent**. The desktop's machine needs
 - **Injection** happens only in Design Mode, only into a successful,
   uncompressed HTML document requested as a page or frame from the same site,
   and it is one `<script src="/__lectern/design.js">` served by the view
-  itself. Scripts, styles, `fetch()` responses, downloads, error pages and
+  itself. HTML documents a view serves are sent `no-store`, so turning Design
+  Mode on never shows a cached copy without the picker; scripts, styles and
+  images cache as the app says. Scripts, styles, `fetch()` responses, downloads, error pages and
   navigations from other sites pass through byte for byte. The view only ever
   talks to its one port on the session machine's loopback; a redirect to
   another origin leaves the view and is never proxied. The pane accepts the

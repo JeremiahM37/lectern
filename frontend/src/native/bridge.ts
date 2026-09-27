@@ -30,6 +30,36 @@ export interface NativeBridge {
   pushSubscribed(endpoint: string): void;
   /** Result of a background action (native-action.ts). */
   actionResult(json: string): void;
+  // ---- added in app 0.2.0; absent from 0.1.0, so callers check first ----
+  /** A short vibration through the view: "tick", "confirm" or "warn". */
+  haptic?(kind: string): void;
+  /** The Lecterns this app is paired with (JSON: [{id, label, mode, origin, active}]). */
+  hosts?(): string;
+  /** Switches the app to another paired Lectern. */
+  switchHost?(id: string): void;
+  /** Opens the native list of paired Lecterns (add, rename, remove). */
+  openHosts?(): void;
+  /** Opens an http(s) address in the phone's browser. */
+  openUrl?(url: string): void;
+}
+
+export interface AppHost {
+  id: string;
+  label: string;
+  mode: string;
+  origin: string;
+  active: boolean;
+}
+
+/** The app's paired Lecterns, or [] in a browser or an older app. */
+export function appHosts(): AppHost[] {
+  try {
+    const raw = nativeBridge()?.hosts?.();
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? (list as AppHost[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 declare global {

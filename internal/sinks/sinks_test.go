@@ -138,3 +138,11 @@ func TestPushMessageOmitsSessionIDWhenAbsent(t *testing.T) {
 		t.Errorf("approval_id: %v", msg["approval_id"])
 	}
 }
+
+// The withdrawal push names the tag every device groups the original under.
+func TestDismissMessageNamesTheTag(t *testing.T) {
+	msg := dismissMessage(ApprovalTag(9), "Approved on another device", "x")
+	if msg["kind"] != "dismiss" || msg["tag"] != "approval-9" || msg["title"] != "Approved on another device" {
+		t.Fatalf("dismissal: %v", msg)
+	}
+}

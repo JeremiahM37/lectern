@@ -2,13 +2,25 @@
   "name": "lectern",
   "short_name": "lectern",
   "description": "Mission control for AI coding agents on your own infrastructure.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#080b14",
   "theme_color": "#080b14",
   "orientation": "any",
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "handle_links": "preferred",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-monochrome.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "monochrome" }
+  ],
+  "shortcuts": [
+    { "name": "Sessions", "url": "/#sessions", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Approvals", "url": "/#approvals", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

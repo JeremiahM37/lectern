@@ -1,0 +1,75 @@
+/* Phone gestures and states: offline banner, pull to refresh, swipeable
+   session cards, and action menus as bottom sheets. Loaded after
+   shell/mobile.css. */
+
+#offline-banner {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 10px; padding: 8px 12px;
+  background: color-mix(in srgb, var(--amber) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line));
+  border-radius: var(--r); color: var(--ink); font-size: 13px;
+}
+#offline-banner span:nth-child(2) { flex: 1; min-width: 0; }
+#offline-banner .offline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: none; }
+#offline-banner button { min-height: 32px; }
+body:has(#offline-banner) #view .scard { opacity: .92; }
+
+#pull-refresh {
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 50%; z-index: 90;
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--panel-2); border: 1px solid var(--line-2);
+  color: var(--ink-dim); font-size: 19px; box-shadow: var(--shadow);
+  transform: translate(-50%, -44px); opacity: 0; pointer-events: none;
+}
+#pull-refresh::before { content: "↻"; }
+#pull-refresh.armed { color: var(--accent-soft); border-color: var(--accent); }
+#pull-refresh.busy { opacity: 1; transform: translate(-50%, 20px); animation: pull-spin .8s linear infinite; }
+@keyframes pull-spin { from { rotate: 0deg; } to { rotate: 360deg; } }
+
+.swipe-row { position: relative; touch-action: pan-y; border-radius: var(--r); }
+.swipe-row > .swipe-card { position: relative; }
+.swipe-under {
+  position: absolute; inset: 0; display: none; align-items: center; padding: 0 22px;
+  border-radius: var(--r); font-weight: 600; font-size: 14px; color: var(--bg);
+}
+.swipe-under.ok { background: var(--green); }
+.swipe-under.warn { background: var(--red); }
+.swipe-right { justify-content: flex-start; }
+.swipe-left { justify-content: flex-end; }
+.swipe-row.swiping-right > .swipe-right, .swipe-row.swiping-left > .swipe-left { display: flex; }
+
+/* Action menus on a phone open as a sheet from the bottom edge, within
+   reach of a thumb, over a dimmed page; tapping outside closes them. */
+@media (max-width: 600px) and (pointer: coarse), (max-width: 600px) and (hover: none) {
+  /* Above the bottom tab bar, whatever card the menu belongs to. */
+  .scard:has(.action-menu.as-sheet[open]) { z-index: 75; }
+  .action-menu.as-sheet[open]::before {
+    content: ""; position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--bg) 80%, transparent);
+    animation: sheet-fade .18s ease-out;
+  }
+  .action-menu.as-sheet[open] > .action-menu-panel {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 71;
+    width: auto; max-width: none; max-height: 72dvh; overflow-y: auto;
+    border-radius: 16px 16px 0 0;
+    padding: 18px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+    animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1);
+    overscroll-behavior: contain;
+  }
+  .action-menu.as-sheet[open] > .action-menu-panel::before {
+    content: ""; position: sticky; top: -10px; display: block; align-self: center;
+    width: 38px; height: 4px; margin: -8px auto 8px; border-radius: 2px; background: var(--line-2);
+  }
+  .action-menu.as-sheet[open] > .action-menu-panel > button,
+  .action-menu.as-sheet[open] > .action-menu-panel > .b { min-height: 46px; font-size: 15px; }
+}
+@keyframes sheet-up { from { transform: translateY(40%); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.voice-settings .voice-choice { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; font-size: 13.5px; }
+.voice-settings .voice-choice input { margin-top: 4px; flex: none; }
+.voice-settings .voice-choice input:disabled + span { opacity: .6; }
+.pair-link-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pair-link-actions a.b { text-decoration: none; display: inline-flex; align-items: center; padding: 0 12px; min-height: 36px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); color: var(--ink); font: 600 12.5px var(--sans); }
+.pair-open-app { margin: 4px 0 12px; font-size: 14px; }
+.app-hosts .device-row { align-items: center; }

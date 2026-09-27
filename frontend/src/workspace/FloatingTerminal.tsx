@@ -4,6 +4,7 @@
 // chosen one), kept across reloads and listed server-side so another device
 // can reopen them. On a phone it is a bottom sheet; on a desk a window that
 // can be moved, resized and maximized.
+import { useBackClose } from "../mobile/back";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getPref, prefsLoaded, setPref, subscribePrefs } from "../prefs/store";
@@ -168,6 +169,7 @@ export function FloatingTerminal({ services, onDock }: {
     "floating.dock": dock,
     "floating.maximize": () => commit({ ...latest.current, maximized: !latest.current.maximized, open: true }),
   });
+  useBackClose(state.open, () => commit({ ...latest.current, open: false }));
   useEffect(() => {
     if (!state.open) return;
     const escape = (event: KeyboardEvent) => {

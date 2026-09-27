@@ -64,23 +64,72 @@ const ev=(type,px)=>host.dispatchEvent(new PointerEvent(type,{pointerId:7,pointe
 ev('pointerdown',x);if(dx){await new Promise(r=>setTimeout(r,100));ev('pointermove',x+dx);}
 await new Promise(r=>setTimeout(r,hold));ev('pointerup',x+dx);}"""
 
+# A finger on a point of the terminal: held for `hold` ms, then optionally
+# dragged by dx (a long press that extends its selection), then lifted.
+TOUCH="""async (host,[x,y,hold,dx])=>{
+const ev=(type,px)=>host.dispatchEvent(new PointerEvent(type,{pointerId:9,pointerType:'touch',isPrimary:true,clientX:px,clientY:y,bubbles:true,cancelable:true}));
+ev('pointerdown',x);await new Promise(r=>setTimeout(r,hold));
+if(dx){for(let i=1;i<=4;i++){ev('pointermove',x+dx*i/4);await new Promise(r=>setTimeout(r,30));}}
+ev('pointerup',x+dx);}"""
+
+
+def point(f, text):
+    p = f.locator('body').evaluate('(b,t)=>window.__lecTerminalState().pointOf(t)', text)
+    assert p, f'{text!r} is not on screen'
+    return p
+
 
 @pytest.mark.parametrize('page',[PHONE],indirect=True)
-def test_holding_the_terminal_makes_its_text_selectable(page,real_terminal):
+def test_holding_the_terminal_selects_live_text(page,real_terminal):
     t=real_terminal
     f=attach(page,t)
     f.locator('#agent-terminal').click()
-    page.keyboard.type('echo COPY-FROM-PHONE-$((40+2))');page.keyboard.press('Enter')
-    expect(f.locator('#agent-terminal .xterm-screen')).to_contain_text('COPY-FROM-PHONE-42')
+    page.keyboard.type('echo COPY-FROM-PHONE-$((40+2)) and-more');page.keyboard.press('Enter')
+    screen=f.locator('#agent-terminal .xterm-screen')
+    expect(screen).to_contain_text('COPY-FROM-PHONE-42 and-more')
     host=f.locator('#agent-terminal')
     # A tap is not a press, and neither is a slow sideways swipe between tabs.
     host.evaluate(HOLD,[150,0]);expect(f.locator('#select-bar')).to_have_count(0)
     host.evaluate(HOLD,[700,40]);expect(f.locator('#select-bar')).to_have_count(0)
-    host.evaluate(HOLD,[700,0])
+    # Held still on a word: that word is selected in the live terminal, with
+    # no pause and no copy of the buffer.
+    p=point(f,'COPY-FROM-PHONE-42 and')
+    host.evaluate(TOUCH,[p['x']+4,p['y'],700,0])
     expect(f.locator('#select-bar')).to_be_visible()
-    # xterm draws to a canvas a phone cannot select from; this is real text.
+    state=lambda: f.locator('body').evaluate('()=>window.__lecTerminalState()')
+    assert state()['selection']=='COPY-FROM-PHONE-42',state()
+    expect(f.locator('#agent-pane pre.frozen')).to_be_hidden()
+    # The terminal stays live while text is selected: output keeps arriving.
+    __import__('subprocess').run(['tmux','send-keys','-t','=terminal-test:','echo ARRIVED-$((1+1))','Enter'],env=t['env'],check=True)
+    expect(screen).to_contain_text('ARRIVED-2',timeout=10000)
+    assert state()['selection']=='COPY-FROM-PHONE-42',state()
+    # Held and dragged: the same finger grows the selection.
+    p=point(f,'COPY-FROM-PHONE-42 and')
+    host.evaluate(TOUCH,[p['x']+4,p['y'],700,140])
+    assert state()['selection'].startswith('COPY-FROM-PHONE-42 and'),state()
+    f.locator('#select-lines').click()
+    assert state()['selection'].rstrip()=='COPY-FROM-PHONE-42 and-more',state()
+    f.locator('#select-copy').click()
+    expect(f.locator('#notice')).to_contain_text('Copied')
+    expect(f.locator('#select-bar')).to_have_count(0)
+    assert not state()['hasSelection']
+    # Typing works throughout: nothing was paused.
+    f.locator('#agent-terminal').click()
+    page.keyboard.type('echo LIVE-AGAIN');page.keyboard.press('Enter')
+    expect(screen).to_contain_text('LIVE-AGAIN',timeout=10000)
+
+
+@pytest.mark.parametrize('page',[PHONE],indirect=True)
+def test_pausing_still_gives_the_whole_buffer_as_text(page,real_terminal):
+    t=real_terminal
+    f=attach(page,t)
+    f.locator('#agent-terminal').click()
+    page.keyboard.type('echo PAUSED-TEXT-$((40+2))');page.keyboard.press('Enter')
+    expect(f.locator('#agent-terminal .xterm-screen')).to_contain_text('PAUSED-TEXT-42')
+    f.locator('#terminal-tools-summary').click();f.locator('#pause').click()
+    expect(f.locator('#select-bar')).to_be_visible()
     frozen=f.locator('#agent-pane pre.frozen')
-    expect(frozen).to_contain_text('COPY-FROM-PHONE-42')
+    expect(frozen).to_contain_text('PAUSED-TEXT-42')
     assert frozen.evaluate('(el)=>getComputedStyle(el).userSelect')=='text'
     # It opens on the latest output, not on the blank rows under the cursor.
     assert frozen.evaluate('(el)=>el.scrollHeight-el.clientHeight-el.scrollTop')<=2
@@ -89,8 +138,38 @@ def test_holding_the_terminal_makes_its_text_selectable(page,real_terminal):
     expect(f.locator('#select-bar')).to_have_count(0)
     # Done hands the keyboard back to the terminal rather than leaving it nowhere.
     expect(f.locator('#agent-terminal .xterm-helper-textarea')).to_be_focused()
-    page.keyboard.type('echo LIVE-AGAIN');page.keyboard.press('Enter')
-    expect(f.locator('#agent-terminal .xterm-screen')).to_contain_text('LIVE-AGAIN',timeout=10000)
+
+
+TAP="""(host,[x,y])=>{const ev=(type)=>host.dispatchEvent(new PointerEvent(type,{pointerId:11,pointerType:'touch',isPrimary:true,clientX:x,clientY:y,bubbles:true,cancelable:true}));ev('pointerdown');ev('pointerup');}"""
+
+
+@pytest.mark.parametrize('page',[PHONE],indirect=True)
+def test_tapping_a_path_or_address_in_output_opens_it(page,real_terminal):
+    t=real_terminal
+    f=attach(page,t)
+    f.locator('body').evaluate('()=>{window.__opened=[];window.open=(u)=>{window.__opened.push(u);return null;}}')
+    f.locator('#agent-terminal').click()
+    page.keyboard.type("printf 'see hello.txt:1 and https://example.com/docs. ok\\n'");page.keyboard.press('Enter')
+    screen=f.locator('#agent-terminal .xterm-screen')
+    expect(screen).to_contain_text('see hello.txt:1 and https://example.com/docs. ok')
+    host=f.locator('#agent-terminal')
+    # A path with a line number opens the workspace file viewer on that file.
+    p=point(f,'hello.txt:1 and')
+    host.evaluate(TAP,[p['x']+8,p['y']])
+    preview=f.locator('#preview-dialog')
+    expect(preview).to_contain_text('A useful artifact')
+    expect(preview.locator('h2')).to_have_text('hello.txt')
+    preview.locator('[data-close]').click()
+    f.locator('#files-dialog [data-close]').first.click()
+    expect(f.locator('#files-dialog')).to_have_count(0)
+    # An address opens in the browser, without the sentence's full stop.
+    p=point(f,'https://example.com/docs. ok')
+    host.evaluate(TAP,[p['x']+30,p['y']])
+    assert f.locator('body').evaluate('()=>window.__opened')==['https://example.com/docs']
+    # Plain words are not links: a tap there is an ordinary tap.
+    p=point(f,'see hello')
+    host.evaluate(TAP,[p['x']+2,p['y']])
+    expect(f.locator('#files-dialog')).to_have_count(0)
 
 
 @pytest.mark.parametrize('page',[PHONE],indirect=True)

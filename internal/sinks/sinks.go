@@ -80,6 +80,9 @@ type Notifier struct {
 	// Hook, when set, replaces real delivery. Tests assert on the built payloads
 	// without any network at all — the same seam the Python suite used.
 	Hook func([]Payload)
+	// PushHook, when set, receives each web-push message instead of the push
+	// service, whether or not VAPID keys are configured. Tests only.
+	PushHook func(raw []byte)
 
 	wg sync.WaitGroup
 }
@@ -197,10 +200,41 @@ func pushMessage(title, body, urlPath string, extra *Extra) map[string]any {
 }
 
 func (n *Notifier) sendPush(title, body, urlPath string, extra *Extra) {
+	raw, _ := json.Marshal(pushMessage(title, body, urlPath, extra))
+	n.pushRaw(raw)
+}
+
+// dismissMessage is the push that withdraws a notification: every device
+// closes the one with this tag (sw-actions.ts dismissal, and the Android
+// app's Notifications.dismiss). title/body are what a browser shows in its
+// place when it must show something (docs/mobile-sessions.md).
+func dismissMessage(tag, title, body string) map[string]any {
+	return map[string]any{"kind": "dismiss", "tag": tag, "title": title, "body": body}
+}
+
+// Dismiss tells every subscribed device that a notification no longer needs
+// anyone, so an approval decided on one phone leaves the others' trays.
+// Web push only: an ntfy or Discord message cannot be withdrawn.
+func (n *Notifier) Dismiss(tag, title, body string) {
+	raw, _ := json.Marshal(dismissMessage(tag, title, body))
+	n.pushRaw(raw)
+}
+
+// ApprovalTag is the tag every device groups an approval's notification
+// under (sw-actions.ts groupTag, the Android app's Notifications.tagOf).
+func ApprovalTag(id int64) string { return "approval-" + strconv.FormatInt(id, 10) }
+
+func (n *Notifier) pushRaw(raw []byte) {
+	if n == nil {
+		return
+	}
+	if n.PushHook != nil {
+		n.PushHook(raw)
+		return
+	}
 	if n.Push == nil || !n.Push.Enabled() {
 		return
 	}
-	raw, _ := json.Marshal(pushMessage(title, body, urlPath, extra))
 	rows, err := n.DB.Query(`SELECT id, endpoint, keys_json FROM push_subscriptions`)
 	if err != nil {
 		return

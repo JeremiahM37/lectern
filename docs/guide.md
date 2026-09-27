@@ -289,10 +289,12 @@ scrollback, file browsing, upload/download, diff review, and a split shell.
 Open multiple terminal tabs without stopping the agents when you switch away.
 
 On a phone, the key row keeps Esc, Tab, Ctrl and the arrows within reach, with a
-keyboard toggle beside Tools. Use **Tools → Write or paste text** for a longer
-prompt; **Insert** pastes the text and **Send** also presses
-Enter. Pinch changes text size, long press selects output, and **Live** returns
-from retained scrollback. See the [mobile testing guide](testing/mobile-terminal.md)
+keyboard toggle beside Tools; **✎** at its end rearranges it, adds Ctrl/Alt
+combinations and saved replies, and held arrows repeat. Use **Tools → Write or
+paste text** for a longer prompt; **Insert** pastes the text and **Send** also
+presses Enter. Pinch changes text size, long press selects output while the
+agent keeps running, a tap on a `path:line` or an address opens it, and **Live**
+returns from retained scrollback. See [Using sessions on a phone](mobile-sessions.md#the-phone-terminal). See the [mobile testing guide](testing/mobile-terminal.md)
 for the Android emulator audit and its coverage limits.
 
 **A hung agent is caught where it happens.** An agent's TUI can deadlock while

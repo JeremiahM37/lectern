@@ -92,6 +92,21 @@ func (t *Tabs) Close() {
 	t.conn.Close()
 }
 
+// Quit asks the browser to exit on its own, which is when it writes a
+// persistent profile's cookies and storage to disk, and waits for it. A
+// browser only killed loses whatever it had not flushed yet.
+func (t *Tabs) Quit(ctx context.Context) {
+	t.mu.Lock()
+	t.closing = true
+	t.mu.Unlock()
+	_ = t.conn.Call(ctx, "", "Browser.close", nil, nil)
+	select {
+	case <-t.conn.Done():
+	case <-ctx.Done():
+	}
+	t.conn.Close()
+}
+
 // Done is closed when the browser goes away.
 func (t *Tabs) Done() <-chan struct{} { return t.conn.Done() }
 

@@ -192,7 +192,8 @@ func TestProfilesPersistAndCookiesImportOnTheMachine(t *testing.T) {
 	if _, err := b.Navigate(ctx, srv.URL+"/set"); err != nil {
 		t.Fatal(err)
 	}
-	tabs.Close()
+	// As the server does: ask the browser to quit, which writes the profile.
+	tabs.Quit(ctx)
 	if err := Stop(ctx, localRun, proc.Dir); err != nil {
 		t.Fatal(err)
 	}

@@ -485,6 +485,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/relay/pair", s.mintRelayPairing)
 	mux.HandleFunc("DELETE /api/relay/devices/{id}", s.revokeRelayDevice)
 	mux.HandleFunc("GET /shell-manifest.json", s.getShellManifest)
+	// ---- phone support: host-side dictation and Android app links ----
+	s.mobileRoutes(mux)
 
 	// ---- review: live diffs, commit/push/PR and inline comments ----
 	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)

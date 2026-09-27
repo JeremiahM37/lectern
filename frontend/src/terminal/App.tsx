@@ -12,6 +12,11 @@ import {
 } from "react";
 import { Engine, type Snapshot } from "./engine";
 import { modified, type Mods } from "./keys";
+import { Keybar, KeybarEditor } from "./Keybar";
+import type { TerminalLink } from "./links";
+import { LiveSelectionBar } from "./SelectionBar";
+import { openExternal } from "../mobile/open";
+import { defaultKeybar, loadKeybar, saveKeybar } from "./keybar";
 import {
   Appearance,
   Desktop,
@@ -32,7 +37,8 @@ import {
   type Prefs,
   type TerminalInfo,
 } from "./model";
-import { commandBytes, commandsFor } from "../quick/commands";
+import { GLOBAL_KEY, commandBytes, commandsFor, projectKey, readGlobal, writeScope } from "../quick/commands";
+import { getPref, usePref } from "../prefs/store";
 import { resolveTerminalTheme, saveTerminalPrefs, useTerminalPrefs, readTerminalPrefs } from "../theme/terminal-prefs";
 import { allTerminalThemes } from "../theme/terminal-themes";
 import { customThemes } from "../theme/terminal-prefs";
@@ -59,6 +65,7 @@ interface Callbacks {
   matches: (id: string, index: number, count: number) => void;
   preview: (path: string) => void;
   swipe: (id: string, direction: 1 | -1) => void;
+  link: (link: TerminalLink) => void;
   clipboard: (text: string) => void;
 }
 function Pane({
@@ -88,6 +95,7 @@ function Pane({
     retained: false,
     unresponsive: false,
     offline: false,
+    selection: false,
   });
   useEffect(() => {
     if (!el.current || !host.current || !frozen.current) return;
@@ -106,6 +114,8 @@ function Pane({
       history: () => latest.current.callbacks.history(spec.id),
       controls: () => latest.current.callbacks.controls(),
       swipe: (direction) => latest.current.callbacks.swipe(spec.id, direction),
+      openLink: (link) => latest.current.callbacks.link(link),
+      workdir: () => (info.files_available ? info.workdir : ""),
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
       osc52: () => readTerminalPrefs().osc52,
@@ -189,53 +199,13 @@ declare global {
       // keeps the session's output instead of wiping the screen.
       bufferLines: number;
       bufferContains: (text: string) => boolean;
+      // Where on screen text is drawn (its first character, bottom-most
+      // occurrence on the visible screen), for tests that touch output.
+      pointOf: (text: string) => { x: number; y: number } | null;
+      selection: string;
     };
   }
 }
-// The keys a phone keyboard does not have, in the order a shell reaches for
-// them. The row scrolls sideways, so it can be complete without being tall.
-const keys = {
-  escape: "\x1b",
-  tab: "\t",
-  backtab: "\x1b[Z",
-  left: "\x1b[D",
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  interrupt: "\x03",
-  slash: "/",
-  dash: "-",
-  pipe: "|",
-  tilde: "~",
-  home: "\x1b[H",
-  end: "\x1b[F",
-  pageup: "\x1b[5~",
-  pagedown: "\x1b[6~",
-};
-const labels: Record<keyof typeof keys, [string, string]> = {
-  escape: ["Esc", "Send Escape"],
-  tab: ["Tab", "Send Tab"],
-  backtab: ["⇧Tab", "Send Shift-Tab"],
-  left: ["←", "Send Left arrow"],
-  up: ["↑", "Send Up arrow"],
-  down: ["↓", "Send Down arrow"],
-  right: ["→", "Send Right arrow"],
-  interrupt: ["^C", "Send Ctrl-C"],
-  slash: ["/", "Send slash"],
-  dash: ["-", "Send dash"],
-  pipe: ["|", "Send pipe"],
-  tilde: ["~", "Send tilde"],
-  home: ["Home", "Send Home"],
-  end: ["End", "Send End"],
-  pageup: ["PgUp", "Send Page Up"],
-  pagedown: ["PgDn", "Send Page Down"],
-};
-// Esc and Tab lead; the sticky modifiers sit right after them, where a thumb
-// looks for Ctrl.
-const keyOrder: (keyof typeof keys | "ctrl" | "alt")[] = [
-  "escape", "tab", "ctrl", "left", "up", "down", "right", "interrupt", "backtab", "alt",
-  "slash", "dash", "pipe", "tilde", "home", "end", "pageup", "pagedown",
-];
 export function TerminalApp({
   kind,
   id,
@@ -258,10 +228,22 @@ export function TerminalApp({
   const [notice, setNotice] = useState("");
   const [uploading, setUploading] = useState(0);
   const [dialog, setDialog] = useState<
-    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | "keyboard-report" | null
+    "appearance" | "history" | "files" | "desktop" | "snippets" | "compose" | "keyboard-report" | "keybar" | null
   >(null);
   const [keyboardReport, setKeyboardReport] = useState("");
+  const [keybar, setKeybar] = useState(loadKeybar);
   const [projectId, setProjectId] = useState<number | null>(kind === "project" && /^\d+$/.test(id) ? Number(id) : null);
+  // The key row's quick-command keys come from the same server-stored list
+  // as the Snippets sheet; re-read when it changes on any device.
+  const [quickGlobal] = usePref<unknown>(GLOBAL_KEY, undefined);
+  const [quickProject] = usePref<unknown>(projectId ? projectKey(projectId) : "quick-commands:none", undefined);
+  const quick = useMemo(() => commandsFor(projectId).map((row) => row.command), [quickGlobal, quickProject, projectId]);
+  const openKeybar = () => {
+    // Commands carried over from before they were stored on the server get
+    // their ids when saved; save them now so a key can name one.
+    if (getPref<unknown>(GLOBAL_KEY, undefined) === undefined) writeScope({ kind: "global" }, readGlobal());
+    setDialog("keybar");
+  };
   const [draft, setDraft] = useState("");
   const [keyboardFocused, setKeyboardFocused] = useState(false);
   const [historyPane, setHistoryPane] = useState("agent");
@@ -490,7 +472,17 @@ export function TerminalApp({
       .find((element) => element.getClientRects().length > 0);
     (firstAction ?? details.querySelector<HTMLElement>("summary"))?.focus();
   }, [placeTools]);
+  // A tapped link: web addresses leave for the browser, workspace files open
+  // in the file viewer.
+  const link = useCallback((target: TerminalLink) => {
+    if (target.kind === "url") openExternal(target.url);
+    else {
+      setPreviewPath(target.path);
+      setDialog("files");
+    }
+  }, []);
   const callbacks: Callbacks = {
+    link,
     engine: register,
     state: update,
     select: setActive,
@@ -596,7 +588,22 @@ export function TerminalApp({
           return true;
       return false;
     };
+    const pointOf = (text: string) => {
+      const term = current()?.term,
+        screen = term?.element?.querySelector(".xterm-screen");
+      if (!term || !screen) return null;
+      const buffer = term.buffer.active,
+        box = screen.getBoundingClientRect();
+      for (let row = term.rows - 1; row >= 0; row--) {
+        const col = buffer.getLine(buffer.viewportY + row)?.translateToString(true).indexOf(text) ?? -1;
+        if (col >= 0)
+          return { x: box.left + ((col + 0.5) * box.width) / term.cols, y: box.top + ((row + 0.5) * box.height) / term.rows };
+      }
+      return null;
+    };
     window.__lecTerminalState = () => ({
+      pointOf,
+      selection: current()?.term.getSelection() || "",
       hasSelection: !!current()?.term.hasSelection(),
       mouseTrackingMode: current()?.term.modes.mouseTrackingMode || "none",
       bufferLines: current()?.term.buffer.active.length || 0,
@@ -1119,6 +1126,9 @@ export function TerminalApp({
             <button id="mobile-snippets" disabled={!state?.connected} onClick={() => setDialog("snippets")}>
               Saved replies
             </button>
+            <button id="customize-keys" onClick={openKeybar}>
+              {t("keybar.customizeRow")}
+            </button>
             <button
               id="search-conversations"
               disabled={!info}
@@ -1302,6 +1312,9 @@ export function TerminalApp({
           </button>
         </div>
       )}
+      {mobile && !state?.paused && state?.selection && (
+        <LiveSelectionBar engine={current} onNotice={setNotice} onLink={link} />
+      )}
       {fontHint && (
         <div id="font-hint" role="status">
           {fontHint} · {current()?.term.cols ?? 0} columns
@@ -1350,71 +1363,26 @@ export function TerminalApp({
           const engine = current();
           if (keyboardFocused) engine?.term.blur(); else engine?.term.focus();
         }}>⌨</button>}
-      <div id="terminal-keybar" role="group" aria-label="Terminal keys">
-        <button style={{ order: 1 }}
-          data-terminal-key="snippets"
-          className="snippets"
-          aria-label="Snippets"
-          title="Saved replies"
-          disabled={!state?.connected || state.paused}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => setDialog("snippets")}
-        >
-          ⚡
-        </button>
-        <button style={{ order: 1 }}
-          data-terminal-key="find"
-          aria-label={t("terminal.searchThis")}
-          title={t("terminal.searchThis")}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={openFind}
-        >
-          ⌕
-        </button>
-        {keyOrder.map((key) =>
-          key === "ctrl" || key === "alt" ? (
-            <button
-              key={key}
-              data-terminal-key={key}
-              className="modifier"
-              aria-label={key === "ctrl" ? "Hold Ctrl for the next key" : "Hold Alt for the next key"}
-              aria-pressed={mods[key]}
-              disabled={!state?.connected || state.paused}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => setMods((old) => ({ ...old, [key]: !old[key] }))}
-            >
-              {key === "ctrl" ? "Ctrl" : "Alt"}
-            </button>
-          ) : (
-            <button
-              key={key}
-              data-terminal-key={key}
-              aria-label={labels[key][1]}
-              disabled={!state?.connected || state.paused}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => {
-                const engine = current();
-                if (!engine) return;
-                let text = keys[key];
-                const armed = mods.ctrl || mods.alt;
-                if (
-                  !armed &&
-                  engine.term.modes.applicationCursorKeysMode &&
-                  /^\x1b\[[ABCD]$/.test(text)
-                )
-                  text = text.replace("[", "O");
-                // input() applies and releases any armed modifier itself.
-                engine.input(text);
-                engine.term.scrollToBottom();
-                // Keep a hidden keyboard hidden. preventDefault on pointerdown
-                // already preserves focus when the keyboard is being used.
-              }}
-            >
-              {labels[key][0]}
-            </button>
-          ),
-        )}
-      </div>
+      <Keybar
+        row={keybar}
+        quick={quick}
+        disabled={!state?.connected || !!state.paused}
+        mods={mods}
+        appCursor={() => !!current()?.term.modes.applicationCursorKeysMode}
+        onMod={(key) => setMods((old) => ({ ...old, [key]: !old[key] }))}
+        onSend={(bytes) => {
+          const engine = current();
+          if (!engine) return;
+          // input() applies and releases any armed modifier itself.
+          engine.input(bytes);
+          engine.term.scrollToBottom();
+          // Keep a hidden keyboard hidden. preventDefault on pointerdown
+          // already preserves focus when the keyboard is being used.
+        }}
+        onSnippets={() => setDialog("snippets")}
+        onFind={openFind}
+        onEdit={openKeybar}
+      />
       <footer>
         <span id="workspace-path">{info?.workdir}</span>
         <span>
@@ -1483,6 +1451,17 @@ export function TerminalApp({
             if (!engine) return;
             engine.input(commandBytes(command));
             engine.term.scrollToBottom();
+          }}
+          onClose={close}
+        />
+      )}
+      {dialog === "keybar" && (
+        <KeybarEditor
+          row={keybar}
+          quick={quick}
+          onChange={(next) => {
+            saveKeybar(next);
+            setKeybar(next ?? defaultKeybar);
           }}
           onClose={close}
         />

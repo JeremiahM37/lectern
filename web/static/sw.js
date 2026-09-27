@@ -2134,6 +2134,13 @@
       };
     return { title: decision === "approved" ? "Approved" : "Denied", body: "Sent from the notification." };
   }
+  function dismissalOf(data) {
+    if (data.kind !== "dismiss" || typeof data.tag !== "string" || !/^[a-z]+-[A-Za-z0-9_-]{1,80}$/.test(data.tag)) return null;
+    return { tag: data.tag, title: data.title || "Handled on another device", body: data.body || "" };
+  }
+  function replacementNeeded(stillShowing, windowVisible) {
+    return stillShowing === 0 && !windowVisible;
+  }
 
   // src/badge.ts
   function applyBadge(nav, count) {
@@ -2152,7 +2159,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-2191618d4955";
+  var CACHE = "lectern-react-4fde5e40fef5";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2201,7 +2208,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-_2sMBr6A.js","/react/assets/app-YqKGhjxF.js","/react/assets/app-qCt6OJOB.css","/react/assets/preload-helper-HaXW5a7A.css","/react/assets/preload-helper-TVvMN8y_.js","/react/assets/terminal-CERIAKts.js","/react/assets/terminal-DiTg3hE2.css"]);
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-CbXQy6Kq.js","/react/assets/app-Bw2f3-Kb.css","/react/assets/app-h_Mj8ixC.js","/react/assets/preload-helper-CukFqlpT.css","/react/assets/preload-helper-Dq6s_1_z.js","/react/assets/terminal-CA-T9o_Z.js","/react/assets/terminal-DJ1e7Qp2.css"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {
@@ -2310,6 +2317,22 @@
     try {
       data = event.data?.json() || {};
     } catch {
+    }
+    const dismissal = dismissalOf(data);
+    if (dismissal) {
+      event.waitUntil((async () => {
+        const matched = await worker.registration.getNotifications({ tag: dismissal.tag });
+        for (const n of matched) n.close();
+        if (matched.length && badgeCount > 0) {
+          badgeCount -= 1;
+          applyBadge(navigator, badgeCount);
+        }
+        const showing = (await worker.registration.getNotifications()).length;
+        const windows = await worker.clients.matchAll({ type: "window" });
+        if (replacementNeeded(showing, windows.some((c) => c.visibilityState === "visible")))
+          await worker.registration.showNotification(dismissal.title, { body: dismissal.body, tag: dismissal.tag, silent: true, renotify: false, icon: "/icon.svg", badge: "/icon.svg", data: { url: "/" } });
+      })());
+      return;
     }
     const plan = buildNotificationPlan(data);
     if (needsBadge(data.kind)) {

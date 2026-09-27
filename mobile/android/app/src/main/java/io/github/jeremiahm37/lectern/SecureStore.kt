@@ -11,22 +11,27 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * The app's settings. Secrets (the relay route token, a direct-mode device
- * token, a fallback device key) are sealed with an AES-256-GCM key that lives
- * in Android Keystore and never leaves it, so the preference file on its own
- * reveals nothing.
+ * The app's settings. Secrets (relay route tokens, direct-mode device
+ * tokens, fallback device keys; one set per paired Lectern, see Hosts) are
+ * sealed with an AES-256-GCM key that lives in Android Keystore and never
+ * leaves it, so the preference file on its own reveals nothing.
  */
 class SecureStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("lectern", Context.MODE_PRIVATE)
 
-    var mode: String
-        get() = prefs.getString(KEY_MODE, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_MODE, value).apply()
+    /** App 0.1.0's single connection, read once to migrate it (Hosts). */
+    val legacyMode: String get() = prefs.getString(KEY_MODE, "") ?: ""
+    val legacyOrigin: String get() = prefs.getString(KEY_ORIGIN, "") ?: ""
 
-    /** The origin the WebView loads: the Lectern host (direct) or [Shell.APP_ORIGIN] (relay). */
-    var origin: String
-        get() = prefs.getString(KEY_ORIGIN, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_ORIGIN, value).apply()
+    fun clearLegacy() {
+        prefs.edit().remove(KEY_MODE).remove(KEY_ORIGIN).commit()
+    }
+
+    /** Moves a stored value (sealed or not) to a new name, unchanged. */
+    fun rename(from: String, to: String) {
+        val value = prefs.getString(from, null) ?: return
+        prefs.edit().putString(to, value).remove(from).commit()
+    }
 
     fun putSecret(name: String, value: String?) {
         if (value == null) {
@@ -39,19 +44,10 @@ class SecureStore(context: Context) {
     fun getSecret(name: String): String? = prefs.getString(name, null)?.let { runCatching { String(open(it)) }.getOrNull() }
 
     fun putPlain(name: String, value: String?) {
-        if (value == null) prefs.edit().remove(name).apply() else prefs.edit().putString(name, value).apply()
+        if (value == null) prefs.edit().remove(name).commit() else prefs.edit().putString(name, value).commit()
     }
 
     fun getPlain(name: String): String? = prefs.getString(name, null)
-
-    /** Forgets the connection. Push registration is handled by the caller. */
-    fun clearConnection() {
-        prefs.edit()
-            .remove(KEY_MODE).remove(KEY_ORIGIN)
-            .remove(RELAY_PAIRING).remove(DEVICE_TOKEN)
-            .remove(PUSH_SUBSCRIPTION).remove(PUSH_CONFIRMED)
-            .commit()
-    }
 
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

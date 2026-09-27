@@ -1,3 +1,4 @@
+import { AppHosts, VoiceSettings } from "./PhonePanels";
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { IsolationConfig, Project, Target } from "../types";
@@ -241,6 +242,8 @@ export function Settings({
           onNotice={onNotice}
         />
       )}{" "}
+      {tab === "notifications" && <VoiceSettings />}
+      {tab === "devices" && <AppHosts />}
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (
         <section>

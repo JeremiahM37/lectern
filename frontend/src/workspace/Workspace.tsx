@@ -7,6 +7,7 @@
 //
 // Every pane's content lives in one flat container and is positioned over its
 // slot, never re-parented, so rearranging the layout never reloads a terminal.
+import { useBackClose } from "../mobile/back";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getPref, prefsLoaded, setPref, subscribePrefs, usePref } from "../prefs/store";
@@ -275,6 +276,8 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
   useLocale();
   usePaneTypes();
   const { state, update } = controller;
+  // The Android back key restores a maximized pane before anything else.
+  useBackClose(!!state.maximized, () => update((old) => toggleMaximize(old)));
   const [mobile, setMobile] = useState(() => matchMedia("(max-width:1023px)").matches),
     [compact, setCompact] = useState(() => { try { return localStorage.getItem("lec-terminal-compact") !== "0"; } catch { return true; } }),
     [mounted, setMounted] = useState<string[]>([]),

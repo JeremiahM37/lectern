@@ -13,6 +13,12 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   token?: () => string;
   onUnauthorized?: () => void;
+  /** Last-known answers for the home screens (offline.ts). */
+  offline?: {
+    cacheable(path: string, method?: string): boolean;
+    run<T>(path: string, load: () => Promise<T>): Promise<T>;
+    clear(): void;
+  };
 }
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
@@ -31,7 +37,14 @@ export function withToken(url: string, token = authToken()): string {
 export function createClient(options: ClientOptions = {}) {
   const request: typeof fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   const getToken = options.token ?? authToken;
-  return async function api<T>(path: string, optionsIn: RequestOptions = {}): Promise<T> {
+  const offline = options.offline;
+  async function api<T>(path: string, optionsIn: RequestOptions = {}): Promise<T> {
+    if (offline?.cacheable(path, optionsIn.method) && optionsIn.body === undefined)
+      return offline.run(path, () => send<T>(path, optionsIn));
+    return send<T>(path, optionsIn);
+  }
+  return api;
+  async function send<T>(path: string, optionsIn: RequestOptions): Promise<T> {
     const { body, headers: extraHeaders, ...init } = optionsIn;
     const headers = new Headers(extraHeaders);
     const multipart = body instanceof FormData;
@@ -52,10 +65,13 @@ export function createClient(options: ClientOptions = {}) {
           message = payload.detail;
         }
       } catch { /* Proxies can return HTML errors. Preserve the HTTP failure. */ }
-      if (response.status === 401) options.onUnauthorized?.();
+      if (response.status === 401) {
+        offline?.clear();
+        options.onUnauthorized?.();
+      }
       throw new ApiError(response.status, message, payload);
     }
     // Endpoint contracts specify null for an empty successful response.
     return (response.status === 204 ? null : await response.json()) as T;
-  };
+  }
 }
