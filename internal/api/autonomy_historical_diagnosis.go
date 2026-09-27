@@ -12,13 +12,16 @@ import (
 )
 
 type autoVerifiedDiagnosisEnvironment struct {
-	DiagnosisTaskID int64              `json:"diagnosis_task_id"`
-	OriginTaskID    int64              `json:"origin_task_id"`
-	BuilderJob      string             `json:"builder_job"`
-	ReviewerJob     string             `json:"reviewer_job"`
-	Request         *autoPythonRequest `json:"request"`
-	Receipt         *autoPythonReceipt `json:"receipt"`
-	ReviewerReceipt *autoPythonReceipt `json:"reviewer_receipt"`
+	NodeRequest         *autoNodeRequest   `json:"node_request,omitempty"`
+	NodeReceipt         *autoNodeReceipt   `json:"node_receipt,omitempty"`
+	NodeReviewerReceipt *autoNodeReceipt   `json:"node_reviewer_receipt,omitempty"`
+	DiagnosisTaskID     int64              `json:"diagnosis_task_id"`
+	OriginTaskID        int64              `json:"origin_task_id"`
+	BuilderJob          string             `json:"builder_job"`
+	ReviewerJob         string             `json:"reviewer_job"`
+	Request             *autoPythonRequest `json:"request"`
+	Receipt             *autoPythonReceipt `json:"receipt"`
+	ReviewerReceipt     *autoPythonReceipt `json:"reviewer_receipt"`
 }
 
 func autoHistoricalEligible(a *autoRecord, j *autoJob) bool {
@@ -182,7 +185,7 @@ func autoHistoricalRequirementTarget(a *autoRecord, p autonomy.Proposal, r *auto
 	return nil
 }
 
-func autoDiagnosisUsedRequirements(j *autoJob, requirements []autonomy.Requirement) bool {
+func autoDiagnosisUsedPythonRequirements(j *autoJob, requirements []autonomy.Requirement) bool {
 	pins, imports, supported, err := autoDiagnosisRemedy(requirements)
 	if err != nil || !supported || j == nil || j.PythonRequest == nil || j.PythonRecovery == nil || j.PythonRecovery.State != "verified" || j.PythonUsedBundle == "" || j.PythonUsedBundle != j.PythonRecovery.BundleKey || !autoPythonBound(j.PythonRequest, *j.PythonRecovery) {
 		return false
@@ -207,23 +210,57 @@ func autoDiagnosisUsedRequirements(j *autoJob, requirements []autonomy.Requireme
 	}
 	return true
 }
+func autoDiagnosisUsedRequirements(j *autoJob, requirements []autonomy.Requirement) bool {
+	recipe, ok, err := autoDiagnosisRecipeFor(requirements)
+	if err != nil || !ok {
+		return false
+	}
+	if recipe.Python != nil {
+		var py []autonomy.Requirement
+		for _, r := range requirements {
+			if r.Capability == "python_wheels" {
+				py = append(py, r)
+			}
+		}
+		if !autoDiagnosisUsedPythonRequirements(j, py) {
+			return false
+		}
+	}
+	return recipe.Node == nil || autoDiagnosisNodeUsedRequirements(j, recipe.Node)
+}
 func autoHistoricalProvisioningGate(a *autoRecord, j *autoJob, outcome string, requirements []autonomy.Requirement) bool {
 	d := a.RequirementDiagnoses[j.DiagnosisReservation]
 	if d == nil || !d.EvidenceOnly || j.Role != "builder" || outcome != "ready_for_review" {
 		return false
 	}
-	_, _, supported, err := autoDiagnosisRemedy(requirements)
+	_, supported, err := autoDiagnosisRecipeFor(requirements)
 	return err == nil && supported && !autoDiagnosisUsedRequirements(j, requirements)
 }
 func autoHistoricalVerifiedEnvironment(d *autoRequirementDiagnosis, builder, reviewer *autoJob, requirements []autonomy.Requirement) (*autoVerifiedDiagnosisEnvironment, error) {
 	if !autoDiagnosisUsedRequirements(builder, requirements) || !autoDiagnosisUsedRequirements(reviewer, requirements) {
 		return nil, errors.New("historical diagnosis requires both builder and independent reviewer to execute with the verified proposed environment; report an explicit blocked prerequisite if unavailable")
 	}
+	recipe, _, _ := autoDiagnosisRecipeFor(requirements)
 	b, r := builder.PythonRecovery, reviewer.PythonRecovery
-	if !autoHash256(b.InputKey) || !autoHash256(b.BundleKey) || !autoHash256(b.RuntimeDigest) || b.InputKey != r.InputKey || b.BundleKey != r.BundleKey || b.RuntimeDigest != r.RuntimeDigest || b.BrowserKey != r.BrowserKey {
-		return nil, errors.New("historical diagnosis builder and reviewer used different environments")
+	if recipe.Python != nil {
+		if !autoHash256(b.InputKey) || !autoHash256(b.BundleKey) || !autoHash256(b.RuntimeDigest) || b.InputKey != r.InputKey || b.BundleKey != r.BundleKey || b.RuntimeDigest != r.RuntimeDigest || b.BrowserKey != r.BrowserKey {
+			return nil, errors.New("historical diagnosis builder and reviewer used different environments")
+		}
+	}
+	if recipe.Node != nil && (!autoSameNodeEnvironment(builder.NodeRecovery, reviewer.NodeRecovery) || store.J(builder.NodeRequest) != store.J(reviewer.NodeRequest)) {
+		return nil, errors.New("historical diagnosis builder and reviewer used different Node environments")
 	}
 	var verified autoVerifiedDiagnosisEnvironment
-	_ = json.Unmarshal([]byte(store.J(autoVerifiedDiagnosisEnvironment{DiagnosisTaskID: builder.TaskID, OriginTaskID: d.OriginTaskID, BuilderJob: builder.ID, ReviewerJob: reviewer.ID, Request: builder.PythonRequest, Receipt: b, ReviewerReceipt: r})), &verified)
+	_ = json.Unmarshal([]byte(store.J(autoVerifiedDiagnosisEnvironment{DiagnosisTaskID: builder.TaskID, OriginTaskID: d.OriginTaskID, BuilderJob: builder.ID, ReviewerJob: reviewer.ID, Request: builder.PythonRequest, Receipt: b, ReviewerReceipt: r, NodeRequest: builder.NodeRequest, NodeReceipt: builder.NodeRecovery, NodeReviewerReceipt: reviewer.NodeRecovery})), &verified)
+	if recipe.Python == nil {
+		verified.Request = nil
+		verified.Receipt = nil
+		verified.ReviewerReceipt = nil
+	}
+	if recipe.Node == nil {
+		verified.NodeRequest = nil
+		verified.NodeReceipt = nil
+		verified.NodeReviewerReceipt = nil
+	}
 	return &verified, nil
 }

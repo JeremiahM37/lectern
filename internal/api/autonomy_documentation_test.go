@@ -284,7 +284,7 @@ func TestDocumentationDisabledTickRetriesFailedHelperStopAfterReload(t *testing.
 	a.Jobs = []*autoJob{{ID: "pending-copy", Status: "prepared", DocumentationCopies: []autoDocumentationCopy{{Command: "copy-derived", SourceJob: "source"}}}}
 	// Invalid runner exit makes the first stop fail without losing pending ownership.
 	os.WriteFile(response, []byte("{}"), 0600)
-	script := "#!/bin/sh\nif [ ! -f \"$LECTERN_DOC_RESPONSE.ok\" ]; then exit 1; fi\necho '{}'\n"
+	script := "#!/bin/sh\nif [ ! -f \"$LECTERN_DOC_RESPONSE.ok\" ]; then exit 1; fi\necho '{\"state\":\"stopped\"}'\n"
 	os.WriteFile(filepath.Join(filepath.Dir(response), "sudo"), []byte(script), 0700)
 	s.stopAutoJobs(context.Background(), a, "off")
 	if a.Status != "error" || !autoDocumentationStopPending(a.Jobs[0]) {
