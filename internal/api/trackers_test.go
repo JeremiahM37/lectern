@@ -65,6 +65,12 @@ func TestTrackerHubListsTheProjectsForge(t *testing.T) {
 			t.Fatalf("PR 15 row = %v", i)
 		}
 	}
+	if review := h.get(fmt.Sprintf("/api/projects/%d/work?state=open&mine=review", pid)).list("items"); len(itemIDs(review, "issue")) != 0 {
+		t.Fatalf("review requested listed issues: %v", review)
+	}
+	if !h.cmdLogHas("--search review-requested:@me") {
+		t.Fatal("review filter did not reach gh")
+	}
 	only := h.get(fmt.Sprintf("/api/projects/%d/work?kind=pr&q=config", pid)).list("items")
 	if len(only) != 1 || only[0].str("id") != "15" {
 		t.Fatalf("filtered = %v", only)

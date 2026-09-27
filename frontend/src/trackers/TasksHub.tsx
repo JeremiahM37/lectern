@@ -82,6 +82,8 @@ export function TasksHub({
   const [trackers, setTrackers] = useState<TrackersResponse>();
   const [data, setData] = useState<WorkResponse>();
   const [states, setStates] = useState<Transition[]>([]);
+  const [teams, setTeams] = useState<{ key: string; name: string }[]>([]);
+  const [team, setTeam] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
@@ -133,7 +135,8 @@ export function TasksHub({
     try {
       let res: WorkResponse;
       if (connTab) {
-        const items = await api.request<Item[]>(`/trackers/${connTab.id}/issues?${filterQuery(filter)}${q}`);
+        const t = connTab.kind === "linear" && team ? `&team=${encodeURIComponent(team)}` : "";
+        const items = await api.request<Item[]>(`/trackers/${connTab.id}/issues?${filterQuery(filter)}${q}${t}`);
         res = { items, sources: [{ source: connTab.kind, name: connTab.name, ok: true, count: items.length, connection_id: connTab.id }] };
       } else {
         const kind = tab === "pr" || tab === "issue" ? `&kind=${tab}` : "";
@@ -148,14 +151,20 @@ export function TasksHub({
     } finally {
       if (g === generation.current) setLoading(false);
     }
-  }, [api, pid, connTab, tab, filter, query]);
+  }, [api, pid, connTab, tab, filter, query, team]);
   useEffect(() => {
     void load();
   }, [load, refreshVersion]);
 
   useEffect(() => {
     setStates([]);
-    if (connTab?.kind === "linear") api.request<Transition[]>(`/trackers/${connTab.id}/states`).then(setStates).catch(() => {});
+    if (connTab?.kind === "linear")
+      api.request<Transition[]>(`/trackers/${connTab.id}/states${team ? `?team=${encodeURIComponent(team)}` : ""}`).then(setStates).catch(() => {});
+  }, [api, connTab, team]);
+  useEffect(() => {
+    setTeams([]);
+    setTeam(connTab?.kind === "linear" ? String(connTab.config.team_key || "") : "");
+    if (connTab?.kind === "linear") api.request<{ key: string; name: string }[]>(`/trackers/${connTab.id}/teams`).then(setTeams).catch(() => {});
   }, [api, connTab]);
 
   // search: instant local narrowing, then the server's own search
@@ -274,6 +283,15 @@ export function TasksHub({
             </button>
           ))}
         </div>
+        {teams.length > 1 && (
+          <select className="th-team" aria-label="Linear team" value={team} onChange={(e) => setTeam(e.target.value)}>
+            {teams.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name} ({t.key})
+              </option>
+            ))}
+          </select>
+        )}
         <input className="th-search" type="search" aria-label="Search tasks" placeholder="Search title, id, branch, person, label" value={text} onChange={(e) => setText(e.target.value)} />
         {showBoardToggle && (
           <div className="th-viewtoggle" role="group" aria-label="View">

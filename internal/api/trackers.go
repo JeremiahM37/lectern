@@ -527,7 +527,8 @@ func (s *Server) listWork(w http.ResponseWriter, r *http.Request) {
 	if want == "" || want == "github" || want == "gitlab" {
 		for _, k := range []string{"pr", "issue"} {
 			k := k
-			if kind != "" && kind != k {
+			// "review requested" only means something for pull requests
+			if (kind != "" && kind != k) || (f.Mine == "review" && k == "issue") {
 				continue
 			}
 			name := map[string]string{"pr": "Pull requests", "issue": "Issues"}[k]
@@ -540,7 +541,7 @@ func (s *Server) listWork(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range conns {
 		c := c
-		if (want != "" && want != c.Kind) || kind == "pr" {
+		if (want != "" && want != c.Kind) || kind == "pr" || f.Mine == "review" {
 			continue
 		}
 		cfg := store.UnjObj(c.ConfigJSON)
