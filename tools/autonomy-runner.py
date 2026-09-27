@@ -30,6 +30,12 @@ ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
 EXPERT_PROBE_HELPER = Path('/usr/local/libexec/lectern-autonomy-expert-probe.py')
 PRIVATE_INTEGRATION_HELPER = Path('/usr/local/libexec/lectern-autonomy-private-integration.py')
+SERVER_OPERATIONS_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-operations.py')
+SERVER_REGISTRY = Path('/etc/lectern/server-targets.json')
+SERVER_OBSERVATIONS_ROOT = ROOT.parent / 'server-observations'
+SERVER_MAINTENANCE_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-maintenance.py')
+SERVER_MAINTENANCE_ROOT = ROOT.parent / 'server-maintenance'
+SERVER_MAINTENANCE_TOOLS = ROOT.parent / 'server-maintenance-tools'
 INTEGRATION_ROOT = ROOT.parent / 'integrations'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
 DEPENDENCIES = ROOT.parent / 'dependencies'
@@ -624,6 +630,13 @@ def status(job):
 
 
 def stop(job):
+    observation_error = None
+    if (job_path(job) / 'server-observations').exists() or (SERVER_OBSERVATIONS_ROOT / job).exists():
+        try:
+            observed = server_observation('server-observe-stop', job)
+            if observed['state'] != 'stopped': observation_error = RuntimeError('server observations are still stopping')
+        except Exception as error:
+            observation_error = error
     with launch_lock(job):
         p = job_path(job)
         if not (p / 'stopped').exists():
@@ -637,7 +650,9 @@ def stop(job):
             usage_finish(job, confirmed_stop=True)
         elif active not in ('inactive', 'failed'):
             raise RuntimeError('runner unit status unavailable during stop')
-        return status_unlocked(job)
+        result = status_unlocked(job)
+        if observation_error is not None: raise observation_error
+        return result
 
 
 def usage_begin(job):
@@ -1781,7 +1796,7 @@ def allocated_storage():
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT) for row in os.walk(root, followlinks=False)):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT, SERVER_OBSERVATIONS_ROOT, SERVER_MAINTENANCE_ROOT, SERVER_MAINTENANCE_TOOLS) for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:
@@ -2415,27 +2430,30 @@ def copy_archive_work(job, source, preserve_report=False):
     return receipt
 
 
-def copy_archive_review(job, source):
+def copy_archive_review(job, source, derived=False):
     """Give a plan auditor exact exported evidence rather than mutable work."""
     destination = job_path(job)
     job_path(source)
     if job == source or (destination / 'job.json').exists():
         raise ValueError('archive review evidence requires a fresh prepared job')
     stage = completion_stage(job, create=True)
-    identity = archive_identity(source)['sha256']
+    derived_receipt = completion_ready(completion_stage(source)) if derived else None
+    identity = derived_receipt['derived_archive_sha256'] if derived else archive_identity(source)['sha256']
     expected = {'source_job': source, 'source_archive_sha256': identity}
-    intent = stage / ('archive-review-' + source + '-intent.json')
-    published = stage / ('archive-review-' + source + '-ready.json')
+    if derived: expected.update(derived_archive_sha256=identity, source_kind='verified_documentary_derived')
+    evidence_id = source + ('-derived' if derived else '')
+    intent = stage / ('archive-review-' + evidence_id + '-intent.json')
+    published = stage / ('archive-review-' + evidence_id + '-ready.json')
     with intent.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         work = ensure_work(destination)
         evidence_root = work / '.lectern-review'
         if evidence_root.is_symlink() or (evidence_root.exists() and not evidence_root.is_dir()):
             raise ValueError('unsafe archive review evidence root')
-        evidence = evidence_root / source
+        evidence = evidence_root / evidence_id
         if published.exists():
             receipt = completion_json(published)
-            if receipt.get('source_archive_sha256') != identity or receipt.get('source_job') != source:
+            if any(receipt.get(key) != value for key,value in expected.items()):
                 raise RuntimeError('archive review source identity changed')
             _,actual,_=evidence_tree_identity(evidence/'work',receipt.get('evidence_digest_scheme','documentary-tree-v1'))
             if actual != receipt.get('evidence_tree_sha256'):
@@ -2453,11 +2471,18 @@ def copy_archive_review(job, source):
                 raise ValueError('archive review evidence already exists')
             completion_write(intent, expected)
         copied = evidence / 'work'
-        digest = evidence_extract_archive(source, copied)
+        if derived:
+            evidence.mkdir(parents=True, mode=0o700)
+            completion_copy(completion_stage(source) / 'derived/work', copied)
+            if completion_inspect(copied) != derived_receipt['derived_tree_sha256']:
+                raise RuntimeError('derived audit evidence tree differs')
+            digest = identity
+        else:
+            digest = evidence_extract_archive(source, copied)
         if digest != identity:
             raise RuntimeError('archive changed during review copy')
         scheme,tree_hash,manifest=evidence_tree_identity(copied)
-        (evidence / 'manifest.json').write_text(json.dumps({'source_job': source,
+        (evidence / 'manifest.json').write_text(json.dumps({**expected, 'source_job': source,
             'source_archive_sha256': digest, 'purpose': 'untrusted archived evidence, not approval; symlink targets are literal untrusted text',
             'evidence_digest_scheme':scheme,'evidence_tree_sha256':tree_hash,'files': manifest}, indent=2))
         admin = pwd.getpwnam('admin')
@@ -2601,6 +2626,8 @@ def completion_copy_unit(job, source, kind):
         return 'lectern-completion-resume-' + job + '.service'
     if kind == 'derived':
         return 'lectern-completion-copy-derived-' + job + '.service'
+    if kind == 'derived-review':
+        return 'lectern-completion-copy-derived-review-' + job + '-' + source + '.service'
     if kind == 'archive':
         return 'lectern-completion-copy-archive-' + job + '-' + source + '.service'
     raise ValueError('unknown completion copy kind')
@@ -2612,6 +2639,9 @@ def completion_copy_receipt(stage, source, kind):
         return stage / 'copy-resume.json'
     if kind == 'derived':
         return stage / 'copy-derived.json'
+    if kind == 'derived-review':
+        job_path(source)
+        return stage / ('copy-derived-review-' + source + '.json')
     if kind == 'archive':
         job_path(source)
         return stage / ('copy-archive-' + source + '.json')
@@ -2713,7 +2743,7 @@ def completion_copy_status(job, source, kind, generation=1):
         try:
             completion_launch_capacity()
             completion_write(path, request)
-            command = {'derived': '_copy-derived', 'archive': '_copy-archive-review', 'resume': '_completion-resume'}[kind]
+            command = {'derived-review':'_copy-derived-review', 'derived': '_copy-derived', 'archive': '_copy-archive-review', 'resume': '_completion-resume'}[kind]
             run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+completion_copy_unit(job, source, kind),
                  '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G', '--property=CPUQuota=200%',
                  '--property=TasksMax=32', '--property=KillMode=control-group', '--property=UMask=0077',
@@ -2770,7 +2800,7 @@ def completion_copy_execute(job, source, kind, generation=1):
         try:
             completion_capacity()
             if kind in ('archive-work','archive-resume'):completion_archive_volume(job)
-            operation = {'archive-resume':lambda job,source:copy_archive_work(job,source,preserve_report=True),'archive-work':copy_archive_work,'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
+            operation = {'archive-resume':lambda job,source:copy_archive_work(job,source,preserve_report=True),'archive-work':copy_archive_work,'derived-review':lambda job,source:copy_archive_review(job,source,derived=True),'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
             receipt = operation(job, source)
             completion_write(path, dict(receipt, copy_source_job=source))
             return 0
@@ -2964,6 +2994,11 @@ def completion_stop(job, generation=None):
                 names.append(completion_copy_unit(job, source, 'resume'))
             elif path.name == 'copy-derived.json':
                 names.append(completion_copy_unit(job, source, 'derived'))
+            elif path.name.startswith('copy-derived-review-'):
+                job_path(source)
+                if path.name != 'copy-derived-review-' + source + '.json':
+                    raise RuntimeError('derived evidence cancellation identity mismatch')
+                names.append(completion_copy_unit(job, source, 'derived-review'))
             elif path.name.startswith('copy-archive-'):
                 job_path(source)
                 if path.name != 'copy-archive-' + source + '.json':
@@ -3301,16 +3336,56 @@ def private_integration(args):
     return module.dispatch(globals(), args.command, args.job, args.integration_id, phase, args.generation, args.check_id, args.stream, args.offset, args.project_id)
 
 
+def server_observation(command, job=None, observation=None):
+    helper=SERVER_OPERATIONS_HELPER
+    if command not in ('server-targets','server-observe-stop'):
+        job_path(job)
+        if not isinstance(observation,str) or len(observation)!=64 or any(c not in '0123456789abcdef' for c in observation):
+            raise ValueError('observation ID must be SHA256')
+        stage=SERVER_OBSERVATIONS_ROOT/job/'observations'/observation
+        for parent in (SERVER_OBSERVATIONS_ROOT, SERVER_OBSERVATIONS_ROOT/job, stage.parent, stage):
+            if parent.exists():
+                info=parent.lstat()
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o077:
+                    raise ValueError('unsafe server observation state')
+        if (stage/'helper.py').exists():helper=stage/'helper.py'
+        if command=='_server-observe' and helper!=stage/'helper.py':raise ValueError('observer helper was not frozen')
+    module=python_helper(helper)
+    return module.dispatch(globals(),command,job,observation)
+
+
+def server_maintenance(args):
+    helper = SERVER_MAINTENANCE_HELPER
+    operation = getattr(args,'operation_id',None)
+    if operation is not None:
+        if not isinstance(operation,str) or len(operation)!=64 or any(c not in '0123456789abcdef' for c in operation):
+            raise ValueError('maintenance operation must be SHA256')
+        manifest = SERVER_MAINTENANCE_ROOT/'operations'/operation/'executables.json'
+        if manifest.exists():
+            info = regular(manifest)
+            if info.st_uid != 0 or info.st_mode & 0o077:
+                raise ValueError('unsafe maintenance executable selection')
+            selected = json.loads(manifest.read_bytes())
+            digest = selected.get('digest')
+            if not isinstance(digest,str) or len(digest)!=64 or any(c not in '0123456789abcdef' for c in digest):
+                raise ValueError('invalid maintenance executable identity')
+            helper = SERVER_MAINTENANCE_TOOLS/digest/'autonomy-server-maintenance.py'
+    module = python_helper(helper)
+    return module.dispatch(globals(),args.command,args.job,operation,args.phase,args.generation)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['copy-derived-review','_copy-derived-review','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('--operation-id')
+    parser.add_argument('--observation-id')
     parser.add_argument('--python-test-key')
     parser.add_argument('--key')
     parser.add_argument('--integration-id')
     parser.add_argument('--generation', type=int, default=1)
     parser.add_argument('--check-id')
     parser.add_argument('--project-id', type=int)
-    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback'])
+    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback','validate','backup','apply','reconcile'])
     parser.add_argument('--job')
     parser.add_argument('--probe-id')
     parser.add_argument('--stream', choices=['stdout', 'stderr'])
@@ -3328,7 +3403,13 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'python-test-runtime':
+    if args.command.startswith('server-maintenance-') or args.command == '_server-maintenance':
+        out = server_maintenance(args)
+        if args.command == '_server-maintenance': return out
+    elif args.command in ('server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe'):
+        out = server_observation(args.command, args.job, args.observation_id)
+        if args.command == '_server-observe': return out
+    elif args.command == 'python-test-runtime':
         out = python_test_runtime_status(args.key, args.job)
     elif args.command in ('integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback'):
         out = private_integration(args)
@@ -3358,6 +3439,10 @@ def main():
         out = completion_copy_status(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
     elif args.command == '_copy-archive-work':
         return completion_copy_execute(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == 'copy-derived-review':
+        out = completion_copy_status(args.job, args.from_job, 'derived-review')
+    elif args.command == '_copy-derived-review':
+        return completion_copy_execute(args.job, args.from_job, 'derived-review')
     elif args.command == '_copy-derived':
         return completion_copy_execute(args.job, args.from_job, 'derived')
     elif args.command == '_copy-archive-review':

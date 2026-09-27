@@ -156,27 +156,28 @@ const (
 )
 
 type Proposal struct {
-	IntegrationTaskID          int64    `json:"integration_task_id,omitempty"`
-	IntegrationPin             string   `json:"integration_pin,omitempty"`
-	IntegrationPaths           []string `json:"integration_paths,omitempty"`
-	SourceIntegrationID        string   `json:"source_integration_id,omitempty"`
-	ExpertRecoveryTaskID       int64    `json:"expert_recovery_task_id,omitempty"`
-	ExpertProgressKey          string   `json:"expert_progress_key,omitempty"`
-	DiagnoseTaskID             int64    `json:"diagnose_task_id,omitempty"`
-	EnvironmentDiagnosisTaskID int64    `json:"environment_diagnosis_task_id,omitempty"`
-	DiagnoseRequirement        string   `json:"diagnose_requirement,omitempty"`
-	DocumentationTaskID        int64    `json:"documentation_task_id,omitempty"`
-	ProjectID                  int64    `json:"project_id"`
-	SourceRevision             string   `json:"source_revision,omitempty"`
-	RepairTaskID               int64    `json:"repair_task_id,omitempty"`
-	ContinueTaskID             int64    `json:"continue_task_id,omitempty"`
-	Title                      string   `json:"title"`
-	Why                        string   `json:"why"`
-	Acceptance                 []string `json:"acceptance"`
-	Ambition                   string   `json:"ambition,omitempty"`
-	Novelty                    string   `json:"novelty,omitempty"`
-	Score                      int      `json:"score,omitempty"`
-	Expert                     bool     `json:"expert,omitempty"`
+	Maintenance                *MaintenanceProposal `json:"maintenance,omitempty"`
+	IntegrationTaskID          int64                `json:"integration_task_id,omitempty"`
+	IntegrationPin             string               `json:"integration_pin,omitempty"`
+	IntegrationPaths           []string             `json:"integration_paths,omitempty"`
+	SourceIntegrationID        string               `json:"source_integration_id,omitempty"`
+	ExpertRecoveryTaskID       int64                `json:"expert_recovery_task_id,omitempty"`
+	ExpertProgressKey          string               `json:"expert_progress_key,omitempty"`
+	DiagnoseTaskID             int64                `json:"diagnose_task_id,omitempty"`
+	EnvironmentDiagnosisTaskID int64                `json:"environment_diagnosis_task_id,omitempty"`
+	DiagnoseRequirement        string               `json:"diagnose_requirement,omitempty"`
+	DocumentationTaskID        int64                `json:"documentation_task_id,omitempty"`
+	ProjectID                  int64                `json:"project_id"`
+	SourceRevision             string               `json:"source_revision,omitempty"`
+	RepairTaskID               int64                `json:"repair_task_id,omitempty"`
+	ContinueTaskID             int64                `json:"continue_task_id,omitempty"`
+	Title                      string               `json:"title"`
+	Why                        string               `json:"why"`
+	Acceptance                 []string             `json:"acceptance"`
+	Ambition                   string               `json:"ambition,omitempty"`
+	Novelty                    string               `json:"novelty,omitempty"`
+	Score                      int                  `json:"score,omitempty"`
+	Expert                     bool                 `json:"expert,omitempty"`
 }
 
 // NoWorkReport makes declining work an auditable decision, not an implicit
@@ -495,7 +496,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if !validExpertProposal(p) || !validPrivateProposal(p) {
+			if !validExpertProposal(p) || !validPrivateProposal(p) || !ValidMaintenanceProposal(p) {
 				return fmt.Errorf("proposal %d expert_recovery_task_id requires a controller-issued lowercase SHA256 expert_progress_key and cannot combine diagnosis selectors", index)
 			}
 			if p.ProjectID <= 0 || p.EnvironmentDiagnosisTaskID < 0 || p.DiagnoseTaskID < 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
@@ -574,6 +575,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				}
 				if s.Items[s.Item].ExpertRecoveryTaskID > 0 {
 					return errors.New("expert recovery cannot authorize implementation decision rounds")
+				}
+				if s.Items[s.Item].Maintenance != nil {
+					return errors.New("maintenance needs a fresh pinned plan for changed scope")
 				}
 				if s.Items[s.Item].IntegrationTaskID > 0 {
 					return errors.New("private integration cannot authorize implementation decision rounds")
@@ -696,6 +700,9 @@ func (s *State) ActiveTaskIDs() []int64 {
 
 func proposalSources(p Proposal) int {
 	n := 0
+	if p.Maintenance != nil {
+		n++
+	}
 	if p.IntegrationTaskID > 0 {
 		n++
 	}

@@ -243,6 +243,9 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/source-contract":
+		s.autoOrdinarySourceContract(w, r)
+		return
 	case "/private-integrations":
 		query, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
@@ -399,7 +402,7 @@ func (s *Server) autoReadBridge(w http.ResponseWriter, r *http.Request) {
 				if e != nil {
 					continue
 				}
-				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID), "documentation": j.Documentation})
+				rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "summary": clipEnd(j.Summary, 1200), "provider": j.Provider, "model": j.Model, "private_integrations": autoIntegrationsForTask(integrations, j.TaskID), "documentation": j.Documentation, "source_contract": autoOrdinaryContractLink(j.TaskID), "plan_audit_evidence": autoOrdinaryAuditDelivery})
 			}
 			writeJSON(w, 200, rows)
 			return

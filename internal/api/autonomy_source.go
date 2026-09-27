@@ -111,7 +111,7 @@ func (s *Server) pinAutoSources(ctx context.Context, a *autoRecord, items []auto
 	}
 	for i := range items {
 		p := &items[i]
-		if p.ContinueTaskID > 0 || p.RepairTaskID > 0 || p.DocumentationTaskID > 0 || p.ExpertRecoveryTaskID > 0 || p.IntegrationTaskID > 0 || p.SourceIntegrationID != "" {
+		if p.Maintenance != nil || p.ContinueTaskID > 0 || p.RepairTaskID > 0 || p.DocumentationTaskID > 0 || p.ExpertRecoveryTaskID > 0 || p.IntegrationTaskID > 0 || p.SourceIntegrationID != "" {
 			continue
 		}
 		project, err := s.autoSourceProject(p.ProjectID)

@@ -135,6 +135,12 @@ func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) e
 	roots := map[int64]bool{}
 	privateRoots := map[string]bool{}
 	for i, p := range items {
+		if p.Maintenance != nil {
+			if err := autoValidateMaintenancePin(a.MaintenancePins[p.Maintenance.Pin], p); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := autoValidateExpertProposal(p); err != nil {
 			return err
 		}
@@ -240,6 +246,9 @@ func (s *Server) autoRepairableArtifacts(a *autoRecord) []map[string]any {
 			row["refuting_evidence"] = d.Failures
 			row["repair_reason"] = reason
 		}
+		row["source_contract"] = autoOrdinaryContractLink(j.TaskID)
+		row["plan_audit_evidence"] = autoOrdinaryAuditDelivery
+		row["review_evidence_note"] = "The path is delivered to both plan auditors before plan approval and to the admitted repair builder; it is not mounted in the planner. Read source_contract for durable criteria and original audit/decision provenance."
 		rows = append(rows, row)
 	}
 	return rows

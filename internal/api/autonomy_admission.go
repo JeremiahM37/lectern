@@ -10,6 +10,7 @@ import (
 // Admission is a durable reservation, not an artifact approval. It is captured
 // only by the controller after source validation and workspace preparation.
 type autoAdmission struct {
+	Maintenance         *autoMaintenanceAdmitted         `json:"maintenance,omitempty"`
 	PrivateIntegration  *autoPrivateIntegrationAuthority `json:"private_integration,omitempty"`
 	ExpertRecovery      *autoExpertRecoveryAttempt       `json:"expert_recovery,omitempty"`
 	Documentation       *autoDocumentationReservation    `json:"documentation,omitempty"`
@@ -50,7 +51,7 @@ func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
 			_ = json.Unmarshal(raw, &integration)
 		}
 	}
-	return &autoAdmission{PrivateIntegration: integration, ExpertRecovery: expert, JobID: j.ID, TaskID: j.TaskID, Date: a.State.Date, Cycle: a.State.Cycle,
+	return &autoAdmission{Maintenance: j.MaintenanceAdmission, PrivateIntegration: integration, ExpertRecovery: expert, JobID: j.ID, TaskID: j.TaskID, Date: a.State.Date, Cycle: a.State.Cycle,
 		Proposal: a.State.Items[a.State.Item], RepairAttemptTaskID: j.RepairAttemptTaskID, PlanAudits: audits,
 		Documentation: documentation, Scope: "Reserved isolated assignment only. No artifact approval, publication, deployment or additional repair attempt authorized. Future catalog availability does not revoke this reservation."}
 }
@@ -58,6 +59,14 @@ func autoNewAdmission(a *autoRecord, j *autoJob) *autoAdmission {
 // Bind identity to the controller-created socket, never a worker query parameter.
 func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/maintenance-validation" {
+			s.autoMaintenanceValidationBridge(jobID, w, r)
+			return
+		}
+		if r.URL.Path == "/server-targets" || r.URL.Path == "/server-observations" {
+			s.autoServerObservationBridge(jobID, w, r)
+			return
+		}
 		if r.URL.Path == "/integration-tests" {
 			s.autoPrivateTestBridge(jobID, w, r)
 			return

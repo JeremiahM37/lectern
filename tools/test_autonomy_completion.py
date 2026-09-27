@@ -654,6 +654,30 @@ for path, mode in [(archive, 'ab'), (baseline, 'rb'), (baseline, 'ab')]:
         self.assertEqual((target / 'code.py').read_text(), 'assert True\n')
         self.assertFalse((target / 'autonomy-report.json').exists())
         self.assertFalse((self.jobs / reviewer / 'completion/baseline.json').exists())
+        auditor = self.new_job({'planner-evidence.txt': b'preserved'})
+        with patch.object(RUNNER, 'completion_service_active', return_value=False), patch.object(RUNNER, 'run') as launch:
+            self.assertEqual(RUNNER.completion_copy_status(auditor, self.destination, 'derived-review')['state'], 'copying')
+            self.assertIn('_copy-derived-review', launch.call_args.args[0])
+            self.assertIn('--property=RuntimeMaxSec=600', launch.call_args.args[0])
+        self.assertEqual(RUNNER.completion_copy_execute(auditor, self.destination, 'derived-review'), 0)
+        evidence = self.jobs / auditor / 'work/.lectern-review' / (self.destination+'-derived')
+        self.assertEqual(RUNNER.completion_inspect(evidence / 'work'), receipt['derived_tree_sha256'])
+        self.assertFalse((evidence / 'work/autonomy-report.json').exists())
+        self.assertEqual((evidence / 'work/.lectern-completion/original-WORKSHOP.md').read_text(), 'original claims\n')
+        self.assertEqual((self.jobs / auditor / 'work/planner-evidence.txt').read_bytes(), b'preserved')
+        manifest=json.loads((evidence/'manifest.json').read_text())
+        self.assertEqual(manifest['source_kind'], 'verified_documentary_derived')
+        self.assertEqual(manifest['derived_archive_sha256'], receipt['derived_archive_sha256'])
+        self.assertEqual(RUNNER.digest_file(raw_archive), raw_digest)
+        with patch.object(RUNNER, 'completion_service_active', return_value=False), patch.object(RUNNER, 'completion_inspect', side_effect=AssertionError('poll must not hash source')):
+            self.assertEqual(RUNNER.completion_copy_status(auditor, self.destination, 'derived-review')['state'], 'copied')
+        unit=RUNNER.completion_copy_unit(auditor,self.destination,'derived-review')
+        active={unit}
+        def stop(command):
+            if command[:2]==['/usr/bin/systemctl','stop']: active.discard(command[-1])
+        with patch.object(RUNNER,'completion_service_active',side_effect=lambda name:name in active), patch.object(RUNNER,'run',side_effect=stop):
+            self.assertEqual(RUNNER.completion_stop(auditor)['state'],'stopped')
+        self.assertFalse(active)
 
     def test_real_production_edit_rejected_without_rewriting_raw(self):
         self.assert_real_cli()

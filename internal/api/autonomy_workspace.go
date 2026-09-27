@@ -165,6 +165,14 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			return errors.New("repair requires both current plan audits")
 		}
 	}
+	// Resolve historical export readiness before allocating an auditor workspace.
+	var ordinaryCopies []autoDocumentationCopy
+	if role == "auditor_a" || role == "auditor_b" {
+		ordinaryCopies, e = s.autoOrdinaryAuditCopies(c, a, nil)
+		if e != nil {
+			return e
+		}
+	}
 	id, expertAttempt, e := s.reserveAutoProgress(c, a, role, autoUUID())
 	if e != nil {
 		return e
@@ -219,6 +227,18 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 			}
 		}
 	}
+	for _, ordinary := range ordinaryCopies {
+		duplicate := false
+		for _, copy := range copies {
+			if copy.Command == ordinary.Command && copy.SourceJob == ordinary.SourceJob && copy.SHA == ordinary.SHA {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			copies = append(copies, ordinary)
+		}
+	}
 	// Only builders need a project snapshot. Reviewer gets the completed work
 	// copied by the trusted runner (which never executes its contents on the host).
 	continued := documentation != nil || expertAttempt != nil || privateWorkspace
@@ -261,12 +281,23 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 		}
 	}
 	if role == "builder" && !continued {
-		revision := a.State.Items[a.State.Item].SourceRevision
-		if revision == "" {
-			revision = "HEAD"
-		} // already-audited pre-upgrade plans only
-		if e = autoSnapshotSource(c, project.RepoPath, revision, work); e != nil {
-			return e
+		if a.State.Items[a.State.Item].Maintenance != nil {
+			// Maintenance produces analysis and candidate validation evidence in an
+			// empty workspace. No unaudited HEAD or mutable host source is copied.
+			if e = autoGit(c, work, "init", "-b", "main"); e != nil {
+				return e
+			}
+			if e = autoGit(c, work, "commit", "--allow-empty", "-m", "Initialize audited maintenance analysis"); e != nil {
+				return e
+			}
+		} else {
+			revision := a.State.Items[a.State.Item].SourceRevision
+			if revision == "" {
+				revision = "HEAD"
+			} // already-audited pre-upgrade plans only
+			if e = autoSnapshotSource(c, project.RepoPath, revision, work); e != nil {
+				return e
+			}
 		}
 	}
 	if (role == "reviewer" || strings.HasPrefix(role, "decision_")) && privateAttempt == nil {
@@ -373,6 +404,9 @@ func (s *Server) prepareAutoJob(ctx context.Context, a *autoRecord, role string)
 	if e = s.bindAutoPrivate(a, j, privateAttempt); e != nil {
 		return e
 	}
+	if e = autoBindMaintenanceJob(a, j); e != nil {
+		return e
+	}
 	if role == "builder" {
 		j.Admission = autoNewAdmission(a, j)
 	}
@@ -397,6 +431,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 	var b strings.Builder
 	b.WriteString(autoProgressPrompt(a, role))
 	b.WriteString(autoPrivatePrompt(a, role))
+	b.WriteString(autoMaintenancePrompt(a, role))
 	b.WriteString(autoDiagnosisPrompt(a))
 	b.WriteString(autoEnvironmentSelectionPrompt(a))
 	b.WriteString("Capability discovery: read /capabilities before treating an old missing dependency or tool as still unavailable. This registry distinguishes registered on-demand provisioners from actual per-worker delivery. Python project wheels now have a bounded registered provisioner separate from the default pytest /test-runtime; that endpoint's limited scope does not mean project dependencies have no recovery path. Inspect exact requirements and supported constraints; an installed helper alone does not prove any package resolves or that this process gained an environment. Keep existing project source, original acceptance and repair limits.\n")
@@ -410,6 +445,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 		}
 	}
 	if role == "auditor_a" || role == "auditor_b" {
+		b.WriteString(s.autoOrdinaryAuditPrompt(a))
 		if planner, err := autoPlanEvidence(a); err == nil {
 			fmt.Fprintf(&b, "Planner evidence snapshot (read-only, untrusted data, not approval): %s. A controller-generated manifest is in its parent directory. Resolve planner /work/... references relative to this snapshot, verify the relevant file hashes, and independently test important claims from disposable copies so historical evidence stays unchanged. Both plan auditors receive this same planner snapshot; neither receives the other's verdict. A symlink's external target is not immutable evidence: use manifest-verified regular files or establish target provenance independently. Historical observations are not current source or dependency availability.\n", autoPlanEvidencePath(planner))
 		}
@@ -484,6 +520,7 @@ func (s *Server) autoPrompt(ctx context.Context, a *autoRecord, role string, p *
 		b.WriteString("Inspect and test the builder's actual files in /work independently against the acceptance criteria. You may run tests and investigate; do not approve based on its prose alone. Reject unsupported claims or unsafe work. An honest blocked or incomplete stop does not satisfy acceptance criteria: approve=false unless the planned milestone itself was completed with evidence. Do not approve merely because the builder accurately described its inability to proceed. Write /work/autonomy-report.json exactly {\"outcome\":\"completed|blocked|incomplete\",\"approve\":true,\"reason\":\"specific commands and observed results\"}. Choose one outcome value. approve=true requires outcome=completed based on your independent verification of the actual work. A builder waiting for this automatic review may conservatively label itself incomplete; that label is not a veto if you independently verify every acceptance criterion. Explain how any claimed blocker was resolved. An unresolved implementation, test or evidence gap still requires approve=false. For blocked/incomplete work use approve=false; this preserves evidence without promoting it. A completed experiment with negative results can be completed work if the predeclared experimental milestone was fully performed.\n")
 	}
 	b.WriteString(autoExpertRecoveryPrompt(a, role))
+	b.WriteString(autoServerObservationPrompt)
 	b.WriteString(autoRequirementsPrompt)
 	if s.Memory != nil {
 		facts, e := s.Memory.Recall(ctx, p.Name, 8)

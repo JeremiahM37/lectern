@@ -367,3 +367,47 @@ database assignment rather than accumulating obsolete correction instructions.
 These mechanisms authorize bounded private investigation and reviewed repairs.
 They do not authorize publication, change the quota reserve, approve their own
 results, or prove that the workshop operates indefinitely without intervention.
+
+## Registered server observations and maintenance
+
+`GET /server-targets` on the worker bridge discovers the installed, root-owned
+registry. `POST /server-observations` accepts only a registered `target_id`; poll
+the returned ID with `GET /server-observations?id=ID`. Receipts contain bounded
+service, storage, resource and file-identity observations. They do not expose
+file contents, credentials or an arbitrary host command interface. A service's
+cgroup usage includes its descendants; it is not the main process's RSS.
+Unavailable facts and successful backup-unit exits are not health or restore
+proofs.
+
+The initial maintenance operation adjusts typed CPU, memory and task limits for
+an explicitly registered stateless service. A planner must first obtain a fresh
+observation and propose a concrete useful change with measurable acceptance.
+The controller pins the configuration, limits and acceptance before two plan
+audits. An independent reviewer requests the fixed disposable execution profile
+through `POST /maintenance-validation` with the admitted `pin_sha256`, then polls
+its returned ID. Candidate approval requires both the actual executed validation
+and the exact archived reviewer report. It is distinct from deployment.
+
+The controller owns subsequent backup, verified offbox restore, fresh observation,
+apply and health checks. Immutable requests and receipts survive model completion,
+report correction and controller restart. Temporary pre-effect failures can retry
+with backoff under the same operation; a failed applied candidate cannot obtain a
+new attempt by changing its UUID. OFF prevents new effects and continues owned
+recovery. A stopped process alone is insufficient proof that no effect occurred.
+Previously committed, verified changes remain in place when OFF is selected.
+External configuration changes are preserved and surfaced as conflicts.
+
+Helpers and registry must be installed deliberately; their presence alone does
+not enable every service. The current fixed health profile samples the registered
+sensor HTTP and metrics endpoints and effective service limits. It does not claim
+a sensor-source timestamp or arbitrary application correctness. Public publication,
+protected control/session services, arbitrary shell execution, and autonomy-policy
+changes remain outside this capability. See the `autonomy-server-operations.py`
+and `autonomy-server-maintenance.py` helpers for the exact registry and profile
+schemas.
+
+Maintenance regressions run in the regular verification suite. The opt-in real
+controller fixture requires `LECTERN_MAINTENANCE_REAL_FIXTURE`; it is excluded
+from normal test runs and must use a disposable registered service and separate
+controller state. A successful fixture proves the exercised execution and recovery
+paths, not spontaneous task selection or sustained autonomous usefulness.

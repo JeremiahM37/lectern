@@ -326,7 +326,7 @@ func (s *Server) pollAutoDocumentationCopies(ctx context.Context, a *autoRecord,
 	}
 	for len(j.DocumentationCopies) > 0 {
 		copy := j.DocumentationCopies[0]
-		if copy.Command != "copy-archive-resume" && copy.Command != "copy-archive-work" && copy.Command != "copy-derived" && copy.Command != "copy-archive-review" && copy.Command != "completion-resume" {
+		if copy.Command != "copy-archive-resume" && copy.Command != "copy-archive-work" && copy.Command != "copy-derived-review" && copy.Command != "copy-derived" && copy.Command != "copy-archive-review" && copy.Command != "completion-resume" {
 			return false, errors.New("invalid documentary copy operation")
 		}
 		args := []string{copy.Command, "--job", j.ID, "--from-job", copy.SourceJob}
@@ -356,7 +356,7 @@ func (s *Server) pollAutoDocumentationCopies(ctx context.Context, a *autoRecord,
 			return false, nil
 		}
 		actual := receipt.SHA
-		if copy.Command == "copy-derived" {
+		if copy.Command == "copy-derived" || copy.Command == "copy-derived-review" {
 			actual = receipt.DerivedSHA
 		}
 		if copy.Command == "completion-resume" {
