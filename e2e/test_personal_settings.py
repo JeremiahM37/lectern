@@ -67,7 +67,7 @@ def test_light_theme_accent_and_zoom_apply_everywhere_and_persist(page, real_ter
     page.get_by_role('combobox', name='Zoom').select_option('1.25')
     assert page.evaluate("getComputedStyle(document.body).zoom") == '1.25'
     page.wait_for_timeout(600)
-    assert prefs(t)['appearance'] == {'theme': 'light', 'accent': '#14b8a6', 'zoom': 1.25, 'language': ''}, prefs(t)
+    assert prefs(t)['appearance'] == {'theme': 'light', 'accent': '#14b8a6', 'zoom': 1.25, 'language': '', 'preset': ''}, prefs(t)
     # Zoomed, the terminal view still starts right under the top bar and the
     # page does not scroll sideways.
     attach(page, 'Real terminal'); f = frame(page, t['id']); ready(f)
