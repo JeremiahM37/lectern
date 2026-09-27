@@ -43,7 +43,7 @@ var clientVerbs = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
 	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true, "account": true,
-	"browser": true, "computer": true,
+	"browser": true, "computer": true, "plugin": true,
 	"help": true, "--help": true, "-h": true,
 }
 
@@ -121,6 +121,17 @@ func main() {
 		// one dispatch: explicit LECTERN_API talks straight to it, otherwise
 		// the private local runtime is started/reused. TestDispatch in
 		// main_test.go proves this set and reservedVerbs below never collide.
+		// `plugin new` and `plugin validate` work on files here and need no
+		// server; every other plugin operation goes through the API.
+		if arg == "plugin" {
+			if handled, err := pluginOffline(os.Args[2:], os.Stdout); handled {
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				return
+			}
+		}
 		if clientVerbs[arg] || agentQuickVerbs[arg] {
 			var err error
 			if explicitRemote || arg == "help" || arg == "--help" || arg == "-h" {

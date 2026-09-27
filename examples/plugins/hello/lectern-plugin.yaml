@@ -1,0 +1,47 @@
+# A complete, small Lectern plugin: one of most contribution kinds.
+# Install it with:  lectern plugin install examples/plugins/hello
+# Every field is described in docs/plugins.md.
+id: example.hello
+name: Hello
+version: 1.0.0
+description: A worked example — a skill, a quick command, a theme, a palette command and a hook.
+author: Lectern
+homepage: https://github.com/JeremiahM37/lectern/blob/main/docs/plugins.md
+license: MIT
+min_lectern: 2.4.0
+
+# What this plugin may do. Install shows this list and asks you to allow it;
+# validation refuses a contribution that needs something not declared here.
+capabilities:
+  host_exec: true      # the task.finished hook runs on the Lectern server
+  notify: true         # and its result may send you a notification
+
+contributes:
+  # A skill any project can turn on (Settings → Projects → Project workflows).
+  skills:
+    - id: commit-message
+      path: skills/commit-message
+      description: Write a conventional commit message for the staged change.
+
+  # Shown in every terminal's key row and in the Snippets sheet.
+  quick_commands:
+    - {id: status, label: git status, text: "git status --short", enter: true}
+
+  # A preset in Settings → Appearance.
+  themes:
+    - id: meadow
+      name: Meadow
+      accent: "#2f855a"
+      dark: {bg: "#0b1410", "bg-soft": "#0f1a14", panel: "#132019", "panel-2": "#1a2a21"}
+      light: {bg: "#f3f7f4", "bg-soft": "#eaf1ec"}
+
+  # An entry in the command palette (Ctrl/⌘-K).
+  palette_commands:
+    - {id: plugins, title: "Hello: manage plugins", href: "#settings/plugins"}
+
+  # Runs when a task finishes; see hooks/on_finish.py.
+  hooks:
+    - event: task.finished
+      run: host
+      command: [python3, hooks/on_finish.py]
+      timeout: 15

@@ -236,3 +236,19 @@ func TestCapabilityGrowth(t *testing.T) {
 		t.Fatal("shrinking reported growth")
 	}
 }
+
+// The worked example in docs/plugins.md must stay a valid plugin.
+func TestTheExamplePluginIsValid(t *testing.T) {
+	files, err := ReadDir(filepath.Join("..", "..", "examples", "plugins", "hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := Load(files, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := pkg.Manifest.Contributes
+	if len(c.Skills) != 1 || len(c.QuickCommands) != 1 || len(c.Themes) != 1 || len(c.PaletteCommands) != 1 || len(c.Hooks) != 1 {
+		t.Fatalf("example contributions changed: %+v", c)
+	}
+}

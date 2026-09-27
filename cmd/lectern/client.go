@@ -162,6 +162,8 @@ const clientHelp = `Lectern — web and terminal control
   lectern skill attached PROJECT [--agent AGENT]
   lectern skill attach PROJECT SKILL_ID [--agent AGENT]
   lectern skill detach PROJECT ATTACHMENT_ID
+  lectern plugin list | search | install | update | trust | enable | disable | remove
+  lectern plugin new ID [DIR] | validate [DIR]      (docs/plugins.md)
   lectern mcp                     MCP on standard input/output
   lectern mcp --http              The same tools for claude.ai / ChatGPT, over OAuth
   lectern relay                   Run an end-to-end encrypted relay for phones (docs/relay.md)
@@ -405,6 +407,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		data, err = c.Request(strings.ToUpper(args[0]), args[1], body, "application/json")
 	case "skill":
 		data, err = skillCommand(c, args)
+	case "plugin":
+		data, err = pluginCommand(c, args)
 	case "account":
 		return accountCommand(cfg, args, base, token, local, os.Stdout)
 	case "agent":

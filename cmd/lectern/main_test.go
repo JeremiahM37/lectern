@@ -28,7 +28,7 @@ func TestDispatchTable(t *testing.T) {
 	}{
 		{"console", true}, {"tui", true}, {"shell", true}, {"api", true},
 		{"agent", true}, {"account", true}, {"upload", true}, {"files", true}, {"download", true},
-		{"post", true}, {"live", true}, {"expose", true}, {"skill", true},
+		{"post", true}, {"live", true}, {"expose", true}, {"skill", true}, {"plugin", true},
 		{"promote", true}, {"controls", true}, {"help", true}, {"--help", true}, {"-h", true},
 		{"claude", true}, {"codex", true},
 		{"local", false}, {"up", false}, {"doctor", false}, {"serve", false},
