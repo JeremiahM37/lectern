@@ -52,6 +52,7 @@ type autoRequirementOccurrence struct {
 	Evidence    []string `json:"evidence"`
 }
 type autoRequirement struct {
+	GoReceipt        *autoGoRuntimeReceipt         `json:"go_runtime_receipt,omitempty"`
 	NodeReceipt      *autoNodeReceipt              `json:"node_receipt,omitempty"`
 	NodeEnvironments map[string]*autoNodeReceipt   `json:"node_environments,omitempty"`
 	ToolingReceipt   *autoPrivateToolingReceipt    `json:"tooling_receipt,omitempty"`
@@ -559,6 +560,9 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 		}
 	}
 	autoInheritNodeFrom(j, source)
+	if j.Role == "reviewer" || strings.HasPrefix(j.Role, "decision_") {
+		autoInheritGoRuntime(j, source)
+	}
 	if j.PythonRequest == nil && source != nil && source.PythonRequest != nil && source.PythonRecovery != nil && source.PythonRecovery.State == "verified" {
 		request := *source.PythonRequest
 		j.PythonRequest = &request

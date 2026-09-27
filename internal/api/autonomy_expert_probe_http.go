@@ -20,6 +20,9 @@ import (
 var autoExpertJobID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type autoExpertProbeRuntime struct {
+	GoDependency string `json:"go_dependency_key,omitempty"`
+	GoBundle     string `json:"go_bundle_digest,omitempty"`
+	GoToolchain  string `json:"go_toolchain_digest,omitempty"`
 	NodeBundle   string `json:"node_bundle_key,omitempty"`
 	NodeInput    string `json:"node_input_key,omitempty"`
 	NodeLock     string `json:"node_lock_sha256,omitempty"`
@@ -89,6 +92,12 @@ func autoExpertProbeRequestBytes(a *autoRecord, j *autoJob, input *autoExpertPro
 		runtime.Browser = j.PythonRecovery.BrowserKey
 	} else {
 		runtime.PythonTest = testKey
+	}
+	if e := autoSelectGoTestRuntime(j, &runtime); e != nil {
+		return selected, nil, e
+	}
+	if err := autoUseExpertGoRuntime(a, pin, &runtime); err != nil {
+		return selected, nil, err
 	}
 	if e := autoSelectNodeTestRuntime(j, &runtime); e != nil {
 		return selected, nil, e
@@ -205,6 +214,17 @@ func (s *Server) autoExpertProbeBridgeAt(root, jobID string, w http.ResponseWrit
 	if e != nil {
 		s.autoMu.Unlock()
 		http.Error(w, "probe owner is not a current admitted auditor", 409)
+		return
+	}
+	ready, preflightErr := s.prepareAutoExpertGoRuntime(r.Context(), a, owner, input.ProgressKey)
+	if preflightErr != nil || !ready {
+		detail := autoExpertGoPreflightView(a, input.ProgressKey)
+		s.autoMu.Unlock()
+		if preflightErr != nil {
+			http.Error(w, preflightErr.Error(), 409)
+		} else {
+			writeJSON(w, 202, map[string]any{"state": "preparing_go_runtime", "runtime_preflight": detail, "reason": "Exact historical source receives a new isolated experiment environment; retry this same POST after preflight. No test execution has been reserved."})
+		}
 		return
 	}
 	testKey := ""

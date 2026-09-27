@@ -128,6 +128,19 @@ query strings are refused. Workers cannot install packages over the network.
 A separate fixed provisioner now supplies verified offline Go module bundles;
 failed prerequisites retain their admitted assignments for bounded automatic
 recovery while other work proceeds. See `/requirements` for the recorded state.
+Go workers freeze the verified module bundle and the complete installed Go toolchain
+before model execution. Independent integration checks and reviewers retain those
+exact content identities even when the host toolchain changes. Tests use offline
+module resolution and a writable scratch copy; they cannot fetch missing packages.
+For historical expert sources without delivery evidence, submitting an expert
+probe automatically starts a bounded, archive-bound runtime preflight. A pending
+response requires polling and retrying the probe submission. Its receipt labels
+the selection as a new experiment, not proof of the historical worker's runtime.
+A `go_runtime` entry in `/requirements` records pre-execution missing or corrupt
+runtime files. The controller retains the assignment and automatically revalidates
+the exact selected bytes before a fresh worker UUID can resume; it never silently
+substitutes the current compiler. Source changes needing different dependencies
+remain a distinct prerequisite, not permission to alter a pinned test environment.
 See isolation documentation for the remaining model-provider trust boundary.
 
 Workers can discover registered provisioners through the read-only

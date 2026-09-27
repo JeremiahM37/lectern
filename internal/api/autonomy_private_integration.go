@@ -113,6 +113,9 @@ type autoPrivateCandidate struct {
 	ReceiptSHA        string `json:"receipt_sha256"`
 }
 type autoPrivateTestReceipt struct {
+	GoDependencyKey     string          `json:"go_dependency_key,omitempty"`
+	GoBundleDigest      string          `json:"go_bundle_digest,omitempty"`
+	GoToolchainDigest   string          `json:"go_toolchain_digest,omitempty"`
 	NodeBundleKey       string          `json:"node_bundle_key,omitempty"`
 	NodeInputKey        string          `json:"node_input_key,omitempty"`
 	NodeLockSHA         string          `json:"node_lock_sha256,omitempty"`

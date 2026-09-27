@@ -48,6 +48,9 @@ func autoBindExpertNodeRuntime(lease *autoExpertProbeLease, raw []byte) error {
 	return nil
 }
 func autoExpertNodeReceiptRuntime(lease *autoExpertProbeLease, r autoExpertProbeReceipt) error {
+	if err := autoGoReceiptRuntime(lease, r); err != nil {
+		return err
+	}
 	executed := r.State == "exited" || r.Executed != nil && *r.Executed
 	if !executed {
 		return nil

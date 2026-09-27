@@ -1038,6 +1038,10 @@ func (s *Server) endAutoPrivateOperation(ctx context.Context, a *autoRecord, j *
 	return s.saveAuto(a)
 }
 func autoPrivateCheckMatchesRuntime(j *autoJob, t autoPrivateTestReceipt) bool {
+	var goRuntime autoExpertProbeRuntime
+	if autoSelectGoTestRuntime(j, &goRuntime) != nil || t.GoDependencyKey != goRuntime.GoDependency || t.GoBundleDigest != goRuntime.GoBundle || t.GoToolchainDigest != goRuntime.GoToolchain {
+		return false
+	}
 	var node autoExpertProbeRuntime
 	if autoSelectNodeTestRuntime(j, &node) != nil || t.NodeBundleKey != node.NodeBundle || t.NodeInputKey != node.NodeInput || t.NodeLockSHA != node.NodeLock || t.NodeRuntimeDigest != node.NodeRuntime {
 		return false

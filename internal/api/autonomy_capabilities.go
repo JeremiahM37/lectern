@@ -107,9 +107,10 @@ func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, help
 			},
 			{
 				"capability": "go_modules", "status": goStatus,
-				"request":  "Automatic preflight for eligible source workers with supported go.mod/go.sum inputs",
-				"inputs":   "Exact module files and supported installed toolchain; unsupported local replaces or toolchains remain explicit",
-				"receipts": "/dependencies", "worker_receipt": "/prerequisite",
+				"request":      "Automatic preflight for eligible source workers with supported go.mod/go.sum inputs",
+				"inputs":       "Exact module files and supported installed toolchain; unsupported local replaces or toolchains remain explicit",
+				"verification": "Workers record immutable module and complete toolchain digests before execution. Independent private tests and reviewers use the selected snapshot offline. Historical expert probes automatically preflight an archive-bound new experiment when prior delivery evidence is absent; pending submission is retryable. Missing exact runtime bytes appear as go_runtime requirements and are revalidated before same-assignment resume.",
+				"receipts":     "/dependencies", "worker_receipt": "/prerequisite",
 			},
 			autoBrowserCapability(dependencies),
 		},

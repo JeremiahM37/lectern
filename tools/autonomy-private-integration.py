@@ -511,7 +511,9 @@ def check_request(data):
  runtime=data.get('runtime')
  pyfields={'python_bundle_key','python_input_key','browser_key','python_test_key'}
  nodefields={'node_bundle_key','node_input_key','node_lock_sha256','node_runtime_digest'}
- if not isinstance(runtime,dict) or not pyfields<=set(runtime) or set(runtime)-pyfields-nodefields or any(not isinstance(v,str) or (v!='' and not key(v)) for v in runtime.values()):raise ValueError('invalid test runtime')
+ if not isinstance(runtime,dict) or not pyfields<=set(runtime) or set(runtime)-pyfields-nodefields-set(R.GO_RUNTIME_FIELDS) or any(not isinstance(v,str) or (v!='' and not key(v)) for v in runtime.values()):raise ValueError('invalid test runtime')
+ gofields=set(runtime)&set(R.GO_RUNTIME_FIELDS)
+ if gofields and (gofields!=set(R.GO_RUNTIME_FIELDS) or not all(runtime[k] for k in R.GO_RUNTIME_FIELDS)):raise ValueError('incomplete Go runtime selection')
  if set(runtime)&nodefields and (not nodefields<=set(runtime) or not all(runtime[k] for k in nodefields)):raise ValueError('incomplete Node test runtime')
  if bool(runtime['python_bundle_key'])!=bool(runtime['python_input_key']) or (runtime['python_bundle_key'] and runtime['python_test_key']) or (runtime['browser_key'] and not runtime['python_bundle_key']):raise ValueError('conflicting test runtime')
  return rows

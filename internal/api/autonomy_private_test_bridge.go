@@ -77,6 +77,9 @@ func autoPrivateTestRequestBytes(a *autoRecord, j *autoJob, input *autoPrivateTe
 	} else {
 		runtime.PythonTest = testKey
 	}
+	if err := autoSelectGoTestRuntime(j, &runtime); err != nil {
+		return nil, err
+	}
 	if err := autoSelectNodeTestRuntime(j, &runtime); err != nil {
 		return nil, err
 	}

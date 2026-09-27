@@ -28,25 +28,30 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	NodeGeneration         int              `json:"node_generation,omitempty"`
-	NodeStopRequested      bool             `json:"node_stop_requested,omitempty"`
-	NodeRequest            *autoNodeRequest `json:"node_request,omitempty"`
-	PendingNodeRequest     *autoNodeRequest `json:"pending_node_request,omitempty"`
-	NodeRecovery           *autoNodeReceipt `json:"node_recovery,omitempty"`
-	NodeStopped            bool             `json:"node_stopped,omitempty"`
-	NodeUsedBundle         string           `json:"node_used_bundle,omitempty"`
-	NodePreviousBundle     string           `json:"node_previous_bundle,omitempty"`
-	NodeNeedsResume        bool             `json:"node_needs_resume,omitempty"`
-	NodeNeedsChange        bool             `json:"node_needs_change,omitempty"`
-	NodeExpectedInput      string           `json:"node_expected_input,omitempty"`
-	NodeExpectedBundle     string           `json:"node_expected_bundle,omitempty"`
-	NodeExpectedLock       string           `json:"node_expected_lock,omitempty"`
-	WorkerRecoveryPrepared bool             `json:"worker_recovery_prepared,omitempty"`
-	WorkerFailures         int              `json:"worker_failures,omitempty"`
-	WorkerFailureRecorded  bool             `json:"worker_failure_recorded,omitempty"`
-	WorkerRecoveryAt       time.Time        `json:"worker_recovery_at,omitempty"`
-	WorkerRecoveryArchive  string           `json:"worker_recovery_archive_sha256,omitempty"`
-	WorkerRecoveryReason   string           `json:"worker_recovery_reason,omitempty"`
+	GoNeedsResume          bool                  `json:"go_needs_resume,omitempty"`
+	GoRecoveryVerified     bool                  `json:"go_recovery_verified,omitempty"`
+	GoRuntimeSourceSHA     string                `json:"go_runtime_source_sha256,omitempty"`
+	GoRuntime              *autoGoRuntimeReceipt `json:"go_runtime,omitempty"`
+	GoExpectedRuntime      *autoGoRuntimeReceipt `json:"go_expected_runtime,omitempty"`
+	NodeGeneration         int                   `json:"node_generation,omitempty"`
+	NodeStopRequested      bool                  `json:"node_stop_requested,omitempty"`
+	NodeRequest            *autoNodeRequest      `json:"node_request,omitempty"`
+	PendingNodeRequest     *autoNodeRequest      `json:"pending_node_request,omitempty"`
+	NodeRecovery           *autoNodeReceipt      `json:"node_recovery,omitempty"`
+	NodeStopped            bool                  `json:"node_stopped,omitempty"`
+	NodeUsedBundle         string                `json:"node_used_bundle,omitempty"`
+	NodePreviousBundle     string                `json:"node_previous_bundle,omitempty"`
+	NodeNeedsResume        bool                  `json:"node_needs_resume,omitempty"`
+	NodeNeedsChange        bool                  `json:"node_needs_change,omitempty"`
+	NodeExpectedInput      string                `json:"node_expected_input,omitempty"`
+	NodeExpectedBundle     string                `json:"node_expected_bundle,omitempty"`
+	NodeExpectedLock       string                `json:"node_expected_lock,omitempty"`
+	WorkerRecoveryPrepared bool                  `json:"worker_recovery_prepared,omitempty"`
+	WorkerFailures         int                   `json:"worker_failures,omitempty"`
+	WorkerFailureRecorded  bool                  `json:"worker_failure_recorded,omitempty"`
+	WorkerRecoveryAt       time.Time             `json:"worker_recovery_at,omitempty"`
+	WorkerRecoveryArchive  string                `json:"worker_recovery_archive_sha256,omitempty"`
+	WorkerRecoveryReason   string                `json:"worker_recovery_reason,omitempty"`
 
 	MaintenancePin            string                     `json:"maintenance_pin,omitempty"`
 	MaintenanceAdmission      *autoMaintenanceAdmitted   `json:"maintenance_admission,omitempty"`
@@ -101,6 +106,7 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
+	GoProbeRuntimes             map[string]*autoGoProbeRuntime               `json:"go_probe_runtimes,omitempty"`
 	MaintenanceValidationCursor string                                       `json:"maintenance_validation_cursor,omitempty"`
 	MaintenanceStatus           *autoMaintenanceSchedulerStatus              `json:"maintenance_status,omitempty"`
 	MaintenanceTransactions     map[string]*autoMaintenanceTransaction       `json:"maintenance_transactions,omitempty"`
@@ -283,6 +289,9 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 // Explicit OFF, persistence failures and global cancellation retain the full scope.
 func (s *Server) stopAutoJobsScoped(ctx context.Context, a *autoRecord, reason string, maintenance bool) {
 	var stopErrors []string
+	if err := s.stopAutoGoProbeRuntimes(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
 	if maintenance {
 		if err := s.pollAutoMaintenance(ctx, a, false); err != nil {
 			stopErrors = append(stopErrors, "Maintenance recovery: "+err.Error())
@@ -398,7 +407,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		if err := s.reconcileAutoPrivateTests(ctx, a); err != nil {
 			a.Reason = "Private test observation pending: " + err.Error()
 		}
-		if len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) || autoPrivatePending(a) || autoMaintenanceValidationStopPending(a) || autoMaintenanceTransactionsPending(a) {
+		if autoGoProbePending(a) || len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) || autoPrivatePending(a) || autoMaintenanceValidationStopPending(a) || autoMaintenanceTransactionsPending(a) {
 			s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 			_ = s.saveAuto(a)
 			return
@@ -565,6 +574,16 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		}
 		if json.Unmarshal(raw, &st) != nil {
 			s.stopAutoJobs(ctx, a, "Invalid runner status")
+			return
+		}
+		if err := autoRecordGoRuntime(j, raw); err != nil {
+			a.Reason = err.Error()
+			return
+		}
+		if handled, err := s.handleAutoGoLaunchFailure(ctx, a, j, raw); handled || err != nil {
+			if err != nil {
+				a.Reason = "Go runtime prerequisite: " + err.Error()
+			}
 			return
 		}
 		if handled, err := s.handleAutoNodeLaunchFailure(ctx, a, j, raw); handled || err != nil {
@@ -782,6 +801,9 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	}
 	if j.NodeRecovery != nil && j.NodeRecovery.State == "verified" {
 		j.NodeUsedBundle = j.NodeRecovery.BundleKey
+	}
+	if err := autoPrepareGoRuntimeAt(autoRoot, j); err != nil {
+		return err
 	}
 	j.Status = "starting"
 	if j.ExpertRecoveryAttempt > 0 {

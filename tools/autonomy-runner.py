@@ -15,6 +15,7 @@ import os
 from pathlib import Path, PurePosixPath
 import platform
 import pwd
+import re
 import resource
 import selectors
 import shutil
@@ -291,7 +292,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None, node_project=None, node_runtime=None):
+def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None, node_project=None, node_runtime=None, go_runtime=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -303,7 +304,9 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None,
             cmd += ['--ro-bind', path, path]
     for local in ('/usr/local/bin','/usr/local/sbin','/usr/local/etc'):
         if Path(local).exists():cmd += ['--tmpfs',local]
-    bundle = go_dependency_bundle(Path(work))
+    bundle = go_dependency_bundle(Path(work)) if go_runtime is None else None
+    if go_runtime is not None:
+        cmd += go_runtime_mount(*go_runtime)
     if bundle is not None:
         cmd += ['--ro-bind', str(bundle / 'mod'), '/opt/go-modules',
                 '--ro-bind', str(bundle / 'manifest.json'), '/opt/go-dependencies.json',
@@ -336,7 +339,7 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None,
                 '--ro-bind',str(node_project/'payload/project'),'/opt/node-project',
                 '--ro-bind',str(node_project/'payload/cache'),'/opt/node-cache',
                 '--ro-bind',str(node_project/'payload/project/node_modules'),destination,
-                '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:/usr/local/go/bin:/usr/bin:/bin',
+                '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:'+('/opt/go-toolchain/bin:' if go_runtime else '/usr/local/go/bin:')+'/usr/bin:/bin',
                 '--setenv','NODE_PATH','/opt/node-project/node_modules',
                 '--setenv','NPM_CONFIG_CACHE','/tmp/node-cache',
                 '--setenv','NPM_CONFIG_OFFLINE','true',
@@ -418,6 +421,12 @@ def execute(job):
         target = Path('/tmp') / name
         target.mkdir(mode=0o755)
         run(['/usr/bin/mount', '--bind', str(p / name), str(target)])
+    go_runtime=go_worker_runtime(job,Path('/tmp/work'))
+    if go_runtime is not None:
+        mounted=[]
+        for name,source in zip(('go-modules-runtime','go-toolchain-runtime'),go_runtime):
+            target=Path('/tmp')/name;target.mkdir();run(['/usr/bin/mount','--bind',str(source),str(target)]);mounted.append(target)
+        go_runtime=tuple(mounted)
     project_bundle = python_project_bundle(job)
     project_mount = None
     if project_bundle is not None:
@@ -448,7 +457,7 @@ def execute(job):
         node_runtime_mount=Path('/tmp/node-runtime');node_runtime_mount.mkdir()
         run(['/usr/bin/mount','--bind',str(node_project),str(node_mount)])
         run(['/usr/bin/mount','--bind',str(node_runtime/'runtime'),str(node_runtime_mount)])
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key, node_mount, node_runtime_mount)
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key, node_mount, node_runtime_mount, go_runtime)
     def drop():
         os.setgroups([])
         os.setgid(GID)
@@ -732,6 +741,11 @@ def status_unlocked(job):
     if failure.exists():
         result['python_test_runtime']=completion_json(failure)
         if result['python_test_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
+    go_receipt=job_path(job)/'go-runtime.json'
+    if go_receipt.exists():
+        result['go_runtime']=completion_json(go_receipt)
+        if result['go_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
             result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
     node_failure=job_path(job)/'node-runtime.json'
     if node_failure.exists():
@@ -1581,6 +1595,242 @@ def completion_json_large(path):
     return json.loads(path.read_text())
 
 
+# Go test runtimes are data-only immutable snapshots. No package/toolchain code
+# executes in this root supervisor; compilation happens after namespace isolation.
+GO_RUNTIME_FIELDS = ('go_dependency_key', 'go_bundle_digest', 'go_toolchain_digest')
+GO_TOOLCHAIN_SOURCE = Path('/usr/local/go')
+
+def go_runtime_dir(path):
+    path.mkdir(mode=0o755, parents=True, exist_ok=True)
+    info=path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:
+        raise ValueError('unsafe Go runtime directory')
+    return path
+
+def go_runtime_inventory(root, frozen=False):
+    result=[];total=0
+    for base,dirs,files in os.walk(root,followlinks=False):
+        for name in sorted(dirs+files):
+            p=Path(base)/name;info=p.lstat();rel=p.relative_to(root).as_posix()
+            if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_mode&0o7000:
+                raise ValueError('untrusted Go runtime permissions')
+            if stat.S_ISDIR(info.st_mode):
+                if frozen and stat.S_IMODE(info.st_mode)!=0o555:raise ValueError('Go runtime directory mode changed')
+                result.append({'path':rel,'kind':'directory','mode':0o555})
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink==1:
+                total+=info.st_size
+                if info.st_size>512*1024**2 or total>3*1024**3:raise ValueError('Go runtime exceeds snapshot bound')
+                mode=0o555 if info.st_mode&0o111 else 0o444
+                if frozen and stat.S_IMODE(info.st_mode)!=mode:raise ValueError('Go runtime file mode changed')
+                result.append({'path':rel,'kind':'file','size':info.st_size,'mode':mode,'sha256':digest_file(p)})
+            else:raise ValueError('Go runtime links and special files refused')
+            if len(result)>100000:raise ValueError('Go runtime inventory exceeds entry bound')
+    return sorted(result,key=lambda v:v['path'])
+
+def go_runtime_manifest(kind,rows):
+    return {'schema_version':1,'kind':kind,'files':rows}
+
+def go_runtime_digest(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+def go_runtime_component(kind,digest):
+    if not isinstance(digest,str) or not re.fullmatch('[0-9a-f]{64}',digest):raise ValueError('invalid Go runtime identity')
+    base=DEPENDENCIES/'go-test'/kind;root=base/digest
+    for p in (DEPENDENCIES,DEPENDENCIES/'go-test',base,root,root/'payload'):
+        info=p.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:raise ValueError('unsafe Go runtime snapshot')
+    manifest=root/'manifest.json';info=regular(manifest)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o222 or info.st_size>32*1024**2:raise ValueError('unsafe Go runtime manifest')
+    value=json.loads(manifest.read_text())
+    if value.get('kind')!=kind or go_runtime_digest(value)!=digest:raise ValueError('Go runtime manifest identity changed')
+    if go_runtime_inventory(root/'payload',True)!=value.get('files'):raise ValueError('Go runtime content changed')
+    return root/'payload'
+
+def go_runtime_snapshot(kind,source):
+    import tempfile
+    info=source.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:raise ValueError('unsafe Go runtime source')
+    value=go_runtime_manifest(kind,go_runtime_inventory(source));digest=go_runtime_digest(value)
+    base=go_runtime_dir(DEPENDENCIES/'go-test'/kind);final=base/digest
+    if final.exists():go_runtime_component(kind,digest);return digest
+    stage=Path(tempfile.mkdtemp(prefix='.capture-',dir=base))
+    try:
+        payload=stage/'payload';payload.mkdir()
+        for row in value['files']:
+            p=payload/row['path']
+            if row['kind']=='directory':p.mkdir()
+            else:
+                p.parent.mkdir(parents=True,exist_ok=True)
+                with (source/row['path']).open('rb') as src,p.open('xb') as dst:
+                    shutil.copyfileobj(src,dst);dst.flush();os.fsync(dst.fileno())
+                p.chmod(row['mode'])
+        for p in sorted([payload,*payload.rglob('*')],key=lambda p:len(p.parts),reverse=True):
+            if p.is_dir():
+                p.chmod(0o555);fd=os.open(p,os.O_RDONLY|os.O_DIRECTORY)
+                try:os.fsync(fd)
+                finally:os.close(fd)
+        if go_runtime_inventory(source)!=value['files'] or go_runtime_inventory(payload,True)!=value['files']:
+            raise ValueError('Go runtime source changed during capture')
+        manifest=stage/'manifest.json'
+        with manifest.open('x') as f:json.dump(value,f,sort_keys=True,separators=(',',':'));f.flush();os.fsync(f.fileno())
+        manifest.chmod(0o444);stage.chmod(0o555)
+        fd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+        try:os.rename(stage,final)
+        except OSError:
+            if not final.exists():raise
+            go_runtime_component(kind,digest)
+        fd=os.open(base,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    finally:
+        if stage.exists():shutil.rmtree(stage)
+    return digest
+
+def go_runtime_lookup(selection):
+    if any(not isinstance(selection.get(k),str) or not re.fullmatch('[0-9a-f]{64}',selection[k]) for k in GO_RUNTIME_FIELDS):raise ValueError('incomplete Go runtime selection')
+    modules=go_runtime_component('modules',selection['go_bundle_digest'])
+    toolchain=go_runtime_component('toolchains',selection['go_toolchain_digest'])
+    # The module snapshot includes the original trusted bundle manifest.
+    manifest=json.loads((modules/'manifest.json').read_text())
+    if manifest.get('key')!=selection['go_dependency_key'] or manifest.get('checksum_verified') is not True:raise ValueError('Go snapshot dependency identity mismatch')
+    return modules,toolchain
+
+def go_runtime_capture(work,expected=None,dependency_key=None):
+    key=dependency_key or go_dependency_key(work)
+    if expected:
+        go_runtime_lookup(expected);return {k:expected[k] for k in GO_RUNTIME_FIELDS}
+    if key is None:return None
+    bundle=go_dependency_bundle(work,key=key)
+    if bundle is None:raise FileNotFoundError('exact Go dependency bundle unavailable')
+    home=go_runtime_dir(DEPENDENCIES/'go-test');index=go_runtime_dir(home/'selections')
+    with (index/(key+'.lock')).open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        record=index/(key+'.json')
+        if record.exists():
+            value=completion_json(record);go_runtime_lookup(value);return {k:value[k] for k in GO_RUNTIME_FIELDS}
+        value={'go_dependency_key':key,'go_bundle_digest':go_runtime_snapshot('modules',bundle),'go_toolchain_digest':go_runtime_snapshot('toolchains',GO_TOOLCHAIN_SOURCE)}
+        completion_write(record,value);return value
+
+def go_runtime_mount(modules,toolchain):
+    return ['--ro-bind',str(modules/'mod'),'/opt/go-modules','--ro-bind',str(modules/'manifest.json'),'/opt/go-dependencies.json',
+            '--ro-bind',str(toolchain),'/opt/go-toolchain','--ro-bind',str(toolchain),'/usr/local/go','--setenv','GOROOT','/opt/go-toolchain',
+            '--setenv','GOMODCACHE','/opt/go-modules','--setenv','GOPATH','/tmp/go','--setenv','GOCACHE','/tmp/go-build',
+            '--setenv','GOPROXY','off','--setenv','GOSUMDB','off','--setenv','GOTOOLCHAIN','local','--setenv','GOENV','off',
+            '--setenv','GOWORK','off','--setenv','GOTELEMETRY','off','--setenv','GOMAXPROCS','2','--setenv','GOFLAGS','-p=2',
+            '--setenv','PATH','/opt/go-toolchain/bin:/usr/bin:/bin']
+
+def go_runtime_requirement(job):
+    requirement=job_path(job)/'go-runtime-requirement.json'
+    if not requirement.exists():return None
+    info=regular(requirement)
+    if info.st_uid not in (0,pwd.getpwnam('admin').pw_uid) or info.st_mode&0o077 or info.st_size>16384:raise ValueError('unsafe Go runtime requirement')
+    expected=json.loads(requirement.read_text())
+    if set(expected)!=set(GO_RUNTIME_FIELDS)|{'schema_version'} or expected['schema_version']!=1:raise ValueError('invalid Go runtime requirement')
+    if any(not isinstance(expected[k],str) or not re.fullmatch('[0-9a-f]{64}',expected[k]) for k in GO_RUNTIME_FIELDS):raise ValueError('invalid Go runtime requirement identity')
+    return expected
+
+def go_worker_runtime(job,work):
+    p=job_path(job);expected=go_runtime_requirement(job)
+    try:
+        selection=go_runtime_capture(work,expected)
+        if selection is None:return None
+        completion_write(p/'go-runtime.json',dict(selection,owner_job=job,schema_version=1,state='verified',scope='immutable Go runtime selected before model execution'))
+        return go_runtime_lookup(selection)
+    except (OSError,ValueError) as error:
+        failure=dict(expected or {})
+        if not failure.get('go_dependency_key'):
+            try:failure['go_dependency_key']=go_dependency_key(work)
+            except (OSError,ValueError):pass
+        completion_write(p/'go-runtime.json',dict(failure,owner_job=job,schema_version=1,state='unavailable',executed=False,reason=str(error)[:500],diagnostic='missing' if isinstance(error,FileNotFoundError) else 'integrity'))
+        raise
+
+
+def go_probe_paths(job,key,source_sha):
+    if any(not isinstance(x,str) or not re.fullmatch('[0-9a-f]{64}',x) for x in (key,source_sha)):raise ValueError('invalid Go experiment identity')
+    parent=job_path(job)/'go-probe-runtime';go_runtime_dir(parent)
+    stage=go_runtime_dir(parent/key)
+    intent={'owner_job':job,'go_dependency_key':key,'source_archive_sha256':source_sha}
+    expected=go_runtime_requirement(job)
+    if expected:
+        if expected['go_dependency_key']!=key:raise ValueError('Go experiment expected dependency mismatch')
+        intent['expected_runtime']=expected
+    if (stage/'intent.json').exists():
+        if completion_json(stage/'intent.json')!=intent:raise ValueError('Go experiment source changed')
+    else:completion_write(stage/'intent.json',intent)
+    return stage,intent
+
+def go_probe_source_key(source,key):
+    source_key=go_dependency_key(source)
+    if source_key!=key:
+        original=go_dependency_bundle(source,key=key)
+        if original is None:raise FileNotFoundError('selected historical Go dependency bundle unavailable')
+        metadata=json.loads((original/'manifest.json').read_text())
+        if not (source/'go.mod').exists() or metadata.get('go_mod_sha256')!=digest_file(source/'go.mod'):
+            raise ValueError('historical Go module declaration changed; selected environment needs a new admitted prerequisite')
+    return source_key
+
+def go_probe_unit(job,key):return 'lectern-go-runtime-'+job+'-'+key[:16]+'.service'
+
+def go_probe_runtime(job,key,source_sha,generation,stop=False,execute=False):
+    if type(generation) is not int or generation<1:raise ValueError('Go experiment generation missing')
+    stage,intent=go_probe_paths(job,key,source_sha);name=go_probe_unit(job,key)
+    value=dict(intent,schema_version=1,generation=generation,provenance='new_experiment')
+    authority=stage/'authority.json'
+    if execute:
+        group=Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+        if not group.endswith('/'+name):raise ValueError('Go experiment outside owned unit')
+        current=completion_json(authority)
+        if current.get('revoked',0)>=generation or current.get('generation')!=generation:return 1
+        try:
+            with ARTIFACT_LOCK.open('a') as guard:
+                fcntl.flock(guard,fcntl.LOCK_EX);completion_capacity()
+                source=stage/'source'
+                if source.exists():shutil.rmtree(source)
+                if evidence_extract_archive(job,source)!=source_sha:raise ValueError('Go experiment archived source differs')
+            source_key=go_dependency_key(source) if intent.get('expected_runtime') else go_probe_source_key(source,key)
+            selection=go_runtime_capture(source,expected=intent.get('expected_runtime'),dependency_key=key)
+            value['source_input_key']=source_key
+            if completion_json(authority).get('revoked',0)>=generation:return 1
+            completion_write(stage/'receipt.json',dict(value,**selection,state='verified',scope='new isolated experiment environment; no claim of historical source use'))
+            return 0
+        except (OSError,ValueError) as error:
+            completion_write(stage/'receipt.json',dict(value,state='unavailable',executed=False,retry_at=time.time()+120,reason=str(error)[:500],diagnostic='missing' if isinstance(error,FileNotFoundError) else 'integrity'));return 1
+    with (stage/'guard').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return dict(value,state='stopping' if stop else 'recovering')
+        current=completion_json(authority) if authority.exists() else {'generation':0,'revoked':0}
+        if stop:
+            current['revoked']=max(current['revoked'],generation);completion_write(authority,current)
+            if current['generation']<=generation and completion_service_active(name):run(['/usr/bin/systemctl','stop','--no-block',name],timeout=3)
+            return dict(value,state='stopping' if current['generation']<=generation and completion_service_active(name) else 'stopped')
+        if current['revoked']>=generation:return dict(value,state='cancelled',executed=False)
+        if generation<current['generation']:return dict(value,state='cancelled',executed=False)
+        old=completion_json(stage/'receipt.json') if (stage/'receipt.json').exists() else None
+        if old and old.get('state')=='verified':return dict(old,generation=generation)
+        if old and old.get('state')=='unavailable' and time.time()<old.get('retry_at',0):return dict(old,generation=generation)
+        if completion_service_active(name):return dict(value,state='recovering')
+        if old:
+            history=go_runtime_dir(stage/'history');saved=history/(go_runtime_digest(old)+'.json')
+            if not saved.exists():completion_write(saved,old)
+        current['generation']=generation;completion_write(authority,current)
+        # Fixed supervisor executable frozen before the first asynchronous effect.
+        frozen=stage/'runner.py';entry=stage/'entry.py'
+        if not frozen.exists():
+            raw=Path(__file__).read_bytes();write_new(frozen,raw.decode(),0o400)
+            completion_write(stage/'executable.json',{'sha256':hashlib.sha256(raw).hexdigest()})
+        if digest_file(frozen)!=completion_json(stage/'executable.json')['sha256']:raise ValueError('Go experiment executable changed')
+        if not entry.exists():
+            source="import importlib.util,sys\nfrom pathlib import Path\np=Path(__file__).parent\ns=importlib.util.spec_from_file_location('runner',p/'runner.py');r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\n"
+            for var in ('ROOT','DEPENDENCIES','ARTIFACT_LOCK','GO_TOOLCHAIN_SOURCE'):
+                source+='r.'+var+'=Path('+repr(str(globals()[var]))+')\n'
+            source+='sys.exit(r.main())\n';write_new(entry,source,0o400)
+        cmd=['/usr/bin/systemd-run','--quiet','--unit='+name,'--property=RuntimeMaxSec=180','--property=MemoryMax=2G','--property=CPUQuota=200%','--property=TasksMax=32','--property=KillMode=control-group','--property=NoNewPrivileges=yes','--property=IPAddressDeny=any','--property=UMask=0077','/usr/bin/python3',str(entry),'_go-runtime','--job',job,'--dependency-key',key,'--source-sha256',source_sha,'--generation',str(generation)]
+        run(cmd,pass_fds=(guard.fileno(),),timeout=3)
+        return dict(value,state='recovering')
+
+
 def go_dependency_key(work):
     parts = []
     for name in ('go.mod', 'go.sum'):
@@ -1596,8 +1846,8 @@ def go_dependency_key(work):
     return hashlib.sha256(b'\0'.join(parts)).hexdigest()
 
 
-def go_dependency_bundle(work):
-    key = go_dependency_key(work)
+def go_dependency_bundle(work,key=None):
+    key = key or go_dependency_key(work)
     if key is None:
         return None
     bundle = DEPENDENCIES / 'go' / key
@@ -3468,7 +3718,9 @@ def server_maintenance(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['go-runtime','go-runtime-stop','_go-runtime','node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('--dependency-key')
+    parser.add_argument('--source-sha256')
     parser.add_argument('--operation-id')
     parser.add_argument('--inspection-id')
     parser.add_argument('--observation-id')
@@ -3506,6 +3758,9 @@ def main():
     elif args.command in ('server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe'):
         out = server_observation(args.command, args.job, args.observation_id)
         if args.command == '_server-observe': return out
+    elif args.command in ('go-runtime','go-runtime-stop','_go-runtime'):
+        out=go_probe_runtime(args.job,args.dependency_key,args.source_sha256,args.generation,stop=args.command=='go-runtime-stop',execute=args.command=='_go-runtime')
+        if args.command=='_go-runtime':return out
     elif args.command == 'python-test-runtime':
         out = python_test_runtime_status(args.key, args.job)
     elif args.command in ('integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback'):

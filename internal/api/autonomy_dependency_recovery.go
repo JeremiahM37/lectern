@@ -195,7 +195,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 			a.State = state
 			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
 			j.Status = "prepared"
-			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume || !j.WorkerRecoveryAt.IsZero() {
+			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume || j.GoNeedsResume || !j.WorkerRecoveryAt.IsZero() {
 				j.Status = "stopped"
 			}
 			a.NextCycleScheduled = false
@@ -221,7 +221,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
-		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume || !job.WorkerRecoveryAt.IsZero() {
+		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume || job.GoNeedsResume || !job.WorkerRecoveryAt.IsZero() {
 			job.Status = "stopped"
 		}
 		a.NextCycleScheduled = false
@@ -238,6 +238,9 @@ func autoResumeRecovered(a *autoRecord) bool {
 // enabled/quota checks. Active recovery is refreshed each controller tick;
 // failed/cooling-down capabilities are probed at most every five minutes.
 func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, now time.Time) {
+	// A bounded Go snapshot poll must not starve heartbeat/polls for an
+	// already active package provisioner in another retained assignment.
+	s.pollAutoGoRuntimeRecovery(ctx, a, now)
 	autoPromoteHeldPrerequisites(a)
 	// Give an active download its heartbeat before probing cold blockers.
 	var running int64
@@ -337,6 +340,9 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 }
 
 func autoDeferredReady(j *autoJob) bool {
+	if j.GoNeedsResume && !j.GoRecoveryVerified {
+		return false
+	}
 	if !j.WorkerRecoveryAt.IsZero() {
 		return !time.Now().Before(j.WorkerRecoveryAt) && !j.RequirementHold
 	}
@@ -350,7 +356,7 @@ func autoDeferredReady(j *autoJob) bool {
 	if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil {
 		return true
 	}
-	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil && j.NodeRequest == nil {
+	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil && j.NodeRequest == nil && !j.GoRecoveryVerified {
 		return false
 	}
 	if j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified" || j.PythonNeedsChange) {

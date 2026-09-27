@@ -225,8 +225,10 @@ NODE_RUNTIME_FIELDS={'node_bundle_key','node_input_key','node_lock_sha256','node
 PYTHON_RUNTIME_FIELDS={'python_bundle_key','python_input_key','browser_key','python_test_key'}
 
 def validate_runtime(runtime):
-    if not isinstance(runtime,dict) or not PYTHON_RUNTIME_FIELDS <= set(runtime) or set(runtime)-PYTHON_RUNTIME_FIELDS-NODE_RUNTIME_FIELDS:raise ValueError('invalid probe runtime envelope')
+    if not isinstance(runtime,dict) or not PYTHON_RUNTIME_FIELDS <= set(runtime) or set(runtime)-PYTHON_RUNTIME_FIELDS-NODE_RUNTIME_FIELDS-set(R.GO_RUNTIME_FIELDS):raise ValueError('invalid probe runtime envelope')
     if any(not isinstance(v,str) or (v!='' and not hexkey(v)) for v in runtime.values()):raise ValueError('invalid probe runtime identity')
+    go_fields=set(runtime)&set(R.GO_RUNTIME_FIELDS)
+    if go_fields and (go_fields!=set(R.GO_RUNTIME_FIELDS) or not all(runtime[k] for k in R.GO_RUNTIME_FIELDS)):raise ValueError('incomplete Go runtime selection')
     supplied=set(runtime)&NODE_RUNTIME_FIELDS
     if supplied and (supplied!=NODE_RUNTIME_FIELDS or not all(runtime[k] for k in NODE_RUNTIME_FIELDS)):raise ValueError('incomplete Node runtime selection')
     if bool(runtime['python_bundle_key'])!=bool(runtime['python_input_key']) or (runtime['python_bundle_key'] and runtime['python_test_key']) or (runtime['browser_key'] and not runtime['python_bundle_key']):raise ValueError('conflicting probe runtime selection')
@@ -292,6 +294,7 @@ def runtime_for(job,request):
         if desired['browser_key']:browser=R.browser_runtime(desired['browser_key'],manifest['packages']['playwright'])
     elif desired['python_test_key']:
         bundle=R.python_test_bundle(desired['python_test_key'])
+    if desired.get('go_dependency_key'):R.go_runtime_lookup(desired)
     identity=dict(desired,python_sha256=R.digest_file(Path('/usr/bin/python3').resolve()),python_version=R.platform.python_version())
     return bundle,browser,sha(canonical(identity))
 
@@ -329,11 +332,12 @@ def sandbox_command(request,bundle=False,browser=False):
           '--symlink','/source','/work','--chdir','/scratch','--setenv','HOME','/home/agent','--setenv','PATH','/usr/bin:/bin',
           '--setenv','TMPDIR','/tmp','--setenv','PYTHONPATH','/source','--setenv','PYTHONDONTWRITEBYTECODE','1',
           '--setenv','LANG','C.UTF-8']
+    if request['runtime'].get('go_dependency_key'):cmd+=R.go_runtime_mount(Path('/tmp/expert-go-modules'),Path('/tmp/expert-go-toolchain'))
     if bundle:cmd+=R.python_project_mount(Path('/tmp/expert-runtime'))
     if browser:cmd+=R.browser_runtime_mount(Path('/tmp/expert-browser'))
     if request['runtime'].get('node_bundle_key'):
         cmd+=['--ro-bind','/tmp/expert-node-project','/opt/node-project','--ro-bind','/tmp/expert-node-tooling','/opt/node',
-              '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:/usr/bin:/bin',
+              '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:'+('/opt/go-toolchain/bin:' if request['runtime'].get('go_dependency_key') else '')+'/usr/bin:/bin',
               '--setenv','NODE_PATH','/opt/node-project/node_modules','--setenv','NPM_CONFIG_OFFLINE','true',
               '--setenv','NPM_CONFIG_CACHE','/tmp/node-cache','--setenv','NPM_CONFIG_USERCONFIG','/home/agent/.npmrc',
               '--setenv','NPM_CONFIG_GLOBALCONFIG','/tmp/global.npmrc']
@@ -346,6 +350,8 @@ def mount_inputs(stage,request,bundle,browser,node=None):
     R.run(['/usr/bin/mount','--make-rprivate','/'])
     R.run(['/usr/bin/mount','-t','tmpfs','-o','mode=0755,size=16m,nosuid,nodev','expert-stage','/tmp'])
     sources={'expert-source':stage/'source','expert-inputs':stage/'inputs'}
+    if request['runtime'].get('go_dependency_key'):
+        modules,toolchain=R.go_runtime_lookup(request['runtime']);sources.update({'expert-go-modules':modules,'expert-go-toolchain':toolchain})
     if bundle:sources['expert-runtime']=bundle
     if browser:sources['expert-browser']=browser
     if node:
