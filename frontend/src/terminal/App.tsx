@@ -949,7 +949,11 @@ export function TerminalApp({
       if (!engine) return false;
       void engine.copySelection().catch((error) => setNotice(errorMessage(error)));
     },
-    "terminal.paste": () => {
+    "terminal.paste": (event) => {
+      // The browser's own paste chords already deliver a paste event, which
+      // the terminal takes synchronously; only a remapped chord reads the
+      // clipboard itself.
+      if (event && (event.ctrlKey || event.metaKey) && event.code === "KeyV") return false;
       const engine = current();
       if (!engine || !navigator.clipboard?.readText) return false;
       void navigator.clipboard.readText().then((text) => engine.paste(text)).catch((error) => setNotice(errorMessage(error)));

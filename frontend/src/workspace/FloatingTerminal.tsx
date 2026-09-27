@@ -50,7 +50,9 @@ function load(): FloatingState {
     const raw = JSON.parse(localStorage.getItem(STORAGE) || "{}");
     const tabs = cleanTabs(raw.tabs);
     const box = raw.box && ["x", "y", "w", "h"].every((key) => Number.isFinite(raw.box[key])) ? (raw.box as Box) : null;
-    return { open: raw.open === true && tabs.length > 0, tabs, active: tabs.some((tab) => tab.path === raw.active) ? raw.active : tabs[0]?.path || null, box, maximized: raw.maximized === true };
+    // It starts hidden after a reload, like any drop-down terminal; its
+    // shells are still there when the chord brings it back.
+    return { open: false, tabs, active: tabs.some((tab) => tab.path === raw.active) ? raw.active : tabs[0]?.path || null, box, maximized: raw.maximized === true };
   } catch {
     return { open: false, tabs: [], active: null, box: null, maximized: false };
   }

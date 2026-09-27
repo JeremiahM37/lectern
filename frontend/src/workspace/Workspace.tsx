@@ -155,7 +155,8 @@ export function useTerminalTabs(onActivate: (hash: string) => void): TerminalTab
 
 // ---- saved layouts --------------------------------------------------------------
 
-function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice }: {
+function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice, onPlace }: {
+  onPlace: () => void;
   state: WorkspaceState;
   projectId: number | null;
   projectName: string;
@@ -167,6 +168,12 @@ function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice }: {
   const [name, setName] = useState(""),
     [scoped, setScoped] = useState(false);
   const menu = useRef<HTMLDetailsElement>(null);
+  // The menu's fields exist only while it is open, so a closed menu adds
+  // nothing to the page's form fields.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) onPlace();
+  }, [open, onPlace]);
   const shown = saved.filter((row) => row.project_id === null || row.project_id === projectId);
   const save = () => {
     const label = name.trim();
@@ -178,9 +185,9 @@ function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice }: {
     onNotice(t("workspace.layoutSaved", { name: row.name }));
   };
   return (
-    <details className="ws-layouts" ref={menu}>
+    <details className="ws-layouts" ref={menu} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary aria-label={t("workspace.layouts")} title={t("workspace.layouts")}>{t("workspace.layoutsButton")}</summary>
-      <div className="terminal-actions-panel ws-layouts-panel" role="menu">
+      {open && <div className="terminal-actions-panel ws-layouts-panel" role="menu">
         {shown.length === 0 && <p className="ws-layouts-empty">{t("workspace.noLayouts")}</p>}
         {shown.map((row) => (
           <div className="ws-layout-row" key={row.id}>
@@ -198,7 +205,7 @@ function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice }: {
           )}
           <button className="b" disabled={!name.trim() || !state.panes.length}>{t("workspace.saveLayout")}</button>
         </form>
-      </div>
+      </div>}
     </details>
   );
 }
@@ -501,7 +508,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
     if (!details) return;
     details.open = true;
     placeActions();
-    requestAnimationFrame(() => (focusName ? details.querySelector<HTMLInputElement>(".ws-layout-save input") : details.querySelector<HTMLElement>("button"))?.focus());
+    setTimeout(() => (focusName ? details.querySelector<HTMLInputElement>(".ws-layout-save input") : details.querySelector<HTMLElement>("button"))?.focus(), 60);
   }
 
   const restoreLayout = (row: SavedLayout) => {
@@ -592,7 +599,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
           onClick={() => update((old) => (groups(old.root).length > 1 ? unsplit(old) : splitGroup(old, "row")))}>
           {multi ? t("workspace.unsplit") : t("workspace.split")}
         </button>
-        {!mobile && <LayoutsMenu state={state} projectId={project} projectName={projectName} onRestore={restoreLayout} onNotice={services.notice} />}
+        {!mobile && <LayoutsMenu state={state} projectId={project} projectName={projectName} onRestore={restoreLayout} onNotice={services.notice} onPlace={placeActions} />}
         <a className="b terminal-popout" target="_blank" rel="noopener" title={t("workspace.popoutHint")} hidden={!popout} href={popout}>{t("workspace.popout")}</a>
         <button className="terminal-search" aria-label={t("shell.searchLabel")} title={t("shell.searchLabel")} onClick={onSearch}>⌕</button>
         <details className="terminal-actions" ref={actions} hidden={!active} onToggle={placeActions}>
@@ -611,7 +618,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
             {mobile && <LayoutsSheetButton onOpen={() => openLayouts(false)} />}
           </div>
         </details>
-        {mobile && <LayoutsMenu state={state} projectId={project} projectName={projectName} onRestore={restoreLayout} onNotice={services.notice} />}
+        {mobile && <LayoutsMenu state={state} projectId={project} projectName={projectName} onRestore={restoreLayout} onNotice={services.notice} onPlace={placeActions} />}
         <button className="terminal-focus" aria-label={focused ? t("workspace.showNavigation") : t("workspace.focusTerminal")} title={focused ? t("workspace.showNavigation") : t("workspace.focusTerminal")} aria-pressed={focused} hidden={!active}
           onClick={() => { setCompact(!compact); try { localStorage.setItem("lec-terminal-compact", compact ? "0" : "1"); } catch {} }}>{focused ? "☰" : "⤢"}</button>
       </div>
