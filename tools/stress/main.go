@@ -43,7 +43,7 @@ type options struct {
 	plainDirs                                  bool
 	hangAt                                     time.Duration
 	holdTerminals                              int
-	terminalPorts                              string
+	terminalsMax                               int
 }
 
 func main() {
@@ -64,7 +64,7 @@ func main() {
 	flag.BoolVar(&o.plainDirs, "plain-dirs", false, "run agents in plain directories instead of worktrees of one git repository per target")
 	flag.DurationVar(&o.hangAt, "hang-at", 0, "freeze the first SSH target this far into the window (0: never) and measure the others' status freshness")
 	flag.IntVar(&o.holdTerminals, "hold-terminals", 0, "open this many web terminals at once, keep them all open, and count how many stay connected")
-	flag.StringVar(&o.terminalPorts, "terminal-ports", "", "LECTERN_TERMINAL_PORTS for the instance under test (LO-HI)")
+	flag.IntVar(&o.terminalsMax, "terminals-max", 0, "LECTERN_TERMINALS_MAX for the instance under test (0: its default)")
 	flag.IntVar(&o.cpuCores, "cpu-cores", 0, "CPU quota of the namespace, recorded in the report (run.sh sets it)")
 	flag.Parse()
 	for _, t := range strings.Split(tiers, ",") {
@@ -84,7 +84,7 @@ func main() {
 		"tiers": o.tiers, "ssh_targets": o.sshTargets, "window_s": o.window.Seconds(),
 		"approval_every_s": o.approvalEvery.Seconds(), "sse_clients": o.sseClients,
 		"attach_samples": o.attachSamples, "launch_parallel": o.launchParallel,
-		"plain_dirs": o.plainDirs, "hang_at_s": o.hangAt.Seconds(), "hold_terminals": o.holdTerminals, "terminal_ports": o.terminalPorts,
+		"plain_dirs": o.plainDirs, "hang_at_s": o.hangAt.Seconds(), "hold_terminals": o.holdTerminals, "terminals_max": o.terminalsMax,
 	}}
 	if o.cpuCores > 0 {
 		report.Host["cpu_quota_cores"] = o.cpuCores
@@ -509,8 +509,8 @@ func (t *tier) start() error {
 		"LECTERN_SCRATCH_ROOT="+filepath.Join(t.dir, "scratch"),
 		"LECTERN_BASE_URL="+t.base,
 	)
-	if t.o.terminalPorts != "" {
-		cmd.Env = append(cmd.Env, "LECTERN_TERMINAL_PORTS="+t.o.terminalPorts)
+	if t.o.terminalsMax > 0 {
+		cmd.Env = append(cmd.Env, "LECTERN_TERMINALS_MAX="+strconv.Itoa(t.o.terminalsMax))
 	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
