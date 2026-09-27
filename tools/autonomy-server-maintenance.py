@@ -296,6 +296,37 @@ class Executor:
             fcntl.flock(lock, fcntl.LOCK_EX)
             return self._execute_locked(resource, request, candidate, authority)
 
+    def _external_generation_inspected(self, old, before, request, resource):
+        # A positive read-only inspection releases only the old conflict. The new
+        # operation still needs its own complete authority and exact before CAS.
+        # Later external changes do not erase this historical release proof.
+        if not key(old.get('operation_id')) or old.get('phase') != 'rollback_conflict':
+            return False
+        try:
+            verify_sealed(old['receipt'])
+            old_registry=old.get('registry_sha256')
+            if not key(old_registry):old_registry=sha(root_bytes(self.root.parent/'operations'/old['operation_id']/'registry.json',OBS.MAX_REGISTRY)[0])
+            inspections = self.root.parent / 'operations' / old['operation_id'] / 'inspections'
+            paths = sorted(inspections.glob('*/receipt.json'), key=lambda p:p.stat().st_mtime, reverse=True)[:64]
+            for path in paths:
+                try:
+                    outer=json.loads(root_bytes(path,256*1024)[0]);verify_sealed(outer)
+                    proof=outer.get('result',{});verify_sealed(proof)
+                    if (outer.get('state')!='external_healthy' or outer.get('phase')!='inspect' or outer.get('operation_id')!=old['operation_id'] or not key(outer.get('inspection_id')) or proof.get('inspection_id')!=outer['inspection_id'] or
+                        proof.get('state')!='external_healthy' or proof.get('operation_id')!=old['operation_id'] or proof.get('request_sha256')!=old['request_sha256'] or proof.get('authority_sha256')!=old['authority_sha256'] or
+                        proof.get('conflict_receipt_sha256')!=old['receipt']['receipt_sha256'] or proof.get('registry_sha256')!=old_registry or proof.get('before_sha256')!=old['before_sha256'] or proof.get('candidate_sha256')!=old['candidate_sha256'] or
+                        proof.get('profile')!='registered_service_external_health_v1' or proof.get('no_mutation') is not True or proof.get('owned_candidate') is not False or
+                        not key(proof.get('current_state_sha256')) or proof.get('post_state_sha256')!=proof.get('current_state_sha256') or not re.fullmatch('[a-f0-9]{32}',proof.get('invocation_id','')) or proof.get('post_invocation_id')!=proof.get('invocation_id')):
+                        continue
+                    observations=proof.get('observations',[])
+                    if len(observations)!=3 or not all(o.get('healthy') is True and key(o.get('response_sha256')) and key(o.get('metrics_sha256')) for o in observations):continue
+                    return True
+                except (OSError,ValueError,KeyError,TypeError):
+                    continue
+        except (OSError,ValueError,KeyError,TypeError):
+            pass
+        return False
+
     def _execute_locked(self, resource, request, candidate, authority):
         path = self.root / (request['operation_id'] + '.json')
         digest = request_digest(request)
@@ -320,7 +351,7 @@ class Executor:
                 return self._rollback(resource, path, j, 'interrupted transaction reconciled')
         else:
             before = self.backend.capture(resource)
-            j = dict(operation_id=request['operation_id'], request_sha256=digest,
+            j = dict(operation_id=request['operation_id'], registry_sha256=request['registry_sha256'], request_sha256=digest,
                      authority_sha256=request['authority_sha256'], backup_receipt_sha256=authority['backup_receipt_sha256'], validation_receipt_sha256=authority['validation_receipt_sha256'], generation=request['generation'],
                      before=before, before_sha256=self.backend.state_sha(before), candidate_sha256=sha(canonical(request['limits'])), candidate_dropin_sha256=sha(candidate), resource_identity=resource['identity'],
                      candidate=base64.b64encode(candidate).decode(), observations=[], effects_started=False)
@@ -331,6 +362,8 @@ class Executor:
             if other == path or other.name.endswith('.cancel.json'):
                 continue
             old = json.loads(other.read_bytes())
+            if old.get('resource_identity') == resource['identity'] and old.get('phase') == 'rollback_conflict' and not self._external_generation_inspected(old,j['before'],request,resource):
+                return self._finish(path,j,'conflict','retained external conflict requires authenticated healthy inspection')
             if old.get('resource_identity') == resource['identity'] and old.get('phase') not in TERMINAL:
                 if old.get('phase') in ('apply_intent', 'applied_pending_health', 'rollback_intent'):
                     self._rollback(resource, other, old, 'reconciled before later operation')

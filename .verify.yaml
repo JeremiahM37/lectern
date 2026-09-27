@@ -24,6 +24,7 @@ steps:
       - shell: python3 tools/test_autonomy_private_integration.py
       - shell: python3 tools/test_autonomy_server_operations.py
       - shell: python3 tools/test_autonomy_server_maintenance.py
+      - shell: python3 tools/test_autonomy_server_maintenance_inspect.py
       - shell:
           cmd: |
             set -eu

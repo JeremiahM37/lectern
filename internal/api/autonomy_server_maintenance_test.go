@@ -200,10 +200,13 @@ func TestMaintenanceExternalConflictRequiresEvidenceAndDoesNotClaimRestoration(t
 	if autoBeginMaintenanceRollback(o, external) == nil {
 		t.Fatal("external edit not detected")
 	}
-	if autoResolveMaintenanceConflict(o, external, autoSHA([]byte("proof")), false) == nil {
+	o.ConflictReceiptSHA = autoSHA([]byte("conflict"))
+	proof := autoMaintenanceExternalHealthReceipt{ConflictReceiptSHA: o.ConflictReceiptSHA, OwnershipChecked: true, OperationID: o.ID, ReceiptSHA: autoSHA([]byte("proof")), RegistrySHA: r.Digest, CurrentStateSHA: external.ConfigurationSHA, PostStateSHA: external.ConfigurationSHA, InvocationID: external.InvocationID, PostInvocationID: external.InvocationID, ObservedAt: now, CompletedAt: now, Profile: autoMaintenanceExternalProfile, NoMutation: true}
+	if autoResolveMaintenanceConflict(o, proof, now) == nil {
 		t.Fatal("unhealthy external state released ownership")
 	}
-	if e = autoResolveMaintenanceConflict(o, external, autoSHA([]byte("proof")), true); e != nil {
+	proof.Healthy = true
+	if e = autoResolveMaintenanceConflict(o, proof, now); e != nil {
 		t.Fatal(e)
 	}
 	if o.State != "superseded" || o.RollbackReceiptSHA != "" {

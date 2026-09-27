@@ -153,10 +153,19 @@ func (s *Server) pinAutoMaintenanceAt(ctx context.Context, root string, a *autoR
 		if err != nil {
 			return err
 		}
+		providedPin := p.Maintenance.Pin
+		p.Maintenance.Pin = ""
 		pin, err := autoPinMaintenanceProposal(p.ProjectID, &p, observed, policy, time.Now())
 		if err != nil {
 			return err
 		}
+		if err = autoPinMaintenanceSuccessor(a.Maintenance, pin); err != nil {
+			return err
+		}
+		if providedPin != "" && providedPin != pin.Key {
+			return errors.New("maintenance supplied pin differs from authenticated predecessor")
+		}
+		p.Maintenance.Pin = pin.Key
 		if old := a.MaintenancePins[pin.Key]; old != nil && old.Key != autoMaintenancePinHash(*old) {
 			return errors.New("stored maintenance pin integrity differs")
 		}

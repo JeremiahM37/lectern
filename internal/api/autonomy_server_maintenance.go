@@ -35,19 +35,21 @@ type autoMaintenanceBackup struct {
 	Verified         bool
 }
 type autoMaintenanceAuthority struct {
-	ExecutedValidationSHA string
-	CandidateReviewSHA    string
-	PlanSHA               string
-	TaskID                int64
-	JobID                 string
-	ResourceID            string
-	RegistrySHA           string
-	BeforeSHA             string
-	CandidateSHA          string
-	Limits                autoMaintenanceLimits
-	Audits                [2]autoMaintenanceEvidence
-	Validation            autoMaintenanceEvidence
-	Backup                autoMaintenanceBackup
+	PredecessorOperationID string `json:"predecessor_operation_id,omitempty"`
+	SupersessionSHA        string `json:"supersession_receipt_sha256,omitempty"`
+	ExecutedValidationSHA  string
+	CandidateReviewSHA     string
+	PlanSHA                string
+	TaskID                 int64
+	JobID                  string
+	ResourceID             string
+	RegistrySHA            string
+	BeforeSHA              string
+	CandidateSHA           string
+	Limits                 autoMaintenanceLimits
+	Audits                 [2]autoMaintenanceEvidence
+	Validation             autoMaintenanceEvidence
+	Backup                 autoMaintenanceBackup
 }
 type autoMaintenanceGate struct {
 	Config          autonomy.Config
@@ -64,6 +66,8 @@ type autoMaintenanceObservation struct {
 	CapturedAt                    time.Time
 }
 type autoMaintenanceOperation struct {
+	ConflictReceiptSHA                                    string                                `json:"conflict_receipt_sha256,omitempty"`
+	ExternalResolution                                    *autoMaintenanceExternalHealthReceipt `json:"external_resolution,omitempty"`
 	CancellationReceiptSHA                                string
 	CancellationHistory                                   []string
 	AppliedStateSHA                                       string
@@ -168,7 +172,9 @@ func autoMaintenanceBinding(a autoMaintenanceAuthority) string {
 	b, _ := json.Marshal(struct {
 		Plan, Resource, Registry, Before, Candidate string
 		Limits                                      autoMaintenanceLimits
-	}{a.PlanSHA, a.ResourceID, a.RegistrySHA, a.BeforeSHA, a.CandidateSHA, a.Limits})
+		Predecessor                                 string `json:"predecessor_operation_id,omitempty"`
+		Supersession                                string `json:"supersession_receipt_sha256,omitempty"`
+	}{a.PlanSHA, a.ResourceID, a.RegistrySHA, a.BeforeSHA, a.CandidateSHA, a.Limits, a.PredecessorOperationID, a.SupersessionSHA})
 	return autoSHA(b)
 }
 
@@ -210,7 +216,10 @@ func autoReserveMaintenance(l *autoMaintenanceLedger, a autoMaintenanceAuthority
 	if !b.Verified || b.BeforeSHA != a.BeforeSHA || !autoHash256(b.ReceiptSHA) || !autoHash256(b.RestoreProofSHA) || !autoHash256(b.OffboxReceiptSHA) {
 		return nil, errors.New("maintenance verified restorable backup missing")
 	}
-	id := autoSHA([]byte(a.ResourceID + ":" + a.RegistrySHA + ":" + a.BeforeSHA + ":" + a.CandidateSHA))
+	id := autoMaintenanceAuthorityID(a)
+	if (a.PredecessorOperationID == "") != (a.SupersessionSHA == "") {
+		return nil, errors.New("maintenance successor binding incomplete")
+	}
 	if old := l.Operations[id]; old != nil {
 		raw, _ := json.Marshal(old.Authority)
 		next, _ := json.Marshal(a)
@@ -218,6 +227,11 @@ func autoReserveMaintenance(l *autoMaintenanceLedger, a autoMaintenanceAuthority
 			return nil, errors.New("maintenance semantic operation already reserved under different authority")
 		}
 		return old, nil
+	}
+	if a.PredecessorOperationID != "" {
+		if err := autoValidateMaintenanceSuccessor(l, a); err != nil {
+			return nil, err
+		}
 	}
 	if err := autoMaintenanceQuota(g, now); err != nil {
 		return nil, err
@@ -354,11 +368,12 @@ func autoRecordMaintenanceRollback(o *autoMaintenanceOperation, r autoMaintenanc
 // Reconciliation records an independently observed external generation without
 // claiming rollback. The helper must authenticate this receipt and health proof;
 // no writes occur. A later fresh plan may acquire the resource again.
-func autoResolveMaintenanceConflict(o *autoMaintenanceOperation, observed autoMaintenanceObservation, receiptSHA string, healthy bool) error {
-	if o == nil || o.State != "conflict" || !autoHash256(receiptSHA) || !autoHash256(observed.ConfigurationSHA) || observed.ConfigurationSHA == o.AppliedStateSHA || observed.InvocationID == "" || !healthy {
-		return errors.New("external maintenance state not verified")
+func autoResolveMaintenanceConflict(o *autoMaintenanceOperation, r autoMaintenanceExternalHealthReceipt, now time.Time) error {
+	if o == nil || o.State != "conflict" || r.OperationID != o.ID || !autoHash256(o.ConflictReceiptSHA) || r.ConflictReceiptSHA != o.ConflictReceiptSHA || !autoHash256(r.ReceiptSHA) || r.RegistrySHA != o.Authority.RegistrySHA || !autoHash256(r.CurrentStateSHA) || r.PostStateSHA != r.CurrentStateSHA || r.InvocationID == "" || r.PostInvocationID != r.InvocationID || !r.NoMutation || !r.OwnershipChecked || r.OwnedCandidate || !r.Healthy || r.Profile != autoMaintenanceExternalProfile || r.CompletedAt.IsZero() || r.ObservedAt.IsZero() || r.CompletedAt.Before(r.ObservedAt) || r.CompletedAt.Sub(r.ObservedAt) > time.Minute || r.CompletedAt.After(now) || now.Sub(r.CompletedAt) > 30*time.Second || (r.CurrentStateSHA == o.AppliedStateSHA && r.InvocationID == o.AppliedInvocation) {
+		return errors.New("external maintenance generation not freshly and independently verified")
 	}
+	o.ExternalResolution = &r
 	o.State = "superseded"
-	o.Reason = "external generation retained; no rollback claimed; reconciliation receipt " + receiptSHA
+	o.Reason += "; external healthy generation retained; no restoration or deployment claimed"
 	return nil
 }

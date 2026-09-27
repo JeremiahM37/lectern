@@ -18,6 +18,8 @@ import (
 // pending effects. Exact wire bytes are strings so JSON persistence preserves
 // the bytes hashed by the privileged runner.
 type autoMaintenanceTransaction struct {
+	Inspections            []*autoMaintenanceConflictInspection   `json:"inspections,omitempty"`
+	InspectionRetryAt      time.Time                              `json:"inspection_retry_at,omitempty"`
 	PreeffectReceipt       json.RawMessage                        `json:"preeffect_receipt,omitempty"`
 	RetryAt                time.Time                              `json:"retry_at,omitempty"`
 	InfrastructureFailures int                                    `json:"infrastructure_failures,omitempty"`
@@ -68,15 +70,16 @@ type autoMaintenanceTransactionGeneration struct {
 	Receipts           []json.RawMessage               `json:"receipts"`
 }
 type autoMaintenanceControllerIO struct {
-	Save    func() error
-	Call    func(context.Context, ...string) ([]byte, error)
-	Write   func(*autoMaintenanceTransaction) error
-	Observe func(context.Context, *autoMaintenanceTransaction) (*autoMaintenanceObservation, error)
+	InspectWrite func(*autoMaintenanceTransaction, *autoMaintenanceConflictInspection) error
+	Save         func() error
+	Call         func(context.Context, ...string) ([]byte, error)
+	Write        func(*autoMaintenanceTransaction) error
+	Observe      func(context.Context, *autoMaintenanceTransaction) (*autoMaintenanceObservation, error)
 }
 
 func autoMaintenanceTransactionTerminal(t *autoMaintenanceTransaction) bool {
 	switch t.State {
-	case "verified", "restored", "stale", "unavailable", "conflict":
+	case "verified", "restored", "stale", "unavailable", "superseded":
 		return true
 	}
 	return false
@@ -106,6 +109,7 @@ func autoMaintenanceControllerGate(a *autoRecord, t *autoMaintenanceTransaction,
 	return g, autoMaintenanceQuota(g, now)
 }
 func autoQueueReviewedMaintenance(a *autoRecord) error {
+	var queueErr error
 	keys := make([]string, 0, len(a.MaintenanceReviews))
 	for k := range a.MaintenanceReviews {
 		keys = append(keys, k)
@@ -118,6 +122,9 @@ func autoQueueReviewedMaintenance(a *autoRecord) error {
 		}
 		id := autoMaintenanceOperationID(c.Admission.Pin)
 		if old := a.MaintenanceTransactions[id]; old != nil {
+			if old.ReviewID != key {
+				queueErr = errors.Join(queueErr, fmt.Errorf("maintenance reviewed candidate %s duplicates immutable operation %s (%s); fresh progress-bound predecessor required", key, id, old.State))
+			}
 			continue
 		}
 		if c.Validation == nil || c.ValidationLease == nil || c.ValidationLease.State != "validated" || c.ValidationLease.Generation < 1 || autoSHA([]byte(c.Report)) != c.Review.ReportSHA {
@@ -158,7 +165,7 @@ func autoQueueReviewedMaintenance(a *autoRecord) error {
 		}
 		a.MaintenanceTransactions[id] = &autoMaintenanceTransaction{ID: id, ReviewID: key, Candidate: detached, Provider: j.Provider, Generation: b.Generation, Phase: "backup", State: "pending", Request: string(raw), Binding: b, PhaseRequests: map[string]string{"backup": string(raw)}}
 	}
-	return nil
+	return queueErr
 }
 func autoMaintenanceApplyResult(a *autoRecord, t *autoMaintenanceTransaction, r *autoMaintenanceExecutionResult) error {
 	if r.State == "running" {
@@ -214,6 +221,7 @@ func autoMaintenanceApplyResult(a *autoRecord, t *autoMaintenanceTransaction, r 
 		if op == nil {
 			return errors.New("maintenance rollback conflict has no owned intent")
 		}
+		op.ConflictReceiptSHA = r.InnerReceiptSHA
 		op.State = "conflict"
 		op.Reason = r.Reason
 		t.State = "conflict"
@@ -284,6 +292,9 @@ func autoMaintenanceApplyResult(a *autoRecord, t *autoMaintenanceTransaction, r 
 	return nil
 }
 func autoAdvanceMaintenance(ctx context.Context, a *autoRecord, t *autoMaintenanceTransaction, registry autoMaintenanceRegistry, enabled bool, now time.Time, io autoMaintenanceControllerIO) error {
+	if t.State == "conflict" {
+		return autoAdvanceMaintenanceConflict(ctx, a, t, registry, now, io)
+	}
 	if autoMaintenanceTransactionTerminal(t) {
 		return nil
 	}
@@ -672,6 +683,9 @@ func (s *Server) pollAutoMaintenanceAt(ctx context.Context, root string, a *auto
 		// or reconciling already-owned effects with frozen runner authority.
 		permit := enabled && re == nil && catalogErr == nil
 		io := autoMaintenanceControllerIO{Save: func() error { return s.saveAuto(a) }, Call: call, Write: func(v *autoMaintenanceTransaction) error { return autoWriteMaintenanceTransaction(root, v) }}
+		io.InspectWrite = func(v *autoMaintenanceTransaction, l *autoMaintenanceConflictInspection) error {
+			return autoWriteMaintenanceInspection(root, v, l)
+		}
 		io.Observe = func(c context.Context, v *autoMaintenanceTransaction) (*autoMaintenanceObservation, error) {
 			return s.autoMaintenanceObserve(c, root, a, v, call)
 		}

@@ -188,6 +188,36 @@ class MaintenanceTests(unittest.TestCase):
         self.request['generation']=3
         with self.assertRaises(M.Unavailable):self.executor.execute(self.request,authority)
 
+    def test_external_conflict_blocks_new_operation_until_bound_inspection(self):
+        self.executor=M.Executor(Path(self.temp.name)/'transactions',self.backend)
+        authority=self.admit();self.backend.external=True
+        self.assertEqual(self.executor.execute(self.request,authority)['state'],'rollback_conflict')
+        old=json.loads((self.executor.root/(self.request['operation_id']+'.json')).read_bytes())
+        self.backend.external=False
+        self.request['operation_id']=M.sha(b'new separately audited successor')
+        self.request['expected_state_sha256']=self.backend.state_sha(self.backend.capture({}))
+        successor_authority=self.admit()
+        refused=self.executor.execute(self.request,successor_authority)
+        self.assertEqual(refused['state'],'conflict')
+        self.assertEqual(self.backend.applied,1)
+        before=self.backend.capture({});current=self.backend.state_sha(before);inspection='9'*64
+        proof=dict(state='external_healthy',before_sha256=old['before_sha256'],candidate_sha256=old['candidate_sha256'],operation_id=old['operation_id'],inspection_id=inspection,request_sha256=old['request_sha256'],authority_sha256=old['authority_sha256'],conflict_receipt_sha256=old['receipt']['receipt_sha256'],registry_sha256=self.request['registry_sha256'],profile='registered_service_external_health_v1',no_mutation=True,owned_candidate=False,current_state_sha256=current,post_state_sha256=current,invocation_id=self.backend.invocation({}),post_invocation_id=self.backend.invocation({}),observations=[dict(healthy=True,response_sha256='7'*64,metrics_sha256='8'*64)]*3)
+        directory=self.executor.root.parent/'operations'/old['operation_id']/'inspections'/inspection;directory.mkdir(parents=True)
+        def publish():
+            proof.pop('receipt_sha256',None);proof['receipt_sha256']=M.sha(M.canonical(proof))
+            outer=dict(state='external_healthy',phase='inspect',operation_id=old['operation_id'],inspection_id=inspection,result=proof);outer['receipt_sha256']=M.sha(M.canonical(outer));M.atomic(directory/'receipt.json',outer)
+        with patch.object(M,'root_bytes',side_effect=lambda path,*args:(path.read_bytes(),0o600)):
+            publish();self.assertTrue(self.executor._external_generation_inspected(old,before,self.request,{}))
+            later={'files':dict(before['files'],script='legitimate later external version')}
+            self.assertTrue(self.executor._external_generation_inspected(old,later,self.request,{}))
+            proof['conflict_receipt_sha256']='0'*64;publish();self.assertFalse(self.executor._external_generation_inspected(old,before,self.request,{}))
+            proof['conflict_receipt_sha256']=old['receipt']['receipt_sha256'];proof['observations'][0]['healthy']=False;publish();self.assertFalse(self.executor._external_generation_inspected(old,before,self.request,{}))
+            proof['observations'][0]['healthy']=True;publish()
+            self.request['generation']=2
+            self.assertEqual(self.executor.execute(self.request,successor_authority)['state'],'applied')
+        self.assertEqual(self.backend.applied,2)
+        self.assertEqual(json.loads((self.executor.root/(old['operation_id']+'.json')).read_bytes()),old)
+
     def test_failed_candidate_cannot_reset_via_generation(self):
         authority = self.admit()
         self.backend.healthy = False

@@ -35,6 +35,7 @@ SERVER_OPERATIONS_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-oper
 SERVER_REGISTRY = Path('/etc/lectern/server-targets.json')
 SERVER_OBSERVATIONS_ROOT = ROOT.parent / 'server-observations'
 SERVER_MAINTENANCE_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-maintenance.py')
+SERVER_MAINTENANCE_INSPECT_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-maintenance-inspect.py')
 SERVER_MAINTENANCE_ROOT = ROOT.parent / 'server-maintenance'
 SERVER_MAINTENANCE_TOOLS = ROOT.parent / 'server-maintenance-tools'
 INTEGRATION_ROOT = ROOT.parent / 'integrations'
@@ -3411,6 +3412,33 @@ def server_observation(command, job=None, observation=None):
     return module.dispatch(globals(),command,job,observation)
 
 
+def server_maintenance_inspect(args):
+    operation=args.operation_id;inspection=args.inspection_id
+    for value in (operation,inspection):
+        if not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value):raise ValueError('inspection identity must be SHA256')
+    helper=SERVER_MAINTENANCE_INSPECT_HELPER
+    manifest=SERVER_MAINTENANCE_ROOT/'operations'/operation/'inspections'/inspection/'executables.json'
+    if manifest.exists():
+        info=regular(manifest)
+        if info.st_uid!=0 or info.st_mode&0o077:raise ValueError('unsafe inspection executable selection')
+        value=json.loads(manifest.read_bytes());digest=value.get('digest')
+        if not isinstance(digest,str) or len(digest)!=64 or any(c not in '0123456789abcdef' for c in digest):raise ValueError('invalid inspection executable identity')
+        cache=SERVER_MAINTENANCE_TOOLS/digest
+        for directory in (SERVER_MAINTENANCE_TOOLS,cache):
+            info=directory.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe inspector cache directory')
+        files=value.get('files',{})
+        if set(files)!={'autonomy-runner.py','autonomy-server-maintenance.py','autonomy-server-operations.py','autonomy-server-maintenance-inspect.py','entry.py'}:raise ValueError('invalid inspector executable inventory')
+        for name,expected in files.items():
+            path=cache/name;info=regular(path)
+            if info.st_uid!=0 or info.st_mode&0o022 or info.st_size>16*1024*1024 or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:raise ValueError('inspection executable identity changed')
+        helper=cache/'autonomy-server-maintenance-inspect.py'
+    module=python_helper(helper)
+    command=args.command
+    if command=='server-maintenance-status':command='server-maintenance-inspect-status'
+    return module.dispatch(globals(),command,args.job,operation,inspection,args.generation)
+
+
 def server_maintenance(args):
     helper = SERVER_MAINTENANCE_HELPER
     operation = getattr(args,'operation_id',None)
@@ -3433,8 +3461,9 @@ def server_maintenance(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--operation-id')
+    parser.add_argument('--inspection-id')
     parser.add_argument('--observation-id')
     parser.add_argument('--python-test-key')
     parser.add_argument('--key')
@@ -3442,7 +3471,7 @@ def main():
     parser.add_argument('--generation', type=int, default=1)
     parser.add_argument('--check-id')
     parser.add_argument('--project-id', type=int)
-    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback','validate','backup','apply','reconcile'])
+    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback','validate','backup','apply','reconcile','inspect'])
     parser.add_argument('--job')
     parser.add_argument('--probe-id')
     parser.add_argument('--stream', choices=['stdout', 'stderr'])
@@ -3460,6 +3489,10 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
+    if args.command in ('server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect') or (args.command=='server-maintenance-status' and args.phase=='inspect'):
+        out=server_maintenance_inspect(args)
+        if args.command=='_server-maintenance-inspect':return out
+        print(json.dumps(out,sort_keys=True,separators=(',',':')));return 0
     if args.command.startswith('server-maintenance-') or args.command == '_server-maintenance':
         out = server_maintenance(args)
         if args.command == '_server-maintenance': return out

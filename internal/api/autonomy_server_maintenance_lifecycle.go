@@ -18,6 +18,8 @@ type autoMaintenanceObservedResource struct {
 	CapturedAt                                time.Time
 }
 type autoMaintenancePlanPin struct {
+	PredecessorOperationID                                      string `json:"predecessor_operation_id,omitempty"`
+	SupersessionSHA                                             string `json:"supersession_receipt_sha256,omitempty"`
 	Key                                                         string
 	ProjectID                                                   int64
 	TargetID, ServiceID, ObservationID                          string
@@ -76,7 +78,7 @@ func autoPinMaintenanceProposal(projectID int64, p *autonomy.Proposal, obs autoM
 	return pin, nil
 }
 func autoMaintenancePinAuthority(pin autoMaintenancePlanPin) autoMaintenanceAuthority {
-	return autoMaintenanceAuthority{PlanSHA: pin.Key, ResourceID: pin.TargetID + "/" + pin.ServiceID, RegistrySHA: pin.RegistrySHA, BeforeSHA: pin.BeforeSHA, CandidateSHA: pin.CandidateSHA, Limits: pin.Limits}
+	return autoMaintenanceAuthority{PredecessorOperationID: pin.PredecessorOperationID, SupersessionSHA: pin.SupersessionSHA, PlanSHA: pin.Key, ResourceID: pin.TargetID + "/" + pin.ServiceID, RegistrySHA: pin.RegistrySHA, BeforeSHA: pin.BeforeSHA, CandidateSHA: pin.CandidateSHA, Limits: pin.Limits}
 }
 func autoValidateMaintenancePin(pin *autoMaintenancePlanPin, p autonomy.Proposal) error {
 	if pin == nil || !autoHash256(pin.Key) || pin.Key != autoMaintenancePinHash(*pin) || p.Maintenance == nil || !autonomy.ValidMaintenanceProposal(p) || p.Maintenance.Pin != pin.Key || p.ProjectID != pin.ProjectID || p.Maintenance.TargetID != pin.TargetID || p.Maintenance.ServiceID != pin.ServiceID || p.Maintenance.ObservationID != pin.ObservationID || p.Maintenance.Limits != pin.Limits {

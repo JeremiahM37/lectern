@@ -411,3 +411,28 @@ controller fixture requires `LECTERN_MAINTENANCE_REAL_FIXTURE`; it is excluded
 from normal test runs and must use a disposable registered service and separate
 controller state. A successful fixture proves the exercised execution and recovery
 paths, not spontaneous task selection or sustained autonomous usefulness.
+
+### Read-only resolution of an external maintenance conflict
+
+The fixed inspector is installed root-owned at
+`/usr/local/libexec/lectern-autonomy-server-maintenance-inspect.py`, alongside
+the maintenance executor and server observer. It freezes its executable set
+separately for each inspection so an existing operation's original effect
+journal and executable identity remain unchanged. Its registry must match the
+operation's frozen registry exactly; it never remaps a changed service target.
+
+An inspection of a retained `rollback_conflict` only reads registered service
+configuration, invocation identity and the fixed JSON/metrics health profile.
+It brackets three healthy observations with matching configuration and process
+invocation captures, requires the service to be active/running, and refuses to
+call the operation's still-owned candidate an external generation. It does not
+write service files, restart a unit, restore a backup or approve original work.
+The controller may record a healthy external generation as superseding the old
+conflict; only a separately audited new plan can authorize another mutation.
+
+Inspection IDs are immutable: completed or interrupted evidence is retained,
+and a new bounded inspection is needed to retry unavailable health. The fixed
+read-only reconciliation can run while autonomous mode is OFF without model
+tokens; this does not reauthorize the original apply generation. Installation
+and rollback verification must include the inspector helper's prior presence
+or absence, permissions and hash.

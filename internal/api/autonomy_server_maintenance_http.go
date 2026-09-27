@@ -88,7 +88,7 @@ func autoMaintenanceValidationOwner(a *autoRecord, job string, launch bool) (*au
 	return nil, errors.New("active maintenance reviewer required")
 }
 func autoMaintenanceOperationID(pin autoMaintenancePlanPin) string {
-	return autoSHA([]byte(pin.TargetID + "/" + pin.ServiceID + ":" + pin.RegistrySHA + ":" + pin.BeforeSHA + ":" + pin.CandidateSHA))
+	return autoMaintenanceAuthorityID(autoMaintenancePinAuthority(pin))
 }
 func autoReserveMaintenanceValidation(a *autoRecord, j *autoJob) (*autoMaintenanceValidationLease, error) {
 	pin := j.MaintenanceAdmission.Pin
