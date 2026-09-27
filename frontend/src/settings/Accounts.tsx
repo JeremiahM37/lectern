@@ -2,11 +2,11 @@
 // machine, which the "swap accounts" usage-limit policy moves limited work
 // between. Each account is a private config directory on the machine; the
 // page only ever sees its label, whether it is signed in, the limit Lectern
-// last saw and the usage the CLI itself last reported.
+// last saw and the usage the CLI itself last reported. accounts.css is
+// imported by main.tsx, like the other settings styles, so tests can load this.
 import { useEffect, useState } from "react";
 import type { AgentAccount, Target } from "../types";
 import { clock } from "../limits/limit-label";
-import "./accounts.css";
 
 export interface AccountsApi {
   request<T>(p: string, o?: { method?: string; body?: unknown }): Promise<T>;

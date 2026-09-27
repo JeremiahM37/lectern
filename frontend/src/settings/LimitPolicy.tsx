@@ -4,7 +4,6 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { LimitPolicy } from "../types";
-import "./accounts.css";
 
 interface Api {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
