@@ -992,4 +992,13 @@ var migrations = []string{
   path TEXT NOT NULL, line_hash TEXT NOT NULL, at REAL NOT NULL,
   UNIQUE(session_id, path, line_hash))`,
 	"CREATE INDEX IF NOT EXISTS idx_agent_line_marks_path ON agent_line_marks(session_id, path)",
+	// Per-person UI preferences that follow them across devices: theme,
+	// shortcuts, saved layouts, quick commands (docs/workspace.md).
+	`CREATE TABLE IF NOT EXISTS ui_prefs(
+  owner TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at REAL NOT NULL,
+  PRIMARY KEY(owner, key)
+)`,
 }

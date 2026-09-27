@@ -1,11 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { displayChord } from "../shortcuts/chords";
+import { searchProviders } from "./palette-providers";
+import { t } from "../i18n";
 export interface Command {
   id: string;
   title: string;
   category: string;
   detail?: string;
   keywords?: string;
+  // The chords that run this command directly, shown beside it.
+  shortcut?: string[];
   run: () => void | Promise<void>;
+}
+// Letters of the query in order, not necessarily together: "nsn" finds "New
+// session". Only used when no word matched, so typed words still rank first.
+function subsequence(text: string, query: string) {
+  let at = 0;
+  for (const ch of query.replace(/\s+/g, "")) {
+    at = text.indexOf(ch, at);
+    if (at < 0) return false;
+    at++;
+  }
+  return true;
 }
 export function rankCommands(items: Command[], query: string) {
   const q = query.toLocaleLowerCase().trim(),
@@ -16,7 +32,10 @@ export function rankCommands(items: Command[], query: string) {
         haystack = [title, item.category, item.detail, item.keywords]
           .join(" ")
           .toLocaleLowerCase();
-      return terms.every((term) => haystack.includes(term))
+      const words = terms.every((term) => haystack.includes(term));
+      if (!words && terms.length && subsequence(title, q))
+        return { item, order, score: -1 };
+      return words
         ? {
             item,
             order,
@@ -54,7 +73,17 @@ export function Palette({
     [selected, setSelected] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  const all = useMemo(() => rankCommands(items, query), [items, query]),
+  const [extra, setExtra] = useState<Command[]>([]);
+  useEffect(() => {
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      void searchProviders(query, abort.signal)
+        .then((found) => { if (!abort.signal.aborted) setExtra(found); })
+        .catch(() => {});
+    }, 150);
+    return () => { abort.abort(); clearTimeout(timer); };
+  }, [query]);
+  const all = useMemo(() => rankCommands(extra.length ? [...items, ...extra] : items, query), [items, extra, query]),
     results = all.slice(0, 80),
     index = Math.max(
       0,
@@ -144,14 +173,14 @@ export function Palette({
     >
       <div className="command-search">
         <label className="sr-only" htmlFor="command-query">
-          Search sessions, tasks, and actions
+          {t("palette.label")}
         </label>
         <input
           ref={input}
           id="command-query"
           type="search"
           autoComplete="off"
-          placeholder="Search sessions, tasks, actions…"
+          placeholder={t("palette.placeholder")}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded="true"
@@ -195,7 +224,10 @@ export function Palette({
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => choose(item)}
           >
-            <strong>{item.title}</strong>
+            <strong>
+              {item.title}
+              {!!item.shortcut?.length && <kbd className="command-shortcut">{displayChord(item.shortcut[0]!)}</kbd>}
+            </strong>
             <span>
               {[item.category, item.detail].filter(Boolean).join(" · ")}
             </span>
@@ -203,7 +235,7 @@ export function Palette({
         ))}
       </div>
       <p className="command-help">
-        ↑ ↓ to choose · Enter to open · Esc to close
+        {t("palette.help")}
       </p>
     </dialog>
   );

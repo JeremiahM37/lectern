@@ -1,5 +1,6 @@
 import { errorMessage } from "./model";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { PaneEmbedContext } from "../workspace/registry";
 import { json } from "./model";
 import "./review.css";
 interface ChangedFile {
@@ -41,12 +42,14 @@ export function Review({
   const [wrap, setWrap] = useState(
     () => localStorage.getItem("lec-review-wrap") !== "0",
   );
+  const embedded = useContext(PaneEmbedContext);
   useEffect(() => {
     const previous = document.activeElement;
-    root.current?.showModal();
+    if (embedded) root.current?.show();
+    else root.current?.showModal();
     return () => {
       root.current?.close();
-      if (previous instanceof HTMLElement) previous.focus();
+      if (!embedded && previous instanceof HTMLElement) previous.focus();
     };
   }, []);
   useEffect(() => {
