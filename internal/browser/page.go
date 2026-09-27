@@ -451,8 +451,11 @@ func (b *Browser) startCast(ctx context.Context) error {
 	b.mu.Lock()
 	vp := b.vp
 	b.mu.Unlock()
+	// Frames travel over the relay too, which carries at most 1 MiB a message:
+	// a phone's 3x density is capped at 1.5x, which still reads sharply.
+	scale := min(vp.Scale, 1.5)
 	return b.conn.Call(ctx, b.page, "Page.startScreencast", map[string]any{"format": "jpeg", "quality": 70,
-		"maxWidth": int(float64(vp.Width) * vp.Scale), "maxHeight": int(float64(vp.Height) * vp.Scale), "everyNthFrame": 1}, nil)
+		"maxWidth": int(float64(vp.Width) * scale), "maxHeight": int(float64(vp.Height) * scale), "everyNthFrame": 1}, nil)
 }
 
 // capture sends one frame now, for a watcher that just arrived.

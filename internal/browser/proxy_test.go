@@ -227,7 +227,15 @@ func TestViewInjectsOnlyInDesignModeDocuments(t *testing.T) {
 		t.Fatalf("picker served with Design Mode off: %d", resp.StatusCode)
 	}
 	f.view.SetDesign(true)
-	resp, body := get(t, c, f.base+"/", nav...)
+	// A revalidation must not get a 304: the browser would reuse its copy
+	// without the picker.
+	for len(f.seen) > 0 {
+		<-f.seen
+	}
+	resp, body := get(t, c, f.base+"/", append(nav, "If-None-Match", `"x"`, "If-Modified-Since", "Mon, 01 Jan 2024 00:00:00 GMT")...)
+	if up := <-f.seen; up.Header.Get("If-None-Match") != "" || up.Header.Get("If-Modified-Since") != "" {
+		t.Fatalf("a conditional document request reached the dev server in Design Mode: %v", up.Header)
+	}
 	if !strings.Contains(body, `<head><script src="/__lectern/design.js"></script><title>`) {
 		t.Fatalf("no picker in a Design Mode document: %s", body)
 	}

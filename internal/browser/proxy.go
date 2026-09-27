@@ -243,8 +243,12 @@ func (v *View) rewrite(pr *httputil.ProxyRequest, port int) {
 	out.Header.Del("X-Forwarded-For")
 	pr.SetXForwarded()
 	if v.Design() && documentRequest(in) {
-		// Only an uncompressed body can take the script tag.
+		// Only an uncompressed, full body can take the script tag: a 304
+		// would have the browser reuse the copy it cached without one.
 		out.Header.Set("Accept-Encoding", "identity")
+		for _, h := range []string{"If-None-Match", "If-Modified-Since", "If-Match", "If-Unmodified-Since", "If-Range", "Range"} {
+			out.Header.Del(h)
+		}
 	}
 }
 
