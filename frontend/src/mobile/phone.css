@@ -22,6 +22,7 @@ body:has(#offline-banner) #view .scard { opacity: .92; }
   color: var(--ink-dim); font-size: 19px; box-shadow: var(--shadow);
   transform: translate(-50%, -44px); opacity: 0; pointer-events: none;
 }
+#pull-refresh::before { content: "↻"; }
 #pull-refresh.armed { color: var(--accent-soft); border-color: var(--accent); }
 #pull-refresh.busy { opacity: 1; transform: translate(-50%, 20px); animation: pull-spin .8s linear infinite; }
 @keyframes pull-spin { from { rotate: 0deg; } to { rotate: 360deg; } }

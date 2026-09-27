@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import expect
 
 from conftest import PHONE, _start, _stop, _unused_port
 from test_terminal_workspace import real_terminal, capture  # noqa: F401  (fixture)
@@ -275,11 +275,11 @@ def test_last_known_sessions_show_offline_with_a_stale_marker(browser, phone_ser
 
 # ---- dictation on the host --------------------------------------------------
 
-def test_dictation_is_transcribed_on_the_lectern_host(phone_server):
+def test_dictation_is_transcribed_on_the_lectern_host(browser, phone_server):
     session = _session(phone_server, "Dictation target")
-    with sync_playwright() as p:
+    if True:
         # A fake microphone: Chromium's test tone, with the permission granted.
-        b = p.chromium.launch(args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+        b = browser.browser_type.launch(args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
         ctx = b.new_context(viewport=PHONE, permissions=["microphone"])
         page = ctx.new_page()
         # No browser speech recognition here, like the Android app's WebView.

@@ -79,8 +79,8 @@ export function PullToRefresh({ target, onRefresh }: { target: () => HTMLElement
     return () => abort.abort();
   }, [target]);
   return (
-    <div ref={indicator} id="pull-refresh" className={busy ? "busy" : ""} role="status" aria-label={busy ? "Refreshing" : undefined}>
-      ↻
-    </div>
+    // The arrow is drawn by CSS, so the page's text is the same with or
+    // without it.
+    <div ref={indicator} id="pull-refresh" className={busy ? "busy" : ""} role="status" aria-label={busy ? "Refreshing" : undefined} />
   );
 }

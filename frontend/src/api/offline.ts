@@ -3,11 +3,12 @@
 // so a phone opening the app on a train shows what it last knew at once,
 // marked stale, instead of an empty screen and a spinner.
 //
-// While the page has not yet heard from Lectern, a cached answer is returned
-// immediately and the real request keeps going; when it lands, "revalidated"
-// tells the app to refresh, so the screen catches up by itself. Once a live
-// answer has arrived, requests go to the network as usual and the cache is
-// only a fallback for a failed one. It is per origin like the rest of the
+// While the page has not yet heard from Lectern, a request that fails to
+// reach it, or takes more than a moment, is answered from the cache while the
+// real one keeps going; when it lands, "revalidated" tells the app to
+// refresh, so the screen catches up by itself. Once a live answer has
+// arrived, requests go to the network as usual and a failure only raises
+// the banner. It is per origin like the rest of the
 // app's storage, and a 401 or a forgotten pairing clears it.
 //
 // This works the same in a browser, an installed web app and the Android
@@ -49,6 +50,8 @@ export class OfflineCache extends EventTarget {
   constructor(
     private storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | undefined = safeStorage(),
     private now: () => number = () => Date.now(),
+    /** How long a first request may take before the cache answers it. */
+    private patience = 1200,
   ) {
     super();
     this.entries = this.read();
@@ -78,22 +81,42 @@ export class OfflineCache extends EventTarget {
     );
     if (!hit) return request;
     if (!this.live) {
-      // Nothing heard yet in this page: answer from the cache now, and let
-      // the real request finish in the background.
-      request.then(
-        () => this.dispatchEvent(new Event("revalidated")),
-        (error) => {
-          if (unreachable(error)) this.markStale(hit.at);
-        },
-      );
-      return hit.body as T;
+      // Nothing heard yet in this page: give the network a moment, and if it
+      // has not answered by then, answer from the cache and let the real
+      // request finish in the background. A reachable Lectern wins the race,
+      // so a working connection never shows stale data first.
+      return new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          settled = true;
+          resolve(hit.body as T);
+        }, this.patience);
+        request.then(
+          (value) => {
+            clearTimeout(timer);
+            if (!settled) resolve(value);
+            else this.dispatchEvent(new Event("revalidated"));
+          },
+          (error) => {
+            clearTimeout(timer);
+            if (!unreachable(error)) {
+              if (!settled) reject(error);
+              return;
+            }
+            this.markStale(hit.at);
+            if (!settled) resolve(hit.body as T);
+          },
+        );
+      });
     }
+    // Once the page has live data, a failed request fails as before: each
+    // screen keeps what it shows and says so its own way (Needs you marks
+    // its rows stale); the banner says the whole app is offline.
     try {
       return await request;
     } catch (error) {
-      if (!unreachable(error)) throw error;
-      this.markStale(hit.at);
-      return hit.body as T;
+      if (unreachable(error)) this.markStale(hit.at);
+      throw error;
     }
   }
 
@@ -114,7 +137,6 @@ export class OfflineCache extends EventTarget {
   }
 
   private markStale(at: number) {
-    this.live = false;
     const since = this.staleSince ? Math.min(this.staleSince, at) : at;
     if (since === this.staleSince) return;
     this.staleSince = since;
