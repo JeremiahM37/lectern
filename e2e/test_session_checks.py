@@ -60,5 +60,6 @@ def test_session_card_check_goes_failed_then_passed(page, real_terminal, width):
     # The check history is on the review-and-merge panel too.
     card.locator(".action-menu>summary").click()
     page.get_by_role("button", name="Review & merge").click()
+    page.get_by_role("tab", name="Checks").click()
     expect(page.get_by_role("heading", name="Checks")).to_be_visible(timeout=10000)
     expect(page.locator(".review-check-list li").first).to_contain_text("test -f ok.txt")

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { DraftComment } from "./types";
 
 /**
@@ -24,7 +25,20 @@ export function CommentTray({
   busy?: boolean;
   sendLabel: string;
 }) {
+  const [writingSummary, setWritingSummary] = useState(false);
   const canSend = !busy && (comments.length > 0 || summary.trim() !== "");
+  if (comments.length === 0 && !summary && !writingSummary) {
+    // Nothing drafted: a one-line hint instead of a docked form, so on a
+    // phone the diff keeps the screen.
+    return (
+      <div className="review-tray review-tray-empty" id="review-tray">
+        <span className="sub">No comments yet — tap a line to comment.</span>
+        <button type="button" className="b" onClick={() => setWritingSummary(true)}>
+          Write an overall note
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="review-tray" id="review-tray">
       <details className="review-tray-list" open={comments.length > 0}>
