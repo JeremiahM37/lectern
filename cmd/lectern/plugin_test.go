@@ -47,7 +47,7 @@ func TestPluginInstallAsksAndConsentsToExactlyWhatWasShown(t *testing.T) {
 		case "/api/plugins/preview":
 			json.NewEncoder(w).Encode(map[string]any{"hash": "abc", "manifest": map[string]any{"id": "acme.x", "version": "1"},
 				"capabilities": []map[string]any{{"key": "host_exec", "detail": []string{"task.finished: run"}}},
-				"accept": []string{"host_exec: task.finished: run"}, "contributions": map[string]int{"hooks": 1}})
+				"accept":       []string{"host_exec: task.finished: run"}, "contributions": map[string]int{"hooks": 1}})
 		case "/api/plugins/install":
 			var body map[string]any
 			raw, _ := io.ReadAll(r.Body)
