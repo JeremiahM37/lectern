@@ -92,7 +92,9 @@ The same control loop runs in an installable phone app:
 - No Tailscale? Run **`lectern relay`** on any small server and pair a phone
   by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
   WireGuard); the relay only passes sealed frames and never serves app code.
-- An **Android app** (prototype, build from source) bundles the same web app,
+- An **Android app prototype** bundles the same web app; download the
+  [signed v0.1.0 APK published with Lectern v2.4.1](https://github.com/JeremiahM37/lectern/releases/download/v2.4.1/lectern-android-0.1.0-prototype.apk)
+  or [build it from source](docs/android.md). It
   keeps the relay key in Keystore, and takes Approve / Deny / Reply from the
   notification with no Lectern screen open, via UnifiedPush and ntfy.
 
