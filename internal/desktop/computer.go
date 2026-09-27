@@ -2,7 +2,9 @@ package desktop
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -184,4 +186,109 @@ echo OK
 		return fmt.Errorf("%s", strings.TrimPrefix(out, "ERROR "))
 	}
 	return fmt.Errorf("unexpected reply: %s", out)
+}
+
+//go:embed a11y.py
+var a11yScript string
+
+// ErrNoA11y means the desktop has no accessibility bus to read.
+var ErrNoA11y = fmt.Errorf("this desktop has no accessibility bus (install at-spi2-core, dbus and x11-utils " +
+	"on its machine, then start a new desktop); coordinates still work")
+
+func (d *Desktop) a11yRun(ctx context.Context, run Runner, args ...string) (string, error) {
+	if !stateDir.MatchString(d.Dir) {
+		return "", fmt.Errorf("not a desktop state directory")
+	}
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = shellQuote(a)
+	}
+	out, err := run(ctx, fmt.Sprintf(`# lectern-desktop-a11y
+dir=%s; export DISPLAY=:%d
+[ -d "$dir" ] || { echo "ERROR the desktop is gone"; exit 0; }
+[ -f "$dir/a11y" ] || { echo NOA11Y; exit 0; }
+command -v python3 >/dev/null 2>&1 || { echo "MISSING python3"; exit 0; }
+python3 -c %s %s 2>"$dir/a11y-script.err" || echo "ERROR $(tail -n 1 "$dir/a11y-script.err")"
+`, shellQuote(d.Dir), d.Display, shellQuote(a11yScript), strings.Join(quoted, " ")))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case line == "NOA11Y":
+			return "", ErrNoA11y
+		case strings.HasPrefix(line, "MISSING"):
+			return "", &MissingError{Tools: strings.Fields(line)[1:]}
+		case strings.HasPrefix(line, "ERROR "):
+			return "", fmt.Errorf("%s", strings.TrimPrefix(line, "ERROR "))
+		case strings.HasPrefix(line, "TREE "), strings.HasPrefix(line, "OK "), strings.HasPrefix(line, "POINT "):
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("the accessibility reader said nothing: %s", strings.TrimSpace(out))
+}
+
+// A11ySnapshot reads the desktop's accessibility tree: every app, window and
+// control, each actionable one with a [ref=N] and its screen rectangle.
+func A11ySnapshot(ctx context.Context, run Runner, d *Desktop) (string, int, error) {
+	line, err := d.a11yRun(ctx, run, "snapshot", d.Dir)
+	if err != nil {
+		return "", 0, err
+	}
+	var out struct {
+		Tree string `json:"tree"`
+		Refs int    `json:"refs"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "TREE ")), &out); err != nil {
+		return "", 0, err
+	}
+	return out.Tree, out.Refs, nil
+}
+
+// A11yAct clicks, focuses or types into the element ref names. It uses the
+// element's own accessible action where it has one, and otherwise clicks the
+// middle of its rectangle; via says which happened.
+func A11yAct(ctx context.Context, run Runner, d *Desktop, ref int, action, text string) (string, error) {
+	if ref <= 0 {
+		return "", fmt.Errorf("ref must come from a computer snapshot")
+	}
+	if action != "click" && action != "focus" && action != "type" {
+		return "", fmt.Errorf("an element can be clicked, focused or typed into")
+	}
+	if action == "type" && (text == "" || len(text) > 4000) {
+		return "", fmt.Errorf("type needs text of at most 4000 bytes")
+	}
+	line, err := d.a11yRun(ctx, run, "act", d.Dir, fmt.Sprint(ref), action, text)
+	if err != nil {
+		return "", err
+	}
+	if rest, ok := strings.CutPrefix(line, "OK "); ok {
+		var r struct {
+			Via string `json:"via"`
+		}
+		_ = json.Unmarshal([]byte(rest), &r)
+		return r.Via, nil
+	}
+	var p struct {
+		Point []int  `json:"point"`
+		Then  string `json:"then"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "POINT ")), &p); err != nil || len(p.Point) != 2 {
+		return "", fmt.Errorf("the element has no action and no place on screen to click")
+	}
+	x, y := p.Point[0], p.Point[1]
+	if x < 0 || y < 0 || x >= d.Width || y >= d.Height {
+		return "", fmt.Errorf("the element is off screen")
+	}
+	if action == "focus" || p.Then == "type" || action == "click" {
+		if err := Act(ctx, run, d, Action{Type: "click", X: x, Y: y}); err != nil {
+			return "", err
+		}
+	}
+	if action == "type" {
+		if err := Act(ctx, run, d, Action{Type: "type", Text: text}); err != nil {
+			return "", err
+		}
+	}
+	return "coordinates", nil
 }

@@ -18,6 +18,9 @@ import (
 
 type computerIn struct {
 	desktop.Action
+	// Ref names an element from the latest accessibility snapshot; click,
+	// focus and type act on it instead of on coordinates.
+	Ref         int    `json:"ref"`
 	LiveID      int64  `json:"live_id"`
 	SessionID   int64  `json:"session_id"`
 	HintSession int64  `json:"hint_session_id"`
@@ -169,6 +172,36 @@ func (s *Server) agentComputer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, out)
 		return
 	}
+	if in.Type == "snapshot" {
+		tree, refs, err := desktop.A11ySnapshot(ctx, run, ld.d)
+		if err != nil {
+			deskError(w, err)
+			return
+		}
+		out["tree"], out["refs"] = tree, refs
+		if in.Screenshot {
+			if png, err := desktop.Screenshot(ctx, run, ld.d); err == nil {
+				out["screenshot"] = base64.StdEncoding.EncodeToString(png)
+			}
+		}
+		writeJSON(w, 200, out)
+		return
+	}
+	if in.Ref > 0 {
+		via, err := desktop.A11yAct(ctx, run, ld.d, in.Ref, in.Type, in.Text)
+		if err != nil {
+			deskError(w, err)
+			return
+		}
+		out["done"], out["via"] = in.Type, via
+		if in.Screenshot {
+			if png, err := desktop.Screenshot(ctx, run, ld.d); err == nil {
+				out["screenshot"] = base64.StdEncoding.EncodeToString(png)
+			}
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	if in.Type != "screenshot" {
 		if err := desktop.Act(ctx, run, ld.d, in.Action); err != nil {
 			deskError(w, err)
@@ -189,7 +222,7 @@ func (s *Server) agentComputer(w http.ResponseWriter, r *http.Request) {
 
 func deskError(w http.ResponseWriter, err error) {
 	var missing *desktop.MissingError
-	if errors.As(err, &missing) {
+	if errors.As(err, &missing) || errors.Is(err, desktop.ErrNoA11y) {
 		httpError(w, 409, "%s", err)
 		return
 	}

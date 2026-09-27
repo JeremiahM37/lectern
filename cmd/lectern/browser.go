@@ -30,9 +30,10 @@ const browserUsage = `usage: lectern browser ACTION [ARGS] [--session ID]
   status | close`
 
 const computerUsage = `usage: lectern computer ACTION [ARGS] [--session ID] [--live ID]
+  snapshot                    the accessibility tree, with [ref=N]s
   screenshot FILE
-  click X Y [--right|--double]
-  type TEXT
+  click REF | click X Y [--right|--double]
+  type [--ref N] TEXT
   key KEY                     xdotool key name: Return, ctrl+l, ...
   scroll X Y up|down|left|right [--amount N]
   windows | status`
@@ -227,7 +228,7 @@ func browserCommand(c *console.Client, args []string) ([]byte, error) {
 }
 
 func computerCommand(c *console.Client, args []string) ([]byte, error) {
-	args, flags, err := commonFlags(args, map[string]bool{"session": true, "live": true, "amount": true})
+	args, flags, err := commonFlags(args, map[string]bool{"session": true, "live": true, "amount": true, "ref": true})
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +268,14 @@ func computerCommand(c *console.Client, args []string) ([]byte, error) {
 		}
 		shotFile = rest[0]
 	case "click":
+		if len(rest) == 1 {
+			ref, err := strconv.Atoi(strings.TrimPrefix(rest[0], "ref="))
+			if err != nil || ref <= 0 {
+				return nil, fmt.Errorf("click takes a ref from snapshot, or X Y")
+			}
+			body["ref"] = ref
+			break
+		}
 		if err := point(); err != nil {
 			return nil, err
 		}
@@ -280,6 +289,13 @@ func computerCommand(c *console.Client, args []string) ([]byte, error) {
 			return nil, fmt.Errorf("usage: lectern computer type TEXT")
 		}
 		body["text"] = rest[0]
+		if v := flags["ref"]; v != "" {
+			ref, err := strconv.Atoi(v)
+			if err != nil || ref <= 0 {
+				return nil, fmt.Errorf("--ref takes a ref from snapshot")
+			}
+			body["ref"] = ref
+		}
 	case "key":
 		if len(rest) != 1 {
 			return nil, fmt.Errorf("usage: lectern computer key KEY")
@@ -297,7 +313,7 @@ func computerCommand(c *console.Client, args []string) ([]byte, error) {
 			n, _ := strconv.Atoi(v)
 			body["amount"] = n
 		}
-	case "status", "windows":
+	case "status", "windows", "snapshot":
 	default:
 		return nil, fmt.Errorf("unknown computer action %q\n%s", action, computerUsage)
 	}

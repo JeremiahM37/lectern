@@ -169,6 +169,18 @@ func init() {
 			},
 		},
 		tool{
+			Name: "computer_snapshot",
+			Description: "Read this session's live desktop as an accessibility tree: every app, window and control, " +
+				"each actionable one with a [ref=N] and its screen rectangle. Pass a ref to computer_click or " +
+				"computer_type to act on that element; refs go stale when the screen changes. Apps must be started " +
+				"with ACCESSIBILITY_ENABLED=1 (and Chromium with --force-renderer-accessibility) to appear.",
+			Schema: obj(map[string]any{"screenshot": flag("also return a screenshot"), "live_id": num("which desktop"),
+				"session_id": sessionArg}),
+			Run: func(s *Server, args map[string]any) (any, error) {
+				return s.computerCall("snapshot", args, "screenshot")
+			},
+		},
+		tool{
 			Name:        "computer_windows",
 			Description: "List the visible windows on this session's live desktop, with their names and screen rectangles.",
 			Schema:      obj(map[string]any{"live_id": num("which desktop"), "session_id": sessionArg}),
@@ -177,26 +189,27 @@ func init() {
 			},
 		},
 		tool{
-			Name:        "computer_click",
-			Description: "Click a point on this session's live desktop, in screen pixels from computer_screenshot.",
-			Schema: obj(map[string]any{"x": num("x in screen pixels"), "y": num("y in screen pixels"),
+			Name: "computer_click",
+			Description: "Click an element by ref (from computer_snapshot), using its own accessible action when it has one, " +
+				"or a point on this session's live desktop in screen pixels.",
+			Schema: obj(map[string]any{"ref": num("element ref from computer_snapshot"), "x": num("x in screen pixels"), "y": num("y in screen pixels"),
 				"button": str("left (default), right or double"), "screenshot": flag("return a screenshot afterwards"),
-				"live_id": num("which desktop"), "session_id": sessionArg}, "x", "y"),
+				"live_id": num("which desktop"), "session_id": sessionArg}),
 			Run: func(s *Server, args map[string]any) (any, error) {
 				action := map[string]string{"right": "right_click", "double": "double_click"}[argStr(args, "button")]
 				if action == "" {
 					action = "click"
 				}
-				return s.computerCall(action, args, "x", "y", "screenshot")
+				return s.computerCall(action, args, "ref", "x", "y", "screenshot")
 			},
 		},
 		tool{
 			Name:        "computer_type",
-			Description: "Type text into whatever has focus on this session's live desktop.",
-			Schema: obj(map[string]any{"text": str("text to type"), "screenshot": flag("return a screenshot afterwards"),
+			Description: "Type text into an element by ref (from computer_snapshot: its text is replaced), or into whatever has focus on this session's live desktop.",
+			Schema: obj(map[string]any{"text": str("text to type"), "ref": num("element ref from computer_snapshot"), "screenshot": flag("return a screenshot afterwards"),
 				"live_id": num("which desktop"), "session_id": sessionArg}, "text"),
 			Run: func(s *Server, args map[string]any) (any, error) {
-				return s.computerCall("type", args, "text", "screenshot")
+				return s.computerCall("type", args, "ref", "text", "screenshot")
 			},
 		},
 		tool{
