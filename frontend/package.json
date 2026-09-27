@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts src/relay/*.test.ts src/native/*.test.ts src/browser/*.test.ts src/trackers/*.test.ts src/theme/*.test.ts src/shortcuts/*.test.ts src/workspace/*.test.ts src/i18n/*.test.ts src/prefs/*.test.ts src/quick/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts src/relay/*.test.ts src/native/*.test.ts src/browser/*.test.ts src/trackers/*.test.ts src/theme/*.test.ts src/shortcuts/*.test.ts src/workspace/*.test.ts src/i18n/*.test.ts src/prefs/*.test.ts src/quick/*.test.ts src/mobile/*.test.ts",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {

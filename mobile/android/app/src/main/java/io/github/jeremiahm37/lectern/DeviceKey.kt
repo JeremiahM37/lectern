@@ -26,13 +26,17 @@ import javax.crypto.KeyAgreement
  * Keystore that refuses it) the key is software X25519 (Tink) sealed with the
  * app's Keystore AES key ([SecureStore]); that is the documented fallback.
  */
-class DeviceKey(context: Context) {
+class DeviceKey(context: Context, host: Host) {
     private val store = SecureStore(context)
+    // One key per paired Lectern, so two Lecterns cannot tell they share a
+    // phone. App 0.1.0's pairing keeps its original alias and sealed name.
+    private val alias = host.keyAlias
+    private val fallbackName = if (alias == LEGACY_ALIAS) SecureStore.FALLBACK_DEVICE_KEY else Hosts.secretName(host.id, SecureStore.FALLBACK_DEVICE_KEY)
 
     /** "keystore" (non-extractable), "keystore-tee"/"keystore-strongbox" when
      * the key is in secure hardware, or "sealed" (software key, encrypted). */
     val storage: String
-        get() = keystorePrivate()?.let { hardware(it) } ?: if (store.getSecret(SecureStore.FALLBACK_DEVICE_KEY) != null) "sealed" else "none"
+        get() = keystorePrivate()?.let { hardware(it) } ?: if (store.getSecret(fallbackName) != null) "sealed" else "none"
 
     fun publicKey(): ByteArray {
         keystorePrivate()?.let { return keystorePublic() }
@@ -43,7 +47,7 @@ class DeviceKey(context: Context) {
             Log.w(TAG, "Keystore has no usable X25519; using a sealed software key", made.exceptionOrNull())
         }
         val secret = X25519.generatePrivateKey()
-        store.putSecret(SecureStore.FALLBACK_DEVICE_KEY, b64(secret))
+        store.putSecret(fallbackName, b64(secret))
         return X25519.publicFromPrivate(secret)
     }
 
@@ -60,25 +64,25 @@ class DeviceKey(context: Context) {
     }
 
     fun delete() {
-        runCatching { keystore().deleteEntry(ALIAS) }
-        store.putSecret(SecureStore.FALLBACK_DEVICE_KEY, null)
+        runCatching { keystore().deleteEntry(alias) }
+        store.putSecret(fallbackName, null)
     }
 
     private fun keystore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    private fun keystorePrivate(): PrivateKey? = runCatching { keystore().getKey(ALIAS, null) as? PrivateKey }.getOrNull()
+    private fun keystorePrivate(): PrivateKey? = runCatching { keystore().getKey(alias, null) as? PrivateKey }.getOrNull()
 
     private fun keystorePublic(): ByteArray {
-        val encoded = keystore().getCertificate(ALIAS).publicKey.encoded
+        val encoded = keystore().getCertificate(alias).publicKey.encoded
         return encoded.copyOfRange(encoded.size - 32, encoded.size)
     }
 
-    private fun sealedPrivate(): ByteArray? = store.getSecret(SecureStore.FALLBACK_DEVICE_KEY)?.let { unb64(it) }
+    private fun sealedPrivate(): ByteArray? = store.getSecret(fallbackName)?.let { unb64(it) }
 
     private fun generateInKeystore() {
         val gen = KeyPairGenerator.getInstance("XDH", "AndroidKeyStore")
         gen.initialize(
-            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_AGREE_KEY)
+            KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_AGREE_KEY)
                 .setAlgorithmParameterSpec(ECGenParameterSpec("x25519"))
                 .build(),
         )
@@ -88,7 +92,7 @@ class DeviceKey(context: Context) {
         try {
             dh(X25519.publicFromPrivate(X25519.generatePrivateKey()))
         } catch (e: Exception) {
-            keystore().deleteEntry(ALIAS)
+            keystore().deleteEntry(alias)
             throw e
         }
     }
@@ -104,7 +108,8 @@ class DeviceKey(context: Context) {
 
     companion object {
         private const val TAG = "LecternKey"
-        private const val ALIAS = "lectern-relay-x25519"
+        /** App 0.1.0's alias; new pairings append their host id. */
+        const val LEGACY_ALIAS = "lectern-relay-x25519"
         // SubjectPublicKeyInfo header for an X25519 key (RFC 8410).
         private val SPKI = byteArrayOf(0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00)
 

@@ -99,6 +99,14 @@
 :root[data-theme="light"] #return-live { box-shadow: 0 3px 12px rgba(15, 23, 42, 0.19); }
 :root[data-theme="light"] #unresponsive, :root[data-theme="light"] #agent-exited { background: var(--panel); color: var(--ink); box-shadow: 0 6px 24px rgba(15, 23, 42, 0.23); }
 
+/* frontend/src/trackers/trackers.css */
+:root[data-theme="light"] .th-banner-err { color: #976363; }
+:root[data-theme="light"] .th-src-linear { color: #6169ba; }
+:root[data-theme="light"] code.th-branch { color: #45748b; }
+:root[data-theme="light"] .th-avatar { color: var(--ink); }
+:root[data-theme="light"] .th-log { background: var(--bg); color: var(--ink); }
+:root[data-theme="light"] dialog.th-start::backdrop, :root[data-theme="light"] dialog.th-confirm::backdrop { background: rgba(15, 23, 42, 0.25); }
+
 /* frontend/src/workspace/floating.css */
 :root[data-theme="light"] #floating-terminal { box-shadow: 0 24px 70px rgba(15, 23, 42, 0.17); }
 

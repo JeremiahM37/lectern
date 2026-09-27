@@ -84,7 +84,7 @@ export function NeedsYou({
   // Which approval's "deny with reason" field is open, keyed by approval id.
   const [denying, setDenying] = useState<number | null>(null);
   const [reason, setReason] = useState("");
-  const { supported: dictationSupported, dictating, toggle: toggleDictation } = useDictation({
+  const { supported: dictationSupported, dictating, transcribing, toggle: toggleDictation } = useDictation({
     onChange: setReason,
     onNotice,
   });
@@ -382,7 +382,7 @@ export function NeedsYou({
                 aria-pressed={dictating}
                 onClick={() => toggleDictation(reason)}
               >
-                {dictating ? "🔴" : "🎙"}
+                {transcribing ? "⏳" : dictating ? "🔴" : "🎙"}
               </button>
             )}
             <button className="b" type="submit" disabled={isBusy}>

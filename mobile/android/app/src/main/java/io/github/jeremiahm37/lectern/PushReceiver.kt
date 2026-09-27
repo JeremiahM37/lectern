@@ -30,14 +30,15 @@ class PushReceiver : MessagingReceiver() {
     }
 
     override fun onNewEndpoint(context: Context, endpoint: PushEndpoint, instance: String) {
-        if (!Push.saveEndpoint(context, endpoint)) {
-            Pages.pushResult(false, "The push distributor does not support encrypted (Web Push) messages.")
+        val host = Hosts(context).byPushInstance(instance) ?: return
+        if (!Push.saveEndpoint(context, host, endpoint)) {
+            Pages.pushResult(host.id, false, "The push distributor does not support encrypted (Web Push) messages.")
             return
         }
-        Log.i(TAG, "new push endpoint")
-        // An open page registers it with Lectern straight away; with none
-        // open, a background call does (the endpoint can change at any time).
-        if (!Pages.pushResult(true, null)) Actions.enqueueSubscribe(context)
+        Log.i(TAG, "new push endpoint for ${host.id}")
+        // An open page of that Lectern registers it straight away; otherwise
+        // a background call does (the endpoint can change at any time).
+        if (!Pages.pushResult(host.id, true, null)) Actions.enqueueSubscribe(context, host)
     }
 
     override fun onMessage(context: Context, message: PushMessage, instance: String) {
@@ -45,18 +46,19 @@ class PushReceiver : MessagingReceiver() {
             Log.w(TAG, "dropped a push message that did not decrypt")
             return
         }
+        val host = Hosts(context).byPushInstance(instance) ?: return
         val data = runCatching { JSONObject(String(message.content)) }.getOrNull() ?: return
-        Notifications.show(context, data)
+        Notifications.show(context, host, data)
     }
 
     override fun onRegistrationFailed(context: Context, reason: FailedReason, instance: String) {
-        Pages.pushResult(false, "Push registration failed ($reason).")
+        val host = Hosts(context).byPushInstance(instance) ?: return
+        Pages.pushResult(host.id, false, "Push registration failed ($reason).")
     }
 
     override fun onUnregistered(context: Context, instance: String) {
-        val store = SecureStore(context)
-        store.putPlain(SecureStore.PUSH_SUBSCRIPTION, null)
-        store.putPlain(SecureStore.PUSH_CONFIRMED, null)
+        val host = Hosts(context).byPushInstance(instance) ?: return
+        Push.forget(context, host)
     }
 
     companion object {

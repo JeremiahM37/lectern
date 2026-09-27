@@ -15,7 +15,7 @@ import java.io.ByteArrayInputStream
  * calls, SSE and terminals go to the network as usual, but every app file
  * comes from here) or [APP_ORIGIN] (relay mode: nothing on that origin ever
  * reaches the network; the page talks to Lectern only through the encrypted
- * tunnel). Either way the code that runs is the code this APK was signed
+ * tunnel; see [relayOrigin]). Either way the code that runs is the code this APK was signed
  * with, never code served by a relay or an install origin.
  */
 class Shell(context: Context) {
@@ -51,8 +51,19 @@ class Shell(context: Context) {
     }
 
     companion object {
-        /** The relay-mode origin. It exists only inside this WebView. */
+        /** The relay-mode origin of app 0.1.0's one pairing. It exists only
+         * inside this WebView; later relay pairings each get a subdomain of
+         * it ([relayOrigin]), so their pages keep separate storage. */
         const val APP_ORIGIN = "https://app.lectern.invalid"
+
+        fun relayOrigin(hostId: String) = "https://$hostId.app.lectern.invalid"
+
+        /** An origin that must never reach the network. */
+        fun isRelayOrigin(origin: String): Boolean {
+            val u = runCatching { java.net.URI(origin) }.getOrNull() ?: return false
+            val host = u.host ?: return false
+            return u.scheme == "https" && (host == "app.lectern.invalid" || host.endsWith(".app.lectern.invalid"))
+        }
 
         /** Mirrors internal/api/server.go appRoute: extensionless paths that
          * are not API-shaped are client-side routes of the one-page app. */
@@ -83,6 +94,6 @@ class Shell(context: Context) {
             return "${u.scheme}://${u.host}$port"
         }
 
-        private fun notFound() = WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        fun notFound() = WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
     }
 }
