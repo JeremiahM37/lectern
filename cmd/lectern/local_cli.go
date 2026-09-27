@@ -90,6 +90,11 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 	if command == "mcp" {
 		return mcp.New(ep.URL, ep.Token).Serve(os.Stdin, os.Stdout)
 	}
+	// A running runtime is reused whatever its build; say so when it is
+	// older than this CLI rather than stopping it under its sessions.
+	if note := localruntime.OutdatedNote(ep.Build); note != "" && stderrIsTerminal() {
+		fmt.Fprintln(os.Stderr, "lectern: "+note)
+	}
 	oldTmuxDir, hadTmuxDir := os.LookupEnv("TMUX_TMPDIR")
 	if err := os.Setenv("TMUX_TMPDIR", ep.TmuxDir); err != nil {
 		return err

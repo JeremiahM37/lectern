@@ -195,7 +195,9 @@ func localTestEnv(state string) []string {
 			base = append(base, item)
 		}
 	}
-	return append(base, "XDG_STATE_HOME="+state, "LECTERN_MOCK=1")
+	// LECTERN_PORT=1: no Lectern service answers there, so plain commands
+	// choose the local runtime even on a host running one on 9110.
+	return append(base, "XDG_STATE_HOME="+state, "LECTERN_MOCK=1", "LECTERN_PORT=1")
 }
 
 func runLocalCLI(bin string, env []string, args ...string) ([]byte, error) {

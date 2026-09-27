@@ -63,11 +63,27 @@ lectern local api --help
 If the installer selected `lectern-local` to preserve an existing remote
 launcher, substitute that name in the commands above.
 
-With no `LECTERN_API`, ordinary Lectern commands use the local runtime by
-default. `lectern local` explicitly selects local mode even when that
-variable points at a remote control plane. Conversely, keep `LECTERN_API`
-set when an ordinary command should use the hosted client; an unreachable
-explicit remote does not silently fall back to local state.
+With no `LECTERN_API`, ordinary Lectern commands first look for a Lectern
+service already running on this machine — `lectern serve`, for example a
+systemd unit — on `127.0.0.1` at `LECTERN_PORT` (default 9110; a service's
+`/etc/lectern.env` or `/etc/default/lectern` is also read when you have not
+set `LECTERN_PORT` and the file is readable). A private local runtime is
+never mistaken for one. If a service answers, plain commands use it; otherwise
+they use the private local runtime. When both are running, an interactive
+command prints one line saying so, and `lectern doctor` reports the choice on
+its `server` line. Commands run inside a local runtime session stay on that
+runtime.
+
+A service in token auth mode refuses a CLI without its token. Then plain
+commands use the private runtime and print a line asking for
+`LECTERN_AUTH_TOKEN` (or `LECTERN_API`). In tailscale mode, processes on the
+service's own machine need no token.
+
+`lectern local` explicitly selects local mode even when a service is running
+or `LECTERN_API` points at a remote control plane. Conversely, keep
+`LECTERN_API` set when an ordinary command should use a particular hosted
+server; an unreachable explicit remote does not silently fall back to local
+state.
 
 The helper starts privately when the first local command needs it. Check or
 stop it with:
@@ -76,6 +92,12 @@ stop it with:
 lectern local status
 lectern local stop
 ```
+
+A running helper is reused whatever build started it. When it is older than
+the `lectern` binary you run, `lectern local status` reports `"outdated":
+true` with a note, `lectern doctor` says so, and interactive local commands
+print a reminder. Nothing stops it for you; run `lectern local stop` and the
+next local command starts the current build.
 
 Stopping the helper does not discard the local database or durable tmux
 sessions; later local commands can start it again and resume them. A stop is
@@ -114,7 +136,7 @@ OpenSSH host/key setup and is separate from the local command.
 | Agent process | Same machine as the terminal | Lectern server or a registered target |
 | Setup | Git, tmux, Python 3, agent CLI; Go for source builds | SSH alias/key and reachable control plane |
 | Command | `lectern local` | `lectern` or `lectern console` |
-| Server URL | Not required | `LECTERN_API` or installer `--api` |
+| Server URL | Not required | `LECTERN_API`, installer `--api`, or a service on this machine |
 | Grimoire | Optional/not required | Optional; configured by the control plane |
 
 Both paths preserve the agent CLI's own provider and model settings. Choose
