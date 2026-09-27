@@ -73,6 +73,7 @@ type UsageWindow struct {
 	RemainingPercent *float64 `json:"remaining_percent"`
 	ResetsAt         *float64 `json:"resets_at"`
 	ResetPassed      bool     `json:"reset_passed"`
+	ResetState       string   `json:"reset_state,omitempty"`
 }
 
 // QuotaGate fails closed for missing, duplicate, invalid, stale, or reset-past
@@ -122,10 +123,20 @@ func QuotaGate(c Config, providers []ProviderUsage, required []string, now time.
 				label := strings.ToLower(strings.TrimSpace(w.Label))
 				weekly = weekly || strings.Contains(label, "weekly")
 				session = session || strings.Contains(label, "session") || strings.Contains(label, "5-hour")
-				if w.UsedPercent == nil || w.RemainingPercent == nil || w.ResetsAt == nil || !finite(*w.UsedPercent) || !finite(*w.RemainingPercent) || !finite(*w.ResetsAt) || *w.UsedPercent < 0 || *w.UsedPercent > 100 || *w.RemainingPercent < 0 || *w.RemainingPercent > 100 || math.Abs(*w.UsedPercent+*w.RemainingPercent-100) > 0.2 {
+				if w.UsedPercent == nil || w.RemainingPercent == nil || !finite(*w.UsedPercent) || !finite(*w.RemainingPercent) || *w.UsedPercent < 0 || *w.UsedPercent > 100 || *w.RemainingPercent < 0 || *w.RemainingPercent > 100 || math.Abs(*w.UsedPercent+*w.RemainingPercent-100) > 0.2 {
 					return fmt.Errorf("%s %s quota invalid", id, w.Label)
 				}
-				if w.ResetPassed || *w.ResetsAt <= float64(now.UnixNano())/1e9 {
+				// Claude explicitly reports an unused five-hour window with no
+				// reset. Only the collector's exact unrounded zero + explicit-null
+				// provenance permits this case; an absent/invalid reset is unknown.
+				idle := id == "claude" && label == "5-hour" && w.ResetState == "provider_null_zero" && w.ResetsAt == nil && *w.UsedPercent == 0 && *w.RemainingPercent == 100
+				if w.ResetState != "" && !idle {
+					return fmt.Errorf("%s %s reset provenance invalid", id, w.Label)
+				}
+				if !idle && (w.ResetsAt == nil || !finite(*w.ResetsAt)) {
+					return fmt.Errorf("%s %s quota reset invalid", id, w.Label)
+				}
+				if w.ResetPassed || (!idle && *w.ResetsAt <= float64(now.UnixNano())/1e9) {
 					return fmt.Errorf("%s %s reset requires fresh usage", id, w.Label)
 				}
 				if *w.RemainingPercent <= c.ReservePercent+c.MarginPercent {
