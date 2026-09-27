@@ -402,6 +402,14 @@ export function SessionCard({
         <LinesBadge session={s} />
         <CompactionWarning session={s} />
         <AwarenessOverlapChip session={s} />
+        {s.target_reach?.unreachable && (
+          <span
+            className="chip warn target-unreachable"
+            title={`${s.target_name || "This machine"} is not answering (${s.target_reach.error || "no reply"}). The status shown is the last one seen.`}
+          >
+            ⚠ {s.target_name || "machine"} unreachable
+          </span>
+        )}
         {s.group_path && <span className="chip">{s.group_path}</span>}
         {live && s.agent !== "shell" && (
           <CheckBadge session={s} api={api} onNotice={onNotice} />

@@ -77,6 +77,18 @@ func markdown(r Report) string {
 	row("Log WARN / ERROR", func(t TierResult) string {
 		return fmt.Sprintf("%d / %d", t.LogCounts["WARN"], t.LogCounts["ERROR"])
 	})
+	for _, t := range r.Tiers {
+		if h := t.Hang; h != nil {
+			fmt.Fprintf(&b, "\nUnreachable target, %d sessions: froze %s for %.0f s. Healthy sessions' status age p50/p95 %s before, %s during; "+
+				"frozen target's rows shown unreachable after %.1f s (-1: never); healthy rows wrongly flagged %d; recovered %.1f s after it answered again (-1: not within 90 s).\n",
+				t.Sessions, h.Target, h.FrozenSeconds, pp(h.StalenessBefore), pp(h.StalenessDuring),
+				h.SecondsToUnreachable, h.HealthyFlagged, h.SecondsToRecover)
+		}
+		if h := t.Hold; h != nil {
+			fmt.Fprintf(&b, "\nHeld terminals, %d sessions: opened %d at once, %d still connected 3 s later, %d refused, %d retire notices.\n",
+				t.Sessions, h.Opened, h.StillOpen, h.Refused, h.Notices)
+		}
+	}
 	return b.String()
 }
 

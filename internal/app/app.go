@@ -88,6 +88,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}, mem, log)
 	sessMgr.WorktreeNamespace = cfg.WorktreeNamespace
 	sessMgr.HandoffPoll = cfg.HandoffPoll
+	sessMgr.TargetPollTimeout = cfg.TargetPollTimeout
 	// cfg.HookBase already defaults to cfg.BaseURL in config.Load(), but a
 	// hand-built config.Config{} (every test in this repo) does not go
 	// through Load() and leaves both zero — fall back explicitly so a test
@@ -136,6 +137,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Sessions = sessMgr
 	sched.Memory = mem
 	terms := terminal.NewManager()
+	terms.Max = cfg.TerminalsMax
 	events := agentevents.New(db, b)
 	activity := alerts.NewActivity()
 	alertWatcher := &alerts.Watcher{DB: db, Notifier: notifier, Activity: activity}

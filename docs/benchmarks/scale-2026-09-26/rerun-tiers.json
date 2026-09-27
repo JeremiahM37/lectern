@@ -1,0 +1,584 @@
+{
+  "started": "2026-09-27T00:34:30Z",
+  "host": {
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "cpu_quota_cores": 8,
+    "go": "go1.26.6",
+    "kernel": "6.17.13-2-pve",
+    "meminfo_total": "MemTotal:       129467424 kB",
+    "numcpu_visible": 32,
+    "tmux": "tmux 3.5a"
+  },
+  "options": {
+    "approval_every_s": 20,
+    "attach_samples": 10,
+    "hang_at_s": 0,
+    "hold_terminals": 0,
+    "launch_parallel": 8,
+    "plain_dirs": false,
+    "sse_clients": 25,
+    "ssh_targets": 3,
+    "terminals_max": 0,
+    "tiers": [
+      10,
+      25,
+      50,
+      100
+    ],
+    "window_s": 60
+  },
+  "tiers": [
+    {
+      "sessions": 10,
+      "targets": [
+        "local",
+        "ssh-1",
+        "ssh-2",
+        "ssh-3"
+      ],
+      "launch_ok": 10,
+      "launch_failed": 0,
+      "launch": {
+        "n": 10,
+        "p50_ms": 353.5,
+        "p95_ms": 602.4,
+        "p99_ms": 602.4,
+        "max_ms": 602.4
+      },
+      "launch_wall_s": 0.8,
+      "active_at_window_start": 10,
+      "active_at_window_end": 10,
+      "list": {
+        "n": 238,
+        "p50_ms": 2,
+        "p95_ms": 4.8,
+        "p99_ms": 6.4,
+        "max_ms": 10.9
+      },
+      "list_bytes": 10691,
+      "list_errors": 0,
+      "fanout_clients": 25,
+      "fanout": {
+        "n": 725,
+        "p50_ms": 1,
+        "p95_ms": 2.4,
+        "p99_ms": 2.6,
+        "max_ms": 2.9
+      },
+      "fanout_probes": 29,
+      "fanout_missed": 0,
+      "sse_disconnects": 0,
+      "approvals_requested": 30,
+      "approvals_approved": 30,
+      "approvals_not_approved": 0,
+      "approval_request_to_visible": {
+        "n": 30,
+        "p50_ms": 5.1,
+        "p95_ms": 11.2,
+        "p99_ms": 13.4,
+        "max_ms": 13.4
+      },
+      "approval_decision_post": {
+        "n": 30,
+        "p50_ms": 0.4,
+        "p95_ms": 0.9,
+        "p99_ms": 0.9,
+        "max_ms": 0.9
+      },
+      "approval_decision_to_unblocked": {
+        "n": 30,
+        "p50_ms": 1.9,
+        "p95_ms": 3.6,
+        "p99_ms": 4.2,
+        "max_ms": 4.2
+      },
+      "approval_round_trip": {
+        "n": 30,
+        "p50_ms": 7.2,
+        "p95_ms": 14.8,
+        "p99_ms": 17.6,
+        "max_ms": 17.6
+      },
+      "attach_post": {
+        "n": 10,
+        "p50_ms": 12.2,
+        "p95_ms": 13.4,
+        "p99_ms": 13.4,
+        "max_ms": 13.4
+      },
+      "attach_first_output": {
+        "n": 10,
+        "p50_ms": 15.7,
+        "p95_ms": 57.7,
+        "p99_ms": 57.7,
+        "max_ms": 57.7
+      },
+      "attach_total": {
+        "n": 10,
+        "p50_ms": 28.3,
+        "p95_ms": 70.6,
+        "p99_ms": 70.6,
+        "max_ms": 70.6
+      },
+      "tui": {
+        "fetch": {
+          "max_ms": 8,
+          "n": 20,
+          "p50_ms": 2.3,
+          "p95_ms": 6.7
+        },
+        "iterations": 20,
+        "rows": 10,
+        "total": {
+          "max_ms": 8.7,
+          "n": 20,
+          "p50_ms": 2.6,
+          "p95_ms": 7.5
+        },
+        "update": {
+          "max_ms": 0.3,
+          "n": 20,
+          "p50_ms": 0.1,
+          "p95_ms": 0.2
+        },
+        "view": {
+          "max_ms": 0.7,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.6
+        }
+      },
+      "lectern_process": {
+        "cpu_avg_pct": 3,
+        "cpu_peak_pct": 18,
+        "cpu_avg_pct_incl_children": 4.6,
+        "rss_avg_mb": 42.8,
+        "rss_peak_mb": 45.4,
+        "seconds": 60.2
+      },
+      "session_delete": {
+        "n": 10,
+        "p50_ms": 20.8,
+        "p95_ms": 24.5,
+        "p99_ms": 24.5,
+        "max_ms": 24.5
+      },
+      "lectern_log_levels": {},
+      "http_errors": {}
+    },
+    {
+      "sessions": 25,
+      "targets": [
+        "local",
+        "ssh-1",
+        "ssh-2",
+        "ssh-3"
+      ],
+      "launch_ok": 25,
+      "launch_failed": 0,
+      "launch": {
+        "n": 25,
+        "p50_ms": 432.9,
+        "p95_ms": 452.2,
+        "p99_ms": 453.2,
+        "max_ms": 453.2
+      },
+      "launch_wall_s": 1.4,
+      "active_at_window_start": 25,
+      "active_at_window_end": 25,
+      "list": {
+        "n": 236,
+        "p50_ms": 3.9,
+        "p95_ms": 5.3,
+        "p99_ms": 5.9,
+        "max_ms": 7.9
+      },
+      "list_bytes": 26858,
+      "list_errors": 0,
+      "fanout_clients": 25,
+      "fanout": {
+        "n": 725,
+        "p50_ms": 1.2,
+        "p95_ms": 1.5,
+        "p99_ms": 1.7,
+        "max_ms": 2
+      },
+      "fanout_probes": 29,
+      "fanout_missed": 0,
+      "sse_disconnects": 0,
+      "approvals_requested": 75,
+      "approvals_approved": 75,
+      "approvals_not_approved": 0,
+      "approval_request_to_visible": {
+        "n": 75,
+        "p50_ms": 4.7,
+        "p95_ms": 5.9,
+        "p99_ms": 6.4,
+        "max_ms": 6.4
+      },
+      "approval_decision_post": {
+        "n": 75,
+        "p50_ms": 0.5,
+        "p95_ms": 0.9,
+        "p99_ms": 1.2,
+        "max_ms": 1.2
+      },
+      "approval_decision_to_unblocked": {
+        "n": 75,
+        "p50_ms": 1.7,
+        "p95_ms": 2.3,
+        "p99_ms": 3.5,
+        "max_ms": 3.5
+      },
+      "approval_round_trip": {
+        "n": 75,
+        "p50_ms": 6.4,
+        "p95_ms": 8.2,
+        "p99_ms": 8.4,
+        "max_ms": 8.4
+      },
+      "attach_post": {
+        "n": 10,
+        "p50_ms": 10.6,
+        "p95_ms": 11.5,
+        "p99_ms": 11.5,
+        "max_ms": 11.5
+      },
+      "attach_first_output": {
+        "n": 10,
+        "p50_ms": 5.1,
+        "p95_ms": 5.8,
+        "p99_ms": 5.8,
+        "max_ms": 5.8
+      },
+      "attach_total": {
+        "n": 10,
+        "p50_ms": 15.8,
+        "p95_ms": 17.4,
+        "p99_ms": 17.4,
+        "max_ms": 17.4
+      },
+      "tui": {
+        "fetch": {
+          "max_ms": 6.8,
+          "n": 20,
+          "p50_ms": 4,
+          "p95_ms": 5.5
+        },
+        "iterations": 20,
+        "rows": 25,
+        "total": {
+          "max_ms": 7.2,
+          "n": 20,
+          "p50_ms": 4.4,
+          "p95_ms": 5.9
+        },
+        "update": {
+          "max_ms": 0.2,
+          "n": 20,
+          "p50_ms": 0.1,
+          "p95_ms": 0.2
+        },
+        "view": {
+          "max_ms": 1,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.4
+        }
+      },
+      "lectern_process": {
+        "cpu_avg_pct": 5.1,
+        "cpu_peak_pct": 11,
+        "cpu_avg_pct_incl_children": 8.6,
+        "rss_avg_mb": 43.9,
+        "rss_peak_mb": 46.3,
+        "seconds": 60.1
+      },
+      "session_delete": {
+        "n": 25,
+        "p50_ms": 19.6,
+        "p95_ms": 21.8,
+        "p99_ms": 23.3,
+        "max_ms": 23.3
+      },
+      "lectern_log_levels": {},
+      "http_errors": {}
+    },
+    {
+      "sessions": 50,
+      "targets": [
+        "local",
+        "ssh-1",
+        "ssh-2",
+        "ssh-3"
+      ],
+      "launch_ok": 50,
+      "launch_failed": 0,
+      "launch": {
+        "n": 50,
+        "p50_ms": 420.5,
+        "p95_ms": 432.2,
+        "p99_ms": 434.5,
+        "max_ms": 434.5
+      },
+      "launch_wall_s": 2.7,
+      "active_at_window_start": 50,
+      "active_at_window_end": 50,
+      "list": {
+        "n": 234,
+        "p50_ms": 6.2,
+        "p95_ms": 7.6,
+        "p99_ms": 9.2,
+        "max_ms": 9.4
+      },
+      "list_bytes": 53711,
+      "list_errors": 0,
+      "fanout_clients": 25,
+      "fanout": {
+        "n": 725,
+        "p50_ms": 0.7,
+        "p95_ms": 2.3,
+        "p99_ms": 2.7,
+        "max_ms": 2.8
+      },
+      "fanout_probes": 29,
+      "fanout_missed": 0,
+      "sse_disconnects": 0,
+      "approvals_requested": 150,
+      "approvals_approved": 150,
+      "approvals_not_approved": 0,
+      "approval_request_to_visible": {
+        "n": 150,
+        "p50_ms": 4.3,
+        "p95_ms": 6,
+        "p99_ms": 6.3,
+        "max_ms": 6.9
+      },
+      "approval_decision_post": {
+        "n": 150,
+        "p50_ms": 0.4,
+        "p95_ms": 0.8,
+        "p99_ms": 1.1,
+        "max_ms": 1.7
+      },
+      "approval_decision_to_unblocked": {
+        "n": 150,
+        "p50_ms": 1.7,
+        "p95_ms": 2.3,
+        "p99_ms": 2.9,
+        "max_ms": 4.3
+      },
+      "approval_round_trip": {
+        "n": 150,
+        "p50_ms": 6.1,
+        "p95_ms": 7.8,
+        "p99_ms": 8.3,
+        "max_ms": 8.6
+      },
+      "attach_post": {
+        "n": 10,
+        "p50_ms": 10.7,
+        "p95_ms": 11.5,
+        "p99_ms": 11.5,
+        "max_ms": 11.5
+      },
+      "attach_first_output": {
+        "n": 10,
+        "p50_ms": 5.3,
+        "p95_ms": 7.1,
+        "p99_ms": 7.1,
+        "max_ms": 7.1
+      },
+      "attach_total": {
+        "n": 10,
+        "p50_ms": 16.1,
+        "p95_ms": 18.7,
+        "p99_ms": 18.7,
+        "max_ms": 18.7
+      },
+      "tui": {
+        "fetch": {
+          "max_ms": 12.7,
+          "n": 20,
+          "p50_ms": 6.9,
+          "p95_ms": 8.4
+        },
+        "iterations": 20,
+        "rows": 50,
+        "total": {
+          "max_ms": 13.1,
+          "n": 20,
+          "p50_ms": 7.3,
+          "p95_ms": 8.9
+        },
+        "update": {
+          "max_ms": 0.5,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.3
+        },
+        "view": {
+          "max_ms": 0.4,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.4
+        }
+      },
+      "lectern_process": {
+        "cpu_avg_pct": 8.9,
+        "cpu_peak_pct": 18,
+        "cpu_avg_pct_incl_children": 15.5,
+        "rss_avg_mb": 45.7,
+        "rss_peak_mb": 47.9,
+        "seconds": 60.1
+      },
+      "session_delete": {
+        "n": 50,
+        "p50_ms": 19.3,
+        "p95_ms": 20.8,
+        "p99_ms": 22.5,
+        "max_ms": 22.5
+      },
+      "lectern_log_levels": {},
+      "http_errors": {}
+    },
+    {
+      "sessions": 100,
+      "targets": [
+        "local",
+        "ssh-1",
+        "ssh-2",
+        "ssh-3"
+      ],
+      "launch_ok": 100,
+      "launch_failed": 0,
+      "launch": {
+        "n": 100,
+        "p50_ms": 423,
+        "p95_ms": 436.8,
+        "p99_ms": 447.5,
+        "max_ms": 448
+      },
+      "launch_wall_s": 5.3,
+      "active_at_window_start": 100,
+      "active_at_window_end": 100,
+      "list": {
+        "n": 229,
+        "p50_ms": 11.3,
+        "p95_ms": 13.6,
+        "p99_ms": 15.1,
+        "max_ms": 20.8
+      },
+      "list_bytes": 107839,
+      "list_errors": 0,
+      "fanout_clients": 25,
+      "fanout": {
+        "n": 725,
+        "p50_ms": 0.9,
+        "p95_ms": 1.8,
+        "p99_ms": 2.7,
+        "max_ms": 2.8
+      },
+      "fanout_probes": 29,
+      "fanout_missed": 0,
+      "sse_disconnects": 0,
+      "approvals_requested": 300,
+      "approvals_approved": 300,
+      "approvals_not_approved": 0,
+      "approval_request_to_visible": {
+        "n": 300,
+        "p50_ms": 4.3,
+        "p95_ms": 5.8,
+        "p99_ms": 6.5,
+        "max_ms": 7.1
+      },
+      "approval_decision_post": {
+        "n": 300,
+        "p50_ms": 0.4,
+        "p95_ms": 0.8,
+        "p99_ms": 1.1,
+        "max_ms": 1.5
+      },
+      "approval_decision_to_unblocked": {
+        "n": 300,
+        "p50_ms": 1.6,
+        "p95_ms": 2.3,
+        "p99_ms": 2.7,
+        "max_ms": 3.7
+      },
+      "approval_round_trip": {
+        "n": 300,
+        "p50_ms": 6.1,
+        "p95_ms": 7.7,
+        "p99_ms": 8.9,
+        "max_ms": 9
+      },
+      "attach_post": {
+        "n": 10,
+        "p50_ms": 10.6,
+        "p95_ms": 12,
+        "p99_ms": 12,
+        "max_ms": 12
+      },
+      "attach_first_output": {
+        "n": 10,
+        "p50_ms": 5.3,
+        "p95_ms": 44.5,
+        "p99_ms": 44.5,
+        "max_ms": 44.5
+      },
+      "attach_total": {
+        "n": 10,
+        "p50_ms": 15.9,
+        "p95_ms": 55,
+        "p99_ms": 55,
+        "max_ms": 55
+      },
+      "tui": {
+        "fetch": {
+          "max_ms": 20.1,
+          "n": 20,
+          "p50_ms": 12.2,
+          "p95_ms": 16.1
+        },
+        "iterations": 20,
+        "rows": 100,
+        "total": {
+          "max_ms": 21.5,
+          "n": 20,
+          "p50_ms": 13,
+          "p95_ms": 16.8
+        },
+        "update": {
+          "max_ms": 1,
+          "n": 20,
+          "p50_ms": 0.5,
+          "p95_ms": 0.9
+        },
+        "view": {
+          "max_ms": 0.3,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.3
+        }
+      },
+      "lectern_process": {
+        "cpu_avg_pct": 16.3,
+        "cpu_peak_pct": 30,
+        "cpu_avg_pct_incl_children": 26.9,
+        "rss_avg_mb": 47.6,
+        "rss_peak_mb": 49.6,
+        "seconds": 60
+      },
+      "session_delete": {
+        "n": 100,
+        "p50_ms": 19.5,
+        "p95_ms": 20.9,
+        "p99_ms": 21.3,
+        "max_ms": 22.8
+      },
+      "lectern_log_levels": {},
+      "http_errors": {}
+    }
+  ]
+}

@@ -158,6 +158,8 @@ export interface SessionView extends Session {
   // AwarenessOverlap is the card chip's data (docs/agent-events.md
   // "Cross-agent awareness" point 6) — see AwarenessOverlapChip.tsx.
   awareness_overlap?: { session_id: number; name: string; files: string[] } | null;
+  // Set while the session's machine is not answering the status poll.
+  target_reach?: { unreachable: boolean; since?: number; error?: string } | null;
   // Isolation is this session's actual running sandbox tier — the card's
   // isolation badge (see internal/isolation and docs/isolation.md). Absent
   // or mode:"" means unsandboxed, which is every session predating this.

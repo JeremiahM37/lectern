@@ -76,12 +76,19 @@ type Manager struct {
 	// HandoffPoll overrides HandoffPollInterval when positive.
 	HandoffPoll time.Duration
 
+	// TargetPollTimeout and PollWait override DefaultTargetPollTimeout and
+	// DefaultPollWait when positive (see reach.go).
+	TargetPollTimeout time.Duration
+	PollWait          time.Duration
+
 	// Limits sees every pane capture so a usage-limit stop is noticed
 	// (internal/limits, docs/rate-limits.md). Nil disables detection.
 	Limits *limits.Tracker
 
 	lifecycleMu               sync.Mutex
 	pollMu                    sync.Mutex
+	reachOnce                 sync.Once
+	reachState                *reachTracker
 	workspaceMu               sync.Mutex
 	workspaceUses             map[*workspaceUse]bool
 	sendMu                    sync.Mutex

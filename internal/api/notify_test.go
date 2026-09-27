@@ -100,7 +100,7 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 	// proving a terminal emulator works
 	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
 	var gotArgv []string
-	h.App.Terminals.Spawn = func(port int, basePath string, argv []string) (*exec.Cmd, error) {
+	h.App.Terminals.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
 		gotArgv = argv
 		return exec.Command("true"), nil
 	}
@@ -113,9 +113,8 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 	h.post(fmt.Sprintf("/api/tasks/%d/dispatch", task.id()), obj{}, 200)
 	h.waitStatus(task.id(), "running")
 	got := h.post(fmt.Sprintf("/api/tasks/%d/terminal", task.id()), nil, 200)
-	port := int(got.num("port"))
-	if port < terminal.PortLo || port > terminal.PortHi {
-		t.Errorf("port outside the terminal range: %d", port)
+	if !strings.HasPrefix(got.str("url"), fmt.Sprintf("/term/attempt/")) {
+		t.Errorf("attach did not return the attempt's terminal url: %v", got)
 	}
 	if len(gotArgv) < 4 || !strings.HasPrefix(gotArgv[3], "lec-") {
 		t.Errorf("ttyd must wrap this attempt's tmux session: %v", gotArgv)

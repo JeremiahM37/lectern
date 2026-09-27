@@ -1,0 +1,180 @@
+{
+  "started": "2026-09-27T00:42:03Z",
+  "host": {
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "cpu_quota_cores": 8,
+    "go": "go1.26.6",
+    "kernel": "6.17.13-2-pve",
+    "meminfo_total": "MemTotal:       129467424 kB",
+    "numcpu_visible": 32,
+    "tmux": "tmux 3.5a"
+  },
+  "options": {
+    "approval_every_s": 20,
+    "attach_samples": 5,
+    "hang_at_s": 0,
+    "hold_terminals": 30,
+    "launch_parallel": 8,
+    "plain_dirs": false,
+    "sse_clients": 25,
+    "ssh_targets": 3,
+    "terminals_max": 21,
+    "tiers": [
+      50
+    ],
+    "window_s": 30
+  },
+  "tiers": [
+    {
+      "sessions": 50,
+      "targets": [
+        "local",
+        "ssh-1",
+        "ssh-2",
+        "ssh-3"
+      ],
+      "launch_ok": 50,
+      "launch_failed": 0,
+      "launch": {
+        "n": 50,
+        "p50_ms": 409.7,
+        "p95_ms": 417.2,
+        "p99_ms": 420.8,
+        "max_ms": 420.8
+      },
+      "launch_wall_s": 2.6,
+      "active_at_window_start": 50,
+      "active_at_window_end": 50,
+      "list": {
+        "n": 117,
+        "p50_ms": 6.1,
+        "p95_ms": 8.3,
+        "p99_ms": 9.2,
+        "max_ms": 11.3
+      },
+      "list_bytes": 50585,
+      "list_errors": 0,
+      "fanout_clients": 25,
+      "fanout": {
+        "n": 350,
+        "p50_ms": 1,
+        "p95_ms": 1.8,
+        "p99_ms": 1.8,
+        "max_ms": 1.8
+      },
+      "fanout_probes": 14,
+      "fanout_missed": 0,
+      "sse_disconnects": 0,
+      "approvals_requested": 78,
+      "approvals_approved": 78,
+      "approvals_not_approved": 0,
+      "approval_request_to_visible": {
+        "n": 78,
+        "p50_ms": 4.5,
+        "p95_ms": 5.9,
+        "p99_ms": 6.4,
+        "max_ms": 6.4
+      },
+      "approval_decision_post": {
+        "n": 78,
+        "p50_ms": 0.4,
+        "p95_ms": 0.8,
+        "p99_ms": 1.1,
+        "max_ms": 1.1
+      },
+      "approval_decision_to_unblocked": {
+        "n": 78,
+        "p50_ms": 1.6,
+        "p95_ms": 2.1,
+        "p99_ms": 2.4,
+        "max_ms": 2.4
+      },
+      "approval_round_trip": {
+        "n": 78,
+        "p50_ms": 6.2,
+        "p95_ms": 7.7,
+        "p99_ms": 8.4,
+        "max_ms": 8.4
+      },
+      "attach_post": {
+        "n": 5,
+        "p50_ms": 11,
+        "p95_ms": 11.3,
+        "p99_ms": 11.3,
+        "max_ms": 11.3
+      },
+      "attach_first_output": {
+        "n": 5,
+        "p50_ms": 5,
+        "p95_ms": 6.4,
+        "p99_ms": 6.4,
+        "max_ms": 6.4
+      },
+      "attach_total": {
+        "n": 5,
+        "p50_ms": 16.2,
+        "p95_ms": 17.5,
+        "p99_ms": 17.5,
+        "max_ms": 17.5
+      },
+      "tui": {
+        "fetch": {
+          "max_ms": 11.7,
+          "n": 20,
+          "p50_ms": 6.9,
+          "p95_ms": 7.8
+        },
+        "iterations": 20,
+        "rows": 50,
+        "total": {
+          "max_ms": 12.8,
+          "n": 20,
+          "p50_ms": 7.3,
+          "p95_ms": 8.4
+        },
+        "update": {
+          "max_ms": 0.7,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.6
+        },
+        "view": {
+          "max_ms": 0.7,
+          "n": 20,
+          "p50_ms": 0.2,
+          "p95_ms": 0.6
+        }
+      },
+      "held_terminals": {
+        "opened": 21,
+        "still_open": 21,
+        "refused": 9,
+        "retire_notices": 3,
+        "errors": [
+          "session 22: 503 {\"detail\":\"every web terminal is open somewhere; close one and try again\"}\n \u003cnil\u003e",
+          "session 23: 503 {\"detail\":\"every web terminal is open somewhere; close one and try again\"}\n \u003cnil\u003e",
+          "session 24: 503 {\"detail\":\"every web terminal is open somewhere; close one and try again\"}\n \u003cnil\u003e",
+          "session 25: 503 {\"detail\":\"every web terminal is open somewhere; close one and try again\"}\n \u003cnil\u003e",
+          "session 26: 503 {\"detail\":\"every web terminal is open somewhere; close one and try again\"}\n \u003cnil\u003e"
+        ]
+      },
+      "lectern_process": {
+        "cpu_avg_pct": 9.7,
+        "cpu_peak_pct": 21,
+        "cpu_avg_pct_incl_children": 20.2,
+        "rss_avg_mb": 46.1,
+        "rss_peak_mb": 49.7,
+        "seconds": 30.1
+      },
+      "session_delete": {
+        "n": 50,
+        "p50_ms": 19.5,
+        "p95_ms": 20.7,
+        "p99_ms": 24.6,
+        "max_ms": 24.6
+      },
+      "lectern_log_levels": {},
+      "http_errors": {}
+    }
+  ]
+}

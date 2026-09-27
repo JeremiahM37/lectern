@@ -704,11 +704,10 @@ func (s *Server) projectTerminal(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "%s", err.Error())
 		return
 	}
-	port, err := s.Terminals.Attach(r.Context(), att, target)
+	_, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
 	if err != nil {
 		httpError(w, 503, "%s", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"port": port,
-		"url": fmt.Sprintf("/term/project/%d/", id), "tmux_session": att.TmuxSession})
+	writeJSON(w, 200, withRetiredNotice(map[string]any{"url": fmt.Sprintf("/term/project/%d/", id), "tmux_session": att.TmuxSession}, retired))
 }

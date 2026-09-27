@@ -244,13 +244,13 @@ func TestSessionAttachOpensATerminal(t *testing.T) {
 	h := newHarness(t)
 	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
 	var argv []string
-	h.App.Terminals.Spawn = func(port int, basePath string, a []string) (*exec.Cmd, error) {
+	h.App.Terminals.Spawn = func(socket, basePath string, a []string) (*exec.Cmd, error) {
 		argv = a
 		return exec.Command("true"), nil
 	}
 	sess := h.session(obj{"project_id": h.seededProjectID()})
 	got := h.post(fmt.Sprintf("/api/sessions/%d/terminal", sess.id()), nil, 200)
-	if got.num("port") == 0 {
+	if got.str("url") == "" {
 		t.Fatalf("attach: %v", got)
 	}
 	// this is the "drop me into the actual chat" path — it must attach to the

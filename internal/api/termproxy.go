@@ -1,10 +1,11 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -15,12 +16,12 @@ import (
 
 // termProxy serves an attached terminal on lectern's own origin.
 //
-// The URL names the attachment ("/term/session/24"), never the port. ttyd runs
-// on the control plane, on loopback, on a port from a small range — and that
-// port is not stable: a terminal is retired when the range fills, and every one
-// of them dies when this service restarts. A page holding a port URL is then
-// pointed at nothing for good, which is exactly what left ttyd's own reconnect
-// retrying forever with no way to succeed.
+// The URL names the attachment ("/term/session/24"), never where its ttyd is.
+// ttyd runs on the control plane behind a private Unix socket, and that is not
+// stable: an idle terminal is retired when the limit is reached, and every one
+// of them dies when this service restarts. A page holding a location URL (as
+// port URLs once were) is then pointed at nothing for good, which is exactly
+// what left ttyd's own reconnect retrying forever with no way to succeed.
 //
 // So the terminal is resolved, and respawned if it is gone, on every request.
 // Reconnecting from a stale tab therefore just works: it lands on a fresh ttyd
@@ -32,23 +33,38 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	// A browser holding the terminal open keeps it from being retired to
+	// make room for another; count it before the lookup below so it cannot
+	// be retired in between.
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		defer s.Terminals.Viewing(att.Key)()
+	}
 	// Attach reuses a live terminal for this attachment and starts one when
 	// there is none, so a reconnect after a restart heals itself
-	port, err := s.Terminals.Attach(r.Context(), att, target)
+	socket, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
+	if retired != "" {
+		s.Log.Info("retired an idle terminal to make room", "retired", retired, "for", att.Key)
+	}
 	if err != nil {
 		s.Log.Info("terminal could not be started", "attachment", att.Key, "err", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	target2, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	proxy := &httputil.ReverseProxy{
 		// ttyd is mounted with --base-path, so it expects the prefix to arrive
 		// intact; the path is passed through rather than stripped.
 		Director: func(req *http.Request) {
-			req.URL.Scheme = target2.Scheme
-			req.URL.Host = target2.Host
-			req.Host = target2.Host
+			req.URL.Scheme = "http"
+			req.URL.Host = "ttyd"
+			req.Host = "localhost"
+		},
+		// ttyd listens on a private Unix socket (see terminal.TTYDArgs)
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return terminal.Dial(ctx, socket)
+			},
+			DisableKeepAlives: true,
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Info("terminal proxy ended", "attachment", att.Key, "err", err)
@@ -142,4 +158,16 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 		}, target, nil
 	}
 	return terminal.Attachment{}, nil, fmt.Errorf("not a terminal")
+}
+
+// withRetiredNotice tells the user, in an attach response, which idle terminal
+// was closed to make room for this one.
+func withRetiredNotice(out map[string]any, retired string) map[string]any {
+	if retired == "" {
+		return out
+	}
+	kind, id, _ := strings.Cut(retired, ":")
+	out["retired"] = retired
+	out["notice"] = fmt.Sprintf("Closed the idle terminal for %s %s to make room (no browser had it open); it reopens when you visit it.", strings.TrimSuffix(kind, "-shell"), id)
+	return out
 }

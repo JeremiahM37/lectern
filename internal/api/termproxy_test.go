@@ -27,7 +27,7 @@ import (
 func TestAttachReturnsASameOriginURL(t *testing.T) {
 	h := newHarness(t)
 	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
-	h.App.Terminals.Spawn = func(int, string, []string) (*exec.Cmd, error) {
+	h.App.Terminals.Spawn = func(string, string, []string) (*exec.Cmd, error) {
 		cmd := exec.Command("sleep", "10")
 		return cmd, cmd.Start()
 	}
@@ -44,8 +44,7 @@ func TestAttachReturnsASameOriginURL(t *testing.T) {
 			t.Fatalf("%s: %d %s", path, code, body)
 		}
 		var out struct {
-			Port int    `json:"port"`
-			URL  string `json:"url"`
+			URL string `json:"url"`
 		}
 		json.Unmarshal(body, &out)
 		if out.URL == "" {
@@ -58,11 +57,6 @@ func TestAttachReturnsASameOriginURL(t *testing.T) {
 			if strings.Contains(out.URL, bad) {
 				t.Errorf("url names a host (%q) — that is the bug: %q", bad, out.URL)
 			}
-		}
-		// naming the port is the bug: a port is where the terminal happens to be
-		// now, and it changes on eviction and on every restart
-		if strings.Contains(out.URL, fmt.Sprint(out.Port)) {
-			t.Errorf("the url names the port (%d), so it goes stale: %q", out.Port, out.URL)
 		}
 	}
 }
@@ -87,19 +81,19 @@ func TestTerminalProxyOnlyServesPortsItOwns(t *testing.T) {
 }
 
 // ttyd's asset and websocket URLs are absolute, so it has to be launched with
-// the base path it is mounted under or the page loads blank.
-// ttyd's asset and websocket URLs are absolute, so it has to be launched with
 // the base path it is mounted under or the page loads blank — and a ttyd with
 // no credential must never listen on the network.
-func TestTTYDArgsMountUnderTheBasePathOnLoopback(t *testing.T) {
+func TestTTYDArgsMountUnderTheBasePathOnAPrivateSocket(t *testing.T) {
 	att := terminal.Attachment{Key: "session:7", TmuxSession: "lec-s7"}
-	got := strings.Join(terminal.TTYDArgs(7712, att.BasePath(),
+	got := strings.Join(terminal.TTYDArgs("/run/x/lectern-term-1/session-7.1.sock", att.BasePath(),
 		[]string{"tmux", "attach", "-t", "lec-1"}), " ")
+	if strings.Contains(got, "-p ") {
+		t.Errorf("ttyd was given a TCP port: %s", got)
+	}
 	for _, want := range []string{
-		"-p 7712",            // the port it was given
-		"-i lo",              // an unauthenticated shell stays off the network
-		"-b /term/session/7", // the attachment, not the port
-		"-W",                 // the operator can type
+		"-i /run/x/lectern-term-1/session-7.1.sock", // an unauthenticated shell stays off the network
+		"-b /term/session/7",                        // the attachment, not the port
+		"-W",                                        // the operator can type
 		"tmux attach -t lec-1",
 	} {
 		if !strings.Contains(got, want) {
@@ -143,8 +137,7 @@ func TestARealTerminalIsReachableThroughTheProxy(t *testing.T) {
 		t.Fatalf("attach: %d %s", code, body)
 	}
 	var out struct {
-		Port int    `json:"port"`
-		URL  string `json:"url"`
+		URL string `json:"url"`
 	}
 	json.Unmarshal(body, &out)
 	t.Cleanup(func() { r.app.Terminals.Shutdown() })
@@ -176,19 +169,18 @@ func TestARealTerminalIsReachableThroughTheProxy(t *testing.T) {
 		t.Errorf("that does not look like ttyd's page: %.200s", page)
 	}
 
-	// and ttyd must NOT be reachable directly on the network any more
-	direct, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", out.Port))
-	if err == nil {
-		direct.Body.Close()
+	// and ttyd must not be reachable on the network at all: it listens on a
+	// Unix socket in a directory only this user can enter
+	socket, ok := r.app.Terminals.SocketFor(fmt.Sprintf("session:%d", sess.ID))
+	if !ok {
+		t.Fatal("no terminal is recorded for the session")
 	}
-	// loopback still answers (that is where the proxy talks to it); what matters
-	// is that the page is served under the prefix rather than at the root
-	root, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", out.Port))
-	if err == nil {
-		defer root.Body.Close()
-		if root.StatusCode == 200 {
-			t.Logf("note: ttyd also answers at its root on loopback (%d)", root.StatusCode)
-		}
+	info, err := os.Stat(socket)
+	if err != nil || info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("%s is not a Unix socket: %v", socket, err)
+	}
+	if dir, err := os.Stat(filepath.Dir(socket)); err != nil || dir.Mode().Perm() != 0o700 {
+		t.Fatalf("socket directory is not private: %v %v", dir.Mode(), err)
 	}
 }
 
@@ -313,8 +305,7 @@ func TestAStaleTerminalTabHealsItself(t *testing.T) {
 		t.Fatalf("attach: %d %s", code, body)
 	}
 	var out struct {
-		Port int    `json:"port"`
-		URL  string `json:"url"`
+		URL string `json:"url"`
 	}
 	json.Unmarshal(body, &out)
 
@@ -468,4 +459,62 @@ func sendWSText(conn net.Conn, payload string) error {
 	}
 	_, err := conn.Write(frame)
 	return err
+}
+
+// A browser holding a terminal's websocket open counts as a viewer for as
+// long as the connection lasts, which is what keeps that terminal from being
+// retired to make room for another.
+func TestTerminalWebsocketCountsAsAViewer(t *testing.T) {
+	h := newHarness(t)
+	h.App.Terminals.LookPath = func(string) (string, error) { return "/usr/bin/ttyd", nil }
+	var listeners []net.Listener
+	t.Cleanup(func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	})
+	// a stand-in ttyd that accepts and then says nothing, like an open terminal
+	h.App.Terminals.Spawn = func(socket string, _ string, _ []string) (*exec.Cmd, error) {
+		l, err := net.Listen("unix", socket)
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, l)
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				go io.Copy(io.Discard, c)
+			}
+		}()
+		cmd := exec.Command("sleep", "30")
+		return cmd, cmd.Start()
+	}
+	t.Cleanup(h.App.Terminals.Shutdown)
+	sess := h.session(obj{"project_id": h.seededProjectID()})
+	key := fmt.Sprintf("session:%d", sess.id())
+
+	u, _ := url.Parse(h.URL)
+	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(conn, "GET /term/session/%d/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", sess.id(), u.Host)
+	deadline := time.Now().Add(5 * time.Second)
+	for h.App.Terminals.Viewers(key) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("an open terminal websocket was not counted as a viewer")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	conn.Close()
+	for h.App.Terminals.Viewers(key) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a closed websocket still counts as a viewer")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }

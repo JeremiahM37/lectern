@@ -334,11 +334,12 @@ export function Sessions({
     // proxy's transient 503 while keeping permanent errors visible.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        const result = await api.request<{ url: string }>(
+        const result = await api.request<{ url: string; notice?: string }>(
           `/sessions/${session.id}/terminal`,
           { method: "POST" },
         );
         onOpenTerminal(result.url, session.name);
+        if (result.notice) onNotice(result.notice);
         return;
       } catch (error) {
         lastError = error;

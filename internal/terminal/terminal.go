@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,17 +21,21 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
-// Port range handed out to attached terminals.
-const (
-	PortLo = 7710
-	PortHi = 7730
-)
+// DefaultMaxTerminals is how many terminals may run at once unless
+// LECTERN_TERMINALS_MAX says otherwise (Manager.Max). Each is one ttyd
+// process; past the limit an idle one is retired, and a terminal someone is
+// viewing never is.
+const DefaultMaxTerminals = 200
 
 // TTYDArgs builds ttyd's command line.
 //
-//   - `-i lo`: a ttyd with no credential is an unauthenticated shell, so it
-//     listens on loopback only and is reached through this service's own proxy.
-//     That is also what makes it work from any hostname.
+//   - `-i <socket>`: a ttyd with no credential is an unauthenticated shell, so
+//     it listens on a Unix socket in a directory only this user can enter, and
+//     is reached through this service's own proxy. That is also what makes it
+//     work from any hostname. It used to listen on a loopback TCP port from a
+//     fixed range of 21: any local user could connect to it, two Lectern
+//     instances on one host could pick the same port and serve each other's
+//     terminals, and the range capped how many terminals could be open.
 //   - `-b <base path>`: ttyd's asset and websocket URLs are absolute, so it must
 //     be told the prefix it is mounted under or the page loads blank.
 //   - NOT `--once`: that accepts a single client and exits when it disconnects,
@@ -37,10 +43,8 @@ const (
 //     desktop, and ttyd's own "reconnect" had nothing to reconnect to. A tmux
 //     session is multi-client by design — that is most of the point of it — so
 //     the terminal in front of it has to be too.
-func TTYDArgs(port int, basePath string, argv []string) []string {
-	return append([]string{
-		"-p", strconv.Itoa(port), "-i", "lo", "-W",
-		"-b", basePath}, argv...)
+func TTYDArgs(socket, basePath string, argv []string) []string {
+	return append([]string{"-i", socket, "-W", "-b", basePath}, argv...)
 }
 
 // BasePath is where a terminal is mounted on the control plane's own origin.
@@ -65,20 +69,21 @@ func (a Attachment) BasePath() string {
 	return "/term/" + kind + "/" + id
 }
 
-// PortFor returns the live terminal for an attachment, if there is one.
-func (m *Manager) PortFor(key string) (int, bool) {
+// SocketFor returns the live terminal's socket for an attachment, if there is one.
+func (m *Manager) SocketFor(key string) (string, bool) {
 	m.reap()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.procs[key]
 	if !ok || s.cmd == nil {
-		return 0, false
+		return "", false
 	}
-	return s.port, true
+	return s.socket, true
 }
 
-// ErrNoPorts means every terminal port in the range is taken.
-var ErrNoPorts = errors.New("no free terminal ports")
+// ErrFull means the terminal limit is reached and every running terminal is
+// open in a browser, so none can be retired to make room.
+var ErrFull = errors.New("every web terminal is open somewhere; close one and try again")
 
 // Attachment is whatever you want a terminal on: a task's attempt, or an
 // interactive session. Both are just a tmux session on a target, which is why
@@ -105,26 +110,40 @@ func (a Attachment) IsShell() bool { return a.Workdir != "" }
 type Manager struct {
 	mu    sync.Mutex
 	procs map[string]*session
+	// viewers counts open browser connections per attachment, kept apart
+	// from procs so a viewer that connects while its ttyd is being respawned
+	// is already counted.
+	viewers    map[string]int
+	lastViewed map[string]time.Time
+	dir        string // private socket directory, made on first use
+	seq        int
+
+	// Max overrides DefaultMaxTerminals when positive.
+	Max int
+	// SocketDir overrides where the private socket directory is made.
+	SocketDir string
 
 	// Spawn is the process launcher. Tests replace it; production shells out.
-	Spawn func(port int, basePath string, argv []string) (*exec.Cmd, error)
+	Spawn func(socket, basePath string, argv []string) (*exec.Cmd, error)
 	// LookPath reports whether ttyd is installed. Tests override it.
 	LookPath func(string) (string, error)
 }
 
 type session struct {
-	port    int
+	socket  string
 	cmd     *exec.Cmd
 	started time.Time
+	exited  chan struct{} // closed when cmd has exited; nil for a test double never started
 }
 
 // NewManager builds a terminal manager wired to the real ttyd binary.
 func NewManager() *Manager {
 	return &Manager{
-		procs:    map[string]*session{},
+		procs:   map[string]*session{},
+		viewers: map[string]int{}, lastViewed: map[string]time.Time{},
 		LookPath: exec.LookPath,
-		Spawn: func(port int, basePath string, argv []string) (*exec.Cmd, error) {
-			cmd := exec.Command("ttyd", TTYDArgs(port, basePath, argv)...)
+		Spawn: func(socket, basePath string, argv []string) (*exec.Cmd, error) {
+			cmd := exec.Command("ttyd", TTYDArgs(socket, basePath, argv)...)
 			if err := cmd.Start(); err != nil {
 				return nil, err
 			}
@@ -207,88 +226,81 @@ func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
 	}
 }
 
-// Attach spawns (or reuses) a ttyd for an attachment and returns its port.
-func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target) (int, error) {
+// Attach spawns (or reuses) a ttyd for an attachment and returns its socket.
+func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target) (string, error) {
+	socket, _, err := m.AttachWithNotice(ctx, a, target)
+	return socket, err
+}
+
+// AttachWithNotice is Attach, also naming the idle terminal it retired to make
+// room, if any ("" when none), so the caller can tell the user.
+func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *store.Target) (string, string, error) {
 	m.reap()
 	if _, err := m.LookPath("ttyd"); err != nil {
-		return 0, errors.New("ttyd is not installed on the control plane")
+		return "", "", errors.New("ttyd is not installed on the control plane")
 	}
 	argv, err := AttachArgv(a, target)
 	if err != nil {
-		return 0, err
+		return "", "", err
 	}
 
 	// The reservation is taken under the same lock that reads the map, so two
-	// simultaneous attaches cannot be handed the same port. Doing this in two
-	// steps is what let the board's "attach" buttons collide: both callers saw
-	// the port free, both spawned on it, and the loser's ttyd could not bind.
-	//
-	// That lock only covers this process. Another program on the machine —
-	// a second Lectern (the service beside a `lectern local` runtime, or
-	// parallel test servers) scanning the same range — can take the port
-	// between the free check and ttyd's bind. That ttyd exits at once, so the
-	// attach retries on another port instead of failing with a 503.
-	var cmd *exec.Cmd
-	var port int
-	skip := map[int]bool{}
-	for attempt := 0; ; attempt++ {
-		m.mu.Lock()
-		if s, ok := m.procs[a.Key]; ok {
-			port := s.port
-			m.mu.Unlock()
-			return port, nil
-		}
-		port, err = m.freePortSkippingLocked(skip)
-		if err != nil {
-			m.mu.Unlock()
-			return 0, err
-		}
-		m.procs[a.Key] = &session{port: port, started: time.Now()} // reserved, not yet running
+	// simultaneous attaches of one attachment cannot start two ttyds.
+	m.mu.Lock()
+	if s, ok := m.procs[a.Key]; ok {
+		socket := s.socket
 		m.mu.Unlock()
+		return socket, "", nil
+	}
+	retired, err := m.makeRoomLocked()
+	if err != nil {
+		m.mu.Unlock()
+		return "", "", err
+	}
+	socket, err := m.socketPathLocked(a.Key)
+	if err != nil {
+		m.mu.Unlock()
+		return "", "", err
+	}
+	m.procs[a.Key] = &session{socket: socket, started: time.Now()} // reserved, not yet running
+	m.mu.Unlock()
 
-		cmd, err = m.Spawn(port, a.BasePath(), argv)
-		if err != nil {
+	cmd, err := m.Spawn(socket, a.BasePath(), argv)
+	if err != nil {
+		m.release(a.Key)
+		return "", "", fmt.Errorf("ttyd failed to start: %w", err)
+	}
+	var exited chan struct{}
+	if cmd.Process != nil { // test doubles may hand back a command never started
+		exited = make(chan struct{})
+		go func() { _ = cmd.Wait(); close(exited) }()
+	}
+	// Wait until it is listening, for at most BindWait (this used to sleep a
+	// fixed 300ms, nearly all of an attach's latency; ttyd listens in a few
+	// milliseconds). An exit in the meantime means it could not start.
+	if !waitListening(ctx, socket, exited, BindWait) {
+		select {
+		case <-exited:
 			m.release(a.Key)
-			return 0, fmt.Errorf("ttyd failed to start: %w", err)
+			return "", "", errors.New("ttyd exited immediately")
+		default:
 		}
-		exited := make(chan struct{})
-		if cmd.Process != nil { // test doubles may hand back a command never started
-			go func() { _ = cmd.Wait(); close(exited) }()
-		}
-		// Wait until it is listening, for at most the fixed 300ms this used to
-		// sleep unconditionally: that sleep was nearly all of an attach's latency,
-		// and ttyd binds in a few milliseconds. An exit in the meantime means it
-		// could not start (a port taken after all, a bad argument).
-		if !waitListening(ctx, port, exited, BindWait) {
-			select {
-			case <-exited:
-				m.release(a.Key)
-				if attempt+1 < attachAttempts && ctx.Err() == nil {
-					skip[port] = true
-					continue
-				}
-				return 0, errors.New("ttyd exited immediately")
-			default:
-			}
-		}
-		break
 	}
 	m.mu.Lock()
-	m.procs[a.Key] = &session{port: port, cmd: cmd, started: time.Now()}
+	m.procs[a.Key] = &session{socket: socket, cmd: cmd, started: time.Now(), exited: exited}
 	m.mu.Unlock()
-	return port, nil
+	return socket, retired, nil
 }
 
 // BindWait is the longest Attach waits for a fresh ttyd to start listening.
 var BindWait = 300 * time.Millisecond
 
-// waitListening polls the loopback port until something accepts, the process
-// exits, ctx ends, or limit passes. It reports whether the port is accepting.
-func waitListening(ctx context.Context, port int, exited <-chan struct{}, limit time.Duration) bool {
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+// waitListening polls the socket until something accepts, the process exits,
+// ctx ends, or limit passes. It reports whether the socket is accepting.
+func waitListening(ctx context.Context, socket string, exited <-chan struct{}, limit time.Duration) bool {
 	deadline := time.Now().Add(limit)
 	for {
-		if conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond); err == nil {
+		if conn, err := net.DialTimeout("unix", socket, 50*time.Millisecond); err == nil {
 			conn.Close()
 			return true
 		}
@@ -306,12 +318,45 @@ func waitListening(ctx context.Context, port int, exited <-chan struct{}, limit 
 	}
 }
 
-// release drops a reservation whose ttyd never came up, returning its port.
+// socketPathLocked names a fresh socket for an attachment in the private
+// directory. Every spawn gets its own name, so a new ttyd never contends with
+// a dying one for the same path. Caller holds m.mu.
+func (m *Manager) socketPathLocked(key string) (string, error) {
+	if m.dir == "" {
+		parent := m.SocketDir
+		if parent == "" {
+			parent = os.Getenv("XDG_RUNTIME_DIR")
+		}
+		if parent == "" {
+			parent = os.TempDir()
+		}
+		dir, err := os.MkdirTemp(parent, "lectern-term-")
+		if err != nil {
+			return "", fmt.Errorf("terminal socket directory: %w", err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
+		}
+		m.dir = dir
+	}
+	m.seq++
+	name := strings.NewReplacer(":", "-", "/", "-").Replace(key)
+	return filepath.Join(m.dir, fmt.Sprintf("%s.%d.sock", name, m.seq)), nil
+}
+
+// Dial connects to a terminal's socket; the proxy's transport uses it.
+func Dial(ctx context.Context, socket string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, "unix", socket)
+}
+
+// release drops a reservation whose ttyd never came up.
 func (m *Manager) release(key string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s, ok := m.procs[key]; ok && s.cmd == nil {
 		delete(m.procs, key)
+		os.Remove(s.socket)
 	}
 }
 
@@ -319,76 +364,105 @@ func (m *Manager) reap() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, s := range m.procs {
-		if s.cmd != nil && s.cmd.ProcessState != nil {
-			delete(m.procs, id)
-		}
-	}
-}
-
-// freePortLocked picks a port not already reserved here and not answering on
-// the loopback interface. The caller must hold m.mu, which is what makes the
-// choice and the reservation atomic.
-// attachAttempts bounds how many ports one attach tries when ttyd cannot bind.
-const attachAttempts = 5
-
-func (m *Manager) freePortLocked() (int, error) { return m.freePortSkippingLocked(nil) }
-
-// freePortSkippingLocked is freePortLocked, passing over ports this attach
-// already failed to bind.
-func (m *Manager) freePortSkippingLocked(skip map[int]bool) (int, error) {
-	used := map[int]bool{}
-	for port := range skip {
-		used[port] = true
-	}
-	for _, s := range m.procs {
-		used[s.port] = true
-	}
-	for port := PortLo; port <= PortHi; port++ {
-		if used[port] {
+		if s.exited == nil {
 			continue
 		}
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
-			200*time.Millisecond)
-		if err != nil {
-			return port, nil // nothing listening: the port is ours
+		select {
+		case <-s.exited:
+			delete(m.procs, id)
+			os.Remove(s.socket)
+		default:
 		}
-		conn.Close()
 	}
-	// Terminals no longer exit on their own when the last viewer leaves, so the
-	// range can fill with ones nobody is looking at. Rather than refuse to
-	// attach, retire the oldest: re-attaching to it costs one click and the tmux
-	// session behind it is untouched either way.
-	if key, s := m.oldestLocked(); s != nil {
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
-		}
-		delete(m.procs, key)
-		return s.port, nil
-	}
-	return 0, ErrNoPorts
 }
 
-// oldestLocked returns the longest-running terminal. Caller holds m.mu.
-func (m *Manager) oldestLocked() (string, *session) {
-	var oldestKey string
-	var oldest *session
+// makeRoomLocked keeps the number of running terminals under the limit. When
+// it is reached it retires the least recently used terminal that nobody has
+// open, and names it; the tmux session behind it is untouched and its URL
+// respawns it on the next visit. A terminal someone is viewing is never
+// retired: with every one viewed, the attach is refused instead.
+func (m *Manager) makeRoomLocked() (string, error) {
+	limit := m.Max
+	if limit <= 0 {
+		limit = DefaultMaxTerminals
+	}
+	if len(m.procs) < limit {
+		return "", nil
+	}
+	key, s := m.idlestLocked()
+	if s == nil {
+		return "", ErrFull
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	delete(m.procs, key)
+	os.Remove(s.socket)
+	return key, nil
+}
+
+// idlestLocked returns the running terminal with no viewers that was used
+// least recently. Caller holds m.mu.
+func (m *Manager) idlestLocked() (string, *session) {
+	var idleKey string
+	var idle *session
+	var idleAt time.Time
 	for key, s := range m.procs {
-		if oldest == nil || s.started.Before(oldest.started) {
-			oldestKey, oldest = key, s
+		if s.cmd == nil || m.viewers[key] > 0 {
+			continue // still starting, or someone has it open
+		}
+		at := s.started
+		if seen := m.lastViewed[key]; seen.After(at) {
+			at = seen
+		}
+		if idle == nil || at.Before(idleAt) {
+			idleKey, idle, idleAt = key, s, at
 		}
 	}
-	return oldestKey, oldest
+	return idleKey, idle
 }
 
-// Shutdown terminates every attached terminal.
+// Viewing records one open browser connection to an attachment's terminal
+// until the returned func is called. The proxy calls it for each websocket.
+func (m *Manager) Viewing(key string) (done func()) {
+	m.mu.Lock()
+	if m.viewers == nil {
+		m.viewers, m.lastViewed = map[string]int{}, map[string]time.Time{}
+	}
+	m.viewers[key]++
+	m.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			if m.viewers[key]--; m.viewers[key] <= 0 {
+				delete(m.viewers, key)
+			}
+			m.lastViewed[key] = time.Now()
+			m.mu.Unlock()
+		})
+	}
+}
+
+// Viewers reports how many browser connections an attachment has open.
+func (m *Manager) Viewers(key string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.viewers[key]
+}
+
+// Shutdown terminates every attached terminal and removes their sockets.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
-	procs := m.procs
-	m.procs = map[string]*session{}
+	procs, dir := m.procs, m.dir
+	m.procs, m.dir = map[string]*session{}, ""
 	m.mu.Unlock()
 	for _, s := range procs {
 		if s.cmd != nil && s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
 		}
+	}
+	if dir != "" {
+		os.RemoveAll(dir)
 	}
 }
