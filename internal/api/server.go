@@ -185,6 +185,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/targets/{id}", s.deleteTarget)
 	mux.HandleFunc("POST /api/targets/{id}/check", s.checkTarget)
 	mux.HandleFunc("GET /api/targets/{id}/agents", s.targetAgentCommands)
+	// ---- SSH depth and sandbox providers (remote_ssh.go, sandboxes.go) ----
+	mux.HandleFunc("GET /api/ssh/hosts", s.listSSHHosts)
+	mux.HandleFunc("POST /api/ssh/import", s.importSSHHosts)
+	mux.HandleFunc("PUT /api/targets/{id}/ssh", s.putTargetSSH)
+	mux.HandleFunc("GET /api/targets/{id}/connection", s.targetConnection)
+	mux.HandleFunc("POST /api/targets/{id}/reconnect", s.reconnectTarget)
+	mux.HandleFunc("GET /api/targets/{id}/ports", s.targetPorts)
+	mux.HandleFunc("GET /api/targets/{id}/download", s.downloadFromTarget)
+	mux.HandleFunc("PUT /api/targets/{id}/sandbox", s.putTargetSandbox)
+	mux.HandleFunc("GET /api/targets/{id}/sandbox/hooks", s.sandboxHooks)
+	mux.HandleFunc("POST /api/targets/{id}/sandbox/trust", s.trustSandboxHooks)
+	mux.HandleFunc("GET /api/sandboxes", s.listSandboxes)
+	mux.HandleFunc("POST /api/sandboxes", s.createSandbox)
+	mux.HandleFunc("POST /api/sandboxes/{id}/{action}", s.sandboxAction)
 
 	// ---- projects ----
 	mux.HandleFunc("GET /api/projects", s.listProjects)
@@ -431,6 +445,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/usage", s.usageReport)
+	mux.HandleFunc("GET /api/usage/providers", s.providerUsage)
 	mux.HandleFunc("GET /api/limits", s.listLimits)
 	mux.HandleFunc("POST /api/limits/{id}/choose", s.chooseLimit)
 	mux.HandleFunc("GET /api/limits/policy", s.getLimitPolicy)

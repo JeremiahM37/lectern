@@ -24,6 +24,9 @@ import { shortEndpoint, type PushSubscriptionInfo } from "../push";
 import { AppearancePanel, ShortcutsPanel, WorkspacePanel } from "./Personal";
 import { SettingsSearch } from "./SettingsSearch";
 import { focusSetting, SECTIONS } from "./search-index";
+import { MachineRemote } from "../remote/MachineRemote";
+import { SshImport } from "../remote/SshImport";
+import { ProviderFields, SandboxList, SandboxMachine, type SandboxConfig } from "../remote/Sandboxes";
 import { t, useLocale } from "../i18n";
 export interface SettingsApi {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -294,12 +297,17 @@ function Targets({
   onNotice(t: string, e?: boolean): void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [commands,setCommands]=useState<Target>();
   const [checks, setChecks] = useState<Record<number, string>>({});
   return (
     <div className="settings-grid">
-      <button type="button" onClick={() => setAdding(true)}>Add machine</button>
-      {adding && <TargetEditor api={api} onClose={() => setAdding(false)} onChanged={onChanged} />}
+      <div className="btnrow grid-span">
+        <button type="button" onClick={() => setAdding(true)}>Add machine</button>
+        <button type="button" id="ssh-import" onClick={() => setImporting(true)}>Import from ~/.ssh/config</button>
+      </div>
+      {adding && <TargetEditor api={api} machines={rows} onClose={() => setAdding(false)} onChanged={onChanged} />}
+      {importing && <SshImport api={api} onClose={() => setImporting(false)} onImported={() => void onChanged()} onNotice={onNotice} />}
       {rows.map((t) => (
         <article className="rowcard" key={t.id}>
           <h3>{t.name}</h3>
@@ -329,16 +337,23 @@ function Targets({
           >
             Agent commands
           </button>
+          {t.kind === "sandbox" ? (
+            <SandboxMachine api={api} target={t} machines={rows} onChanged={() => void onChanged()} onNotice={onNotice} />
+          ) : (
+            <MachineRemote api={api} target={t} onChanged={() => void onChanged()} onNotice={onNotice} />
+          )}
         </article>
       ))}
+      <SandboxList api={api} onNotice={onNotice} />
       {commands&&<AgentCommands api={api} target={commands} onClose={()=>setCommands(undefined)}/>} 
     </div>
   );
 }
-function TargetEditor({ api, onClose, onChanged }: {
-  api: SettingsApi; onClose(): void; onChanged(): Promise<void>;
+function TargetEditor({ api, machines, onClose, onChanged }: {
+  api: SettingsApi; machines: Target[]; onClose(): void; onChanged(): Promise<void>;
 }) {
   const [kind, setKind] = useState("ssh");
+  const [provider, setProvider] = useState<SandboxConfig>({ provider: "docker" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return <Modal className="sheet machine-sheet" aria-label="Add machine" onCancel={onClose}>
@@ -357,6 +372,11 @@ function TargetEditor({ api, onClose, onChanged }: {
             port: Number(data.get("port") || 22),
             key_path: String(data.get("key_path") || "").trim(),
           } : {}),
+          ...(kind === "sandbox" ? {
+            sandbox: true,
+            host: String(data.get("template") || "").trim(),
+            sandbox_config: provider as unknown as JsonValue,
+          } : {}),
         }});
         await onChanged(); onClose();
       } catch (e) { setError(String(e)); } finally { setBusy(false); }
@@ -365,8 +385,14 @@ function TargetEditor({ api, onClose, onChanged }: {
       <label>Connection<select value={kind} onChange={(e) => setKind(e.target.value)}>
         <option value="ssh">Remote machine (SSH)</option>
         <option value="local">This server</option>
+        <option value="sandbox">Sandboxes (a fresh one per attempt)</option>
       </select></label>
-      {kind === "ssh" ? <>
+      {kind === "sandbox" && <>
+        <ProviderFields value={provider} onChange={setProvider} machines={machines} />
+        {provider.provider === "proxmox" && <label>Template container id<input name="template" required inputMode="numeric" placeholder="110" /></label>}
+        <p className="sub">Every attempt gets its own sandbox, so agents may run with permissions bypassed. See docs/sandboxes.md.</p>
+      </>}
+      {kind === "sandbox" ? null : kind === "ssh" ? <>
         <label>Hostname<input name="host" required placeholder="server.example" /></label>
         <label>SSH user<input name="user" required autoComplete="username" /></label>
         <label>SSH port<input name="port" type="number" min="1" max="65535" defaultValue="22" required /></label>

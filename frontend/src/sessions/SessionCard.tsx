@@ -1,3 +1,4 @@
+import { OpenInEditor } from "../remote/OpenInEditor";
 import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
@@ -558,6 +559,7 @@ export function SessionCard({
               <a className="b" href={`lectern://attach/session/${s.id}`}>
                 Open in terminal
               </a>
+              <OpenInEditor targetId={s.target_id} path={s.workspace?.path || s.workdir} />
               {s.status === "running" && (
                 <button
                   className="b warn"

@@ -155,6 +155,7 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 		return terminal.Attachment{
 			Key:         fmt.Sprintf("attempt:%d", att.ID),
 			TmuxSession: att.TmuxSession, SandboxVMID: att.SandboxVMID,
+			SandboxWrap: s.sandboxAttach(att, target),
 		}, target, nil
 	}
 	return terminal.Attachment{}, nil, fmt.Errorf("not a terminal")

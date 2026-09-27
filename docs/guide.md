@@ -41,16 +41,23 @@ dashboard required, and it's still on your phone the moment you detach.
   Agents' catalog adds OpenCode, Aider, Goose, Amp, Cursor Agent CLI, GitHub
   Copilot CLI, Qwen Code, Crush, Kimi Code CLI and Cline in one
   click, or add a fully custom CLI — see [docs/agents.md](agents.md).
-- **Your machines.** Not just this laptop — SSH into anything, or use a
-  Proxmox LXC (`pct`, no SSH needed) or an ephemeral sandbox container.
+- **Your machines.** Not just this laptop — SSH into anything (import hosts
+  from `~/.ssh/config`, jump hosts, ssh-agent and security keys, Kerberos
+  through OpenSSH; see [docs/ssh.md](ssh.md)), use a Proxmox LXC (`pct`, no
+  SSH needed), or give every attempt its own sandbox: a Proxmox clone, a
+  Docker container, or any cloud you script ([docs/sandboxes.md](sandboxes.md)).
 - **Approve from your phone.** Web-push, Discord or ntfy notifications with
   inline approve/deny, and a mobile-first PWA for the whole control loop.
 - **Talk to your agent, hands-free.** Voice mode uses only the browser's free
   Web Speech API — no vendor keys, nothing metered — to listen, read replies
   aloud, and take spoken approve/deny on a pending approval. See
   [docs/mobile-sessions.md](mobile-sessions.md#voice-mode).
-- **Best-of-N with a judge.** Delegated builds (opt-in) run a cheap worker in
-  its own worktree while a lead reviews, corrects and integrates its diff.
+- **Race agents, then judge.** The board's **⚑ Race ×3** mode (or New task →
+  ⚑ Race ×2/×3/×4) sends one prompt to several agents, each in its own
+  worktree, and opens Compare: cost, time, checks and diff side by side, with
+  **Pick this one** or **⚖ Judge**. Delegated builds (opt-in) run a cheap
+  worker in its own worktree while a lead reviews, corrects and integrates its
+  diff.
 - **Eval suites on your own repo.** `eval/capability` runs the real agent loop
   against a simulated homelab — no production side effects, model-agnostic.
   [Replay evals](replay-evals.md) build a suite straight from a project's

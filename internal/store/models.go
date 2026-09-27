@@ -27,6 +27,14 @@ type Target struct {
 	// the target probes as "no tmux, no python3" and nothing can run.
 	CommandPrefix string  `json:"command_prefix"`
 	CreatedAt     float64 `json:"created_at"`
+	// SSHJSON holds the SSH connection options beyond host/user/port/key
+	// (docs/ssh.md): an ssh_config alias, ProxyJump, agent use and forwarding,
+	// extra OpenSSH options and which transport runs the commands.
+	SSHJSON string `json:"ssh_json"`
+	// SandboxJSON configures a sandbox target's provider (docs/sandboxes.md).
+	// Empty means the original Proxmox linked-clone provider with the
+	// template vmid in Host.
+	SandboxJSON string `json:"sandbox_json"`
 }
 
 // Project is a repository on a target, plus every policy that governs agents

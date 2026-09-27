@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -96,6 +97,10 @@ type Attachment struct {
 	// SandboxVMID is set when the tmux session lives inside an ephemeral
 	// container rather than on the target itself.
 	SandboxVMID string
+	// SandboxWrap, for a sandbox made by a provider other than Proxmox,
+	// turns the command line to run into the argv that runs it inside the
+	// sandbox with a terminal (docs/sandboxes.md).
+	SandboxWrap func(inner string) ([]string, error)
 	// Workdir turns this into a plain shell in a directory rather than an attach
 	// to an existing agent session — a way into the machine where the code
 	// actually lives, to read something or make a change by hand. It is still a
@@ -186,20 +191,39 @@ func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
 		if a.SandboxVMID == "" {
 			return nil, errors.New("sandbox attachment has no container id — its sandbox is gone")
 		}
+		if a.SandboxWrap != nil {
+			words := make([]string, len(inner))
+			for i, word := range inner {
+				words[i] = shellq.Quote(word)
+			}
+			return a.SandboxWrap(strings.Join(words, " "))
+		}
 		return append([]string{"sudo", "pct", "exec", a.SandboxVMID, "--"}, inner...), nil
 	case target.Kind == "pct":
 		return append([]string{"sudo", "pct", "exec", target.Host, "--"}, inner...), nil
 	case target.Kind == "ssh":
-		argv := []string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new"}
-		if target.Port > 0 {
+		// ServerAlive notices a dead link in ~45s, so the browser's own
+		// reconnect gets a fresh ssh instead of a hung one.
+		argv := []string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new",
+			"-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"}
+		opts := executor.ParseSSHOptions(target.SSHJSON)
+		if target.Port > 0 && (opts.Alias == "" || target.Port != 22) {
 			argv = append(argv, "-p", strconv.Itoa(target.Port))
 		}
 		if target.KeyPath != "" {
 			argv = append(argv, "-i", target.KeyPath)
 		}
+		argv = append(argv, opts.OpenSSHArgs()...)
 		user := target.User
 		if user == "" {
 			user = "root"
+		}
+		dest := user + "@" + target.Host
+		if opts.Alias != "" {
+			dest = opts.Alias
+			if target.User != "" {
+				argv = append(argv, "-l", target.User)
+			}
 		}
 		words := make([]string, len(inner))
 		for i, word := range inner {
@@ -220,10 +244,36 @@ func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
 		case wrapper != "":
 			command = wrapper + " " + shellq.Quote(command)
 		}
-		return append(argv, user+"@"+target.Host, command), nil
+		return append(argv, dest, command), nil
 	default:
 		return inner, nil
 	}
+}
+
+// SSHPrefix is the ssh(1) argv that reaches an ssh target, ready for a
+// command line as its last argument: the same options the terminal uses.
+func SSHPrefix(target *store.Target) []string {
+	argv := []string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"}
+	opts := executor.ParseSSHOptions(target.SSHJSON)
+	if target.Port > 0 && (opts.Alias == "" || target.Port != 22) {
+		argv = append(argv, "-p", strconv.Itoa(target.Port))
+	}
+	if target.KeyPath != "" {
+		argv = append(argv, "-i", target.KeyPath)
+	}
+	argv = append(argv, opts.OpenSSHArgs()...)
+	if opts.Alias != "" {
+		if target.User != "" {
+			argv = append(argv, "-l", target.User)
+		}
+		return append(argv, opts.Alias)
+	}
+	user := target.User
+	if user == "" {
+		user = "root"
+	}
+	return append(argv, user+"@"+target.Host)
 }
 
 // Attach spawns (or reuses) a ttyd for an attachment and returns its socket.

@@ -39,3 +39,9 @@ func writeFileChunks(ctx context.Context, run func(context.Context, string, RunO
 	}
 	return nil
 }
+
+// WriteFileChunks is writeFileChunks for executors outside this package (a
+// sandbox provider's), whose command path may not pass stdin through.
+func WriteFileChunks(ctx context.Context, run func(context.Context, string, RunOpts) (Result, error), file string, data []byte, size int) error {
+	return writeFileChunks(ctx, run, file, data, size)
+}

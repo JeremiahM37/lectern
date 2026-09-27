@@ -33,6 +33,10 @@ type targetIn struct {
 	// CommandPrefix wraps every command, for hosts whose SSH lands somewhere
 	// other than the work (a Windows box with its toolchain in WSL).
 	CommandPrefix string `json:"command_prefix"`
+	// SSH carries the options of docs/ssh.md; setting them needs a person.
+	SSH *executor.SSHOptions `json:"ssh"`
+	// SandboxConfig picks a sandbox target's provider (docs/sandboxes.md).
+	SandboxConfig *sandboxConfigIn `json:"sandbox_config"`
 }
 
 func (s *Server) listTargets(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +70,26 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "target name exists")
 		return
 	}
+	sshJSON, sandboxJSON := "{}", "{}"
+	if in.SSH != nil {
+		if !s.requireHuman(w, r, "setting SSH options") {
+			return
+		}
+		if err := in.SSH.Validate(); err != nil {
+			httpError(w, 422, "%s", err)
+			return
+		}
+		sshJSON = in.SSH.JSON()
+	}
+	if in.SandboxConfig != nil {
+		raw, err := s.validSandboxConfig(w, r, *in.SandboxConfig)
+		if err != nil {
+			return
+		}
+		sandboxJSON = raw
+	}
 	t := &store.Target{
+		SSHJSON: sshJSON, SandboxJSON: sandboxJSON,
 		Name: in.Name, Kind: kind, Host: in.Host, Port: valOr(in.Port, 22),
 		User: strOr(in.User, "root"), KeyPath: in.KeyPath, Workroot: in.Workroot,
 		MaxConcurrent: valOr(in.MaxConcurrent, 4), Sandbox: boolInt(in.Sandbox),

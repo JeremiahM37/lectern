@@ -59,6 +59,7 @@ func (c *Checker) Tick(ctx context.Context) {
 		c.checkLimit(cfg, "agent:"+a, a+" budget", cfg.PerAgent[a], a, now)
 	}
 	c.checkQuota(cfg, now)
+	c.checkProviderUsage(cfg, now)
 	if cfg.AnomalyEnabled {
 		c.checkAnomalies(cfg, now)
 	}

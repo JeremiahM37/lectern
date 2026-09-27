@@ -73,6 +73,7 @@ export interface TaskView extends Task {
   target_host: string;
   target_user: string;
   target_kind: string;
+  target_id?: number;
   attempt?: AttemptView;
   attempts: AttemptSummary[];
   // The usage-limit hold that stopped this task, while it still matters
@@ -205,6 +206,9 @@ export interface Target {
   memory_dir: string;
   command_prefix: string;
   created_at: number;
+  // docs/ssh.md and docs/sandboxes.md: SSH options and a sandbox provider.
+  ssh_json?: string;
+  sandbox_json?: string;
 }
 
 export interface Project {

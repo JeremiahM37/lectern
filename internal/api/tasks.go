@@ -294,6 +294,9 @@ type dispatchIn struct {
 	// per-task spend cap at dispatch time — nil leaves whatever the task
 	// already had (set at create, or a previous dispatch) unchanged.
 	BudgetUSD *float64 `json:"budget_usd"`
+	// Env is this dispatch's own environment for every attempt's workspace
+	// and sandbox (docs/sandboxes.md). Names must be variable names.
+	Env map[string]string `json:"env"`
 }
 
 // resolveVariant fills a variant's agent/model from its named launch profile
@@ -388,6 +391,11 @@ func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, erro
 	if body.BudgetUSD != nil && *body.BudgetUSD < 0 {
 		return nil, requestErr(422, "budget_usd must not be negative")
 	}
+	for k := range body.Env {
+		if !validEnvName(k) {
+			return nil, requestErr(422, "env name %q is not a variable name", k)
+		}
+	}
 	fields := map[string]any{"status": "queued", "updated_at": store.Now()}
 	if body.BudgetUSD != nil {
 		fields["budget_usd"] = *body.BudgetUSD
@@ -429,13 +437,13 @@ func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, erro
 		return nil, err
 	}
 	if len(variants) == 0 {
-		att, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{})
+		att, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Env: body.Env})
 		if err != nil {
 			return nil, err
 		}
 		s.autoClaimTaskScope(fresh, att)
 		if body.ModelB != "" {
-			attB, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB})
+			attB, err := s.Sched.CreateAttempt(fresh, scheduler.AttemptOpts{Model: body.ModelB, Env: body.Env})
 			if err != nil {
 				return nil, err
 			}
@@ -443,7 +451,7 @@ func (s *Server) queueTask(task *store.Task, body dispatchIn) (*store.Task, erro
 		}
 	} else {
 		for _, v := range variants {
-			opts := scheduler.AttemptOpts{Model: v.model}
+			opts := scheduler.AttemptOpts{Model: v.model, Env: body.Env}
 			if v.agent != fresh.Agent {
 				opts.Agent = v.agent
 			}
@@ -802,6 +810,7 @@ func (s *Server) attachTerminal(w http.ResponseWriter, r *http.Request) {
 	_, retired, err := s.Terminals.AttachWithNotice(r.Context(), terminal.Attachment{
 		Key:         fmt.Sprintf("attempt:%d", att.ID),
 		TmuxSession: att.TmuxSession, SandboxVMID: att.SandboxVMID,
+		SandboxWrap: s.sandboxAttach(att, target),
 	}, target)
 	if err != nil {
 		httpError(w, 503, "%s", err.Error())

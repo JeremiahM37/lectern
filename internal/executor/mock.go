@@ -162,6 +162,10 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{0, `{"path":"/mock/.gemini/settings.json","added":[]}` + "\n", ""}, nil
 	case strings.HasPrefix(cmd, "test \"$(wc -c < ") && strings.Contains(cmd, " && mv -- "):
 		return m.publishUpload(cmd), nil
+	case strings.HasPrefix(cmd, "if command -v ss >/dev/null"):
+		// Listening ports (Settings → Machines → Ports): a dev server and sshd.
+		return Result{0, "LISTEN 0 4096 127.0.0.1:5173 0.0.0.0:* users:((\"node\",pid=9,fd=20))\n" +
+			"LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\n", ""}, nil
 	case strings.HasPrefix(cmd, "sudo pvesh get /cluster/nextid"):
 		return Result{0, "9001\n", ""}, nil
 	case hasAnyPrefix(cmd, "sudo pct clone", "sudo pct start", "sudo pct stop",

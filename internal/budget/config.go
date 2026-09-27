@@ -55,7 +55,12 @@ type Config struct {
 	// alerts at 75/90/100%" framing minus the terminal one — a quota window
 	// always eventually reaches 100% on its own and resets, so alerting on
 	// it there adds noise without a decision to make).
-	QuotaThresholds   []int   `json:"quota_thresholds"`
+	QuotaThresholds []int `json:"quota_thresholds"`
+	// UsageWarnPercent is where any provider's usage window (Codex, Gemini,
+	// catalog agents, each account) is flagged on the Usage page and pushed
+	// once per window, default 80. Claude's own account quota keeps its
+	// QuotaThresholds ladder above. 0 in a stored config means the default.
+	UsageWarnPercent  int     `json:"usage_warn_percent"`
 	AnomalyEnabled    bool    `json:"anomaly_enabled"`
 	AnomalyMultiplier float64 `json:"anomaly_multiplier"`
 }
@@ -70,6 +75,7 @@ func DefaultConfig() Config {
 		PerAgent:          map[string]Limit{},
 		Thresholds:        []int{75, 90, 100},
 		QuotaThresholds:   []int{75, 90},
+		UsageWarnPercent:  80,
 		AnomalyEnabled:    true,
 		AnomalyMultiplier: 3,
 	}
@@ -86,6 +92,9 @@ func (c *Config) normalize() {
 	}
 	if c.AnomalyMultiplier <= 0 {
 		c.AnomalyMultiplier = 3
+	}
+	if c.UsageWarnPercent <= 0 {
+		c.UsageWarnPercent = 80
 	}
 	if c.Overall.Mode == "" {
 		c.Overall.Mode = ModeWarn
@@ -139,6 +148,9 @@ func (c Config) Validate() error {
 	}
 	if err := validPercents(c.QuotaThresholds, "quota_thresholds"); err != nil {
 		return err
+	}
+	if c.UsageWarnPercent < 0 || c.UsageWarnPercent > 100 {
+		return errors.New("usage_warn_percent must be 1-100")
 	}
 	if c.AnomalyMultiplier != 0 && c.AnomalyMultiplier < 1 {
 		return errors.New("anomaly_multiplier must be at least 1 (or 0 to use the default)")
