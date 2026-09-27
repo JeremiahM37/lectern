@@ -52,15 +52,19 @@ type autoRequirementOccurrence struct {
 	Evidence    []string `json:"evidence"`
 }
 type autoRequirement struct {
-	Environments map[string]*autoPythonReceipt `json:"environments,omitempty"`
-	Key          string                        `json:"key"`
-	Request      autonomy.Requirement          `json:"request"`
-	State        string                        `json:"state"`
-	Reason       string                        `json:"reason,omitempty"`
-	RecoveryJob  string                        `json:"recovery_job,omitempty"`
-	Receipt      *autoPythonReceipt            `json:"receipt,omitempty"`
-	Occurrences  []autoRequirementOccurrence   `json:"occurrences"`
-	UpdatedAt    time.Time                     `json:"updated_at"`
+	GoReceipt        *autoGoRuntimeReceipt         `json:"go_runtime_receipt,omitempty"`
+	NodeReceipt      *autoNodeReceipt              `json:"node_receipt,omitempty"`
+	NodeEnvironments map[string]*autoNodeReceipt   `json:"node_environments,omitempty"`
+	ToolingReceipt   *autoPrivateToolingReceipt    `json:"tooling_receipt,omitempty"`
+	Environments     map[string]*autoPythonReceipt `json:"environments,omitempty"`
+	Key              string                        `json:"key"`
+	Request          autonomy.Requirement          `json:"request"`
+	State            string                        `json:"state"`
+	Reason           string                        `json:"reason,omitempty"`
+	RecoveryJob      string                        `json:"recovery_job,omitempty"`
+	Receipt          *autoPythonReceipt            `json:"receipt,omitempty"`
+	Occurrences      []autoRequirementOccurrence   `json:"occurrences"`
+	UpdatedAt        time.Time                     `json:"updated_at"`
 }
 
 var autoPythonPin = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)==([a-zA-Z0-9][a-zA-Z0-9.!+_-]*)$`)
@@ -117,6 +121,11 @@ func autoPythonSemanticKey(r *autoPythonRequest) string {
 }
 func autoRequirementKey(r autonomy.Requirement) string {
 	r.Evidence = nil
+	if n, err := autoNodeInputs(r); err == nil {
+		r.Requirements = n.Requirements
+		r.Modules = n.Modules
+		r.Binaries = n.Binaries
+	}
 	if pins, imports, err := autoPythonInputs(r.Requirements, r.Imports); err == nil && r.Capability == "python_wheels" {
 		r.Requirements = pins
 		r.Imports = imports
@@ -159,9 +168,14 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 		imports = append(imports, j.PythonRequest.Imports...)
 	}
 	unsupported := false
+	var nodeInputs []*autoNodeRequest
+	var pythonIDs, nodeIDs []string
 	ids := []string{}
 	for _, request := range body.Requirements {
 		key := autoRequirementKey(request)
+		if request.Capability == "node_packages" && request.PackageLock != "" {
+			key = autoSHA([]byte(key + ":" + archive))
+		}
 		entry := a.Requirements[key]
 		if entry == nil {
 			if len(a.Requirements) >= 512 {
@@ -182,6 +196,18 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 		}
 		entry.UpdatedAt = time.Now()
 		ids = append(ids, key)
+		if request.Capability == "node_packages" {
+			nodeIDs = append(nodeIDs, key)
+			n, e := autoNodeInputs(request)
+			if e != nil {
+				entry.State = "unsupported_input"
+				entry.Reason = e.Error()
+				unsupported = true
+			} else {
+				nodeInputs = append(nodeInputs, n)
+			}
+			continue
+		}
 		if request.Capability != "python_wheels" || request.Condition != "offline_imports_available" {
 			entry.State = "unsupported"
 			entry.Reason = "No registered provisioner for this capability/condition. Investigate an isolated alternative or propose an independently audited capability change; this is not a human-consent requirement."
@@ -195,6 +221,7 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 			unsupported = true
 			continue
 		}
+		pythonIDs = append(pythonIDs, key)
 		pins = append(pins, p...)
 		imports = append(imports, m...)
 	}
@@ -202,12 +229,12 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 		return false, s.saveAuto(a)
 	}
 	j.RequirementIDs = ids
-	if !unsupported {
+	if !unsupported && len(pythonIDs) > 0 {
 
 		p, m, e := autoPythonInputs(pins, imports)
 		if e != nil {
 			unsupported = true
-			for _, id := range ids {
+			for _, id := range pythonIDs {
 				a.Requirements[id].State = "unsupported_input"
 				a.Requirements[id].Reason = e.Error()
 			}
@@ -236,17 +263,53 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 			request := &autoPythonRequest{SchemaVersion: 1, Kind: "python_wheels", Requirements: p, Imports: m, SourceJob: j.ID, SourceSHA: archive, AdmissionSHA: autoSHA([]byte(binding))}
 			if j.PythonRequest != nil && autoPythonSemanticKey(j.PythonRequest) == autoPythonSemanticKey(request) && j.PythonRecovery != nil && j.PythonRecovery.State == "verified" {
 				unsupported = true
-				for _, id := range ids {
+				for _, id := range pythonIDs {
 					a.Requirements[id].State = "diagnosis_required"
 					a.Requirements[id].Reason = "The same verified environment was already delivered to this assignment. A missing prerequisite has not changed; investigate the actual failure instead of repeating the worker."
 				}
 			} else {
 				j.PendingPythonRequest = request
-				for _, id := range ids {
+				for _, id := range pythonIDs {
 					a.Requirements[id].State = "pending"
 				}
 			}
 		}
+	}
+	if !unsupported && len(nodeIDs) > 0 {
+		old := j.NodeRequest
+		if completeRecipe {
+			old = nil
+		}
+		request, e := autoMergeNodeRequests(old, nodeInputs)
+		if e != nil {
+			unsupported = true
+			for _, id := range nodeIDs {
+				a.Requirements[id].State = "unsupported_input"
+				a.Requirements[id].Reason = e.Error()
+			}
+		} else {
+			request.SourceJob = j.ID
+			request.SourceSHA = archive
+			request.AdmissionSHA = autoRequirementAdmissionSHA(a, j)
+			if j.NodeRequest != nil && autoNodeSemanticKey(j.NodeRequest) == autoNodeSemanticKey(request) && j.NodeRecovery != nil && j.NodeRecovery.State == "verified" {
+				unsupported = true
+				for _, id := range nodeIDs {
+					a.Requirements[id].State = "diagnosis_required"
+					a.Requirements[id].Reason = "The same verified Node environment was already used; investigate the actual failure rather than relaunch unchanged work"
+				}
+			} else {
+				j.PendingNodeRequest = request
+				for _, id := range nodeIDs {
+					a.Requirements[id].State = "pending"
+				}
+			}
+		}
+	}
+	// A mixed report is one retained prerequisite set; partial preparation
+	// cannot authorize a model rerun while a sibling remains unsupported.
+	if unsupported {
+		j.PendingPythonRequest = nil
+		j.PendingNodeRequest = nil
 	}
 	s.closeAutoBridge(j.ID)
 	j.Summary = "Worker blocked on recorded prerequisites; report and archive retained"
@@ -394,7 +457,7 @@ func autoApplyPythonReceipt(a *autoRecord, j *autoJob, raw []byte) (bool, error)
 		j.PythonNeedsChange = false
 	}
 	for _, key := range j.RequirementIDs {
-		if r := a.Requirements[key]; r != nil {
+		if r := a.Requirements[key]; r != nil && r.Request.Capability == "python_wheels" {
 			if receipt.InputKey != "" {
 				if r.Environments == nil {
 					r.Environments = map[string]*autoPythonReceipt{}
@@ -416,6 +479,7 @@ func autoApplyPythonReceipt(a *autoRecord, j *autoJob, raw []byte) (bool, error)
 }
 
 const autoRequirementsPrompt = `
+Node prerequisite recovery: reports may include requirements:[{capability:"node_packages",schema_version:1,requirements:["@playwright/mcp@0.0.80"],modules:["@playwright/mcp"],binaries:["playwright-mcp"],condition:"offline_node_available",evidence:["actual failed command and source evidence for this exact version"]}]. This example is not a package recommendation. For a locked source project replace requirements with package_json:"path/package.json",package_lock:"path/package-lock.json"; these must identify same-directory files in your retained source archive. Select module or executable names to probe, never commands, URLs or host paths. The controller retains exact npm lock/runtime/probe identities; later review receives that exact environment. Lifecycle hooks run only in isolated credential-free offline provisioning, not on the host. Inspect /prerequisite node and the delivered runtime manifest before claiming dependencies are available. A missing platform/build prerequisite remains diagnosed, never silently bypassed or reported as a passing suite.
 Prerequisite recovery: reports may optionally include requirements:[{capability:"python_wheels",schema_version:1,requirements:["django==5.2.12"],imports:["django"],condition:"offline_imports_available",evidence:["actual failed import plus evidence supporting the selected distribution/version"]}]. This is an example shape, not a recommendation to install that version. Request only exact evidenced distribution pins needed for the audited isolated task. Never infer distribution names solely from imports. Source packages under test must remain the retained checkout; do not replace them with released wheels. No URLs, VCS, local projects, builds or arbitrary commands. Existing pytest tooling remains controller-owned. The supported provisioner resolves compatible universal and native wheels and verifies them in an isolated process; unavailable or conflicting dependencies remain explicit. Discover registered browser assets through /capabilities; request the exact supported Playwright version together with project pins. Delivery requires a bound browser_key in /prerequisite python, not merely a catalog entry. Run browser-backed project tests through /opt/browser-runtime/browsers/offline-test COMMAND ARGS to retain local fixtures without credentials, bridge sockets or external networking. For a builder unable to complete, outcome=blocked with requirements preserves its assignment for verified recovery; for a reviewer unable to assess due solely to the environment, outcome=blocked,approve=false preserves the review assignment. If substantive defects are established, reject normally as incomplete; missing dependencies do not erase that rejection. Unsupported requirements may use another descriptive capability token and evidence; they are recorded for bounded diagnosis, never automatic privileges or a human-consent blocker. Inspect /requirements before repeating an unchanged blocker. Investigate supported alternatives or propose a useful isolated diagnosis through the normal independent plan audits; do not repeatedly relaunch on the same verified environment. Worker reports do not prove a prerequisite changed. Existing processes gain no mounts retroactively.
 `
 
@@ -437,7 +501,7 @@ func autoRequirementRows(a *autoRecord) []map[string]any {
 			}
 			diagnoses = append(diagnoses, map[string]any{"target_task_id": d.TargetTaskID, "outcome": d.Outcome, "task_id": d.TaskID, "review_task_id": d.ReviewTaskID})
 		}
-		rows = append(rows, map[string]any{"key": r.Key, "diagnoses": diagnoses, "capability": r.Request.Capability, "condition": r.Request.Condition, "latest_state": r.State, "reason": r.Reason, "occurrence_count": len(r.Occurrences), "environment_count": len(r.Environments), "details": "/requirements?key=" + r.Key, "scope": "Request grouping only; each retained assignment requires its own bound verification receipt"})
+		rows = append(rows, map[string]any{"key": r.Key, "diagnoses": diagnoses, "capability": r.Request.Capability, "condition": r.Request.Condition, "latest_state": r.State, "reason": r.Reason, "occurrence_count": len(r.Occurrences), "environment_count": len(r.Environments) + len(r.NodeEnvironments), "details": "/requirements?key=" + r.Key, "scope": "Request grouping only; each retained assignment requires its own bound verification receipt"})
 	}
 	return rows
 }
@@ -445,11 +509,16 @@ func autoRequirementRows(a *autoRecord) []map[string]any {
 // A review or retained continuation must receive the same verified test
 // environment as its source. Provisioning still independently revalidates it.
 func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
-	if j.PythonRequest != nil || a.State == nil || a.State.Item < 0 || a.State.Item >= len(a.State.Items) {
+	if e := autoInheritPrivateTooling(a, j); e != nil {
+		return e
+	}
+	if a.State == nil || a.State.Item < 0 || a.State.Item >= len(a.State.Items) {
 		return nil
 	}
 	if j.Role == "builder" && a.State.Step == 0 && a.State.Items[a.State.Item].EnvironmentDiagnosisTaskID > 0 {
-		return applyAutoDiagnosisEnvironment(a, j)
+		if err := applyAutoDiagnosisEnvironment(a, j); err != nil {
+			return err
+		}
 	}
 	var source *autoJob
 	if j.Role == "reviewer" || strings.HasPrefix(j.Role, "decision_") || j.Role == "builder" && a.State.Step > 0 {
@@ -463,17 +532,38 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 	} else if j.Role == "builder" {
 		p := a.State.Items[a.State.Item]
 		id := p.ContinueTaskID
+		if p.IntegrationTaskID > 0 {
+			if pin, e := autoPrivatePin(a, p); e == nil {
+				id = pin.ReviewTaskID
+			} else {
+				return e
+			}
+		}
+		if p.SourceIntegrationID != "" {
+			v := autoPrivateFind(a, p.SourceIntegrationID)
+			if v == nil || v.Publication == nil {
+				return errors.New("private source runtime owner unavailable")
+			}
+			id = v.ReviewerTaskID
+		}
 		if id == 0 {
 			id = p.RepairTaskID
 		}
 		if id == 0 {
 			id = p.DocumentationTaskID
 		}
+		if id == 0 {
+			id = p.ExpertRecoveryTaskID
+		}
 		if id > 0 {
 			source = autoFindJob(a, id)
 		}
 	}
-	if source != nil && source.PythonRequest != nil && source.PythonRecovery != nil && source.PythonRecovery.State == "verified" {
+	autoInheritNodeFrom(j, source)
+	if j.Role == "reviewer" || strings.HasPrefix(j.Role, "decision_") {
+		autoInheritGoRuntime(j, source)
+	}
+	if j.PythonRequest == nil && source != nil && source.PythonRequest != nil && source.PythonRecovery != nil && source.PythonRecovery.State == "verified" {
 		request := *source.PythonRequest
 		j.PythonRequest = &request
 		j.PythonRecovery = nil
@@ -521,7 +611,13 @@ func (s *Server) recordAutoProvisionerRequirement(a *autoRecord, j *autoJob) err
 	if a.Requirements == nil {
 		a.Requirements = map[string]*autoRequirement{}
 	}
-	if len(j.RequirementIDs) == 0 {
+	hasPython := false
+	for _, id := range j.RequirementIDs {
+		if e := a.Requirements[id]; e != nil && e.Request.Capability == "python_wheels" {
+			hasPython = true
+		}
+	}
+	if !hasPython {
 		request := autonomy.Requirement{Capability: "python_wheels", SchemaVersion: 1, Requirements: append([]string(nil), j.PythonRequest.Requirements...), Imports: append([]string(nil), j.PythonRequest.Imports...), Condition: "offline_imports_available", Evidence: []string{"Trusted provisioner could not reproduce the retained test environment"}}
 		key := autoRequirementKey(request)
 		if a.Requirements[key] == nil {
@@ -530,12 +626,15 @@ func (s *Server) recordAutoProvisionerRequirement(a *autoRecord, j *autoJob) err
 			}
 			a.Requirements[key] = &autoRequirement{Key: key, Request: request}
 		}
-		j.RequirementIDs = []string{key}
+		j.RequirementIDs = append(j.RequirementIDs, key)
 	}
 	for _, key := range j.RequirementIDs {
 		entry := a.Requirements[key]
 		if entry == nil {
 			return errors.New("retained prerequisite record missing")
+		}
+		if entry.Request.Capability != "python_wheels" {
+			continue
 		}
 		found := false
 		for _, o := range entry.Occurrences {

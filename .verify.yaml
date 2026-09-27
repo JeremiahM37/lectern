@@ -17,7 +17,16 @@ steps:
       - shell: python3 tools/test_provision_python_test_bundle.py
       - shell: python3 tools/test_python_project_dependencies.py
       - shell: python3 tools/test_browser_runtime.py
+      - shell: python3 tools/test_node_dependencies.py
+      - shell: python3 tools/test_node_project_dependencies.py
+      - shell: sudo python3 tools/test_provision_node_runtime.py
+      - shell: python3 tools/test_autonomy_go_runtime.py
       - shell: python3 tools/test_autonomy_launch.py
+      - shell: python3 tools/test_autonomy_expert_probe.py
+      - shell: python3 tools/test_autonomy_private_integration.py
+      - shell: python3 tools/test_autonomy_server_operations.py
+      - shell: python3 tools/test_autonomy_server_maintenance.py
+      - shell: python3 tools/test_autonomy_server_maintenance_inspect.py
       - shell:
           cmd: |
             set -eu

@@ -12,9 +12,10 @@ import tempfile
 import ipaddress
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import pwd
+import re
 import resource
 import selectors
 import shutil
@@ -28,6 +29,17 @@ import uuid
 
 ROOT = Path('/mnt/bulk/lectern-autonomy/jobs')
 INSTALL = '/usr/local/libexec/lectern-autonomy-runner'
+EXPERT_PROBE_HELPER = Path('/usr/local/libexec/lectern-autonomy-expert-probe.py')
+PRIVATE_INTEGRATION_HELPER = Path('/usr/local/libexec/lectern-autonomy-private-integration.py')
+NODE_RUNTIME_HELPER = Path('/usr/local/libexec/autonomy-node-runtime.py')
+SERVER_OPERATIONS_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-operations.py')
+SERVER_REGISTRY = Path('/etc/lectern/server-targets.json')
+SERVER_OBSERVATIONS_ROOT = ROOT.parent / 'server-observations'
+SERVER_MAINTENANCE_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-maintenance.py')
+SERVER_MAINTENANCE_INSPECT_HELPER = Path('/usr/local/libexec/lectern-autonomy-server-maintenance-inspect.py')
+SERVER_MAINTENANCE_ROOT = ROOT.parent / 'server-maintenance'
+SERVER_MAINTENANCE_TOOLS = ROOT.parent / 'server-maintenance-tools'
+INTEGRATION_ROOT = ROOT.parent / 'integrations'
 ASSET_CACHE = ROOT.parent / 'binary-cache'
 DEPENDENCIES = ROOT.parent / 'dependencies'
 AUTH_LOCK = Path('/run/lectern-autonomy-auth.lock')
@@ -266,7 +278,7 @@ def addresses():
 def properties():
     return ['Type=exec', 'KillMode=control-group', 'TimeoutStopSec=10s',
             'RuntimeMaxSec=1800', 'MemoryMax=4G', 'MemorySwapMax=0', 'CPUQuota=200%',
-            'TasksMax=256', 'NoNewPrivileges=yes', 'RestrictSUIDSGID=yes',
+            'TasksMax=512', 'NoNewPrivileges=yes', 'RestrictSUIDSGID=yes',
             'ProtectControlGroups=yes', 'ProtectKernelModules=yes',
             'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK',
             'IPAddressDeny=' + ' '.join(addresses()), 'UMask=0077',
@@ -280,7 +292,7 @@ def review_evidence_mount(work):
         return ['--ro-bind', str(evidence), '/work/.lectern-review']
     return []
 
-def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None):
+def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None, python_test_key=None, node_project=None, node_runtime=None, go_runtime=None):
     assets = Path(assets)
     cmd = ['/usr/bin/bwrap', '--die-with-parent', '--new-session', '--unshare-user',
            '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net', '--cap-drop', 'ALL',
@@ -290,7 +302,11 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None)
     for path in ('/lib', '/lib64', '/bin', '/sbin'):
         if Path(path).exists():
             cmd += ['--ro-bind', path, path]
-    bundle = go_dependency_bundle(Path(work))
+    for local in ('/usr/local/bin','/usr/local/sbin','/usr/local/etc'):
+        if Path(local).exists():cmd += ['--tmpfs',local]
+    bundle = go_dependency_bundle(Path(work)) if go_runtime is None else None
+    if go_runtime is not None:
+        cmd += go_runtime_mount(*go_runtime)
     if bundle is not None:
         cmd += ['--ro-bind', str(bundle / 'mod'), '/opt/go-modules',
                 '--ro-bind', str(bundle / 'manifest.json'), '/opt/go-dependencies.json',
@@ -301,7 +317,7 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None)
                 '--setenv', 'GOWORK', 'off',
                 '--setenv', 'PATH', '/usr/local/go/bin:/usr/bin:/bin']
     if python_project is None:
-        cmd += python_test_runtime_mount()
+        cmd += python_test_runtime_mount(python_test_key)
     else:
         cmd += python_project_mount(python_project)
     cmd += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
@@ -315,6 +331,22 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None)
             '--bind', str(work), '/work', '--chdir', '/work']
     if browser is not None:
         cmd += browser_runtime_mount(browser)
+    if node_project is not None:
+        q=json.loads((p/'node-requirement.json').read_text())
+        project_dir=str(PurePosixPath(q.get('package_json','package.json')).parent)
+        destination='/work'+('/'+project_dir if project_dir!='.' else '')+'/node_modules'
+        cmd += ['--ro-bind',str(node_runtime),'/opt/node',
+                '--ro-bind',str(node_project/'payload/project'),'/opt/node-project',
+                '--ro-bind',str(node_project/'payload/cache'),'/opt/node-cache',
+                '--ro-bind',str(node_project/'payload/project/node_modules'),destination,
+                '--setenv','PATH','/opt/node-project/node_modules/.bin:/opt/node/bin:'+('/opt/go-toolchain/bin:' if go_runtime else '/usr/local/go/bin:')+'/usr/bin:/bin',
+                '--setenv','NODE_PATH','/opt/node-project/node_modules',
+                '--setenv','NPM_CONFIG_CACHE','/tmp/node-cache',
+                '--setenv','NPM_CONFIG_OFFLINE','true',
+                '--setenv','NPM_CONFIG_USERCONFIG','/tmp/node-user.npmrc',
+                '--setenv','NPM_CONFIG_GLOBALCONFIG','/tmp/node-global.npmrc',
+                '--setenv','NPM_CONFIG_AUDIT','false','--setenv','NPM_CONFIG_FUND','false',
+                '--setenv','NPM_CONFIG_UPDATE_NOTIFIER','false']
     cmd += review_evidence_mount(work)
     cmd += ['--ro-bind', str(bridges), '/bridges',
             '--symlink', '/bridges/network.sock', '/network.sock',
@@ -346,7 +378,8 @@ def bwrap(p, provider, assets, work, bridges, python_project=None, browser=None)
         cli = ['/agent', '-p', '--verbose', '--output-format', 'stream-json',
                '--dangerously-skip-permissions', '--strict-mcp-config',
                '--mcp-config', '{"mcpServers":{}}', *model_args]
-    launch = '/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/network.sock &\nexec ' + shlex.join(cli)
+    node_setup='set -e\ncp -a /opt/node-cache /tmp/node-cache\nchmod -R u+w /tmp/node-cache\n' if node_project is not None else ''
+    launch = node_setup + '/usr/bin/socat TCP4-LISTEN:18080,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/network.sock &\nexec ' + shlex.join(cli)
     # Explicitly close inherited host directory descriptors before any untrusted
     # process can walk '..' through one, even if bwrap changes its fd policy.
     return cmd + ['--', '/usr/bin/python3', '-c',
@@ -361,7 +394,9 @@ def execute(job):
     if not current.endswith('/' + unit(job)):
         raise RuntimeError('execution outside matching job cgroup refused')
     bpf_attached('/sys/fs/cgroup' + current)
-    provider = json.loads(meta.read_text())['provider']
+    job_config = json.loads(meta.read_text())
+    provider = job_config['provider']
+    expected_test_key = job_config.get('python_test_key') or None
     # Bubblewrap canonicalizes source paths, so a /proc/self/fd directory
     # reference would still traverse the protected host job parent. Stage
     # mounts in a *private* supervisor mount namespace instead; these mounts
@@ -386,6 +421,12 @@ def execute(job):
         target = Path('/tmp') / name
         target.mkdir(mode=0o755)
         run(['/usr/bin/mount', '--bind', str(p / name), str(target)])
+    go_runtime=go_worker_runtime(job,Path('/tmp/work'))
+    if go_runtime is not None:
+        mounted=[]
+        for name,source in zip(('go-modules-runtime','go-toolchain-runtime'),go_runtime):
+            target=Path('/tmp')/name;target.mkdir();run(['/usr/bin/mount','--bind',str(source),str(target)]);mounted.append(target)
+        go_runtime=tuple(mounted)
     project_bundle = python_project_bundle(job)
     project_mount = None
     if project_bundle is not None:
@@ -398,12 +439,31 @@ def execute(job):
             browser_source=browser_runtime(project_manifest['browser_key'],project_manifest['packages']['playwright'])
             browser_mount=Path('/tmp/browser-runtime');browser_mount.mkdir()
             run(['/usr/bin/mount','--bind',str(browser_source),str(browser_mount)])
-    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount)
+    if expected_test_key:
+        verify_expected_python_test(job, expected_test_key)
+    if project_bundle is not None and expected_test_key:
+        raise PythonUnsupported('exact tooling-only environment conflicts with project runtime')
+    node_project=None
+    if (p/'node-requirement.json').exists():
+        try:node_project=node_call('bundle',job)
+        except (OSError,ValueError) as error:
+            node_call('validation_failure',job,error)
+            raise
+    node_mount=node_runtime_mount=None
+    if node_project is not None:
+        node_manifest=json.loads((node_project/'manifest.json').read_text())
+        node_runtime,_=node_module(job).tooling(sys.modules[__name__],node_manifest['runtime_digest'])
+        node_mount=Path('/tmp/node-project');node_mount.mkdir()
+        node_runtime_mount=Path('/tmp/node-runtime');node_runtime_mount.mkdir()
+        run(['/usr/bin/mount','--bind',str(node_project),str(node_mount)])
+        run(['/usr/bin/mount','--bind',str(node_runtime/'runtime'),str(node_runtime_mount)])
+    command = bwrap(p, provider, '/tmp/assets', '/tmp/work', '/tmp/bridges', project_mount, browser_mount, expected_test_key, node_mount, node_runtime_mount, go_runtime)
     def drop():
         os.setgroups([])
         os.setgid(GID)
         os.setuid(UID)
     with (p / 'assets/prompt.txt').open('rb') as prompt:
+        usage_begin(job)
         process = subprocess.Popen(command, stdin=prompt, preexec_fn=drop, close_fds=True)
         while process.poll() is None:
             try:
@@ -411,15 +471,18 @@ def execute(job):
                 fresh = 0 <= time.time() - heartbeat.st_mtime < 60
             except OSError:
                 fresh = False
-            if not fresh:
+            expired = usage_elapsed(job, True)['elapsed_milliseconds'] >= json.loads((p/'job.json').read_text()).get('runtime_seconds', 1800)*1000
+            if not fresh or expired:
+                usage_finish(job)
                 write_new(p / 'result.json', json.dumps({'state': 'failed', 'exit_code': 124,
-                                                       'reason': 'controller heartbeat expired'}))
+                                                       'reason': 'worker runtime limit reached' if expired else 'controller heartbeat expired'}))
                 # Exact job cgroup only, including this trusted supervisor. No
                 # detached grandchildren may outlive the usage monitor.
                 run(['/usr/bin/systemctl', 'kill', '--kill-whom=all', '--signal=SIGKILL', unit(job)])
                 raise RuntimeError('job cgroup termination unexpectedly returned')
-            time.sleep(2)
+            time.sleep(.1)
         result = process
+    usage_finish(job)
     write_new(p / 'result.json', json.dumps({'state': 'done' if result.returncode == 0 else 'failed',
                                            'exit_code': result.returncode}))
     return result.returncode
@@ -503,6 +566,12 @@ def launch_state(job):
 
 
 def start(args):
+    expected_test_key = getattr(args, 'python_test_key', None)
+    if expected_test_key:
+        runtime = python_test_runtime_status(expected_test_key)
+        if runtime['state'] != 'verified': return runtime
+    duration = getattr(args, 'runtime_seconds', 1800)
+    if type(duration) is not int or not 1 <= duration <= 1800: raise ValueError('runtime_seconds must be between 1 and 1800')
     with launch_lock(args.job) as launch_fd:
         phase = launch_state_unlocked(args.job)['state']
         if phase == 'running':
@@ -578,7 +647,7 @@ def start_locked(args, launch_fd):
     # The trusted supervisor stages these in private mounts before dropping
     # UID. The host job parent remains inaccessible to nobody; admin may
     # replace its broker sockets when the controller restarts.
-    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model,
+    write_new(p / 'job.json', json.dumps({'provider': args.provider, 'model': args.model, 'python_test_key': getattr(args, 'python_test_key', None), 'runtime_seconds': getattr(args, 'runtime_seconds', 1800),
                                                'selftest_hold': args.hold_seconds if args.provider == 'selftest' else 0,
                                                'network_selftest': args.network_selftest if args.provider == 'selftest' else False}))
     write_new(p / 'heartbeat', '', 0o600)
@@ -586,7 +655,9 @@ def start_locked(args, launch_fd):
     for name in ('output.jsonl', 'stderr.log'):
         write_new(p / name, '')
     cmd = ['/usr/bin/systemd-run', '--quiet', '--unit=' + unit(args.job)]
-    for prop in properties() + ['StandardOutput=append:' + str(p / 'output.jsonl'),
+    worker_properties = [prop for prop in properties() if not prop.startswith('RuntimeMaxSec=')]
+    worker_properties.append('RuntimeMaxSec=' + str(getattr(args, 'runtime_seconds', 1800) + 120))
+    for prop in worker_properties + ['StandardOutput=append:' + str(p / 'output.jsonl'),
                                 'StandardError=append:' + str(p / 'stderr.log')]:
         cmd += ['--property=' + prop]
     run(cmd + [INSTALL, '_execute', '--job', args.job], env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}, pass_fds=(launch_fd,))
@@ -603,6 +674,13 @@ def status(job):
 
 
 def stop(job):
+    observation_error = None
+    if (job_path(job) / 'server-observations').exists() or (SERVER_OBSERVATIONS_ROOT / job).exists():
+        try:
+            observed = server_observation('server-observe-stop', job)
+            if observed['state'] != 'stopped': observation_error = RuntimeError('server observations are still stopping')
+        except Exception as error:
+            observation_error = error
     with launch_lock(job):
         p = job_path(job)
         if not (p / 'stopped').exists():
@@ -613,12 +691,71 @@ def stop(job):
         active = result.stdout.strip()
         if active in ('active', 'activating', 'deactivating', 'reloading'):
             run(['/usr/bin/systemctl', 'stop', unit(job)])
+            usage_finish(job, confirmed_stop=True)
         elif active not in ('inactive', 'failed'):
             raise RuntimeError('runner unit status unavailable during stop')
-        return status_unlocked(job)
+        result = status_unlocked(job)
+        if observation_error is not None: raise observation_error
+        return result
+
+
+def usage_begin(job):
+    p=job_path(job)
+    completion_write(p/'worker-usage.json', {'schema_version':1, 'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'started_monotonic_ns':time.monotonic_ns(), 'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()})
+
+
+def usage_finish(job, confirmed_stop=False):
+    p=job_path(job); path=p/'worker-usage.json'
+    if not path.exists(): return
+    value=completion_json(path)
+    if 'elapsed_milliseconds' in value:return
+    value.update(usage_elapsed(job, True), ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    if confirmed_stop:value['usage_accounting']='monotonic_until_confirmed_stop'
+    completion_write(path,value)
+
+
+def usage_elapsed(job, active):
+    p=job_path(job);path=p/'worker-usage.json'
+    if not path.exists():return {'elapsed_milliseconds':0,'usage_accounting':'not_started'}
+    value=completion_json(path)
+    if 'elapsed_milliseconds' in value:return {name:value[name] for name in ('elapsed_milliseconds','usage_accounting')}
+    maximum=json.loads((p/'job.json').read_text()).get('runtime_seconds',1800)*1000
+    if active and value.get('boot_id')==Path('/proc/sys/kernel/random/boot_id').read_text().strip():
+        elapsed=max(0,(time.monotonic_ns()-value['started_monotonic_ns'])//1000000)
+        return {'elapsed_milliseconds':elapsed,'usage_accounting':'monotonic_process_interval'}
+    return {'elapsed_milliseconds':maximum,'usage_accounting':'reserved_limit_unknown_end'}
 
 
 def status_unlocked(job):
+    result=status_raw_unlocked(job)
+    if result['state']=='running':
+        # Silence is observable, not proof of deadlock. Long tools and remote
+        # reasoning may legitimately emit nothing; the runtime cap owns expiry.
+        output=job_path(job)/'output.jsonl'
+        if output.exists():
+            result.update(output_idle_milliseconds=max(0,int((time.time()-regular(output).st_mtime)*1000)),
+                          activity_scope='last provider event only; silence does not establish a stall')
+    if (job_path(job)/'worker-usage.json').exists():
+        result.update(usage_elapsed(job,result['state']=='running'))
+    failure=job_path(job)/'python-test-runtime.json'
+    if failure.exists():
+        result['python_test_runtime']=completion_json(failure)
+        if result['python_test_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
+    go_receipt=job_path(job)/'go-runtime.json'
+    if go_receipt.exists():
+        result['go_runtime']=completion_json(go_receipt)
+        if result['go_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
+    node_failure=job_path(job)/'node-runtime.json'
+    if node_failure.exists():
+        result['node_runtime']=completion_json(node_failure)
+        if result['node_runtime'].get('executed') is False and not (job_path(job)/'worker-usage.json').exists():
+            result.update(elapsed_milliseconds=0,usage_accounting='runtime_validation_before_model')
+    return result
+
+
+def status_raw_unlocked(job):
     p = job_path(job)
     r = subprocess.run(['/usr/bin/systemctl', 'show', unit(job), '--property=ActiveState,ExecMainStatus,Result'],
                        text=True, capture_output=True)
@@ -733,12 +870,13 @@ def storage_status():
             'allocated_bytes': used, 'limit_bytes': STORAGE_LIMIT, 'free_bytes': free}
 
 
-def python_test_runtime_mount():
+def python_test_runtime_mount(key=None):
     # Optional tooling must not prevent unrelated workers from launching. An
     # invalid bundle is never mounted; its unavailability is explicit in-worker.
     try:
-        bundle = python_test_bundle()
+        bundle = python_test_bundle(key)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if key: raise PythonUnsupported('expected Python tooling runtime unavailable: ' + str(error)[:200]) from error
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__
         return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'unavailable',
                 '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_REASON', reason[:200]]
@@ -750,10 +888,42 @@ def python_test_runtime_mount():
             '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
 
 
-def python_test_bundle():
+def python_test_diagnostic(error):
+    if isinstance(error, FileNotFoundError): return 'missing'
+    if 'interpreter mismatch' in str(error): return 'incompatible'
+    return 'integrity'
+
+
+def verify_expected_python_test(job, key):
+    try:
+        return python_test_bundle(key)
+    except (OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        value={'capability':'python_test_runtime','key':key,'state':'unavailable','executed':False,
+               'scope':'full content validation before model execution','reason':str(error)[:300],'diagnostic':python_test_diagnostic(error)}
+        completion_write(job_path(job)/'python-test-runtime.json',value)
+        raise PythonUnsupported('expected Python tooling content unavailable: '+str(error)[:200]) from error
+
+
+def python_test_runtime_status(key, job=None):
+    if not isinstance(key, str) or len(key)!=64 or any(c not in '0123456789abcdef' for c in key):
+        raise ValueError('exact Python tooling key must be SHA256')
+    if job:
+        failure=job_path(job)/'python-test-runtime.json'
+        if failure.exists():
+            value=completion_json(failure)
+            if value.get('key')==key and value.get('capability')=='python_test_runtime': return value
+    value={'capability':'python_test_runtime','key':key,'scope':'metadata preflight; full content verified before model execution'}
+    try:
+        python_test_bundle(key, full=False)
+        return dict(value,state='verified')
+    except (OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        return dict(value,state='unavailable',reason=str(error)[:300],diagnostic=python_test_diagnostic(error))
+
+
+def python_test_bundle(key=None, full=True):
     root = DEPENDENCIES / 'python'
     active = root / 'active.json'
-    if not active.exists() and not active.is_symlink():
+    if key is None and not active.exists() and not active.is_symlink():
         return None
     def trusted(path, directory=False):
         st = path.lstat()
@@ -762,8 +932,9 @@ def python_test_bundle():
             raise ValueError('unsafe Python runtime path')
         return st
     for path in (DEPENDENCIES, root): trusted(path, True)
-    if trusted(active).st_size > 1024: raise ValueError('oversized Python runtime selection')
-    key = json.loads(active.read_text()).get('key', '')
+    if key is None:
+        if trusted(active).st_size > 1024: raise ValueError('oversized Python runtime selection')
+        key = json.loads(active.read_text()).get('key', '')
     if len(key) != 64 or any(c not in '0123456789abcdef' for c in key):
         raise ValueError('invalid Python runtime key')
     bundle = root / key
@@ -782,6 +953,7 @@ def python_test_bundle():
         raise ValueError('unexpected Python runtime packages')
     rows = data.get('files', [])
     if not rows or len(rows) > 10000: raise ValueError('Python runtime file limit')
+    if not full: return bundle
     seen = set(); total = 0
     for row in rows:
         name = row['path']; parts = name.split('/')
@@ -927,6 +1099,24 @@ def browser_probe_receipt(path,key):
         return proof
     except (ValueError,OSError,TypeError) as exc:raise PythonUnsupported('unsafe or incomplete offline browser proof') from exc
 
+
+def node_module(job=None):
+    path=NODE_RUNTIME_HELPER
+    if job is not None:
+        frozen=job_path(job)/'node-prerequisite/tools'
+        if (frozen/'manifest.json').exists():
+            records=completion_json(frozen/'manifest.json')
+            if set(records)!={'autonomy-node-runtime.py','node-project-dependencies.py','node-dependencies.py','autonomy-runner.py'}:
+                raise ValueError('incomplete Node executable manifest')
+            for name,digest in records.items():
+                target=frozen/name;info=regular(target)
+                if info.st_uid!=0 or info.st_mode&0o222 or digest_file(target)!=digest:
+                    raise ValueError('frozen Node executable changed before import')
+            path=frozen/'autonomy-node-runtime.py'
+    return python_helper(path)
+
+def node_call(command,job,*args):
+    return getattr(node_module(job),command )(sys.modules[__name__],job,*args)
 
 def python_helper(path=None):
     import importlib.util
@@ -1405,6 +1595,242 @@ def completion_json_large(path):
     return json.loads(path.read_text())
 
 
+# Go test runtimes are data-only immutable snapshots. No package/toolchain code
+# executes in this root supervisor; compilation happens after namespace isolation.
+GO_RUNTIME_FIELDS = ('go_dependency_key', 'go_bundle_digest', 'go_toolchain_digest')
+GO_TOOLCHAIN_SOURCE = Path('/usr/local/go')
+
+def go_runtime_dir(path):
+    path.mkdir(mode=0o755, parents=True, exist_ok=True)
+    info=path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:
+        raise ValueError('unsafe Go runtime directory')
+    return path
+
+def go_runtime_inventory(root, frozen=False):
+    result=[];total=0
+    for base,dirs,files in os.walk(root,followlinks=False):
+        for name in sorted(dirs+files):
+            p=Path(base)/name;info=p.lstat();rel=p.relative_to(root).as_posix()
+            if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_mode&0o7000:
+                raise ValueError('untrusted Go runtime permissions')
+            if stat.S_ISDIR(info.st_mode):
+                if frozen and stat.S_IMODE(info.st_mode)!=0o555:raise ValueError('Go runtime directory mode changed')
+                result.append({'path':rel,'kind':'directory','mode':0o555})
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink==1:
+                total+=info.st_size
+                if info.st_size>512*1024**2 or total>3*1024**3:raise ValueError('Go runtime exceeds snapshot bound')
+                mode=0o555 if info.st_mode&0o111 else 0o444
+                if frozen and stat.S_IMODE(info.st_mode)!=mode:raise ValueError('Go runtime file mode changed')
+                result.append({'path':rel,'kind':'file','size':info.st_size,'mode':mode,'sha256':digest_file(p)})
+            else:raise ValueError('Go runtime links and special files refused')
+            if len(result)>100000:raise ValueError('Go runtime inventory exceeds entry bound')
+    return sorted(result,key=lambda v:v['path'])
+
+def go_runtime_manifest(kind,rows):
+    return {'schema_version':1,'kind':kind,'files':rows}
+
+def go_runtime_digest(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+def go_runtime_component(kind,digest):
+    if not isinstance(digest,str) or not re.fullmatch('[0-9a-f]{64}',digest):raise ValueError('invalid Go runtime identity')
+    base=DEPENDENCIES/'go-test'/kind;root=base/digest
+    for p in (DEPENDENCIES,DEPENDENCIES/'go-test',base,root,root/'payload'):
+        info=p.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:raise ValueError('unsafe Go runtime snapshot')
+    manifest=root/'manifest.json';info=regular(manifest)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o222 or info.st_size>32*1024**2:raise ValueError('unsafe Go runtime manifest')
+    value=json.loads(manifest.read_text())
+    if value.get('kind')!=kind or go_runtime_digest(value)!=digest:raise ValueError('Go runtime manifest identity changed')
+    if go_runtime_inventory(root/'payload',True)!=value.get('files'):raise ValueError('Go runtime content changed')
+    return root/'payload'
+
+def go_runtime_snapshot(kind,source):
+    import tempfile
+    info=source.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:raise ValueError('unsafe Go runtime source')
+    value=go_runtime_manifest(kind,go_runtime_inventory(source));digest=go_runtime_digest(value)
+    base=go_runtime_dir(DEPENDENCIES/'go-test'/kind);final=base/digest
+    if final.exists():go_runtime_component(kind,digest);return digest
+    stage=Path(tempfile.mkdtemp(prefix='.capture-',dir=base))
+    try:
+        payload=stage/'payload';payload.mkdir()
+        for row in value['files']:
+            p=payload/row['path']
+            if row['kind']=='directory':p.mkdir()
+            else:
+                p.parent.mkdir(parents=True,exist_ok=True)
+                with (source/row['path']).open('rb') as src,p.open('xb') as dst:
+                    shutil.copyfileobj(src,dst);dst.flush();os.fsync(dst.fileno())
+                p.chmod(row['mode'])
+        for p in sorted([payload,*payload.rglob('*')],key=lambda p:len(p.parts),reverse=True):
+            if p.is_dir():
+                p.chmod(0o555);fd=os.open(p,os.O_RDONLY|os.O_DIRECTORY)
+                try:os.fsync(fd)
+                finally:os.close(fd)
+        if go_runtime_inventory(source)!=value['files'] or go_runtime_inventory(payload,True)!=value['files']:
+            raise ValueError('Go runtime source changed during capture')
+        manifest=stage/'manifest.json'
+        with manifest.open('x') as f:json.dump(value,f,sort_keys=True,separators=(',',':'));f.flush();os.fsync(f.fileno())
+        manifest.chmod(0o444);stage.chmod(0o555)
+        fd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+        try:os.rename(stage,final)
+        except OSError:
+            if not final.exists():raise
+            go_runtime_component(kind,digest)
+        fd=os.open(base,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    finally:
+        if stage.exists():shutil.rmtree(stage)
+    return digest
+
+def go_runtime_lookup(selection):
+    if any(not isinstance(selection.get(k),str) or not re.fullmatch('[0-9a-f]{64}',selection[k]) for k in GO_RUNTIME_FIELDS):raise ValueError('incomplete Go runtime selection')
+    modules=go_runtime_component('modules',selection['go_bundle_digest'])
+    toolchain=go_runtime_component('toolchains',selection['go_toolchain_digest'])
+    # The module snapshot includes the original trusted bundle manifest.
+    manifest=json.loads((modules/'manifest.json').read_text())
+    if manifest.get('key')!=selection['go_dependency_key'] or manifest.get('checksum_verified') is not True:raise ValueError('Go snapshot dependency identity mismatch')
+    return modules,toolchain
+
+def go_runtime_capture(work,expected=None,dependency_key=None):
+    key=dependency_key or go_dependency_key(work)
+    if expected:
+        go_runtime_lookup(expected);return {k:expected[k] for k in GO_RUNTIME_FIELDS}
+    if key is None:return None
+    bundle=go_dependency_bundle(work,key=key)
+    if bundle is None:raise FileNotFoundError('exact Go dependency bundle unavailable')
+    home=go_runtime_dir(DEPENDENCIES/'go-test');index=go_runtime_dir(home/'selections')
+    with (index/(key+'.lock')).open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        record=index/(key+'.json')
+        if record.exists():
+            value=completion_json(record);go_runtime_lookup(value);return {k:value[k] for k in GO_RUNTIME_FIELDS}
+        value={'go_dependency_key':key,'go_bundle_digest':go_runtime_snapshot('modules',bundle),'go_toolchain_digest':go_runtime_snapshot('toolchains',GO_TOOLCHAIN_SOURCE)}
+        completion_write(record,value);return value
+
+def go_runtime_mount(modules,toolchain):
+    return ['--ro-bind',str(modules/'mod'),'/opt/go-modules','--ro-bind',str(modules/'manifest.json'),'/opt/go-dependencies.json',
+            '--ro-bind',str(toolchain),'/opt/go-toolchain','--ro-bind',str(toolchain),'/usr/local/go','--setenv','GOROOT','/opt/go-toolchain',
+            '--setenv','GOMODCACHE','/opt/go-modules','--setenv','GOPATH','/tmp/go','--setenv','GOCACHE','/tmp/go-build',
+            '--setenv','GOPROXY','off','--setenv','GOSUMDB','off','--setenv','GOTOOLCHAIN','local','--setenv','GOENV','off',
+            '--setenv','GOWORK','off','--setenv','GOTELEMETRY','off','--setenv','GOMAXPROCS','2','--setenv','GOFLAGS','-p=2',
+            '--setenv','PATH','/opt/go-toolchain/bin:/usr/bin:/bin']
+
+def go_runtime_requirement(job):
+    requirement=job_path(job)/'go-runtime-requirement.json'
+    if not requirement.exists():return None
+    info=regular(requirement)
+    if info.st_uid not in (0,pwd.getpwnam('admin').pw_uid) or info.st_mode&0o077 or info.st_size>16384:raise ValueError('unsafe Go runtime requirement')
+    expected=json.loads(requirement.read_text())
+    if set(expected)!=set(GO_RUNTIME_FIELDS)|{'schema_version'} or expected['schema_version']!=1:raise ValueError('invalid Go runtime requirement')
+    if any(not isinstance(expected[k],str) or not re.fullmatch('[0-9a-f]{64}',expected[k]) for k in GO_RUNTIME_FIELDS):raise ValueError('invalid Go runtime requirement identity')
+    return expected
+
+def go_worker_runtime(job,work):
+    p=job_path(job);expected=go_runtime_requirement(job)
+    try:
+        selection=go_runtime_capture(work,expected)
+        if selection is None:return None
+        completion_write(p/'go-runtime.json',dict(selection,owner_job=job,schema_version=1,state='verified',scope='immutable Go runtime selected before model execution'))
+        return go_runtime_lookup(selection)
+    except (OSError,ValueError) as error:
+        failure=dict(expected or {})
+        if not failure.get('go_dependency_key'):
+            try:failure['go_dependency_key']=go_dependency_key(work)
+            except (OSError,ValueError):pass
+        completion_write(p/'go-runtime.json',dict(failure,owner_job=job,schema_version=1,state='unavailable',executed=False,reason=str(error)[:500],diagnostic='missing' if isinstance(error,FileNotFoundError) else 'integrity'))
+        raise
+
+
+def go_probe_paths(job,key,source_sha):
+    if any(not isinstance(x,str) or not re.fullmatch('[0-9a-f]{64}',x) for x in (key,source_sha)):raise ValueError('invalid Go experiment identity')
+    parent=job_path(job)/'go-probe-runtime';go_runtime_dir(parent)
+    stage=go_runtime_dir(parent/key)
+    intent={'owner_job':job,'go_dependency_key':key,'source_archive_sha256':source_sha}
+    expected=go_runtime_requirement(job)
+    if expected:
+        if expected['go_dependency_key']!=key:raise ValueError('Go experiment expected dependency mismatch')
+        intent['expected_runtime']=expected
+    if (stage/'intent.json').exists():
+        if completion_json(stage/'intent.json')!=intent:raise ValueError('Go experiment source changed')
+    else:completion_write(stage/'intent.json',intent)
+    return stage,intent
+
+def go_probe_source_key(source,key):
+    source_key=go_dependency_key(source)
+    if source_key!=key:
+        original=go_dependency_bundle(source,key=key)
+        if original is None:raise FileNotFoundError('selected historical Go dependency bundle unavailable')
+        metadata=json.loads((original/'manifest.json').read_text())
+        if not (source/'go.mod').exists() or metadata.get('go_mod_sha256')!=digest_file(source/'go.mod'):
+            raise ValueError('historical Go module declaration changed; selected environment needs a new admitted prerequisite')
+    return source_key
+
+def go_probe_unit(job,key):return 'lectern-go-runtime-'+job+'-'+key[:16]+'.service'
+
+def go_probe_runtime(job,key,source_sha,generation,stop=False,execute=False):
+    if type(generation) is not int or generation<1:raise ValueError('Go experiment generation missing')
+    stage,intent=go_probe_paths(job,key,source_sha);name=go_probe_unit(job,key)
+    value=dict(intent,schema_version=1,generation=generation,provenance='new_experiment')
+    authority=stage/'authority.json'
+    if execute:
+        group=Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+        if not group.endswith('/'+name):raise ValueError('Go experiment outside owned unit')
+        current=completion_json(authority)
+        if current.get('revoked',0)>=generation or current.get('generation')!=generation:return 1
+        try:
+            with ARTIFACT_LOCK.open('a') as guard:
+                fcntl.flock(guard,fcntl.LOCK_EX);completion_capacity()
+                source=stage/'source'
+                if source.exists():shutil.rmtree(source)
+                if evidence_extract_archive(job,source)!=source_sha:raise ValueError('Go experiment archived source differs')
+            source_key=go_dependency_key(source) if intent.get('expected_runtime') else go_probe_source_key(source,key)
+            selection=go_runtime_capture(source,expected=intent.get('expected_runtime'),dependency_key=key)
+            value['source_input_key']=source_key
+            if completion_json(authority).get('revoked',0)>=generation:return 1
+            completion_write(stage/'receipt.json',dict(value,**selection,state='verified',scope='new isolated experiment environment; no claim of historical source use'))
+            return 0
+        except (OSError,ValueError) as error:
+            completion_write(stage/'receipt.json',dict(value,state='unavailable',executed=False,retry_at=time.time()+120,reason=str(error)[:500],diagnostic='missing' if isinstance(error,FileNotFoundError) else 'integrity'));return 1
+    with (stage/'guard').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return dict(value,state='stopping' if stop else 'recovering')
+        current=completion_json(authority) if authority.exists() else {'generation':0,'revoked':0}
+        if stop:
+            current['revoked']=max(current['revoked'],generation);completion_write(authority,current)
+            if current['generation']<=generation and completion_service_active(name):run(['/usr/bin/systemctl','stop','--no-block',name],timeout=3)
+            return dict(value,state='stopping' if current['generation']<=generation and completion_service_active(name) else 'stopped')
+        if current['revoked']>=generation:return dict(value,state='cancelled',executed=False)
+        if generation<current['generation']:return dict(value,state='cancelled',executed=False)
+        old=completion_json(stage/'receipt.json') if (stage/'receipt.json').exists() else None
+        if old and old.get('state')=='verified':return dict(old,generation=generation)
+        if old and old.get('state')=='unavailable' and time.time()<old.get('retry_at',0):return dict(old,generation=generation)
+        if completion_service_active(name):return dict(value,state='recovering')
+        if old:
+            history=go_runtime_dir(stage/'history');saved=history/(go_runtime_digest(old)+'.json')
+            if not saved.exists():completion_write(saved,old)
+        current['generation']=generation;completion_write(authority,current)
+        # Fixed supervisor executable frozen before the first asynchronous effect.
+        frozen=stage/'runner.py';entry=stage/'entry.py'
+        if not frozen.exists():
+            raw=Path(__file__).read_bytes();write_new(frozen,raw.decode(),0o400)
+            completion_write(stage/'executable.json',{'sha256':hashlib.sha256(raw).hexdigest()})
+        if digest_file(frozen)!=completion_json(stage/'executable.json')['sha256']:raise ValueError('Go experiment executable changed')
+        if not entry.exists():
+            source="import importlib.util,sys\nfrom pathlib import Path\np=Path(__file__).parent\ns=importlib.util.spec_from_file_location('runner',p/'runner.py');r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\n"
+            for var in ('ROOT','DEPENDENCIES','ARTIFACT_LOCK','GO_TOOLCHAIN_SOURCE'):
+                source+='r.'+var+'=Path('+repr(str(globals()[var]))+')\n'
+            source+='sys.exit(r.main())\n';write_new(entry,source,0o400)
+        cmd=['/usr/bin/systemd-run','--quiet','--unit='+name,'--property=RuntimeMaxSec=180','--property=MemoryMax=2G','--property=CPUQuota=200%','--property=TasksMax=32','--property=KillMode=control-group','--property=NoNewPrivileges=yes','--property=IPAddressDeny=any','--property=UMask=0077','/usr/bin/python3',str(entry),'_go-runtime','--job',job,'--dependency-key',key,'--source-sha256',source_sha,'--generation',str(generation)]
+        run(cmd,pass_fds=(guard.fileno(),),timeout=3)
+        return dict(value,state='recovering')
+
+
 def go_dependency_key(work):
     parts = []
     for name in ('go.mod', 'go.sum'):
@@ -1420,8 +1846,8 @@ def go_dependency_key(work):
     return hashlib.sha256(b'\0'.join(parts)).hexdigest()
 
 
-def go_dependency_bundle(work):
-    key = go_dependency_key(work)
+def go_dependency_bundle(work,key=None):
+    key = key or go_dependency_key(work)
     if key is None:
         return None
     bundle = DEPENDENCIES / 'go' / key
@@ -1685,7 +2111,7 @@ def allocated_storage():
     # all other job data without double-counting that filesystem or hardlinks.
     total = 0
     seen = set()
-    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES) for row in os.walk(root, followlinks=False)):
+    for current, dirs, files in (row for root in (ROOT, ASSET_CACHE, DEPENDENCIES, INTEGRATION_ROOT, SERVER_OBSERVATIONS_ROOT, SERVER_MAINTENANCE_ROOT, SERVER_MAINTENANCE_TOOLS) for row in os.walk(root, followlinks=False)):
         if Path(current).parent == ROOT:
             dirs[:] = [name for name in dirs if name != 'work']
         for name in dirs + files:
@@ -2147,6 +2573,12 @@ def evidence_extract_archive(source, destination):
     if status(source)['state'] not in ('done','failed','stopped'):raise ValueError('archive evidence requires a terminal source')
     archive=job_path(source)/'artifact.tar.gz'
     expected=archive_identity(source)['sha256']
+    return evidence_extract_verified_archive(archive,expected,destination)
+
+
+def evidence_extract_verified_archive(archive,expected,destination):
+    info=regular(archive)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or not isinstance(expected,str) or len(expected)!=64 or any(c not in '0123456789abcdef' for c in expected):raise ValueError('unsafe immutable evidence archive')
     if digest_file(archive)!=expected:raise RuntimeError('evidence archive checksum mismatch')
     for parent in (destination,*destination.parents):
         if parent.is_symlink():raise ValueError('linked evidence destination ancestor')
@@ -2271,27 +2703,72 @@ def evidence_tree_identity(root, scheme=None):
     return scheme,digest,rows
 
 
-def copy_archive_review(job, source):
+def copy_archive_work(job, source, preserve_report=False):
+    destination=job_path(job)
+    if job==source or (destination/'job.json').exists():raise ValueError('archive work needs fresh destination')
+    stage=completion_stage(job,create=True)
+    expected={'source_job':source,'source_archive_sha256':archive_identity(source)['sha256']}
+    kind='archive-resume' if preserve_report else 'archive-work'
+    intent=stage/(kind+'-intent.json');published=stage/(kind+'-ready.json')
+    if intent.exists():
+        if completion_json(intent)!=expected:raise ValueError('archive work source changed')
+    else:
+        if any(ensure_work(destination).iterdir()):raise ValueError('archive work destination must be empty before reservation')
+        completion_write(intent,expected)
+    if published.exists():return completion_json(published)
+    work=ensure_work(destination)
+    # Only a destination with our durable intent and no launched worker may be reset.
+    for item in work.iterdir():
+        if item.is_dir() and not item.is_symlink():shutil.rmtree(item)
+        else:item.unlink()
+    copied=stage/'archive-work-staging'
+    if copied.exists():shutil.rmtree(copied)
+    digest=evidence_extract_archive(source,copied)
+    if digest!=expected['source_archive_sha256']:raise ValueError('archive source changed during extraction')
+    scheme,tree,_=evidence_tree_identity(copied,scheme='general-evidence-v1')
+    # Copy symlinks as data; copytree preserves directory and file modes.
+    shutil.copytree(copied,work,symlinks=True,dirs_exist_ok=True)
+    prior=work/'autonomy-report.json'
+    if not preserve_report and (prior.exists() or prior.is_symlink()):
+        if regular(prior).st_size>128*1024:raise ValueError('archived report transport exceeds limit')
+        reports=work/'.lectern-reports'
+        if reports.is_symlink() or (reports.exists() and not reports.is_dir()):raise ValueError('unsafe archived report handoff root')
+        reports.mkdir(exist_ok=True)
+        saved=reports/source
+        saved.mkdir()
+        data=prior.read_bytes();prior.rename(saved/'autonomy-report.json')
+        (saved/'manifest.json').write_text(json.dumps(dict(source_job=source,source_archive_sha256=digest,original_path='autonomy-report.json',sha256=hashlib.sha256(data).hexdigest(),purpose='prior archived report evidence, not current submission or approval')))
+    admin=pwd.getpwnam('admin')
+    for item in (work,*work.rglob('*')):os.chown(item,admin.pw_uid,admin.pw_gid,follow_symlinks=False)
+    receipt=dict(expected,state='copied',source_tree_sha256=tree,evidence_digest_scheme=scheme,transport_handoff='root report retained for same-task correction' if preserve_report else 'autonomy-report.json moved to .lectern-reports/<source_job> when present')
+    completion_write(published,receipt)
+    return receipt
+
+
+def copy_archive_review(job, source, derived=False):
     """Give a plan auditor exact exported evidence rather than mutable work."""
     destination = job_path(job)
     job_path(source)
     if job == source or (destination / 'job.json').exists():
         raise ValueError('archive review evidence requires a fresh prepared job')
     stage = completion_stage(job, create=True)
-    identity = archive_identity(source)['sha256']
+    derived_receipt = completion_ready(completion_stage(source)) if derived else None
+    identity = derived_receipt['derived_archive_sha256'] if derived else archive_identity(source)['sha256']
     expected = {'source_job': source, 'source_archive_sha256': identity}
-    intent = stage / ('archive-review-' + source + '-intent.json')
-    published = stage / ('archive-review-' + source + '-ready.json')
+    if derived: expected.update(derived_archive_sha256=identity, source_kind='verified_documentary_derived')
+    evidence_id = source + ('-derived' if derived else '')
+    intent = stage / ('archive-review-' + evidence_id + '-intent.json')
+    published = stage / ('archive-review-' + evidence_id + '-ready.json')
     with intent.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         work = ensure_work(destination)
         evidence_root = work / '.lectern-review'
         if evidence_root.is_symlink() or (evidence_root.exists() and not evidence_root.is_dir()):
             raise ValueError('unsafe archive review evidence root')
-        evidence = evidence_root / source
+        evidence = evidence_root / evidence_id
         if published.exists():
             receipt = completion_json(published)
-            if receipt.get('source_archive_sha256') != identity or receipt.get('source_job') != source:
+            if any(receipt.get(key) != value for key,value in expected.items()):
                 raise RuntimeError('archive review source identity changed')
             _,actual,_=evidence_tree_identity(evidence/'work',receipt.get('evidence_digest_scheme','documentary-tree-v1'))
             if actual != receipt.get('evidence_tree_sha256'):
@@ -2309,11 +2786,18 @@ def copy_archive_review(job, source):
                 raise ValueError('archive review evidence already exists')
             completion_write(intent, expected)
         copied = evidence / 'work'
-        digest = evidence_extract_archive(source, copied)
+        if derived:
+            evidence.mkdir(parents=True, mode=0o700)
+            completion_copy(completion_stage(source) / 'derived/work', copied)
+            if completion_inspect(copied) != derived_receipt['derived_tree_sha256']:
+                raise RuntimeError('derived audit evidence tree differs')
+            digest = identity
+        else:
+            digest = evidence_extract_archive(source, copied)
         if digest != identity:
             raise RuntimeError('archive changed during review copy')
         scheme,tree_hash,manifest=evidence_tree_identity(copied)
-        (evidence / 'manifest.json').write_text(json.dumps({'source_job': source,
+        (evidence / 'manifest.json').write_text(json.dumps({**expected, 'source_job': source,
             'source_archive_sha256': digest, 'purpose': 'untrusted archived evidence, not approval; symlink targets are literal untrusted text',
             'evidence_digest_scheme':scheme,'evidence_tree_sha256':tree_hash,'files': manifest}, indent=2))
         admin = pwd.getpwnam('admin')
@@ -2451,27 +2935,105 @@ def archive_identity(job):
 
 def completion_copy_unit(job, source, kind):
     job_path(job); job_path(source)
+    if kind in ('archive-work','archive-resume'):
+        return 'lectern-completion-copy-' + ('work-' if kind=='archive-work' else 'report-resume-') + job + '.service'
     if kind == 'resume':
         return 'lectern-completion-resume-' + job + '.service'
     if kind == 'derived':
         return 'lectern-completion-copy-derived-' + job + '.service'
+    if kind == 'derived-review':
+        return 'lectern-completion-copy-derived-review-' + job + '-' + source + '.service'
     if kind == 'archive':
         return 'lectern-completion-copy-archive-' + job + '-' + source + '.service'
     raise ValueError('unknown completion copy kind')
 
 
 def completion_copy_receipt(stage, source, kind):
+    if kind in ('archive-work','archive-resume'): return stage / ('copy-work.json' if kind=='archive-work' else 'copy-report-resume.json')
     if kind == 'resume':
         return stage / 'copy-resume.json'
     if kind == 'derived':
         return stage / 'copy-derived.json'
+    if kind == 'derived-review':
+        job_path(source)
+        return stage / ('copy-derived-review-' + source + '.json')
     if kind == 'archive':
         job_path(source)
         return stage / ('copy-archive-' + source + '.json')
     raise ValueError('unknown completion copy kind')
 
 
-def completion_copy_status(job, source, kind):
+def archive_copy_stage(job):
+    destination=job_path(job)
+    if not destination.exists():
+        destination.mkdir(mode=0o770)
+        os.chown(destination,0,pwd.getpwnam('admin').pw_gid);destination.chmod(0o770)
+    return completion_stage(job,create=True)
+
+
+def archive_copy_generation(value):
+    if type(value) is not int or not 1<=value<=2**31-1:raise ValueError('invalid archive copy generation')
+    return value
+
+
+def archive_copy_revoked(stage):
+    path=stage/'archive-copy-revoked.json'
+    return completion_json(path)['generation'] if path.exists() else 0
+
+
+def archive_copy_status(job,source,kind,generation):
+    archive_copy_generation(generation);job_path(source)
+    destination=job_path(job)
+    if job==source or (destination/'job.json').exists():raise ValueError('archive copy needs unlaunched distinct destination')
+    stage=archive_copy_stage(job);path=completion_copy_receipt(stage,source,kind)
+    with (stage/'archive-copy.lock').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return {'state':'waiting','copy_source_job':source,'copy_generation':generation,'reason':'archive copy launch or stop in progress'}
+        authority=stage/'archive-copy-authority.json'
+        old=completion_json(authority) if authority.exists() else {}
+        if old and (old['source_job']!=source or old['kind']!=kind):raise ValueError('reserved archive copy input cannot change')
+        if generation<=archive_copy_revoked(stage) or generation<old.get('generation',0):
+            return {'state':'waiting','copy_source_job':source,'copy_generation':generation,'reason':'archive copy generation revoked','revoked':True}
+        completion_write(authority,{'generation':generation,'source_job':source,'kind':kind})
+        receipt=completion_json(path) if path.exists() else {}
+        if completion_service_active(completion_copy_unit(job,source,kind)):
+            return {'state':'copying','copy_source_job':source,'copy_generation':generation}
+        if receipt.get('state')=='copied':return dict(receipt,copy_generation=generation)
+        if receipt.get('retry_at',0)>time.time():return dict(receipt,copy_generation=generation)
+        request={'state':'copying','copy_source_job':source,'copy_generation':generation}
+        completion_launch_capacity()
+        completion_write(path,request)
+        # Revocation is written before stop tries this guard. Recheck before
+        # spawning, then retain guard ownership through systemd-run's lifetime.
+        if generation<=archive_copy_revoked(stage):return dict(request,state='waiting',revoked=True)
+        command='_copy-archive-work' if kind=='archive-work' else '_copy-archive-resume'
+        run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+completion_copy_unit(job,source,kind),
+             '--property=RuntimeMaxSec=600','--property=MemoryMax=2G','--property=CPUQuota=200%',
+             '--property=TasksMax=32','--property=KillMode=control-group','--property=UMask=0077',
+             '--property=LimitFSIZE=2147483648',INSTALL,command,'--job',job,'--from-job',source,
+             '--copy-generation',str(generation)],pass_fds=(guard.fileno(),))
+        return request
+
+
+def archive_copy_stop(job,generation=None):
+    stage=archive_copy_stage(job);authority=stage/'archive-copy-authority.json'
+    with (stage/'archive-copy-revoke.lock').open('a') as guard:
+        fcntl.flock(guard,fcntl.LOCK_EX)
+        known=completion_json(authority).get('generation',0) if authority.exists() else 0
+        maximum=max(known,archive_copy_revoked(stage),1 if generation is None else archive_copy_generation(generation))
+        completion_write(stage/'archive-copy-revoked.json',{'generation':maximum})
+    with (stage/'archive-copy.lock').open('a') as guard:
+        try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return False
+        for kind in ('archive-work','archive-resume'):
+            name=completion_copy_unit(job,job,kind)
+            if completion_service_active(name):run(['/usr/bin/systemctl','stop','--no-block',name],pass_fds=(guard.fileno(),),timeout=3)
+            if completion_service_active(name):return False
+    return True
+
+
+def completion_copy_status(job, source, kind, generation=1):
+    if kind in ('archive-work','archive-resume'):return archive_copy_status(job,source,kind,generation)
     destination = job_path(job)
     job_path(source)
     if job == source or (destination / 'job.json').exists():
@@ -2496,7 +3058,7 @@ def completion_copy_status(job, source, kind):
         try:
             completion_launch_capacity()
             completion_write(path, request)
-            command = {'derived': '_copy-derived', 'archive': '_copy-archive-review', 'resume': '_completion-resume'}[kind]
+            command = {'derived-review':'_copy-derived-review', 'derived': '_copy-derived', 'archive': '_copy-archive-review', 'resume': '_completion-resume'}[kind]
             run(['/usr/bin/systemd-run', '--quiet', '--collect', '--unit='+completion_copy_unit(job, source, kind),
                  '--property=RuntimeMaxSec=600', '--property=MemoryMax=2G', '--property=CPUQuota=200%',
                  '--property=TasksMax=32', '--property=KillMode=control-group', '--property=UMask=0077',
@@ -2508,14 +3070,52 @@ def completion_copy_status(job, source, kind):
             return receipt
 
 
-def completion_copy_execute(job, source, kind):
+def completion_archive_volume(job):
+    """Recover only our reserved, never-launched destination volume."""
+    p=job_path(job);stage=completion_stage(job);marker=stage/'archive-volume.json'
+    if (p/'job.json').exists():raise ValueError('cannot prepare volume of launched job')
+    image=p/'work.ext4';work=p/'work'
+    if not marker.exists():
+        if image.exists() or work.exists():return ensure_work(p)
+        completion_write(marker,{'state':'preparing','job':job,'capacity_bytes':2*1024**3})
+    recorded=completion_json(marker)
+    if recorded.get('job')!=job or recorded.get('capacity_bytes')!=2*1024**3:raise ValueError('archive volume reservation differs')
+    if recorded.get('state')=='ready':return ensure_work(p)
+    work.mkdir(exist_ok=True)
+    if work.is_symlink():raise ValueError('linked destination volume')
+    if os.path.ismount(work):
+        ensure_work(p)
+    else:
+        if any(work.iterdir()):raise ValueError('unmounted destination contains unreserved files')
+        if image.exists():
+            info=regular(image)
+            if info.st_uid!=os.geteuid() or info.st_size!=2*1024**3:raise ValueError('unsafe partial archive volume')
+        else:
+            fd=os.open(image,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            try:os.ftruncate(fd,2*1024**3);os.fsync(fd)
+            finally:os.close(fd)
+        run(['/usr/sbin/mkfs.ext4','-q','-F',str(image)])
+        run(['/usr/bin/mount','-o','loop,nosuid,nodev',str(image),str(work)])
+        ensure_work(p)
+    lost=work/'lost+found'
+    if lost.exists():lost.rmdir()
+    admin=pwd.getpwnam('admin');os.chown(work,admin.pw_uid,admin.pw_gid)
+    completion_write(marker,dict(recorded,state='ready'))
+    return work
+
+
+def completion_copy_execute(job, source, kind, generation=1):
     stage = completion_stage(job)
     path = completion_copy_receipt(stage, source, kind)
+    if kind in ('archive-work','archive-resume'):
+        authority=completion_json(stage/'archive-copy-authority.json')
+        if authority!={'generation':generation,'source_job':source,'kind':kind} or generation<=archive_copy_revoked(stage):return 1
     with ARTIFACT_LOCK.open('a') as global_lock:
         fcntl.flock(global_lock, fcntl.LOCK_EX)
         try:
             completion_capacity()
-            operation = {'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
+            if kind in ('archive-work','archive-resume'):completion_archive_volume(job)
+            operation = {'archive-resume':lambda job,source:copy_archive_work(job,source,preserve_report=True),'archive-work':copy_archive_work,'derived-review':lambda job,source:copy_archive_review(job,source,derived=True),'derived': completion_copy_derived, 'archive': copy_archive_review, 'resume': completion_resume}[kind]
             receipt = operation(job, source)
             completion_write(path, dict(receipt, copy_source_job=source))
             return 0
@@ -2678,7 +3278,7 @@ def completion_unit(job):
 
 
 def completion_service_active(name):
-    result = subprocess.run(['/usr/bin/systemctl', 'show', name, '--property=ActiveState'], capture_output=True, text=True)
+    result = subprocess.run(['/usr/bin/systemctl', 'show', name, '--property=ActiveState'], capture_output=True, text=True, timeout=3)
     if result.returncode:
         raise RuntimeError('completion validator unit state unavailable')
     values = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
@@ -2692,8 +3292,10 @@ def completion_active(job):
     return completion_service_active(completion_unit(job))
 
 
-def completion_stop(job):
+def completion_stop(job, generation=None):
     """Cancel only this job's bounded documentary helpers, retaining all state."""
+    if generation is not None or (job_path(job)/'completion/archive-copy-authority.json').exists():
+        if not archive_copy_stop(job,generation):return {'state':'stopping'}
     names = [completion_prepare_unit(job), completion_unit(job)]
     stage = job_path(job) / 'completion'
     if stage.exists():
@@ -2701,10 +3303,17 @@ def completion_stop(job):
         for path in sorted(stage.glob('copy-*.json')):
             receipt = completion_json(path)
             source = receipt.get('copy_source_job')
-            if path.name == 'copy-resume.json':
+            if path.name in ('copy-work.json','copy-report-resume.json'):
+                continue
+            elif path.name == 'copy-resume.json':
                 names.append(completion_copy_unit(job, source, 'resume'))
             elif path.name == 'copy-derived.json':
                 names.append(completion_copy_unit(job, source, 'derived'))
+            elif path.name.startswith('copy-derived-review-'):
+                job_path(source)
+                if path.name != 'copy-derived-review-' + source + '.json':
+                    raise RuntimeError('derived evidence cancellation identity mismatch')
+                names.append(completion_copy_unit(job, source, 'derived-review'))
             elif path.name.startswith('copy-archive-'):
                 job_path(source)
                 if path.name != 'copy-archive-' + source + '.json':
@@ -3005,10 +3614,129 @@ def completion_resume(job, source):
         return receipt
 
 
+def expert_probe(command, job, probe, stream=None, offset=0):
+    job_path(job)
+    if not probe or len(probe) != 64 or any(c not in '0123456789abcdef' for c in probe):
+        raise ValueError('invalid expert probe ID')
+    stage = job_path(job) / 'expert-probes' / probe
+    helper = EXPERT_PROBE_HELPER
+    if stage.exists():
+        for directory in (stage.parent, stage):
+            st = directory.lstat()
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
+                raise ValueError('unsafe expert probe state')
+        if (stage / 'helper.py').exists(): helper = stage / 'helper.py'
+    if command == '_expert-probe' and helper == EXPERT_PROBE_HELPER:
+        raise ValueError('probe helper was not frozen')
+    module = python_helper(helper)
+    return module.dispatch(globals(), command, job, probe, stream, offset)
+
+
+def private_integration(args):
+    helper = PRIVATE_INTEGRATION_HELPER
+    phases = {'integration-prepare':'prepare','integration-audit-copy':'audit','integration-review-copy':'review','integration-seal':'seal','integration-test':'check','integration-test-status':'check','integration-test-output':'check','integration-publish':'publish','private-source-copy':'consume','integration-rollback':'rollback'}
+    phase = phases.get(args.command, args.phase)
+    if args.command not in ('integration-tip', 'integration-stop'):
+        module = python_helper(helper)
+        module.R = __import__('types').SimpleNamespace(**globals())
+        try:
+            _, stage, _, _ = module.request(args.job, args.integration_id, phase, args.check_id)
+        except FileNotFoundError:
+            if args.command != 'integration-test-status': raise
+            stage = None
+        if stage is not None and (stage / 'helper.py').exists(): helper = stage / 'helper.py'
+        if args.command == '_integration' and (stage is None or helper != stage / 'helper.py'):
+            raise ValueError('integration helper was not frozen')
+    module = python_helper(helper)
+    return module.dispatch(globals(), args.command, args.job, args.integration_id, phase, args.generation, args.check_id, args.stream, args.offset, args.project_id)
+
+
+def server_observation(command, job=None, observation=None):
+    helper=SERVER_OPERATIONS_HELPER
+    if command not in ('server-targets','server-observe-stop'):
+        job_path(job)
+        if not isinstance(observation,str) or len(observation)!=64 or any(c not in '0123456789abcdef' for c in observation):
+            raise ValueError('observation ID must be SHA256')
+        stage=SERVER_OBSERVATIONS_ROOT/job/'observations'/observation
+        for parent in (SERVER_OBSERVATIONS_ROOT, SERVER_OBSERVATIONS_ROOT/job, stage.parent, stage):
+            if parent.exists():
+                info=parent.lstat()
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o077:
+                    raise ValueError('unsafe server observation state')
+        if (stage/'helper.py').exists():helper=stage/'helper.py'
+        if command=='_server-observe' and helper!=stage/'helper.py':raise ValueError('observer helper was not frozen')
+    module=python_helper(helper)
+    return module.dispatch(globals(),command,job,observation)
+
+
+def server_maintenance_inspect(args):
+    operation=args.operation_id;inspection=args.inspection_id
+    for value in (operation,inspection):
+        if not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value):raise ValueError('inspection identity must be SHA256')
+    helper=SERVER_MAINTENANCE_INSPECT_HELPER
+    manifest=SERVER_MAINTENANCE_ROOT/'operations'/operation/'inspections'/inspection/'executables.json'
+    if manifest.exists():
+        info=regular(manifest)
+        if info.st_uid!=0 or info.st_mode&0o077:raise ValueError('unsafe inspection executable selection')
+        value=json.loads(manifest.read_bytes());digest=value.get('digest')
+        if not isinstance(digest,str) or len(digest)!=64 or any(c not in '0123456789abcdef' for c in digest):raise ValueError('invalid inspection executable identity')
+        cache=SERVER_MAINTENANCE_TOOLS/digest
+        for directory in (SERVER_MAINTENANCE_TOOLS,cache):
+            info=directory.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:raise ValueError('unsafe inspector cache directory')
+        files=value.get('files',{})
+        if set(files)!={'autonomy-runner.py','autonomy-server-maintenance.py','autonomy-server-operations.py','autonomy-server-maintenance-inspect.py','entry.py'}:raise ValueError('invalid inspector executable inventory')
+        for name,expected in files.items():
+            path=cache/name;info=regular(path)
+            if info.st_uid!=0 or info.st_mode&0o022 or info.st_size>16*1024*1024 or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:raise ValueError('inspection executable identity changed')
+        helper=cache/'autonomy-server-maintenance-inspect.py'
+    module=python_helper(helper)
+    command=args.command
+    if command=='server-maintenance-status':command='server-maintenance-inspect-status'
+    return module.dispatch(globals(),command,args.job,operation,inspection,args.generation)
+
+
+def server_maintenance(args):
+    helper = SERVER_MAINTENANCE_HELPER
+    operation = getattr(args,'operation_id',None)
+    if operation is not None:
+        if not isinstance(operation,str) or len(operation)!=64 or any(c not in '0123456789abcdef' for c in operation):
+            raise ValueError('maintenance operation must be SHA256')
+        manifest = SERVER_MAINTENANCE_ROOT/'operations'/operation/'executables.json'
+        if manifest.exists():
+            info = regular(manifest)
+            if info.st_uid != 0 or info.st_mode & 0o077:
+                raise ValueError('unsafe maintenance executable selection')
+            selected = json.loads(manifest.read_bytes())
+            digest = selected.get('digest')
+            if not isinstance(digest,str) or len(digest)!=64 or any(c not in '0123456789abcdef' for c in digest):
+                raise ValueError('invalid maintenance executable identity')
+            helper = SERVER_MAINTENANCE_TOOLS/digest/'autonomy-server-maintenance.py'
+    module = python_helper(helper)
+    return module.dispatch(globals(),args.command,args.job,operation,args.phase,args.generation)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['go-runtime','go-runtime-stop','_go-runtime','node-dependencies','node-dependencies-stop','_node-dependencies','copy-derived-review','_copy-derived-review','server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect','server-maintenance-validate','server-maintenance-backup','server-maintenance-apply','server-maintenance-status','server-maintenance-stop','server-maintenance-reconcile','_server-maintenance','server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe','python-test-runtime', 'integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback', 'expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe', 'copy-archive-work', '_copy-archive-work', 'copy-archive-resume', '_copy-archive-resume', 'archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('--dependency-key')
+    parser.add_argument('--source-sha256')
+    parser.add_argument('--operation-id')
+    parser.add_argument('--inspection-id')
+    parser.add_argument('--observation-id')
+    parser.add_argument('--python-test-key')
+    parser.add_argument('--key')
+    parser.add_argument('--integration-id')
+    parser.add_argument('--generation', type=int, default=1)
+    parser.add_argument('--check-id')
+    parser.add_argument('--project-id', type=int)
+    parser.add_argument('--phase', choices=['prepare','audit','review','seal','check','publish','consume','rollback','validate','backup','apply','reconcile','inspect'])
     parser.add_argument('--job')
+    parser.add_argument('--probe-id')
+    parser.add_argument('--stream', choices=['stdout', 'stderr'])
+    parser.add_argument('--offset', type=int, default=0)
+    parser.add_argument('--runtime-seconds', type=int, default=1800)
+    parser.add_argument('--copy-generation', type=int)
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
     parser.add_argument('--provider', choices=['codex', 'claude'])
@@ -3020,12 +3748,39 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'archive-report':
+    if args.command in ('server-maintenance-inspect','server-maintenance-inspect-status','server-maintenance-inspect-stop','_server-maintenance-inspect') or (args.command=='server-maintenance-status' and args.phase=='inspect'):
+        out=server_maintenance_inspect(args)
+        if args.command=='_server-maintenance-inspect':return out
+        print(json.dumps(out,sort_keys=True,separators=(',',':')));return 0
+    if args.command.startswith('server-maintenance-') or args.command == '_server-maintenance':
+        out = server_maintenance(args)
+        if args.command == '_server-maintenance': return out
+    elif args.command in ('server-targets','server-observe','server-observe-status','server-observe-stop','_server-observe'):
+        out = server_observation(args.command, args.job, args.observation_id)
+        if args.command == '_server-observe': return out
+    elif args.command in ('go-runtime','go-runtime-stop','_go-runtime'):
+        out=go_probe_runtime(args.job,args.dependency_key,args.source_sha256,args.generation,stop=args.command=='go-runtime-stop',execute=args.command=='_go-runtime')
+        if args.command=='_go-runtime':return out
+    elif args.command == 'python-test-runtime':
+        out = python_test_runtime_status(args.key, args.job)
+    elif args.command in ('integration-tip', 'integration-stop', 'integration-status', 'integration-test-status', 'integration-test-output', '_integration', 'integration-prepare', 'integration-audit-copy', 'integration-review-copy', 'integration-seal', 'integration-test', 'integration-publish', 'private-source-copy', 'integration-rollback'):
+        out = private_integration(args)
+        if args.command == '_integration': return out
+    elif args.command in ('expert-probe', 'expert-probe-status', 'expert-probe-stop', 'expert-probe-output', '_expert-probe'):
+        out = expert_probe(args.command, args.job, args.probe_id, args.stream, args.offset)
+        if args.command == '_expert-probe': return out
+    elif args.command == 'archive-report':
         out=archive_report(args.job)
     elif args.command == 'archive-report-stop':
         out=archive_report_stop(args.job)
     elif args.command == '_archive-report':
         return archive_report_execute(args.job)
+    elif args.command == 'node-dependencies':
+        out = node_call('launch',args.job,args.generation)
+    elif args.command == 'node-dependencies-stop':
+        out = node_call('stop',args.job,args.generation)
+    elif args.command == '_node-dependencies':
+        return node_call('execute',args.job,args.generation)
     elif args.command == 'python-dependencies':
         out = python_dependencies(args.job)
     elif args.command == 'python-dependencies-stop':
@@ -3034,6 +3789,18 @@ def main():
         return python_dependencies_execute(args.job)
     elif args.command == 'archive-identity':
         out = archive_identity(args.job)
+    elif args.command == 'copy-archive-resume':
+        out = completion_copy_status(args.job, args.from_job, 'archive-resume', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == '_copy-archive-resume':
+        return completion_copy_execute(args.job, args.from_job, 'archive-resume', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == 'copy-archive-work':
+        out = completion_copy_status(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == '_copy-archive-work':
+        return completion_copy_execute(args.job, args.from_job, 'archive-work', 1 if args.copy_generation is None else args.copy_generation)
+    elif args.command == 'copy-derived-review':
+        out = completion_copy_status(args.job, args.from_job, 'derived-review')
+    elif args.command == '_copy-derived-review':
+        return completion_copy_execute(args.job, args.from_job, 'derived-review')
     elif args.command == '_copy-derived':
         return completion_copy_execute(args.job, args.from_job, 'derived')
     elif args.command == '_copy-archive-review':
@@ -3041,7 +3808,7 @@ def main():
     elif args.command == 'copy-archive-review':
         out = completion_copy_status(args.job, args.from_job, 'archive')
     elif args.command == 'completion-stop':
-        out = completion_stop(args.job)
+        out = completion_stop(args.job, args.copy_generation)
     elif args.command == 'completion-prepare':
         out = completion_prepare_status(args.job, args.from_job, args.review_job)
     elif args.command == '_completion-prepare':

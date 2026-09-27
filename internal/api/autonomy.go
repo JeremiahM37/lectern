@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,23 +28,58 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	DiagnosisReservation string                    `json:"diagnosis_reservation,omitempty"`
-	DiagnosisRequirement string                    `json:"diagnosis_requirement,omitempty"`
-	PythonUsedBundle     string                    `json:"python_used_bundle,omitempty"`
-	PythonExpectedInput  string                    `json:"python_expected_input,omitempty"`
-	PythonExpectedBundle string                    `json:"python_expected_bundle,omitempty"`
-	RequirementHold      bool                      `json:"requirement_hold,omitempty"`
-	RequirementIDs       []string                  `json:"requirement_ids,omitempty"`
-	PythonRequest        *autoPythonRequest        `json:"python_request,omitempty"`
-	PendingPythonRequest *autoPythonRequest        `json:"pending_python_request,omitempty"`
-	PythonRecovery       *autoPythonReceipt        `json:"python_recovery,omitempty"`
-	PythonStopped        bool                      `json:"python_stopped,omitempty"`
-	PythonPreviousBundle string                    `json:"python_previous_bundle,omitempty"`
-	PythonNeedsChange    bool                      `json:"python_needs_change,omitempty"`
-	DocumentationStopped bool                      `json:"documentation_stopped,omitempty"`
-	DocumentationCopies  []autoDocumentationCopy   `json:"documentation_copies,omitempty"`
-	DocumentationRoot    int64                     `json:"documentation_root,omitempty"`
-	Documentation        *autoDocumentationReceipt `json:"documentation,omitempty"`
+	GoNeedsResume          bool                  `json:"go_needs_resume,omitempty"`
+	GoRecoveryVerified     bool                  `json:"go_recovery_verified,omitempty"`
+	GoRuntimeSourceSHA     string                `json:"go_runtime_source_sha256,omitempty"`
+	GoRuntime              *autoGoRuntimeReceipt `json:"go_runtime,omitempty"`
+	GoExpectedRuntime      *autoGoRuntimeReceipt `json:"go_expected_runtime,omitempty"`
+	NodeGeneration         int                   `json:"node_generation,omitempty"`
+	NodeStopRequested      bool                  `json:"node_stop_requested,omitempty"`
+	NodeRequest            *autoNodeRequest      `json:"node_request,omitempty"`
+	PendingNodeRequest     *autoNodeRequest      `json:"pending_node_request,omitempty"`
+	NodeRecovery           *autoNodeReceipt      `json:"node_recovery,omitempty"`
+	NodeStopped            bool                  `json:"node_stopped,omitempty"`
+	NodeUsedBundle         string                `json:"node_used_bundle,omitempty"`
+	NodePreviousBundle     string                `json:"node_previous_bundle,omitempty"`
+	NodeNeedsResume        bool                  `json:"node_needs_resume,omitempty"`
+	NodeNeedsChange        bool                  `json:"node_needs_change,omitempty"`
+	NodeExpectedInput      string                `json:"node_expected_input,omitempty"`
+	NodeExpectedBundle     string                `json:"node_expected_bundle,omitempty"`
+	NodeExpectedLock       string                `json:"node_expected_lock,omitempty"`
+	WorkerRecoveryPrepared bool                  `json:"worker_recovery_prepared,omitempty"`
+	WorkerFailures         int                   `json:"worker_failures,omitempty"`
+	WorkerFailureRecorded  bool                  `json:"worker_failure_recorded,omitempty"`
+	WorkerRecoveryAt       time.Time             `json:"worker_recovery_at,omitempty"`
+	WorkerRecoveryArchive  string                `json:"worker_recovery_archive_sha256,omitempty"`
+	WorkerRecoveryReason   string                `json:"worker_recovery_reason,omitempty"`
+
+	MaintenancePin            string                     `json:"maintenance_pin,omitempty"`
+	MaintenanceAdmission      *autoMaintenanceAdmitted   `json:"maintenance_admission,omitempty"`
+	PythonTestNeedsResume     bool                       `json:"python_test_needs_resume,omitempty"`
+	PythonExpectedTestKey     string                     `json:"python_expected_test_key,omitempty"`
+	PythonTestRecovery        *autoPrivateToolingReceipt `json:"python_test_recovery,omitempty"`
+	PrivateOperations         []*autoPrivateOperation    `json:"private_operations,omitempty"`
+	PrivateIntegrationRoot    string                     `json:"private_integration_root,omitempty"`
+	PrivateIntegrationAttempt int                        `json:"private_integration_attempt,omitempty"`
+	ExpertRecoveryRoot        int64                      `json:"expert_recovery_root,omitempty"`
+	ExpertRecoveryAttempt     int                        `json:"expert_recovery_attempt,omitempty"`
+	DiagnosisReservation      string                     `json:"diagnosis_reservation,omitempty"`
+	DiagnosisRequirement      string                     `json:"diagnosis_requirement,omitempty"`
+	PythonUsedBundle          string                     `json:"python_used_bundle,omitempty"`
+	PythonExpectedInput       string                     `json:"python_expected_input,omitempty"`
+	PythonExpectedBundle      string                     `json:"python_expected_bundle,omitempty"`
+	RequirementHold           bool                       `json:"requirement_hold,omitempty"`
+	RequirementIDs            []string                   `json:"requirement_ids,omitempty"`
+	PythonRequest             *autoPythonRequest         `json:"python_request,omitempty"`
+	PendingPythonRequest      *autoPythonRequest         `json:"pending_python_request,omitempty"`
+	PythonRecovery            *autoPythonReceipt         `json:"python_recovery,omitempty"`
+	PythonStopped             bool                       `json:"python_stopped,omitempty"`
+	PythonPreviousBundle      string                     `json:"python_previous_bundle,omitempty"`
+	PythonNeedsChange         bool                       `json:"python_needs_change,omitempty"`
+	DocumentationStopped      bool                       `json:"documentation_stopped,omitempty"`
+	DocumentationCopies       []autoDocumentationCopy    `json:"documentation_copies,omitempty"`
+	DocumentationRoot         int64                      `json:"documentation_root,omitempty"`
+	Documentation             *autoDocumentationReceipt  `json:"documentation,omitempty"`
 	// A paid runner-start cooldown belongs only to this interrupted launch.
 	LaunchRetryPaid     bool                 `json:"launch_retry_paid,omitempty"`
 	RecoveryCheckAt     time.Time            `json:"recovery_check_at,omitempty"`
@@ -72,33 +106,43 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
-	HistoricalReportPending   map[string]bool                             `json:"historical_report_pending,omitempty"`
-	EnvironmentPins           map[int64]*autoVerifiedDiagnosisEnvironment `json:"environment_pins,omitempty"`
-	HeldRuns                  []*autonomy.State                           `json:"held_runs,omitempty"`
-	RequirementDiagnoses      map[string]*autoRequirementDiagnosis        `json:"requirement_diagnoses,omitempty"`
-	Requirements              map[string]*autoRequirement                 `json:"requirements,omitempty"`
-	DocumentationPins         map[int64]*autoDocumentationReservation     `json:"documentation_pins,omitempty"`
-	DocumentationReservations map[int64]*autoDocumentationReservation     `json:"documentation_reservations,omitempty"`
-	DeferredRuns              []*autonomy.State                           `json:"deferred_runs,omitempty"`
-	CycleSequence             int                                         `json:"cycle_sequence,omitempty"`
-	Config                    autonomy.Config                             `json:"config"`
-	State                     *autonomy.State                             `json:"state"`
-	Runs                      []*autonomy.State                           `json:"runs"`
-	Jobs                      []*autoJob                                  `json:"jobs"`
-	Status                    string                                      `json:"status"`
-	Reason                    string                                      `json:"reason"`
-	Quota                     autonomy.Usage                              `json:"quota"`
-	RequestedDay              string                                      `json:"requested_day,omitempty"`
-	ProjectID                 int64                                       `json:"project_id"`
-	RememberedDay             string                                      `json:"remembered_day"`
-	RetryCount                int                                         `json:"retry_count"`
-	RetryScope                string                                      `json:"retry_scope,omitempty"`
-	RetryDay                  string                                      `json:"retry_day,omitempty"`
-	RetryAt                   time.Time                                   `json:"retry_at,omitempty"`
-	NextCycleAt               time.Time                                   `json:"next_cycle_at,omitempty"`
-	NextCycleScheduled        bool                                        `json:"next_cycle_scheduled"`
-	RememberedCycle           string                                      `json:"remembered_cycle,omitempty"`
-	StrategyDay               string                                      `json:"strategy_day,omitempty"`
+	GoProbeRuntimes             map[string]*autoGoProbeRuntime               `json:"go_probe_runtimes,omitempty"`
+	MaintenanceValidationCursor string                                       `json:"maintenance_validation_cursor,omitempty"`
+	MaintenanceStatus           *autoMaintenanceSchedulerStatus              `json:"maintenance_status,omitempty"`
+	MaintenanceTransactions     map[string]*autoMaintenanceTransaction       `json:"maintenance_transactions,omitempty"`
+	MaintenanceReviews          map[string]*autoMaintenanceReviewedCandidate `json:"maintenance_reviews,omitempty"`
+	MaintenanceValidations      map[string]*autoMaintenanceValidationLease   `json:"maintenance_validations,omitempty"`
+	MaintenancePins             map[string]*autoMaintenancePlanPin           `json:"maintenance_pins,omitempty"`
+	Maintenance                 *autoMaintenanceLedger                       `json:"maintenance,omitempty"`
+	PrivateIntegration          *autoPrivateIntegrationLedger                `json:"private_integration,omitempty"`
+	ExpertRecovery              *autoExpertRecoveryLedger                    `json:"expert_recovery,omitempty"`
+	HistoricalReportPending     map[string]bool                              `json:"historical_report_pending,omitempty"`
+	EnvironmentPins             map[int64]*autoVerifiedDiagnosisEnvironment  `json:"environment_pins,omitempty"`
+	HeldRuns                    []*autonomy.State                            `json:"held_runs,omitempty"`
+	RequirementDiagnoses        map[string]*autoRequirementDiagnosis         `json:"requirement_diagnoses,omitempty"`
+	Requirements                map[string]*autoRequirement                  `json:"requirements,omitempty"`
+	DocumentationPins           map[int64]*autoDocumentationReservation      `json:"documentation_pins,omitempty"`
+	DocumentationReservations   map[int64]*autoDocumentationReservation      `json:"documentation_reservations,omitempty"`
+	DeferredRuns                []*autonomy.State                            `json:"deferred_runs,omitempty"`
+	CycleSequence               int                                          `json:"cycle_sequence,omitempty"`
+	Config                      autonomy.Config                              `json:"config"`
+	State                       *autonomy.State                              `json:"state"`
+	Runs                        []*autonomy.State                            `json:"runs"`
+	Jobs                        []*autoJob                                   `json:"jobs"`
+	Status                      string                                       `json:"status"`
+	Reason                      string                                       `json:"reason"`
+	Quota                       autonomy.Usage                               `json:"quota"`
+	RequestedDay                string                                       `json:"requested_day,omitempty"`
+	ProjectID                   int64                                        `json:"project_id"`
+	RememberedDay               string                                       `json:"remembered_day"`
+	RetryCount                  int                                          `json:"retry_count"`
+	RetryScope                  string                                       `json:"retry_scope,omitempty"`
+	RetryDay                    string                                       `json:"retry_day,omitempty"`
+	RetryAt                     time.Time                                    `json:"retry_at,omitempty"`
+	NextCycleAt                 time.Time                                    `json:"next_cycle_at,omitempty"`
+	NextCycleScheduled          bool                                         `json:"next_cycle_scheduled"`
+	RememberedCycle             string                                       `json:"remembered_cycle,omitempty"`
+	StrategyDay                 string                                       `json:"strategy_day,omitempty"`
 }
 
 func (s *Server) loadAuto() (*autoRecord, error) {
@@ -238,7 +282,30 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 	return out, nil
 }
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
+	s.stopAutoJobsScoped(ctx, a, reason, true)
+}
+
+// Model eligibility is independent of an already admitted maintenance provider.
+// Explicit OFF, persistence failures and global cancellation retain the full scope.
+func (s *Server) stopAutoJobsScoped(ctx context.Context, a *autoRecord, reason string, maintenance bool) {
 	var stopErrors []string
+	if err := s.stopAutoGoProbeRuntimes(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
+	if maintenance {
+		if err := s.pollAutoMaintenance(ctx, a, false); err != nil {
+			stopErrors = append(stopErrors, "Maintenance recovery: "+err.Error())
+		}
+	}
+	if err := s.stopAutoMaintenanceValidations(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
+	if err := s.stopAutoPrivate(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
+	if err := s.stopAutoExpertProbes(ctx, a); err != nil {
+		stopErrors = append(stopErrors, err.Error())
+	}
 	for id := range a.HistoricalReportPending {
 		if _, err := s.runAutoCommand(ctx, "archive-report-stop", "--job", id); err != nil {
 			stopErrors = append(stopErrors, "Historical report stop: "+err.Error())
@@ -247,6 +314,11 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 		}
 	}
 	for _, j := range a.Jobs {
+		if autoNodePending(j) {
+			if err := s.stopAutoNode(ctx, a, j); err != nil {
+				stopErrors = append(stopErrors, "Node stop: "+err.Error())
+			}
+		}
 		if autoPythonPending(j) {
 			if _, err := s.runAutoCommand(ctx, "python-dependencies-stop", "--job", j.ID); err != nil {
 				stopErrors = append(stopErrors, "Python stop: "+err.Error())
@@ -255,10 +327,8 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 			}
 		}
 		if autoDocumentationStopPending(j) {
-			if _, err := s.runAutoCommand(ctx, "completion-stop", "--job", j.ID); err != nil {
-				stopErrors = append(stopErrors, "Documentary stop: "+err.Error())
-			} else {
-				j.DocumentationStopped = true
+			if err := s.stopAutoProgressCopies(ctx, a, j); err != nil {
+				stopErrors = append(stopErrors, "Evidence copy stop: "+err.Error())
 			}
 		}
 		if (j.Status == "prepared" || j.Status == "deferred") && j.Recovery != nil {
@@ -277,6 +347,20 @@ func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string)
 			if _, e := s.runAutoCommand(ctx, "stop", "--job", j.ID); e != nil {
 				stopErrors = append(stopErrors, e.Error())
 				continue
+			}
+			if j.ExpertRecoveryAttempt > 0 || j.PrivateIntegrationAttempt > 0 {
+				raw, err := s.runAutoCommand(ctx, "status", "--job", j.ID)
+				if err != nil {
+					stopErrors = append(stopErrors, err.Error())
+					continue
+				}
+				if err = autoProgressCharge(a, j, raw); err != nil {
+					left, e := autoProgressRemaining(a, j)
+					if e != nil || left > 0 {
+						stopErrors = append(stopErrors, err.Error())
+						continue
+					}
+				}
 			}
 			s.closeAutoBridge(j.ID)
 			j.Status = "stopped"
@@ -317,14 +401,19 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		s.Log.Error("autonomy state", "err", e)
 		return
 	}
+	var maintenanceErr error
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
-		if len(a.HistoricalReportPending) > 0 {
+		defer func() { autoProjectMaintenanceStatus(a, maintenanceErr); _ = s.saveAuto(a) }()
+		if err := s.reconcileAutoPrivateTests(ctx, a); err != nil {
+			a.Reason = "Private test observation pending: " + err.Error()
+		}
+		if autoGoProbePending(a) || len(a.HistoricalReportPending) > 0 || autoProgressPendingProbes(a) || autoPrivatePending(a) || autoMaintenanceValidationStopPending(a) || autoMaintenanceTransactionsPending(a) {
 			s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 			_ = s.saveAuto(a)
 			return
 		}
 		for _, j := range a.Jobs {
-			if autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
+			if autoNodePending(j) || autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 				_ = s.saveAuto(a)
 				break
@@ -333,11 +422,22 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	defer func() {
+		autoProjectMaintenanceStatus(a, maintenanceErr)
 		if e := s.saveAuto(a); e != nil {
 			s.stopAutoJobs(ctx, a, "State persistence failed")
 			s.Log.Error("autonomy persistence", "err", e)
 		}
 	}()
+	maintenanceErr = autoQueueReviewedMaintenance(a)
+	maintenanceErr = errors.Join(maintenanceErr, s.reconcileEndedMaintenanceValidations(ctx, a))
+	quotaFetched := false
+	var quotaErr error
+	if autoMaintenanceWorkPending(a) {
+		quotaFetched = true
+		quotaErr = refreshAutoQuota(ctx, a)
+		// Even unavailable quota must reach the owned rollback/stop reconciler.
+		maintenanceErr = errors.Join(maintenanceErr, s.pollAutoMaintenance(ctx, a, quotaErr == nil))
+	}
 	now := time.Now()
 	if a.State != nil && a.State.Phase == autonomy.Complete {
 		s.rememberAuto(ctx, a)
@@ -352,34 +452,27 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			autoNewCycle(a, now)
 		}
 	}
-	if a.State == nil || (a.State.Phase == autonomy.Complete && len(a.DeferredRuns) == 0 && len(a.HeldRuns) == 0) {
+	if a.State == nil || (a.State.Phase == autonomy.Complete && len(a.DeferredRuns) == 0 && len(a.HeldRuns) == 0 && !autoPrivatePublishPending(a) && !autoMaintenanceWorkPending(a)) {
 		return
 	}
-	usageURL := "http://127.0.0.1:9105/api/agent-usage"
-	// A paused cycle does not need aggressive provider polling. Its existing
-	// cache/backoff still refreshes, and the quota gate rejects stale samples.
-	if a.State.Phase != autonomy.Paused {
-		usageURL += "?autonomous=1"
-	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", usageURL, nil)
-	client := &http.Client{Timeout: 25 * time.Second}
-	resp, e := client.Do(req)
-	if e == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			e = fmt.Errorf("usage returned %d", resp.StatusCode)
-		} else {
-			e = json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(&a.Quota)
-		}
+	if !quotaFetched {
+		quotaErr = refreshAutoQuota(ctx, a)
 	}
 	requiredProvider := ""
+	e = quotaErr
 	if e == nil {
 		now = time.Now()
 		requiredProvider, e = s.autoQuotaProvider(a, now)
 	}
 	if e != nil {
-		s.stopAutoJobs(ctx, a, "Budget pause: "+e.Error())
+		s.stopAutoJobsScoped(ctx, a, "Budget pause: "+e.Error(), false)
 		return
+	}
+	if err := s.reconcileAutoPrivateTests(ctx, a); err != nil {
+		a.Reason = "Private test observation pending: " + err.Error()
+	}
+	if err := s.pollAutoPrivatePublications(ctx, a); err != nil {
+		a.Reason = "Private publication pending: " + err.Error()
 	}
 	s.pollDeferredPrerequisites(ctx, a, now)
 	if a.State.Phase == autonomy.Complete {
@@ -483,6 +576,46 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			s.stopAutoJobs(ctx, a, "Invalid runner status")
 			return
 		}
+		if err := autoRecordGoRuntime(j, raw); err != nil {
+			a.Reason = err.Error()
+			return
+		}
+		if handled, err := s.handleAutoGoLaunchFailure(ctx, a, j, raw); handled || err != nil {
+			if err != nil {
+				a.Reason = "Go runtime prerequisite: " + err.Error()
+			}
+			return
+		}
+		if handled, err := s.handleAutoNodeLaunchFailure(ctx, a, j, raw); handled || err != nil {
+			if err != nil {
+				a.Reason = "Node runtime recovery pending: " + err.Error()
+			}
+			return
+		}
+		if handled, err := s.handleAutoPrivateToolingFailure(ctx, a, j, raw); handled || err != nil {
+			if err != nil {
+				a.Reason = "Selected tooling recovery pending: " + err.Error()
+			}
+			return
+		}
+		if err := autoProgressCharge(a, j, raw); err != nil {
+			left, e := autoProgressRemaining(a, j)
+			if e != nil || left > 0 {
+				s.stopAutoJobs(ctx, a, err.Error())
+				return
+			}
+		}
+		// A completed successful process may use its full allowance and still
+		// submit evidence for review. Exhaustion forbids another execution;
+		// it must not discard a valid final report already produced.
+		if st.State != "done" || st.ExitCode == nil || *st.ExitCode != 0 {
+			if ended, err := s.endAutoProgressBudget(ctx, a, j); ended || err != nil {
+				if err != nil {
+					a.Reason = err.Error()
+				}
+				return
+			}
+		}
 		if st.State == "running" {
 			j.LaunchRetryPaid = false
 			return
@@ -513,6 +646,12 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 				j.LaunchRetryPaid = false
 				j.Status = "stopped"
 				_ = s.DB.Update("tasks", id, map[string]any{"status": "backlog"})
+				return
+			}
+			if handled, err := s.deferAutoInterruptedWorker(ctx, a, j, raw, time.Now()); handled || err != nil {
+				if err != nil {
+					a.Reason = "Interrupted worker preservation: " + err.Error()
+				}
 				return
 			}
 			j.Status = "failed"
@@ -558,6 +697,21 @@ func autoFindJob(a *autoRecord, id int64) *autoJob {
 	return nil
 }
 func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) error {
+	if j.Status == "prepared" {
+		ready, e := s.prepareAutoPrivate(ctx, a, j)
+		if e != nil {
+			var terminal *autoPrivateOperationError
+			if errors.As(e, &terminal) {
+				return s.endAutoPrivateOperation(ctx, a, j, terminal.Error())
+			}
+		}
+		if e != nil || !ready {
+			return e
+		}
+	}
+	if ended, err := s.endAutoProgressBudget(ctx, a, j); ended || err != nil {
+		return err
+	}
 	if j.Status == "prepared" && len(j.DocumentationCopies) > 0 {
 		ready, e := s.pollAutoDocumentationCopies(ctx, a, j)
 		if e != nil || !ready {
@@ -615,17 +769,95 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		return nil
 	}
+	ready, err = s.recoverAutoNode(ctx, a, j)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		if j.NodeRecovery != nil && j.NodeRecovery.State == "unavailable" && j.Status == "prepared" {
+			autoDeferRequirements(a, j, time.Now())
+			return s.saveAuto(a)
+		}
+		return nil
+	}
+	toolingReady, toolingErr := s.recoverAutoPrivateTooling(ctx, a, j)
+	if toolingErr != nil {
+		return toolingErr
+	}
+	if !toolingReady {
+		if j.PythonTestRecovery != nil && j.PythonTestRecovery.Diagnostic != "missing" {
+			err := s.holdAutoPrivateTooling(ctx, a, j, false)
+			if errors.Is(err, errAutoArtifactPending) {
+				return nil
+			}
+			return err
+		}
+		j.RecoveryCheckAt = time.Now().Add(5 * time.Minute)
+		autoDeferRequirements(a, j, time.Now())
+		return s.saveAuto(a)
+	}
 	if j.PythonRecovery != nil && j.PythonRecovery.State == "verified" {
 		j.PythonUsedBundle = j.PythonRecovery.BundleKey
 	}
+	if j.NodeRecovery != nil && j.NodeRecovery.State == "verified" {
+		j.NodeUsedBundle = j.NodeRecovery.BundleKey
+	}
+	if err := autoPrepareGoRuntimeAt(autoRoot, j); err != nil {
+		return err
+	}
 	j.Status = "starting"
+	if j.ExpertRecoveryAttempt > 0 {
+		v, err := autoExpertAttempt(a, j)
+		if err != nil {
+			return err
+		}
+		if j.Role == "reviewer" {
+			v.Status = "reviewing"
+		} else {
+			v.Status = "implementing"
+		}
+	}
 	if e := s.saveAuto(a); e != nil {
 		return e
 	}
 
 	model := j.Model
-	if _, e := s.runAutoCommand(ctx, "start", "--job", j.ID, "--provider", j.Provider, "--model", model, "--prompt", filepath.Join(autoRoot, j.ID, "prompt.txt")); e != nil {
+	args := []string{"start", "--job", j.ID, "--provider", j.Provider, "--model", model, "--prompt", filepath.Join(autoRoot, j.ID, "prompt.txt")}
+	if j.ExpertRecoveryAttempt > 0 || j.PrivateIntegrationAttempt > 0 {
+		left, err := autoProgressRemaining(a, j)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--runtime-seconds", fmt.Sprint(int64(left/time.Second)))
+	}
+	if j.PythonExpectedTestKey != "" && j.PythonRequest == nil {
+		args = append(args, "--python-test-key", j.PythonExpectedTestKey)
+	}
+	launch, e := s.runAutoCommand(ctx, args...)
+	if e != nil {
 		return e
+	}
+	var receipt struct {
+		Capability string `json:"capability"`
+	}
+	if json.Unmarshal(launch, &receipt) == nil && receipt.Capability == "python_test_runtime" {
+		ready, err := autoApplyPrivateTooling(a, j, launch)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			j.Status = "prepared"
+			if j.PythonTestRecovery != nil && j.PythonTestRecovery.Diagnostic != "missing" {
+				err := s.holdAutoPrivateTooling(ctx, a, j, false)
+				if errors.Is(err, errAutoArtifactPending) {
+					return nil
+				}
+				return err
+			}
+			j.RecoveryCheckAt = time.Now().Add(5 * time.Minute)
+			autoDeferRequirements(a, j, time.Now())
+			return s.saveAuto(a)
+		}
 	}
 	j.Status = "running"
 	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "running", "agent": j.Provider, "model": j.Model})
@@ -688,6 +920,11 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if r, err := s.runAutoCommand(ctx, "report", "--job", j.ID); err == nil {
 		report = string(r)
 	}
+	if j.PrivateIntegrationAttempt > 0 && j.Role == "reviewer" {
+		if err := s.reconcileAutoPrivateTests(ctx, a); err != nil {
+			a.Reason = "Private test observation pending: " + err.Error()
+		}
+	}
 	next, reportValidation := autoValidateWorkerReport(a, j, []byte(report))
 	if e = reportValidation; e != nil {
 		if j.DocumentationRoot > 0 && j.Role == "builder" && strings.Contains(e.Error(), "documentary completion cannot authorize") {
@@ -696,6 +933,7 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		return &autoReportError{e}
 	}
+	autoReportValidated(j)
 	if intercepted, err := s.recordAutoRequirements(ctx, a, j, []byte(report)); err != nil {
 		return err
 	} else if intercepted {
@@ -710,6 +948,12 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 	}
 	if j.Role == "planner" {
+		if e = s.pinAutoMaintenance(ctx, a, j, next.Items); e != nil {
+			if errors.Is(e, errAutoArtifactPending) {
+				return e
+			}
+			return &autoReportError{e}
+		}
 		if e = s.pinAutoSources(ctx, a, next.Items); e != nil {
 			if errors.Is(e, errAutoArtifactPending) {
 				return e
@@ -720,11 +964,28 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	if e = s.snapshotAutoJob(ctx, j); e != nil {
 		return e
 	}
+	if e = s.finishAutoMaintenanceReview(ctx, a, j, []byte(report)); e != nil {
+		return e
+	}
+	if e = s.finishAutoPrivate(ctx, a, j, []byte(report)); e != nil {
+		var terminal *autoPrivateOperationError
+		if errors.As(e, &terminal) {
+			return s.endAutoPrivateOperation(ctx, a, j, terminal.Error())
+		}
+		return e
+	}
 	if e = s.finishAutoRequirementDiagnosis(ctx, a, j, []byte(report)); e != nil {
 		return e
 	}
 	s.closeAutoBridge(j.ID)
 	j.Status = "done"
+	if j.Role == "builder" && j.ExpertRecoveryAttempt > 0 {
+		v, err := autoExpertAttempt(a, j)
+		if err != nil {
+			return err
+		}
+		v.Status = "awaiting_review"
+	}
 	j.Summary = clipEnd(report, 3000)
 	ended := store.Now()
 	rc := 0
@@ -754,6 +1015,19 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 						builder.Rejected = !verdict.AcceptsWork()
 						builder.ReviewReason = verdict.Reason
 						builder.ReviewTaskID = j.TaskID
+						if builder.ExpertRecoveryAttempt > 0 {
+							v, err := autoExpertAttempt(a, builder)
+							if err != nil {
+								return err
+							}
+							outcome := "rejected"
+							if builder.Approved {
+								outcome = "approved"
+							}
+							if err = autoFinishExpertRecovery(v, outcome, j.TaskID, verdict.Reason, time.Now()); err != nil {
+								return err
+							}
+						}
 						if r := a.DocumentationReservations[builder.DocumentationRoot]; r != nil {
 							if builder.Approved {
 								r.Outcome = "approved"
@@ -819,6 +1093,15 @@ func autoValidateWorkerReport(a *autoRecord, j *autoJob, report []byte) (autonom
 	if err := json.Unmarshal([]byte(store.J(a.State)), &next); err != nil {
 		return next, err
 	}
+	if err := validateAutoExpertAuditReport(a, j.Role, report); err != nil {
+		return next, err
+	}
+	if err := autoValidatePrivateReport(a, j, report); err != nil {
+		return next, err
+	}
 	err := next.ApplyReport(a.Config, j.TaskID, report)
+	if err == nil {
+		err = autoValidateMaintenanceReviewReport(a, j, report)
+	}
 	return next, err
 }
