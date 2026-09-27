@@ -22,7 +22,7 @@ type recorder struct {
 
 type recorded struct {
 	Method, Path, Query, Auth string
-	Body                     map[string]any
+	Body                      map[string]any
 }
 
 func newRecorder(t *testing.T, answer func(r recorded) (int, string)) *recorder {
@@ -82,6 +82,8 @@ func TestLinearClient(t *testing.T) {
 			return 200, `{"data":{"issueUpdate":{"success":true}}}`
 		case strings.Contains(q, "commentCreate"):
 			return 200, `{"data":{"commentCreate":{"success":true}}}`
+		case strings.Contains(q, "reactionCreate"):
+			return 200, `{"data":{"reactionCreate":{"success":true}}}`
 		}
 		return 200, `{"errors":[{"message":"unrecognised"}]}`
 	})
@@ -121,6 +123,20 @@ func TestLinearClient(t *testing.T) {
 	}
 	if err := l.Comment(ctx, "u1", "on it"); err != nil {
 		t.Fatal(err)
+	}
+	if err := l.SetDescription(ctx, "u1", "## New\n\n- a"); err != nil {
+		t.Fatal(err)
+	}
+	upd := rec.last(func(r recorded) bool { return strings.Contains(gqlQuery(r), "description: $d") })
+	if upd == nil || upd.Body["variables"].(map[string]any)["d"] != "## New\n\n- a" {
+		t.Fatalf("description update = %+v", upd)
+	}
+	if err := l.React(ctx, "u1", "c9", "rocket"); err != nil {
+		t.Fatal(err)
+	}
+	in := rec.last(func(r recorded) bool { return strings.Contains(gqlQuery(r), "reactionCreate") }).Body["variables"].(map[string]any)["input"].(map[string]any)
+	if in["emoji"] != "🚀" || in["commentId"] != "c9" || in["issueId"] != nil {
+		t.Fatalf("reaction input = %v", in)
 	}
 	bad := &Linear{APIKey: "nope", URL: rec.srv.URL, HTTP: rec.srv.Client()}
 	if _, err := bad.Teams(ctx); err == nil || !strings.Contains(err.Error(), "rejected the API key") {
@@ -194,6 +210,14 @@ func TestJiraCloud(t *testing.T) {
 	if body, _ := c.Body["body"].(map[string]any); body["type"] != "doc" {
 		t.Fatalf("cloud comment is not ADF: %+v", c.Body)
 	}
+	if err := j.SetDescription(ctx, "OPS-7", "Use **care**\n\n- one"); err != nil {
+		t.Fatal(err)
+	}
+	put := rec.last(func(r recorded) bool { return r.Method == "PUT" })
+	desc, _ := json.Marshal(put.Body["fields"].(map[string]any)["description"])
+	if !strings.Contains(string(desc), `"type":"strong"`) || !strings.Contains(string(desc), `"bulletList"`) {
+		t.Fatalf("cloud description = %s", desc)
+	}
 	if err := j.TransitionByName(ctx, "OPS-7", "done"); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +238,7 @@ func TestJiraServerDataCenter(t *testing.T) {
 	j := &Jira{BaseURL: rec.srv.URL, Token: "pat", HTTP: rec.srv.Client()} // flavor guessed: not atlassian.net → server
 	ctx := context.Background()
 	d, err := j.Issue(ctx, "OPS-7")
-	if err != nil || d.Body != "Plain *wiki* description" || d.Timeline[0].Body != "a v2 comment" {
+	if err != nil || d.Body != "Plain **wiki** description" || d.Timeline[0].Body != "a v2 comment" {
 		t.Fatalf("detail = %+v %v", d, err)
 	}
 	if _, err := j.Search(ctx, "project = OPS", 5); err != nil {
@@ -230,6 +254,12 @@ func TestJiraServerDataCenter(t *testing.T) {
 	c := rec.last(func(r recorded) bool { return strings.HasSuffix(r.Path, "/comment") })
 	if c.Body["body"] != "done" {
 		t.Fatalf("server comment body = %+v", c.Body)
+	}
+	if err := j.Comment(ctx, "OPS-7", "a **bold** `call`"); err != nil {
+		t.Fatal(err)
+	}
+	if c := rec.last(func(r recorded) bool { return strings.HasSuffix(r.Path, "/comment") }); c.Body["body"] != "a *bold* {{call}}" {
+		t.Fatalf("server comment is not wiki markup: %+v", c.Body)
 	}
 	if JiraFlavor("https://acme.atlassian.net", "") != "cloud" || JiraFlavor("https://jira.corp", "") != "server" {
 		t.Fatal("flavor guess")

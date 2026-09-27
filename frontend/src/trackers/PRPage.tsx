@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Modal } from "../sessions/Modal";
 import { Markdown } from "../sessions/markdown";
 import { errorText, type Notice, type TrackerApi } from "./api";
-import { Avatar, CheckIcon, ChecksBadge, Labels, NamePicker, Reactions, ReviewBadge, StatePill, Timeline } from "./bits";
-import { ago, itemMark, mergeButtonLabel, mergeState, methodLabel, SOURCE_NAME } from "./logic";
+import { Avatar, CheckIcon, ChecksBadge, Labels, NamePicker, ReactionBar, ReviewBadge, StatePill, Timeline } from "./bits";
+import { ago, canReact, itemMark, mergeButtonLabel, mergeState, methodLabel, SOURCE_NAME } from "./logic";
 import { StartWork, type StartedWork } from "./StartWork";
 import type { Check, Conflicts, ForgeMeta, ItemRef, MergeMethod, PRDetail } from "./types";
 
@@ -22,6 +22,7 @@ export function PRPage({
   onNotice,
   onChanged,
   onStarted,
+  onQueue,
 }: {
   api: TrackerApi;
   projectId: number;
@@ -31,6 +32,8 @@ export function PRPage({
   onNotice: Notice;
   onChanged(): void;
   onStarted(result: StartedWork): void;
+  /** opens the merge queue view, where the host has one */
+  onQueue?(): void;
 }) {
   const base = `/projects/${projectId}/forge`;
   const [pr, setPr] = useState<PRDetail>();
@@ -179,11 +182,12 @@ export function PRPage({
           </span>
         </div>
         <div className="th-pr-meta th-muted">
-          <span className="th-diffstat">
+          {(pr.changed_files > 0 || pr.additions > 0 || pr.deletions > 0) && <span className="th-diffstat">
             <span className="th-add-n">+{pr.additions}</span> <span className="th-del-n">−{pr.deletions}</span> · {pr.changed_files} files
-          </span>
+          </span>}
           <span>updated {ago(pr.updated_at)}</span>
-          <Reactions reactions={pr.reactions} />
+          <ReactionBar reactions={pr.reactions} label={`#${pr.id}`}
+            onReact={canReact(pr.source) ? async (emoji) => { await act("", `/prs/${pr.id}/reactions`, { emoji }, "Reaction added"); } : undefined} />
         </div>
       </header>
 
@@ -315,6 +319,11 @@ export function PRPage({
           <button className="b" onClick={() => setStarting(true)}>
             Start session
           </button>
+          {onQueue && (pr.merge.merge_queue || pr.auto_merge) && (
+            <button className="b" id="th-view-queue" onClick={onQueue}>
+              {pr.source === "gitlab" ? "Merge train" : "Merge queue"}
+            </button>
+          )}
         </div>
       </section>
 
@@ -401,6 +410,7 @@ export function PRPage({
           onComment={async (body) => {
             await act("", `/prs/${pr.id}/comments`, { body }, "Comment posted");
           }}
+          onReact={canReact(pr.source) ? async (subject, emoji) => { await act("", `/prs/${pr.id}/reactions`, { subject, emoji }, "Reaction added"); } : undefined}
         />
       </section>
 

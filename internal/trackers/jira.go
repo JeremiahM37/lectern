@@ -317,8 +317,9 @@ func (j *Jira) Issue(ctx context.Context, key string) (*IssueDetail, error) {
 	if err := j.do(ctx, "GET", path, nil, &i); err != nil {
 		return nil, err
 	}
-	d := &IssueDetail{Item: j.item(i), Body: i.Description(), CreatedAt: i.Fields.Created,
-		Children: []Item{}, Timeline: []Event{}, Transitions: []Transition{}, BranchName: BranchName(i.Key, i.Fields.Summary)}
+	d := &IssueDetail{Item: j.item(i), Body: j.markdown(i.Fields.Description), CreatedAt: i.Fields.Created, Editable: true,
+		BodyLossy: j.cloud() && ADFLossy(i.Fields.Description),
+		Children:  []Item{}, Timeline: []Event{}, Transitions: []Transition{}, BranchName: BranchName(i.Key, i.Fields.Summary)}
 	for _, s := range i.Fields.Subtasks {
 		d.Children = append(d.Children, j.item(s))
 	}
@@ -328,7 +329,7 @@ func (j *Jira) Issue(ctx context.Context, key string) (*IssueDetail, error) {
 	}
 	if i.Fields.Comment != nil {
 		for _, c := range i.Fields.Comment.Comments {
-			d.Timeline = append(d.Timeline, Event{Kind: "comment", Author: c.Author.label(), Body: richText(c.Body), At: c.Created})
+			d.Timeline = append(d.Timeline, Event{Kind: "comment", Author: c.Author.label(), Body: j.markdown(c.Body), At: c.Created})
 		}
 	}
 	if ts, err := j.Transitions(ctx, key); err == nil {
@@ -388,13 +389,32 @@ func (j *Jira) TransitionByName(ctx context.Context, key, name string) error {
 	return fmt.Errorf("issue %s has no transition to %q from its current status", key, name)
 }
 
-// Comment adds a plain-text comment: ADF on Cloud, a string on Server.
+// Comment adds a comment written in Markdown: converted to ADF on Cloud and
+// to wiki markup on Server/Data Center.
 func (j *Jira) Comment(ctx context.Context, key, body string) error {
-	var payload any = map[string]any{"body": body}
+	return j.do(ctx, "POST", j.api()+"/issue/"+url.PathEscape(key)+"/comment", map[string]any{"body": j.rich(body)}, nil)
+}
+
+// SetDescription replaces the issue's description with Markdown, converted
+// the same way as a comment.
+func (j *Jira) SetDescription(ctx context.Context, key, md string) error {
+	return j.do(ctx, "PUT", j.api()+"/issue/"+url.PathEscape(key), map[string]any{"fields": map[string]any{"description": j.rich(md)}}, nil)
+}
+
+func (j *Jira) rich(md string) any {
 	if j.cloud() {
-		payload = map[string]any{"body": textADF(body)}
+		return MarkdownToADF(md)
 	}
-	return j.do(ctx, "POST", j.api()+"/issue/"+url.PathEscape(key)+"/comment", payload, nil)
+	return MarkdownToWiki(md)
+}
+
+// markdown renders a description or comment body for the editor: ADF on
+// Cloud, wiki markup on Server.
+func (j *Jira) markdown(raw json.RawMessage) string {
+	if j.cloud() {
+		return richText(raw)
+	}
+	return WikiToMarkdown(richText(raw))
 }
 
 // Myself is the token's own user, for Test connection.
@@ -432,6 +452,7 @@ func richText(raw json.RawMessage) string {
 type adfNode struct {
 	Type    string         `json:"type"`
 	Text    string         `json:"text"`
+	Marks   []adfMark      `json:"marks"`
 	Attrs   map[string]any `json:"attrs"`
 	Content []adfNode      `json:"content"`
 }
@@ -439,7 +460,7 @@ type adfNode struct {
 func (n adfNode) write(b *strings.Builder, indent string) {
 	switch n.Type {
 	case "text":
-		b.WriteString(n.Text)
+		b.WriteString(adfMarked(n))
 	case "hardBreak":
 		b.WriteString("\n" + indent)
 	case "mention", "emoji", "status":
@@ -472,7 +493,7 @@ func (n adfNode) write(b *strings.Builder, indent string) {
 			b.WriteString(indent + mark)
 			var inner strings.Builder
 			item.children(&inner, indent+"  ")
-			b.WriteString(strings.TrimSpace(inner.String()) + "\n")
+			b.WriteString(strings.ReplaceAll(strings.TrimSpace(inner.String()), "\n\n", "\n") + "\n")
 		}
 		b.WriteString("\n")
 	case "codeBlock":

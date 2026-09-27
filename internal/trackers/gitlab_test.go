@@ -32,7 +32,7 @@ func gitlabFake() *fakeExec {
 
 func TestGitLabMRDetail(t *testing.T) {
 	f := gitlabFake()
-	g := NewGitLab(f, RepoRef{"gitlab", "gitlab.com", "grp/sub/app"})
+	g := NewGitLab(f, RepoRef{Kind: "gitlab", Host: "gitlab.com", Path: "grp/sub/app"})
 	d, err := g.PR(context.Background(), 7)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestGitLabWritesSendJSONBodies(t *testing.T) {
 		on("-X PUT projects/grp%2Fapp/merge_requests/7/merge", `{"state":"merged"}`).
 		on("-X PUT projects/grp%2Fapp/merge_requests/7", `{}`).
 		exact("glab api --hostname gitlab.example.com projects/grp%2Fapp/merge_requests/7", `{"iid":7,"reviewers":[{"id":5,"username":"sam"},{"id":6,"username":"riley"}]}`)
-	g := NewGitLab(f, RepoRef{"gitlab", "gitlab.example.com", "grp/app"})
+	g := NewGitLab(f, RepoRef{Kind: "gitlab", Host: "gitlab.example.com", Path: "grp/app"})
 	ctx := context.Background()
 	if _, err := g.Merge(ctx, 7, MergeRequest{Method: "rebase"}); err == nil {
 		t.Fatal("rebase accepted on GitLab")

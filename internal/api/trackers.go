@@ -62,6 +62,12 @@ func (s *Server) registerTrackerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/trackers/{tid}/issues/{key}", s.trackerIssue)
 	mux.HandleFunc("POST /api/trackers/{tid}/issues/{key}/status", s.trackerIssueStatus)
 	mux.HandleFunc("POST /api/trackers/{tid}/issues/{key}/comments", s.trackerIssueComment)
+
+	mux.HandleFunc("POST /api/projects/{id}/forge/{kind}/{n}/reactions", s.forgeReact)
+	mux.HandleFunc("POST /api/trackers/{tid}/issues/{key}/reactions", s.trackerIssueReact)
+	mux.HandleFunc("POST /api/trackers/{tid}/issues/{key}/description", s.trackerIssueDescription)
+	mux.HandleFunc("GET /api/projects/{id}/forge/queue", s.forgeQueue)
+	mux.HandleFunc("POST /api/projects/{id}/forge/queue/remove", s.forgeDequeue)
 }
 
 // trackerHuman is the write gate — see the file comment.
@@ -144,11 +150,20 @@ func validateTracker(kind, configJSON string) error {
 	cfg := store.UnjObj(configJSON)
 	str := func(k string) string { v, _ := cfg[k].(string); return strings.TrimSpace(v) }
 	switch kind {
-	case "github", "gitlab":
+	case "github", "gitlab", "bitbucket", "gitea", "azure":
 		if repo := str("repo"); repo != "" {
-			if _, err := trackers.ParseRemote("https://"+firstNonEmptyStr(str("host"), kind+".com")+"/"+repo, kind); err != nil {
+			if kind == "gitea" && str("host") == "" {
+				return fmt.Errorf(`a Gitea/Forgejo repository needs its "host"`)
+			}
+			if _, err := trackers.ParseRemote("https://"+firstNonEmptyStr(str("host"), forgeDefaultHost[kind])+"/"+repo, kind); err != nil {
 				return err
 			}
+		}
+		if b := str("base_url"); b != "" && !strings.HasPrefix(b, "https://") && !strings.HasPrefix(b, "http://") {
+			return fmt.Errorf(`"base_url" must be an http(s) URL`)
+		}
+		if f := str("flavor"); f != "" && f != "cloud" && f != "server" {
+			return fmt.Errorf(`"flavor" must be cloud or server`)
 		}
 	case "linear":
 	case "jira":
@@ -160,7 +175,7 @@ func validateTracker(kind, configJSON string) error {
 			return fmt.Errorf(`jira "flavor" must be cloud or server`)
 		}
 	default:
-		return fmt.Errorf("unknown tracker kind %q; use github, gitlab, linear or jira", kind)
+		return fmt.Errorf("unknown tracker kind %q; use github, gitlab, bitbucket, gitea, azure, linear or jira", kind)
 	}
 	return nil
 }
@@ -185,7 +200,7 @@ func (s *Server) createTracker(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		name = map[string]string{"github": "GitHub", "gitlab": "GitLab", "linear": "Linear", "jira": "Jira"}[in.Kind]
+		name = forgeName[in.Kind]
 	}
 	c, err := s.DB.InsertTrackerConnection(&store.TrackerConnection{ProjectID: proj.ID, Kind: in.Kind, Name: name,
 		ConfigJSON: configJSON, SecretsJSON: secretsJSON})
@@ -297,7 +312,11 @@ func (s *Server) testTracker(w http.ResponseWriter, r *http.Request) {
 			var f trackers.Forge
 			if f, err = s.projectForge(ctx, proj); err == nil {
 				if _, err = f.List(ctx, "pr", trackers.Filter{Limit: 1}); err == nil {
-					msg = fmt.Sprintf("%s on %s can read %s", map[string]string{"github": "gh", "gitlab": "glab"}[f.Kind()], proj.TargetName, f.Repo().Path)
+					if cli := map[string]string{"github": "gh", "gitlab": "glab"}[f.Kind()]; cli != "" {
+						msg = fmt.Sprintf("%s on %s can read %s", cli, proj.TargetName, f.Repo().Path)
+					} else {
+						msg = fmt.Sprintf("the %s token can read %s", forgeName[f.Kind()], f.Repo().Path)
+					}
 				}
 			}
 		}
@@ -424,17 +443,21 @@ func (s *Server) forgeCacheDrop(projectID int64) {
 // costs an ssh round trip).
 func (s *Server) forgeRef(ctx context.Context, proj *store.Project) (trackers.RepoRef, string, error) {
 	conns, _ := s.DB.TrackerConnections(proj.ID)
-	hint := ""
+	hint, flavor := "", ""
 	for _, c := range conns {
-		if c.Kind != "github" && c.Kind != "gitlab" {
+		if !isForgeKind(c.Kind) {
 			continue
 		}
 		hint = c.Kind
 		cfg := store.UnjObj(c.ConfigJSON)
 		repo, _ := cfg["repo"].(string)
 		host, _ := cfg["host"].(string)
+		flavor, _ = cfg["flavor"].(string)
 		if strings.TrimSpace(repo) != "" {
-			ref, err := trackers.ParseRemote("https://"+firstNonEmptyStr(strings.TrimSpace(host), c.Kind+".com")+"/"+strings.TrimSpace(repo), c.Kind)
+			ref, err := trackers.ParseRemote("https://"+firstNonEmptyStr(strings.TrimSpace(host), forgeDefaultHost[c.Kind])+"/"+strings.TrimSpace(repo), c.Kind)
+			if flavor != "" {
+				ref.Flavor = flavor
+			}
 			return ref, "connection", err
 		}
 	}
@@ -443,7 +466,11 @@ func (s *Server) forgeRef(ctx context.Context, proj *store.Project) (trackers.Re
 	e, ok := forgeCache[key]
 	forgeCacheMu.Unlock()
 	if ok && time.Since(e.at) < 10*time.Minute && (hint == "" || e.ref.Kind == hint) {
-		return e.ref.RepoRef, e.ref.Source, nil
+		ref := e.ref.RepoRef
+		if flavor != "" {
+			ref.Flavor = flavor
+		}
+		return ref, e.ref.Source, nil
 	}
 	ex, err := s.trackerExec(proj)
 	if err != nil {
@@ -466,19 +493,63 @@ func (s *Server) forgeRef(ctx context.Context, proj *store.Project) (trackers.Re
 	return ref, "remote", nil
 }
 
+// forgeName and forgeDefaultHost describe the code hosts a project's
+// repository can live on.
+var forgeName = map[string]string{"github": "GitHub", "gitlab": "GitLab", "bitbucket": "Bitbucket", "gitea": "Gitea",
+	"azure": "Azure DevOps", "linear": "Linear", "jira": "Jira"}
+
+var forgeDefaultHost = map[string]string{"github": "github.com", "gitlab": "gitlab.com", "bitbucket": "bitbucket.org", "azure": "dev.azure.com"}
+
+func isForgeKind(k string) bool {
+	return k == "github" || k == "gitlab" || k == "bitbucket" || k == "gitea" || k == "azure"
+}
+
+// projectForge is the adapter for the project's repository. GitHub and
+// GitLab go through the target's own CLI login; Bitbucket, Gitea/Forgejo and
+// Azure DevOps go over HTTP with the token of the project's connection of
+// that kind, from the Lectern server, like Linear and Jira.
 func (s *Server) projectForge(ctx context.Context, proj *store.Project) (trackers.Forge, error) {
 	ref, _, err := s.forgeRef(ctx, proj)
 	if err != nil {
 		return nil, err
 	}
-	ex, err := s.trackerExec(proj)
-	if err != nil {
-		return nil, err
+	switch ref.Kind {
+	case "github", "gitlab":
+		ex, err := s.trackerExec(proj)
+		if err != nil {
+			return nil, err
+		}
+		if ref.Kind == "gitlab" {
+			return trackers.NewGitLab(ex, ref), nil
+		}
+		return trackers.NewGitHub(ex, ref), nil
 	}
-	if ref.Kind == "gitlab" {
-		return trackers.NewGitLab(ex, ref), nil
+	conns, _ := s.DB.TrackerConnections(proj.ID)
+	for _, c := range conns {
+		if c.Kind != ref.Kind {
+			continue
+		}
+		cfg := store.UnjObj(c.ConfigJSON)
+		str := func(k string) string { v, _ := cfg[k].(string); return strings.TrimSpace(v) }
+		var sec struct {
+			Token string `json:"token"`
+		}
+		_ = json.Unmarshal([]byte(c.SecretsJSON), &sec)
+		if sec.Token == "" {
+			break
+		}
+		cr := trackers.Creds{BaseURL: str("base_url"), Username: str("username"), Token: sec.Token}
+		switch ref.Kind {
+		case "bitbucket":
+			return trackers.NewBitbucket(ref, cr, s.trackerHTTP()), nil
+		case "gitea":
+			return trackers.NewGitea(ref, cr, s.trackerHTTP()), nil
+		case "azure":
+			return trackers.NewAzure(ref, cr, s.trackerHTTP()), nil
+		}
 	}
-	return trackers.NewGitHub(ex, ref), nil
+	return nil, fmt.Errorf("this project's repository is on %s (%s); add a %s connection with an access token in the project's Tasks hub settings",
+		forgeName[ref.Kind], ref.Path, forgeName[ref.Kind])
 }
 
 // ---- the hub list --------------------------------------------------------

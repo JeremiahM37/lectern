@@ -1,0 +1,23 @@
+[
+ {
+  "id": 16761759441,
+  "name": "user5",
+  "stage": "docs",
+  "status": "manual",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/jobs/16761759441"
+ },
+ {
+  "id": 16761759440,
+  "name": "user6",
+  "stage": "docs",
+  "status": "manual",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/jobs/16761759440"
+ },
+ {
+  "id": 16761759439,
+  "name": "user7",
+  "stage": "postrelease",
+  "status": "created",
+  "web_url": "https://gitlab.com/gitlab-org/gitlab-runner/-/jobs/16761759439"
+ }
+]

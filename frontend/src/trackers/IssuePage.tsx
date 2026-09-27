@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Markdown } from "../sessions/markdown";
 import { errorText, issuePath, type Notice, type TrackerApi } from "./api";
-import { Labels, NamePicker, Reactions, StatePill, Timeline } from "./bits";
-import { ago, itemMark, SOURCE_NAME } from "./logic";
+import { Labels, NamePicker, ReactionBar, StatePill, Timeline } from "./bits";
+import { RichEditor } from "./RichEditor";
+import { ago, canReact, isForge, itemMark, SOURCE_NAME } from "./logic";
 import { StartWork, type StartedWork } from "./StartWork";
 import type { ForgeMeta, IssueDetail, ItemRef } from "./types";
 
@@ -28,12 +29,14 @@ export function IssuePage({
   onChanged(): void;
   onStarted(result: StartedWork): void;
 }) {
-  const forge = item.source === "github" || item.source === "gitlab";
+  const forge = isForge(item.source);
   const [issue, setIssue] = useState<IssueDetail>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [meta, setMeta] = useState<ForgeMeta>();
   const [starting, setStarting] = useState(false);
+  const [editing, setEditing] = useState<string>();
+  const [lossyOK, setLossyOK] = useState(false);
   const path = issuePath(projectId, item);
 
   const load = useCallback(async () => {
@@ -59,6 +62,23 @@ export function IssuePage({
       onNotice(done);
       if ("id" in fresh) setIssue(fresh);
       else await load();
+      onChanged();
+    } catch (e) {
+      onNotice(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveDescription() {
+    if (editing === undefined) return;
+    setBusy(true);
+    try {
+      const fresh = await api.request<IssueDetail>(`${path}/description`, { method: "POST", body: { body: editing, confirm_lossy: lossyOK } });
+      if (fresh && "id" in fresh) setIssue(fresh);
+      else await load();
+      setEditing(undefined);
+      onNotice("Description saved");
       onChanged();
     } catch (e) {
       onNotice(errorText(e), true);
@@ -113,7 +133,8 @@ export function IssuePage({
           {issue.assignees.length > 0 && <span>assigned to {issue.assignees.join(", ")}</span>}
           {issue.priority && <span className="th-badge">{issue.priority}</span>}
           <span className="th-muted">updated {ago(issue.updated_at)}</span>
-          <Reactions reactions={issue.reactions} />
+          <ReactionBar reactions={issue.reactions} label={itemMark(issue)}
+            onReact={canReact(item.source) ? async (emoji) => { await post("reactions", { emoji }, "Reaction added"); } : undefined} />
         </div>
       </header>
 
@@ -198,8 +219,41 @@ export function IssuePage({
       </section>
 
       <section className="th-section th-desc" aria-label="Description">
-        <h3>Description</h3>
-        <div className="th-md">{issue.body ? <Markdown text={issue.body} /> : <p className="th-muted">No description.</p>}</div>
+        <h3>
+          Description
+          {issue.editable && editing === undefined && (
+            <button type="button" className="b th-edit-btn" onClick={() => { setEditing(issue.body); setLossyOK(false); }}>
+              Edit
+            </button>
+          )}
+        </h3>
+        {editing !== undefined ? (
+          <form
+            className="th-desc-edit"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveDescription();
+            }}
+          >
+            {issue.body_lossy && (
+              <label className="th-warn th-check">
+                <input type="checkbox" checked={lossyOK} onChange={(e) => setLossyOK(e.target.checked)} />
+                This description has formatting the editor cannot keep (a table, panel, colour or attachment). Saving replaces it.
+              </label>
+            )}
+            <RichEditor label="Description" value={editing} onChange={setEditing} rows={10} autoFocus />
+            <div className="btnrow">
+              <button className="b ok" type="submit" disabled={busy || (issue.body_lossy && !lossyOK)}>
+                {busy ? "Saving…" : "Save description"}
+              </button>
+              <button className="b" type="button" onClick={() => setEditing(undefined)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="th-md">{issue.body ? <Markdown text={issue.body} /> : <p className="th-muted">No description.</p>}</div>
+        )}
       </section>
 
       <section className="th-section" aria-label="Comments">
@@ -209,6 +263,7 @@ export function IssuePage({
           onComment={async (body) => {
             await post("comments", { body }, "Comment posted");
           }}
+          onReact={canReact(item.source) ? async (subject, emoji) => { await post("reactions", { subject, emoji }, "Reaction added"); } : undefined}
         />
       </section>
 

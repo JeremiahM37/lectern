@@ -5,14 +5,42 @@ import type { Item, ItemRef, MergeMethod, PRDetail, Source, Transition } from ".
 export const SOURCE_NAME: Record<Source, string> = {
   github: "GitHub",
   gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  gitea: "Gitea",
+  azure: "Azure DevOps",
   linear: "Linear",
   jira: "Jira",
 };
 
+/** A code host (pull requests live there), as opposed to an issue tracker. */
+export function isForge(source: Source): boolean {
+  return source === "github" || source === "gitlab" || source === "bitbucket" || source === "gitea" || source === "azure";
+}
+
+/** Items that come with workflow statuses rather than open/closed. */
+export function hasStatuses(item: Pick<Item, "source" | "kind">): boolean {
+  return item.source === "linear" || item.source === "jira" || (item.source === "azure" && item.kind === "issue");
+}
+
+/** Hosts where Lectern can add emoji reactions. */
+export function canReact(source: Source): boolean {
+  return source === "github" || source === "gitlab" || source === "gitea" || source === "linear";
+}
+
+/** Reaction names the API takes, with how they look. */
+export const EMOJIS: [string, string][] = [
+  ["+1", "👍"], ["-1", "👎"], ["laugh", "😄"], ["hooray", "🎉"], ["confused", "😕"], ["heart", "❤️"], ["rocket", "🚀"], ["eyes", "👀"],
+];
+
+/** The Issues tab's name for a host. */
+export function issuesLabel(kind?: Source): string {
+  return kind === "azure" ? "Work items" : "Issues";
+}
+
 /** The short mark a list row shows before the id. */
 export function itemMark(item: Pick<Item, "source" | "kind" | "id">): string {
-  if (item.source === "github" || item.source === "gitlab") {
-    const sep = item.kind === "pr" ? (item.source === "gitlab" ? "!" : "#") : "#";
+  if (isForge(item.source)) {
+    const sep = item.kind === "pr" && (item.source === "gitlab" || item.source === "azure") ? "!" : "#";
     return sep + item.id;
   }
   return item.id;
@@ -20,7 +48,7 @@ export function itemMark(item: Pick<Item, "source" | "kind" | "id">): string {
 
 // ---- deep links ------------------------------------------------------------
 
-const SOURCES: Source[] = ["github", "gitlab", "linear", "jira"];
+const SOURCES: Source[] = ["github", "gitlab", "bitbucket", "gitea", "azure", "linear", "jira"];
 
 /** Reads #tasks/<project>[/<source>/<kind>/<id>[/<connection>]]. */
 export function parseTasksHash(hash: string): { project?: number; ref?: ItemRef } {
@@ -128,7 +156,7 @@ export function boardColumns(items: Item[], states: Transition[] = []): Column[]
 }
 
 function columnTitle(item: Item): string {
-  if (item.source === "linear" || item.source === "jira") return item.state || "No status";
+  if (hasStatuses(item)) return item.state || "No status";
   if (item.kind === "pr") {
     if (item.state !== "open") return item.state === "merged" ? "Merged" : "Closed";
     if (item.draft) return "Draft";
