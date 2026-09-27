@@ -65,6 +65,10 @@ def test_tools_menu_is_placed_during_activation(page, real_terminal):
     assert hit['inside'], f'Tools must be usable on its first frame: {hit}'
 
 
+def shown_panes(page):
+    return page.locator('#terminal-workspace .terminal-tabpanel:not([hidden])')
+
+
 def test_split_view_runs_two_agents_side_by_side(page,real_terminal):
     t=real_terminal;errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     second=second_session(t)
@@ -74,13 +78,14 @@ def test_split_view_runs_two_agents_side_by_side(page,real_terminal):
     split=page.get_by_role('button',name='◫ Split')
     expect(split).to_be_enabled()
     split.click()
-    primary=page.locator('.terminal-tabpanel[data-slot="primary"]')
-    secondary=page.locator('.terminal-tabpanel[data-slot="secondary"]')
-    expect(primary).to_be_visible();expect(secondary).to_be_visible()
-    left=primary.bounding_box();right=secondary.bounding_box()
-    assert left['width']>200 and right['width']>200,(left,right)
-    assert abs(left['x']+left['width']-right['x'])<=2,(left,right)
-    assert abs(left['y']-right['y'])<=1 and abs(left['height']-right['height'])<=1,(left,right)
+    expect(shown_panes(page)).to_have_count(2)
+    # The visible pane stays where it was; the most recent other tab joins it.
+    left=page.locator('.terminal-tabpanel:has(iframe[src="/terminal/session/%d?embed=1"])'%second['id'])
+    right=page.locator('.terminal-tabpanel:has(iframe[src="/terminal/session/%d?embed=1"])'%t['id'])
+    a=left.bounding_box();b=right.bounding_box()
+    assert a['width']>200 and b['width']>200,(a,b)
+    assert abs(a['x']+a['width']-b['x'])<=2,(a,b)
+    assert abs(a['y']-b['y'])<=1 and abs(a['height']-b['height'])<=1,(a,b)
     # Both panes stay live: each keystroke has to land in its own tmux session.
     two.locator('#agent-terminal').click()
     page.keyboard.type('echo RIGHT-PANE-PROOF');page.keyboard.press('Enter')
@@ -90,15 +95,17 @@ def test_split_view_runs_two_agents_side_by_side(page,real_terminal):
     expect(one.locator('#agent-terminal .xterm-screen')).to_contain_text('LEFT-PANE-PROOF')
     assert 'LEFT-PANE-PROOF' in capture(t) and 'RIGHT-PANE-PROOF' not in capture(t)
     assert 'RIGHT-PANE-PROOF' in capture(t,'second-terminal')
-    # Sending a tab to the pane holding the other one swaps them rather than
-    # showing the same session twice.
+    # Typing into a pane makes it the focused one.
+    expect(right).to_have_attribute('data-focused','true')
+    expect(left).to_have_attribute('data-focused','false')
+    # Choosing a tab that is already on screen focuses its pane, never shows
+    # the same session twice.
     page.get_by_role('tab',name='Second terminal',exact=True).click()
-    expect(page.locator('.terminal-tabpanel[data-slot="primary"] iframe')).to_have_attribute(
-        'src',f'/terminal/session/{second["id"]}?embed=1')
-    expect(page.locator('.terminal-tabpanel[data-slot="secondary"] iframe')).to_have_attribute(
-        'src',f'/terminal/session/{t["id"]}?embed=1')
+    expect(left).to_have_attribute('data-focused','true')
+    expect(shown_panes(page)).to_have_count(2)
     page.get_by_role('button',name='◫ Unsplit').click()
-    expect(page.locator('.terminal-tabpanel[data-slot]')).to_have_count(0)
+    expect(shown_panes(page)).to_have_count(1)
+    expect(page.locator('.terminal-panels.split')).to_have_count(0)
     expect(two.locator('#agent-terminal .xterm-screen')).to_contain_text('RIGHT-PANE-PROOF')
     assert not errors,errors
 
@@ -111,9 +118,11 @@ def test_split_button_needs_a_second_terminal_and_stays_off_when_narrow(page,rea
     second=second_session(t)
     attach(page,'Second terminal');ready(frame(page,second['id']))
     page.get_by_role('button',name='◫ Split').click()
-    expect(page.locator('.terminal-tabpanel[data-slot="secondary"]')).to_be_visible()
-    # A phone has no room for two panes, so the split stands down to one.
+    expect(shown_panes(page)).to_have_count(2)
+    # A phone has no room for two panes, so the layout shows one at a time and
+    # keeps the split for when there is width again.
     page.set_viewport_size({'width':390,'height':844})
-    expect(page.locator('.terminal-tabpanel[data-slot]')).to_have_count(0)
+    expect(shown_panes(page)).to_have_count(1)
+    expect(page.locator('.ws-group-head')).to_have_count(0)
     page.set_viewport_size({'width':1440,'height':900})
-    expect(page.locator('.terminal-tabpanel[data-slot="secondary"]')).to_be_visible()
+    expect(shown_panes(page)).to_have_count(2)

@@ -76,6 +76,8 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 	if event == agentevents.EventPostToolUse || event == agentevents.EventNotification {
 		s.Broker.ExpireForSession(sess.ID)
 	}
+	// Line attribution (docs/review.md): remember what the agent wrote.
+	s.recordAgentLines(sess, event, body)
 	if event == agentevents.EventPermissionRequest && sess.PermissionMode == "ask" {
 		s.holdSessionPermissionRequest(w, r, sess, body)
 		return

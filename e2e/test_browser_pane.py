@@ -7,6 +7,7 @@ target. Nothing here talks to the live service.
 """
 import glob
 import json
+import re
 import os
 import secrets
 import shutil
@@ -50,6 +51,10 @@ def shop(tmp_path, real_terminal):
     site = tmp_path / 'shop'
     (site / 'assets').mkdir(parents=True)
     (site / 'index.html').write_text(SHOP)
+    (site / 'more.html').write_text('<title>More</title><p>Needle one, needle two, needle three.</p>'
+                                    '<a id="pop" href="/index.html" target="_blank">Open shop in a new tab</a> '
+                                    '<a id="dl" href="/report.csv" download>Download report</a>')
+    (site / 'report.csv').write_text('a,b\n1,2\n')
     (site / 'assets' / 'app.js').write_text(APP_JS)
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
@@ -308,6 +313,21 @@ def test_computer_use_is_off_until_allowed_and_stops_on_demand(page, real_termin
     expect(pane.locator('.desk .browser-control')).to_contain_text('may control', timeout=10000)
     # The agent can see what is on screen: the desktop's browser window, by name.
     wait_for('the desktop browser window', lambda: 'Fixture shop' in mcp(t, ('computer_windows', {}))[0]['text'], timeout=30)
+    # By element: the accessibility tree names the page's own button.
+    last = {}
+
+    def read_tree():
+        last['r'] = mcp(t, ('computer_snapshot', {}))[0]
+        return not last['r']['error'] and 'button "Save"' in json.loads(last['r']['text'])['tree'] and last['r']
+    try:
+        snap = wait_for('the page in the accessibility tree', read_tree, timeout=30)
+    except AssertionError:
+        raise AssertionError(f"no Save button in the accessibility tree: {last.get('r', {}).get('text', '')[:3000]}")
+    tree = json.loads(snap['text'])['tree']
+    ref = int(next(l for l in tree.splitlines() if 'button "Save"' in l).split('[ref=')[1].split(']')[0])
+    pressed, = mcp(t, ('computer_click', {'ref': ref}))
+    assert not pressed['error'] and '"via": "accessibility"' in pressed['text'], pressed
+    wait_for('the click to land', lambda: 'static "saved' in json.loads(mcp(t, ('computer_snapshot', {}))[0]['text'])['tree'], timeout=20)
     shot, click = mcp(t, ('computer_screenshot', {}), ('computer_click', {'x': 50, 'y': 60}))
     assert not shot['error'] and shot['content'][1]['type'] == 'image', shot
     assert not click['error'], click
@@ -410,3 +430,67 @@ def test_the_shared_browser_and_design_mode_work_over_the_relay(browser, browser
         assert sockets and all(f':{browser_relay}/' in u for u in sockets), sockets
     finally:
         ctx.close()
+
+
+@pytest.mark.parametrize('real_terminal', LIVE, indirect=True)
+def test_tabs_find_cookies_downloads_and_profiles(page, real_terminal, shop, tmp_path):
+    t = real_terminal
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.set_viewport_size({'width': 1440, 'height': 900})
+    pane = open_pane(page, t)
+    pane.get_by_role('radio', name='Shared browser').check()
+    pane.get_by_label('Address').fill(f'localhost:{shop}/more.html')
+    pane.get_by_role('button', name='Go').click()
+    expect(pane.locator('.browser-tab.on')).to_contain_text('More', timeout=30000)
+    # Find in page.
+    pane.get_by_role('button', name='Find', exact=True).click()
+    pane.get_by_label('Find in page').fill('needle')
+    pane.get_by_label('Find in page').press('Enter')
+    expect(pane.locator('.browser-find [role=status]')).to_have_text('1 of 3')
+    pane.get_by_role('button', name='Next match').click()
+    expect(pane.locator('.browser-find [role=status]')).to_have_text('2 of 3')
+    # A link that opens a new window becomes a tab, and the agent can list it.
+    mcp(t, ('browser_click', {'selector': '#pop'}))
+    expect(pane.locator('.browser-tab')).to_have_count(2, timeout=15000)
+    expect(pane.locator('.browser-tab.on')).to_contain_text('Fixture shop')
+    tabs = json.loads(mcp(t, ('browser_tabs', {}))[0]['text'])['tabs']
+    assert [x['title'] for x in tabs] == ['More', 'Fixture shop'] and tabs[1]['active'], tabs
+    # The agent acts on a tab by id without switching the operator's view.
+    first = tabs[0]['id']
+    found, = mcp(t, ('browser_evaluate', {'expression': 'document.title', 'tab': first}))
+    assert '"value": "More"' in found['text'], found
+    expect(pane.locator('.browser-tab.on')).to_contain_text('Fixture shop')
+    pane.locator('.browser-tab', has_text='Fixture shop').get_by_role('button', name=re.compile('Close tab')).click()
+    expect(pane.locator('.browser-tab')).to_have_count(1)
+    # A download lands in the workspace and shows on the shelf.
+    mcp(t, ('browser_click', {'selector': '#dl'}))
+    shelf = pane.locator('.browser-downloads li', has_text='report.csv')
+    expect(shelf.get_by_role('button', name='Save')).to_be_visible(timeout=20000)
+    saved = Path(t['root']) / '.lectern' / 'downloads' / 'report.csv'
+    assert saved.read_text() == 'a,b\n1,2\n'
+    with page.expect_download() as dl:
+        shelf.get_by_role('button', name='Save').click()
+    assert Path(dl.value.path()).read_text() == 'a,b\n1,2\n'
+    # Cookies from a file, only for the sites asked for.
+    cookies = tmp_path / 'cookies.txt'
+    cookies.write_text('# Netscape HTTP Cookie File\n'
+                       f'localhost\tFALSE\t/\tFALSE\t{int(time.time()) + 3600}\tsignedin\tyes\n'
+                       f'other.example\tTRUE\t/\tFALSE\t0\tnot\tme\n')
+    pane.get_by_role('button', name='Cookies').click()
+    pane.get_by_label('Only these sites').fill('localhost')
+    pane.get_by_label('Cookies file').set_input_files(str(cookies))
+    expect(pane.locator('.browser-cookies [role=status]')).to_contain_text('Imported 1 cookies for 1 sites', timeout=20000)
+    mcp(t, ('browser_navigate', {'url': f'http://localhost:{shop}/index.html'}))
+    got, = mcp(t, ('browser_evaluate', {'expression': 'document.cookie'}))
+    assert '"value": "signedin=yes"' in got['text'], got
+    evidence(page, 'tabs-downloads.png')
+    # Profiles: the cookie lives in this profile, not in a new one.
+    profile = pane.get_by_label('Browser profile')
+    page.once('dialog', lambda d: d.accept('work'))
+    profile.select_option('__new')
+    expect(profile).to_have_value('work', timeout=30000)
+    mcp(t, ('browser_navigate', {'url': f'http://localhost:{shop}/index.html'}))
+    got, = mcp(t, ('browser_evaluate', {'expression': 'document.cookie'}))
+    assert '"value": ""' in got['text'], got
+    assert not errors, errors

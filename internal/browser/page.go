@@ -118,7 +118,7 @@ func Open(ctx context.Context, dial Dial, proc *Process, vp Viewport) (*Browser,
 	if err != nil {
 		return nil, err
 	}
-	b, err := openPage(ctx, conn, vp)
+	b, err := openPage(ctx, conn, vp, "")
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -130,16 +130,20 @@ func Open(ctx context.Context, dial Dial, proc *Process, vp Viewport) (*Browser,
 // NewPage opens a separate page in the same browser, e.g. for a fresh render
 // that must not disturb the page someone is watching.
 func (b *Browser) NewPage(ctx context.Context, vp Viewport) (*Browser, error) {
-	return openPage(ctx, b.conn, vp)
+	return openPage(ctx, b.conn, vp, "")
 }
 
-func openPage(ctx context.Context, conn *Conn, vp Viewport) (*Browser, error) {
+// openPage attaches to targetID, or to a new blank page when it is "".
+func openPage(ctx context.Context, conn *Conn, vp Viewport, targetID string) (*Browser, error) {
 	b := &Browser{conn: conn, refs: map[int]int64{}, frames: map[int]chan Frame{}, updates: map[int]chan Update{}, vp: vp.normal()}
 	var created struct {
 		TargetID string `json:"targetId"`
 	}
-	if err := conn.Call(ctx, "", "Target.createTarget", map[string]any{"url": "about:blank"}, &created); err != nil {
-		return nil, err
+	created.TargetID = targetID
+	if targetID == "" {
+		if err := conn.Call(ctx, "", "Target.createTarget", map[string]any{"url": "about:blank"}, &created); err != nil {
+			return nil, err
+		}
 	}
 	var attached struct {
 		SessionID string `json:"sessionId"`
@@ -804,6 +808,62 @@ func (b *Browser) DescribeSelector(ctx context.Context, selector string) (json.R
 		return nil, ErrNotFound
 	}
 	return json.RawMessage(*res.Result.Value), nil
+}
+
+// Sync reads the page's address and title, for a page attached after it had
+// already started loading.
+func (b *Browser) Sync(ctx context.Context) {
+	var res struct {
+		Result struct {
+			Value struct {
+				URL   string `json:"url"`
+				Title string `json:"title"`
+			} `json:"value"`
+		} `json:"result"`
+	}
+	if b.conn.Call(ctx, b.page, "Runtime.evaluate", map[string]any{"expression": "({url: location.href, title: document.title})",
+		"returnByValue": true}, &res) == nil {
+		b.mu.Lock()
+		b.url, b.title = res.Result.Value.URL, res.Result.Value.Title
+		b.mu.Unlock()
+		b.publish(Update{Kind: "state", URL: res.Result.Value.URL, Title: res.Result.Value.Title})
+	}
+}
+
+// FindResult is where a find-in-page search stands.
+type FindResult struct {
+	Matches int  `json:"matches"`
+	Index   int  `json:"index"` // 1-based; 0 when nothing matches
+	Found   bool `json:"found"`
+}
+
+// Find selects the next (or previous) match of text in the page and scrolls
+// to it, as a browser's own find does, and counts the matches.
+func (b *Browser) Find(ctx context.Context, text string, backwards bool) (FindResult, error) {
+	if len(text) > 500 {
+		return FindResult{}, fmt.Errorf("search text is too long")
+	}
+	q, _ := json.Marshal(text)
+	expr := fmt.Sprintf(`(function(q, back){
+  var body = document.body ? document.body.innerText : "";
+  var hay = body.toLowerCase(), needle = q.toLowerCase(), count = 0, at = 0;
+  if (needle) { while ((at = hay.indexOf(needle, at)) !== -1) { count++; at += needle.length; } }
+  var w = window.__lecternFind;
+  if (!w || w.q !== q) { w = {q: q, i: back ? 0 : -1}; var s = getSelection(); if (s) s.removeAllRanges(); }
+  var found = needle ? window.find(q, false, back, true, false, false, false) : false;
+  w.i = count ? (((w.i + (back ? -1 : 1)) %% count) + count) %% count : 0;
+  window.__lecternFind = w;
+  return {matches: count, index: count && found ? w.i + 1 : 0, found: !!found};
+})(%s, %v)`, q, backwards)
+	var res struct {
+		Result struct {
+			Value FindResult `json:"value"`
+		} `json:"result"`
+	}
+	if err := b.conn.Call(ctx, b.page, "Runtime.evaluate", map[string]any{"expression": expr, "returnByValue": true}, &res); err != nil {
+		return FindResult{}, err
+	}
+	return res.Result.Value, nil
 }
 
 // ErrNotFound means no element matched.

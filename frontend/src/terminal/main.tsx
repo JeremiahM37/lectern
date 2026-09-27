@@ -13,6 +13,13 @@ import type { SessionsApi } from "../sessions/Sessions";
 import type { SessionView, Target } from "../types";
 import "./native-history.css";
 import "./native-search.css";
+import { bootAppearance } from "../theme/appearance";
+import { loadPrefs } from "../prefs/store";
+import "../theme/light.generated.css";
+// This person's theme, shortcuts and quick commands. An embedded frame also
+// hears about changes the app around it makes, through the shared local copy.
+bootAppearance({ terminal: true });
+void loadPrefs().catch(() => {});
 const api: SessionsApi = {
   sessions: (options) =>
     json<SessionView[]>(

@@ -5,6 +5,9 @@ import { withToken, type JsonValue } from "../api";
 import { Modal } from "../sessions/Modal";
 import { DiffViewer } from "../review/DiffViewer";
 import { CommentTray } from "../review/CommentTray";
+import { DiffModeToggle } from "../review/DiffModeToggle";
+import { PREF_KEYS, useStoredFlag, useStoredPref } from "../review/prefs";
+import type { DiffMode } from "../review/diffModel";
 import { CompareView, type JudgeVerdict } from "./CompareView";
 import { nextDraftKey, toWireComments } from "../review/types";
 import type { DraftComment } from "../review/types";
@@ -57,9 +60,8 @@ export function TaskDetail({
   const [diffOpen, setDiffOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [judging, setJudging] = useState(false);
-  const [wrap, setWrap] = useState(
-    localStorage.getItem("lec-diffwrap") === "1",
-  );
+  const [wrap, setWrap] = useStoredFlag(PREF_KEYS.wrap, false);
+  const [diffMode, setDiffMode] = useStoredPref<DiffMode>(PREF_KEYS.mode, "unified", ["unified", "split"]);
   const [busy, setBusy] = useState(false);
   const [comments, setComments] = useState<DraftComment[]>([]);
   const [reviewSummary, setReviewSummary] = useState("");
@@ -513,13 +515,11 @@ export function TaskDetail({
           <header className="diffhead">
             attempt #{diff?.attempt_n} · {diff?.stats.length ?? 0} file(s)
             changed{" "}
+            <DiffModeToggle mode={diffMode} onChange={setDiffMode} />
             <button
               className={"wrapbtn" + (wrap ? " on" : "")}
-              onClick={() => {
-                const n = !wrap;
-                setWrap(n);
-                localStorage.setItem("lec-diffwrap", n ? "1" : "");
-              }}
+              aria-pressed={wrap}
+              onClick={() => setWrap(!wrap)}
             >
               ⏎ wrap: {wrap ? "on" : "off"}
             </button>
@@ -528,6 +528,7 @@ export function TaskDetail({
             files={diff?.files ?? []}
             stats={diff?.stats ?? []}
             wrap={wrap}
+            mode={diffMode}
             commentable={task.status === "review"}
             comments={comments}
             onAddComment={addComment}

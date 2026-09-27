@@ -66,7 +66,7 @@ func itemBrief(label string, d *trackers.IssueDetail) string {
 		fmt.Fprintf(&b, "Labels: %s\n", strings.Join(names, ", "))
 	}
 	if body := strings.TrimSpace(d.Body); body != "" {
-		fmt.Fprintf(&b, "\n%s\n", clipText(body, 12000))
+		fmt.Fprintf(&b, "\n%s\n", clipTrackerText(body, 12000))
 	}
 	if d.ParentItem != nil {
 		fmt.Fprintf(&b, "\nParent: %s %s\n", d.ParentItem.ID, d.ParentItem.Title)
@@ -91,13 +91,13 @@ func itemBrief(label string, d *trackers.IssueDetail) string {
 			b.WriteString("\nComments:\n")
 		}
 		for _, c := range comments {
-			fmt.Fprintf(&b, "- %s (%s): %s\n", firstNonEmptyStr(c.Author, "someone"), shortDate(c.At), clipText(strings.TrimSpace(c.Body), 1500))
+			fmt.Fprintf(&b, "- %s (%s): %s\n", firstNonEmptyStr(c.Author, "someone"), shortDate(c.At), clipTrackerText(strings.TrimSpace(c.Body), 1500))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func clipText(s string, n int) string {
+func clipTrackerText(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}

@@ -133,7 +133,7 @@ type designShot struct {
 // the same URL and viewport, cropped to the element.
 func (s *Server) renderShots(ctx context.Context, sess *store.Session, in *designIn, port int) ([]designShot, string) {
 	shots := make([]designShot, len(in.Elements))
-	sb, err := s.ensureBrowser(ctx, sess, browser.Viewport{})
+	sb, err := s.ensureBrowser(ctx, sess, browser.Viewport{}, "")
 	if err != nil {
 		return shots, err.Error()
 	}
@@ -153,7 +153,11 @@ func (s *Server) renderShots(ctx context.Context, sess *store.Session, in *desig
 	for i, e := range in.Elements {
 		vp := browser.Viewport{Width: e.Viewport.Width, Height: e.Viewport.Height, Scale: e.Viewport.DPR}
 		if page == nil {
-			if page, err = sb.b.NewPage(ctx, vp); err != nil {
+			var first *browser.Browser
+			if first, _, err = sb.tabs.Get(0); err == nil {
+				page, err = first.NewPage(ctx, vp)
+			}
+			if err != nil {
 				return shots, err.Error()
 			}
 		} else if _, err := page.Resize(ctx, vp); err != nil {
@@ -196,13 +200,20 @@ func (s *Server) liveShots(ctx context.Context, sess *store.Session, in *designI
 		}
 		return shots
 	}
-	sb.b.HidePicker(ctx)
+	live, _, err := sb.tabs.Get(0)
+	if err != nil {
+		for i := range shots {
+			shots[i].err = err.Error()
+		}
+		return shots
+	}
+	live.HidePicker(ctx)
 	for i, e := range in.Elements {
-		raw, err := sb.b.DescribeSelector(ctx, e.Selector)
+		raw, err := live.DescribeSelector(ctx, e.Selector)
 		if err == nil {
 			var c *browser.Clip
 			if c, err = clipOf(raw); err == nil {
-				shots[i].png, err = sb.b.Screenshot(ctx, c)
+				shots[i].png, err = live.Screenshot(ctx, c)
 			}
 		}
 		if err != nil {

@@ -38,6 +38,9 @@ type repoDiff struct {
 	Stats     []worktree.FileStat  `json:"stats"`
 	Files     []worktree.FilePatch `json:"files"`
 	Truncated bool                 `json:"truncated"`
+	// Dir is the repository's checkout on the target, for follow-up git
+	// calls (attribution, blobs); never sent to the client.
+	Dir string `json:"-"`
 }
 
 var errNotGitRepo = errors.New("not a git repository")
@@ -63,7 +66,7 @@ func liveDiffRepo(ctx context.Context, ex executor.Executor, dir, baseRef string
 		patch = patch[:maxDiffPatchBytes]
 		truncated = true
 	}
-	return repoDiff{BaseRef: ref, Stats: stats, Files: worktree.SplitPatch(patch), Truncated: truncated}, nil
+	return repoDiff{BaseRef: ref, Stats: stats, Files: worktree.SplitPatch(patch), Truncated: truncated, Dir: dir}, nil
 }
 
 // resolveBaseRef mirrors the fallback tasks already use in scheduler.go
@@ -369,16 +372,22 @@ func (s *Server) runSummary(ctx context.Context, ex executor.Executor, agent, mo
 		return s.SummaryGen(ctx, ex, agent, model, prompt)
 	}
 	q := executor.ShellQuote
+	modelFlag := ""
+	if model != "" {
+		// No model means the agent's own default (a commit message from the
+		// session's Codex, say, with no cheap model configured).
+		modelFlag = " --model " + q(model)
+	}
 	var cmd string
 	switch agent {
 	case "codex":
-		cmd = fmt.Sprintf("%s exec %s --model %s < /dev/null",
-			q(firstNonEmptyStr(s.Cfg.CodexBin, "codex")), q(prompt), q(model))
+		cmd = fmt.Sprintf("%s exec %s%s < /dev/null",
+			q(firstNonEmptyStr(s.Cfg.CodexBin, "codex")), q(prompt), modelFlag)
 	default:
 		// </dev/null: `claude -p` reads stdin to EOF and an ssh exec channel
 		// never EOFs without it (see the deep probe in targets.go).
-		cmd = fmt.Sprintf("%s -p %s --model %s < /dev/null",
-			q(firstNonEmptyStr(s.Cfg.ClaudeBin, "claude")), q(prompt), q(model))
+		cmd = fmt.Sprintf("%s -p %s%s < /dev/null",
+			q(firstNonEmptyStr(s.Cfg.ClaudeBin, "claude")), q(prompt), modelFlag)
 	}
 	res, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 120})
 	if err != nil {
@@ -518,11 +527,17 @@ type reviewComment struct {
 	Side string `json:"side"` // "old" or "new"
 	Text string `json:"text"`
 	Code string `json:"code,omitempty"`
+	// PreviousRound is set when a stored comment was sent before and the
+	// reviewer reopened it: the prompt says it is being raised again.
+	PreviousRound int `json:"previous_round,omitempty"`
 }
 
 type reviewIn struct {
 	Comments []reviewComment `json:"comments"`
 	Summary  string          `json:"summary"`
+	// CommentIDs sends stored draft comments (review_comments.go) in the
+	// same one prompt as any inline Comments.
+	CommentIDs []int64 `json:"comment_ids"`
 }
 
 // formatReviewPrompt turns a batch of inline diff comments (plus an optional
@@ -549,7 +564,11 @@ func formatReviewPrompt(comments []reviewComment, summary string) string {
 		if side != "old" && side != "new" {
 			side = "new"
 		}
-		fmt.Fprintf(&b, "%d. %s:%d (%s side)\n", i+1, c.File, c.Line, side)
+		fmt.Fprintf(&b, "%d. %s:%d (%s side)", i+1, c.File, c.Line, side)
+		if c.PreviousRound > 0 {
+			fmt.Fprintf(&b, " (raised again; first sent in round %d)", c.PreviousRound)
+		}
+		b.WriteString("\n")
 		if code := strings.TrimSpace(c.Code); code != "" {
 			b.WriteString("   > " + code + "\n")
 		}
@@ -587,10 +606,28 @@ func (s *Server) reviewSession(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
+	var sentIDs []int64
+	round := 0
+	if len(body.CommentIDs) > 0 {
+		all, err := s.DB.ReviewComments(row.ID)
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+		stored, ids, next, err := storedReviewBatch(all, body.CommentIDs)
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+		body.Comments = append(body.Comments, stored...)
+		sentIDs, round = ids, next
+	}
 	if err := validReview(body); err != nil {
 		respondErr(w, err)
 		return
 	}
+	// Every comment goes to the agent as ONE prompt, so it can plan across
+	// all of them instead of reacting to each in turn.
 	prompt := formatReviewPrompt(body.Comments, body.Summary)
 	if len(prompt) > 32000 {
 		httpError(w, 422, "review is too long (maximum 32000 bytes)")
@@ -600,7 +637,11 @@ func (s *Server) reviewSession(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "%s", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"sent": true, "comments": len(body.Comments)})
+	if err := s.DB.MarkReviewCommentsSent(sentIDs, round); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"sent": true, "comments": len(body.Comments), "round": round})
 }
 
 func (s *Server) reviewTask(w http.ResponseWriter, r *http.Request) {
