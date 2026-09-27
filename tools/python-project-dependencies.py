@@ -9,6 +9,7 @@ import argparse
 import base64
 import csv
 import email.parser
+import errno
 import hashlib
 import importlib.metadata
 import io
@@ -21,10 +22,12 @@ import stat
 import subprocess
 import sys
 import urllib.request
+import urllib.error
 import zipfile
 
-POLICY = 'pypi-pure-wheel-v1'
+POLICY = 'pypi-compatible-wheel-v2'
 MAX_WHEEL = 64 * 1024**2
+MAX_FILE_BYTES = 256 * 1024**2
 MAX_DOWNLOAD = 384 * 1024**2
 MAX_EXTRACTED = 1024**3
 MAX_FILES = 100000
@@ -41,6 +44,7 @@ from pip._internal.cli.main import main
 from pip._internal.network.session import PipSession
 from pip._internal.exceptions import DistributionNotFound
 failed_requests=[]
+unsupported_registry=[]
 original_send=PipSession.send
 def send(self,request,**kwargs):
     try:
@@ -48,20 +52,37 @@ def send(self,request,**kwargs):
         authoritative_missing=(response.status_code==404 and
             request.url.startswith('http://127.0.0.1:18080/python/simple/') and
             response.headers.get('X-Lectern-Python-Registry')=='package-not-found')
-        if response.status_code != 200 and not authoritative_missing: failed_requests.append(response.status_code)
+        bounded_rejection=(response.status_code==422 and
+            request.url.startswith('http://127.0.0.1:18080/python/') and
+            response.headers.get('X-Lectern-Python-Registry')=='unsupported-size')
+        if bounded_rejection: unsupported_registry.append(response.status_code)
+        if response.status_code != 200 and not authoritative_missing and not bounded_rejection: failed_requests.append(response.status_code)
         return response
     except Exception:
         failed_requests.append('transport')
         raise
 PipSession.send=send
 try:
-    sys.exit(main())
+    result=main()
+    if result and unsupported_registry and not failed_requests:
+        print('Registry response exceeds bounded supported size',file=sys.stderr)
+        sys.exit(2)
+    sys.exit(result)
 except DistributionNotFound:
     if failed_requests:
         print('Registry transport unavailable; resolution is not a permanent absence',file=sys.stderr)
         sys.exit(1)
-    print('Exact pins have no compatible pure-wheel resolution on this interpreter',file=sys.stderr)
+    if unsupported_registry:
+        print('Registry metadata exceeds bounded supported size',file=sys.stderr)
+    print('Exact pins have no compatible wheel resolution on this interpreter',file=sys.stderr)
     sys.exit(2)
+except Exception:
+    # pip download errors use several exception classes, unlike resolver
+    # absence. Only a trusted broker response establishes this bounded limit.
+    if unsupported_registry and not failed_requests:
+        print('Registry response exceeds bounded supported size',file=sys.stderr)
+        sys.exit(2)
+    raise
 '''
 
 
@@ -78,6 +99,15 @@ def canonical(value):
 def sha(path):
     with Path(path).open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def bounded_write(path, data):
+    try:
+        Path(path).write_bytes(data)
+    except OSError as error:
+        if error.errno == errno.EFBIG:
+            raise Unsupported('runtime file-size limit exceeded while writing ' + repr(str(path)), code='size_limit') from error
+        raise
 
 
 def regular(path):
@@ -179,7 +209,77 @@ def validate_requirements(request):
     return sorted(set(roots))
 
 
+# The parser and target-tag implementation come only from the fixed pip
+# snapshot. Neither project packages nor downloaded wheel code is imported.
+_TOOLING = None
+_PACKAGING = None
+
+def configure_tooling(tooling):
+    global _TOOLING, _PACKAGING
+    selected = Path(tooling).resolve()
+    if _PACKAGING is not None:
+        if selected != _TOOLING:
+            # The runner snapshots the same fixed tooling after computing its
+            # target identity. Reuse loaded parsers only for byte-identical code.
+            for module in tuple(sys.modules.values()):
+                name = getattr(module, '__name__', '')
+                filename = getattr(module, '__file__', None)
+                if name == 'pip' or name.startswith('pip.'):
+                    if not filename: continue
+                    origin = Path(filename).resolve()
+                    if not origin.is_relative_to(_TOOLING):
+                        raise ValueError('loaded parser outside trusted tooling')
+                    copy = selected / origin.relative_to(_TOOLING)
+                    regular(copy)
+                    if sha(copy) != sha(origin):
+                        raise ValueError('trusted packaging tooling changed in one verifier process')
+        return _PACKAGING
+    sys.path.insert(0, str(selected))
+    try:
+        from pip._vendor.packaging import tags, utils, version, specifiers
+        import pip
+        origin_root = Path(pip.__file__).resolve().parent.parent
+        for module in tuple(sys.modules.values()):
+            name = getattr(module, '__name__', '')
+            filename = getattr(module, '__file__', None)
+            if (name == 'pip' or name.startswith('pip.')) and filename:
+                origin = Path(filename).resolve()
+                if not origin.is_relative_to(origin_root):
+                    raise ValueError('packaging parser is outside fixed pip tooling')
+                copy = selected / origin.relative_to(origin_root)
+                regular(copy)
+                if sha(copy) != sha(origin):
+                    raise ValueError('loaded parser differs from fixed pip tooling')
+    finally:
+        sys.path.pop(0)
+    _TOOLING, _PACKAGING = origin_root, (tags, utils, version, specifiers)
+    return _PACKAGING
+
+
+def target_packaging():
+    return _PACKAGING or configure_tooling('/tooling')
+
+
+def target_identity(tooling=None):
+    tags, _, _, _ = configure_tooling(tooling) if tooling is not None else target_packaging()
+    import platform, sysconfig
+    supported = sorted(str(tag) for tag in tags.sys_tags())
+    return {'tags_sha256': hashlib.sha256(canonical(supported)).hexdigest(),
+            'soabi': sysconfig.get_config_var('SOABI'), 'machine': platform.machine(),
+            'libc': list(platform.libc_ver())}
+
+
 def wheel_info(path):
+    try:
+        return _wheel_info(path)
+    except (ValueError, zipfile.BadZipFile) as error:
+        identity = Path(path).name[:256]
+        message = 'wheel ' + repr(identity) + ': ' + str(error)
+        if isinstance(error, Unsupported): raise Unsupported(message, error.code) from error
+        raise ValueError(message) from error
+
+
+def _wheel_info(path):
     path = Path(path)
     if regular(path).st_size > MAX_WHEEL: raise Unsupported('wheel exceeds 64 MiB')
     digest = sha(path)
@@ -196,6 +296,8 @@ def wheel_info(path):
             if stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)) or mode & 0o7000:
                 raise ValueError('wheel link or special file/mode')
             if item.flag_bits & 1: raise Unsupported('encrypted wheels unsupported')
+            if item.file_size > MAX_FILE_BYTES:
+                raise Unsupported('wheel member exceeds 256 MiB: ' + repr(name), code='size_limit')
             total += item.file_size
             if total > MAX_EXTRACTED: raise Unsupported('wheel expansion limit exceeded')
         metas = [n for n in names if re.fullmatch(r'[^/]+\.dist-info/METADATA', n)]
@@ -205,16 +307,31 @@ def wheel_info(path):
         name, version = normalized(info['Name']), info['Version']
         if not re.fullmatch(r'[A-Za-z0-9.!+_-]+', version): raise ValueError('unsafe wheel version')
         wh = metadata(archive.read(prefix + '/WHEEL'))
-        if wh.get('Wheel-Version') != '1.0' or wh.get('Root-Is-Purelib', '').lower() != 'true':
-            raise Unsupported('only Wheel 1.0 purelib distributions supported')
-        tags = wh.get_all('Tag', [])
-        if not tags or any(not re.fullmatch(r'py[0-9]+(?:\.py[0-9]+)*-none-any', tag) for tag in tags):
-            raise Unsupported('only universal Python wheels supported')
-        # Filename must agree with metadata and universal tags, not just WHEEL.
+        if wh.get('Wheel-Version') != '1.0' or wh.get('Root-Is-Purelib', '').lower() not in ('true', 'false'):
+            raise Unsupported('only Wheel 1.0 purelib/platlib distributions supported')
+        tags_api, utils, versions, specifiers = target_packaging()
         filename = path.name
-        bits = filename[:-4].split('-') if filename.endswith('.whl') else []
-        if len(bits) not in (5,6) or normalized(bits[0]) != name or bits[1].replace('_','-') != version.replace('_','-') or bits[-2:] != ['none','any'] or not re.fullmatch(r'py[0-9]+(?:\.py[0-9]+)*', bits[-3]):
+        wheel_name, wheel_version, _, filename_tags = utils.parse_wheel_filename(filename)
+        if normalized(wheel_name) != name or wheel_version != versions.Version(version):
             raise ValueError('wheel filename/metadata identity mismatch')
+        dist_name, separator, dist_version = prefix[:-len('.dist-info')].rpartition('-')
+        if not separator or normalized(dist_name) != name or versions.Version(dist_version) != wheel_version:
+            raise ValueError('wheel dist-info identity mismatch')
+        metadata_tags = set()
+        for tag in wh.get_all('Tag', []):
+            metadata_tags.update(tags_api.parse_tag(tag))
+        supported_tags = set(tags_api.sys_tags())
+        if not filename_tags.intersection(supported_tags):
+            raise Unsupported('wheel filename tags exclude target interpreter/ABI/platform')
+        if not metadata_tags or not metadata_tags.intersection(supported_tags):
+            raise Unsupported('wheel WHEEL metadata tags exclude target interpreter/ABI/platform')
+        # Some published wheels retain generic WHEEL tags after constraining
+        # their platform filename. Do not assert spec conformity or let either
+        # description widen the other: BOTH must independently admit this host.
+        tag_warning = 'filename/WHEEL tag discrepancy; both independently compatible with verified target' if metadata_tags != filename_tags else ''
+        requires_python = info.get('Requires-Python', '')
+        if requires_python and not specifiers.SpecifierSet(requires_python).contains('.'.join(map(str, sys.version_info[:3])), prereleases=True):
+            raise Unsupported('wheel Requires-Python excludes target interpreter')
         record = prefix + '/RECORD'
         recorded = {}
         for row in csv.reader(io.StringIO(archive.read(record).decode())):
@@ -223,6 +340,7 @@ def wheel_info(path):
         actual_files = {i.filename for i in members if not i.is_dir()}
         if actual_files != set(recorded): raise ValueError('wheel RECORD inventory mismatch')
         installed = []
+        installed_paths = set()
         for original in sorted(actual_files):
             checksum, size = recorded[original]
             content = archive.read(original)
@@ -230,17 +348,41 @@ def wheel_info(path):
                 if checksum or size: raise ValueError('wheel RECORD self entry must be unhashed')
             else:
                 expected = 'sha256=' + base64.urlsafe_b64encode(hashlib.sha256(content).digest()).decode().rstrip('=')
-                if checksum != expected or size != str(len(content)): raise ValueError('wheel RECORD checksum mismatch')
+                if checksum != expected or size != str(len(content)): raise ValueError('wheel RECORD checksum mismatch: ' + repr(original))
             target = original
             components = original.split('/')
+            if components[0] == '.lectern-wheel-data':
+                raise ValueError('reserved wheel data destination')
             if components[0].endswith('.data'):
-                raise Unsupported('wheel .data relocation unsupported')
+                data_prefix = prefix[:-len('.dist-info')] + '.data'
+                if components[0] != data_prefix or len(components) < 3:
+                    raise ValueError('wheel data identity or path mismatch')
+                scheme = components[1]
+                remainder = '/'.join(components[2:])
+                if scheme in ('purelib', 'platlib'):
+                    target = remainder
+                    if target.split('/')[0] == '.lectern-wheel-data':
+                        raise ValueError('reserved wheel data destination')
+                elif scheme == 'headers':
+                    # Preserve compiler headers as inert inventory, outside all
+                    # package import paths. This is not a global include prefix.
+                    target = '.lectern-wheel-data/' + prefix[:-len('.dist-info')] + '/headers/' + remainder
+                else:
+                    raise Unsupported('wheel data scheme requires unsupported runtime prefix: ' + scheme + '; member=' + repr(original))
+            if target in installed_paths:
+                raise ValueError('wheel relocation path collision: ' + target)
+            installed_paths.add(target)
             relative(target)
-            if target.endswith(('.pth','.pyc','.pyo','.so','.pyd','.dll','.dylib')) or target in ('sitecustomize.py','usercustomize.py') or content.startswith((b'\x7fELF', b'MZ')):
-                raise Unsupported('startup hooks, compiled code and native payloads unsupported')
-            installed.append({'path': target, 'original': original, 'sha256': hashlib.sha256(content).hexdigest(), 'size':len(content)})
+            if target.endswith(('.pyc','.pyo')):
+                raise Unsupported('precompiled Python bytecode unsupported')
+            # Runtime .pth/customization code is retained byte-for-byte. It is
+            # never activated by resolve/install/root verification; only the
+            # socket-free unprivileged probe and worker interpreter execute it.
+            mode = 0o555 if archive.getinfo(original).external_attr >> 16 & 0o111 else 0o444
+            installed.append({'path': target, 'original': original, 'sha256': hashlib.sha256(content).hexdigest(), 'size':len(content), 'mode':mode})
         return {'name':name, 'version':version, 'filename':filename, 'sha256':digest,
-                'bytes':path.stat().st_size, 'requires_python':info.get('Requires-Python',''),
+                'bytes':path.stat().st_size, 'filename_tags':sorted(map(str,filename_tags)),
+                'metadata_tags':sorted(map(str,metadata_tags)), 'tag_warning':tag_warning, 'requires_python':info.get('Requires-Python',''),
                 'requires_dist':info.get_all('Requires-Dist',[]), 'files':installed,
                 'route':f'/python/wheel/{name}/{version}/{digest}/{filename}'}
 
@@ -263,21 +405,26 @@ def resolve(fetch, tooling):
             if target.exists() and sha(target)==row['sha256']: continue
             expected = f"/python/wheel/{row['name']}/{row['version']}/{row['sha256']}/{name}"
             if row['route'] != expected: raise ValueError('invalid locked registry route')
-            with urllib.request.urlopen('http://127.0.0.1:18080'+expected, timeout=90) as response:
-                data = response.read(MAX_WHEEL+1)
+            url = 'http://127.0.0.1:18080'+expected
+            try:
+                with urllib.request.urlopen(url, timeout=90) as response:
+                    data = response.read(MAX_WHEEL+1)
+            except urllib.error.HTTPError as error:
+                if error.url == url and error.code == 422 and error.headers.get('X-Lectern-Python-Registry') == 'unsupported-size':
+                    raise Unsupported('locked registry response exceeds bounded supported size') from error
+                raise
             if len(data)>MAX_WHEEL or hashlib.sha256(data).hexdigest()!=row['sha256']: raise ValueError('locked wheel checksum mismatch')
-            target.write_bytes(data)
+            bounded_write(target, data)
     else:
         # Partial downloads from a failed, never-locked resolution are disposable.
         shutil.rmtree(wheels); wheels.mkdir()
         # Only fixed pip tooling executes; download cannot invoke build hooks
         # because no source distributions are eligible for this target.
         command = [sys.executable,'-I','-S','-c',PIP_DOWNLOAD,str(tooling),'--isolated','--debug','download','--disable-pip-version-check','--no-cache-dir','--retries','1','--timeout','20',
-                   '--only-binary=:all:','--platform','any','--implementation','py','--abi','none',
-                   '--python-version','.'.join(map(str,sys.version_info[:3])), '--index-url', INDEX,
+                   '--only-binary=:all:', '--index-url', INDEX,
                    '--dest',str(wheels),*roots]
         result = subprocess.run(command, check=False)
-        if result.returncode == 2: raise Unsupported('exact pins have no compatible pure-wheel resolution on this interpreter')
+        if result.returncode == 2: raise Unsupported('exact pins have no compatible wheel resolution on this interpreter')
         if result.returncode: raise RuntimeError('pip resolution unavailable; inspect resolver log')
         entries = [wheel_info(p) for p in sorted(wheels.iterdir())]
         if len(entries)>MAX_DISTS or sum(r['bytes'] for r in entries)>MAX_DOWNLOAD: raise Unsupported('resolved wheel budget exceeded')
@@ -306,17 +453,23 @@ def install(fetch):
                 seen.add(name); total+=file['size']
                 if len(seen)>MAX_FILES or total>MAX_EXTRACTED: raise Unsupported('installed bundle budget exceeded')
                 item=target/name; item.parent.mkdir(parents=True,exist_ok=True)
-                data=archive.read(file['original']);item.write_bytes(data)
-                inventory.append({'path':name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)})
+                data=archive.read(file['original']);bounded_write(item,data);item.chmod(file['mode'])
+                inventory.append({'path':name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'mode':file['mode']})
     (fetch/'files.json').write_bytes(canonical(sorted(inventory,key=lambda row:row['path'])))
 
 
 def probe(fetch, output):
     # Called only in a credential-free namespace WITHOUT a network/registry
     # socket, project source or host home. Import code cannot reach the host.
-    import importlib
+    import importlib, site
     fetch=Path(fetch);request=json.loads((fetch/'input.json').read_text())
     sys.path.insert(0,str(fetch/'site-packages'))
+    # -I -S kept downloaded startup code out of the resolver and host verifier.
+    # Here we deliberately exercise normal site semantics in the separately
+    # isolated, read-only, socket-free runtime namespace.
+    site.addsitedir(str(fetch/'site-packages'))
+    site.execsitecustomize()
+    site.execusercustomize()
     modules=sorted(set(request['imports']+['pytest']))
     observations=[]
     for name in modules:
@@ -333,7 +486,8 @@ def probe(fetch, output):
         'imports':observations,'python_version':'.'.join(map(str,sys.version_info[:3])),'network':'unshared-no-socket'}))
 
 
-def verify_install(fetch):
+def verify_install(fetch, tooling=None):
+    if tooling is not None: configure_tooling(tooling)
     fetch=Path(fetch); lock=json.loads((fetch/'lock.json').read_text())
     expected={}; packages={}
     if lock.get('policy')!=POLICY or len(lock.get('wheels',[]))>MAX_DISTS:
@@ -344,16 +498,17 @@ def verify_install(fetch):
         for item in row['files']:
             name=item['path']
             if name in expected: raise ValueError('installed collision')
-            expected[name]={'path':name,'size':item['size'],'sha256':item['sha256']}
+            expected[name]={'path':name,'size':item['size'],'sha256':item['sha256'],'mode':item['mode']}
     site=fetch/'site-packages'; actual=set();total=0
     for path in site.rglob('*'):
         if path.is_symlink(): raise ValueError('linked installed path')
         if path.is_dir(): continue
         info=regular(path);name=path.relative_to(site).as_posix();actual.add(name)
         entry=expected.get(name);total+=info.st_size
-        if not entry or entry['size']!=info.st_size or entry['sha256']!=sha(path):raise ValueError('installed bytes differ from verified wheel')
+        if not entry or entry['size']!=info.st_size or entry['sha256']!=sha(path) or entry['mode']!=stat.S_IMODE(info.st_mode):raise ValueError('installed bytes or mode differ from verified wheel')
     if actual!=set(expected) or total>MAX_EXTRACTED:raise ValueError('installed inventory differs from lock')
-    return {'packages':packages,'files':[expected[name] for name in sorted(expected)],'lock_sha256':sha(fetch/'lock.json')}
+    return {'packages':packages,'files':[expected[name] for name in sorted(expected)],'lock_sha256':sha(fetch/'lock.json'),
+            'wheel_tags':[{'filename':row['filename'],'filename_tags':row['filename_tags'],'metadata_tags':row['metadata_tags'],'warning':row['tag_warning']} for row in lock['wheels']]}
 
 
 def main():
@@ -365,6 +520,7 @@ def main():
     parser.add_argument('--source')
     parser.add_argument('--destination')
     args=parser.parse_args()
+    if args.command not in ('snapshot-pip','probe'): configure_tooling(args.tooling)
     if args.command=='snapshot-pip':print(json.dumps(snapshot_pip(args.source,args.destination)))
     elif args.command=='resolve':resolve(args.fetch,args.tooling)
     elif args.command=='install':install(args.fetch)
@@ -374,5 +530,8 @@ def main():
 
 if __name__=='__main__':
     try:main()
+    except OSError as error:
+        if error.errno != errno.EFBIG: raise
+        print(json.dumps({'error':'runtime file-size limit exceeded: '+str(error),'code':'size_limit'}),file=sys.stderr);sys.exit(2)
     except (ValueError, zipfile.BadZipFile) as error:
         print(json.dumps({'error':str(error),'code':getattr(error,'code','unsupported')}),file=sys.stderr);sys.exit(2)

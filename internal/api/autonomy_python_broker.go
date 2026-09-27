@@ -23,19 +23,23 @@ import (
 )
 
 const (
-	autoPythonMetadataLimit = 8 << 20
+	// pydantic-core has >14,000 wheel records (~9 MiB); keep a bounded
+	// 16 MiB envelope while retaining concurrency and aggregate transfer limits.
+	autoPythonMetadataLimit = 16 << 20
 	autoPythonWheelLimit    = 64 << 20
 	autoPythonTransferLimit = 384 << 20
 	autoPythonRequestLimit  = 256
 )
 
 var (
-	autoPythonPackageAbsent = errors.New("Python registry package not found")
-	autoPythonName          = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,126}[a-z0-9])?$`)
-	autoPythonVersion       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.!+_]{0,127}$`)
-	autoPythonFilename      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.!+\-]{0,239}\.whl$`)
-	autoPythonTag           = regexp.MustCompile(`^py[0-9]+(\.py[0-9]+)*$`)
-	autoPythonNormalize     = regexp.MustCompile(`[-_.]+`)
+	autoPythonUnsupportedSize = errors.New("Python registry artifact exceeds supported size")
+	autoPythonPackageAbsent   = errors.New("Python registry package not found")
+	autoPythonName            = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,126}[a-z0-9])?$`)
+	autoPythonVersion         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.!+_]{0,127}$`)
+	autoPythonFilename        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.!+\-]{0,239}\.whl$`)
+	autoPythonTag             = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
+	autoPythonBuild           = regexp.MustCompile(`^[0-9][A-Za-z0-9_]*$`)
+	autoPythonNormalize       = regexp.MustCompile(`[-_.]+`)
 )
 
 type autoPythonRegistryFile struct {
@@ -92,12 +96,18 @@ func (b *autoPythonBroker) fetch(ctx context.Context, target, accept string, lim
 	if res.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("Python registry returned HTTP %d", res.StatusCode)
 	}
-	if res.ContentLength > limit || (res.Header.Get("Content-Encoding") != "" && res.Header.Get("Content-Encoding") != "identity") {
+	if res.ContentLength > limit {
+		return nil, "", autoPythonUnsupportedSize
+	}
+	if res.Header.Get("Content-Encoding") != "" && res.Header.Get("Content-Encoding") != "identity" {
 		return nil, "", errors.New("Python registry response exceeds supported size or encoding")
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	received = int64(len(raw))
-	if err != nil || received > limit || (res.ContentLength >= 0 && received != res.ContentLength) {
+	if received > limit {
+		return nil, "", autoPythonUnsupportedSize
+	}
+	if err != nil || (res.ContentLength >= 0 && received != res.ContentLength) {
 		return nil, "", errors.New("Python registry response truncated or oversized")
 	}
 	return raw, res.Header.Get("Content-Type"), nil
@@ -123,7 +133,8 @@ func autoPythonWheelIdentity(filename string) (string, string, bool) {
 	}
 	name := autoPythonNormalize.ReplaceAllString(strings.ToLower(parts[0]), "-")
 	if !autoPythonName.MatchString(name) || !autoPythonVersion.MatchString(parts[1]) ||
-		!autoPythonTag.MatchString(parts[len(parts)-3]) || parts[len(parts)-2] != "none" || parts[len(parts)-1] != "any" {
+		!autoPythonTag.MatchString(parts[len(parts)-3]) || !autoPythonTag.MatchString(parts[len(parts)-2]) || !autoPythonTag.MatchString(parts[len(parts)-1]) ||
+		(len(parts) == 6 && !autoPythonBuild.MatchString(parts[2])) {
 		return "", "", false
 	}
 	return name, parts[1], true
@@ -161,8 +172,11 @@ func (b *autoPythonBroker) simple(ctx context.Context, name string) ([]byte, err
 		Files []autoPythonRegistryFile `json:"files"`
 	}
 	if autoPythonJSON(raw, ct, &index) != nil || autoPythonNormalize.ReplaceAllString(strings.ToLower(index.Name), "-") != name ||
-		!strings.HasPrefix(index.Meta.Version, "1.") || len(index.Files) > 20000 {
+		!strings.HasPrefix(index.Meta.Version, "1.") {
 		return nil, errors.New("invalid Python simple registry response")
+	}
+	if len(index.Files) > 20000 {
+		return nil, autoPythonUnsupportedSize
 	}
 	var out strings.Builder
 	out.WriteString("<!doctype html><html><head><meta name=\"pypi:repository-version\" content=\"1.0\"></head><body>\n")
@@ -280,6 +294,11 @@ func (b *autoPythonBroker) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if isSimple && errors.Is(err, autoPythonPackageAbsent) {
 			w.Header().Set("X-Lectern-Python-Registry", "package-not-found")
 			http.Error(w, autoPythonPackageAbsent.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, autoPythonUnsupportedSize) {
+			w.Header().Set("X-Lectern-Python-Registry", "unsupported-size")
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		http.Error(w, err.Error(), 502)

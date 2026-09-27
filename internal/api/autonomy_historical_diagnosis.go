@@ -220,7 +220,7 @@ func autoHistoricalVerifiedEnvironment(d *autoRequirementDiagnosis, builder, rev
 		return nil, errors.New("historical diagnosis requires both builder and independent reviewer to execute with the verified proposed environment; report an explicit blocked prerequisite if unavailable")
 	}
 	b, r := builder.PythonRecovery, reviewer.PythonRecovery
-	if !autoHash256(b.InputKey) || !autoHash256(b.BundleKey) || !autoHash256(b.RuntimeDigest) || b.InputKey != r.InputKey || b.BundleKey != r.BundleKey || b.RuntimeDigest != r.RuntimeDigest {
+	if !autoHash256(b.InputKey) || !autoHash256(b.BundleKey) || !autoHash256(b.RuntimeDigest) || b.InputKey != r.InputKey || b.BundleKey != r.BundleKey || b.RuntimeDigest != r.RuntimeDigest || b.BrowserKey != r.BrowserKey {
 		return nil, errors.New("historical diagnosis builder and reviewer used different environments")
 	}
 	var verified autoVerifiedDiagnosisEnvironment

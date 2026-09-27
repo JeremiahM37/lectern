@@ -28,7 +28,7 @@ func autoVerifiedDiagnosisEnvironments(a *autoRecord) []*autoVerifiedDiagnosisEn
 		if !autoDiagnosisEnvironmentUsed(b, e.Request, e.Receipt) || !autoDiagnosisEnvironmentUsed(r, e.Request, e.ReviewerReceipt) {
 			continue
 		}
-		if e.Receipt.InputKey != e.ReviewerReceipt.InputKey || e.Receipt.BundleKey != e.ReviewerReceipt.BundleKey || e.Receipt.RuntimeDigest != e.ReviewerReceipt.RuntimeDigest {
+		if e.Receipt.InputKey != e.ReviewerReceipt.InputKey || e.Receipt.BundleKey != e.ReviewerReceipt.BundleKey || e.Receipt.RuntimeDigest != e.ReviewerReceipt.RuntimeDigest || e.Receipt.BrowserKey != e.ReviewerReceipt.BrowserKey {
 			continue
 		}
 		out = append(out, e)

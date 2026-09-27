@@ -135,8 +135,8 @@ Workers can discover registered provisioners through the read-only
 from a package that has actually been resolved, verified and mounted. Python
 project dependencies use exact distribution pins and import probes, an immutable
 wheel bundle, and an offline verification receipt. The current provisioner
-supports compatible universal wheels; native wheels, source builds and startup
-hooks are unsupported. Workers still cannot run arbitrary network installers.
+supports compatible universal and native wheels. Runtime startup hooks execute
+only inside the isolated probe or worker; source builds remain unsupported. Workers still cannot run arbitrary network installers.
 The supplied Python environment is mounted at the interpreter's normal local
 site directory, so setting a project-specific `PYTHONPATH` no longer hides
 pytest. Project imports keep their normal precedence and existing distribution
@@ -144,6 +144,14 @@ packages remain visible. Existing worker processes keep their original mounts.
 The worker-specific `/prerequisite` response retains its Go receipt fields and
 adds `python` for the Python receipt when present; query parameters cannot select
 another worker's receipt.
+
+Browser testing uses an exact Playwright version with registered immutable
+Chromium assets. The catalog advertises registration, not successful delivery:
+provisioning checks the matching driver declaration, file hashes and an actual
+offline browser fixture. Its browser identity is included in the Python receipt.
+Run browser tests through `/opt/browser-runtime/browsers/offline-test COMMAND ARGS`
+to remove credentials, bridge sockets and external networking while allowing
+local HTTP fixtures. Independent project tests still determine correctness.
 
 ### Diagnosing an older blocker
 

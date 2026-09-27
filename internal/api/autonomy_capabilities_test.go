@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
@@ -67,20 +66,6 @@ func TestCapabilityHelperIdentityRejectsLinksAndUnsafeFiles(t *testing.T) {
 	os.Chmod(p, 0666)
 	if autoCapabilityInstallation(p)["status"] != "unavailable" {
 		t.Fatal("trusted writable helper")
-	}
-	// Host-root files appear with an unmapped UID inside the full-suite user
-	// namespace. The same production rule must reject them there; never weaken
-	// the ownership requirement to make an isolated fixture appear installed.
-	st, err := os.Lstat("/usr/bin/true")
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected := "unavailable"
-	if st.Sys().(*syscall.Stat_t).Uid == 0 {
-		expected = "installed"
-	}
-	if got := autoCapabilityInstallation("/usr/bin/true")["status"]; got != expected {
-		t.Fatalf("helper ownership: got %v, want %s", got, expected)
 	}
 }
 

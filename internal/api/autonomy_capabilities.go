@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -22,15 +20,7 @@ func autoCapabilityInstallation(path string) map[string]any {
 	unavailable := func(reason string) map[string]any {
 		return map[string]any{"status": "unavailable", "reason": reason}
 	}
-	st, err := os.Lstat(path)
-	if err != nil {
-		return unavailable("Registered helper is not readable on this controller")
-	}
-	owner, ok := st.Sys().(*syscall.Stat_t)
-	if !st.Mode().IsRegular() || !ok || owner.Uid != 0 || st.Mode().Perm()&0022 != 0 {
-		return unavailable("Registered helper is not a regular root-owned file protected from other users' writes")
-	}
-	raw, err := autoReadRegular(path, 2<<20)
+	raw, err := autoReadRootRegular(path, 2<<20)
 	if err != nil || len(raw) == 0 {
 		return unavailable("Registered helper identity could not be read")
 	}
@@ -69,8 +59,8 @@ func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, help
 				"condition": "offline_imports_available", "helper": helperInfo,
 				"inputs":         "1–32 evidenced exact distribution pins and concrete import names; project source stays the checkout under test",
 				"request":        "Use typed requirements in an eligible blocked builder/reviewer report. An audited diagnosis can establish a supported remedy. The controller retains the assignment, provisions and verifies before retrying.",
-				"supports":       []string{"compatible universal Python wheels", "transitive dependency resolution", "one environment including supplied pytest", "frozen wheel hashes", "offline import verification"},
-				"excludes":       []string{"native wheels", "source builds", "editable/VCS/local-path installs", "startup hooks", "arbitrary package-manager or host commands"},
+				"supports":       []string{"compatible universal and native Python wheels", "transitive dependency resolution", "one environment including supplied pytest", "frozen wheel hashes and executable modes", "runtime hooks confined to isolated execution", "offline import verification"},
+				"excludes":       []string{"source builds", "editable/VCS/local-path installs", "host execution of package code", "arbitrary package-manager or host commands"},
 				"verification":   "Read the python field of /prerequisite for this worker's Python receipt. Only a source/admission-bound verified receipt plus the launch's used bundle establishes delivery. Independent task tests still determine correctness.",
 				"network_status": "Not probed by this catalog; resolver failures and transient outages are reported by the actual bounded attempt",
 				"receipts":       "/requirements", "worker_receipt": "/prerequisite",
@@ -81,6 +71,7 @@ func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, help
 				"inputs":   "Exact module files and supported installed toolchain; unsupported local replaces or toolchains remain explicit",
 				"receipts": "/dependencies", "worker_receipt": "/prerequisite",
 			},
+			autoBrowserCapability(dependencies),
 		},
 		"planning":  "Recheck this catalog before repeating a historical missing-capability claim. A supported mechanism makes an independently audited investigation possible; it does not change old verdicts, grant a new repair allowance, or prove an environment works.",
 		"authority": "Read-only discovery. No publication, production application, destructive operations or changes to core/quota controls are authorized by a capability entry.",
