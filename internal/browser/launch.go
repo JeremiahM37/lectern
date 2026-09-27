@@ -49,7 +49,11 @@ const reapScript = `
 reap() {
   d="$1"
   pid=$(cat "$d/browser.pid" 2>/dev/null)
-  case "$pid" in ''|*[!0-9]*) ;; *) kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; sleep 0.3; kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null;; esac
+  case "$pid" in ''|*[!0-9]*) ;; *)
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    # Give it a moment to write its profile before it is killed.
+    i=0; while [ $i -lt 30 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null;; esac
   rm -rf -- "$d"
 }
 `

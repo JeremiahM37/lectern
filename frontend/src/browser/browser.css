@@ -185,3 +185,24 @@
 .browser-downloads li { display: flex; align-items: center; gap: 8px; }
 .browser-downloads li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-downloads small { color: var(--ink-dim, #97a2bd); }
+
+/* Phone: one row of controls and a menu for the rest, so the page keeps the
+   screen. */
+.browser-compact { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--line, #232a42); }
+.browser-compact .b { min-height: 34px; min-width: 34px; padding: 2px 8px; flex: none; }
+.browser-compact .browser-address { flex: 1 1 auto; gap: 4px; }
+.browser-compact .browser-address input { padding: 5px 6px; font-size: 13px; }
+.browser-menu {
+  position: absolute; left: 6px; right: 6px; top: calc(46px + env(safe-area-inset-top)); z-index: 5;
+  display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line-2, #313a58); border-radius: 12px;
+  background: var(--panel, #131829); box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+}
+.browser-menu-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.browser-menu-row.browser-modes { padding: 0; }
+@media (max-width: 700px) {
+  .browser-control { flex-wrap: nowrap; gap: 6px; padding: 3px 8px; font-size: 12px; }
+  .browser-control span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .browser-control .b { min-height: 28px; padding: 2px 8px; font-size: 12px; flex: none; }
+  .browser-tabstrip { padding: 4px 6px; }
+}
+.browser-compact .browser-address { order: 0; flex-basis: auto; }
