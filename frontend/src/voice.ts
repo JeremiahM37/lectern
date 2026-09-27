@@ -4,6 +4,7 @@
 // anything on its own — every word it hears only ever lands in the box a
 // person can still edit before they submit it themselves.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { inApp } from "./native/bridge";
 import { chooseEngine, hostVoice, record, transcribe, voicePreference, type Recording, type VoiceEngine } from "./voice-host";
 
 export interface RecognitionResult {
@@ -94,7 +95,9 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
   const startedWith = useRef("");
   const finalText = useRef("");
   const committed = useRef(0);
-  const Ctor = typeof window !== "undefined" ? speechCtor(window) : undefined;
+  // Android's WebView defines webkitSpeechRecognition but has no speech
+  // service behind it: in the app, only the host engine is real.
+  const Ctor = typeof window !== "undefined" && !inApp() ? speechCtor(window) : undefined;
   // Transcription on the Lectern host (voice-host.ts) is the other engine:
   // the only one in the Android app's WebView, which has no speech
   // recognition, and a choice anywhere else (Settings → Notifications).

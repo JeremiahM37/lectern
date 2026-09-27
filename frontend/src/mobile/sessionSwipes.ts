@@ -37,7 +37,7 @@ export function sessionSwipes(s: SessionView, approval: Approval | undefined, de
     left = { label: "Dismiss", tone: "warn", run: () => run(() => deps.request(`/sessions/${s.id}`, { method: "DELETE" }), `Dismissed “${name}”.`, false) };
   else
     left = {
-      label: "Stop & archive",
+      label: "Archive",
       tone: "warn",
       run: () =>
         deps.confirm(`Stop "${name}" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.`)

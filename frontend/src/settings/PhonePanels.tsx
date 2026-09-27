@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { speechCtor } from "../voice";
 import { hostVoice, setVoicePreference, voicePreference, type HostVoice, type VoicePreference } from "../voice-host";
-import { appHosts, nativeBridge } from "../native/bridge";
+import { appHosts, inApp, nativeBridge } from "../native/bridge";
 
 export function VoiceSettings() {
   const [pref, setPref] = useState<VoicePreference>(voicePreference);
@@ -13,7 +13,7 @@ export function VoiceSettings() {
   useEffect(() => {
     void hostVoice(true).then(setHost);
   }, []);
-  const device = typeof window !== "undefined" && !!speechCtor(window);
+  const device = typeof window !== "undefined" && !inApp() && !!speechCtor(window);
   const choose = (value: VoicePreference) => {
     setPref(value);
     setVoicePreference(value);

@@ -31,7 +31,8 @@ In Terminal, session names have their own full-width row. The switcher, new
 terminal, search, menu and navigation controls use a separate row. Swipe sideways
 on the terminal body to move between open terminals, including full-screen apps
 that enable terminal mouse reporting. Vertical drags still scroll; long press
-selects text and pinch changes text size. The terminal fits the visible viewport
+selects text (see [The phone terminal](#the-phone-terminal)) and pinch changes
+text size. The terminal fits the visible viewport
 when the phone keyboard opens, including browsers that overlay the layout.
 
 **↺ Restore** lists closed, archived, exited and restart-interrupted sessions,
@@ -60,6 +61,114 @@ unavailable; editing a saved provider uses its current configuration. Keep API
 keys in a protected server-side credential source or launcher, never in model
 names, command arguments or browser storage. A launcher profile is specific to
 the targets where its command and credentials are installed.
+
+## The phone terminal
+
+<p>
+<img src="media/mobile/live-selection-phone.png" width="200" alt="A word selected in the live terminal, with Copy, Whole lines, Open file and Done">
+<img src="media/mobile/keybar-editor-phone.png" width="200" alt="Customize keys: reorder, remove, add keys, combinations and saved replies">
+<img src="media/mobile/tap-path-phone.png" width="200" alt="A tapped path:line opens the file">
+</p>
+
+- **Select while it runs.** Hold a finger on the output: the word under it is
+  selected in the live terminal, and the same finger drags the selection
+  further (the view scrolls at the top and bottom edges). The agent keeps
+  running and output keeps arriving. The bar at the top offers **Copy**,
+  **Whole lines**, **Open file** / **Open link** when the selection is one,
+  and **Done**; a tap anywhere clears it. **Tools → Pause view** still turns the
+  whole buffer into native selectable text.
+- **Tap to open.** A tap on a web address opens it in the browser (the phone's
+  own browser in the Android app); a tap on a workspace path, including
+  `path:line:col` as compilers and test runners print it, opens it in the file
+  viewer. OSC 8 hyperlinks work the same way (web addresses, and `file://` links
+  into the workspace). Paths outside the workspace are not offered.
+- **Your key row.** **✎** at the end of the row (or **Tools → Customize key
+  row**) reorders and removes keys, adds the ones not shown (⏎, ⌫, Del, …), any
+  Ctrl/Alt/Shift combination (Ctrl-R, Alt-B, Ctrl-←, Shift-Tab …), and your
+  saved replies as one-tap keys. Holding an arrow, ⌫, Del or Page Up/Down
+  repeats it; a drag along the row scrolls it without pressing anything. The
+  arrangement is stored on the device; **Reset** restores the default.
+
+## Gestures, offline and haptics
+
+<p>
+<img src="media/mobile/swipe-phone.png" width="200" alt="Swiping a session card left to archive">
+<img src="media/mobile/bottom-sheet-phone.png" width="200" alt="A card's More menu as a bottom sheet">
+<img src="media/mobile/offline-phone.png" width="200" alt="Sessions shown offline with a stale marker">
+</p>
+
+- **Pull to refresh** at the top of Sessions or the Board fetches everything
+  again (not the whole page).
+- **Swipe a session card** right to approve what it is waiting on, left to
+  archive it (a live session asks first, since archiving stops it). Every
+  archive gets the usual **Undo** toast. A short swipe springs back; a mouse
+  never swipes, and the same actions stay on the card's buttons.
+- **Menus are bottom sheets** on a phone: a card's **More** opens from the
+  bottom edge within thumb reach, over a dimmed page that closes it.
+- **Offline.** The lists every home screen starts from (sessions, tasks,
+  projects, machines, pending approvals, live views) are kept on the device
+  after each successful load. Opening the app with no network, or with the
+  relay unreachable, shows them at once under **Offline · showing what Lectern
+  said N min ago**; the marker goes as soon as a request gets through, and
+  **Retry** asks again. The copy lives in the page's own storage for that
+  Lectern, so it works the same in a browser, the installed web app and the
+  Android app (which has no service worker); a 401 or forgetting a pairing
+  clears it. Actions still need the connection.
+- **Haptics.** A committed swipe, a pull that will refresh, a long-press
+  selection and the start of a key repeat give a short tick: natively in the
+  Android app, through the Vibration API in browsers that allow it.
+
+## Pairing links
+
+<p>
+<img src="media/mobile/pair-link-desktop.png" width="480" alt="A pairing QR code with Copy link, Share and Open in Android app">
+<img src="media/mobile/pair-open-in-app-phone.png" width="180" alt="The pairing page in a phone browser offering the Android app">
+</p>
+
+Under each pairing QR code (Settings → Devices), **Copy link** and **Share…**
+send the same one-time link by message or email instead of scanning it. The
+https link works in any browser and in the installed web app. **Open in
+Android app** is its `lectern://pair?…` twin, and the pairing page itself, opened
+in a phone browser on Android, offers the app too. The app only fills in its
+pairing screen from a link; nothing is paired until you tap **Connect**. See
+[android.md](android.md#pairing-links-and-several-lecterns).
+
+## Dictation on your Lectern
+
+<p>
+<img src="media/mobile/voice-settings-phone.png" width="260" alt="Voice input: on this device, on your Lectern, or automatic">
+<img src="media/mobile/dictation-phone.png" width="200" alt="Dictated text in the chat composer">
+</p>
+
+The 🎙 buttons can transcribe on the Lectern host with
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) instead of the browser's
+own speech recognition. It is the only option in the Android app (its WebView
+has no speech recognition) and a choice anywhere else for keeping audio off a
+browser vendor's service. The phone records 16 kHz mono WAV, sends it to your
+Lectern only (through the relay when paired over it), and the text lands in the
+box for you to check; nothing is sent on your behalf.
+
+Setup on the host: install whisper.cpp so `whisper-cli` (or `whisper-cpp`) is on
+PATH, and put a ggml model where its download script puts them (for example
+`~/.local/share/whisper.cpp/models/ggml-base.en.bin`), or set
+`LECTERN_WHISPER_BIN` and `LECTERN_WHISPER_MODEL`. `LECTERN_WHISPER_LANG`
+(default `auto`) and `LECTERN_WHISPER_THREADS` are optional. Nothing is
+downloaded for you. Choose the engine in **Settings → Notifications → Voice
+input**; **Automatic** uses the device when it can. Transcription needs a
+signed-in person (like deciding an approval), runs one recording at a time, and
+takes up to five minutes of audio (three minutes per recording from the app).
+Voice mode's continuous conversation still uses the browser's speech
+recognition.
+
+## A handled notification leaves every device
+
+When an approval is decided anywhere (another phone, the desk, the terminal,
+or it expires) Lectern sends every subscribed device a withdrawal for that
+approval's notification. The Android app removes it. A browser closes it too;
+because browsers require every push to leave something visible unless the app
+is on screen, when it was the last notification showing it is replaced,
+silently and under the same tag, by one line saying what happened ("Approved on
+another device"). ntfy-topic and Discord messages cannot be withdrawn.
 
 Native keyboard and gesture coverage, limitations, and the nightly audit are
 in [Mobile terminal testing](testing/mobile-terminal.md). The Android fixture is

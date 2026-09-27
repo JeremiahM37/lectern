@@ -25,3 +25,7 @@ export function haptic(kind: Haptic = "tick") {
     /* not allowed without a user gesture, or unsupported */
   }
 }
+
+/** A phone or tablet driven by touch. Some Android WebViews report a fine
+ * pointer even on a touchscreen, so "no hover" counts too. */
+export const TOUCH_FIRST = "(pointer: coarse), (hover: none)";

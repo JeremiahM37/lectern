@@ -20,6 +20,39 @@ val copyShell by tasks.registering(Sync::class) {
     into(shellAssets.map { it.dir("shell") })
 }
 
+// Android App Links: with LECTERN_APP_LINK_HOSTS (comma-separated host
+// names, or the Gradle property lecternAppLinkHosts) the app claims
+// https://<host>/pair and /relay-pair, so tapping a pairing link for that
+// Lectern opens the app instead of the browser. Android checks the claim
+// against the host's /.well-known/assetlinks.json, which every Lectern
+// serves (internal/api/mobile.go). Without it, only lectern:// links open
+// the app. See docs/android.md.
+val appLinkHosts = (System.getenv("LECTERN_APP_LINK_HOSTS") ?: (findProperty("lecternAppLinkHosts") as String?) ?: "")
+    .split(',').map { it.trim() }.filter { it.matches(Regex("^[A-Za-z0-9.-]+$")) }
+val appLinksManifest = layout.buildDirectory.file("generated/app-links/AndroidManifest.xml").get().asFile
+if (appLinkHosts.isNotEmpty()) {
+    appLinksManifest.parentFile.mkdirs()
+    appLinksManifest.writeText(
+        """<?xml version="1.0" encoding="utf-8"?>
+        |<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+        |  <application>
+        |    <activity android:name="io.github.jeremiahm37.lectern.ConnectActivity">
+        |      <intent-filter android:autoVerify="true">
+        |        <action android:name="android.intent.action.VIEW" />
+        |        <category android:name="android.intent.category.DEFAULT" />
+        |        <category android:name="android.intent.category.BROWSABLE" />
+        |        <data android:scheme="https" />
+        |${appLinkHosts.joinToString("\n") { "        <data android:host=\"$it\" />" }}
+        |        <data android:path="/pair" />
+        |        <data android:path="/relay-pair" />
+        |      </intent-filter>
+        |    </activity>
+        |  </application>
+        |</manifest>
+        |""".trimMargin(),
+    )
+}
+
 // Release signing comes from a properties file outside the repository
 // (mobile/build-android.sh points at it); without one the release APK is
 // left unsigned, which is what CI should produce before its own signing step.
@@ -34,8 +67,8 @@ android {
         applicationId = "io.github.jeremiahm37.lectern"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     signingConfigs {
@@ -62,6 +95,10 @@ android {
     }
 
     sourceSets["main"].assets.srcDir(shellAssets)
+    if (appLinkHosts.isNotEmpty()) {
+        sourceSets["debug"].manifest.srcFile(appLinksManifest)
+        sourceSets["release"].manifest.srcFile(appLinksManifest)
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

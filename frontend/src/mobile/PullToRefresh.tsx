@@ -4,7 +4,7 @@
 // same inside the Android app's WebView.
 import { useEffect, useRef, useState } from "react";
 import { dragAxis, pullOffset, PULL_TRIGGER } from "./gestures";
-import { haptic } from "./haptics";
+import { haptic, TOUCH_FIRST } from "./haptics";
 
 // Places a pull must never start from: anything that scrolls or selects on
 // its own, and anything that is not the list itself.
@@ -17,7 +17,7 @@ export function PullToRefresh({ target, onRefresh }: { target: () => HTMLElement
   latest.current = onRefresh;
   useEffect(() => {
     const el = target();
-    if (!el || !matchMedia("(pointer: coarse)").matches) return;
+    if (!el || !matchMedia(TOUCH_FIRST).matches) return;
     let start: { x: number; y: number } | undefined,
       axis: "x" | "y" | undefined,
       offset = 0,

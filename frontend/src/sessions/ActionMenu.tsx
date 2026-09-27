@@ -16,7 +16,7 @@ export function ActionMenu({
     content.style.transform = "";
     content.style.maxHeight = "";
     // A phone gets a bottom sheet instead (mobile/phone.css).
-    const sheet = matchMedia("(max-width: 600px) and (pointer: coarse)").matches;
+    const sheet = innerWidth <= 600 && matchMedia("(pointer: coarse), (hover: none)").matches;
     menu.classList.toggle("as-sheet", sheet);
     if (sheet) return;
     let left = 8,

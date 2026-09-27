@@ -1,7 +1,9 @@
 # Android app
 
 A native Android app for Lectern. It is a prototype: it works end to end (see
-"Tested" below) but is built from source and not published anywhere.
+"Tested" below). Version 0.1.0 is attached to the v2.4.1 GitHub release as
+`lectern-android-0.1.0-prototype.apk`; there is no store listing. This page
+describes 0.2.0, built from this source.
 
 It runs the **same web app** as the browser (`frontend/`, staged into `web/`),
 bundled and signed inside the APK, and adds what a web page cannot do:
@@ -13,6 +15,9 @@ bundled and signed inside the APK, and adds what a web page cannot do:
 | Relay device key | Raw bytes in the browser's IndexedDB | X25519 key in Android Keystore, not extractable |
 | Push | Web Push through the browser vendor (Google for Chrome) | UnifiedPush: ntfy (self-hosted or ntfy.sh) or any distributor, no Google |
 | Installing | Browser "Add to Home screen" | Install an APK |
+| Several Lecterns | One per browser origin | A list of paired Lecterns; switch, each notification labelled |
+| Pairing links | The https link opens the pairing page | `lectern://pair?…` (and https App Links in your own build) open the app |
+| Dictation | Browser speech recognition, or your Lectern (whisper.cpp) | Your Lectern (whisper.cpp); the WebView has no speech recognition |
 
 <p>
 <img src="media/android/pairing.png" width="216" alt="Pairing over the encrypted relay">
@@ -34,6 +39,11 @@ mobile/build-android.sh            # debug APK: mobile/android/app/build/outputs
 mobile/build-android.sh test       # JVM unit tests
 LECTERN_ANDROID_SIGNING=/path/to/signing.properties mobile/build-android.sh release
 ```
+
+`LECTERN_APP_LINK_HOSTS=lectern.example.com` (comma-separated; or the Gradle
+property `lecternAppLinkHosts`) makes the build claim
+`https://lectern.example.com/pair` and `/relay-pair` as Android App Links; see
+[Pairing links](#pairing-links-and-several-lecterns).
 
 `signing.properties` holds `storeFile`, `storePassword`, `keyAlias` and
 `keyPassword`. It and the keystore stay outside the repository; without it the
@@ -68,9 +78,68 @@ The relay pairing page is the same `/relay-pair` page the browser uses, with
 the same host key fingerprint to compare. The pairing link's own origin is
 ignored: the app never loads code from it.
 
-To connect somewhere else: **Settings → Devices → Encrypted relay → Forget this
+To remove a Lectern: **Your Lecterns** (below) → hold it → **Remove**, or on
+the Lectern's own pages **Settings → Devices → Encrypted relay → Forget this
 pairing** (relay) or **Disconnect this app** (direct). The owner can revoke the
 device from Settings on the host as usual.
+
+## Pairing links and several Lecterns
+
+<p>
+<img src="media/android/deeplink-cold.png" width="200" alt="A lectern:// link opened the pairing screen, filled in">
+<img src="media/android/applink-warm.png" width="200" alt="An https relay pairing link opened as an App Link while the app was running">
+<img src="media/android/hosts-renamed.png" width="200" alt="Your Lecterns: two paired Lecterns">
+</p>
+<p>
+<img src="media/android/two-lecterns-notifications.png" width="200" alt="Approval notifications from two Lecterns, each labelled">
+<img src="media/android/dismissed-elsewhere.png" width="200" alt="The Work approval was decided at the desk and left the tray">
+<img src="media/android/offline.png" width="200" alt="Sessions shown from the device's cache while the Lectern is unreachable">
+</p>
+
+**Links.** A pairing link sent by message or email opens the app's pairing
+screen, filled in, whether the app was running or not. The screen says where
+the link leads (an address, or "a Lectern through its encrypted relay", whose
+key fingerprint the pairing page then shows); nothing is paired until you tap
+**Connect**, and adding a Lectern never changes the ones already paired.
+
+- `lectern://pair?p=…` (relay) and `lectern://pair?origin=…&code=…` (direct)
+  work with the published app. Settings → Devices shows them as **Open in
+  Android app** beside **Copy link** and **Share…**, and the pairing page,
+  opened in a phone browser, offers them too.
+- **App Links.** Android lets an app open ordinary https links only for host
+  names it names at build time, and each Lectern has its own address, so the
+  published APK claims none. Build with `LECTERN_APP_LINK_HOSTS=<your host>`
+  and add your build's certificate to the host with
+  `LECTERN_ANDROID_APP_LINKS=io.github.jeremiahm37.lectern=<SHA-256>`; every
+  Lectern serves `/.well-known/assetlinks.json`, which already names the
+  published app's signing certificate. Android then verifies the claim and your
+  QR code's https link opens the app directly.
+
+**Several Lecterns.** Each pairing becomes an entry in **Your Lecterns**,
+reached from **Settings → Devices → Add or manage Lecterns…** in the app, and
+from **Switch Lectern** on the launcher icon's long-press menu. Tap one to open
+it, hold one to rename or remove it, or **Add a Lectern**. Settings → Devices
+also lists them with a **Switch** button. Each Lectern keeps its own device key
+(a separate Keystore alias, so two Lecterns cannot tell they share a phone), its
+own sealed tokens, its own UnifiedPush registration, and, over the relay, its
+own private page origin, so settings and the offline cache never mix.
+Notifications name the Lectern they came from once there is more than one, and
+their buttons act on that Lectern whichever one is on screen; tapping one opens
+it. An app updated from 0.1.0 keeps its pairing as the first entry, unchanged.
+
+**Withdrawn notifications.** When an approval is decided anywhere else (the
+desk, another phone, the terminal, or it expires), the host pushes a
+withdrawal and the app removes that notification.
+
+**Offline, haptics, dictation.** The app has no service worker, so the web
+app's own cache (docs/mobile-sessions.md, "Gestures, offline and haptics")
+keeps each Lectern's last lists and shows them with an **Offline** marker when
+it cannot be reached. Gestures that commit give a short haptic tick through the
+view (no vibration permission). The 🎙 buttons record in the page and transcribe
+on your Lectern (whisper.cpp); the app asks for the microphone the first time,
+only for its own Lectern's pages. Android 12+ shows the lectern mark on the
+app's dark background while it starts, and Android 13 themed icons get a
+monochrome variant.
 
 ## Push notifications (UnifiedPush and ntfy)
 
@@ -168,9 +237,41 @@ default server at `http://127.0.0.1:19281`, then use the scripts in
 drive the phone through `adb` and `uiautomator`; `pair-relay.sh` taps the pair
 button by screen position (Pixel 7 profile).
 
+App 0.2.0, on a fresh Android 14 emulator with two isolated Lecterns ("Home
+server": direct pairing, token auth; "Work": relay only, with a stand-in
+whisper.cpp) and a local ntfy:
+
+- `lectern://pair?origin=…&code=…` opened with the app not running (cold
+  start) filled in the pairing screen; Connect paired it (`/api/pair/devices`
+  lists it).
+- `https://lectern.test/relay-pair#p=…` opened as an App Link (debug build
+  with `LECTERN_APP_LINK_HOSTS=lectern.test`, domain approved with `pm
+  set-app-links-user-selection`, since the test host has no public
+  certificate) while the app was showing Home server (warm start); Connect
+  paired Work over the relay, and Home server stayed paired.
+- Your Lecterns listed both; rename and switch worked; Work's page origin was
+  its own `https://h3.app.lectern.invalid`.
+- Each Lectern got its own UnifiedPush endpoint. With the app process killed,
+  approvals on both arrived labelled "Home server" and "Work"; deciding Work's
+  at the host removed its notification from the phone; **Approve** on Home
+  server's decided it on Home server (`decided_by=user`).
+- With Home server unreachable (`adb reverse` removed) a restarted app showed
+  its sessions from the cache under the Offline marker, and cleared the marker
+  when it came back.
+- Pull to refresh and the bottom-sheet menu, with real touch input.
+- Dictation asked for the microphone permission and the page received it, but
+  the emulator had no working audio input ("Could not start audio source"), so
+  recording and transcription in the app were not exercised there; the same
+  code recorded and transcribed end to end in Chromium (e2e/test_mobile_parity.py).
+
+The scripts in `mobile/android/e2e/` accept `STACK`, `LECTERN_E2E_PORT`,
+`LECTERN_E2E_RELAY_PORT`, `LECTERN_E2E_RELAY=0` and `LECTERN_E2E_ENV` for a
+second Lectern, and `CDP_PORT` for `cdp.py`.
+
 Not tested end to end: **Reply** on a waiting session notification (unit
 tested only), the QR camera scanner (the emulator has no real camera; links
-were pasted), physical devices, and Android versions other than 14.
+were pasted or opened with `am start`), a verified App Link on a real https
+host, physical devices, and Android versions other than 14.
 
 ## Limits
 
@@ -186,14 +287,14 @@ were pasted), physical devices, and Android versions other than 14.
   Keystore; on phones with a TEE or StrongBox it is in hardware. Anyone who
   can use the unlocked phone can use the app; revoke a lost phone from
   Settings.
-- **One Lectern per install.**
 - **Plain http is allowed**, because the address is yours to choose (a
   tailnet address is already encrypted). Use https or the relay on untrusted
   networks.
 
-## Publishing (not done)
+## Publishing
 
-Publishing is the owner's decision; nothing has been uploaded anywhere.
+Publishing is the owner's decision. The 0.1.0 prototype APK is attached to
+the v2.4.1 GitHub release; nothing has been submitted to a store.
 
 - **F-Droid**: the app has no proprietary dependencies (UnifiedPush connector,
   Tink, ZXing, AndroidX). F-Droid builds from source, so it needs a tagged
