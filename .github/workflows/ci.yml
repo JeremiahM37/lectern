@@ -29,6 +29,13 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
+      # Releases ship Windows and macOS binaries; Linux-only syscalls must stay
+      # behind build tags, so catch that here rather than at tag time.
+      - name: Cross-compile release platforms
+        run: |
+          for t in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/arm64; do
+            GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./... || exit 1
+          done
       - name: Install isolated integration tools
         run: |
           sudo apt-get update

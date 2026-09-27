@@ -1,3 +1,5 @@
+//go:build unix
+
 // Command stress is Lectern's scale benchmark driver. It is meant to run inside
 // the reviewed bubblewrap namespace (tools/stress/run.sh), where it starts a
 // private Lectern instance per tier — its own port, database, HOME and tmux

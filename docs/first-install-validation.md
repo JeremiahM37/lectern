@@ -33,4 +33,4 @@ Run the project `verify` suite for Go, frontend, isolated browser/PTY tests and
 live service/UI checks. Unit generation is not proof of macOS launchd behavior;
 macOS runtime and physical-phone keyboard behavior remain separate checks.
 
-v2.3.1 predates `up`; v2.4.0 is the first release that ships it.
+v2.3.1 predates `up`; v2.4.1 is the first published release that ships it.

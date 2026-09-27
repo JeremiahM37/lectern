@@ -7,7 +7,7 @@
 **Dispatch AI coding agents onto machines you own — and approve their work from your phone.**
 
 <!-- badges -->
-![status](https://img.shields.io/badge/status-v2.4.0-8b5cf6)
+![status](https://img.shields.io/badge/status-v2.4.1-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/go-1.25%2B-00add8)
 ![docker](https://img.shields.io/badge/docker-ready-2496ed)
