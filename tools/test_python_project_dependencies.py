@@ -281,6 +281,29 @@ class SandboxTests(unittest.TestCase):
             alias_command=['/usr/bin/bwrap','--unshare-all','--die-with-parent','--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--clearenv']+R.python_project_mount(fetch)+['--setenv','PYTHONPATH','/opt/python-test','--','/usr/bin/python3','-B','-c',alias_code]
             alias=subprocess.run(alias_command,capture_output=True,text=True,timeout=30)
             self.assertEqual(alias.returncode,0,alias.stdout+alias.stderr)
+            # Real worker interpreter integration: project PYTHONPATH cannot
+            # remove the verified site, including absolute/isolated child Python.
+            work=root/'worker';pkg=work/'pkg';pkg.mkdir(parents=True)
+            (pkg/'project_dep.py').write_text('VALUE=99\n')
+            (work/'test_runtime.py').write_text('import pytest,project_dep\ndef test_project_first(): assert project_dep.VALUE==99\n')
+            worker_base=['/usr/bin/bwrap','--unshare-all','--die-with-parent','--clearenv','--ro-bind','/usr','/usr','--ro-bind','/bin','/bin','--ro-bind','/lib','/lib','--ro-bind','/lib64','/lib64','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--tmpfs','/home','--ro-bind',str(work),'/work','--chdir','/work','--setenv','HOME','/tmp','--setenv','PATH','/usr/bin:/bin']
+            for runtime_kind in ('pytest','project'):
+                with self.subTest(runtime_kind=runtime_kind):
+                    if runtime_kind=='pytest':
+                        with patch.object(R,'python_test_bundle',return_value=fetch):mounts=R.python_test_runtime_mount()
+                    else:mounts=R.python_project_mount(fetch)
+                    self.assertNotIn('PYTHONPATH',mounts)
+                    code='import sys,os,subprocess,importlib.util,pytest,project_dep,packaging,pygments,apt_pkg;assert project_dep.VALUE==99;assert apt_pkg.__file__.startswith("/usr/lib/python3/dist-packages/");assert packaging.__file__.startswith("/usr/local/lib/python3.13/dist-packages/");assert pygments.__file__.startswith("/usr/local/lib/python3.13/dist-packages/");assert not os.path.exists("/home/admin");assert not os.access("/usr/local/lib/python3.13/dist-packages",os.W_OK);child="import pytest,project_dep;assert project_dep.VALUE==42";subprocess.run([sys.executable,"-I","-c",child],check=True);subprocess.run(["/usr/bin/python3","-c",child],env={},check=True);assert pytest.__file__.startswith("/usr/local/lib/python3.13/dist-packages/")'
+                    common=worker_base+mounts+['--setenv','PYTHONPATH','/work/pkg']
+                    check=subprocess.run(common+['--','python3','-B','-c',code],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(check.returncode,0,check.stdout+check.stderr)
+                    check=subprocess.run(common+['--','python3','-m','pytest','-q','-p','no:cacheprovider','test_runtime.py'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(check.returncode,0,check.stdout+check.stderr)
+                    isolated=subprocess.run(common+['--','/usr/bin/python3','-I','-m','pytest','--version'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(isolated.returncode,0,isolated.stdout+isolated.stderr)
+                    self.assertIn('pytest ',isolated.stdout)
+                    optout=subprocess.run(common+['--','/usr/bin/python3','-I','-S','-c','import importlib.util;assert importlib.util.find_spec("pytest") is None'],capture_output=True,text=True,timeout=30)
+                    self.assertEqual(optout.returncode,0,optout.stdout+optout.stderr)
             result=execute('probe',True);self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertEqual(json.loads((proof/'probe.json').read_text())['network'],'unshared-no-socket')
             (fetch/'input.json').write_bytes(H.canonical(dict(request,imports=['missing_project_module'])))

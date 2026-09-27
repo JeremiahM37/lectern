@@ -148,9 +148,12 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	if a.Requirements == nil {
 		a.Requirements = map[string]*autoRequirement{}
 	}
-	blocked := body.Outcome == "blocked" && (j.Role == "builder" || j.Role == "reviewer" && body.Approve != nil && !*body.Approve)
+	historicalGate := autoHistoricalProvisioningGate(a, j, body.Outcome, body.Requirements)
+	blocked := historicalGate || body.Outcome == "blocked" && (j.Role == "builder" || j.Role == "reviewer" && body.Approve != nil && !*body.Approve)
 	var pins, imports []string
-	if j.PythonRequest != nil {
+	diagnosis := a.RequirementDiagnoses[j.DiagnosisReservation]
+	completeRecipe := diagnosis != nil && diagnosis.EvidenceOnly && j.Role == "builder"
+	if j.PythonRequest != nil && !completeRecipe {
 		pins = append(pins, j.PythonRequest.Requirements...)
 		imports = append(imports, j.PythonRequest.Imports...)
 	}
@@ -199,6 +202,7 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	}
 	j.RequirementIDs = ids
 	if !unsupported {
+
 		p, m, e := autoPythonInputs(pins, imports)
 		if e != nil {
 			unsupported = true
@@ -245,6 +249,9 @@ func (s *Server) recordAutoRequirements(ctx context.Context, a *autoRecord, j *a
 	}
 	s.closeAutoBridge(j.ID)
 	j.Summary = "Worker blocked on recorded prerequisites; report and archive retained"
+	if historicalGate {
+		j.Summary = "Historical diagnosis awaits actual prerequisite verification and testing; original ready report and archive retained"
+	}
 	_ = s.DB.Update("tasks", j.TaskID, map[string]any{"status": "backlog"})
 	j.Status = "stopped"
 	j.RequirementHold = unsupported
@@ -436,9 +443,12 @@ func autoRequirementRows(a *autoRecord) []map[string]any {
 
 // A review or retained continuation must receive the same verified test
 // environment as its source. Provisioning still independently revalidates it.
-func autoInheritPythonRequest(a *autoRecord, j *autoJob) {
+func autoInheritPythonRequest(a *autoRecord, j *autoJob) error {
 	if j.PythonRequest != nil || a.State == nil || a.State.Item < 0 || a.State.Item >= len(a.State.Items) {
-		return
+		return nil
+	}
+	if j.Role == "builder" && a.State.Step == 0 && a.State.Items[a.State.Item].EnvironmentDiagnosisTaskID > 0 {
+		return applyAutoDiagnosisEnvironment(a, j)
 	}
 	var source *autoJob
 	if j.Role == "reviewer" || strings.HasPrefix(j.Role, "decision_") || j.Role == "builder" && a.State.Step > 0 {
@@ -469,6 +479,7 @@ func autoInheritPythonRequest(a *autoRecord, j *autoJob) {
 		j.PythonExpectedInput = source.PythonRecovery.InputKey
 		j.PythonExpectedBundle = source.PythonRecovery.BundleKey
 	}
+	return nil
 }
 
 func autoPreparePythonResume(old, j *autoJob) {

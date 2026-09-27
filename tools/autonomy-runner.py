@@ -735,9 +735,8 @@ def python_test_runtime_mount():
                 '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_REASON', reason[:200]]
     if bundle is None:
         return ['--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'not_provisioned']
-    return ['--ro-bind', str(bundle / 'site-packages'), '/opt/python-test',
+    return python_site_mount(bundle) + ['--ro-bind', str(bundle / 'site-packages'), '/opt/python-test',
             '--ro-bind', str(bundle / 'manifest.json'), '/opt/python-test-runtime.json',
-            '--setenv', 'PYTHONPATH', '/opt/python-test',
             '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
             '--setenv', 'LECTERN_PYTHON_TEST_RUNTIME_STATUS', 'verified']
 
@@ -806,15 +805,29 @@ class PythonUnsupported(ValueError):
     pass
 
 
+def python_site_mount(bundle):
+    """Use the interpreter's normal site integration, independent of PYTHONPATH.
+
+    This runtime is admitted specifically for Debian's /usr Python interpreter.
+    The verified local site takes precedence over the already-visible distro
+    site. Those existing system packages remain available; this does not claim
+    the entire interpreter environment is a reproducibly provisioned bundle.
+    Project cwd/PYTHONPATH keep Python's ordinary precedence; -I still finds the
+    verified site, while the deliberately site-disabled -S remains an opt-out.
+    """
+    version='.'.join(map(str,sys.version_info[:2]))
+    selected='/usr/local/lib/python'+version+'/dist-packages'
+    return ['--ro-bind',str(bundle/'site-packages'),selected]
+
+
 def python_project_mount(bundle):
     # Both names expose the SAME unified immutable environment. Existing audited
     # commands referring to the original pytest path survive dependency recovery.
-    result=[]
+    result=python_site_mount(bundle)
     for prefix in ('python-project','python-test'):
         result+=['--ro-bind',str(bundle/'site-packages'),'/opt/'+prefix,
                  '--ro-bind',str(bundle/'manifest.json'),'/opt/'+prefix+'-runtime.json']
-    return result+['--setenv','PYTHONPATH','/opt/python-project',
-                   '--setenv','PYTHONDONTWRITEBYTECODE','1',
+    return result+['--setenv','PYTHONDONTWRITEBYTECODE','1',
                    '--setenv','LECTERN_PYTHON_TEST_RUNTIME_STATUS','verified',
                    '--setenv','LECTERN_PYTHON_PROJECT_RUNTIME_STATUS','verified']
 
@@ -1996,7 +2009,7 @@ def evidence_extract_archive(source, destination):
     Symlinks are literal data. Hardlinks are expanded into independent regular
     files using only validated tar members, never filesystem link resolution.
     """
-    if status(source)['state']!='done':raise ValueError('archive evidence requires a completed source')
+    if status(source)['state'] not in ('done','failed','stopped'):raise ValueError('archive evidence requires a terminal source')
     archive=job_path(source)/'artifact.tar.gz'
     expected=archive_identity(source)['sha256']
     if digest_file(archive)!=expected:raise RuntimeError('evidence archive checksum mismatch')
@@ -2174,6 +2187,112 @@ def copy_archive_review(job, source):
         receipt = dict(expected, state='copied', evidence_tree_sha256=tree_hash, evidence_digest_scheme=scheme)
         completion_write(published, receipt)
         return receipt
+
+
+def archive_report_unit(job):
+    job_path(job)
+    return 'lectern-archive-report-'+job+'.service'
+
+
+def archive_report_cached(stage, digest):
+    path=stage/'report.json'
+    if not path.exists():return None
+    info=regular(path)
+    if info.st_uid!=os.geteuid() or info.st_mode&0o022 or info.st_size>1024*1024:
+        raise RuntimeError('unsafe archived report receipt')
+    value=json.loads(path.read_text())
+    if value.get('archive_sha256')!=digest:raise RuntimeError('archived report identity changed')
+    if value.get('state')=='ready':
+        if not isinstance(value.get('report'),str):raise RuntimeError('invalid cached archived report text')
+        raw=value['report'].encode('utf-8')
+        if len(raw)>128*1024 or hashlib.sha256(raw).hexdigest()!=value.get('report_sha256'):
+            raise RuntimeError('cached archived report bytes changed')
+    return value
+
+
+def archive_report(job):
+    p=job_path(job)
+    if not (p/'artifact.tar.gz').exists() and not (p/'artifact.tar.gz').is_symlink():
+        return {'state':'exporting','reason':'source immutable export is not ready'}
+    digest=archive_identity(job)['sha256'];stage=snapshot_stage(job)
+    cancelled=(stage/'report-cancel.json').read_bytes() if (stage/'report-cancel.json').exists() else b''
+    with (stage/'report-start.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        previous=archive_report_cached(stage,digest)
+        if previous and previous.get('state') in ('ready','unavailable'):return previous
+        if cancelled!=((stage/'report-cancel.json').read_bytes() if (stage/'report-cancel.json').exists() else b''):
+            return {'state':'waiting','archive_sha256':digest,'reason':'archive report read cancelled'}
+        if completion_service_active(archive_report_unit(job)):
+            return {'state':'exporting','archive_sha256':digest}
+        if previous and previous.get('state')=='exporting':
+            previous=dict(previous,state='waiting',reason='archive report reader interrupted',retry_at=time.time()+30)
+            completion_write(stage/'report.json',previous)
+        if previous and previous.get('retry_at',0)>time.time():return previous
+        if shutil.disk_usage(ROOT).free<20*1024**3:
+            return {'state':'waiting','archive_sha256':digest,'reason':'archive report reader requires storage floor'}
+        receipt={'state':'exporting','archive_sha256':digest}
+        completion_write(stage/'report.json',receipt)
+        run(['/usr/bin/systemd-run','--quiet','--collect','--unit='+archive_report_unit(job),
+             '--property=RuntimeMaxSec=300','--property=MemoryMax=512M','--property=MemorySwapMax=0',
+             '--property=CPUQuota=100%','--property=TasksMax=16','--property=KillMode=control-group',
+             '--property=UMask=0077',INSTALL,'_archive-report','--job',job],pass_fds=(lock.fileno(),))
+        return receipt
+
+
+def archive_report_stop(job):
+    stage=snapshot_stage(job)
+    completion_write(stage/'report-cancel.json',{'epoch':str(uuid.uuid4())})
+    with (stage/'report-start.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        if completion_service_active(archive_report_unit(job)):
+            run(['/usr/bin/systemctl','stop',archive_report_unit(job)],pass_fds=(lock.fileno(),))
+        if completion_service_active(archive_report_unit(job)):raise RuntimeError('archive report reader did not stop')
+        if (stage/'report.json').exists():
+            previous=archive_report_cached(stage,archive_identity(job)['sha256'])
+            if previous.get('state')=='exporting':
+                completion_write(stage/'report.json',dict(previous,state='waiting',reason='archive report reader stopped',retry_at=0))
+    return {'state':'stopped'}
+
+
+def archive_report_execute(job):
+    current=Path('/proc/self/cgroup').read_text().strip().split('::')[-1]
+    if not current.endswith('/'+archive_report_unit(job)):raise RuntimeError('archive report reader outside matching unit')
+    stage=snapshot_stage(job);digest=archive_identity(job)['sha256']
+    with ARTIFACT_LOCK.open('a') as global_lock,(stage/'export.lock').open('a') as lock:
+        fcntl.flock(global_lock,fcntl.LOCK_EX);fcntl.flock(lock,fcntl.LOCK_EX)
+        try:
+            receipt=archive_report_read(job,digest)
+        except (ValueError,UnicodeError,tarfile.TarError) as exc:
+            receipt={'state':'unavailable','archive_sha256':digest,'reason':str(exc)[:400]}
+        except Exception as exc:
+            receipt={'state':'waiting','archive_sha256':digest,'reason':str(exc)[:400],'retry_at':time.time()+60}
+        completion_write(stage/'report.json',receipt)
+        return 0 if receipt['state']=='ready' else 1
+
+
+def archive_report_read(job, digest):
+    archive=job_path(job)/'artifact.tar.gz'
+    if digest_file(archive)!=digest:raise RuntimeError('archived report source checksum mismatch')
+    report=None;count=0;total=0
+    # Streaming iteration reaches the end to reject a later duplicate. Nothing
+    # is extracted and tar link resolution is never used for this fixed member.
+    with tarfile.open(archive,'r|gz') as tar:
+        for member in tar:
+            count+=1;total+=member.size
+            if count>100000 or member.size<0 or total>COMPLETION_MAX_BYTES:
+                raise ValueError('archived report scan exceeds export bounds')
+            if member.name=='work/autonomy-report.json':
+                if report is not None:raise ValueError('duplicate archived autonomy report')
+                if not member.isfile() or member.islnk() or member.issym() or member.size>128*1024:
+                    raise ValueError('archived autonomy report must be an independent regular file at most 128 KiB')
+                with tar.extractfile(member) as stream:report=stream.read(128*1024+1)
+                if len(report)!=member.size:raise ValueError('truncated archived autonomy report')
+            elif Path(member.name).parts==('work','autonomy-report.json'):
+                raise ValueError('noncanonical archived autonomy report path')
+    if report is None:raise ValueError('immutable export has no root autonomy report')
+    text=report.decode('utf-8')  # Historical malformed report text remains evidence.
+    if digest_file(archive)!=digest:raise RuntimeError('archived report source changed during scan')
+    return {'state':'ready','archive_sha256':digest,'report_sha256':hashlib.sha256(report).hexdigest(),'report':text}
 
 
 def archive_identity(job):
@@ -2753,7 +2872,7 @@ def completion_resume(job, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
+    parser.add_argument('command', choices=['archive-report','archive-report-stop','_archive-report','python-dependencies','python-dependencies-stop','_python-dependencies','_completion-resume', 'archive-identity', '_copy-derived', '_copy-archive-review', 'copy-archive-review', 'completion-stop', 'completion-prepare', '_completion-prepare', 'completion-reconstruct', '_completion-reconstruct', 'copy-derived', 'completion-resume', 'dependencies', 'dependencies-stop', '_dependencies', 'storage', 'compact', 'probe', 'prepare', 'copy', 'copy-review', 'report', 'archive', 'snapshot', '_snapshot', 'selftest', 'start', 'launch-state', 'status', 'stop', '_execute'])
     parser.add_argument('--job')
     parser.add_argument('--from-job')
     parser.add_argument('--review-job')
@@ -2766,7 +2885,13 @@ def main():
     os.umask(0o077)
     if os.geteuid() != 0:
         raise RuntimeError('requires the installed privileged runner')
-    if args.command == 'python-dependencies':
+    if args.command == 'archive-report':
+        out=archive_report(args.job)
+    elif args.command == 'archive-report-stop':
+        out=archive_report_stop(args.job)
+    elif args.command == '_archive-report':
+        return archive_report_execute(args.job)
+    elif args.command == 'python-dependencies':
         out = python_dependencies(args.job)
     elif args.command == 'python-dependencies-stop':
         out = python_dependencies_stop(args.job)

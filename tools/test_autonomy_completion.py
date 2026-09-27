@@ -271,6 +271,18 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(manifest['source_archive_sha256'], receipt['source_archive_sha256'])
         self.assertEqual(receipt['source_archive_sha256'], RUNNER.digest_file(self.jobs / self.source / 'artifact.tar.gz'))
 
+    def test_terminal_failed_source_evidence_uses_archive_and_refuses_active(self):
+        self.states[self.source]='failed'
+        (self.jobs/self.source/'work/code.py').write_text('mutable later version')
+        receipt=RUNNER.copy_archive_review(self.destination,self.source)
+        copied=self.jobs/self.destination/'work/.lectern-review'/self.source/'work/code.py'
+        self.assertEqual(copied.read_bytes(),b'assert True\n')
+        self.assertEqual(receipt['source_archive_sha256'],RUNNER.archive_identity(self.source)['sha256'])
+        for state in ('running','launching','prepared'):
+            self.states[self.source]=state
+            with self.assertRaisesRegex(ValueError,'terminal source'):
+                RUNNER.evidence_extract_archive(self.source,self.root/('forbidden-'+state))
+
     def test_general_planner_evidence_preserves_links_without_host_reads(self):
         work=self.jobs/self.source/'work'
         secret=self.root/'host-secret';secret.write_bytes(b'NEVER READ HOST TARGET')
@@ -341,6 +353,74 @@ class CompletionTests(unittest.TestCase):
         ready=self.jobs/self.destination/'completion'/('archive-review-'+self.source+'-ready.json')
         legacy=dict(receipt);legacy.pop('evidence_digest_scheme');RUNNER.completion_write(ready,legacy)
         self.assertEqual(RUNNER.copy_archive_review(self.destination,self.source),legacy)
+
+    def test_archived_report_preserves_original_bytes_after_live_work_changes(self):
+        archived=b'{"old":true}\r\n'
+        (self.jobs/self.source/'work/autonomy-report.json').write_text('{"new":true}')
+        identity=RUNNER.archive_identity(self.source)['sha256']
+        receipt=RUNNER.archive_report_read(self.source,identity)
+        self.assertEqual(receipt,{'state':'ready','archive_sha256':identity,'report_sha256':hashlib.sha256(archived).hexdigest(),'report':archived.decode()})
+        RUNNER.completion_write(self.jobs/self.source/'artifact-state/report.json',receipt)
+        with patch.object(RUNNER,'digest_file',side_effect=AssertionError('cached poll must not hash archive')),patch.object(RUNNER,'run') as launch:
+            self.assertEqual(RUNNER.archive_report(self.source),receipt);launch.assert_not_called()
+
+    def test_archived_malformed_report_remains_exact_historical_evidence(self):
+        text='{"broken": truncated\r\n'
+        (self.jobs/self.source/'work/autonomy-report.json').write_bytes(text.encode())
+        (self.jobs/self.source/'artifact.tar.gz').chmod(0o600)
+        self.archive(self.source)
+        (self.jobs/self.source/'work/autonomy-report.json').write_text('{"fixed":true}')
+        digest=RUNNER.archive_identity(self.source)['sha256']
+        receipt=RUNNER.archive_report_read(self.source,digest)
+        self.assertEqual(receipt['report'],text)
+        RUNNER.completion_write(self.jobs/self.source/'artifact-state/report.json',receipt)
+        self.assertEqual(RUNNER.archive_report(self.source),receipt)
+
+    def test_archived_report_scan_rejects_links_duplicates_and_bad_bytes(self):
+        cases=[('symlink',None),('hardlink',None),('duplicate',b'{}'),('oversize',b' '* (128*1024+1)),('utf8',b'\xff'),('noncanonical',b'{}')]
+        for case,data in cases:
+            with self.subTest(case=case):
+                path=self.jobs/self.source/'artifact.tar.gz';path.chmod(0o600)
+                with tarfile.open(path,'w:gz') as archive:
+                    root=tarfile.TarInfo('work');root.type=tarfile.DIRTYPE;archive.addfile(root)
+                    member=tarfile.TarInfo('./work/autonomy-report.json' if case=='noncanonical' else 'work/autonomy-report.json')
+                    if case in ('symlink','hardlink'):
+                        member.type=tarfile.SYMTYPE if case=='symlink' else tarfile.LNKTYPE;member.linkname='/etc/passwd';archive.addfile(member)
+                    else:
+                        member.size=len(data);archive.addfile(member,io.BytesIO(data))
+                        if case=='duplicate':archive.addfile(member,io.BytesIO(data))
+                path.chmod(0o440);digest=RUNNER.digest_file(path)
+                with self.assertRaises(ValueError):RUNNER.archive_report_read(self.source,digest)
+
+    def test_archived_report_reader_is_async_and_stop_retries(self):
+        stage=self.jobs/self.source/'artifact-state'
+        with patch.object(RUNNER,'completion_service_active',return_value=False),patch.object(RUNNER,'run') as launch,patch.object(RUNNER.shutil,'disk_usage',return_value=shutil._ntuple_diskusage(100*1024**3,0,100*1024**3)):
+            receipt=RUNNER.archive_report(self.source)
+            self.assertEqual(receipt['state'],'exporting')
+            self.assertIn('_archive-report',launch.call_args.args[0]);self.assertIn('pass_fds',launch.call_args.kwargs)
+            self.assertIn('--unit=lectern-archive-report-'+self.source+'.service',launch.call_args.args[0])
+            self.assertIn('--property=RuntimeMaxSec=300',launch.call_args.args[0])
+        with patch.object(RUNNER,'completion_service_active',return_value=True),patch.object(RUNNER,'run',side_effect=RuntimeError('stop failed')):
+            with self.assertRaisesRegex(RuntimeError,'stop failed'):RUNNER.archive_report_stop(self.source)
+        self.assertEqual(RUNNER.completion_json(stage/'report.json')['state'],'exporting')
+        with patch.object(RUNNER,'completion_service_active',side_effect=[True,False]),patch.object(RUNNER,'run'):
+            self.assertEqual(RUNNER.archive_report_stop(self.source),{'state':'stopped'})
+        self.assertEqual(RUNNER.completion_json(stage/'report.json')['state'],'waiting')
+
+    def test_archived_report_corruption_and_interruption_remain_distinct(self):
+        stage=self.jobs/self.source/'artifact-state'
+        digest=RUNNER.archive_identity(self.source)['sha256']
+        with self.assertRaisesRegex(RuntimeError,'checksum mismatch'):
+            RUNNER.archive_report_read(self.source,'0'*64)
+        RUNNER.completion_write(stage/'report.json',{'state':'exporting','archive_sha256':digest})
+        with patch.object(RUNNER,'completion_service_active',return_value=False),patch.object(RUNNER,'run') as launch:
+            receipt=RUNNER.archive_report(self.source)
+            self.assertEqual(receipt['state'],'waiting');self.assertIn('interrupted',receipt['reason'])
+            launch.assert_not_called()
+        ready=RUNNER.archive_report_read(self.source,digest)
+        ready['report']='{"tampered":true}'
+        RUNNER.completion_write(stage/'report.json',ready)
+        with self.assertRaisesRegex(RuntimeError,'bytes changed'):RUNNER.archive_report(self.source)
 
     def test_prepare_ownership_failure_cannot_publish_readiness(self):
         source_work = self.jobs / self.source / 'work'

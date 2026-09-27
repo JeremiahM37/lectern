@@ -117,6 +117,9 @@ func autoRepairAudited(a *autoRecord) bool {
 	return true
 }
 func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) error {
+	if err := autoValidateDiagnosisEnvironments(a, items); err != nil {
+		return err
+	}
 	if err := autoValidateRequirementDiagnoses(a, items); err != nil {
 		return err
 	}

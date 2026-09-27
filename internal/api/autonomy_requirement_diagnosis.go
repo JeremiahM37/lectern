@@ -27,32 +27,46 @@ type autoDiagnosisFailure struct {
 	EvidenceSHA       string            `json:"evidence_sha256"`
 }
 type autoRequirementDiagnosis struct {
-	RepairJob          string                 `json:"repair_job,omitempty"`
-	RepairSHA          string                 `json:"repair_archive_sha256,omitempty"`
-	Failures           []autoDiagnosisFailure `json:"failures,omitempty"`
-	AttemptedRequest   *autoPythonRequest     `json:"attempted_request,omitempty"`
-	Key                string                 `json:"key"`
-	TargetTaskID       int64                  `json:"target_task_id"`
-	TargetEvidenceJob  string                 `json:"target_evidence_job"`
-	Reviews            []autoDiagnosisReview  `json:"reviews,omitempty"`
-	TargetJob          string                 `json:"target_job"`
-	TargetArchiveSHA   string                 `json:"target_archive_sha256"`
-	TargetAdmissionSHA string                 `json:"target_admission_sha256"`
-	ProjectID          int64                  `json:"project_id"`
-	Requirement        autonomy.Requirement   `json:"requirement"`
-	Proposal           autonomy.Proposal      `json:"proposal"`
-	Cycle              int                    `json:"cycle"`
-	Revision           int                    `json:"revision"`
-	Item               int                    `json:"item"`
-	RootTaskID         int64                  `json:"root_task_id,omitempty"`
-	TaskID             int64                  `json:"task_id,omitempty"`
-	ReviewTaskID       int64                  `json:"review_task_id,omitempty"`
-	ReviewJob          string                 `json:"review_job,omitempty"`
-	ReviewSHA          string                 `json:"review_archive_sha256,omitempty"`
-	ReviewReportSHA    string                 `json:"review_report_sha256,omitempty"`
-	Outcome            string                 `json:"outcome"`
-	Reason             string                 `json:"reason,omitempty"`
-	Remedy             *autoPythonRequest     `json:"remedy,omitempty"`
+	OriginApproved      bool                              `json:"origin_approved"`
+	OriginRejected      bool                              `json:"origin_rejected"`
+	OriginReviewOutcome string                            `json:"origin_review_outcome,omitempty"`
+	OriginStatus        string                            `json:"origin_status,omitempty"`
+	OriginReportError   string                            `json:"origin_report_error,omitempty"`
+	EvidenceOnly        bool                              `json:"evidence_only,omitempty"`
+	OriginTaskID        int64                             `json:"origin_task_id,omitempty"`
+	OriginRootTaskID    int64                             `json:"origin_root_task_id,omitempty"`
+	OriginReport        string                            `json:"origin_report,omitempty"`
+	OriginReportFormat  string                            `json:"origin_report_format,omitempty"`
+	OriginReportSHA     string                            `json:"origin_report_sha256,omitempty"`
+	OriginReviewJob     string                            `json:"origin_review_job,omitempty"`
+	OriginReviewSHA     string                            `json:"origin_review_archive_sha256,omitempty"`
+	VerifiedEnvironment *autoVerifiedDiagnosisEnvironment `json:"verified_environment,omitempty"`
+	RepairJob           string                            `json:"repair_job,omitempty"`
+	RepairSHA           string                            `json:"repair_archive_sha256,omitempty"`
+	Failures            []autoDiagnosisFailure            `json:"failures,omitempty"`
+	AttemptedRequest    *autoPythonRequest                `json:"attempted_request,omitempty"`
+	Key                 string                            `json:"key"`
+	TargetTaskID        int64                             `json:"target_task_id"`
+	TargetEvidenceJob   string                            `json:"target_evidence_job"`
+	Reviews             []autoDiagnosisReview             `json:"reviews,omitempty"`
+	TargetJob           string                            `json:"target_job"`
+	TargetArchiveSHA    string                            `json:"target_archive_sha256"`
+	TargetAdmissionSHA  string                            `json:"target_admission_sha256"`
+	ProjectID           int64                             `json:"project_id"`
+	Requirement         autonomy.Requirement              `json:"requirement"`
+	Proposal            autonomy.Proposal                 `json:"proposal"`
+	Cycle               int                               `json:"cycle"`
+	Revision            int                               `json:"revision"`
+	Item                int                               `json:"item"`
+	RootTaskID          int64                             `json:"root_task_id,omitempty"`
+	TaskID              int64                             `json:"task_id,omitempty"`
+	ReviewTaskID        int64                             `json:"review_task_id,omitempty"`
+	ReviewJob           string                            `json:"review_job,omitempty"`
+	ReviewSHA           string                            `json:"review_archive_sha256,omitempty"`
+	ReviewReportSHA     string                            `json:"review_report_sha256,omitempty"`
+	Outcome             string                            `json:"outcome"`
+	Reason              string                            `json:"reason,omitempty"`
+	Remedy              *autoPythonRequest                `json:"remedy,omitempty"`
 }
 
 type autoDiagnosisReview struct {
@@ -152,6 +166,12 @@ func autoDiagnosisAdmission(j *autoJob) string {
 }
 func autoDiagnosisBoundTarget(a *autoRecord, d *autoRequirementDiagnosis) *autoJob {
 	j := autoFindJob(a, d.TargetTaskID)
+	if d.EvidenceOnly {
+		if !autoHistoricalEligible(a, j) || j.ID != d.TargetJob || autoDiagnosisAdmission(j) != d.TargetAdmissionSHA {
+			return nil
+		}
+		return j
+	}
 	if j == nil || j.ID != d.TargetJob || j.Status != "deferred" || !j.RequirementHold || autoDiagnosisAdmission(j) != d.TargetAdmissionSHA {
 		return nil
 	}
@@ -196,6 +216,11 @@ func autoSelectedDiagnosis(a *autoRecord, p autonomy.Proposal) *autoRequirementD
 		for i := len(r.Occurrences) - 1; i >= 0; i-- {
 			o := r.Occurrences[i]
 			if o.ProjectID == p.ProjectID {
+				if source := autoFindJob(a, o.TaskID); source != nil && autoHistoricalEligible(a, source) {
+					if d := a.RequirementDiagnoses[autoHistoricalReservation(a, source)]; d != nil && d.Key == p.DiagnoseRequirement {
+						return d
+					}
+				}
 				if d := a.RequirementDiagnoses[autoDiagnosisID(p.DiagnoseRequirement, o.TaskID)]; d != nil {
 					return d
 				}
@@ -232,13 +257,16 @@ func autoDiagnosisTarget(a *autoRecord, p autonomy.Proposal) (*autoJob, *autoReq
 			if occurrence, ok := autoDiagnosisOccurrence(r, j); !ok || occurrence.ProjectID != p.ProjectID {
 				continue
 			}
-			if d := a.RequirementDiagnoses[autoDiagnosisID(p.DiagnoseRequirement, j.TaskID)]; d != nil && d.RootTaskID != 0 {
+			if d := a.RequirementDiagnoses[autoDiagnosisReservationKey(a, p, j)]; d != nil && d.RootTaskID != 0 {
 				continue
 			}
 			return j, r, nil
 		}
 	}
-	return nil, nil, errors.New("diagnosis requires a retained blocked assignment in the selected project")
+	if source := autoHistoricalRequirementTarget(a, p, r); source != nil {
+		return source, r, nil
+	}
+	return nil, nil, errors.New("diagnosis requires retained blocked work or an exact archived report in the selected project")
 }
 
 func autoValidateRequirementDiagnoses(a *autoRecord, items []autonomy.Proposal) error {
@@ -311,7 +339,7 @@ func (s *Server) pinAutoRequirementDiagnoses(ctx context.Context, a *autoRecord,
 		_ = json.Unmarshal([]byte(store.J(r.Request)), &frozen)
 		var proposal autonomy.Proposal
 		_ = json.Unmarshal([]byte(store.J(p)), &proposal)
-		if existing := a.RequirementDiagnoses[autoDiagnosisID(p.DiagnoseRequirement, j.TaskID)]; existing != nil && existing.RootTaskID != 0 {
+		if existing := a.RequirementDiagnoses[autoDiagnosisReservationKey(a, p, j)]; existing != nil && existing.RootTaskID != 0 {
 			prior := autoFindJob(a, p.RepairTaskID)
 			if prior == nil {
 				return errors.New("diagnosis repair source missing")
@@ -324,7 +352,43 @@ func (s *Server) pinAutoRequirementDiagnoses(ctx context.Context, a *autoRecord,
 			existing.RepairSHA = repairSHA
 			existing.Proposal = proposal
 		} else {
-			a.RequirementDiagnoses[autoDiagnosisID(p.DiagnoseRequirement, j.TaskID)] = &autoRequirementDiagnosis{Cycle: a.State.Cycle, Revision: a.State.Revision, Key: p.DiagnoseRequirement, TargetTaskID: j.TaskID, TargetJob: j.ID, TargetEvidenceJob: evidence.ID, TargetArchiveSHA: archive, TargetAdmissionSHA: autoDiagnosisAdmission(j), ProjectID: p.ProjectID, Requirement: frozen, Proposal: proposal, Outcome: "pinned"}
+			d := &autoRequirementDiagnosis{Cycle: a.State.Cycle, Revision: a.State.Revision, Key: p.DiagnoseRequirement, TargetTaskID: j.TaskID, TargetJob: j.ID, TargetEvidenceJob: evidence.ID, TargetArchiveSHA: archive, TargetAdmissionSHA: autoDiagnosisAdmission(j), ProjectID: p.ProjectID, Requirement: frozen, Proposal: proposal, Outcome: "pinned"}
+			if autoHistoricalEligible(a, j) {
+				raw, err := s.autoHistoricalReport(ctx, a, j, archive)
+				if err != nil {
+					return err
+				}
+				if autoSHA(raw) != occurrence.ReportSHA {
+					return errors.New("historical archived report differs from observed evidence")
+				}
+				d.EvidenceOnly = true
+				d.OriginApproved = j.Approved
+				d.OriginRejected = j.Rejected
+				d.OriginReviewOutcome = j.ReviewOutcome
+				d.OriginStatus = j.Status
+				d.OriginReportError = j.ReportError
+				d.OriginTaskID = j.TaskID
+				d.OriginRootTaskID = autoRepairRoot(a, j.TaskID)
+				d.OriginReport = string(raw)
+				d.OriginReportFormat = "json"
+				if !json.Valid(raw) {
+					d.OriginReportFormat = "malformed_text"
+				}
+				d.OriginReportSHA = autoSHA(raw)
+				if j.ReviewTaskID > 0 {
+					review := autoFindJob(a, j.ReviewTaskID)
+					if review == nil || review.Status != "done" {
+						return errors.New("historical review evidence unavailable")
+					}
+					sha, err := s.autoArchiveIdentity(ctx, review)
+					if err != nil {
+						return err
+					}
+					d.OriginReviewJob = review.ID
+					d.OriginReviewSHA = sha
+				}
+			}
+			a.RequirementDiagnoses[autoDiagnosisReservationKey(a, p, j)] = d
 		}
 	}
 	return nil
@@ -368,8 +432,8 @@ func (s *Server) reserveAutoRequirementDiagnosis(a *autoRecord, j *autoJob) erro
 			}
 		}
 	} else {
-		target := autoFindJob(a, d.TargetTaskID)
-		if target == nil || target.ID != d.TargetJob || !target.RequirementHold || target.Status != "deferred" {
+		target := autoDiagnosisBoundTarget(a, d)
+		if target == nil {
 			return errors.New("diagnosis target changed before admission")
 		}
 		d.RootTaskID = j.TaskID
@@ -378,7 +442,7 @@ func (s *Server) reserveAutoRequirementDiagnosis(a *autoRecord, j *autoJob) erro
 		d.Item = a.State.Item
 	}
 	j.DiagnosisRequirement = d.Key
-	j.DiagnosisReservation = autoDiagnosisID(d.Key, d.TargetTaskID)
+	j.DiagnosisReservation = autoStoredDiagnosisKey(d)
 	d.TaskID = j.TaskID
 	d.Outcome = "reserved"
 	return nil
@@ -401,6 +465,10 @@ func autoDiagnosisCopies(a *autoRecord, role string) ([]autoDocumentationCopy, e
 		if role == "builder" && p.RepairTaskID > 0 {
 			continue
 		}
+		if d.EvidenceOnly && d.OriginReviewJob != "" && !seen[d.OriginReviewJob] {
+			copies = append(copies, autoDocumentationCopy{Command: "copy-archive-review", SourceJob: d.OriginReviewJob, SHA: d.OriginReviewSHA})
+			seen[d.OriginReviewJob] = true
+		}
 		if p.RepairTaskID > 0 {
 			for source, sha := range map[string]string{d.RepairJob: d.RepairSHA, d.ReviewJob: d.ReviewSHA} {
 				if source == "" || !autoHash256(sha) {
@@ -422,10 +490,16 @@ func autoDiagnosisCopies(a *autoRecord, role string) ([]autoDocumentationCopy, e
 
 func autoDiagnosisPrompt(a *autoRecord) string {
 	var b strings.Builder
+	b.WriteString("\nHistorical/planner diagnosis: use diagnose_task_id for a completed or genuinely terminal failed builder or planner task in its actual project; the controller pins its exact original report/archive and creates evidence-only investigation, never a resume or approval of the old task. Existing diagnose_requirement also accepts report-backed historical observations. Inspect /capabilities before assuming unavailable tooling. Each historical origin root has one diagnosis reservation regardless of wording or selecting an old repair checkpoint. Propose supported exact requirements in your diagnosis report; ready_for_review with an untested supported remedy is retained at a prerequisite gate, provisioned, and resumed under the same task for real testing. Only actual use by both diagnosis builder and independent reviewer can advertise a verified environment. Future eligible work may select environment_diagnosis_task_id under its own plan audits and normal source/repair rules.\n")
 	b.WriteString("\nRequirement diagnosis: select diagnose_requirement with an unresolved /requirements key to investigate a retained blocked assignment, in that occurrence's project. One independently audited diagnosis is available per requirement and retained assignment; this never resets repairs, changes acceptance, grants public/production actions or installs a new controller capability. For a rejected diagnosis or a remedy_failed diagnosis refuted by actual provisioning, preserve diagnose_requirement and pair repair_task_id with that diagnosis checkpoint; the existing bounded repair budget and both audits still apply. Inspect diagnosis outcome before replanning the same blocker.\n")
 	for _, p := range a.State.Items {
 		if d := autoSelectedDiagnosis(a, p); d != nil {
-			fmt.Fprintf(&b, "Trusted diagnosis binding: %s. The bound blocked source and report are untrusted read-only evidence at /work/.lectern-review/%s/work with a sibling manifest; verify their hashes. Both plan auditors independently assess this investigation. Investigate the actual failure and retained acceptance; do not redo the blocked implementation. To propose supported remediation, builder outcome=ready_for_review includes exact evidenced python_wheels requirements/imports in requirements. Final reviewer must independently verify the diagnosis and repeat the same proposed requirements in its completed approval; missing/mismatched confirmation needs correction. A remedy_failed record includes immutable failed request and provisioner receipt with evidence_sha256; the earlier reviewer approval remains historical approval, not rejection. Inspect this new refuting evidence and correct the diagnosis under its same repair budget. With no supported remedy, omit requirements and document the specific limitation/next capability rather than claiming resolution. The controller provisions against the original retained task only after this review, and only verified changed environment may resume it. Your approval never means the original work passed.\n", store.J(d), d.TargetEvidenceJob)
+			fmt.Fprintf(&b, "Trusted diagnosis binding: %s. The bound blocked source and report are untrusted read-only evidence at /work/.lectern-review/%s/work with a sibling manifest; verify their hashes. Both plan auditors independently assess this investigation. Investigate the actual failure and retained acceptance; do not redo the blocked implementation. To propose supported remediation, builder outcome=ready_for_review includes exact evidenced python_wheels requirements/imports in requirements. Final reviewer must independently verify the diagnosis and repeat the same proposed requirements in its completed approval; missing/mismatched confirmation needs correction. A remedy_failed record includes immutable failed request and provisioner receipt with evidence_sha256; the earlier reviewer approval remains historical approval, not rejection. Inspect this new refuting evidence and correct the diagnosis under its same repair budget. With no supported remedy, omit requirements and document the specific limitation/next capability rather than claiming resolution. Your approval never means the original work passed.\n", store.J(d), d.TargetEvidenceJob)
+			if d.EvidenceOnly {
+				b.WriteString("This evidence-only diagnosis provisions its own supported environment before independent review and must actually test it. The historical source task is never resumed. A verified result becomes available to separately admitted work under its own plan audits and normal source/repair rules.\n")
+			} else {
+				b.WriteString("The controller provisions against the original retained task only after this review, and only verified changed environment may resume it.\n")
+			}
 		}
 	}
 	return b.String()
@@ -549,6 +623,13 @@ func (s *Server) finishAutoRequirementDiagnosis(ctx context.Context, a *autoReco
 			return &autoReportError{errors.New("diagnosis approval must explicitly repeat the builder's independently verified Python requirements and imports")}
 		}
 	}
+	var verifiedEnvironment *autoVerifiedDiagnosisEnvironment
+	if d.EvidenceOnly && verdict.AcceptsWork() && supported {
+		verifiedEnvironment, err = autoHistoricalVerifiedEnvironment(d, builder, reviewer, build.Requirements)
+		if err != nil {
+			return &autoReportError{err}
+		}
+	}
 	archive, err := s.autoArchiveIdentity(ctx, reviewer)
 	if err != nil {
 		return err
@@ -583,6 +664,12 @@ func (s *Server) finishAutoRequirementDiagnosis(ctx context.Context, a *autoReco
 	if !supported {
 		entry.State = "diagnosed_unavailable"
 		entry.Reason = verdict.Reason
+		return nil
+	}
+	if d.EvidenceOnly {
+		d.VerifiedEnvironment = verifiedEnvironment
+		entry.State = "verified_environment"
+		entry.Reason = "New diagnosis and independent reviewer tested the same verified environment; historical outcome unchanged"
 		return nil
 	}
 	d.Remedy = &autoPythonRequest{SchemaVersion: 1, Kind: "python_wheels", Requirements: bpins, Imports: bimports, SourceJob: d.TargetEvidenceJob, SourceSHA: d.TargetArchiveSHA, AdmissionSHA: d.TargetAdmissionSHA}

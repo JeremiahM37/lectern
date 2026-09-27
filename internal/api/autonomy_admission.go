@@ -57,7 +57,17 @@ func (s *Server) autoJobReadBridge(jobID string) http.HandlerFunc {
 		}
 		for _, j := range a.Jobs {
 			if r.URL.Path == "/prerequisite" && j.ID == jobID {
-				writeJSON(w, http.StatusOK, j.Recovery)
+				w.Header().Set("Cache-Control", "no-store")
+				if j.PythonRecovery == nil {
+					writeJSON(w, http.StatusOK, j.Recovery)
+				} else {
+					// Keep the existing top-level Go receipt contract while exposing
+					// Python evidence belonging to this same socket-bound worker.
+					writeJSON(w, http.StatusOK, struct {
+						*autoRecoveryReceipt
+						Python *autoPythonReceipt `json:"python"`
+					}{j.Recovery, j.PythonRecovery})
+				}
 				return
 			}
 			if j.ID == jobID && j.Admission != nil && j.Admission.JobID == jobID && j.Admission.TaskID == j.TaskID {

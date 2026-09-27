@@ -72,31 +72,33 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
-	HeldRuns                  []*autonomy.State                       `json:"held_runs,omitempty"`
-	RequirementDiagnoses      map[string]*autoRequirementDiagnosis    `json:"requirement_diagnoses,omitempty"`
-	Requirements              map[string]*autoRequirement             `json:"requirements,omitempty"`
-	DocumentationPins         map[int64]*autoDocumentationReservation `json:"documentation_pins,omitempty"`
-	DocumentationReservations map[int64]*autoDocumentationReservation `json:"documentation_reservations,omitempty"`
-	DeferredRuns              []*autonomy.State                       `json:"deferred_runs,omitempty"`
-	CycleSequence             int                                     `json:"cycle_sequence,omitempty"`
-	Config                    autonomy.Config                         `json:"config"`
-	State                     *autonomy.State                         `json:"state"`
-	Runs                      []*autonomy.State                       `json:"runs"`
-	Jobs                      []*autoJob                              `json:"jobs"`
-	Status                    string                                  `json:"status"`
-	Reason                    string                                  `json:"reason"`
-	Quota                     autonomy.Usage                          `json:"quota"`
-	RequestedDay              string                                  `json:"requested_day,omitempty"`
-	ProjectID                 int64                                   `json:"project_id"`
-	RememberedDay             string                                  `json:"remembered_day"`
-	RetryCount                int                                     `json:"retry_count"`
-	RetryScope                string                                  `json:"retry_scope,omitempty"`
-	RetryDay                  string                                  `json:"retry_day,omitempty"`
-	RetryAt                   time.Time                               `json:"retry_at,omitempty"`
-	NextCycleAt               time.Time                               `json:"next_cycle_at,omitempty"`
-	NextCycleScheduled        bool                                    `json:"next_cycle_scheduled"`
-	RememberedCycle           string                                  `json:"remembered_cycle,omitempty"`
-	StrategyDay               string                                  `json:"strategy_day,omitempty"`
+	HistoricalReportPending   map[string]bool                             `json:"historical_report_pending,omitempty"`
+	EnvironmentPins           map[int64]*autoVerifiedDiagnosisEnvironment `json:"environment_pins,omitempty"`
+	HeldRuns                  []*autonomy.State                           `json:"held_runs,omitempty"`
+	RequirementDiagnoses      map[string]*autoRequirementDiagnosis        `json:"requirement_diagnoses,omitempty"`
+	Requirements              map[string]*autoRequirement                 `json:"requirements,omitempty"`
+	DocumentationPins         map[int64]*autoDocumentationReservation     `json:"documentation_pins,omitempty"`
+	DocumentationReservations map[int64]*autoDocumentationReservation     `json:"documentation_reservations,omitempty"`
+	DeferredRuns              []*autonomy.State                           `json:"deferred_runs,omitempty"`
+	CycleSequence             int                                         `json:"cycle_sequence,omitempty"`
+	Config                    autonomy.Config                             `json:"config"`
+	State                     *autonomy.State                             `json:"state"`
+	Runs                      []*autonomy.State                           `json:"runs"`
+	Jobs                      []*autoJob                                  `json:"jobs"`
+	Status                    string                                      `json:"status"`
+	Reason                    string                                      `json:"reason"`
+	Quota                     autonomy.Usage                              `json:"quota"`
+	RequestedDay              string                                      `json:"requested_day,omitempty"`
+	ProjectID                 int64                                       `json:"project_id"`
+	RememberedDay             string                                      `json:"remembered_day"`
+	RetryCount                int                                         `json:"retry_count"`
+	RetryScope                string                                      `json:"retry_scope,omitempty"`
+	RetryDay                  string                                      `json:"retry_day,omitempty"`
+	RetryAt                   time.Time                                   `json:"retry_at,omitempty"`
+	NextCycleAt               time.Time                                   `json:"next_cycle_at,omitempty"`
+	NextCycleScheduled        bool                                        `json:"next_cycle_scheduled"`
+	RememberedCycle           string                                      `json:"remembered_cycle,omitempty"`
+	StrategyDay               string                                      `json:"strategy_day,omitempty"`
 }
 
 func (s *Server) loadAuto() (*autoRecord, error) {
@@ -237,6 +239,13 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 }
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
 	var stopErrors []string
+	for id := range a.HistoricalReportPending {
+		if _, err := s.runAutoCommand(ctx, "archive-report-stop", "--job", id); err != nil {
+			stopErrors = append(stopErrors, "Historical report stop: "+err.Error())
+		} else {
+			delete(a.HistoricalReportPending, id)
+		}
+	}
 	for _, j := range a.Jobs {
 		if autoPythonPending(j) {
 			if _, err := s.runAutoCommand(ctx, "python-dependencies-stop", "--job", j.ID); err != nil {
@@ -309,6 +318,11 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		return
 	}
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
+		if len(a.HistoricalReportPending) > 0 {
+			s.stopAutoJobs(ctx, a, "Autonomous mode is off")
+			_ = s.saveAuto(a)
+			return
+		}
 		for _, j := range a.Jobs {
 			if autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
@@ -579,7 +593,9 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 	}
 	if j.Status == "prepared" {
-		autoInheritPythonRequest(a, j)
+		if err := autoInheritPythonRequest(a, j); err != nil {
+			return err
+		}
 	}
 	ready, err := s.recoverAutoPrerequisites(ctx, a, j)
 	if err != nil {
@@ -695,6 +711,9 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 	}
 	if j.Role == "planner" {
 		if e = s.pinAutoSources(ctx, a, next.Items); e != nil {
+			if errors.Is(e, errAutoArtifactPending) {
+				return e
+			}
 			return &autoReportError{e}
 		}
 	}

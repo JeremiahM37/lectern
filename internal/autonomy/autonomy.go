@@ -156,19 +156,21 @@ const (
 )
 
 type Proposal struct {
-	DiagnoseRequirement string   `json:"diagnose_requirement,omitempty"`
-	DocumentationTaskID int64    `json:"documentation_task_id,omitempty"`
-	ProjectID           int64    `json:"project_id"`
-	SourceRevision      string   `json:"source_revision,omitempty"`
-	RepairTaskID        int64    `json:"repair_task_id,omitempty"`
-	ContinueTaskID      int64    `json:"continue_task_id,omitempty"`
-	Title               string   `json:"title"`
-	Why                 string   `json:"why"`
-	Acceptance          []string `json:"acceptance"`
-	Ambition            string   `json:"ambition,omitempty"`
-	Novelty             string   `json:"novelty,omitempty"`
-	Score               int      `json:"score,omitempty"`
-	Expert              bool     `json:"expert,omitempty"`
+	DiagnoseTaskID             int64    `json:"diagnose_task_id,omitempty"`
+	EnvironmentDiagnosisTaskID int64    `json:"environment_diagnosis_task_id,omitempty"`
+	DiagnoseRequirement        string   `json:"diagnose_requirement,omitempty"`
+	DocumentationTaskID        int64    `json:"documentation_task_id,omitempty"`
+	ProjectID                  int64    `json:"project_id"`
+	SourceRevision             string   `json:"source_revision,omitempty"`
+	RepairTaskID               int64    `json:"repair_task_id,omitempty"`
+	ContinueTaskID             int64    `json:"continue_task_id,omitempty"`
+	Title                      string   `json:"title"`
+	Why                        string   `json:"why"`
+	Acceptance                 []string `json:"acceptance"`
+	Ambition                   string   `json:"ambition,omitempty"`
+	Novelty                    string   `json:"novelty,omitempty"`
+	Score                      int      `json:"score,omitempty"`
+	Expert                     bool     `json:"expert,omitempty"`
 }
 
 // NoWorkReport makes declining work an auditable decision, not an implicit
@@ -471,7 +473,7 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
-			if p.ProjectID <= 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
+			if p.ProjectID <= 0 || p.EnvironmentDiagnosisTaskID < 0 || p.DiagnoseTaskID < 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
 				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative mutually exclusive continue_task_id/repair_task_id and a unique title within its list", index)
 			}
 			if index < len(r.Items) && len(p.Acceptance) == 0 {

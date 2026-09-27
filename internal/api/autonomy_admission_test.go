@@ -146,3 +146,65 @@ func TestNewCycleMigratesMissingReviewReceiptAcrossReload(t *testing.T) {
 		})
 	}
 }
+
+func TestPrerequisiteBridgeExposesBoundGoAndPythonReceipts(t *testing.T) {
+	s, a, _, _ := repairFixture(t)
+	goReceipt := &autoRecoveryReceipt{State: "verified", Capability: "go_modules", Key: "go-input", Attempts: 2}
+	pythonReceipt := &autoPythonReceipt{State: "verified", Capability: "python_wheels", InputKey: "python-input", BundleKey: "python-bundle", RuntimeDigest: "python-runtime", SourceJob: "source", SourceSHA: "archive", AdmissionSHA: "admission"}
+	a.Jobs = []*autoJob{
+		{ID: "go", Recovery: goReceipt},
+		{ID: "python", PythonRecovery: pythonReceipt},
+		{ID: "both", Recovery: goReceipt, PythonRecovery: pythonReceipt},
+		{ID: "empty"},
+	}
+	if err := s.saveAuto(a); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"go", "python", "both", "empty", "unknown"} {
+		t.Run(id, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			// A worker cannot select another worker's evidence through query arguments.
+			s.autoJobReadBridge(id)(w, httptest.NewRequest("GET", "/prerequisite?job_id=both&task_id=999", nil))
+			if id == "unknown" {
+				if w.Code != 404 {
+					t.Fatalf("unknown worker received receipt: %d %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal(w.Code, w.Header(), w.Body.String())
+			}
+			var got map[string]json.RawMessage
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if id == "empty" {
+				if got != nil {
+					t.Fatal("legacy empty receipt changed", w.Body.String())
+				}
+				return
+			}
+			if id == "go" || id == "both" {
+				var legacy autoRecoveryReceipt
+				if err := json.Unmarshal(w.Body.Bytes(), &legacy); err != nil || legacy != *goReceipt {
+					t.Fatal("Go receipt contract changed", legacy, err)
+				}
+			} else if _, ok := got["capability"]; ok {
+				t.Fatal("Python worker exposed another job's Go receipt")
+			}
+			if id == "python" || id == "both" {
+				var receipt autoPythonReceipt
+				if err := json.Unmarshal(got["python"], &receipt); err != nil || receipt != *pythonReceipt {
+					t.Fatal("Python evidence lost", receipt, err)
+				}
+			} else if _, ok := got["python"]; ok {
+				t.Fatal("Go worker exposed another job's Python receipt")
+			}
+		})
+	}
+	w := httptest.NewRecorder()
+	s.autoJobReadBridge("both")(w, httptest.NewRequest("POST", "/prerequisite", nil))
+	if w.Code != 405 {
+		t.Fatal("prerequisite bridge accepts writes", w.Code)
+	}
+}

@@ -130,6 +130,45 @@ failed prerequisites retain their admitted assignments for bounded automatic
 recovery while other work proceeds. See `/requirements` for the recorded state.
 See isolation documentation for the remaining model-provider trust boundary.
 
+Workers can discover registered provisioners through the read-only
+`GET /capabilities` bridge. The catalog distinguishes an installed mechanism
+from a package that has actually been resolved, verified and mounted. Python
+project dependencies use exact distribution pins and import probes, an immutable
+wheel bundle, and an offline verification receipt. The current provisioner
+supports compatible universal wheels; native wheels, source builds and startup
+hooks are unsupported. Workers still cannot run arbitrary network installers.
+The supplied Python environment is mounted at the interpreter's normal local
+site directory, so setting a project-specific `PYTHONPATH` no longer hides
+pytest. Project imports keep their normal precedence and existing distribution
+packages remain visible. Existing worker processes keep their original mounts.
+The worker-specific `/prerequisite` response retains its Go receipt fields and
+adds `python` for the Python receipt when present; query parameters cannot select
+another worker's receipt.
+
+### Diagnosing an older blocker
+
+A planner may propose `diagnose_task_id` for an archived builder or planner task,
+including a terminal failed task that no active assignment still owns. This is
+a new investigation of preserved evidence, not an approval or restart of the
+old work. Both plan auditors receive the immutable archived report and source
+evidence; changing the mutable live report cannot change that evidence. The
+diagnosis uses an expert builder. Its allowance is bound to the original repair
+lineage, so selecting another checkpoint does not create another allowance.
+
+A supported dependency remedy must be provisioned and exercised by the
+diagnostic builder and an independent reviewer before it becomes reusable.
+Merely proposing package versions is insufficient. When a diagnosis corrects a
+bad recipe, its replacement pins and imports replace the previous recipe rather
+than retaining the invalid dependency. Unsupported remedies remain explicit.
+
+`GET /environments` lists independently reviewed environments in pages of 50;
+follow `next_after` and each entry's `details_uri` for exact identities and
+receipts. A later proposal can select `environment_diagnosis_task_id` while
+keeping its own ordinary source or repair selector. The selection is pinned
+before both plan audits, and the new assignment must reproduce that environment
+and pass its own tests and review. Environment reuse does not grant source
+access, another repair allowance, production deployment or publication consent.
+
 Operational failures retry automatically with persisted 1/5/15-minute backoff,
 then retry every 15 minutes in continuous mode (daily mode waits for its next
 eligible cycle). Completed
