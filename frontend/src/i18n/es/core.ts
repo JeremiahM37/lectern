@@ -198,6 +198,8 @@ const catalog: Record<string, string> = {
   "settings.workspace.spacious": "Amplio",
   "settings.workspace.osc52": "Permitir que los programas copien al portapapeles",
   "settings.workspace.osc52Hint": "Programas como tmux y vim, también por ssh, copian con la secuencia OSC 52. Nunca se permite leer tu portapapeles.",
+  "settings.workspace.extendedKeys": "Teclado extendido (protocolo kitty)",
+  "settings.workspace.extendedKeysHint": "Los programas que lo piden pueden distinguir Mayús+Intro de Intro y Ctrl+I de Tab, y reciben combinaciones con Ctrl+Mayús y Alt y la liberación de teclas. Usa el protocolo de teclado de kitty y modifyOtherKeys de xterm, también a través de tmux.",
   "settings.workspace.find": "Buscar en el terminal empieza con",
   "settings.workspace.findCase": "Distinguir mayúsculas",
   "settings.workspace.findWord": "Palabras completas",

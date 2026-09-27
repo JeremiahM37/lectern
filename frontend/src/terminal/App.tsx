@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { Engine, type Snapshot } from "./engine";
-import { modified, type Mods } from "./keys";
+import { type Mods } from "./keys";
 import { Keybar, KeybarEditor } from "./Keybar";
 import type { TerminalLink } from "./links";
 import { LiveSelectionBar } from "./SelectionBar";
@@ -119,6 +119,7 @@ function Pane({
       matches: (index, count) =>
         latest.current.callbacks.matches(spec.id, index, count),
       osc52: () => readTerminalPrefs().osc52,
+      extendedKeys: () => readTerminalPrefs().extendedKeys,
       clipboard: (text) => latest.current.callbacks.clipboard(text),
     });
     engine.current = instance;
@@ -445,7 +446,13 @@ export function TerminalApp({
         const armed = modsRef.current;
         if (!armed.ctrl && !armed.alt) return text;
         setMods({ ctrl: false, alt: false });
-        return modified(text, armed);
+        return engine.modify(text, armed);
+      };
+      // A hardware key that the terminal reports as an extended key takes an
+      // armed modifier too (engine.extendedKey).
+      engine.stickyModifiers = {
+        get: () => modsRef.current,
+        release: () => setMods({ ctrl: false, alt: false }),
       };
       engines.current.set(id, engine);
     } else engines.current.delete(id);
@@ -1402,6 +1409,10 @@ export function TerminalApp({
         disabled={!state?.connected || !!state.paused}
         mods={mods}
         appCursor={() => !!current()?.term.modes.applicationCursorKeysMode}
+        encode={(text, keyMods) => {
+          const engine = current();
+          return engine?.encodeExtended(text, keyMods);
+        }}
         onMod={(key) => setMods((old) => ({ ...old, [key]: !old[key] }))}
         onSend={(bytes) => {
           const engine = current();

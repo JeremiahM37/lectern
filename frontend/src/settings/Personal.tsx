@@ -237,6 +237,10 @@ function TerminalSettings() {
         <input type="checkbox" checked={prefs.osc52} onChange={(event) => saveTerminalPrefs({ osc52: event.target.checked })} />
         <span><span className="personal-label">{t("settings.workspace.osc52")}</span><span className="personal-hint">{t("settings.workspace.osc52Hint")}</span></span>
       </label>
+      <label className="personal-row personal-check" data-setting="workspace.extendedKeys">
+        <input type="checkbox" checked={prefs.extendedKeys} onChange={(event) => saveTerminalPrefs({ extendedKeys: event.target.checked })} />
+        <span><span className="personal-label">{t("settings.workspace.extendedKeys")}</span><span className="personal-hint">{t("settings.workspace.extendedKeysHint")}</span></span>
+      </label>
       <fieldset className="personal-row" data-setting="workspace.find">
         <legend>{t("settings.workspace.find")}</legend>
         {(["findCase", "findWord", "findRegex"] as const).map((key) => (

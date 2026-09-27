@@ -203,6 +203,8 @@ const en: Record<string, string> = {
   "settings.workspace.spacious": "Spacious",
   "settings.workspace.osc52": "Let programs copy to the clipboard",
   "settings.workspace.osc52Hint": "Programs such as tmux and vim, including over ssh, copy with the OSC 52 sequence. Reading your clipboard is never allowed.",
+  "settings.workspace.extendedKeys": "Extended keyboard (kitty protocol)",
+  "settings.workspace.extendedKeysHint": "Programs that ask for it can tell Shift+Enter from Enter, Ctrl+I from Tab, and see Ctrl+Shift and Alt combinations and key releases. Uses the kitty keyboard protocol and xterm's modifyOtherKeys, also through tmux.",
   "settings.workspace.find": "Find in terminal starts with",
   "settings.workspace.findCase": "Match case",
   "settings.workspace.findWord": "Whole words",

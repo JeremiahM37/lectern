@@ -191,6 +191,8 @@ const catalog: Record<string, string> = {
   "settings.workspace.spacious": "넓게",
   "settings.workspace.osc52": "프로그램의 클립보드 복사 허용",
   "settings.workspace.osc52Hint": "tmux, vim 같은 프로그램은 ssh를 통해서도 OSC 52 시퀀스로 복사합니다. 클립보드 읽기는 절대 허용되지 않습니다.",
+  "settings.workspace.extendedKeys": "확장 키보드(kitty 프로토콜)",
+  "settings.workspace.extendedKeysHint": "요청한 프로그램은 Shift+Enter와 Enter, Ctrl+I와 Tab을 구분하고 Ctrl+Shift·Alt 조합과 키를 뗀 것도 받을 수 있습니다. kitty 키보드 프로토콜과 xterm의 modifyOtherKeys를 사용하며 tmux를 거쳐도 동작합니다.",
   "settings.workspace.find": "터미널에서 찾기 기본 옵션",
   "settings.workspace.findCase": "대소문자 구분",
   "settings.workspace.findWord": "단어 단위",

@@ -5,7 +5,7 @@
 // quick command on the row is a reference to the one server-stored list
 // (quick/commands.ts), so editing the command changes its key everywhere.
 import { t } from "../i18n";
-import { modified } from "./keys";
+import { modified, type Mods } from "./keys";
 import { commandBytes, type QuickCommand } from "../quick/commands";
 
 // The keys a phone keyboard does not have, in the order a shell reaches for
@@ -125,16 +125,22 @@ export function itemLabel(item: KeyItem, quick?: QuickCommand): [string, string]
 }
 
 /** The bytes one press sends. appCursor is xterm's application cursor mode,
- * in which an unmodified arrow is SS3 (ESC O A) rather than CSI. */
-export function itemBytes(item: KeyItem, appCursor = false, quick?: QuickCommand): string {
+ * in which an unmodified arrow is SS3 (ESC O A) rather than CSI. encode, when
+ * given, is the extended encoding a program asked for (extended-keys.ts): a
+ * Shift+Enter combo then really is Shift+Enter. */
+export function itemBytes(item: KeyItem, appCursor = false, quick?: QuickCommand,
+  encode?: (text: string, mods: Mods) => string | undefined): string {
   switch (item.t) {
     case "key": {
       const text: string = builtinKeys[item.id];
+      const extended = encode?.(text, { ctrl: false, alt: false });
+      if (extended !== undefined) return extended;
       return appCursor && /^\x1b\[[ABCD]$/.test(text) ? text.replace("[", "O") : text;
     }
     case "combo": {
       const base: string = isBuiltin(item.key) ? builtinKeys[item.key] : item.key;
-      return modified(base, { ctrl: !!item.ctrl, alt: !!item.alt, shift: !!item.shift });
+      const mods = { ctrl: !!item.ctrl, alt: !!item.alt, shift: !!item.shift };
+      return encode?.(base, mods) ?? modified(base, mods);
     }
     case "quick":
       return quick ? commandBytes(quick) : "";

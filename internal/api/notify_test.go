@@ -116,7 +116,7 @@ func TestTerminalAttachEndpoint(t *testing.T) {
 	if !strings.HasPrefix(got.str("url"), fmt.Sprintf("/term/attempt/")) {
 		t.Errorf("attach did not return the attempt's terminal url: %v", got)
 	}
-	if len(gotArgv) < 4 || !strings.HasPrefix(gotArgv[3], "lec-") {
+	if !strings.Contains(strings.Join(gotArgv, " "), "attach -t lec-") {
 		t.Errorf("ttyd must wrap this attempt's tmux session: %v", gotArgv)
 	}
 	if code := h.status("POST", "/api/tasks/9999/terminal", nil); code != 404 {

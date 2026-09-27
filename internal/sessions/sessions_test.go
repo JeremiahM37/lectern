@@ -11,6 +11,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 func launcher() specLauncher { return specLauncher{} }
@@ -526,5 +527,14 @@ func TestEnvPrefixQuotesAndSorts(t *testing.T) {
 	}
 	if _, err := EnvPrefix(map[string]string{"$(evil)": "x"}); err == nil {
 		t.Error("a hostile env name must be rejected")
+	}
+}
+
+// An interactive agent's tmux turns extended keys on before the agent starts,
+// or its request for them (Shift+Enter for a newline) is dropped by tmux.
+func TestLaunchCommandTurnsOnExtendedKeys(t *testing.T) {
+	cmd := launcher().LaunchCommand("claude", "/srv/repo", "lec-s7", "", false, "")
+	if !strings.HasSuffix(cmd, tmuxkeys.Suffix()) {
+		t.Fatalf("launch: %s", cmd)
 	}
 }

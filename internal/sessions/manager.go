@@ -23,6 +23,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
@@ -323,7 +324,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	if room.command != "" {
 		program = "bash -c " + shellq.Quote(room.command)
 	}
-	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + room.env + program
+	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + room.env + program + tmuxkeys.Suffix()
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		m.end(sess.ID, StatusDead)

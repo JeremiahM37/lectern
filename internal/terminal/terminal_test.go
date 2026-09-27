@@ -443,3 +443,48 @@ func TestAttachReportsATerminalThatExits(t *testing.T) {
 		t.Fatal("a terminal that never started kept its slot")
 	}
 }
+
+// The browser's attachment turns on tmux's extended keys and declares that
+// the browser speaks them, by tmux version on the target: -T extkeys only
+// exists from 3.2, and an older tmux rejects it and would never attach.
+func TestWebAttachDeclaresExtendedKeysByTmuxVersion(t *testing.T) {
+	native, _ := AttachArgv(Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "local"})
+	if strings.Contains(strings.Join(native, " "), "extkeys") {
+		t.Fatalf("a native attachment lets tmux detect the real terminal: %v", native)
+	}
+	argv, err := WebAttachArgv(Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "local"})
+	if err != nil || len(argv) != 3 || argv[0] != "sh" || argv[1] != "-c" {
+		t.Fatalf("web argv: %v %v", argv, err)
+	}
+	pct, _ := WebAttachArgv(Attachment{TmuxSession: "lec-7"}, &store.Target{Kind: "pct", Host: "104"})
+	if strings.Join(pct[:6], " ") != "sudo pct exec 104 -- sh" || pct[7] != argv[2] {
+		t.Fatalf("pct runs the same probe inside the container: %v", pct)
+	}
+	// Run the probe against stand-in tmux binaries that report a version and
+	// print the arguments they were given.
+	dir := t.TempDir()
+	for version, want := range map[string]string{
+		"tmux 3.1c":        "if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 2.9a":        "if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 3.2a":        "-T extkeys if-shell -F #{==:#{extended-keys},off} set-option -sq extended-keys on ; set-option -sq extended-keys-format csi-u ; attach -t lec-7 ; set-option -w -t =lec-7: window-size latest",
+		"tmux 3.5a":        "-T extkeys if-shell",
+		"tmux 3.10":        "-T extkeys if-shell",
+		"tmux next-3.6":    "-T extkeys if-shell",
+		"tmux openbsd-7.6": "-T extkeys if-shell",
+	} {
+		fake := filepath.Join(dir, "tmux")
+		script := "#!/bin/sh\nif [ \"$1\" = -V ]; then echo '" + version + "'; exit 0; fi\necho \"$@\"\n"
+		if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s: %v", version, err)
+		}
+		if got := strings.TrimSpace(string(out)); !strings.HasPrefix(got, want) {
+			t.Errorf("%s:\n got %s\nwant %s", version, got, want)
+		}
+	}
+}

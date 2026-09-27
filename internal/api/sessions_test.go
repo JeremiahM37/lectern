@@ -255,7 +255,7 @@ func TestSessionAttachOpensATerminal(t *testing.T) {
 	}
 	// this is the "drop me into the actual chat" path — it must attach to the
 	// session's own tmux, not to a task's
-	if len(argv) < 4 || argv[3] != sess.str("tmux_session") {
+	if !strings.Contains(strings.Join(argv, " "), "attach -t "+sess.str("tmux_session")+" ") {
 		t.Fatalf("ttyd wrapped the wrong session: %v", argv)
 	}
 }
