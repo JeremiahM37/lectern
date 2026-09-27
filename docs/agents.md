@@ -24,8 +24,11 @@ approvals via JSON-RPC rather than a hook).
 ## Catalog: one-click presets for other CLIs
 
 Settings → **Agents** → **Add agent** opens a searchable catalog populated from
-`GET /api/agents/catalog` (`internal/sessions/catalog.go`), not a hardcoded
-list. It covers every agent [Orca](https://github.com/stablyai/orca) supports
+`GET /api/agents/catalog`, not a hardcoded list. The presets are the bundled
+`lectern.agent-catalog` plugin
+(`internal/pluginpkg/bundled/agent-catalog/lectern-plugin.yaml`); an installed
+plugin can add more ([plugins.md](plugins.md)), and each entry says which
+plugin it came from. It covers every agent [Orca](https://github.com/stablyai/orca) supports
 plus Aider and the ACP adapters — 33 presets in four groups (Popular, Vendor
 agents, Open source & community, ACP adapters). Search matches the product,
 binary and vendor. Each row shows a monogram, the command, whether it is

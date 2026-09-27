@@ -138,7 +138,8 @@ declares `notify`. Every run is recorded (plugin detail → Recent hook runs).
   `LECTERN_EVENT` and the plugin's declared secrets. Nothing else of the
   server's environment is passed.
 - `run: target` runs on the machine of the project the event belongs to, in its
-  repository, with the plugin copied there. Events with no project skip it.
+  repository, with the plugin copied there. An event with no project has no
+  machine, so the run is recorded as failed.
 - `timeout` defaults to 30 seconds, at most 300. Hooks run one at a time per
   plugin and never block the event that fired them.
 
@@ -165,11 +166,13 @@ is a decision a person makes, the same way trusting a sandbox hooks file is.
   mismatch marks the plugin **modified**, and nothing from it is used until a
   person looks at it and presses **Trust** again.
 - **Updates need consent.** An update is a new preview showing what changed.
-  When the capabilities grow, the new ones are listed and must be accepted
-  explicitly (`--accept` on the CLI).
+  When the capabilities grow, the new ones are marked **new**, and the consent
+  must still name the whole list the preview showed: a client cannot accept
+  one list and install another.
 - **Limits.** At most 2000 files and 50 MB. Symlinks, absolute paths and `..`
   are refused. Git URLs must be `https://`, `ssh://` or `git@host:path`
-  (`file://` for local testing), so git's `ext::` transports cannot run.
+  (`file://`, or `http://` to this machine only, for local testing), so git's
+  `ext::` transports cannot run.
 - **Bundled plugins** are trusted as part of the binary. They can be disabled
   but not removed.
 
@@ -177,11 +180,23 @@ Existing configuration is not a plugin and needs no consent: custom agents
 from Settings → Agents and a project's own MCP servers are listed on the
 Plugins page as **local** contributions and keep working exactly as before.
 
+### Sandbox providers
+
+A sandbox machine uses a plugin's provider by setting its script provider's
+hooks path to `plugin:<plugin id>/<provider id>`. The file is the consented
+one, so it needs no separate Trust; turning the plugin off or changing its
+files stops the provider.
+
 ### Scope
 
 A plugin is enabled everywhere or for chosen projects. Project scope applies to
 the contributions that belong to a project — MCP servers, skills, workflows,
 hooks and quick commands. Agents, themes and palette commands are global.
+
+Turning a plugin off stops its MCP servers, hooks, quick commands, themes and
+palette commands at once, and hides its skills and workflows from Project
+workflows. A skill already turned on for a project stays listed there, so it
+can be turned off; it is not removed behind your back.
 
 ## Installing
 
@@ -197,6 +212,7 @@ lectern plugin update acme.release-notes [--accept]
 lectern plugin enable|disable ID [--project ID ...]
 lectern plugin trust ID                      # re-consent after a change
 lectern plugin remove ID
+lectern plugin secret ID NAME                # value on stdin; empty removes it
 lectern plugin source add NAME URL [--ref REF] | source list | source remove NAME
 ```
 
@@ -215,8 +231,9 @@ plugins:
     commit: 3f2a…                     # the exact commit to install
 ```
 
-Lectern installs the listed commit, never a moving branch, and records the
-commit it resolved.
+Lectern installs the listed commit, never a moving branch; an entry without a
+full commit sha is refused. `path` names a plugin in a subdirectory, and
+`source: ./dir` a plugin inside the source repository itself.
 
 ### Claude Code plugins
 
@@ -226,8 +243,9 @@ its `.mcp.json` or `mcpServers` (as MCP servers, `${CLAUDE_PLUGIN_ROOT}`
 meaning the plugin root) and its identity, derives the capabilities, and shows
 them like any other preview. Its skills and servers then reach every agent
 that supports them, not only Claude Code. A Claude marketplace
-(`.claude-plugin/marketplace.json`) works as a source for plugins listed with
-a git source.
+(`.claude-plugin/marketplace.json`) works as a source: plugins in its own
+repository (`"source": "./plugins/x"`) are pinned to the marketplace commit,
+and GitHub or git entries are listed only when they name a `sha`.
 
 Claude Code `commands/`, `agents/` (subagents) and `hooks/` are not imported:
 they are Claude-specific, and a Claude hook runs inside the agent where

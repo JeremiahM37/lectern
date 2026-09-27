@@ -1,5 +1,9 @@
 # Project workflows
 
+Workflows are plugin contributions ([plugins.md](plugins.md)): the bundled
+ones below ship as plugins inside the binary, and an installed plugin's
+workflows and skills appear in the same list.
+
 Lectern can optionally bootstrap two bundled workflow skills for an individual
 project. Open Settings → Projects, choose a project, and use **Project workflows**
 to select Claude Code or Codex. Each provider has its own independent enablement;
