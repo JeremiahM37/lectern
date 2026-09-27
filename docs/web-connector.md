@@ -73,7 +73,9 @@ Other decisions worth knowing before you turn this on:
   and it is filtered out of `tools/list` unconditionally. Approval decisions
   are the operator's call, never a remote LLM's, on principle: see
   `TestWebConnectorDecideApprovalNeverReachable` and
-  `TestDecideApprovalIsWebExcludedNotScoped`.
+  `TestDecideApprovalIsWebExcludedNotScoped`. The `browser_*` and
+  `computer_*` tools ([Browser](browser.md)) are excluded the same way: they
+  drive a session's own browser and desktop, for that session's agent.
 - **The local `files` parameter is refused for this transport.**
   `start_session`/`send_to_session` accept `files` (absolute paths on the
   machine the MCP process runs on) for the stdio case, where the caller and

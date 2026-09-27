@@ -72,9 +72,12 @@ type Project struct {
 	RepoToplevel string `json:"-"`
 	// CILoop opts this project into the CI-aware PR loop (docs/ci-loop.md);
 	// CIMaxAttempts caps the fix requests it sends per pull request.
-	CILoop        int     `json:"ci_loop"`
-	CIMaxAttempts int     `json:"ci_max_attempts"`
-	CreatedAt     float64 `json:"created_at"`
+	CILoop        int `json:"ci_loop"`
+	CIMaxAttempts int `json:"ci_max_attempts"`
+	// ComputerUse lets agents operate this project's live desktops
+	// (docs/browser.md). Only a person can turn it on.
+	ComputerUse int     `json:"computer_use"`
+	CreatedAt   float64 `json:"created_at"`
 
 	// joined for the projects list — the UI names a project's target inline
 	TargetName string `json:"target_name,omitempty"`

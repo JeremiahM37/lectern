@@ -115,6 +115,10 @@ The same control loop runs in an installable phone app:
   that CLI. → [Rate limits](docs/rate-limits.md), [Accounts](docs/accounts.md)
 - **Best-of-N with a judge, and delegated builds:** a cheap worker builds and a
   lead reviews and integrates.
+- **A browser beside every session:** watch the agent drive a real browser on
+  its machine and take over at any time, or click any element of your dev
+  server to send its HTML, CSS and a cropped screenshot to the agent.
+  → [Browser](docs/browser.md)
 - **Replay evals:** find out which agent or model is best *for your repo*,
   scored against what actually shipped.
 - **Agents that know about each other:** each session sees what its peers are
@@ -153,6 +157,7 @@ wrong. You can try it with no setup at all, using fake agents:
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
 | [Agents](docs/agents.md) | Catalog, capabilities per agent, custom agents |
 | [Mobile sessions](docs/mobile-sessions.md) | Chat cards, approvals, voice mode |
+| [Browser](docs/browser.md) | Browser pane, Design Mode, agent browser tools, computer use |
 | [Remote access](docs/remote-access.md) | Phone pairing and tunnels without Tailscale |
 | [Local / Docker](docs/local.md) · [Docker](docs/docker.md) | Standalone and container setups |
 
