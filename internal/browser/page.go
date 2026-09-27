@@ -478,7 +478,18 @@ func (b *Browser) capture(ctx context.Context) {
 	b.mu.Lock()
 	vp := b.vp
 	b.mu.Unlock()
-	b.sendFrame(Frame{JPEG: data, Width: vp.Width, Height: vp.Height})
+	// A screenshot carries no zoom of its own; ask, so a tap on this first
+	// picture already lands where it looks.
+	var m struct {
+		Visual struct {
+			Scale float64 `json:"scale"`
+		} `json:"cssVisualViewport"`
+	}
+	scale := 0.0
+	if b.conn.Call(ctx, b.page, "Page.getLayoutMetrics", nil, &m) == nil {
+		scale = m.Visual.Scale
+	}
+	b.sendFrame(Frame{JPEG: data, Width: vp.Width, Height: vp.Height, PageScale: scale})
 }
 
 func (b *Browser) sendFrame(f Frame) {
