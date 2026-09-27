@@ -68,7 +68,7 @@ func TestPluginInstallAsksAndConsentsToExactlyWhatWasShown(t *testing.T) {
 	if !strings.Contains(out.String(), "task.finished: run") {
 		t.Fatalf("the prompt did not show the capability:\n%s", out.String())
 	}
-	if _, err := consentFlow(c, raw, pluginFlags{projects: []int64{3}}, &out, strings.NewReader("y\n")); err != nil {
+	if msg, err := consentFlow(c, raw, pluginFlags{projects: []int64{3}}, &out, strings.NewReader("y\n")); err != nil || string(msg) != "installed acme.x  (active)\n" {
 		t.Fatal(err)
 	}
 	if len(installs) != 1 || installs[0]["hash"] != "abc" || strs(installs[0]["accept"]) != "host_exec: task.finished: run" {

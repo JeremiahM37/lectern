@@ -2,7 +2,7 @@
 # (MIT). workflow/SKILL.md and workflow/workflow.py are Lectern's wrapper.
 id: lectern.spec-kit
 name: Spec Kit
-version: d848fb4e18f44640ad6b42e60a280551ee90cdce
+version: d848fb4e18f4
 description: Specification-first development with constitution, planning, tasks, and implementation workflows.
 author: GitHub (upstream), Lectern (wrapper)
 homepage: https://github.com/github/spec-kit

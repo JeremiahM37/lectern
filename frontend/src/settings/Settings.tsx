@@ -6,6 +6,7 @@ import { AgentEditor, type AgentSpec } from "./AgentEditor";
 import { fetchAgentMenu, saveAgentMenu } from "../agents/menu";
 import { Skills } from "./Skills";
 import { Workflows } from "./Workflows";
+import { Plugins } from "./Plugins";
 import { Triggers } from "./Triggers";
 import { TrackerSettings } from "../trackers/TrackerSettings";
 import { Delegation } from "./Delegation";
@@ -270,6 +271,7 @@ export function Settings({
       {tab === "accounts" && (
         <AccountsPanel api={api} targets={targets} onNotice={onNotice} onOpenTerminal={onOpenTerminal} />
       )}{" "}
+      {tab === "plugins" && <Plugins api={api} projects={projects} onNotice={onNotice} />}
       {tab === "appearance" && <AppearancePanel />}
       {tab === "workspace" && <WorkspacePanel projects={projects} />}
       {tab === "shortcuts" && <ShortcutsPanel focus={focused} />}

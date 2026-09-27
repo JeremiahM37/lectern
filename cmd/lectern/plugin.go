@@ -225,7 +225,13 @@ func consentFlow(c *console.Client, raw []byte, f pluginFlags, out io.Writer, in
 	if len(f.projects) > 0 {
 		body["project_ids"] = f.projects
 	}
-	return c.JSON("POST", "/api/plugins/install", body)
+	raw, err := c.JSON("POST", "/api/plugins/install", body)
+	if err != nil {
+		return nil, err
+	}
+	var done struct{ ID, Version, Status string }
+	_ = json.Unmarshal(raw, &done)
+	return []byte(fmt.Sprintf("installed %s %s (%s)\n", done.ID, done.Version, done.Status)), nil
 }
 
 func pluginCommand(c *console.Client, args []string) ([]byte, error) {

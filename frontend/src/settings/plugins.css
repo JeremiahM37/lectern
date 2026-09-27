@@ -1,0 +1,84 @@
+/* Settings → Plugins (settings/Plugins.tsx). Imported by main.tsx and
+   settings/harness.tsx, like the other settings stylesheets. Reuses
+   .rowcard/.btnrow/button.b from web/static/style.css and .segmented from
+   personal.css; colours are theme tokens only. */
+.plugins-page { display: grid; gap: 14px; }
+.plugins-page h3 { margin: 0; }
+.plugins-page h4 { margin: 10px 0 6px; font-size: 13px; }
+.plugins-intro, .plugin-desc { color: var(--ink-dim); font-size: 13px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.plugin-add { display: grid; gap: 10px; }
+.plugin-add h4 { margin: 0; }
+.plugin-add .segmented { flex-wrap: wrap; }
+.plugin-add-form, .plugin-search { display: grid; gap: 8px; }
+.plugin-add-form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-dim); }
+.plugin-add-form input, .plugin-search input, .plugin-secrets input {
+  min-height: 38px; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--bg-soft); color: var(--ink); font: 13.5px var(--sans); width: 100%; box-sizing: border-box; }
+.plugin-add-form .b, .plugin-search .b { justify-self: start; }
+.plugin-list { display: grid; gap: 10px; }
+.plugin-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.plugin-card-head h4 { margin: 0; font-size: 14.5px; overflow-wrap: anywhere; }
+.plugin-version { font: 12px var(--mono); color: var(--ink-faint); }
+.plugin-badge, .plugin-status, .plugin-chip, .plugin-new {
+  font-size: 11px; line-height: 1; padding: 4px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); white-space: nowrap; }
+.plugin-status.active { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.plugin-status.modified, .plugin-status.needs_consent, .plugin-status.missing { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.plugin-status.disabled { color: var(--ink-faint); }
+.plugin-new { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); margin-left: 6px; }
+.plugin-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 0; }
+.plugin-chip.scope { color: var(--cyan); }
+.plugin-card.status-disabled .plugin-card-head h4 { color: var(--ink-dim); }
+.plugin-warning { color: var(--amber); font-size: 12.5px; margin: 6px 0 0; overflow-wrap: anywhere; }
+.plugin-note { color: var(--ink-dim); font-size: 12.5px; margin: 6px 0 0; }
+.plugin-loading { color: var(--ink-faint); font-size: 13px; }
+.plugin-caps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.plugin-caps > li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg-soft); }
+.plugin-caps > li.risky { border-color: color-mix(in srgb, var(--amber) 50%, var(--line)); }
+.plugin-caps ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+.plugin-caps code, .plugin-facts code, .plugin-listing code, .plugin-sources code { font: 11.5px var(--mono); overflow-wrap: anywhere; word-break: break-word; }
+.plugin-caps-none { color: var(--ink-dim); font-size: 13px; margin: 0; }
+.plugin-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 8px 0; font-size: 12.5px; }
+.plugin-facts dt { color: var(--ink-faint); }
+.plugin-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.plugin-detail { display: grid; gap: 6px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.plugin-detail-row { display: grid; gap: 2px; font-size: 12.5px; margin: 4px 0; }
+.plugin-detail-row span { color: var(--ink-dim); overflow-wrap: anywhere; }
+.plugin-scope, .plugin-secrets { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; margin: 6px 0 0; }
+.plugin-scope legend, .plugin-secrets legend { font-size: 12.5px; font-weight: 600; padding: 0 4px; }
+.plugin-scope label, .plugin-secrets label { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.plugin-scope-projects { display: grid; gap: 4px; padding-left: 22px; }
+.plugin-scope .b { justify-self: start; }
+.plugin-secret-row { display: flex; gap: 6px; width: 100%; }
+.plugin-secret-row input { flex: 1; min-width: 0; }
+.plugin-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.plugin-runs li.failed b { color: var(--red); }
+.plugin-runs li.ok b { color: var(--green); }
+.plugin-run-msg { color: var(--ink-dim); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+.plugin-listing { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.plugin-listing > div { min-width: 0; overflow-wrap: anywhere; }
+.plugin-sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.plugin-sources li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.plugin-sources li .b { margin-left: auto; }
+.plugin-local .plugin-detail-row { margin: 6px 0 0; }
+
+/* The consent dialog: a person reads this before anything runs, so it is
+   full height on a phone and scrolls rather than hiding the decision. */
+dialog.plugin-consent { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; border: 1px solid var(--line-2);
+  border-radius: 14px; background: var(--panel); color: var(--ink); display: none; box-sizing: border-box; }
+dialog.plugin-consent[open] { display: flex; flex-direction: column; }
+dialog.plugin-consent::backdrop { background: color-mix(in srgb, var(--scrim) 55%, transparent); }
+.plugin-consent-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px 6px; }
+.plugin-consent-head h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.plugin-consent-head .x { border: 0; background: none; color: var(--ink-dim); font-size: 22px; min-width: 40px; min-height: 40px; cursor: pointer; }
+.plugin-consent-body { overflow: auto; padding: 0 16px 8px; display: grid; gap: 6px; font-size: 13px; }
+.plugin-consent-body p { margin: 0; overflow-wrap: anywhere; }
+.plugin-consent-id code { font: 12px var(--mono); }
+.plugin-allow { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 10px; border-radius: 8px; background: var(--accent-wash); font-weight: 600; }
+.plugin-allow input { margin-top: 2px; }
+.plugin-consent-actions { padding: 10px 16px 14px; margin: 0; justify-content: flex-end; border-top: 1px solid var(--line); }
+.plugin-consent-actions .primary { background: var(--accent-fill); color: var(--on-fill); border-color: var(--accent-fill); }
+.plugin-consent-actions .primary:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 600px) {
+  .plugin-listing { flex-direction: column; }
+  .plugin-consent-actions .b { flex: 1; }
+}

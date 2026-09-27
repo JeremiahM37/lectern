@@ -179,6 +179,7 @@ const catalog: Record<string, string> = {
   "app.commands.devices": "Appareils",
   "app.commands.about": "Utilisation et à propos",
   "app.commands.agents": "Agents",
+  "app.commands.plugins": "Plugins",
   "app.commands.sessions": "Sessions",
   "app.commands.task": "Tâche {id}",
   "app.commands.tasks": "Tâches",

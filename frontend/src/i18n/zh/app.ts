@@ -197,6 +197,7 @@ const catalog: Record<string, string> = {
   "app.commands.devices": "设备",
   "app.commands.about": "用量与关于",
   "app.commands.agents": "智能体",
+  "app.commands.plugins": "插件",
   "app.commands.sessions": "会话",
   "app.commands.task": "任务 {id}",
   "app.commands.tasks": "任务",

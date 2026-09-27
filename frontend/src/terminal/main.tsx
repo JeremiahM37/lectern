@@ -17,11 +17,13 @@ import "./native-history.css";
 import "./native-search.css";
 import { bootAppearance } from "../theme/appearance";
 import { loadPrefs } from "../prefs/store";
+import { loadPluginContributions } from "../plugins/contributions";
 import "../theme/tokens.css";
 // This person's theme, shortcuts and quick commands. An embedded frame also
 // hears about changes the app around it makes, through the shared local copy.
 bootAppearance({ terminal: true });
 void loadPrefs().catch(() => {});
+void loadPluginContributions().catch(() => {});
 const api: SessionsApi = {
   sessions: (options) =>
     json<SessionView[]>(

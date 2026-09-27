@@ -35,12 +35,25 @@ test("the two palettes define the same tokens", () => {
 });
 
 test("stored appearance is validated, not trusted", () => {
-  assert.deepEqual(normalizeAppearance({ theme: "neon", accent: "javascript:1", zoom: 9, language: 4 }), {
-    theme: "dark", accent: "", zoom: 1, language: "",
+  assert.deepEqual(normalizeAppearance({ theme: "neon", accent: "javascript:1", zoom: 9, language: 4, preset: 7 }), {
+    theme: "dark", accent: "", zoom: 1, language: "", preset: "",
   });
-  assert.deepEqual(normalizeAppearance({ theme: "light", accent: "#123abc", zoom: 1.25, language: "fr" }), {
-    theme: "light", accent: "#123abc", zoom: 1.25, language: "fr",
+  assert.deepEqual(normalizeAppearance({ theme: "light", accent: "#123abc", zoom: 1.25, language: "fr", preset: "acme.x/forest" }), {
+    theme: "light", accent: "#123abc", zoom: 1.25, language: "fr", preset: "acme.x/forest",
   });
+});
+
+test("a plugin theme's colours apply, and text stays readable on its surfaces", () => {
+  for (const mode of ["dark", "light"] as const) {
+    // A theme that makes a surface nearly the colour of the text on it.
+    const surface = mode === "dark" ? "#6b7280" : "#9ca3af";
+    const tokens = themeTokens(mode, "", { panel: surface, bg: surface, "no-such-token": "#000000", "bg-soft": "not a colour" });
+    assert.equal(tokens.panel, surface);
+    assert.equal(tokens["bg-soft"], palettes[mode]["bg-soft"]);
+    assert.ok(!("no-such-token" in tokens));
+    for (const text of TEXT_TOKENS)
+      for (const s of SURFACE_TOKENS) assert.ok(contrast(tokens[text], tokens[s]) >= 4.5 - 1e-9, `${mode} ${text} on ${s}: ${contrast(tokens[text], tokens[s])}`);
+  }
 });
 
 test("at least twenty terminal themes ship, light ones among them, all readable", () => {

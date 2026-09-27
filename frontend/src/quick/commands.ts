@@ -7,6 +7,7 @@
 import type { JsonValue } from "../api/client";
 import { getPref, prefsLoaded, setPref, subscribePrefs } from "../prefs/store";
 import { defaultSnippets, loadSnippets } from "../terminal/snippets";
+import { pluginQuickCommands } from "../plugins/contributions";
 
 export interface QuickCommand {
   id: string;
@@ -79,10 +80,21 @@ export function writeScope(scope: QuickScope, commands: QuickCommand[]) {
   setPref(scopeKey(scope), cleanQuickCommands(commands) as unknown as JsonValue);
 }
 
-// What a terminal shows: its project's commands first, then everyone's.
-export function commandsFor(projectId: number | null): { scope: QuickScope; command: QuickCommand }[] {
+// Commands enabled plugins add (docs/plugins.md). They are read-only here:
+// a plugin is changed in Settings → Plugins, not by editing its commands.
+export function pluginCommands(projectId: number | null): { plugin: string; command: QuickCommand }[] {
+  return pluginQuickCommands(projectId).map((row) => ({
+    plugin: row.plugin,
+    command: { id: "plugin:" + row.id, label: row.label.slice(0, 60), text: row.text.slice(0, 2000), enter: row.enter !== false },
+  }));
+}
+
+// What a terminal shows: its project's commands first, then everyone's, then
+// the ones plugins add.
+export function commandsFor(projectId: number | null): { scope: QuickScope; command: QuickCommand; plugin?: string }[] {
   const project = projectId ? readScope({ kind: "project", id: projectId }).map((command) => ({ scope: { kind: "project", id: projectId } as QuickScope, command })) : [];
-  return [...project, ...readGlobal().map((command) => ({ scope: { kind: "global" } as QuickScope, command }))];
+  const plugins = pluginCommands(projectId).map((row) => ({ scope: { kind: "global" } as QuickScope, command: row.command, plugin: row.plugin }));
+  return [...project, ...readGlobal().map((command) => ({ scope: { kind: "global" } as QuickScope, command })), ...plugins];
 }
 
 // What actually goes down the wire: Enter is a carriage return to a terminal.

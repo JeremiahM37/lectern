@@ -53,6 +53,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   def("settings.budgets", "Settings: budgets", "Settings", "global", [], "spend limits"),
   def("settings.accounts", "Settings: accounts", "Settings", "global", [], "logins swap"),
   def("settings.agents", "Settings: agents", "Settings", "global", [], "runners models"),
+  def("settings.plugins", "Settings: plugins", "Settings", "global", [], "extensions marketplace install"),
   def("settings.appearance", "Settings: appearance", "Settings", "global", [], "theme accent zoom language"),
   def("settings.workspace", "Settings: workspace and terminal", "Settings", "global", [], "layouts quick commands terminal theme"),
   // Actions

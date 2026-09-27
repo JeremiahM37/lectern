@@ -14,8 +14,18 @@ export interface Appearance {
   zoom: number;
   // BCP 47 language tag, or "" to follow the browser.
   language: string;
+  // A plugin theme ("<plugin>/<theme>", docs/plugins.md), or "" for Lectern's own.
+  preset: string;
 }
-export const DEFAULT_APPEARANCE: Appearance = { theme: "dark", accent: "", zoom: 1, language: "" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "dark", accent: "", zoom: 1, language: "", preset: "" };
+
+// A plugin theme's colours: token overrides per mode, and an accent used
+// when the person has not chosen one of their own.
+export interface ThemePreset {
+  accent?: string;
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+}
 export const ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
 export const ACCENT_PRESETS: { name: string; value: string }[] = [
   { name: "Violet", value: "" },
@@ -102,8 +112,16 @@ export function resolveMode(mode: ThemeMode, prefersDark: boolean): "dark" | "li
 
 // The full token set for one mode and accent. A custom accent is lifted or
 // darkened only as far as it must be to stay legible on every surface.
-export function themeTokens(mode: "dark" | "light", accent = ""): Palette & { "accent-wash": string } {
+export function themeTokens(mode: "dark" | "light", accent = "", overrides?: Record<string, string>): Palette & { "accent-wash": string } {
   const base = { ...palettes[mode] };
+  if (overrides) {
+    // A plugin theme may set any known token to a valid colour; then every
+    // text token is lifted just enough to stay readable on every surface,
+    // whatever the theme did to them.
+    for (const [name, value] of Object.entries(overrides))
+      if (name in base && parseColor(value)) base[name as TokenName] = value;
+    for (const text of TEXT_TOKENS) base[text] = SURFACE_TOKENS.reduce((color, surface) => ensureContrast(color, base[surface]), base[text]);
+  }
   if (accent && parseColor(accent)) {
     base.accent = accent;
     base["accent-fill"] = ensureContrast(mode === "dark" ? mix(accent, "#000000", 0.1) : accent, "#ffffff", 4.5);
@@ -127,6 +145,7 @@ export function normalizeAppearance(value: unknown): Appearance {
     accent: typeof row.accent === "string" && parseColor(row.accent) ? row.accent : "",
     zoom: clampZoom(row.zoom),
     language: typeof row.language === "string" ? row.language.slice(0, 35) : "",
+    preset: typeof row.preset === "string" ? row.preset.slice(0, 140) : "",
   };
 }
 
@@ -137,11 +156,12 @@ const terminalNames: Record<string, TokenName> = { surface: "panel", muted: "ink
 export function applyAppearance(
   appearance: Appearance,
   root: HTMLElement = document.documentElement,
-  options: { terminal?: boolean; prefersDark?: boolean } = {},
+  options: { terminal?: boolean; prefersDark?: boolean; preset?: ThemePreset } = {},
 ) {
   const prefersDark = options.prefersDark ?? (typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)").matches : true);
   const mode = resolveMode(appearance.theme, prefersDark);
-  const tokens = themeTokens(mode, appearance.accent);
+  const preset = options.preset;
+  const tokens = themeTokens(mode, appearance.accent || preset?.accent || "", preset?.[mode]);
   root.dataset.theme = mode;
   root.classList.toggle("dark", mode === "dark");
   root.style.colorScheme = mode;

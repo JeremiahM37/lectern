@@ -4,7 +4,8 @@ import { t, useLocale } from "../i18n";
 import { usePref } from "../prefs/store";
 import { allTerminalThemes } from "../theme/terminal-themes";
 import { saveTerminalPrefs, THEMES_KEY, useTerminalPrefs } from "../theme/terminal-prefs";
-import { cleanQuickCommands, GLOBAL_KEY, projectKey, quickId, readGlobal, writeScope, type QuickCommand, type QuickScope } from "../quick/commands";
+import { cleanQuickCommands, GLOBAL_KEY, pluginCommands, projectKey, quickId, readGlobal, writeScope, type QuickCommand, type QuickScope } from "../quick/commands";
+import { usePluginContributions } from "../plugins/contributions";
 const NO_THEMES: unknown[] = [];
 import {
   copyClipboard,
@@ -394,7 +395,9 @@ export function Snippets({
     ...(projectId ? [{ scope: { kind: "project", id: projectId } as QuickScope, title: t("quick.thisProject"), rows: project }] : []),
     { scope: { kind: "global" }, title: t("quick.everywhere"), rows: everywhere },
   ];
-  const numbered = [...project, ...everywhere];
+  const pluginUI = usePluginContributions();
+  const fromPlugins = useMemo(() => pluginCommands(projectId).map((row) => row.command), [pluginUI, projectId]);
+  const numbered = [...project, ...everywhere, ...fromPlugins];
   return (
     <Dialog
       id="snippets-dialog"
@@ -444,6 +447,31 @@ export function Snippets({
             </div>
           )
         ))}
+        {fromPlugins.length > 0 && (
+          <div className="snippet-group snippet-plugins">
+            <h3 className="snippet-group-title">{t("quick.fromPlugins")}</h3>
+            {fromPlugins.map((command) => {
+              const number = numbered.indexOf(command) + 1;
+              return (
+                <div className="snippet-row" key={command.id}>
+                  <button
+                    className="snippet-send"
+                    disabled={editing}
+                    title={number <= 9 ? t("quick.numberHint", { number }) : undefined}
+                    onClick={() => {
+                      onSend(command);
+                      onClose();
+                    }}
+                  >
+                    {command.label && <span className="snippet-label">{command.label}</span>}
+                    <code>{command.text}</code>
+                    {command.enter && <span aria-label={t("quick.thenEnter")}>⏎</span>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {!numbered.length && <p>{t("quick.empty")}</p>}
       </div>
       <form

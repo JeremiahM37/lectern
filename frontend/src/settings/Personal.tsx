@@ -7,6 +7,7 @@ import { prefsLocalOnly, setPref, usePref, usePrefsState } from "../prefs/store"
 import { t, useLocale, LANGUAGES } from "../i18n";
 import { ACCENT_PRESETS, ZOOM_STEPS, themeTokens, resolveMode } from "../theme/app-theme";
 import { saveAppearance, useAppearance } from "../theme/appearance";
+import { pluginTheme, usePluginContributions } from "../plugins/contributions";
 import { allTerminalThemes, importTerminalTheme, type TerminalTheme } from "../theme/terminal-themes";
 import { customThemes, saveCustomThemes, saveTerminalPrefs, THEMES_KEY, useTerminalPrefs } from "../theme/terminal-prefs";
 import { cleanQuickCommands, quickId, readScope, scopeKey, writeScope, type QuickCommand, type QuickScope } from "../quick/commands";
@@ -27,6 +28,7 @@ function SyncNote() {
 export function AppearancePanel() {
   useLocale();
   const appearance = useAppearance();
+  const plugins = usePluginContributions();
   const [custom, setCustom] = useState(appearance.accent || "#8b5cf6");
   const mode = resolveMode(appearance.theme, typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches);
   return (
@@ -45,6 +47,16 @@ export function AppearancePanel() {
         </div>
         <p className="personal-hint">{t("settings.appearance.themeHint", { mode: t("settings.appearance.theme." + mode) })}</p>
       </fieldset>
+      {plugins.themes.length > 0 && (
+        <label className="personal-row" data-setting="appearance.preset">
+          <span className="personal-label">{t("settings.appearance.preset")}</span>
+          <select id="appearance-preset" value={pluginTheme(appearance.preset) ? appearance.preset : ""} onChange={(event) => saveAppearance({ preset: event.target.value })}>
+            <option value="">{t("settings.appearance.presetDefault")}</option>
+            {plugins.themes.map((theme) => <option key={theme.id} value={theme.id}>{t("settings.appearance.presetFromPlugin", { name: theme.name, plugin: theme.plugin })}</option>)}
+          </select>
+          <span className="personal-hint">{t("settings.appearance.presetHint")}</span>
+        </label>
+      )}
       <fieldset className="personal-row" data-setting="appearance.accent">
         <legend>{t("settings.appearance.accent")}</legend>
         <div className="swatches">

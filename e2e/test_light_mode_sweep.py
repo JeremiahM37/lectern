@@ -101,12 +101,21 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
         page.wait_for_timeout(400)
         sweep.check(name)
     nav(page, "targets")
-    for section in ("machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "appearance", "workspace", "shortcuts"):
+    for section in ("machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "plugins", "appearance", "workspace", "shortcuts"):
         tab = page.locator(f'[data-settings="{section}"]')
         if not tab.count():
             continue
         tab.click()
         sweep.check("settings-" + section)
+        if section == "plugins":
+            # The consent preview, the one screen a person must be able to read.
+            page.locator(".plugin-add .segmented label", has_text="Folder on this server").click()
+            page.fill("#plugin-path", str(Path(__file__).resolve().parents[1] / "examples" / "plugins" / "hello"))
+            page.click("#plugin-preview-path")
+            expect(page.locator("#plugin-consent")).to_be_visible()
+            sweep.check("settings-plugins-consent", root="#plugin-consent")
+            page.locator("#plugin-consent [data-close]").click()
+            expect(page.locator("#plugin-consent")).to_have_count(0)
     page.get_by_role("combobox", name="Search settings").fill("theme")
     sweep.check("settings-search")
     page.get_by_role("combobox", name="Search settings").fill("")

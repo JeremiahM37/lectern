@@ -30,7 +30,8 @@ import { SHORTCUTS } from "./shortcuts/registry";
 import { currentAppearance, saveAppearance, uiZoom } from "./theme/appearance";
 import { ACCENT_PRESETS, ZOOM_STEPS, resolveMode } from "./theme/app-theme";
 import { t, useLocale } from "./i18n";
-import { settingsIndex } from "./settings/search-index";
+import { SECTIONS, settingsIndex } from "./settings/search-index";
+import { loadPluginContributions, safeHref, usePluginContributions } from "./plugins/contributions";
 import { Palette, type Command } from "./shell/Palette";
 import { FirstRun } from "./shell/FirstRun";
 import { Deck, Approvals } from "./shell/LiveViews";
@@ -503,7 +504,7 @@ export default function App() {
     "nav.approvals": goto("approvals"),
     "nav.targets": goto("targets"),
     "nav.evals": () => setShowEvals(true),
-    ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
+    ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "plugins", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
     "session.new": () => sessionCommand("new"),
     "session.discover": () => sessionCommand("discover"),
     "task.new": () => newTask(),
@@ -520,6 +521,12 @@ export default function App() {
         return;
       }
       const [kind, id, terminalID] = raw.split("/");
+      // #settings/<section>: a plugin's palette command, or a link, opening
+      // one Settings section.
+      if (kind === "settings" && id && SECTIONS.some(([name]) => name === id)) {
+        settings(id);
+        return;
+      }
       if (
         kind === "terminals" &&
         /^(session|attempt|project)$/.test(id || "") &&
@@ -586,8 +593,12 @@ export default function App() {
     // Preferences that follow this person between devices (theme, shortcuts,
     // layouts, quick commands); the stream says when another device changed one.
     void loadPrefs().catch(() => {});
+    // What enabled plugins add to the browser (themes, quick commands,
+    // palette commands); the stream says when a plugin changed.
+    void loadPluginContributions().catch(() => {});
     const stream = new EventSource(withToken("/api/stream"));
     stream.addEventListener("ui_prefs", () => void loadPrefs().catch(() => {}));
+    stream.addEventListener("plugins", () => void loadPluginContributions().catch(() => {}));
     let opened = false;
     stream.onopen = () => {
       setConnected(true);
@@ -842,6 +853,7 @@ export default function App() {
       setAuthError(String(error));
     }
   }
+  const pluginUI = usePluginContributions();
   const commands: Command[] = [
     {
       id: "routines",
@@ -917,6 +929,7 @@ export default function App() {
       ["devices", t("app.commands.devices"), "pair phone tunnel qr code pairing"],
       ["about", t("app.commands.about"), "settings version costs"],
       ["agents", t("app.commands.agents"), "agent runners commands custom providers models"],
+      ["plugins", t("app.commands.plugins"), "plugins extensions marketplace install skills mcp hooks themes"],
     ].map(([name, title, keywords]) => ({
       id: "settings-" + name,
       title: title!,
@@ -939,6 +952,23 @@ export default function App() {
         requestAnimationFrame(() => runShortcut(row.id));
       },
     })),
+    // What enabled plugins add to the palette: a Lectern view or an https page.
+    ...pluginUI.palette_commands.flatMap((row) => {
+      const href = safeHref(row.href);
+      if (!href) return [];
+      return [{
+        id: "plugin-" + row.id,
+        title: row.title,
+        category: t("app.commands.plugins"),
+        detail: row.plugin,
+        keywords: "plugin " + row.plugin,
+        run: () => {
+          // Through the hash, so every deep link the app reads works here too.
+          if (href.startsWith("#")) location.hash = href;
+          else window.open(href, "_blank", "noopener,noreferrer");
+        },
+      }];
+    }),
     // Individual settings, so "accent" or "push" lands on the control itself.
     ...settingsIndex().filter((entry) => ["appearance", "workspace", "shortcuts"].includes(entry.section)).map((entry) => ({
       id: "setting-" + entry.id,

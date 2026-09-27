@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 import { getPref, setPref, subscribePrefs } from "../prefs/store";
 import { setLocale } from "../i18n";
 import { applyAppearance, DEFAULT_APPEARANCE, normalizeAppearance, type Appearance } from "./app-theme";
+import { pluginTheme, subscribePlugins } from "../plugins/contributions";
 
 export const APPEARANCE_KEY = "appearance";
 
@@ -36,11 +37,13 @@ export function useAppearance(): Appearance {
 export function bootAppearance(options: { terminal?: boolean } = {}) {
   const apply = () => {
     const appearance = currentAppearance();
-    applyAppearance(options.terminal ? { ...appearance, zoom: 1 } : appearance, document.documentElement, { terminal: options.terminal });
+    applyAppearance(options.terminal ? { ...appearance, zoom: 1 } : appearance, document.documentElement, { terminal: options.terminal, preset: pluginTheme(appearance.preset) });
     setLocale(appearance.language);
   };
   apply();
   subscribePrefs(apply);
+  // A plugin theme arrives (or is disabled) after the first paint.
+  subscribePlugins(apply);
   try {
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", apply);
   } catch {}

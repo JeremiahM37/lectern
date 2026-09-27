@@ -197,6 +197,7 @@ const catalog: Record<string, string> = {
   "app.commands.devices": "기기",
   "app.commands.about": "사용량 및 정보",
   "app.commands.agents": "에이전트",
+  "app.commands.plugins": "플러그인",
   "app.commands.sessions": "세션",
   "app.commands.task": "작업 {id}",
   "app.commands.tasks": "작업",

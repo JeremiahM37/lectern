@@ -3,7 +3,7 @@
 # delegate_build tools come from Lectern's own MCP server.
 id: lectern.delegate
 name: Delegated build
-version: bcc7f9eaee051126c0ce821a55194d0b20425b22
+version: bcc7f9eaee05
 description: The lead plans and reviews; a cheaper worker agent builds, as a Lectern task in its own worktree.
 author: ethanplusai (upstream), Lectern (adaptation)
 homepage: https://github.com/ethanplusai/astra-flash-orchestrator

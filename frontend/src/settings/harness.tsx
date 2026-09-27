@@ -4,6 +4,7 @@ import { Settings, type SettingsApi } from "./Settings";
 import type { MCPClientInfo } from "./ConnectTools";
 import "./connect-tools.css";
 import "./agent-catalog.css";
+import "./plugins.css";
 import "../remote/remote.css";
 const calls: unknown[] = [];
 Object.assign(window, { calls });

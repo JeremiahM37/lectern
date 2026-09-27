@@ -38,6 +38,7 @@ import {
   type TerminalInfo,
 } from "./model";
 import { GLOBAL_KEY, commandBytes, commandsFor, projectKey, readGlobal, writeScope } from "../quick/commands";
+import { usePluginContributions } from "../plugins/contributions";
 import { getPref, usePref } from "../prefs/store";
 import { resolveTerminalTheme, saveTerminalPrefs, useTerminalPrefs, readTerminalPrefs } from "../theme/terminal-prefs";
 import { allTerminalThemes } from "../theme/terminal-themes";
@@ -237,7 +238,8 @@ export function TerminalApp({
   // as the Snippets sheet; re-read when it changes on any device.
   const [quickGlobal] = usePref<unknown>(GLOBAL_KEY, undefined);
   const [quickProject] = usePref<unknown>(projectId ? projectKey(projectId) : "quick-commands:none", undefined);
-  const quick = useMemo(() => commandsFor(projectId).map((row) => row.command), [quickGlobal, quickProject, projectId]);
+  const pluginUI = usePluginContributions();
+  const quick = useMemo(() => commandsFor(projectId).map((row) => row.command), [quickGlobal, quickProject, projectId, pluginUI]);
   const openKeybar = () => {
     // Commands carried over from before they were stored on the server get
     // their ids when saved; save them now so a key can name one.
