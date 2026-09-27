@@ -50,7 +50,12 @@ func (r *Registry) For(t *store.Target) (Executor, error) {
 		// the agent itself runs inside the container via a per-attempt Pct
 		ex = NewLocal()
 	case "ssh":
-		ex = NewSSH(t.Host, t.User, t.Port, t.KeyPath, t.CommandPrefix)
+		opts := ParseSSHOptions(t.SSHJSON)
+		if opts.Transport == "openssh" {
+			ex = NewOpenSSH(t.Host, t.User, t.Port, t.KeyPath, t.CommandPrefix, opts)
+		} else {
+			ex = NewSSH(t.Host, t.User, t.Port, t.KeyPath, t.CommandPrefix).WithOptions(opts)
+		}
 	case "pct":
 		ex = NewPct(t.Host)
 	default:
@@ -58,6 +63,25 @@ func (r *Registry) For(t *store.Target) (Executor, error) {
 	}
 	r.cache[t.ID] = ex
 	return ex, nil
+}
+
+// Cached returns the executor already made for a target, without making one,
+// so asking how a connection is doing never opens it.
+func (r *Registry) Cached(id int64) Executor {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cache[id]
+}
+
+// Forget drops one target's executor, so the next command dials fresh.
+func (r *Registry) Forget(id int64) {
+	r.mu.Lock()
+	ex := r.cache[id]
+	delete(r.cache, id)
+	r.mu.Unlock()
+	if ex != nil {
+		_ = ex.Close()
+	}
 }
 
 // Any returns one cached executor. Tests use it to inspect what reached "the

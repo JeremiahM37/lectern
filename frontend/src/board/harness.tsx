@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Board, type BoardApi } from "./Board";
+import "../remote/remote.css";
 import type { Project, TaskView } from "../types";
 const project = {
   id: 1,

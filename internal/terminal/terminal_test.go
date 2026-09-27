@@ -259,13 +259,20 @@ func TestAttachArgvPerTargetKind(t *testing.T) {
 		"ssh with a key": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude", KeyPath: "/home/admin/.ssh/id_ed25519"},
-			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new",
+			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
 				"-i", "/home/admin/.ssh/id_ed25519", "claude@192.0.2.14", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
+		},
+		"ssh config alias with a jump host and agent forwarding": {
+			Attachment{TmuxSession: "lec-7"},
+			&store.Target{Kind: "ssh", Host: "10.0.0.5", User: "dev", Port: 22,
+				SSHJSON: `{"alias":"build-box","proxy_jump":"bastion","forward_agent":true,"options":["GSSAPIAuthentication=yes"]}`},
+			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+				"-J", "bastion", "-A", "-o", "GSSAPIAuthentication=yes", "-l", "dev", "build-box", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 		"ssh defaults to root": {
 			Attachment{TmuxSession: "lec-7"},
 			&store.Target{Kind: "ssh", Host: "h"},
-			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "root@h", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
+			[]string{"ssh", "-tt", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "root@h", "tmux", "attach", "-t", "lec-7", "';'", "set-option", "-w", "-t", "=lec-7:", "window-size", "latest"},
 		},
 	} {
 		got, err := AttachArgv(tc.a, tc.target)
@@ -323,7 +330,7 @@ func TestShellAttachOpensAPersistentSessionInTheRepo(t *testing.T) {
 		"pct": {&store.Target{Kind: "pct", Host: "104"},
 			"sudo pct exec 104 -- tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c exec \"${SHELL:-/bin/sh}\" -i ; set-option -w -t =lec-sh12: window-size latest"},
 		"ssh": {&store.Target{Kind: "ssh", Host: "192.0.2.14", User: "claude"},
-			"ssh -tt -o StrictHostKeyChecking=accept-new claude@192.0.2.14 " +
+			"ssh -tt -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=15 -o ServerAliveCountMax=3 claude@192.0.2.14 " +
 				"tmux new-session -A -s lec-sh12 -c /srv/code -- /bin/sh -c 'exec \"${SHELL:-/bin/sh}\" -i' ';' set-option -w -t =lec-sh12: window-size latest"},
 	} {
 		got, err := AttachArgv(att, tc.target)
@@ -364,10 +371,10 @@ func TestSSHAttachPreservesPortWrapperAndQuotedWorkingDirectory(t *testing.T) {
 	if !strings.Contains(strings.Join(got, " "), "-p 2222") {
 		t.Fatalf("port lost: %v", got)
 	}
-	if len(got) != 8 || got[6] != "operator@example.test" {
+	if len(got) != 12 || got[10] != "operator@example.test" {
 		t.Fatalf("SSH command must be one argument: %v", got)
 	}
-	if !strings.HasPrefix(got[7], "wrapper ") {
+	if !strings.HasPrefix(got[11], "wrapper ") {
 		t.Fatalf("wrapper lost: %v", got)
 	}
 	// Execute a harmless wrapper that reports its received arguments. This proves
@@ -375,7 +382,7 @@ func TestSSHAttachPreservesPortWrapperAndQuotedWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "wrapper")
 	os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$1\"\n"), 0700)
-	cmd := exec.Command("sh", "-c", got[7])
+	cmd := exec.Command("sh", "-c", got[11])
 	cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	output, err := cmd.Output()
 	if err != nil {

@@ -57,8 +57,11 @@ func (s *Server) terminalChanges(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if target.Kind == "sandbox" {
-		ex = executor.NewPct(att.SandboxVMID)
+	if target.Kind == "sandbox" && att.SandboxVMID != "" {
+		if ex, err = s.sandboxExec(target, att.SandboxVMID); err != nil {
+			respondErr(w, err)
+			return
+		}
 	}
 	scope := r.URL.Query().Get("scope")
 	if scope == "" {

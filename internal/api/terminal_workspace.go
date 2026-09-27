@@ -119,8 +119,11 @@ func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if target.Kind == "sandbox" {
-		ex = executor.NewPct(att.SandboxVMID)
+	if target.Kind == "sandbox" && att.SandboxVMID != "" {
+		if ex, err = s.sandboxExec(target, att.SandboxVMID); err != nil {
+			respondErr(w, err)
+			return
+		}
 	}
 	result, err := ex.Run(r.Context(), "tmux capture-pane -p -J -S -100000 -t "+shellq.Quote("="+att.TmuxSession+":"), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {

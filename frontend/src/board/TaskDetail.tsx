@@ -1,3 +1,4 @@
+import { OpenInEditor } from "../remote/OpenInEditor";
 import { LimitBanner } from "../limits/LimitBanner";
 import { useEffect, useState } from "react";
 import type { Event, TaskView } from "../types";
@@ -43,7 +44,9 @@ export function TaskDetail({
   onChanged,
   onNotice,
   refreshVersion = 0,
+  initialCompare = false,
 }: {
+  initialCompare?: boolean;
   taskId: number;
   api: TaskDetailApi;
   onClose(): void;
@@ -60,7 +63,7 @@ export function TaskDetail({
   const [attempt, setAttempt] = useState<number>();
   const [diff, setDiff] = useState<Diff>();
   const [diffOpen, setDiffOpen] = useState(false);
-  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(initialCompare);
   const [judging, setJudging] = useState(false);
   const [wrap, setWrap] = useStoredFlag(PREF_KEYS.wrap, false);
   const [diffMode, setDiffMode] = useStoredPref<DiffMode>(PREF_KEYS.mode, "unified", ["unified", "split"]);
@@ -294,6 +297,11 @@ export function TaskDetail({
           </div>
         );
       })()}
+      {task.attempt?.worktree_path && task.status !== "done" && (
+        <div className="btnrow">
+          <OpenInEditor targetId={task.target_id} path={task.attempt.worktree_path} />
+        </div>
+      )}
       {task.attempts.length > 1 && (
         <div className="btnrow attempt-chips">
           {task.attempts.map((a) => (

@@ -6,10 +6,12 @@
 import { useEffect, useState } from "react";
 import type { BudgetLimitStatus, BudgetPeriodStatus, UsageReport } from "../types";
 import { formatAge, formatCost, formatCountdown, formatTokens, quotaClass } from "../sessions/usageFormat";
+import type { JsonValue } from "../api";
+import { ProviderUsage } from "../remote/ProviderUsage";
 import { t, useLocale } from "../i18n";
 
 export interface UsagePanelApi {
-  request<T>(path: string): Promise<T>;
+  request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;
 }
 
 export function UsagePanel({ api }: { api: UsagePanelApi }) {
@@ -81,6 +83,7 @@ export function UsagePanel({ api }: { api: UsagePanelApi }) {
           </select>
         </label>
       </section>
+      <ProviderUsage api={api} days={days} />
       <section className="usage-daily-chart" aria-label={t("agentSettings.usage.costByDay")}>
         <h4>{t("agentSettings.usage.costByDay")}</h4>
         <div className="usage-bars">

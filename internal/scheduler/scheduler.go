@@ -358,7 +358,7 @@ func (s *Scheduler) contextFor(att *store.Attempt) (*runCtx, error) {
 // target's executor.
 func (s *Scheduler) attemptExecutor(att *store.Attempt, target *store.Target) (executor.Executor, error) {
 	if target.Kind == "sandbox" && att.SandboxVMID != "" && !s.Cfg.Mock {
-		return executor.NewPct(att.SandboxVMID), nil
+		return s.sandboxExecutor(att, target)
 	}
 	return s.Reg.For(target)
 }
@@ -491,6 +491,11 @@ func (s *Scheduler) launchDriver(ctx context.Context, att *store.Attempt, c *run
 			env[k] = v
 		}
 	}
+	// A dispatch's own environment (docs/sandboxes.md) wins over the
+	// project's for this attempt's workspace.
+	for k, v := range s.attemptEnv(att.ID) {
+		env[k] = v
+	}
 	agent := effAgent(c, att)
 	if kw.Agent != "" {
 		agent = kw.Agent
@@ -572,17 +577,24 @@ func (s *Scheduler) launchSandbox(ctx context.Context, att *store.Attempt, c *ru
 	if err != nil {
 		return err
 	}
-	vmid, err := sandbox.Provision(ctx, host, c.Target.Host, att.ID, s.Log)
+	provider, err := s.SandboxProvider(ctx, c.Target, c.Project.RepoPath)
+	if err != nil {
+		return err
+	}
+	vmid, err := provider.Create(ctx, sandbox.CreateRequest{AttemptID: att.ID, Env: s.sandboxEnv(att, c)})
 	if err != nil {
 		return err
 	}
 	s.DB.Update("attempts", att.ID, map[string]any{"sandbox_vmid": vmid})
 	att.SandboxVMID = vmid
+	attemptID := att.ID
+	s.DB.InsertSandbox(&store.Sandbox{TargetID: c.Target.ID, Provider: provider.Name(), ExtID: vmid,
+		AttemptID: &attemptID, Note: c.Project.RepoPath})
 
 	if err := s.launchSandboxInner(ctx, att, c, host, vmid); err != nil {
 		// ANY failure after the container exists must not leak it — the generic
 		// handler above only marks the attempt failed
-		sandbox.Destroy(ctx, host, vmid, s.Log)
+		s.finishSandbox(ctx, att, c, vmid, true)
 		s.DB.Update("attempts", att.ID, map[string]any{"worktree_path": ""})
 		return err
 	}
@@ -704,6 +716,11 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 		for k, v := range projectEnv(c.Project) {
 			env[k] = v
 		}
+	}
+	// A dispatch's own environment (docs/sandboxes.md) wins over the
+	// project's for this attempt's workspace.
+	for k, v := range s.attemptEnv(att.ID) {
+		env[k] = v
 	}
 	agent := effAgent(c, att)
 	if kw.Agent != "" {
@@ -1044,12 +1061,7 @@ func (s *Scheduler) destroyIfSandbox(ctx context.Context, att *store.Attempt, c 
 	if vmid == "" {
 		return
 	}
-	host, err := s.Reg.For(c.Target)
-	if err != nil {
-		return
-	}
-	sandbox.Destroy(ctx, host, vmid, s.Log)
-	s.DB.Update("attempts", att.ID, map[string]any{"worktree_path": ""})
+	s.finishSandbox(ctx, att, c, vmid, false)
 }
 
 func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, note string) {
@@ -1341,9 +1353,7 @@ func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 				executor.RunOpts{Timeout: 20})
 		}
 		if c.Target.Kind == "sandbox" && att.SandboxVMID != "" {
-			if host, err := s.Reg.For(c.Target); err == nil {
-				sandbox.Destroy(ctx, host, att.SandboxVMID, s.Log)
-			}
+			s.finishSandbox(ctx, att, c, att.SandboxVMID, true)
 			s.DB.Update("attempts", att.ID, map[string]any{"worktree_path": ""})
 		}
 	}
@@ -1408,6 +1418,9 @@ type AttemptOpts struct {
 	// AccountID runs the attempt under a registered login of its CLI
 	// (docs/accounts.md); nil is the CLI's own default.
 	AccountID *int64
+	// Env is the dispatch's own environment for this attempt's workspace
+	// (and its sandbox, when it gets one) — docs/sandboxes.md.
+	Env map[string]string
 }
 
 // CreateAttempt queues attempt N+1 for a task.
@@ -1443,7 +1456,11 @@ func (s *Scheduler) CreateAttempt(task *store.Task, o AttemptOpts) (*store.Attem
 	}
 	att.LaunchConfigJSON = store.J(launchConfig)
 	att.Driver = selectDriver(launchConfig, effPermissionMode(c, att))
-	return s.DB.InsertAttempt(att)
+	out, err := s.DB.InsertAttempt(att)
+	if err == nil && len(o.Env) > 0 {
+		err = s.DB.SetAttemptEnv(out.ID, store.J(o.Env))
+	}
+	return out, err
 }
 
 // SetTaskStatus is the one place a task's column changes, so every move is

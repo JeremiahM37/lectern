@@ -88,11 +88,7 @@ func (s *SSH) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
 	conn, err := client.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		// A cached connection may have died quietly; a fresh one is the honest retry.
-		s.mu.Lock()
-		if s.conn == client {
-			s.conn = nil
-		}
-		s.mu.Unlock()
+		s.dropClient(client)
 		if client, err = s.client(ctx); err != nil {
 			return nil, err
 		}

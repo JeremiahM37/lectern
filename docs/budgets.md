@@ -38,6 +38,7 @@ registry):
   "per_agent": { "codex": { "daily_usd": 5, "mode": "warn" } },
   "thresholds": [75, 90, 100],
   "quota_thresholds": [75, 90],
+  "usage_warn_percent": 80,
   "anomaly_enabled": true,
   "anomaly_multiplier": 3
 }
@@ -132,6 +133,33 @@ restart starts a brand-new `Checker` with no in-memory state, but the row
 already exists in the database, so nothing resends. Rows older than 90 days
 are pruned opportunistically (nothing ever needs to know a long-past
 period's alerts were sent).
+
+## Provider usage
+
+`GET /api/usage/providers?days=N` and Settings → Usage & about → **By
+provider** show one card per agent CLI: Claude Code, Codex and Gemini CLI
+always, and any catalog agent that has usage in the window.
+
+- **Spend and tokens by day** from the same `usage_daily` and task-attempt
+  history as `GET /api/usage`. A CLI that reports tokens but no dollars charts
+  its tokens instead.
+- **Usage windows**: the 5-hour and 7-day windows each login last reported
+  (Claude's statusline, Codex's rollout), per machine and account, with the
+  reset countdown. A window whose reset has passed is over and not shown.
+  Gemini CLI and most catalog agents report no windows, and the card says so.
+- **By account**: where a CLI has more than one login
+  ([accounts.md](accounts.md)), spend and windows per account.
+- **Estimated cost by model**: tokens, the dollars the CLI reported, the
+  dollars Lectern booked as estimated, and the same tokens at the model price
+  table's list price, so token-only agents can be compared.
+
+**The warning.** Any window at or over `usage_warn_percent` (default 80,
+editable on the card) turns its card amber and sends one push per window,
+through the same sinks as every budget alert, deduplicated in
+`budget_alerts_sent` so a restart does not resend it. Claude's default login
+keeps its own `quota_thresholds` ladder (75/90) while the statusline is
+reporting, so it is not warned twice; other Claude accounts, Codex, Gemini and
+catalog agents use the 80% line.
 
 ## Codex spend is estimated
 

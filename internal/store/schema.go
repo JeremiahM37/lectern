@@ -1001,4 +1001,27 @@ var migrations = []string{
   updated_at REAL NOT NULL,
   PRIMARY KEY(owner, key)
 )`,
+	// Remote parity (docs/ssh.md, docs/sandboxes.md): SSH options and a
+	// sandbox provider per target, a record of every sandbox Lectern made so
+	// its lifecycle can be driven from the UI, and a dispatch's own
+	// environment for the attempt's workspace.
+	"ALTER TABLE targets ADD COLUMN ssh_json TEXT NOT NULL DEFAULT '{}'",
+	"ALTER TABLE targets ADD COLUMN sandbox_json TEXT NOT NULL DEFAULT '{}'",
+	`CREATE TABLE IF NOT EXISTS sandboxes(
+  id INTEGER PRIMARY KEY,
+  target_id INTEGER NOT NULL REFERENCES targets(id),
+  provider TEXT NOT NULL,
+  ext_id TEXT NOT NULL,
+  attempt_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  note TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  destroyed_at REAL
+)`,
+	"CREATE INDEX IF NOT EXISTS idx_sandboxes_attempt ON sandboxes(attempt_id)",
+	`CREATE TABLE IF NOT EXISTS attempt_env(
+  attempt_id INTEGER PRIMARY KEY REFERENCES attempts(id),
+  env_json TEXT NOT NULL DEFAULT '{}'
+)`,
 }

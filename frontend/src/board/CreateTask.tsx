@@ -5,6 +5,7 @@ import { Modal } from "../sessions/Modal";
 import { claimScopeLabel } from "../claims/ClaimsPanel";
 import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
+import { availableAgents, raceAgents, type RaceMode } from "../remote/race";
 import "../claims/claims.css";
 import { t, useLocale } from "../i18n";
 import "./board.css";
@@ -47,6 +48,8 @@ export function CreateTask({
   onCreated,
   onChat,
   onNotice,
+  onCompare,
+  initialRace = 0,
 }: {
   api: BoardApi;
   projects: Project[];
@@ -54,6 +57,9 @@ export function CreateTask({
   onCreated(): void;
   onChat(t: TaskView): void;
   onNotice(t: string, e?: boolean): void;
+  // Race N agents lands in the task's Compare view.
+  onCompare?(t: TaskView): void;
+  initialRace?: number;
 }) {
   useLocale();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? 0),
@@ -85,7 +91,10 @@ export function CreateTask({
     [overlaps, setOverlaps] = useState<Claim[]>([]),
     [agentMenu, setAgentMenu] = useState<string[]>([]),
     [showAllAgents, setShowAllAgents] = useState(false),
-    [showAllVariantAgents, setShowAllVariantAgents] = useState<number | null>(null);
+    [showAllVariantAgents, setShowAllVariantAgents] = useState<number | null>(null),
+    [race, setRace] = useState(0),
+    [raceMode, setRaceMode] = useState<RaceMode>("mixed"),
+    [installed, setInstalled] = useState<Record<number, string[]>>({});
   const project = projects.find((p) => p.id === projectId);
   const eligible = useMemo(
     () => agents.filter((a) => a.builtin || a.task),
@@ -110,6 +119,10 @@ export function CreateTask({
       })
       .catch(() => {});
     void fetchAgentMenu(api).then(setAgentMenu);
+    void api
+      .request<{ id: number; info_json: string }[]>("/targets")
+      .then((ts) => setInstalled(Object.fromEntries(ts.map((t) => [t.id, availableAgents(t.info_json)]))))
+      .catch(() => {});
     void api
       .request<Orchestration>("/delegation")
       .then((v) => setOrchestration(v && typeof v.orchestrate_ready === "boolean" ? v : { orchestrate_ready: false }))
@@ -156,8 +169,26 @@ export function CreateTask({
       controller.abort();
     };
   }, [projectId, title, prompt]);
-  async function create(dispatch: boolean, chat = false) {
-    if (!title.trim()) return onNotice(t("board.create.titleRequired"), true);
+  function applyRace(n: number, mode: RaceMode = raceMode) {
+    setRace(n);
+    setRaceMode(mode);
+    const agents = raceAgents(n, agent, (project && installed[project.target_id]) || [], mode);
+    setVariants(
+      agents.slice(1).map((a) => ({
+        key: ++variantKeySeq,
+        agent: a === agent ? "" : a,
+        model: "",
+        permissionMode: "",
+        launchProfile: "",
+      })),
+    );
+  }
+  useEffect(() => {
+    if (initialRace && project) applyRace(initialRace);
+  }, [initialRace, project?.id, installed]);
+  async function create(dispatch: boolean, chat = false, compare = false) {
+    const effectiveTitle = title.trim() || (compare ? prompt.trim().split("\n")[0]!.slice(0, 70) : "");
+    if (!effectiveTitle) return onNotice(compare ? t("remote.race.describeFirst") : t("board.create.titleRequired"), true);
     const usesFable =
       model === "fable" || variants.some((v) => v.model === "fable");
     if (
@@ -174,7 +205,7 @@ export function CreateTask({
     try {
       const task = await api.createTask({
         project_id: projectId,
-        title: title.trim(),
+        title: effectiveTitle,
         prompt: prompt.trim(),
         priority,
         agent,
@@ -205,8 +236,9 @@ export function CreateTask({
         });
       onCreated();
       onClose();
-      onNotice(dispatch ? (orchestrate ? t("board.create.orchestrating") : t("board.create.dispatched")) : t("board.create.savedToBacklog"));
+      onNotice(compare ? t("remote.race.racing", { count: variants.length + 1 }) : dispatch ? (orchestrate ? t("board.create.orchestrating") : t("board.create.dispatched")) : t("board.create.savedToBacklog"));
       if (chat) onChat(task);
+      if (compare) onCompare?.(task);
     } catch (e) {
       onNotice(String(e), true);
     }
@@ -383,6 +415,32 @@ export function CreateTask({
           placeholder={t("board.create.modelDefault")}
         />
       </label>
+      <div className="race-row" id="f-race" role="group" aria-label={t("remote.race.group")}>
+        <b>{t("remote.race.label")}</b>
+        {[2, 3, 4].map((n) => (
+          <button
+            type="button"
+            key={n}
+            data-race={n}
+            className={race === n ? "on" : ""}
+            aria-pressed={race === n}
+            disabled={orchestrate}
+            onClick={() => (race === n ? (setRace(0), setVariants([])) : applyRace(n))}
+          >
+            ×{n}
+          </button>
+        ))}
+        <select
+          aria-label={t("remote.race.with")}
+          value={raceMode}
+          disabled={!race}
+          onChange={(e) => applyRace(race, e.target.value as RaceMode)}
+        >
+          <option value="mixed">{t("remote.race.mixed")}</option>
+          <option value="same">{t("remote.race.same")}</option>
+        </select>
+        <span className="subhint">{t("remote.race.hint")}</span>
+      </div>
       <div id="f-variants">
         <div className="variants-head">
           <span>
@@ -552,9 +610,15 @@ export function CreateTask({
       <div className="btnrow">
         <button id="f-save" onClick={() => void create(false)}>{t("board.create.saveToBacklog")}</button>
         <button id="f-go" onClick={() => void create(true)}>{t("board.create.dispatchToBoard")}</button>
-        <button id="f-chat" className="ok" onClick={() => void create(true, true)}>
-          {t("board.create.dispatchAndChat")}
-        </button>
+        {variants.length > 0 && !orchestrate ? (
+          <button id="f-race-go" className="ok" onClick={() => void create(true, false, true)}>
+            {t("remote.race.go", { count: variants.length + 1 })}
+          </button>
+        ) : (
+          <button id="f-chat" className="ok" onClick={() => void create(true, true)}>
+            {t("board.create.dispatchAndChat")}
+          </button>
+        )}
       </div>
     </Modal>
   );

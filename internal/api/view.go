@@ -59,6 +59,7 @@ type taskView struct {
 	TargetHost  string           `json:"target_host"`
 	TargetUser  string           `json:"target_user"`
 	TargetKind  string           `json:"target_kind"`
+	TargetID    int64            `json:"target_id"`
 	Attempt     *attemptView     `json:"attempt,omitempty"`
 	Attempts    []attemptSummary `json:"attempts"`
 	// CI is the CI loop's watch of this task's pull request (docs/ci-loop.md);
@@ -84,6 +85,7 @@ func (s *Server) view(task *store.Task) *taskView {
 			out.TargetHost = tgt.Host
 			out.TargetUser = tgt.User
 			out.TargetKind = tgt.Kind
+			out.TargetID = tgt.ID
 		}
 	}
 	if att, err := s.DB.LatestAttempt(task.ID); err == nil {

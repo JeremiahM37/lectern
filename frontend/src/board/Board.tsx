@@ -9,17 +9,19 @@ import { ClaimsPanel } from "../claims/ClaimsPanel";
 import { QuotaChip } from "../sessions/QuotaChip";
 import { CIChip } from "../review/CIChip";
 import { contextClass, formatResultCost, formatTokens, resultUsage } from "../sessions/usageFormat";
+import { availableAgents, raceAgents } from "../remote/race";
 import { t, useLocale } from "../i18n";
 import "./board.css";
 
-type QuickMode = "dispatch" | "orchestrate";
+type QuickMode = "dispatch" | "orchestrate" | "race";
 type OrchestrationView = {
   orchestrate_ready: boolean;
   settings?: { lead_agent?: string; worker_agent?: string };
 };
 function readQuickMode(): QuickMode {
   try {
-    return localStorage.getItem("adk-quick-mode") === "orchestrate" ? "orchestrate" : "dispatch";
+    const saved = localStorage.getItem("adk-quick-mode");
+    return saved === "orchestrate" || saved === "race" ? saved : "dispatch";
   } catch {
     return "dispatch";
   }
@@ -137,7 +139,9 @@ export function Board({
     // delegated-build worker build it, reviews and integrates. The choice is
     // remembered per device, like the rest of the board's preferences.
     [mode, setMode] = useState<QuickMode>(() => readQuickMode()),
-    [orchestration, setOrchestration] = useState<OrchestrationView>();
+    [orchestration, setOrchestration] = useState<OrchestrationView>(),
+    // Race N agents lands in the new task's Compare view.
+    [compareTask, setCompareTask] = useState<number>();
   async function refresh(signal?: AbortSignal) {
     const sequence = ++refreshSequence.current;
     const [next, ps] = await Promise.all([api.tasks(signal), api.projects(signal)]);
@@ -215,6 +219,29 @@ export function Board({
         prompt: text,
         ...(orchestrate ? { orchestrate: true } : {}),
       });
+      if (mode === "race") {
+        // Three attempts of the same prompt: different agents where the
+        // machine has them, each in its own worktree.
+        const p = projects.find((x) => x.id === project);
+        let available: string[] = [];
+        try {
+          const targets = await api.request<{ id: number; info_json: string }[]>("/targets");
+          available = availableAgents(targets.find((t) => t.id === p?.target_id)?.info_json);
+        } catch {
+          /* an unknown machine races the project's own agent */
+        }
+        const agents = raceAgents(3, task.agent || "claude", available, "mixed");
+        await api.request(`/tasks/${task.id}/dispatch`, {
+          method: "POST",
+          body: { variants: agents.map((agent) => ({ agent })) },
+        });
+        setPrompt((current) => current === text ? "" : current);
+        onNotice(t("remote.race.racingAgents", { agents: agents.join(", "), text: text.slice(0, 40) }));
+        await refresh();
+        setCompareTask(task.id);
+        setSheet(task.id);
+        return;
+      }
       await api.taskAction(task.id, "dispatch", {});
       setPrompt((current) => current === text ? "" : current);
       onNotice(orchestrate ? t("board.orchestrating", { text: text.slice(0, 40) }) : t("board.dispatched", { text: text.slice(0, 40) }));
@@ -403,6 +430,17 @@ export function Board({
           >
             {t("board.quick.orchestrate")}
           </button>
+          <button
+            type="button"
+            role="radio"
+            id="qb-race"
+            aria-checked={mode === "race"}
+            className={mode === "race" ? "on" : ""}
+            onClick={() => setMode("race")}
+            title={t("remote.race.quickTitle")}
+          >
+            {t("remote.race.quick")}
+          </button>
         </div>
         <select
           id="qb-project"
@@ -425,7 +463,9 @@ export function Board({
           placeholder={
             mode === "orchestrate"
               ? t("board.quick.orchestratePlaceholder")
-              : t("board.quick.dispatchPlaceholder")
+              : mode === "race"
+                ? t("remote.race.quickPlaceholder")
+                : t("board.quick.dispatchPlaceholder")
           }
         />
         <input
@@ -471,6 +511,7 @@ export function Board({
           onClose={() => setSheet(undefined)}
           onCreated={() => void refresh()}
           onChat={(task) => { setSheet(task.id); onChat(task); }}
+          onCompare={(task) => { setCompareTask(task.id); setSheet(task.id); }}
           onNotice={onNotice}
         />
       )}
@@ -495,8 +536,10 @@ export function Board({
       {typeof sheet === "number" && (
         <TaskDetail
           taskId={sheet}
+          key={sheet}
+          initialCompare={compareTask === sheet}
           api={api}
-          onClose={() => setSheet(undefined)}
+          onClose={() => { setSheet(undefined); setCompareTask(undefined); }}
           onChat={onChat}
           onOpenSession={onOpenSession}
           onTerminal={onOpenTerminal}

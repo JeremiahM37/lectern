@@ -177,3 +177,14 @@ func startBridge(ctx context.Context, command string) (net.Conn, error) {
 	}
 	return c, nil
 }
+
+// BridgeCommand dials addr on a machine reached through a local command:
+// wrap turns the relay's command line into the full local invocation (a
+// `docker exec -i`, say), which must pass stdin through.
+func BridgeCommand(ctx context.Context, addr string, wrap func(relay string) string) (net.Conn, error) {
+	port, err := bridgeTarget(addr)
+	if err != nil {
+		return nil, err
+	}
+	return startBridge(ctx, wrap(bridgeCommand(port)))
+}

@@ -16,6 +16,7 @@ var taskDependents = []string{
 	`DELETE FROM approvals WHERE attempt_id IN (SELECT id FROM attempts WHERE task_id IN (%TASKS%))`,
 	`DELETE FROM claims WHERE attempt_id IN (SELECT id FROM attempts WHERE task_id IN (%TASKS%))`,
 	`DELETE FROM otel_attempt_usage WHERE attempt_id IN (SELECT id FROM attempts WHERE task_id IN (%TASKS%))`,
+	`DELETE FROM attempt_env WHERE attempt_id IN (SELECT id FROM attempts WHERE task_id IN (%TASKS%))`,
 	`DELETE FROM memories WHERE created_by_attempt IN (SELECT id FROM attempts WHERE task_id IN (%TASKS%))`,
 	`DELETE FROM task_takeovers WHERE task_id IN (%TASKS%)`,
 	`DELETE FROM task_messages WHERE task_id IN (%TASKS%)`,

@@ -179,3 +179,81 @@ def test_light_mode_workspace_terminal_and_chat(page, real_terminal, theme):
     expect(page.locator("#floating-terminal")).to_be_visible(timeout=15000)
     sweep.check("floating")
     sweep.done()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("page", [DESKTOP, PHONE], indirect=True, ids=["desk", "phone"])
+def test_light_mode_remote_machines_sandboxes_usage_and_race(page, theme, tmp_path):
+    """SSH import, a machine's connection and ports, sandboxes, usage by
+    provider (with a provider past its warning) and Race N agents."""
+    import sqlite3
+    import time
+    import urllib.request
+    from conftest import _start, _stop, _unused_port
+    cfg = tmp_path / "ssh_config"
+    cfg.write_text("Host build-box\n  HostName 10.0.0.5\n  User dev\n  ProxyJump bastion\n  ForwardAgent yes\n")
+    port, token, db = _unused_port(), "sweep-token", tmp_path / "sweep.db"
+    proc = _start(port, {"LECTERN_SSH_CONFIG": str(cfg), "LECTERN_AUTH": "token", "LECTERN_AUTH_TOKEN": token,
+                         "LECTERN_LIVE": "1", "LECTERN_LIVE_UNAUTHENTICATED": "1", "LECTERN_DB": str(db)})
+    base = f"http://127.0.0.1:{port}"
+
+    def api(path, body=None, method=None):
+        req = urllib.request.Request(base + "/api" + path, method=method or ("POST" if body is not None else "GET"),
+                                     data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+        return json.load(urllib.request.urlopen(req, timeout=10))
+    try:
+        api("/ssh/import", {"aliases": ["build-box"]})
+        sb = api("/targets", {"name": "docker-sb", "kind": "sandbox", "sandbox": True,
+                              "sandbox_config": {"provider": "docker", "image": "ghcr.io/acme/dev:1"}})
+        api("/sandboxes", {"target_id": sb["id"]})
+        project = api("/projects")[0]
+        sess = api("/sessions", {"project_id": project["id"], "agent": "codex", "name": "sweep codex"})
+        now = time.time()
+        with sqlite3.connect(db, timeout=10) as conn:
+            conn.execute("UPDATE sessions SET rate_5h_pct=85, rate_5h_reset=?, rate_7d_pct=40, rate_7d_reset=?, usage_at=? WHERE id=?",
+                         (now + 3600, now + 86400, now, sess["id"]))
+            conn.execute("INSERT INTO usage_daily(date, session_id, agent, model, cost_usd, estimated_usd, input_tokens, output_tokens) "
+                         "VALUES(date('now'), ?, 'codex', 'gpt-5-codex', 1.25, 1.25, 120000, 9000)", (sess["id"],))
+        page.add_init_script(f"localStorage.setItem('lec-token', {json.dumps(token)})")
+        light(page, theme)
+        label = "phone" if page.viewport_size["width"] < 600 else "desk"
+        sweep = Sweep(page, label, theme)
+        page.goto(base + "/#board")
+        page.click("#fab")
+        page.click('#f-race [data-race="3"]')
+        page.fill("#f-prompt", "Sweep race")
+        sweep.check("race-new-task")
+        page.click("#f-race-go")
+        expect(page.locator(".compare-view .compare-card")).to_have_count(3, timeout=15000)
+        sweep.check("race-compare")
+        page.keyboard.press("Escape")
+        page.locator("#qb-race").click()
+        sweep.check("race-quick-bar")
+        nav(page, "targets")
+        page.locator('[data-settings="machines"]').click()
+        card = page.locator("article.rowcard").filter(has=page.locator("h3", has_text="build-box")).first
+        card.locator('[data-remote-tab="connection"]').click()
+        expect(card.get_by_label("ssh_config alias")).to_have_value("build-box")
+        sweep.check("machine-connection")
+        card.locator('[data-remote-tab="ports"]').click()
+        card.locator(".remote-ports button.b").last.click()
+        expect(card.locator(".remote-listening li")).to_have_count(2, timeout=10000)
+        sweep.check("machine-ports")
+        card.locator('[data-remote-tab="files"]').click()
+        sweep.check("machine-files")
+        sbcard = page.locator("article.rowcard").filter(has=page.locator("h3", has_text="docker-sb")).first
+        sbcard.locator('.sandbox-machine button.linkish').click()
+        expect(sbcard.locator(".sandbox-fields")).to_be_visible()
+        expect(page.locator(".sandbox-card")).to_have_count(1, timeout=10000)
+        sweep.check("sandboxes")
+        page.click("#ssh-import")
+        expect(page.locator('.ssh-hosts li[data-alias="build-box"]')).to_be_visible(timeout=10000)
+        sweep.check("ssh-import")
+        page.locator("dialog.ssh-import [data-close]").click()
+        page.locator('[data-settings="about"]').click()
+        expect(page.locator('.pu-card.warn[data-provider="codex"]')).to_be_visible(timeout=10000)
+        sweep.check("usage-providers")
+        sweep.done()
+    finally:
+        _stop(proc, port)
