@@ -64,14 +64,14 @@ func TestRedactMasksObviousSecrets(t *testing.T) {
 		"export API_KEY=supersecretvalue123",
 		`"password": "hunter22hunter"`,
 		"clone https://user:s3cretpass@example.com/repo.git",
-		"aws AKIAABCDEFGHIJKLMNOP here",
+		"aws AKIA" + "ABCDEFGHIJKLMNOP here",
 		"key sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
 		"-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----",
 		"FAIL TestParser (0.01s): expected 3, got 4",
 	}, "\n")
 	out := Redact(in)
 	for _, secret := range []string{"ghp_abcdefghij", "abc.def.ghi-some", "supersecretvalue123",
-		"hunter22hunter", "s3cretpass", "AKIAABCDEFGHIJKLMNOP", "sk-ant-api03", "b3BlbnNzaC1rZXktdjEAAAAA"} {
+		"hunter22hunter", "s3cretpass", "AKIA" + "ABCDEFGHIJKLMNOP", "sk-ant-api03", "b3BlbnNzaC1rZXktdjEAAAAA"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("secret %q survived redaction:\n%s", secret, out)
 		}

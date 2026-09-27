@@ -14,6 +14,7 @@ import { AgentCommands } from "./AgentCommands";
 import { UsagePanel } from "./UsagePanel";
 import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
+import { ModelPrices } from "./ModelPrices";
 import { LimitPolicyEditor } from "./LimitPolicy";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
@@ -246,6 +247,7 @@ export function Settings({
       {tab === "budgets" && (
         <>
           <BudgetsPanel api={api} onNotice={onNotice} />
+          <ModelPrices api={api} onNotice={onNotice} />
           <LimitPolicyEditor api={api} onNotice={onNotice} />
         </>
       )}{" "}
