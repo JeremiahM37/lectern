@@ -357,7 +357,9 @@ machine, with noVNC in front of it, and shows it in the page. The card gives its
 opens a browser on that desktop, and that browser sees the machine's own
 localhost — no forward needed. You watch by default; *Take control* passes your
 mouse and keyboard through. An agent can ask for one with the `open_live_view`
-tool, which returns the `DISPLAY` for it to use.
+tool, which returns the `DISPLAY` for it to use. With computer use allowed, the
+agent can also screenshot, click and type on that desktop itself; see
+[Browser](browser.md#computer-use), which also covers the session Browser pane.
 
 ```bash
 lectern expose 5173 --title "Dev server"            # this session's machine
