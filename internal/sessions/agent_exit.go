@@ -42,17 +42,35 @@ func AgentExited(row *store.Session, p AgentProbe) bool {
 		return false
 	}
 	if row.Origin == "lectern" {
-		return strings.TrimSpace(p.RootArgs) == "bash"
-	}
-	if !shellNames[strings.TrimSpace(p.Current)] {
+		if strings.TrimSpace(p.RootArgs) != "bash" {
+			return false
+		}
+		// The launch command returned, but the agent may have been started
+		// again from that shell (a resume typed at the prompt), so a bare root
+		// alone is not enough: the agent must be gone from the terminal too.
+	} else if !shellNames[strings.TrimSpace(p.Current)] {
 		return false
 	}
 	for _, args := range p.TTYArgs {
-		if agentPattern.MatchString(args) {
+		if agentPattern.MatchString(args) || runsCommand(args, row.Agent) {
 			return false
 		}
 	}
 	return true
+}
+
+// runsCommand reports whether a process's arguments run the named command,
+// so catalog agents (opencode, goose, …) count as well as the built-ins.
+func runsCommand(args, name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, field := range strings.Fields(args) {
+		if field == name || strings.HasSuffix(field, "/"+name) {
+			return true
+		}
+	}
+	return false
 }
 
 // buildAgentProbe reports, per pane, the root process's arguments, the

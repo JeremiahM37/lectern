@@ -32,7 +32,7 @@ func (s *Server) browserCall(action string, args map[string]any, keys ...string)
 			body[k] = v
 		}
 	}
-	return s.apiLong("POST", "/browser", body, 100*time.Second)
+	return s.apiLong("POST", "/browser", body, 170*time.Second)
 }
 
 func (s *Server) computerCall(action string, args map[string]any, keys ...string) (any, error) {

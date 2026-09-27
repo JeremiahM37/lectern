@@ -165,20 +165,28 @@ start() {
     --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
   echo $! >"$dir/browser.pid"
   [ "$profile" = "$dir/profile" ] || echo $! >"$profile/lectern.lock"
+  # A first start reads a few hundred megabytes; on a slow or throttled disk
+  # (a CI runner, a small VM) that alone can take tens of seconds. Wait while
+  # the browser is alive, up to 90s, and stop at once if it exits.
   i=0
-  while [ ! -s "$profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do
+  while [ ! -s "$profile/DevToolsActivePort" ] && [ $i -lt 900 ]; do
     sleep 0.1; i=$((i+1))
     kill -0 "$(cat "$dir/browser.pid")" 2>/dev/null || break
   done
 }
+alive() { kill -0 "$(cat "$dir/browser.pid" 2>/dev/null)" 2>/dev/null; }
 start
 # Inside a container without user namespaces Chromium's own sandbox cannot
 # start. The browser still runs as this same unprivileged user.
-if [ ! -s "$profile/DevToolsActivePort" ] && [ -z "$sandbox" ] && grep -qi sandbox "$dir/browser.log" 2>/dev/null; then
+if [ ! -s "$profile/DevToolsActivePort" ] && ! alive && [ -z "$sandbox" ] && grep -qi sandbox "$dir/browser.log" 2>/dev/null; then
   sandbox="--no-sandbox"; start
 fi
 if [ ! -s "$profile/DevToolsActivePort" ]; then
-  echo "ERROR the browser did not start: $(tail -n 2 "$dir/browser.log" 2>/dev/null | tr '\n' ' ')"; reap "$dir"; exit 0
+  # The reason is the last line that is not the bus noise every start on a
+  # server prints.
+  why=$(grep -v -e 'ERROR:dbus/' -e 'ERROR:bus.cc' -e '^[[:space:]]*$' "$dir/browser.log" 2>/dev/null | tail -n 1 | cut -c1-400)
+  if alive; then state="it was still starting after 90s"; else state="it exited"; fi
+  echo "ERROR the browser did not start ($state): ${why:-no message}"; reap "$dir"; exit 0
 fi
 port=$(sed -n 1p "$profile/DevToolsActivePort"); path=$(sed -n 2p "$profile/DevToolsActivePort")
 echo "OK $dir $port $path $bin"

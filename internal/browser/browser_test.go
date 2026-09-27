@@ -464,3 +464,24 @@ func TestLaunchReapsOnlyAbandonedBrowsers(t *testing.T) {
 		t.Fatalf("the kept browser was reaped: %v", err)
 	}
 }
+
+// A browser that fails to start is reported by its last real line, not by
+// the bus noise every start on a server prints first.
+func TestAFailedStartSaysWhy(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "fake-chrome")
+	script := "#!/bin/sh\n" +
+		"echo '[1:2:0927/204016.681398:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket' >&2\n" +
+		"echo 'error while loading shared libraries: libnss3.so: cannot open shared object file' >&2\n" +
+		"echo '[1:2:0927/204016.681399:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address' >&2\n" +
+		"exit 127\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LECTERN_BROWSER_BIN", fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := Launch(ctx, localRun, testOwner(), LaunchOptions{})
+	if err == nil || !strings.Contains(err.Error(), "it exited") || !strings.Contains(err.Error(), "libnss3.so") {
+		t.Fatalf("error: %v", err)
+	}
+}
