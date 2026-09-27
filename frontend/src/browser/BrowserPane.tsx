@@ -127,6 +127,7 @@ export function BrowserPane({
     socket = useRef<WebSocket | null>(null),
     captures = useRef(new Map<string, (png?: string) => void>()),
     history = useRef({ back: 0, forward: 0, moving: false }),
+    pageScale = useRef(1),
     wrapRef = useRef<HTMLDivElement>(null);
   const [, redraw] = useState(0);
   const dev = device(deviceId);
@@ -198,8 +199,9 @@ export function BrowserPane({
           return;
         }
         try {
-          const msg = JSON.parse(event.data) as { type: string; status?: Status; can_drive?: boolean; design?: unknown };
-          if (msg.type === "state" && msg.status) {
+          const msg = JSON.parse(event.data) as { type: string; status?: Status; can_drive?: boolean; design?: unknown; page_scale?: number };
+          if (msg.type === "frame" && typeof msg.page_scale === "number" && msg.page_scale > 0) pageScale.current = msg.page_scale;
+          else if (msg.type === "state" && msg.status) {
             setStatus(msg.status);
             if (typeof msg.can_drive === "boolean") setCanDrive(msg.can_drive);
             const u = msg.status.state?.url;
@@ -398,7 +400,10 @@ export function BrowserPane({
       vp = status?.state?.viewport;
     if (!img || !vp) return null;
     const r = img.getBoundingClientRect();
-    return mapPoint(e.clientX, e.clientY, { left: r.left, top: r.top, width: r.width, height: r.height }, vp);
+    const p = mapPoint(e.clientX, e.clientY, { left: r.left, top: r.top, width: r.width, height: r.height }, vp);
+    // A zoomed-out page (no viewport meta on a phone) takes input in its own
+    // layout pixels, not the picture's.
+    return p && { x: p.x / pageScale.current, y: p.y / pageScale.current };
   };
   const lastMove = useRef(0),
     pendingMove = useRef<number | undefined>(undefined);

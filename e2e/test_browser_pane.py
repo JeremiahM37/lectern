@@ -8,17 +8,19 @@ target. Nothing here talks to the live service.
 import glob
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import expect
-from conftest import _binary
+from conftest import _binary, _port_open, _unused_port
 from test_terminal_workspace import real_terminal
 
 LIVE = [{'live': True}]
@@ -333,3 +335,76 @@ def test_the_pane_is_full_screen_on_a_phone(page, real_terminal, shop):
     vp = page.request.get(f"{t['url']}/api/sessions/{t['id']}/browser").json()['state']['viewport']
     assert vp['width'] == 390 and vp['mobile'], vp
     evidence(page, 'phone.png')
+
+
+RELAY_PORT = _unused_port()
+RELAY_SECRET = secrets.token_hex(32)
+
+
+@pytest.fixture(scope='module')
+def browser_relay():
+    log = Path(tempfile.mkdtemp(prefix='lec-relay-')) / 'relay.log'
+    with log.open('wb') as out:
+        relay = subprocess.Popen([_binary(), 'relay', '--listen', f'127.0.0.1:{RELAY_PORT}'],
+                                 env={**os.environ, 'LECTERN_RELAY_HOST_SECRET': RELAY_SECRET},
+                                 stdout=out, stderr=subprocess.STDOUT)
+    for _ in range(100):
+        if _port_open(RELAY_PORT):
+            break
+        time.sleep(.1)
+    try:
+        yield RELAY_PORT
+    finally:
+        relay.terminate()
+        relay.wait(timeout=10)
+
+
+@pytest.mark.parametrize('real_terminal', [{'live': True, 'env': {
+    'LECTERN_RELAY_URL': f'ws://127.0.0.1:{RELAY_PORT}', 'LECTERN_RELAY_HOST_SECRET': RELAY_SECRET}}], indirect=True)
+def test_the_shared_browser_and_design_mode_work_over_the_relay(browser, browser_relay, real_terminal, shop):
+    """A phone paired over the encrypted relay has no direct route to Lectern:
+    the pane falls back to the shared browser, whose frames, input and Design
+    Mode all ride the tunnel."""
+    t = real_terminal
+    stand_in_agent(t)
+    for _ in range(100):
+        if t['api']('/relay').get('connected'):
+            break
+        time.sleep(.1)
+    else:
+        raise AssertionError('Lectern never reached the relay')
+    minted = t['api']('/relay/pair', {})
+    ctx = browser.new_context(viewport={'width': 390, 'height': 844})
+    phone = ctx.new_page()
+    sockets = []
+    phone.on('websocket', lambda ws: sockets.append(ws.url))
+    try:
+        phone.goto(t['url'] + '/relay-pair#p=' + minted['fragment'])
+        phone.click('#relay-pair-submit')
+        expect(phone.locator('#conn-label')).to_have_text('LIVE', timeout=20000)
+        pane = open_pane(phone, t)
+        expect(pane.get_by_role('radio', name='Live page')).to_be_disabled()
+        expect(pane.get_by_role('radio', name='Shared browser')).to_be_checked()
+        pane.get_by_label('Address').fill(f'localhost:{shop}')
+        pane.get_by_role('button', name='Go').click()
+        img = pane.locator('.browser-screen img')
+        expect(img).to_be_visible(timeout=30000)
+        evidence(phone, 'relay-phone.png')
+        # Design Mode through the tunnel: the pick, and the send.
+        pane.get_by_role('button', name='Design').click()
+        expect(pane.locator('.browser-design')).to_be_visible()
+        vp = t['api'](f"/sessions/{t['id']}/browser")['state']['viewport']
+        box = img.bounding_box()
+        scale = box['width'] / vp['width']
+        # The fixture has no viewport meta, so a phone lays it out 980px wide.
+        layout = 980 / vp['width']
+        phone.mouse.click(box['x'] + (50 / layout) * scale, box['y'] + (110 / layout) * scale)
+        expect(pane.locator('.browser-picked li')).to_have_count(1, timeout=15000)
+        expect(pane.locator('.browser-picked li')).to_contain_text('div#card')
+        pane.get_by_role('button', name='Send 1 to agent').click()
+        files = wait_for('staged files', lambda: staged(t).get('element-1.png'))
+        wait_for('the message', lambda: files[0] in received(t))
+        # Every socket the phone opened went to the relay, none to Lectern.
+        assert sockets and all(f':{browser_relay}/' in u for u in sockets), sockets
+    finally:
+        ctx.close()

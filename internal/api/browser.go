@@ -837,6 +837,7 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	last := ""
+	pageScale := 1.0
 	for {
 		select {
 		case <-ctx.Done():
@@ -845,6 +846,13 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 			_ = c.Close(websocket.StatusNormalClosure, "the browser has closed")
 			return
 		case f := <-frames:
+			if f.PageScale != pageScale {
+				pageScale = f.PageScale
+				raw, _ := json.Marshal(map[string]any{"type": "frame", "page_scale": pageScale})
+				if send(websocket.MessageText, raw) != nil {
+					return
+				}
+			}
 			if send(websocket.MessageBinary, f.JPEG) != nil {
 				return
 			}

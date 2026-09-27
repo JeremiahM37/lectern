@@ -34,6 +34,11 @@ The pane can show a page in two ways:
 Both see the session machine's own `localhost`, so a dev server bound to
 `127.0.0.1` works without exposing anything.
 
+<img src="media/browser/phone.png" width="260" alt="The shared browser on a phone paired over the relay">
+
+*A phone paired over the encrypted relay: the frames, taps and Design Mode all
+travel inside the tunnel.*
+
 ## Design Mode
 
 Press **Design**. Hovering an element outlines it and shows its DOM path

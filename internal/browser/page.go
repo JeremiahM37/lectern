@@ -65,11 +65,14 @@ type NetEntry struct {
 	Failed   string  `json:"failed,omitempty"`
 }
 
-// Frame is one screencast image.
+// Frame is one screencast image. PageScale is the page's zoom when a phone
+// viewport shows a page laid out wider (one with no viewport meta tag):
+// input coordinates are layout pixels, the picture is zoomed by this much.
 type Frame struct {
-	JPEG   []byte
-	Width  int
-	Height int
+	JPEG      []byte
+	Width     int
+	Height    int
+	PageScale float64
 }
 
 // Update is what a watcher hears besides frames: page state changes and
@@ -222,8 +225,9 @@ func (b *Browser) event(ev Event) {
 			Data      string `json:"data"`
 			SessionID int    `json:"sessionId"`
 			Metadata  struct {
-				DeviceWidth  float64 `json:"deviceWidth"`
-				DeviceHeight float64 `json:"deviceHeight"`
+				DeviceWidth     float64 `json:"deviceWidth"`
+				DeviceHeight    float64 `json:"deviceHeight"`
+				PageScaleFactor float64 `json:"pageScaleFactor"`
 			} `json:"metadata"`
 		}
 		if json.Unmarshal(ev.Params, &p) != nil {
@@ -238,7 +242,8 @@ func (b *Browser) event(ev Event) {
 		if err != nil {
 			return
 		}
-		b.sendFrame(Frame{JPEG: data, Width: int(p.Metadata.DeviceWidth), Height: int(p.Metadata.DeviceHeight)})
+		b.sendFrame(Frame{JPEG: data, Width: int(p.Metadata.DeviceWidth), Height: int(p.Metadata.DeviceHeight),
+			PageScale: p.Metadata.PageScaleFactor})
 	case "Runtime.consoleAPICalled":
 		var p struct {
 			Type string `json:"type"`
@@ -479,6 +484,12 @@ func (b *Browser) capture(ctx context.Context) {
 func (b *Browser) sendFrame(f Frame) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if f.PageScale <= 0 {
+		f.PageScale = 1
+		if b.lastFrame != nil {
+			f.PageScale = b.lastFrame.PageScale
+		}
+	}
 	b.lastFrame = &f
 	for _, ch := range b.frames {
 		// Latest wins: a slow watcher skips frames rather than lagging behind.
