@@ -59,9 +59,19 @@ def test_the_key_row_is_the_operators_and_held_arrows_repeat(page, real_terminal
     keys = f.locator('#terminal-keybar button').evaluate_all('(b)=>b.map(x=>x.dataset.terminalKey)')
     assert 'tilde' not in keys and keys.index('pipe') < keys.index('dash'), keys
     assert keys[-6:-2] == ['snippets', 'find', 'C-u', 'backspace'] and keys[-2].startswith('quick:') and keys[-1] == 'edit', keys
-    # The quick-command key is the server-stored command, not a copy.
-    stored = page.request.get(t['url'] + '/api/ui/prefs').json()
-    assert 'continue' in json.dumps(stored), stored
+    # The quick-command key is the server-stored command, not a copy. Writes
+    # to /api/ui/prefs are debounced (prefs/store.ts), so wait for it to land
+    # rather than reading inside the debounce window.
+    quick_id = keys[-2].split(':', 1)[1]
+    stored = {}
+    for _ in range(100):
+        stored = page.request.get(t['url'] + '/api/ui/prefs').json()
+        commands = stored.get('prefs', {}).get('quick-commands') or []
+        if any(c.get('id') == quick_id and c.get('text') == 'continue' for c in commands):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError(f'quick command {quick_id} never reached the server: {stored}')
     # It is this device's arrangement and survives a reload.
     page.reload()
     f = attach(page, t)
