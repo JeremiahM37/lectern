@@ -8,6 +8,7 @@ import Pair from "./pairing/Pair";
 import RelayPair from "./relay/RelayPair";
 import { RelayBanner } from "./relay/RelayBanner";
 import "./relay/relay.css";
+import "./theme/tokens.css";
 import "../../web/static/style.css";
 import "../../web/static/conversation.css";
 import "../../web/static/workspace.css";
@@ -25,7 +26,6 @@ import "./pairing/pair.css";
 import "./shell/mobile.css";
 import "./theme/theme.css";
 import "./settings/personal.css";
-import "./theme/light.generated.css";
 import { bootAppearance } from "./theme/appearance";
 // Before the first render: the saved theme paints the first frame.
 bootAppearance();

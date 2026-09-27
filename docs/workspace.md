@@ -136,12 +136,27 @@ out of order still find a title. Other features add results with
 Settings → Appearance: **System / Dark / Light** for the whole app (dark
 remains the default), an accent colour (presets or any colour; an illegible
 one is darkened or lightened until it reads), UI zoom from 80% to 150%, and
-language. Colours are CSS custom properties set from
-`frontend/src/theme/app-theme.ts`; the theme test holds every text token to
-WCAG AA (4.5:1) on every surface in both modes and with every accent.
-Stylesheets that still name a dark colour directly get a light counterpart
-from `frontend/scripts/light_theme.py`, which writes
-`frontend/src/theme/light.generated.css`; re-run it after adding such a colour.
+language.
+
+Colours are tokens. `frontend/src/theme/tokens.css` holds the dark values for
+the first paint and is the only stylesheet allowed to name a colour;
+`frontend/src/theme/app-theme.ts` holds both themes and sets the active one on
+`<html>`. Every other stylesheet uses `var(--token)` or `color-mix()` of
+tokens (a tinted panel is `color-mix(in srgb, var(--red) 12%, var(--bg))`, a
+translucent layer `color-mix(in srgb, var(--scrim) 60%, transparent)`), so one
+rule is right in both themes. Three tests hold this:
+
+- `theme/no-hardcoded-colours.test.ts` fails when a stylesheet outside the
+  token file names a colour (hex, `rgb()`/`hsl()`/…, or a colour keyword).
+- `theme/theme.test.ts` holds every text token to WCAG AA (4.5:1) on every
+  surface in both modes and with every accent, and checks button and badge
+  text on their fills.
+- `e2e/test_light_mode_sweep.py` opens every screen — board, task sheet and
+  diff, sessions, a live chat, the workspace with chat and changes panes, the
+  terminal page and its dialogs, find, the floating terminal, media, deck,
+  approvals, agent tests, the palette, every Settings section — in light and
+  dark, at desk and phone width, and checks every visible piece of text
+  against what it is actually drawn on.
 
 ![Light theme](media/workspace/desktop-light-sessions.png)
 ![Light theme on a phone](media/workspace/phone-light-sessions.png)

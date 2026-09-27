@@ -2,18 +2,18 @@
    main.tsx and settings/harness.tsx (see connect-tools.css for why not
    from the component). */
 .agent-catalog{display:grid;gap:8px}
-.agent-catalog-list{display:flex;flex-direction:column;gap:4px;max-height:min(360px,48dvh);overflow:auto;padding:2px;border:1px solid var(--line,#33384a);border-radius:10px}
+.agent-catalog-list{display:flex;flex-direction:column;gap:4px;max-height:min(360px,48dvh);overflow:auto;padding:2px;border:1px solid var(--line);border-radius:10px}
 .agent-catalog-group{display:flex;flex-direction:column;gap:4px;flex:none}
-.agent-catalog-group h3{margin:8px 6px 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim,#a6adc2)}
+.agent-catalog-group h3{margin:8px 6px 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim)}
 .agent-settings-dialog .agent-catalog-item{flex:none;display:flex;align-items:flex-start;gap:10px;width:100%;min-height:0;text-align:left;border:1px solid transparent;background:transparent;padding:8px 9px}
-.agent-settings-dialog .agent-catalog-item:hover:not(:disabled){background:var(--panel,#171b28);border-color:var(--line,#33384a)}
-.agent-settings-dialog .agent-catalog-item[aria-pressed=true]{border-color:var(--accent,#7c9cff);background:var(--accent-wash,#7c9cff1a)}
+.agent-settings-dialog .agent-catalog-item:hover:not(:disabled){background:var(--panel);border-color:var(--line)}
+.agent-settings-dialog .agent-catalog-item[aria-pressed=true]{border-color:var(--accent);background:var(--accent-wash)}
 .agent-settings-dialog .agent-catalog-item:disabled{opacity:.55;cursor:not-allowed}
-.agent-catalog-icon{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#3f3f46;color:#fff;font-size:12.5px;font-weight:700;letter-spacing:-.02em}
-.agent-catalog-custom .agent-catalog-icon{background:transparent;border:1px dashed var(--line,#33384a);color:inherit}
+.agent-catalog-icon{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--line-2);color:var(--ink);font-size:12.5px;font-weight:700;letter-spacing:-.02em}
+.agent-catalog-custom .agent-catalog-icon{background:transparent;border:1px dashed var(--line);color:inherit}
 .agent-catalog-text{display:grid;gap:3px;min-width:0}
-.agent-catalog-meta{font-size:12px;color:var(--ink-dim,#a6adc2);overflow-wrap:anywhere}
+.agent-catalog-meta{font-size:12px;color:var(--ink-dim);overflow-wrap:anywhere}
 .agent-catalog-chips{display:flex;flex-wrap:wrap;gap:4px}
-.agent-cap{font-size:10.5px;line-height:1;padding:3px 6px;border-radius:999px;border:1px solid var(--line,#33384a)}
-.agent-cap.on{color:var(--green,#34d399);border-color:color-mix(in srgb,var(--green,#34d399) 45%,transparent)}
-.agent-cap.off{color:var(--ink-faint,#6b7280)}
+.agent-cap{font-size:10.5px;line-height:1;padding:3px 6px;border-radius:999px;border:1px solid var(--line)}
+.agent-cap.on{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent)}
+.agent-cap.off{color:var(--ink-faint)}

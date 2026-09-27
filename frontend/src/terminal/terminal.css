@@ -1,12 +1,3 @@
-:root {
-  color-scheme: dark;
-  --bg: #10121c;
-  --surface: #191d2c;
-  --line: #30364b;
-  --ink: #e0e4f0;
-  --muted: #9da7bf;
-  --accent: #b6a4ff;
-}
 * {
   box-sizing: border-box;
 }
@@ -23,7 +14,7 @@ body {
   overflow: hidden;
 }
 a {
-  color: var(--accent);
+  color: var(--accent-soft);
   text-decoration: none;
 }
 header {
@@ -65,15 +56,15 @@ dialog a {
 }
 button:hover,
 a.button:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-soft);
 }
 button:disabled {
   opacity: 0.45;
   cursor: default;
 }
 button[aria-pressed="true"] {
-  background: #413366;
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-fill) 45%, var(--bg));
+  border-color: var(--accent-soft);
 }
 input,
 select,
@@ -105,7 +96,7 @@ textarea {
   overflow: hidden;
 }
 .pane.active {
-  border-color: #766497;
+  border-color: var(--accent-fill);
 }
 .pane-title {
   display: flex;
@@ -125,7 +116,7 @@ textarea {
   min-height: 0;
   padding: 6px 3px 3px 6px;
   overflow: hidden;
-  background: #10121c;
+  background: var(--bg);
 }
 .xterm {
   height: 100%;
@@ -160,13 +151,13 @@ footer {
 }
 #notice {
   padding: 8px 14px;
-  background: #29253d;
-  border-top: 1px solid #635582;
+  background: var(--panel-2);
+  border-top: 1px solid color-mix(in srgb, var(--accent-fill) 65%, var(--bg));
   overflow-wrap: anywhere;
 }
 #notice.error {
-  background: #482730;
-  color: #ffd5da;
+  background: color-mix(in srgb, var(--red) 25%, var(--bg));
+  color: var(--ink);
 }
 #searchbar {
   display: flex;
@@ -182,7 +173,7 @@ footer {
   flex: 0 1 280px;
 }
 #searchbar input[aria-invalid="true"] {
-  border-color: #e06c75;
+  border-color: var(--red);
 }
 #searchbar button {
   flex: none;
@@ -199,9 +190,9 @@ footer {
   font: 12px ui-monospace, monospace;
 }
 .find-toggles button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent-soft);
+  color: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 16%, transparent);
 }
 #matches {
   flex: 0 1 auto;
@@ -225,7 +216,7 @@ dialog {
   overflow: auto;
 }
 dialog::backdrop {
-  background: #0009;
+  background: color-mix(in srgb, var(--scrim) 60%, transparent);
 }
 dialog h2 {
   font-size: 18px;
@@ -283,12 +274,12 @@ dialog label select {
   padding: 12px;
 }
 mark {
-  background: #65512c;
-  color: #fff1c9;
+  background: color-mix(in srgb, var(--amber) 35%, var(--bg));
+  color: color-mix(in srgb, var(--amber) 20%, var(--ink));
 }
 mark.current {
-  background: #b7a0ff;
-  color: #121122;
+  background: var(--accent-soft);
+  color: var(--on-fill);
 }
 #history-count {
   font-size: 12px;
@@ -340,7 +331,7 @@ mark.current {
   width: 100%;
   height: 65dvh;
   border: 0;
-  background: white;
+  background: var(--on-accent);
 }
 #preview-body pre {
   white-space: pre-wrap;
@@ -353,7 +344,7 @@ mark.current {
   margin: 10px 0;
 }
 body.dragging #workspace {
-  outline: 3px dashed var(--accent);
+  outline: 3px dashed var(--accent-soft);
   outline-offset: -8px;
 }
 body.dragging #workspace::after {
@@ -365,7 +356,7 @@ body.dragging #workspace::after {
   padding: 20px;
   text-align: center;
   border-radius: 10px;
-  background: #30274dee;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
   pointer-events: none;
 }
 [hidden] {
@@ -428,7 +419,7 @@ body.dragging #workspace::after {
   display: block;
   max-width: 100%;
   height: auto;
-  background: white;
+  background: var(--on-accent);
 }
 
 /* The containing Lectern page already supplies navigation and identity. */
@@ -471,14 +462,6 @@ body.fitted-viewport #font-hint {
 }
 
 /* A short toolbar; secondary tools remain available in one disclosure. */
-:root {
-  --bg: #0c1018;
-  --surface: #151d29;
-  --line: #2a3545;
-  --ink: #e2e8f0;
-  --muted: #a0aec1;
-  --accent: #b5a2f0;
-}
 nav {
   padding: 8px 12px;
   gap: 8px;
@@ -494,9 +477,9 @@ nav > a.button {
   border-color: transparent;
 }
 #upload {
-  background: #7860d2;
-  border-color: #8f79df;
-  color: white;
+  background: var(--accent-fill);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 #desktop {
   margin-left: auto;
@@ -544,10 +527,10 @@ footer {
   max-width: calc(100vw - 24px);
   z-index: 50;
   padding: 7px;
-  background: #1b2432;
-  border: 1px solid #3a465a;
+  background: var(--panel-2);
+  border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--bg));
   border-radius: 10px;
-  box-shadow: 0 12px 35px #0009;
+  box-shadow: 0 12px 35px color-mix(in srgb, var(--scrim) 60%, transparent);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -563,14 +546,14 @@ footer {
   min-height: 40px;
 }
 .action-menu-panel > button:hover {
-  background: #273247;
+  background: color-mix(in srgb, var(--indigo) 25%, var(--bg));
 }
 /* Tucked deliberately below everything else in Tools: a diagnostic for the
    owner to reach for when asked, not something a person taps by accident. */
 .action-menu-panel > button.tools-diagnostic {
   font-size: 12px;
-  color: #8b96ab;
-  border-top: 1px solid #3a465a33;
+  color: var(--ink-faint);
+  border-top: 1px solid color-mix(in srgb, var(--blue) 20%, transparent);
   margin-top: 4px;
   padding-top: 8px;
 }
@@ -582,7 +565,7 @@ footer {
 }
 .dialog-help {
   font-size: 13px;
-  color: #8b96ab;
+  color: var(--ink-faint);
 }
 body.embedded nav {
   overflow: visible;
@@ -591,7 +574,7 @@ body.embedded nav {
 dialog {
   border-radius: 14px;
   padding: 22px;
-  border-color: #384459;
+  border-color: color-mix(in srgb, var(--indigo) 35%, var(--bg));
 }
 #desktop-dialog {
   width: min(740px, calc(100vw - 24px));
@@ -632,9 +615,9 @@ dialog {
 }
 #desktop-open {
   display: inline-flex;
-  background: #7860d2;
-  border-color: #8f79df;
-  color: white;
+  background: var(--accent-fill);
+  border-color: var(--accent);
+  color: var(--on-accent);
   padding: 11px 16px;
   font-weight: 600;
 }
@@ -699,7 +682,7 @@ nav > a.button {
 .xterm-viewport,
 .frozen {
   scrollbar-width: thin;
-  scrollbar-color: #667085 transparent;
+  scrollbar-color: color-mix(in srgb, var(--indigo) 60%, var(--bg)) transparent;
 }
 .xterm-viewport::-webkit-scrollbar,
 .frozen::-webkit-scrollbar {
@@ -708,7 +691,7 @@ nav > a.button {
 }
 .xterm-viewport::-webkit-scrollbar-thumb,
 .frozen::-webkit-scrollbar-thumb {
-  background: #667085;
+  background: color-mix(in srgb, var(--indigo) 60%, var(--bg));
   border-radius: 3px;
 }
 .autoscrolling,
@@ -724,10 +707,10 @@ nav > a.button {
   height: 24px;
   display: grid;
   place-items: center;
-  border: 1px solid #98a2b3;
+  border: 1px solid var(--ink-faint);
   border-radius: 50%;
-  background: #10121cee;
-  color: #e4e7ec;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
+  color: var(--ink);
   font: 18px/1 sans-serif;
 }
 
@@ -754,14 +737,14 @@ body.compact-chrome #compact-status {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #e7b85b;
+  background: var(--amber);
   margin: 0 4px;
 }
 body.compact-chrome #compact-status.connected {
-  background: #55c7a0;
+  background: var(--green);
 }
 body.compact-chrome #compact-status.offline {
-  background: #e06c75;
+  background: var(--red);
 }
 body.compact-chrome #terminal-tools {
   margin-left: auto;
@@ -809,7 +792,7 @@ body.mobile-terminal #terminal-keybar {
   border-radius: 6px;
 }
 #terminal-keybar button.snippets {
-  color: var(--accent);
+  color: var(--accent-soft);
   font-size: 15px;
 }
 .snippet-list {
@@ -846,7 +829,7 @@ body.mobile-terminal #terminal-keybar {
   color: var(--muted);
 }
 .snippet-remove {
-  color: #ff9aa5;
+  color: color-mix(in srgb, var(--red) 65%, var(--ink));
   border-left: 1px solid var(--line) !important;
 }
 .snippet-add {
@@ -870,8 +853,8 @@ dialog label.snippet-enter input {
   color: var(--muted);
 }
 #terminal-keybar button.modifier[aria-pressed="true"] {
-  background: var(--accent);
-  color: #14101f;
+  background: var(--accent-soft);
+  color: var(--on-fill);
 }
 #terminal-keybar {
   scrollbar-width: none;
@@ -890,8 +873,8 @@ dialog label.snippet-enter input {
   z-index: 60;
   padding: 8px 14px;
   border-radius: 10px;
-  background: #1b2432ee;
-  border: 1px solid #3a465a;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--bg));
   font-size: 13px;
   pointer-events: none;
 }
@@ -907,8 +890,8 @@ dialog label.snippet-enter input {
   gap: 6px;
   padding: 5px 6px 5px 12px;
   border-radius: 10px;
-  background: #1b2432f2;
-  border: 1px solid #3a465a;
+  background: color-mix(in srgb, var(--panel) 95%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--bg));
   font-size: 12px;
   color: var(--muted);
 }
@@ -922,9 +905,9 @@ dialog label.snippet-enter input {
   font-size: 12.5px;
 }
 #select-bar button.primary {
-  background: #7860d2;
-  border-color: #8f79df;
-  color: white;
+  background: var(--accent-fill);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 body.mobile-terminal .frozen {
   padding: 4px;
@@ -1011,12 +994,12 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
   z-index: 10;
   min-height: 38px;
   border-radius: 20px;
-  box-shadow: 0 3px 12px #0008;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--scrim) 53%, transparent);
 }
 #terminal-draft { width: 100%; resize: vertical; min-height: 90px; }
 .compose-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .compose-actions button { min-height: 40px; }
-.compose-actions .primary { background: #7860d2; border-color: #8f79df; color: white; }
+.compose-actions .primary { background: var(--accent-fill); border-color: var(--accent); color: var(--on-accent); }
 @media (max-width: 1023px) {
   /* Safari must not zoom when a terminal dialog receives focus. */
   input, textarea, select { font-size: 16px; }
@@ -1027,13 +1010,13 @@ body.mobile-terminal:not(.compact-chrome) #terminal-keyboard { right: 4px; }
 /* A hung agent: the one state the board cannot see, shown where it was noticed. */
 #unresponsive, #agent-exited {
   position: absolute; left: 12px; right: 12px; top: 12px; z-index: 12;
-  padding: 12px 14px; border-radius: 10px; background: #2a1f3d; color: #f1ecff;
-  border: 1px solid #a78bfa; box-shadow: 0 6px 24px #000a; font-size: 14px; line-height: 1.45;
+  padding: 12px 14px; border-radius: 10px; background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--accent-soft); box-shadow: 0 6px 24px color-mix(in srgb, var(--scrim) 67%, transparent); font-size: 14px; line-height: 1.45;
 }
 #unresponsive p, #agent-exited p { margin: 0 0 10px; }
 .unresponsive-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .unresponsive-actions button { min-height: 38px; }
-.unresponsive-actions .primary { background: #7860d2; border-color: #8f79df; color: white; font-weight: 700; }
+.unresponsive-actions .primary { background: var(--accent-fill); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
 
 /* A phone keyboard overlays the frame instead of resizing it, so the page is
    fitted to the slice a phone can actually see (body.fitted-viewport). The
