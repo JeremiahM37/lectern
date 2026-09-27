@@ -32,8 +32,7 @@ bash tools/install-local.sh --binary ./lectern --prefix "$HOME/.local/bin"
 
 `tools/install-local.sh` accepts a checkout or an already-built binary.
 The root `install.sh` downloads checksummed GitHub release assets instead.
-The `up` workflow requires a release that includes that command; v2.3.1 does
-not. Until the next release is published, use the source installer above.
+The `up` workflow ships in v2.4.0 and later.
 
 ## Hosted service recovery
 

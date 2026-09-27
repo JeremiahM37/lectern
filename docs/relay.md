@@ -315,7 +315,12 @@ messages):
 | `3` | connection id | – | either way: close this device connection |
 
 Control messages (JSON text frames) carry the host challenge/response and
-route registration (`routes`, `route_add`, `route_del`).
+route registration (`routes`, `route_add`, `route_del`). A control message
+with an `id` is acknowledged once applied; Lectern shows a pairing QR code
+only after the relay has confirmed its route, and waits for the confirmation
+when revoking. Until a (re)connected host has sent its route set, the relay
+answers phones "host offline" (retried) rather than "not authorized" (which a
+phone takes as revocation).
 
 Tunnel framing (inside Noise transport messages): `[type u8][stream u32]
 [payload]`, padded to 256 bytes with a trailing length. Types cover an HTTP

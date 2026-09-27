@@ -184,17 +184,9 @@ func (f *fixture) pair(key noise.DHKey, name string) (relay.Welcome, string) {
 func (f *fixture) connect(key noise.DHKey, token string) (*client.Client, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var cl *client.Client
-	var err error
-	// The relay applies a fresh route asynchronously; retry briefly.
-	for i := 0; i < 20; i++ {
-		cl, err = client.Dial(ctx, f.options(key, token))
-		if err == nil || !strings.Contains(err.Error(), "relay") {
-			return cl, err
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return cl, err
+	// No retry: the route of a just-paired device is registered at the
+	// relay before the pairing reply leaves the host.
+	return client.Dial(ctx, f.options(key, token))
 }
 
 func TestPairAndActAsOwner(t *testing.T) {
@@ -253,7 +245,6 @@ func TestPairingCodeIsSingleUseAndChecked(t *testing.T) {
 	p2, _ := f.host.MintPairing(f.owner)
 	opts = f.options(deviceKey(t), p2.RouteToken)
 	opts.Pair = &relay.PairRequest{Code: p.Code, Name: "x"}
-	time.Sleep(50 * time.Millisecond)
 	if cl, err = client.Dial(ctx, opts); err != nil || !cl.Welcome.OK {
 		t.Fatalf("first use of the code: %v", err)
 	}
@@ -262,7 +253,6 @@ func TestPairingCodeIsSingleUseAndChecked(t *testing.T) {
 	p3, _ := f.host.MintPairing(f.owner)
 	opts = f.options(deviceKey(t), p3.RouteToken)
 	opts.Pair = &relay.PairRequest{Code: p.Code, Name: "y"}
-	time.Sleep(50 * time.Millisecond)
 	cl, err = client.Dial(ctx, opts)
 	if err == nil || cl.Welcome.Error != "invalid_code" {
 		t.Fatalf("reused code: %v", err)

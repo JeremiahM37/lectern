@@ -56,6 +56,20 @@ func send(t *testing.T, c *websocket.Conn, v any) {
 	}
 }
 
+var ackID int64
+
+// sendAcked sends a host control message and waits for the relay to confirm
+// it applied it, rather than guessing how long that takes.
+func sendAcked(t *testing.T, c *websocket.Conn, msg relay.Control) {
+	t.Helper()
+	ackID++
+	msg.ID = ackID
+	send(t, c, msg)
+	if got := recvControl(t, c); got.T != "ack" || got.ID != msg.ID {
+		t.Fatalf("expected ack %d, got %+v", msg.ID, got)
+	}
+}
+
 func recv(t *testing.T, c *websocket.Conn) (websocket.MessageType, []byte, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -114,8 +128,7 @@ func readyHost(t *testing.T, base string, tokens ...string) *testHost {
 	for _, tok := range tokens {
 		set = append(set, relay.TokenHash(tok))
 	}
-	send(t, h.c, relay.Control{T: "routes", Set: set})
-	time.Sleep(50 * time.Millisecond) // let the relay apply the route set
+	sendAcked(t, h.c, relay.Control{T: "routes", Set: set})
 	return h
 }
 
@@ -275,8 +288,7 @@ func TestFramesAreRoutedBothWays(t *testing.T) {
 func TestOneTimeRouteWorksOnce(t *testing.T) {
 	_, base := startRelay(t, nil)
 	h := readyHost(t, base)
-	send(t, h.c, relay.Control{T: "route_add", Hash: relay.TokenHash("pair"), TTL: 60, Once: true})
-	time.Sleep(50 * time.Millisecond)
+	sendAcked(t, h.c, relay.Control{T: "route_add", Hash: relay.TokenHash("pair"), TTL: 60, Once: true})
 	d := connectDevice(t, base, h.channel, "pair")
 	if msg := recvControl(t, d); msg.T != "ok" {
 		t.Fatalf("first use refused: %+v", msg)
@@ -290,8 +302,7 @@ func TestOneTimeRouteWorksOnce(t *testing.T) {
 func TestRouteDeletionLocksDeviceOut(t *testing.T) {
 	_, base := startRelay(t, nil)
 	h := readyHost(t, base, "tok")
-	send(t, h.c, relay.Control{T: "route_del", Hash: relay.TokenHash("tok")})
-	time.Sleep(50 * time.Millisecond)
+	sendAcked(t, h.c, relay.Control{T: "route_del", Hash: relay.TokenHash("tok")})
 	d := connectDevice(t, base, h.channel, "tok")
 	if code := closeCode(t, d); code != CodeUnauthorized {
 		t.Fatalf("close code = %d", code)
@@ -423,5 +434,25 @@ func TestHostCloseDeliversQueuedFrames(t *testing.T) {
 			t.Fatalf("close code = %d", code)
 		}
 		recv(t, h.c) // the relay's own close notice for this device, if any
+	}
+}
+
+// A host that has connected but not yet sent its route set must not have its
+// phones told "not authorized": a phone treats that as revocation. The relay
+// says "host offline" (which a phone retries) until the routes arrive.
+func TestDevicesWaitForTheHostsRouteSet(t *testing.T) {
+	_, base := startRelay(t, nil)
+	h := connectHost(t, base, nil, secret)
+	if msg := recvControl(t, h.c); msg.T != "ready" {
+		t.Fatalf("host not ready: %+v", msg)
+	}
+	d := connectDevice(t, base, h.channel, "tok")
+	if code := closeCode(t, d); code != CodeHostOffline {
+		t.Fatalf("before the route set: close code = %d, want %d", code, CodeHostOffline)
+	}
+	sendAcked(t, h.c, relay.Control{T: "routes", Set: []string{relay.TokenHash("tok")}})
+	d = connectDevice(t, base, h.channel, "tok")
+	if msg := recvControl(t, d); msg.T != "ok" {
+		t.Fatalf("after the route set: %+v", msg)
 	}
 }

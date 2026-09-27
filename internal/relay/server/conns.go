@@ -65,7 +65,7 @@ func (s *Server) host(ctx context.Context, c *websocket.Conn, _ *http.Request) {
 	// can do this, so it is not a takeover; it is what makes a network blip
 	// recover without waiting for the old socket to time out.
 	old, oldDevices := ch.host, ch.devices
-	ch.host, ch.devices, ch.routes = hc, map[uint32]*deviceConn{}, map[string]route{}
+	ch.host, ch.devices, ch.routes, ch.ready = hc, map[uint32]*deviceConn{}, map[string]route{}, false
 	hc.ch = ch
 	s.mu.Unlock()
 	if old != nil {
@@ -88,8 +88,12 @@ func (s *Server) host(ctx context.Context, c *websocket.Conn, _ *http.Request) {
 			break
 		}
 		if typ == websocket.MessageText {
-			if !s.hostControl(hc, b) {
+			id, ok := s.hostControl(hc, b)
+			if !ok {
 				closeWith(c, CodeBadRequest, "bad control message")
+				break
+			}
+			if id != 0 && writeControl(ctx, c, relay.Control{T: "ack", ID: id}) != nil {
 				break
 			}
 			continue
@@ -138,11 +142,19 @@ func (s *Server) dropHost(hc *hostConn) {
 	}
 }
 
-func (s *Server) hostControl(hc *hostConn, b []byte) bool {
+// hostControl applies one control message. It returns the message's id, to
+// acknowledge once applied (the host waits for that before it shows a QR
+// code whose route must already work), and false on a malformed message.
+func (s *Server) hostControl(hc *hostConn, b []byte) (int64, bool) {
 	var msg relay.Control
 	if err := json.Unmarshal(b, &msg); err != nil {
-		return false
+		return 0, false
 	}
+	ok := s.applyControl(hc, msg)
+	return msg.ID, ok
+}
+
+func (s *Server) applyControl(hc *hostConn, msg relay.Control) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch := hc.ch
@@ -168,6 +180,7 @@ func (s *Server) hostControl(hc *hostConn, b []byte) bool {
 			}
 		}
 		ch.routes = routes
+		ch.ready = true
 	case "route_add":
 		if !relay.ValidTokenHash(msg.Hash) {
 			return false
@@ -315,7 +328,10 @@ func (s *Server) device(ctx context.Context, c *websocket.Conn, r *http.Request)
 	hash := relay.TokenHash(auth.Token)
 	s.mu.Lock()
 	ch := s.channels[chID]
-	if ch == nil || ch.host == nil {
+	// Until a (re)connected host has sent its route set, "unknown route"
+	// would be a lie that a phone takes as revocation: say "offline", which
+	// it retries.
+	if ch == nil || ch.host == nil || !ch.ready {
 		s.mu.Unlock()
 		closeWith(c, CodeHostOffline, "host offline")
 		return

@@ -133,6 +133,8 @@ type channel struct {
 	routes  map[string]route
 	devices map[uint32]*deviceConn
 	next    uint32
+	// ready is set once the current host connection has sent its route set.
+	ready bool
 }
 
 // Handler serves the relay endpoints. Anything else is a bodyless 404: the

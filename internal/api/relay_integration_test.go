@@ -99,16 +99,13 @@ func pairPhone(t *testing.T, h *harness, key noise.DHKey) (*client.Client, pairP
 		t.Fatalf("pair: %v", err)
 	}
 	paired.Close()
-	var cl *client.Client
-	for i := 0; i < 40; i++ {
-		cl, err = client.Dial(ctx, client.Options{RelayURL: p.Relay, Channel: p.Ch, RouteToken: paired.Welcome.RouteToken, HostKey: hk, Device: key})
-		if err == nil {
-			return cl, p
-		}
-		time.Sleep(50 * time.Millisecond)
+	// No retry: the device's route is live at the relay before the pairing
+	// reply is sent.
+	cl, err := client.Dial(ctx, client.Options{RelayURL: p.Relay, Channel: p.Ch, RouteToken: paired.Welcome.RouteToken, HostKey: hk, Device: key})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
 	}
-	t.Fatalf("connect: %v", err)
-	return nil, p
+	return cl, p
 }
 
 func tunnelJSON(t *testing.T, cl *client.Client, method, path string, body any, want int) map[string]any {

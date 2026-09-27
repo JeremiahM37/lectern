@@ -5,7 +5,7 @@
 **Run every coding agent you use — Claude Code, Codex, Gemini, OpenCode, Aider, Cursor and more —
 on machines you own, and drive them from your terminal, your phone, or a claude.ai chat.**
 
-![version](https://img.shields.io/badge/version-2.3.0-8b5cf6)
+![version](https://img.shields.io/badge/version-2.4.0-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
 ![PWA](https://img.shields.io/badge/phone-PWA-19c37d)
@@ -77,7 +77,7 @@ Lectern tells you plainly when a CLI can't do something.
 - Every saved Claude and Codex conversation on your machines is searchable,
   including ones Lectern never launched.
 
-![Restoring a recently closed session](docs/media/recently-closed.gif)
+![Restoring a session: ending one offers Undo, and Restore brings its conversation back](docs/media/recently-closed.gif)
 
 ### Your phone is the remote
 

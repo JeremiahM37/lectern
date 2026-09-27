@@ -49,6 +49,8 @@ func DecodeWire(b []byte) (kind byte, conn uint32, payload []byte, err error) {
 //	host → relay:   {"t":"hello","v","ch","pub","sig","mac"}
 //	host → relay:   {"t":"routes","set":[hash…]}  (full replace, sent on every connect)
 //	host → relay:   {"t":"route_add","h","ttl","once"} / {"t":"route_del","h"}
+//	relay → host:   {"t":"ack","id"} once a control message carrying an id
+//	                has been applied
 //	device → relay: {"t":"auth","token"}
 //	relay → device: {"t":"ok"}
 //	relay → either: {"t":"error","error"} just before closing
@@ -66,6 +68,7 @@ type Control struct {
 	Once    bool     `json:"once,omitempty"`
 	Token   string   `json:"token,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	ID      int64    `json:"id,omitempty"`
 }
 
 func hostSigMessage(channel string, nonce []byte) []byte {
