@@ -665,19 +665,14 @@ func (s *Server) removeTask(ctx context.Context, task *store.Task) {
 			}
 		}
 	}
-	// 3) delete on-disk diffs and every row referencing this task's attempts
+	// 3) delete every row referencing this task or its attempts, then the diffs
+	if err := s.DB.DeleteTasks(task.ID); err != nil {
+		s.Log.Warn("deleting task rows failed", "task", task.ID, "err", err)
+		return
+	}
 	for _, a := range attempts {
 		os.Remove(filepath.Join(s.Cfg.DiffDir(), fmt.Sprintf("attempt-%d.patch", a.ID)))
-		s.DB.Exec(`DELETE FROM events WHERE attempt_id=?`, a.ID)
-		s.DB.Exec(`DELETE FROM approvals WHERE attempt_id=?`, a.ID)
-		s.DB.Exec(`DELETE FROM memories WHERE created_by_attempt=?`, a.ID)
 	}
-	s.DB.Exec(`DELETE FROM task_takeovers WHERE task_id=?`, task.ID)
-	s.DB.Exec(`DELETE FROM attempts WHERE task_id=?`, task.ID)
-	// child tasks (agent-filed / reviewer-gate) are ORPHANED, not cascaded —
-	// an agent-filed follow-up may be real work the operator wants to keep
-	s.DB.Exec(`UPDATE tasks SET parent_task_id=NULL WHERE parent_task_id=?`, task.ID)
-	s.DB.Exec(`DELETE FROM tasks WHERE id=?`, task.ID)
 	s.Bus.Publish("board", "task_deleted", map[string]any{"id": task.ID})
 }
 
