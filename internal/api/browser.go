@@ -340,9 +340,11 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		_ = browser.KeepAlive(c, run, proc.Dir)
 	}
 	sb.stopFn = func() {
-		b.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		quit, stop := context.WithTimeout(c, 10*time.Second)
+		b.Quit(quit)
+		stop()
 		if err := browser.Stop(c, run, proc.Dir); err != nil {
 			s.Log.Warn("browser: did not stop cleanly", "session", sess.ID, "err", err)
 		}
