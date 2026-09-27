@@ -436,7 +436,7 @@ func TestReportIsBounded(t *testing.T) {
 			Link: "https://github.com/a/b/actions/runs/7/job/" + strconv.Itoa(100+i)})
 	}
 	cw := &store.CIWatch{ID: 1, PRURL: prURL, MaxAttempts: 3, Branch: "lec/x"}
-	report := f.w.report(context.Background(), executor.NewLocal(), cw, "abcdef0123", failing, 1)
+	report := f.w.report(context.Background(), executor.NewLocal(), cw, "abcdef0123", failing, 1, false)
 	if len(report) > reportBytes+2000 {
 		t.Fatalf("report is %d bytes", len(report))
 	}

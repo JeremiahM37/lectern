@@ -19,44 +19,47 @@ func ciMaxAttempts(n int) int {
 // CIWatch is one pull request the CI loop is watching — see the ci_watches
 // table in schema.go and internal/ciloop.
 type CIWatch struct {
-	ID           int64   `json:"id"`
-	TaskID       *int64  `json:"task_id"`
-	SessionID    *int64  `json:"session_id"`
-	ProjectID    *int64  `json:"project_id"`
-	TargetID     int64   `json:"target_id"`
-	Branch       string  `json:"branch"`
-	PRURL        string  `json:"pr_url"`
-	State        string  `json:"state"`
-	Attempts     int     `json:"attempts"`
-	MaxAttempts  int     `json:"max_attempts"`
-	HeadSHA      string  `json:"head_sha"`
-	AskedSHA     string  `json:"asked_sha"`
-	FailingJSON  string  `json:"-"`
-	Detail       string  `json:"detail"`
-	Errors       int     `json:"-"`
-	IntervalS    float64 `json:"-"`
-	NextPollAt   float64 `json:"next_poll_at"`
-	LastChangeAt float64 `json:"last_change_at"`
-	CreatedAt    float64 `json:"created_at"`
-	UpdatedAt    float64 `json:"updated_at"`
+	ID          int64   `json:"id"`
+	TaskID      *int64  `json:"task_id"`
+	SessionID   *int64  `json:"session_id"`
+	ProjectID   *int64  `json:"project_id"`
+	TargetID    int64   `json:"target_id"`
+	Branch      string  `json:"branch"`
+	PRURL       string  `json:"pr_url"`
+	State       string  `json:"state"`
+	Attempts    int     `json:"attempts"`
+	MaxAttempts int     `json:"max_attempts"`
+	HeadSHA     string  `json:"head_sha"`
+	AskedSHA    string  `json:"asked_sha"`
+	FailingJSON string  `json:"-"`
+	Detail      string  `json:"detail"`
+	Errors      int     `json:"-"`
+	IntervalS   float64 `json:"-"`
+	NextPollAt  float64 `json:"next_poll_at"`
+	// PushedAttemptID is the task fix attempt Lectern last committed and pushed.
+	PushedAttemptID int64   `json:"-"`
+	LastChangeAt    float64 `json:"last_change_at"`
+	CreatedAt       float64 `json:"created_at"`
+	UpdatedAt       float64 `json:"updated_at"`
 }
 
 const ciWatchCols = `id, task_id, session_id, project_id, target_id, branch, pr_url, state,
 	attempts, max_attempts, head_sha, asked_sha, failing_json, detail, errors, interval_s,
-	next_poll_at, last_change_at, created_at, updated_at`
+	next_poll_at, pushed_attempt_id, last_change_at, created_at, updated_at`
 
 func scanCIWatch(s interface{ Scan(...any) error }) (*CIWatch, error) {
 	var w CIWatch
 	err := s.Scan(&w.ID, &w.TaskID, &w.SessionID, &w.ProjectID, &w.TargetID, &w.Branch,
 		&w.PRURL, &w.State, &w.Attempts, &w.MaxAttempts, &w.HeadSHA, &w.AskedSHA,
 		&w.FailingJSON, &w.Detail, &w.Errors, &w.IntervalS, &w.NextPollAt,
-		&w.LastChangeAt, &w.CreatedAt, &w.UpdatedAt)
+		&w.PushedAttemptID, &w.LastChangeAt, &w.CreatedAt, &w.UpdatedAt)
 	return &w, err
 }
 
 // UpsertCIWatch starts watching w.PRURL. A PR already being watched keeps
-// its row and counters; one whose watch had finished is re-armed from
-// scratch, since a new push to a closed-out PR is a new round.
+// its row and counters but is polled again straight away: arming comes right
+// after a push, so its backoff is stale. One whose watch had finished is
+// re-armed from scratch, since a new push to a closed-out PR is a new round.
 func (db *DB) UpsertCIWatch(w *CIWatch) (*CIWatch, error) {
 	now := Now()
 	_, err := db.Exec(`INSERT INTO ci_watches(task_id, session_id, project_id, target_id,
@@ -68,14 +71,30 @@ func (db *DB) UpsertCIWatch(w *CIWatch) (*CIWatch, error) {
 		  branch=excluded.branch, max_attempts=excluded.max_attempts,
 		  state='pending', attempts=0, head_sha='', asked_sha='', failing_json='[]',
 		  detail='', errors=0, interval_s=0, next_poll_at=excluded.next_poll_at,
-		  last_change_at=excluded.last_change_at, updated_at=excluded.updated_at
+		  pushed_attempt_id=0, last_change_at=excluded.last_change_at, updated_at=excluded.updated_at
 		WHERE ci_watches.state NOT IN ('pending','failing')`,
 		w.TaskID, w.SessionID, w.ProjectID, w.TargetID, w.Branch, w.PRURL,
 		ciMaxAttempts(w.MaxAttempts), now, now, now, now)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(`UPDATE ci_watches SET next_poll_at=?, interval_s=0
+		WHERE pr_url=? AND state IN ('pending','failing')`, now, w.PRURL); err != nil {
+		return nil, err
+	}
 	return db.CIWatchByURL(w.PRURL)
+}
+
+// WakeCIWatches makes an owner's active watches (column "task_id" or
+// "session_id") due now with their backoff reset — Lectern just pushed to
+// the branch, so a new commit is about to show up on the PR.
+func (db *DB) WakeCIWatches(column string, ownerID int64, now float64) error {
+	if column != "task_id" && column != "session_id" {
+		return errors.New("WakeCIWatches: owner column must be task_id or session_id")
+	}
+	_, err := db.Exec(`UPDATE ci_watches SET next_poll_at=?, interval_s=0
+		WHERE `+column+`=? AND state IN ('pending','failing')`, now, ownerID)
+	return err
 }
 
 // CIWatch fetches one watch by id.

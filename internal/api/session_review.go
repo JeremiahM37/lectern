@@ -194,80 +194,13 @@ type commitIn struct {
 	PRBody  string `json:"pr_body"`
 }
 
-// gitStepError is a git/gh step that ran and failed on its own terms (bad
-// commit, a real merge conflict) as opposed to the executor itself failing —
-// the former is the caller's to fix and maps to 409, the latter is ours and
-// maps through respondErr like any other infrastructure error.
-type gitStepError struct {
-	status int
-	msg    string
-}
-
-func (e *gitStepError) Error() string { return e.msg }
-
-// gitCommitPushPR runs `git add -A && git commit`, an optional push and an
-// optional `gh pr create`, in dir on branch. It is the one place both the
-// task and session commit endpoints touch git, so a fix to one path fixes
-// both. A push or PR step that runs but fails is recorded in steps and does
-// not abort — exactly as the original task-only implementation behaved —
-// except a failed push always cancels a requested PR (never open a PR for a
-// branch that didn't reach origin).
-func gitCommitPushPR(ctx context.Context, ex executor.Executor, dir, branch, message string,
-	push, pr bool, prTitle, prBody string) ([]map[string]any, error) {
-	q := executor.ShellQuote
-	steps := []map[string]any{}
-
-	res, err := ex.Run(ctx, "git add -A && git commit -m "+q(message), executor.RunOpts{Cwd: dir, Timeout: 60})
-	if err != nil {
-		return steps, err
-	}
-	output := clipEnd(res.Stdout+res.Stderr, 800)
-	steps = append(steps, map[string]any{"step": "commit", "rc": res.RC, "output": output})
-	if !res.OK() {
-		detail := output
-		if strings.Contains(res.Stdout+res.Stderr, "nothing to commit") {
-			detail = "nothing to commit"
-		}
-		return steps, &gitStepError{409, "commit failed: " + detail}
-	}
-
-	if push {
-		res, err := ex.Run(ctx, "git push -u origin "+q(branch), executor.RunOpts{Cwd: dir, Timeout: 120})
-		if err != nil {
-			return steps, err
-		}
-		steps = append(steps, map[string]any{"step": "push", "rc": res.RC,
-			"output": clipEnd(res.Stdout+res.Stderr, 800)})
-		if pr && res.RC != 0 {
-			pr = false // never open a PR for a branch that failed to push
-		}
-	}
-
-	if pr {
-		cmd := fmt.Sprintf("gh pr create --head %s --title %s --body %s",
-			q(branch), q(orDefault(prTitle, message)), q(prBody))
-		res, err := ex.Run(ctx, cmd, executor.RunOpts{Cwd: dir, Timeout: 120})
-		if err != nil {
-			return steps, err
-		}
-		url := ""
-		if res.OK() {
-			lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
-			url = strings.TrimSpace(lines[len(lines)-1])
-		}
-		steps = append(steps, map[string]any{"step": "pr", "rc": res.RC,
-			"output": clipEnd(res.Stdout+res.Stderr, 800), "url": url})
-	}
-	return steps, nil
-}
-
-// respondGitErr maps a gitCommitPushPR error the way the original task-only
-// handler did: a step that ran and failed is 409, anything else (the
-// executor itself failing) is a normal infrastructure error.
+// respondGitErr maps a worktree.CommitPushPR error the way the original
+// task-only handler did: a step that ran and failed is 409, anything else
+// (the executor itself failing) is a normal infrastructure error.
 func respondGitErr(w http.ResponseWriter, err error) {
-	var se *gitStepError
+	var se *worktree.StepError
 	if errors.As(err, &se) {
-		httpError(w, se.status, "%s", se.msg)
+		httpError(w, se.Status, "%s", se.Msg)
 		return
 	}
 	respondErr(w, err)
@@ -294,7 +227,7 @@ func (s *Server) commitTask(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := orDefault(body.Message, task.Title)
 	prBody := orDefault(body.PRBody, fmt.Sprintf("Created by lectern task #%d.", task.ID))
-	steps, err := gitCommitPushPR(r.Context(), ex, att.WorktreePath, att.Branch, msg,
+	steps, err := worktree.CommitPushPR(r.Context(), ex, att.WorktreePath, att.Branch, msg,
 		body.Push, body.PR, orDefault(body.PRTitle, msg), prBody)
 	if err != nil {
 		respondGitErr(w, err)
@@ -407,7 +340,7 @@ func (s *Server) commitSession(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := orDefault(body.Message, row.Name)
 	prBody := orDefault(body.PRBody, fmt.Sprintf("Created by lectern session %d.", row.ID))
-	steps, err := gitCommitPushPR(r.Context(), ex, target.dir, target.branch, msg,
+	steps, err := worktree.CommitPushPR(r.Context(), ex, target.dir, target.branch, msg,
 		body.Push, body.PR, orDefault(body.PRTitle, msg), prBody)
 	if err != nil {
 		respondGitErr(w, err)

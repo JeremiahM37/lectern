@@ -78,12 +78,10 @@ func parseGHInclude(stdout string) ghResponse {
 // commitPushPR commits whatever a trigger-created task's attempt left
 // uncommitted in its worktree, pushes the branch, and opens a PR referencing
 // the source issue with "Closes #N" — the auto-postback half of requirement 1.
-// It deliberately re-implements (rather than imports) the three git steps
-// internal/api/session_review.go's gitCommitPushPR already runs for a human's
-// Commit/PR button: that function lives in internal/api, which imports this
-// package for wiring, so importing back would cycle. Both call the same
-// underlying `git`/`gh` commands; a change to one's shape should be checked
-// against the other.
+// It runs the same `git`/`gh` commands as worktree.CommitPushPR (the Commit/PR
+// button and the CI loop) but with its own error shape: a trigger postback
+// must fail outright on a failed push. A change to one's shape should be
+// checked against the other.
 func commitPushPR(ctx context.Context, ex executor.Executor, dir, branch, title, body string) (prURL string, err error) {
 	q := executor.ShellQuote
 	commit, err := ex.Run(ctx, "git add -A && git diff --cached --quiet || git commit -m "+q(title),

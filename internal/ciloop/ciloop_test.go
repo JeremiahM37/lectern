@@ -108,6 +108,28 @@ func TestTrimJobLogBoundsAndCleans(t *testing.T) {
 	}
 }
 
+// Real `gh run view --log-failed` output: each step's first line carries a
+// UTF-8 byte order mark in front of its timestamp.
+func TestCleanLogStripsEachStepsByteOrderMark(t *testing.T) {
+	raw := "test\tSet up job\t\ufeff2026-09-26T18:04:11.1528437Z Current runner version: '2.328.0'\n" +
+		"test\tSet up job\t2026-09-26T18:04:11.1552213Z ##[group]Operating System\n" +
+		"test\tSet up job\t2026-09-26T18:04:11.1553010Z Ubuntu\n" +
+		"test\tSet up job\t2026-09-26T18:04:11.1554600Z ##[endgroup]\n" +
+		"test\tRun go test ./...\t\ufeff2026-09-26T18:04:20.4406327Z ##[group]Run go test ./...\n" +
+		"test\tRun go test ./...\t2026-09-26T18:04:20.4407118Z \x1b[36;1mgo test ./...\x1b[0m\n" +
+		"test\tRun go test ./...\t2026-09-26T18:04:31.9730158Z --- FAIL: TestThing (0.00s)\n" +
+		"test\tRun go test ./...\t2026-09-26T18:04:31.9771480Z ##[error]Process completed with exit code 1.\n"
+	got := cleanLog(raw)
+	want := "Set up job | Current runner version: '2.328.0'\n" +
+		"Set up job | Ubuntu\n" +
+		"Run go test ./... | go test ./...\n" +
+		"Run go test ./... | --- FAIL: TestThing (0.00s)\n" +
+		"Run go test ./... | ##[error]Process completed with exit code 1."
+	if got != want {
+		t.Fatalf("cleanLog:\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestLabels(t *testing.T) {
 	cases := []struct {
 		state    string

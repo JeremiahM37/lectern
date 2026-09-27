@@ -560,6 +560,21 @@ func TestDeletingAProjectWithHistoryNeedsCascade(t *testing.T) {
 		t.Fatal("the project was deleted despite the refusal")
 	}
 
+	// A claim and an OTel usage row on the attempt are what made the live
+	// cascade fail with FOREIGN KEY constraint failed, after events were gone.
+	att, err := h.App.DB.LatestAttempt(task.id())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.App.DB.Exec(`INSERT INTO claims(repo_key,scope_kind,scope,holder,attempt_id,created_at,expires_at)
+		VALUES('k','topic','t','agent',?,?,?)`, att.ID, store.Now(), store.Now()+60); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.App.DB.Exec(`INSERT OR REPLACE INTO otel_attempt_usage(attempt_id,updated_at) VALUES(?,?)`,
+		att.ID, store.Now()); err != nil {
+		t.Fatal(err)
+	}
+
 	// with cascade the project and everything under it goes
 	if code, body := h.request("DELETE",
 		fmt.Sprintf("/api/projects/%d?cascade=true", project), nil, nil); code != 204 {

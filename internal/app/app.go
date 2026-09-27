@@ -208,6 +208,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// owning session (typed in) or task (a follow-up message).
 	ciWatcher := ciloop.New(db, reg, b, notifier, sessMgr, log)
 	sched.CI = ciWatcher.Tick
+	sched.AttemptFinished = ciWatcher.AttemptFinished
 	triggersMgr.PROpened = func(task *store.Task, projectID, targetID int64, branch, url string) {
 		taskID, pid := task.ID, projectID
 		if _, err := ciWatcher.Arm(ciloop.Owner{TaskID: &taskID, ProjectID: &pid,

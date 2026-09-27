@@ -448,7 +448,9 @@ CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_
 -- ci_watches is one pull request the CI loop (internal/ciloop) is watching
 -- for its owner: a task or a session, never both. attempts counts the fix
 -- requests sent; asked_sha is the head commit the latest one was about, so a
--- failure is reported once per push. project_id/target_id carry no foreign
+-- failure is reported once per push. pushed_attempt_id is the task follow-up
+-- attempt whose changes Lectern already committed and pushed, so it does
+-- that once per attempt. project_id/target_id carry no foreign
 -- key on purpose: deleting either must not fail on a finished watch.
 CREATE TABLE IF NOT EXISTS ci_watches(
   id INTEGER PRIMARY KEY,
@@ -468,6 +470,7 @@ CREATE TABLE IF NOT EXISTS ci_watches(
   errors INTEGER NOT NULL DEFAULT 0,
   interval_s REAL NOT NULL DEFAULT 0,
   next_poll_at REAL NOT NULL DEFAULT 0,
+  pushed_attempt_id INTEGER NOT NULL DEFAULT 0,
   last_change_at REAL NOT NULL,
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL
@@ -919,4 +922,6 @@ var migrations = []string{
 	// Interactive Gemini MCP (docs/context-parity.md): what a session wrote
 	// into its Lectern workspace's .gemini/settings.json, for cleanup at end.
 	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
+	// The CI loop commits and pushes a task's fix attempt itself (docs/ci-loop.md).
+	"ALTER TABLE ci_watches ADD COLUMN pushed_attempt_id INTEGER NOT NULL DEFAULT 0",
 }

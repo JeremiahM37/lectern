@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -443,41 +445,23 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 			httpError(w, 409, "project has %d tasks — pass ?cascade=true to delete them too", n)
 			return
 		}
-		if _, err := s.DB.Exec(`DELETE FROM events WHERE attempt_id IN
-			(SELECT a.id FROM attempts a JOIN tasks t ON t.id=a.task_id WHERE t.project_id=?)`, id); err != nil {
-			respondErr(w, err)
-			return
-		}
-		for _, stmt := range []string{
-			`DELETE FROM approvals WHERE attempt_id IN
-				(SELECT a.id FROM attempts a JOIN tasks t ON t.id=a.task_id WHERE t.project_id=?)`,
-			`DELETE FROM task_takeovers WHERE task_id IN (SELECT id FROM tasks WHERE project_id=?)`,
-			`DELETE FROM attempts WHERE task_id IN (SELECT id FROM tasks WHERE project_id=?)`,
-			`DELETE FROM tasks WHERE project_id=?`,
-		} {
-			if _, err := s.DB.Exec(stmt, id); err != nil {
-				respondErr(w, err)
-				return
-			}
+	}
+	// On-disk diffs are listed first and removed only once the rows are gone.
+	var diffs []string
+	if atts, err := s.DB.AttemptsWhere("task_id IN (SELECT id FROM tasks WHERE project_id=?)", id); err == nil {
+		for _, a := range atts {
+			diffs = append(diffs, filepath.Join(s.Cfg.DiffDir(), fmt.Sprintf("attempt-%d.patch", a.ID)))
 		}
 	}
-	if _, err := s.DB.Exec(`DELETE FROM memories WHERE project_id=?`, id); err != nil {
+	// One transaction: every row referencing the project, its tasks or their
+	// attempts goes, or none does. Sessions are unassigned, not deleted — the
+	// tmux session is a real thing that outlives this record.
+	if err := s.DB.DeleteProject(id); err != nil {
 		respondErr(w, err)
 		return
 	}
-	// Sessions reference the project, and a foreign key made deleting one with
-	// any attached session fail as a bare 500. Unassigning is the right answer
-	// rather than refusing or cascading: the tmux session is a real thing that
-	// outlives this record, so it goes back to being unassigned — exactly what
-	// it was before it was promoted, and reversible from the same picker.
-	if _, err := s.DB.Exec(
-		`UPDATE sessions SET project_id=NULL WHERE project_id=?`, id); err != nil {
-		respondErr(w, err)
-		return
-	}
-	if _, err := s.DB.Exec(`DELETE FROM projects WHERE id=?`, id); err != nil {
-		respondErr(w, err)
-		return
+	for _, p := range diffs {
+		os.Remove(p)
 	}
 	w.WriteHeader(204)
 }

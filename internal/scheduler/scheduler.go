@@ -133,6 +133,10 @@ type Scheduler struct {
 	// own goroutine, so a slow `gh` never holds up this tick. Nil disables
 	// the loop, same convention as Claims above.
 	CI func(context.Context)
+	// AttemptFinished is told about every attempt finalize records, so the CI
+	// loop can commit and push a task's fix as soon as its attempt ends
+	// (internal/ciloop.Watcher.AttemptFinished). Nil disables it.
+	AttemptFinished func(*store.Attempt)
 	// Limits advances usage-limit holds (internal/limits.Tracker.Tick): the
 	// resume nudge, verification and handoffs. It runs right after the
 	// session poll so it always sees the freshest panes. Nil disables it.
@@ -1059,6 +1063,9 @@ func (s *Scheduler) finalize(ctx context.Context, att *store.Attempt, rc int, no
 		"status": status, "finished_at": store.Now(), "exit_code": rc,
 		"result_json": store.J(result)})
 	s.clearPollError(att.ID)
+	if s.AttemptFinished != nil {
+		s.AttemptFinished(att)
+	}
 	if s.limitStopped(ctx, att, rc, result) {
 		return
 	}
