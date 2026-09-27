@@ -35,7 +35,7 @@ curl -s "$LECTERN_BASE_URL/.well-known/agent-card.json" | jq
 {
   "name": "Lectern",
   "description": "Control plane for AI coding agents. Dispatch a coding task ...",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "supportedInterfaces": [
     {
       "url": "https://lectern.example.com/a2a/v1",
