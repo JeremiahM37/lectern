@@ -11,9 +11,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--border, #333);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--panel-bg, rgba(127, 127, 127, 0.08));
+  background: var(--panel-bg);
 }
 .voice-mode-state {
   display: flex;
@@ -25,15 +25,15 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--border, #888);
+  background: var(--border);
   flex: none;
 }
 .voice-mode-dot.listening {
-  background: #2e7d32;
+  background: color-mix(in srgb, var(--green) 45%, var(--bg));
   animation: mic-pulse 1.4s ease-in-out infinite;
 }
 .voice-mode-dot.speaking {
-  background: #1565c0;
+  background: color-mix(in srgb, var(--blue) 65%, var(--bg));
   animation: mic-pulse 1.4s ease-in-out infinite;
 }
 .voice-mode-transcript {

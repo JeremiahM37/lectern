@@ -15,15 +15,16 @@ import {
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { LimitBanner } from "../limits/LimitBanner";
+import { t, useLocale } from "../i18n";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
-    ? `${seconds}s`
+    ? t("sessions.card.duration.seconds", { s: seconds })
     : seconds < 3600
-      ? `${Math.floor(seconds / 60)}m`
+      ? t("sessions.card.duration.minutes", { m: Math.floor(seconds / 60) })
       : seconds < 86400
-        ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-        : `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+        ? t("sessions.card.duration.hoursMinutes", { h: Math.floor(seconds / 3600), m: Math.floor((seconds % 3600) / 60) })
+        : t("sessions.card.duration.daysHours", { d: Math.floor(seconds / 86400), h: Math.floor((seconds % 86400) / 3600) });
 }
 interface Props {
   session: SessionView;
@@ -84,6 +85,7 @@ export function SessionCard({
   onRevive,
   onClosed,
 }: Props) {
+  useLocale();
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState(false),
@@ -155,7 +157,7 @@ export function SessionCard({
       "setup/cancel",
       "POST",
       {},
-      "Cancellation requested. Files already created will be retained.",
+      t("sessions.card.cancelRequested"),
     );
   // The one promotion path, shared by the visible scratch action and the
   // actions menu. A bare shell has no conversation to wrap, and a wrap prompt
@@ -169,7 +171,7 @@ export function SessionCard({
         .pop()
         ?.replace(/-\d{8}-[A-Za-z0-9]{6}$/, "") || s.name;
     const name = prompt(
-      `Make this a project.\n\n${s.workdir}\n\nIt stays exactly where it is. Name it:`,
+      t("sessions.card.makeProjectPrompt", { path: s.workdir ?? "" }),
       suggested,
     );
     if (name !== null)
@@ -177,7 +179,7 @@ export function SessionCard({
         "promote",
         "POST",
         { name: name.trim(), wrap: !scratch },
-        "Project created. The session keeps running.",
+        t("sessions.card.projectCreated"),
       );
   }
   // Ending, archiving and stopping tracking all offer Undo, which reopens
@@ -202,63 +204,79 @@ export function SessionCard({
       void run(`/sessions/${s.id}`, "DELETE");
       return;
     }
-    const name = cardTitle || "session";
+    const name = cardTitle || t("sessions.card.sessionFallback");
     void close(
       `/sessions/${s.id}${kill ? "?kill=true" : ""}`,
       "DELETE",
       undefined,
-      adopted && !kill ? `Stopped tracking “${name}”. It keeps running.` : `Ended “${name}”.`,
+      adopted && !kill ? t("sessions.card.stoppedTracking", { name }) : t("sessions.card.ended", { name }),
     );
   }
   // Rename only the tracked label; the directory and process stay untouched.
   function rename() {
     const next = prompt(
-      scratch ? "Rename this scratch terminal. Its folder is untouched." : "Rename this session. Its terminal keeps running.",
+      scratch ? t("sessions.card.renameScratchPrompt") : t("sessions.card.renameSessionPrompt"),
       cardTitle,
     );
     if (next === null || !next.trim()) return;
-    void run(`/sessions/${s.id}`, "PATCH", { name: next.trim() }, "Renamed.");
+    void run(`/sessions/${s.id}`, "PATCH", { name: next.trim() }, t("sessions.card.renamed"));
   }
   async function copyPath() {
     try {
       await navigator.clipboard.writeText(scratchPath);
-      onNotice("Scratch folder path copied.");
+      onNotice(t("sessions.card.pathCopied"));
     } catch {
-      onNotice("Copy failed. Select the path and copy it manually.", true);
+      onNotice(t("sessions.card.copyFailed"), true);
     }
   }
-  const status = setup
+  // The status key decides the chip; its label is translated on display. An
+  // unknown server status is shown as the server sent it.
+  const statusKey = setup
     ? s.setup_cancel_requested
       ? "cancelling"
-      : "setting up"
+      : "settingUp"
     : failed
-      ? "setup failed"
+      ? "setupFailed"
       : archived
         ? "archived"
         : agentExited
-          ? "agent exited"
+          ? "agentExited"
         : ended
           ? s.status === "dead"
             ? "ended"
             : "untracked"
-          : {
-              waiting: "wants you",
+          : ({
+              waiting: "wantsYou",
               running: "working",
               starting: "starting",
               idle: "idle",
               dead: "ended",
-            }[s.status] || s.status;
+            } as Record<string, string>)[s.status] || "";
+  const statusLabels: Record<string, string> = {
+    cancelling: t("sessions.card.status.cancelling"),
+    settingUp: t("sessions.card.status.settingUp"),
+    setupFailed: t("sessions.card.status.setupFailed"),
+    archived: t("sessions.card.status.archived"),
+    agentExited: t("sessions.card.status.agentExited"),
+    ended: t("sessions.card.status.ended"),
+    untracked: t("sessions.card.status.untracked"),
+    wantsYou: t("sessions.card.status.wantsYou"),
+    working: t("sessions.card.status.working"),
+    starting: t("sessions.card.status.starting"),
+    idle: t("sessions.card.status.idle"),
+  };
+  const status = statusKey ? statusLabels[statusKey]! : s.status;
   const preview = setup
     ? (s.setup_cancel_requested
-        ? "Cancellation requested. Waiting for checkout to stop; files will be retained."
-        : "Setting up workspace… Attach becomes available when setup finishes.") +
+        ? t("sessions.card.previewCancelling")
+        : t("sessions.card.previewSettingUp")) +
       (workspace?.repositories || [])
         .map((repo) => `\n${repo.name}: ${repo.worktree.state}`)
         .join("") +
       (s.setup_error ? "\n" + s.setup_error : "") +
-      (progressError ? "\nProgress unavailable: " + progressError : "")
+      (progressError ? "\n" + t("sessions.card.progressUnavailable", { error: progressError }) : "")
     : s.setup_error
-      ? "Setup failed: " + s.setup_error
+      ? t("sessions.card.setupFailedPreview", { error: s.setup_error })
       : s.pane_tail || "";
   return (
     <article
@@ -270,20 +288,20 @@ export function SessionCard({
           instead: the card's title is the folder, and this keeps "which host"
           readable without repeating the folder. */}
       <div className="scard-project">
-        {scratch ? scratchDefaultName(s) : s.project_name || "Unassigned"}
+        {scratch ? scratchDefaultName(s) : s.project_name || t("sessions.card.unassigned")}
       </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
         <span className="nm">{cardTitle}</span>
-        {status === "wants you" ? (
-          <span className="sstate sstate-needs">Needs you</span>
+        {statusKey === "wantsYou" ? (
+          <span className="sstate sstate-needs">{t("sessions.card.needsYou")}</span>
         ) : (
           <span className="sstate">{status}</span>
         )}
         <span className="sidle">
           {s.status === "dead" || setup
             ? ""
-            : "quiet " + duration(s.idle_seconds)}
+            : t("sessions.card.quiet", { duration: duration(s.idle_seconds) })}
         </span>
       </div>
       {activeApproval && (
@@ -302,28 +320,28 @@ export function SessionCard({
             >
               <input
                 autoFocus
-                placeholder="Reason (optional)"
+                placeholder={t("sessions.card.reasonPlaceholder")}
                 value={denyReason}
                 onChange={(e) => setDenyReason(e.target.value)}
-                aria-label="Reason for denying"
+                aria-label={t("sessions.card.reasonLabel")}
               />
               <button className="b" type="submit" disabled={approvalBusy}>
-                Send
+                {t("sessions.card.send")}
               </button>
               <button className="b" type="button" onClick={() => setDenyReasonOpen(false)}>
-                Cancel
+                {t("sessions.card.cancel")}
               </button>
             </form>
           ) : (
             <div className="scard-approval-actions">
               <button className="b ok" disabled={approvalBusy} onClick={() => void decideApproval("approved")}>
-                Approve
+                {t("sessions.card.approve")}
               </button>
               <button className="b" disabled={approvalBusy} onClick={() => void decideApproval("denied")}>
-                Deny
+                {t("sessions.card.deny")}
               </button>
               <button className="b" disabled={approvalBusy} onClick={() => setDenyReasonOpen(true)}>
-                Deny with reason…
+                {t("sessions.card.denyWithReason")}
               </button>
             </div>
           )}
@@ -342,7 +360,7 @@ export function SessionCard({
         <div className="scard-path">
           <code title={scratchPath}>{scratchPath}</code>
           <button className="b copy-path" onClick={() => void copyPath()}>
-            Copy path
+            {t("sessions.card.copyPath")}
           </button>
         </div>
       )}
@@ -353,24 +371,24 @@ export function SessionCard({
         </span>
         <span className="chip tgt">{s.target_name}</span>
         {s.account && (
-          <span className="chip account-chip" title="The login this agent runs under (Settings → Accounts)">
+          <span className="chip account-chip" title={t("sessions.card.accountTitle")}>
             👤 {s.account}
           </span>
         )}
         <span className="chip">
-          {setup ? "setup" : "up"} {duration(s.uptime_seconds)}
+          {setup ? t("sessions.card.setupFor", { duration: duration(s.uptime_seconds) }) : t("sessions.card.upFor", { duration: duration(s.uptime_seconds) })}
         </span>
         {mediaCount > 0 && (
           <button
             className="chip media-chip"
-            title="Recordings, files and links this session posted"
+            title={t("sessions.card.mediaTitle")}
             onClick={() => onMedia(s.id)}
           >
-            ▶ {mediaCount} media
+            {t("sessions.card.mediaCount", { count: mediaCount })}
           </button>
         )}
         {s.launch_profile && (
-          <span className="chip" title="Captured launch profile">
+          <span className="chip" title={t("sessions.card.launchProfileTitle")}>
             {s.launch_profile}
           </span>
         )}
@@ -378,12 +396,9 @@ export function SessionCard({
           <span
             className="chip info"
             title={
-              "Running inside " +
-              s.isolation.mode +
-              (s.isolation.network === "deny"
-                ? " with network denied (allowlist proxy only)"
-                : " with network allowed") +
-              " — see docs/isolation.md"
+              s.isolation.network === "deny"
+                ? t("sessions.card.isolationDenied", { mode: s.isolation.mode })
+                : t("sessions.card.isolationAllowed", { mode: s.isolation.mode })
             }
           >
             🔒 {s.isolation.mode}
@@ -393,14 +408,14 @@ export function SessionCard({
         {adopted && (
           <span
             className="chip info"
-            title="started outside lectern and adopted"
+            title={t("sessions.card.adoptedTitle")}
           >
-            adopted
+            {t("sessions.card.adopted")}
           </span>
         )}
         {!!s.wraps && <span className="chip info">⇥ {s.wraps}</span>}
         {s.handoff_in_flight && (
-          <span className="chip warn">writing handoff…</span>
+          <span className="chip warn">{t("sessions.card.writingHandoff")}</span>
         )}
         <ContextBadge session={s} />
         <CostBadge session={s} />
@@ -410,9 +425,9 @@ export function SessionCard({
         {s.target_reach?.unreachable && (
           <span
             className="chip warn target-unreachable"
-            title={`${s.target_name || "This machine"} is not answering (${s.target_reach.error || "no reply"}). The status shown is the last one seen.`}
+            title={t("sessions.card.unreachableTitle", { machine: s.target_name || t("sessions.card.thisMachine"), error: s.target_reach.error || t("sessions.card.noReply") })}
           >
-            ⚠ {s.target_name || "machine"} unreachable
+            {t("sessions.card.unreachable", { machine: s.target_name || t("sessions.card.machine") })}
           </span>
         )}
         {s.group_path && <span className="chip">{s.group_path}</span>}
@@ -425,26 +440,24 @@ export function SessionCard({
       {workspace && (
         <details className="session-worktree">
           <summary>
-            {workspace.repositories?.length ? "Workspace" : "Worktree"} ·{" "}
-            {workspace.branch} · {workspace.state}
+            {t(workspace.repositories?.length ? "sessions.card.workspaceSummary" : "sessions.card.worktreeSummary", { branch: workspace.branch, state: workspace.state })}
           </summary>
           <code>{workspace.path}</code>
           <small>
             {workspace.repositories?.length
-              ? `${workspace.repositories.length} repositories`
-              : `Base: ${workspace.base} · ${workspace.commit?.slice(0, 12) || "not created"}`}
+              ? t("sessions.card.repositoryCount", { n: workspace.repositories.length })
+              : t("sessions.card.base", { base: workspace.base, commit: workspace.commit?.slice(0, 12) || t("sessions.card.notCreated") })}
           </small>
-          {workspace.error && <p>Setup error: {workspace.error}</p>}
+          {workspace.error && <p>{t("sessions.card.setupError", { error: workspace.error })}</p>}
           {(
             workspace.repositories || [
-              { name: s.project_name || "Repository", worktree: workspace },
+              { name: s.project_name || t("sessions.card.repository"), worktree: workspace },
             ]
           ).map(
             (entry, index) =>
               entry.worktree.setup_command && (
                 <pre className="workspace-setup-output" key={index}>
-                  {entry.name} setup:{" "}
-                  {entry.worktree.setup_state || "not completed"}
+                  {t("sessions.card.repoSetup", { name: entry.name, state: entry.worktree.setup_state || t("sessions.card.notCompleted") })}
                   {"\n"}
                   {entry.worktree.setup_output || ""}
                 </pre>
@@ -462,7 +475,7 @@ export function SessionCard({
                       `/sessions/${s.id}/worktree`,
                     );
                     setProgress(
-                      `Recorded workspace state: ${current.state}\n` +
+                      t("sessions.card.recordedState", { state: current.state }) + "\n" +
                         (current.repositories || [])
                           .map(
                             (repo) =>
@@ -478,7 +491,7 @@ export function SessionCard({
                   }
                 }}
               >
-                Refresh setup progress
+                {t("sessions.card.refreshProgress")}
               </button>
               <pre aria-live="polite">{progress}</pre>
             </>
@@ -490,21 +503,21 @@ export function SessionCard({
         {setup && (
           <>
             <button className="b" disabled>
-              Setting up
+              {t("sessions.card.settingUpButton")}
             </button>
             <button className="b no" onClick={() => void cancel()}>
-              {s.setup_cancel_requested ? "Retry cancellation" : "Cancel setup"}
+              {s.setup_cancel_requested ? t("sessions.card.retryCancel") : t("sessions.card.cancelSetup")}
             </button>
           </>
         )}
         {agentExited && onRevive && (
           <button className="b ok grow revive-agent" onClick={() => onRevive(s)}>
-            ↻ Revive
+            {t("sessions.card.revive")}
           </button>
         )}
         {interrupted && onRestore && (
           <button className="b ok grow restore-interrupted" onClick={() => onRestore(s)}>
-            ↺ Restore
+            {t("sessions.card.restore")}
           </button>
         )}
         {live && (
@@ -513,22 +526,22 @@ export function SessionCard({
               className={`b attach${chatReady ? "" : " grow"}`}
               onClick={() => onAttach(s)}
             >
-              ⌨ Attach
+              {t("sessions.card.attach")}
             </button>
             {chatReady && (
               <button className="b grow chat-open" onClick={() => onChat(s)}>
-                Chat
+                {t("sessions.card.chat")}
               </button>
             )}
             {scratch && (
               <button className="b ok make-project" onClick={makeProject}>
-                ⇑ Make a project
+                {t("sessions.card.makeProject")}
               </button>
             )}
-            {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? "Switching…" : "⇄ Switch"}</button>}
+            {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? t("sessions.card.switching") : t("sessions.card.switch")}</button>}
           </>
         )}
-        <button className="b rename" onClick={rename}>✎ Rename</button>
+        <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
         {ended && !archived && s.can_restore && (
           <button
             className="b ok"
@@ -537,56 +550,56 @@ export function SessionCard({
                 "restore",
                 "POST",
                 {},
-                "Tracking restored. Your session keeps running.",
+                t("sessions.card.trackingRestored"),
               )
             }
           >
-            Track again
+            {t("sessions.card.trackAgain")}
           </button>
         )}
         <ActionMenu name={s.name}>
           {live && (
             <>
               <button className="b" onClick={() => onReview(s)}>
-                Review changes
+                {t("sessions.card.reviewChanges")}
               </button>
               {onMergeReview && (
                 <button className="b" onClick={() => onMergeReview(s)}>
-                  Review &amp; merge
+                  {t("sessions.card.reviewMerge")}
                 </button>
               )}
               <a className="b" href={`lectern://attach/session/${s.id}`}>
-                Open in terminal
+                {t("sessions.card.openInTerminal")}
               </a>
               {s.status === "running" && (
                 <button
                   className="b warn"
                   onClick={() => void action("send", "POST", { key: "escape" })}
                 >
-                  ⎋ Interrupt
+                  {t("sessions.card.interrupt")}
                 </button>
               )}
               <button className="b" onClick={() => onHandoff(s)}>
-                ⇥ Handoff
+                {t("sessions.card.handoff")}
               </button>
               {!s.project_id && !scratch && (
                 <button className="b ok" onClick={makeProject}>
-                  ⇑ Make a project
+                  {t("sessions.card.makeProject")}
                 </button>
               )}
             </>
           )}
           {failed && workspace?.state !== "removed" && (
             <button className="b" onClick={() => void cancel()}>
-              Cancel remaining checkout
+              {t("sessions.card.cancelCheckout")}
             </button>
           )}
           <button className="b" onClick={() => onGroup(s)}>
-            Move to group
+            {t("sessions.card.moveToGroup")}
           </button>
           {(s.saved_conversations ?? ["claude", "codex"].includes(s.agent)) && (
             <button className="b" onClick={() => onHistory(s)}>
-              Saved conversations
+              {t("sessions.card.savedConversations")}
             </button>
           )}
           {workspace && (
@@ -595,7 +608,7 @@ export function SessionCard({
                 !setup &&
                 workspace.state !== "removed" && (
                   <button className="b" onClick={() => onWorkspace(s)}>
-                    Workspace repositories
+                    {t("sessions.card.workspaceRepositories")}
                   </button>
                 )}
               {(failed || workspace.state === "failed") &&
@@ -607,11 +620,11 @@ export function SessionCard({
                         "worktree/recover",
                         "POST",
                         {},
-                        "Allocation validated; files retained. Setup did not restart.",
+                        t("sessions.card.allocationValidated"),
                       )
                     }
                   >
-                    Recover allocation
+                    {t("sessions.card.recoverAllocation")}
                   </button>
                 )}
               {workspace.state !== "removed" && (
@@ -620,18 +633,18 @@ export function SessionCard({
                   onClick={() => {
                     if (
                       confirm(
-                        `Remove ${workspace.path}? End its sessions first. Changed, untracked or ignored files prevent removal. The Git branch is kept.`,
+                        t("sessions.card.removeWorktreeConfirm", { path: workspace.path }),
                       )
                     )
                       void action(
                         "worktree",
                         "DELETE",
                         undefined,
-                        "Worktree removed; branch kept.",
+                        t("sessions.card.worktreeRemoved"),
                       );
                   }}
                 >
-                  Remove worktree
+                  {t("sessions.card.removeWorktree")}
                 </button>
               )}
             </>
@@ -639,7 +652,7 @@ export function SessionCard({
           {archived ? (
             <>
               <button className="b" onClick={() => onArchive(s)}>
-                Archived terminal output
+                {t("sessions.card.archivedOutput")}
               </button>
               <button
                 className="b"
@@ -648,11 +661,11 @@ export function SessionCard({
                     "archive",
                     "DELETE",
                     undefined,
-                    "Record unarchived. Its terminal stays stopped; find it under Include ended and untracked.",
+                    t("sessions.card.unarchived"),
                   )
                 }
               >
-                Unarchive record
+                {t("sessions.card.unarchive")}
               </button>
             </>
           ) : ended ? (
@@ -661,35 +674,35 @@ export function SessionCard({
                 className="b"
                 onClick={() => void action("archive", "POST", { stop: false })}
               >
-                Archive stopped record
+                {t("sessions.card.archiveStopped")}
               </button>
               {!s.can_restore && (
                 <button className="b" onClick={onDiscover}>
-                  Find running sessions
+                  {t("sessions.card.findRunning")}
                 </button>
               )}
             </>
           ) : s.status === "dead" ? (
             <button className="b no" onClick={() => end(false)}>
-              Dismiss
+              {t("sessions.card.dismiss")}
             </button>
           ) : setup ? null : adopted ? (
             <>
               <button className="b" onClick={() => end(false)}>
-                Stop tracking
+                {t("sessions.card.stopTracking")}
               </button>
               <button
                 className="b no"
                 onClick={() => {
                   if (
                     confirm(
-                      `Kill "${s.name}"?\n\nThis ends the tmux session and the conversation. Stop tracking leaves it running.`,
+                      t("sessions.card.killConfirm", { name: s.name }),
                     )
                   )
                     end(true);
                 }}
               >
-                Kill
+                {t("sessions.card.kill")}
               </button>
             </>
           ) : (
@@ -698,13 +711,13 @@ export function SessionCard({
               onClick={() => {
                 if (
                   confirm(
-                    `End "${s.name}"? The tmux session is killed; the record and its handoffs stay.`,
+                    t("sessions.card.endConfirm", { name: s.name }),
                   )
                 )
                   end(true);
               }}
             >
-              End
+              {t("sessions.card.end")}
             </button>
           )}
           {!archived && !ended && (
@@ -713,22 +726,22 @@ export function SessionCard({
               onClick={() => {
                 if (
                   confirm(
-                    `Stop "${s.name}" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.`,
+                    t("sessions.card.stopArchiveConfirm", { name: s.name }),
                   )
                 )
                   void close(
                     `/sessions/${s.id}/archive`,
                     "POST",
                     { stop: true },
-                    `Stopped and archived “${cardTitle || "session"}”.`,
+                    t("sessions.card.stoppedArchived", { name: cardTitle || t("sessions.card.sessionFallback") }),
                   );
               }}
             >
-              Stop and archive
+              {t("sessions.card.stopArchive")}
             </button>
           )}
           <label className="menu-field">
-            Project
+            {t("sessions.card.project")}
             <select
               className="f sess-proj"
               value={s.project_id || ""}
@@ -740,7 +753,7 @@ export function SessionCard({
                 })
               }
             >
-              <option value="">— unassigned —</option>
+              <option value="">{t("sessions.card.unassignedOption")}</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}

@@ -16,8 +16,8 @@
   flex: none;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line, #333);
-  background: var(--panel, #1b1e24);
+  border: 1px solid var(--line);
+  background: var(--panel);
   color: var(--ink);
   font-size: 13px;
   white-space: nowrap;
@@ -37,30 +37,30 @@
   color: var(--ink-dim);
 }
 .now-chip[data-state="waiting"] {
-  border-color: #d9a441;
+  border-color: color-mix(in srgb, var(--amber) 85%, var(--bg));
 }
 .now-chip[data-state="waiting"] .now-dot {
-  color: #d9a441;
+  color: color-mix(in srgb, var(--amber) 85%, var(--bg));
 }
 .now-chip[data-state="error"] {
-  border-color: #b3261e;
+  border-color: color-mix(in srgb, var(--red) 60%, var(--bg));
 }
 .now-chip[data-state="error"] .now-dot {
-  color: #b3261e;
+  color: color-mix(in srgb, var(--red) 60%, var(--bg));
 }
 .now-chip[data-state="working"] .now-dot {
-  color: #3ba55d;
+  color: color-mix(in srgb, var(--green) 70%, var(--bg));
 }
 .now-chip[data-state="done"] .now-dot {
   color: var(--ink-dim);
 }
 .now-chip.now-approvals {
-  border-color: #b3261e;
-  background: #b3261e22;
+  border-color: color-mix(in srgb, var(--red) 60%, var(--bg));
+  background: color-mix(in srgb, var(--red) 13%, transparent);
   font-weight: 600;
 }
 .now-chip.now-approvals .now-dot {
-  color: #b3261e;
+  color: color-mix(in srgb, var(--red) 60%, var(--bg));
 }
 
 @media (max-width: 600px) {

@@ -33,7 +33,7 @@
   padding: 1px 6px;
   border-radius: 10px;
   background: var(--accent);
-  color: #0b0a1a;
+  color: var(--on-fill);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -53,7 +53,7 @@
 .ny-reason {
   flex: none;
   padding: 1px 7px;
-  border: 1px solid rgba(251, 191, 36, 0.45);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
   border-radius: 9px;
   color: var(--amber);
   font-size: 10.5px;
@@ -67,7 +67,7 @@
 .ny-stale {
   margin-left: auto;
   padding: 1px 7px;
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
   border-radius: 9px;
   color: var(--amber);
   font-size: 10.5px;
@@ -96,7 +96,7 @@
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: var(--panel-2, #202536);
+  background: var(--panel-2);
   color: inherit;
   font: inherit;
 }
@@ -106,9 +106,9 @@
 .scard-approval {
   margin: 6px 0;
   padding: 8px 10px;
-  border: 1px solid rgba(251, 191, 36, 0.45);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
   border-radius: 9px;
-  background: rgba(251, 191, 36, 0.08);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -122,7 +122,7 @@
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: var(--panel-2, #202536);
+  background: var(--panel-2);
   color: inherit;
   font: inherit;
 }
@@ -140,7 +140,7 @@
   padding: 0 11px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: var(--panel-2, #202536);
+  background: var(--panel-2);
   color: inherit;
   font: inherit;
   text-decoration: none;
@@ -237,9 +237,9 @@
    the chat composer and the Needs-you deny-with-reason field — since this is
    the moment a person is most likely to be glancing rather than reading. */
 button.mic-recording {
-  background: #b3261e;
-  color: #fff;
-  border-color: #b3261e;
+  background: color-mix(in srgb, var(--red) 60%, var(--bg));
+  color: var(--on-accent);
+  border-color: color-mix(in srgb, var(--red) 60%, var(--bg));
   animation: mic-pulse 1.4s ease-in-out infinite;
 }
 @keyframes mic-pulse {

@@ -1,7 +1,7 @@
 /* Workspace hierarchy: navigation, page headings, primary actions, then details. */
-:root { --bg:#0c1018; --panel:#151b26; --panel-2:#1d2533; --bg-soft:#101620; --line:#27303e; --line-2:#384457; --ink-faint:#8793a7; --sidebar:184px; }
+:root { --sidebar:184px; }
 #aurora { display:none; }
-#topbar { background:#0e131d; backdrop-filter:none; }
+#topbar { background:var(--bg); backdrop-filter:none; }
 .brand-sub { display:none; }
 .brand-mark { background:transparent; border:0; }
 .led-on { animation:none; box-shadow:none; }
@@ -13,9 +13,9 @@
 #qb-routines { width:auto; padding:8px 14px; font-size:13px; }
 #quickbar { gap:8px; }
 #qb-input { background:var(--bg-soft); }
-#fab { width:auto; height:44px; display:flex; gap:7px; padding:0 15px; border-radius:9px; background:#7960d9; box-shadow:0 3px 12px #0003; font-weight:600; }
+#fab { width:auto; height:44px; display:flex; gap:7px; padding:0 15px; border-radius:9px; background:var(--accent-fill); box-shadow:0 3px 12px color-mix(in srgb, var(--scrim) 20%, transparent); font-weight:600; }
 #fab svg { width:18px; height:18px; }
-.b.ok,.b.attach { background:#7760ce; border-color:#8f7bdc; color:white; box-shadow:none; }
+.b.ok,.b.attach { background:var(--accent-fill); border-color:var(--accent); color:var(--on-accent); box-shadow:none; }
 .b.grow:not(.ok) { background:transparent; }
 .b { border-radius:8px; box-shadow:none; }
 .chip { background:transparent; border:0; padding:1px 0; }
@@ -44,7 +44,7 @@
 .action-menu>summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:center; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; color:var(--ink-dim); font-size:12px; white-space:nowrap; }
 .action-menu>summary::-webkit-details-marker { display:none; }
 .action-menu[open]>summary,.action-menu>summary:hover { background:var(--panel-2); color:var(--ink); }
-.action-menu-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:60; width:235px; max-width:calc(100vw - 32px); padding:7px; border:1px solid var(--line-2); border-radius:11px; background:#1b2330; box-shadow:0 12px 35px #0008; display:flex; flex-direction:column; gap:3px; }
+.action-menu-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:60; width:235px; max-width:calc(100vw - 32px); padding:7px; border:1px solid var(--line-2); border-radius:11px; background:var(--panel-2); box-shadow:0 12px 35px color-mix(in srgb, var(--scrim) 53%, transparent); display:flex; flex-direction:column; gap:3px; }
 .action-menu:not([open])>.action-menu-panel { display:none; }
 .action-menu-panel>.b,.action-menu-panel>button { display:block; width:100%; text-align:left; background:transparent; border:0; padding:10px 12px; text-decoration:none; color:var(--ink); font:13px var(--sans); border-radius:6px; cursor:pointer; }
 .action-menu-panel>.b:hover,.action-menu-panel>button:hover { background:var(--panel-2); }
@@ -69,13 +69,13 @@
 .terminal-tab-item:has([aria-selected=true]) { background:var(--panel-2); }
 .terminal-tab[aria-selected=true] { background:transparent; color:var(--ink); }
 .terminal-popout { background:transparent; border-color:transparent; color:var(--ink-dim); }
-#sheet { background:#131b27; }
+#sheet { background:var(--panel); }
 .sheet-head { border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:16px; }
 .conversation { background:var(--bg); }
 @media(min-width:1024px) {
   #topbar { height:64px; padding:12px 24px; justify-content:space-between; }
   #topbar .top-status { margin-right:145px; }
-  #tabbar { top:64px; left:0; bottom:0; right:auto; width:var(--sidebar); height:auto; padding:24px 12px; display:flex; flex-direction:column; align-items:stretch; gap:5px; border-right:1px solid var(--line); background:#0e131d; }
+  #tabbar { top:64px; left:0; bottom:0; right:auto; width:var(--sidebar); height:auto; padding:24px 12px; display:flex; flex-direction:column; align-items:stretch; gap:5px; border-right:1px solid var(--line); background:var(--bg); }
   #tabbar .tab { flex:none; min-height:44px; padding:0 12px; justify-content:flex-start; color:var(--ink-dim); font-size:13px; letter-spacing:0; }
   #tabbar .tab.on { color:var(--ink); background:var(--panel-2); }
   #tabbar .tab.on::after { display:none; }
@@ -146,7 +146,7 @@
   margin: 20px -18px calc(-28px - env(safe-area-inset-bottom, 0px));
   padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
   background: inherit; border-top: 1px solid var(--line);
-  box-shadow: 0 -10px 18px -12px rgba(0,0,0,.6);
+  box-shadow: 0 -10px 18px -12px color-mix(in srgb, var(--scrim) 60%, transparent);
 }
 
 /* New session leads with project and agent; everything rarer sits behind one
@@ -177,8 +177,8 @@
    when its controls are folded away. */
 .ns-launch-summary { margin: 0 0 8px; color: var(--ink-dim); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 
-.agent-commands { width: min(620px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel, #171a24); color: var(--text, #eee); }
-.agent-commands::backdrop { background: #0009; }
+.agent-commands { width: min(620px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); }
+.agent-commands::backdrop { background: color-mix(in srgb, var(--scrim) 60%, transparent); }
 .agent-commands header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .agent-commands h2 { margin: 0; font-size: 18px; }
 .agent-commands p { line-height: 1.5; }

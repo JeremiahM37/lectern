@@ -3,6 +3,7 @@
 // Push endpoint plus RFC 8291 keys, so the host stores and encrypts to it
 // exactly like a browser subscription (/api/push/subscribe, internal/push).
 import { nativeBridge } from "./bridge";
+import { t } from "../i18n";
 
 export interface NativeSubscription {
   endpoint: string;
@@ -42,25 +43,25 @@ export async function syncNativePush(request: Request): Promise<string | undefin
 /** Registers with the device's UnifiedPush distributor and the host. */
 export async function enableNativePush(request: Request, timeoutMs = 60000): Promise<string> {
   const bridge = nativeBridge();
-  if (!bridge) throw new Error("not running in the Lectern app");
+  if (!bridge) throw new Error(t("app.nativePush.notInApp"));
   const { key } = await request<{ key: string }>("/push/vapid");
   const result = new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener(PUSH_EVENT, on);
-      reject(new Error("the push distributor did not answer; is ntfy (or another UnifiedPush app) installed?"));
+      reject(new Error(t("app.nativePush.noDistributor")));
     }, timeoutMs);
     const on = (event: Event) => {
       const detail = (event as CustomEvent<{ ok: boolean; error?: string }>).detail;
       window.clearTimeout(timer);
       window.removeEventListener(PUSH_EVENT, on);
       if (detail?.ok) resolve();
-      else reject(new Error(detail?.error || "push registration failed"));
+      else reject(new Error(detail?.error || t("app.nativePush.failed")));
     };
     window.addEventListener(PUSH_EVENT, on);
   });
   bridge.enablePush(key);
   await result;
   const endpoint = await syncNativePush(request);
-  if (!endpoint) throw new Error("push registration failed");
+  if (!endpoint) throw new Error(t("app.nativePush.failed"));
   return endpoint;
 }

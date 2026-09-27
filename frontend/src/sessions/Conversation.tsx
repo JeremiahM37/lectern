@@ -1,5 +1,4 @@
 import "./conversation-react.css";
-import { t } from "../i18n";
 import "./session-home.css";
 import { splitRecall } from "./recall";
 import { SessionLineage } from "../continuity/SessionLineage";
@@ -31,6 +30,7 @@ import { buildChatCards, type ConversationItem } from "./tool-views/chatCards";
 import { ToolCardView } from "./tool-views/ToolCard";
 import { VoiceMode } from "./VoiceMode";
 import { BrowserPane } from "../browser/BrowserPane";
+import { t, useLocale } from "../i18n";
 interface Attachment {
   name: string;
   path: string;
@@ -131,12 +131,13 @@ export function Conversation({
   /** Set when this chat was opened from a notification's Reply action — focuses the composer immediately instead of waiting for a tap. */
   quickReply?: boolean;
 }) {
+  useLocale();
   const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
     [rows, setRows] = useState<Row[]>([]),
     [sessionText, setSessionText] = useState(""),
     [sessionAgent, setSessionAgent] = useState(""),
-    [status, setStatus] = useState("Connecting…"),
+    [status, setStatus] = useState(() => t("conversation.chat.connecting")),
     [error, setError] = useState(""),
     [reachable, setReachable] = useState<boolean>(),
     [online, setOnline] = useState(() => navigator.onLine),
@@ -327,11 +328,14 @@ export function Conversation({
         }>(`/sessions/${id}/reader`, { signal: abort.current.signal });
         if (closed.current) return;
         setStatus(
-          `${data.session.agent} · ${data.ended ? "Ended" : data.session.status} · live reader`,
+          t("conversation.chat.sessionStatus", {
+            agent: data.session.agent,
+            state: data.ended ? t("conversation.chat.ended") : data.session.status,
+          }),
         );
         setSessionAgent(data.session.agent);
         setUnavailable(data.ended || data.session.status === "dead");
-        setSessionText(data.text || "Waiting for agent output…");
+        setSessionText(data.text || t("conversation.chat.waitingForOutput"));
         void refreshLive();
         // A session's own PermissionRequest approvals (session_id set,
         // no task) belong here too, not only the ones inherited from a
@@ -369,7 +373,9 @@ export function Conversation({
         setTask(next);
         setUnavailable(next.target_kind === "sandbox" || !!next.takeover);
         setStatus(
-          `${next.agent} · ${next.status}${next.attempt ? ` · turn ${next.attempt.n}` : ""}`,
+          next.attempt
+            ? t("conversation.chat.taskStatusTurn", { agent: next.agent, status: next.status, n: next.attempt.n })
+            : t("conversation.chat.taskStatus", { agent: next.agent, status: next.status }),
         );
         if (
           (next.status !== "running" || next.target_kind === "sandbox") &&
@@ -385,10 +391,10 @@ export function Conversation({
         )
           setReceipt(
             latest.status === "failed"
-              ? `Not delivered: ${latest.error}`
+              ? t("conversation.chat.receiptNotDelivered", { error: String(latest.error) })
               : latest.attempt_id
-                ? "Message delivered to the agent."
-                : "Instructions added to the task.",
+                ? t("conversation.chat.receiptDelivered")
+                : t("conversation.chat.receiptAdded"),
           );
         const nextRows: Row[] = [
           {
@@ -396,7 +402,7 @@ export function Conversation({
             time: next.created_at || 0,
             role: "operator",
             text: next.prompt || next.title,
-            label: "Task",
+            label: t("conversation.chat.rowTask"),
           },
           ...messages.map((message) => ({
             id: `message-${message.id}`,
@@ -405,12 +411,12 @@ export function Conversation({
             text: message.text,
             label:
               message.status === "pending"
-                ? "You · queued for next turn"
+                ? t("conversation.chat.rowQueued")
                 : message.status === "failed"
-                  ? `Not delivered · ${message.error}`
+                  ? t("conversation.chat.rowNotDelivered", { error: String(message.error) })
                   : message.attempt_id
-                    ? "You · delivered to agent"
-                    : "You · added to task",
+                    ? t("conversation.chat.rowDelivered")
+                    : t("conversation.chat.rowAdded"),
           })),
         ];
         for (const event of events) {
@@ -423,7 +429,7 @@ export function Conversation({
               text: display(
                 event.type === "text" ? p.text : p.result || p.text || p,
               ),
-              label: `${event.type === "text" ? "Agent" : "Result"} · turn ${event.attempt_n}`,
+              label: t(event.type === "text" ? "conversation.chat.rowAgent" : "conversation.chat.rowResult", { n: event.attempt_n }),
             });
           else if (["tool_use", "tool_result", "verify"].includes(event.type))
             nextRows.push({
@@ -436,8 +442,12 @@ export function Conversation({
                   : JSON.stringify(p, null, 2),
               label:
                 event.type === "tool_use"
-                  ? display(p.name || "Tool")
-                  : event.type.replace("_", " "),
+                  ? display(p.name || t("conversation.chat.rowTool"))
+                  : event.type === "tool_result"
+                    ? t("conversation.chat.rowToolResult")
+                    : event.type === "verify"
+                      ? t("conversation.chat.rowVerify")
+                      : event.type.replace("_", " "),
             });
         }
         nextRows.sort((a, b) => a.time - b.time);
@@ -452,7 +462,7 @@ export function Conversation({
       if (!closed.current) {
         setReachable(false);
         setError(
-          `Could not refresh: ${String(error)}. Displayed output may be stale.`,
+          t("conversation.chat.refreshFailed", { error: String(error) }),
         );
       }
     } finally {
@@ -491,10 +501,10 @@ export function Conversation({
       for (const file of selected) {
         if (closed.current) return;
         if (current.current.attachments.length >= 10)
-          throw new Error("Attach up to 10 files per message.");
+          throw new Error(t("conversation.chat.tooManyFiles"));
         if (file.size > 25 * 1024 * 1024)
-          throw new Error(`${file.name} exceeds 25 MiB.`);
-        setUploadStatus(`Uploading ${file.name}…`);
+          throw new Error(t("conversation.chat.fileTooLarge", { name: file.name }));
+        setUploadStatus(t("conversation.chat.uploading", { name: file.name }));
         const body = new FormData();
         body.append("file", file);
         const attachment = await api.request<Attachment>(
@@ -508,11 +518,11 @@ export function Conversation({
           request_id: uid(),
         }));
       }
-      setUploadStatus("Files ready. Add a message, then Send.");
+      setUploadStatus(t("conversation.chat.filesReady"));
     } catch (error) {
       if (!closed.current)
         setUploadStatus(
-          `Upload failed: ${String(error)} Previously uploaded files are kept.`,
+          t("conversation.chat.uploadFailed", { error: String(error) }),
         );
     } finally {
       uploadingRef.current = false;
@@ -556,7 +566,7 @@ export function Conversation({
       return;
     if (connection === "offline") {
       setReceipt(
-        "You're offline. Nothing was sent; your draft is kept on this device.",
+        t("conversation.chat.offlineReceipt"),
       );
       return;
     }
@@ -576,13 +586,13 @@ export function Conversation({
         : "");
     if (new TextEncoder().encode(text).length > 32000) {
       setError(
-        "Message including attachments exceeds 32000 bytes. Shorten the message.",
+        t("conversation.chat.tooLong"),
       );
       return;
     }
     sendingRef.current = true;
     setSending(true);
-    setReceipt("Sending…");
+    setReceipt(t("conversation.chat.sending"));
     try {
       const result = await api.request<{ status?: string }>(
         kind === "session" ? `/sessions/${id}/send` : `/tasks/${id}/messages`,
@@ -612,18 +622,18 @@ export function Conversation({
       setUploadStatus("");
       setReceipt(
         kind === "session"
-          ? "Sent to the session."
+          ? t("conversation.chat.sentToSession")
           : result.status === "delivered"
-            ? "Already delivered."
+            ? t("conversation.chat.alreadyDelivered")
             : submitted.interrupt
-              ? "Saved. Interrupting the current run before continuing."
-              : "Saved. Waiting for delivery to the agent.",
+              ? t("conversation.chat.savedInterrupting")
+              : t("conversation.chat.savedWaiting"),
       );
       void refresh();
     } catch (error) {
       if (!closed.current)
         setReceipt(
-          `Could not confirm delivery: ${String(error)}. Your draft is kept.`,
+          t("conversation.chat.deliveryUnconfirmed", { error: String(error) }),
         );
     } finally {
       sendingRef.current = false;
@@ -669,18 +679,18 @@ export function Conversation({
   }
   const hint =
     kind === "session"
-      ? "Sends to the same running session. Enter adds a new line."
+      ? t("conversation.chat.hintSession")
       : task?.takeover
-        ? "This run is continuing as an interactive session. Close Chat and choose Open session."
+        ? t("conversation.chat.hintTakeover")
         : task?.target_kind === "sandbox" && task.status !== "backlog"
-          ? "Send queues a new sandbox run with your instructions and the previous result."
+          ? t("conversation.chat.hintSandbox")
           : task?.status === "backlog"
-            ? "Adds instructions to this task without dispatching it."
+            ? t("conversation.chat.hintBacklog")
             : task?.status === "running"
-              ? "Send queues a follow-up. Interrupt and send stops this run first, then continues."
+              ? t("conversation.chat.hintRunning")
               : task?.status === "queued"
-                ? "Your message is added before the queued run starts."
-                : "Send continues the task in its existing worktree.";
+                ? t("conversation.chat.hintQueued")
+                : t("conversation.chat.hintDefault");
   function openTerminal() {
     // The card's attach flow already retries the transient 503, reports the
     // permanent ones and opens the tab. Reuse it instead of a second copy.
@@ -710,7 +720,7 @@ export function Conversation({
     <Modal
       id="conversation"
       className={showBrowser ? "conversation with-browser" : "conversation"}
-      aria-label={`Conversation with ${name}`}
+      aria-label={t("conversation.chat.dialogLabel", { name })}
       style={
         {
           height: viewport.height,
@@ -752,12 +762,12 @@ export function Conversation({
                 {currentName}
                 <button
                   className="b rename-btn"
-                  aria-label="Rename session"
+                  aria-label={t("conversation.chat.renameSession")}
                   onClick={() => {
                     setRenamingValue(currentName);
                     setIsRenaming(true);
                   }}
-                  title="Rename"
+                  title={t("conversation.chat.rename")}
                 >
                   ✎
                 </button>
@@ -766,9 +776,9 @@ export function Conversation({
           )}
           <p id="conversation-status" role="status" data-connection={connection}>
             {connection === "offline"
-              ? "Offline — showing the last output; sends are paused"
+              ? t("conversation.chat.offlineStatus")
               : connection === "stale"
-                ? `${status} · reconnecting…`
+                ? t("conversation.chat.reconnectingStatus", { status })
                 : status}
           </p>
           {session && (
@@ -788,11 +798,11 @@ export function Conversation({
             </div>
           )}
         </div>
-        {onSwitch && <button className="b" onClick={onSwitch}>⇄ Switch</button>}
+        {onSwitch && <button className="b" onClick={onSwitch}>{t("conversation.chat.switch")}</button>}
         <button
           className="b"
           id="conversation-close"
-          aria-label="Close conversation"
+          aria-label={t("conversation.chat.close")} data-close
           onClick={onClose}
         >
           ✕
@@ -803,9 +813,9 @@ export function Conversation({
         <span>
           {kind === "session"
             ? viewMode === "cards" && !liveUnavailable
-              ? "Chat"
-              : "Live output · last 500 lines"
-            : "Task conversation"}
+              ? t("conversation.chat.viewChat")
+              : t("conversation.chat.viewLiveOutput")
+            : t("conversation.chat.viewTask")}
         </span>
         {kind === "session" && !liveUnavailable && (
           <button
@@ -814,13 +824,13 @@ export function Conversation({
             id="conversation-view-toggle"
             onClick={() => setViewMode((old) => (old === "cards" ? "terminal" : "cards"))}
           >
-            {viewMode === "cards" ? "Terminal text" : "Chat cards"}
+            {viewMode === "cards" ? t("conversation.chat.showTerminalText") : t("conversation.chat.showChatCards")}
           </button>
         )}
         <button
           className="b"
           id="reader-smaller"
-          aria-label="Smaller text"
+          aria-label={t("conversation.chat.smallerText")}
           onClick={() => setFont((old) => Math.max(16, old - 1))}
         >
           A−
@@ -828,7 +838,7 @@ export function Conversation({
         <button
           className="b"
           id="reader-larger"
-          aria-label="Larger text"
+          aria-label={t("conversation.chat.largerText")}
           onClick={() => setFont((old) => Math.min(24, old + 1))}
         >
           A+
@@ -841,7 +851,7 @@ export function Conversation({
             if (log.current) log.current.scrollTop = log.current.scrollHeight;
           }}
         >
-          ↓ Latest
+          {t("conversation.chat.latest")}
         </button>
       </div>
       <div id="conversation-error" role="status" hidden={!error}>
@@ -858,7 +868,7 @@ export function Conversation({
             id="conversation-terminal"
             onClick={openTerminal}
           >
-            ⌨ Open terminal
+            {t("conversation.chat.openTerminal")}
           </button>
           <button
             type="button"
@@ -866,7 +876,7 @@ export function Conversation({
             id="conversation-merge-review"
             onClick={() => setShowMergeReview(true)}
           >
-            ± Review &amp; merge
+            {t("conversation.chat.reviewMerge")}
           </button>
           <button
             type="button"
@@ -875,7 +885,7 @@ export function Conversation({
             aria-pressed={showBrowser}
             onClick={() => setShowBrowser(!showBrowser)}
           >
-            ◎ Browser
+            {t("conversation.chat.browser")}
           </button>
         </div>
       )}
@@ -906,20 +916,22 @@ export function Conversation({
           }}
         >
           <summary>
-            Changed files{changedFiles.length ? ` · ${changedFiles.length}` : ""}
+            {changedFiles.length
+              ? t("conversation.chat.changedFilesCount", { count: changedFiles.length })
+              : t("conversation.chat.changedFiles")}
           </summary>
           <div className="changes-body">
-            {changesBusy && <p className="sub">Reading working changes…</p>}
+            {changesBusy && <p className="sub">{t("conversation.chat.readingChanges")}</p>}
             {!changesBusy && changesError && (
               <p className="sub">
-                Working changes are unavailable for this session.
+                {t("conversation.chat.changesUnavailable")}
               </p>
             )}
             {!changesBusy && changes && (
               <>
                 <p className="sub">
-                  {changes.branch || "workspace"} · working
-                  {changes.truncated ? " · truncated" : ""}
+                  {t("conversation.chat.branchWorking", { branch: changes.branch || t("conversation.chat.workspace") })}
+                  {changes.truncated ? t("conversation.chat.truncated") : ""}
                 </p>
                 {changedFiles.length ? (
                   <ul className="changes-files">
@@ -931,7 +943,7 @@ export function Conversation({
                     ))}
                   </ul>
                 ) : (
-                  <p className="sub">No changed files right now.</p>
+                  <p className="sub">{t("conversation.chat.noChanges")}</p>
                 )}
               </>
             )}
@@ -941,7 +953,7 @@ export function Conversation({
               disabled={changesBusy}
               onClick={() => void loadChanges()}
             >
-              Refresh
+              {t("conversation.chat.refresh")}
             </button>
           </div>
         </details>
@@ -953,7 +965,7 @@ export function Conversation({
         id="conversation-log"
         ref={log}
         tabIndex={0}
-        aria-label="Agent output"
+        aria-label={t("conversation.chat.agentOutput")}
         onScroll={() => {
           if (log.current)
             follow.current =
@@ -965,22 +977,19 @@ export function Conversation({
       >
         {kind === "session" && sessionAgent === "shell" ? (
           <div id="conversation-output-error">
-            <p>
-              This tracked session is a shell, not an agent conversation. Type
-              to the pane from here, or use the Terminal action above for the
-              full keyboard.
-            </p>
+            <p>{t("conversation.chat.shellSession")}</p>
           </div>
         ) : kind === "session" && error && !sessionText ? (
           <div id="conversation-output-error">
             <p>
-              Live output could not be read from this session
-              {unavailable ? " because it has ended" : ""}.
+              {unavailable
+                ? t("conversation.chat.outputUnreadableEnded")
+                : t("conversation.chat.outputUnreadable")}
             </p>
             <p>
               {unavailable
-                ? "Restore tracking to continue the conversation."
-                : "Messages still go to the session; the Terminal action above reads the pane directly."}
+                ? t("conversation.chat.restoreTracking")
+                : t("conversation.chat.messagesStillGo")}
             </p>
           </div>
         ) : kind === "session" ? (
@@ -991,7 +1000,7 @@ export function Conversation({
                 id="conversation-draft-row"
                 data-status="draft"
               >
-                <div className="reader-speaker">You · not sent yet</div>
+                <div className="reader-speaker">{t("conversation.chat.draftRow")}</div>
                 <div className="reader-text">{draft.text}</div>
               </article>
             )}
@@ -999,7 +1008,7 @@ export function Conversation({
               <div id="conversation-cards">
                 {chatCards.length === 0 && (
                   <p className="sub" id="conversation-cards-empty">
-                    Waiting for the conversation to start…
+                    {t("conversation.chat.waitingToStart")}
                   </p>
                 )}
                 {chatCards.map((card) =>
@@ -1007,19 +1016,19 @@ export function Conversation({
                     <ToolCardView key={card.id} card={card} />
                   ) : card.kind === "thinking" ? (
                     <details key={card.id} className="reader-message thinking" data-event={card.id}>
-                      <summary>Thinking</summary>
+                      <summary>{t("conversation.chat.thinking")}</summary>
                       <div className="reader-text">{card.text}</div>
                     </details>
                   ) : (
                     <article key={card.id} className={`reader-message ${card.role}`}>
-                      <div className="reader-speaker">{card.role === "user" ? "You" : "Agent"}</div>
+                      <div className="reader-speaker">{card.role === "user" ? t("conversation.chat.you") : t("conversation.chat.agent")}</div>
                       <MessageText role={card.role} text={card.text} />
                     </article>
                   ),
                 )}
               </div>
             ) : (
-              <pre className="session-reader">{sessionText || "Loading…"}</pre>
+              <pre className="session-reader">{sessionText || t("conversation.chat.loading")}</pre>
             )}
           </>
         ) : (
@@ -1087,14 +1096,14 @@ export function Conversation({
         }}
       >
         <label htmlFor="conversation-input">
-          Message {kind === "session" ? "this agent" : "this task"}
+          {kind === "session" ? t("conversation.chat.messageAgent") : t("conversation.chat.messageTask")}
         </label>
         <textarea
           id="conversation-input"
           ref={input}
           rows={3}
           maxLength={32000}
-          placeholder="Write a message or use your keyboard’s microphone…"
+          placeholder={t("conversation.chat.placeholder")}
           value={draft.text}
           onChange={(event) => {
             const text = event.target.value;
@@ -1126,16 +1135,16 @@ export function Conversation({
           disabled={sending || uploading || unavailable}
           onChange={(event) => void upload([...(event.target.files || [])])}
         />
-        <div id="conversation-attachments" aria-label="Attached files">
+        <div id="conversation-attachments" aria-label={t("conversation.chat.attachedFiles")}>
           {draft.attachments.map((file) => (
             <div key={file.path} className="context-attachment">
               <span title={file.path}>
-                {file.name} · {Math.max(1, Math.ceil(file.size / 1024))} KB
+                {t("conversation.chat.attachmentSize", { name: file.name, size: Math.max(1, Math.ceil(file.size / 1024)) })}
               </span>
               <button
                 type="button"
                 className="b"
-                aria-label={`Remove ${file.name}`}
+                aria-label={t("conversation.chat.removeFile", { name: file.name })}
                 disabled={sending}
                 onClick={() =>
                   change((old) => ({
@@ -1157,7 +1166,7 @@ export function Conversation({
         </p>
         {!!draft.text.trim() && !sending && (
           <p id="conversation-draft" role="status">
-            Draft saved on this device · not sent yet
+            {t("conversation.chat.draftSaved")}
           </p>
         )}
         <p id="conversation-hint">{hint}</p>
@@ -1168,13 +1177,13 @@ export function Conversation({
             id="conversation-attach"
             title={
               unavailable
-                ? "Attachments unavailable for this session or sandbox"
-                : "PDFs, images, documents and other files · 25 MiB each"
+                ? t("conversation.chat.attachUnavailable")
+                : t("conversation.chat.attachHint")
             }
             disabled={sending || uploading || unavailable}
             onClick={() => files.current?.click()}
           >
-            📎 Attach
+            {t("conversation.chat.attach")}
           </button>
           {kind === "task" ? (
             <label className="interrupt-option">
@@ -1190,7 +1199,7 @@ export function Conversation({
                   change((old) => ({ ...old, interrupt, request_id: uid() }));
                 }}
               />{" "}
-              Interrupt and send
+              {t("conversation.chat.interruptAndSend")}
             </label>
           ) : (
             <button
@@ -1206,28 +1215,28 @@ export function Conversation({
                   })
                   .then(() => {
                     setReceipt(
-                      "Interrupt sent. Check the agent output before sending new instructions.",
+                      t("conversation.chat.interruptSent"),
                     );
                     void refresh();
                   })
                   .catch((error) => setError(String(error)));
               }}
             >
-              Interrupt
+              {t("conversation.chat.interrupt")}
             </button>
           )}
           <button
             type="button"
             className={dictating ? "b mic-recording" : "b"}
             id="conversation-mic"
-            aria-label={transcribing ? t("voice.transcribing") : dictating ? t("voice.stop") : t("voice.dictateMessage")}
-            title={dictationEngine === "host" ? t("voice.onLectern") : undefined}
+            aria-label={transcribing ? t("conversation.chat.transcribingLabel") : dictating ? t("conversation.chat.stopDictating") : t("conversation.chat.dictate")}
+            title={dictationEngine === "host" ? t("conversation.chat.onLectern") : undefined}
             hidden={!dictationSupported}
             aria-pressed={dictating}
             aria-busy={transcribing}
             onClick={dictate}
           >
-            {transcribing ? "⏳ " + t("voice.transcribing") + "…" : dictating ? (dictationEngine === "host" ? "🔴 " + t("voice.recording") : "🔴 Listening…") : "🎙"}
+            {transcribing ? t("conversation.chat.transcribing") : dictating ? (dictationEngine === "host" ? t("conversation.chat.recording") : t("conversation.chat.listening")) : "🎙"}
           </button>
           <button
             type="submit"
@@ -1241,13 +1250,12 @@ export function Conversation({
               (kind === "session" && unavailable)
             }
           >
-            Send
+            {t("conversation.chat.send")}
           </button>
         </div>
         {connection === "offline" && (
           <p id="conversation-offline" className="conversation-notice" role="status">
-            Offline — nothing is sent while you are disconnected. Your draft is
-            saved on this device and stays here when you reconnect.
+            {t("conversation.chat.offlineNotice")}
           </p>
         )}
         <p id="conversation-receipt" role="status">
@@ -1266,7 +1274,7 @@ function MessageText({ role, text }: { role: string; text: string }) {
       {recall.length > 0 && (
         <details className="recall-context">
           <summary>
-            Context from Grimoire · {recall.length} {recall.length === 1 ? "fact" : "facts"}
+            {t("conversation.chat.recall", { count: recall.length })}
           </summary>
           <pre>{recall.join("\n")}</pre>
         </details>

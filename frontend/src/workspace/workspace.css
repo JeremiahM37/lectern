@@ -64,7 +64,7 @@
 }
 /* Recent-tab switcher */
 .ws-mru { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 200; width: min(460px, calc(100vw - 24px)); max-height: 60vh; overflow: auto;
-  padding: 8px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2); box-shadow: 0 24px 70px rgba(0,0,0,.45); outline: none; }
+  padding: 8px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2); box-shadow: 0 24px 70px color-mix(in srgb, var(--scrim) 45%, transparent); outline: none; }
 .ws-mru p { margin: 4px 8px 8px; color: var(--ink-dim); font-size: 12px; }
 .ws-mru ol { list-style: none; margin: 0; padding: 0; }
 .ws-mru li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; cursor: pointer; color: var(--ink); font-size: 13.5px; }

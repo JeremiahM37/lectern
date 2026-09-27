@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
+import { t, useLocale } from "../i18n";
 
 // Delegated builds is the one setting that changes what every lead session
 // does with a substantial task, and it sends code to a second provider. So it
@@ -32,6 +33,7 @@ export function Delegation({
   onNotice(t: string, e?: boolean): void;
   onChanged(): void;
 }) {
+  useLocale();
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -43,7 +45,7 @@ export function Delegation({
     try {
       setView(await api.request<View>("/delegation"));
     } catch (e) {
-      onNotice(`Delegated builds: ${(e as Error).message}`, true);
+      onNotice(t("settings.delegation.loadError", { error: (e as Error).message }), true);
     }
   }
   useEffect(() => {
@@ -67,7 +69,7 @@ export function Delegation({
     try {
       setView(await api.request<View>("/delegation/preset", { method: "POST", body: { api_key: key } }));
       setKey("");
-      onNotice("DeepSeek Flash worker installed and selected");
+      onNotice(t("settings.delegation.presetInstalled"));
       onChanged();
     } catch (e) {
       onNotice((e as Error).message, true);
@@ -78,13 +80,13 @@ export function Delegation({
 
   async function runCheck() {
     setBusy(true);
-    setCheck("Asking the worker for one fixed reply…");
+    setCheck(t("settings.delegation.checking"));
     try {
       const r = await api.request<{ ok: boolean; seconds: number; error?: string; tail?: string }>("/delegation/check", {
         method: "POST",
         body: {},
       });
-      setCheck(r.ok ? `Worker answered in ${r.seconds.toFixed(1)}s.` : `Worker did not answer: ${r.error || (r.tail || "").trim().slice(-300)}`);
+      setCheck(r.ok ? t("settings.delegation.answered", { seconds: r.seconds.toFixed(1) }) : t("settings.delegation.noAnswer", { error: r.error || (r.tail || "").trim().slice(-300) }));
     } catch (e) {
       setCheck((e as Error).message);
     } finally {
@@ -97,7 +99,7 @@ export function Delegation({
     setBusy(true);
     try {
       await api.request(`/projects/${installProject}/workflows/delegate`, { method: "PUT", body: { agent, enabled: true } });
-      onNotice(`Lead skill installed for ${agent} — start a new session to use $lectern-delegate`);
+      onNotice(t("settings.delegation.skillInstalled", { agent }));
     } catch (e) {
       onNotice((e as Error).message, true);
     } finally {
@@ -112,17 +114,17 @@ export function Delegation({
   const workers = agents.filter((a) => a.task || a.builtin);
   const on = s.enabled;
   return (
-    <section id="delegation" className={"delegation-banner" + (on ? " on" : "")} aria-label="Delegated builds">
+    <section id="delegation" className={"delegation-banner" + (on ? " on" : "")} aria-label={t("settings.delegation.title")}>
       <div className="delegation-head">
         <div>
           <h3>
-            Delegated builds <span className="delegation-state">{on ? "ON" : "OFF"}</span>
+            {t("settings.delegation.title")} <span className="delegation-state">{on ? t("settings.delegation.stateOn") : t("settings.delegation.stateOff")}</span>
           </h3>
           <p>
             {on
-              ? `Lead sessions plan and review; ${s.worker_agent}${s.worker_model ? ` (${s.worker_model})` : ""} builds each substantial change as a task in its own worktree. The board's Orchestrate bar runs the whole loop from one description.`
-              : "Off: every session does its own implementation. Turn on to have a cheaper worker agent build what a lead session plans and reviews."}
-            {on && !view.worker_ready && <strong> The worker is not runnable: {view.worker_problem}.</strong>}
+              ? t("settings.delegation.onText", { worker: `${s.worker_agent}${s.worker_model ? ` (${s.worker_model})` : ""}` })
+              : t("settings.delegation.offText")}
+            {on && !view.worker_ready && <strong> {t("settings.delegation.notRunnable", { problem: view.worker_problem })}</strong>}
           </p>
         </div>
         <label className="delegation-switch">
@@ -135,18 +137,18 @@ export function Delegation({
             disabled={busy}
             onChange={(e) => void save({ enabled: e.target.checked })}
           />
-          <span>{on ? "On" : "Off"}</span>
+          <span>{on ? t("settings.delegation.on") : t("settings.delegation.off")}</span>
         </label>
       </div>
       <button className="b" type="button" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {open ? "Hide setup" : "Set up the worker"}
+        {open ? t("settings.delegation.hideSetup") : t("settings.delegation.setup")}
       </button>
       {open && (
         <div className="delegation-setup">
           <label>
-            Worker agent
+            {t("settings.delegation.workerAgent")}
             <select value={s.worker_agent} disabled={busy} onChange={(e) => void save({ worker_agent: e.target.value })}>
-              <option value="">— choose —</option>
+              <option value="">{t("settings.delegation.choose")}</option>
               {workers.map((a) => (
                 <option key={a.name} value={a.name}>
                   {a.name}
@@ -155,51 +157,50 @@ export function Delegation({
             </select>
           </label>
           <label>
-            Worker model
-            <input value={s.worker_model} disabled={busy} placeholder="agent default" onBlur={(e) => e.target.value !== s.worker_model && void save({ worker_model: e.target.value })} onChange={(e) => setView({ ...view, settings: { ...s, worker_model: e.target.value } })} />
+            {t("settings.delegation.workerModel")}
+            <input value={s.worker_model} disabled={busy} placeholder={t("settings.delegation.agentDefault")} onBlur={(e) => e.target.value !== s.worker_model && void save({ worker_model: e.target.value })} onChange={(e) => setView({ ...view, settings: { ...s, worker_model: e.target.value } })} />
           </label>
           <label>
-            Permissions
+            {t("settings.delegation.permissions")}
             <select value={s.permission_mode} disabled={busy} onChange={(e) => void save({ permission_mode: e.target.value })}>
-              <option value="acceptEdits">acceptEdits (sandboxed writes)</option>
-              <option value="plan">plan (read-only)</option>
+              <option value="acceptEdits">{t("settings.delegation.acceptEdits")}</option>
+              <option value="plan">{t("settings.delegation.plan")}</option>
               <option value="bypassPermissions">bypassPermissions</option>
             </select>
           </label>
           <label>
-            Lead agent (Orchestrate)
+            {t("settings.delegation.leadAgent")}
             <select value={s.lead_agent || ""} disabled={busy} onChange={(e) => void save({ lead_agent: e.target.value })}>
-              <option value="">the project's default agent</option>
+              <option value="">{t("settings.delegation.projectDefault")}</option>
               <option value="claude">Claude Code</option>
               <option value="codex">Codex</option>
             </select>
           </label>
           <label>
-            Lead model
-            <input value={s.lead_model || ""} disabled={busy} placeholder="agent default" onBlur={(e) => e.target.value !== (s.lead_model || "") && void save({ lead_model: e.target.value })} onChange={(e) => setView({ ...view, settings: { ...s, lead_model: e.target.value } })} />
+            {t("settings.delegation.leadModel")}
+            <input value={s.lead_model || ""} disabled={busy} placeholder={t("settings.delegation.agentDefault")} onBlur={(e) => e.target.value !== (s.lead_model || "") && void save({ lead_model: e.target.value })} onChange={(e) => setView({ ...view, settings: { ...s, lead_model: e.target.value } })} />
           </label>
           <div className="delegation-preset">
             <p>
-              <strong>Preset: DeepSeek Flash.</strong> Installs a <code>flash-builder</code> agent that runs Codex against DeepSeek's API with the
-              Flash model, configured by flags only; your own Codex config is untouched. The key is stored masked in the agent registry.
+              <strong>{t("settings.delegation.presetTitle")}</strong> {t("settings.delegation.presetBefore")} <code>flash-builder</code> {t("settings.delegation.presetAfter")}
             </p>
-            <input type="password" value={key} placeholder="DeepSeek API key (sk-…)" autoComplete="off" onChange={(e) => setKey(e.target.value)} />
+            <input type="password" value={key} placeholder={t("settings.delegation.keyPlaceholder")} autoComplete="off" onChange={(e) => setKey(e.target.value)} />
             <button className="b ok" type="button" disabled={busy || (!key && s.worker_agent !== "flash-builder")} onClick={() => void preset()}>
-              Install preset
+              {t("settings.delegation.installPreset")}
             </button>
           </div>
           <div className="delegation-check">
             <button className="b" type="button" disabled={busy || !view.worker_ready} onClick={() => void runCheck()}>
-              Check the worker answers
+              {t("settings.delegation.check")}
             </button>
             {check && <span>{check}</span>}
           </div>
           <div className="delegation-install">
             <p>
-              Install the lead skill (<code>lectern-delegate</code>) into a project so a session there knows the workflow:
+              {t("settings.delegation.installBefore")}<code>lectern-delegate</code>{t("settings.delegation.installAfter")}
             </p>
             <select value={installProject} onChange={(e) => setInstallProject(Number(e.target.value))}>
-              <option value={0}>— project —</option>
+              <option value={0}>{t("settings.delegation.project")}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -207,15 +208,14 @@ export function Delegation({
               ))}
             </select>
             <button className="b" type="button" disabled={busy || !installProject} onClick={() => void installSkill("claude")}>
-              for Claude Code
+              {t("settings.delegation.forClaude")}
             </button>
             <button className="b" type="button" disabled={busy || !installProject} onClick={() => void installSkill("codex")}>
-              for Codex
+              {t("settings.delegation.forCodex")}
             </button>
           </div>
           <p className="delegation-note">
-            An orchestrated task launches its lead with the <code>lectern</code> MCP server attached automatically. A lead <em>session</em> you open yourself still
-            needs the server in its own config, and Codex needs <code>tool_timeout_sec = 3600</code> on that entry so <code>wait_build</code> can block for a whole build.
+            {t("settings.delegation.note1")} <code>lectern</code> {t("settings.delegation.note2")} <em>{t("settings.delegation.noteSession")}</em> {t("settings.delegation.note3")} <code>tool_timeout_sec = 3600</code> {t("settings.delegation.note4")} <code>wait_build</code> {t("settings.delegation.note5")}
           </p>
         </div>
       )}

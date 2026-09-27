@@ -5,6 +5,8 @@
 // PushEnv snapshot below, so it is unit-testable without a real browser (the
 // same split service-worker.ts/sw-actions.ts already uses).
 
+import { t } from "./i18n";
+
 /** The subset of browser feature-detection the availability check needs. */
 export interface PushEnv {
   isSecureContext: boolean;
@@ -52,20 +54,20 @@ export function pushAvailability(env: PushEnv): PushAvailability {
   if (!env.isSecureContext)
     return {
       available: false,
-      reason: "Open Lectern over https to enable alerts.",
+      reason: t("app.push.insecure"),
       reasonKind: "insecure",
     };
   if (env.isIOS && !env.isStandalone)
     return {
       available: false,
       reason:
-        "On iPhone/iPad, add Lectern to the Home Screen first (Share → Add to Home Screen), then enable alerts from there.",
+        t("app.push.iosNotInstalled"),
       reasonKind: "ios-not-installed",
     };
   if (!env.hasServiceWorker || !env.hasPushManager || !env.hasNotification)
     return {
       available: false,
-      reason: "This browser does not support push notifications.",
+      reason: t("app.push.unsupported"),
       reasonKind: "unsupported",
     };
   return { available: true };

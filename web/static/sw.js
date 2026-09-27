@@ -2159,7 +2159,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-5e7b3b289bd6";
+  var CACHE = "lectern-react-c3c1f092d410";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2208,7 +2208,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-DTD3Kwbq.js","/react/assets/app-CMQy0b9R.css","/react/assets/app-DmsB-NhH.js","/react/assets/preload-helper-BU7C2_L5.js","/react/assets/preload-helper-CukFqlpT.css","/react/assets/terminal-CPQMNc6F.js","/react/assets/terminal-DJ1e7Qp2.css"]);
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-F8sifXmn.js","/react/assets/app-CfZg_V1f.css","/react/assets/app-DbDblDtw.js","/react/assets/es-BKAJwGnt.js","/react/assets/fr-QhAYzC4o.js","/react/assets/ja-DCPXoUzY.js","/react/assets/ko-CiIvgPNK.js","/react/assets/terminal-B1Ym-mEy.css","/react/assets/terminal-DRlr8GN_.js","/react/assets/tokens-2CN3aJyQ.css","/react/assets/tokens-CqDR7v4P.js","/react/assets/zh-DGi-wP-b.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

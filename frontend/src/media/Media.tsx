@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { withToken, type createDeckApi } from "../api";
 import type { LiveView, Media as MediaRow, Target } from "../types";
 import { Live, liveAddress } from "./Live";
+import { t, useLocale } from "../i18n";
 import "./media.css";
 
 type Api = ReturnType<typeof createDeckApi>;
@@ -12,10 +13,10 @@ export const mediaContent = (row: MediaRow, download = false) =>
 
 function ago(at: number) {
   const seconds = Math.max(0, Date.now() / 1000 - at);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return Math.floor(seconds / 60) + "m ago";
-  if (seconds < 86400) return Math.floor(seconds / 3600) + "h ago";
-  return Math.floor(seconds / 86400) + "d ago";
+  if (seconds < 60) return t("board.claims.justNow");
+  if (seconds < 3600) return t("board.claims.minutesAgo", { n: Math.floor(seconds / 60) });
+  if (seconds < 86400) return t("board.claims.hoursAgo", { n: Math.floor(seconds / 3600) });
+  return t("board.media.daysAgo", { n: Math.floor(seconds / 86400) });
 }
 
 function bytes(size: number) {
@@ -45,21 +46,23 @@ export function reachable(url: string, here: Location = location) {
 }
 
 function TextPreview({ row }: { row: MediaRow }) {
+  useLocale();
   const [text, setText] = useState<string>();
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     const abort = new AbortController();
     fetch(mediaContent(row), { signal: abort.signal, headers: { Range: "bytes=0-65535" } })
       .then((response) => response.text())
       .then(setText)
       .catch(() => {
-        if (!abort.signal.aborted) setText("Could not load this file.");
+        if (!abort.signal.aborted) setFailed(true);
       });
     return () => abort.abort();
   }, [row.id]);
   return (
     <pre className="media-text">
-      {text ?? "Loading…"}
-      {row.size > 65536 && text !== undefined ? "\n… truncated; download for the rest" : ""}
+      {text ?? (failed ? t("board.media.loadFailed") : t("board.media.loading"))}
+      {row.size > 65536 && (text !== undefined || failed) ? t("board.media.truncated") : ""}
     </pre>
   );
 }
@@ -84,6 +87,7 @@ function Body({
   exposed?: LiveView;
   onExpose?: (port: number) => void;
 }) {
+  useLocale();
   const [live, setLive] = useState(false);
   if (row.kind === "link") {
     const port = loopbackPort(row.url);
@@ -98,8 +102,7 @@ function Body({
             {href}
           </a>
           <small>
-            Posted as {row.url}, which only that machine can open. It is exposed above until you
-            stop it.
+            {t("board.media.postedExposed", { url: row.url })}
           </small>
         </div>
       );
@@ -109,7 +112,7 @@ function Body({
       <div className="media-link">
         {port > 0 && onExpose && (
           <button className="b ok media-expose" onClick={() => onExpose(port)}>
-            Expose localhost:{port} so this device can open it
+            {t("board.media.exposePort", { port })}
           </button>
         )}
         <a href={target.href} target="_blank" rel="noopener noreferrer">
@@ -117,16 +120,15 @@ function Body({
         </a>
         {target.rewritten && (
           <small>
-            Posted as {row.url}. It opens on this server's address, so the site has
-            to listen on 0.0.0.0 rather than on loopback alone.
+            {t("board.media.postedRewritten", { url: row.url })}
           </small>
         )}
         {target.embeddable ? (
           <button className="b" aria-expanded={live} onClick={() => setLive(!live)}>
-            {live ? "Hide live preview" : "Show live preview"}
+            {live ? t("board.media.hideLivePreview") : t("board.media.showLivePreview")}
           </button>
         ) : (
-          <small>This page is secure and the site is not, so it opens in a new tab.</small>
+          <small>{t("board.media.insecureSite")}</small>
         )}
         {live && target.embeddable && (
           <iframe className="media-frame" title={row.title} src={target.href} />
@@ -156,16 +158,17 @@ function Body({
     );
   if (row.mime.startsWith("text/") || /json|xml|yaml|javascript/.test(row.mime))
     return <TextPeek row={row} />;
-  return <p className="media-file">{row.name} cannot be previewed here; download it to open it.</p>;
+  return <p className="media-file">{t("board.media.noPreview", { name: row.name })}</p>;
 }
 
 // The file is fetched only once the disclosure opens, so a feed of logs costs
 // no requests until someone asks for one.
 function TextPeek({ row }: { row: MediaRow }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   return (
     <details className="media-peek" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Preview {row.name}</summary>
+      <summary>{t("board.media.previewFile", { name: row.name })}</summary>
       {open && <TextPreview row={row} />}
     </details>
   );
@@ -193,33 +196,34 @@ export function Media({
   onChanged: () => void;
   onNotice: (text: string, error?: boolean) => void;
 }) {
+  const locale = useLocale();
   const posters = useMemo(() => {
     const seen = new Map<number, string>();
     for (const row of rows)
       if (row.session_id != null && !seen.has(row.session_id))
-        seen.set(row.session_id, row.session_name || "Session " + row.session_id);
+        seen.set(row.session_id, row.session_name || t("board.media.session", { id: row.session_id }));
     return [...seen];
-  }, [rows]);
+  }, [rows, locale]);
   const shown = sessionFilter == null ? rows : rows.filter((row) => row.session_id === sessionFilter);
   return (
     <section id="media">
       <div className="pane-head">
         <div>
-          <h2>Media</h2>
+          <h2>{t("board.media.title")}</h2>
           <p className="sub">
             {rows.length
-              ? `${rows.length} posted · recordings, files and live sites your agents want you to see.`
-              : "Nothing posted yet."}
+              ? t("board.media.summary", { n: rows.length })
+              : t("board.media.nothingPosted")}
           </p>
         </div>
         <label className="media-filter" hidden={!posters.length}>
-          From
+          {t("board.media.from")}
           <select
-            aria-label="Show media from"
+            aria-label={t("board.media.showFrom")}
             value={sessionFilter ?? ""}
             onChange={(event) => onFilter(event.target.value ? Number(event.target.value) : null)}
           >
-            <option value="">Every session</option>
+            <option value="">{t("board.media.everySession")}</option>
             {posters.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
@@ -234,8 +238,7 @@ export function Media({
       {!rows.length && (
         <div className="media-empty">
           <p>
-            Agents post here with the <code>post_media</code> tool — ask one to “record a demo and
-            post it”. From a shell, inside a session or not:
+            {t("board.media.emptyBefore")}<code>post_media</code>{t("board.media.emptyAfter")}
           </p>
           <pre>lectern post ./demo.mp4 --title "Checkout flow passing"{"\n"}lectern post http://127.0.0.1:5173 --title "Dev server"</pre>
         </div>
@@ -248,12 +251,12 @@ export function Media({
               <div className="media-meta">
                 {row.session_id != null ? (
                   <button className="chip" onClick={() => onFilter(row.session_id)}>
-                    {row.session_name || "Session " + row.session_id}
+                    {row.session_name || t("board.media.session", { id: row.session_id })}
                   </button>
                 ) : (
-                  <span className="chip">no session</span>
+                  <span className="chip">{t("board.media.noSession")}</span>
                 )}
-                <span className="chip">{row.kind === "link" ? "link" : bytes(row.size)}</span>
+                <span className="chip">{row.kind === "link" ? t("board.media.link") : bytes(row.size)}</span>
                 <span className="media-when">{ago(row.created_at)}</span>
               </div>
             </header>
@@ -283,21 +286,21 @@ export function Media({
             <footer>
               {row.kind === "file" && (
                 <a className="b" href={mediaContent(row, true)}>
-                  Download
+                  {t("board.media.download")}
                 </a>
               )}
               <button
                 className="b danger"
-                aria-label={"Delete " + (row.title || row.name)}
+                aria-label={t("board.media.deleteLabel", { title: row.title || row.name })}
                 onClick={() => {
-                  if (!confirm("Delete this post? The file is removed from Lectern.")) return;
+                  if (!confirm(t("board.media.deleteConfirm"))) return;
                   void api
                     .request<null>(`/media/${row.id}`, { method: "DELETE" })
                     .then(onChanged)
                     .catch((error) => onNotice(String(error), true));
                 }}
               >
-                Delete
+                {t("board.media.delete")}
               </button>
             </footer>
           </article>

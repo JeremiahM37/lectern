@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { t, useLocale } from "../i18n";
 import { Markdown } from "../sessions/markdown";
 import { errorText, issuePath, type Notice, type TrackerApi } from "./api";
 import { Labels, NamePicker, ReactionBar, StatePill, Timeline } from "./bits";
@@ -29,6 +30,7 @@ export function IssuePage({
   onChanged(): void;
   onStarted(result: StartedWork): void;
 }) {
+  useLocale();
   const forge = isForge(item.source);
   const [issue, setIssue] = useState<IssueDetail>();
   const [error, setError] = useState("");
@@ -78,7 +80,7 @@ export function IssuePage({
       if (fresh && "id" in fresh) setIssue(fresh);
       else await load();
       setEditing(undefined);
-      onNotice("Description saved");
+      onNotice(t("trackers.issue.descriptionSaved"));
       onChanged();
     } catch (e) {
       onNotice(errorText(e), true);
@@ -89,13 +91,13 @@ export function IssuePage({
 
   const head = (
     <div className="th-detail-bar">
-      <button className="b th-back" onClick={onClose} aria-label="Back to the list">
-        ←<span> Back</span>
+      <button className="b th-back" onClick={onClose} aria-label={t("trackers.detail.backToList")}>
+        ←<span> {t("trackers.detail.back")}</span>
       </button>
-      <span className="th-detail-kind">{SOURCE_NAME[item.source]} issue</span>
+      <span className="th-detail-kind">{t("trackers.issue.kind", { source: SOURCE_NAME[item.source] })}</span>
       {issue && (
         <a className="b" href={issue.url} target="_blank" rel="noreferrer">
-          Open ↗
+          {t("trackers.detail.openExternal")}
         </a>
       )}
     </div>
@@ -105,17 +107,17 @@ export function IssuePage({
       <div className="th-detail-inner">
         {head}
         <p className="th-error" role="alert">{error}</p>
-        <button className="b" onClick={() => void load()}>Retry</button>
+        <button className="b" onClick={() => void load()}>{t("trackers.detail.retry")}</button>
       </div>
     );
   if (!issue)
     return (
       <div className="th-detail-inner">
         {head}
-        <p className="th-muted">Loading {itemMark(item)}…</p>
+        <p className="th-muted">{t("trackers.detail.loading", { mark: itemMark(item) })}</p>
       </div>
     );
-  const statusID = issue.transitions.find((t) => t.name === issue.state || t.name.endsWith(`→ ${issue.state}`))?.id || "";
+  const statusID = issue.transitions.find((tr) => tr.name === issue.state || tr.name.endsWith(`→ ${issue.state}`))?.id || "";
   return (
     <div className="th-detail-inner" data-issue={issue.id}>
       {head}
@@ -127,47 +129,47 @@ export function IssuePage({
           <StatePill item={issue} />
           {issue.author && (
             <span>
-              opened by <b>{issue.author}</b>
+              {t("trackers.issue.openedBy")} <b>{issue.author}</b>
             </span>
           )}
-          {issue.assignees.length > 0 && <span>assigned to {issue.assignees.join(", ")}</span>}
+          {issue.assignees.length > 0 && <span>{t("trackers.issue.assignedTo", { names: issue.assignees.join(", ") })}</span>}
           {issue.priority && <span className="th-badge">{issue.priority}</span>}
-          <span className="th-muted">updated {ago(issue.updated_at)}</span>
+          <span className="th-muted">{t("trackers.detail.updated", { ago: ago(issue.updated_at) })}</span>
           <ReactionBar reactions={issue.reactions} label={itemMark(issue)}
-            onReact={canReact(item.source) ? async (emoji) => { await post("reactions", { emoji }, "Reaction added"); } : undefined} />
+            onReact={canReact(item.source) ? async (emoji) => { await post("reactions", { emoji }, t("trackers.notice.reactionAdded")); } : undefined} />
         </div>
       </header>
 
-      <section className="th-section th-mergebox" aria-label="Work on this">
+      <section className="th-section th-mergebox" aria-label={t("trackers.issue.workOnThis")}>
         <div className="btnrow">
           <button className="b ok grow" id="th-start" onClick={() => setStarting(true)}>
-            Start session or task
+            {t("trackers.issue.startSessionOrTask")}
           </button>
           {forge && (
-            <button className={`b ${issue.state === "open" ? "no" : ""}`} disabled={busy} onClick={() => void post("state", { open: issue.state !== "open" }, issue.state === "open" ? "Closed" : "Reopened")}>
-              {issue.state === "open" ? "Close issue" : "Reopen"}
+            <button className={`b ${issue.state === "open" ? "no" : ""}`} disabled={busy} onClick={() => void post("state", { open: issue.state !== "open" }, issue.state === "open" ? t("trackers.notice.closed") : t("trackers.notice.reopened"))}>
+              {issue.state === "open" ? t("trackers.issue.closeIssue") : t("trackers.reopen")}
             </button>
           )}
         </div>
         <p className="th-muted th-branch-hint">
-          Suggested branch <code className="th-branch">{issue.branch_name}</code>
+          {t("trackers.issue.suggestedBranch")} <code className="th-branch">{issue.branch_name}</code>
         </p>
         {!forge && issue.transitions.length > 0 && (
           <label className="th-status-pick">
-            {item.source === "jira" ? "Move with transition" : "Status"}
+            {item.source === "jira" ? t("trackers.issue.moveWithTransition") : t("trackers.issue.status")}
             <select
-              aria-label="Status"
+              aria-label={t("trackers.issue.status")}
               value={item.source === "linear" ? statusID : ""}
               disabled={busy}
               onChange={(e) => {
-                const t = issue.transitions.find((x) => x.id === e.target.value);
-                if (t) void post("status", { id: t.id }, `Moved to ${t.name}`);
+                const tr = issue.transitions.find((x) => x.id === e.target.value);
+                if (tr) void post("status", { id: tr.id }, t("trackers.issue.movedTo", { name: tr.name }));
               }}
             >
-              {item.source === "jira" && <option value="">{issue.state} — choose…</option>}
-              {issue.transitions.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+              {item.source === "jira" && <option value="">{t("trackers.issue.chooseTransition", { state: issue.state })}</option>}
+              {issue.transitions.map((tr) => (
+                <option key={tr.id} value={tr.id}>
+                  {tr.name}
                 </option>
               ))}
             </select>
@@ -176,10 +178,10 @@ export function IssuePage({
       </section>
 
       {(issue.parent_item || issue.children.length > 0) && (
-        <section className="th-section" aria-label="Related issues">
+        <section className="th-section" aria-label={t("trackers.issue.related")}>
           {issue.parent_item && (
             <>
-              <h3>Parent</h3>
+              <h3>{t("trackers.issue.parent")}</h3>
               <button className="th-link-row" onClick={() => onOpen({ ...item, id: issue.parent_item!.id })}>
                 <span className="th-num">{issue.parent_item.id}</span> {issue.parent_item.title}
               </button>
@@ -188,7 +190,13 @@ export function IssuePage({
           {issue.children.length > 0 && (
             <>
               <h3>
-                Sub-issues <span className="th-muted">{issue.children.filter((c) => ["completed", "done"].includes(c.status_type || "")).length}/{issue.children.length} done</span>
+                {t("trackers.issue.subIssues")}{" "}
+                <span className="th-muted">
+                  {t("trackers.issue.subIssuesDone", {
+                    done: issue.children.filter((c) => ["completed", "done"].includes(c.status_type || "")).length,
+                    total: issue.children.length,
+                  })}
+                </span>
               </h3>
               <ul className="th-children">
                 {issue.children.map((c) => (
@@ -204,26 +212,26 @@ export function IssuePage({
         </section>
       )}
 
-      <section className="th-section" aria-label="Labels">
-        <h3>Labels</h3>
-        <Labels labels={issue.labels} onRemove={forge ? (name) => void post("labels", { remove: [name] }, `Removed ${name}`) : undefined} />
-        {!issue.labels.length && <p className="th-muted">None.</p>}
+      <section className="th-section" aria-label={t("trackers.labels")}>
+        <h3>{t("trackers.labels")}</h3>
+        <Labels labels={issue.labels} onRemove={forge ? (name) => void post("labels", { remove: [name] }, t("trackers.notice.removed", { name })) : undefined} />
+        {!issue.labels.length && <p className="th-muted">{t("trackers.labels.none")}</p>}
         {forge && (
           <NamePicker
-            label="Add label"
+            label={t("trackers.labels.add")}
             busy={busy}
             options={(meta?.labels || []).filter((l) => !issue.labels.some((x) => x.name === l.name)).map((l) => ({ value: l.name }))}
-            onPick={(name) => void post("labels", { add: [name] }, `Labelled ${name}`)}
+            onPick={(name) => void post("labels", { add: [name] }, t("trackers.notice.labelled", { name }))}
           />
         )}
       </section>
 
-      <section className="th-section th-desc" aria-label="Description">
+      <section className="th-section th-desc" aria-label={t("trackers.description")}>
         <h3>
-          Description
+          {t("trackers.description")}
           {issue.editable && editing === undefined && (
             <button type="button" className="b th-edit-btn" onClick={() => { setEditing(issue.body); setLossyOK(false); }}>
-              Edit
+              {t("trackers.issue.edit")}
             </button>
           )}
         </h3>
@@ -238,32 +246,32 @@ export function IssuePage({
             {issue.body_lossy && (
               <label className="th-warn th-check">
                 <input type="checkbox" checked={lossyOK} onChange={(e) => setLossyOK(e.target.checked)} />
-                This description has formatting the editor cannot keep (a table, panel, colour or attachment). Saving replaces it.
+                {t("trackers.issue.lossyWarning")}
               </label>
             )}
-            <RichEditor label="Description" value={editing} onChange={setEditing} rows={10} autoFocus />
+            <RichEditor label={t("trackers.description")} value={editing} onChange={setEditing} rows={10} autoFocus />
             <div className="btnrow">
               <button className="b ok" type="submit" disabled={busy || (issue.body_lossy && !lossyOK)}>
-                {busy ? "Saving…" : "Save description"}
+                {busy ? t("trackers.issue.saving") : t("trackers.issue.saveDescription")}
               </button>
               <button className="b" type="button" onClick={() => setEditing(undefined)}>
-                Cancel
+                {t("trackers.cancel")}
               </button>
             </div>
           </form>
         ) : (
-          <div className="th-md">{issue.body ? <Markdown text={issue.body} /> : <p className="th-muted">No description.</p>}</div>
+          <div className="th-md">{issue.body ? <Markdown text={issue.body} /> : <p className="th-muted">{t("trackers.description.none")}</p>}</div>
         )}
       </section>
 
-      <section className="th-section" aria-label="Comments">
-        <h3>Comments</h3>
+      <section className="th-section" aria-label={t("trackers.issue.comments")}>
+        <h3>{t("trackers.issue.comments")}</h3>
         <Timeline
           events={issue.timeline}
           onComment={async (body) => {
-            await post("comments", { body }, "Comment posted");
+            await post("comments", { body }, t("trackers.notice.commentPosted"));
           }}
-          onReact={canReact(item.source) ? async (subject, emoji) => { await post("reactions", { subject, emoji }, "Reaction added"); } : undefined}
+          onReact={canReact(item.source) ? async (subject, emoji) => { await post("reactions", { subject, emoji }, t("trackers.notice.reactionAdded")); } : undefined}
         />
       </section>
 

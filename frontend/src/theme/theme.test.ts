@@ -101,3 +101,16 @@ test("an unrecognisable file is an error, not a half theme", () => {
   assert.throws(() => importTerminalTheme("hello world"), /background and foreground/);
   assert.throws(() => importTerminalTheme("background #000\nforeground #fff\ncolor0 #000"), /ANSI/);
 });
+
+test("white text on the accent button fill, and badge text on status fills, read in both themes", () => {
+  for (const mode of ["dark", "light"] as const)
+    for (const accent of ACCENT_PRESETS.map((preset) => preset.value)) {
+      const tokens = themeTokens(mode, accent);
+      assert.ok(contrast(tokens["on-accent"], tokens["accent-fill"]) >= 4.5, `${mode} ${accent} on-accent/accent-fill`);
+    }
+  for (const mode of ["dark", "light"] as const) {
+    const tokens = themeTokens(mode);
+    for (const fill of ["amber", "green", "red", "cyan", "accent-soft"] as const)
+      assert.ok(contrast(tokens["on-fill"], tokens[fill]) >= 4.5, `${mode} on-fill/${fill}: ${contrast(tokens["on-fill"], tokens[fill]).toFixed(2)}`);
+  }
+});

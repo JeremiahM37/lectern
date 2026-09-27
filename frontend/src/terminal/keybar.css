@@ -44,7 +44,7 @@
   background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 .keybar-spoken { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.keybar-remove { color: var(--red, #ff9aa5); }
+.keybar-remove { color: var(--red); }
 .keybar-palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
 .keybar-palette button { min-width: 44px; min-height: 38px; font-family: ui-monospace, monospace; }
 .keybar-combo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 14px; }

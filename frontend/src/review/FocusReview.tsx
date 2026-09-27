@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { t, useLocale } from "../i18n";
 
 export interface FocusFile {
   key: string;
@@ -62,6 +63,7 @@ export function FocusReview({
   renderFile(i: number): ReactNode;
   footer?: ReactNode;
 }) {
+  useLocale();
   const body = useRef<HTMLDivElement>(null);
   const [pendingEdge, setPendingEdge] = useState<"first" | "last" | undefined>();
   const file = files[index];
@@ -122,14 +124,14 @@ export function FocusReview({
   if (!file) return null;
   const viewedCount = files.filter((f) => f.viewed).length;
   return (
-    <div className="focus-review" role="region" aria-label="Review one file at a time">
+    <div className="focus-review" role="region" aria-label={t("review.focus.label")}>
       <header className="focus-bar">
-        <button type="button" className="b" aria-label="Leave file-by-file review" onClick={onClose}>
+        <button type="button" className="b" aria-label={t("review.focus.leave")} onClick={onClose}>
           ✕
         </button>
         <div className="focus-title">
           <span className="focus-count">
-            File {index + 1} of {files.length} · {viewedCount} viewed
+            {t("review.focus.count", { index: index + 1, total: files.length, viewed: viewedCount })}
           </span>
           <span className="focus-path" title={file.label}>
             {file.label}
@@ -141,7 +143,7 @@ export function FocusReview({
           aria-pressed={file.viewed}
           onClick={markViewed}
         >
-          {file.viewed ? "✓ Viewed" : "Mark viewed"}
+          {file.viewed ? t("review.focus.viewed") : t("review.focus.markViewed")}
         </button>
       </header>
       <div className="focus-body" ref={body}>
@@ -149,13 +151,13 @@ export function FocusReview({
       </div>
       <footer className="focus-nav">
         <button type="button" className="b" disabled={index === 0} onClick={() => onIndex(index - 1)}>
-          ‹ File
+          {t("review.focus.prevFile")}
         </button>
         <button type="button" className="b" onClick={() => hunk(-1)}>
-          ▲ Prev hunk
+          {t("review.focus.prevHunk")}
         </button>
         <button type="button" className="b" onClick={() => hunk(1)}>
-          Next hunk ▼
+          {t("review.focus.nextHunk")}
         </button>
         <button
           type="button"
@@ -163,7 +165,7 @@ export function FocusReview({
           disabled={index >= files.length - 1}
           onClick={() => onIndex(index + 1)}
         >
-          File ›
+          {t("review.focus.nextFile")}
         </button>
         {footer}
       </footer>

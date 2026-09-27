@@ -17,6 +17,7 @@ import {
   MemoryTimelineEntry,
   useMemoryDeliveries,
 } from "../sessions/MemoryDeliveries";
+import { t, useLocale } from "../i18n";
 import "./board.css";
 
 export interface TaskDetailApi {
@@ -53,6 +54,7 @@ export function TaskDetail({
   onNotice(text: string, error?: boolean): void;
   refreshVersion?: number;
 }) {
+  useLocale();
   const [task, setTask] = useState<TaskView>();
   const [events, setEvents] = useState<Event[]>([]);
   const [attempt, setAttempt] = useState<number>();
@@ -87,7 +89,7 @@ export function TaskDetail({
         },
       );
       onNotice(
-        `Sent ${String(result.comments ?? comments.length)} comment(s) as request-changes feedback.`,
+        t("board.detail.reviewSent", { n: String(result.comments ?? comments.length) }),
       );
       setComments([]);
       setReviewSummary("");
@@ -105,13 +107,13 @@ export function TaskDetail({
   const memory = useMemoryDeliveries(api, "task", taskId, onNotice, true);
   async function load(signal?: AbortSignal, n = attempt) {
     const q = n ? `?attempt_n=${n}` : "";
-    const [t, e] = await Promise.all([
+    const [loaded, e] = await Promise.all([
       api.task(taskId, signal),
       api.request<Event[]>(`/tasks/${taskId}/events${q}`),
     ]);
-    setTask(t);
+    setTask(loaded);
     setEvents(e);
-    setAttempt((v) => v ?? t.attempt?.n);
+    setAttempt((v) => v ?? loaded.attempt?.n);
   }
   useEffect(() => {
     const c = new AbortController();
@@ -139,7 +141,7 @@ export function TaskDetail({
         });
         void api.task(taskId).then(setTask).catch(() => undefined);
       } catch {
-        onNotice("Could not read a live task event.", true);
+        onNotice(t("board.detail.badLiveEvent"), true);
       }
     });
     return () => stream.close();
@@ -173,7 +175,7 @@ export function TaskDetail({
   async function pickAttempt(n: number) {
     if (
       !confirm(
-        `Pick attempt #${n} as the winner? The other attempt(s)' worktrees will be removed.`,
+        t("board.detail.pickConfirm", { n }),
       )
     )
       return;
@@ -186,7 +188,7 @@ export function TaskDetail({
       setCompareOpen(false);
       await load();
       onChanged();
-      onNotice(`Attempt #${n} picked.`);
+      onNotice(t("board.detail.picked", { n }));
     } catch (e) {
       onNotice(String(e), true);
     } finally {
@@ -197,7 +199,7 @@ export function TaskDetail({
     setJudging(true);
     try {
       await api.request(`/tasks/${taskId}/judge`, { method: "POST" });
-      onNotice("Judge dispatched — its verdict will appear here when it finishes.");
+      onNotice(t("board.detail.judgeDispatched"));
     } catch (e) {
       onNotice(String(e), true);
     } finally {
@@ -232,23 +234,23 @@ export function TaskDetail({
   }
   if (!task)
     return (
-      <Modal id="sheet" open className="sheet" aria-label="Loading task" onCancel={onClose}>
-        <p aria-busy="true">Loading task…</p>
+      <Modal id="sheet" open className="sheet" aria-label={t("board.detail.loadingLabel")} onCancel={onClose}>
+        <p aria-busy="true">{t("board.detail.loading")}</p>
       </Modal>
     );
   const takeover = task.takeover;
   return (
-    <Modal id="sheet" open className="sheet task-detail" aria-label="Task details" onCancel={onClose}>
+    <Modal id="sheet" open className="sheet task-detail" aria-label={t("board.detail.label")} onCancel={onClose}>
       <header className="sheet-head">
         <h2>{task.title}</h2>
         <button className="x" onClick={onClose}>✕</button>
       </header>
       <div className={`statline s-${task.status}`}>
-        <span className={`statpill s-${task.status}`}>{task.status}</span> · {task.project_name} → {task.target_name}
+        <span className={`statpill s-${task.status}`}>{t(`board.status.${task.status}`, undefined, task.status)}</span> · {task.project_name} → {task.target_name}
         {task.attempt && (
           <>
             {" "}
-            · attempt #{task.attempt.n}
+            · {t("board.compare.attemptN", { n: task.attempt.n })}
             {task.attempt.branch && (
               <>
                 {" "}
@@ -274,19 +276,19 @@ export function TaskDetail({
         return (
           <div className="usage-line">
             {u.costUSD != null && (
-                        <span className="chip cost" title={u.costEstimated ? "Estimated from the model price table" : undefined}>
+                        <span className="chip cost" title={u.costEstimated ? t("board.usage.costEstimated") : undefined}>
                           {formatResultCost(u)}
                         </span>
                       )}
             {u.costUSD == null && u.outputTokens != null && (
-              <span className="chip">{formatTokens(u.outputTokens)} tok</span>
+              <span className="chip">{t("board.usage.tokens", { tokens: formatTokens(u.outputTokens) })}</span>
             )}
             {u.contextPct != null && (
               <span
                 className={`ctxbar ctx-used ${contextClass(u.contextPct)}`}
-                title={`${formatTokens(u.contextTokens)} / ${formatTokens(u.contextSize)} tokens used`}
+                title={t("board.usage.contextUsed", { used: formatTokens(u.contextTokens), size: formatTokens(u.contextSize) })}
               >
-                ctx <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
+                {t("board.usage.ctx")} <i><b style={{ width: `${u.contextPct}%` }} /></i> {u.contextPct}%
               </span>
             )}
           </div>
@@ -303,8 +305,8 @@ export function TaskDetail({
                 void pick(a.n);
               }}
             >
-              ⑂ A{a.n}
-              {a.model && ` · ${a.model}`} · {a.status}
+              {t("board.detail.attemptShort", { n: a.n })}
+              {a.model && ` · ${a.model}`} · {t(`board.status.${a.status}`, undefined, a.status)}
               {a.cost_usd != null && ` · $${Number(a.cost_usd).toFixed(2)}`}
             </button>
           ))}
@@ -312,7 +314,7 @@ export function TaskDetail({
             className={compareOpen ? "b ok" : "b"}
             onClick={() => setCompareOpen((v) => !v)}
           >
-            ⊞ Compare
+            {t("board.detail.compare")}
           </button>
         </div>
       )}
@@ -336,11 +338,11 @@ export function TaskDetail({
               : onChat(task)
           }
         >
-          {takeover?.status === "ready" ? "Open session" : "Chat"}
+          {takeover?.status === "ready" ? t("board.detail.openSession") : t("board.card.chat")}
         </button>
         {takeover?.status === "failed" && (
           <button className="b warn" onClick={() => void act("takeover")}>
-            Retry takeover
+            {t("board.detail.retryTakeover")}
           </button>
         )}
         {!takeover &&
@@ -350,7 +352,7 @@ export function TaskDetail({
           ) &&
           task.target_kind !== "sandbox" && (
             <button className="b ok" onClick={() => void act("takeover")}>
-              Take over as session
+              {t("board.detail.takeOver")}
             </button>
           )}
         {!takeover &&
@@ -360,7 +362,7 @@ export function TaskDetail({
               disabled={busy}
               onClick={() => void act("dispatch")}
             >
-              {task.status === "backlog" ? "▶ Dispatch" : "↻ Retry"}
+              {task.status === "backlog" ? t("board.detail.dispatch") : t("board.detail.retry")}
             </button>
           )}
         {!takeover && ["queued", "running"].includes(task.status) && (
@@ -369,42 +371,42 @@ export function TaskDetail({
             disabled={busy}
             onClick={() => void act("cancel")}
           >
-            ■ Cancel
+            {t("board.detail.cancel")}
           </button>
         )}
         {!takeover && task.status === "review" && (
           <>
             <button className="b ok" onClick={() => void act("complete")}>
-              ✓ Mark done
+              {t("board.detail.markDone")}
             </button>
             <button
               className="b warn"
               onClick={() => {
-                const feedback = prompt("What should change?");
+                const feedback = prompt(t("board.detail.whatShouldChange"));
                 if (feedback) void act("followup", { feedback });
               }}
             >
-              ↺ Request changes
+              {t("board.detail.requestChanges")}
             </button>
           </>
         )}
         {["review", "done"].includes(task.status) && (
           <>
             <button className="b" onClick={() => void toggleDiff()}>
-              {diffOpen ? "Timeline" : "± Diff"}
+              {diffOpen ? t("board.detail.timeline") : t("board.detail.diff")}
             </button>
             <button
               className="b"
               onClick={() => {
-                const message = prompt("Commit message:", task.title);
+                const message = prompt(t("board.detail.commitMessage"), task.title);
                 if (message == null) return;
-                const push = confirm("Also push the branch to origin?");
+                const push = confirm(t("board.detail.pushConfirm"));
                 const pr =
-                  push && confirm("…and open a PR (needs gh on the target)?");
+                  push && confirm(t("board.detail.prConfirm"));
                 void act("commit", { message, push, pr });
               }}
             >
-              ⎇ Commit
+              {t("board.detail.commit")}
             </button>
           </>
         )}
@@ -415,11 +417,11 @@ export function TaskDetail({
               className="b"
               onClick={() =>
                 confirm(
-                  "Remove the worktree(s)? Uncommitted changes are lost.",
+                  t("board.detail.cleanConfirm"),
                 ) && void act("cleanup")
               }
             >
-              Clean worktree
+              {t("board.detail.clean")}
             </button>
           )}
         {task.status === "running" && task.attempt?.tmux_session && (
@@ -437,14 +439,14 @@ export function TaskDetail({
                 .catch((e) => onNotice(String(e), true))
             }
           >
-            ⌨ Terminal
+            {t("board.detail.terminal")}
           </button>
         )}
         <button
           className="b no"
           onClick={() =>
             confirm(
-              `Delete “${task.title}”? Removes its attempts, events, diffs and worktrees. Cannot be undone.`,
+              t("board.detail.deleteConfirm", { title: task.title }),
             ) &&
             void api
               .request(`/tasks/${task.id}`, { method: "DELETE" })
@@ -454,7 +456,7 @@ export function TaskDetail({
               })
           }
         >
-          Delete
+          {t("board.detail.delete")}
         </button>
       </div>
       <MemorySection state={memory} />
@@ -469,22 +471,22 @@ export function TaskDetail({
           <input
             type="text"
             className="steer-input"
-            placeholder="Send a message to the running agent…"
+            placeholder={t("board.detail.steerPlaceholder")}
             value={steerText}
             onChange={(e) => setSteerText(e.target.value)}
           />
           <button className="b ok" type="submit" disabled={busy || !steerText.trim()}>
-            Send
+            {t("board.detail.send")}
           </button>
         </form>
       )}
       {takeover && (
         <p className="subhint">
           {takeover.status === "ready"
-            ? "Continued in an interactive session."
+            ? t("board.detail.takeoverReady")
             : takeover.status === "failed"
               ? takeover.error
-              : "Taking over this run… Its worktree is preserved."}
+              : t("board.detail.takingOver")}
         </p>
       )}
       {!diffOpen ? (
@@ -502,7 +504,7 @@ export function TaskDetail({
           ))}
           {events.length === 0 && task.prompt && (
             <article className="ev">
-              <div className="k">prompt</div>
+              <div className="k">{t("board.detail.promptLabel")}</div>
               <pre>{task.prompt}</pre>
             </article>
           )}
@@ -513,15 +515,14 @@ export function TaskDetail({
       ) : (
         <>
           <header className="diffhead">
-            attempt #{diff?.attempt_n} · {diff?.stats.length ?? 0} file(s)
-            changed{" "}
+            {t("board.detail.diffHead", { n: diff?.attempt_n ?? "", files: diff?.stats.length ?? 0 })}{" "}
             <DiffModeToggle mode={diffMode} onChange={setDiffMode} />
             <button
               className={"wrapbtn" + (wrap ? " on" : "")}
               aria-pressed={wrap}
               onClick={() => setWrap(!wrap)}
             >
-              ⏎ wrap: {wrap ? "on" : "off"}
+              {t("board.detail.wrap", { state: wrap ? t("board.detail.wrapOn") : t("board.detail.wrapOff") })}
             </button>
           </header>
           <DiffViewer
@@ -541,7 +542,7 @@ export function TaskDetail({
               onRemove={removeComment}
               onSend={() => void sendReview()}
               busy={reviewSending}
-              sendLabel="Send as request-changes feedback"
+              sendLabel={t("board.detail.sendReview")}
             />
           )}
         </>
@@ -551,24 +552,25 @@ export function TaskDetail({
 }
 
 function EventRow({ event }: { event: Event }) {
+  useLocale();
   const p = event.payload;
   const label =
     event.type === "init"
-      ? "session start"
+      ? t("board.event.sessionStart")
       : event.type === "text"
-        ? "agent"
+        ? t("board.event.agent")
         : event.type === "tool_use"
-          ? "tool"
+          ? t("board.event.tool")
           : event.type === "tool_result"
-            ? `↳ result${p.is_error ? " · ERROR" : ""}`
+            ? t("board.event.result") + (p.is_error ? t("board.event.error") : "")
             : event.type === "verify"
-              ? `auto-verify · ${p.rc === 0 ? "PASS ✓" : "FAIL ✗"}`
+              ? t("board.event.autoVerify", { outcome: p.rc === 0 ? t("board.event.pass") : t("board.event.fail") })
               : event.type === "review_verdict"
-                ? `reviewer verdict · ${String(p.verdict ?? "")}`
+                ? t("board.event.reviewerVerdict", { verdict: String(p.verdict ?? "") })
                 : event.type === "result"
-                  ? `finished · ${String(p.subtype ?? "")}`
+                  ? t("board.event.finished", { subtype: String(p.subtype ?? "") })
                   : event.type === "rate_limit"
-                    ? "usage limit"
+                    ? t("board.event.usageLimit")
                     : event.type;
   const body =
     event.type === "text"
@@ -586,7 +588,7 @@ function EventRow({ event }: { event: Event }) {
                 : event.type === "error"
                   ? String(p.message ?? "")
                   : event.type === "rate_limit"
-                    ? `Stopped by the usage limit${p.resets_at ? ` · resets ${new Date(Number(p.resets_at) * 1000).toLocaleString()}` : ""}`
+                    ? t("board.event.stoppedByLimit") + (p.resets_at ? t("board.event.resets", { when: new Date(Number(p.resets_at) * 1000).toLocaleString() }) : "")
                     : JSON.stringify(p).slice(0, 300);
   return (
     <article className={`ev e-${event.type}`}>

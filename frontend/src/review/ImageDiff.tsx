@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useStoredPref } from "./prefs";
+import { t, useLocale } from "../i18n";
 
 export type ImageSource = (path: string, side: "old" | "new") => Promise<string | undefined>;
 
 type Mode = "side" | "swipe" | "onion";
 const MODES: readonly Mode[] = ["side", "swipe", "onion"];
-const LABELS: Record<Mode, string> = { side: "2-up", swipe: "Swipe", onion: "Onion skin" };
+const LABELS = (): Record<Mode, string> => ({ side: t("review.image.side"), swipe: t("review.image.swipe"), onion: t("review.image.onion") });
 
 /**
  * Before/after for a changed image: two up, a swipe divider, or onion skin
@@ -14,6 +15,7 @@ const LABELS: Record<Mode, string> = { side: "2-up", swipe: "Swipe", onion: "Oni
  * per-device preference.
  */
 export function ImageDiff({ path, source }: { path: string; source: ImageSource }) {
+  useLocale();
   const [mode, setMode] = useStoredPref<Mode>("lec-imagediff", "side", MODES);
   const [images, setImages] = useState<{ old?: string; new?: string; error?: string }>();
   const [amount, setAmount] = useState(50);
@@ -28,13 +30,13 @@ export function ImageDiff({ path, source }: { path: string; source: ImageSource 
     };
   }, [path, source]);
 
-  if (!images) return <p className="sub img-diff-note">Loading images…</p>;
+  if (!images) return <p className="sub img-diff-note">{t("review.image.loading")}</p>;
   if (images.error) return <p className="sub error img-diff-note">{images.error}</p>;
   const both = images.old && images.new;
   return (
     <div className="img-diff" data-mode={both ? mode : "side"}>
       {both && (
-        <div className="img-diff-modes" role="group" aria-label="Image comparison">
+        <div className="img-diff-modes" role="group" aria-label={t("review.image.comparison")}>
           {MODES.map((m) => (
             <button
               key={m}
@@ -43,7 +45,7 @@ export function ImageDiff({ path, source }: { path: string; source: ImageSource 
               aria-pressed={mode === m}
               onClick={() => setMode(m)}
             >
-              {LABELS[m]}
+              {LABELS()[m]}
             </button>
           ))}
         </div>
@@ -51,22 +53,22 @@ export function ImageDiff({ path, source }: { path: string; source: ImageSource 
       {(!both || mode === "side") && (
         <div className="img-diff-side">
           <figure>
-            <figcaption>Before</figcaption>
-            {images.old ? <img src={images.old} alt={`${path} before`} /> : <p className="sub">New image</p>}
+            <figcaption>{t("review.image.before")}</figcaption>
+            {images.old ? <img src={images.old} alt={t("review.image.altBefore", { path })} /> : <p className="sub">{t("review.image.newImage")}</p>}
           </figure>
           <figure>
-            <figcaption>After</figcaption>
-            {images.new ? <img src={images.new} alt={`${path} after`} /> : <p className="sub">Deleted</p>}
+            <figcaption>{t("review.image.after")}</figcaption>
+            {images.new ? <img src={images.new} alt={t("review.image.altAfter", { path })} /> : <p className="sub">{t("review.image.deleted")}</p>}
           </figure>
         </div>
       )}
       {both && mode !== "side" && (
         <>
           <div className="img-diff-stack">
-            <img src={images.old} alt={`${path} before`} />
+            <img src={images.old} alt={t("review.image.altBefore", { path })} />
             <img
               src={images.new}
-              alt={`${path} after`}
+              alt={t("review.image.altAfter", { path })}
               className="img-diff-top"
               style={
                 mode === "swipe"
@@ -81,7 +83,7 @@ export function ImageDiff({ path, source }: { path: string; source: ImageSource 
             min={0}
             max={100}
             value={amount}
-            aria-label={mode === "swipe" ? "Swipe position" : "Opacity of the new image"}
+            aria-label={mode === "swipe" ? t("review.image.swipePosition") : t("review.image.opacity")}
             onChange={(e) => setAmount(Number(e.target.value))}
           />
         </>

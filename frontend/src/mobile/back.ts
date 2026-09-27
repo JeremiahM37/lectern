@@ -53,7 +53,7 @@ export function closeTopmost(root: Document = document): boolean {
       const cancel = new Event("cancel", { cancelable: true });
       dialog.dispatchEvent(cancel);
       if (!cancel.defaultPrevented) {
-        const button = dialog.querySelector<HTMLElement>("[data-close], button[aria-label='Close'], .modal-close, .sheet-close");
+        const button = dialog.querySelector<HTMLElement>("[data-close], .modal-close, .sheet-close");
         if (button) button.click();
         else dialog.close();
       }

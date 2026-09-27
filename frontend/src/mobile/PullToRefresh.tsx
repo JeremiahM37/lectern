@@ -2,7 +2,7 @@
 // has overscroll turned off (style.css), so the browser's own gesture never
 // competes; this one refreshes the data, not the whole page, and works the
 // same inside the Android app's WebView.
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { dragAxis, pullOffset, PULL_TRIGGER } from "./gestures";
 import { haptic, TOUCH_FIRST } from "./haptics";
@@ -12,6 +12,7 @@ import { haptic, TOUCH_FIRST } from "./haptics";
 const IGNORE = "textarea,input,select,dialog,[role=dialog],.xterm,.no-pull,.action-menu[open],[data-swipe-row]";
 
 export function PullToRefresh({ target, onRefresh }: { target: () => HTMLElement | null; onRefresh: () => Promise<unknown> }) {
+  useLocale();
   const indicator = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const latest = useRef(onRefresh);

@@ -1,5 +1,6 @@
 // Markdown formatting commands for RichEditor, kept pure so they are unit
 // tested (format.test.ts).
+import { t } from "../i18n";
 
 export type Format = "bold" | "italic" | "strike" | "code" | "link" | "heading" | "bullet" | "number" | "quote" | "codeblock";
 
@@ -9,19 +10,20 @@ export interface Edit {
   end: number;
 }
 
-const WRAP: Partial<Record<Format, [string, string, string]>> = {
-  bold: ["**", "**", "bold text"],
-  italic: ["*", "*", "italic text"],
-  strike: ["~~", "~~", "struck text"],
-  code: ["`", "`", "code"],
-};
+// The third item is the sample text inserted when nothing is selected.
+const WRAP = (): Partial<Record<Format, [string, string, string]>> => ({
+  bold: ["**", "**", t("trackers.format.hint.bold")],
+  italic: ["*", "*", t("trackers.format.hint.italic")],
+  strike: ["~~", "~~", t("trackers.format.hint.strike")],
+  code: ["`", "`", t("trackers.format.hint.code")],
+});
 
 /** Applies a format to text[start:end] and returns the new text with the
  * selection to restore. Wrapping formats toggle off when the selection is
  * already wrapped; line formats apply to every selected line. */
 export function applyFormat(text: string, start: number, end: number, f: Format): Edit {
   const sel = text.slice(start, end);
-  const wrap = WRAP[f];
+  const wrap = WRAP()[f];
   if (wrap) {
     const [open, close, hint] = wrap;
     if (text.slice(start - open.length, start) === open && text.slice(end, end + close.length) === close) {
@@ -31,16 +33,17 @@ export function applyFormat(text: string, start: number, end: number, f: Format)
     return { text: text.slice(0, start) + open + inner + close + text.slice(end), start: start + open.length, end: start + open.length + inner.length };
   }
   if (f === "link") {
-    const label = sel || "link text";
+    const label = sel || t("trackers.format.hint.link");
     const out = `[${label}](https://)`;
     const urlAt = start + label.length + 3;
     return { text: text.slice(0, start) + out + text.slice(end), start: urlAt, end: urlAt + 8 };
   }
   if (f === "codeblock") {
     const before = start > 0 && text[start - 1] !== "\n" ? "\n" : "";
-    const block = `${before}\`\`\`\n${sel || "code"}\n\`\`\`\n`;
+    const inner = sel || t("trackers.format.hint.code");
+    const block = `${before}\`\`\`\n${inner}\n\`\`\`\n`;
     const at = start + before.length + 4;
-    return { text: text.slice(0, start) + block + text.slice(end), start: at, end: at + (sel || "code").length };
+    return { text: text.slice(0, start) + block + text.slice(end), start: at, end: at + inner.length };
   }
   // line formats: extend the selection to whole lines
   const ls = text.lastIndexOf("\n", start - 1) + 1;

@@ -1,4 +1,5 @@
 import { Modal } from "../sessions/Modal";
+import { t, useLocale } from "../i18n";
 
 export interface PickableAgent {
   name: string;
@@ -15,13 +16,15 @@ export function AllAgentsPicker({
   agents,
   onPick,
   onClose,
-  title = "All agents",
+  title,
 }: {
   agents: PickableAgent[];
   onPick(name: string): void;
   onClose(): void;
   title?: string;
 }) {
+  useLocale();
+  title ??= t("app.allAgents.title");
   return (
     <Modal
       className="all-agents-picker"
@@ -32,7 +35,7 @@ export function AllAgentsPicker({
       }}
     >
       <h2>{title}</h2>
-      <button onClick={onClose}>Close</button>
+      <button onClick={onClose}>{t("app.allAgents.close")}</button>
       <ul className="all-agents-list">
         {agents.map((a) => (
           <li key={a.name}>
@@ -44,12 +47,12 @@ export function AllAgentsPicker({
               }}
             >
               {a.name}
-              {a.builtin ? " · built in" : ""}
+              {a.builtin ? t("app.allAgents.builtIn") : ""}
             </button>
           </li>
         ))}
       </ul>
-      {agents.length === 0 && <p>No agents are registered yet.</p>}
+      {agents.length === 0 && <p>{t("app.allAgents.none")}</p>}
     </Modal>
   );
 }

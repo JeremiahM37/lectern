@@ -2,6 +2,7 @@
 // agent was handed, when, and what each delivered record was. Framework-free
 // and dependency-free so the shapes are unit-testable without a DOM
 // (see memoryDelivery.test.ts).
+import { t } from "../i18n";
 
 export interface MemoryItem {
   id?: string;
@@ -26,40 +27,40 @@ export interface MemoryDelivery {
 // agent see this" is usually answered by "what was it permitted to search",
 // and the raw mode name is not a sentence. An unrecognised mode is shown as
 // itself rather than hidden — a newer store's mode is still information.
-const MODES: Record<string, string> = {
-  scoped: "this project's notes",
-  managed: "the project's own note",
-  all: "the whole store",
-  manual: "looked up by the agent itself",
-  off: "nothing",
-};
+const MODES = (): Record<string, string> => ({
+  scoped: t("sessions.memoryDelivery.mode.scoped"),
+  managed: t("sessions.memoryDelivery.mode.managed"),
+  all: t("sessions.memoryDelivery.mode.all"),
+  manual: t("sessions.memoryDelivery.mode.manual"),
+  off: t("sessions.memoryDelivery.mode.off"),
+});
 
 export function modeLabel(mode: string): string {
   const trimmed = (mode || "").trim();
   if (!trimmed) return "";
-  return MODES[trimmed] || trimmed;
+  return MODES()[trimmed] || trimmed;
 }
 
 // itemLabel is what to call one delivered record when its store did not send a
 // title. source (a note path) is the next most useful, and the id is the last
 // resort — an unnamed item is shown as something, never as nothing.
 export function itemLabel(item: MemoryItem): string {
-  return (item.title || "").trim() || (item.source || "").trim() || (item.id || "").trim() || "untitled memory";
+  return (item.title || "").trim() || (item.source || "").trim() || (item.id || "").trim() || t("sessions.memoryDelivery.untitled");
 }
 
 // formatBytes renders a delivery's size the way the header has room for:
 // exact bytes below a kilobyte, one decimal above it.
 export function formatBytes(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n) || n <= 0) return "0 B";
-  if (n < 1024) return `${Math.round(n)} B`;
+  if (n == null || !Number.isFinite(n) || n <= 0) return t("sessions.memoryDelivery.bytes", { size: 0 });
+  if (n < 1024) return t("sessions.memoryDelivery.bytes", { size: Math.round(n) });
   const kb = n / 1024;
-  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
+  if (kb < 1024) return t("sessions.memoryDelivery.kilobytes", { size: kb < 10 ? kb.toFixed(1) : Math.round(kb) });
+  return t("sessions.memoryDelivery.megabytes", { size: (kb / 1024).toFixed(1) });
 }
 
 export function itemCountLabel(n: number): string {
-  if (n <= 0) return "no items";
-  return n === 1 ? "1 item" : `${n} items`;
+  if (n <= 0) return t("sessions.memoryDelivery.noItems");
+  return t("sessions.memoryDelivery.items", { count: n });
 }
 
 // deliverySummary is the one-line reading of a delivery: how much went out,

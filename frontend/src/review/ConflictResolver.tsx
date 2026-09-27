@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { conflictCount, hasMarkers, parseConflicts, resolveConflicts, type Choice } from "./conflicts";
 import { ConfirmButton, type ReviewApi } from "./GitPanel";
+import { t, useLocale } from "../i18n";
 
 interface ConflictList {
   operation: string;
@@ -20,16 +21,30 @@ interface ConflictList {
   };
 }
 
-const CHOICES: { choice: Choice; label: string }[] = [
-  { choice: "ours", label: "Accept ours" },
-  { choice: "theirs", label: "Accept theirs" },
-  { choice: "both", label: "Accept both" },
+const CHOICES = (): { choice: Choice; label: string }[] => [
+  { choice: "ours", label: t("review.conflicts.acceptOurs") },
+  { choice: "theirs", label: t("review.conflicts.acceptTheirs") },
+  { choice: "both", label: t("review.conflicts.acceptBoth") },
 ];
 
 function choiceName(c: Choice | undefined): string {
   if (c === undefined) return "unresolved";
   if (typeof c === "object") return "edited";
   return { ours: "ours", theirs: "theirs", both: "both", "both-theirs-first": "both", base: "base" }[c];
+}
+
+// choiceName, as shown to the person (choiceName itself is also a data- value).
+function choiceLabel(c: Choice | undefined): string {
+  const labels: Record<string, string> = {
+    unresolved: t("review.conflicts.choice.unresolved"),
+    edited: t("review.conflicts.choice.edited"),
+    ours: t("review.conflicts.choice.ours"),
+    theirs: t("review.conflicts.choice.theirs"),
+    both: t("review.conflicts.choice.both"),
+    base: t("review.conflicts.choice.base"),
+  };
+  const name = choiceName(c);
+  return labels[name] ?? name;
 }
 
 /**
@@ -52,6 +67,7 @@ export function ConflictResolver({
   onResolved(): void;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const base = `/sessions/${sessionId}/git`;
   const [list, setList] = useState<ConflictList>();
   const [path, setPath] = useState("");
@@ -105,7 +121,7 @@ export function ConflictResolver({
     setBusy(true);
     try {
       await api.request(`${base}/resolve`, { method: "POST", body: { repo, path, ...body } });
-      onNotice(`Resolved ${path}.`);
+      onNotice(t("review.conflicts.resolved", { path }));
       setReload((n) => n + 1);
       onResolved();
     } catch (e) {
@@ -115,24 +131,25 @@ export function ConflictResolver({
     }
   }
 
-  if (!list) return <p className="sub">Loading conflicts…</p>;
+  if (!list) return <p className="sub">{t("review.conflicts.loading")}</p>;
   if (!list.files.length)
     return (
       <p className="sub conflicts-none">
         {list.operation
-          ? `No conflicts left. Commit to finish the ${list.operation}.`
-          : "No merge conflicts in this repository."}
+          ? t("review.conflicts.noneLeft", { operation: list.operation })
+          : t("review.conflicts.none")}
       </p>
     );
 
   const unresolved = hasMarkers(result);
   return (
-    <section className="conflicts" aria-label="Merge conflicts">
+    <section className="conflicts" aria-label={t("review.conflicts.label")}>
       <p className="sub">
-        {list.operation ? `A ${list.operation} into ${list.branch} stopped on ` : ""}
-        {list.files.length} conflicted file{list.files.length === 1 ? "" : "s"}.
+        {list.operation
+          ? t("review.conflicts.stoppedOn", { operation: list.operation, branch: list.branch, count: list.files.length })
+          : t("review.conflicts.files", { count: list.files.length })}
       </p>
-      <div className="conflict-files" role="tablist" aria-label="Conflicted files">
+      <div className="conflict-files" role="tablist" aria-label={t("review.conflicts.filesLabel")}>
         {list.files.map((f) => (
           <button
             key={f.path}
@@ -146,12 +163,12 @@ export function ConflictResolver({
           </button>
         ))}
       </div>
-      {!detail && <p className="sub">Loading {path}…</p>}
+      {!detail && <p className="sub">{t("review.conflicts.loadingPath", { path })}</p>}
       {detail && (
         <>
           <div className="conflict-whole btnrow">
             <button type="button" className="b" disabled={busy || !detail.ours} onClick={() => void save({ take: "ours" })}>
-              Take ours for the whole file
+              {t("review.conflicts.takeOurs")}
             </button>
             <button
               type="button"
@@ -159,16 +176,16 @@ export function ConflictResolver({
               disabled={busy || !detail.theirs}
               onClick={() => void save({ take: "theirs" })}
             >
-              Take theirs for the whole file
+              {t("review.conflicts.takeTheirs")}
             </button>
           </div>
           {detail.binary ? (
-            <p className="sub">This file is binary: take one side as a whole.</p>
+            <p className="sub">{t("review.conflicts.binary")}</p>
           ) : (
             <>
               {!detail.ours || !detail.theirs ? (
                 <p className="sub">
-                  One side {detail.ours ? "deleted" : "never had"} this file. Take a side, or edit the result.
+                  {detail.ours ? t("review.conflicts.oneSideDeleted") : t("review.conflicts.oneSideNever")}
                 </p>
               ) : null}
               <ol className="conflict-regions">
@@ -176,10 +193,10 @@ export function ConflictResolver({
                   r.kind === "conflict" ? (
                     <li key={i} className="conflict-region" data-choice={choiceName(choices[i])}>
                       <div className="conflict-region-head">
-                        <b>Conflict {i + 1}</b>
-                        <span className="sub">{choiceName(choices[i])}</span>
+                        <b>{t("review.conflicts.conflictN", { n: i + 1 })}</b>
+                        <span className="sub">{choiceLabel(choices[i])}</span>
                         <span className="btnrow">
-                          {CHOICES.map(({ choice, label }) => (
+                          {CHOICES().map(({ choice, label }) => (
                             <button
                               key={label}
                               type="button"
@@ -194,17 +211,17 @@ export function ConflictResolver({
                       </div>
                       <div className={`conflict-sides${r.base ? " three" : ""}`}>
                         <figure className="conflict-ours">
-                          <figcaption>Ours · {r.oursLabel || "HEAD"}</figcaption>
+                          <figcaption>{t("review.conflicts.ours", { label: r.oursLabel || "HEAD" })}</figcaption>
                           <pre>{r.ours.join("\n") || " "}</pre>
                         </figure>
                         {r.base && (
                           <figure className="conflict-base">
-                            <figcaption>Base</figcaption>
+                            <figcaption>{t("review.conflicts.base")}</figcaption>
                             <pre>{r.base.join("\n") || " "}</pre>
                           </figure>
                         )}
                         <figure className="conflict-theirs">
-                          <figcaption>Theirs · {r.theirsLabel || "incoming"}</figcaption>
+                          <figcaption>{t("review.conflicts.theirs", { label: r.theirsLabel || t("review.conflicts.incoming") })}</figcaption>
                           <pre>{r.theirs.join("\n") || " "}</pre>
                         </figure>
                       </div>
@@ -213,7 +230,7 @@ export function ConflictResolver({
                 )}
               </ol>
               <label className="f" htmlFor={`conflict-result-${sessionId}`}>
-                Result {edited ? "(edited by hand)" : ""}
+                {t("review.conflicts.result", { edited: edited ? t("review.conflicts.editedByHand") : "" })}
               </label>
               <textarea
                 id={`conflict-result-${sessionId}`}
@@ -228,8 +245,8 @@ export function ConflictResolver({
               />
               <p className="sub">
                 {unresolved
-                  ? `${conflictCount(parseConflicts(result))} conflict(s) still unresolved.`
-                  : "No conflict markers left."}
+                  ? t("review.conflicts.stillUnresolved", { n: conflictCount(parseConflicts(result)) })
+                  : t("review.conflicts.noMarkers")}
                 {detail.working_text !== undefined &&
                   detail.merged_text &&
                   conflictCount(parseConflicts(detail.working_text)) !== regions.length && (
@@ -243,7 +260,7 @@ export function ConflictResolver({
                         setEdited(true);
                       }}
                     >
-                      Start from the file as it is now
+                      {t("review.conflicts.startFromFile")}
                     </button>
                   </>
                 )}
@@ -251,10 +268,10 @@ export function ConflictResolver({
               <div className="btnrow">
                 {unresolved ? (
                   <ConfirmButton
-                    label="Save with markers…"
-                    confirm="Save anyway"
+                    label={t("review.conflicts.saveWithMarkers")}
+                    confirm={t("review.conflicts.saveAnyway")}
                     className="b warn"
-                    prompt="The result still has conflict markers."
+                    prompt={t("review.conflicts.stillHasMarkers")}
                     onConfirm={() => void save({ content: result, allow_markers: true })}
                   />
                 ) : null}
@@ -264,7 +281,7 @@ export function ConflictResolver({
                   disabled={busy || unresolved}
                   onClick={() => void save({ content: result })}
                 >
-                  {busy ? "Saving…" : "Mark resolved"}
+                  {busy ? t("review.conflicts.saving") : t("review.conflicts.markResolved")}
                 </button>
               </div>
             </>

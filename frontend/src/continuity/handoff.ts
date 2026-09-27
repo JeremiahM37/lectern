@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { RequestOptions } from '../api';
 import type { SessionView } from '../types';
+import { t } from '../i18n';
 
 // Continuity reads a few session fields that are not part of the shared card
 // contract yet. Keeping the extension local means the owner of types.ts can add
@@ -39,14 +40,14 @@ type WrapRow = { id: number; next_session_id: number | null };
 
 const AGENT_LABELS: Record<string, string> = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
 
-export const agentLabel = (name?: string) => (name && AGENT_LABELS[name]) || name || 'Session';
+export const agentLabel = (name?: string) => (name && AGENT_LABELS[name]) || name || t('app.continuity.session');
 
 export const agentTitle = (name?: string) =>
-  name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Session';
+  name ? name.charAt(0).toUpperCase() + name.slice(1) : t('app.continuity.session');
 
 export const describeSwitch = (agent: string, model: string, profileName?: string) =>
   profileName ||
-  (model ? `${agentTitle(agent)} · ${model}` : `${agentTitle(agent)} · default model`);
+  (model ? `${agentTitle(agent)} · ${model}` : t('app.continuity.defaultModel', { agent: agentTitle(agent) }));
 
 export const requestSwitch = (api: SessionApi, sessionID: number, request: SwitchRequest) =>
   api.request<{ after_wrap_id: number }>(`/sessions/${sessionID}/handoff`, {
@@ -119,14 +120,14 @@ export function useHandoffProgress(
             phase: 'failed',
             destination: label,
             error:
-              'The context was saved, but the new session did not start. Your original session is still available.',
+              t('app.continuity.didNotStart'),
           });
           return;
         } else {
           setProgress({
             phase: 'failed',
             destination: label,
-            error: 'The switch stopped before a new session started. Your original session is still available.',
+            error: t('app.continuity.stoppedEarly'),
           });
           return;
         }

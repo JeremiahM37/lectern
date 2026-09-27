@@ -4,6 +4,7 @@
 // the whole thing is a handful of small filled squares, which an SVG <path>
 // with one subpath per dark module renders crisply at any size.
 import { qrcodegen } from "./qrcodegen";
+import { t, useLocale } from "../i18n";
 
 export function QRCode({
   value,
@@ -12,6 +13,7 @@ export function QRCode({
   value: string;
   size?: number;
 }) {
+  useLocale();
   const qr = qrcodegen.QrCode.encodeText(value, qrcodegen.QrCode.Ecc.MEDIUM);
   const n = qr.size;
   let path = "";
@@ -31,7 +33,7 @@ export function QRCode({
       width={size}
       height={size}
       role="img"
-      aria-label="Pairing QR code — scan with your phone's camera"
+      aria-label={t("app.pair.qrLabel")}
       className="pairing-qr"
     >
       <rect x={-border} y={-border} width={view} height={view} fill="#fff" />

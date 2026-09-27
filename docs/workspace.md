@@ -94,8 +94,11 @@ resized and maximized; on a phone it is a bottom sheet.
   set-buffer -w`, and vim or remote shells when tmux passes them on with
   `set-clipboard on`). Reading the clipboard is never allowed. It can be
   switched off in Settings.
-- **Kitty keyboard protocol**: not available. It needs xterm.js 6.1, which is
-  still in beta; Lectern uses 5.5.
+- **Kitty keyboard protocol**: pending. xterm.js 6.0 has been stable since
+  December 2025 but does not include it; it arrives in 6.1, still in beta
+  (6.1.0-beta.304, August 2026). Lectern stays on 5.5 until 6.1 is stable,
+  since moving to 6.0 alone would bring the renderer and add-on changes
+  without the protocol.
 
 ![Find with a regular expression](media/workspace/desktop-terminal-find.png)
 ![Find on a phone](media/workspace/phone-terminal-find.png)
@@ -136,12 +139,27 @@ out of order still find a title. Other features add results with
 Settings → Appearance: **System / Dark / Light** for the whole app (dark
 remains the default), an accent colour (presets or any colour; an illegible
 one is darkened or lightened until it reads), UI zoom from 80% to 150%, and
-language. Colours are CSS custom properties set from
-`frontend/src/theme/app-theme.ts`; the theme test holds every text token to
-WCAG AA (4.5:1) on every surface in both modes and with every accent.
-Stylesheets that still name a dark colour directly get a light counterpart
-from `frontend/scripts/light_theme.py`, which writes
-`frontend/src/theme/light.generated.css`; re-run it after adding such a colour.
+language.
+
+Colours are tokens. `frontend/src/theme/tokens.css` holds the dark values for
+the first paint and is the only stylesheet allowed to name a colour;
+`frontend/src/theme/app-theme.ts` holds both themes and sets the active one on
+`<html>`. Every other stylesheet uses `var(--token)` or `color-mix()` of
+tokens (a tinted panel is `color-mix(in srgb, var(--red) 12%, var(--bg))`, a
+translucent layer `color-mix(in srgb, var(--scrim) 60%, transparent)`), so one
+rule is right in both themes. Three tests hold this:
+
+- `theme/no-hardcoded-colours.test.ts` fails when a stylesheet outside the
+  token file names a colour (hex, `rgb()`/`hsl()`/…, or a colour keyword).
+- `theme/theme.test.ts` holds every text token to WCAG AA (4.5:1) on every
+  surface in both modes and with every accent, and checks button and badge
+  text on their fills.
+- `e2e/test_light_mode_sweep.py` opens every screen — board, task sheet and
+  diff, sessions, a live chat, the workspace with chat and changes panes, the
+  terminal page and its dialogs, find, the floating terminal, media, deck,
+  approvals, agent tests, the palette, every Settings section — in light and
+  dark, at desk and phone width, and checks every visible piece of text
+  against what it is actually drawn on.
 
 ![Light theme](media/workspace/desktop-light-sessions.png)
 ![Light theme on a phone](media/workspace/phone-light-sessions.png)
@@ -156,12 +174,31 @@ into view. The command palette reaches the personal settings the same way.
 
 ## Translation
 
-Text goes through `t()` (`frontend/src/i18n`). English (`en.ts`) is the
-complete catalog; a test fails if code asks for a key it does not have. The
-pseudo-locale in Settings → Appearance → Language accents every translated
-string, which shows at a glance what is not wired yet. The new workspace,
-terminal, settings and shell chrome are wired; most older views are not yet,
-and no other language ships.
+The whole web app — board, sessions, chat, review, the Tasks hub, settings,
+the workspace, the terminal page and the browser pane — takes its text from
+catalogs through `t()` (`frontend/src/i18n`). It ships in **English, 简体中文,
+日本語, 한국어, Español and Français**. Settings → Appearance → Language picks one;
+the default follows the browser's language (Traditional Chinese browsers get
+English rather than Simplified). Only the chosen language's catalog is
+downloaded.
+
+- English is the source, one file per area in `i18n/en/`; each language has
+  the same files in `i18n/<lang>/`. Product terms follow one glossary per
+  language (session, task, worktree, board, approval…).
+- `i18n/i18n.test.ts` fails when code asks for a key English lacks, when a
+  key is defined twice, when any language misses a key, has an extra one or
+  changes a `{placeholder}`, or when a language leaves whole sentences in
+  English.
+![Sessions in Japanese on a phone](media/workspace/phone-japanese-sessions.png)
+![Appearance settings in Chinese](media/workspace/desktop-chinese-appearance.png)
+
+- The pseudo-locale in the same menu accents every string that goes through
+  `t()`, which shows at a glance any that do not.
+- Not translated: text that comes from the server or from trackers (error
+  details, issue titles, agent output), product names, commands and key names,
+  spoken voice-mode commands (recognised in English only), the keyboard layout
+  report (a diagnostic to paste back), and notification text sent by the
+  server and service worker.
 
 ## Storage and API
 

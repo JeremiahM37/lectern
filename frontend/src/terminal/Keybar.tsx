@@ -7,7 +7,7 @@ import "./keybar.css";
 import type { Mods } from "./keys";
 import type { QuickCommand } from "../quick/commands";
 import { haptic } from "../mobile/haptics";
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import {
   addItem,
   builtinKeys,
@@ -51,6 +51,7 @@ export function Keybar({
   onFind: () => void;
   onEdit: () => void;
 }) {
+  useLocale();
   const hold = useRef<{ id: number; x: number; timer?: number; interval?: number; fired: boolean }>(undefined);
   const stop = () => {
     const h = hold.current;
@@ -141,6 +142,7 @@ export function KeybarEditor({
   onChange: (row: KeyItem[] | null) => void;
   onClose: () => void;
 }) {
+  useLocale();
   const [combo, setCombo] = useState({ key: "r", ctrl: true, alt: false, shift: false });
   const [custom, setCustom] = useState("");
   const comboKey = combo.key === "custom" ? custom : combo.key;

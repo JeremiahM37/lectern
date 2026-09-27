@@ -3,6 +3,7 @@
 // framework-free and dependency-free so they are unit-testable without a DOM
 // (see usageFormat.test.ts) and reusable everywhere a number needs to become
 // a label.
+import { t } from "../i18n";
 
 // contextClass turns a "percent of context window used" reading into the
 // card's CSS class: amber at 70%+, red at 85%+ (task contract thresholds),
@@ -59,11 +60,11 @@ export function formatLineDelta(
 export function formatCountdown(resetsAt: number | null | undefined, nowSeconds = Date.now() / 1000): string {
   if (!resetsAt) return "";
   const remaining = Math.round(resetsAt - nowSeconds);
-  if (remaining <= 0) return "resets now";
+  if (remaining <= 0) return t("sessions.usage.resetsNow");
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
-  if (hours > 0) return `resets in ${hours}h ${minutes}m`;
-  return `resets in ${minutes}m`;
+  if (hours > 0) return t("sessions.usage.resetsInHours", { hours, minutes });
+  return t("sessions.usage.resetsInMinutes", { minutes });
 }
 
 // quotaClass mirrors contextClass's thresholds for the 5h/7d rate-limit
@@ -122,15 +123,15 @@ export function resultUsage(result: Record<string, unknown> | null | undefined):
 // as approximate ("~$0.12 est.") so it is never read as a reported figure.
 export function formatResultCost(u: ResultUsage): string {
   if (u.costUSD == null) return "";
-  return u.costEstimated ? `~${formatCost(u.costUSD)} est.` : formatCost(u.costUSD);
+  return u.costEstimated ? t("sessions.usage.estimatedCost", { cost: formatCost(u.costUSD) }) : formatCost(u.costUSD);
 }
 
 // formatAge renders "3m ago" / "2h ago" for a dimmed, stale reading.
 export function formatAge(atSeconds: number | null | undefined, nowSeconds = Date.now() / 1000): string {
   if (!atSeconds) return "";
   const age = Math.max(0, Math.round(nowSeconds - atSeconds));
-  if (age < 60) return `${age}s ago`;
-  if (age < 3600) return `${Math.floor(age / 60)}m ago`;
-  if (age < 86400) return `${Math.floor(age / 3600)}h ago`;
-  return `${Math.floor(age / 86400)}d ago`;
+  if (age < 60) return t("sessions.usage.ageSeconds", { seconds: age });
+  if (age < 3600) return t("sessions.usage.ageMinutes", { minutes: Math.floor(age / 60) });
+  if (age < 86400) return t("sessions.usage.ageHours", { hours: Math.floor(age / 3600) });
+  return t("sessions.usage.ageDays", { days: Math.floor(age / 86400) });
 }

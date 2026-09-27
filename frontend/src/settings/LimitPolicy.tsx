@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import type { JsonValue } from "../api";
 import type { LimitPolicy } from "../types";
+import { t, useLocale } from "../i18n";
 
 interface Api {
   request<T>(p: string, o?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -17,11 +18,27 @@ interface PolicyResponse {
 
 type Mode = Exclude<LimitPolicy["mode"], "swap">;
 
-const MODES: [Mode, string][] = [
-  ["notify", "Notify me with one-tap choices"],
-  ["wait", "Wait, then resume the same agent at the reset"],
-  ["handoff", "Hand off now to another agent"],
+const MODES = (): [Mode, string][] => [
+  ["notify", t("agentSettings.limits.mode.notify")],
+  ["wait", t("agentSettings.limits.mode.wait")],
+  ["handoff", t("agentSettings.limits.mode.handoff")],
 ];
+
+// The short lower-case name of a policy mode, as shown in "Use the default (…)".
+function modeName(mode: string): string {
+  switch (mode) {
+    case "notify":
+      return t("agentSettings.limits.modeName.notify");
+    case "wait":
+      return t("agentSettings.limits.modeName.wait");
+    case "handoff":
+      return t("agentSettings.limits.modeName.handoff");
+    case "swap":
+      return t("agentSettings.limits.modeName.swap");
+    default:
+      return mode;
+  }
+}
 
 export function LimitPolicyEditor({
   api,
@@ -32,6 +49,7 @@ export function LimitPolicyEditor({
   projectId?: number;
   onNotice(text: string, error?: boolean): void;
 }) {
+  useLocale();
   const query = projectId ? `?project_id=${projectId}` : "";
   const [loaded, setLoaded] = useState<PolicyResponse | null>(null);
   const [mode, setMode] = useState<"" | Mode>(projectId ? "" : "notify");
@@ -72,32 +90,35 @@ export function LimitPolicyEditor({
     try {
       const got = await api.request<PolicyResponse>("/limits/policy", { method: "PUT", body });
       setLoaded(got);
-      setStatus("Saved usage-limit policy");
-      onNotice("Usage-limit policy saved");
+      setStatus(t("agentSettings.limits.savedStatus"));
+      onNotice(t("agentSettings.limits.saved"));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
   }
   const inherited = loaded && !loaded.own ? loaded.effective : null;
   return (
-    <section className="limit-policy">
-      <h4>When an agent hits its usage limit</h4>
+    <section className="limit-policy" data-setting="budgets.limits">
+      <h4>{t("agentSettings.limits.title")}</h4>
       {mode !== "" && (
         <label className="limit-policy-swap">
-          <input type="checkbox" aria-label="Swap accounts" checked={swap} onChange={(e) => setSwap(e.target.checked)} />
-          First swap to another signed-in account of the same agent and continue the conversation (Settings →
-          Accounts)
+          <input type="checkbox" aria-label={t("agentSettings.limits.swapAccounts")} checked={swap} onChange={(e) => setSwap(e.target.checked)} />
+          {t("agentSettings.limits.swapHint")}
         </label>
       )}
       <label>
-        {swap && mode !== "" ? "When every account is limited" : "Policy"}
-        <select aria-label="Usage-limit policy" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+        {swap && mode !== "" ? t("agentSettings.limits.whenAllLimited") : t("agentSettings.limits.policy")}
+        <select aria-label={t("agentSettings.limits.policyLabel")} value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
           {projectId && (
             <option value="">
-              Use the default{inherited ? ` (${inherited.mode === "swap" ? `swap, then ${inherited.then}` : inherited.mode})` : ""}
+              {inherited
+                ? t("agentSettings.limits.useDefaultInherited", {
+                    policy: inherited.mode === "swap" ? t("agentSettings.limits.swapThen", { then: modeName(String(inherited.then)) }) : modeName(inherited.mode),
+                  })
+                : t("agentSettings.limits.useDefault")}
             </option>
           )}
-          {MODES.map(([value, label]) => (
+          {MODES().map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
@@ -107,21 +128,21 @@ export function LimitPolicyEditor({
       {mode !== "" && (
         <>
           <label>
-            Fallback agent{mode === "handoff" ? "" : " (for “Hand off”)"}
-            <select aria-label="Fallback agent" value={agent} onChange={(e) => setAgent(e.target.value)}>
-              <option value="">none</option>
+            {mode === "handoff" ? t("agentSettings.limits.fallbackAgent") : t("agentSettings.limits.fallbackAgentForHandoff")}
+            <select aria-label={t("agentSettings.limits.fallbackAgent")} value={agent} onChange={(e) => setAgent(e.target.value)}>
+              <option value="">{t("agentSettings.limits.none")}</option>
               {agents.map((name) => (
                 <option key={name}>{name}</option>
               ))}
             </select>
           </label>
           <label>
-            Fallback model
-            <input aria-label="Fallback model" value={model} placeholder="agent default" onChange={(e) => setModel(e.target.value)} />
+            {t("agentSettings.limits.fallbackModel")}
+            <input aria-label={t("agentSettings.limits.fallbackModel")} value={model} placeholder={t("agentSettings.limits.agentDefault")} onChange={(e) => setModel(e.target.value)} />
           </label>
         </>
       )}
-      <button onClick={() => void save()}>Save usage-limit policy</button>
+      <button onClick={() => void save()}>{t("agentSettings.limits.save")}</button>
       <p className="limit-policy-status" role="status">{status}</p>
     </section>
   );

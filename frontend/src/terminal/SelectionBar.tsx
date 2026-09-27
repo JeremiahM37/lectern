@@ -1,7 +1,7 @@
 // The bar a phone shows while text is selected in the live terminal (a long
 // press, Engine.selectAt). The terminal keeps running underneath: output
 // arrives, the selection stays on the text it was made on.
-import { t } from "../i18n";
+import { t, useLocale } from "../i18n";
 import type { Engine } from "./engine";
 import type { TerminalLink } from "./links";
 import { copyClipboard, errorMessage } from "./model";
@@ -15,6 +15,7 @@ export function LiveSelectionBar({
   onNotice: (text: string) => void;
   onLink: (link: TerminalLink) => void;
 }) {
+  useLocale();
   const e = engine();
   const link = e?.selectedLink();
   const keep = (event: React.PointerEvent) => event.preventDefault();

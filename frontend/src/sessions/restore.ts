@@ -1,4 +1,5 @@
 import { ApiError } from "../api";
+import { t } from "../i18n";
 import type { SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 
@@ -59,11 +60,11 @@ export async function reopenSession(
 }
 
 export function closedAge(seconds: number | null | undefined): string {
-  if (seconds == null) return "recently";
+  if (seconds == null) return t("sessions.restore.ageRecently");
   const elapsed = Math.max(0, Date.now() / 1000 - seconds);
-  if (elapsed < 60) return "just now";
-  if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
+  if (elapsed < 60) return t("sessions.restore.ageJustNow");
+  if (elapsed < 3600) return t("sessions.restore.ageMinutes", { minutes: Math.floor(elapsed / 60) });
   if (elapsed < 86400)
-    return `${Math.floor(elapsed / 3600)}h ${Math.floor(elapsed / 60) % 60}m ago`;
-  return `${Math.floor(elapsed / 86400)}d ${Math.floor(elapsed / 3600) % 24}h ago`;
+    return t("sessions.restore.ageHours", { hours: Math.floor(elapsed / 3600), minutes: Math.floor(elapsed / 60) % 60 });
+  return t("sessions.restore.ageDays", { days: Math.floor(elapsed / 86400), hours: Math.floor(elapsed / 3600) % 24 });
 }

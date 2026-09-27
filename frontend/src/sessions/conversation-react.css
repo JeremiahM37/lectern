@@ -8,7 +8,7 @@ dialog.conversation {
   max-width: 100%;
 }
 dialog.conversation::backdrop {
-  background: #02040ad9;
+  background: color-mix(in srgb, var(--scrim) 85%, transparent);
 }
 @media (min-width: 900px) {
   dialog.conversation {

@@ -8,6 +8,7 @@
 // device key in Keystore itself.
 import type { Pairing } from "./tunnel";
 import { nativeBridge } from "../native/bridge";
+import { t } from "../i18n";
 
 const DB = "lectern-relay";
 const STORE = "kv";
@@ -75,18 +76,18 @@ export async function savePairing(p: Pairing): Promise<void> {
  * this origin must be exactly the one this Lectern signs. */
 export async function pinShellNow(timeoutMs = 60000): Promise<void> {
   const sw = navigator.serviceWorker;
-  if (!sw) throw new Error("This browser cannot install the app (no service worker support).");
+  if (!sw) throw new Error(t("app.relay.noServiceWorker"));
   const registration = await sw.ready;
   const target = registration.active;
-  if (!target) throw new Error("The app is not installed yet; reload and try again.");
+  if (!target) throw new Error(t("app.relay.notInstalled"));
   const channel = new MessageChannel();
   const verdict = new Promise<{ ok: boolean; error?: string }>((resolve) => {
     channel.port1.onmessage = (event) => resolve(event.data as { ok: boolean; error?: string });
-    setTimeout(() => resolve({ ok: false, error: "the app did not finish installing" }), timeoutMs);
+    setTimeout(() => resolve({ ok: false, error: t("app.relay.installUnfinished") }), timeoutMs);
   });
   target.postMessage({ type: "lec-relay-pinned" }, [channel.port2]);
   const result = await verdict;
-  if (!result.ok) throw new Error("Could not pin the app shell: " + (result.error || "unknown error"));
+  if (!result.ok) throw new Error(t("app.relay.pinFailed", { error: result.error || t("app.relay.unknownError") }));
 }
 
 /** Forgets this device's key. The shell key stays pinned on purpose: a
