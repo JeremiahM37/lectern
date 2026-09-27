@@ -5,20 +5,20 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog } from "./dialogs";
 import "./keybar.css";
 import type { Mods } from "./keys";
-import type { Snippet } from "./snippets";
+import type { QuickCommand } from "../quick/commands";
 import { haptic } from "../mobile/haptics";
+import { t } from "../i18n";
 import {
   addItem,
   builtinKeys,
-  builtinLabels,
-  defaultKeybar,
+  builtinLabel,
   itemBytes,
   itemId,
   itemLabel,
   missingBuiltins,
   move,
+  quickItem,
   repeats,
-  snippetItem,
   validComboKey,
   type BuiltinKey,
   type KeyItem,
@@ -29,21 +29,26 @@ const REPEAT_DELAY = 380,
 
 export function Keybar({
   row,
+  quick,
   disabled,
   mods,
   appCursor,
   onMod,
   onSend,
   onSnippets,
+  onFind,
   onEdit,
 }: {
   row: KeyItem[];
+  /** The quick commands this terminal offers (its project's, then everyone's). */
+  quick: QuickCommand[];
   disabled: boolean;
   mods: Mods;
   appCursor: () => boolean;
   onMod: (id: "ctrl" | "alt") => void;
   onSend: (bytes: string) => void;
   onSnippets: () => void;
+  onFind: () => void;
   onEdit: () => void;
 }) {
   const hold = useRef<{ id: number; x: number; timer?: number; interval?: number; fired: boolean }>(undefined);
@@ -55,21 +60,28 @@ export function Keybar({
   };
   useEffect(() => stop, []);
   const armed = mods.ctrl || mods.alt;
+  const byId = new Map(quick.map((command) => [command.id, command]));
   return (
-    <div id="terminal-keybar" role="group" aria-label="Terminal keys">
+    <div id="terminal-keybar" role="group" aria-label={t("keybar.group")}>
       {row.map((item) => {
+        const command = item.t === "quick" ? byId.get(item.id) : undefined;
+        // A key for a quick command that was deleted, or that belongs to
+        // another project's terminals, is not shown here.
+        if (item.t === "quick" && !command) return null;
         const id = itemId(item),
-          [label, spoken] = itemLabel(item);
-        const send = () => onSend(itemBytes(item, !armed && appCursor()));
+          [label, spoken] = itemLabel(item, command);
+        const send = () => onSend(itemBytes(item, !armed && appCursor(), command));
+        // Find works with no connection; everything else types into it.
+        const off = item.t === "find" ? false : disabled;
         return (
           <button
             key={id}
             data-terminal-key={id}
-            className={item.t === "mod" ? "modifier" : item.t === "snippets" ? "snippets" : item.t === "text" ? "quick" : undefined}
+            className={item.t === "mod" ? "modifier" : item.t === "snippets" ? "snippets" : item.t === "quick" ? "quick" : undefined}
             aria-label={spoken}
-            title={item.t === "snippets" ? "Saved replies" : undefined}
+            title={item.t === "snippets" || item.t === "find" ? spoken : undefined}
             aria-pressed={item.t === "mod" ? mods[item.id] : undefined}
-            disabled={disabled}
+            disabled={off}
             // Keep the phone keyboard as it is: pressing a key must not take
             // focus away from the terminal, or open the keyboard if hidden.
             onPointerDown={(event) => {
@@ -100,6 +112,7 @@ export function Keybar({
               if (h?.fired) return; // the hold already sent it, repeatedly
               if (item.t === "mod") onMod(item.id);
               else if (item.t === "snippets") onSnippets();
+              else if (item.t === "find") onFind();
               else send();
             }}
           >
@@ -107,7 +120,7 @@ export function Keybar({
           </button>
         );
       })}
-      <button data-terminal-key="edit" className="keybar-edit" aria-label="Customize keys" title="Customize keys"
+      <button data-terminal-key="edit" className="keybar-edit" aria-label={t("keybar.customize")} title={t("keybar.customize")}
         onPointerDown={(event) => event.preventDefault()} onClick={onEdit}>
         ✎
       </button>
@@ -119,12 +132,12 @@ const comboKeys: BuiltinKey[] = ["left", "right", "up", "down", "home", "end", "
 
 export function KeybarEditor({
   row,
-  snippets,
+  quick,
   onChange,
   onClose,
 }: {
   row: KeyItem[];
-  snippets: Snippet[];
+  quick: QuickCommand[];
   onChange: (row: KeyItem[] | null) => void;
   onClose: () => void;
 }) {
@@ -134,66 +147,66 @@ export function KeybarEditor({
   const comboItem: KeyItem = { t: "combo", key: comboKey, ctrl: combo.ctrl, alt: combo.alt, shift: combo.shift };
   const comboOk = validComboKey(comboKey) && (combo.ctrl || combo.alt || combo.shift);
   const present = new Set(row.map(itemId));
+  const byId = new Map(quick.map((command) => [command.id, command]));
   return (
-    <Dialog id="keybar-dialog" title="Customize keys" onClose={onClose}
-      actions={<button id="keybar-reset" onClick={() => onChange(null)}>Reset</button>}>
-      <p className="dialog-help">The row under the terminal, left to right. Held arrows and ⌫ repeat.</p>
+    <Dialog id="keybar-dialog" title={t("keybar.customize")} onClose={onClose}
+      actions={<button id="keybar-reset" onClick={() => onChange(null)}>{t("keybar.reset")}</button>}>
+      <p className="dialog-help">{t("keybar.help")}</p>
       <ol className="keybar-order">
         {row.map((item, index) => {
           const id = itemId(item),
-            [label, spoken] = itemLabel(item);
+            [label, spoken] = itemLabel(item, item.t === "quick" ? byId.get(item.id) : undefined);
           return (
             <li key={id} data-keybar-item={id}>
               <span className="keybar-chip" title={spoken}>{label}</span>
               <span className="keybar-spoken">{spoken}</span>
-              <button aria-label={`Move ${spoken} left`} disabled={index === 0} onClick={() => onChange(move(row, index, -1))}>↑</button>
-              <button aria-label={`Move ${spoken} right`} disabled={index === row.length - 1} onClick={() => onChange(move(row, index, 1))}>↓</button>
-              <button className="keybar-remove" aria-label={`Remove ${spoken}`} onClick={() => onChange(row.filter((_, other) => other !== index))}>×</button>
+              <button aria-label={t("keybar.moveLeft", { key: spoken })} disabled={index === 0} onClick={() => onChange(move(row, index, -1))}>↑</button>
+              <button aria-label={t("keybar.moveRight", { key: spoken })} disabled={index === row.length - 1} onClick={() => onChange(move(row, index, 1))}>↓</button>
+              <button className="keybar-remove" aria-label={t("keybar.remove", { key: spoken })} onClick={() => onChange(row.filter((_, other) => other !== index))}>×</button>
             </li>
           );
         })}
-        {!row.length && <li className="keybar-empty">No keys. Add some below, or Reset.</li>}
+        {!row.length && <li className="keybar-empty">{t("keybar.empty")}</li>}
       </ol>
-      <h3>Add a key</h3>
+      <h3>{t("keybar.addKey")}</h3>
       <div className="keybar-palette">
         {missingBuiltins(row).map((item) => (
-          <button key={itemId(item)} data-add-key={itemId(item)} aria-label={`Add ${itemLabel(item)[1]}`} onClick={() => onChange(addItem(row, item))}>
+          <button key={itemId(item)} data-add-key={itemId(item)} aria-label={t("keybar.add", { key: itemLabel(item)[1] })} onClick={() => onChange(addItem(row, item))}>
             {itemLabel(item)[0]}
           </button>
         ))}
       </div>
-      <h3>Add a combination</h3>
+      <h3>{t("keybar.addCombo")}</h3>
       <div className="keybar-combo">
         <label><input type="checkbox" id="combo-ctrl" checked={combo.ctrl} onChange={(e) => setCombo({ ...combo, ctrl: e.target.checked })} />Ctrl</label>
         <label><input type="checkbox" id="combo-alt" checked={combo.alt} onChange={(e) => setCombo({ ...combo, alt: e.target.checked })} />Alt</label>
         <label><input type="checkbox" id="combo-shift" checked={combo.shift} onChange={(e) => setCombo({ ...combo, shift: e.target.checked })} />Shift</label>
-        <select id="combo-key" aria-label="Key" value={comboKeys.includes(combo.key as BuiltinKey) ? combo.key : "custom"}
+        <select id="combo-key" aria-label={t("keybar.comboKey")} value={comboKeys.includes(combo.key as BuiltinKey) ? combo.key : "custom"}
           onChange={(e) => setCombo({ ...combo, key: e.target.value })}>
-          <option value="custom">Letter or symbol…</option>
-          {comboKeys.map((key) => <option key={key} value={key}>{builtinLabels[key][1].replace(/^Send /, "")}</option>)}
+          <option value="custom">{t("keybar.letterOrSymbol")}</option>
+          {comboKeys.map((key) => <option key={key} value={key}>{builtinLabel(key)[1]}</option>)}
         </select>
         {(combo.key === "custom" || !(combo.key in builtinKeys)) && (
-          <input id="combo-char" aria-label="Letter or symbol" maxLength={1} autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          <input id="combo-char" aria-label={t("keybar.letterOrSymbol")} maxLength={1} autoCapitalize="off" autoCorrect="off" spellCheck={false}
             value={combo.key === "custom" ? custom : combo.key}
             onChange={(e) => { setCustom(e.target.value); setCombo({ ...combo, key: "custom" }); }} />
         )}
         <button id="combo-add" disabled={!comboOk || present.has(itemId(comboItem))} onClick={() => onChange(addItem(row, comboItem))}>
-          Add {comboOk ? itemLabel(comboItem)[0] : ""}
+          {t("keybar.add", { key: comboOk ? itemLabel(comboItem)[0] : "" })}
         </button>
       </div>
-      <h3>Add a saved reply</h3>
+      <h3>{t("keybar.addQuick")}</h3>
       <div className="keybar-palette">
-        {snippets.map((snippet) => {
-          const item = snippetItem(snippet);
+        {quick.map((command) => {
+          const item = quickItem(command);
           return (
-            <button key={itemId(item)} data-add-reply={snippet.text} disabled={present.has(itemId(item))} onClick={() => onChange(addItem(row, item))}>
-              {itemLabel(item)[0]}
+            <button key={itemId(item)} data-add-quick={command.text} disabled={present.has(itemId(item))} onClick={() => onChange(addItem(row, item))}>
+              {itemLabel(item, command)[0]}
             </button>
           );
         })}
-        {!snippets.length && <p className="dialog-help">Save replies with ⚡ first; they can then sit on the row.</p>}
+        {!quick.length && <p className="dialog-help">{t("keybar.noQuick")}</p>}
       </div>
-      {row !== defaultKeybar && <p className="dialog-help">Saved on this device.</p>}
     </Dialog>
   );
 }

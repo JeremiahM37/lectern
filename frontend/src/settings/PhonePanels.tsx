@@ -2,6 +2,7 @@
 // (Settings → Notifications), and, in the Android app, which Lecterns this
 // app is paired with (Settings → Devices). docs/mobile-sessions.md,
 // docs/android.md.
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { speechCtor } from "../voice";
 import { hostVoice, setVoicePreference, voicePreference, type HostVoice, type VoicePreference } from "../voice-host";
@@ -20,26 +21,26 @@ export function VoiceSettings() {
   };
   return (
     <article className="voice-settings" data-testid="voice-settings">
-      <h3>Voice input</h3>
-      <p className="subhint">Where the 🎙 button turns speech into text. Either way the words land in the box for you to check; nothing is sent until you tap Send.</p>
+      <h3>{t("voice.title")}</h3>
+      <p className="subhint">{t("voice.help")}</p>
       <label className="voice-choice">
         <input type="radio" name="voice-engine" value="device" checked={pref === "device"} disabled={!device} onChange={() => choose("device")} />
         <span>
-          <b>On this device</b> — the browser's own speech recognition.{" "}
-          {device ? "Available here." : "Not available in this browser (the Android app has none)."}
+          <b>{t("voice.device")}</b> — {t("voice.deviceHelp")}{" "}
+          {device ? t("voice.availableHere") : t("voice.deviceMissing")}
         </span>
       </label>
       <label className="voice-choice">
         <input type="radio" name="voice-engine" value="host" checked={pref === "host"} disabled={!host?.available} onChange={() => choose("host")} />
         <span>
-          <b>On your Lectern</b> — recorded here, transcribed by whisper.cpp on the Lectern host; the audio goes nowhere else.{" "}
-          {host === undefined ? "Checking…" : host.available ? `Available (model ${host.model}).` : host.hint || "Not installed on the host."}
+          <b>{t("voice.host")}</b> — {t("voice.hostHelp")}{" "}
+          {host === undefined ? t("voice.checking") : host.available ? t("voice.hostAvailable", { model: host.model || "" }) : host.hint || t("voice.hostMissing")}
         </span>
       </label>
       <label className="voice-choice">
         <input type="radio" name="voice-engine" value="auto" checked={pref === "auto"} onChange={() => choose("auto")} />
         <span>
-          <b>Automatic</b> — this device when it can, otherwise your Lectern.
+          <b>{t("voice.auto")}</b> — {t("voice.autoHelp")}
         </span>
       </label>
     </article>
@@ -58,20 +59,20 @@ export function AppHosts() {
   if (!bridge?.hosts || !hosts.length) return null;
   return (
     <article className="devices-panel app-hosts" data-testid="app-hosts">
-      <h3>Lecterns in this app</h3>
-      <p className="subhint">This app can be paired with several Lecterns. Notifications say which one they came from.</p>
+      <h3>{t("appHosts.title")}</h3>
+      <p className="subhint">{t("appHosts.help")}</p>
       <ul className="device-list">
         {hosts.map((h) => (
           <li key={h.id} className="device-row" data-host-id={h.id}>
             <div className="device-info">
               <strong>{h.label}</strong>
-              <span className="subhint">{h.mode === "relay" ? "Encrypted relay" : h.origin}{h.active ? " · open now" : ""}</span>
+              <span className="subhint">{h.mode === "relay" ? t("appHosts.relay") : h.origin}{h.active ? " · " + t("appHosts.open") : ""}</span>
             </div>
-            {!h.active && <button className="b" onClick={() => bridge.switchHost?.(h.id)}>Switch</button>}
+            {!h.active && <button className="b" onClick={() => bridge.switchHost?.(h.id)}>{t("appHosts.switch")}</button>}
           </li>
         ))}
       </ul>
-      <button className="b" onClick={() => bridge.openHosts?.()}>Add or manage Lecterns…</button>
+      <button className="b" onClick={() => bridge.openHosts?.()}>{t("appHosts.manage")}</button>
     </article>
   );
 }

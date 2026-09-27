@@ -126,6 +126,11 @@ Notifications name the Lectern they came from once there is more than one, and
 their buttons act on that Lectern whichever one is on screen; tapping one opens
 it. An app updated from 0.1.0 keeps its pairing as the first entry, unchanged.
 
+**The back key** closes what is open over the page first (a menu or sheet,
+a dialog such as Chat, the review workspace, a maximized pane, the floating
+terminal), then returns to the views visited before, and leaves the app only
+from the first one.
+
 **Withdrawn notifications.** When an approval is decided anywhere else (the
 desk, another phone, the terminal, or it expires), the host pushes a
 withdrawal and the app removes that notification.
@@ -258,6 +263,9 @@ whisper.cpp) and a local ntfy:
   its sessions from the cache under the Offline marker, and cleared the marker
   when it came back.
 - Pull to refresh and the bottom-sheet menu, with real touch input.
+- The back key closed, in turn, a card's menu, Chat, and the review
+  workspace, then walked back through Settings and Board, and left the app
+  from the first view.
 - Dictation asked for the microphone permission and the page received it, but
   the emulator had no working audio input ("Could not start audio source"), so
   recording and transcription in the app were not exercised there; the same

@@ -17,3 +17,5 @@
 
 .command-close-icon { display:none; }
 @media(max-width:600px) { .command-close-text { display:none; } .command-close-icon { display:inline; font-size:24px; } }
+.command-result strong { display:flex; align-items:center; gap:10px; }
+.command-shortcut { margin-left:auto; flex:none; font:11px var(--mono); color:var(--ink-dim); border:1px solid var(--line-2); border-radius:5px; padding:1px 6px; background:var(--panel-2); font-weight:400; }

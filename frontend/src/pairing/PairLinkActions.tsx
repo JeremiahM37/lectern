@@ -1,5 +1,6 @@
 // Under a pairing QR code: send the same link by message or email instead
 // of scanning it, or open it in the Android app on this very phone.
+import { t } from "../i18n";
 import { copyClipboard } from "../terminal/model";
 import { appPairLink } from "./links";
 
@@ -13,23 +14,23 @@ export function PairLinkActions({ link, onNotice }: { link: string; onNotice(tex
         data-testid="copy-pair-link"
         onClick={() =>
           void copyClipboard(link, () => {})
-            .then(() => onNotice("Pairing link copied. It works once, for a few minutes."))
+            .then(() => onNotice(t("pairLink.copied")))
             .catch((error) => onNotice(String(error), true))
         }
       >
-        Copy link
+        {t("pairLink.copy")}
       </button>
       {canShare && (
         <button
           className="b"
-          onClick={() => void navigator.share({ title: "Pair with Lectern", url: link }).catch(() => undefined)}
+          onClick={() => void navigator.share({ title: t("pairLink.shareTitle"), url: link }).catch(() => undefined)}
         >
-          Share…
+          {t("pairLink.share")}
         </button>
       )}
       {app && (
-        <a className="b" href={app} data-testid="app-pair-link" title="For the Lectern Android app on this device">
-          Open in Android app
+        <a className="b" href={app} data-testid="app-pair-link" title={t("pairLink.appTitle")}>
+          {t("pairLink.openApp")}
         </a>
       )}
     </div>
@@ -42,7 +43,7 @@ export function OpenInAppNote({ intent }: { intent?: string }) {
   if (!intent) return null;
   return (
     <p className="pair-open-app" data-testid="open-in-app">
-      Using the Lectern Android app? <a href={intent}>Pair it instead</a>.
+      {t("pairLink.usingApp")} <a href={intent}>{t("pairLink.pairApp")}</a>
     </p>
   );
 }

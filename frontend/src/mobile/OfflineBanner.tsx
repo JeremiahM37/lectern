@@ -1,6 +1,7 @@
 // "Offline · showing what Lectern said 4 min ago", over any screen whose
 // data came from this device's cache (api/offline.ts) rather than from
 // Lectern just now. It goes away by itself when a request gets through.
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { offlineCache, staleAge, type OfflineState } from "../api/offline";
 
@@ -29,10 +30,10 @@ export function OfflineBanner({ onRetry }: { onRetry: () => void }) {
     <div id="offline-banner" role="status" data-stale-since={state.since}>
       <span className="offline-dot" aria-hidden="true" />
       <span>
-        <b>Offline</b> · showing what Lectern said {staleAge(state.since)}
+        <b>{t("offline.title")}</b> · {t("offline.showing", { age: staleAge(state.since) })}
       </span>
       <button className="b" onClick={onRetry}>
-        Retry
+        {t("offline.retry")}
       </button>
     </div>
   );

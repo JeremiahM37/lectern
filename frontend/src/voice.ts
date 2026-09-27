@@ -3,6 +3,7 @@
 // without duplicating the SpeechRecognition wiring. Recording never sends
 // anything on its own — every word it hears only ever lands in the box a
 // person can still edit before they submit it themselves.
+import { t } from "./i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inApp } from "./native/bridge";
 import { chooseEngine, hostVoice, record, transcribe, voicePreference, type Recording, type VoiceEngine } from "./voice-host";
@@ -131,7 +132,7 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
     try {
       const text = await transcribe(await current.stop());
       onChange(appendTranscript(startedWith.current, text));
-      if (!text.trim()) onNotice("Nothing was heard.");
+      if (!text.trim()) onNotice(t("voice.nothingHeard"));
     } catch (error) {
       onNotice(error instanceof Error ? error.message : String(error), true);
     } finally {
@@ -159,8 +160,8 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
           })
           .catch((error: unknown) =>
             onNotice(error instanceof Error && error.name === "NotAllowedError"
-              ? "Microphone access was refused. Allow it for this app and try again."
-              : `Recording could not start: ${error instanceof Error ? error.message : String(error)}`, true),
+              ? t("voice.micRefused")
+              : t("voice.recordFailed", { error: error instanceof Error ? error.message : String(error) }), true),
           );
         return;
       }

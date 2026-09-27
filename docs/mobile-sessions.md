@@ -83,9 +83,12 @@ the targets where its command and credentials are installed.
   viewer. OSC 8 hyperlinks work the same way (web addresses, and `file://` links
   into the workspace). Paths outside the workspace are not offered.
 - **Your key row.** **✎** at the end of the row (or **Tools → Customize key
-  row**) reorders and removes keys, adds the ones not shown (⏎, ⌫, Del, …), any
-  Ctrl/Alt/Shift combination (Ctrl-R, Alt-B, Ctrl-←, Shift-Tab …), and your
-  saved replies as one-tap keys. Holding an arrow, ⌫, Del or Page Up/Down
+  row**) reorders and removes keys, adds the ones not shown (⏎, ⌫, Del, ⌕ find,
+  …), any Ctrl/Alt/Shift combination (Ctrl-R, Alt-B, Ctrl-←, Shift-Tab …), and
+  your quick commands as one-tap keys. A quick-command key points at the
+  command itself (stored on your Lectern, the same list as ⚡ and Settings), so
+  editing the command changes the key on every device, and a project's
+  commands only appear in that project's terminals. Holding an arrow, ⌫, Del or Page Up/Down
   repeats it; a drag along the row scrolls it without pressing anything. The
   arrangement is stored on the device; **Reset** restores the default.
 

@@ -1,6 +1,7 @@
 // What a swipe on a session card does (mobile/SwipeRow.tsx). Right approves
 // the one approval the session is waiting on; left puts the record away the
 // same way the card's own buttons do, with the same Undo toast.
+import { t } from "../i18n";
 import type { Approval, SessionView } from "../types";
 import type { SwipeAction } from "./SwipeRow";
 
@@ -27,21 +28,21 @@ export function sessionSwipes(s: SessionView, approval: Approval | undefined, de
   };
   const right: SwipeAction | undefined =
     approval && approval.status === "pending"
-      ? { label: "✓ Approve", tone: "ok", run: () => run(() => deps.decide(approval.id), `Approved ${approval.tool_name} for “${name}”.`, false) }
+      ? { label: t("swipe.approve"), tone: "ok", run: () => run(() => deps.decide(approval.id), t("swipe.approved", { tool: approval.tool_name, name }), false) }
       : undefined;
   let left: SwipeAction | undefined;
   if (s.archived_at != null || s.setup_state === "creating") left = undefined;
   else if (s.ended_at != null)
-    left = { label: "Archive", tone: "warn", run: () => run(() => deps.request(`/sessions/${s.id}/archive`, { method: "POST", body: { stop: false } }), `Archived “${name}”.`) };
+    left = { label: t("swipe.archive"), tone: "warn", run: () => run(() => deps.request(`/sessions/${s.id}/archive`, { method: "POST", body: { stop: false } }), t("swipe.archived", { name })) };
   else if (s.status === "dead")
-    left = { label: "Dismiss", tone: "warn", run: () => run(() => deps.request(`/sessions/${s.id}`, { method: "DELETE" }), `Dismissed “${name}”.`, false) };
+    left = { label: t("swipe.dismiss"), tone: "warn", run: () => run(() => deps.request(`/sessions/${s.id}`, { method: "DELETE" }), t("swipe.dismissed", { name }), false) };
   else
     left = {
-      label: "Archive",
+      label: t("swipe.archive"),
       tone: "warn",
       run: () =>
-        deps.confirm(`Stop "${name}" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.`)
-          ? run(() => deps.request(`/sessions/${s.id}/archive`, { method: "POST", body: { stop: true } }), `Stopped and archived “${name}”.`)
+        deps.confirm(t("swipe.confirmStop", { name }))
+          ? run(() => deps.request(`/sessions/${s.id}/archive`, { method: "POST", body: { stop: true } }), t("swipe.stopped", { name }))
           : undefined,
     };
   return { left, right };

@@ -100,7 +100,7 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     page.get_by_role("button", name="Add comment").click()
     expect(page.locator(".review-tray")).to_contain_text("2 comments")
 
-    page.get_by_role("button", name="Send to agent").click()
+    page.get_by_role("button", name="Send 2 comments to agent").click()
     expect(page.locator("#toasts")).to_contain_text("Sent 2 comment")
 
     # The stub agent received the FULL formatted prompt — file:line headers,
@@ -118,6 +118,7 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     assert "and this one needs a test" in log, log
 
     # Commit, push, and land on the bare remote — no GitHub, no `gh`.
+    page.get_by_role("tab", name="Commit").click()
     page.get_by_label("Commit message", exact=True).fill("feat: extend hello")
     push_checkbox = page.locator(".review-checkbox", has_text="Push to origin").locator("input")
     expect(push_checkbox).to_be_checked()

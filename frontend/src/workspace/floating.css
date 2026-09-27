@@ -1,0 +1,33 @@
+/* Floating terminal (FloatingTerminal.tsx). */
+#floating-terminal { position: fixed; z-index: 150; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line-2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .5); overflow: hidden; }
+#floating-terminal[hidden] { display: flex !important; visibility: hidden; pointer-events: none; }
+#floating-terminal.floating-window { border-radius: 12px; }
+#floating-terminal.floating-maximized { inset: calc(var(--terminal-top, 57px) + 8px) 12px 12px; border-radius: 12px; }
+#floating-terminal.floating-sheet { left: 0; right: 0; bottom: 0; height: min(72dvh, calc(100dvh - 40px)); border-radius: 14px 14px 0 0;
+  padding-bottom: env(safe-area-inset-bottom); }
+#floating-terminal.floating-dragging iframe { pointer-events: none; }
+.floating-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--panel-2); border-bottom: 1px solid var(--line); cursor: move;
+  user-select: none; touch-action: none; }
+.floating-sheet .floating-head { cursor: default; }
+.floating-title { color: var(--accent-soft); padding: 0 4px; }
+.floating-tabs { display: flex; gap: 3px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.floating-tab-item { display: flex; flex: none; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
+.floating-tab, .floating-tab-close { border: 0; background: transparent; color: var(--ink-dim); cursor: pointer; min-height: 30px; font: 12.5px var(--sans); }
+.floating-tab { padding: 4px 10px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floating-tab[aria-selected="true"] { color: var(--accent-soft); background: var(--accent-wash); }
+.floating-tab-close { width: 26px; font-size: 16px; }
+.floating-button { flex: none; width: 32px; height: 30px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 15px; }
+.floating-button:disabled { opacity: .45; cursor: default; }
+.floating-button:hover:not(:disabled) { border-color: var(--accent-soft); }
+.floating-body { position: relative; flex: 1; min-height: 0; }
+.floating-frame { position: absolute; inset: 0; }
+.floating-frame[hidden] { display: block !important; visibility: hidden; pointer-events: none; }
+.floating-frame iframe { display: block; border: 0; width: 100%; height: 100%; background: var(--bg); }
+.floating-empty { padding: 20px; color: var(--ink-dim); }
+.floating-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--line-2) 50%); }
+@media (max-width: 1023px) {
+  .floating-button, .floating-tab, .floating-tab-close { min-height: 36px; height: 36px; }
+  .floating-button { width: 38px; }
+}

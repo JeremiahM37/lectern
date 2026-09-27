@@ -96,9 +96,16 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
         }
         for (h in hosts.all()) Bridge.applyDeviceCookie(this, h)
         Pages.attach(web) { hostId }
+        // Back closes what is open over the page first (a sheet, a dialog,
+        // the review workspace, a maximized pane, the floating terminal),
+        // then returns to the previous view, and only then leaves the app
+        // (frontend/src/mobile/back.ts decides the first two).
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack() else finish()
+                web.evaluateJavascript("typeof window.__lecternBack === 'function' && window.__lecternBack() === true") { handled ->
+                    if (handled == "true") return@evaluateJavascript
+                    if (web.canGoBack()) web.goBack() else finish()
+                }
             }
         })
         web.loadUrl(start ?: (host.origin + safePath(intent.getStringExtra(EXTRA_PATH))))

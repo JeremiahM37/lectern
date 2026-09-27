@@ -967,4 +967,38 @@ var migrations = []string{
 	  created_at REAL NOT NULL,
 	  updated_at REAL NOT NULL)`,
 	"CREATE INDEX IF NOT EXISTS idx_tracker_connections_project ON tracker_connections(project_id)",
+	// Review workspace (docs/review.md): inline comments kept per session so
+	// they survive a reload and follow the code across agent edits; the
+	// files a reviewer marked viewed, keyed by the diff they saw; and the
+	// lines an agent's own edit hooks reported writing, for attribution.
+	`CREATE TABLE IF NOT EXISTS review_comments(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  repo TEXT NOT NULL DEFAULT '', file TEXT NOT NULL, side TEXT NOT NULL DEFAULT 'new',
+  line INTEGER NOT NULL, code TEXT NOT NULL DEFAULT '',
+  context_before TEXT NOT NULL DEFAULT '', context_after TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+  round INTEGER NOT NULL DEFAULT 0, author TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL, sent_at REAL, resolved_at REAL)`,
+	"CREATE INDEX IF NOT EXISTS idx_review_comments_session ON review_comments(session_id)",
+	`CREATE TABLE IF NOT EXISTS review_file_marks(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  repo TEXT NOT NULL DEFAULT '', path TEXT NOT NULL, fingerprint TEXT NOT NULL, at REAL NOT NULL,
+  UNIQUE(session_id, repo, path))`,
+	`CREATE TABLE IF NOT EXISTS agent_line_marks(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  path TEXT NOT NULL, line_hash TEXT NOT NULL, at REAL NOT NULL,
+  UNIQUE(session_id, path, line_hash))`,
+	"CREATE INDEX IF NOT EXISTS idx_agent_line_marks_path ON agent_line_marks(session_id, path)",
+	// Per-person UI preferences that follow them across devices: theme,
+	// shortcuts, saved layouts, quick commands (docs/workspace.md).
+	`CREATE TABLE IF NOT EXISTS ui_prefs(
+  owner TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at REAL NOT NULL,
+  PRIMARY KEY(owner, key)
+)`,
 }

@@ -5,6 +5,7 @@
 // the relay when paired over it) and the text comes back into the same box
 // a person reviews before sending.
 import { authToken } from "./api/client";
+import { t } from "./i18n";
 
 export type VoiceEngine = "device" | "host";
 export type VoicePreference = VoiceEngine | "auto";
@@ -72,7 +73,7 @@ export async function transcribe(wav: Blob, lang = navigator.language): Promise<
     body: wav,
   });
   const body = (await response.json().catch(() => ({}))) as { text?: string; detail?: string };
-  if (!response.ok) throw new Error(body.detail || `Transcription failed (${response.status})`);
+  if (!response.ok) throw new Error(body.detail || t("voice.transcribeFailed", { status: response.status }));
   return body.text || "";
 }
 
@@ -128,7 +129,7 @@ export interface Recording {
 /** Starts recording from the microphone. onLimit fires when the recording
  * reaches MAX_SECONDS, so the caller can stop and transcribe it. */
 export async function record(onLimit: () => void): Promise<Recording> {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser cannot record audio here (a secure https page is needed).");
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error(t("voice.noRecorder"));
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
   const ctx = new AudioContext();
   const source = ctx.createMediaStreamSource(stream);

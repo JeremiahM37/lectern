@@ -1,4 +1,5 @@
 import "./conversation-react.css";
+import { t } from "../i18n";
 import "./session-home.css";
 import { splitRecall } from "./recall";
 import { SessionLineage } from "../continuity/SessionLineage";
@@ -1219,14 +1220,14 @@ export function Conversation({
             type="button"
             className={dictating ? "b mic-recording" : "b"}
             id="conversation-mic"
-            aria-label={transcribing ? "Transcribing" : dictating ? "Stop dictating" : "Dictate message"}
-            title={dictationEngine === "host" ? "Dictation is transcribed on your Lectern" : undefined}
+            aria-label={transcribing ? t("voice.transcribing") : dictating ? t("voice.stop") : t("voice.dictateMessage")}
+            title={dictationEngine === "host" ? t("voice.onLectern") : undefined}
             hidden={!dictationSupported}
             aria-pressed={dictating}
             aria-busy={transcribing}
             onClick={dictate}
           >
-            {transcribing ? "⏳ Transcribing…" : dictating ? (dictationEngine === "host" ? "🔴 Recording · tap to stop" : "🔴 Listening…") : "🎙"}
+            {transcribing ? "⏳ " + t("voice.transcribing") + "…" : dictating ? (dictationEngine === "host" ? "🔴 " + t("voice.recording") : "🔴 Listening…") : "🎙"}
           </button>
           <button
             type="submit"

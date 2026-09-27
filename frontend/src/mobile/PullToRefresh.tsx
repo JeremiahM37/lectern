@@ -2,6 +2,7 @@
 // has overscroll turned off (style.css), so the browser's own gesture never
 // competes; this one refreshes the data, not the whole page, and works the
 // same inside the Android app's WebView.
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { dragAxis, pullOffset, PULL_TRIGGER } from "./gestures";
 import { haptic, TOUCH_FIRST } from "./haptics";
@@ -81,6 +82,6 @@ export function PullToRefresh({ target, onRefresh }: { target: () => HTMLElement
   return (
     // The arrow is drawn by CSS, so the page's text is the same with or
     // without it.
-    <div ref={indicator} id="pull-refresh" className={busy ? "busy" : ""} role="status" aria-label={busy ? "Refreshing" : undefined} />
+    <div ref={indicator} id="pull-refresh" className={busy ? "busy" : ""} role="status" aria-label={busy ? t("mobile.refreshing") : undefined} />
   );
 }

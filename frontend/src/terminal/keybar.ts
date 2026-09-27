@@ -1,9 +1,12 @@
 // The phone's key row, as the person arranged it: which keys, in what order,
-// including Ctrl/Alt/Shift combinations and their own saved replies (Quick
-// Commands). Kept free of the DOM so it is tested as plain functions; the
-// row itself is Keybar.tsx. Stored per device, like the type size.
+// including Ctrl/Alt/Shift combinations and their quick commands. Kept free
+// of the DOM so it is tested as plain functions; the row itself is
+// Keybar.tsx. The arrangement is stored per device, like the type size; a
+// quick command on the row is a reference to the one server-stored list
+// (quick/commands.ts), so editing the command changes its key everywhere.
+import { t } from "../i18n";
 import { modified } from "./keys";
-import { snippetBytes, type Snippet } from "./snippets";
+import { commandBytes, type QuickCommand } from "../quick/commands";
 
 // The keys a phone keyboard does not have, in the order a shell reaches for
 // them. The row scrolls sideways, so it can be complete without being tall.
@@ -30,33 +33,23 @@ export const builtinKeys = {
 } as const;
 export type BuiltinKey = keyof typeof builtinKeys;
 
-export const builtinLabels: Record<BuiltinKey, [string, string]> = {
-  escape: ["Esc", "Send Escape"],
-  tab: ["Tab", "Send Tab"],
-  backtab: ["⇧Tab", "Send Shift-Tab"],
-  left: ["←", "Send Left arrow"],
-  up: ["↑", "Send Up arrow"],
-  down: ["↓", "Send Down arrow"],
-  right: ["→", "Send Right arrow"],
-  interrupt: ["^C", "Send Ctrl-C"],
-  slash: ["/", "Send slash"],
-  dash: ["-", "Send dash"],
-  pipe: ["|", "Send pipe"],
-  tilde: ["~", "Send tilde"],
-  home: ["Home", "Send Home"],
-  end: ["End", "Send End"],
-  pageup: ["PgUp", "Send Page Up"],
-  pagedown: ["PgDn", "Send Page Down"],
-  enter: ["⏎", "Send Enter"],
-  backspace: ["⌫", "Send Backspace"],
-  delete: ["Del", "Send Delete"],
+const builtinKeyLabels: Record<BuiltinKey, string> = {
+  escape: "Esc", tab: "Tab", backtab: "⇧Tab", left: "←", up: "↑", down: "↓", right: "→", interrupt: "^C",
+  slash: "/", dash: "-", pipe: "|", tilde: "~", home: "Home", end: "End", pageup: "PgUp", pagedown: "PgDn",
+  enter: "⏎", backspace: "⌫", delete: "Del",
 };
+
+/** [what the key shows, what a screen reader says] (keybar.key.* in en.ts). */
+export function builtinLabel(id: BuiltinKey): [string, string] {
+  return [builtinKeyLabels[id], t(`keybar.key.${id}`)];
+}
 
 export type KeyItem =
   | { t: "key"; id: BuiltinKey }
   | { t: "mod"; id: "ctrl" | "alt" }
   | { t: "combo"; key: string; ctrl?: boolean; alt?: boolean; shift?: boolean }
-  | { t: "text"; text: string; enter: boolean }
+  | { t: "quick"; id: string }
+  | { t: "find" }
   | { t: "snippets" };
 
 // Esc and Tab lead; the sticky modifiers sit right after them, where a thumb
@@ -68,6 +61,7 @@ export const defaultKeybar: KeyItem[] = [
   { t: "mod", id: "alt" },
   ...(["slash", "dash", "pipe", "tilde", "home", "end", "pageup", "pagedown"] as const).map((id) => ({ t: "key" as const, id })),
   { t: "snippets" },
+  { t: "find" },
 ];
 
 const named = new Set<string>(Object.keys(builtinKeys));
@@ -90,43 +84,49 @@ export function itemId(item: KeyItem): string {
       return item.id;
     case "snippets":
       return "snippets";
+    case "find":
+      return "find";
     case "combo":
       return `${item.ctrl ? "C-" : ""}${item.alt ? "M-" : ""}${item.shift ? "S-" : ""}${item.key}`;
-    case "text":
-      return `text:${item.enter ? "1" : "0"}:${item.text}`;
+    case "quick":
+      return `quick:${item.id}`;
   }
 }
 
 function keyLabel(key: string, ctrl?: boolean): string {
-  if (isBuiltin(key)) return builtinLabels[key][0];
+  if (isBuiltin(key)) return builtinKeyLabels[key];
   return ctrl ? key.toUpperCase() : key;
 }
 
-/** [what the button shows, what a screen reader says]. */
-export function itemLabel(item: KeyItem): [string, string] {
+/** [what the button shows, what a screen reader says]. A quick command
+ * needs its command; a key for one that no longer exists is not shown. */
+export function itemLabel(item: KeyItem, quick?: QuickCommand): [string, string] {
   switch (item.t) {
     case "key":
-      return builtinLabels[item.id];
+      return builtinLabel(item.id);
     case "mod":
-      return item.id === "ctrl" ? ["Ctrl", "Hold Ctrl for the next key"] : ["Alt", "Hold Alt for the next key"];
+      return item.id === "ctrl" ? ["Ctrl", t("keybar.holdCtrl")] : ["Alt", t("keybar.holdAlt")];
     case "snippets":
-      return ["⚡", "Snippets"];
+      return ["⚡", t("keybar.quickCommands")];
+    case "find":
+      return ["⌕", t("terminal.searchThis")];
     case "combo": {
       const mods = [item.ctrl && "Ctrl", item.alt && "Alt", item.shift && "Shift"].filter(Boolean).join("-");
       const shown = `${item.ctrl ? "^" : ""}${item.alt ? "⌥" : ""}${item.shift ? "⇧" : ""}${keyLabel(item.key, item.ctrl)}`;
-      const spoken = isBuiltin(item.key) ? builtinLabels[item.key][1].replace(/^Send /, "") : item.key;
-      return [shown, `Send ${mods}-${spoken}`];
+      const spoken = isBuiltin(item.key) ? builtinKeyLabels[item.key] : item.key;
+      return [shown, t("keybar.sendCombo", { combo: `${mods}-${spoken}` })];
     }
-    case "text": {
-      const shown = item.text.length > 12 ? item.text.slice(0, 11) + "…" : item.text;
-      return [shown + (item.enter ? " ⏎" : ""), `Send ${item.text}${item.enter ? " and Enter" : ""}`];
+    case "quick": {
+      const text = quick ? quick.label || quick.text : "?";
+      const shown = text.length > 12 ? text.slice(0, 11) + "…" : text;
+      return [shown + (quick?.enter ? " ⏎" : ""), t("keybar.sendQuick", { text })];
     }
   }
 }
 
 /** The bytes one press sends. appCursor is xterm's application cursor mode,
  * in which an unmodified arrow is SS3 (ESC O A) rather than CSI. */
-export function itemBytes(item: KeyItem, appCursor = false): string {
+export function itemBytes(item: KeyItem, appCursor = false, quick?: QuickCommand): string {
   switch (item.t) {
     case "key": {
       const text: string = builtinKeys[item.id];
@@ -136,8 +136,8 @@ export function itemBytes(item: KeyItem, appCursor = false): string {
       const base: string = isBuiltin(item.key) ? builtinKeys[item.key] : item.key;
       return modified(base, { ctrl: !!item.ctrl, alt: !!item.alt, shift: !!item.shift });
     }
-    case "text":
-      return snippetBytes({ text: item.text, enter: item.enter });
+    case "quick":
+      return quick ? commandBytes(quick) : "";
     default:
       return "";
   }
@@ -157,6 +157,7 @@ export function missingBuiltins(row: KeyItem[]): KeyItem[] {
   const present = new Set(row.map(itemId));
   const all: KeyItem[] = [
     { t: "snippets" },
+    { t: "find" },
     { t: "mod", id: "ctrl" },
     { t: "mod", id: "alt" },
     ...(Object.keys(builtinKeys) as BuiltinKey[]).map((id) => ({ t: "key" as const, id })),
@@ -164,8 +165,8 @@ export function missingBuiltins(row: KeyItem[]): KeyItem[] {
   return all.filter((item) => !present.has(itemId(item)));
 }
 
-export function snippetItem(snippet: Snippet): KeyItem {
-  return { t: "text", text: snippet.text, enter: snippet.enter };
+export function quickItem(command: QuickCommand): KeyItem {
+  return { t: "quick", id: command.id };
 }
 
 export function move(row: KeyItem[], index: number, by: -1 | 1): KeyItem[] {
@@ -203,12 +204,12 @@ function cleanItem(row: unknown): KeyItem | undefined {
   if (!row || typeof row !== "object") return undefined;
   const r = row as Record<string, unknown>;
   if (r.t === "snippets") return { t: "snippets" };
+  if (r.t === "find") return { t: "find" };
   if (r.t === "key" && isBuiltin(r.id)) return { t: "key", id: r.id };
   if (r.t === "mod" && (r.id === "ctrl" || r.id === "alt")) return { t: "mod", id: r.id };
   if (r.t === "combo" && typeof r.key === "string" && validComboKey(r.key) && (r.ctrl || r.alt || r.shift))
     return { t: "combo", key: r.key, ctrl: !!r.ctrl, alt: !!r.alt, shift: !!r.shift };
-  if (r.t === "text" && typeof r.text === "string" && r.text.length > 0)
-    return { t: "text", text: r.text.slice(0, 2000), enter: r.enter !== false };
+  if (r.t === "quick" && typeof r.id === "string" && r.id) return { t: "quick", id: r.id.slice(0, 40) };
   return undefined;
 }
 

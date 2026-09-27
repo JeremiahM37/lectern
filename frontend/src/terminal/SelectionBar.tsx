@@ -1,6 +1,7 @@
 // The bar a phone shows while text is selected in the live terminal (a long
 // press, Engine.selectAt). The terminal keeps running underneath: output
 // arrives, the selection stays on the text it was made on.
+import { t } from "../i18n";
 import type { Engine } from "./engine";
 import type { TerminalLink } from "./links";
 import { copyClipboard, errorMessage } from "./model";
@@ -18,7 +19,7 @@ export function LiveSelectionBar({
   const link = e?.selectedLink();
   const keep = (event: React.PointerEvent) => event.preventDefault();
   return (
-    <div id="select-bar" className="live-selection" role="toolbar" aria-label="Text selection">
+    <div id="select-bar" className="live-selection" role="toolbar" aria-label={t("select.label")}>
       <button
         id="select-copy"
         className="primary"
@@ -27,16 +28,16 @@ export function LiveSelectionBar({
           const text = e?.term.getSelection() || "";
           void copyClipboard(text, () => {})
             .then(() => {
-              onNotice(text.includes("\n") ? `Copied ${text.split("\n").length} lines.` : "Copied.");
+              onNotice(text.includes("\n") ? t("select.copiedLines", { count: text.split("\n").length }) : t("select.copied"));
               e?.term.clearSelection();
             })
             .catch((error) => onNotice(errorMessage(error)));
         }}
       >
-        Copy
+        {t("select.copy")}
       </button>
       <button id="select-lines" onPointerDown={keep} onClick={() => e?.selectLines()}>
-        Whole lines
+        {t("select.lines")}
       </button>
       {link && (
         <button
@@ -47,11 +48,11 @@ export function LiveSelectionBar({
             onLink(link);
           }}
         >
-          {link.kind === "url" ? "Open link" : "Open file"}
+          {link.kind === "url" ? t("select.openLink") : t("select.openFile")}
         </button>
       )}
       <button id="select-clear" onPointerDown={keep} onClick={() => e?.term.clearSelection()}>
-        Done
+        {t("select.done")}
       </button>
     </div>
   );

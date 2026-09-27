@@ -17,7 +17,7 @@ import {
 test("the default row is the one the phone always had", () => {
   assert.deepEqual(defaultKeybar.map(itemId), [
     "escape", "tab", "ctrl", "left", "up", "down", "right", "interrupt", "backtab", "alt",
-    "slash", "dash", "pipe", "tilde", "home", "end", "pageup", "pagedown", "snippets",
+    "slash", "dash", "pipe", "tilde", "home", "end", "pageup", "pagedown", "snippets", "find",
   ]);
   assert.equal(parseKeybar(null), defaultKeybar);
   assert.equal(parseKeybar("not json"), defaultKeybar);
@@ -42,10 +42,15 @@ test("an unmodified arrow follows the application's cursor mode", () => {
   assert.equal(itemBytes({ t: "key", id: "escape" }, true), "\x1b");
 });
 
-test("a saved reply on the row sends its text and, if it says so, Enter", () => {
-  assert.equal(itemBytes({ t: "text", text: "/compact", enter: true }), "/compact\r");
-  assert.equal(itemBytes({ t: "text", text: "git status", enter: false }), "git status");
-  assert.equal(itemLabel({ t: "text", text: "continue please now", enter: true })[0], "continue pl… ⏎");
+test("a quick command on the row is a reference to the stored command", () => {
+  const command = { id: "q1", label: "", text: "/compact", enter: true };
+  const item: KeyItem = { t: "quick", id: "q1" };
+  assert.equal(itemBytes(item, false, command), "/compact\r");
+  assert.equal(itemBytes(item, false, { ...command, text: "git status", enter: false }), "git status");
+  assert.equal(itemLabel(item, { ...command, text: "continue please now" })[0], "continue pl… ⏎");
+  assert.equal(itemLabel(item, { ...command, label: "Compact" })[0], "Compact ⏎");
+  // A deleted command sends nothing.
+  assert.equal(itemBytes(item), "");
 });
 
 test("arrows and deletion repeat when held; Esc and replies do not", () => {
@@ -53,16 +58,16 @@ test("arrows and deletion repeat when held; Esc and replies do not", () => {
   assert.equal(repeats({ t: "key", id: "backspace" }), true);
   assert.equal(repeats({ t: "combo", key: "left", ctrl: true }), true);
   assert.equal(repeats({ t: "key", id: "escape" }), false);
-  assert.equal(repeats({ t: "text", text: "y", enter: true }), false);
+  assert.equal(repeats({ t: "quick", id: "q1" }), false);
 });
 
 test("a stored row is cleaned: unknown keys, duplicates and empty combos are dropped", () => {
   const raw = JSON.stringify([
     { t: "key", id: "tab" }, { t: "key", id: "tab" }, { t: "key", id: "rm -rf" },
     { t: "combo", key: "r" }, { t: "combo", key: "r", ctrl: true }, { t: "combo", key: "left", alt: true },
-    { t: "combo", key: "\x7f", ctrl: true }, { t: "text", text: "" }, { t: "text", text: "yes" }, { t: "mod", id: "meta" },
+    { t: "combo", key: "\x7f", ctrl: true }, { t: "quick", id: "" }, { t: "quick", id: "q7" }, { t: "mod", id: "meta" }, { t: "find" },
   ]);
-  assert.deepEqual(parseKeybar(raw).map(itemId), ["tab", "C-r", "M-left", "text:1:yes"]);
+  assert.deepEqual(parseKeybar(raw).map(itemId), ["tab", "C-r", "M-left", "quick:q7", "find"]);
   // An emptied row stays empty rather than growing the defaults back.
   assert.deepEqual(parseKeybar("[]"), []);
 });

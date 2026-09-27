@@ -13,6 +13,7 @@
 //
 // This works the same in a browser, an installed web app and the Android
 // app's WebView, which has no service worker.
+import { t } from "../i18n";
 import { ApiError } from "./client";
 
 const KEY = "lec-offline-v1";
@@ -185,12 +186,12 @@ function safeStorage(): Storage | undefined {
 /** "just now", "4 min ago", "2 h ago", "3 days ago". */
 export function staleAge(since: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - since) / 1000));
-  if (s < 45) return "just now";
+  if (s < 45) return t("offline.justNow");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return t("offline.minutesAgo", { count: m });
   const h = Math.round(m / 60);
-  if (h < 36) return `${h} h ago`;
-  return `${Math.round(h / 24)} days ago`;
+  if (h < 36) return t("offline.hoursAgo", { count: h });
+  return t("offline.daysAgo", { count: Math.round(h / 24) });
 }
 
 /** The one cache the whole app shares. */

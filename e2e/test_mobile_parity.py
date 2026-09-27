@@ -54,11 +54,14 @@ def test_the_key_row_is_the_operators_and_held_arrows_repeat(page, real_terminal
     dialog.locator('#combo-char').fill('u')
     dialog.locator('#combo-add').click()
     dialog.locator('[data-add-key="backspace"]').click()
-    dialog.locator('[data-add-reply="continue"]').click()
+    dialog.locator('[data-add-quick="continue"]').click()
     dialog.locator('[data-close]').click()
     keys = f.locator('#terminal-keybar button').evaluate_all('(b)=>b.map(x=>x.dataset.terminalKey)')
     assert 'tilde' not in keys and keys.index('pipe') < keys.index('dash'), keys
-    assert keys[-4:] == ['C-u', 'backspace', 'text:1:continue', 'edit'], keys
+    assert keys[-6:-2] == ['snippets', 'find', 'C-u', 'backspace'] and keys[-2].startswith('quick:') and keys[-1] == 'edit', keys
+    # The quick-command key is the server-stored command, not a copy.
+    stored = page.request.get(t['url'] + '/api/ui/prefs').json()
+    assert 'continue' in json.dumps(stored), stored
     # It is this device's arrangement and survives a reload.
     page.reload()
     f = attach(page, t)

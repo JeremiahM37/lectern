@@ -31,10 +31,10 @@ body:has(#offline-banner) #view .scard { opacity: .92; }
 .swipe-row > .swipe-card { position: relative; }
 .swipe-under {
   position: absolute; inset: 0; display: none; align-items: center; padding: 0 22px;
-  border-radius: var(--r); font-weight: 600; font-size: 14px; color: #fff;
+  border-radius: var(--r); font-weight: 600; font-size: 14px; color: var(--bg);
 }
-.swipe-under.ok { background: color-mix(in srgb, var(--green) 70%, #0b2a1f); }
-.swipe-under.warn { background: color-mix(in srgb, var(--red) 55%, #2a0d12); }
+.swipe-under.ok { background: var(--green); }
+.swipe-under.warn { background: var(--red); }
 .swipe-right { justify-content: flex-start; }
 .swipe-left { justify-content: flex-end; }
 .swipe-row.swiping-right > .swipe-right, .swipe-row.swiping-left > .swipe-left { display: flex; }
@@ -45,7 +45,7 @@ body:has(#offline-banner) #view .scard { opacity: .92; }
   /* Above the bottom tab bar, whatever card the menu belongs to. */
   .scard:has(.action-menu.as-sheet[open]) { z-index: 75; }
   .action-menu.as-sheet[open]::before {
-    content: ""; position: fixed; inset: 0; z-index: 70; background: #02040acc;
+    content: ""; position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--bg) 80%, transparent);
     animation: sheet-fade .18s ease-out;
   }
   .action-menu.as-sheet[open] > .action-menu-panel {
