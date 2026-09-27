@@ -985,7 +985,7 @@ func (s *Server) closeBrowserView(w http.ResponseWriter, r *http.Request) {
 
 // portsScript lists listening TCP ports on the target's loopback or wildcard
 // addresses, marks the ones a process in the session's workspace owns, and
-// says which answer HTTP.
+// says which answer HTTP; those come first.
 const portsScript = `import os,json,socket,sys
 work=os.path.realpath(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1] else ''
 listen={}
@@ -1020,12 +1020,15 @@ for ino,port in listen.items():
     inws=bool(work and cwd and (cwd==work or cwd.startswith(work+'/')))
     if port in out and out[port]['in_workspace']: continue
     out[port]=dict(port=port,pid=int(pid) if pid else None,command=cmd,in_workspace=inws)
-ports=sorted(out.values(),key=lambda e:(not e['in_workspace'],e['port']))[:60]
-for e in ports[:40]:
+def probe(e):
     try:
         s=socket.create_connection(('127.0.0.1',e['port']),timeout=0.3); s.settimeout(0.6)
         s.sendall(b'HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n'); e['http']=s.recv(5)==b'HTTP/'; s.close()
     except Exception: e['http']=False
+ports=list(out.values())[:300]
+from concurrent.futures import ThreadPoolExecutor
+with ThreadPoolExecutor(32) as pool: list(pool.map(probe,ports))
+ports=sorted(ports,key=lambda e:(not e['in_workspace'],not e['http'],e['port']))[:80]
 print(json.dumps(dict(ports=ports)))
 `
 

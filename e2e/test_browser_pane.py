@@ -42,7 +42,9 @@ document.querySelector('#save').onclick=()=>{document.querySelector('#msg').text
 
 
 @pytest.fixture()
-def shop(tmp_path):
+def shop(tmp_path, real_terminal):
+    # A dev server the way an agent starts one: from the session's workspace,
+    # bound to loopback only.
     site = tmp_path / 'shop'
     (site / 'assets').mkdir(parents=True)
     (site / 'index.html').write_text(SHOP)
@@ -51,7 +53,7 @@ def shop(tmp_path):
         s.bind(('127.0.0.1', 0))
         port = s.getsockname()[1]
     proc = subprocess.Popen([sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1', '--directory', str(site)],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            cwd=real_terminal['root'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(100):
         try:
             urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=1).read()
@@ -141,7 +143,7 @@ def test_design_mode_on_a_live_page_sends_elements_to_the_agent(page, real_termi
     pane = open_pane(page, t)
     # Its ports are found on the target, this workspace's first.
     pane.get_by_role('button', name='Ports').click()
-    expect(pane.locator('.browser-ports')).to_contain_text(f':{shop}', timeout=20000)
+    expect(pane.locator('.browser-ports .port.in-workspace', has_text=f':{shop}')).to_be_visible(timeout=20000)
     pane.get_by_label('Address').fill(f'localhost:{shop}')
     pane.get_by_role('button', name='Go').click()
     frame = pane.frame_locator('iframe')
@@ -152,7 +154,9 @@ def test_design_mode_on_a_live_page_sends_elements_to_the_agent(page, real_termi
     assert frame.locator('lectern-design-overlay').count() == 0
     assert pane.locator('iframe').evaluate('f=>f.src').count('__lectern_ticket') == 1
     pane.get_by_role('button', name='Design').click()
-    expect(frame.locator('#title')).to_have_text('Fixture shop', timeout=20000)
+    # The page reloads with the picker: only a document loaded in Design Mode carries it.
+    expect(frame.locator('script[src="/__lectern/design.js"]')).to_have_count(1, timeout=20000)
+    expect(frame.locator('#title')).to_have_text('Fixture shop')
     frame.locator('#card').hover()
     expect(pane.locator('.browser-hover')).to_contain_text('body › div#card', timeout=10000)
     frame.locator('#card').click()
@@ -173,6 +177,9 @@ def test_design_mode_on_a_live_page_sends_elements_to_the_agent(page, real_termi
         assert name in files, files
     assert png_size(files['element-1.png'][0]) == (180, 100)
     md = Path(files['design.md'][0]).read_text()
+    if os.environ.get('LECTERN_BROWSER_EVIDENCE'):
+        shutil.copy(files['element-1.png'][0], Path(os.environ['LECTERN_BROWSER_EVIDENCE']) / 'element-1.png')
+        shutil.copy(files['design.md'][0], Path(os.environ['LECTERN_BROWSER_EVIDENCE']) / 'design.md')
     assert 'Selector: `#card`' in md and 'background-color: rgb(0, 0, 255);' in md, md
     assert f'http://localhost:{shop}/' in md, md
     # One message reached the agent, naming the files.
@@ -284,11 +291,12 @@ DESKTOP = all(shutil.which(b) for b in ('Xvfb', 'x11vnc', 'websockify', 'xdotool
 
 @pytest.mark.skipif(not DESKTOP, reason='needs Xvfb, x11vnc, websockify, noVNC, xdotool and a screen grabber')
 @pytest.mark.parametrize('real_terminal', LIVE, indirect=True)
-def test_computer_use_is_off_until_allowed_and_stops_on_demand(page, real_terminal):
+def test_computer_use_is_off_until_allowed_and_stops_on_demand(page, real_terminal, shop):
     t = real_terminal
     env = {**t['env'], 'LECTERN_API': t['url'], 'TMUX': ''}
-    view = json.loads(subprocess.run([_binary(), 'live', '--title', 'Agent desktop', '--session', str(t['id'])], env=env,
-                                     capture_output=True, text=True, timeout=90).stdout)
+    # A desktop with the dev server open in a browser on it, as an agent would start one.
+    view = json.loads(subprocess.run([_binary(), 'live', f'http://127.0.0.1:{shop}/', '--title', 'Agent desktop',
+                                      '--session', str(t['id'])], env=env, capture_output=True, text=True, timeout=90).stdout)
     shot, = mcp(t, ('computer_screenshot', {}))
     assert shot['error'] and 'computer use is off' in shot['text'], shot
     page.set_viewport_size({'width': 1440, 'height': 900})
@@ -301,6 +309,7 @@ def test_computer_use_is_off_until_allowed_and_stops_on_demand(page, real_termin
     assert not click['error'], click
     expect(pane.locator('.desk')).to_have_class('desk agent-driving', timeout=10000)
     expect(pane.locator('.desk-shot')).to_be_visible(timeout=10000)
+    page.wait_for_timeout(4000)  # let the desktop's browser draw before keeping a picture
     evidence(page, 'computer-use.png')
     pane.get_by_role('button', name='Stop agent').click()
     expect(pane.locator('.desk .browser-control')).to_contain_text('stopped')

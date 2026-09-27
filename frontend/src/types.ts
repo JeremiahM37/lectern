@@ -225,6 +225,8 @@ export interface Project {
   // CI-aware PR loop opt-in and fix-request cap (docs/ci-loop.md).
   ci_loop?: number;
   ci_max_attempts?: number;
+  // Agents may operate this project's live desktops (docs/browser.md).
+  computer_use?: number;
   created_at: number;
   target_name?: string;
   target_kind?: string;

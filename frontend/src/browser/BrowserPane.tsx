@@ -107,6 +107,7 @@ export function BrowserPane({
     [ports, setPorts] = useState<Port[]>(),
     [portsError, setPortsError] = useState(""),
     [showPorts, setShowPorts] = useState(false),
+    [allPorts, setAllPorts] = useState(false),
     [address, setAddress] = useState(""),
     [deviceId, setDeviceId] = useState(PHONE ? "phone" : "desktop"),
     [mode, setMode] = useState<Mode>(),
@@ -295,6 +296,7 @@ export function BrowserPane({
     const target = normalizeAddress(raw);
     if (!target) return;
     setAddress(target);
+    setShowPorts(false);
     if (mode === "direct") {
       const port = loopbackPort(target);
       if (port === null) {
@@ -617,7 +619,7 @@ export function BrowserPane({
               {!ports && !portsError && <span>Looking for listening ports…</span>}
               {portsError && <span className="browser-error">{portsError}</span>}
               {ports && ports.length === 0 && <span>Nothing is listening on this machine's localhost.</span>}
-              {[...workspacePorts, ...otherPorts].slice(0, 24).map((p) => (
+              {[...workspacePorts, ...(allPorts ? otherPorts : otherPorts.filter((p) => p.http).slice(0, 8))].map((p) => (
                 <button
                   key={p.port}
                   role="listitem"
@@ -633,6 +635,11 @@ export function BrowserPane({
                   {!p.http && <small className="dim">not http</small>}
                 </button>
               ))}
+              {!allPorts && otherPorts.length > otherPorts.filter((p) => p.http).slice(0, 8).length && (
+                <button className="b" onClick={() => setAllPorts(true)}>
+                  All {ports?.length} ports
+                </button>
+              )}
               <button className="b" onClick={loadPorts} aria-label="Look again">
                 ⟳
               </button>

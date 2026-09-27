@@ -250,6 +250,12 @@ func TestDesignPayloadAndCroppedScreenshot(t *testing.T) {
 	if d.CSS["background-color"] != "rgb(255, 0, 0)" || d.CSS["position"] != "absolute" || d.CSS["border-top-left-radius"] != "8px" {
 		t.Fatalf("css diff misses the card's own styles: %v", d.CSS)
 	}
+	if _, ok := d.CSS["right"]; ok {
+		t.Fatalf("css diff includes an offset nobody wrote: %v", d.CSS)
+	}
+	if d.CSS["left"] != "40px" || d.CSS["top"] != "60px" {
+		t.Fatalf("css diff lost the authored offsets: %v", d.CSS)
+	}
 	if _, ok := d.CSS["font-style"]; ok {
 		t.Fatalf("css diff includes a default value: %v", d.CSS)
 	}

@@ -154,6 +154,11 @@
 .desk.agent-driving { border-color: var(--amber, #fbbf24); }
 .desk-shot { display: block; width: 100%; height: auto; background: #000; }
 @media (max-width: 700px) {
+  /* A phone shows the page at its own width and scrolls, rather than
+     shrinking a tall page to fit. */
+  .browser-stage { align-items: flex-start; padding: 0; }
+  .browser-screen { height: auto; }
+  .browser-screen img { width: 100%; max-height: none; }
   .browser-toolbar select { max-width: 110px; }
   .browser-toolbar .browser-address { order: -1; flex-basis: 100%; }
 }

@@ -161,6 +161,16 @@
     return out;
   }
 
+  // A positioned element computes every offset, including the ones nobody
+  // wrote (right: 1070px). Keep only those its own rules or style name.
+  function dropDerivedOffsets(css, el, rules) {
+    var authored = (el.getAttribute("style") || "") + " " + rules.join(" ");
+    ["top", "right", "bottom", "left"].forEach(function (p) {
+      if (css[p] !== undefined && !new RegExp("(^|[\\s;{])" + p + "\\s*:").test(authored) && !/\binset\s*:/.test(authored)) delete css[p];
+    });
+    return css;
+  }
+
   // Author rules that match the element, from stylesheets this page may read.
   function matchedRules(el) {
     var rules = [];
@@ -185,15 +195,16 @@
 
   function describe(el) {
     var r = el.getBoundingClientRect(), text = (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ");
-    var h = trimHTML(el);
+    var h = trimHTML(el), rules = matchedRules(el), css = styleDiff(el);
+    if (rules.length || el.getAttribute("style")) dropDerivedOffsets(css, el, rules);
     return {
       selector: selectorPath(el),
       breadcrumb: breadcrumb(el),
       tag: el.tagName.toLowerCase(),
       text: text.length > 300 ? text.slice(0, 300) + "…" : text,
       html: h.html, html_truncated: h.truncated, html_length: h.original_length,
-      css: styleDiff(el),
-      rules: matchedRules(el),
+      css: css,
+      rules: rules,
       rect: { x: r.left, y: r.top, width: r.width, height: r.height },
       scroll: { x: window.scrollX, y: window.scrollY },
       viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 },
