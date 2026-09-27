@@ -156,6 +156,8 @@ const clientHelp = `Lectern — web and terminal control
   lectern skill attach PROJECT SKILL_ID [--agent AGENT]
   lectern skill detach PROJECT ATTACHMENT_ID
   lectern mcp                     MCP on standard input/output
+  lectern mcp --http              The same tools for claude.ai / ChatGPT, over OAuth
+  lectern relay                   Run an end-to-end encrypted relay for phones (docs/relay.md)
   lectern version
 
 KIND: session, attempt, project (upload also accepts task).
