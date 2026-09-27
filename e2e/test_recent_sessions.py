@@ -85,10 +85,12 @@ def test_restore_lists_groups_searches_and_tracks_again_narrow(page, real_termin
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 
     rows.first.get_by_role("button", name="Track again").click()
-    expect(page.locator(".scard", has_text="Real terminal")).to_contain_text(
-        "adopted"
-    )
-    assert t["api"](f"/sessions/{t['id']}")["ended_at"] is None
+    # Tracking again reattaches the terminal, as every reopen does; on a
+    # phone that terminal replaces the list. Asserting on the card raced the
+    # attach, and lost once attach stopped waiting a fixed 300 ms.
+    expect(page.get_by_role("tab", name="Real terminal")).to_be_visible(timeout=10000)
+    row = t["api"](f"/sessions/{t['id']}")
+    assert row["ended_at"] is None and row["origin"] == "discovered"
 
 
 def test_stop_tracking_offers_undo(page, real_terminal):
