@@ -6,7 +6,7 @@ import {
   confirmationNotification,
   decisionForAction,
   decisionRequestInit,
-  decisionURL, limitChoiceForAction, limitChoiceURL, limitChoiceRequestInit, limitConfirmation } from "./sw-actions";
+  decisionURL, dismissalOf, replacementNeeded, limitChoiceForAction, limitChoiceURL, limitChoiceRequestInit, limitConfirmation } from "./sw-actions";
 
 test("an approval push gets Approve/Deny action buttons and the approval id", () => {
   const plan = buildNotificationPlan({
@@ -125,4 +125,20 @@ test("a usage-limit push offers resume-at-reset and hand-off", () => {
   // a follow-up ("Resumed") is informational only
   const resumed = buildNotificationPlan({ title: "Resumed", body: "…", kind: "limit_resumed", session_id: 4, limit_id: 12 });
   assert.deepEqual(resumed.options.actions, []);
+});
+
+test("a dismiss push names the same tag the approval was shown under", () => {
+  const shown = buildNotificationPlan({ kind: "approval", approval_id: 42, title: "t" });
+  const gone = dismissalOf({ kind: "dismiss", tag: "approval-42", title: "Approved on another device" });
+  assert.equal(gone?.tag, shown.options.tag);
+  assert.equal(gone?.title, "Approved on another device");
+  assert.equal(dismissalOf({ kind: "approval", tag: "approval-42" }), null);
+  assert.equal(dismissalOf({ kind: "dismiss", tag: "../../x" }), null);
+  assert.equal(dismissalOf({ kind: "dismiss" }), null);
+});
+
+test("a silent replacement only when the tray would otherwise be empty and no window shows", () => {
+  assert.equal(replacementNeeded(0, false), true);
+  assert.equal(replacementNeeded(1, false), false);
+  assert.equal(replacementNeeded(0, true), false);
 });

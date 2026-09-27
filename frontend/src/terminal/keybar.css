@@ -1,0 +1,57 @@
+/* The key row's own extras (Keybar.tsx): saved replies on the row, the edit
+   button, and the Customize keys dialog. */
+#terminal-keybar button.quick {
+  color: var(--accent);
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+#terminal-keybar button.keybar-edit {
+  color: var(--muted);
+  font-size: 14px;
+}
+#keybar-dialog { width: min(560px, 96vw); }
+.keybar-order {
+  list-style: none;
+  margin: 10px 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 38dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.keybar-order li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.keybar-order li button { min-width: 40px; min-height: 38px; padding: 0 8px; }
+.keybar-chip {
+  flex: none;
+  min-width: 44px;
+  padding: 4px 8px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  border-radius: 6px;
+  background: #ffffff10;
+}
+.keybar-spoken { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keybar-remove { color: #ff9aa5; }
+.keybar-palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.keybar-palette button { min-width: 44px; min-height: 38px; font-family: ui-monospace, monospace; }
+.keybar-combo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 14px; }
+dialog .keybar-combo label { margin: 0; gap: 4px; display: inline-flex; align-items: center; }
+dialog .keybar-combo label input { width: auto; }
+.keybar-combo #combo-char { width: 3.2em; text-align: center; }
+#keybar-dialog h3 { font-size: 13px; margin: 10px 0 0; color: var(--muted); font-weight: 600; }
+/* While text is selected in the live terminal (a long press). */
+#select-bar.live-selection { justify-content: flex-end; }
+#select-bar.live-selection button:first-child { margin-right: auto; }

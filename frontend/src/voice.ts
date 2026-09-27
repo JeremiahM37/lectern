@@ -3,7 +3,8 @@
 // without duplicating the SpeechRecognition wiring. Recording never sends
 // anything on its own — every word it hears only ever lands in the box a
 // person can still edit before they submit it themselves.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { chooseEngine, hostVoice, record, transcribe, voicePreference, type Recording, type VoiceEngine } from "./voice-host";
 
 export interface RecognitionResult {
   transcript: string;
@@ -87,11 +88,29 @@ export interface DictationHandlers {
 // recording only ever changes what is in the box, exactly like typing would.
 export function useDictation({ onChange, onNotice }: DictationHandlers) {
   const [dictating, setDictating] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const recognition = useRef<Recognition | undefined>(undefined);
+  const recording = useRef<Recording | undefined>(undefined);
   const startedWith = useRef("");
   const finalText = useRef("");
   const committed = useRef(0);
   const Ctor = typeof window !== "undefined" ? speechCtor(window) : undefined;
+  // Transcription on the Lectern host (voice-host.ts) is the other engine:
+  // the only one in the Android app's WebView, which has no speech
+  // recognition, and a choice anywhere else (Settings → Notifications).
+  const [host, setHost] = useState(false);
+  const [pref, setPref] = useState(voicePreference);
+  useEffect(() => {
+    let alive = true;
+    void hostVoice().then((status) => alive && setHost(status.available));
+    const changed = () => setPref(voicePreference());
+    window.addEventListener("lec-voice-engine", changed);
+    return () => {
+      alive = false;
+      window.removeEventListener("lec-voice-engine", changed);
+    };
+  }, []);
+  const engine: VoiceEngine | undefined = chooseEngine(pref, !!Ctor, host);
 
   const apply = useCallback(
     (interim: string) => {
@@ -100,16 +119,49 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
     [onChange],
   );
 
+  const finishRecording = useCallback(async () => {
+    const current = recording.current;
+    recording.current = undefined;
+    if (!current) return;
+    setDictating(false);
+    setTranscribing(true);
+    try {
+      const text = await transcribe(await current.stop());
+      onChange(appendTranscript(startedWith.current, text));
+      if (!text.trim()) onNotice("Nothing was heard.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      setTranscribing(false);
+    }
+  }, [onChange, onNotice]);
+
   const stop = useCallback(() => {
+    if (recording.current) void finishRecording();
     recognition.current?.stop();
-  }, []);
+  }, [finishRecording]);
+
+  useEffect(() => () => recording.current?.cancel(), []);
 
   const start = useCallback(
     (currentText: string) => {
-      if (!Ctor) return;
       startedWith.current = currentText;
       finalText.current = "";
       committed.current = 0;
+      if (engine === "host") {
+        void record(() => void finishRecording())
+          .then((r) => {
+            recording.current = r;
+            setDictating(true);
+          })
+          .catch((error: unknown) =>
+            onNotice(error instanceof Error && error.name === "NotAllowedError"
+              ? "Microphone access was refused. Allow it for this app and try again."
+              : `Recording could not start: ${error instanceof Error ? error.message : String(error)}`, true),
+          );
+        return;
+      }
+      if (!Ctor) return;
       const listener = new Ctor();
       recognition.current = listener;
       listener.lang = navigator.language;
@@ -137,16 +189,17 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
         onNotice(String(error), true);
       }
     },
-    [Ctor, apply, onNotice],
+    [Ctor, apply, engine, finishRecording, onNotice],
   );
 
   const toggle = useCallback(
     (currentText: string) => {
+      if (transcribing) return;
       if (dictating) stop();
       else start(currentText);
     },
-    [dictating, start, stop],
+    [dictating, start, stop, transcribing],
   );
 
-  return { supported: !!Ctor, dictating, toggle, stop };
+  return { supported: !!engine, engine, dictating, transcribing, toggle, stop };
 }

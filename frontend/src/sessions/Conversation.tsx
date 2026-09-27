@@ -652,6 +652,8 @@ export function Conversation({
   const {
     supported: dictationSupported,
     dictating,
+    transcribing,
+    engine: dictationEngine,
     toggle: toggleDictation,
     stop: stopDictation,
   } = useDictation({
@@ -1197,12 +1199,14 @@ export function Conversation({
             type="button"
             className={dictating ? "b mic-recording" : "b"}
             id="conversation-mic"
-            aria-label={dictating ? "Stop dictating" : "Dictate message"}
+            aria-label={transcribing ? "Transcribing" : dictating ? "Stop dictating" : "Dictate message"}
+            title={dictationEngine === "host" ? "Dictation is transcribed on your Lectern" : undefined}
             hidden={!dictationSupported}
             aria-pressed={dictating}
+            aria-busy={transcribing}
             onClick={dictate}
           >
-            {dictating ? "🔴 Listening…" : "🎙"}
+            {transcribing ? "⏳ Transcribing…" : dictating ? (dictationEngine === "host" ? "🔴 Recording · tap to stop" : "🔴 Listening…") : "🎙"}
           </button>
           <button
             type="submit"

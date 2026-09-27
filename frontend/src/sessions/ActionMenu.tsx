@@ -15,6 +15,10 @@ export function ActionMenu({
     menu.classList.remove("menu-above");
     content.style.transform = "";
     content.style.maxHeight = "";
+    // A phone gets a bottom sheet instead (mobile/phone.css).
+    const sheet = matchMedia("(max-width: 600px) and (pointer: coarse)").matches;
+    menu.classList.toggle("as-sheet", sheet);
+    if (sheet) return;
     let left = 8,
       right = innerWidth - 8,
       top = 8,
@@ -50,8 +54,9 @@ export function ActionMenu({
     const close = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
-        !root.current?.contains(event.target) &&
-        root.current
+        root.current &&
+        // The sheet's dimmed backdrop is the menu's own ::before.
+        (!root.current.contains(event.target) || event.target === root.current)
       )
         root.current.open = false;
     };

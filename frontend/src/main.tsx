@@ -21,6 +21,7 @@ import "./settings/model-prices.css";
 import "./pairing/pair.css";
 // Last, so a phone's density overrides every view's desktop sizing.
 import "./shell/mobile.css";
+import "./mobile/phone.css";
 // /pair is the one page an unpaired device can reach with no credential —
 // see internal/api/server.go's withAuth exemption. It gets its own render
 // root entirely: no board fetches, no SSE, nothing that assumes an

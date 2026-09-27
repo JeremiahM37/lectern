@@ -3,9 +3,16 @@ interface ScrollOptions {
   host: HTMLElement;
   term: Terminal;
   enabled: () => boolean;
-  // A finger held still. xterm has no touch selection, so the page answers a
-  // long press by showing the buffer as text the phone can select natively.
-  longPress?: () => void;
+  // A finger held still. xterm has no touch selection of its own: the page
+  // selects the word under the finger in the live buffer. Returning true
+  // keeps the finger: it then drags the selection (selectMove) until it
+  // lifts (selectEnd).
+  longPress?: (point: { x: number; y: number }) => boolean | void;
+  selectMove?: (point: { x: number; y: number }) => void;
+  selectEnd?: () => void;
+  // A quick tap that did not move: returning true means the page handled it
+  // (a link opened) and the tap goes no further.
+  tap?: (point: { x: number; y: number }) => boolean;
   promptPan?: (pixels: number) => boolean;
   // A deliberate horizontal flick on the terminal body. The same gesture owner
   // that scrolls and turns a long press into text decides it, so a plain shell
@@ -50,11 +57,15 @@ export function installTerminalScroll({
   autoscrollHost = host,
   historyViewport = () => null,
   longPress,
+  selectMove,
+  selectEnd,
+  tap,
   promptPan,
   swipe,
   selection = () => false,
 }: ScrollOptions) {
   let gesture: Gesture | null = null,
+    selecting: number | null = null,
     held: number | undefined,
     momentum: number | undefined,
     disposed = false;
@@ -139,8 +150,14 @@ export function installTerminalScroll({
         held = window.setTimeout(() => {
           // Still down and never moved: a press, not the start of a scroll.
           if (gesture && !gesture.dragged) {
+            const g = gesture;
             gesture = null;
-            longPress();
+            if (longPress({ x: g.startX, y: g.start })) {
+              selecting = g.id;
+              try {
+                host.setPointerCapture(g.id);
+              } catch {}
+            }
           }
         }, 520);
       const started = performance.now();
@@ -163,6 +180,12 @@ export function installTerminalScroll({
   listen(
     "pointermove",
     (e) => {
+      if (selecting !== null && e.pointerId === selecting) {
+        e.preventDefault();
+        e.stopPropagation();
+        selectMove?.({ x: e.clientX, y: e.clientY });
+        return;
+      }
       if (!gesture || e.pointerId !== gesture.id) return;
       const g = gesture,
         now = performance.now(),
@@ -223,7 +246,7 @@ export function installTerminalScroll({
   listen(
     "touchmove",
     (e) => {
-      if (gesture?.dragged) {
+      if (gesture?.dragged || selecting !== null) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -231,6 +254,16 @@ export function installTerminalScroll({
     { capture: true, passive: false },
   );
   function end(e: PointerEvent) {
+    if (selecting !== null && e.pointerId === selecting) {
+      selecting = null;
+      try {
+        host.releasePointerCapture(e.pointerId);
+      } catch {}
+      e.preventDefault();
+      e.stopPropagation();
+      selectEnd?.();
+      return;
+    }
     if (!gesture || e.pointerId !== gesture.id) return;
     const g = gesture;
     gesture = null;
@@ -238,6 +271,16 @@ export function installTerminalScroll({
     try {
       host.releasePointerCapture(e.pointerId);
     } catch {}
+    if (
+      !g.dragged &&
+      e.type === "pointerup" &&
+      performance.now() - g.startedAt < 350 &&
+      tap?.({ x: e.clientX, y: e.clientY })
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (!g.dragged || e.type === "pointercancel") return;
     if (g.axis === "x") {
       // A flick, not a scroll: hand it to the tab owner.

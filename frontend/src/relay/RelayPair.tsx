@@ -10,6 +10,8 @@ import { pairDevice, type PairPayload } from "./tunnel";
 import { pinShellKey, pinShellNow, savePairing } from "./store";
 import { unb64url } from "./noise";
 import { inApp } from "../native/bridge";
+import { androidIntentLink, onAndroid } from "../pairing/links";
+import { OpenInAppNote } from "../pairing/PairLinkActions";
 
 export function parsePairFragment(hash: string): PairPayload | undefined {
   const match = /[#&]p=([A-Za-z0-9_-]+)/.exec(hash);
@@ -35,6 +37,10 @@ type Status = "idle" | "working" | "done" | "error";
 
 export default function RelayPair() {
   const [payload] = useState(() => parsePairFragment(window.location.hash));
+  // Read before the payload is stripped from the address bar below.
+  const [intent] = useState(() =>
+    !inApp() && onAndroid(navigator.userAgent) ? androidIntentLink(window.location.href) : undefined,
+  );
   const [name, setName] = useState(() => suggestedDeviceName(navigator.userAgent));
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
@@ -95,6 +101,7 @@ export default function RelayPair() {
           This phone will reach Lectern through <strong>{relayHost}</strong>.
           The relay only passes encrypted messages; it cannot read or change them.
         </p>
+        <OpenInAppNote intent={intent} />
         <p>
           Lectern's key: <code className="relay-fingerprint">{fingerprint(payload.hk)}</code>
           <br />It should match the one shown under the QR code.

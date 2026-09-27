@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { PairLinkActions } from "../pairing/PairLinkActions";
 import { inApp } from "../native/bridge";
 import { forgetPairing, preferDirect, relayFlagged, setPreferDirect } from "../relay/store";
 
@@ -163,6 +164,7 @@ export function RelayPanel({ api, onNotice }: { api: SettingsApi; onNotice(t: st
                 <p className="subhint">Lectern key: <code>{minted.host_fingerprint}</code></p>
                 <a className="relay-pair-link" href={relayPairURL(minted.fragment, minted.shell_url, origin)}>Pairing link</a>
                 <p className="subhint">Expires in {secondsLeft}s · single use</p>
+                <PairLinkActions link={relayPairURL(minted.fragment, minted.shell_url, origin)} onNotice={onNotice} />
               </div>
             </div>
           )}
