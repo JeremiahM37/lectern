@@ -594,3 +594,44 @@ func ACPMCPServers(mcp map[string]any) (out []any, needHTTP, needSSE bool, err e
 	}
 	return out, needHTTP, needSSE, nil
 }
+
+// ProjectServerNames lists the server names a project's own MCP declaration
+// uses, in either the bare or the {"mcpServers": …} form.
+func ProjectServerNames(mcp map[string]any) map[string]bool {
+	out := map[string]bool{}
+	servers := mcp
+	if inner, ok := mcp["mcpServers"].(map[string]any); ok {
+		servers = inner
+	}
+	for k := range servers {
+		out[k] = true
+	}
+	return out
+}
+
+// MergeMCP returns the project's declaration with plugin-contributed servers added,
+// keeping whichever form the project used. The project's map is not changed.
+func MergeMCP(project, extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return project
+	}
+	out := map[string]any{}
+	for k, v := range project {
+		out[k] = v
+	}
+	target := out
+	if inner, ok := project["mcpServers"].(map[string]any); ok {
+		copyInner := map[string]any{}
+		for k, v := range inner {
+			copyInner[k] = v
+		}
+		out["mcpServers"] = copyInner
+		target = copyInner
+	}
+	for k, v := range extra {
+		if _, taken := target[k]; !taken {
+			target[k] = v
+		}
+	}
+	return out
+}

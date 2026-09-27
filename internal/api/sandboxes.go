@@ -121,6 +121,18 @@ func (s *Server) sandboxHooks(w http.ResponseWriter, r *http.Request) {
 	}
 	pid, _ := int64Query(r, "project_id")
 	p, _ := s.hooksPath(t, pid)
+	if sandbox.IsPluginProvider(p) {
+		// Trusted through the plugin's own consent (Settings → Plugins).
+		out := map[string]any{"path": p, "plugin": true}
+		data, err := s.pluginSandboxHooks(p)
+		if err != nil {
+			out["error"], out["trusted"] = err.Error(), false
+		} else {
+			out["content"], out["sha256"], out["trusted"] = string(data), sandbox.Hash(data), true
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	host, err := s.Reg.For(t)
 	if err != nil {
 		respondErr(w, err)

@@ -187,7 +187,21 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	// targets, so without this a remote agent has strictly fewer tools than a
 	// local one
 	mcp := store.UnjObj(c.Project.MCPJSON)
+	snapshotMCP := nz(c.Project.MCPJSON, "{}")
 	agent := launchConfig.Agent
+	// Servers from enabled plugins join an agent that has an MCP path (a
+	// built-in with a task translation, or ACP). Any other agent runs without
+	// them rather than being refused: a plugin is optional, the project's own
+	// servers are not (docs/plugins.md).
+	if s.PluginMCP != nil && (launchConfig.Definition.Builtin && (agent == "claude" || agent == "codex") || launchConfig.Definition.ACP != nil) {
+		extra, err := s.PluginMCP(ctx, ex, c.Target.ID, c.Project.ID, agents.ProjectServerNames(mcp))
+		if err != nil {
+			s.Log.Warn("plugin MCP servers left out of this attempt", "attempt", att.ID, "err", err)
+		} else if len(extra) > 0 {
+			mcp = agents.MergeMCP(mcp, extra)
+			snapshotMCP = store.J(mcp)
+		}
+	}
 	if delegation.IsLead(store.UnjStrings(c.Task.LabelsJSON)) {
 		// An orchestrated attempt runs the lead, which needs delegate_build and
 		// friends. They come from this binary in MCP mode, aimed at this server,
@@ -212,7 +226,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	// the explicit marker distinguishes a captured empty declaration from an
 	// old row that predates this snapshot feature.
 	if err := s.DB.Update("attempts", att.ID, map[string]any{
-		"mcp_json": nz(c.Project.MCPJSON, "{}"), "strict_mcp": c.Project.StrictMCP,
+		"mcp_json": snapshotMCP, "strict_mcp": c.Project.StrictMCP,
 		"mcp_snapshot": 1,
 	}); err != nil {
 		return kw, err

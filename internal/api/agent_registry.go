@@ -267,9 +267,26 @@ func (s *Server) agentCatalogView(specs []sessions.Spec) []map[string]any {
 	for _, spec := range specs {
 		already[spec.Name] = true
 	}
-	catalog := sessions.Catalog()
+	// The catalog is plugin contributions: the bundled lectern.agent-catalog
+	// (unless someone disabled it) and any enabled plugin's presets.
+	type entry struct {
+		preset sessions.CatalogPreset
+		plugin string
+	}
+	var catalog []entry
+	if s.Plugins == nil || s.Plugins.BundledCatalogActive() {
+		for _, preset := range sessions.Catalog() {
+			catalog = append(catalog, entry{preset, sessions.CatalogPluginID})
+		}
+	}
+	if s.Plugins != nil {
+		for _, p := range s.Plugins.AgentPresets() {
+			catalog = append(catalog, entry{p.CatalogPreset, p.Plugin})
+		}
+	}
 	out := make([]map[string]any, 0, len(catalog))
-	for _, preset := range catalog {
+	for _, e := range catalog {
+		preset := e.preset
 		raw, err := json.Marshal(preset)
 		if err != nil {
 			continue
@@ -281,6 +298,7 @@ func (s *Server) agentCatalogView(specs []sessions.Spec) []map[string]any {
 		view["installed"] = preset.Installed()
 		view["added"] = already[preset.Name]
 		view["capabilities"] = catalogCapabilities(preset)
+		view["plugin"] = e.plugin
 		out = append(out, view)
 	}
 	return out

@@ -259,3 +259,16 @@ func sortedNames(m map[string]map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+// MCPServerNames lists the servers active plugins would add to a project,
+// without staging anything — for the launch preview.
+func (m *Manager) MCPServerNames(projectID int64) []string {
+	var out []string
+	for _, p := range m.ActiveFor(projectID) {
+		for name := range p.Manifest.Contributes.MCPServers {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

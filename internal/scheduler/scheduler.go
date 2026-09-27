@@ -80,8 +80,12 @@ type Scheduler struct {
 	// AgentDefinitions resolves configured custom CLIs at queue time. Built-ins
 	// remain in Launcher; custom definitions use the generic task adapter.
 	AgentDefinitions func() map[string]agents.TaskDefinition
-	Creds            *creds.Provisioner
-	Cfg              *config.Config
+	// PluginMCP returns the MCP servers enabled plugins add for a project on
+	// a target (internal/plugins), staging a plugin there when a server runs a
+	// program from it. taken names the project's own servers, which win.
+	PluginMCP func(ctx context.Context, ex executor.Executor, targetID, projectID int64, taken map[string]bool) (map[string]any, error)
+	Creds     *creds.Provisioner
+	Cfg       *config.Config
 	// LeadBinary is the executable an orchestrated attempt's Lectern MCP server
 	// runs; empty means this process. Tests set it to keep the launch line
 	// independent of the test binary's path.

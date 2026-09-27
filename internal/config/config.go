@@ -176,6 +176,13 @@ func (c *Config) DiffDir() string {
 	return filepath.Join(filepath.Dir(c.DBPath), "lectern-diffs")
 }
 
+// PluginDir holds installed plugins' content store (internal/plugins). It
+// sits beside the database for the same reason DiffDir does: a test's temp
+// database gets its own plugins.
+func (c *Config) PluginDir() string {
+	return filepath.Join(filepath.Dir(c.DBPath), "lectern-plugins")
+}
+
 // MediaDir holds what agents post back for the operator to look at: recordings,
 // screenshots, reports. It sits beside the database for the same reason DiffDir
 // does, but is overridable because a demo video is far larger than a patch and

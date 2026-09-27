@@ -34,9 +34,12 @@ type Manager struct {
 	Launcher Launcher
 	// Specs resolves an agent name to how it is launched. Injected so the set is
 	// the operator's, not a constant in this package.
-	Specs  func() []Spec
-	Memory memory.Provider
-	Log    *slog.Logger
+	Specs func() []Spec
+	// PluginMCP returns the MCP servers enabled plugins add for a project on
+	// a target (internal/plugins); the project's own servers win on a name.
+	PluginMCP func(ctx context.Context, ex executor.Executor, targetID, projectID int64, taken map[string]bool) (map[string]any, error)
+	Memory    memory.Provider
+	Log       *slog.Logger
 	// WorktreeNamespace scopes automatically-created local allocations. Hosted
 	// managers leave it empty to retain historical paths and branch names.
 	WorktreeNamespace string
@@ -769,6 +772,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	mcpEnvPrefix := ""
 	if project != nil {
 		mcp := store.UnjObj(project.MCPJSON)
+		// Servers from enabled plugins join every agent below that has an MCP
+		// translation; the others ignore mcp, as they ignore the project's.
+		_, adapted := agentcfg.MCPAdapterFor(agent)
+		if m.PluginMCP != nil && !o.SkipProjectMCP && spec.Builtin && (agent == "claude" || agent == "codex" || agent == "gemini") || m.PluginMCP != nil && !o.SkipProjectMCP && adapted {
+			extra, pluginErr := m.PluginMCP(ctx, ex, sess.TargetID, project.ID, agentcfg.ProjectServerNames(mcp))
+			if pluginErr != nil {
+				m.Log.Warn("plugin MCP servers left out of this session", "session", sess.ID, "err", pluginErr)
+			} else {
+				mcp = agentcfg.MergeMCP(mcp, extra)
+			}
+		}
 		if agent == "claude" && !o.SkipProjectMCP && (len(mcp) > 0 || project.StrictMCP != 0) {
 			raw, mcpErr := agentcfg.MCPPayload(mcp)
 			if mcpErr != nil {

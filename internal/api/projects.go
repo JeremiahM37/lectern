@@ -326,6 +326,14 @@ func (s *Server) projectCapability(w http.ResponseWriter, r *http.Request) {
 	}
 	mcp := store.UnjObj(proj.MCPJSON)
 	servers := scheduler.EffectiveMCPServers(s.Cfg.HostClaudeConfig, proj, target, mcp)
+	if s.Plugins != nil {
+		own := agents.ProjectServerNames(mcp)
+		for _, name := range s.Plugins.MCPServerNames(proj.ID) {
+			if !own[name] {
+				servers = append(servers, name)
+			}
+		}
+	}
 	perms, err := agents.ParsePermissions(proj.PermissionsJSON)
 	if err != nil {
 		respondErr(w, err)

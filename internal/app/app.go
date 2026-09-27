@@ -27,31 +27,36 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/pairing"
+	"github.com/JeremiahM37/lectern/v2/internal/plugins"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
 	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
+	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 	"github.com/JeremiahM37/lectern/v2/internal/triggers"
+	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 // App owns every long-lived component.
 type App struct {
-	Cfg       *config.Config
-	DB        *store.DB
-	Bus       *bus.Bus
-	Notifier  *sinks.Notifier
-	Broker    *broker.Broker
-	Reg       *executor.Registry
-	Sched     *scheduler.Scheduler
-	Sessions  *sessions.Manager
-	Memory    memory.Provider
-	Terminals *terminal.Manager
-	Triggers  *triggers.Manager
-	Server    *api.Server
-	Log       *slog.Logger
+	// stopPlugins ends the plugin hook dispatcher.
+	stopPlugins context.CancelFunc
+	Cfg         *config.Config
+	DB          *store.DB
+	Bus         *bus.Bus
+	Notifier    *sinks.Notifier
+	Broker      *broker.Broker
+	Reg         *executor.Registry
+	Sched       *scheduler.Scheduler
+	Sessions    *sessions.Manager
+	Memory      memory.Provider
+	Terminals   *terminal.Manager
+	Triggers    *triggers.Manager
+	Server      *api.Server
+	Log         *slog.Logger
 }
 
 // New builds the whole service and starts its scheduler.
@@ -219,12 +224,27 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		}
 	}
 
+	// Plugins (internal/plugins, docs/plugins.md): what is installed, the
+	// consent that pins it, and the contributions it adds to the places
+	// below — MCP servers at launch, hooks on lifecycle events, and sandbox
+	// providers.
+	pluginMgr := plugins.New(db, cfg.PluginDir(), version.Version, log)
+	sched.PluginMCP = pluginMgr.MCPServers
+	sessMgr.PluginMCP = pluginMgr.MCPServers
+	sandbox.PluginHooks = pluginMgr.SandboxProviderFile
+	pluginHooks := &plugins.Hooks{M: pluginMgr, Bus: b, Reg: reg, Notify: func(title, body, url string) {
+		notifier.Notify(title, body, url, &sinks.Extra{Kind: "plugin"})
+	}}
+	pluginCtx, stopPlugins := context.WithCancel(context.Background())
+	pluginHooks.Start(pluginCtx)
+
 	srv := &api.Server{
 		DB: db, Bus: b, Broker: br, Notifier: notifier, Reg: reg, Sched: sched,
 		Terminals: terms, Push: pushSender, Cfg: cfg, Auth: authResolver, Log: log,
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
 		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
+		Plugins: pluginMgr,
 	}
 	if cfg.RelayURL != "" {
 		if cfg.RelayHostSecret == "" {
@@ -260,7 +280,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		}
 	}
 
-	app := &App{Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
+	app := &App{stopPlugins: stopPlugins, Cfg: cfg, DB: db, Bus: b, Notifier: notifier, Broker: br, Reg: reg,
 		Sched: sched, Sessions: sessMgr, Memory: mem, Terminals: terms,
 		Triggers: triggersMgr, Server: srv, Log: log}
 
@@ -345,6 +365,9 @@ func (a *App) StartRelay() {
 
 // Close stops the scheduler and releases the database.
 func (a *App) Close() {
+	if a.stopPlugins != nil {
+		a.stopPlugins()
+	}
 	if a.Server.Relay != nil {
 		a.Server.Relay.Close()
 	}

@@ -33,6 +33,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/pairing"
+	"github.com/JeremiahM37/lectern/v2/internal/plugins"
 	"github.com/JeremiahM37/lectern/v2/internal/push"
 	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
@@ -96,6 +97,9 @@ type Server struct {
 	// the one-tap choices on a card or push go through it. Nil disables the
 	// endpoints.
 	Limits *limits.Tracker
+	// Plugins holds installed plugins and their consent (internal/plugins,
+	// docs/plugins.md). Nil is safe: only the bundled contributions apply.
+	Plugins *plugins.Manager
 	// Relay is the end-to-end encrypted relay connection (internal/relay/
 	// host, relay.go in this package); nil unless LECTERN_RELAY_URL is set.
 	// RelayStore holds the relay keys and devices and is set either way.
@@ -217,6 +221,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projects/{id}/terminal", s.projectTerminal)
 	mux.HandleFunc("GET /api/projects/import/scan", s.scanProjects)
 	mux.HandleFunc("GET /api/skills", s.listSkills)
+	s.pluginRoutes(mux)
 	mux.HandleFunc("POST /api/projects/import", s.importProjects)
 	mux.HandleFunc("GET /api/projects/{id}/capability", s.projectCapability)
 	mux.HandleFunc("GET /api/projects/{id}/notes", s.projectNotes)

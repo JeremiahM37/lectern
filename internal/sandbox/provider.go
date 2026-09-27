@@ -335,6 +335,13 @@ func ParseHooks(data []byte) (Hooks, error) {
 	return h, nil
 }
 
+// PluginHooks returns a plugin sandbox provider's hooks file for a config
+// path "plugin:<id>/<provider>" (internal/plugins); set at startup.
+var PluginHooks func(ref string) ([]byte, error)
+
+// IsPluginProvider reports whether a hooks path names a plugin's provider.
+func IsPluginProvider(p string) bool { return strings.HasPrefix(p, "plugin:") }
+
 // Hash is what a person trusts: the file's sha256.
 func Hash(data []byte) string {
 	sum := sha256.Sum256(data)
@@ -355,15 +362,28 @@ type Script struct {
 // get its hooks run on the Lectern server.
 func LoadScript(ctx context.Context, host executor.Executor, cfg Config, repo string) (*Script, error) {
 	p := cfg.ResolvePath(repo)
-	data, err := readWhole(ctx, host, p)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, executor.Errf("sandbox hooks file %s is missing or empty", p)
-	}
-	if cfg.Trusted[p] != Hash(data) {
-		return nil, executor.Errf("sandbox hooks file %s changed or was never trusted: review it and press Trust in Settings → Machines", p)
+	var data []byte
+	var err error
+	if IsPluginProvider(p) {
+		// A plugin's provider file: its bytes are the ones a person consented
+		// to when installing the plugin, re-verified on every read.
+		if PluginHooks == nil {
+			return nil, executor.Errf("plugin sandbox providers are not available")
+		}
+		if data, err = PluginHooks(p); err != nil {
+			return nil, executor.Errf("%s", err)
+		}
+	} else {
+		data, err = readWhole(ctx, host, p)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) == 0 {
+			return nil, executor.Errf("sandbox hooks file %s is missing or empty", p)
+		}
+		if cfg.Trusted[p] != Hash(data) {
+			return nil, executor.Errf("sandbox hooks file %s changed or was never trusted: review it and press Trust in Settings → Machines", p)
+		}
 	}
 	h, err := ParseHooks(data)
 	if err != nil {
