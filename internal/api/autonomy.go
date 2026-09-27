@@ -28,19 +28,26 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
-	NodeGeneration            int                        `json:"node_generation,omitempty"`
-	NodeStopRequested         bool                       `json:"node_stop_requested,omitempty"`
-	NodeRequest               *autoNodeRequest           `json:"node_request,omitempty"`
-	PendingNodeRequest        *autoNodeRequest           `json:"pending_node_request,omitempty"`
-	NodeRecovery              *autoNodeReceipt           `json:"node_recovery,omitempty"`
-	NodeStopped               bool                       `json:"node_stopped,omitempty"`
-	NodeUsedBundle            string                     `json:"node_used_bundle,omitempty"`
-	NodePreviousBundle        string                     `json:"node_previous_bundle,omitempty"`
-	NodeNeedsResume           bool                       `json:"node_needs_resume,omitempty"`
-	NodeNeedsChange           bool                       `json:"node_needs_change,omitempty"`
-	NodeExpectedInput         string                     `json:"node_expected_input,omitempty"`
-	NodeExpectedBundle        string                     `json:"node_expected_bundle,omitempty"`
-	NodeExpectedLock          string                     `json:"node_expected_lock,omitempty"`
+	NodeGeneration         int              `json:"node_generation,omitempty"`
+	NodeStopRequested      bool             `json:"node_stop_requested,omitempty"`
+	NodeRequest            *autoNodeRequest `json:"node_request,omitempty"`
+	PendingNodeRequest     *autoNodeRequest `json:"pending_node_request,omitempty"`
+	NodeRecovery           *autoNodeReceipt `json:"node_recovery,omitempty"`
+	NodeStopped            bool             `json:"node_stopped,omitempty"`
+	NodeUsedBundle         string           `json:"node_used_bundle,omitempty"`
+	NodePreviousBundle     string           `json:"node_previous_bundle,omitempty"`
+	NodeNeedsResume        bool             `json:"node_needs_resume,omitempty"`
+	NodeNeedsChange        bool             `json:"node_needs_change,omitempty"`
+	NodeExpectedInput      string           `json:"node_expected_input,omitempty"`
+	NodeExpectedBundle     string           `json:"node_expected_bundle,omitempty"`
+	NodeExpectedLock       string           `json:"node_expected_lock,omitempty"`
+	WorkerRecoveryPrepared bool             `json:"worker_recovery_prepared,omitempty"`
+	WorkerFailures         int              `json:"worker_failures,omitempty"`
+	WorkerFailureRecorded  bool             `json:"worker_failure_recorded,omitempty"`
+	WorkerRecoveryAt       time.Time        `json:"worker_recovery_at,omitempty"`
+	WorkerRecoveryArchive  string           `json:"worker_recovery_archive_sha256,omitempty"`
+	WorkerRecoveryReason   string           `json:"worker_recovery_reason,omitempty"`
+
 	MaintenancePin            string                     `json:"maintenance_pin,omitempty"`
 	MaintenanceAdmission      *autoMaintenanceAdmitted   `json:"maintenance_admission,omitempty"`
 	PythonTestNeedsResume     bool                       `json:"python_test_needs_resume,omitempty"`
@@ -620,6 +627,12 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 				j.LaunchRetryPaid = false
 				j.Status = "stopped"
 				_ = s.DB.Update("tasks", id, map[string]any{"status": "backlog"})
+				return
+			}
+			if handled, err := s.deferAutoInterruptedWorker(ctx, a, j, raw, time.Now()); handled || err != nil {
+				if err != nil {
+					a.Reason = "Interrupted worker preservation: " + err.Error()
+				}
 				return
 			}
 			j.Status = "failed"

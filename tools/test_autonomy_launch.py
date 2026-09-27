@@ -28,6 +28,15 @@ class LaunchTests(unittest.TestCase):
   state='active' if self.active else 'inactive'
   out=state+'\n' if '--value' in args else 'ActiveState='+state+'\nExecMainStatus=0\nResult=success\n'
   return SimpleNamespace(stdout=out,returncode=0)
+ def test_silent_live_worker_remains_running_until_existing_deadline(self):
+  output=self.p/'output.jsonl';output.write_text('completed old tool\n')
+  os.utime(output,(1,1));self.active=True
+  result=r.status(self.job)
+  self.assertEqual(result['state'],'running')
+  self.assertGreater(result['output_idle_milliseconds'],60*60*1000)
+  self.assertIn('silence does not establish a stall',result['activity_scope'])
+  self.assertEqual(self.stops,0)
+
  def fixture_start(self,args,*unused):
   self.starts+=1;self.active=True
   return {'state':'running','exit_code':None}

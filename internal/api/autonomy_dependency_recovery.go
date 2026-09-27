@@ -176,6 +176,10 @@ func autoDeferPrerequisite(a *autoRecord, j *autoJob, now time.Time) bool {
 }
 
 func autoResumeRecovered(a *autoRecord) bool {
+	if autoResumePairedWorkerRecovery(a, time.Now()) {
+		return true
+	}
+
 	// Held overflow is durable history, not an active polling slot. Resume only
 	// independently released/verified work; never discard it in rotating Runs.
 	for i, state := range a.HeldRuns {
@@ -191,7 +195,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 			a.State = state
 			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
 			j.Status = "prepared"
-			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume {
+			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume || !j.WorkerRecoveryAt.IsZero() {
 				j.Status = "stopped"
 			}
 			a.NextCycleScheduled = false
@@ -217,7 +221,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
-		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume {
+		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume || !job.WorkerRecoveryAt.IsZero() {
 			job.Status = "stopped"
 		}
 		a.NextCycleScheduled = false
@@ -250,6 +254,9 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 				continue
 			}
 			j := autoFindJob(a, id)
+			if j != nil && !j.WorkerRecoveryAt.IsZero() {
+				continue
+			} // Model recovery is not a dependency download.
 			if j != nil && !j.RequirementHold && j.Status == "deferred" && !autoPrivateToolingReady(j) && !now.Before(j.RecoveryCheckAt) {
 				j.RecoveryCheckAt = now.Add(5 * time.Minute)
 				if _, err := s.recoverAutoPrivateTooling(ctx, a, j); err != nil {
@@ -330,6 +337,10 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 }
 
 func autoDeferredReady(j *autoJob) bool {
+	if !j.WorkerRecoveryAt.IsZero() {
+		return !time.Now().Before(j.WorkerRecoveryAt) && !j.RequirementHold
+	}
+
 	if !autoPrivateToolingReady(j) {
 		return false
 	}

@@ -554,6 +554,9 @@ func (s *Server) resumeAutoJob(ctx context.Context, a *autoRecord, old *autoJob)
 		}
 		return s.resumeAutoProgress(ctx, a, old)
 	}
+	if old.DocumentationRoot == 0 {
+		return s.resumeAutoInterruptedWorker(ctx, a, old)
+	}
 	if old.Role == "builder" && old.DocumentationRoot > 0 {
 		if err := s.snapshotAutoJob(ctx, old); err != nil {
 			return fmt.Errorf("%w: preserving documentary retry source: %v", errAutoArtifactPending, err)

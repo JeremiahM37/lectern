@@ -719,6 +719,13 @@ def usage_elapsed(job, active):
 
 def status_unlocked(job):
     result=status_raw_unlocked(job)
+    if result['state']=='running':
+        # Silence is observable, not proof of deadlock. Long tools and remote
+        # reasoning may legitimately emit nothing; the runtime cap owns expiry.
+        output=job_path(job)/'output.jsonl'
+        if output.exists():
+            result.update(output_idle_milliseconds=max(0,int((time.time()-regular(output).st_mtime)*1000)),
+                          activity_scope='last provider event only; silence does not establish a stall')
     if (job_path(job)/'worker-usage.json').exists():
         result.update(usage_elapsed(job,result['state']=='running'))
     failure=job_path(job)/'python-test-runtime.json'
