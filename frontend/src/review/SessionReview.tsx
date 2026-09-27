@@ -89,6 +89,21 @@ export function SessionReview({
   const [sending, setSending] = useState(false);
   const pane = useRef<HTMLDivElement>(null);
 
+  // The dialog is what scrolls; the sheet header (and, where it is pinned,
+  // the toolbar) sit over its top edge.
+  function hunk(dir: 1 | -1) {
+    const p = pane.current;
+    const dialog = p?.closest("dialog");
+    if (!p || !dialog) return;
+    const dialogTop = dialog.getBoundingClientRect().top;
+    let inset = 0;
+    for (const el of dialog.querySelectorAll<HTMLElement>(".sheet-head, .review-toolbar-sticky")) {
+      if (getComputedStyle(el).position === "sticky")
+        inset = Math.max(inset, el.getBoundingClientRect().bottom - dialogTop);
+    }
+    jumpHunk(p, dir, dialog, inset);
+  }
+
   const loadState = useCallback(() => {
     api
       .request<ReviewState>(`/sessions/${sessionId}/review/state`)
@@ -390,10 +405,10 @@ export function SessionReview({
               ◆ authors
             </button>
             <span className="hunk-nav">
-              <button type="button" className="wrapbtn" aria-label="Previous hunk" onClick={() => pane.current && jumpHunk(pane.current, -1)}>
+              <button type="button" className="wrapbtn" aria-label="Previous hunk" onClick={() => hunk(-1)}>
                 ▲
               </button>
-              <button type="button" className="wrapbtn" aria-label="Next hunk" onClick={() => pane.current && jumpHunk(pane.current, 1)}>
+              <button type="button" className="wrapbtn" aria-label="Next hunk" onClick={() => hunk(1)}>
                 ▼
               </button>
             </span>

@@ -21,6 +21,7 @@ import "./settings/devices.css";
 import "./settings/model-prices.css";
 import "./settings/accounts.css";
 import "./pairing/pair.css";
+import "./review/review.css";
 // Last, so a phone's density overrides every view's desktop sizing.
 import "./shell/mobile.css";
 // /pair is the one page an unpaired device can reach with no credential —

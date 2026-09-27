@@ -233,6 +233,15 @@ def test_hunk_staging_and_file_by_file_review_on_a_phone(page, real_terminal):
     assert "phone" in (wt / "app.py").read_text()
 
     review.get_by_role("tab", name="Changes").click()
+    # The toolbar's hunk buttons scroll the panel so a hunk header lands just
+    # under the pinned sheet header.
+    expect(review.locator(".review-pane .dl-hunk").first).to_be_attached(timeout=15000)
+    review.get_by_role("button", name="Next hunk", exact=True).click()
+    assert review.evaluate("""(d) => {
+        const head = d.querySelector('.sheet-head').getBoundingClientRect().bottom;
+        return [...d.querySelectorAll('.review-pane .dl-hunk')]
+          .some((e) => Math.abs(e.getBoundingClientRect().top - head) < 24) && d.scrollTop > 0;
+    }""")
     review.get_by_role("button", name="Review file by file").click()
     focus = page.get_by_role("region", name="Review one file at a time")
     expect(focus).to_be_visible()

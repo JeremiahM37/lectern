@@ -16,7 +16,6 @@ import {
 } from "./diffModel";
 import { ImageDiff, type ImageSource } from "./ImageDiff";
 import type { DraftComment, FilePatch, FileStat } from "./types";
-import "./review.css";
 
 /** A comment shown inline under its line. Drafts from the task view carry no
  * state; stored session comments carry where they stand after the agent's

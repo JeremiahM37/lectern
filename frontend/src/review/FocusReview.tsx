@@ -6,16 +6,18 @@ export interface FocusFile {
   viewed: boolean;
 }
 
-/** Scrolls container to the next (dir 1) or previous (-1) hunk header below
- * or above the current reading position. Returns false at either end. */
-export function jumpHunk(container: HTMLElement, dir: 1 | -1): boolean {
+/** Scrolls to the next (dir 1) or previous (-1) hunk header in container,
+ * relative to the current reading position. scroller is the element that
+ * actually scrolls (the container itself by default) and inset the height
+ * of anything pinned over its top. Returns false at either end. */
+export function jumpHunk(container: HTMLElement, dir: 1 | -1, scroller: HTMLElement = container, inset = 0): boolean {
   const hunks = Array.from(container.querySelectorAll<HTMLElement>(".dl-hunk"));
-  const top = container.getBoundingClientRect().top;
+  const top = scroller.getBoundingClientRect().top + inset;
   const offset = (el: HTMLElement) => el.getBoundingClientRect().top - top;
   const target =
     dir === 1 ? hunks.find((h) => offset(h) > 12) : [...hunks].reverse().find((h) => offset(h) < -12);
   if (!target) return false;
-  container.scrollTop += offset(target) - 4;
+  scroller.scrollTop += offset(target) - 4;
   target.classList.add("dl-hunk-current");
   window.setTimeout(() => target.classList.remove("dl-hunk-current"), 900);
   return true;
