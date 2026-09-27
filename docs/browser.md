@@ -20,6 +20,15 @@ beside the conversation; on a phone it takes the whole screen.
   just `5173`.
 - **Back**, **forward** and **reload**, a **device size** (phone 390×844,
   tablet 820×1180, desktop 1280×800) and **⤢** to open the page in its own tab.
+- **Tabs** (shared browser): a strip of the browser's tabs with **+** and ×.
+  A link that opens a new window becomes a tab, and a page that closes itself
+  leaves the strip.
+- **Find** steps through matches in the page and counts them (**Enter** next,
+  **Shift+Enter** previous). In a live page use your own browser's find,
+  which searches the frame too.
+- **Downloads** land in the session's workspace under `.lectern/downloads`
+  (excluded from git, like attachments) with their own names, and show on a
+  shelf under the page with **Save** to fetch one to this device.
 
 The pane can show a page in two ways:
 
@@ -32,9 +41,42 @@ The pane can show a page in two ways:
 | Needs | Chromium or Chrome on that machine (or on the Lectern host, see below) | `LECTERN_LIVE=1` on the server |
 
 Both see the session machine's own `localhost`, so a dev server bound to
-`127.0.0.1` works without exposing anything. The Android app runs this same
-web app; the pane has been tested in browsers, over the relay and directly,
-but not yet inside the APK.
+`127.0.0.1` works without exposing anything. The pane also works inside the
+Android app, paired over the relay (tested on the emulator: tabs, taps that
+take over, Design Mode and Send to agent).
+
+<img src="media/browser/android-design.png" width="260" alt="Design Mode in the Android app over the relay">
+
+## Profiles and cookies
+
+A session in a project uses that project's own **persistent profile** by
+default, so a login made there is still there for the project's next session
+and is never seen by another project's browser. **Profile → New profile…**
+adds named ones beside it (a test user, an admin). **temporary** is cleared
+when the browser closes, and is the default for a session with no project.
+Profiles live in `~/.lectern/browser-profiles` on the session's machine; one
+open in a browser is refused to a second browser rather than corrupted.
+
+**Cookies** signs the current profile in without typing a password into the
+agent's browser:
+
+- **From a cookies file**: a Netscape `cookies.txt` or a JSON export
+  (browser extensions, Playwright `storageState`). It is sent to the machine
+  the browser runs on, read there, and deleted.
+- **From Chrome**: a Chrome, Chromium, Brave or Edge profile directory on the
+  session's machine (`auto` finds one in `~/.config`). Its cookie database is
+  copied and decrypted on that machine: the `v10` key Chromium uses without a
+  desktop keyring, or the keyring's key through `secret-tool` when there is
+  one. Cookies it cannot decrypt are counted and skipped.
+- **Only these sites** limits either import to the domains you list.
+
+Either way a script on that machine hands the cookies to the browser over its
+loopback DevTools port, so cookie values never pass through Lectern or the
+network; the pane is told only how many were imported and skipped. When the
+browser runs on the Lectern host instead (the session's machine has no
+Chromium), importing from a Chrome profile on the session's machine is
+refused, because it would carry the cookies off it; a cookies file still
+works.
 
 <img src="media/browser/phone.png" width="260" alt="The shared browser on a phone paired over the relay">
 
@@ -97,6 +139,12 @@ environment Lectern launched them with, or take `--session ID`.
 | `browser_console`, `browser_network` | `lectern browser console`, `network` | Recent console messages, exceptions and requests |
 | `browser_screenshot` | `lectern browser screenshot FILE [--selector S]` | Viewport or one element |
 | `browser_history`, `browser_resize`, `browser_close` | `back`, `forward`, `reload`, `resize 390x844 --mobile`, `close` | |
+| `browser_tabs` | `tabs`, `tab new [URL]`, `tab select ID`, `tab close ID` | List, open, switch, close tabs |
+| `browser_find` | `find TEXT [--backwards]` | Find in page |
+| `browser_downloads` | `downloads` | What the browser downloaded, and where |
+
+Every tool that acts on a page takes an optional `tab` (`--tab ID`); without
+it, the active tab. An agent can read one tab while you watch another.
 
 Snapshots and screenshots come back to MCP clients as images. `evaluate` runs
 with DevTools' side-effect check, so anything that would change the page is
@@ -124,12 +172,23 @@ one it starts with `open_live_view` or `lectern live` (see
 
 | MCP tool | CLI |
 |---|---|
+| `computer_snapshot` (accessibility tree with refs) | `lectern computer snapshot` |
 | `computer_screenshot` | `lectern computer screenshot FILE` |
 | `computer_windows` (names and rectangles) | `lectern computer windows` |
-| `computer_click` (left, right, double) | `lectern computer click X Y [--right\|--double]` |
-| `computer_type` | `lectern computer type TEXT` |
+| `computer_click` (a ref, or X Y; left, right, double) | `lectern computer click REF`, `click X Y [--right\|--double]` |
+| `computer_type` (into a ref, or whatever has focus) | `lectern computer type [--ref N] TEXT` |
 | `computer_key` (xdotool names: `Return`, `ctrl+l`) | `lectern computer key KEY` |
 | `computer_scroll` | `lectern computer scroll X Y down` |
+
+Like the browser, it works by element first: `computer_snapshot` reads the
+desktop's accessibility tree over AT-SPI (every app, window and control, with
+a `[ref=N]` and its screen rectangle), and a click or typing on a ref uses the
+control's own accessible action or text, falling back to its middle. Each
+live desktop starts its own accessibility bus for this. Apps appear in the
+tree when started with `ACCESSIBILITY_ENABLED=1` (the desktop's own browser
+is); Chromium also needs `--force-renderer-accessibility` for page content.
+The machine needs `at-spi2-core`, `dbus`, `x11-utils` and `python3-gi` with
+`gir1.2-atspi-2.0`; without them snapshots say so and coordinates still work.
 
 It is **off by default**. Turn it on for a project in **Settings → Projects →
 Let agents operate live desktops**, or for one desktop with **Allow agent
@@ -163,9 +222,11 @@ the agent is in control, and has **Stop agent**. The desktop's machine needs
   another origin leaves the view and is never proxied. The pane accepts the
   picker's messages only from that frame's window and that view's origin, and
   only in the picker's shapes.
-- **The shared browser** runs as the same user as the agent, with a private
-  profile in `/tmp/lectern-browser-*`, and its DevTools port bound to that
-  machine's loopback. Only `http(s)` addresses load. It stops when its
+- **The shared browser** runs as the same user as the agent, with its state in
+  `/tmp/lectern-browser-*` and its profile there (temporary) or under
+  `~/.lectern/browser-profiles` (mode 700), and its DevTools port bound to
+  that machine's loopback. Anything running as that user can reach that port,
+  as it can the profile itself. Only `http(s)` addresses load. It stops when its
   session ends or after 30 minutes nobody has watched or driven it. Inside a
   container without user namespaces Chromium's own sandbox cannot start;
   Lectern then starts it without that sandbox.
@@ -194,8 +255,11 @@ agent (MCP or `lectern browser`) ── POST /api/browser, /api/computer ─┘
   Playwright or Node on the target, just a Chromium binary (a system one,
   or the one Playwright downloads).
 - Connections to the browser and the dev server ride the executor's dialer,
-  the same one live port forwards use, so they work for local and SSH
-  targets. Targets Lectern cannot dial (Proxmox `pct`, SSH with a command
-  wrapper) are not supported.
+  the same one live port forwards use. Local and SSH targets dial directly.
+  Proxmox `pct` containers and SSH targets with a command wrapper dial
+  through a small `python3` relay started with the executor's own command
+  path, which carries the connection over its stdin and stdout; a wrapper
+  that does not pass input through (`docker exec` without `-i`) is refused
+  with a message saying so. This was checked against a real container.
 - Screencast frames are JPEG, at most 1.5× the viewport, so they fit the
   relay's message size.

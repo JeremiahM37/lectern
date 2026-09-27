@@ -97,11 +97,31 @@ func TestANewServerReapsDesktopsAnOldOneLeftBehind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer Stop(context.Background(), sh, abandoned.Dir)
+	// Another server's desktop that is still kept alive survives.
+	other, err := Start(ctx, sh, "otherserver03", 1024, 768)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Stop(context.Background(), sh, other.Dir)
+	if _, err := os.Stat(abandoned.Dir); err != nil {
+		t.Fatalf("a live desktop of another server was reaped: %v", err)
+	}
+	if err := KeepAlive(ctx, sh, other.Dir); err != nil {
+		t.Fatal(err)
+	}
+	// One whose server stopped keeping it alive is abandoned.
+	old := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(abandoned.Dir+"/alive", old, old); err != nil {
+		t.Fatal(err)
+	}
 	mine, err := Start(ctx, sh, "newserver0002", 1024, 768)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer Stop(context.Background(), sh, mine.Dir)
+	if _, err := os.Stat(other.Dir); err != nil {
+		t.Errorf("a kept-alive desktop of another server was reaped: %v", err)
+	}
 	if _, err := os.Stat(abandoned.Dir); !os.IsNotExist(err) {
 		t.Errorf("the abandoned desktop was not reaped: %v", err)
 	}

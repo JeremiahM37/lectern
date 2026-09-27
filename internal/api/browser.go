@@ -44,9 +44,12 @@ const (
 )
 
 type sessionBrowser struct {
-	b         *browser.Browser
-	where     string // target | host
+	tabs      *browser.Tabs
+	proc      *browser.Process
+	run       browser.Runner // where the browser runs
+	where     string         // target | host
 	binary    string
+	profile   string // the full profile name; "" is a throwaway one
 	stopOnce  sync.Once
 	stopFn    func()
 	keepAlive func()
@@ -232,7 +235,7 @@ func (s *Server) browserFor(id int64) *sessionBrowser {
 	sb := st.sessions[id]
 	if sb != nil {
 		select {
-		case <-sb.b.Done():
+		case <-sb.tabs.Done():
 			delete(st.sessions, id)
 			go sb.stop()
 			return nil
@@ -245,9 +248,17 @@ func (s *Server) browserFor(id int64) *sessionBrowser {
 // ensureBrowser starts the session's shared browser on its own machine, or,
 // when that machine has none, on this one with the machine's localhost
 // reachable through a loopback proxy.
-func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp browser.Viewport) (*sessionBrowser, error) {
+func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp browser.Viewport, label string) (*sessionBrowser, error) {
+	profile, err := profileFor(sess, label)
+	if err != nil {
+		return nil, err
+	}
 	if sb := s.browserFor(sess.ID); sb != nil {
-		return sb, nil
+		// Asking for another profile starts the browser again in it.
+		if label == "" || sb.profile == profile {
+			return sb, nil
+		}
+		s.closeSessionBrowser(sess.ID)
 	}
 	st := s.browsersInit()
 	st.mu.Lock()
@@ -259,7 +270,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 	st.mu.Unlock()
 	gate.Lock()
 	defer gate.Unlock()
-	if sb := s.browserFor(sess.ID); sb != nil {
+	if sb := s.browserFor(sess.ID); sb != nil && (label == "" || sb.profile == profile) {
 		return sb, nil
 	}
 	if sess.EndedAt != nil || sess.Status == sessions.StatusDead {
@@ -274,9 +285,9 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 	}
 	startCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	sb := &sessionBrowser{sessionID: sess.ID, control: controlAgent, lastUsed: time.Now()}
+	sb := &sessionBrowser{sessionID: sess.ID, control: controlAgent, lastUsed: time.Now(), profile: profile}
 	run := runnerFor(ex, 60)
-	proc, err := browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height})
+	proc, err := browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height, Profile: profile})
 	var proxy *browser.LoopbackProxy
 	cdpDial := browser.Dial(dialer.DialTarget)
 	sb.where = "target"
@@ -288,7 +299,8 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 			return nil, err
 		}
 		run = runnerFor(executor.NewLocal(), 60)
-		proc, err = browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height, ProxyPort: proxy.Port})
+		proc, err = browser.Launch(startCtx, run, st.owner, browser.LaunchOptions{Width: vp.Width, Height: vp.Height,
+			ProxyPort: proxy.Port, Profile: profile})
 		cdpDial = func(ctx context.Context, addr string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		}
@@ -300,7 +312,18 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		}
 		return nil, err
 	}
-	b, err := browser.Open(startCtx, cdpDial, proc, vp)
+	// Downloads land in the workspace, beside the agent's work. A browser on
+	// the control plane saves them there first and copies them over.
+	dlDir := downloadsDir(sess.Workdir)
+	if sb.where == "host" {
+		dlDir = proc.Dir + "/downloads"
+	}
+	if dlDir != "" {
+		if _, err := run(startCtx, "mkdir -p "+shellQuoteArg(dlDir)+" && chmod 700 "+shellQuoteArg(dlDir)); err != nil {
+			dlDir = ""
+		}
+	}
+	tabs, err := browser.OpenTabs(startCtx, cdpDial, proc, vp, dlDir)
 	if err != nil {
 		_ = browser.Stop(context.Background(), run, proc.Dir)
 		if proxy != nil {
@@ -308,7 +331,9 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 		}
 		return nil, err
 	}
-	sb.b, sb.binary = b, proc.Binary
+	tabs.OnDownload = s.downloadFinisher(sess, sb, run, ex)
+	b := tabs
+	sb.tabs, sb.proc, sb.run, sb.binary = tabs, proc, run, proc.Binary
 	sb.keepAlive = func() {
 		c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -350,17 +375,23 @@ func (s *Server) closeSessionBrowser(id int64) bool {
 // ---- status -------------------------------------------------------------------
 
 type browserStatus struct {
-	Running     bool             `json:"running"`
-	Where       string           `json:"where,omitempty"`
-	Binary      string           `json:"binary,omitempty"`
-	State       *browser.State   `json:"state,omitempty"`
-	Control     string           `json:"control"`
-	AgentActive bool             `json:"agent_active"`
-	LastAction  string           `json:"last_action,omitempty"`
-	Watchers    int              `json:"watchers"`
-	Views       []map[string]any `json:"views"`
-	ViewsOK     bool             `json:"views_enabled"`
-	ViewsWhy    string           `json:"views_disabled_reason,omitempty"`
+	Running     bool               `json:"running"`
+	Where       string             `json:"where,omitempty"`
+	Binary      string             `json:"binary,omitempty"`
+	State       *browser.State     `json:"state,omitempty"`
+	Control     string             `json:"control"`
+	AgentActive bool               `json:"agent_active"`
+	LastAction  string             `json:"last_action,omitempty"`
+	Watchers    int                `json:"watchers"`
+	Views       []map[string]any   `json:"views"`
+	ViewsOK     bool               `json:"views_enabled"`
+	ViewsWhy    string             `json:"views_disabled_reason,omitempty"`
+	Tabs        []browser.TabInfo  `json:"tabs"`
+	Active      int                `json:"active_tab,omitempty"`
+	Downloads   []browser.Download `json:"downloads"`
+	// Profile is the profile's label as the pane shows it; "" is a
+	// throwaway one.
+	Profile string `json:"profile"`
 }
 
 // agentActiveFor is how long after an agent action the pane keeps saying the
@@ -370,8 +401,13 @@ const agentActiveFor = 6 * time.Second
 func (s *Server) statusOf(id int64) browserStatus {
 	out := browserStatus{Control: controlAgent, Views: []map[string]any{}}
 	out.ViewsOK, out.ViewsWhy = s.viewsAllowed()
+	out.Tabs, out.Downloads = []browser.TabInfo{}, []browser.Download{}
 	if sb := s.browserFor(id); sb != nil {
-		st := sb.b.State()
+		var st browser.State
+		if b, active, err := sb.tabs.Get(0); err == nil {
+			st, out.Active = b.State(), active
+		}
+		out.Tabs, out.Downloads, out.Profile = sb.tabs.List(), sb.tabs.Downloads(), profileLabel(sb.profile)
 		sb.mu.Lock()
 		out.Running, out.Where, out.Binary, out.State = true, sb.where, sb.binary, &st
 		out.Control, out.LastAction, out.Watchers = sb.control, sb.lastAction, sb.watchers
@@ -434,6 +470,10 @@ type browserArgs struct {
 	Limit      int     `json:"limit"`
 	On         *bool   `json:"on"`
 	Mode       string  `json:"mode"`
+	// Tab is the tab to act on; 0 is the active one.
+	Tab       int    `json:"tab"`
+	Backwards bool   `json:"backwards"`
+	Profile   string `json:"profile"`
 	// Session resolution for an agent: an explicit id, or what its
 	// environment says (LECTERN_SESSION_ID, its tmux session).
 	SessionID   int64  `json:"session_id"`
@@ -445,7 +485,8 @@ func (a browserArgs) viewport() browser.Viewport {
 	return browser.Viewport{Width: a.Width, Height: a.Height, Mobile: a.Mobile, Scale: a.Scale}
 }
 
-var agentActions = map[string]bool{"open": true, "navigate": true, "back": true, "forward": true, "reload": true,
+var agentActions = map[string]bool{"tabs": true, "tab_new": true, "tab_select": true, "tab_close": true,
+	"find": true, "downloads": true, "open": true, "navigate": true, "back": true, "forward": true, "reload": true,
 	"snapshot": true, "click": true, "fill": true, "press": true, "evaluate": true, "console": true, "network": true,
 	"screenshot": true, "resize": true, "status": true, "close": true}
 
@@ -462,7 +503,12 @@ func (s *Server) act(ctx context.Context, sess *store.Session, a browserArgs, ag
 	sb := s.browserFor(sess.ID)
 	if sb == nil {
 		var err error
-		if sb, err = s.ensureBrowser(ctx, sess, a.viewport()); err != nil {
+		if sb, err = s.ensureBrowser(ctx, sess, a.viewport(), a.Profile); err != nil {
+			return nil, err
+		}
+	} else if !agent && a.Profile != "" && a.Action == "open" {
+		var err error
+		if sb, err = s.ensureBrowser(ctx, sess, a.viewport(), a.Profile); err != nil {
 			return nil, err
 		}
 	}
@@ -481,11 +527,43 @@ func (s *Server) act(ctx context.Context, sess *store.Session, a browserArgs, ag
 		sb.mu.Unlock()
 	}
 	sb.touch()
-	b := sb.b
 	out := map[string]any{}
-	var state browser.State
-	var err error
 	switch a.Action {
+	case "tabs":
+		out["tabs"] = sb.tabs.List()
+		return out, nil
+	case "tab_new":
+		id, _, err := sb.tabs.New(ctx, a.URL)
+		out["tab"], out["tabs"] = id, sb.tabs.List()
+		return out, err
+	case "tab_select":
+		err := sb.tabs.Select(a.Tab)
+		out["tabs"] = sb.tabs.List()
+		return out, err
+	case "tab_close":
+		err := sb.tabs.CloseTab(ctx, a.Tab)
+		out["tabs"] = sb.tabs.List()
+		return out, err
+	case "downloads":
+		out["downloads"] = sb.tabs.Downloads()
+		return out, nil
+	case "resize":
+		if err := sb.tabs.Resize(ctx, a.viewport()); err != nil {
+			return nil, err
+		}
+	}
+	b, tab, err := sb.tabs.Get(a.Tab)
+	if err != nil {
+		return nil, invalid("%s", err)
+	}
+	out["tab"] = tab
+	var state browser.State
+	switch a.Action {
+	case "find":
+		var r browser.FindResult
+		r, err = b.Find(ctx, a.Text, a.Backwards)
+		out["find"] = r
+		state = b.State()
 	case "open":
 		state = b.State()
 		if a.URL != "" {
@@ -500,7 +578,7 @@ func (s *Server) act(ctx context.Context, sess *store.Session, a browserArgs, ag
 	case "reload":
 		state, err = b.Reload(ctx)
 	case "resize":
-		state, err = b.Resize(ctx, a.viewport())
+		state = b.State()
 	case "click":
 		if a.Ref == 0 && a.Selector == "" && a.X == 0 && a.Y == 0 {
 			return nil, invalid("name what to click: a ref from a snapshot, a selector, or x and y")
@@ -777,8 +855,28 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 	c.SetReadLimit(64 << 10)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	frames, updates, unwatch := sb.b.Watch(ctx)
-	defer unwatch()
+	// The pane watches the active tab, and follows it when another becomes
+	// active.
+	var watchMu sync.Mutex
+	var frames <-chan browser.Frame
+	var updates <-chan browser.Update
+	unwatch := func() {}
+	watching := 0
+	watchActive := func() {
+		b, id, err := sb.tabs.Get(0)
+		if err != nil || id == watching {
+			return
+		}
+		watchMu.Lock()
+		unwatch()
+		frames, updates, unwatch = b.Watch(ctx)
+		watching = id
+		watchMu.Unlock()
+	}
+	watchActive()
+	defer func() { watchMu.Lock(); unwatch(); watchMu.Unlock() }()
+	changes, stopChanges := sb.tabs.Changes()
+	defer stopChanges()
 	sb.mu.Lock()
 	sb.watchers++
 	sb.mu.Unlock()
@@ -829,9 +927,11 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			sb.touch()
-			ictx, icancel := context.WithTimeout(ctx, 10*time.Second)
-			_ = sb.b.Dispatch(ictx, msg.Event)
-			icancel()
+			if b, _, err := sb.tabs.Get(0); err == nil {
+				ictx, icancel := context.WithTimeout(ctx, 10*time.Second)
+				_ = b.Dispatch(ictx, msg.Event)
+				icancel()
+			}
 		}
 	}()
 	if sendState() != nil {
@@ -845,9 +945,14 @@ func (s *Server) browserStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-sb.b.Done():
+		case <-sb.tabs.Done():
 			_ = c.Close(websocket.StatusNormalClosure, "the browser has closed")
 			return
+		case <-changes:
+			watchActive()
+			if sendState() != nil {
+				return
+			}
 		case f := <-frames:
 			if f.PageScale != pageScale {
 				pageScale = f.PageScale

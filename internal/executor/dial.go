@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"net"
@@ -22,6 +23,54 @@ func (l *Local) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
 	return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 }
 
+// DialTarget reaches a Proxmox container's loopback through a relay started
+// with `pct exec` (see bridge.go): the container has no route of its own
+// from here, and needs none.
+func (p *Pct) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
+	port, err := bridgeTarget(addr)
+	if err != nil {
+		return nil, err
+	}
+	return startBridge(ctx, Wrap(p.VMID, bridgeCommand(port), ""))
+}
+
+// bridge runs the relay through the wrapper, over one SSH session, for a
+// target whose commands run somewhere the SSH host's loopback is not.
+func (s *SSH) bridge(ctx context.Context, addr string) (net.Conn, error) {
+	port, err := bridgeTarget(addr)
+	if err != nil {
+		return nil, err
+	}
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := client.NewSession()
+	if err != nil {
+		return nil, Errf("ssh session failed: %v", err)
+	}
+	stdin, err := sess.StdinPipe()
+	if err != nil {
+		sess.Close()
+		return nil, err
+	}
+	stdout, err := sess.StdoutPipe()
+	if err != nil {
+		sess.Close()
+		return nil, err
+	}
+	if err := sess.Start(s.buildCommand(bridgeCommand(port), "")); err != nil {
+		sess.Close()
+		return nil, err
+	}
+	c := &pipeConn{r: bufio.NewReaderSize(stdout, 64<<10), w: stdin, closeFn: sess.Close}
+	if err := handshake(ctx, c); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
 // DialTarget rides the SSH connection the executor already holds, which is the
 // same thing `ssh -L` does, without a second process to supervise.
 //
@@ -30,7 +79,7 @@ func (l *Local) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
 // session sees, and forwarding to it would reach the wrong machine's services.
 func (s *SSH) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
 	if s.Wrapper != "" {
-		return nil, ErrNoDial
+		return s.bridge(ctx, addr)
 	}
 	client, err := s.client(ctx)
 	if err != nil {

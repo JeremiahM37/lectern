@@ -24,6 +24,9 @@ type Process struct {
 var ErrNoBrowser = errors.New("no Chromium or Chrome is installed on this machine " +
 	"(install chromium, or run `npx playwright install chromium`)")
 
+// ProfileName is what a persistent profile may be called.
+var ProfileName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
 var browserDir = regexp.MustCompile(`^/tmp/lectern-browser-[A-Za-z0-9]{6}$`)
 
 // findScript prints the first Chromium-family binary it finds, including the
@@ -54,6 +57,10 @@ reap() {
 // LaunchOptions shape one browser.
 type LaunchOptions struct {
 	Width, Height int
+	// Profile names a persistent profile under ~/.lectern/browser-profiles on
+	// the browser's machine; cookies and storage in it survive the browser.
+	// "" is a throwaway profile removed with the browser.
+	Profile string
 	// ProxyPort, when set, sends every request — loopback included — through
 	// an HTTP proxy on 127.0.0.1 of the machine running the browser. It is how
 	// a browser on the control plane still sees a target's localhost.
@@ -66,6 +73,9 @@ func Launch(ctx context.Context, run Runner, owner string, opts LaunchOptions) (
 	if !regexp.MustCompile(`^[A-Za-z0-9]{8,64}$`).MatchString(owner) {
 		return nil, fmt.Errorf("invalid owner id")
 	}
+	if opts.Profile != "" && !ProfileName.MatchString(opts.Profile) {
+		return nil, fmt.Errorf("invalid profile name")
+	}
 	if opts.Width < 320 || opts.Width > 3840 || opts.Height < 320 || opts.Height > 2160 {
 		opts.Width, opts.Height = 1280, 800
 	}
@@ -76,7 +86,7 @@ func Launch(ctx context.Context, run Runner, owner string, opts LaunchOptions) (
 		proxy = fmt.Sprintf("--proxy-server=http://127.0.0.1:%d '--proxy-bypass-list=<-loopback>'", opts.ProxyPort)
 	}
 	script := "# lectern-browser-start\n" + reapScript + findScript + fmt.Sprintf(`
-OWNER=%s; W=%d; H=%d
+OWNER=%s; W=%d; H=%d; PROFILE=%s
 for old in /tmp/lectern-browser-??????; do
   [ -d "$old" ] && [ ! -L "$old" ] || continue
   [ "$(cat "$old/owner" 2>/dev/null)" = "$OWNER" ] && continue
@@ -88,16 +98,30 @@ done
 [ -n "$bin" ] || { echo NOBROWSER; exit 0; }
 dir=$(mktemp -d /tmp/lectern-browser-XXXXXX) || { echo "ERROR could not create state directory"; exit 0; }
 chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"; : >"$dir/alive"
+profile="$dir/profile"
+if [ -n "$PROFILE" ]; then
+  profile="$HOME/.lectern/browser-profiles/$PROFILE"
+  mkdir -p "$HOME/.lectern/browser-profiles" && chmod 700 "$HOME/.lectern" "$HOME/.lectern/browser-profiles" 2>/dev/null
+  mkdir -p -m 700 "$profile" || { echo "ERROR could not create the profile directory"; reap "$dir"; exit 0; }
+  if [ -L "$profile/SingletonLock" ]; then
+    lockpid=$(readlink "$profile/SingletonLock" | sed 's/.*-//')
+    if [ -n "$lockpid" ] && kill -0 "$lockpid" 2>/dev/null; then
+      echo "ERROR profile $PROFILE is in use by another browser"; reap "$dir"; exit 0
+    fi
+  fi
+  rm -f "$profile/DevToolsActivePort"
+  printf %%s "$profile" >"$dir/profile-path"
+fi
 sandbox=""; [ "$(id -u)" = 0 ] && sandbox="--no-sandbox"
 headless="--headless=new"; case "$bin" in *headless_shell) headless="";; esac
 start() {
   setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
-    --user-data-dir="$dir/profile" --no-first-run --no-default-browser-check --disable-extensions \
+    --user-data-dir="$profile" --no-first-run --no-default-browser-check --disable-extensions \
     --disable-background-networking --disable-sync --mute-audio --hide-scrollbars \
     --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
   echo $! >"$dir/browser.pid"
   i=0
-  while [ ! -s "$dir/profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do
+  while [ ! -s "$profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do
     sleep 0.1; i=$((i+1))
     kill -0 "$(cat "$dir/browser.pid")" 2>/dev/null || break
   done
@@ -105,15 +129,15 @@ start() {
 start
 # Inside a container without user namespaces Chromium's own sandbox cannot
 # start. The browser still runs as this same unprivileged user.
-if [ ! -s "$dir/profile/DevToolsActivePort" ] && [ -z "$sandbox" ] && grep -qi sandbox "$dir/browser.log" 2>/dev/null; then
+if [ ! -s "$profile/DevToolsActivePort" ] && [ -z "$sandbox" ] && grep -qi sandbox "$dir/browser.log" 2>/dev/null; then
   sandbox="--no-sandbox"; start
 fi
-if [ ! -s "$dir/profile/DevToolsActivePort" ]; then
+if [ ! -s "$profile/DevToolsActivePort" ]; then
   echo "ERROR the browser did not start: $(tail -n 2 "$dir/browser.log" 2>/dev/null | tr '\n' ' ')"; reap "$dir"; exit 0
 fi
-port=$(sed -n 1p "$dir/profile/DevToolsActivePort"); path=$(sed -n 2p "$dir/profile/DevToolsActivePort")
+port=$(sed -n 1p "$profile/DevToolsActivePort"); path=$(sed -n 2p "$profile/DevToolsActivePort")
 echo "OK $dir $port $path $bin"
-`, owner, opts.Width, opts.Height, proxy)
+`, owner, opts.Width, opts.Height, shellQuote(opts.Profile), proxy)
 	out, err := run(ctx, script)
 	if err != nil {
 		return nil, err
