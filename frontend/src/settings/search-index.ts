@@ -42,6 +42,7 @@ const rows: [string, string, string, string][] = [
   ["workspace", "workspace.themeImport", "settings.workspace.themeImport", "iterm windows terminal kitty ghostty alacritty xresources import"],
   ["workspace", "workspace.lineHeight", "settings.workspace.lineHeight", "terminal line spacing height"],
   ["workspace", "workspace.osc52", "settings.workspace.osc52", "clipboard copy osc 52 programs tmux vim"],
+  ["workspace", "workspace.extendedKeys", "settings.workspace.extendedKeys", "kitty keyboard protocol shift enter modifyotherkeys csi u extended keys"],
   ["workspace", "workspace.find", "settings.workspace.find", "search find regex case sensitive terminal"],
   ["shortcuts", "shortcuts.list", "settings.shortcuts.title", "keyboard keys bindings remap hotkeys"],
   ["machines", "machines.name", "settings.index.machines.name", "target ssh add machine"],

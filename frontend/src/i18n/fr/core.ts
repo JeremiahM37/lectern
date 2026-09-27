@@ -190,6 +190,8 @@ const catalog: Record<string, string> = {
   "settings.workspace.spacious": "Aéré",
   "settings.workspace.osc52": "Autoriser les programmes à copier dans le presse-papiers",
   "settings.workspace.osc52Hint": "Des programmes comme tmux et vim, y compris via ssh, copient avec la séquence OSC 52. La lecture de votre presse-papiers n’est jamais autorisée.",
+  "settings.workspace.extendedKeys": "Clavier étendu (protocole kitty)",
+  "settings.workspace.extendedKeysHint": "Les programmes qui le demandent distinguent Maj+Entrée d’Entrée et Ctrl+I de Tab, et reçoivent les combinaisons Ctrl+Maj et Alt ainsi que le relâchement des touches. Utilise le protocole clavier de kitty et modifyOtherKeys de xterm, y compris à travers tmux.",
   "settings.workspace.find": "La recherche dans le terminal démarre avec",
   "settings.workspace.findCase": "Respecter la casse",
   "settings.workspace.findWord": "Mots entiers",

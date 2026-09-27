@@ -17,11 +17,14 @@ export interface TerminalPersonPrefs {
   lineHeight: number;
   // Programs may copy to the clipboard with OSC 52 (tmux, vim, ssh sessions).
   osc52: boolean;
+  // Programs may ask for extended key reporting (kitty keyboard protocol,
+  // modifyOtherKeys), so Shift+Enter is not Enter.
+  extendedKeys: boolean;
   findCase: boolean;
   findRegex: boolean;
   findWord: boolean;
 }
-export const DEFAULT_TERMINAL_PREFS: TerminalPersonPrefs = { theme: "", lineHeight: 0, osc52: true, findCase: false, findRegex: false, findWord: false };
+export const DEFAULT_TERMINAL_PREFS: TerminalPersonPrefs = { theme: "", lineHeight: 0, osc52: true, extendedKeys: true, findCase: false, findRegex: false, findWord: false };
 
 export function normalizeTerminalPrefs(value: unknown): TerminalPersonPrefs {
   const row = value && typeof value === "object" ? (value as Partial<TerminalPersonPrefs>) : {};
@@ -29,6 +32,7 @@ export function normalizeTerminalPrefs(value: unknown): TerminalPersonPrefs {
     theme: typeof row.theme === "string" ? row.theme.slice(0, 60) : "",
     lineHeight: [1, 1.15, 1.3].includes(Number(row.lineHeight)) ? Number(row.lineHeight) : 0,
     osc52: row.osc52 !== false,
+    extendedKeys: row.extendedKeys !== false,
     findCase: row.findCase === true,
     findRegex: row.findRegex === true,
     findWord: row.findWord === true,

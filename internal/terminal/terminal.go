@@ -20,6 +20,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 // DefaultMaxTerminals is how many terminals may run at once unless
@@ -163,6 +164,28 @@ func NewManager() *Manager {
 // branch runs tmux on the control plane itself, so a missing vmid would quietly
 // hand the operator a shell on the wrong machine.
 func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
+	return attachArgv(a, target, false)
+}
+
+// WebAttachArgv is AttachArgv for the browser terminal: the same attachment,
+// with extended keys turned on end to end (docs/workspace.md). The browser's
+// xterm.js speaks modifyOtherKeys and the kitty keyboard protocol
+// (frontend/src/terminal/extended-keys.ts), but tmux cannot detect that from
+// TERM=xterm-256color, so the client declares it with -T extkeys. tmux then
+// asks the browser for modifyOtherKeys mode 2 and hands Shift+Enter,
+// Ctrl+Enter, Ctrl+Shift+letters and the rest to the programs that ask for
+// them. A native attachment is left alone: tmux detects a real terminal's
+// abilities itself.
+func WebAttachArgv(a Attachment, target *store.Target) ([]string, error) {
+	return attachArgv(a, target, true)
+}
+
+// extkeysProbe picks the client flag by the target's tmux version: -T (and
+// the extkeys feature) arrived in tmux 3.2, and an older tmux refuses an
+// unknown flag outright, which would leave the browser with no terminal.
+const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[01]|"tmux 3."[01][!0-9]*) set -- ;; *) set -- -T extkeys ;; esac; exec tmux "$@"`
+
+func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) {
 	sess := a.TmuxSession
 	// `new-session -A` attaches if it is already there and creates it otherwise,
 	// so reopening a shell returns to the same one with its history and whatever
@@ -185,6 +208,17 @@ func AttachArgv(a Attachment, target *store.Target) ([]string, error) {
 	// user's global tmux options. Queue it after new-session so companion
 	// shells are created before targeting.
 	inner = append(inner, ";", "set-option", "-w", "-t", "="+sess+":", "window-size", "latest")
+	if web {
+		// The server options go first: tmux asks the outer terminal for
+		// extended keys when the client starts, not when the option changes.
+		// (tmuxkeys: the session's own launch did this already; a session
+		// Lectern adopted, or a server restarted since, has it done here.)
+		words := append(append(append([]string(nil), tmuxkeys.Commands...), ";"), inner[1:]...)
+		for i, word := range words {
+			words[i] = shellq.Quote(word)
+		}
+		inner = []string{"sh", "-c", extkeysProbe + " " + strings.Join(words, " ")}
+	}
 
 	switch {
 	case target.Kind == "sandbox":
@@ -289,7 +323,7 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	if _, err := m.LookPath("ttyd"); err != nil {
 		return "", "", errors.New("ttyd is not installed on the control plane")
 	}
-	argv, err := AttachArgv(a, target)
+	argv, err := WebAttachArgv(a, target)
 	if err != nil {
 		return "", "", err
 	}

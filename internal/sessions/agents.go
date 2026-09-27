@@ -10,6 +10,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 // Spec describes how to start one interactive coding CLI.
@@ -613,8 +614,9 @@ func (s Spec) LaunchCommand(o Start) string {
 	}
 	// Spell out the shell invocation so tmux cannot reinterpret the generated
 	// command string differently across versions or target configurations.
+	// Extended keys go on before the agent can ask for them (tmuxkeys).
 	return fmt.Sprintf("tmux new-session -d%s -s %s -- bash -c %s", setupEnv,
-		shellq.Quote(o.TmuxName), shellq.Quote(inner))
+		shellq.Quote(o.TmuxName), shellq.Quote(inner)) + tmuxkeys.Suffix()
 }
 
 // codexNotifyArg builds the `-c notify=[...]` override that points codex at

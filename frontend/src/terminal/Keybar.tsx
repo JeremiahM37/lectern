@@ -33,6 +33,7 @@ export function Keybar({
   disabled,
   mods,
   appCursor,
+  encode,
   onMod,
   onSend,
   onSnippets,
@@ -45,6 +46,8 @@ export function Keybar({
   disabled: boolean;
   mods: Mods;
   appCursor: () => boolean;
+  /** The extended encoding of a key, when a program asked for one (engine.modify). */
+  encode?: (text: string, mods: Mods) => string | undefined;
   onMod: (id: "ctrl" | "alt") => void;
   onSend: (bytes: string) => void;
   onSnippets: () => void;
@@ -71,7 +74,7 @@ export function Keybar({
         if (item.t === "quick" && !command) return null;
         const id = itemId(item),
           [label, spoken] = itemLabel(item, command);
-        const send = () => onSend(itemBytes(item, !armed && appCursor(), command));
+        const send = () => onSend(itemBytes(item, !armed && appCursor(), command, armed ? undefined : encode));
         // Find works with no connection; everything else types into it.
         const off = item.t === "find" ? false : disabled;
         return (

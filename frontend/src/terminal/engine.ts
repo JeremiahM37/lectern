@@ -52,8 +52,14 @@ export interface EngineOptions {
   // with text it copies.
   osc52?: () => boolean;
   clipboard?: (text: string) => void;
+  // Whether programs may turn on extended key reporting (the kitty keyboard
+  // protocol and modifyOtherKeys, extended-keys.ts). Off, the terminal does
+  // not answer for either and every key is sent as it always was.
+  extendedKeys?: () => boolean;
 }
 import { installAndroidInput } from "./android-input";
+import { modified, type Mods } from "./keys";
+import { encodeKey, keyFromBytes, keyInput, KeyboardModes } from "./extended-keys";
 import { hyperlinkTarget, linkAt, type TerminalLink } from "./links";
 import { haptic } from "../mobile/haptics";
 export class Engine {
@@ -119,6 +125,144 @@ export class Engine {
     if (this.term.element) this.term.element.style.transform = `translateY(${-next}px)`;
     return true;
   }
+  // Extended key reporting that programs have asked for (extended-keys.ts).
+  readonly keyModes = new KeyboardModes();
+  // A key encoded here was cancelled; its keypress must not type it again.
+  private keySent = false;
+  private extendedAllowed() {
+    return this.options.extendedKeys?.() ?? true;
+  }
+  private keyState() {
+    const alt = this.term.buffer.active.type === "alternate";
+    return {
+      flags: this.keyModes.flags(alt),
+      modifyOtherKeys: this.keyModes.modifyOtherKeys,
+      cursorKeys: this.term.modes.applicationCursorKeysMode,
+    };
+  }
+  /** Whether a program has asked for extended keys and they are allowed. */
+  extendedKeysActive() {
+    const state = this.keyState();
+    return this.extendedAllowed() && (state.flags !== 0 || state.modifyOtherKeys !== 0);
+  }
+  /** Applies modifiers to bytes from the key bar or a phone keyboard: as the
+   * extended encoding when a program asked for it, as legacy bytes otherwise. */
+  modify(text: string, mods: Mods): string {
+    return this.encodeExtended(text, mods) ?? modified(text, mods);
+  }
+  /** The extended encoding of these bytes and modifiers, or undefined when
+   * none is in force or the key has no extended form. */
+  encodeExtended(text: string, mods: Mods): string | undefined {
+    if (!this.extendedKeysActive()) return undefined;
+    const input = keyFromBytes(text, mods);
+    return (input && encodeKey(input, this.keyState())) ?? undefined;
+  }
+  // Set by the page: the phone key bar's armed Ctrl/Alt, which a hardware
+  // key reported as an extended key must carry too.
+  stickyModifiers?: { get(): Mods; release(): void };
+  private installExtendedKeys() {
+    const term = this.term;
+    const allowed = () => this.extendedAllowed();
+    const alt = () => term.buffer.active.type === "alternate";
+    const first = (params: (number | number[])[], index: number, fallback: number) => {
+      const value = params[index];
+      const n = Array.isArray(value) ? value[0] : value;
+      return n === undefined || n === 0 && fallback !== 0 ? fallback : n;
+    };
+    this.disposables.push(
+      // kitty: CSI ? u query, CSI > flags u push, CSI < n u pop, CSI = flags ; mode u set.
+      term.parser.registerCsiHandler({ prefix: "?", final: "u" }, () => {
+        if (!allowed()) return false;
+        this.reply(`\x1b[?${this.keyModes.flags(alt())}u`);
+        return true;
+      }),
+      term.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
+        if (!allowed()) return false;
+        this.keyModes.push(alt(), first(params, 0, 0));
+        return true;
+      }),
+      term.parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
+        if (!allowed()) return false;
+        this.keyModes.pop(alt(), first(params, 0, 1));
+        return true;
+      }),
+      term.parser.registerCsiHandler({ prefix: "=", final: "u" }, (params) => {
+        if (!allowed()) return false;
+        this.keyModes.set(alt(), first(params, 0, 0), first(params, 1, 1));
+        return true;
+      }),
+      // xterm: CSI > 4 ; n m sets modifyOtherKeys (no value resets it), CSI >
+      // 4 n resets it, CSI ? 4 m asks for it. Other resources are not ours.
+      term.parser.registerCsiHandler({ prefix: ">", final: "m" }, (params) => {
+        if (!allowed() || first(params, 0, 0) !== 4) return false;
+        const level = first(params, 1, 0);
+        this.keyModes.modifyOtherKeys = level >= 0 && level <= 2 ? level : 0;
+        return true;
+      }),
+      term.parser.registerCsiHandler({ prefix: ">", final: "n" }, (params) => {
+        if (!allowed() || first(params, 0, 0) !== 4) return false;
+        this.keyModes.modifyOtherKeys = 0;
+        return true;
+      }),
+      term.parser.registerCsiHandler({ prefix: "?", final: "m" }, (params) => {
+        if (!allowed() || first(params, 0, 0) !== 4) return false;
+        this.reply(`\x1b[>4;${this.keyModes.modifyOtherKeys}m`);
+        return true;
+      }),
+      // A full reset (RIS) clears them; xterm.js still does its own part.
+      term.parser.registerEscHandler({ final: "c" }, () => {
+        this.keyModes.reset();
+        return false;
+      }),
+      // A program entering the alternate screen starts with nothing set there.
+      term.buffer.onBufferChange((buffer) => {
+        if (buffer.type === "alternate") this.keyModes.clearScreen(true);
+      }),
+    );
+  }
+  // Extended encoding for one key event. Returns false when the event was
+  // handled here (sent, or deliberately silent), true to leave it to xterm.js.
+  private extendedKey(event: KeyboardEvent): boolean {
+    if (event.type === "keypress") {
+      const sent = this.keySent;
+      this.keySent = false;
+      return !sent;
+    }
+    if (event.type === "keydown") this.keySent = false;
+    // Composition belongs to the IME; xterm.js and android-input.ts handle it.
+    if (event.isComposing || event.keyCode === 229 || !this.extendedKeysActive()) return true;
+    const input = keyInput(event);
+    const sticky = this.stickyModifiers?.get();
+    const armed = event.type === "keydown" && sticky && (sticky.ctrl || sticky.alt) &&
+      !["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock", "NumLock"].includes(event.key);
+    if (armed) {
+      input.ctrlKey ||= sticky.ctrl;
+      input.altKey ||= sticky.alt;
+    }
+    const bytes = encodeKey(input, this.keyState());
+    // A modifier key pressed on its own reports nothing, and xterm.js sends
+    // nothing for it either.
+    if (bytes === null || (bytes === "" && event.type === "keydown")) return true;
+    if (armed) this.stickyModifiers?.release();
+    if (event.type === "keydown") {
+      event.preventDefault();
+      this.keySent = true;
+    }
+    // A release is not a keystroke waiting for an answer: sent without
+    // arming the unresponsive-agent watchdog.
+    if (bytes && event.type === "keyup") this.reply(bytes);
+    else if (bytes) {
+      this.input(bytes, false, true);
+      if (this.term.options.scrollOnUserInput) this.term.scrollToBottom();
+    }
+    // xterm.js's own key-up bookkeeping (focus, cursor style) still runs.
+    return event.type === "keyup";
+  }
+  // A terminal's answer to a program's query (or a key release): sent as-is,
+  // and not counted as a keystroke waiting for output.
+  private reply(text: string) {
+    if (this.connected && !this.paused) this.send("0" + text);
+  }
   private disposeScroll: () => void;
   private observer: ResizeObserver;
   private disposables: IDisposable[] = [];
@@ -152,6 +296,7 @@ export class Engine {
       },
     };
     this.term.open(options.host);
+    this.installExtendedKeys();
     // OSC 52: a program (tmux, vim, a remote shell) sets the clipboard. Writes
     // are honoured when allowed; a request to read the clipboard ("?") never
     // is, because it would hand the local clipboard to whatever is running.
@@ -213,7 +358,7 @@ export class Engine {
       this.resetPromptPan();
     }, { signal: this.lifetime.signal });
     this.term.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") return true;
+      if (event.type !== "keydown") return this.extendedKey(event);
       const prefix = event.ctrlKey && !event.altKey && !event.metaKey &&
         (event.key === "]" || event.code === "BracketRight");
       if (this.controlsPrefix || prefix) {
@@ -244,7 +389,7 @@ export class Engine {
         );
         return false;
       }
-      return true;
+      return this.extendedKey(event);
     });
     this.disposeScroll = installTerminalScroll({
       host: options.host,
@@ -476,10 +621,10 @@ export class Engine {
   // Set by the page for the on-screen modifier keys: a phone keyboard has no
   // Ctrl, so an armed Ctrl has to rewrite whatever is typed next.
   inputFilter?: (text: string) => string;
-  input(text: string, fromIME = false) {
+  input(text: string, fromIME = false, encoded = false) {
     if (!this.connected || this.paused) return;
     if (!fromIME) this.androidInput?.reset();
-    if (this.inputFilter) {
+    if (this.inputFilter && !encoded) {
       const filtered = this.inputFilter(text);
       if (filtered !== text) this.androidInput?.reset();
       text = filtered;
@@ -561,6 +706,10 @@ export class Engine {
       await new Promise<void>((resolve) => this.term.write("", resolve));
       if (!current()) return;
       if (!soft) this.term.reset();
+      // Whatever asked for extended keys asks again: tmux on attach, a
+      // program when it starts. A mode left from a dead stream would garble
+      // keys for whatever is there now.
+      this.keyModes.reset();
       if (!this.paused) this.fit.fit();
       const data = await json<{ token: string }>(
         withToken(this.options.url + "/token"),

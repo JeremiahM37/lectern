@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { encodeKey, keyFromBytes } from "./extended-keys";
 import { modified } from "./keys";
 import {
   addItem,
@@ -80,4 +81,22 @@ test("reordering, adding and what is left to add", () => {
   assert.deepEqual(addItem(row, { t: "mod", id: "ctrl" }).map(itemId), ["escape", "tab", "ctrl"]);
   const left = missingBuiltins(row).map(itemId);
   assert.ok(left.includes("ctrl") && left.includes("enter") && !left.includes("tab"));
+});
+
+test("with extended keys in force, a combo sends the key a program asked for", () => {
+  const encode = (text: string, mods: { ctrl: boolean; alt: boolean; shift?: boolean }) => {
+    const input = keyFromBytes(text, mods);
+    return (input && encodeKey(input, { flags: 1, modifyOtherKeys: 0, cursorKeys: false })) ?? undefined;
+  };
+  assert.equal(itemBytes({ t: "combo", key: "enter", shift: true }), "\r", "legacy has no Shift+Enter");
+  assert.equal(itemBytes({ t: "combo", key: "enter", shift: true }, false, undefined, encode), "\x1b[13;2u");
+  assert.equal(itemBytes({ t: "key", id: "escape" }, false, undefined, encode), "\x1b[27u");
+  assert.equal(itemBytes({ t: "key", id: "slash" }, false, undefined, encode), "/");
+  // No extended form (modifyOtherKeys leaves arrows alone): application cursor mode still applies.
+  const mok = (text: string, mods: { ctrl: boolean; alt: boolean }) => {
+    const input = keyFromBytes(text, mods);
+    return (input && encodeKey(input, { flags: 0, modifyOtherKeys: 2, cursorKeys: true })) ?? undefined;
+  };
+  assert.equal(itemBytes({ t: "key", id: "up" }, true, undefined, mok), "\x1bOA");
+  assert.equal(itemBytes({ t: "combo", key: "enter", ctrl: true }, false, undefined, mok), "\x1b[27;5;13~");
 });

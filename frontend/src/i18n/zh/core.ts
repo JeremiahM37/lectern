@@ -190,6 +190,8 @@ const catalog: Record<string, string> = {
   "settings.workspace.spacious": "宽松",
   "settings.workspace.osc52": "允许程序复制到剪贴板",
   "settings.workspace.osc52Hint": "tmux 和 vim 等程序（包括通过 ssh 运行时）使用 OSC 52 序列进行复制。读取你的剪贴板始终不被允许。",
+  "settings.workspace.extendedKeys": "扩展键盘（kitty 协议）",
+  "settings.workspace.extendedKeysHint": "请求此功能的程序可以区分 Shift+Enter 与 Enter、Ctrl+I 与 Tab，并能收到 Ctrl+Shift 和 Alt 组合键以及按键释放。使用 kitty 键盘协议和 xterm 的 modifyOtherKeys，经过 tmux 也有效。",
   "settings.workspace.find": "在终端中查找的默认选项",
   "settings.workspace.findCase": "区分大小写",
   "settings.workspace.findWord": "全字匹配",

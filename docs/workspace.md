@@ -94,11 +94,41 @@ resized and maximized; on a phone it is a bottom sheet.
   set-buffer -w`, and vim or remote shells when tmux passes them on with
   `set-clipboard on`). Reading the clipboard is never allowed. It can be
   switched off in Settings.
-- **Kitty keyboard protocol**: pending. xterm.js 6.0 has been stable since
-  December 2025 but does not include it; it arrives in 6.1, still in beta
-  (6.1.0-beta.304, August 2026). Lectern stays on 5.5 until 6.1 is stable,
-  since moving to 6.0 alone would bring the renderer and add-on changes
-  without the protocol.
+- **Extended keyboard**: programs that ask can tell Shift+Enter from Enter,
+  Ctrl+I from Tab and Ctrl+M from Enter, and receive Ctrl+Shift and Alt
+  combinations; in Claude Code, Shift+Enter starts a new line instead of
+  sending. Lectern implements this itself on xterm.js 5.5
+  (`frontend/src/terminal/extended-keys.ts`) rather than waiting for 6.1:
+  - the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/),
+    with all five flags (disambiguate, press/repeat/release, alternate keys,
+    all keys as escape codes, associated text), push/pop/set/query, and
+    separate stacks for the main and alternate screens. The encoder is a port
+    of kitty's own. Lock keys are reported as the spec says: with Num Lock on,
+    a modified key carries the num_lock bit.
+  - xterm's modifyOtherKeys (`CSI > 4 ; 1|2 m`, and its query).
+  - **Through tmux**, which is how every Lectern terminal runs: the browser
+    attaches with `tmux -T extkeys` (tmux 3.2 and later; the version is
+    checked on the target and older tmux attaches as before). tmux then asks
+    the browser for modifyOtherKeys and passes extended keys only to programs
+    that request them, so a shell still gets a plain Enter and Ctrl+C. tmux
+    does not pass the kitty protocol through; programs inside it use
+    modifyOtherKeys, as Claude Code does.
+  - `extended-keys` is a tmux server option, and tmux ignores a program's
+    request made while it is off. Lectern turns it `on` when it creates a
+    session (and when a browser attaches), with `extended-keys-format csi-u`
+    on tmux 3.5; if the server already had extended keys configured, neither
+    is touched. An agent started before that, in a session Lectern adopted,
+    needs a restart to get extended keys.
+  - The phone key bar and its sticky Ctrl/Alt send the extended form too, and
+    typing through the phone's own keyboard (IME, Gboard) is unchanged.
+  - Some chords stay with the browser or Lectern: ⌘ combinations on a Mac,
+    Ctrl+Shift+I/J (developer tools), the clipboard chords (Ctrl+Shift+C/V,
+    Shift/Ctrl+Insert), and Lectern's own terminal shortcuts such as
+    Ctrl+Shift+A/F/K (listed and remappable in Settings → Shortcuts).
+    Super (Windows key) is not reported.
+  - Settings → Workspace & terminal → *Extended keyboard (kitty protocol)*,
+    on by default. Off, the terminal answers neither protocol and every key
+    is sent as before.
 
 ![Find with a regular expression](media/workspace/desktop-terminal-find.png)
 ![Find on a phone](media/workspace/phone-terminal-find.png)

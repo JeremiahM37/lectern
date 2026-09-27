@@ -197,6 +197,8 @@ const catalog: Record<string, string> = {
   "settings.workspace.spacious": "広い",
   "settings.workspace.osc52": "プログラムによるクリップボードへのコピーを許可",
   "settings.workspace.osc52Hint": "tmux や vim などのプログラムは、ssh 経由でも OSC 52 シーケンスでコピーします。クリップボードの読み取りは常に許可されません。",
+  "settings.workspace.extendedKeys": "拡張キーボード（kitty プロトコル）",
+  "settings.workspace.extendedKeysHint": "要求したプログラムは Shift+Enter と Enter、Ctrl+I と Tab を区別でき、Ctrl+Shift や Alt の組み合わせとキーを離したことも受け取れます。kitty キーボードプロトコルと xterm の modifyOtherKeys を使い、tmux 経由でも動作します。",
   "settings.workspace.find": "ターミナル内検索の初期設定",
   "settings.workspace.findCase": "大文字と小文字を区別",
   "settings.workspace.findWord": "単語単位",
