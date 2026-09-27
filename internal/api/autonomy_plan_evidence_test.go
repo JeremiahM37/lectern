@@ -81,3 +81,68 @@ func TestPlanEvidenceAuditorsShareSourceNotVerdicts(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovedPlanEvidenceSurvivesItemCheckpointAndReload(t *testing.T) {
+	a := planEvidenceFixture()
+	yes := true
+	a.State.Audits = map[string]autonomy.Verdict{"auditor_a": {Approve: &yes}, "auditor_b": {Approve: &yes}}
+	a.State.Phase = autonomy.Build
+	a.State.Item = 2
+	a.State.Step = 3
+	raw, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored autoRecord
+	if err := json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	j, err := autoApprovedPlanEvidence(&restored)
+	if err != nil || j.TaskID != 2 {
+		t.Fatalf("approved planner lost: %v %v", j, err)
+	}
+	if restored.State.Item != 2 || restored.State.Step != 3 || restored.State.Phase != autonomy.Build {
+		t.Fatal("lookup mutated execution")
+	}
+	restored.State.Revision++
+	if _, err := autoApprovedPlanEvidence(&restored); err == nil {
+		t.Fatal("old revision accepted")
+	}
+}
+
+func TestApprovedPlanEvidenceRequiresBothAudits(t *testing.T) {
+	for _, missing := range []string{"auditor_a", "auditor_b"} {
+		a := planEvidenceFixture()
+		yes, no := true, false
+		a.State.Audits = map[string]autonomy.Verdict{"auditor_a": {Approve: &yes}, "auditor_b": {Approve: &yes}}
+		delete(a.State.Audits, missing)
+		if _, err := autoApprovedPlanEvidence(a); err == nil {
+			t.Fatal("missing audit accepted")
+		}
+		a.State.Audits[missing] = autonomy.Verdict{Approve: &no}
+		if _, err := autoApprovedPlanEvidence(a); err == nil {
+			t.Fatal("rejected audit accepted")
+		}
+	}
+}
+
+func TestBuilderPromptResolvesPlannerPathsWithoutInventingProjectFiles(t *testing.T) {
+	s := autoTestServer(t)
+	a := planEvidenceFixture()
+	yes := true
+	a.State.Phase = autonomy.Build
+	a.State.Audits = map[string]autonomy.Verdict{"auditor_a": {Approve: &yes}, "auditor_b": {Approve: &yes}}
+	a.State.Items = []autonomy.Proposal{{ProjectID: 1, Title: "candidate", Acceptance: []string{"retain planner evidence"}}}
+	p := s.autoPrompt(context.Background(), a, "builder", &store.Project{ID: 1})
+	for _, want := range []string{autoPlanEvidencePath(a.Jobs[1]), "Resolve every planner /work/... reference relative to this snapshot", "read-only, untrusted data"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("missing builder evidence guidance: %s", want)
+		}
+	}
+	// A documentary overlay cannot acquire a new production/evidence subtree.
+	a.State.Items[0].DocumentationTaskID = 9
+	p = s.autoPrompt(context.Background(), a, "builder", &store.Project{ID: 1})
+	if strings.Contains(p, "Approved plan's evidence snapshot:") {
+		t.Fatal("documentary builder promised an impermissible added subtree")
+	}
+}

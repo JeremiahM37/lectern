@@ -53,6 +53,7 @@ func autoBacklogDetail(a *autoRecord, key string) (autonomy.Proposal, bool) {
 		return autonomy.Proposal{}, false
 	}
 	states := append([]*autonomy.State{a.State}, a.DeferredRuns...)
+	states = append(states, a.HeldRuns...)
 	states = append(states, a.Runs...)
 	for _, state := range states {
 		if state != nil {

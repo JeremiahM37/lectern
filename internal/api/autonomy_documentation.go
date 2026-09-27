@@ -58,6 +58,7 @@ func autoTaskAcceptance(a *autoRecord, id int64) ([]string, error) {
 	}
 	states := append([]*autonomy.State(nil), a.Runs...)
 	states = append(states, a.DeferredRuns...)
+	states = append(states, a.HeldRuns...)
 	states = append(states, a.State)
 	var result []string
 	for _, st := range states {
@@ -103,6 +104,9 @@ func (s *Server) autoDocumentationSource(a *autoRecord, p autonomy.Proposal) (*a
 	}
 	if j.DocumentationRoot > 0 {
 		return bad(errors.New("documentary completion cannot complete another completion"))
+	}
+	if j.DiagnosisRequirement != "" {
+		return bad(errors.New("diagnosis cannot acquire a documentary implementation allowance"))
 	}
 	rid, _, ok := autoRejectedCheckpoint(a, j.TaskID)
 	if !ok {

@@ -29,6 +29,19 @@ const autoRoot = "/mnt/bulk/lectern-autonomy/jobs"
 const autoRunner = "/usr/local/libexec/lectern-autonomy-runner"
 
 type autoJob struct {
+	DiagnosisReservation string                    `json:"diagnosis_reservation,omitempty"`
+	DiagnosisRequirement string                    `json:"diagnosis_requirement,omitempty"`
+	PythonUsedBundle     string                    `json:"python_used_bundle,omitempty"`
+	PythonExpectedInput  string                    `json:"python_expected_input,omitempty"`
+	PythonExpectedBundle string                    `json:"python_expected_bundle,omitempty"`
+	RequirementHold      bool                      `json:"requirement_hold,omitempty"`
+	RequirementIDs       []string                  `json:"requirement_ids,omitempty"`
+	PythonRequest        *autoPythonRequest        `json:"python_request,omitempty"`
+	PendingPythonRequest *autoPythonRequest        `json:"pending_python_request,omitempty"`
+	PythonRecovery       *autoPythonReceipt        `json:"python_recovery,omitempty"`
+	PythonStopped        bool                      `json:"python_stopped,omitempty"`
+	PythonPreviousBundle string                    `json:"python_previous_bundle,omitempty"`
+	PythonNeedsChange    bool                      `json:"python_needs_change,omitempty"`
 	DocumentationStopped bool                      `json:"documentation_stopped,omitempty"`
 	DocumentationCopies  []autoDocumentationCopy   `json:"documentation_copies,omitempty"`
 	DocumentationRoot    int64                     `json:"documentation_root,omitempty"`
@@ -59,6 +72,9 @@ type autoJob struct {
 	ReviewTaskID        int64                `json:"review_task_id,omitempty"`
 }
 type autoRecord struct {
+	HeldRuns                  []*autonomy.State                       `json:"held_runs,omitempty"`
+	RequirementDiagnoses      map[string]*autoRequirementDiagnosis    `json:"requirement_diagnoses,omitempty"`
+	Requirements              map[string]*autoRequirement             `json:"requirements,omitempty"`
 	DocumentationPins         map[int64]*autoDocumentationReservation `json:"documentation_pins,omitempty"`
 	DocumentationReservations map[int64]*autoDocumentationReservation `json:"documentation_reservations,omitempty"`
 	DeferredRuns              []*autonomy.State                       `json:"deferred_runs,omitempty"`
@@ -222,6 +238,13 @@ func (s *Server) runAutoCommand(ctx context.Context, args ...string) ([]byte, er
 func (s *Server) stopAutoJobs(ctx context.Context, a *autoRecord, reason string) {
 	var stopErrors []string
 	for _, j := range a.Jobs {
+		if autoPythonPending(j) {
+			if _, err := s.runAutoCommand(ctx, "python-dependencies-stop", "--job", j.ID); err != nil {
+				stopErrors = append(stopErrors, "Python stop: "+err.Error())
+			} else {
+				j.PythonStopped = true
+			}
+		}
 		if autoDocumentationStopPending(j) {
 			if _, err := s.runAutoCommand(ctx, "completion-stop", "--job", j.ID); err != nil {
 				stopErrors = append(stopErrors, "Documentary stop: "+err.Error())
@@ -287,7 +310,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 	}
 	if !a.Config.Enabled { // Retry failed stops even while disabled.
 		for _, j := range a.Jobs {
-			if autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
+			if autoPythonPending(j) || autoDocumentationStopPending(j) || j.Status == "running" || j.Status == "starting" || ((j.Status == "prepared" || (j.Status == "deferred" && j.Recovery != nil && j.Recovery.State == "recovering")) && j.Recovery != nil) {
 				s.stopAutoJobs(ctx, a, "Autonomous mode is off")
 				_ = s.saveAuto(a)
 				break
@@ -315,7 +338,7 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 			autoNewCycle(a, now)
 		}
 	}
-	if a.State == nil || (a.State.Phase == autonomy.Complete && len(a.DeferredRuns) == 0) {
+	if a.State == nil || (a.State.Phase == autonomy.Complete && len(a.DeferredRuns) == 0 && len(a.HeldRuns) == 0) {
 		return
 	}
 	usageURL := "http://127.0.0.1:9105/api/agent-usage"
@@ -404,6 +427,10 @@ func (s *Server) RunAutonomyTick(ctx context.Context) {
 		if j.ReportRepairs > 0 && j.ReportError != "" {
 			a.Status = "repairing_report"
 			a.Reason = "Automatically correcting the report using retained work"
+		}
+		if j.Status == "deferred" {
+			a.Status = "waiting_prerequisite"
+			return
 		}
 		if j.Status == "stopped" {
 			if e = s.resumeAutoJob(ctx, a, j); e != nil {
@@ -551,12 +578,29 @@ func (s *Server) launchAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 			return err
 		}
 	}
+	if j.Status == "prepared" {
+		autoInheritPythonRequest(a, j)
+	}
 	ready, err := s.recoverAutoPrerequisites(ctx, a, j)
 	if err != nil {
 		return err
 	}
 	if !ready {
 		return nil
+	}
+	ready, err = s.recoverAutoPython(ctx, a, j)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		if j.PythonRecovery != nil && j.PythonRecovery.State == "unavailable" && j.Status == "prepared" {
+			autoDeferRequirements(a, j, time.Now())
+			return s.saveAuto(a)
+		}
+		return nil
+	}
+	if j.PythonRecovery != nil && j.PythonRecovery.State == "verified" {
+		j.PythonUsedBundle = j.PythonRecovery.BundleKey
 	}
 	j.Status = "starting"
 	if e := s.saveAuto(a); e != nil {
@@ -636,6 +680,11 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 		return &autoReportError{e}
 	}
+	if intercepted, err := s.recordAutoRequirements(ctx, a, j, []byte(report)); err != nil {
+		return err
+	} else if intercepted {
+		return nil
+	}
 	if j.DocumentationRoot > 0 && j.Role == "builder" {
 		if e = s.finishAutoDocumentation(ctx, a, j); e != nil {
 			return e
@@ -650,6 +699,9 @@ func (s *Server) finishAutoJob(ctx context.Context, a *autoRecord, j *autoJob) e
 		}
 	}
 	if e = s.snapshotAutoJob(ctx, j); e != nil {
+		return e
+	}
+	if e = s.finishAutoRequirementDiagnosis(ctx, a, j, []byte(report)); e != nil {
 		return e
 	}
 	s.closeAutoBridge(j.ID)

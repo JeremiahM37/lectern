@@ -15,6 +15,7 @@ steps:
     actions:
       - shell: python3 tools/test_autonomy_storage.py
       - shell: python3 tools/test_provision_python_test_bundle.py
+      - shell: python3 tools/test_python_project_dependencies.py
       - shell: python3 tools/test_autonomy_launch.py
       - shell:
           cmd: |

@@ -122,7 +122,7 @@ func autoNewCycle(a *autoRecord, now time.Time) {
 		}
 	}
 	// Resuming an older deferred cycle must not reuse newer cycle numbers.
-	for _, state := range append(append([]*autonomy.State{}, a.Runs...), a.DeferredRuns...) {
+	for _, state := range append(append(append([]*autonomy.State{}, a.Runs...), a.DeferredRuns...), a.HeldRuns...) {
 		if state.Cycle > a.CycleSequence {
 			a.CycleSequence = state.Cycle
 		}
@@ -226,6 +226,9 @@ func (s *Server) autoContinuation(a *autoRecord, projectID, taskID int64) (*auto
 // Cross-cycle reuse is stricter than the within-cycle review/decision copies:
 // only an explicitly approved final review can promote a builder checkpoint.
 func autoCheckpointApproved(a *autoRecord, taskID int64) bool {
+	if j := autoFindJob(a, taskID); j != nil && j.DiagnosisRequirement != "" {
+		return false
+	}
 	if j := autoFindJob(a, taskID); j != nil && j.DocumentationRoot > 0 && (j.Documentation == nil || j.Documentation.State != "ready" || !autoHash256(j.Documentation.DerivedSHA)) {
 		return false
 	}

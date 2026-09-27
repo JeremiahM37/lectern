@@ -61,6 +61,9 @@ func autoRepairRoot(a *autoRecord, taskID int64) int64 {
 		if j == nil {
 			return 0
 		}
+		if d := a.RequirementDiagnoses[j.DiagnosisReservation]; j.DiagnosisRequirement != "" && d != nil {
+			return d.RootTaskID
+		}
 		if j.DocumentationRoot > 0 {
 			return j.DocumentationRoot
 		}
@@ -79,7 +82,7 @@ func (s *Server) autoRepairContinuation(a *autoRecord, projectID, taskID int64) 
 	if j.DocumentationRoot > 0 {
 		return nil, fmt.Errorf("documentary completion cannot acquire ordinary repair attempts")
 	}
-	if _, _, ok := autoRejectedCheckpoint(a, taskID); !ok {
+	if _, _, ok := autoRepairEvidence(a, taskID); !ok {
 		return nil, fmt.Errorf("repair_task_id must name an explicitly rejected final-review checkpoint")
 	}
 	root := autoRepairRoot(a, taskID)
@@ -114,6 +117,9 @@ func autoRepairAudited(a *autoRecord) bool {
 	return true
 }
 func (s *Server) validateAutoSources(a *autoRecord, items []autonomy.Proposal) error {
+	if err := autoValidateRequirementDiagnoses(a, items); err != nil {
+		return err
+	}
 	roots := map[int64]bool{}
 	for i, p := range items {
 		count := 0
@@ -170,7 +176,7 @@ func (s *Server) autoRepairableArtifacts(a *autoRecord) []map[string]any {
 			continue
 		}
 		seen[j.TaskID] = true
-		review, reason, ok := autoRejectedCheckpoint(a, j.TaskID)
+		review, reason, ok := autoRepairEvidence(a, j.TaskID)
 		if !ok {
 			continue
 		}
@@ -181,7 +187,14 @@ func (s *Server) autoRepairableArtifacts(a *autoRecord) []map[string]any {
 		if _, err = s.autoRepairContinuation(a, task.ProjectID, j.TaskID); err != nil {
 			continue
 		}
-		rows = append(rows, map[string]any{"task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "review_task_id": review, "rejection": reason, "approved": false, "review_evidence": "/work/.lectern-review/" + autoFindJob(a, review).ID + "/work", "review_evidence_note": "The trusted controller supplies a separate reviewer snapshot and SHA256 manifest when a fresh audited repair starts; required review files must be verified there before changes."})
+		row := map[string]any{"diagnose_requirement": j.DiagnosisRequirement, "task_id": j.TaskID, "project_id": task.ProjectID, "title": task.Title, "review_task_id": review, "rejection": reason, "approved": false, "review_evidence": "/work/.lectern-review/" + autoFindJob(a, review).ID + "/work", "review_evidence_note": "The trusted controller supplies a separate reviewer snapshot and SHA256 manifest when a fresh audited repair starts; required review files must be verified there before changes."}
+		if d, refuted := autoDiagnosisRefutedCheckpoint(a, j.TaskID); refuted {
+			delete(row, "rejection")
+			row["prior_review_approved"] = true
+			row["refuting_evidence"] = d.Failures
+			row["repair_reason"] = reason
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }

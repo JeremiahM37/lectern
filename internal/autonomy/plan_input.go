@@ -9,8 +9,9 @@ import "fmt"
 // All other fields, duplicate JSON keys and semantic checks stay strict.
 func decodePlanReport(raw []byte, out *PlanReport) error {
 	var input struct {
-		Items   []Proposal `json:"items"`
-		Backlog []struct {
+		Requirements []Requirement `json:"requirements,omitempty"`
+		Items        []Proposal    `json:"items"`
+		Backlog      []struct {
 			Proposal
 			CatalogKey string `json:"key,omitempty"`
 		} `json:"backlog,omitempty"`
@@ -19,7 +20,7 @@ func decodePlanReport(raw []byte, out *PlanReport) error {
 	if err := decodeStrict(raw, &input); err != nil {
 		return err
 	}
-	result := PlanReport{Items: input.Items, NoWork: input.NoWork}
+	result := PlanReport{Items: input.Items, NoWork: input.NoWork, Requirements: input.Requirements}
 	if input.Backlog != nil {
 		result.Backlog = make([]Proposal, 0, len(input.Backlog))
 	}

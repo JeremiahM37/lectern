@@ -255,6 +255,10 @@ type acpRun struct {
 
 	events chan agents.Event
 	done   chan struct{}
+	// Event producers can outlive watchExit (an RPC write or poll may still
+	// be returning). Serialize their nonblocking sends with channel closure.
+	eventMu      sync.Mutex
+	eventsClosed bool
 
 	mu        sync.Mutex
 	sessionID string
@@ -342,6 +346,10 @@ func (r *acpRun) request(ctx context.Context, method string, params any, timeout
 	id := atomic.AddInt64(&r.nextID, 1)
 	ch := make(chan rpcResult, 1)
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("run has already ended")
+	}
 	r.pending[id] = ch
 	r.mu.Unlock()
 	defer func() {
@@ -413,7 +421,7 @@ func (r *acpRun) runPrompt(ctx context.Context, text string) {
 			r.emit(agents.Event{Type: "result", Payload: payload})
 		}
 		r.mu.Lock()
-		if len(r.queue) > 0 {
+		if !r.closed && len(r.queue) > 0 {
 			text = r.queue[0]
 			r.queue = r.queue[1:]
 			r.mu.Unlock()
@@ -879,12 +887,26 @@ func (r *acpRun) handlePlan(raw json.RawMessage) {
 }
 
 func (r *acpRun) emit(ev agents.Event) {
+	r.eventMu.Lock()
+	defer r.eventMu.Unlock()
+	if r.eventsClosed {
+		return
+	}
 	select {
 	case r.events <- ev:
 	default:
 		// a driver run that nobody is draining must never deadlock the poll
 		// loop; Run(...) always drains, and the scheduler's consumer goroutine
 		// does too, so this only bites a caller that ignored Events entirely.
+	}
+}
+
+func (r *acpRun) closeEvents() {
+	r.eventMu.Lock()
+	defer r.eventMu.Unlock()
+	if !r.eventsClosed {
+		r.eventsClosed = true
+		close(r.events)
 	}
 }
 
@@ -897,6 +919,10 @@ func (r *acpRun) emit(ev agents.Event) {
 func (r *acpRun) failAllPending(msg string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Prevent a queued or concurrently starting prompt from registering after
+	// this final drain and then waiting for an agent that has already exited.
+	r.closed = true
+	r.queue = nil
 	for id, ch := range r.pending {
 		select {
 		case ch <- rpcResult{errMsg: msg}:
@@ -911,7 +937,7 @@ func (r *acpRun) failAllPending(msg string) {
 // explicit close, not a single turn finishing on its own.
 func (r *acpRun) watchExit(ctx context.Context) {
 	defer close(r.done)
-	defer close(r.events)
+	defer r.closeEvents()
 	exitPath := r.rt + "/exit_code"
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

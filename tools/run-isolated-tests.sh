@@ -191,6 +191,9 @@ if [[ -n "$node_root" && "$node_root" != /usr ]]; then
   bwrap_args+=(--dir /opt/node --ro-bind "$node_root" /opt/node)
 fi
 if [[ -n "$frontend_deps" ]]; then
+  # npm ci removes these mountpoints. Create them before the dependency tree
+  # becomes read-only; their contents are hidden by each suite's private cache.
+  mkdir -p "$frontend_deps/.vite" "$frontend_deps/.vite-temp"
   bwrap_args+=(--ro-bind "$frontend_deps" /src/frontend/node_modules)
   # Vite's dev server optimises dependencies into node_modules/.vite. Keep
   # that cache writable without making the dependency tree writable.
