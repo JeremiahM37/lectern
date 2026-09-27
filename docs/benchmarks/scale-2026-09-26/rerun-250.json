@@ -1,5 +1,5 @@
 {
-  "started": "2026-09-26T23:32:05Z",
+  "started": "2026-09-27T00:39:16Z",
   "host": {
     "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
     "cpu_quota_cores": 8,
@@ -18,7 +18,7 @@
     "plain_dirs": false,
     "sse_clients": 100,
     "ssh_targets": 3,
-    "terminal_ports": "",
+    "terminals_max": 0,
     "tiers": [
       250
     ],
@@ -37,128 +37,128 @@
       "launch_failed": 0,
       "launch": {
         "n": 250,
-        "p50_ms": 506.7,
-        "p95_ms": 2613.1,
-        "p99_ms": 3789,
-        "max_ms": 3793.1
+        "p50_ms": 459.5,
+        "p95_ms": 2140.6,
+        "p99_ms": 3454.2,
+        "max_ms": 3704.8
       },
-      "launch_wall_s": 24.2,
+      "launch_wall_s": 20.9,
       "active_at_window_start": 250,
       "active_at_window_end": 250,
       "list": {
-        "n": 210,
-        "p50_ms": 30.9,
-        "p95_ms": 65,
-        "p99_ms": 100.5,
-        "max_ms": 109.4
+        "n": 215,
+        "p50_ms": 26.8,
+        "p95_ms": 41.2,
+        "p99_ms": 62.1,
+        "max_ms": 124.9
       },
-      "list_bytes": 273464,
+      "list_bytes": 273094,
       "list_errors": 0,
       "fanout_clients": 100,
       "fanout": {
         "n": 2900,
-        "p50_ms": 1,
-        "p95_ms": 4.8,
-        "p99_ms": 5,
-        "max_ms": 5.8
+        "p50_ms": 0.9,
+        "p95_ms": 1.9,
+        "p99_ms": 10,
+        "max_ms": 10.9
       },
       "fanout_probes": 29,
       "fanout_missed": 0,
       "sse_disconnects": 0,
-      "approvals_requested": 750,
+      "approvals_requested": 752,
       "approvals_approved": 750,
-      "approvals_not_approved": 0,
+      "approvals_not_approved": 2,
       "approval_request_to_visible": {
         "n": 750,
-        "p50_ms": 6,
-        "p95_ms": 12.3,
-        "p99_ms": 19,
-        "max_ms": 33.6
+        "p50_ms": 4.6,
+        "p95_ms": 8,
+        "p99_ms": 16.7,
+        "max_ms": 23.1
       },
       "approval_decision_post": {
-        "n": 749,
-        "p50_ms": 0.6,
-        "p95_ms": 2.3,
-        "p99_ms": 6.8,
-        "max_ms": 13.6
+        "n": 752,
+        "p50_ms": 0.5,
+        "p95_ms": 1.7,
+        "p99_ms": 3.5,
+        "max_ms": 10.1
       },
       "approval_decision_to_unblocked": {
         "n": 750,
-        "p50_ms": 2.3,
-        "p95_ms": 5.4,
-        "p99_ms": 11,
-        "max_ms": 23.4
+        "p50_ms": 1.8,
+        "p95_ms": 4.4,
+        "p99_ms": 10.4,
+        "max_ms": 14.6
       },
       "approval_round_trip": {
         "n": 750,
-        "p50_ms": 8.4,
-        "p95_ms": 18.1,
-        "p99_ms": 24.5,
-        "max_ms": 37.4
+        "p50_ms": 6.6,
+        "p95_ms": 13.2,
+        "p99_ms": 19.6,
+        "max_ms": 35.4
       },
       "attach_post": {
         "n": 10,
-        "p50_ms": 14.7,
-        "p95_ms": 24.6,
-        "p99_ms": 24.6,
-        "max_ms": 24.6
+        "p50_ms": 10.6,
+        "p95_ms": 11.2,
+        "p99_ms": 11.2,
+        "max_ms": 11.2
       },
       "attach_first_output": {
         "n": 10,
-        "p50_ms": 14.6,
-        "p95_ms": 72.8,
-        "p99_ms": 72.8,
-        "max_ms": 72.8
+        "p50_ms": 5,
+        "p95_ms": 6.2,
+        "p99_ms": 6.2,
+        "max_ms": 6.2
       },
       "attach_total": {
         "n": 10,
-        "p50_ms": 29.9,
-        "p95_ms": 88.2,
-        "p99_ms": 88.2,
-        "max_ms": 88.2
+        "p50_ms": 15.8,
+        "p95_ms": 16.9,
+        "p99_ms": 16.9,
+        "max_ms": 16.9
       },
       "tui": {
         "fetch": {
-          "max_ms": 119.3,
+          "max_ms": 79.9,
           "n": 20,
-          "p50_ms": 57.4,
-          "p95_ms": 116.2
+          "p50_ms": 32.5,
+          "p95_ms": 64.8
         },
         "iterations": 20,
         "rows": 250,
         "total": {
-          "max_ms": 121.4,
+          "max_ms": 81.4,
           "n": 20,
-          "p50_ms": 61.4,
-          "p95_ms": 118.4
+          "p50_ms": 33.9,
+          "p95_ms": 65.9
         },
         "update": {
-          "max_ms": 5.6,
+          "max_ms": 1.7,
           "n": 20,
-          "p50_ms": 1.8,
-          "p95_ms": 3.9
+          "p50_ms": 1.1,
+          "p95_ms": 1.6
         },
         "view": {
-          "max_ms": 1,
+          "max_ms": 0.5,
           "n": 20,
-          "p50_ms": 0.3,
-          "p95_ms": 0.8
+          "p50_ms": 0.2,
+          "p95_ms": 0.4
         }
       },
       "lectern_process": {
-        "cpu_avg_pct": 59.1,
-        "cpu_peak_pct": 107,
-        "cpu_avg_pct_incl_children": 81.8,
-        "rss_avg_mb": 65.5,
-        "rss_peak_mb": 73.1,
-        "seconds": 60
+        "cpu_avg_pct": 56.8,
+        "cpu_peak_pct": 98.1,
+        "cpu_avg_pct_incl_children": 78.6,
+        "rss_avg_mb": 64.6,
+        "rss_peak_mb": 68.4,
+        "seconds": 60.2
       },
       "session_delete": {
         "n": 250,
-        "p50_ms": 24.7,
-        "p95_ms": 30.5,
-        "p99_ms": 32.2,
-        "max_ms": 35.6
+        "p50_ms": 19.7,
+        "p95_ms": 22.4,
+        "p99_ms": 23.9,
+        "max_ms": 25.5
       },
       "lectern_log_levels": {},
       "http_errors": {}

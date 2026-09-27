@@ -57,12 +57,11 @@ live service on 9110 or the host's tmux server.
 ## Results
 
 `p50 / p95`. The first table is the current code (`stress-test-2`), re-run
-2026-09-26 23:27–23:34 UTC (files `rerun-*.json`). The box was busier than
-during the first run: at 250 sessions the list and TUI came out slower than
-the first run's 23 ms / 26 ms. The code on `connect-ui`, without these
-changes, run straight afterwards gave 37 ms / 52 ms
-(`rerun-250-connect-ui-baseline.json`), so the difference is the machine's
-load, not a regression.
+2026-09-27 00:34–00:41 UTC (files `rerun-*.json`). An earlier re-run that
+evening, on a busier machine, measured 31 ms (list) and 61 ms (TUI) at 250
+sessions. The code on `connect-ui` without these changes, run straight after
+it, measured 37 ms and 52 ms (`rerun-250-connect-ui-baseline.json`). Load on
+the shared box moves these numbers by that much.
 
 ### Current
 
@@ -70,31 +69,30 @@ load, not a regression.
 |---|---:|---:|---:|---:|---:|
 | Launched / failed | 10 / 0 | 25 / 0 | 50 / 0 | 100 / 0 | 250 / 0 |
 | Live at window start / end | 10 / 10 | 25 / 25 | 50 / 50 | 100 / 100 | 250 / 250 |
-| `GET /api/sessions` | 1.9 / 2.8 ms | 3.7 / 4.8 ms | 6.6 / 9.7 ms | 12 / 17 ms | 31 / 65 ms |
-| List response size | 10 KB | 26 KB | 53 KB | 105 KB | 267 KB |
-| SSE fan-out (update → every subscriber) | 0.9 / 1.3 ms | 0.9 / 1.8 ms | 1.0 / 3.3 ms | 1.0 / 2.6 ms | 1.0 / 4.8 ms |
+| `GET /api/sessions` | 2.0 / 4.8 ms | 3.9 / 5.3 ms | 6.2 / 7.6 ms | 11 / 14 ms | 27 / 41 ms |
+| List response size | 10 KB | 26 KB | 52 KB | 105 KB | 267 KB |
+| SSE fan-out (update → every subscriber) | 1.0 / 2.4 ms | 1.2 / 1.5 ms | 0.7 / 2.3 ms | 0.9 / 1.8 ms | 0.9 / 1.9 ms |
 | SSE events missed / delivered | 0 / 725 | 0 / 725 | 0 / 725 | 0 / 725 | 0 / 2900 |
 | Approvals in window (all approved) | 30 | 75 | 150 | 300 | 750 |
-| Approval request → visible to operator | 4.6 / 5.9 ms | 4.9 / 5.6 ms | 5.5 / 8.0 ms | 5.4 / 7.1 ms | 6.0 / 12 ms |
-| Decision → agent unblocked | 1.8 / 3.4 ms | 1.7 / 2.4 ms | 2.1 / 3.3 ms | 2.0 / 3.1 ms | 2.3 / 5.4 ms |
-| Approval round trip (excluding human think time) | 6.3 / 8.5 ms | 6.8 / 8.0 ms | 7.7 / 11 ms | 7.5 / 10 ms | 8.4 / 18 ms |
-| Terminal attach → first output | 17 / 19 ms | 17 / 18 ms | 20 / 61 ms | 17 / 20 ms | 30 / 88 ms |
-| TUI refresh (fetch + update + render) | 2.4 / 3.0 ms | 4.6 / 5.6 ms | 8.9 / 11 ms | 13 / 21 ms | 61 / 118 ms |
-| Lectern CPU avg / peak, % of one core | 2 / 6 | 5 / 11 | 10 / 23 | 18 / 31 | 59 / 107 |
-| … avg incl. reaped children | 4 | 9 | 18 | 31 | 82 |
-| Lectern RSS avg / peak | 43 / 44 MB | 44 / 46 MB | 46 / 48 MB | 48 / 50 MB | 66 / 73 MB |
+| Approval request → visible to operator | 5.1 / 11 ms | 4.7 / 5.9 ms | 4.3 / 6.0 ms | 4.3 / 5.8 ms | 4.6 / 8.0 ms |
+| Decision → agent unblocked | 1.9 / 3.6 ms | 1.7 / 2.3 ms | 1.7 / 2.3 ms | 1.6 / 2.3 ms | 1.8 / 4.4 ms |
+| Approval round trip (excluding human think time) | 7.2 / 15 ms | 6.4 / 8.2 ms | 6.1 / 7.8 ms | 6.1 / 7.7 ms | 6.6 / 13 ms |
+| Terminal attach → first output | 28 / 71 ms | 16 / 17 ms | 16 / 19 ms | 16 / 55 ms | 16 / 17 ms |
+| TUI refresh (fetch + update + render) | 2.6 / 7.5 ms | 4.4 / 5.9 ms | 7.3 / 8.9 ms | 13 / 17 ms | 34 / 66 ms |
+| Lectern CPU avg / peak, % of one core | 3 / 18 | 5 / 11 | 9 / 18 | 16 / 30 | 57 / 98 |
+| … avg incl. reaped children | 5 | 9 | 16 | 27 | 79 |
+| Lectern RSS avg / peak | 43 / 45 MB | 44 / 46 MB | 46 / 48 MB | 48 / 50 MB | 65 / 68 MB |
 | HTTP errors · log WARN / ERROR | 0 · 0 / 0 | 0 · 0 / 0 | 0 · 0 / 0 | 0 · 0 / 0 | 0 · 0 / 0 |
 
-¹ Run with 100 SSE subscribers instead of 25. A second run straight after gave
-list 31 / 57 ms, TUI 44 / 66 ms, attach 18 / 21 ms, CPU 58%.
+¹ Run once, with 100 SSE subscribers instead of 25.
 
 The first run (22:50–22:57 UTC, commit `ebbd477`, files `after.json` and
-`big.json`) had a quieter machine: list 9.5 / 13 ms and TUI 12 / 20 ms at 100
-sessions, and 23 / 36 ms and 26 / 41 ms at 250.
+`big.json`) had a quieter machine. At 100 sessions it measured list 9.5 /
+13 ms and TUI 12 / 20 ms. At 250 it measured 23 / 36 ms and 26 / 41 ms.
 
 Launching was recorded but is not steady state. `POST /api/sessions` took
-294–539 ms p50 with 8 launches in parallel, and up to 2.6 s p95 at 250. All
-100 sessions were up in 6.8 s, and all 250 in 24.2 s.
+354–433 ms p50 with 8 launches in parallel, and 2.1 s p95 at 250. All 100
+sessions were up in 5.3 s, and all 250 in 20.9 s.
 
 ### Multi-machine: one machine stops answering, and many terminals stay open
 
@@ -115,39 +113,32 @@ Measured at 50 sessions over the same four targets.
 
 | | Before | After |
 |---|---:|---:|
-| Healthy machines' status age, before the freeze | 2.6 / 6.0 s | 2.4 / 5.5 s |
-| Healthy machines' status age, while `ssh-1` is frozen | 8.1 / 16.7 s | 2.0 / 4.0 s |
-| Frozen machine's sessions shown as unreachable | never | after 8.9 s |
+| Healthy machines' status age, before the freeze | 2.6 / 6.0 s | 2.5 / 5.9 s |
+| Healthy machines' status age, while `ssh-1` is frozen | 8.1 / 16.7 s | 2.1 / 3.9 s |
+| Frozen machine's sessions shown as unreachable | never | after 8.4 s |
 | Healthy sessions wrongly shown as unreachable | – | 0 |
 | Unreachable marker cleared after `ssh-1` answered again | – | 0.3 s |
 | 30 terminals held open: opened / still connected | 19 / 10 | 30 / 30 |
 
 Before the change, the freeze made every other machine's status go stale for
 seconds at a time: p95 16.7 s, max 19 s. That was one frozen target in the
-serial poll. Before the change, 11 of the 30 terminals failed to open and 9 of
-the 19 that did open were closed under their viewers, because the 22nd attach
-retired a terminal that was in use.
+serial poll. Also before the change, 11 of the 30 terminals failed to open and
+9 of the 19 that did open were closed under their viewers. From the 22nd
+attach onward, each new terminal retired the oldest one, in use or not, and
+took over its port.
 
-With the old 21-port range forced on the new code
-(`-terminal-ports 7710-7730`, `held-terminals-21-ports.json`):
+With the limit set to the old 21 (`-terminals-max 21`,
+`held-terminals-limit-21.json`):
 - 21 terminals stayed connected.
-- The other 9 were refused with "every web terminal port is in use by an open
-  terminal; close one and try again".
+- The other 9 were refused with "every web terminal is open somewhere; close
+  one and try again".
 - 3 idle terminals left over from the attach samples were retired to make
   room, each with a notice.
 - Nothing anyone was viewing was closed.
 
-### Before the first fixes (same settings as "Current")
-
-| Sessions | 10 | 25 | 50 | 100 |
-|---|---:|---:|---:|---:|
-| `GET /api/sessions` | 3.9 / 5.4 ms | 14 / 16 ms | 44 / 55 ms | 161 / 255 ms |
-| TUI refresh | 4.4 / 5.6 ms | 14 / 17 ms | 46 / 69 ms | 227 / 306 ms |
-| Terminal attach → first output | 309 / 311 ms | 308 / 310 ms | 308 / 323 ms | 308 / 312 ms |
-| Lectern CPU avg / peak, % of one core | 4 / 9 | 10 / 26 | 27 / 72 | 71 / 132 |
-
-Approvals, SSE fan-out and memory were the same as after the fixes, within
-noise.
+At the default limit, 100 terminals held open at once on 100 sessions
+(`held-terminals-100.json`) all stayed connected. During that run Lectern
+used 17% of a core and 54 MB on average, peaking at 72 MB.
 
 ## What the benchmark found and fixed
 
@@ -178,18 +169,21 @@ noise.
      the web card and in the TUI. That appears as soon as a poll fails, or
      after the poll has run for 8 s.
 4. **The 22nd web terminal closed the oldest, even while it was being viewed**
-   (`0d53bb6`).
-   - The default range is now 200 ports (7710–7909); `LECTERN_TERMINAL_PORTS`
-     changes it.
-   - The proxy counts open websockets. Only a terminal nobody has open is
-     retired, and the attach response says which one.
-   - When every port is in use by a viewed terminal, a new attach is refused
-     with a reason.
-   - A retired ttyd is waited for before its port is reused. The benchmark
-     suggests this was part of the "failed to open" count above: the new ttyd
-     could not bind while the dying one still answered the readiness check. A
-     unit test for this passes both with and without the wait, so the
-     benchmark is the evidence here.
+   (`0d53bb6`, `0e74a74`).
+   - ttyd now listens on a Unix socket in a directory private to the
+     Lectern instance (mode 0700), not on a loopback port from 7710–7730.
+     That removes the port range and its 21-terminal cap. It also stops
+     other local users from reaching these unauthenticated shells, and
+     stops two Lectern instances on one host from picking the same port
+     and serving each other's terminals.
+   - The browser suite's parallel workers are such instances. A different
+     terminal test failed in each of three `verify` runs before this change;
+     each passed when run alone. Two `verify` runs after it passed.
+   - What remains is a limit on the number of ttyd processes,
+     `LECTERN_TERMINALS_MAX` (default 200).
+   - The proxy counts open websockets. At the limit only a terminal nobody
+     has open is retired, and the attach response says which one. With every
+     terminal viewed, a new attach is refused with a reason.
 
 ## Reproduce
 
@@ -201,7 +195,7 @@ ADK_ISOLATION_REVIEWED=1 tools/stress/run.sh /tmp/stress-mm -tiers 50 -hang-at 1
 
 `-hang-at` freezes the first SSH target that far into the window and reports
 the status age of the others. `-hold-terminals K` opens K terminals and keeps
-them all open. `-terminal-ports LO-HI` sets the instance's port range.
+them all open. `-terminals-max N` sets the instance's terminal limit.
 
 Useful flags are `-window`, `-approval-every`, `-ssh-targets`, `-sse-clients`,
 `-attach-samples` and `-plain-dirs`. `-plain-dirs` puts agents in plain
@@ -231,12 +225,12 @@ the 250-session tier.
 - **Approval latency excludes the human.** The driver approves instantly. In
   real use the round trip is the operator's reaction time plus about 7 ms.
 - **Web terminals: 200 at once by default.** Each open terminal is one ttyd
-  process on one loopback port. Past 200 viewed terminals, new ones are refused
-  until one is closed.
+  process. Past 200 viewed terminals, new ones are refused until one is closed;
+  raise `LECTERN_TERMINALS_MAX` if that is too few. The benchmark held 100.
 - **Interactive sessions only.** Task dispatch (worktree, `claude -p`, diff
   capture) and push or Discord notification sinks are not part of this load.
 - The shared box was not otherwise idle. Every tier ran once, so treat
   differences of a few milliseconds as noise.
-- The saved JSON has one field removed, a per-process CPU breakdown for
+- The first run's saved JSON has one field removed, a per-process CPU breakdown for
   tmux/ttyd/agents. It counted only long-lived processes, so it was misleading.
   The driver no longer collects it.
