@@ -1,4 +1,5 @@
 """Restore (formerly Recently closed) through the real browser and a fixture-only API."""
+import re
 import sqlite3
 import time
 
@@ -41,7 +42,7 @@ def seed_closed_rows(t, count=9):
                     ended - 60,
                     ended,
                     ended,
-                    f"> last words of fixture {i + 1}\n> ",
+                    f"> last words of fixture {i + 1}{' zebracorn' if i == 11 else ''}\n> ",
                 ),
             )
         db.commit()
@@ -75,8 +76,10 @@ def test_restore_lists_groups_searches_and_tracks_again_narrow(page, real_termin
     expect(rows.first).to_contain_text("Tracking stopped")
     expect(page.locator('.recent-row[data-session-id="4"]')).to_contain_text("last words of fixture 3")
     assert len(t["api"]("/sessions/restorable")) == 36
-    # Search matches the last message, not only the name.
-    page.locator("#restore-search").fill("words fixture 12")
+    # Search matches the last message, not only the name. The word is one no
+    # path can contain: every row's folder is the test's tmp_path, which under
+    # xdist includes the worker name (popen-gw12) and would match a digit.
+    page.locator("#restore-search").fill("zebracorn words")
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("Closed fixture 12")
     page.locator("#restore-search").fill("")
@@ -85,10 +88,15 @@ def test_restore_lists_groups_searches_and_tracks_again_narrow(page, real_termin
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
 
     rows.first.get_by_role("button", name="Track again").click()
-    expect(page.locator(".scard", has_text="Real terminal")).to_contain_text(
-        "adopted"
-    )
+    # Every Restore action opens what came back, so the view moves to the
+    # restored terminal. The session card is only on screen until that attach
+    # lands; wait for the terminal, then read the card from Sessions.
+    expect(page).to_have_url(re.compile(rf"#terminals/session/{t['id']}$"), timeout=20000)
     assert t["api"](f"/sessions/{t['id']}")["ended_at"] is None
+    page.goto(t["url"] + "/#sessions")
+    expect(page.locator(".scard", has_text="Real terminal")).to_contain_text(
+        "adopted", timeout=15000
+    )
 
 
 def test_stop_tracking_offers_undo(page, real_terminal):
