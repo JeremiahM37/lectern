@@ -1,5 +1,6 @@
 import type { ITheme } from "@xterm/xterm";
 import { ApiError, authToken, withToken } from "../api/client";
+import { builtinTerminalThemes } from "../theme/terminal-themes";
 export { withToken };
 export interface TerminalInfo {
   kind: string;
@@ -45,21 +46,9 @@ export interface Attachment {
   name: string;
   path: string;
 }
-export const themes: Record<string, ITheme> = {
-  slate: {
-    background: "#10121c",
-    foreground: "#e0e4f0",
-    cursor: "#b6a4ff",
-    selectionBackground: "#66578a",
-  },
-  black: { background: "#000000", foreground: "#e9e9e9", cursor: "#ffffff" },
-  light: {
-    background: "#f6f4ee",
-    foreground: "#202334",
-    cursor: "#453575",
-    selectionBackground: "#c7b9ee",
-  },
-};
+// Built-in schemes by id; the full list, including imported ones, is in
+// theme/terminal-themes.ts.
+export const themes: Record<string, ITheme> = Object.fromEntries(builtinTerminalThemes.map((row) => [row.id, row.theme]));
 export function loadPrefs(): Prefs {
   try {
     const value: Partial<Prefs> = JSON.parse(
@@ -74,7 +63,7 @@ export function loadPrefs(): Prefs {
       lineHeight: [1, 1.15, 1.3].includes(Number(value.lineHeight))
         ? Number(value.lineHeight)
         : 1.15,
-      theme: value.theme && themes[value.theme] ? value.theme : "slate",
+      theme: typeof value.theme === "string" && value.theme ? value.theme.slice(0, 60) : "slate",
     };
   } catch {
     return {

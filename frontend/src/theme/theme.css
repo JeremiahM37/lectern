@@ -1,0 +1,3 @@
+/* App-wide appearance hooks. Tokens themselves are set on <html> by
+   theme/app-theme.ts; this file only holds what tokens cannot express. */
+body { zoom: var(--ui-zoom, 1); }

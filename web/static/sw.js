@@ -2152,7 +2152,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-58b29d8ad77f";
+  var CACHE = "lectern-react-1d44bb87f5c4";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2201,7 +2201,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/action-Qd_S_qEa.js","/react/assets/app-Ci_aNQeF.css","/react/assets/app-DiHa15o3.js","/react/assets/preload-helper-DR5PCwew.css","/react/assets/preload-helper-Dy4_0dWw.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-BQL6pMr_.css","/react/assets/terminal-Cf8grDgk.js"]);
+    else await cache.addAll(["/","/icon.svg","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-CxIwETDs.js","/react/assets/Workbench-CNu1FsDa.js","/react/assets/action-B1jcWoOh.js","/react/assets/app-Bx0IcP-g.css","/react/assets/app-CseV7Rjm.js","/react/assets/i18n-NWNo7b1M.js","/react/assets/light-Bb4koojK.css","/react/assets/light.generated-DrLDumt7.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-67YaBlui.css","/react/assets/terminal-j_Kd4d33.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

@@ -130,6 +130,18 @@ export class FileApi {
     return (await request(`${this.base}/git-status`, { signal })).json();
   }
 
+  /** Long-poll until a folder in dirs (or git's HEAD/index) changes. */
+  async watch(dirs: string[], token: string, timeout: number, signal?: AbortSignal): Promise<{ token: string; changed: boolean; mode: "inotify" | "poll" }> {
+    return (
+      await request(`${this.base}/watch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dirs, token, timeout }),
+        signal,
+      })
+    ).json();
+  }
+
   async search(query: string, options: SearchOptions, signal?: AbortSignal): Promise<{ results: Hit[]; truncated: boolean; source: string }> {
     const params = new URLSearchParams({ q: query });
     if (options.regex) params.set("regex", "1");

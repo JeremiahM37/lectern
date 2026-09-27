@@ -38,9 +38,10 @@ LECTERN_ANDROID_SIGNING=/path/to/signing.properties mobile/build-android.sh rele
 
 `signing.properties` holds `storeFile`, `storePassword`, `keyAlias` and
 `keyPassword`. It and the keystore stay outside the repository; without it the
-release APK is unsigned. Sizes at the time of writing: release 3.3 MB, debug
-8.6 MB (most of the debug size is unshrunk libraries; the web app itself is
-about 7 MB uncompressed, mostly the PDF viewer).
+release APK is unsigned. Sizes at the time of writing: debug 14 MB (the web
+app itself is about 25 MB uncompressed, mostly the file editor, Monaco, its
+language services and the diagram renderer; see [files.md](files.md)). The
+release APK was 3.3 MB before the file editor was added.
 
 **Signing in CI**: keep the keystore as a base64 secret, decode it to a temp
 file in the job, write `signing.properties` from secrets, set

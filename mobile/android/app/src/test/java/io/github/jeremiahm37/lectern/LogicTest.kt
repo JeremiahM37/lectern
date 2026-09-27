@@ -21,6 +21,8 @@ class LogicTest {
     @Test
     fun appRoutesMirrorTheServer() {
         for (p in listOf("/session/7", "/pair", "/relay-pair", "/native-action", "/board")) assertTrue(p, Shell.isAppRoute(p))
+        for (p in listOf("/terminal/session/7", "/terminal/attempt-shell/3", "/terminal/project/12/")) assertTrue(p, Shell.isTerminalPage(p))
+        for (p in listOf("/terminal/session/x", "/terminal/other/1", "/terminal/session/0", "/terminal/session/1/../x")) assertFalse(p, Shell.isTerminalPage(p))
         for (p in listOf("/", "/api/tasks", "/api", "/term/1/ws", "/a2a/v1", "/static/x", "/react/assets/app.js", "/.well-known/x")) {
             assertFalse(p, Shell.isAppRoute(p))
         }

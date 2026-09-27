@@ -1,12 +1,16 @@
 import { errorMessage } from "./model";
-import type { Snippet } from "./snippets";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { t } from "../i18n";
+import { usePref } from "../prefs/store";
+import { allTerminalThemes } from "../theme/terminal-themes";
+import { saveTerminalPrefs, THEMES_KEY, useTerminalPrefs } from "../theme/terminal-prefs";
+import { cleanQuickCommands, GLOBAL_KEY, projectKey, quickId, readGlobal, writeScope, type QuickCommand, type QuickScope } from "../quick/commands";
+const NO_THEMES: unknown[] = [];
 import {
   copyClipboard,
   downloadBlob,
   json,
   quote,
-  themes,
   type History,
   type Prefs,
   type TerminalInfo,
@@ -60,10 +64,15 @@ export function Appearance({
   onPrefs: (prefs: Prefs) => void;
   onClose: () => void;
 }) {
+  // The colour scheme and spacing follow the person to every device; the
+  // font size is this device's own.
+  const person = useTerminalPrefs();
+  const [custom] = usePref<unknown>(THEMES_KEY, NO_THEMES);
+  const list = allTerminalThemes(custom);
   return (
-    <Dialog id="settings-dialog" title="Terminal appearance" onClose={onClose}>
+    <Dialog id="settings-dialog" title={t("terminal.appearance")} onClose={onClose}>
       <label>
-        Font size
+        {t("terminal.fontSize")}
         <input
           id="font-size"
           type="number"
@@ -82,18 +91,19 @@ export function Appearance({
         />
       </label>
       <label>
-        Line spacing
+        {t("settings.workspace.lineHeight")}
         <select
           id="line-height"
           value={prefs.lineHeight}
-          onChange={(event) =>
-            onPrefs({ ...prefs, lineHeight: Number(event.target.value) })
-          }
+          onChange={(event) => {
+            onPrefs({ ...prefs, lineHeight: Number(event.target.value) });
+            saveTerminalPrefs({ lineHeight: Number(event.target.value) });
+          }}
         >
           {[
-            [1, "Compact"],
-            [1.15, "Comfortable"],
-            [1.3, "Spacious"],
+            [1, t("settings.workspace.compact")],
+            [1.15, t("settings.workspace.comfortable")],
+            [1.3, t("settings.workspace.spacious")],
           ].map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -102,23 +112,30 @@ export function Appearance({
         </select>
       </label>
       <label>
-        Theme
+        {t("terminal.theme")}
         <select
           id="theme"
           value={prefs.theme}
-          onChange={(event) => onPrefs({ ...prefs, theme: event.target.value })}
+          onChange={(event) => {
+            onPrefs({ ...prefs, theme: event.target.value });
+            saveTerminalPrefs({ theme: event.target.value });
+          }}
         >
-          {Object.keys(themes).map((theme) => (
-            <option key={theme} value={theme}>
-              {theme[0]?.toUpperCase()}
-              {theme.slice(1)}
-            </option>
-          ))}
+          <optgroup label={t("terminal.darkThemes")}>
+            {list.filter((row) => !row.light).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+          </optgroup>
+          <optgroup label={t("terminal.lightThemes")}>
+            {list.filter((row) => row.light).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+          </optgroup>
         </select>
       </label>
+      <label className="appearance-check">
+        <input type="checkbox" checked={person.osc52} onChange={(event) => saveTerminalPrefs({ osc52: event.target.checked })} />
+        {t("settings.workspace.osc52")}
+      </label>
       <p>
-        Saved on this device. Keyboard: Ctrl+Shift+F history, Ctrl+Shift+C copy,
-        Ctrl+Shift+V paste.
+        {t("terminal.appearanceHint")}{" "}
+        <a href="/#targets" target="_top">{t("terminal.moreThemes")}</a>
       </p>
     </Dialog>
   );
@@ -351,71 +368,97 @@ export function Desktop({
 }
 
 // Snippets: tap one to send it, or manage the list.
+// Quick commands for the key bar: this project's own first, then the ones
+// kept for everywhere. Both lists live on the server (quick/commands.ts), so
+// a reply saved on the phone is on the desk too.
 export function Snippets({
-  snippets,
+  projectId,
   onSend,
-  onChange,
   onClose,
 }: {
-  snippets: Snippet[];
-  onSend: (snippet: Snippet) => void;
-  onChange: (snippets: Snippet[]) => void;
+  projectId: number | null;
+  onSend: (command: QuickCommand) => void;
   onClose: () => void;
 }) {
+  const [globalRaw] = usePref<unknown>(GLOBAL_KEY, undefined);
+  const [projectRaw] = usePref<unknown>(projectId ? projectKey(projectId) : "quick-commands:none", NO_THEMES);
+  const everywhere = globalRaw === undefined ? readGlobal() : cleanQuickCommands(globalRaw);
+  const project = projectId ? cleanQuickCommands(projectRaw) : [];
   const [text, setText] = useState(""),
     [enter, setEnter] = useState(true),
+    [scope, setScope] = useState<"global" | "project">("global"),
     [editing, setEditing] = useState(false);
+  const groups: { scope: QuickScope; title: string; rows: QuickCommand[] }[] = [
+    ...(projectId ? [{ scope: { kind: "project", id: projectId } as QuickScope, title: t("quick.thisProject"), rows: project }] : []),
+    { scope: { kind: "global" }, title: t("quick.everywhere"), rows: everywhere },
+  ];
+  const numbered = [...project, ...everywhere];
   return (
     <Dialog
       id="snippets-dialog"
-      title="Snippets"
+      title={t("quick.title")}
       onClose={onClose}
       actions={
         <button id="snippets-edit" aria-pressed={editing} onClick={() => setEditing(!editing)}>
-          {editing ? "Done" : "Edit"}
+          {editing ? t("quick.done") : t("quick.edit")}
         </button>
       }
     >
       <div className="snippet-list">
-        {snippets.map((snippet, index) => (
-          <div className="snippet-row" key={index + snippet.text}>
-            <button
-              className="snippet-send"
-              disabled={editing}
-              onClick={() => {
-                onSend(snippet);
-                onClose();
-              }}
-            >
-              <code>{snippet.text}</code>
-              {snippet.enter && <span aria-label="then Enter">⏎</span>}
-            </button>
-            {editing && (
-              <button
-                className="snippet-remove"
-                aria-label={"Remove " + snippet.text}
-                onClick={() => onChange(snippets.filter((_, other) => other !== index))}
-              >
-                ×
-              </button>
-            )}
-          </div>
+        {groups.map((group) => (
+          (group.rows.length > 0 || projectId) && (
+            <div className="snippet-group" key={group.title}>
+              {projectId && <h3 className="snippet-group-title">{group.title}</h3>}
+              {group.rows.map((command) => {
+                const number = numbered.indexOf(command) + 1;
+                return (
+                  <div className="snippet-row" key={command.id}>
+                    <button
+                      className="snippet-send"
+                      disabled={editing}
+                      title={number <= 9 ? t("quick.numberHint", { number }) : undefined}
+                      onClick={() => {
+                        onSend(command);
+                        onClose();
+                      }}
+                    >
+                      {command.label && <span className="snippet-label">{command.label}</span>}
+                      <code>{command.text}</code>
+                      {command.enter && <span aria-label={t("quick.thenEnter")}>⏎</span>}
+                    </button>
+                    {editing && (
+                      <button
+                        className="snippet-remove"
+                        aria-label={t("settings.remove", { name: command.label || command.text })}
+                        onClick={() => writeScope(group.scope, group.rows.filter((row) => row.id !== command.id))}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {projectId && !group.rows.length && <p className="snippet-empty">{t("quick.noneHere")}</p>}
+            </div>
+          )
         ))}
-        {!snippets.length && <p>No snippets yet. Add the replies you type most.</p>}
+        {!numbered.length && <p>{t("quick.empty")}</p>}
       </div>
       <form
         className="snippet-add"
         onSubmit={(event) => {
           event.preventDefault();
           if (!text) return;
-          onChange([...snippets, { text, enter }]);
+          const target: QuickScope = scope === "project" && projectId ? { kind: "project", id: projectId } : { kind: "global" };
+          const rows = target.kind === "project" ? project : everywhere;
+          writeScope(target, [...rows, { id: quickId(), label: "", text, enter }]);
           setText("");
         }}
       >
         <input
           id="snippet-text"
-          aria-label="New snippet"
-          placeholder="New snippet"
+          aria-label={t("quick.new")}
+          placeholder={t("quick.new")}
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
@@ -425,8 +468,14 @@ export function Snippets({
         <label className="snippet-enter">
           <input type="checkbox" checked={enter} onChange={(event) => setEnter(event.target.checked)} />⏎
         </label>
+        {projectId && (
+          <select aria-label={t("quick.saveFor")} value={scope} onChange={(event) => setScope(event.target.value === "project" ? "project" : "global")}>
+            <option value="global">{t("quick.everywhere")}</option>
+            <option value="project">{t("quick.thisProject")}</option>
+          </select>
+        )}
         <button id="snippet-add" disabled={!text}>
-          Add
+          {t("settings.add")}
         </button>
       </form>
     </Dialog>

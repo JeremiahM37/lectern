@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { highlights, parseQuery, rank } from "./fuzzy";
 import type { Index } from "./api";
@@ -63,7 +64,7 @@ export function QuickOpen({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="wb-quick" role="dialog" aria-label="Go to file" id="quick-open">
+      <div className="wb-quick" role="dialog" aria-label={t("files.goToFile")} id="quick-open">
         <div className="wb-quick-row">
         <input
           ref={input}
@@ -72,7 +73,7 @@ export function QuickOpen({
           aria-expanded="true"
           aria-controls="quick-open-results"
           aria-activedescendant={results.length ? "quick-open-" + selected : undefined}
-          placeholder="Go to file — name, path, or name:line"
+          placeholder={t("files.quickPlaceholder")}
           autoComplete="off"
           spellCheck={false}
           value={query}
@@ -95,15 +96,15 @@ export function QuickOpen({
             }
           }}
         />
-        <button className="wb-quick-close" aria-label="Close Go to file" onClick={onClose}>
+        <button className="wb-quick-close" aria-label={t("files.quickClose")} onClick={onClose}>
           Esc
         </button>
         </div>
-        <div ref={list} id="quick-open-results" role="listbox" aria-label="Files">
+        <div ref={list} id="quick-open-results" role="listbox" aria-label={t("files.tabFiles")}>
           {error && <p className="wb-error" role="alert">{error}</p>}
-          {!index && loading && <p className="wb-muted">Listing files…</p>}
-          {index && !results.length && <p className="wb-muted">No matching files.</p>}
-          {!parsed.text && index && recent.length > 0 && <p className="wb-section">Recently opened and top-level files</p>}
+          {!index && loading && <p className="wb-muted">{t("files.quickListing")}</p>}
+          {index && !results.length && <p className="wb-muted">{t("files.quickNone")}</p>}
+          {!parsed.text && index && recent.length > 0 && <p className="wb-section">{t("files.quickRecent")}</p>}
           {results.map((result, position) => {
             const slash = result.path.lastIndexOf("/");
             const name = result.path.slice(slash + 1),
@@ -111,7 +112,7 @@ export function QuickOpen({
             const marks = parsed.text ? highlights(parsed.text, result.path) : new Set<number>();
             return (
               <div key={(result.ignored ? "i:" : "") + result.path}>
-                {position === firstIgnored && <p className="wb-section">Ignored by .gitignore</p>}
+                {position === firstIgnored && <p className="wb-section">{t("files.quickIgnored")}</p>}
                 <div
                   id={"quick-open-" + position}
                   data-index={position}
@@ -134,9 +135,9 @@ export function QuickOpen({
         </div>
         <p className="wb-quick-foot">
           {index
-            ? `${index.files.length.toLocaleString()} files${index.ignored.length ? ` · ${index.ignored.length.toLocaleString()} ignored` : ""}${index.truncated ? " · list truncated" : ""}${loading ? " · refreshing…" : ""}`
+            ? [t("files.quickCount", { files: index.files.length.toLocaleString() }), index.ignored.length ? t("files.quickIgnoredCount", { count: index.ignored.length.toLocaleString() }) : "", index.truncated ? t("files.quickTruncated") : "", loading ? t("files.quickRefreshing") : ""].filter(Boolean).join(" · ")
             : " "}
-          <span> ↑↓ to choose · Enter to open · Esc to close</span>
+          <span> {t("files.quickHelp")}</span>
         </p>
       </div>
     </div>

@@ -17,7 +17,7 @@ export function serviceWorkerPlugin():Plugin{return {name:'typed-service-worker'
  // renderer are the exception (large and optional): they are fetched when
  // first used and then kept by the runtime rule for /react/assets, so an
  // installed phone never downloads megabytes it may not need.
- const optional=/\/src\/files\/(monaco|viewers)\.tsx?$|\/node_modules\/(mermaid|monaco-editor)\//;
+ const optional=/\/src\/files\/(monaco|viewers|RichMarkdown)\.tsx?$|\/node_modules\/(mermaid|monaco-editor|@tiptap|prosemirror-[a-z-]+)\//;
  const kept=new Set<string>();
  const visit=(name:string)=>{const item=bundle[name];if(!item||kept.has(name))return;if(item.type==='chunk'&&!item.isEntry&&item.facadeModuleId&&optional.test(item.facadeModuleId))return;kept.add(name);if(item.type!=='chunk')return;item.imports.forEach(visit);item.dynamicImports.forEach(visit);const meta=(item as {viteMetadata?:{importedCss?:Set<string>}}).viteMetadata;meta?.importedCss?.forEach(css=>kept.add(css));};
  for(const item of Object.values(bundle))if(item.type==='chunk'&&item.isEntry)visit(item.fileName);

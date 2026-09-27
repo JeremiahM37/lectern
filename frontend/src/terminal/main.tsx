@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { TerminalApp, type SharedTool } from "./App";
 import { Review } from "./Review";
+import { ReviewHost } from "../review/ReviewHost";
 import { Dialog } from "./dialogs";
 import { json, type TerminalInfo } from "./model";
 import { NativeHistory, NativeSearch } from "../sessions/SavedConversations";
@@ -13,6 +14,13 @@ import type { SessionsApi } from "../sessions/Sessions";
 import type { SessionView, Target } from "../types";
 import "./native-history.css";
 import "./native-search.css";
+import { bootAppearance } from "../theme/appearance";
+import { loadPrefs } from "../prefs/store";
+import "../theme/light.generated.css";
+// This person's theme, shortcuts and quick commands. An embedded frame also
+// hears about changes the app around it makes, through the shared local copy.
+bootAppearance({ terminal: true });
+void loadPrefs().catch(() => {});
 const api: SessionsApi = {
   sessions: (options) =>
     json<SessionView[]>(
@@ -82,9 +90,14 @@ function Page() {
           void open(tool, info);
         }}
       />
-      {state?.tool === "review" && (
-        <Review kind={kind} id={id} name={state.info.workdir} onClose={close} />
-      )}
+      {state?.tool === "review" &&
+        // A session (or its shell) opens the full Review & merge workspace;
+        // project shells and task attempts keep the read-only changes view.
+        (kind === "session" || kind === "session-shell" ? (
+          <ReviewHost sessionId={Number(id)} onClose={close} onNotice={notice} />
+        ) : (
+          <Review kind={kind} id={id} name={state.info.workdir} onClose={close} />
+        ))}
       {state?.tool === "saved" && (
         <NativeHistory
           api={api}

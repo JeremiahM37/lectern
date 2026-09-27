@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import type { LineTarget } from "./deeplink";
 import { languageFor } from "./formats";
@@ -67,7 +68,6 @@ const MonacoEditor = forwardRef<EditorHandle, EditorProps>(function MonacoEditor
           language: languageFor(latest.current.path),
           path: latest.current.path,
           readOnly: latest.current.readOnly,
-          theme: "dark",
           fontSize: latest.current.fontSize,
           minimap: latest.current.minimap,
           wordWrap: latest.current.wordWrap,
@@ -255,7 +255,7 @@ const PlainEditor = forwardRef<EditorHandle, EditorProps>(function PlainEditor(p
       <textarea
         ref={area}
         className="wb-plain-edit"
-        aria-label={"Edit " + props.path}
+        aria-label={t("files.editLabel", { path: props.path })}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
@@ -288,7 +288,7 @@ const PlainEditor = forwardRef<EditorHandle, EditorProps>(function PlainEditor(p
             <a
               className="wb-ln"
               href={"#L" + number}
-              aria-label={"Line " + number}
+              aria-label={t("files.lineN", { n: number })}
               onClick={(event) => {
                 event.preventDefault();
                 props.onLine({ line: number });
@@ -300,7 +300,7 @@ const PlainEditor = forwardRef<EditorHandle, EditorProps>(function PlainEditor(p
           </div>
         );
       })}
-      {all.length > PLAIN_LIMIT && <p className="wb-note">Showing the first {PLAIN_LIMIT.toLocaleString()} lines. Use the full editor for the rest.</p>}
+      {all.length > PLAIN_LIMIT && <p className="wb-note">{t("files.plainLimit", { count: PLAIN_LIMIT.toLocaleString() })}</p>}
     </div>
   );
 });

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // Rendered views of text files: Markdown (with front matter, a table of
 // contents and Mermaid diagrams), HTML in a sandbox, Mermaid files, CSV/TSV
 // tables and Jupyter notebooks. Loaded on first use; the terminal page does not
@@ -50,16 +51,19 @@ function renderBlocks(body: string, firstLine: number): Block[] {
 }
 
 let mermaidLoad: Promise<typeof import("mermaid").default> | undefined;
-let mermaidCount = 0;
+let mermaidCount = 0,
+  mermaidTheme = "";
 /** Draws a Mermaid diagram with scripts, links and HTML labels disabled. */
 export async function renderMermaid(source: string): Promise<string> {
-  mermaidLoad ??= import("mermaid").then(({ default: mermaid }) => {
-    // SVG text labels: HTML labels would need foreignObject, which the
-    // sanitizer below removes.
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark", fontFamily: "system-ui, sans-serif", htmlLabels: false, flowchart: { htmlLabels: false } });
-    return mermaid;
-  });
+  mermaidLoad ??= import("mermaid").then(({ default: mermaid }) => mermaid);
   const mermaid = await mermaidLoad;
+  // Follows the app theme; SVG text labels, because HTML labels need
+  // foreignObject, which the sanitizer below removes.
+  const theme = document.documentElement.dataset.theme === "light" ? "default" : "dark";
+  if (theme !== mermaidTheme) {
+    mermaidTheme = theme;
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, fontFamily: "system-ui, sans-serif", htmlLabels: false, flowchart: { htmlLabels: false } });
+  }
   const { svg } = await mermaid.render("wb-mermaid-" + ++mermaidCount, source);
   return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
 }
@@ -69,7 +73,7 @@ function useMermaid(container: React.RefObject<HTMLElement | null>, revision: un
     let stopped = false;
     for (const node of container.current?.querySelectorAll<HTMLElement>(".wb-mermaid:not([data-drawn])") || []) {
       node.dataset.drawn = "1";
-      node.textContent = "Drawing diagram…";
+      node.textContent = t("files.drawing");
       void renderMermaid(decodeURIComponent(node.dataset.mermaid || ""))
         .then((svg) => {
           if (!stopped) node.innerHTML = svg;
@@ -77,7 +81,7 @@ function useMermaid(container: React.RefObject<HTMLElement | null>, revision: un
         .catch((error: unknown) => {
           if (stopped) return;
           node.classList.add("error");
-          node.textContent = "Diagram error: " + (error instanceof Error ? error.message : String(error));
+          node.textContent = t("files.diagramError", { message: error instanceof Error ? error.message : String(error) });
         });
     }
     return () => {
@@ -165,9 +169,9 @@ export function MarkdownView(props: MarkdownProps) {
   return (
     <div className={"wb-md" + (props.toc && toc.length > 1 ? " with-toc" : "")}>
       {props.toc && toc.length > 1 && (
-        <nav className={"wb-toc" + (tocOpen ? " open" : "")} aria-label="Contents">
+        <nav className={"wb-toc" + (tocOpen ? " open" : "")} aria-label={t("files.contents")}>
           <button className="wb-toc-toggle" aria-expanded={tocOpen} onClick={() => setTocOpen(!tocOpen)}>
-            Contents
+            {t("files.contents")}
           </button>
           <ol>
             {toc.map((heading) => (
@@ -213,7 +217,7 @@ export function MarkdownView(props: MarkdownProps) {
       >
         {front.fields.length > 0 && (
           <table className="wb-front-matter" data-line={1}>
-            <caption>Front matter</caption>
+            <caption>{t("files.frontMatter")}</caption>
             <tbody>
               {front.fields.map(([key, value]) => (
                 <tr key={key}>
@@ -227,7 +231,7 @@ export function MarkdownView(props: MarkdownProps) {
         {blocks.map((block, index) => (
           <div key={index + ":" + block.line} className="wb-md-block" data-line={block.line} dangerouslySetInnerHTML={{ __html: block.html }} />
         ))}
-        {!blocks.length && !front.fields.length && <p className="wb-note">This document is empty.</p>}
+        {!blocks.length && !front.fields.length && <p className="wb-note">{t("files.emptyDoc")}</p>}
       </article>
     </div>
   );
@@ -243,7 +247,7 @@ export function HtmlView({ text, scripts }: { text: string; scripts: boolean }) 
     ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:"
     : "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:";
   const document = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">` + text;
-  return <iframe className="wb-html" title="HTML preview" sandbox={scripts ? "allow-scripts" : ""} srcDoc={document} referrerPolicy="no-referrer" />;
+  return <iframe className="wb-html" title={t("files.htmlPreview")} sandbox={scripts ? "allow-scripts" : ""} srcDoc={document} referrerPolicy="no-referrer" />;
 }
 
 export function MermaidView({ text }: { text: string }) {
@@ -260,8 +264,8 @@ export function MermaidView({ text }: { text: string }) {
       stopped = true;
     };
   }, [text]);
-  if (error) return <p className="wb-error" role="alert">Diagram error: {error}</p>;
-  return svg ? <div className="wb-mermaid-file" dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="wb-note">Drawing diagram…</p>;
+  if (error) return <p className="wb-error" role="alert">{t("files.diagramError", { message: error })}</p>;
+  return svg ? <div className="wb-mermaid-file" dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="wb-note">{t("files.drawing")}</p>;
 }
 
 const ROW_LIMIT = 5000;
@@ -285,10 +289,10 @@ export function CsvTable({ text, path }: { text: string; path: string }) {
   return (
     <div className="wb-table">
       <div className="wb-table-tools">
-        <input type="search" placeholder="Filter rows" aria-label="Filter rows" value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <input type="search" placeholder={t("files.filterRows")} aria-label={t("files.filterRows")} value={filter} onChange={(event) => setFilter(event.target.value)} />
         <span>
-          {shown.length.toLocaleString()} of {rows.length.toLocaleString()} rows
-          {parsed.truncated || rows.length > ROW_LIMIT ? ` (first ${ROW_LIMIT.toLocaleString()} shown)` : ""}
+          {t("files.rowsShown", { shown: shown.length.toLocaleString(), total: rows.length.toLocaleString() })}
+          {parsed.truncated || rows.length > ROW_LIMIT ? t("files.firstRows", { count: ROW_LIMIT.toLocaleString() }) : ""}
         </span>
       </div>
       <div className="wb-table-scroll">
@@ -299,7 +303,7 @@ export function CsvTable({ text, path }: { text: string; path: string }) {
               {Array.from({ length: width }, (_, column) => (
                 <th key={column} aria-sort={sort?.column === column ? (sort.descending ? "descending" : "ascending") : undefined}>
                   <button onClick={() => setSort(sort?.column === column ? (sort.descending ? undefined : { column, descending: true }) : { column, descending: false })}>
-                    {header[column] ?? `Column ${column + 1}`}
+                    {header[column] ?? t("files.columnN", { n: column + 1 })}
                     {sort?.column === column ? (sort.descending ? " ↓" : " ↑") : ""}
                   </button>
                 </th>
@@ -329,7 +333,7 @@ function OutputView({ output, markdown }: { output: Output; markdown: (text: str
     case "error":
       return <pre className="wb-nb-output error">{output.text}</pre>;
     case "image":
-      return <img className="wb-nb-image" src={output.data} alt="Cell output" />;
+      return <img className="wb-nb-image" src={output.data} alt={t("files.cellOutput")} />;
     case "html":
       return <div className="wb-nb-html" dangerouslySetInnerHTML={{ __html: sanitize(output.html) }} />;
     case "markdown":

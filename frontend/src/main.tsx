@@ -21,8 +21,15 @@ import "./settings/devices.css";
 import "./settings/model-prices.css";
 import "./settings/accounts.css";
 import "./pairing/pair.css";
+import "./review/review.css";
 // Last, so a phone's density overrides every view's desktop sizing.
 import "./shell/mobile.css";
+import "./theme/theme.css";
+import "./settings/personal.css";
+import "./theme/light.generated.css";
+import { bootAppearance } from "./theme/appearance";
+// Before the first render: the saved theme paints the first frame.
+bootAppearance();
 // /pair is the one page an unpaired device can reach with no credential —
 // see internal/api/server.go's withAuth exemption. It gets its own render
 // root entirely: no board fetches, no SSE, nothing that assumes an

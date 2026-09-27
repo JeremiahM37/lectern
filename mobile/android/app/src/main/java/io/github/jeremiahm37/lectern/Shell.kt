@@ -32,6 +32,10 @@ class Shell(context: Context) {
     fun resolve(path: String, method: String): String? {
         if (method != "GET" && method != "HEAD") return null
         if (path == "/" || path == "/index.html") return "/index.html"
+        // The terminal page, as the Go server routes GET /terminal/{kind}/{id}.
+        // Without this the in-app terminal frames loaded a second copy of
+        // the whole app instead of the terminal.
+        if (isTerminalPage(path)) return "/static/terminal.html"
         val file = "/static$path"
         if (file in files) return file
         return if (isAppRoute(path)) "/index.html" else null
@@ -53,6 +57,9 @@ class Shell(context: Context) {
     companion object {
         /** The relay-mode origin. It exists only inside this WebView. */
         const val APP_ORIGIN = "https://app.lectern.invalid"
+
+        private val terminalPage = Regex("^/terminal/(session|attempt|project)(-shell)?/[1-9][0-9]*/?$")
+        fun isTerminalPage(path: String) = terminalPage.matches(path)
 
         /** Mirrors internal/api/server.go appRoute: extensionless paths that
          * are not API-shaped are client-side routes of the one-page app. */

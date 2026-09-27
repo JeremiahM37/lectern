@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../terminal/model";
 
@@ -31,11 +32,11 @@ export function ImageView({ url, name }: { url: string; name: string }) {
   const scale = current();
   return (
     <div className="wb-image">
-      <div className="wb-image-tools" role="toolbar" aria-label="Zoom">
-        <button aria-label="Zoom out" onClick={() => set(scale / 1.25)}>−</button>
-        <button aria-pressed={zoom === "fit"} onClick={() => setZoom("fit")}>Fit</button>
+      <div className="wb-image-tools" role="toolbar" aria-label={t("files.zoom")}>
+        <button aria-label={t("files.zoomOut")} onClick={() => set(scale / 1.25)}>−</button>
+        <button aria-pressed={zoom === "fit"} onClick={() => setZoom("fit")}>{t("files.fit")}</button>
         <button aria-pressed={zoom === 1} onClick={() => setZoom(1)}>100%</button>
-        <button aria-label="Zoom in" onClick={() => set(scale * 1.25)}>+</button>
+        <button aria-label={t("files.zoomIn")} onClick={() => set(scale * 1.25)}>+</button>
         <span className="wb-image-size">
           {natural ? `${natural.w} × ${natural.h} · ${Math.round(scale * 100)}%` : ""}
         </span>
@@ -208,14 +209,14 @@ export function PdfView({ blob, positionKey }: { blob: Blob; positionKey: string
     <div className="wb-pdf">
       <div className="pdf-controls">
         <button disabled={busy || page <= 1} onClick={() => go(page - 1)}>
-          Previous page
+          {t("files.prevPage")}
         </button>
-        <span id="pdf-page">{error || (!busy && pdf ? `Page ${page} of ${pdf.numPages}` : "Loading PDF…")}</span>
+        <span id="pdf-page">{error || (!busy && pdf ? t("files.pageOf", { page, pages: pdf.numPages }) : t("files.loadingPdf"))}</span>
         <button disabled={busy || !pdf || page >= pdf.numPages} onClick={() => go(page + 1)}>
-          Next page
+          {t("files.nextPage")}
         </button>
-        <button aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => setZoom(Math.max(0.5, zoom / 1.25))}>−</button>
-        <button aria-label="Zoom in" disabled={zoom >= 4} onClick={() => setZoom(Math.min(4, zoom * 1.25))}>+</button>
+        <button aria-label={t("files.zoomOut")} disabled={zoom <= 0.5} onClick={() => setZoom(Math.max(0.5, zoom / 1.25))}>−</button>
+        <button aria-label={t("files.zoomIn")} disabled={zoom >= 4} onClick={() => setZoom(Math.min(4, zoom * 1.25))}>+</button>
       </div>
       <div
         ref={stage}
@@ -224,7 +225,7 @@ export function PdfView({ blob, positionKey }: { blob: Blob; positionKey: string
           if (pdf && restored.current) savePosition(positionKey, { page, zoom, scroll: event.currentTarget.scrollTop });
         }}
       >
-        <canvas ref={canvas} aria-label="PDF page" />
+        <canvas ref={canvas} aria-label={t("files.pdfPage")} />
       </div>
     </div>
   );

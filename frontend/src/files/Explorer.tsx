@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../terminal/model";
 import { statusOf, type Entry, type FileApi, type GitKind } from "./api";
@@ -19,7 +20,7 @@ const LETTER: Record<GitKind, string> = {
 
 export interface ExplorerActions {
   open: (path: string) => void;
-  insert: (path: string) => void;
+  insert?: (path: string) => void;
   copyPath: (path: string) => void;
   download: (entry: Entry) => void;
   notice: (text: string, error?: boolean) => void;
@@ -50,9 +51,9 @@ export function Explorer({
   active,
   reveal,
   revision,
-  visible,
   status,
   actions,
+  onExpanded,
 }: {
   api: FileApi;
   storageKey: string;
@@ -60,9 +61,10 @@ export function Explorer({
   active?: string;
   reveal?: { path: string; nonce: number };
   revision: number;
-  visible: boolean;
   status: Record<string, GitKind>;
   actions: ExplorerActions;
+  // The folders shown open, which the file watch follows.
+  onExpanded?: (dirs: string[]) => void;
 }) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [expanded, setExpanded] = useState<string[]>(() => {
@@ -83,6 +85,7 @@ export function Explorer({
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(expanded));
     } catch {}
+    onExpanded?.(expanded);
   }, [expanded, storageKey]);
   const load = useCallback(
     async (dir: string, signal?: AbortSignal) => {
@@ -114,23 +117,6 @@ export function Explorer({
     refreshAll(controller.signal);
     return () => controller.abort();
   }, [revision, refreshAll]);
-  // Live view of the workspace: re-read open folders every few seconds while
-  // the explorer is on screen, and at once when the page comes back.
-  useEffect(() => {
-    if (!visible) return;
-    const tick = () => {
-      if (!document.hidden) refreshAll();
-    };
-    const timer = window.setInterval(tick, 3000);
-    const focus = () => tick();
-    window.addEventListener("focus", focus);
-    document.addEventListener("visibilitychange", focus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", focus);
-      document.removeEventListener("visibilitychange", focus);
-    };
-  }, [visible, refreshAll]);
   useEffect(() => {
     if (!reveal) return;
     const parts = reveal.path.split("/");
@@ -177,7 +163,7 @@ export function Explorer({
     setDraft(undefined);
     if (!name.trim()) return;
     const path = join(parent, name.trim().replace(/^\/+/, ""));
-    await run(kind === "file" ? "Could not create the file" : "Could not create the folder", async () => {
+    await run(kind === "file" ? t("files.couldNotCreateFile") : t("files.couldNotCreateFolder"), async () => {
       await api.op(kind === "file" ? "create" : "mkdir", path);
       await reload(parent, parentOf(path));
       actions.changed(path);
@@ -186,23 +172,23 @@ export function Explorer({
   }
   async function move(from: string, to: string) {
     if (!to || to === from) return;
-    await run("Could not move", async () => {
+    await run(t("files.couldNotMove"), async () => {
       const result = await api.op("rename", from, to);
       await reload(parentOf(from), parentOf(result.path));
       if (expanded.some((dir) => dir === from || dir.startsWith(from + "/")))
         setExpanded((old) => old.map((dir) => (dir === from || dir.startsWith(from + "/") ? result.path + dir.slice(from.length) : dir)));
       actions.changed(from, result.path);
-      actions.notice(`Moved to ${result.path}`);
+      actions.notice(t("files.moved", { path: result.path }));
     });
   }
   async function remove(entry: Entry) {
-    const what = entry.directory ? `the folder ${entry.path} and everything in it` : entry.path;
-    if (!window.confirm(`Delete ${what}? This cannot be undone from Lectern.`)) return;
-    await run("Could not delete", async () => {
+    const what = entry.directory ? t("files.deleteFolderWhat", { path: entry.path }) : entry.path;
+    if (!window.confirm(t("files.deleteConfirm", { what }))) return;
+    await run(t("files.couldNotDelete"), async () => {
       await api.op("delete", entry.path);
       await reload(parentOf(entry.path));
       actions.changed(entry.path);
-      actions.notice(`Deleted ${entry.path}`);
+      actions.notice(t("files.deleted", { path: entry.path }));
     });
   }
   const startDraft = (parent: string, kind: Draft["kind"]) => {
@@ -211,20 +197,20 @@ export function Explorer({
   };
   function menuItems(entry: Entry): [string, () => void][] {
     const items: [string, () => void][] = [];
-    if (!entry.directory) items.push(["Open", () => actions.open(entry.path)], ["Insert path in terminal", () => actions.insert(entry.path)]);
-    else items.push(["New file here", () => startDraft(entry.path, "file")], ["New folder here", () => startDraft(entry.path, "folder")]);
+    if (!entry.directory) items.push([t("files.open"), () => actions.open(entry.path)], ...(actions.insert ? [[t("files.insertPath"), () => actions.insert?.(entry.path)] as [string, () => void]] : []));
+    else items.push([t("files.newFileHere"), () => startDraft(entry.path, "file")], [t("files.newFolderHere"), () => startDraft(entry.path, "folder")]);
     items.push(
-      ["Copy path", () => actions.copyPath(entry.path)],
-      ["Rename", () => setRenaming(entry.path)],
+      [t("files.copyPath"), () => actions.copyPath(entry.path)],
+      [t("files.rename"), () => setRenaming(entry.path)],
       [
-        "Move to…",
+        t("files.moveTo"),
         () => {
-          const to = window.prompt(`Move ${entry.path} to (a path in this workspace):`, entry.path);
+          const to = window.prompt(t("files.movePrompt", { path: entry.path }), entry.path);
           if (to) void move(entry.path, to.trim().replace(/^\/+/, ""));
         },
       ],
-      [entry.directory ? "Download folder (.zip)" : "Download", () => actions.download(entry)],
-      ["Delete", () => void remove(entry)],
+      [entry.directory ? t("files.downloadFolder") : t("files.download"), () => actions.download(entry)],
+      [t("files.delete"), () => void remove(entry)],
     );
     return items;
   }
@@ -239,7 +225,7 @@ export function Explorer({
           </span>
           <input
             autoFocus
-            aria-label={draft.kind === "file" ? "New file name" : "New folder name"}
+            aria-label={draft.kind === "file" ? t("files.newFileName") : t("files.newFolderName")}
             placeholder={draft.kind === "file" ? "name.ext" : "folder"}
             onKeyDown={(event) => {
               if (event.key === "Enter") void create(dir, draft.kind, event.currentTarget.value);
@@ -252,7 +238,7 @@ export function Explorer({
     if (!listing) {
       out.push(
         <div className="wb-row wb-muted" key={"loading:" + dir} style={{ paddingLeft: 22 + depth * 14 }}>
-          Loading…
+          {t("files.loading")}
         </div>,
       );
       return out;
@@ -268,7 +254,7 @@ export function Explorer({
     if (!listing.entries.length && draft?.parent !== dir)
       out.push(
         <div className="wb-row wb-muted" key={"empty:" + dir} style={{ paddingLeft: 22 + depth * 14 }}>
-          {dir === "." ? "This folder is empty." : "Empty folder"}
+          {dir === "." ? t("files.emptyWorkspace") : t("files.emptyFolder")}
         </div>,
       );
     for (const entry of listing.entries) {
@@ -308,7 +294,7 @@ export function Explorer({
             const from = event.dataTransfer.getData(PATH_TYPE);
             const files = Array.from(event.dataTransfer.files);
             if (from) void move(from, join(entry.path, from.slice(from.lastIndexOf("/") + 1)));
-            else if (files.length) void run("Could not upload", () => actions.upload(entry.path, files).then(() => reload(entry.path)));
+            else if (files.length) void run(t("files.couldNotUpload"), () => actions.upload(entry.path, files).then(() => reload(entry.path)));
           }}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -318,7 +304,7 @@ export function Explorer({
           {renaming === entry.path ? (
             <input
               autoFocus
-              aria-label={"New name for " + entry.name}
+              aria-label={t("files.newName", { name: entry.name })}
               defaultValue={entry.name}
               onFocus={(event) => {
                 const dot = entry.directory ? -1 : entry.name.lastIndexOf(".");
@@ -341,7 +327,7 @@ export function Explorer({
               </span>
               <button
                 className="wb-name"
-                title={entry.path + (entry.link ? " (link)" : "")}
+                title={entry.path + (entry.link ? ` (${t("files.link")})` : "")}
                 aria-expanded={entry.directory ? open : undefined}
                 onClick={() => {
                   setSelected(entry.path);
@@ -368,8 +354,8 @@ export function Explorer({
               )}
               <button
                 className="wb-more"
-                aria-label={"Actions for " + entry.name}
-                title="Actions"
+                aria-label={t("files.actionsFor", { name: entry.name })}
+                title={t("files.actions")}
                 onClick={(event) => {
                   const box = event.currentTarget.getBoundingClientRect();
                   setMenu({ entry, x: box.right, y: box.bottom });
@@ -388,20 +374,20 @@ export function Explorer({
   const rootEntry: Entry = { name: title, path: ".", directory: true, size: 0 };
   return (
     <div className="wb-explorer">
-      <div className="wb-side-tools" role="toolbar" aria-label="Explorer">
+      <div className="wb-side-tools" role="toolbar" aria-label={t("files.explorer")}>
         <span className="wb-root" title={title}>
           {title}
         </span>
-        <button aria-label="New file" title="New file" onClick={() => startDraft(selectedFolder(selected, listings), "file")}>
+        <button aria-label={t("files.newFile")} title={t("files.newFile")} onClick={() => startDraft(selectedFolder(selected, listings), "file")}>
           <FileIcon name="file-plus" />
         </button>
-        <button aria-label="New folder" title="New folder" onClick={() => startDraft(selectedFolder(selected, listings), "folder")}>
+        <button aria-label={t("files.newFolder")} title={t("files.newFolder")} onClick={() => startDraft(selectedFolder(selected, listings), "folder")}>
           <FileIcon name="folder-plus" />
         </button>
         <button
           id="files-refresh"
-          aria-label="Refresh"
-          title="Refresh"
+          aria-label={t("files.refresh")}
+          title={t("files.refresh")}
           onClick={() => {
             signatures.current = {};
             refreshAll();
@@ -410,10 +396,10 @@ export function Explorer({
         >
           <FileIcon name="refresh" />
         </button>
-        <button aria-label="Collapse folders" title="Collapse folders" onClick={() => setExpanded(["."])}>
+        <button aria-label={t("files.collapse")} title={t("files.collapse")} onClick={() => setExpanded(["."])}>
           <FileIcon name="collapse" />
         </button>
-        <button aria-label="Download workspace" title="Download the workspace (.zip)" onClick={() => actions.download(rootEntry)}>
+        <button aria-label={t("files.downloadWorkspace")} title={t("files.downloadWorkspace")} onClick={() => actions.download(rootEntry)}>
           <FileIcon name="download" />
         </button>
       </div>
@@ -434,7 +420,7 @@ export function Explorer({
           const from = event.dataTransfer.getData(PATH_TYPE);
           const files = Array.from(event.dataTransfer.files);
           if (from && from.includes("/")) void move(from, from.slice(from.lastIndexOf("/") + 1));
-          else if (files.length) void run("Could not upload", () => actions.upload(".", files).then(() => reload(".")));
+          else if (files.length) void run(t("files.couldNotUpload"), () => actions.upload(".", files).then(() => reload(".")));
         }}
       >
         {rows(".", 0)}
@@ -446,7 +432,7 @@ export function Explorer({
             <button
               key={label}
               role="menuitem"
-              className={label === "Delete" ? "danger" : undefined}
+              className={label === t("files.delete") ? "danger" : undefined}
               onClick={() => {
                 setMenu(undefined);
                 action();

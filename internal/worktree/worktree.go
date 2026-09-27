@@ -155,9 +155,10 @@ func MergeBase(ctx context.Context, ex executor.Executor, wt, baseRef string) (s
 // attempt changed against its base branch.
 func CaptureDiff(ctx context.Context, ex executor.Executor, wt, baseBranch string) (string, []FileStat, error) {
 	q := executor.ShellQuote
-	// -N stages intents-to-add so brand new files show up in the diff
-	if _, err := ex.Run(ctx, fmt.Sprintf("git -C %s add -A -N", q(wt)),
-		executor.RunOpts{Timeout: 60}); err != nil {
+	// -N stages intents-to-add so brand new files show up in the diff. Only
+	// untracked files: `git add -A -N` would also re-add every unmerged path
+	// and silently wipe out a merge conflict's index state.
+	if _, err := ex.Run(ctx, IntentToAddUntracked(wt), executor.RunOpts{Timeout: 60}); err != nil {
 		return "", nil, err
 	}
 	pr, err := ex.Run(ctx, fmt.Sprintf("git -C %s diff --no-color %s", q(wt), q(baseBranch)),
@@ -181,6 +182,14 @@ func CaptureDiff(ctx context.Context, ex executor.Executor, wt, baseBranch strin
 		files = append(files, FileStat{Path: m[3], Additions: add, Deletions: del})
 	}
 	return pr.Stdout, files, nil
+}
+
+// IntentToAddUntracked is the command that marks every untracked, not
+// ignored file in dir as intent-to-add, and nothing else.
+func IntentToAddUntracked(dir string) string {
+	q := executor.ShellQuote
+	return fmt.Sprintf("git -C %s ls-files -z --others --exclude-standard | git -C %s add -N --pathspec-from-file=- --pathspec-file-nul 2>/dev/null; true",
+		q(dir), q(dir))
 }
 
 var diffHeaderRe = regexp.MustCompile(` b/(.+?)\s*$`)

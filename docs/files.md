@@ -22,9 +22,22 @@ file** and **Search in files**), or by clicking a file path in the terminal.
   over the terminal, which keeps its size. Back returns to the explorer, Close
   to the terminal.
 
+- **In the workspace:** the same views are pane types, so they sit in any
+  split, can be dragged, are saved in layouts and show on phones like the
+  other panes. **Open files beside** and **Search files beside** (the ⋯ menu
+  of the terminal workspace, or the shortcuts registry) add an explorer or a
+  search pane for the session in front; they open files as panes beside
+  themselves. The command palette also finds files of that session, ranked the
+  same way as Go to file, and `name:42` opens at the line.
+- **Theme:** everything follows the app's light or dark theme and accent,
+  including the editor and diagrams.
+
 | Phone explorer | Phone reader at a line | Phone Markdown |
 |---|---|---|
 | ![](media/files/phone-explorer.png) | ![](media/files/phone-code-at-line.png) | ![](media/files/phone-markdown.png) |
+
+![Workspace panes](media/files/desktop-workspace-panes.png)
+![Light theme](media/files/desktop-light.png)
 
 ## Explorer
 
@@ -32,9 +45,15 @@ file** and **Search in files**), or by clicking a file path in the terminal.
 - Git colours: modified or renamed amber `M`, added or untracked green (`A`, `U`),
   deleted red, conflicts pink `!`, ignored dimmed. A folder shows the most
   important change inside it.
-- **Live:** open folders and git status refresh every 3 to 5 seconds while the
-  explorer is on screen, and at once when the page regains focus. This is
-  polling through the executor, not a filesystem watch on the target.
+- **Live:** a file watch runs on the target through the executor. On Linux it
+  is inotify on the shown folders, the open files' folders and git's `HEAD`
+  and index (no extra program is needed; Python's `ctypes` reaches the
+  kernel); elsewhere the target rescans those folders every half second. The
+  browser holds one long-poll per panel and refreshes the listing, git colours
+  and open files as soon as it answers, typically well under a second. If the
+  server cannot watch (too many watches, an older server, an error), the page
+  falls back to refreshing every few seconds. The green dot in the panel's
+  header is live; amber means the fallback.
 - **New file / New folder** (in the selected item's folder), **Rename** (F2),
   **Move to…**, dragging an entry onto a folder, and **Delete** (with a
   confirmation; folders are removed with their contents). Every change is
@@ -75,8 +94,17 @@ editor** in the file menu loads Monaco on a phone too.
 
 ## Markdown
 
-Markdown opens rendered, with **Preview**, **Split** (desktop) and **Edit**
-modes.
+Markdown opens rendered, with **Preview**, **Rich**, **Split** (desktop) and
+**Edit** modes.
+
+- **Rich** is editing in the rendered document: type into headings, lists,
+  task lists, tables and code blocks, with a toolbar for bold, italic,
+  headings, code, lists, tasks, quotes, code blocks, tables, undo and redo.
+  It is TipTap (ProseMirror) and loads only when first used. Front matter is
+  kept aside and written back unchanged. When you save, the Markdown is
+  written in a standard form (for example `*emphasis*` may become
+  `_emphasis_`); nothing is written until you edit. Mermaid blocks show as
+  code in Rich mode and as diagrams in Preview.
 
 - Rendered with GitHub-style tables, task lists and fenced code, Mermaid
   diagrams, a table of contents (a **Contents** button on phones) and front
@@ -88,8 +116,7 @@ modes.
 - A formatting toolbar (bold, italic, heading, code, link, lists, task, quote,
   table, code block, diagram), and a **/** block menu at the start of a line.
 
-This is source editing with a live preview, not typing into the rendered page.
-
+![Rich Markdown](media/files/desktop-rich.png)
 ![Markdown split](media/files/desktop-markdown-split.png)
 
 ## Viewers
@@ -111,8 +138,10 @@ Every rendered view has a source mode.
 
 **Ctrl+P** (Cmd+P on a Mac) opens Go to file. While the terminal has focus,
 Ctrl+P still reaches the shell (it is readline's previous-line key), so use
-**Ctrl+Shift+P** or Cmd+P there. Ctrl+P also works from the Lectern page around
-an in-app terminal tab.
+**Ctrl+Alt+P** or Cmd+P there. Over the workspace, **Ctrl+P** opens Go to file
+for the session in front and opens the file as a pane. All of these keys are
+in the shortcuts registry (**Files** and **Workspace** in Settings →
+Shortcuts), so they can be remapped.
 
 - The file list comes from `git ls-files` (tracked and untracked files), then
   ripgrep's `--files`, then a directory walk. Gitignored files are a second
@@ -131,7 +160,7 @@ an in-app terminal tab.
 
 ## Search in files
 
-**Search** in the file panel (or **Ctrl+Shift+F** inside the file panel) runs on
+**Search** in the file panel (or **Ctrl+Alt+F**, remappable) runs on
 the target with ripgrep when it is installed, else `git grep`, else a plain
 scan. Options: match case, whole word, regular expression, files to include
 (globs, comma-separated) and **Ignored** to include gitignored files. Results
@@ -156,6 +185,28 @@ line and column.
   points at a column and `#L10-L20` at a range. Clicking a line number sets it
   (Shift-click for a range), and **Copy link** in the file menu copies it.
   Opening such an address shows the file at that line.
+
+## In the Android app
+
+The Android app shows these same pages. They were checked on an Android 14
+emulator with the debug APK built from this branch, paired directly, using real
+taps and the on-screen keyboard: a tapped path in the terminal opened the file
+at its line without loading the desktop editor, the simple editor saved a
+typed line to the target, the explorer showed git colours and a live watch,
+and Rich mode saved text typed into the rendered Markdown with its front
+matter intact.
+
+That check found that every terminal in the app was broken: the app's asset
+shell answered `/terminal/session/N` with the main page, so a terminal tab
+showed a second copy of the app. The shell now serves the terminal page for
+those addresses (`Shell.kt`, with a unit test).
+
+<p>
+<img src="media/files/android-terminal-link.png" width="216" alt="Android: a tapped path opens at its line">
+<img src="media/files/android-edit.png" width="216" alt="Android: simple editing with the keyboard up">
+<img src="media/files/android-explorer.png" width="216" alt="Android: explorer with git colours">
+<img src="media/files/android-rich.png" width="216" alt="Android: Rich Markdown editing">
+</p>
 
 ## Rules and limits
 
@@ -191,6 +242,7 @@ All under `/api/term/{kind}/{id}` (`kind` is `session`, `attempt` or `project`):
 | GET | `index` | Files and ignored files for Go to file |
 | GET | `git-status` | Git status per path |
 | GET | `search?q=&regex=&case=&word=&include=&ignored=` | Project search |
+| POST | `watch` | `{"dirs": [...], "token", "timeout"}`: long-poll until a folder changes |
 
 ## Tests
 
@@ -203,9 +255,13 @@ All under `/api/term/{kind}/{id}` (`kind` is `session`, `attempt` or `project`):
 - `frontend/src/files/files.test.ts`: Quick Open ranking (and 5,000 paths well
   inside the budget), natural sort, terminal link detection, deep links, CSV,
   notebooks, front matter and headings.
+- `TestWorkspaceWatchReportsChanges`: the watch answers a change within a
+  second and waits out a quiet timeout.
 - `e2e/test_files_workbench.py`: real ttyd, tmux and files. Explorer → open →
   edit → save → bytes on disk; conflict and autosave; create, rename, drag-move,
   delete and folder download; drag a path onto the terminal; Quick Open timing
   on 5,000 files and the ignored section; search options; every viewer; a
   clicked terminal path and a deep link; and on a phone, a tapped path, the
-  reader, simple editing and Markdown contents.
+  reader, simple editing and Markdown contents; Rich editing saved to disk with
+  front matter kept; the live watch; workspace file, explorer and Go to file
+  panes; and the light theme.

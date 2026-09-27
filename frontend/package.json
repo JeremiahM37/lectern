@@ -5,13 +5,19 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts src/relay/*.test.ts src/native/*.test.ts src/browser/*.test.ts src/trackers/*.test.ts src/files/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/api/*.test.ts src/agents/*.test.ts src/settings/*.test.ts src/terminal/*.test.ts src/review/*.test.ts src/sessions/*.test.ts src/sessions/tool-views/*.test.ts src/pairing/*.test.ts src/limits/*.test.ts src/relay/*.test.ts src/native/*.test.ts src/browser/*.test.ts src/trackers/*.test.ts src/theme/*.test.ts src/shortcuts/*.test.ts src/workspace/*.test.ts src/i18n/*.test.ts src/prefs/*.test.ts src/quick/*.test.ts src/files/*.test.ts",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-list": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/addon-search": "0.15.0",
     "@xterm/addon-web-links": "0.11.0",

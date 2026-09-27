@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
@@ -273,6 +274,50 @@ func (s *Server) workspaceSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if out, ok := s.workspaceFileAction(w, r, "search", ".", query, flag("regex"), flag("case"), flag("word"), q.Get("include"), flag("ignored")); ok {
+		writeJSON(w, 200, out)
+	}
+}
+
+// watchSlots bounds the long-polls held open at once; each keeps a process
+// running on its target. Past the bound the browser falls back to polling.
+var watchSlots = make(chan struct{}, 32)
+
+// workspaceWatch is a long-poll over the folders a client shows: it answers
+// when one of them (or git's HEAD/index) changes, using inotify on Linux
+// targets and a half-second scan elsewhere, or after `timeout` seconds.
+func (s *Server) workspaceWatch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dirs    []string `json:"dirs"`
+		Token   string   `json:"token"`
+		Timeout float64  `json:"timeout"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		httpError(w, 400, "%s", err)
+		return
+	}
+	if req.Timeout <= 0 || req.Timeout > 50 {
+		req.Timeout = 25
+	}
+	if len(req.Dirs) > 64 {
+		req.Dirs = req.Dirs[:64]
+	}
+	dirs, _ := json.Marshal(req.Dirs)
+	if req.Dirs == nil {
+		dirs = []byte("[]")
+	}
+	select {
+	case watchSlots <- struct{}{}:
+		defer func() { <-watchSlots }()
+	default:
+		httpError(w, 429, "too many file watches; polling instead")
+		return
+	}
+	ref, ok := s.workspaceFor(w, r)
+	if !ok {
+		return
+	}
+	out, rc, err := runWorkspaceScript(r.Context(), ref, req.Timeout+20, "watch", ".", string(dirs), req.Token, strconv.FormatFloat(req.Timeout, 'f', -1, 64))
+	if answerScript(w, out, rc, err) {
 		writeJSON(w, 200, out)
 	}
 }

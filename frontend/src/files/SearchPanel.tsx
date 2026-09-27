@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../terminal/model";
 import type { FileApi, Hit, SearchOptions } from "./api";
@@ -77,42 +78,42 @@ export function SearchPanel({
           ref={input}
           id="files-search-input"
           type="search"
-          placeholder="Search in files"
-          aria-label="Search in files"
+          placeholder={t("files.searchPlaceholder")}
+          aria-label={t("files.searchPlaceholder")}
           spellCheck={false}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <button aria-label="Match case" title="Match case" aria-pressed={options.caseSensitive} onClick={() => toggle("caseSensitive")}>
+        <button aria-label={t("files.matchCase")} title={t("files.matchCase")} aria-pressed={options.caseSensitive} onClick={() => toggle("caseSensitive")}>
           Aa
         </button>
-        <button aria-label="Whole word" title="Whole word" aria-pressed={options.word} onClick={() => toggle("word")}>
+        <button aria-label={t("files.wholeWord")} title={t("files.wholeWord")} aria-pressed={options.word} onClick={() => toggle("word")}>
           <u>ab</u>
         </button>
-        <button aria-label="Regular expression" title="Regular expression" aria-pressed={options.regex} onClick={() => toggle("regex")}>
+        <button aria-label={t("files.regex")} title={t("files.regex")} aria-pressed={options.regex} onClick={() => toggle("regex")}>
           .*
         </button>
       </div>
       <div className="wb-search-row">
         <input
           type="text"
-          placeholder="Files to include, e.g. *.go, src/**"
-          aria-label="Files to include"
+          placeholder={t("files.include")}
+          aria-label={t("files.includeLabel")}
           spellCheck={false}
           value={options.include}
           onChange={(event) => setOptions({ ...options, include: event.target.value })}
         />
-        <label className="wb-check" title="Also search files that .gitignore excludes">
-          <input type="checkbox" checked={options.ignored} onChange={() => toggle("ignored")} /> Ignored
+        <label className="wb-check" title={t("files.ignoredHint")}>
+          <input type="checkbox" checked={options.ignored} onChange={() => toggle("ignored")} /> {t("files.ignored")}
         </label>
       </div>
       <p className="wb-search-summary" role="status">
         {error ? (
           <span className="wb-error">{error}</span>
         ) : busy ? (
-          "Searching…"
+          t("files.searching")
         ) : state ? (
-          `${state.results.length.toLocaleString()} ${state.results.length === 1 ? "match" : "matches"} in ${groups.length.toLocaleString()} ${groups.length === 1 ? "file" : "files"}${state.truncated ? " (first 2,000 shown)" : ""}`
+          t("files.matches", { matches: t("files.match", { count: state.results.length }), files: t("files.file", { count: groups.length }), more: state.truncated ? t("files.firstShown") : "" })
         ) : (
           ""
         )}

@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -189,9 +190,12 @@ def test_quick_open_ranks_five_thousand_files_and_search_opens_at_the_line(page,
     open_terminal(page, t)
     page.locator('#files').click()
     expect(row(page, 'src')).to_be_visible()
-    # From the terminal, Ctrl+Shift+P opens Go to file (Ctrl+P stays the shell's).
+    # In the terminal Ctrl+P stays the shell's; Ctrl+Alt+P opens Go to file.
     page.locator('#agent-terminal').click()
-    page.keyboard.press('Control+Shift+P')
+    page.keyboard.press('Control+p')
+    page.wait_for_timeout(300)
+    expect(page.locator('#quick-open')).to_have_count(0)
+    page.keyboard.press('Control+Alt+P')
     expect(page.locator('#quick-open-input')).to_be_focused()
     expect(page.locator('.wb-quick-foot')).to_contain_text('5,0', timeout=20000)
     page.keyboard.press('Escape')
@@ -458,16 +462,95 @@ def test_phone_reads_edits_and_taps_terminal_paths(browser, real_terminal):
     context.close()
 
 
-def test_ctrl_p_in_the_app_reaches_the_shown_terminal(page, real_terminal):
+def put_pref(t, key, value):
+    request = urllib.request.Request(t['url'] + '/api/ui/prefs/' + key, data=json.dumps(value).encode(), method='PUT',
+                                     headers={'Content-Type': 'application/json'})
+    urllib.request.urlopen(request, timeout=10).read()
+
+
+def test_workspace_file_panes_go_to_file_and_light_theme(page, real_terminal):
     t = real_terminal
-    (t['root'] / 'wanted.txt').write_text('x\n')
+    root = t['root']
+    (root / 'wanted.txt').write_text('first line\nsecond line\n')
+    (root / 'docs').mkdir()
+    (root / 'docs' / 'guide.md').write_text('# Guide\n')
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
     page.goto(f"{t['url']}/#terminals/session/{t['id']}")
     frame = page.frame_locator('#terminal-workspace iframe').first
     expect(frame.locator('#connection')).to_have_text('Connected', timeout=20000)
+    # Ctrl+P over the workspace: Go to file for the session in front, which
+    # opens the file as a pane beside the terminal.
     page.locator('.terminal-tablist').click()
     page.keyboard.press('Control+p')
-    expect(frame.locator('#quick-open-input')).to_be_focused()
-    frame.locator('#quick-open-input').fill('wanted')
-    expect(frame.locator('#quick-open-0')).to_contain_text('wanted.txt', timeout=10000)
-    frame.locator('#quick-open-input').press('Enter')
-    expect(frame.locator('#preview-dialog')).to_contain_text('wanted.txt')
+    quick = page.locator('#workspace-quick-open')
+    expect(quick.locator('#quick-open-input')).to_be_focused()
+    quick.locator('#quick-open-input').fill('wanted:2')
+    expect(quick.locator('#quick-open-0')).to_contain_text('wanted.txt', timeout=10000)
+    quick.locator('#quick-open-input').press('Enter')
+    file_pane = page.locator('.terminal-tabpanel[data-pane-kind="file"]')
+    expect(file_pane).to_be_visible()
+    expect(file_pane.locator('.wb-body .wb-monaco[data-ready]')).to_be_visible(timeout=20000)
+    expect(file_pane.locator('.wb-target-line')).to_have_count(1)
+    # Edit and save from the pane; the bytes land on the target.
+    file_pane.locator('.view-lines').click()
+    page.keyboard.press('Control+End')
+    page.keyboard.type('from the pane')
+    file_pane.locator('#file-save').click()
+    wait_for(lambda: 'from the pane' in (root / 'wanted.txt').read_text(), message='pane save')
+    # The explorer as its own pane, which opens files beside itself.
+    page.locator('.terminal-actions > summary').first.click()
+    page.get_by_role('menuitem', name='Open files beside').click()
+    explorer = page.locator('.terminal-tabpanel[data-pane-kind="files"]')
+    expect(explorer.locator('.wb-row[data-path="docs"]')).to_be_visible(timeout=10000)
+    # It follows the disk through the target watch.
+    (root / 'appeared-in-pane.txt').write_text('x')
+    expect(explorer.locator('.wb-row[data-path="appeared-in-pane.txt"]')).to_be_visible(timeout=10000)
+    explorer.get_by_role('button', name='docs', exact=True).click()
+    explorer.get_by_role('button', name='guide.md', exact=True).click()
+    expect(page.locator('.terminal-tabpanel[data-pane-kind="file"]', has_text='Guide')).to_be_visible(timeout=10000)
+    # Light theme: the file panes follow the app's tokens.
+    put_pref(t, 'appearance', {'theme': 'light', 'accent': '', 'zoom': 1, 'language': ''})
+    page.reload()
+    expect(page.locator('html')).to_have_attribute('data-theme', 'light')
+    explorer = page.locator('.terminal-tabpanel[data-pane-kind="files"]')
+    expect(explorer.locator('.wb-row').first).to_be_visible(timeout=10000)
+    background = explorer.locator('.wb-pane').evaluate('e => getComputedStyle(e).backgroundColor')
+    channels = [int(v) for v in re.findall(r'\d+', background)[:3]]
+    assert min(channels) > 200, background
+    put_pref(t, 'appearance', {'theme': 'dark', 'accent': '', 'zoom': 1, 'language': ''})
+    assert not errors, errors
+
+
+def test_rich_markdown_editing_and_live_watch(page, real_terminal):
+    t = real_terminal
+    root = t['root']
+    (root / 'notes.md').write_text('---\ntitle: Kept\n---\n# Notes\n\nFirst paragraph.\n\n- [ ] todo\n')
+    open_terminal(page, t)
+    page.locator('#files').click()
+    # The explorer is live through the target's file watch, not a timer.
+    expect(page.locator('#files-dialog')).to_have_attribute('data-watch', re.compile('inotify|poll'), timeout=10000)
+    started = time.monotonic()
+    (root / 'watched.txt').write_text('x')
+    expect(row(page, 'watched.txt')).to_be_visible(timeout=10000)
+    print('explorer saw a new file after', round(time.monotonic() - started, 2), 's')
+    page.get_by_role('button', name='notes.md', exact=True).click()
+    page.get_by_role('button', name='Rich').click()
+    rich = page.locator('#preview-body .wb-rich')
+    expect(rich).to_be_visible(timeout=20000)
+    expect(rich.locator('h1')).to_have_text('Notes')
+    # Type into the rendered document; the toolbar formats the selection.
+    rich.locator('p', has_text='First paragraph.').click()
+    page.keyboard.press('End')
+    page.keyboard.type(' Typed in place.')
+    page.keyboard.press('Enter')
+    page.get_by_role('button', name='Bold').click()
+    page.keyboard.type('strong words')
+    page.keyboard.press('Control+s')
+    def saved():
+        text = (root / 'notes.md').read_text()
+        return 'Typed in place.' in text and '**strong words**' in text
+    wait_for(saved, message='rich save: ' + (root / 'notes.md').read_text())
+    text = (root / 'notes.md').read_text()
+    assert text.startswith('---\ntitle: Kept\n---\n'), text
+    assert '# Notes' in text and '[ ] todo' in text, text

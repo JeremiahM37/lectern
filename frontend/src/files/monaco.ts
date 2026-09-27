@@ -34,6 +34,11 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
   defaults.setCompilerOptions({ ...defaults.getCompilerOptions(), jsx: monaco.typescript.JsxEmit.Preserve, allowJs: true });
 }
 
+// Monaco follows the app's light or dark theme, including a switch made while
+// an editor is open.
+const themeName = () => (document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark");
+new MutationObserver(() => monaco.editor.setTheme(themeName())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
 let registered = false;
 
 /** Markdown gets a "/" block menu, like a document editor's slash commands. */
@@ -83,7 +88,6 @@ export interface EditorOptions {
   language: string;
   path: string;
   readOnly: boolean;
-  theme: "dark" | "light";
   fontSize: number;
   minimap: boolean;
   wordWrap: boolean;
@@ -98,7 +102,7 @@ export function createEditor(host: HTMLElement, options: EditorOptions) {
   monaco.editor.setModelLanguage(model, options.language);
   const editor = monaco.editor.create(host, {
     model,
-    theme: options.theme === "light" ? "vs" : "vs-dark",
+    theme: themeName(),
     readOnly: options.readOnly,
     fontSize: options.fontSize,
     minimap: { enabled: options.minimap },
@@ -113,9 +117,9 @@ export function createEditor(host: HTMLElement, options: EditorOptions) {
   return { editor, model };
 }
 
-export function createDiff(host: HTMLElement, original: string, modified: string, language: string, theme: "dark" | "light") {
+export function createDiff(host: HTMLElement, original: string, modified: string, language: string) {
   const diff = monaco.editor.createDiffEditor(host, {
-    theme: theme === "light" ? "vs" : "vs-dark",
+    theme: themeName(),
     automaticLayout: true,
     readOnly: true,
     originalEditable: false,

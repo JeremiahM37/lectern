@@ -487,9 +487,106 @@ def match_length(query, regex, case, word, text, col):
         return len(query)
 
 
+IN_EVENTS = 0x2 | 0x4 | 0x8 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400 | 0x800  # modify attrib close_write moved create delete self
+
+
+def watch_signature(dirs):
+    parts = []
+    for d in dirs:
+        try:
+            p = resolved(d)
+        except ValueError:
+            continue
+        try:
+            with os.scandir(p) as scan:
+                rows = []
+                for e in scan:
+                    if len(rows) >= 2000:
+                        break
+                    try:
+                        st = e.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    rows.append((e.name, st.st_mtime_ns, st.st_size))
+            parts.append((d, sorted(rows)))
+        except OSError:
+            parts.append((d, None))
+    for name in ('HEAD', 'index'):
+        try:
+            st = os.stat(os.path.join(root, '.git', name))
+            parts.append(('.git/' + name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            pass
+    return hashlib.sha1(json.dumps(parts).encode()).hexdigest()[:20]
+
+
+def inotify(dirs):
+    """An inotify descriptor watching dirs (and .git), or None where the
+    kernel or libc does not offer it."""
+    try:
+        import ctypes, ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True)
+        fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if fd < 0:
+            return None
+        added = 0
+        for d in list(dirs) + ['.git']:
+            try:
+                p = resolved(d)
+            except ValueError:
+                continue
+            if os.path.isdir(p) and libc.inotify_add_watch(fd, p.encode(), IN_EVENTS) >= 0:
+                added += 1
+        if not added:
+            os.close(fd)
+            return None
+        return fd
+    except (OSError, AttributeError):
+        return None
+
+
+def do_watch():
+    """Long-poll: answer as soon as a watched folder (or git's HEAD/index)
+    differs from the token the client last saw, or when the time is up."""
+    import select
+    dirs = [d for d in json.loads(extra[0])[:64] if isinstance(d, str)] or ['.']
+    token, limit = extra[1], min(max(float(extra[2]), 1), 50)
+    # Watch first, then look: a change between the two is still an event.
+    fd = inotify(dirs)
+    current = watch_signature(dirs)
+    mode = 'inotify' if fd is not None else 'poll'
+    if not token or current != token:
+        if fd is not None:
+            os.close(fd)
+        return dict(token=current, changed=bool(token), mode=mode)
+    deadline = time.time() + limit
+    try:
+        while time.time() < deadline:
+            wait = deadline - time.time()
+            if fd is not None:
+                ready = select.select([fd], [], [], wait)[0]
+                if not ready:
+                    break
+                time.sleep(0.15)  # let a burst of writes settle
+                try:
+                    while os.read(fd, 65536):
+                        pass
+                except OSError:
+                    pass
+            else:
+                time.sleep(min(0.5, wait))
+            now = watch_signature(dirs)
+            if now != token:
+                return dict(token=now, changed=True, mode=mode)
+        return dict(token=token, changed=False, mode=mode)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 ACTIONS = dict(list=do_list, read=do_read, stat=do_stat, write=do_write, mkdir=do_mkdir, create=do_create,
                rename=do_rename, delete=do_delete, archive=do_archive, index=do_index, gitstatus=do_git_status,
-               search=do_search)
+               search=do_search, watch=do_watch)
 
 try:
     if action not in ACTIONS:

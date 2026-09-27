@@ -171,11 +171,47 @@ footer {
 #searchbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px 8px;
+  gap: 4px;
+  padding: 4px 8px 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 #searchbar input {
   width: 280px;
+  min-width: 80px;
+  flex: 0 1 280px;
+}
+#searchbar input[aria-invalid="true"] {
+  border-color: #e06c75;
+}
+#searchbar button {
+  flex: none;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 2px 8px;
+}
+.find-toggles {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+.find-toggles button {
+  font: 12px ui-monospace, monospace;
+}
+.find-toggles button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+#matches {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
 }
 dialog {
   background: var(--surface);

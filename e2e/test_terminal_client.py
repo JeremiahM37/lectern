@@ -116,7 +116,9 @@ def test_menu_and_direct_attach_use_portable_term(real_terminal,tmp_path):
                 until(b'Open:');os.write(master,b'q\n')
             # Keep draining the PTY during teardown: tmux can block writing its
             # final redraw if the reader waits for process exit first.
-            deadline=time.monotonic()+10
+            # Generous: under a fully loaded parallel suite the detach and
+            # exit can take well over ten seconds.
+            deadline=time.monotonic()+30
             while child.poll() is None and time.monotonic()<deadline:
                 if select.select([master],[],[],.1)[0]:
                     try: os.read(master,65536)

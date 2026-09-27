@@ -459,3 +459,37 @@ func TestWorkspaceIndexAndSearchWithoutGit(t *testing.T) {
 		t.Fatalf("search with ignored: %+v", out)
 	}
 }
+
+// The watch long-poll answers when a shown folder changes, and waits out its
+// timeout when nothing does.
+func TestWorkspaceWatchReportsChanges(t *testing.T) {
+	f := newFileRig(t)
+	os.MkdirAll(filepath.Join(f.root, "src"), 0o755)
+	var first obj
+	f.h.decode("POST", f.base+"/watch", obj{"dirs": []string{".", "src"}, "timeout": 5}, 200, &first)
+	token := first.str("token")
+	if token == "" || first["changed"] != false {
+		t.Fatalf("first: %v", first)
+	}
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		os.WriteFile(filepath.Join(f.root, "src", "new.go"), []byte("x"), 0o644)
+	}()
+	started := time.Now()
+	var changed obj
+	f.h.decode("POST", f.base+"/watch", obj{"dirs": []string{".", "src"}, "token": token, "timeout": 10}, 200, &changed)
+	if changed["changed"] != true || changed.str("token") == token || time.Since(started) > 5*time.Second {
+		t.Fatalf("change: %v after %s", changed, time.Since(started))
+	}
+	t.Logf("watch mode %s, change seen after %s", changed.str("mode"), time.Since(started))
+	var quiet obj
+	started = time.Now()
+	f.h.decode("POST", f.base+"/watch", obj{"dirs": []string{"."}, "token": "", "timeout": 1}, 200, &quiet)
+	f.h.decode("POST", f.base+"/watch", obj{"dirs": []string{"."}, "token": quiet.str("token"), "timeout": 1}, 200, &quiet)
+	if quiet["changed"] != false || time.Since(started) < 900*time.Millisecond {
+		t.Fatalf("quiet: %v", quiet)
+	}
+	if code, _ := f.h.request("POST", f.base+"/watch", obj{"dirs": []string{"../.."}, "token": "x", "timeout": 1}, nil); code != 200 {
+		t.Fatalf("outside dirs are skipped, not an error: %d", code)
+	}
+}
