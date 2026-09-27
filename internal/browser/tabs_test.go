@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -246,22 +245,19 @@ func TestProfilesPersistAndCookiesImportOnTheMachine(t *testing.T) {
 
 	// Import from a real Chromium profile on this machine: made by running
 	// Chromium on it, so its cookies are encrypted the way Chromium does it.
-	source := filepath.Join(t.TempDir(), "chrome-profile")
-	bin := ""
-	for _, name := range []string{"chromium", "google-chrome", "chromium-browser"} {
-		if p, err := exec.LookPath(name); err == nil {
-			bin = p
-			break
-		}
+	// It is made the way the product runs a browser, and asked to quit, which
+	// is when Chromium writes cookies to disk: no timing, no --dump-dom, and
+	// nothing that waits on a desktop session the machine may not have.
+	srcTabs, srcProc := startTabs(t, LaunchOptions{Profile: "source-chrome"}, "")
+	sb, _, _ := srcTabs.Get(0)
+	if _, err := sb.Navigate(ctx, srv.URL+"/set"); err != nil {
+		t.Fatal(err)
 	}
-	if bin == "" {
-		t.Skip("no system Chromium to make a source profile")
+	srcTabs.Quit(ctx)
+	if err := Stop(ctx, localRun, srcProc.Dir); err != nil {
+		t.Fatal(err)
 	}
-	mk := exec.CommandContext(ctx, bin, "--headless=new", "--no-sandbox", "--user-data-dir="+source, "--no-first-run",
-		"--dump-dom", srv.URL+"/set")
-	if out, err := mk.CombinedOutput(); err != nil {
-		t.Fatalf("making a source profile: %v %s", err, out)
-	}
+	source := filepath.Join(os.Getenv("HOME"), ".lectern/browser-profiles/source-chrome")
 	res, err = ImportCookies(ctx, localRun, fproc, "chrome", filepath.Join(source, "Default"), nil)
 	if err != nil || res.Imported < 1 {
 		t.Fatalf("chrome import: %+v %v", res, err)

@@ -223,7 +223,7 @@ if [ -z "$bin" ]; then
 fi
 if [ -n "$bin" ]; then
   sandbox=""; [ "$(id -u)" = 0 ] && sandbox="--no-sandbox"
-  DISPLAY=":$n" ACCESSIBILITY_ENABLED=1 setsid nohup "$bin" $sandbox --force-renderer-accessibility --no-first-run --no-default-browser-check --disable-session-crashed-bubble \
+  DISPLAY=":$n" ACCESSIBILITY_ENABLED=1 setsid nohup "$bin" $sandbox --force-renderer-accessibility --password-store=basic --use-mock-keychain --disable-component-update --no-first-run --no-default-browser-check --disable-session-crashed-bubble \
     --user-data-dir="$dir/profile" --window-position=0,0 --window-size="$W,$H" "$url" >"$dir/browser.log" 2>&1 </dev/null &
   echo $! >"$dir/browser-$!.pid"; echo "BROWSER $bin"; exit 0
 fi

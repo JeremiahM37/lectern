@@ -256,8 +256,13 @@ agent (MCP or `lectern browser`) ── POST /api/browser, /api/computer ─┘
 ```
 
 - `internal/browser` speaks the Chrome DevTools Protocol directly: no
-  Playwright or Node on the target, just a Chromium binary (a system one,
-  or the one Playwright downloads).
+  Playwright or Node on the target, just a Chromium binary: a system
+  Chromium or Chrome, the one Playwright downloads, or Chrome's headless
+  shell. `LECTERN_BROWSER_BIN` in the target's environment picks one.
+- The browser is started for a server with no desktop session: no session
+  bus, the basic password store instead of a keyring, and no component
+  updates, so it never waits on a service the machine lacks and a profile's
+  cookies are encrypted the same way everywhere.
 - Connections to the browser and the dev server ride the executor's dialer,
   the same one live port forwards use. Local and SSH targets dial directly.
   Proxmox `pct` containers and SSH targets with a command wrapper dial

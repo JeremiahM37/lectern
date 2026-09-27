@@ -34,14 +34,16 @@ var browserDir = regexp.MustCompile(`^/tmp/lectern-browser-[A-Za-z0-9]{6}$`)
 // more.
 const findScript = `
 bin=""
-for b in chromium chromium-browser google-chrome google-chrome-stable chrome; do
+# LECTERN_BROWSER_BIN, in the machine's own environment, picks the browser.
+if [ -n "${LECTERN_BROWSER_BIN:-}" ] && [ -x "$LECTERN_BROWSER_BIN" ]; then bin="$LECTERN_BROWSER_BIN"; fi
+[ -n "$bin" ] || for b in chromium chromium-browser google-chrome google-chrome-stable chrome; do
   command -v "$b" >/dev/null 2>&1 && { bin=$(command -v "$b"); break; }
 done
 if [ -z "$bin" ]; then
   bin=$(ls -1d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -n 1)
 fi
 if [ -z "$bin" ]; then
-  bin=$(ls -1d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux*/*headless_shell 2>/dev/null | sort -V | tail -n 1)
+  bin=$(ls -1d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-*/*headless[_-]shell 2>/dev/null | sort -V | tail -n 1)
 fi
 `
 
@@ -107,6 +109,12 @@ if [ -n "$PROFILE" ]; then
   profile="$HOME/.lectern/browser-profiles/$PROFILE"
   mkdir -p "$HOME/.lectern/browser-profiles" && chmod 700 "$HOME/.lectern" "$HOME/.lectern/browser-profiles" 2>/dev/null
   mkdir -p -m 700 "$profile" || { echo "ERROR could not create the profile directory"; reap "$dir"; exit 0; }
+  # Chromium's own lock, and ours: the headless shell takes none.
+  lpid=$(cat "$profile/lectern.lock" 2>/dev/null)
+  case "$lpid" in ''|*[!0-9]*) ;; *)
+    if kill -0 "$lpid" 2>/dev/null && tr '\0' ' ' <"/proc/$lpid/cmdline" 2>/dev/null | grep -qF -- "--user-data-dir=$profile "; then
+      echo "ERROR profile $PROFILE is in use by another browser"; reap "$dir"; exit 0
+    fi;; esac
   if [ -L "$profile/SingletonLock" ]; then
     lockpid=$(readlink "$profile/SingletonLock" | sed 's/.*-//')
     if [ -n "$lockpid" ] && kill -0 "$lockpid" 2>/dev/null; then
@@ -117,13 +125,19 @@ if [ -n "$PROFILE" ]; then
   printf %%s "$profile" >"$dir/profile-path"
 fi
 sandbox=""; [ "$(id -u)" = 0 ] && sandbox="--no-sandbox"
-headless="--headless=new"; case "$bin" in *headless_shell) headless="";; esac
+headless="--headless=new"; case "$bin" in *headless_shell|*headless-shell) headless="";; esac
+# A server has no desktop session: no session bus, no keyring, often no
+# system bus. The browser is kept off all of them, so it never waits on one,
+# and its profile is always encrypted the same way (the basic store, which
+# cookie import reads too), whatever the machine has.
 start() {
-  setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
+  DBUS_SESSION_BUS_ADDRESS=disabled: setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
     --user-data-dir="$profile" --no-first-run --no-default-browser-check --disable-extensions \
-    --disable-background-networking --disable-sync --mute-audio --hide-scrollbars \
+    --disable-background-networking --disable-component-update --disable-default-apps \
+    --password-store=basic --use-mock-keychain --disable-sync --mute-audio --hide-scrollbars \
     --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
   echo $! >"$dir/browser.pid"
+  [ "$profile" = "$dir/profile" ] || echo $! >"$profile/lectern.lock"
   i=0
   while [ ! -s "$profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do
     sleep 0.1; i=$((i+1))
