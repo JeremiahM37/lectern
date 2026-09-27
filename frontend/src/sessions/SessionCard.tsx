@@ -352,6 +352,11 @@ export function SessionCard({
           {s.model ? " · " + s.model : ""}
         </span>
         <span className="chip tgt">{s.target_name}</span>
+        {s.account && (
+          <span className="chip account-chip" title="The login this agent runs under (Settings → Accounts)">
+            👤 {s.account}
+          </span>
+        )}
         <span className="chip">
           {setup ? "setup" : "up"} {duration(s.uptime_seconds)}
         </span>

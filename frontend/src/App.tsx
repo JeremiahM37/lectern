@@ -477,7 +477,7 @@ export default function App() {
     "nav.approvals": goto("approvals"),
     "nav.targets": goto("targets"),
     "nav.evals": () => setShowEvals(true),
-    ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "agents", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
+    ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
     "session.new": () => sessionCommand("new"),
     "session.discover": () => sessionCommand("discover"),
     "task.new": () => newTask(),

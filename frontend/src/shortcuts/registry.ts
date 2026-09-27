@@ -50,6 +50,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   def("settings.devices", "Settings: devices", "Settings", "global", [], "pair phone"),
   def("settings.about", "Settings: usage and about", "Settings", "global", [], "version cost"),
   def("settings.budgets", "Settings: budgets", "Settings", "global", [], "spend limits"),
+  def("settings.accounts", "Settings: accounts", "Settings", "global", [], "logins swap"),
   def("settings.agents", "Settings: agents", "Settings", "global", [], "runners models"),
   def("settings.appearance", "Settings: appearance", "Settings", "global", [], "theme accent zoom language"),
   def("settings.workspace", "Settings: workspace and terminal", "Settings", "global", [], "layouts quick commands terminal theme"),
@@ -86,6 +87,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   def("workspace.layouts", "Open saved layouts", "Workspace", "workspace", [], "restore named"),
   def("workspace.chatBeside", "Open this session's chat beside it", "Workspace", "workspace", [], "conversation"),
   def("workspace.diffBeside", "Open this session's changes beside it", "Workspace", "workspace", [], "diff review"),
+  def("workspace.browserBeside", "Open this session's browser beside it", "Workspace", "workspace", [], "preview web design"),
   ...digits.map((n) => def(`workspace.tab${n}`, `Go to tab ${n}`, "Workspace", "workspace", [`Alt+${n}`])),
   // Floating terminal
   def("floating.toggle", "Show or hide the floating terminal", "Floating terminal", "global", ["Ctrl+`"], "quake global drop-down"),

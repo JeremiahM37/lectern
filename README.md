@@ -52,9 +52,10 @@ drops you in. In an attached session, **`Ctrl+\`** sends a file to the agent.
 
 ### Any agent, without cluttered menus
 
-Claude Code, Codex and Gemini are built in. Settings → Agents adds OpenCode,
-Aider, Goose, Amp, Cursor Agent, Copilot CLI, Qwen Code, Crush, Kimi or Cline in
-one click, or any CLI as a custom agent. Only the agents you pick appear in
+Claude Code, Codex and Gemini are built in. Settings → Agents adds 30 more from a
+searchable catalog in one click — OpenCode, Cursor, Copilot CLI, Grok, Amp,
+Antigravity, Qwen Code, Kimi, Goose, Aider, Droid, Kiro, Devin, Pi and the rest —
+or any CLI as a custom agent. Only the agents you pick appear in
 menus, and the rest sit under **More agents…**. Resume, fork, models, approvals,
 tasks and `lectern <agent>` work with each agent as far as its CLI allows.
 Lectern tells you plainly when a CLI can't do something.
@@ -92,7 +93,9 @@ The same control loop runs in an installable phone app:
 - No Tailscale? Run **`lectern relay`** on any small server and pair a phone
   by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
   WireGuard); the relay only passes sealed frames and never serves app code.
-- An **Android app** (prototype, build from source) bundles the same web app,
+- An **Android app prototype** bundles the same web app; download the
+  [signed v0.1.0 APK published with Lectern v2.4.1](https://github.com/JeremiahM37/lectern/releases/download/v2.4.1/lectern-android-0.1.0-prototype.apk)
+  or [build it from source](docs/android.md). It
   keeps the relay key in Keystore, and takes Approve / Deny / Reply from the
   notification with no Lectern screen open, via UnifiedPush and ntfy.
 
@@ -109,10 +112,15 @@ The same control loop runs in an installable phone app:
   your phone when it goes green. → [CI loop](docs/ci-loop.md)
 - **Usage limits:** when Claude, Codex or Gemini hits its limit, the card and
   your phone show when it resets. Lectern can resume the same agent after the
-  reset, or hand the work to another agent in the same workspace.
-  → [Rate limits](docs/rate-limits.md)
+  reset, hand the work to another agent in the same workspace, or (opt-in)
+  continue the same conversation under another of your signed-in accounts of
+  that CLI. → [Rate limits](docs/rate-limits.md), [Accounts](docs/accounts.md)
 - **Best-of-N with a judge, and delegated builds:** a cheap worker builds and a
   lead reviews and integrates.
+- **A browser beside every session:** watch the agent drive a real browser on
+  its machine and take over at any time, or click any element of your dev
+  server to send its HTML, CSS and a cropped screenshot to the agent.
+  → [Browser](docs/browser.md)
 - **Replay evals:** find out which agent or model is best *for your repo*,
   scored against what actually shipped.
 - **Agents that know about each other:** each session sees what its peers are
@@ -151,6 +159,7 @@ wrong. You can try it with no setup at all, using fake agents:
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
 | [Agents](docs/agents.md) | Catalog, capabilities per agent, custom agents |
 | [Mobile sessions](docs/mobile-sessions.md) | Chat cards, approvals, voice mode |
+| [Browser](docs/browser.md) | Browser pane, Design Mode, agent browser tools, computer use |
 | [Remote access](docs/remote-access.md) | Phone pairing and tunnels without Tailscale |
 | [Local / Docker](docs/local.md) · [Docker](docs/docker.md) | Standalone and container setups |
 

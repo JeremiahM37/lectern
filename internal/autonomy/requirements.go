@@ -13,6 +13,10 @@ type Requirement struct {
 	SchemaVersion int      `json:"schema_version"`
 	Requirements  []string `json:"requirements,omitempty"`
 	Imports       []string `json:"imports,omitempty"`
+	Modules       []string `json:"modules,omitempty"`
+	Binaries      []string `json:"binaries,omitempty"`
+	PackageJSON   string   `json:"package_json,omitempty"`
+	PackageLock   string   `json:"package_lock,omitempty"`
 	Condition     string   `json:"condition"`
 	Evidence      []string `json:"evidence"`
 }
@@ -24,10 +28,10 @@ func ValidateRequirements(rs []Requirement) error {
 		return fmt.Errorf("at most four prerequisite requirements permitted")
 	}
 	for _, r := range rs {
-		if !requirementCapability.MatchString(r.Capability) || r.SchemaVersion != 1 || strings.TrimSpace(r.Condition) == "" || len(r.Condition) > 1000 || len(r.Requirements) > 32 || len(r.Imports) > 32 || len(r.Evidence) == 0 || len(r.Evidence) > 8 {
+		if !requirementCapability.MatchString(r.Capability) || r.SchemaVersion != 1 || strings.TrimSpace(r.Condition) == "" || len(r.Condition) > 1000 || len(r.Requirements) > 32 || len(r.Imports) > 32 || len(r.Modules) > 32 || len(r.Binaries) > 32 || len(r.PackageJSON) > 512 || len(r.PackageLock) > 512 || len(r.Evidence) == 0 || len(r.Evidence) > 8 {
 			return fmt.Errorf("invalid typed prerequisite requirement")
 		}
-		for _, group := range [][]string{r.Requirements, r.Imports, r.Evidence} {
+		for _, group := range [][]string{r.Requirements, r.Imports, r.Modules, r.Binaries, r.Evidence} {
 			for _, v := range group {
 				if strings.TrimSpace(v) == "" || len(v) > 2000 {
 					return fmt.Errorf("invalid prerequisite input or evidence")

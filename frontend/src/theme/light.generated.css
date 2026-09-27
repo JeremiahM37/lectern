@@ -4,6 +4,9 @@
 /* frontend/src/board/board.css */
 :root[data-theme="light"] .sheet::backdrop { background: rgba(15, 23, 42, 0.26); }
 
+/* frontend/src/browser/browser.css */
+:root[data-theme="light"] .desk-shot { background: var(--bg); }
+
 /* frontend/src/continuity/continuity.css */
 :root[data-theme="light"] .switch-progress { box-shadow: 0 10px 30px rgba(15, 23, 42, 0.21); }
 :root[data-theme="light"] .switch-progress-actions p { color: #8c635c; }
@@ -29,6 +32,9 @@
 
 /* frontend/src/sessions/sessions.css */
 :root[data-theme="light"] .session-memory-link[data-status="unlinked"] b { color: #8c653b; }
+
+/* frontend/src/settings/agent-catalog.css */
+:root[data-theme="light"] .agent-catalog-icon { background: var(--panel-2); color: var(--ink); }
 
 /* frontend/src/settings/personal.css */
 :root[data-theme="light"] #settings-search-results { box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12); }

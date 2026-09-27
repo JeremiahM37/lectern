@@ -144,10 +144,7 @@ func (s *Server) handleRequest(req request) (response, bool) {
 			}
 			break
 		}
-		raw, _ := json.MarshalIndent(out, "", "  ")
-		resp.Result = map[string]any{
-			"content": []any{map[string]any{"type": "text", "text": string(raw)}},
-		}
+		resp.Result = map[string]any{"content": toolContent(out)}
 	case "ping":
 		resp.Result = map[string]any{}
 	default:
@@ -157,6 +154,31 @@ func (s *Server) handleRequest(req request) (response, bool) {
 		resp.Error = &rpcError{Code: -32601, Message: "unknown method " + req.Method}
 	}
 	return resp, true
+}
+
+// toolContent renders a tool's result. A base64 PNG under "screenshot" becomes
+// an image block of its own, so a model sees the picture rather than a
+// megabyte of text.
+func toolContent(out any) []any {
+	var image string
+	if m, ok := out.(map[string]any); ok {
+		if shot, ok := m["screenshot"].(string); ok && shot != "" {
+			image = shot
+			rest := make(map[string]any, len(m))
+			for k, v := range m {
+				if k != "screenshot" {
+					rest[k] = v
+				}
+			}
+			out = rest
+		}
+	}
+	raw, _ := json.MarshalIndent(out, "", "  ")
+	content := []any{map[string]any{"type": "text", "text": string(raw)}}
+	if image != "" {
+		content = append(content, map[string]any{"type": "image", "data": image, "mimeType": "image/png"})
+	}
+	return content
 }
 
 // reportClientSeen tells the Lectern this server talks to which MCP client

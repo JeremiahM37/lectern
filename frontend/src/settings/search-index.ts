@@ -24,6 +24,7 @@ export const SECTIONS: [string, string][] = [
   ["devices", "settings.section.devices"],
   ["about", "settings.section.about"],
   ["budgets", "settings.section.budgets"],
+  ["accounts", "settings.section.accounts"],
   ["agents", "settings.section.agents"],
   ["appearance", "settings.section.appearance"],
   ["workspace", "settings.section.workspace"],

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/oauth"
@@ -38,8 +39,20 @@ func TestDecideApprovalIsWebExcludedNotScoped(t *testing.T) {
 func TestFilterWebExcluded(t *testing.T) {
 	all := toolSchemas()
 	filtered := filterWebExcluded(all)
-	if len(filtered) != len(all)-1 {
-		t.Fatalf("expected exactly one tool (decide_approval) removed, got %d of %d", len(filtered), len(all))
+	// decide_approval, plus the tools that drive a session's own browser or
+	// desktop, which belong to that session's agent and never to a remote chat.
+	excluded := 0
+	for _, tl := range all {
+		name := tl["name"].(string)
+		if webExcluded[name] {
+			excluded++
+			if name != "decide_approval" && !strings.HasPrefix(name, "browser_") && !strings.HasPrefix(name, "computer_") {
+				t.Errorf("%s is web-excluded without a reason recorded here", name)
+			}
+		}
+	}
+	if len(filtered) != len(all)-excluded || !webExcluded["decide_approval"] || !webExcluded["browser_navigate"] || !webExcluded["computer_click"] {
+		t.Fatalf("expected the web-excluded tools removed, got %d of %d", len(filtered), len(all))
 	}
 	for _, tl := range filtered {
 		if tl["name"] == "decide_approval" {

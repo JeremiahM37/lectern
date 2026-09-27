@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -120,7 +121,7 @@ func TestUIPrefsCapTheNumberOfKeys(t *testing.T) {
 	s := uiPrefServer(t)
 	me := auth.Principal{Kind: auth.KindTailscale, Login: "me@example.com", Human: true}
 	for i := 0; i < uiPrefMaxKeys; i++ {
-		if w := uiPrefCall(t, s, "PUT", "k"+itoa(i), `1`, me); w.Code != 200 {
+		if w := uiPrefCall(t, s, "PUT", "k"+strconv.Itoa(i), `1`, me); w.Code != 200 {
 			t.Fatalf("key %d: %d", i, w.Code)
 		}
 	}
@@ -131,9 +132,4 @@ func TestUIPrefsCapTheNumberOfKeys(t *testing.T) {
 	if w := uiPrefCall(t, s, "PUT", "k7", `2`, me); w.Code != 200 {
 		t.Fatalf("update at the cap: got %d %s", w.Code, w.Body.String())
 	}
-}
-
-func itoa(i int) string {
-	b, _ := json.Marshal(i)
-	return string(b)
 }

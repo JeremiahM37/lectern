@@ -70,6 +70,9 @@ type sessionView struct {
 	// Limit is this session's open usage-limit hold (docs/rate-limits.md):
 	// the card's "Limit — resumes 3:40pm" and its one-tap choices.
 	Limit *limitView `json:"limit,omitempty"`
+	// Account is the login this session runs under (docs/accounts.md), set
+	// only when its CLI has more than one on that machine.
+	Account string `json:"account,omitempty"`
 }
 
 // awarenessOverlapView is deliberately tiny: just enough for the chip's
@@ -154,6 +157,7 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 		}
 		v.Limit = s.sessionLimit(row.ID)
 	}
+	v.Account = s.sessionAccount(row)
 	return v
 }
 

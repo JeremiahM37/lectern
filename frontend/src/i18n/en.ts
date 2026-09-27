@@ -60,6 +60,7 @@ const en: Record<string, string> = {
   "workspace.closeThisView": "Close this view",
   "workspace.chatBeside": "Open chat beside",
   "workspace.diffBeside": "Open changes beside",
+  "workspace.browserBeside": "Open browser beside",
   "workspace.showNavigation": "Show navigation",
   "workspace.focusTerminal": "Focus terminal",
   "workspace.emptyTitle": "No open terminals",
@@ -83,6 +84,7 @@ const en: Record<string, string> = {
 
   "panes.chatTitle": "Chat · {name}",
   "panes.diffTitle": "Changes · {name}",
+  "panes.browserTitle": "Browser · {name}",
 
   // Floating terminal
   "floating.title": "Floating terminal",
@@ -146,6 +148,7 @@ const en: Record<string, string> = {
   "settings.section.devices": "Devices",
   "settings.section.about": "Usage & about",
   "settings.section.budgets": "Budgets",
+  "settings.section.accounts": "Accounts",
   "settings.section.agents": "Agents",
   "settings.section.appearance": "Appearance",
   "settings.section.workspace": "Workspace & terminal",

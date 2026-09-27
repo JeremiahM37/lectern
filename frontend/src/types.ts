@@ -92,7 +92,7 @@ export interface LimitHold {
   message: string;
   detected_at: number;
   reset_at?: number | null;
-  policy: "notify" | "wait" | "handoff";
+  policy: "notify" | "wait" | "handoff" | "swap";
   state: string;
   due_at?: number | null;
   tries: number;
@@ -103,10 +103,17 @@ export interface LimitHold {
   // fallback names where "Hand off" goes under the effective policy.
   fallback?: string;
   policy_scope: string;
+  // swap_to is the account "Swap" would move the work to now
+  // (docs/accounts.md); from/to_account label a swap that happened.
+  swap_to?: { id: number; label: string } | null;
+  from_account?: string;
+  to_account?: string;
 }
 
 export interface LimitPolicy {
-  mode: "notify" | "wait" | "handoff";
+  mode: "notify" | "wait" | "handoff" | "swap";
+  // then is what a swap policy does when every account is limited.
+  then?: "notify" | "wait" | "handoff";
   fallback_agent?: string;
   fallback_model?: string;
   fallback_profile_id?: number;
@@ -166,6 +173,9 @@ export interface SessionView extends Session {
   isolation?: IsolationConfig;
   // The open usage-limit hold, when the agent is stopped by its limit.
   limit?: LimitHold | null;
+  // account is the login this session runs under (docs/accounts.md), set only
+  // when its CLI has more than one on that machine.
+  account?: string;
 }
 
 // IsolationConfig mirrors internal/isolation.Config: a session or task's
@@ -225,6 +235,8 @@ export interface Project {
   // CI-aware PR loop opt-in and fix-request cap (docs/ci-loop.md).
   ci_loop?: number;
   ci_max_attempts?: number;
+  // Agents may operate this project's live desktops (docs/browser.md).
+  computer_use?: number;
   created_at: number;
   target_name?: string;
   target_kind?: string;
@@ -609,4 +621,26 @@ export interface Media {
 export interface NoticeAction {
   label: string;
   run(): void | Promise<void>;
+}
+
+// AgentAccount is one login of an agent CLI on a machine (docs/accounts.md).
+// Its directory never leaves the server.
+export interface AgentAccount {
+  id: number;
+  target_id: number;
+  target_name: string;
+  agent: string;
+  label: string;
+  default: boolean;
+  position: number;
+  signed_in?: boolean | null;
+  blocked_until?: number | null;
+  live_sessions: number;
+  usage?: {
+    rate_5h_pct?: number | null;
+    rate_5h_reset?: number | null;
+    rate_7d_pct?: number | null;
+    rate_7d_reset?: number | null;
+    at?: number | null;
+  } | null;
 }

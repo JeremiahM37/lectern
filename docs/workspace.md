@@ -1,8 +1,8 @@
 # Workspace, terminal, keyboard and appearance
 
 The Terminals view is a workspace: every open pane — attached terminals,
-a session's chat, a session's changes, and any pane type another feature
-registers — sits in one tab strip and can be arranged in nested splits.
+a session's chat, its changes, its browser, and any pane type another
+feature registers — sits in one tab strip and can be arranged in nested splits.
 Preferences that belong to you rather than to a device (theme, shortcuts,
 saved layouts, quick commands, terminal scheme) are stored on the server and
 follow you to every device.
@@ -23,8 +23,9 @@ follow you to every device.
   focused tab. **Ctrl+Tab** (or **Alt+`**, since browsers keep Ctrl+Tab in an
   ordinary tab) opens the recent-tab switcher; release the modifier to go.
   Alt+Shift+T reopens the last closed tab.
-- **Chat and changes beside a terminal**: **⋯ → Open chat beside / Open
-  changes beside**. In a pane they are part of the layout, not a dialog over it.
+- **Chat, changes and browser beside a terminal**: **⋯ → Open chat beside /
+  Open changes beside / Open browser beside**. In a pane they are part of the
+  layout, not a dialog or sheet over it.
 - Moving a pane never reloads it: every pane is positioned over its slot
   rather than re-parented, so terminals keep their connection.
 - **Phone**: the layout is kept but one pane shows at a time; the tab strip
@@ -47,7 +48,9 @@ left out. Saved layouts are listed, renamed and deleted in
 
 ### Adding a pane type
 
-`frontend/src/workspace/registry.tsx` is the whole contract:
+`frontend/src/workspace/registry.tsx` is the whole contract; the built-in
+types in `workspace/builtin-panes.tsx` (terminal, chat, changes, browser) use
+nothing else:
 
 ```tsx
 registerPaneType({

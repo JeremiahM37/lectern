@@ -35,15 +35,19 @@ export function LimitBanner({
     }
     setBusy(true);
     try {
-      await api.request(`/limits/${hold.id}/choose`, { method: "POST", body: { action: choice } });
+      const body: Record<string, string | number> = { action: choice };
+      if (choice === "swap" && hold.swap_to) body.account_id = hold.swap_to.id;
+      await api.request(`/limits/${hold.id}/choose`, { method: "POST", body });
       onNotice(
         choice === "dismiss"
           ? "Limit dismissed."
           : choice === "handoff"
             ? `Handing off to ${hold.fallback}.`
-            : choice === "resume_now"
-              ? "Resuming now."
-              : "Lectern will resume it after the reset.",
+            : choice === "swap"
+              ? `Swapping to ${hold.swap_to?.label || "another account"}.`
+              : choice === "resume_now"
+                ? "Resuming now."
+                : "Lectern will resume it after the reset.",
       );
       await onRefresh();
     } catch (error) {

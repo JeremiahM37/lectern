@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS projects(
   -- docs/ci-loop.md); ci_max_attempts caps the fix requests per PR.
   ci_loop INTEGER NOT NULL DEFAULT 0,
   ci_max_attempts INTEGER NOT NULL DEFAULT 3,
+  -- computer_use lets this project's agents operate a live desktop
+  -- (docs/browser.md); off unless a person turns it on.
+  computer_use INTEGER NOT NULL DEFAULT 0,
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS tasks(
@@ -740,6 +743,25 @@ CREATE TABLE IF NOT EXISTS limit_policies(
   updated_at REAL NOT NULL,
   PRIMARY KEY(scope, scope_id)
 );
+-- agent_accounts (internal/accounts, docs/accounts.md): extra logins of one
+-- CLI on one target, each an isolated config directory on that target
+-- (CLAUDE_CONFIG_DIR, CODEX_HOME, GEMINI_CLI_HOME). dir '' is the CLI's own
+-- default login. Lectern never reads what is inside a dir; limited_until is
+-- the last reset it saw a limit name for this account (limited_at alone:
+-- limited, reset unknown).
+CREATE TABLE IF NOT EXISTS agent_accounts(
+  id INTEGER PRIMARY KEY,
+  target_id INTEGER NOT NULL REFERENCES targets(id),
+  agent TEXT NOT NULL,
+  label TEXT NOT NULL,
+  dir TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  limited_at REAL,
+  limited_until REAL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE(target_id, agent, label)
+);
 -- End-to-end encrypted relay (internal/relay/host, docs/relay.md). The host's
 -- own keys (one row), pending pairings (code and route token hashed, like
 -- pairing_codes) and paired relay devices, identified by their X25519 public
@@ -893,6 +915,8 @@ var migrations = []string{
 	// CI-aware PR loop (docs/ci-loop.md).
 	"ALTER TABLE projects ADD COLUMN ci_loop INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE projects ADD COLUMN ci_max_attempts INTEGER NOT NULL DEFAULT 3",
+	// Computer use on a live desktop (docs/browser.md), off by default.
+	"ALTER TABLE projects ADD COLUMN computer_use INTEGER NOT NULL DEFAULT 0",
 	// How a session ended (store.Session.EndReason), so Restore can tell a
 	// session someone stopped from one that exited or was cut off by a restart.
 	"ALTER TABLE sessions ADD COLUMN end_reason TEXT NOT NULL DEFAULT ''",
@@ -924,6 +948,13 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 	// The CI loop commits and pushes a task's fix attempt itself (docs/ci-loop.md).
 	"ALTER TABLE ci_watches ADD COLUMN pushed_attempt_id INTEGER NOT NULL DEFAULT 0",
+	// Account swap (docs/accounts.md): which registered login a session or
+	// attempt ran under (NULL = the CLI's own default), and the two ends of a
+	// swap a limit hold is carrying out.
+	"ALTER TABLE sessions ADD COLUMN account_id INTEGER",
+	"ALTER TABLE attempts ADD COLUMN account_id INTEGER",
+	"ALTER TABLE limit_holds ADD COLUMN account_from INTEGER",
+	"ALTER TABLE limit_holds ADD COLUMN account_to INTEGER",
 	// Per-person UI preferences that follow them across devices: theme,
 	// shortcuts, saved layouts, quick commands (docs/workspace.md).
 	`CREATE TABLE IF NOT EXISTS ui_prefs(

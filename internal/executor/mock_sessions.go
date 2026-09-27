@@ -292,8 +292,13 @@ func (m *Mock) ExitPaneAgent(sess string) {
 func (m *Mock) handleAgentProbe(cmd string) Result {
 	var b strings.Builder
 	enc := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	seen := map[string]bool{}
 	for _, match := range agentProbeRe.FindAllStringSubmatch(cmd, -1) {
 		name := match[1]
+		if seen[name] {
+			continue // one probe asks tmux about each pane several times
+		}
+		seen[name] = true
 		m.mu.Lock()
 		p, ok := m.panes[name]
 		var exited bool

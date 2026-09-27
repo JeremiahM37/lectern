@@ -24,7 +24,7 @@ import {
   unsplit, visiblePanes, type Edge, type PaneRef, type SavedLayout, type WorkspaceState,
 } from "./layout";
 import { checkPane, paneType, usePaneTypes, type PaneServices } from "./registry";
-import { chatRef, diffRef, installBuiltinPanes, paneSession, terminalRef } from "./builtin-panes";
+import { browserRef, chatRef, diffRef, installBuiltinPanes, paneSession, terminalRef } from "./builtin-panes";
 import { setFilesContext } from "./files-provider";
 import "./workspace.css";
 
@@ -488,6 +488,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
     "workspace.saveLayout": () => openLayouts(true),
     "workspace.layouts": () => openLayouts(false),
     "workspace.chatBeside": () => { if (session && active) controller.openPane(chatRef(session.id, session.name), { beside: active, edge: "right" }); else return false; },
+    "workspace.browserBeside": () => { if (session && active) controller.openPane(browserRef(session.id, session.name), { beside: active, edge: "right" }); else return false; },
     "workspace.diffBeside": () => { if (session && active) controller.openPane(diffRef(session.id, session.name), { beside: active, edge: "right" }); else return false; },
     ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`workspace.tab${n}`, () => {
       const target = n === 9 ? state.panes.at(-1) : state.panes[n - 1];
@@ -601,6 +602,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
             <button className="terminal-menu-close" role="menuitem" onClick={() => { if (active) controller.close(active); }}>{t("workspace.closeThisView")}</button>
             {session && activeRef?.kind !== "chat" && <button role="menuitem" onClick={() => active && controller.openPane(chatRef(session.id, session.name), { beside: active, edge: mobile ? "center" : "right" })}>{t("workspace.chatBeside")}</button>}
             {session && activeRef?.kind !== "diff" && <button role="menuitem" onClick={() => active && controller.openPane(diffRef(session.id, session.name), { beside: active, edge: mobile ? "center" : "right" })}>{t("workspace.diffBeside")}</button>}
+            {session && activeRef?.kind !== "browser" && <button role="menuitem" onClick={() => active && controller.openPane(browserRef(session.id, session.name), { beside: active, edge: mobile ? "center" : "right" })}>{t("workspace.browserBeside")}</button>}
             {!mobile && splitAvailable && <button role="menuitem" onClick={() => update((old) => splitGroup(old, "row"))}>{t("workspace.splitRight")}</button>}
             {!mobile && splitAvailable && <button role="menuitem" onClick={() => update((old) => splitGroup(old, "column"))}>{t("workspace.splitDown")}</button>}
             {!mobile && splitCount > 1 && <button role="menuitem" onClick={() => update((old) => toggleMaximize(old))}>{state.maximized ? t("workspace.restorePanes") : t("workspace.maximize")}</button>}

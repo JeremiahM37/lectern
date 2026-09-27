@@ -16,6 +16,7 @@ import { OutcomesPanel } from "./OutcomesPanel";
 import { BudgetsPanel } from "./BudgetsPanel";
 import { ModelPrices } from "./ModelPrices";
 import { LimitPolicyEditor } from "./LimitPolicy";
+import { AccountsPanel } from "./Accounts";
 import { LaunchProfiles } from "./LaunchProfiles";
 import { INSTRUCTIONS_HELP } from "./launchProfileForm";
 import { shortEndpoint, type PushSubscriptionInfo } from "../push";
@@ -260,6 +261,9 @@ export function Settings({
           <ModelPrices api={api} onNotice={onNotice} />
           <LimitPolicyEditor api={api} onNotice={onNotice} />
         </>
+      )}{" "}
+      {tab === "accounts" && (
+        <AccountsPanel api={api} targets={targets} onNotice={onNotice} onOpenTerminal={onOpenTerminal} />
       )}{" "}
       {tab === "appearance" && <AppearancePanel />}
       {tab === "workspace" && <WorkspacePanel projects={projects} />}
@@ -629,6 +633,7 @@ function ProjectCard({
     [checkStatus, setCheckStatus] = useState(""),
     [ciLoop, setCiLoop] = useState(Boolean(p.ci_loop)),
     [ciMax, setCiMax] = useState(p.ci_max_attempts || 3),
+    [computerUse, setComputerUse] = useState(Boolean(p.computer_use)),
     [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
   function loadCheckCommand() {
     api
@@ -872,6 +877,26 @@ function ProjectCard({
           />
         </label>
       )}
+      <label>
+        <input
+          type="checkbox"
+          aria-label="Let agents operate live desktops"
+          checked={computerUse}
+          onChange={(e) => {
+            const on = e.target.checked;
+            void api
+              .request(`/projects/${p.id}`, { method: "PATCH", body: { computer_use: on } })
+              .then(() => {
+                setComputerUse(on);
+                onNotice(on ? "Agents in this project may operate their live desktops" : "Computer use is off");
+              })
+              .catch((error) => onNotice(String(error), true));
+          }}
+        />{" "}
+        Let agents operate live desktops (computer use): screenshot, click and
+        type on a desktop their session started. The Browser pane shows when an
+        agent is in control and can stop it.
+      </label>
       <label>
         New worktree setup command
         <textarea aria-label="New worktree setup command" value={setup} onChange={(e) => setSetup(e.target.value)} />

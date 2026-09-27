@@ -21,6 +21,31 @@ type fakeDriver struct {
 	handoffs []string
 	inFlight bool
 	sendErr  error
+	// swaps records every account a session was moved to; db, when set,
+	// commits the swap the way the session manager does (the row names the
+	// new account). swapErr fails it before the commit.
+	swaps   []int64
+	db      *store.DB
+	swapErr error
+}
+
+func (f *fakeDriver) SwapAccount(_ context.Context, id, accountID int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.swaps = append(f.swaps, accountID)
+	if f.swapErr != nil {
+		return false, f.swapErr
+	}
+	if f.db != nil {
+		f.db.Update("sessions", id, map[string]any{"account_id": accountID})
+	}
+	return true, nil
+}
+
+func (f *fakeDriver) swapCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.swaps)
 }
 
 func (f *fakeDriver) SendNudge(_ context.Context, id int64, text string) error {

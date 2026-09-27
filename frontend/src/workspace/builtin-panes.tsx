@@ -1,8 +1,9 @@
-// The pane types the app ships: attached terminals, a session's chat, and a
-// session's working-tree changes. Other features register their own (see
+// The pane types the app ships: attached terminals, a session's chat, a
+// session's working-tree changes and its browser. Other features register their own (see
 // registry.tsx); nothing here is special to the layout.
 import { Conversation } from "../sessions/Conversation";
 import { Review } from "../terminal/Review";
+import { BrowserPane } from "../browser/BrowserPane";
 import { TerminalFrame, terminalPath } from "../terminal/TerminalTabs";
 import type { PaneRef } from "./layout";
 import { PaneEmbedContext, registerPaneType } from "./registry";
@@ -10,6 +11,7 @@ import { t } from "../i18n";
 
 export const terminalRef = (path: string, title: string): PaneRef => ({ id: path, kind: "terminal", title, params: { path } });
 export const chatRef = (session: number, title: string): PaneRef => ({ id: `chat:session:${session}`, kind: "chat", title: t("panes.chatTitle", { name: title }), params: { session: String(session) } });
+export const browserRef = (session: number, title: string): PaneRef => ({ id: `browser:session:${session}`, kind: "browser", title: t("panes.browserTitle", { name: title }), params: { session: String(session) } });
 export const diffRef = (session: number, title: string): PaneRef => ({ id: `diff:session:${session}`, kind: "diff", title: t("panes.diffTitle", { name: title }), params: { session: String(session) } });
 
 const sessionParam = (ref: PaneRef) => (/^[1-9]\d{0,12}$/.test(ref.params.session || "") ? Number(ref.params.session) : 0);
@@ -68,6 +70,16 @@ export function installBuiltinPanes() {
           />
         </PaneEmbedContext.Provider>
       );
+    },
+  });
+  registerPaneType({
+    kind: "browser",
+    label: "Browser",
+    icon: "◎",
+    check: (ref) => (sessionParam(ref) && ref.id === `browser:session:${sessionParam(ref)}` ? ref : null),
+    render: ({ pane, services, close }) => {
+      const id = sessionParam(pane);
+      return <BrowserPane api={services.api} sessionId={id} name={services.sessions.find((row) => row.id === id)?.name || pane.title} onClose={close} onNotice={services.notice} />;
     },
   });
   registerPaneType({
