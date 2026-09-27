@@ -446,6 +446,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/pr-description", s.taskPRDescription)
 	mux.HandleFunc("POST /api/sessions/{id}/review", s.reviewSession)
 	mux.HandleFunc("POST /api/tasks/{id}/review", s.reviewTask)
+	// Review workspace (docs/review.md): git status and index, commit flow,
+	// conflicts, image blobs, attribution, stored comments and viewed marks.
+	mux.HandleFunc("GET /api/sessions/{id}/git", s.gitStatus)
+	mux.HandleFunc("POST /api/sessions/{id}/git/hunk", s.gitHunk)
+	mux.HandleFunc("POST /api/sessions/{id}/git/commit", s.gitCommit)
+	mux.HandleFunc("POST /api/sessions/{id}/git/commit-message", s.gitCommitMessage)
+	mux.HandleFunc("POST /api/sessions/{id}/git/fix-hook", s.gitFixHook)
+	mux.HandleFunc("GET /api/sessions/{id}/git/conflicts", s.gitConflicts)
+	mux.HandleFunc("POST /api/sessions/{id}/git/resolve", s.gitResolve)
+	mux.HandleFunc("POST /api/sessions/{id}/git/abort", s.gitAbort)
+	mux.HandleFunc("GET /api/sessions/{id}/git/blob", s.gitBlob)
+	mux.HandleFunc("POST /api/sessions/{id}/git/{action}", s.gitIndexAction)
+	mux.HandleFunc("GET /api/sessions/{id}/attribution", s.sessionAttribution)
+	mux.HandleFunc("GET /api/sessions/{id}/review/state", s.reviewState)
+	mux.HandleFunc("POST /api/sessions/{id}/review/comments", s.addReviewComment)
+	mux.HandleFunc("PATCH /api/sessions/{id}/review/comments/{cid}", s.updateReviewComment)
+	mux.HandleFunc("DELETE /api/sessions/{id}/review/comments/{cid}", s.deleteReviewComment)
+	mux.HandleFunc("PUT /api/sessions/{id}/review/viewed", s.setReviewViewed)
 
 	// ---- checks: the project verify_cmd/auto-detected .verify.yaml run,
 	// triggered on an agent's Stop and shown on the session's card ----
