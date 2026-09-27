@@ -77,6 +77,6 @@ inside it.
 
 Still screenshots of the Tasks hub ([trackers.md](../trackers.md)) at 1440x900
 and 390x844 (2x): demo mode's scripted GitHub repository (`mock/repo`), plus a
-Linear and a Jira connection pointed at a small local stand-in API serving
+Linear, a Jira and an Azure DevOps connection pointed at a small local stand-in API serving
 made-up issues. Captured with headless Chromium through Playwright; nothing is
 edited.
