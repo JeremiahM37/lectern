@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS projects(
   -- docs/ci-loop.md); ci_max_attempts caps the fix requests per PR.
   ci_loop INTEGER NOT NULL DEFAULT 0,
   ci_max_attempts INTEGER NOT NULL DEFAULT 3,
+  -- computer_use lets this project's agents operate a live desktop
+  -- (docs/browser.md); off unless a person turns it on.
+  computer_use INTEGER NOT NULL DEFAULT 0,
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS tasks(
@@ -893,6 +896,8 @@ var migrations = []string{
 	// CI-aware PR loop (docs/ci-loop.md).
 	"ALTER TABLE projects ADD COLUMN ci_loop INTEGER NOT NULL DEFAULT 0",
 	"ALTER TABLE projects ADD COLUMN ci_max_attempts INTEGER NOT NULL DEFAULT 3",
+	// Computer use on a live desktop (docs/browser.md), off by default.
+	"ALTER TABLE projects ADD COLUMN computer_use INTEGER NOT NULL DEFAULT 0",
 	// How a session ended (store.Session.EndReason), so Restore can tell a
 	// session someone stopped from one that exited or was cut off by a restart.
 	"ALTER TABLE sessions ADD COLUMN end_reason TEXT NOT NULL DEFAULT ''",

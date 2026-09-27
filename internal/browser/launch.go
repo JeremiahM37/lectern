@@ -86,13 +86,24 @@ dir=$(mktemp -d /tmp/lectern-browser-XXXXXX) || { echo "ERROR could not create s
 chmod 700 "$dir"; printf %%s "$OWNER" >"$dir/owner"
 sandbox=""; [ "$(id -u)" = 0 ] && sandbox="--no-sandbox"
 headless="--headless=new"; case "$bin" in *headless_shell) headless="";; esac
-setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
-  --user-data-dir="$dir/profile" --no-first-run --no-default-browser-check --disable-extensions \
-  --disable-background-networking --disable-sync --mute-audio --hide-scrollbars \
-  --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
-echo $! >"$dir/browser.pid"
-i=0
-while [ ! -s "$dir/profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i+1)); done
+start() {
+  setsid nohup "$bin" $headless $sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 \
+    --user-data-dir="$dir/profile" --no-first-run --no-default-browser-check --disable-extensions \
+    --disable-background-networking --disable-sync --mute-audio --hide-scrollbars \
+    --window-size="$W,$H" %s about:blank >"$dir/browser.log" 2>&1 </dev/null &
+  echo $! >"$dir/browser.pid"
+  i=0
+  while [ ! -s "$dir/profile/DevToolsActivePort" ] && [ $i -lt 150 ]; do
+    sleep 0.1; i=$((i+1))
+    kill -0 "$(cat "$dir/browser.pid")" 2>/dev/null || break
+  done
+}
+start
+# Inside a container without user namespaces Chromium's own sandbox cannot
+# start. The browser still runs as this same unprivileged user.
+if [ ! -s "$dir/profile/DevToolsActivePort" ] && [ -z "$sandbox" ] && grep -qi sandbox "$dir/browser.log" 2>/dev/null; then
+  sandbox="--no-sandbox"; start
+fi
 if [ ! -s "$dir/profile/DevToolsActivePort" ]; then
   echo "ERROR the browser did not start: $(tail -n 2 "$dir/browser.log" 2>/dev/null | tr '\n' ' ')"; reap "$dir"; exit 0
 fi

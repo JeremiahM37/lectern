@@ -83,11 +83,13 @@ type Update struct {
 
 const logCap = 300
 
-// Browser is one browser with one page, driven over DevTools.
+// Browser is one page of a browser, driven over DevTools. The first page
+// owns the connection; NewPage opens more on it.
 type Browser struct {
 	conn     *Conn
 	page     string // flattened page session id
 	targetID string
+	owner    bool
 
 	mu        sync.Mutex
 	url       string
@@ -109,42 +111,67 @@ type Browser struct {
 
 // Open connects to a started browser and opens its page.
 func Open(ctx context.Context, dial Dial, proc *Process, vp Viewport) (*Browser, error) {
-	b := &Browser{refs: map[int]int64{}, frames: map[int]chan Frame{}, updates: map[int]chan Update{}, vp: vp.normal()}
-	conn, err := connect(ctx, dial, proc.Port, proc.Path, b.event)
+	conn, err := connect(ctx, dial, proc.Port, proc.Path)
 	if err != nil {
 		return nil, err
 	}
-	b.conn = conn
+	b, err := openPage(ctx, conn, vp)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	b.owner = true
+	return b, nil
+}
+
+// NewPage opens a separate page in the same browser, e.g. for a fresh render
+// that must not disturb the page someone is watching.
+func (b *Browser) NewPage(ctx context.Context, vp Viewport) (*Browser, error) {
+	return openPage(ctx, b.conn, vp)
+}
+
+func openPage(ctx context.Context, conn *Conn, vp Viewport) (*Browser, error) {
+	b := &Browser{conn: conn, refs: map[int]int64{}, frames: map[int]chan Frame{}, updates: map[int]chan Update{}, vp: vp.normal()}
 	var created struct {
 		TargetID string `json:"targetId"`
 	}
 	if err := conn.Call(ctx, "", "Target.createTarget", map[string]any{"url": "about:blank"}, &created); err != nil {
-		conn.Close()
 		return nil, err
 	}
 	var attached struct {
 		SessionID string `json:"sessionId"`
 	}
 	if err := conn.Call(ctx, "", "Target.attachToTarget", map[string]any{"targetId": created.TargetID, "flatten": true}, &attached); err != nil {
-		conn.Close()
 		return nil, err
 	}
 	b.page, b.targetID = attached.SessionID, created.TargetID
+	conn.handle(b.page, b.event)
+	fail := func(err error) (*Browser, error) {
+		b.Close()
+		return nil, err
+	}
 	for _, m := range []string{"Page.enable", "Runtime.enable", "Network.enable", "Log.enable", "DOM.enable"} {
 		if err := conn.Call(ctx, b.page, m, nil, nil); err != nil {
-			conn.Close()
-			return nil, err
+			return fail(err)
 		}
 	}
 	if err := b.applyViewport(ctx); err != nil {
-		conn.Close()
-		return nil, err
+		return fail(err)
 	}
 	return b, nil
 }
 
-// Close ends the DevTools connection.
-func (b *Browser) Close() { b.conn.Close() }
+// Close ends the page, and the connection if this page owns it.
+func (b *Browser) Close() {
+	b.conn.handle(b.page, nil)
+	if b.owner {
+		b.conn.Close()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = b.conn.Call(ctx, "", "Target.closeTarget", map[string]any{"targetId": b.targetID}, nil)
+}
 
 // Done is closed when the browser goes away.
 func (b *Browser) Done() <-chan struct{} { return b.conn.Done() }

@@ -56,23 +56,24 @@ type Event struct {
 }
 
 // Conn is one DevTools WebSocket to a browser. Commands are correlated by id;
-// events fan out to a single handler, which must not block for long.
+// events go to the handler of the page session they belong to, which must not
+// block for long.
 type Conn struct {
-	ws      *websocket.Conn
-	next    atomic.Int64
-	mu      sync.Mutex
-	pending map[int64]chan cdpMessage
-	onEvent func(Event)
-	closed  chan struct{}
-	err     error
-	once    sync.Once
+	ws       *websocket.Conn
+	next     atomic.Int64
+	mu       sync.Mutex
+	pending  map[int64]chan cdpMessage
+	handlers map[string]func(Event)
+	closed   chan struct{}
+	err      error
+	once     sync.Once
 }
 
 // ErrClosed means the browser connection is gone.
 var ErrClosed = errors.New("the browser has closed")
 
 // connect dials the browser-level DevTools endpoint at 127.0.0.1:port+path.
-func connect(ctx context.Context, dial Dial, port int, path string, onEvent func(Event)) (*Conn, error) {
+func connect(ctx context.Context, dial Dial, port int, path string) (*Conn, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx, addr) },
@@ -83,7 +84,7 @@ func connect(ctx context.Context, dial Dial, port int, path string, onEvent func
 	}
 	// Full-page screenshots and large DOM snapshots arrive as one message.
 	ws.SetReadLimit(64 << 20)
-	c := &Conn{ws: ws, pending: map[int64]chan cdpMessage{}, onEvent: onEvent, closed: make(chan struct{})}
+	c := &Conn{ws: ws, pending: map[int64]chan cdpMessage{}, handlers: map[string]func(Event){}, closed: make(chan struct{})}
 	go c.read()
 	return c, nil
 }
@@ -109,8 +110,13 @@ func (c *Conn) read() {
 			}
 			continue
 		}
-		if msg.Method != "" && c.onEvent != nil {
-			c.onEvent(Event{Method: msg.Method, Params: msg.Params, SessionID: msg.SessionID})
+		if msg.Method != "" {
+			c.mu.Lock()
+			h := c.handlers[msg.SessionID]
+			c.mu.Unlock()
+			if h != nil {
+				h(Event{Method: msg.Method, Params: msg.Params, SessionID: msg.SessionID})
+			}
 		}
 	}
 }
@@ -127,6 +133,16 @@ func (c *Conn) shutdown(err error) {
 		close(c.closed)
 		_ = c.ws.CloseNow()
 	})
+}
+
+func (c *Conn) handle(session string, h func(Event)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if h == nil {
+		delete(c.handlers, session)
+	} else {
+		c.handlers[session] = h
+	}
 }
 
 // Close ends the connection. The browser process is stopped separately.
