@@ -34,6 +34,9 @@ func cleanLog(raw string) string {
 		if parts := strings.SplitN(line, "\t", 3); len(parts) == 3 {
 			step, line = parts[1], parts[2]
 		}
+		// GitHub starts each step's log with a UTF-8 byte order mark, so the
+		// first line of every step has it in front of its timestamp.
+		line = strings.TrimPrefix(line, "\ufeff")
 		line = timestampRe.ReplaceAllString(line, "")
 		if strings.HasPrefix(line, "##[group]") || strings.HasPrefix(line, "##[endgroup]") {
 			continue
