@@ -18,6 +18,17 @@ export interface KeyPair {
   publicKey: Uint8Array;
 }
 
+/** A static key whose private half is held elsewhere (the Android app keeps
+ * it in Keystore) and is only ever used through its DH function. */
+export interface StaticKey {
+  publicKey: Uint8Array;
+  dh(peer: Uint8Array): Uint8Array;
+}
+
+export function staticKey(keys: KeyPair): StaticKey {
+  return { publicKey: keys.publicKey, dh: (peer) => dh(keys.secretKey, peer) };
+}
+
 export function generateKeyPair(): KeyPair {
   const secretKey = x25519.utils.randomSecretKey();
   return { secretKey, publicKey: x25519.getPublicKey(secretKey) };
@@ -37,12 +48,15 @@ function concat(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function dh(secret: Uint8Array, pub: Uint8Array): Uint8Array {
-  const shared = x25519.getSharedSecret(secret, pub);
-  // A low-order public key gives an all-zero result; refuse it like the Go
-  // side does.
-  if (shared.every((b) => b === 0)) throw new Error("noise: invalid public key");
+// A low-order public key gives an all-zero result; refuse it like the Go
+// side does, whoever computed it.
+function checked(shared: Uint8Array): Uint8Array {
+  if (shared.length !== DHLEN || shared.every((b) => b === 0)) throw new Error("noise: invalid public key");
   return shared;
+}
+
+function dh(secret: Uint8Array, pub: Uint8Array): Uint8Array {
+  return checked(x25519.getSharedSecret(secret, pub));
 }
 
 function hkdf2(ck: Uint8Array, ikm: Uint8Array): [Uint8Array, Uint8Array] {
@@ -149,13 +163,16 @@ export class Initiator {
   private readonly e: KeyPair;
   private written = false;
 
+  private readonly s: StaticKey;
+
   constructor(
-    private readonly s: KeyPair,
+    s: KeyPair | StaticKey,
     private readonly rs: Uint8Array,
     prologue: Uint8Array,
     ephemeral?: KeyPair, // tests pin it to reproduce vectors
   ) {
     if (rs.length !== DHLEN) throw new Error("noise: host key must be 32 bytes");
+    this.s = "dh" in s ? s : staticKey(s);
     this.e = ephemeral ?? generateKeyPair();
     this.ss.mixHash(prologue);
     this.ss.mixHash(rs); // pre-message: <- s
@@ -169,7 +186,7 @@ export class Initiator {
     ss.mixHash(this.e.publicKey);
     ss.mixKey(dh(this.e.secretKey, this.rs));
     const encS = ss.encryptAndHash(this.s.publicKey);
-    ss.mixKey(dh(this.s.secretKey, this.rs));
+    ss.mixKey(checked(this.s.dh(this.rs)));
     const encPayload = ss.encryptAndHash(payload);
     return concat(this.e.publicKey, encS, encPayload);
   }
@@ -182,7 +199,7 @@ export class Initiator {
     const re = message.slice(0, DHLEN);
     ss.mixHash(re);
     ss.mixKey(dh(this.e.secretKey, re));
-    ss.mixKey(dh(this.s.secretKey, re));
+    ss.mixKey(checked(this.s.dh(re)));
     let payload: Uint8Array;
     try {
       payload = ss.decryptAndHash(message.slice(DHLEN));

@@ -5,6 +5,7 @@
 // /pair needs no server-side route of its own). Deliberately minimal: no
 // board, no SSE, no other API calls before the exchange succeeds.
 import { useEffect, useState } from "react";
+import { nativeBridge } from "../native/bridge";
 
 // Pure logic, deliberately free of any live window/navigator access beyond
 // an explicit string argument — same split push.ts uses for its own
@@ -56,8 +57,12 @@ export default function Pair() {
           name: name.trim(),
         }),
       });
-      const body = (await response.json().catch(() => ({}))) as { detail?: string };
+      const body = (await response.json().catch(() => ({}))) as { detail?: string; token?: string };
       if (!response.ok) throw new Error(body.detail || `Pairing failed (${response.status})`);
+      // The Android app keeps the device token itself (encrypted with a
+      // Keystore key) so its background notification actions can use it,
+      // and hands it to the WebView as a cookie (docs/android.md).
+      if (body.token) nativeBridge()?.saveDeviceToken(body.token);
       // A non-secret marker, NOT the credential itself (that's the HttpOnly
       // cookie the exchange just set) — App.tsx's onUnauthorized reads this
       // to tell "this browser was paired and its device was revoked" (go

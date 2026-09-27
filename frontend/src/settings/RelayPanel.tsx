@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SettingsApi } from "./Settings";
 import { formatAgo } from "./ConnectTools";
 import { QRCode } from "../pairing/QRCode";
+import { inApp } from "../native/bridge";
 import { forgetPairing, preferDirect, relayFlagged, setPreferDirect } from "../relay/store";
 
 // Settings → Devices → Encrypted relay (docs/relay.md). The server half is
@@ -65,10 +66,10 @@ function ThisDevice() {
           ? "Paired over the relay, but set to connect directly."
           : `Connected through the encrypted relay: ${tunnel?.status ?? "starting"}${tunnel?.detail ? ` — ${tunnel.detail}` : ""}`}
       </p>
-      <label className="devices-toggle">
+      {!inApp() && <label className="devices-toggle">
         <input type="checkbox" checked={direct} onChange={(e) => { setPreferDirect(e.target.checked); window.location.reload(); }} />
         Connect directly instead of through the relay
-      </label>
+      </label>}
       <button className="b" onClick={() => void forget()}>Forget this pairing</button>
     </div>
   );
