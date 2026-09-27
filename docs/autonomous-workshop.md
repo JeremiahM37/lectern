@@ -436,3 +436,20 @@ read-only reconciliation can run while autonomous mode is OFF without model
 tokens; this does not reauthorize the original apply generation. Installation
 and rollback verification must include the inspector helper's prior presence
 or absence, permissions and hash.
+
+### Worker browser capacity
+
+Workers allow 512 tasks (processes and threads combined), with the existing
+4 GiB memory limit, no swap, two-CPU quota, 30-minute deadline and bounded
+storage unchanged. Agent and tool-host threads consume this same allowance:
+a measured worker used 66 threads before its browser workload. The former
+256-task limit caused Playwright process creation and Chromium thread creation
+to fail with `EAGAIN`.
+
+A disposable offline comparison with 66 resident baseline threads and three
+simultaneous Chromium trees, each with three live pages, failed at 256 tasks
+and passed navigation, click and screenshot checks at 512 (444 tasks observed in the final comparison).
+This provides browser headroom without removing the task bound. It does not
+establish the cause of an earlier code-mode orchestration stall, and does not
+turn application assertion failures into infrastructure successes. Higher
+browser concurrency still needs its own bounded capacity measurement.

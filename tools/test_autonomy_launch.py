@@ -28,6 +28,17 @@ class LaunchTests(unittest.TestCase):
   state='active' if self.active else 'inactive'
   out=state+'\n' if '--value' in args else 'ActiveState='+state+'\nExecMainStatus=0\nResult=success\n'
   return SimpleNamespace(stdout=out,returncode=0)
+ def test_worker_browser_headroom_preserves_other_resource_bounds(self):
+  # Agent/code-mode threads share this cgroup with browsers and their drivers.
+  with patch.object(r,'addresses',return_value=['127.0.0.2/32']):
+   props=dict(value.split('=',1) for value in r.properties())
+  self.assertEqual(props['TasksMax'],'512')
+  self.assertEqual({key:props[key] for key in ('MemoryMax','MemorySwapMax','CPUQuota','RuntimeMaxSec','LimitFSIZE','KillMode','TimeoutStopSec')},
+                   {'MemoryMax':'4G','MemorySwapMax':'0','CPUQuota':'200%','RuntimeMaxSec':'1800','LimitFSIZE':'268435456','KillMode':'control-group','TimeoutStopSec':'10s'})
+  self.assertEqual(props['NoNewPrivileges'],'yes')
+  self.assertEqual(props['ProtectControlGroups'],'yes')
+  self.assertEqual(props['IPAddressDeny'],'127.0.0.2/32')
+
  def test_silent_live_worker_remains_running_until_existing_deadline(self):
   output=self.p/'output.jsonl';output.write_text('completed old tool\n')
   os.utime(output,(1,1));self.active=True

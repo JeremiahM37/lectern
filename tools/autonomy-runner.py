@@ -277,7 +277,7 @@ def addresses():
 def properties():
     return ['Type=exec', 'KillMode=control-group', 'TimeoutStopSec=10s',
             'RuntimeMaxSec=1800', 'MemoryMax=4G', 'MemorySwapMax=0', 'CPUQuota=200%',
-            'TasksMax=256', 'NoNewPrivileges=yes', 'RestrictSUIDSGID=yes',
+            'TasksMax=512', 'NoNewPrivileges=yes', 'RestrictSUIDSGID=yes',
             'ProtectControlGroups=yes', 'ProtectKernelModules=yes',
             'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK',
             'IPAddressDeny=' + ' '.join(addresses()), 'UMask=0077',
