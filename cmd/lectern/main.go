@@ -61,6 +61,29 @@ var reservedVerbs = map[string]bool{
 	"supervise": true, "status": true, "stop": true,
 }
 
+// routesToServer reports whether args name a command that talks to a server
+// through the explicit-API-or-local-runtime dispatch below.
+func routesToServer(args []string, interactive bool) bool {
+	if len(args) == 0 {
+		return interactive
+	}
+	arg := args[0]
+	switch {
+	case arg == "help" || arg == "--help" || arg == "-h":
+		return false
+	case arg == "plugin" && len(args) > 1 && (args[1] == "new" || args[1] == "validate"):
+		return false
+	case arg == "mcp":
+		return !hasFlag(args[1:], "--http")
+	case arg == "attach" || clientVerbs[arg] || agentQuickVerbs[arg]:
+		return true
+	case reservedVerbs[arg] || strings.HasPrefix(arg, "-") || arg == "recovery-checkpoint":
+		return false
+	}
+	// An unknown word may be a custom agent (main's default case).
+	return true
+}
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "autonomy-overlay" || os.Args[1] == "autonomy-overlay-inspect") {
 		os.Exit(autonomyOverlayCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
@@ -101,6 +124,12 @@ func main() {
 		}
 	}
 	explicitRemote := strings.TrimSpace(os.Getenv("LECTERN_API")) != ""
+	// With no LECTERN_API, a Lectern service on this machine comes before the
+	// private local runtime (cmd/lectern/server_choice.go). `lectern local …`
+	// never asks.
+	if !explicitRemote && routesToServer(os.Args[1:], interactiveTerminal()) {
+		explicitRemote = useHostedService(cfg, len(os.Args) > 1 && os.Args[1] == "mcp")
+	}
 	if len(os.Args) == 1 && interactiveTerminal() {
 		var err error
 		if explicitRemote {

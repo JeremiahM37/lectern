@@ -21,8 +21,10 @@ Session #14 "lectern · one-command" — also on your phone at http://127.0.0.1:
 ```
 
 Run it in any folder. It starts (or reuses) Lectern exactly like every other
-client command — an explicit `LECTERN_API`/`LECTERN_AUTH_TOKEN`, or otherwise
-the private local runtime, started automatically if it isn't already up — then:
+client command — an explicit `LECTERN_API`/`LECTERN_AUTH_TOKEN`, else a
+Lectern service running on this machine, else the private local runtime,
+started automatically if it isn't already up (see
+[Which server](#which-server)) — then:
 
 - Creates a session for `agent=claude` (or `codex`) and `workdir=$PWD`.
 - Names it after the folder, plus the checked-out git branch when there is
@@ -454,6 +456,20 @@ exist. The Linux installer sets the URL and alias in its launcher.
 Inside an existing tmux workspace, native attachment opens a full-size popup
 (tmux 3.2 or newer). The attachment owns its keyboard input; Ctrl-b d closes it
 and returns to the same dashboard selection without detaching the outer workspace.
+
+## Which server
+
+With `LECTERN_API` set, every client command uses that server. Without it, a
+command uses the Lectern service running on this machine when one answers on
+`127.0.0.1` at `LECTERN_PORT` (default 9110), and the private local runtime
+otherwise; see [local.md](local.md) for the details. `lectern local COMMAND`
+always uses the private runtime. `lectern doctor` prints the choice on its
+`server` line, and an interactive command prints one line when both are
+running:
+
+```
+lectern: using the Lectern service on :9110; `lectern local …` uses your private runtime
+```
 
 ## Review live code changes
 

@@ -23,8 +23,10 @@ import (
 const doctorHelp = `lectern doctor — checks the things a working install needs.
 
 Reports on tmux, git, agent CLIs and their credentials, the configured port,
-the resolved auth mode, TLS, push notification keys, and whether a running
-instance answers its own health check — with a suggested fix for anything
+the resolved auth mode, TLS, which server plain commands use (a Lectern
+service on this machine or the private local runtime, and whether that
+runtime is older than this binary), push notification keys, and whether that
+server answers its own health check — with a suggested fix for anything
 that's missing. Exits non-zero if something needs attention.
 `
 
@@ -162,9 +164,15 @@ func doctorCommand(cfg *config.Config, args []string) error {
 		checks = append(checks, skip("TLS", "not applicable — auth mode is "+string(resolver.Mode)))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	base, token := liveEndpoint(ctx, cfg)
+	explicit := os.Getenv("LECTERN_API")
+	var choice serverChoice
+	if explicit == "" {
+		choice = chooseServer(ctx, cfg)
+	}
+	checks = append(checks, serverChecks(explicit, choice, localStatus(ctx))...)
+	base, token := liveEndpoint(ctx, cfg, choice)
 	if base == "" {
 		checks = append(checks, skip("push keys", "no running instance found — `lectern up` provisions them on first start"))
 		checks = append(checks, skip("hook reachability", "no running instance found — start one with `lectern up` or `lectern serve`"))
@@ -197,15 +205,72 @@ func envOrAuto(mode string) string {
 	return mode
 }
 
-// liveEndpoint finds something to run the live checks against: an explicit
-// remote server, or an already-running local runtime. It never starts one —
-// doctor diagnoses, it doesn't launch background processes.
-func liveEndpoint(ctx context.Context, cfg *config.Config) (base, token string) {
+// liveEndpoint finds something to run the live checks against: the server
+// plain client commands would use — an explicit LECTERN_API, a Lectern
+// service on this machine, or an already-running local runtime. It never
+// starts one; doctor diagnoses, it doesn't launch background processes.
+func liveEndpoint(ctx context.Context, cfg *config.Config, choice serverChoice) (base, token string) {
 	if v := os.Getenv("LECTERN_API"); v != "" {
 		return v, cfg.AuthToken
+	}
+	if choice.Hosted != nil {
+		return choice.Hosted.URL, cfg.AuthToken
 	}
 	if ep, ok := localruntime.Peek(ctx); ok {
 		return ep.URL, ep.Token
 	}
 	return "", ""
+}
+
+func localStatus(ctx context.Context) localruntime.Status {
+	status, err := localruntime.StatusOf(ctx)
+	if err != nil {
+		return localruntime.Status{State: "unknown", Detail: err.Error()}
+	}
+	return status
+}
+
+// serverChecks reports which server plain `lectern` commands reach and the
+// state of the private local runtime. Pure, for tests.
+func serverChecks(explicit string, choice serverChoice, local localruntime.Status) []doctorCheck {
+	var out []doctorCheck
+	localChosen := false
+	switch {
+	case explicit != "":
+		out = append(out, check("server", true, "LECTERN_API="+explicit+" — plain `lectern` commands use it; `lectern local …` uses your private runtime", ""))
+	case choice.Hosted != nil:
+		out = append(out, check("server", true, fmt.Sprintf("Lectern service at %s (%s) — plain `lectern` commands use it; `lectern local …` uses your private runtime", choice.Hosted.URL, choice.Hosted.Version), ""))
+	case choice.RefusedService != nil:
+		localChosen = true
+		out = append(out, check("server", false, fmt.Sprintf("Lectern service at %s refused this CLI, so plain `lectern` commands use your private runtime", choice.RefusedService.URL),
+			"set LECTERN_AUTH_TOKEN to the service's token (or LECTERN_API to its URL)"))
+	case choice.InLocalSession:
+		localChosen = true
+		out = append(out, check("server", true, "private local runtime — this shell runs inside one of its sessions", ""))
+	default:
+		localChosen = true
+		out = append(out, check("server", true, "private local runtime — no Lectern service answers on this machine", ""))
+	}
+	switch local.State {
+	case "running":
+		detail := fmt.Sprintf("running %s", local.Version)
+		if local.Endpoint != nil {
+			detail += " at " + local.Endpoint.URL
+		}
+		if local.Outdated {
+			if localChosen {
+				out = append(out, check("local runtime", false, detail+" — older than this CLI ("+local.CLIVersion+")",
+					"run `lectern local stop` (refused while tasks are active); the next local command starts this build"))
+			} else {
+				out = append(out, skip("local runtime", detail+" — older than this CLI ("+local.CLIVersion+"); `lectern local stop` retires it"))
+			}
+		} else {
+			out = append(out, check("local runtime", true, detail, ""))
+		}
+	case "stopped":
+		out = append(out, skip("local runtime", "not running — the first local command starts it"))
+	default:
+		out = append(out, skip("local runtime", local.State+": "+local.Detail))
+	}
+	return out
 }

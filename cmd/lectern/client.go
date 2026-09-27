@@ -128,6 +128,7 @@ const clientHelp = `Lectern — web and terminal control
   lectern doctor                  Check tmux/git/agents/auth/TLS/push/hooks; print fixes
   lectern local                   Start/use a private local runtime, then open the dashboard
   lectern local status            Show local runtime status without starting it
+                                    (says when it is older than this CLI)
   lectern local stop              Stop the local runtime (active tasks are refused)
   lectern serve                   Start the control-plane server
   lectern console                 Live terminal dashboard (also: tui)
@@ -202,8 +203,10 @@ LECTERN_API selects an explicit hosted server URL.
 LECTERN_AUTH_TOKEN supplies bearer authentication.
 LECTERN_ATTACH_HOST sets an SSH alias for native attachment to a remote server.
 All web operations use this same API. See docs/terminal-client.md for the catalog.
-With no LECTERN_API, client commands use the private local runtime automatically.
-lectern local [COMMAND ...] forces those existing Lectern commands to use this machine.
+With no LECTERN_API, client commands use a Lectern service running on this
+machine (127.0.0.1 on LECTERN_PORT, default 9110) when one answers, and the
+private local runtime otherwise; lectern doctor shows which.
+lectern local [COMMAND ...] forces those existing Lectern commands onto the private runtime.
 `
 
 // liveCommand opens a desktop or forwards a port. Inside a Lectern session it

@@ -53,6 +53,33 @@ type Status struct {
 	Detail   string       `json:"detail,omitempty"`
 	Version  string       `json:"version,omitempty"`
 	Build    version.Info `json:"build,omitempty"`
+	// CLIVersion is the binary asking; Outdated says the running runtime is
+	// an older build than it. A running runtime is reused whatever its
+	// version, so this is how a stale one becomes visible.
+	CLIVersion string `json:"cli_version,omitempty"`
+	Outdated   bool   `json:"outdated,omitempty"`
+}
+
+// OutdatedNote explains a running runtime that is older than this binary, or
+// returns "" when it is not (or the builds cannot be ordered). Nothing stops
+// the old runtime automatically: it may be running sessions.
+func OutdatedNote(runtime version.Info) string {
+	cli := version.Current()
+	if older, known := version.Older(runtime, cli); !known || !older {
+		return ""
+	}
+	return fmt.Sprintf("local runtime %s is older than this CLI (%s); run `lectern local stop` (refused while tasks are active) and the next local command starts this build",
+		runtime.Version, cli.Version)
+}
+
+// TmuxDir is the private tmux directory the local runtime's sessions use.
+// A process whose TMUX_TMPDIR is this directory runs inside one of them.
+func TmuxDir() (string, error) {
+	dir, err := stateDir(false)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tmux"), nil
 }
 
 func StateDir() (string, error) {
@@ -461,7 +488,10 @@ func StatusOf(ctx context.Context) (Status, error) {
 		return Status{State: "stale", Detail: err.Error()}, nil
 	}
 	if healthy, ok := healthyEndpoint(ctx, dir); ok {
-		status := Status{State: "running", Endpoint: publicEndpoint(healthy), Version: healthy.Build.Version, Build: healthy.Build}
+		status := Status{State: "running", Endpoint: publicEndpoint(healthy), Version: healthy.Build.Version, Build: healthy.Build, CLIVersion: version.Version}
+		if note := OutdatedNote(healthy.Build); note != "" {
+			status.Outdated, status.Detail = true, note
+		}
 		if health, err := getHealth(ctx, healthy); err == nil {
 			status.Health = health
 		}
