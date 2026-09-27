@@ -128,6 +128,19 @@ query strings are refused. Workers cannot install packages over the network.
 A separate fixed provisioner now supplies verified offline Go module bundles;
 failed prerequisites retain their admitted assignments for bounded automatic
 recovery while other work proceeds. See `/requirements` for the recorded state.
+Go workers freeze the verified module bundle and the complete installed Go toolchain
+before model execution. Independent integration checks and reviewers retain those
+exact content identities even when the host toolchain changes. Tests use offline
+module resolution and a writable scratch copy; they cannot fetch missing packages.
+For historical expert sources without delivery evidence, submitting an expert
+probe automatically starts a bounded, archive-bound runtime preflight. A pending
+response requires polling and retrying the probe submission. Its receipt labels
+the selection as a new experiment, not proof of the historical worker's runtime.
+A `go_runtime` entry in `/requirements` records pre-execution missing or corrupt
+runtime files. The controller retains the assignment and automatically revalidates
+the exact selected bytes before a fresh worker UUID can resume; it never silently
+substitutes the current compiler. Source changes needing different dependencies
+remain a distinct prerequisite, not permission to alter a pinned test environment.
 See isolation documentation for the remaining model-provider trust boundary.
 
 Workers can discover registered provisioners through the read-only
@@ -328,3 +341,128 @@ Research document reads buffer at most 2 MiB plus one detection byte before resp
 ### Interrupted worker launch
 
 A runner-owned per-job lock serializes launch and Stop. A durable start-intent marker precedes startup mutations. `launch-state` distinguishes an unused job, a launcher still holding its lock, a running unit, and a consumed terminal launch (including legacy partial assets). The controller reconciles persisted `starting` jobs before calling start again: live launches are retained, while consumed launches pass through the existing evidence export and operational recovery path into a fresh UUID with the same task, admission, audits and repair-attempt identity. Missing units or observation timeouts alone never authorize duplicate starts. Invalid launch receipts fail closed. Stop waits for an in-flight launch and records a marker that prevents a subsequent delayed start.
+
+### Recovery after ordinary repairs are exhausted
+
+`/capabilities` advertises `expert_recovery_investigation` when its trusted runner
+and helper are installed. The current planner can pin an independently rejected
+checkpoint through `POST /expert-recovery` with `project_id` and `source_task_id`.
+The resulting catalog preserves the original acceptance, selected checkpoint,
+archive identities and previous attempts. A proposal selects that pin using
+`expert_recovery_task_id` and `expert_progress_key`.
+
+Both assigned plan auditors independently investigate through `POST /expert-probes`.
+They supply a Python script, optional base64 fixtures and arguments; the controller
+supplies source, runtime and ownership. The `ordinary180` profile runs offline for
+at most 180 seconds against immutable source with bounded scratch and output.
+`GET /expert-probes` lists only that auditor's probes, including evidence inherited
+after a same-assignment report correction. Polling `GET /expert-probes?id=ID`
+records the trusted execution receipt. Polling never launches another process.
+
+Receipts prove what was mounted and executed, not that the script exercised the
+right code or demonstrated causality. Both auditors must connect new evidence to
+a materially different repair strategy and a concrete stopping criterion.
+Timeouts, cancellation, truncated output and unexecuted requests cannot serve as
+successful progress evidence. Unchanged conditions stay ineligible despite new
+titles, elapsed cooldowns or altered logs. Investigation and build/review costs
+remain bounded across process retries. An approved scope stays closed; a later
+independently rejected descendant milestone must establish its ancestry, changed
+acceptance and fresh evidence before qualifying.
+
+Expert workspace setup and retry copies run asynchronously with persisted owners.
+Cancellation generations prevent delayed old requests from starting after OFF;
+an enabled, quota-admitted resume can authorize a new generation for the retained
+destination. Report corrections preserve the malformed report and previous evidence.
+Once report validation succeeds, its current error is cleared without resetting
+the cumulative correction allowance. Resume prompts start from the original
+database assignment rather than accumulating obsolete correction instructions.
+
+These mechanisms authorize bounded private investigation and reviewed repairs.
+They do not authorize publication, change the quota reserve, approve their own
+results, or prove that the workshop operates indefinitely without intervention.
+
+## Registered server observations and maintenance
+
+`GET /server-targets` on the worker bridge discovers the installed, root-owned
+registry. `POST /server-observations` accepts only a registered `target_id`; poll
+the returned ID with `GET /server-observations?id=ID`. Receipts contain bounded
+service, storage, resource and file-identity observations. They do not expose
+file contents, credentials or an arbitrary host command interface. A service's
+cgroup usage includes its descendants; it is not the main process's RSS.
+Unavailable facts and successful backup-unit exits are not health or restore
+proofs.
+
+The initial maintenance operation adjusts typed CPU, memory and task limits for
+an explicitly registered stateless service. A planner must first obtain a fresh
+observation and propose a concrete useful change with measurable acceptance.
+The controller pins the configuration, limits and acceptance before two plan
+audits. An independent reviewer requests the fixed disposable execution profile
+through `POST /maintenance-validation` with the admitted `pin_sha256`, then polls
+its returned ID. Candidate approval requires both the actual executed validation
+and the exact archived reviewer report. It is distinct from deployment.
+
+The controller owns subsequent backup, verified offbox restore, fresh observation,
+apply and health checks. Immutable requests and receipts survive model completion,
+report correction and controller restart. Temporary pre-effect failures can retry
+with backoff under the same operation; a failed applied candidate cannot obtain a
+new attempt by changing its UUID. OFF prevents new effects and continues owned
+recovery. A stopped process alone is insufficient proof that no effect occurred.
+Previously committed, verified changes remain in place when OFF is selected.
+External configuration changes are preserved and surfaced as conflicts.
+
+Helpers and registry must be installed deliberately; their presence alone does
+not enable every service. The current fixed health profile samples the registered
+sensor HTTP and metrics endpoints and effective service limits. It does not claim
+a sensor-source timestamp or arbitrary application correctness. Public publication,
+protected control/session services, arbitrary shell execution, and autonomy-policy
+changes remain outside this capability. See the `autonomy-server-operations.py`
+and `autonomy-server-maintenance.py` helpers for the exact registry and profile
+schemas.
+
+Maintenance regressions run in the regular verification suite. The opt-in real
+controller fixture requires `LECTERN_MAINTENANCE_REAL_FIXTURE`; it is excluded
+from normal test runs and must use a disposable registered service and separate
+controller state. A successful fixture proves the exercised execution and recovery
+paths, not spontaneous task selection or sustained autonomous usefulness.
+
+### Read-only resolution of an external maintenance conflict
+
+The fixed inspector is installed root-owned at
+`/usr/local/libexec/lectern-autonomy-server-maintenance-inspect.py`, alongside
+the maintenance executor and server observer. It freezes its executable set
+separately for each inspection so an existing operation's original effect
+journal and executable identity remain unchanged. Its registry must match the
+operation's frozen registry exactly; it never remaps a changed service target.
+
+An inspection of a retained `rollback_conflict` only reads registered service
+configuration, invocation identity and the fixed JSON/metrics health profile.
+It brackets three healthy observations with matching configuration and process
+invocation captures, requires the service to be active/running, and refuses to
+call the operation's still-owned candidate an external generation. It does not
+write service files, restart a unit, restore a backup or approve original work.
+The controller may record a healthy external generation as superseding the old
+conflict; only a separately audited new plan can authorize another mutation.
+
+Inspection IDs are immutable: completed or interrupted evidence is retained,
+and a new bounded inspection is needed to retry unavailable health. The fixed
+read-only reconciliation can run while autonomous mode is OFF without model
+tokens; this does not reauthorize the original apply generation. Installation
+and rollback verification must include the inspector helper's prior presence
+or absence, permissions and hash.
+
+### Worker browser capacity
+
+Workers allow 512 tasks (processes and threads combined), with the existing
+4 GiB memory limit, no swap, two-CPU quota, 30-minute deadline and bounded
+storage unchanged. Agent and tool-host threads consume this same allowance:
+a measured worker used 66 threads before its browser workload. The former
+256-task limit caused Playwright process creation and Chromium thread creation
+to fail with `EAGAIN`.
+
+A disposable offline comparison with 66 resident baseline threads and three
+simultaneous Chromium trees, each with three live pages, failed at 256 tasks
+and passed navigation, click and screenshot checks at 512 (444 tasks observed in the final comparison).
+This provides browser headroom without removing the task bound. It does not
+establish the cause of an earlier code-mode orchestration stall, and does not
+turn application assertion failures into infrastructure successes. Higher
+browser concurrency still needs its own bounded capacity measurement.

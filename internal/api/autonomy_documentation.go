@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/JeremiahM37/lectern/v2/internal/autonomy"
@@ -101,6 +102,12 @@ func (s *Server) autoDocumentationSource(a *autoRecord, p autonomy.Proposal) (*a
 	j, e := s.autoContinuation(a, p.ProjectID, p.DocumentationTaskID)
 	if e != nil {
 		return bad(e)
+	}
+	if j.PrivateIntegrationAttempt > 0 {
+		return bad(errors.New("private integration cannot acquire documentary allowance"))
+	}
+	if j.ExpertRecoveryRoot > 0 {
+		return bad(errors.New("expert recovery lineage cannot acquire documentary allowance"))
 	}
 	if j.DocumentationRoot > 0 {
 		return bad(errors.New("documentary completion cannot complete another completion"))
@@ -269,12 +276,21 @@ func (s *Server) finishAutoDocumentation(ctx context.Context, a *autoRecord, j *
 }
 
 type autoDocumentationCopy struct {
-	Command   string `json:"command"`
-	SourceJob string `json:"source_job"`
-	SHA       string `json:"sha256"`
+	Generation      int    `json:"copy_generation,omitempty"`
+	CancelRequested bool   `json:"cancel_requested,omitempty"`
+	Command         string `json:"command"`
+	SourceJob       string `json:"source_job"`
+	SHA             string `json:"sha256"`
 }
 
 func (s *Server) copyAutoPromoted(ctx context.Context, dest string, j *autoJob) (*autoDocumentationCopy, error) {
+	if j.ExpertRecoveryRoot > 0 {
+		sha, err := s.autoArchiveIdentity(ctx, j)
+		if err != nil {
+			return nil, err
+		}
+		return &autoDocumentationCopy{Command: "copy-archive-work", SourceJob: j.ID, SHA: sha}, nil
+	}
 	if j.DocumentationRoot > 0 {
 		if j.Documentation == nil || j.Documentation.State != "ready" || !autoHash256(j.Documentation.DerivedSHA) {
 			return nil, errors.New("verified documentary artifact unavailable")
@@ -285,20 +301,44 @@ func (s *Server) copyAutoPromoted(ctx context.Context, dest string, j *autoJob) 
 	return nil, e
 }
 func (s *Server) pollAutoDocumentationCopies(ctx context.Context, a *autoRecord, j *autoJob) (bool, error) {
+	for i := range j.DocumentationCopies {
+		copy := &j.DocumentationCopies[i]
+		if !autoProgressCopy(*copy) {
+			continue
+		}
+		if copy.Generation == 0 {
+			copy.Generation = 1
+		}
+		if copy.CancelRequested && !j.DocumentationStopped {
+			if err := s.stopAutoProgressCopies(ctx, a, j); err != nil {
+				a.Reason = err.Error()
+				return false, nil
+			}
+		}
+		if j.DocumentationStopped {
+			copy.Generation++
+			copy.CancelRequested = false
+		}
+	}
 	j.DocumentationStopped = false
 	if err := s.saveAuto(a); err != nil {
 		return false, err
 	}
 	for len(j.DocumentationCopies) > 0 {
 		copy := j.DocumentationCopies[0]
-		if copy.Command != "copy-derived" && copy.Command != "copy-archive-review" && copy.Command != "completion-resume" {
+		if copy.Command != "copy-archive-resume" && copy.Command != "copy-archive-work" && copy.Command != "copy-derived-review" && copy.Command != "copy-derived" && copy.Command != "copy-archive-review" && copy.Command != "completion-resume" {
 			return false, errors.New("invalid documentary copy operation")
 		}
-		raw, e := s.runAutoCommand(ctx, copy.Command, "--job", j.ID, "--from-job", copy.SourceJob)
+		args := []string{copy.Command, "--job", j.ID, "--from-job", copy.SourceJob}
+		if autoProgressCopy(copy) {
+			args = append(args, "--copy-generation", fmt.Sprint(copy.Generation))
+		}
+		raw, e := s.runAutoCommand(ctx, args...)
 		if e != nil {
 			return false, e
 		}
 		var receipt struct {
+			Generation int    `json:"copy_generation"`
 			State      string `json:"state"`
 			Reason     string `json:"reason"`
 			SHA        string `json:"source_archive_sha256"`
@@ -307,13 +347,16 @@ func (s *Server) pollAutoDocumentationCopies(ctx context.Context, a *autoRecord,
 		if json.Unmarshal(raw, &receipt) != nil {
 			return false, errors.New("invalid documentary copy receipt")
 		}
-		if receipt.State == "copying" || receipt.State == "waiting" {
+		if autoProgressCopy(copy) && receipt.Generation != copy.Generation {
+			return false, errors.New("expert copy generation mismatch")
+		}
+		if receipt.State == "copying" || receipt.State == "waiting" || receipt.State == "preparing" {
 			a.Status = "copying_documentation_evidence"
 			a.Reason = receipt.Reason
 			return false, nil
 		}
 		actual := receipt.SHA
-		if copy.Command == "copy-derived" {
+		if copy.Command == "copy-derived" || copy.Command == "copy-derived-review" {
 			actual = receipt.DerivedSHA
 		}
 		if copy.Command == "completion-resume" {
@@ -329,6 +372,20 @@ func (s *Server) pollAutoDocumentationCopies(ctx context.Context, a *autoRecord,
 		}
 		if receipt.State != "copied" || actual != copy.SHA {
 			return false, errors.New("documentary copy identity mismatch")
+		}
+		if copy.Command == "copy-archive-resume" {
+			if err := s.autoProgressResumePrompt(j); err != nil {
+				return false, err
+			}
+		}
+		if copy.Command == "copy-archive-work" && j.ExpertRecoveryAttempt > 0 {
+			task, err := s.DB.Task(j.TaskID)
+			if err != nil {
+				return false, err
+			}
+			if err = os.WriteFile(filepath.Join(autoRoot, j.ID, "prompt.txt"), []byte(task.Prompt), 0600); err != nil {
+				return false, err
+			}
 		}
 		j.DocumentationCopies = j.DocumentationCopies[1:]
 		if e = s.saveAuto(a); e != nil {

@@ -12,7 +12,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/skills"
 )
 
 const agentRetentionKey = "__lectern_retained"
@@ -278,7 +280,36 @@ func (s *Server) agentCatalogView(specs []sessions.Spec) []map[string]any {
 		}
 		view["installed"] = preset.Installed()
 		view["added"] = already[preset.Name]
+		view["capabilities"] = catalogCapabilities(preset)
 		out = append(out, view)
+	}
+	return out
+}
+
+// catalogCapabilities is Spec.Capabilities plus the two context features
+// Lectern wires per agent name rather than per field: project MCP servers
+// (an interactive translation from MCPAdapterFor, or ACP session/new for
+// tasks) and project skills. Both only apply while the agent keeps the
+// preset's name, so the catalog reports them for that name.
+func catalogCapabilities(preset sessions.CatalogPreset) map[string]sessions.CapabilityState {
+	out := map[string]sessions.CapabilityState{}
+	for k, v := range preset.Capabilities() {
+		out[string(k)] = v
+	}
+	label := preset.DisplayName
+	_, interactiveMCP := agents.MCPAdapterFor(preset.Name)
+	switch {
+	case interactiveMCP:
+		out["mcp"] = sessions.CapabilityState{Available: true}
+	case preset.ACP != nil:
+		out["mcp"] = sessions.CapabilityState{Available: true, Reason: "Project MCP servers reach " + label + " background tasks over ACP, not interactive sessions"}
+	default:
+		out["mcp"] = sessions.CapabilityState{Reason: "Project MCP servers aren't passed to " + label}
+	}
+	if skills.Supported(preset.Name) {
+		out["skills"] = sessions.CapabilityState{Available: true}
+	} else {
+		out["skills"] = sessions.CapabilityState{Reason: "Project skills aren't linked for " + label}
 	}
 	return out
 }

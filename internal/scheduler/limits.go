@@ -3,9 +3,12 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/accounts"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -78,6 +81,17 @@ func (s *Scheduler) limitStopped(ctx context.Context, att *store.Attempt, rc int
 		return false // cancelled or moved by hand while it ran
 	}
 	p, _ := limits.Effective(s.DB, 0, &task.ProjectID)
+	if h.Policy == limits.ModeSwap {
+		err := s.ApplyTaskLimit(ctx, h, limits.ModeSwap, p)
+		if err == nil {
+			return true
+		}
+		// No account to move to: the policy's secondary mode applies.
+		s.Log.Info("limited task has no account to swap to", "task", task.ID, "err", err)
+		s.DB.TransitionLimitHold(h.ID, limits.StateWaiting, map[string]any{"policy": p.Secondary(),
+			"note": "no account to swap to: " + err.Error()})
+		h.Policy = p.Secondary()
+	}
 	if h.Policy == limits.ModeWait || h.Policy == limits.ModeHandoff {
 		err := s.ApplyTaskLimit(ctx, h, h.Policy, p)
 		if err == nil {
@@ -117,8 +131,11 @@ func (s *Scheduler) ApplyTaskLimit(ctx context.Context, h *store.LimitHold, mode
 		return err
 	}
 	resolved := limits.StateRequeued
-	if mode == limits.ModeHandoff {
+	switch mode {
+	case limits.ModeHandoff:
 		resolved = limits.StateRedispatched
+	case limits.ModeSwap:
+		resolved = limits.StateSwapped
 	}
 	// A restart between creating the continuation and recording it leaves the
 	// attempt queued and the hold open. Adopt that attempt instead of adding a
@@ -143,7 +160,29 @@ func (s *Scheduler) ApplyTaskLimit(ctx context.Context, h *store.LimitHold, mode
 		opts.WorktreePath, opts.Branch = att.WorktreePath, att.Branch
 	}
 	var notBefore time.Time
+	var from, to *store.Account
 	switch mode {
+	case limits.ModeSwap:
+		if sandbox {
+			return fmt.Errorf("a sandboxed attempt only sees its own login")
+		}
+		from = limits.Account(s.DB, c.Target.ID, agent, att.AccountID)
+		limits.MarkLimited(s.DB, from, h, now)
+		next, _, err := limits.NextAccount(s.DB, c.Target.ID, agent, from, p.AccountID, now)
+		if err != nil {
+			return err
+		}
+		to = next
+		if !s.accountSignedIn(ctx, c, att, agent, next) {
+			return fmt.Errorf("account %q is not signed in", next.Label)
+		}
+		opts.Agent, opts.Model, opts.AccountID = att.Agent, att.Model, &next.ID
+		opts.Prompt = continuationPrompt(task, agent, false)
+		if att.SessionID != "" && s.stageConversation(ctx, c, att, agent, from, next) {
+			opts.ResumeSession = att.SessionID
+			opts.Prompt = "You hit your usage limit and are now running under another account. " +
+				"Continue the task where you left off; your partial work is in this worktree."
+		}
 	case limits.ModeWait:
 		opts.Agent, opts.Model = att.Agent, att.Model
 		var reset time.Time
@@ -183,8 +222,12 @@ func (s *Scheduler) ApplyTaskLimit(ctx context.Context, h *store.LimitHold, mode
 	if err != nil {
 		return err
 	}
-	won, err := s.DB.TransitionLimitHold(h.ID, limits.StateWaiting, map[string]any{"state": resolved,
-		"resolved_at": store.Now(), "successor_id": next.ID, "policy": mode, "due_at": opts.NotBefore})
+	fields := map[string]any{"state": resolved,
+		"resolved_at": store.Now(), "successor_id": next.ID, "policy": mode, "due_at": opts.NotBefore}
+	if to != nil {
+		fields["account_from"], fields["account_to"] = limits.AccountRef(from), to.ID
+	}
+	won, err := s.DB.TransitionLimitHold(h.ID, limits.StateWaiting, fields)
 	if err != nil || !won {
 		s.DB.Exec(`DELETE FROM attempts WHERE id=? AND status='queued'`, next.ID)
 		return limits.ErrConflict
@@ -200,9 +243,13 @@ func (s *Scheduler) ApplyTaskLimit(ctx context.Context, h *store.LimitHold, mode
 	}
 	title, body := "Task paused by usage limit", fmt.Sprintf("%q will resume at %s", clip(task.Title, 80),
 		limits.FormatReset(notBefore, now))
-	if mode == limits.ModeHandoff {
+	switch mode {
+	case limits.ModeHandoff:
 		title, body = "Task handed off", fmt.Sprintf("%q hit its usage limit — continuing on %s",
 			clip(task.Title, 80), firstNonEmpty(opts.Agent+modelSuffix(opts.Model), p.Fallback()))
+	case limits.ModeSwap:
+		title, body = "Task swapped account", fmt.Sprintf("%q hit its usage limit on %s — continuing on %s",
+			clip(task.Title, 80), limits.AccountLabel(from), to.Label)
 	}
 	s.Log.Info("limited task continued", "task", task.ID, "mode", mode, "attempt", next.ID)
 	s.Notifier.Notify(title, body, fmt.Sprintf("/#task/%d", task.ID), &sinks.Extra{Kind: "limit", LimitID: h.ID})
@@ -223,4 +270,69 @@ func modelSuffix(model string) string {
 		return ""
 	}
 	return " · " + model
+}
+
+// accountDir is the config directory an attempt's account runs from, or ""
+// for the CLI's default login (and for a sandbox, which has only its own).
+func (s *Scheduler) accountDir(att *store.Attempt, agent string, sandbox bool) string {
+	if att.AccountID == nil || sandbox || accounts.EnvKey(agent) == "" {
+		return ""
+	}
+	a, err := s.DB.Account(*att.AccountID)
+	if err != nil || a.Agent != agent {
+		return ""
+	}
+	return a.Dir
+}
+
+// accountBase is the config directory the task's agent uses by default (its
+// definition's own variable, usually unset).
+func (s *Scheduler) accountBase(c *runCtx, att *store.Attempt, agent string) string {
+	if def, err := s.taskLaunchConfig(att, c); err == nil {
+		return def.Env[accounts.EnvKey(agent)]
+	}
+	return ""
+}
+
+// accountSignedIn checks, without reading it, that the account's credential
+// file exists; an unreachable target counts as signed in (the attempt will
+// say otherwise).
+func (s *Scheduler) accountSignedIn(ctx context.Context, c *runCtx, att *store.Attempt, agent string, a *store.Account) bool {
+	ex, err := s.Reg.For(c.Target)
+	if err != nil {
+		return true
+	}
+	dir := a.Dir
+	if dir == "" {
+		dir = s.accountBase(c, att, agent)
+	}
+	r, err := ex.Run(ctx, accounts.StatusCommand(agent, dir), executor.RunOpts{Timeout: 10})
+	return err != nil || strings.TrimSpace(r.Stdout) != "signed-out"
+}
+
+// stageConversation copies an attempt's conversation into the next account's
+// directory so the continuation can resume it there, and reports whether it
+// did. When it cannot, the continuation starts from the task prompt instead.
+func (s *Scheduler) stageConversation(ctx context.Context, c *runCtx, att *store.Attempt, agent string, from, to *store.Account) bool {
+	ex, err := s.Reg.For(c.Target)
+	if err != nil {
+		return false
+	}
+	base := s.accountBase(c, att, agent)
+	dir := func(a *store.Account) string {
+		if a != nil && a.Dir != "" {
+			return a.Dir
+		}
+		return base
+	}
+	cmd, err := accounts.StageCommand(agent, dir(from), dir(to), att.SessionID, att.WorktreePath)
+	if err != nil {
+		return false
+	}
+	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
+	if err != nil || !r.OK() {
+		s.Log.Warn("could not copy a limited task's conversation to the next account", "attempt", att.ID, "err", err)
+		return false
+	}
+	return true
 }

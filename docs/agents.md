@@ -21,35 +21,50 @@ mode in the table below, which is driver-specific (see
 `codex-appserver`, the one task driver that does support gated codex
 approvals via JSON-RPC rather than a hook).
 
-## Catalog: one-click presets for popular CLIs
+## Catalog: one-click presets for other CLIs
 
-Settings → **Agents** → **Add agent** offers a "Starter template" populated
-from `GET /api/agents/catalog` (`internal/sessions/catalog.go`), not a
-hardcoded list: `custom-agent` presets can be added there without touching
-this frontend. Presets ship for Gemini CLI's ACP mode, OpenCode, Aider, Goose,
-Amp, Cursor Agent CLI (`cursor-agent`), GitHub Copilot CLI, Qwen Code, Crush,
-Kimi Code CLI, Cline CLI, plus the Zed ACP adapters for Claude Code
-and Codex — on top of "Custom command…" for anything else. Picking one
-pre-fills every field this form has (command, model flag, resume/fork
-arguments, yolo flag, model-catalog command, task or ACP backend); nothing is
-saved until you do.
+Settings → **Agents** → **Add agent** opens a searchable catalog populated from
+`GET /api/agents/catalog` (`internal/sessions/catalog.go`), not a hardcoded
+list. It covers every agent [Orca](https://github.com/stablyai/orca) supports
+plus Aider and the ACP adapters — 33 presets in four groups (Popular, Vendor
+agents, Open source & community, ACP adapters). Search matches the product,
+binary and vendor. Each row shows a monogram, the command, whether it is
+installed on the Lectern host, and chips for what it can and cannot do
+(resume, fork, model, auto-approve, background tasks, ACP, project MCP,
+project skills), with the reason as a tooltip. "Custom runner" is still there
+for any other CLI. Picking a preset fills every field of the form; nothing is
+saved until you do, and a newly added agent stays out of the pickers until you
+show it (see below). An entry already added is shown disabled.
 
-Every preset is honest about how it was researched: each carries a `source`
-(the exact docs page or repository read), a `verified_at` date, and an
-`unverified` list naming any field that is a best guess rather than a
-confirmed fact — Settings shows all three under the template picker. **Never
-trust an `unverified` field as documented behavior** — re-check the cited
-source before relying on it, especially if `verified_at` has aged. A preset
-that documents real [ACP](acp.md) support (opencode, goose, kimi, cline) gets
-an `acp` block in addition to its normal interactive fields, since ACP only
-ever replaces the `task` backend for headless work — interactive sessions
-stay tmux-based exactly like every other agent.
+Every preset records how it was checked: `verified_by` is the installed CLI
+version whose `--help` (and, for ACP, a real `initialize` handshake) it was
+read from, or `docs` when the CLI cannot be installed without an account;
+`source` cites the help output or page; `unverified` names any field that is
+still a guess. Settings shows all of these under the list, with the install
+command and where the CLI lists its session ids. **Never treat an
+`unverified` field as documented behaviour.**
+
+Two definition fields exist for these CLIs:
+
+- `prompt_args` passes the opening message through arguments, with `{prompt}`
+  replaced — `["-i", "{prompt}"]` for Copilot and Qwen Code (whose bare
+  positional runs one-shot and exits), `["--prompt", "{prompt}"]` for the
+  OpenCode family, `["--", "{prompt}"]` for Grok and Devin. It takes precedence
+  over `prompt_arg`. With neither, the message is typed once the pane settles.
+- `yolo_env` is an auto-approve switch that only exists as an environment
+  variable (Goose's `GOOSE_MODE=auto`). Like `yolo_args` it is applied only
+  when the session is launched in yolo mode.
 
 `GET /api/agents/catalog` also reports `installed` (whether the preset's own
-binary resolves on `PATH` for the lectern host — there is no per-target
-remote check in this codebase) and `added` (whether an agent by that name is
-already registered, so "Add" can grey it out instead of inviting a
-collision).
+binary resolves on `PATH` for the Lectern host — there is no per-target remote
+check), `added` (an agent by that name is already registered) and
+`capabilities`. The MCP and skills entries depend on the agent keeping the
+preset's name: Lectern wires both by agent name.
+
+Exact resume and fork need the CLI's own session id. Lectern captures that id
+itself only for the built-in agents; for a catalog agent, resume reopens the
+CLI's most recent session in the directory unless an id is already known (for
+example from a task takeover). `sessions_hint` says where each CLI lists them.
 
 ## Capability degradation
 
@@ -89,7 +104,7 @@ sorts shown agents to the top instead of hiding anything.
 ## Choosing one
 
 The web Settings → **Agents** page is the place to add a runner. **Add agent**
-offers OpenCode, Aider and a custom runner starter, then keeps the command,
+offers the catalog above and a custom runner starter, then keeps the command,
 model flag, provider endpoint and environment together. Aider's endpoint uses
 `OPENAI_API_BASE`; OpenCode uses its configured provider settings (add
 `OPENCODE_CONFIG_CONTENT` under Environment when configuring one). Custom
@@ -152,20 +167,22 @@ to Codex with `-c` overrides; Codex keeps its normal `~/.codex` home. The same
 project MCP declaration reaches fresh, resumed, and forked interactive sessions
 for Claude and Codex. Claude receives a private absolute MCP document and can
 enforce `strict_mcp`; Codex receives additive overrides and rejects `strict_mcp`,
-including when the declaration is empty. Interactive OpenCode, Qwen Code and
-GitHub Copilot CLI sessions get the servers through one private file their CLI
-reads beside the user's own config, and every ACP agent's tasks (including
-Gemini CLI, OpenCode, Goose, Kimi and Cline over ACP) get them in ACP
+including when the declaration is empty. Interactive OpenCode, Qwen Code,
+GitHub Copilot CLI, Kilo, MiMo Code and Amp sessions get the servers through
+one private file their CLI reads beside the user's own config, and every ACP
+agent's tasks (Gemini CLI, OpenCode, Goose, Kimi, Cline, Grok, Devin, Hermes
+and the other catalog agents with an `acp` block) get them in ACP
 `session/new`. Interactive Gemini CLI sessions get them merged into
 `.gemini/settings.json` only in a Lectern-created worktree or scratch workspace,
-never in the project's own checkout. Aider, Amp, Cursor, Crush and non-ACP
+never in the project's own checkout. Other interactive sessions and non-ACP
 custom tasks get no automatic translation; see
 [context-parity.md](context-parity.md#mcp-servers) for which agent gets what.
 
 Project skills (Agent Skills `SKILL.md` directories) are linked into
 `.claude/skills` for Claude and into the shared `.agents/skills` for Codex,
-Gemini CLI, Qwen Code, OpenCode and GitHub Copilot CLI. Other agents have no
-confirmed skills directory and are refused; see
+Gemini CLI, Qwen Code, OpenCode, GitHub Copilot CLI, Kilo, MiMo Code, Muse,
+Devin, Command Code, Pi and Amp. Other agents have no confirmed skills
+directory and are refused; see
 [terminal-client.md](terminal-client.md#project-skills).
 
 Project MCP is managed from PWA project settings, the terminal dashboard's MCP
@@ -288,7 +305,7 @@ instead of `task`.
 {
   "name": "claude-code-acp",
   "command": "claude-code-acp",
-  "acp": {"command": "npx", "args": ["-y", "@zed-industries/claude-code-acp"]}
+  "acp": {"command": "npx", "args": ["-y", "@agentclientprotocol/claude-agent-acp"]}
 }
 ```
 
@@ -301,28 +318,83 @@ task dispatched on an `acp` agent supports **every** Lectern permission mode
 mapping to configure. See [docs/acp.md](acp.md) for the protocol, the mapping
 onto Lectern's timeline, and its limits.
 
-## Catalog capability matrix
+## Catalog verification
 
-Verified against each vendor's own README/docs/source as of 2026-09-26 (see
-`internal/sessions/catalog.go` for exact citations and any fields left
-unverified — do not treat a ✅ below as fact without checking the source
-citation if it matters for your use case):
+Checked on 2026-09-27. Each CLI was installed under a throwaway prefix
+(`/mnt/bulk/cli-probe`, a private `HOME`, nothing logged in) and every flag
+below was read from its `--help`; every ACP command was started and answered
+an ACP `initialize` request (Kiro's needs a login first, so only its
+`acp --help` was read). "Interactive context" is what Lectern passes to an
+interactive session by agent name; every ACP agent also gets project MCP
+servers for its tasks through `session/new`.
 
-| Preset | Initial prompt | Model flag | Resume | Yolo / auto-approve | ACP |
-|---|---|---|---|---|---|
-| OpenCode | typed in (interactive) | `--model` | last + by-id | `--auto` | ✅ `opencode acp` |
-| Aider | typed in / `--message` (task) | `--model` | automatic (no flag) | `--yes` | — |
-| Goose | typed in | unverified | `--resume` | `GOOSE_MODE=auto` env var | ✅ `goose acp` |
-| Amp | `-x`/`--execute` (task) | unverified | unverified | unverified | — |
-| Cursor Agent CLI | positional argument | `--model` | last + by-id | `--force`/`--yolo` | documented as a "hidden" advanced mode, not wired |
-| GitHub Copilot CLI | `-p` (task) | unverified | last only (`--continue`) | `--allow-all`/`--yolo` | — |
-| Qwen Code | `-p` (task) | unverified | — | `--yolo` (confirmed in source) | — (HTTP/SSE `qwen serve`, not stdio) |
-| Crush | `crush run` (task) | task-only | last + by-id | `--yolo` | — |
-| Kimi Code CLI | `-p` (task, unwired — see below) | unverified | last (`-c`) | unverified | ✅ `kimi acp` |
-| Cline CLI | positional (`-i "prompt"`) | `--model` | unverified | `--yolo` | ✅ `cline --acp` |
+| Agent | Verified by | Opening prompt | Model | Resume | Auto-approve | Background tasks | Interactive context |
+|---|---|---|---|---|---|---|---|
+| OpenCode (`opencode`) | opencode 1.18.32 | `--prompt {prompt}` | `--model` | last, by id, fork | `--auto` | ACP `opencode acp` | MCP, skills |
+| Cursor Agent CLI (`cursor-agent`) | cursor-agent 2026.09.26-dd393fe | positional | `--model` | last, by id | `--force` | ACP `cursor-agent acp` | — |
+| GitHub Copilot CLI (`copilot`) | copilot 1.0.88 | `-i {prompt}` | `--model` | last, by id | `--yolo` | ACP `copilot --acp` | MCP, skills |
+| Amp (`amp`) | amp 0.0.1790496040 | typed | — | last, by id | — | task | MCP, skills |
+| Qwen Code (`qwen`) | qwen 0.24.6 | `-i {prompt}` | `-m` | last, by id, fork | `--yolo` | ACP `qwen --acp` | MCP, skills |
+| Kimi Code CLI (`kimi`) | kimi 2.1.1 | typed | `-m` | last, by id | `--auto` | ACP `kimi acp` | — |
+| Goose (`goose`) | goose 1.52.0 | typed | `--model` | last, by id, fork | env `GOOSE_MODE=auto` | ACP `goose acp` | — |
+| Aider (`aider`) | aider 0.86.2 | typed | `--model` | last | `--yes-always` | task | — |
+| Crush (`crush`) | crush v0.96.1 | typed | — | last, by id | `--yolo` | task | — |
+| Cline CLI (`cline`) | cline 3.0.65 | positional | `-m` | by id | `--auto-approve true` | ACP `cline --acp` | — |
+| Grok CLI (`grok`) | grok 1.0.41 | `-- {prompt}` | `-m` | last, by id, fork | `--permission-mode bypassPermissions` | ACP `grok agent stdio` | — |
+| Antigravity CLI (`antigravity`) | agy 1.2.12 | `--prompt-interactive {prompt}` | `--model` | last, by id | `--dangerously-skip-permissions` | task | — |
+| Muse Code (`muse`) | muse 1.4.0 | typed | `--model` | last, by id | `--yolo` | task | skills |
+| MiMo Code (`mimo`) | mimo 0.1.15 | `--prompt {prompt}` | `-m` | last, by id, fork | `--yolo` | ACP `mimo acp` | MCP, skills |
+| Devin CLI (`devin`) | devin 3000.11.3 | `-- {prompt}` | `--model` | last, by id | `--permission-mode dangerous` | ACP `devin acp` | skills |
+| Droid (`droid`) | droid 0.228.0 | positional | — | last, by id, fork | `--auto high` | task | — |
+| Kiro CLI (`kiro`) | kiro-cli 2.24.1 | positional | `--model` | last, by id | `--trust-all-tools` | ACP `kiro-cli acp` | — |
+| Auggie (`auggie`) | auggie 0.36.0 | positional | `-m` | last, by id | — | ACP `auggie --acp` | — |
+| Continue CLI (`cn`) | cn 1.5.47 | positional | — | last, fork | `--auto` | task | — |
+| Kilo Code CLI (`kilo`) | kilo 7.8.1 | `--prompt {prompt}` | `-m` | last, by id, fork | `--auto` | ACP `kilo acp` | MCP, skills |
+| Mistral Vibe (`vibe`) | vibe 2.25.8 | positional | — | last, by id | `--auto-approve` | ACP `vibe-acp` | — |
+| Rovo Dev CLI (`rovodev`) | docs | typed | — | last, by id | `--yolo` | task | — |
+| Codebuff (`codebuff`) | codebuff 1.0.688 | positional | — | last, by id | — | — | — |
+| Command Code (`command-code`) | command-code 1.66.0 | positional | `-m` | last, by id, fork | `--yolo` | task | skills |
+| Autohand Code (`autohand`) | autohand 0.9.8 | typed | `--model` | by id, fork | `--unrestricted` | ACP `autohand --acp` | — |
+| ZCode (`zcode`) | zcode 0.16.9 (desktop bundle) | typed | — | last, by id | `--mode yolo` | task | — |
+| Pi (`pi`) | pi 0.73.1 | positional | `--model` | last, by id, fork | — | task | skills |
+| oh-my-pi (`omp`) | omp 18.3.4 | positional | `--model` | last, by id | `--auto-approve` | ACP `omp acp` | — |
+| Hermes Agent (`hermes`) | hermes 0.21.5 | `-q {prompt}` | `-m` | last, by id | `--yolo` | ACP `hermes acp` | — |
+| OpenClaude (`openclaude`) | openclaude 0.31.0 | positional | `--model` | last, by id, fork | `--dangerously-skip-permissions` | task | — |
+| Claude Code (ACP) (`claude-code-acp`) | claude-agent-acp 0.81.2 | typed | — | — | — | ACP `npx -y @agentclientprotocol/claude-agent-acp` | — |
+| Codex (ACP) (`codex-acp`) | codex-acp 1.13.1 | typed | — | — | — | ACP `npx -y @agentclientprotocol/codex-acp` | — |
+| Gemini CLI (ACP) (`gemini-acp`) | gemini 0.61.0 | typed | — | — | — | ACP `gemini --experimental-acp` | — |
 
-A preset with ACP support leaves its `task` field empty on purpose — ACP
-already covers headless work, and the two backends are mutually exclusive.
+What the table cannot show, and why some entries are thinner than others:
+
+- **ZCode**: Z.ai publishes only the desktop app. Its bundled runtime
+  (`zcode` 0.16.9 inside the 3.14.3 AppImage) has the flags above, but no
+  terminal UI and it cannot start outside the app's layout; no standalone
+  install is documented. The preset marks its command and install hint
+  unverified.
+- **Rovo Dev**: `acli` 1.3.39 installs, but `acli rovodev` refuses even `--help`
+  before an Atlassian login, so its flags come from Atlassian's command
+  reference.
+- **Amp**: no model flag (`--mode` picks model and tools together) and no
+  auto-approve flag — only the `amp.dangerouslyAllowAll` setting. Amp accepts
+  any unknown flag silently, so `--dangerously-allow-all` (Orca's choice) could
+  not be confirmed and is not used.
+- **Auggie** and **Codebuff** have no auto-approve flag; **Pi** has no approval
+  prompts at all; **Codebuff** has no headless mode.
+- **Devin** approves everything with `--permission-mode dangerous`, not
+  `bypass` as Orca has it. **Aider**'s flag is `--yes-always`, and it restores
+  chat history only with `--restore-chat-history` (off by default).
+- Model lists: only Kiro prints JSON (`chat --list-models --format json`,
+  unverified without a login). The other CLIs' `models` commands print text,
+  which Lectern's model picker cannot parse, so they are not wired.
+- Not translated yet: project MCP for OpenClaude (`--mcp-config` behaves like
+  Claude Code's, but could not be confirmed without an account), Grok, Devin,
+  Muse, Droid and the other CLIs whose only MCP config is their own settings
+  file; project skills for CLIs whose skill listing could not be checked.
+- Usage-limit detection (`internal/limits`) still recognises only Claude,
+  Codex and Gemini messages; none of the new CLIs documents its limit text.
+
+Built-in adapters and ACP adapters keep their own rows elsewhere in this
+document.
 
 ## `lectern <agent>` for any registered agent
 

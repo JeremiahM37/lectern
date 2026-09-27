@@ -191,6 +191,16 @@ var agentSkillsDirs = map[string]string{
 	"qwen":     ".agents",
 	"opencode": ".agents",
 	"copilot":  ".agents",
+	// Checked against each CLI's own skill listing with a probe skill in
+	// .agents/skills (docs/agents.md, "Catalog verification").
+	"kilo":         ".agents",
+	"mimo":         ".agents",
+	"muse":         ".agents",
+	"devin":        ".agents",
+	"command-code": ".agents",
+	// Documented only: pi's README and Amp's skills page list .agents/skills.
+	"pi":  ".agents",
+	"amp": ".agents",
 }
 
 // Supported reports whether project skills can be attached for agent.
@@ -198,7 +208,8 @@ func Supported(agent string) bool { _, ok := agentSkillsDirs[agent]; return ok }
 
 // SupportedAgents lists the agents project skills can be attached for.
 func SupportedAgents() []string {
-	return []string{"claude", "codex", "gemini", "qwen", "opencode", "copilot"}
+	return []string{"claude", "codex", "gemini", "qwen", "opencode", "copilot",
+		"kilo", "mimo", "muse", "devin", "command-code", "pi", "amp"}
 }
 
 func supported(agent string) bool { return Supported(agent) }

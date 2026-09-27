@@ -19,7 +19,15 @@ class LaunchTests(unittest.TestCase):
   self.root=Path(self.tmp.name); self.job=str(uuid.uuid4());self.p=self.root/self.job;self.p.mkdir()
   self.active=False;self.starts=0;self.stops=0
   self.args=SimpleNamespace(job=self.job,provider='selftest',model='',prompt=str(self.p/'prompt.txt'))
-  for name,value in [('ROOT',self.root)]:
+  # ROOT's derived constants are evaluated at import time. Redirect them too:
+  # stop/status must never inspect the real root-only workshop directories.
+  paths={'ROOT':self.root,'SERVER_OBSERVATIONS_ROOT':self.root/'server-observations',
+         'SERVER_MAINTENANCE_ROOT':self.root/'server-maintenance',
+         'SERVER_MAINTENANCE_TOOLS':self.root/'server-maintenance-tools',
+         'INTEGRATION_ROOT':self.root/'integrations','ASSET_CACHE':self.root/'binary-cache',
+         'DEPENDENCIES':self.root/'dependencies','SERVER_REGISTRY':self.root/'server-targets.json',
+         'AUTH_LOCK':self.root/'auth.lock','ARTIFACT_LOCK':self.root/'artifact.lock'}
+  for name,value in paths.items():
    m=patch.object(r,name,value);m.start();self.addCleanup(m.stop)
   m=patch.object(r.os,'chown');m.start();self.addCleanup(m.stop)
   m=patch.object(r.subprocess,'run',side_effect=self.systemd);m.start();self.addCleanup(m.stop)
@@ -28,6 +36,26 @@ class LaunchTests(unittest.TestCase):
   state='active' if self.active else 'inactive'
   out=state+'\n' if '--value' in args else 'ActiveState='+state+'\nExecMainStatus=0\nResult=success\n'
   return SimpleNamespace(stdout=out,returncode=0)
+ def test_worker_browser_headroom_preserves_other_resource_bounds(self):
+  # Agent/code-mode threads share this cgroup with browsers and their drivers.
+  with patch.object(r,'addresses',return_value=['127.0.0.2/32']):
+   props=dict(value.split('=',1) for value in r.properties())
+  self.assertEqual(props['TasksMax'],'512')
+  self.assertEqual({key:props[key] for key in ('MemoryMax','MemorySwapMax','CPUQuota','RuntimeMaxSec','LimitFSIZE','KillMode','TimeoutStopSec')},
+                   {'MemoryMax':'4G','MemorySwapMax':'0','CPUQuota':'200%','RuntimeMaxSec':'1800','LimitFSIZE':'268435456','KillMode':'control-group','TimeoutStopSec':'10s'})
+  self.assertEqual(props['NoNewPrivileges'],'yes')
+  self.assertEqual(props['ProtectControlGroups'],'yes')
+  self.assertEqual(props['IPAddressDeny'],'127.0.0.2/32')
+
+ def test_silent_live_worker_remains_running_until_existing_deadline(self):
+  output=self.p/'output.jsonl';output.write_text('completed old tool\n')
+  os.utime(output,(1,1));self.active=True
+  result=r.status(self.job)
+  self.assertEqual(result['state'],'running')
+  self.assertGreater(result['output_idle_milliseconds'],60*60*1000)
+  self.assertIn('silence does not establish a stall',result['activity_scope'])
+  self.assertEqual(self.stops,0)
+
  def fixture_start(self,args,*unused):
   self.starts+=1;self.active=True
   return {'state':'running','exit_code':None}
@@ -129,6 +157,7 @@ from pathlib import Path
 from types import SimpleNamespace
 spec=importlib.util.spec_from_file_location('runner',sys.argv[1]);r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
 r.ROOT=Path(sys.argv[2]);job=sys.argv[3];p=r.ROOT/job
+for name,leaf in {'SERVER_OBSERVATIONS_ROOT':'server-observations','SERVER_MAINTENANCE_ROOT':'server-maintenance','SERVER_MAINTENANCE_TOOLS':'server-maintenance-tools','INTEGRATION_ROOT':'integrations','ASSET_CACHE':'binary-cache','DEPENDENCIES':'dependencies','SERVER_REGISTRY':'server-targets.json','AUTH_LOCK':'auth.lock','ARTIFACT_LOCK':'artifact.lock'}.items():setattr(r,name,r.ROOT/leaf)
 (p/'work').mkdir();(p/'prompt.txt').write_text('isolated test')
 r.os.chown=lambda *a,**k:None
 r.ensure_work=lambda p:p/'work'

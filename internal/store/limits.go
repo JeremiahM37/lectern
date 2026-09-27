@@ -27,9 +27,14 @@ type LimitHold struct {
 	ResetNotifiedAt *float64 `json:"-"`
 	ResolvedAt      *float64 `json:"resolved_at,omitempty"`
 	SuccessorID     *int64   `json:"successor_id,omitempty"`
-	Note            string   `json:"note,omitempty"`
-	CreatedAt       float64  `json:"created_at"`
-	UpdatedAt       float64  `json:"updated_at"`
+	// AccountFrom and AccountTo are the two ends of an account swap
+	// (docs/accounts.md): the login that hit the limit and the one the work
+	// moved to. 0 is the CLI's default login; both nil until a swap starts.
+	AccountFrom *int64  `json:"account_from,omitempty"`
+	AccountTo   *int64  `json:"account_to,omitempty"`
+	Note        string  `json:"note,omitempty"`
+	CreatedAt   float64 `json:"created_at"`
+	UpdatedAt   float64 `json:"updated_at"`
 }
 
 // Open reports whether the hold still needs something to happen.
@@ -37,14 +42,14 @@ func (h *LimitHold) Open() bool { return h != nil && h.ResolvedAt == nil }
 
 const limitHoldCols = `id, session_id, task_id, attempt_id, agent, source, pattern, message,
 	detected_at, reset_at, policy, state, due_at, tries, nudged_at, reset_notified_at,
-	resolved_at, successor_id, note, created_at, updated_at`
+	resolved_at, successor_id, note, created_at, updated_at, account_from, account_to`
 
 func scanLimitHold(sc interface{ Scan(...any) error }) (*LimitHold, error) {
 	var h LimitHold
 	err := sc.Scan(&h.ID, &h.SessionID, &h.TaskID, &h.AttemptID, &h.Agent, &h.Source,
 		&h.Pattern, &h.Message, &h.DetectedAt, &h.ResetAt, &h.Policy, &h.State, &h.DueAt,
 		&h.Tries, &h.NudgedAt, &h.ResetNotifiedAt, &h.ResolvedAt, &h.SuccessorID, &h.Note,
-		&h.CreatedAt, &h.UpdatedAt)
+		&h.CreatedAt, &h.UpdatedAt, &h.AccountFrom, &h.AccountTo)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

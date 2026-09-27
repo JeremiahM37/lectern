@@ -57,3 +57,29 @@ func TestAutonomyReportRepairDiagnosticIsData(t *testing.T) {
 		}
 	}
 }
+
+func TestValidatedPrerequisiteResumeDropsObsoleteCorrectionWithoutRenewingBudget(t *testing.T) {
+	old := &autoJob{ReportError: "invalid typed prerequisite requirement", ReportRepairs: 2, ReportRetryAt: time.Now()}
+	before, _ := json.Marshal(old)
+	current := *old
+	autoReportValidated(&current)
+	if current.ReportError != "" || !current.ReportRetryAt.IsZero() || current.ReportRepairs != 2 {
+		t.Fatal("validation retained error or reset allowance")
+	}
+	after, _ := json.Marshal(old)
+	if string(after) != string(before) {
+		t.Fatal("historical job modified")
+	}
+	base := "Admitted task: run the retained browser tests and preserve failures."
+	prompt := string(autoResumePrompt(base, current.ReportError))
+	if !strings.HasPrefix(prompt, base) || strings.Contains(prompt, "REPORT REPAIR ONLY") || strings.Contains(prompt, old.ReportError) {
+		t.Fatal("obsolete correction leaked into resumed work")
+	}
+	if !strings.Contains(prompt, "GET /prerequisite") || !strings.Contains(prompt, "finish the original outstanding") {
+		t.Fatal("resume omitted current delivery and unfinished work")
+	}
+	correction := string(autoResumePrompt(base, "missing summary"))
+	if !strings.Contains(correction, "REPORT REPAIR ONLY") || !strings.Contains(correction, "missing summary") || strings.Contains(correction, "RESUME ADMITTED WORK") {
+		t.Fatal("current schema correction lost its scope")
+	}
+}

@@ -58,15 +58,11 @@ def test_acp_agent_form(harness):
     dialog = page.get_by_role("dialog", name="Add agent", exact=True)
 
     # The harness's one target probed npx and did not find it; gemini was
-    # never probed at all. "Unknown" must not read as "missing". Playwright's
-    # to_be_disabled()/to_be_enabled() do not reliably read an <option>'s
-    # native `disabled` property (its own accessibility snapshot shows the
-    # attribute correctly; the state assertion does not), so this reads the
-    # DOM property directly instead.
-    template = dialog.locator("select").first
-    assert template.locator('option[value="claude-code-acp"]').evaluate("el => el.disabled") is True
-    assert template.locator('option[value="codex-acp"]').evaluate("el => el.disabled") is True
-    assert template.locator('option[value="gemini-acp"]').evaluate("el => el.disabled") is False
+    # never probed at all. "Unknown" must not read as "missing".
+    expect(dialog.locator('[data-preset="claude-code-acp"]')).to_be_disabled()
+    expect(dialog.locator('[data-preset="codex-acp"]')).to_be_disabled()
+    expect(dialog.locator('[data-preset="gemini-acp"]')).to_be_enabled()
+    expect(dialog.locator('[data-preset="codex-acp"]')).to_contain_text("npx not detected")
 
     dialog.get_by_label("Name", exact=True).fill("my-acp-agent")
     dialog.get_by_label("Command", exact=True).fill("my-acp-agent")
@@ -110,7 +106,7 @@ def test_acp_preset_fills_command_and_args(harness):
     page.get_by_role("tab", name="Agents").click()
     page.get_by_role("button", name="Add agent", exact=True).click()
     dialog = page.get_by_role("dialog", name="Add agent", exact=True)
-    dialog.locator("select").first.select_option("gemini-acp")
+    dialog.locator('[data-preset="gemini-acp"]').click()
     expect(dialog.get_by_label("Name", exact=True)).to_have_value("gemini-acp")
     expect(dialog.get_by_label("ACP command", exact=True)).to_have_value("gemini")
     expect(dialog.get_by_label("ACP arguments (one per line; JSON array accepted)", exact=True)).to_have_value(

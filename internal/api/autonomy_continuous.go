@@ -268,6 +268,9 @@ func (s *Server) autoApprovedContinuation(a *autoRecord, projectID, taskID int64
 	if err != nil {
 		return nil, err
 	}
+	if j.PrivateIntegrationAttempt > 0 {
+		return nil, fmt.Errorf("private integration work is consumed only through its published source_integration_id")
+	}
 	if !autoCheckpointApproved(a, taskID) {
 		return nil, fmt.Errorf("continuation checkpoint has no approved final review; rejected or unresolved work cannot be promoted")
 	}

@@ -42,7 +42,8 @@ import (
 var clientVerbs = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
-	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true,
+	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true, "account": true,
+	"browser": true, "computer": true,
 	"help": true, "--help": true, "-h": true,
 }
 
@@ -92,7 +93,8 @@ func main() {
 	// An agent launched by a hosted server inherits that server's
 	// LECTERN_BASE_URL but no LECTERN_API. Its MCP tools and posts belong on
 	// the board that launched it, not in a private runtime nobody is watching.
-	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "post" || os.Args[1] == "live" || os.Args[1] == "expose") &&
+	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "post" || os.Args[1] == "live" || os.Args[1] == "expose" ||
+		os.Args[1] == "browser" || os.Args[1] == "computer") &&
 		strings.TrimSpace(os.Getenv("LECTERN_API")) == "" {
 		if hosted := strings.TrimSpace(os.Getenv("LECTERN_BASE_URL")); hosted != "" {
 			_ = os.Setenv("LECTERN_API", hosted)
@@ -290,6 +292,9 @@ func startTLSListener(cfg *config.Config, a *app.App, log *slog.Logger) *http.Se
 		return nil
 	}
 	tlsSrv := &http.Server{Handler: a.Handler(), TLSConfig: tlsCfg.TLS, ReadHeaderTimeout: 15 * time.Second}
+	// Dev server views answer https with the same certificate, so the
+	// Browser pane can frame them from this secure origin.
+	a.Server.TLS = tlsCfg.TLS
 	started := 0
 	for _, listenAddr := range tlsCfg.Addrs {
 		ln, err := tls.Listen("tcp", listenAddr, tlsCfg.TLS)

@@ -73,6 +73,7 @@ type UsageWindow struct {
 	RemainingPercent *float64 `json:"remaining_percent"`
 	ResetsAt         *float64 `json:"resets_at"`
 	ResetPassed      bool     `json:"reset_passed"`
+	ResetState       string   `json:"reset_state,omitempty"`
 }
 
 // QuotaGate fails closed for missing, duplicate, invalid, stale, or reset-past
@@ -122,10 +123,20 @@ func QuotaGate(c Config, providers []ProviderUsage, required []string, now time.
 				label := strings.ToLower(strings.TrimSpace(w.Label))
 				weekly = weekly || strings.Contains(label, "weekly")
 				session = session || strings.Contains(label, "session") || strings.Contains(label, "5-hour")
-				if w.UsedPercent == nil || w.RemainingPercent == nil || w.ResetsAt == nil || !finite(*w.UsedPercent) || !finite(*w.RemainingPercent) || !finite(*w.ResetsAt) || *w.UsedPercent < 0 || *w.UsedPercent > 100 || *w.RemainingPercent < 0 || *w.RemainingPercent > 100 || math.Abs(*w.UsedPercent+*w.RemainingPercent-100) > 0.2 {
+				if w.UsedPercent == nil || w.RemainingPercent == nil || !finite(*w.UsedPercent) || !finite(*w.RemainingPercent) || *w.UsedPercent < 0 || *w.UsedPercent > 100 || *w.RemainingPercent < 0 || *w.RemainingPercent > 100 || math.Abs(*w.UsedPercent+*w.RemainingPercent-100) > 0.2 {
 					return fmt.Errorf("%s %s quota invalid", id, w.Label)
 				}
-				if w.ResetPassed || *w.ResetsAt <= float64(now.UnixNano())/1e9 {
+				// Claude explicitly reports an unused five-hour window with no
+				// reset. Only the collector's exact unrounded zero + explicit-null
+				// provenance permits this case; an absent/invalid reset is unknown.
+				idle := id == "claude" && label == "5-hour" && w.ResetState == "provider_null_zero" && w.ResetsAt == nil && *w.UsedPercent == 0 && *w.RemainingPercent == 100
+				if w.ResetState != "" && !idle {
+					return fmt.Errorf("%s %s reset provenance invalid", id, w.Label)
+				}
+				if !idle && (w.ResetsAt == nil || !finite(*w.ResetsAt)) {
+					return fmt.Errorf("%s %s quota reset invalid", id, w.Label)
+				}
+				if w.ResetPassed || (!idle && *w.ResetsAt <= float64(now.UnixNano())/1e9) {
 					return fmt.Errorf("%s %s reset requires fresh usage", id, w.Label)
 				}
 				if *w.RemainingPercent <= c.ReservePercent+c.MarginPercent {
@@ -156,21 +167,28 @@ const (
 )
 
 type Proposal struct {
-	DiagnoseTaskID             int64    `json:"diagnose_task_id,omitempty"`
-	EnvironmentDiagnosisTaskID int64    `json:"environment_diagnosis_task_id,omitempty"`
-	DiagnoseRequirement        string   `json:"diagnose_requirement,omitempty"`
-	DocumentationTaskID        int64    `json:"documentation_task_id,omitempty"`
-	ProjectID                  int64    `json:"project_id"`
-	SourceRevision             string   `json:"source_revision,omitempty"`
-	RepairTaskID               int64    `json:"repair_task_id,omitempty"`
-	ContinueTaskID             int64    `json:"continue_task_id,omitempty"`
-	Title                      string   `json:"title"`
-	Why                        string   `json:"why"`
-	Acceptance                 []string `json:"acceptance"`
-	Ambition                   string   `json:"ambition,omitempty"`
-	Novelty                    string   `json:"novelty,omitempty"`
-	Score                      int      `json:"score,omitempty"`
-	Expert                     bool     `json:"expert,omitempty"`
+	Maintenance                *MaintenanceProposal `json:"maintenance,omitempty"`
+	IntegrationTaskID          int64                `json:"integration_task_id,omitempty"`
+	IntegrationPin             string               `json:"integration_pin,omitempty"`
+	IntegrationPaths           []string             `json:"integration_paths,omitempty"`
+	SourceIntegrationID        string               `json:"source_integration_id,omitempty"`
+	ExpertRecoveryTaskID       int64                `json:"expert_recovery_task_id,omitempty"`
+	ExpertProgressKey          string               `json:"expert_progress_key,omitempty"`
+	DiagnoseTaskID             int64                `json:"diagnose_task_id,omitempty"`
+	EnvironmentDiagnosisTaskID int64                `json:"environment_diagnosis_task_id,omitempty"`
+	DiagnoseRequirement        string               `json:"diagnose_requirement,omitempty"`
+	DocumentationTaskID        int64                `json:"documentation_task_id,omitempty"`
+	ProjectID                  int64                `json:"project_id"`
+	SourceRevision             string               `json:"source_revision,omitempty"`
+	RepairTaskID               int64                `json:"repair_task_id,omitempty"`
+	ContinueTaskID             int64                `json:"continue_task_id,omitempty"`
+	Title                      string               `json:"title"`
+	Why                        string               `json:"why"`
+	Acceptance                 []string             `json:"acceptance"`
+	Ambition                   string               `json:"ambition,omitempty"`
+	Novelty                    string               `json:"novelty,omitempty"`
+	Score                      int                  `json:"score,omitempty"`
+	Expert                     bool                 `json:"expert,omitempty"`
 }
 
 // NoWorkReport makes declining work an auditable decision, not an implicit
@@ -235,11 +253,27 @@ type PlanReport struct {
 	Items        []Proposal    `json:"items"`
 	Backlog      []Proposal    `json:"backlog,omitempty"`
 }
+
+// ExpertRecoveryAudit is a semantic judgment bound to controller-owned probe
+// receipts. Hashes alone do not prove causal relevance or novelty.
+type ExpertRecoveryAudit struct {
+	SourceTaskID      int64    `json:"source_task_id"`
+	ProgressKey       string   `json:"progress_key"`
+	ProbeIDs          []string `json:"probe_ids"`
+	FailureFamily     string   `json:"failure_family"`
+	PriorAttempt      int      `json:"prior_attempt"`
+	MaterialChange    bool     `json:"material_change"`
+	CausalExplanation string   `json:"causal_explanation"`
+	DifferentStrategy string   `json:"different_strategy"`
+	StopCriterion     string   `json:"stop_criterion"`
+}
+
 type Verdict struct {
-	Requirements []Requirement `json:"requirements,omitempty"`
-	Outcome      string        `json:"outcome,omitempty"`
-	Approve      *bool         `json:"approve"`
-	Reason       string        `json:"reason"`
+	ExpertRecovery []ExpertRecoveryAudit `json:"expert_recovery,omitempty"`
+	Requirements   []Requirement         `json:"requirements,omitempty"`
+	Outcome        string                `json:"outcome,omitempty"`
+	Approve        *bool                 `json:"approve"`
+	Reason         string                `json:"reason"`
 }
 type BuildReport struct {
 	Requirements []Requirement     `json:"requirements,omitempty"`
@@ -473,6 +507,9 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 				seen = map[string]bool{}
 			}
 			key := fmt.Sprintf("%d:%s", p.ProjectID, strings.ToLower(strings.TrimSpace(p.Title)))
+			if !validExpertProposal(p) || !validPrivateProposal(p) || !ValidMaintenanceProposal(p) {
+				return fmt.Errorf("proposal %d expert_recovery_task_id requires a controller-issued lowercase SHA256 expert_progress_key and cannot combine diagnosis selectors", index)
+			}
 			if p.ProjectID <= 0 || p.EnvironmentDiagnosisTaskID < 0 || p.DiagnoseTaskID < 0 || p.DocumentationTaskID < 0 || p.ContinueTaskID < 0 || p.RepairTaskID < 0 || proposalSources(p) > 1 || p.Score < 0 || p.Score > 100 || strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Why) == "" || seen[key] {
 				return fmt.Errorf("proposal %d needs positive project_id, title, why, score 0..100, nonnegative mutually exclusive continue_task_id/repair_task_id and a unique title within its list", index)
 			}
@@ -543,8 +580,19 @@ func (s *State) ApplyReport(c Config, id int64, raw []byte) error {
 			}
 		}
 		if r.Decision != nil {
-			if s.Item >= 0 && s.Item < len(s.Items) && s.Items[s.Item].DocumentationTaskID > 0 {
-				return errors.New("documentary completion cannot authorize implementation decision rounds")
+			if s.Item >= 0 && s.Item < len(s.Items) {
+				if s.Items[s.Item].DocumentationTaskID > 0 {
+					return errors.New("documentary completion cannot authorize implementation decision rounds")
+				}
+				if s.Items[s.Item].ExpertRecoveryTaskID > 0 {
+					return errors.New("expert recovery cannot authorize implementation decision rounds")
+				}
+				if s.Items[s.Item].Maintenance != nil {
+					return errors.New("maintenance needs a fresh pinned plan for changed scope")
+				}
+				if s.Items[s.Item].IntegrationTaskID > 0 {
+					return errors.New("private integration cannot authorize implementation decision rounds")
+				}
 			}
 			if err := validateDecision(*r.Decision); err != nil {
 				return err
@@ -663,6 +711,18 @@ func (s *State) ActiveTaskIDs() []int64 {
 
 func proposalSources(p Proposal) int {
 	n := 0
+	if p.Maintenance != nil {
+		n++
+	}
+	if p.IntegrationTaskID > 0 {
+		n++
+	}
+	if p.SourceIntegrationID != "" {
+		n++
+	}
+	if p.ExpertRecoveryTaskID > 0 {
+		n++
+	}
 	if p.SourceRevision != "" {
 		n++
 	}
@@ -676,4 +736,30 @@ func proposalSources(p Proposal) int {
 		n++
 	}
 	return n
+}
+
+func validPrivateProposal(p Proposal) bool {
+	hash := func(s string) bool { return len(s) == 64 && strings.Trim(s, "0123456789abcdef") == "" }
+	if p.SourceIntegrationID != "" && !hash(p.SourceIntegrationID) {
+		return false
+	}
+	if p.IntegrationTaskID == 0 {
+		return p.IntegrationPin == "" && len(p.IntegrationPaths) == 0
+	}
+	if p.IntegrationTaskID < 0 || (p.IntegrationPin != "" && !hash(p.IntegrationPin)) || len(p.IntegrationPaths) == 0 || len(p.IntegrationPaths) > 64 || p.DiagnoseTaskID != 0 || p.DiagnoseRequirement != "" {
+		return false
+	}
+	for _, path := range p.IntegrationPaths {
+		if len(path) == 0 || len(path) > 512 {
+			return false
+		}
+	}
+	return true
+}
+
+func validExpertProposal(p Proposal) bool {
+	if p.ExpertRecoveryTaskID == 0 {
+		return p.ExpertProgressKey == ""
+	}
+	return p.ExpertRecoveryTaskID > 0 && len(p.ExpertProgressKey) == 64 && strings.Trim(p.ExpertProgressKey, "0123456789abcdef") == "" && p.DiagnoseTaskID == 0 && p.DiagnoseRequirement == ""
 }

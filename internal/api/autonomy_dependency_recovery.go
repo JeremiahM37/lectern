@@ -176,6 +176,10 @@ func autoDeferPrerequisite(a *autoRecord, j *autoJob, now time.Time) bool {
 }
 
 func autoResumeRecovered(a *autoRecord) bool {
+	if autoResumePairedWorkerRecovery(a, time.Now()) {
+		return true
+	}
+
 	// Held overflow is durable history, not an active polling slot. Resume only
 	// independently released/verified work; never discard it in rotating Runs.
 	for i, state := range a.HeldRuns {
@@ -191,7 +195,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 			a.State = state
 			a.HeldRuns = append(a.HeldRuns[:i], a.HeldRuns[i+1:]...)
 			j.Status = "prepared"
-			if j.PendingPythonRequest != nil {
+			if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil || j.PythonTestNeedsResume || j.NodeNeedsResume || j.GoNeedsResume || !j.WorkerRecoveryAt.IsZero() {
 				j.Status = "stopped"
 			}
 			a.NextCycleScheduled = false
@@ -217,7 +221,7 @@ func autoResumeRecovered(a *autoRecord) bool {
 		a.State = state
 		a.DeferredRuns = append(a.DeferredRuns[:i], a.DeferredRuns[i+1:]...)
 		job.Status = "prepared"
-		if job.PendingPythonRequest != nil {
+		if job.PendingPythonRequest != nil || job.PendingNodeRequest != nil || job.PythonTestNeedsResume || job.NodeNeedsResume || job.GoNeedsResume || !job.WorkerRecoveryAt.IsZero() {
 			job.Status = "stopped"
 		}
 		a.NextCycleScheduled = false
@@ -234,12 +238,15 @@ func autoResumeRecovered(a *autoRecord) bool {
 // enabled/quota checks. Active recovery is refreshed each controller tick;
 // failed/cooling-down capabilities are probed at most every five minutes.
 func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, now time.Time) {
+	// A bounded Go snapshot poll must not starve heartbeat/polls for an
+	// already active package provisioner in another retained assignment.
+	s.pollAutoGoRuntimeRecovery(ctx, a, now)
 	autoPromoteHeldPrerequisites(a)
 	// Give an active download its heartbeat before probing cold blockers.
 	var running int64
 	for _, state := range a.DeferredRuns {
 		for _, id := range state.ActiveTaskIDs() {
-			if j := autoFindJob(a, id); j != nil && ((j.Recovery != nil && j.Recovery.State == "recovering") || (j.PythonRecovery != nil && j.PythonRecovery.State == "recovering")) {
+			if j := autoFindJob(a, id); j != nil && ((j.Recovery != nil && j.Recovery.State == "recovering") || (j.PythonRecovery != nil && j.PythonRecovery.State == "recovering") || (j.NodeRecovery != nil && j.NodeRecovery.State == "recovering")) {
 				running = id
 			}
 		}
@@ -250,6 +257,17 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 				continue
 			}
 			j := autoFindJob(a, id)
+			if j != nil && !j.WorkerRecoveryAt.IsZero() {
+				continue
+			} // Model recovery is not a dependency download.
+			if j != nil && !j.RequirementHold && j.Status == "deferred" && !autoPrivateToolingReady(j) && !now.Before(j.RecoveryCheckAt) {
+				j.RecoveryCheckAt = now.Add(5 * time.Minute)
+				if _, err := s.recoverAutoPrivateTooling(ctx, a, j); err != nil {
+					a.Reason = "Selected test tooling pending: " + err.Error()
+				}
+				autoRotateColdPrerequisite(a, state, j)
+				return
+			}
 			if j != nil && !j.RequirementHold && j.Status == "deferred" && j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified") && !now.Before(j.RecoveryCheckAt) {
 				j.RecoveryCheckAt = now.Add(5 * time.Minute)
 				_, err := s.recoverAutoPython(ctx, a, j)
@@ -257,6 +275,18 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 					a.Reason = "Python prerequisite recovery: " + err.Error()
 				}
 				if j.PythonRecovery != nil && j.PythonRecovery.State == "recovering" {
+					j.RecoveryCheckAt = now.Add(20 * time.Second)
+				} else {
+					autoRotateColdPrerequisite(a, state, j)
+				}
+				return
+			}
+			if j != nil && !j.RequirementHold && j.Status == "deferred" && j.NodeRequest != nil && (j.NodeRecovery == nil || j.NodeRecovery.State != "verified") && !now.Before(j.RecoveryCheckAt) {
+				j.RecoveryCheckAt = now.Add(5 * time.Minute)
+				if _, err := s.recoverAutoNode(ctx, a, j); err != nil {
+					a.Reason = "Node prerequisite recovery: " + err.Error()
+				}
+				if j.NodeRecovery != nil && j.NodeRecovery.State == "recovering" {
 					j.RecoveryCheckAt = now.Add(20 * time.Second)
 				} else {
 					autoRotateColdPrerequisite(a, state, j)
@@ -310,16 +340,29 @@ func (s *Server) pollDeferredPrerequisites(ctx context.Context, a *autoRecord, n
 }
 
 func autoDeferredReady(j *autoJob) bool {
+	if j.GoNeedsResume && !j.GoRecoveryVerified {
+		return false
+	}
+	if !j.WorkerRecoveryAt.IsZero() {
+		return !time.Now().Before(j.WorkerRecoveryAt) && !j.RequirementHold
+	}
+
+	if !autoPrivateToolingReady(j) {
+		return false
+	}
 	if j.RequirementHold {
 		return false
 	}
-	if j.PendingPythonRequest != nil {
+	if j.PendingPythonRequest != nil || j.PendingNodeRequest != nil {
 		return true
 	}
-	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil {
+	if len(j.RequirementIDs) > 0 && j.PythonRequest == nil && j.NodeRequest == nil && !j.GoRecoveryVerified {
 		return false
 	}
 	if j.PythonRequest != nil && (j.PythonRecovery == nil || j.PythonRecovery.State != "verified" || j.PythonNeedsChange) {
+		return false
+	}
+	if j.NodeRequest != nil && (j.NodeRecovery == nil || j.NodeRecovery.State != "verified" || j.NodeNeedsChange) {
 		return false
 	}
 	return j.Recovery != nil && (j.Recovery.State == "verified" || j.Recovery.State == "not_applicable")

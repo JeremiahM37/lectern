@@ -109,3 +109,32 @@ func TestCodexRolloutSnapshotRejectsIncomplete(t *testing.T) {
 		t.Fatal("a malformed snapshot must not be trusted")
 	}
 }
+
+// The rate_limits shape codex 0.157.0 writes beside each token_count (its
+// weekly window as primary here; a 5-hour window when the plan has one).
+func TestParseCodexRolloutUsageReadsRateWindows(t *testing.T) {
+	line := `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12},"model_context_window":258400},` +
+		`"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":100.0,"window_minutes":300,"resets_at":1791000000},` +
+		`"secondary":{"used_percent":41.5,"window_minutes":10080,"resets_at":1791101276},"credits":{"has_credits":false,"unlimited":false,"balance":"0"},"plan_type":"pro","rate_limit_reached_type":null}}}` + "\n"
+	usage, ok := ParseCodexRolloutUsage([]byte(line))
+	if !ok || len(usage.RateLimits) != 2 {
+		t.Fatalf("usage %+v", usage)
+	}
+	if w := usage.RateLimits[0]; w.UsedPercent != 100 || w.WindowMinutes != 300 || w.ResetsAt != 1791000000 {
+		t.Fatalf("primary %+v", w)
+	}
+	if w := usage.RateLimits[1]; w.WindowMinutes != 10080 || w.ResetsAt != 1791101276 {
+		t.Fatalf("secondary %+v", w)
+	}
+}
+
+func TestCodexRolloutTailCommandUsesTheSessionsCodexHome(t *testing.T) {
+	id := "01a0cb65-56af-7240-91a2-68f1e8df4433"
+	cmd := CodexRolloutTailCommandIn([]string{id}, map[string]string{id: "/home/u/.lectern/accounts/codex/work"})
+	if !strings.Contains(cmd, "ls -t /home/u/.lectern/accounts/codex/work/sessions/") {
+		t.Fatalf("command does not look in the account's CODEX_HOME: %s", cmd)
+	}
+	if !strings.Contains(CodexRolloutTailCommand([]string{id}), "ls -t $HOME/.codex/sessions/") {
+		t.Fatal("the default home changed")
+	}
+}

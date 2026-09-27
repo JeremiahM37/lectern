@@ -357,7 +357,9 @@ machine, with noVNC in front of it, and shows it in the page. The card gives its
 opens a browser on that desktop, and that browser sees the machine's own
 localhost — no forward needed. You watch by default; *Take control* passes your
 mouse and keyboard through. An agent can ask for one with the `open_live_view`
-tool, which returns the `DISPLAY` for it to use.
+tool, which returns the `DISPLAY` for it to use. With computer use allowed, the
+agent can also screenshot, click and type on that desktop itself; see
+[Browser](browser.md#computer-use), which also covers the session Browser pane.
 
 ```bash
 lectern expose 5173 --title "Dev server"            # this session's machine
@@ -391,9 +393,11 @@ prefix or `pct` cannot forward, because their loopback is not the SSH host's.
 
 ## Project skills
 
-Claude Code, Codex, Gemini CLI, Qwen Code, OpenCode and GitHub Copilot CLI can
-discover skills on the selected target and attach them to a project (the
-`--agent` names are `claude`, `codex`, `gemini`, `qwen`, `opencode`, `copilot`). Configure additional target-local source directories with the project
+Claude Code, Codex, Gemini CLI, Qwen Code, OpenCode, GitHub Copilot CLI, Kilo,
+MiMo Code, Muse, Devin, Command Code, Pi and Amp can discover skills on the
+selected target and attach them to a project (the `--agent` names are `claude`,
+`codex`, `gemini`, `qwen`, `opencode`, `copilot`, `kilo`, `mimo`, `muse`,
+`devin`, `command-code`, `pi`, `amp`). Configure additional target-local source directories with the project
 API; repository skills are discovered by walking up from the project's Git root:
 
 ```sh

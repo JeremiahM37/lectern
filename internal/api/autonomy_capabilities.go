@@ -12,6 +12,8 @@ import (
 )
 
 const autoPythonProvisioner = "/usr/local/libexec/lectern-python-project-dependencies.py"
+const autoExpertProbeHelper = "/usr/local/libexec/lectern-autonomy-expert-probe.py"
+const autoPrivateIntegrationHelper = "/usr/local/libexec/lectern-autonomy-private-integration.py"
 
 // This is discovery of a registered mechanism, not proof that a particular
 // package resolves or that a running worker received an environment. Only the
@@ -30,7 +32,46 @@ func autoCapabilityInstallation(path string) map[string]any {
 func autoCapabilityCatalog(dependencies, runner, pythonHelper string) map[string]any {
 	runnerInfo := autoCapabilityInstallation(runner)
 	helperInfo := autoCapabilityInstallation(pythonHelper)
-	return autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
+	catalog := autoCapabilityCatalogFromInstallation(dependencies, runnerInfo, helperInfo)
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoInstalledNodeCapability(dependencies, runner, runnerInfo))
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoExpertProbeCapability(runnerInfo, autoCapabilityInstallation(autoExpertProbeHelper)))
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoPrivateIntegrationCapability(runnerInfo, autoCapabilityInstallation(autoPrivateIntegrationHelper)))
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoServerOperationsCapability(runnerInfo, autoCapabilityInstallation("/usr/local/libexec/lectern-autonomy-server-operations.py"), autoCapabilityInstallation("/usr/local/libexec/lectern-autonomy-server-maintenance.py")))
+	catalog["capabilities"] = append(catalog["capabilities"].([]map[string]any), autoGPUCapability(dependencies, runner))
+	return catalog
+}
+
+func autoPrivateIntegrationCapability(runner, helper map[string]any) map[string]any {
+	status := "unavailable"
+	if runner["status"] == "installed" && helper["status"] == "installed" {
+		status = "on_demand"
+	}
+	return map[string]any{
+		"capability": "reviewed_private_integration", "status": status, "helper": helper,
+		"discovery": "GET /private-integrations lists retained integration attempts and published private revisions. Follow details_uri and next_after.",
+		"proposal":  "Use integration_task_id for an approved source artifact, project_id for the registered destination and integration_paths for the explicit destination change scope. The controller pins immutable source/reviewer evidence and destination base before both plan audits.",
+		"workflow":  "Adapt the selected work against the pinned destination. A separate reviewer tests the sealed combined candidate and assesses acceptance. Only controller-verified candidate, test and review bindings can authorize a managed private commit.",
+		"consumer":  "Future independently audited work selects a verified immutable publication using source_integration_id. A private revision is a distinct source from the canonical repository and does not imply that a service was deployed.",
+		"limits":    "Changed canonical HEAD does not invalidate historical private bytes or imply current integration. Inspect base/current-presence evidence before choosing a revision. Operational retries retain ownership and history; failed or rejected attempts are not approvals.",
+		"authority": "Private managed repository only. No public push, canonical worktree overwrite, deployment, or alteration of quota and approval controls. Manual integration attestations remain separate from machine-verified results.",
+	}
+}
+
+func autoExpertProbeCapability(runner, helper map[string]any) map[string]any {
+	status := "unavailable"
+	if runner["status"] == "installed" && helper["status"] == "installed" {
+		status = "on_demand"
+	}
+	return map[string]any{
+		"capability": "expert_recovery_investigation", "status": status, "helper": helper,
+		"discovery":    "GET /expert-recovery; current planner pins exhausted source checkpoints with POST /expert-recovery using project_id and source_task_id",
+		"proposal":     "expert_recovery_task_id and expert_progress_key select the pinned source under normal independent plan audits",
+		"request":      "During that audit each assigned auditor uses POST /expert-probes with progress_key, Python script and optional fixtures, argv and profile ordinary180. GET /expert-probes discovers its existing probe IDs, including same-assignment report corrections; GET /expert-probes?id=ID polls and records execution evidence.",
+		"execution":    "Offline isolated process, immutable source, separate bounded scratch, at most180seconds. Current profile does not provide network access or host commands.",
+		"verification": "Execution receipts establish mounted source, runtime, inputs and outputs. Both independent auditors must assess causal relevance and materially changed strategy against prior failures; execution alone is not proof of progress.",
+		"limits":       "Durable per-root investigation and repair budgets; unchanged conditions cannot renew eligibility through time, renamed work or rewritten logs. Original acceptance and failed history remain binding.",
+		"authority":    "Investigation and independently admitted private repair only. No publication, host-wide permission, automatic approval or quota override.",
+	}
 }
 
 func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, helperInfo map[string]any) map[string]any {
@@ -67,9 +108,10 @@ func autoCapabilityCatalogFromInstallation(dependencies string, runnerInfo, help
 			},
 			{
 				"capability": "go_modules", "status": goStatus,
-				"request":  "Automatic preflight for eligible source workers with supported go.mod/go.sum inputs",
-				"inputs":   "Exact module files and supported installed toolchain; unsupported local replaces or toolchains remain explicit",
-				"receipts": "/dependencies", "worker_receipt": "/prerequisite",
+				"request":      "Automatic preflight for eligible source workers with supported go.mod/go.sum inputs",
+				"inputs":       "Exact module files and supported installed toolchain; unsupported local replaces or toolchains remain explicit",
+				"verification": "Workers record immutable module and complete toolchain digests before execution. Independent private tests and reviewers use the selected snapshot offline. Historical expert probes automatically preflight an archive-bound new experiment when prior delivery evidence is absent; pending submission is retryable. Missing exact runtime bytes appear as go_runtime requirements and are revalidated before same-assignment resume.",
+				"receipts":     "/dependencies", "worker_receipt": "/prerequisite",
 			},
 			autoBrowserCapability(dependencies),
 		},
