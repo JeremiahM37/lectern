@@ -88,6 +88,8 @@ func (m *Manager) Tick(ctx context.Context) {
 			m.pollIfDue(ctx, src, m.pollGitHub)
 		case KindLinear:
 			m.pollIfDue(ctx, src, m.pollLinear)
+		case KindJira:
+			m.pollIfDue(ctx, src, m.pollJira)
 		case KindSlack:
 			// handled by syncSlack below, not the poll loop
 		}

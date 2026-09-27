@@ -2,8 +2,9 @@
 
 When an agent's provider stops it for a usage limit, Lectern notices, shows
 it on the card with the reset time, and does what the project's policy says:
-tell you, wait and resume the same agent after the reset, or hand the work
-to another agent now. Headless tasks get the same treatment.
+tell you, wait and resume the same agent after the reset, hand the work
+to another agent now, or move the same conversation to another signed-in
+account of the same CLI. Headless tasks get the same treatment.
 
 Package: `internal/limits`. Task side: `internal/scheduler/limits.go`.
 Store: `internal/store/limits.go` (`limit_holds`, `limit_policies`).
@@ -41,21 +42,23 @@ detected until a pattern is added.
 
 ## Policy
 
-`notify` (default), `wait` or `handoff`, set globally, per project or per
-session; the narrowest one set wins.
+`notify` (default), `wait`, `handoff` or `swap`, set globally, per project
+or per session; the narrowest one set wins.
 
 ```bash
 # every project: resume after the reset
 curl -X PUT .../api/limits/policy -d '{"policy":{"mode":"wait"}}'
 # one project: hand off to Codex straight away
 curl -X PUT .../api/limits/policy -d '{"project_id":3,"policy":{"mode":"handoff","fallback_agent":"codex","fallback_model":"gpt-5"}}'
+# one project: move to another account first, wait for the reset if none is free
+curl -X PUT .../api/limits/policy -d '{"project_id":3,"policy":{"mode":"swap","then":"wait"}}'
 # one session: back to the project's policy
 curl -X PUT .../api/limits/policy -d '{"session_id":42,"policy":null}'
 ```
 
 A fallback can also be a launch profile (`fallback_profile_id`). Settings →
 Budgets edits the global policy, and each project card in Settings has its
-own editor.
+own editor; both have the **swap accounts** switch.
 
 - **notify** — a push and a card banner with one-tap choices. Nothing is typed
   into the session. When the reset passes, one more push says so.
@@ -74,11 +77,25 @@ own editor.
   countdown if one is showing, so two agents never work in one workspace. The
   original session stays open. **Switch** on a limited session takes the same
   path.
+- **swap** — off unless you turn it on, and only useful once a CLI has more
+  than one account on the machine ([accounts.md](accounts.md)). Lectern picks
+  the next account in the rotation that is not limited: not one with a limit
+  it recorded whose reset is still ahead (5 hours when no reset was named),
+  and not one whose statusline or rollout last reported a window at 100%. It
+  copies the conversation into that account's directory, stops the agent,
+  starts it again in the same terminal and workspace with its resume-by-id
+  flag under the new account, and types the same nudge as **wait**, verified
+  the same way. The push says which account it moved to. If every other
+  account is limited, the policy's `then` applies (`notify`, `wait` or
+  `handoff`). An account that is not signed in is never swapped to, and an
+  agent that exits straight after the restart is reported, not nudged.
 
 The push and the card offer **Resume at reset** (or **Resume now** once the
-reset has passed), **Hand off** and **Dismiss** —
-`POST /api/limits/{id}/choose {"action":"wait|resume_now|handoff|notify|dismiss"}`,
-optionally with `agent`/`model`/`profile_id` for the handoff. `GET
+reset has passed), **Hand off** and **Dismiss**; the card also offers **Swap
+to <account>** whenever another account is free, whatever the policy —
+`POST /api/limits/{id}/choose {"action":"wait|resume_now|handoff|swap|notify|dismiss"}`,
+optionally with `agent`/`model`/`profile_id` for the handoff or `account_id`
+for the swap. `GET
 /api/limits` lists open holds (`?all=true` for recent ones).
 
 ## Tasks
@@ -93,6 +110,10 @@ exits, the project's policy applies:
   with the original task and a note about the partial work.
 - **notify** — the task fails as before, with a "Task stopped by usage limit"
   push offering the same choices.
+- **swap** — a new attempt now, on the same agent under the next free account,
+  in the same worktree. It resumes the attempt's own conversation, copied into
+  that account; if the copy fails it starts from the task prompt with a note
+  about the partial work. With no free account, `then` applies as above.
 
 On a sandbox target the container is gone, so the continuation starts fresh
 from the task prompt.
@@ -106,9 +127,15 @@ instead of sending another. If the nudge never reached the pane, it is
 retried once, which is still a single delivered nudge. A handoff interrupted
 by a restart is detected and reported rather than restarted, and a task
 continuation that was created but not recorded is adopted instead of
-duplicated. Tests: `TestNoDoubleResumeAfterRestart`,
+duplicated. A swap records both accounts in the hold before it starts
+(`swapping`); the session's own account changing is its commit point. A
+restart before that point tries the swap again, after it only sends the
+nudge. Tests: `TestNoDoubleResumeAfterRestart`,
 `TestConcurrentTicksNudgeOnce`, `TestUndeliveredNudgeIsRetried`,
-`TestLimitedTaskIsRequeuedForTheResetOnce`.
+`TestLimitedTaskIsRequeuedForTheResetOnce`, `TestConcurrentTicksSwapOnce`,
+`TestNoDoubleSwapAfterRestartPastTheCommit`,
+`TestInterruptedSwapBeforeTheCommitIsRetriedOnce`, and the real-process
+`TestLimitedSessionSwapsAccountAndResumesTheSameConversation`.
 
 ## Limits of this feature
 
@@ -116,7 +143,10 @@ duplicated. Tests: `TestNoDoubleResumeAfterRestart`,
   A CLI release that rewords its message fails the pattern tests only when the
   samples are refreshed.
 - Codex and Gemini sessions are detected from the pane only; neither exposes a
-  hook for this. Codex's own rate-limit percentages (in its rollout files) are
-  not read.
-- There is no account hot-swap: a handoff goes to another agent or launch
-  profile, not another login of the same CLI.
+  hook for this. Codex's own window percentages (in its rollout files) are
+  read for the session and its account, but never open a hold by themselves.
+- A swap moves Claude Code and Codex conversations. Gemini accounts can be
+  registered and swapped for tasks, but the continuation starts from the task
+  prompt: Lectern does not capture a Gemini conversation id, so a Gemini
+  session falls back to `then`. Sandboxed sessions and attempts see only their
+  own login and are not swapped.

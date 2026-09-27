@@ -19,6 +19,17 @@ type limitView struct {
 	*store.LimitHold
 	Fallback    string `json:"fallback,omitempty"`
 	PolicyScope string `json:"policy_scope"`
+	// SwapTo is the account a swap would move the work to now; absent when
+	// no other account of the CLI is free (docs/accounts.md).
+	SwapTo *accountRef `json:"swap_to,omitempty"`
+	// From and To label the two ends of a swap the hold carried out.
+	FromAccount string `json:"from_account,omitempty"`
+	ToAccount   string `json:"to_account,omitempty"`
+}
+
+type accountRef struct {
+	ID    int64  `json:"id"`
+	Label string `json:"label"`
 }
 
 func (s *Server) limitView(h *store.LimitHold) *limitView {
@@ -27,18 +38,47 @@ func (s *Server) limitView(h *store.LimitHold) *limitView {
 	}
 	var sessionID int64
 	var projectID *int64
+	var targetID int64
+	var accountID *int64
 	if h.SessionID != nil {
 		sessionID = *h.SessionID
 		if sess, err := s.DB.Session(sessionID); err == nil {
-			projectID = sess.ProjectID
+			projectID, targetID, accountID = sess.ProjectID, sess.TargetID, sess.AccountID
 		}
 	} else if h.TaskID != nil {
 		if task, err := s.DB.Task(*h.TaskID); err == nil {
 			projectID = &task.ProjectID
+			if project, err := s.DB.Project(task.ProjectID); err == nil {
+				targetID = project.TargetID
+			}
+		}
+		if h.AttemptID != nil {
+			if att, err := s.DB.Attempt(*h.AttemptID); err == nil {
+				accountID = att.AccountID
+			}
 		}
 	}
 	p, scope := limits.Effective(s.DB, sessionID, projectID)
-	return &limitView{LimitHold: h, Fallback: p.Fallback(), PolicyScope: scope}
+	v := &limitView{LimitHold: h, Fallback: p.Fallback(), PolicyScope: scope}
+	if h.Open() && targetID != 0 {
+		if a := limits.SwapTo(s.DB, h, targetID, accountID); a != nil {
+			v.SwapTo = &accountRef{ID: a.ID, Label: a.Label}
+		}
+	}
+	label := func(id *int64) string {
+		if id == nil {
+			return ""
+		}
+		if *id == 0 {
+			return "Default"
+		}
+		if a, err := s.DB.Account(*id); err == nil {
+			return a.Label
+		}
+		return "removed account"
+	}
+	v.FromAccount, v.ToAccount = label(h.AccountFrom), label(h.AccountTo)
+	return v
 }
 
 // sessionLimit is a session's open hold, for its card.
@@ -90,6 +130,7 @@ func (s *Server) listLimits(w http.ResponseWriter, r *http.Request) {
 
 type chooseLimitIn struct {
 	Action    string `json:"action"`
+	AccountID int64  `json:"account_id"`
 	Agent     string `json:"agent"`
 	Model     string `json:"model"`
 	ProfileID int64  `json:"profile_id"`
@@ -113,8 +154,8 @@ func (s *Server) chooseLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !oneOf(in.Action, limits.ActionWait, limits.ActionResumeNow, limits.ActionHandoff,
-		limits.ActionNotify, limits.ActionDismiss) {
-		httpError(w, 422, "action must be wait, resume_now, handoff, notify or dismiss")
+		limits.ActionSwap, limits.ActionNotify, limits.ActionDismiss) {
+		httpError(w, 422, "action must be wait, resume_now, handoff, swap, notify or dismiss")
 		return
 	}
 	var override *limits.Policy
@@ -124,6 +165,12 @@ func (s *Server) chooseLimit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		override = &limits.Policy{FallbackAgent: in.Agent, FallbackModel: in.Model, FallbackProfileID: in.ProfileID}
+	}
+	if in.AccountID != 0 {
+		if override == nil {
+			override = &limits.Policy{}
+		}
+		override.AccountID = in.AccountID
 	}
 	h, err := s.Limits.Choose(r.Context(), id, in.Action, override)
 	switch {

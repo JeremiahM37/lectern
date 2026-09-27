@@ -54,6 +54,8 @@ type Mock struct {
 	agents   map[string]*mockAgent
 	scratchN int
 	panes    map[string]*mockPane
+	// forgeState is the scripted GitHub repository (mock_forge.go).
+	forgeState *mockForge
 
 	// Delay paces the fake agent between events.
 	Delay time.Duration
@@ -129,6 +131,11 @@ var (
 )
 
 // Run interprets the command against the scripted target.
+var (
+	mockAccountDir = regexp.MustCompile(`/\.lectern/accounts/([a-z]+/[a-z0-9-]+)`)
+	mockQuotedDir  = regexp.MustCompile(`^umask 077; d='?([^' ]+)'? `)
+)
+
 func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error) {
 	m.mu.Lock()
 	m.cmdLog = append(m.cmdLog, cmd)
@@ -137,6 +144,9 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		m.Intercept(cmd)
 	}
 
+	if f := m.forge(); f.handles(cmd) {
+		return f.run(cmd), nil
+	}
 	switch {
 	case strings.HasPrefix(cmd, MockAgentProbeMarker):
 		return m.handleAgentProbe(cmd), nil
@@ -163,6 +173,22 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return Result{1, "", ""}, nil
 	case strings.HasPrefix(cmd, "git clone"):
 		return Result{0, "", ""}, nil
+	case strings.HasPrefix(cmd, "umask 077; d=") && strings.HasSuffix(cmd, "pwd -P"):
+		// An account directory (internal/accounts.CreateDirCommand): the
+		// target's shell creates it and prints where it is.
+		dir := "/mock/home/account"
+		if m := mockAccountDir.FindStringSubmatch(cmd); m != nil {
+			dir = "/mock/home/.lectern/accounts/" + m[1]
+		} else if m := mockQuotedDir.FindStringSubmatch(cmd); m != nil {
+			dir = m[1]
+		}
+		return Result{0, dir + "\n", ""}, nil
+	case strings.Contains(cmd, "&& echo signed-in || echo signed-out"):
+		// Account sign-in checks: every mock account reads as signed in.
+		return Result{0, strings.Repeat("signed-in\n", strings.Count(cmd, "echo signed-in")), ""}, nil
+	case strings.Contains(cmd, "conversation not found in the current account"):
+		// An account swap copying a conversation (internal/accounts.StageCommand).
+		return Result{0, "projects/-mock/conversation.jsonl\n", ""}, nil
 	case strings.Contains(cmd, "lectern-scratch") && strings.Contains(cmd, "mktemp -d"):
 		// a scratch directory is created by the target's own shell and its path
 		// read back from `pwd`; mktemp's uniqueness is modelled by a counter, so

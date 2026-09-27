@@ -29,6 +29,7 @@ import { Markdown } from "./markdown";
 import { buildChatCards, type ConversationItem } from "./tool-views/chatCards";
 import { ToolCardView } from "./tool-views/ToolCard";
 import { VoiceMode } from "./VoiceMode";
+import { BrowserPane } from "../browser/BrowserPane";
 interface Attachment {
   name: string;
   path: string;
@@ -150,6 +151,7 @@ export function Conversation({
     [uploading, setUploading] = useState(false),
     [drag, setDrag] = useState(false),
     [showMergeReview, setShowMergeReview] = useState(false),
+    [showBrowser, setShowBrowser] = useState(false),
     [font, setFont] = useState(() =>
       Math.max(
         16,
@@ -706,7 +708,7 @@ export function Conversation({
   return (
     <Modal
       id="conversation"
-      className="conversation"
+      className={showBrowser ? "conversation with-browser" : "conversation"}
       aria-label={`Conversation with ${name}`}
       style={
         {
@@ -865,7 +867,25 @@ export function Conversation({
           >
             ± Review &amp; merge
           </button>
+          <button
+            type="button"
+            className="b"
+            id="conversation-browser"
+            aria-pressed={showBrowser}
+            onClick={() => setShowBrowser(!showBrowser)}
+          >
+            ◎ Browser
+          </button>
         </div>
+      )}
+      {kind === "session" && showBrowser && (
+        <BrowserPane
+          api={api}
+          sessionId={id}
+          name={currentName}
+          onClose={() => setShowBrowser(false)}
+          onNotice={onNotice}
+        />
       )}
       {showMergeReview && (
         <SessionReview

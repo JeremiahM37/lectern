@@ -25,10 +25,18 @@ func autoVerifiedDiagnosisEnvironments(a *autoRecord) []*autoVerifiedDiagnosisEn
 		if b == nil || r == nil || b.ID != e.BuilderJob || r.ID != e.ReviewerJob || b.Role != "builder" || r.Role != "reviewer" || b.Status != "done" || r.Status != "done" || !b.Approved || b.Rejected || b.ReviewTaskID != r.TaskID || b.ReviewOutcome != "completed" {
 			continue
 		}
-		if !autoDiagnosisEnvironmentUsed(b, e.Request, e.Receipt) || !autoDiagnosisEnvironmentUsed(r, e.Request, e.ReviewerReceipt) {
+		if e.Request == nil && e.NodeRequest == nil {
 			continue
 		}
-		if e.Receipt.InputKey != e.ReviewerReceipt.InputKey || e.Receipt.BundleKey != e.ReviewerReceipt.BundleKey || e.Receipt.RuntimeDigest != e.ReviewerReceipt.RuntimeDigest || e.Receipt.BrowserKey != e.ReviewerReceipt.BrowserKey {
+		if e.Request != nil {
+			if !autoDiagnosisEnvironmentUsed(b, e.Request, e.Receipt) || !autoDiagnosisEnvironmentUsed(r, e.Request, e.ReviewerReceipt) {
+				continue
+			}
+			if e.Receipt.InputKey != e.ReviewerReceipt.InputKey || e.Receipt.BundleKey != e.ReviewerReceipt.BundleKey || e.Receipt.RuntimeDigest != e.ReviewerReceipt.RuntimeDigest || e.Receipt.BrowserKey != e.ReviewerReceipt.BrowserKey {
+				continue
+			}
+		}
+		if e.NodeRequest != nil && (!autoNodeDiagnosisEnvironmentUsed(b, e.NodeRequest, e.NodeReceipt) || !autoNodeDiagnosisEnvironmentUsed(r, e.NodeRequest, e.NodeReviewerReceipt) || !autoSameNodeEnvironment(e.NodeReceipt, e.NodeReviewerReceipt)) {
 			continue
 		}
 		out = append(out, e)
@@ -113,6 +121,15 @@ func applyAutoDiagnosisEnvironment(a *autoRecord, j *autoJob) error {
 	e := a.EnvironmentPins[p.EnvironmentDiagnosisTaskID]
 	if e == nil {
 		return errors.New("audited environment pin missing")
+	}
+	if err := autoApplyNodeDiagnosisEnvironment(j, e); err != nil {
+		return err
+	}
+	if e.Request == nil {
+		return nil
+	}
+	if j.PythonRequest != nil {
+		return nil
 	}
 	var request autoPythonRequest
 	if err := json.Unmarshal([]byte(store.J(e.Request)), &request); err != nil {

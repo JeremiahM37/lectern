@@ -434,8 +434,10 @@ temporary databases, a separate vault, and a private tmux socket.
   reset** / **Hand off**. Per project or session, Lectern can instead wait and
   resume the same agent after the reset (verifying it really resumed, never
   twice, even across a restart) or hand the work to a fallback agent in the
-  same workspace at once. Tasks are requeued for the reset or re-dispatched
-  the same way. See [docs/rate-limits.md](rate-limits.md).
+  same workspace at once, or — with several accounts of one CLI signed in
+  (Settings → Accounts) — move the same conversation to the next free account.
+  Tasks are requeued for the reset or re-dispatched the same way. See
+  [docs/rate-limits.md](rate-limits.md) and [docs/accounts.md](accounts.md).
 - **Cost per outcome** — ties every dollar to what it produced: exact
   OpenTelemetry cost/token telemetry from Claude Code sessions and task
   attempts, $ per passing check, $ per accepted change, $ per 100 kept

@@ -1,9 +1,8 @@
 # Android app
 
-A native Android app for Lectern. It is a prototype: it works end to end (see
-"Tested" below). Version 0.1.0 is attached to the v2.4.1 GitHub release as
-`lectern-android-0.1.0-prototype.apk`; there is no store listing. This page
-describes 0.2.0, built from this source.
+A native Android app for Lectern. It is a prototype. A signed Android 0.1.0 APK is available on the
+[v2.4.1 release](https://github.com/JeremiahM37/lectern/releases/tag/v2.4.1).
+See "Tested" and "Limits" below before using it. This page describes 0.2.0, built from this source.
 
 It runs the **same web app** as the browser (`frontend/`, staged into `web/`),
 bundled and signed inside the APK, and adds what a web page cannot do:
@@ -291,10 +290,19 @@ host, physical devices, and Android versions other than 14.
   tailnet address is already encrypted). Use https or the relay on untrusted
   networks.
 
-## Publishing
+## Distribution
 
-Publishing is the owner's decision. The 0.1.0 prototype APK is attached to
-the v2.4.1 GitHub release; nothing has been submitted to a store.
+The signed `lectern-android-0.1.0-prototype.apk` and its SHA-256 checksum are
+published on the [v2.4.1 release](https://github.com/JeremiahM37/lectern/releases/tag/v2.4.1).
+The APK was built from that tag; JVM unit tests, the signed/minified release
+build, signature verification and installation/launch on an isolated Android
+emulator passed. The downloaded public artifact was checked against the local
+SHA-256. This does not extend the physical-device or QR-camera claims above.
+
+Signing certificate SHA-256:
+`cc438ac9a8c58b582e69b320fbd85038082bad56c37a41f9b6db04d0f2aeba56`.
+
+There is no store listing yet. Future distribution options:
 
 - **F-Droid**: the app has no proprietary dependencies (UnifiedPush connector,
   Tink, ZXing, AndroidX). F-Droid builds from source, so it needs a tagged

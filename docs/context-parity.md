@@ -73,11 +73,13 @@ gets none of these):
 | Agent | Interactive sessions | Tasks |
 |---|---|---|
 | OpenCode (`opencode`) | private file named by `OPENCODE_CONFIG`, servers under `mcp` (`local`/`remote`) | over ACP `session/new` |
-| Qwen Code (`qwen`) | private file named by `QWEN_CODE_SYSTEM_DEFAULTS_PATH`, `mcpServers` (HTTP as `httpUrl`) | not translated (plain task CLI) |
-| GitHub Copilot CLI (`copilot`) | `--additional-mcp-config @<private file>`, the Claude document as is | not translated (plain task CLI) |
+| Qwen Code (`qwen`) | private file named by `QWEN_CODE_SYSTEM_DEFAULTS_PATH`, `mcpServers` (HTTP as `httpUrl`) | over ACP `session/new` with the catalog preset (`qwen --acp`) |
+| GitHub Copilot CLI (`copilot`) | `--additional-mcp-config @<private file>`, the Claude document as is | over ACP `session/new` with the catalog preset (`copilot --acp`) |
+| Kilo Code CLI (`kilo`), MiMo Code (`mimo`) | OpenCode's `mcp` file, named by `KILO_CONFIG` / `MIMOCODE_CONFIG` | over ACP `session/new` |
+| Amp (`amp`) | `--mcp-config <private file>`, the bare server map (no `mcpServers` wrapper) | refused when the project declares MCP |
 | Gemini CLI (`gemini`) | merged into `.gemini/settings.json` in a Lectern-created worktree or scratch workspace only; a session in the project's own checkout gets nothing (see below) | over ACP `session/new` when run as the ACP preset |
-| Any ACP agent (Goose, Kimi, Cline, …) | not translated | over ACP `session/new` |
-| Aider, Amp, Cursor, Crush, other custom agents | not translated | refused when the project declares MCP |
+| Any other ACP agent (Goose, Kimi, Cline, Grok, Devin, Hermes, Cursor, Kiro, …) | not translated | over ACP `session/new` |
+| Aider, Crush, Muse, Droid, Pi, OpenClaude, other custom agents | not translated | refused when the project declares MCP |
 
 Each interactive file is published with the same private-runtime helper Claude
 uses and is read in addition to the user's own MCP config, so `strict_mcp` is
@@ -121,7 +123,10 @@ Checked on 2026-09-26 against OpenCode 1.18.32 and Qwen Code 0.24.6 (`mcp list`
 connected to a stdio server from the generated file while keeping the user's own
 server), Copilot CLI 1.0.88 (reported the server connected at start), and
 `opencode acp` and `gemini --acp` 0.61.0 (both started the stdio server passed
-in `session/new`). Interactive Gemini CLI 0.61.0, in a linked worktree with the
+in `session/new`). On 2026-09-27, Kilo 7.8.1 and MiMo Code 0.1.15 listed a
+stdio server from a file named by their variable, and Amp 0.0.1790496040 listed
+stdio, http and sse servers from `--mcp-config` under its global settings (it
+rejects the `mcpServers` wrapper). Interactive Gemini CLI 0.61.0, in a linked worktree with the
 file Lectern wrote, listed both the project's and the user's own stdio servers
 as connected, with `git status` clean; removal restored the worktree.
 

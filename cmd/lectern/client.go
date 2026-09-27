@@ -149,8 +149,15 @@ const clientHelp = `Lectern — web and terminal control
   lectern expose PORT [--title T] [--machine NAME] [--session ID]
                                     Reach a machine's localhost:PORT from your own browser
   lectern live list | lectern live stop ID
+  lectern browser ACTION [ARGS]   Drive this session's browser: open, snapshot, click, fill,
+                                    press, eval, console, network, screenshot (docs/browser.md)
+  lectern computer ACTION [ARGS]  Operate this session's live desktop, when allowed
   lectern agent list
   lectern agent save JSON|@file|-
+  lectern account list            Logins the swap limit policy moves work between
+  lectern account add AGENT LABEL [--machine NAME] [--dir PATH]
+  lectern account login ID        Sign an account in, in a terminal
+  lectern account remove ID
   lectern skill list PROJECT [--agent AGENT]
   lectern skill attached PROJECT [--agent AGENT]
   lectern skill attach PROJECT SKILL_ID [--agent AGENT]
@@ -398,12 +405,18 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		data, err = c.Request(strings.ToUpper(args[0]), args[1], body, "application/json")
 	case "skill":
 		data, err = skillCommand(c, args)
+	case "account":
+		return accountCommand(cfg, args, base, token, local, os.Stdout)
 	case "agent":
 		data, err = agentCommand(c, args)
 	case "post":
 		data, err = postCommand(base, token, args)
 	case "live", "expose":
 		data, err = liveCommand(c, command, args)
+	case "browser":
+		data, err = browserCommand(c, args)
+	case "computer":
+		data, err = computerCommand(c, args)
 	case "upload":
 		if len(args) != 3 {
 			return fmt.Errorf("usage: lectern upload KIND ID FILE")

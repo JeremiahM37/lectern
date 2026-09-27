@@ -18,6 +18,8 @@ designed around that constraint:
   the target's own `gh` CLI login (the same one `gh pr create` already uses
   for a human's Commit/PR button).
 - **Linear** is polled over its GraphQL API with an API key.
+- **Jira** is polled over its REST API with an API token or personal access
+  token.
 - **Slack** uses **Socket Mode** — an *outbound* websocket lectern opens to
   Slack, which Slack then uses to carry events, slash commands and
   interactivity back over. No inbound HTTP endpoint is exposed for Slack
@@ -172,9 +174,40 @@ Behavior:
   human put it.
 - Cursor: `since` (an updatedAt timestamp), same reasoning as GitHub's.
 
+### Jira
+
+Works with Jira Cloud and Jira Server / Data Center.
+
+Fields (`config`): `base_url` (e.g. `https://yourteam.atlassian.net`),
+`flavor` (`cloud` or `server`; empty guesses from the host — `*.atlassian.net`
+is Cloud), `email` (Cloud only: the account the token belongs to),
+`project_key` (required), `label` (default `lectern`), `allowed_users` (the
+reporter's email, account id, username or display name), `done_transition`
+(default `Done`), `agent`/`model`, `max_per_hour`.
+
+Secrets: `token` — an API token on Cloud (sent with the email as HTTP Basic,
+REST v3), a personal access token on Server / Data Center (Bearer, REST v2).
+
+Behavior:
+
+- An issue in `project_key` carrying `label`, updated after the source was
+  enabled, files a task from its key, summary, description and link. The
+  search uses a relative `updated >= "-Nm"` window, because JQL reads absolute
+  dates in the Jira user's own time zone; the event ledger drops anything seen
+  twice.
+- Cloud often hides email addresses, so the reporter is matched against the
+  allowlist by email, account id, username and display name in turn.
+- When the task finishes, lectern comments the result summary and diff stats
+  (as ADF on Cloud), then — unless the task failed or was cancelled — applies
+  the transition whose name or destination status is `done_transition`. A
+  missing transition is reported, never guessed.
+
+The same key can also serve the project's Jira issues in the Tasks hub
+([trackers.md](trackers.md)).
+
 ## Freshly configured sources start from "now"
 
-Enabling a GitHub or Linear source seeds its cursor to the moment it was
+Enabling a GitHub, Linear or Jira source seeds its cursor to the moment it was
 created, not the beginning of time — otherwise the first poll would treat
 every historical labelled issue as brand new and open one task per issue.
 Only issues/comments/updates from after that moment are ever considered.
@@ -213,7 +246,7 @@ A source's `secrets` are never returned raw: the API redacts them to
   `executor.Local` (so it genuinely shells out, exercising the same code path
   production uses), plus a real local git repository with a `file://`-style
   local bare remote for the commit/push/PR postback path — no network needed;
-- an `httptest` GraphQL server for Linear;
+- an `httptest` GraphQL server for Linear and a REST one for Jira;
 - a from-scratch minimal RFC 6455 server (`ws_test.go`) driving the real
   `wsDial` client, plus a full Socket Mode round trip (connect → app_mention
   envelope → ack → task creation → acknowledgement posted back) against that

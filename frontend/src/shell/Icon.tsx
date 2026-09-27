@@ -13,7 +13,8 @@ export function Icon({
     | "brand"
     | "search"
     | "plus"
-    | "evals";
+    | "evals"
+    | "tasks";
   size?: number;
 }) {
   return (
@@ -72,6 +73,13 @@ export function Icon({
         <>
           <circle cx="10" cy="10" r="6" />
           <path d="m15 15 5 5" />
+        </>
+      ) : name === "tasks" ? (
+        <>
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <circle cx="18" cy="18" r="2.5" />
+          <path d="M6 8.5v7M18 15.5V10a3 3 0 0 0-3-3h-4M13 5l-2 2 2 2" />
         </>
       ) : name === "evals" ? (
         <>
