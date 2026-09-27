@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"net"
 	"net/http"
@@ -364,5 +365,44 @@ func TestParseKey(t *testing.T) {
 	}
 	if _, _, err := parseKey("Hyper+x"); err == nil {
 		t.Fatal("unknown modifier accepted")
+	}
+}
+
+// A browser on the control plane stands in for a target with none: through the
+// loopback proxy, its localhost is the target's.
+func TestHostBrowserSeesTheTargetsLocalhost(t *testing.T) {
+	srv := fixtureServer(t)
+	// A port nothing on this machine listens on; only the proxy can make it answer.
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	closed := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	proxy, err := StartLoopbackProxy(func(ctx context.Context, addr string) (net.Conn, error) {
+		if addr != fmt.Sprintf("127.0.0.1:%d", closed) {
+			return nil, fmt.Errorf("unexpected %s", addr)
+		}
+		return localDial(ctx, srv.Listener.Addr().String())
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	proc, err := Launch(ctx, localRun, testOwner(), LaunchOptions{ProxyPort: proxy.Port})
+	if err == ErrNoBrowser {
+		t.Skip("no Chromium on this machine")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Stop(context.Background(), localRun, proc.Dir)
+	b, err := Open(ctx, localDial, proc, Viewport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	st, err := b.Navigate(ctx, fmt.Sprintf("http://localhost:%d/", closed))
+	if err != nil || st.Title != "Fixture app" {
+		t.Fatalf("host browser via proxy: %+v %v", st, err)
 	}
 }
