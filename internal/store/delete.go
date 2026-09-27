@@ -36,6 +36,7 @@ var projectDependents = []string{
 	`DELETE FROM memories WHERE project_id=?`,
 	`DELETE FROM trigger_events WHERE project_id=?1 OR source_id IN (SELECT id FROM trigger_sources WHERE project_id=?1)`,
 	`DELETE FROM trigger_sources WHERE project_id=?`,
+	`DELETE FROM tracker_connections WHERE project_id=?`,
 	`DELETE FROM eval_results WHERE run_id IN (SELECT r.id FROM eval_runs r JOIN eval_suites s ON s.id=r.suite_id WHERE s.project_id=?1)
 		OR case_id IN (SELECT c.id FROM eval_cases c JOIN eval_suites s ON s.id=c.suite_id WHERE s.project_id=?1)`,
 	`DELETE FROM eval_runs WHERE suite_id IN (SELECT id FROM eval_suites WHERE project_id=?)`,

@@ -398,6 +398,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/triggers/{id}", s.patchTriggerSource)
 	mux.HandleFunc("DELETE /api/triggers/{id}", s.deleteTriggerSource)
 	mux.HandleFunc("POST /api/triggers/{id}/test", s.testTriggerSource)
+	s.registerTrackerRoutes(mux)
 
 	mux.HandleFunc("GET /api/templates", s.getTemplates)
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)

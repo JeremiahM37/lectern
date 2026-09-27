@@ -924,4 +924,16 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 	// The CI loop commits and pushes a task's fix attempt itself (docs/ci-loop.md).
 	"ALTER TABLE ci_watches ADD COLUMN pushed_attempt_id INTEGER NOT NULL DEFAULT 0",
+	// External trackers for the Tasks hub (docs/trackers.md, store.TrackerConnection).
+	// secrets_json is never serialized, like trigger_sources.secrets_json.
+	`CREATE TABLE IF NOT EXISTS tracker_connections(
+	  id INTEGER PRIMARY KEY,
+	  project_id INTEGER NOT NULL REFERENCES projects(id),
+	  kind TEXT NOT NULL,
+	  name TEXT NOT NULL DEFAULT '',
+	  config_json TEXT NOT NULL DEFAULT '{}',
+	  secrets_json TEXT NOT NULL DEFAULT '{}',
+	  created_at REAL NOT NULL,
+	  updated_at REAL NOT NULL)`,
+	"CREATE INDEX IF NOT EXISTS idx_tracker_connections_project ON tracker_connections(project_id)",
 }

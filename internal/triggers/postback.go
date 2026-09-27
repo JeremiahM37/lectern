@@ -42,6 +42,8 @@ func (m *Manager) postback(ctx context.Context, ev *store.TriggerEvent) {
 		perr = m.postbackGitHub(ctx, src, ev, task, att)
 	case KindLinear:
 		perr = m.postbackLinear(ctx, src, ev, task, att)
+	case KindJira:
+		perr = m.postbackJira(ctx, src, ev, task, att)
 	case KindSlack:
 		perr = m.postbackSlack(ctx, src, ev, task, att)
 	}

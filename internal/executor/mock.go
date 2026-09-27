@@ -54,6 +54,8 @@ type Mock struct {
 	agents   map[string]*mockAgent
 	scratchN int
 	panes    map[string]*mockPane
+	// forgeState is the scripted GitHub repository (mock_forge.go).
+	forgeState *mockForge
 
 	// Delay paces the fake agent between events.
 	Delay time.Duration
@@ -137,6 +139,9 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		m.Intercept(cmd)
 	}
 
+	if f := m.forge(); f.handles(cmd) {
+		return f.run(cmd), nil
+	}
 	switch {
 	case strings.HasPrefix(cmd, MockAgentProbeMarker):
 		return m.handleAgentProbe(cmd), nil

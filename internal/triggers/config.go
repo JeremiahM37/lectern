@@ -1,6 +1,6 @@
 // Package triggers lets a project pick up work on its own — from a labelled
 // GitHub issue, an @mention in a PR/issue comment, a Slack message, a
-// /lectern slash command, or a labelled Linear issue — the way Devin, Cursor,
+// /lectern slash command, or a labelled Linear or Jira issue — the way Devin, Cursor,
 // Codex, Tembo and Charlie already do. Lectern itself has no equivalent until
 // this package: dispatch was always a human pressing a button, or a routine
 // on a timer.
@@ -19,16 +19,19 @@ import (
 	"strings"
 )
 
-// Kind is one of the three sources this package knows how to watch.
+// Kind is one of the sources this package knows how to watch.
 type Kind string
 
 const (
 	KindGitHub Kind = "github"
 	KindSlack  Kind = "slack"
 	KindLinear Kind = "linear"
+	KindJira   Kind = "jira"
 )
 
-func (k Kind) valid() bool { return k == KindGitHub || k == KindSlack || k == KindLinear }
+func (k Kind) valid() bool {
+	return k == KindGitHub || k == KindSlack || k == KindLinear || k == KindJira
+}
 
 // defaultMaxPerHour is the rate limit applied when a source's config leaves
 // max_per_hour unset — enough for active development, not enough for a
@@ -264,8 +267,21 @@ func ValidateConfig(kind Kind, configJSON, secretsJSON string) error {
 			return err
 		}
 		return s.validate()
+	case KindJira:
+		c, err := ParseJiraConfig(configJSON)
+		if err != nil {
+			return err
+		}
+		if err := c.validate(); err != nil {
+			return err
+		}
+		s, err := ParseJiraSecrets(secretsJSON)
+		if err != nil {
+			return err
+		}
+		return c.client(nil, s).Validate()
 	default:
-		return fmt.Errorf("unknown trigger kind %q; use github, slack or linear", kind)
+		return fmt.Errorf("unknown trigger kind %q; use github, slack, linear or jira", kind)
 	}
 }
 
