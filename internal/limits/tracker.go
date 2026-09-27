@@ -55,6 +55,11 @@ type SessionDriver interface {
 	StartLimitHandoff(id int64, agent, model string, profileID int64) error
 	InFlight(id int64) bool
 	HandoffError(id int64) string
+	// SwapAccount restarts the session's agent under another account of the
+	// same CLI, resuming the same conversation (docs/accounts.md), and waits
+	// for its prompt. committed reports whether the agent now runs under the
+	// new account, even when err says it never reached a prompt.
+	SwapAccount(ctx context.Context, id, accountID int64) (committed bool, err error)
 }
 
 // TaskActor requeues or re-dispatches a limited task attempt (the scheduler).
@@ -79,6 +84,8 @@ type Tracker struct {
 
 	mu    sync.Mutex
 	panes map[int64]paneObs
+	swaps map[int64]bool // sessions with a swap running in this process
+	wg    sync.WaitGroup
 }
 
 type paneObs struct {
@@ -383,9 +390,14 @@ func (t *Tracker) tickSession(ctx context.Context, h *store.LimitHold) {
 				return
 			}
 			t.nudge(ctx, h, sess)
+		case ModeSwap:
+			p, _ := Effective(t.DB, sess.ID, sess.ProjectID)
+			t.tickSwap(ctx, h, sess, p)
 		default:
 			t.notifyReset(h, sessionLabel(sess), fmt.Sprintf("/session/%d", sess.ID), sess.ID, now)
 		}
+	case StateSwapping:
+		t.recoverSwap(h, sess)
 	case StateResuming:
 		nudged := fromUnix(h.NudgedAt)
 		if now.Sub(nudged) < tm.Settle {
@@ -512,6 +524,12 @@ func (t *Tracker) resumed(h *store.LimitHold, why string) {
 	if !t.resolve(h, StateResuming, StateResumed, why, nil) {
 		return
 	}
+	if h.AccountTo != nil {
+		// The swap already told the operator where the work went; the new
+		// account evidently works.
+		t.DB.ClearAccountLimit(*h.AccountTo)
+		return
+	}
 	if sess, err := t.DB.Session(*h.SessionID); err == nil {
 		t.push("Resumed", sessionLabel(sess)+" is working again after its usage limit reset",
 			fmt.Sprintf("/session/%d", sess.ID), "limit_resumed", sess.ID, h.ID)
@@ -604,6 +622,9 @@ func (t *Tracker) Choose(ctx context.Context, id int64, action string, override 
 	if override != nil && override.HasFallback() {
 		p.FallbackAgent, p.FallbackModel, p.FallbackProfileID = override.FallbackAgent, override.FallbackModel, override.FallbackProfileID
 	}
+	if override != nil {
+		p.AccountID = override.AccountID
+	}
 	if action == ActionDismiss {
 		if !t.resolve(h, h.State, StateDismissed, "dismissed", nil) {
 			return h, ErrConflict
@@ -617,7 +638,7 @@ func (t *Tracker) Choose(ctx context.Context, id int64, action string, override 
 		return h, fmt.Errorf("choose an agent to hand off to, or set a fallback in the limit policy")
 	}
 	if h.AttemptID != nil {
-		mode := map[string]string{ActionWait: ModeWait, ActionResumeNow: ModeWait, ActionHandoff: ModeHandoff}[action]
+		mode := map[string]string{ActionWait: ModeWait, ActionResumeNow: ModeWait, ActionHandoff: ModeHandoff, ActionSwap: ModeSwap}[action]
 		if mode == "" {
 			t.DB.TransitionLimitHold(h.ID, StateWaiting, map[string]any{"policy": ModeNotify})
 			return t.DB.LimitHold(id)
@@ -644,8 +665,10 @@ func (t *Tracker) Choose(ctx context.Context, id int64, action string, override 
 		_, err = t.DB.TransitionLimitHold(h.ID, StateWaiting, map[string]any{"policy": ModeNotify, "due_at": nil})
 	case ActionHandoff:
 		err = t.startHandoff(h, sess, p)
+	case ActionSwap:
+		err = t.startSwap(h, sess, p, p.AccountID, false)
 	default:
-		return h, fmt.Errorf("action must be wait, resume_now, handoff, notify or dismiss")
+		return h, fmt.Errorf("action must be wait, resume_now, handoff, swap, notify or dismiss")
 	}
 	if err != nil {
 		return h, err
@@ -728,6 +751,8 @@ func announcement(label string, h *store.LimitHold, p Policy) (string, string) {
 		body += " — Lectern will resume it then"
 	case ModeHandoff:
 		body += " — handing off to " + p.Fallback()
+	case ModeSwap:
+		body += " — moving it to another account"
 	}
 	return "Usage limit", body
 }

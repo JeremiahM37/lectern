@@ -21,14 +21,35 @@ const (
 	ModeWait = "wait"
 	// ModeHandoff hands the work to the configured fallback agent now.
 	ModeHandoff = "handoff"
+	// ModeSwap moves the same conversation to another signed-in account of
+	// the same CLI (docs/accounts.md). When every account is limited, Then
+	// applies instead.
+	ModeSwap = "swap"
 )
 
 // Policy is one scope's limit policy, stored as JSON in limit_policies.
 type Policy struct {
-	Mode              string `json:"mode"`
+	Mode string `json:"mode"`
+	// Then is what a swap policy does when no other account is free:
+	// notify, wait or handoff (notify when empty).
+	Then              string `json:"then,omitempty"`
 	FallbackAgent     string `json:"fallback_agent,omitempty"`
 	FallbackModel     string `json:"fallback_model,omitempty"`
 	FallbackProfileID int64  `json:"fallback_profile_id,omitempty"`
+	// AccountID is an operator's choice of account for one swap; never stored.
+	AccountID int64 `json:"-"`
+}
+
+// Secondary is the mode to use when a swap has nowhere to go: the policy's
+// Then for a swap policy, otherwise the mode itself.
+func (p Policy) Secondary() string {
+	if p.Mode != ModeSwap {
+		return p.Mode
+	}
+	if p.Then == "" {
+		return ModeNotify
+	}
+	return p.Then
 }
 
 // HasFallback reports whether a handoff has somewhere to go.
@@ -52,18 +73,29 @@ func (p Policy) Fallback() string {
 // Validate normalises the mode and rejects a handoff with nowhere to go.
 func (p *Policy) Validate() error {
 	p.Mode = strings.TrimSpace(strings.ToLower(p.Mode))
+	p.Then = strings.TrimSpace(strings.ToLower(p.Then))
 	p.FallbackAgent = strings.TrimSpace(p.FallbackAgent)
 	p.FallbackModel = strings.TrimSpace(p.FallbackModel)
 	switch p.Mode {
 	case "":
 		p.Mode = ModeNotify
-	case ModeNotify, ModeWait:
-	case ModeHandoff:
-		if !p.HasFallback() {
-			return fmt.Errorf("handoff needs a fallback agent or launch profile")
+	case ModeNotify, ModeWait, ModeHandoff:
+	case ModeSwap:
+		switch p.Then {
+		case "":
+			p.Then = ModeNotify
+		case ModeNotify, ModeWait, ModeHandoff:
+		default:
+			return fmt.Errorf("then must be notify, wait or handoff")
 		}
 	default:
-		return fmt.Errorf("mode must be notify, wait or handoff")
+		return fmt.Errorf("mode must be notify, wait, handoff or swap")
+	}
+	if p.Mode != ModeSwap {
+		p.Then = ""
+	}
+	if p.Secondary() == ModeHandoff && !p.HasFallback() {
+		return fmt.Errorf("handoff needs a fallback agent or launch profile")
 	}
 	return nil
 }

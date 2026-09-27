@@ -740,6 +740,25 @@ CREATE TABLE IF NOT EXISTS limit_policies(
   updated_at REAL NOT NULL,
   PRIMARY KEY(scope, scope_id)
 );
+-- agent_accounts (internal/accounts, docs/accounts.md): extra logins of one
+-- CLI on one target, each an isolated config directory on that target
+-- (CLAUDE_CONFIG_DIR, CODEX_HOME, GEMINI_CLI_HOME). dir '' is the CLI's own
+-- default login. Lectern never reads what is inside a dir; limited_until is
+-- the last reset it saw a limit name for this account (limited_at alone:
+-- limited, reset unknown).
+CREATE TABLE IF NOT EXISTS agent_accounts(
+  id INTEGER PRIMARY KEY,
+  target_id INTEGER NOT NULL REFERENCES targets(id),
+  agent TEXT NOT NULL,
+  label TEXT NOT NULL,
+  dir TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  limited_at REAL,
+  limited_until REAL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE(target_id, agent, label)
+);
 -- End-to-end encrypted relay (internal/relay/host, docs/relay.md). The host's
 -- own keys (one row), pending pairings (code and route token hashed, like
 -- pairing_codes) and paired relay devices, identified by their X25519 public
@@ -924,4 +943,11 @@ var migrations = []string{
 	"ALTER TABLE sessions ADD COLUMN workspace_mcp_json TEXT NOT NULL DEFAULT ''",
 	// The CI loop commits and pushes a task's fix attempt itself (docs/ci-loop.md).
 	"ALTER TABLE ci_watches ADD COLUMN pushed_attempt_id INTEGER NOT NULL DEFAULT 0",
+	// Account swap (docs/accounts.md): which registered login a session or
+	// attempt ran under (NULL = the CLI's own default), and the two ends of a
+	// swap a limit hold is carrying out.
+	"ALTER TABLE sessions ADD COLUMN account_id INTEGER",
+	"ALTER TABLE attempts ADD COLUMN account_id INTEGER",
+	"ALTER TABLE limit_holds ADD COLUMN account_from INTEGER",
+	"ALTER TABLE limit_holds ADD COLUMN account_to INTEGER",
 }
