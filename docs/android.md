@@ -160,6 +160,14 @@ and a local ntfy server, with the app's process killed before each push:
   agent continued or stopped accordingly. **Approve** also worked directly.
 - The same approval round trip with the signed, minified release APK.
 
+To re-run it: boot an emulator, install ntfy and the APK, point ntfy's
+default server at `http://127.0.0.1:19281`, then use the scripts in
+`mobile/android/e2e/` (`start-stack.sh`, `pair-relay.sh`, `approve-flow.sh
+<label> Approve|Deny|Reply [text]`), with `adb reverse` for ports 19210,
+19281 and 19282 so the emulator and host share the same addresses. They
+drive the phone through `adb` and `uiautomator`; `pair-relay.sh` taps the pair
+button by screen position (Pixel 7 profile).
+
 Not tested end to end: **Reply** on a waiting session notification (unit
 tested only), the QR camera scanner (the emulator has no real camera; links
 were pasted), physical devices, and Android versions other than 14.
