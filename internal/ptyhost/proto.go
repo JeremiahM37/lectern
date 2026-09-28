@@ -128,6 +128,10 @@ type Request struct {
 	Value       string `json:"value,omitempty"`
 	OnlyIfUnset bool   `json:"only_if_unset,omitempty"`
 
+	// info, list: Detail also asks for the foreground process and the
+	// working directory, which can cost a process-table read per session.
+	Detail bool `json:"detail,omitempty"`
+
 	// probe
 	Names []string `json:"names,omitempty"`
 

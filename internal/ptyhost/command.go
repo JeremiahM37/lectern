@@ -72,7 +72,7 @@ func HostCommand(args []string, build string) int {
 			return 0
 		}
 		defer c.Close()
-		res, err := c.Do(Request{Op: "list"})
+		res, err := c.Do(Request{Op: "list", Detail: true})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1

@@ -129,9 +129,13 @@ func (c *CLI) dial() (*Client, error) {
 }
 
 // resolve finds the session a target names.
-func (c *CLI) resolve(cl *Client, t string) (Info, error) {
+func (c *CLI) resolve(cl *Client, t string) (Info, error) { return c.resolveDetail(cl, t, false) }
+
+// resolveDetail is resolve that also reads the foreground process and the
+// working directory, for formats that name them.
+func (c *CLI) resolveDetail(cl *Client, t string, detail bool) (Info, error) {
 	name, exact := target(t)
-	res, err := cl.Do(Request{Op: "info", Name: name})
+	res, err := cl.Do(Request{Op: "info", Name: name, Detail: detail})
 	if err != nil {
 		return Info{}, err
 	}
@@ -142,7 +146,7 @@ func (c *CLI) resolve(cl *Client, t string) (Info, error) {
 		return Info{}, errors.New(res.Error)
 	}
 	if !exact && name != "" {
-		list, err := cl.Do(Request{Op: "list"})
+		list, err := cl.Do(Request{Op: "list", Detail: detail})
 		if err != nil {
 			return Info{}, err
 		}
@@ -275,13 +279,13 @@ func (c *CLI) run(args []string) error {
 			return err
 		}
 		defer cl.Close()
-		in, err := c.resolve(cl, o.val('t'))
-		if err != nil {
-			return err
-		}
 		format := strings.Join(o.args, " ")
 		if f := o.val('F'); f != "" {
 			format = f
+		}
+		in, err := c.resolveDetail(cl, o.val('t'), needsDetail(format))
+		if err != nil {
+			return err
 		}
 		_, err = fmt.Fprintln(c.Stdout, expandFormat(format, formatVars(in)))
 		return err
@@ -295,13 +299,13 @@ func (c *CLI) run(args []string) error {
 			return err
 		}
 		defer cl.Close()
-		res, err := cl.Do(Request{Op: "list"})
-		if err != nil {
-			return err
-		}
 		format := o.val('F')
 		if format == "" {
 			format = "#{session_name}: 1 windows (created #{session_created})"
+		}
+		res, err := cl.Do(Request{Op: "list", Detail: needsDetail(format)})
+		if err != nil {
+			return err
 		}
 		for _, in := range res.Sessions {
 			fmt.Fprintln(c.Stdout, expandFormat(format, formatVars(in)))
@@ -403,7 +407,7 @@ func (c *CLI) run(args []string) error {
 		if err != nil {
 			return err
 		}
-		in, err := c.resolve(cl, o.val('t'))
+		in, err := c.resolveDetail(cl, o.val('t'), needsDetail(o.args[0]))
 		cl.Close()
 		if err != nil {
 			return err
@@ -466,6 +470,12 @@ func (c *CLI) run(args []string) error {
 		return c.probe(rest)
 	}
 	return failf("unknown command: %s", cmd)
+}
+
+// needsDetail reports whether a format names what only a process-table read
+// can answer.
+func needsDetail(format string) bool {
+	return strings.Contains(format, "pane_current_")
 }
 
 func (c *CLI) do(cl *Client, req Request) error {

@@ -259,7 +259,7 @@ func (h *Host) handle(req Request) Response {
 		h.sessions[req.Name] = s
 		h.mu.Unlock()
 		h.log.Info("session started", "name", req.Name, "argv", req.Argv, "shell", req.Shell)
-		in := s.info()
+		in := s.info(false)
 		return Response{OK: true, Info: &in}
 	case "list":
 		h.mu.Lock()
@@ -273,7 +273,7 @@ func (h *Host) handle(req Request) Response {
 		sort.Slice(all, func(i, j int) bool { return all[i].id < all[j].id })
 		res := Response{OK: true, Sessions: []Info{}}
 		for _, s := range all {
-			res.Sessions = append(res.Sessions, s.info())
+			res.Sessions = append(res.Sessions, s.info(req.Detail))
 		}
 		return res
 	case "info":
@@ -281,7 +281,7 @@ func (h *Host) handle(req Request) Response {
 		if err != nil {
 			return fail(err)
 		}
-		in := s.info()
+		in := s.info(req.Detail)
 		return Response{OK: true, Info: &in}
 	case "kill":
 		s, err := h.session(req.Name)
@@ -343,7 +343,7 @@ func (h *Host) handle(req Request) Response {
 		for _, name := range req.Names {
 			p := Probe{Name: name}
 			if s, ok := h.get(name); ok && s != nil {
-				in := s.info()
+				in := s.info(true)
 				p.Found, p.Current = true, in.Current
 				p.RootArgs, p.TTYArgs = probeArgs(s, in.PID)
 			}

@@ -570,7 +570,7 @@ func (s *Session) detach(c *attached) {
 	c.close()
 }
 
-func (s *Session) info() Info {
+func (s *Session) info(detail bool) Info {
 	s.mu.Lock()
 	in := Info{
 		Name: s.name, ID: s.id, Created: s.created.Unix(), Activity: s.activity.Unix(),
@@ -586,6 +586,9 @@ func (s *Session) info() Info {
 		in.PID = s.cmd.Process.Pid
 	}
 	in.TTY = ttyName(s.pty)
+	if !detail {
+		return in
+	}
 	fg := foreground(s.pty, in.PID)
 	in.Current = processName(fg)
 	in.Cwd = processCwd(fg)
