@@ -185,6 +185,7 @@ directory and removes it when the attachment ends.
 | Ctrl+\ | Send a file from this machine to the agent as context (one chord) |
 | Double-click a path or link | Open it on this machine (see below) |
 | Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
+| Ctrl+] then e | Label every path and link on screen; type a label to open it, Shift+label for its menu |
 | Ctrl+] then m | Open Lectern actions for this attachment |
 | Ctrl+] then u | Same file sender as Ctrl+\ |
 | Ctrl+] then \| | A shell on the session's machine, in the agent's directory, beside the agent |
@@ -313,6 +314,19 @@ agents that track the mouse too (Claude Code's full-screen view, for one): the
 link check always runs first, and only a click that is not on a path or link
 goes to the agent. Single clicks, drags and the wheel are the agent's as
 before.
+
+The path flashes (every row of a wrapped one) and the status line says what
+happened: `Opening report.pdf…`, `Opened report.pdf`, `Downloaded to
+~/Downloads/report.pdf`, or `Couldn't open: <reason>`. While the flash shows,
+what you type still reaches the agent.
+
+**`Ctrl+] e`** — hints. tmux tells nothing about the pointer until you click,
+so there is no hover: instead this labels every path and link on screen with
+a letter or two, the way a terminal's hints mode does, drawn over the pane
+(which is otherwise dimmed; nothing is sent to the agent). Type a label to
+open that link as a double-click would; type it with Shift to get its menu at
+the bottom (open, download, copy, send to the agent, web viewer). Esc leaves.
+It works over the remote attach and on tmux 3.4 to 3.7.
 
 Right-click one for a menu:
 

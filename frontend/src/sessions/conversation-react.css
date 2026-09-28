@@ -18,3 +18,23 @@ dialog.conversation::backdrop {
 .conversation [hidden] {
   display: none !important;
 }
+
+/* Paths and links in agent messages (markdown.tsx): they open like a click
+   in the terminal. A bare name the workspace may not have is plain until
+   checked. */
+.reader-text a.md-file-link {
+  color: var(--accent-soft);
+  text-decoration: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.reader-text a.md-file-link:hover,
+.reader-text a.md-file-link:focus-visible {
+  text-decoration: underline;
+}
+.reader-text a.md-file-link.unverified {
+  color: inherit;
+}
+.reader-text a.md-file-link.unverified:hover {
+  text-decoration: underline dotted;
+}
