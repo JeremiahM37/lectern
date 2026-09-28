@@ -99,6 +99,19 @@ true` with a note, `lectern doctor` says so, and interactive local commands
 print a reminder. Nothing stops it for you; run `lectern local stop` and the
 next local command starts the current build.
 
+### Opening it in a browser
+
+The helper answers only its own signed-in browser. Any web page can send
+requests to `127.0.0.1`, so the helper refuses requests from other origins
+and host names, and everything else needs its token (the CLI has it) or a
+browser cookie. `lectern up` opens your browser through a one-time sign-in
+link (it works once, for ten minutes, and prints it when it cannot open a
+browser). The browser stays signed in across restarts. Opening the plain
+address without signing in shows a page saying to run `lectern up`.
+
+`lectern up` also hands the running helper your shell's `PATH`, so an agent
+you installed after it started is found without restarting it.
+
 Stopping the helper does not discard the local database or durable tmux
 sessions; later local commands can start it again and resume them. A stop is
 refused while a task is still active, so inspect or finish that task first.

@@ -158,9 +158,11 @@ The same control loop runs in an installable phone app:
 | **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
 
 Agents run on any machine with `git`, `tmux`, `python3` and the agent's own CLI.
-`lectern doctor` checks everything and prints a fix next to anything that's
-wrong. You can try it with no setup at all, using fake agents:
-`LECTERN_MOCK=1 lectern serve`.
+The web page's live terminal (Attach) also needs `ttyd`; the installer and
+`lectern up` print the command that installs it. `lectern doctor` checks
+everything and prints a fix next to anything that's wrong, and `lectern
+update` installs a new release. You can try it with no setup at all, using
+fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on 127.0.0.1 only).
 
 ## Documentation
 
