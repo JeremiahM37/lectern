@@ -260,6 +260,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return promoteCommand(c, args)
 	case "restore":
 		return restoreCommand(cfg, args, base, token, local, os.Stdout, interactiveTerminal())
+	case "phone":
+		return phoneCommand(c, args, os.Stdout)
 	case "controls":
 		return controlsCommand(c, args)
 	case "console", "tui":

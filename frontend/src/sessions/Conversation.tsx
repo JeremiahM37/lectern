@@ -345,7 +345,7 @@ export function Conversation({
         );
         setSessionAgent(data.session.agent);
         setUnavailable(data.ended || data.session.status === "dead");
-        setSessionText(data.text || t("conversation.chat.waitingForOutput"));
+        setSessionText(data.text?.trimEnd() || t("conversation.chat.waitingForOutput"));
         void refreshLive();
         // A session's own PermissionRequest approvals (session_id set,
         // no task) belong here too, not only the ones inherited from a

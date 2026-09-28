@@ -32,9 +32,10 @@ type phoneOption struct {
 type phoneAddresses struct {
 	// Listening is where this server accepts connections; LoopbackOnly means
 	// nothing but this computer can reach it.
-	Listening    string        `json:"listening"`
-	LoopbackOnly bool          `json:"loopback_only"`
-	Options      []phoneOption `json:"options"`
+	Listening     string        `json:"listening"`
+	LoopbackOnly  bool          `json:"loopback_only"`
+	Options       []phoneOption `json:"options"`
+	CanEnableWiFi bool          `json:"can_enable_wifi"`
 }
 
 // tailnetStatus asks tailscaled who this node is; tests replace it.
@@ -85,7 +86,7 @@ func loopbackHost(host string) bool {
 // phoneAddressesHandler is GET /api/phone/addresses.
 func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 	port := strconv.Itoa(s.Cfg.Port)
-	out := phoneAddresses{Listening: net.JoinHostPort(s.Cfg.Host, port), LoopbackOnly: loopbackHost(s.Cfg.Host)}
+	out := phoneAddresses{CanEnableWiFi: s.EnableWiFi != nil, Listening: net.JoinHostPort(s.Cfg.Host, port), LoopbackOnly: loopbackHost(s.Cfg.Host)}
 
 	tailnet := phoneOption{Kind: "tailnet"}
 	switch {
@@ -124,6 +125,11 @@ func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 			lan.Available = true
 		}
 	}
+	if s.WiFiURL != nil {
+		if address := s.WiFiURL(); address != "" {
+			lan.URL, lan.Available, lan.Reason = address, true, ""
+		}
+	}
 	out.Options = append(out.Options, lan)
 
 	relay := phoneOption{Kind: "relay"}
@@ -139,4 +145,24 @@ func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
+}
+
+func (s *Server) enablePhoneWiFi(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireOwner(w, r); !ok {
+		return
+	}
+	if s.EnableWiFi == nil {
+		httpError(w, 409, "Wi-Fi setup is available for the private local runtime; this server uses its configured network listener")
+		return
+	}
+	address, err := s.EnableWiFi()
+	if err != nil {
+		httpError(w, 409, "%s", err)
+		return
+	}
+	if err := s.DB.SetSetting("pairing_enabled", "1"); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"url": address})
 }

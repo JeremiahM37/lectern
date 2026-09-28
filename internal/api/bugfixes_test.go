@@ -316,3 +316,51 @@ func TestTheAgentsLastWordsSurviveFinalising(t *testing.T) {
 		}()
 	}
 }
+
+func TestEndingSessionExpiresOnlyItsApprovals(t *testing.T) {
+	h := newHarness(t)
+	first := h.session(obj{"project_id": h.seededProjectID(), "agent": "claude"})
+	second := h.session(obj{"project_id": h.seededProjectID(), "agent": "claude"})
+	a, err := h.App.Broker.CreateForSession(first.id(), "Bash", map[string]any{"command": "echo first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := h.App.Broker.CreateForSession(second.id(), "Bash", map[string]any{"command": "echo second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.request2("DELETE", fmt.Sprintf("/api/sessions/%d?kill=true", first.id()), nil, 200)
+	ended, _ := h.App.DB.Approval(a)
+	live, _ := h.App.DB.Approval(b)
+	if ended.Status != "expired" || live.Status != "pending" {
+		t.Fatalf("ended=%s live=%s", ended.Status, live.Status)
+	}
+	if h.App.Broker.Decide(a, "approved", "", "user") != nil {
+		t.Fatal("accepted an approval after the session ended")
+	}
+}
+
+func TestStoppedSessionRejectsLatePermissionRequest(t *testing.T) {
+	h := newHarness(t)
+	session := h.session(obj{"project_id": h.seededProjectID(), "agent": "claude", "permission_mode": "ask"})
+	row, err := h.App.DB.Session(session.id())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.request2("DELETE", fmt.Sprintf("/api/sessions/%d?kill=true", session.id()), nil, 200)
+	response := rawDo(t, "POST", fmt.Sprintf("%s/api/hook/session/%d/PermissionRequest", h.URL, session.id()),
+		obj{"tool_name": "Write", "tool_input": obj{"file_path": "late.txt"}},
+		map[string]string{"Authorization": "Bearer " + row.HookToken}, nil)
+	got := decodeBody(t, response)
+	output, ok := got["hookSpecificOutput"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing explicit denial: %v", got)
+	}
+	decision, ok := output["decision"].(map[string]any)
+	if !ok || decision["behavior"] != "deny" {
+		t.Fatalf("late request not denied: %v", got)
+	}
+	if pending := h.getList("/api/approvals?status=pending"); len(pending) != 0 {
+		t.Fatalf("stopped session left pending approvals: %v", pending)
+	}
+}

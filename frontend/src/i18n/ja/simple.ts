@@ -2,6 +2,12 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "停止",
+  "review.onMain.folderWarning": "コミットすると、エディターや他のターミナルを含め、このフォルダーが新しいブランチに切り替わります: {branch}。",
+  "sessions.list.filterOptions": "セッションを絞り込む",
+  "phone.wifiWarning": "両方のデバイスをこのネットワークに接続してください。Wi-Fi の HTTP 通信は暗号化されません。信頼できるネットワークでのみ有効にしてください。ローカルランタイムを停止するとアクセスは終了します。",
+  "phone.enableWiFi": "この Wi-Fi でスマートフォンを接続",
+  "phone.why.loopback_only": "このアドレスはこのコンピューターでのみ使用できます。下の Wi-Fi 設定ボタンを使うか、lectern phone を実行してください。",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "作業中",
   "status.needs_you": "対応が必要",
@@ -136,7 +142,6 @@ const catalog: Record<string, string> = {
   "phone.explain.tailnet": "スマートフォンが tailnet 上にあればどこでも使え、暗号化されます。",
   "phone.explain.lan": "同じネットワーク内でのみ使え、暗号化されません。",
   "phone.explain.relay": "どこでも使え、リレー経由でエンドツーエンド暗号化されます。",
-  "phone.why.loopback_only": "Lectern はこのコンピューター内でしか待ち受けていません。ほかのデバイスから接続するには「lectern up」の代わりに「lectern serve」を実行してください。",
   "phone.why.tailscale_off": "ここでは Tailscale が動いていません。このコンピューターとスマートフォンにインストールしてから、もう一度開いてください。",
   "phone.why.no_lan_address": "このコンピューターにはローカルネットワークのアドレスがありません。",
   "phone.why.relay_not_set_up": "両方から届くサーバーで「lectern relay」を動かす必要があります。設定 → スマートフォンとデバイス を参照してください。",

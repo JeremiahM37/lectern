@@ -37,7 +37,9 @@ var reasonLabels = map[string]string{
 func (m *dashboard) sessionStatus(r row) string {
 	state, reason := sessionState(r, m.approvalFor(r) != nil)
 	s := stateLabels[state]
-	if label := reasonLabels[reason]; label != "" && reason != "approval" {
+	if state == "ended" && reason == "agent_exited" {
+		s = "Stopped"
+	} else if label := reasonLabels[reason]; label != "" && reason != "approval" {
 		s += " · " + label
 	}
 	if unreachable(r) {

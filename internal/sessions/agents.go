@@ -526,6 +526,7 @@ type Start struct {
 	// when AssignsSessionID is true.
 	SessionID string
 	Prompt    string
+	EnvFile   string // private, one-use environment file staged by the manager
 	EnvPrefix string
 	// Yolo runs the agent without its approval prompts. On by default for
 	// interactive sessions: you are sitting in the terminal watching it, which
@@ -594,9 +595,15 @@ func (s Spec) invocation(o Start) string {
 // LaunchCommand builds the tmux command that starts one interactive session.
 func (s Spec) LaunchCommand(o Start) string {
 	agentInvocation := s.invocation(o)
+	if o.EnvFile != "" {
+		// Credentials are loaded as data from a private file. A shell reporting
+		// a crashed child prints this path, never the environment assignments.
+		agentInvocation = "( set -a; . " + shellq.Quote(o.EnvFile) + " || exit; set +a; " + agentInvocation + " )"
+	}
 	if o.Isolation.Normalized().Mode != isolation.None {
 		wrapOpts := o.IsolationOpts
 		wrapOpts.Workdir = o.Workdir
+		wrapOpts.EnvironmentFile = o.EnvFile
 		if wrapOpts.Agent == "" {
 			wrapOpts.Agent = s.Name
 		}
@@ -611,7 +618,11 @@ func (s Spec) LaunchCommand(o Start) string {
 			agentInvocation = wrapped
 		}
 	}
-	inner := fmt.Sprintf("cd %s && %s; exec bash",
+	cleanup := ""
+	if o.EnvFile != "" {
+		cleanup = "rm -f " + shellq.Quote(o.EnvFile) + "; rmdir " + shellq.Quote(strings.TrimSuffix(o.EnvFile, "/env")) + " 2>/dev/null; "
+	}
+	inner := fmt.Sprintf("cd %s && %s; "+cleanup+"exec bash",
 		shellq.Quote(o.Workdir), agentInvocation)
 	var setupEnv []string
 	if o.SetupToken != "" {

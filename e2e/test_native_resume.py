@@ -1,3 +1,4 @@
+from navigation import session_filters
 """Continue exact native history through real API, browser and controlling PTY."""
 import concurrent.futures
 import hashlib
@@ -29,6 +30,7 @@ def argv(t):
 def test_web_resumes_exact_stopped_conversation(page,real_terminal,agent,width):
     t=real_terminal;cid,file,_=prepare(t,agent);before=file.read_bytes();stopped(t)
     page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
+    session_filters(page)
     page.locator('#sess-scope').select_option('all')
     title='Real terminal' if agent=='claude' else 'Native source'
     card=page.locator('.scard',has_text=title)

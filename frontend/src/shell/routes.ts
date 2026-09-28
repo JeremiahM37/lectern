@@ -8,15 +8,15 @@ export type View = (typeof VIEWS)[number];
 
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 
-/** The main navigation. Terminals joins it only while a terminal tab is open. */
-export function primaryViews(terminalsOpen: boolean): View[] {
-  return terminalsOpen ? ["sessions", "approvals", "tasks", "terminals", "settings"] : ["sessions", "approvals", "tasks", "settings"];
+/** Three primary pages plus More: opening a terminal never grows the bar. */
+export function primaryViews(_terminalsOpen: boolean): View[] {
+  return ["sessions", "approvals", "settings"];
 }
 
 /** What More holds: every other page, then two Settings sections people look for by name. */
 export type MoreEntry = { view: View } | { section: "machines" | "plugins" };
-export function moreEntries(terminalsOpen: boolean): MoreEntry[] {
-  const views: View[] = ["overview", "issues", ...(terminalsOpen ? [] : (["terminals"] as View[])), "media", "evals"];
+export function moreEntries(_terminalsOpen: boolean): MoreEntry[] {
+  const views: View[] = ["tasks", "terminals", "overview", "issues", "media", "evals"];
   return [...views.map((view) => ({ view })), { section: "machines" }, { section: "plugins" }];
 }
 

@@ -228,6 +228,8 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     t["api"]("/sessions", {"project_id": project["id"], "agent": "claude", "name": "Fix login"})
     (root / "NOTES.md").write_text("what the agent changed\n")
 
+    page.route("**/api/sessions/*/git/commit-message", lambda route: route.fulfill(
+        json={"message": "Add project notes", "agent": "stub", "model": "test"}))
     page.set_viewport_size(size)
     click = Clicks()
     page.goto(t["url"] + "/#sessions")
@@ -241,6 +243,7 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     push = review.get_by_role("checkbox", name="Push to origin")
     expect(push).to_be_disabled()
     expect(review).to_contain_text("no remote to push to")
+    expect(review.locator(".commit-message")).to_have_value("Add project notes")
     commit = review.get_by_role("button", name="Commit on lectern/fix-login", exact=True)
     expect(commit).to_be_enabled()
     click(commit)
@@ -248,6 +251,7 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == "lectern/fix-login"
     assert git(root, "log", "-1", "--format=%s", base) == "base"
     assert "NOTES.md" in git(root, "show", "--name-only", "--format=", "lectern/fix-login")
+    assert git(root, "log", "-1", "--format=%s") == "Add project notes"
     assert click.n == 4, click.n
 
 

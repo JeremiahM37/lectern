@@ -1,3 +1,4 @@
+from navigation import card_actions
 """Session checks (internal/checks, docs/agent-events.md section 4): a real
 server, a real git worktree and a real browser driving the session card's
 check badge and "Run check" button — no simulated executor.
@@ -45,6 +46,7 @@ def test_session_card_check_goes_failed_then_passed(page, real_terminal, width):
     expect(card).to_be_visible(timeout=15000)
 
     # Before ok.txt exists: run now, and the badge shows failed.
+    card_actions(card)
     card.get_by_role("button", name="Run check").click()
     expect(card.get_by_text("check failed")).to_be_visible(timeout=15000)
 
@@ -54,11 +56,12 @@ def test_session_card_check_goes_failed_then_passed(page, real_terminal, width):
 
     # The file appears; a second run-now now passes.
     (root / "ok.txt").write_text("done\n")
+    card_actions(card)
     card.get_by_role("button", name="Run check").click()
     expect(card.get_by_text("check passed")).to_be_visible(timeout=15000)
 
     # The check history is on the review-and-merge panel too.
-    card.locator(".action-menu>summary").click()
+    card_actions(card)
     page.get_by_role("button", name="Review & merge").click()
     page.get_by_role("tab", name="Checks").click()
     expect(page.get_by_role("heading", name="Checks")).to_be_visible(timeout=10000)

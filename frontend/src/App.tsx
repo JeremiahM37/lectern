@@ -270,6 +270,7 @@ export default function App() {
     [],
   );
   const navigate = useCallback((hash: string) => {
+    document.getElementById("nav-overflow")?.removeAttribute("open");
     hash = canonicalHash(hash);
     const kind = hash.replace(/^#/, "").split("/")[0] || HOME;
     if (isTab(kind) && opensModal(kind)) {
@@ -529,6 +530,7 @@ export default function App() {
   });
   useEffect(() => {
     const apply = () => {
+      document.getElementById("nav-overflow")?.removeAttribute("open");
       // Old names (#board, #deck, #targets, #tasks/<project>/…) are rewritten
       // in place, so a bookmark or an older notification still lands.
       const canonical = canonicalHash(location.hash);

@@ -1,3 +1,4 @@
+from navigation import session_filters
 """Archive lifecycle uses actual tmux processes and durable SQLite snapshots."""
 import subprocess,time
 import pytest
@@ -85,6 +86,7 @@ def test_web_archive_output_and_unarchive(page,real_terminal,width):
     expect(page.locator('.scard')).to_have_count(0)
     subprocess.run(['tmux','new-session','-d','-s','keep-active','bash --norc'],env=t['env'],check=True)
     t['api']('/sessions/adopt',{'target_id':t['target_id'],'tmux_session':'keep-active','workdir':str(t['root']),'name':'Other active session','agent':'claude'})
+    session_filters(page)
     page.locator('#sess-scope').select_option('archived')
     expect(page.locator('#sess-badge')).to_have_text('1')
     card=page.locator('.scard',has_text='Real terminal');expect(card).to_contain_text('archived')
@@ -105,6 +107,7 @@ def test_web_archive_output_and_unarchive(page,real_terminal,width):
     card.locator('summary').first.click()
     card.get_by_role('button',name='Unarchive record',exact=True).click()
     expect(page.locator('.scard')).to_have_count(0);assert gone(t)
+    session_filters(page)
     page.locator('#sess-scope').select_option('all');expect(page.locator('.scard',has_text='Real terminal')).to_have_count(1)
 
 

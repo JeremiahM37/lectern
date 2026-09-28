@@ -20,6 +20,8 @@ const proxyBridgeTCPPort = "3128"
 
 // WrapOpts is what Wrap needs beyond the Config to build one command.
 type WrapOpts struct {
+	// EnvironmentFile is a private, read-only launch environment staged by the caller.
+	EnvironmentFile string
 	// Agent selects AgentHomePaths.
 	Agent string
 	// Workdir is bind-mounted read-write and is where the sandboxed shell
@@ -64,6 +66,10 @@ func BuildBwrapArgv(cfg Config, o WrapOpts) ([]string, error) {
 		"--proc", "/proc",
 		"--tmpfs", "/tmp",
 		"--tmpfs", homeJoin(""),
+	}
+	if o.EnvironmentFile != "" {
+		p := shellq.Quote(o.EnvironmentFile)
+		args = append(args, "--ro-bind", p, p)
 	}
 	for _, rel := range HomePaths(o.Agent) {
 		p := homeJoin(rel)

@@ -47,7 +47,7 @@ def blank_server():
     }
     Path(env["HOME"]).mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
-        [_binary()], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        [_binary(), "serve"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     try:
         for _ in range(100):

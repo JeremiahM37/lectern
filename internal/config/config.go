@@ -241,9 +241,15 @@ func Load() *Config {
 	if p, err := strconv.Atoi(env("LECTERN_PORT", "")); err == nil {
 		port = p
 	}
-	cwd, _ := os.Getwd()
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	if os.Getenv("LOCALAPPDATA") != "" {
+		stateDir = os.Getenv("LOCALAPPDATA")
+	}
 	c := &Config{
-		DBPath:                      env("LECTERN_DB", filepath.Join(cwd, "lectern.db")),
+		DBPath:                      env("LECTERN_DB", filepath.Join(stateDir, "lectern", "server", "lectern.db")),
 		Port:                        port,
 		Host:                        env("LECTERN_HOST", "0.0.0.0"),
 		Mock:                        os.Getenv("LECTERN_MOCK") == "1",

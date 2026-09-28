@@ -39,9 +39,14 @@ func TestFindsBashBesideGit(t *testing.T) {
 }
 
 func TestNativePath(t *testing.T) {
-	for in, want := range map[string]string{"/c/Users/me/x": `C:\Users\me\x`, "/d": `D:\`, `C:\x`: `C:\x`, "relative/x": "relative/x", "/usr/bin": "/usr/bin"} {
-		if got := NativePath(in); got != want {
-			t.Errorf("NativePath(%q) = %q, want %q", in, got, want)
+	temp, root := `C:\Users\me\AppData\Local\Temp`, `C:\Program Files\Git`
+	for in, want := range map[string]string{
+		"/c/Users/me/x": `C:\Users\me\x`, "/d": `D:\`, `C:\x`: `C:\x`, "relative/x": "relative/x",
+		"/tmp/lectern-send-1": temp + `\lectern-send-1`, "/tmp": temp,
+		"/usr/bin": root + `\usr\bin`, "//server/share": "//server/share",
+	} {
+		if got := nativePath(in, temp, root); got != want {
+			t.Errorf("nativePath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

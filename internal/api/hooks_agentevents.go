@@ -85,6 +85,7 @@ func (s *Server) hookSessionEvent(w http.ResponseWriter, r *http.Request) {
 	// A session's own rules map is never freed otherwise (a session id is
 	// never reused, but nothing else drops the entry).
 	if event == agentevents.EventSessionEnd {
+		s.Broker.ExpireForSession(sess.ID)
 		s.Broker.ClearSessionRules(sess.ID)
 	}
 	// Claim board (docs/claims.md): a session ending releases everything it
@@ -253,6 +254,11 @@ type permissionRequestIn struct {
 // request and waits for exactly one response, so the entire hold happens in
 // this single call via broker.WaitOnce.
 func (s *Server) holdSessionPermissionRequest(w http.ResponseWriter, r *http.Request, sess *store.Session, body []byte) {
+	if sessionApprovalStopped(sess) {
+		writeJSON(w, 200, permissionRequestResponse(&store.Approval{Status: "denied", Note: "This agent has stopped."}))
+		return
+	}
+
 	var in permissionRequestIn
 	_ = json.Unmarshal(body, &in)
 	if in.ToolInput == nil {
@@ -278,12 +284,21 @@ func (s *Server) holdSessionPermissionRequest(w http.ResponseWriter, r *http.Req
 		writeJSON(w, 200, map[string]any{})
 		return
 	}
+	// Closing the session may have raced creation. Lifecycle cleanup runs
+	// after the state update, so either this check or cleanup expires the row.
+	if current, err := s.DB.Session(sess.ID); err != nil || sessionApprovalStopped(current) {
+		s.Broker.ExpireForSession(sess.ID)
+	}
 	hold := s.Cfg.SessionApprovalHold
 	if hold <= 0 {
 		hold = 120 * time.Second
 	}
 	row := s.Broker.WaitOnce(r.Context(), id, hold)
 	writeJSON(w, 200, permissionRequestResponse(row))
+}
+
+func sessionApprovalStopped(sess *store.Session) bool {
+	return sess == nil || sess.EndedAt != nil || sess.AgentExitedAt != nil || sess.Status == "dead" || sess.Status == "interrupted"
 }
 
 // permissionRequestResponse renders the contract's exact reply shape.

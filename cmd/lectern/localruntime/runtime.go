@@ -379,6 +379,10 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		return err
 	}
 	defer appInstance.Close()
+	wifi := &wifiListener{handler: appInstance.Handler()}
+	defer wifi.close()
+	appInstance.Server.EnableWiFi = wifi.enable
+	appInstance.Server.WiFiURL = wifi.address
 	if !cfg.Mock {
 		targets, err := appInstance.DB.Targets()
 		if err != nil {

@@ -1,3 +1,4 @@
+from navigation import session_filters
 import json,subprocess,urllib.request
 import pytest
 from playwright.sync_api import expect
@@ -16,6 +17,7 @@ def test_group_tree_editor_search_and_failure_preserve_attachment(page,real_term
     other=t['api']('/sessions/adopt',{'target_id':t['target_id'],'tmux_session':'group-other','workdir':str(t['root']),'name':'Other project agent','agent':'codex'})
     patch(t,other['id'],{'group_path':'Work/Other'})
     page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
+    session_filters(page)
     page.locator('#sess-grouping').select_option('group')
     top=page.locator('details.session-group[data-group-path="Work"]')
     expect(top).to_be_visible();expect(top).to_contain_text('Real terminal');expect(top).to_contain_text('Other project agent')

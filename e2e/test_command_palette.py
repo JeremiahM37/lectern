@@ -43,7 +43,7 @@ def test_command_search_attaches_and_keeps_terminal_alive(page,real_terminal,wid
     dialog.get_by_role('option').click();one=frame(page,t['id']);ready(one)
     one.locator('body').evaluate('()=>window.paletteTerminalIdentity="same-terminal"')
     search(page,'tasks board').get_by_role('option').first.click()
-    expect(page.locator('.tab[data-tab="tasks"]')).to_have_class('tab on')
+    expect(page.locator('#nav-overflow [data-nav-target="tasks"]')).to_have_attribute("aria-current", "page")
     search(page,'real terminal').get_by_role('option').click();ready(one)
     expect(page.locator('#terminal-workspace iframe')).to_have_count(1)
     assert one.locator('body').evaluate('()=>window.paletteTerminalIdentity')=='same-terminal'

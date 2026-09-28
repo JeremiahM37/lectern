@@ -34,6 +34,10 @@ func BuildDockerArgv(cfg Config, o WrapOpts) ([]string, error) {
 		"-w", workdir,
 		"-v", workdir + ":" + workdir,
 	}
+	if o.EnvironmentFile != "" {
+		p := shellq.Quote(o.EnvironmentFile)
+		args = append(args, "-v", p+":"+p+":ro")
+	}
 	for _, rel := range HomePaths(o.Agent) {
 		p := homeJoin(rel)
 		args = append(args, "-v", p+":"+p)

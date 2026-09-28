@@ -416,3 +416,17 @@ func useGoHelpers(a *app.App) {
 		}
 	}
 }
+
+// launchEnv reads the exact private environment file referenced by a launch.
+// Tests of delivered configuration must inspect this file, not require secrets
+// to appear in the terminal command line.
+func (h *harness) launchEnv(command string) string {
+	h.t.Helper()
+	for path, data := range h.mock().Files() {
+		if strings.HasPrefix(path, "/tmp/lectern-launch-env.") && strings.Contains(command, ". "+path) {
+			return string(data) + " "
+		}
+	}
+	h.t.Fatal("launch did not reference its staged private environment")
+	return ""
+}

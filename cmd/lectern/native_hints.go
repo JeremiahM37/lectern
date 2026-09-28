@@ -272,6 +272,10 @@ func (e *linkEnv) hints(in *os.File, out io.Writer) int {
 	if err != nil {
 		return 1
 	}
+	return e.hintsFromRows(in, out, rows, width)
+}
+
+func (e *linkEnv) hintsFromRows(in *os.File, out io.Writer, rows []filelinks.Row, width int) int {
 	hints := e.paneHints(rows, width)
 	if len(hints) == 0 {
 		e.say("No paths or links on screen")
@@ -379,6 +383,14 @@ func (e *linkEnv) hintMenu(in *os.File, out io.Writer, link filelinks.Link, draw
 
 // hintAct runs the action on its own once this popup has closed.
 func (e *linkEnv) hintAct(action string, link filelinks.Link) int {
+	if e.directAction != nil {
+		if err := e.directAction(action, link); err != nil {
+			e.say(failure(action, err))
+			return 1
+		}
+		return 0
+	}
+
 	file, err := e.saveLink(link)
 	if err != nil {
 		return 1

@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.discover.empty": "No agents found running on any machine.",
   // {name} is a tmux session name.
   "sessions.dialogs.discover.projectFor": "Project for {name}",
-  "sessions.dialogs.discover.unassigned": "Unassigned",
+  "sessions.dialogs.discover.unassigned": "No project",
   // Verb: take over an already-running agent.
   "sessions.dialogs.discover.adopt": "Adopt",
 
@@ -196,7 +196,7 @@ const catalog: Record<string, string> = {
   // SessionGroups
   "sessions.groups.ungrouped": "Ungrouped",
   // Heading for sessions with no project or no machine.
-  "sessions.groups.unassigned": "Unassigned",
+  "sessions.groups.unassigned": "No project",
   // Follows the group's session count, e.g. "5 · 2 waiting".
   "sessions.groups.waiting": " · {n} need you",
 
@@ -225,7 +225,7 @@ const catalog: Record<string, string> = {
   "sessions.card.previewSettingUp": "Setting up workspace… Attach becomes available when setup finishes.",
   "sessions.card.progressUnavailable": "Progress unavailable: {error}",
   "sessions.card.setupFailedPreview": "Setup failed: {error}",
-  "sessions.card.unassigned": "Unassigned",
+  "sessions.card.unassigned": "No project",
   // {duration} is a compact time such as "5m": how long the session has been quiet.
   "sessions.card.quiet": "quiet {duration}",
   "sessions.card.copyPath": "Copy path",

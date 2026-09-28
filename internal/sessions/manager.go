@@ -16,6 +16,7 @@ import (
 	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -59,6 +60,9 @@ type Manager struct {
 	// as a hard operator override (e.g. a future config knob) that cannot
 	// be turned off per launch.
 	AskPermission bool
+
+	// ExpireApprovals wakes waiting hooks when their agent can no longer answer.
+	ExpireApprovals func(int64) int
 
 	// Checks, when set, is told when the screen-derived status moves a
 	// session from busy/working (StatusRunning) to idle (StatusIdle) — see
@@ -473,6 +477,15 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if agent == "" {
 		agent = "claude"
 	}
+	// Probe on the selected target before allocating a session or workspace.
+	// A missing executable must never look like a successfully started agent.
+	config, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkAgentExecutable(ctx, ex, config.Spec, o.Env); err != nil {
+		return nil, err
+	}
 	// lecternWorkspace is true when this launch created workdir itself; see
 	// the Gemini MCP branch below, the only thing that writes into a workspace.
 	lecternWorkspace := false
@@ -492,7 +505,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	}
 	name := o.Name
 	if name == "" {
-		name = agent
+		name = sessionName(workdir, o.Prime, agent)
 	}
 	var sess *store.Session
 	if o.ReservedID != 0 {
@@ -506,6 +519,13 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if err != nil {
 		return nil, err
 	}
+	if n, countErr := m.DB.Count("sessions", "name=? AND id<>? AND ended_at IS NULL", name, sess.ID); countErr == nil && n > 0 && o.Name == "" {
+		name = fmt.Sprintf("%s #%d", name, sess.ID)
+		if err := m.DB.Update("sessions", sess.ID, map[string]any{"name": name}); err != nil {
+			return nil, err
+		}
+		sess.Name = name
+	}
 	// the id is only known after the insert, so the tmux name is set here — and
 	// the `lec-s` prefix keeps interactive sessions clearly apart from the
 	// `lec-<attempt>` sessions a dispatched task owns
@@ -518,11 +538,6 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// Persist the exact launch settings before publishing a background reservation.
 	// A failed checkout must retain its profile rather than falling back to later
 	// edits of the reusable agent or profile settings.
-	config, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration)
-	if err != nil {
-		m.end(sess.ID, "dead")
-		return nil, err
-	}
 	// A per-launch Isolation override applies only to a fresh launch — a
 	// continuation (o.Configuration != nil) keeps exactly what it started
 	// with, which m.launchConfiguration already copied forward.
@@ -651,6 +666,20 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// PermissionRequest hook is registered below, and what gets persisted
 	// as this session's effective permission_mode.
 	askPermission := m.AskPermission || o.PermissionMode == "ask"
+	if agent == DemoAgent && spec.Command == "sh" {
+		if helper := helpers.Command(ex, "demo-agent", nil, ""); helper != "" {
+			spec.Command, spec.Args = helper, nil
+			config.Spec = spec
+			if askPermission {
+				env["LECTERN_DEMO_ASK"] = "1"
+			}
+			envPrefix, err = EnvPrefix(env)
+			if err != nil {
+				m.end(sess.ID, StatusDead)
+				return nil, err
+			}
+		}
+	}
 	config.Spec, config.Yolo = spec, o.Yolo
 	if askPermission {
 		config.PermissionMode = "ask"
@@ -1005,11 +1034,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.snapshotCatalogConversations(ctx, sess.ID, ex, spec, workdir)
 	}
 	m.launched.set(sess.ID, store.Now())
+	envFile, cleanupEnv, err := stageLaunchEnvironment(ctx, ex, envPrefix+mcpEnvPrefix)
+	if err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	defer cleanupEnv()
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
 		SessionID: assignedID,
-		Prompt:    argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		Prompt:    argPrompt, EnvFile: envFile, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
@@ -1226,10 +1261,10 @@ func (m *Manager) endWith(id int64, status, reason string) {
 	// nothing was ever started for this id, and the one place every
 	// stop/kill/dead-detection path converges, so it is the one place the
 	// egress proxy's lifetime needs to be tied to.
-	m.releaseSessionResources(id)
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
 		"status": status, "ended_at": now, "updated_at": now, "end_reason": reason})
+	m.releaseSessionResources(id)
 	if reason != EndFailed {
 		m.finishCatalogCapture(id)
 	}
@@ -1414,6 +1449,9 @@ func (m *Manager) Release(ctx context.Context, id int64) error {
 	}()
 	if err != nil {
 		return err
+	}
+	if m.ExpireApprovals != nil {
+		m.ExpireApprovals(id)
 	}
 	m.Bus.Publish("board", "session_dismissed", map[string]any{"id": id})
 	m.Log.Info("session released (process left running)", "session", id,
@@ -1607,6 +1645,9 @@ func (m *Manager) cleanupWorkspaceMCP(id int64) {
 // Every path that ends a session calls it; both halves are no-ops when the
 // session never had the resource.
 func (m *Manager) releaseSessionResources(id int64) {
+	if m.ExpireApprovals != nil {
+		m.ExpireApprovals(id)
+	}
 	m.IsolationProxies.Stop(id)
 	m.cleanupWorkspaceMCP(id)
 }

@@ -1,3 +1,4 @@
+from navigation import session_filters
 """Scratch classification and in-place promotion on real shells and files."""
 from pathlib import Path
 import subprocess
@@ -44,9 +45,11 @@ def test_quick_terminal_stays_scratch_until_promoted(page, real_terminal, width)
     expect(scratch.locator(selector)).to_be_visible()
     expect(regular.locator('.scard')).to_have_count(0)
     page.locator('#sess-search').fill('')
+    session_filters(page)
     page.locator('#sess-grouping').select_option('target')
     expect(scratch.locator(selector)).to_be_visible()
     expect(regular.locator(f'.scard[data-session-id="{t["id"]}"]')).to_be_visible()
+    session_filters(page)
     page.locator('#sess-grouping').select_option('none')
     page.reload()
     expect(scratch.locator(selector)).to_be_visible()

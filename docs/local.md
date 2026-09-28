@@ -9,9 +9,13 @@ source of truth.
 
 ## Install on Linux or macOS
 
-The local runtime uses `tmux` for durable sessions, Git for project workspaces,
-and Python 3 for its local session/task helpers. Install those first, then use
-the installer from a Lectern checkout:
+For a first install, follow the [Linux](getting-started-linux.md),
+[macOS](getting-started-macos.md), or [Windows](getting-started-windows.md)
+guide. The local runtime includes a durable terminal host and Go helpers;
+tmux and Python are optional. Git and an installed agent are needed for real
+project work, or use the built-in demo without an agent account.
+
+To build and install from a checkout:
 
 ```sh
 git clone https://github.com/JeremiahM37/lectern.git
@@ -112,7 +116,7 @@ address without signing in shows a page saying to run `lectern up`.
 `lectern up` also hands the running helper your shell's `PATH`, so an agent
 you installed after it started is found without restarting it.
 
-Stopping the helper does not discard the local database or durable tmux
+Stopping the helper does not discard the local database or durable terminal
 sessions; later local commands can start it again and resume them. A stop is
 refused while a task is still active, so inspect or finish that task first.
 Local state defaults to `~/.local/state/lectern/local`, or to
@@ -120,7 +124,7 @@ Local state defaults to `~/.local/state/lectern/local`, or to
 
 `lectern local` opens the local dashboard/console, where you choose the
 configured coding-agent command and its project. The local command keeps the
-interactive workspace in tmux. Configure the coding-agent command and its
+interactive workspace. Configure the coding-agent command and its
 provider/model settings in Lectern; a model API endpoint alone is not an
 executable coding agent.
 
@@ -131,23 +135,15 @@ the local runtime create its workspace.
 
 ## Windows and WSL
 
-The local runtime is Linux-based. On Windows, install WSL2, Git, tmux, Python
-3, Go (for a source build), and the agent CLI inside the same WSL distribution,
-then run `tools/install-local.sh` from WSL. The Windows-native CLI and Windows
-paths are not automatically available inside WSL. The installer intentionally
-refuses Git Bash, MSYS, and Cygwin so a partial Windows installation is not
-mistaken for a working tmux runtime.
-
-The existing PowerShell remote client installer remains available when the
-control plane is on another machine. That path still requires your existing
-OpenSSH host/key setup and is separate from the local command.
+Windows uses the built-in ConPTY terminal host and Git Bash from Git for
+Windows. WSL is optional. Follow the [Windows guide](getting-started-windows.md).
 
 ## Local versus remote
 
 | | Standalone local | Remote client |
 |---|---|---|
 | Agent process | Same machine as the terminal | Lectern server or a registered target |
-| Setup | Git, tmux, Python 3, agent CLI; Go for source builds | SSH alias/key and reachable control plane |
+| Setup | Git, agent CLI (or demo); Go for source builds | SSH alias/key and reachable control plane |
 | Command | `lectern local` | `lectern` or `lectern console` |
 | Server URL | Not required | `LECTERN_API`, installer `--api`, or a service on this machine |
 | Grimoire | Optional/not required | Optional; configured by the control plane |
@@ -156,8 +152,7 @@ Both paths preserve the agent CLI's own provider and model settings. Choose
 the remote client when one board should manage agents on several machines;
 choose local when the terminal workspace should stay on this computer.
 
-Linux local terminal mode is the tested path. macOS local terminal mode is
-experimental and has not been runtime-tested. Browser and file integrations
-currently rely on Linux-specific assumptions, so this guide makes no macOS
-support or test claim for them; use the hosted client for those integrations
-when required.
+The built-in terminal uses a Unix PTY on Linux/macOS and ConPTY on Windows;
+tmux is optional. The current candidate has Linux runtime regression coverage
+and Windows/macOS cross-build checks. Those compilation checks do not establish
+native runtime parity on macOS or Windows.

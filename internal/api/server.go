@@ -50,15 +50,17 @@ import (
 type Server struct {
 	// PhoneURL is the tailnet HTTPS origin (real certificate) once that
 	// listener is up — the address to hand a phone. Empty otherwise.
-	PhoneURL    string
+	PhoneURL   string
+	EnableWiFi func() (string, error)
+	WiFiURL    func() string
 	// TailnetStatus and LANAddresses answer "Connect your phone"
 	// (phone.go); nil uses tailscaled and this computer's interfaces.
 	TailnetStatus func(context.Context) (*auth.StatusResponse, error)
 	LANAddresses  func() []string
-	autoWG      sync.WaitGroup
-	autoMu      sync.Mutex
-	autoChecked time.Time
-	autoBridges map[string][]*http.Server
+	autoWG        sync.WaitGroup
+	autoMu        sync.Mutex
+	autoChecked   time.Time
+	autoBridges   map[string][]*http.Server
 
 	DB       *store.DB
 	Bus      *bus.Bus
@@ -204,6 +206,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/agents", s.targetAgentCommands)
 	mux.HandleFunc("GET /api/targets/{id}/folders", s.targetFolders)
 	mux.HandleFunc("GET /api/phone/addresses", s.phoneAddressesHandler)
+	mux.HandleFunc("POST /api/phone/wifi", s.enablePhoneWiFi)
 	// ---- SSH depth and sandbox providers (remote_ssh.go, sandboxes.go) ----
 	mux.HandleFunc("GET /api/ssh/hosts", s.listSSHHosts)
 	mux.HandleFunc("POST /api/ssh/import", s.importSSHHosts)

@@ -67,6 +67,17 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
     }
   }
 
+  async function enableWiFi() {
+    setBusy(true);
+    try {
+      const result = await api.request<{ url: string }>("/phone/wifi", { method: "POST" });
+      setAddresses(await api.request<PhoneAddresses>("/phone/addresses"));
+      setChosen({ kind: "lan", url: result.url, available: true, secure: false });
+      setMinted(undefined);
+    } catch (e) { onNotice(String(e), true); }
+    finally { setBusy(false); }
+  }
+
   const noneAvailable = !!addresses && !choices.some((row) => row.available);
   return (
     <Modal className="sheet phone-wizard" id="phone-wizard" aria-label={t("phone.title")} onCancel={onClose}>
@@ -115,6 +126,12 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
         <p className="subhint" id="phone-none" role="status">
           {t("phone.none")}
         </p>
+      )}
+      {addresses?.can_enable_wifi && !addresses.options.some(row => row.kind === "lan" && row.available) && (
+        <div className="phone-wifi-enable">
+          <p>{t("phone.wifiWarning", undefined, "Both devices must be on this network. Wi-Fi HTTP is unencrypted; enable it only on a trusted network. Access ends when this local runtime stops.")}</p>
+          <button type="button" className="b" disabled={busy} onClick={() => void enableWiFi()}>{t("phone.enableWiFi", undefined, "Let my phone connect on this Wi-Fi")}</button>
+        </div>
       )}
       <div className="phone-actions">
         <button

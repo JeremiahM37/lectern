@@ -1,3 +1,4 @@
+from navigation import card_actions
 """The phone session home: chat first, and what needs a person answered up top.
 
 Two real surfaces back this file.  The mock server fabricates attention states
@@ -175,7 +176,7 @@ def _button_fit(button):
 def _assert_row_labels_fit(card, width):
     """Every visible action keeps its whole label, its 40px target, on screen."""
     buttons = card.locator(".btnrow button.b:visible")
-    assert buttons.count() >= 3, "the busiest card row should show three or more actions"
+    assert buttons.count() >= 2, "the card should expose Chat and Terminal directly"
     labels = set()
     for index in range(buttons.count()):
         fit = _button_fit(buttons.nth(index))
@@ -199,10 +200,10 @@ def test_phone_card_actions_wrap_instead_of_clipping_their_labels(page, server):
         scratch = page.locator(".scard", has_text="Shell ·")
         expect(agent).to_be_visible(timeout=20000)
         expect(scratch).to_be_visible(timeout=20000)
-        # A live agent card: Attach, Chat and Switch share one row.
-        assert {"⌨ Terminal", "Chat", "⇄ Switch"} <= _assert_row_labels_fit(agent, width)
+        # A live agent card exposes Attach and Chat; secondary actions live in More.
+        assert {"⌨ Terminal", "Chat"} <= _assert_row_labels_fit(agent, width)
         # A blank scratch shell adds the widest label a phone has to hold.
-        assert {"⌨ Terminal", "⇑ Make a project", "✎ Rename"} <= _assert_row_labels_fit(
+        assert {"⌨ Terminal", "⇑ Make a project"} <= _assert_row_labels_fit(
             scratch, width
         )
         assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
@@ -391,6 +392,7 @@ def test_named_session_can_be_renamed_without_replacing_its_terminal(page, real_
         card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
         name = f'Renamed existing session {width}'
         page.once('dialog', lambda dialog: dialog.accept(name))
+        card_actions(card)
         card.get_by_role('button', name='✎ Rename', exact=True).click()
         expect(card.locator('.nm')).to_have_text(name)
         page.reload()

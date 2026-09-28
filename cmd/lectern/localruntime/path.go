@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -32,18 +33,26 @@ func mergePath(current, extra string) (string, bool) {
 	sep := string(os.PathListSeparator)
 	have := map[string]bool{}
 	var dirs []string
+	// Windows paths are case-insensitive and may end in a separator, so
+	// C:\Tools\ and c:\tools name one directory there.
+	key := func(d string) string {
+		if runtime.GOOS == "windows" {
+			return strings.ToLower(strings.TrimRight(d, `\/`))
+		}
+		return d
+	}
 	for _, d := range strings.Split(current, sep) {
-		if d != "" && !have[d] {
-			have[d] = true
+		if d != "" && !have[key(d)] {
+			have[key(d)] = true
 			dirs = append(dirs, d)
 		}
 	}
 	changed := false
 	for _, d := range strings.Split(extra, sep) {
-		if d == "" || have[d] || !filepath.IsAbs(d) {
+		if d == "" || have[key(d)] || !filepath.IsAbs(d) {
 			continue
 		}
-		have[d] = true
+		have[key(d)] = true
 		dirs = append(dirs, d)
 		changed = true
 	}

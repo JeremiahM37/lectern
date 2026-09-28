@@ -1,3 +1,4 @@
+from navigation import card_actions
 """End-to-end test for session rename via conversation header and card action."""
 from playwright.sync_api import expect
 
@@ -114,6 +115,7 @@ def test_rename_session_from_card_action_menu(page, server):
     # Wait for the API call to complete
     with page.expect_response(lambda r: r.request.method == "PATCH" and f"/api/sessions/{session_id}" in r.url and r.ok):
         # The card's own Rename button - this will trigger the prompt dialog
+        card_actions(card)
         card.get_by_role("button", name="✎ Rename").click()
     
     # Verify the name changed in the UI by finding the card with the new name

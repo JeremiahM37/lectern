@@ -2,6 +2,12 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "Stopped",
+  "review.onMain.folderWarning": "Committing will switch this folder, including your editor and other terminals, to the new branch: {branch}.",
+  "sessions.list.filterOptions": "Filter sessions",
+  "phone.wifiWarning": "Both devices must be on this network. Wi-Fi HTTP is unencrypted; enable it only on a trusted network. Access ends when this local runtime stops.",
+  "phone.enableWiFi": "Let my phone connect on this Wi-Fi",
+  "phone.why.loopback_only": "This address only listens on this computer. Use the Wi-Fi setup button below, or run lectern phone.",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "Working",
   "status.needs_you": "Needs you",
@@ -136,7 +142,6 @@ const catalog: Record<string, string> = {
   "phone.explain.tailnet": "Works anywhere your phone is on your tailnet, encrypted.",
   "phone.explain.lan": "Only on the same network, and not encrypted.",
   "phone.explain.relay": "Works anywhere, end-to-end encrypted, through your relay.",
-  "phone.why.loopback_only": "Lectern only listens on this computer. Run “lectern serve” instead of “lectern up” to let other devices connect.",
   "phone.why.tailscale_off": "Tailscale isn't running here. Install it on this computer and your phone, then reopen this.",
   "phone.why.no_lan_address": "This computer has no local network address.",
   "phone.why.relay_not_set_up": "Needs “lectern relay” running on a server both can reach. See Settings → Phone & devices.",

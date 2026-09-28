@@ -1,3 +1,4 @@
+from navigation import card_actions
 """A session and the memory store sharing one key, seen from the browser."""
 import json
 import threading
@@ -47,6 +48,7 @@ def test_a_session_card_shows_what_its_agent_remembered(page,with_store):
     expect(card).to_be_visible(timeout=15000)
     # Nothing is asked of the store until someone looks.
     assert Store.asked==[]
+    card_actions(card)
     card.locator('.session-memory summary').click()
     memory=card.locator('.session-memory')
     expect(memory).to_contain_text('Staging listens on 5433',timeout=10000)

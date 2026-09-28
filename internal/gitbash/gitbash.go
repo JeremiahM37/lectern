@@ -60,15 +60,45 @@ func find(lookPath func(string) (string, error), getenv func(string) string) (st
 	return "", errors.New("Git for Windows' bash.exe was not found; install Git for Windows (https://git-scm.com/download/win) or set " + Env)
 }
 
-// NativePath turns a path a Git Bash command line used (/c/Users/me) into the
-// Windows form (C:\Users\me). Other paths are returned unchanged.
+// NativePath turns a path a Git Bash command line used into the Windows path
+// of the same file, so a file Lectern writes from Go and one a command line
+// then reads are the same file: /c/Users/me is C:\Users\me, /tmp is the
+// user's temp directory (Git for Windows mounts it there), and any other
+// absolute path lies under Git's own installation, which is Git Bash's /.
 func NativePath(p string) string {
+	root := ""
+	if bash, err := Find(); err == nil {
+		root = installRoot(bash)
+	}
+	return nativePath(p, os.TempDir(), root)
+}
+
+// installRoot is Git's installation directory from its bash.exe
+// (<root>\bin\bash.exe or <root>\usr\bin\bash.exe).
+func installRoot(bash string) string {
+	root := filepath.Dir(filepath.Dir(bash))
+	if strings.EqualFold(filepath.Base(root), "usr") {
+		root = filepath.Dir(root)
+	}
+	return root
+}
+
+func nativePath(p, temp, root string) string {
 	isDrive := func(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+	join := func(base, rest string) string {
+		return strings.TrimRight(base, `\/`) + strings.ReplaceAll(rest, "/", `\`)
+	}
 	switch {
 	case len(p) >= 3 && p[0] == '/' && isDrive(p[1]) && p[2] == '/':
 		return strings.ToUpper(p[1:2]) + ":" + strings.ReplaceAll(p[2:], "/", `\`)
 	case len(p) == 2 && p[0] == '/' && isDrive(p[1]):
 		return strings.ToUpper(p[1:2]) + `:\`
+	case p == "/tmp" || strings.HasPrefix(p, "/tmp/"):
+		if temp != "" {
+			return join(temp, strings.TrimPrefix(p, "/tmp"))
+		}
+	case strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && root != "":
+		return join(root, p)
 	}
 	return p
 }

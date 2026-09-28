@@ -1,3 +1,4 @@
+from navigation import navigate
 """Settings search, the app-wide light theme, accent and zoom, and remapping a
 shortcut with conflict detection — all stored per person on the server."""
 import json
@@ -78,7 +79,7 @@ def test_light_theme_accent_and_zoom_apply_everywhere_and_persist(page, real_ter
     page.locator('.tab[data-tab="settings"]').click()
     page.locator('[data-settings="appearance"]').click()
     page.get_by_role('combobox', name='Zoom').select_option('1')
-    page.locator('.tab[data-tab="terminals"]').click()
+    navigate(page, "terminals")
     expect(f.locator('html')).to_have_attribute('data-theme', 'light')
     assert luminance(f.locator('body').evaluate('el => getComputedStyle(el).backgroundColor')) > 200
     # Reload: still light, before and after the server answers.
@@ -149,22 +150,22 @@ def test_language_follows_the_browser_and_can_be_chosen(browser, real_terminal):
     page.goto(t['url'] + '/#sessions')
     expect(page.locator('html')).to_have_attribute('lang', 'fr')
     expect(page.locator('.tab[data-tab="sessions"]')).to_contain_text('Sessions')
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('Tâches')
+    expect(page.locator('#nav-overflow [data-nav-target="tasks"]')).to_contain_text('Tâches')
     # Longer French labels still fit a phone on the main screens.
     for tab in ('tasks', 'sessions'):
-        page.locator(f'.tab[data-tab="{tab}"]').click()
+        navigate(page, tab)
         assert page.evaluate('document.documentElement.scrollWidth') <= 391, tab
     # Choosing Japanese in Settings changes the whole app at once, and is kept.
     page.goto(t['url'] + '/#targets')
     page.locator('[data-settings="appearance"]').click()
     page.locator('[data-setting="appearance.language"] select').select_option('ja')
     expect(page.locator('html')).to_have_attribute('lang', 'ja')
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('タスク')
+    expect(page.locator('#nav-overflow [data-nav-target="tasks"]')).to_contain_text('タスク')
     expect(page.locator('[data-settings="appearance"]')).to_have_text('外観')
     page.wait_for_timeout(600)
     assert prefs(t)['appearance']['language'] == 'ja'
     page.reload()
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('タスク')
+    expect(page.locator('#nav-overflow [data-nav-target="tasks"]')).to_contain_text('タスク')
     # The terminal page, a separate document, follows too.
     page.goto(t['url'] + f"/terminal/session/{t['id']}")
     expect(page.locator('html')).to_have_attribute('lang', 'ja')

@@ -1,3 +1,4 @@
+from navigation import card_actions
 """Blank shells must be distinguishable: the scratch folder names the card.
 
 Two quick shells on one machine used to be two identical "Shell · <target>"
@@ -63,6 +64,7 @@ def test_scratch_cards_are_named_by_folder_and_keep_a_manual_rename(page, server
 
     # An explicit rename replaces the folder title and survives a reload.
     page.once("dialog", lambda dialog: dialog.accept("deploy scratch"))
+    card_actions(first_card)
     first_card.get_by_role("button", name="Rename").click()
     expect(first_card.locator(".nm")).to_have_text("deploy scratch", timeout=10000)
     stored = page.request.get(f'{server}/api/sessions/{first["id"]}').json()

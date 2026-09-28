@@ -188,7 +188,7 @@ func TestAnExitedAgentShowsAndRevivesWithR(t *testing.T) {
 			m.selected = i
 		}
 	}
-	if !strings.Contains(m.View(), "agent exited") {
+	if !strings.Contains(m.View(), "Stopped") {
 		t.Fatalf("an exited agent must not read as its screen status:\n%s", m.View())
 	}
 	m.Update(key("R"))

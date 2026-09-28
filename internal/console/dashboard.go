@@ -699,6 +699,8 @@ func (m *dashboard) updatePreview() {
 					}
 				}
 			}
+		case "projects":
+			content = fmt.Sprintf("%s\n\nFolder: %s\nBase branch: %s\n\nEnter: project actions · n: new project", name(r), str(r["repo_path"]), str(r["default_base_branch"]))
 		case "approvals":
 			content = approvalPreview(r)
 		case "tasks":

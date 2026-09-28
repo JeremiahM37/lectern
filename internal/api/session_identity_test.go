@@ -77,7 +77,7 @@ func TestASessionAndTheMemoryStoreShareOneKey(t *testing.T) {
 	launched := ""
 	for _, cmd := range h.mock().CmdLog() {
 		if strings.HasPrefix(cmd, "tmux new-session") && strings.Contains(cmd, sess.str("tmux_session")) {
-			launched = cmd
+			launched = cmd + h.launchEnv(cmd)
 		}
 	}
 	for _, want := range []string{fmt.Sprintf("LECTERN_SESSION_ID=%d ", sess.id()), "GRIMOIRE_SESSION=" + key + " "} {

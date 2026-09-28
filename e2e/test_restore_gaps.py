@@ -1,4 +1,5 @@
 """Exited agents, the relaunch notice, through the real browser."""
+import pytest
 import sqlite3
 import time
 
@@ -14,6 +15,7 @@ def mark(t, **fields):
         db.commit()
 
 
+@pytest.mark.parametrize("real_terminal", [{"agent_script": "#!/bin/sh\necho revived-agent\ncat\n"}], indirect=True)
 def test_exited_agent_card_terminal_and_revive(page, real_terminal):
     t = real_terminal
     mark(t, agent_exited_at=time.time())
@@ -27,8 +29,8 @@ def test_exited_agent_card_terminal_and_revive(page, real_terminal):
 
     page.goto(t["url"] + "/#sessions")
     card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
-    expect(card).to_contain_text("agent exited", timeout=15000)
-    expect(page.locator("#now-strip")).to_contain_text("Ended · agent exited")
+    expect(card).to_contain_text("Stopped", timeout=15000)
+    expect(page.locator("#now-strip")).to_contain_text("Stopped")
     card.get_by_role("button", name="↻ Revive").click()
     expect(page.locator("#toasts")).to_contain_text("Revived", timeout=20000)
     old = t["api"](f"/sessions/{t['id']}")

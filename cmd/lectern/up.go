@@ -123,7 +123,14 @@ func upCommand(cfg *config.Config, args []string) error {
 	} else {
 		fmt.Printf("Open this link to sign in and start an agent (it works once, for 10 minutes):\n  %s\n", link)
 	}
-	fmt.Println("Or stay in the terminal: cd into a project and run lectern claude.")
+	if status != nil {
+		for _, a := range status.Agents {
+			if a.Found {
+				fmt.Printf("Or stay in the terminal: cd into a project and run lectern %s.\n", a.Name)
+				break
+			}
+		}
+	}
 	return nil
 }
 

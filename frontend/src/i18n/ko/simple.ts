@@ -2,6 +2,12 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "중지됨",
+  "review.onMain.folderWarning": "커밋하면 편집기와 다른 터미널을 포함하여 이 폴더가 새 브랜치로 전환됩니다: {branch}.",
+  "sessions.list.filterOptions": "세션 필터",
+  "phone.wifiWarning": "두 기기가 이 네트워크에 연결되어 있어야 합니다. Wi-Fi HTTP는 암호화되지 않으므로 신뢰하는 네트워크에서만 활성화하세요. 로컬 런타임이 중지되면 접근이 종료됩니다.",
+  "phone.enableWiFi": "이 Wi-Fi로 휴대폰 연결",
+  "phone.why.loopback_only": "이 주소는 이 컴퓨터에서만 작동합니다. 아래 Wi-Fi 설정 버튼을 사용하거나 lectern phone을 실행하세요.",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "작업 중",
   "status.needs_you": "확인 필요",
@@ -136,7 +142,6 @@ const catalog: Record<string, string> = {
   "phone.explain.tailnet": "휴대폰이 tailnet에 있으면 어디서나 쓸 수 있고 암호화됩니다.",
   "phone.explain.lan": "같은 네트워크에서만 쓸 수 있고 암호화되지 않습니다.",
   "phone.explain.relay": "어디서나 쓸 수 있고, 릴레이를 거쳐 종단 간 암호화됩니다.",
-  "phone.why.loopback_only": "Lectern이 이 컴퓨터 안에서만 연결을 받고 있습니다. 다른 기기가 연결하려면 “lectern up” 대신 “lectern serve”를 실행하세요.",
   "phone.why.tailscale_off": "여기서 Tailscale이 실행되고 있지 않습니다. 이 컴퓨터와 휴대폰에 설치한 뒤 다시 여세요.",
   "phone.why.no_lan_address": "이 컴퓨터에는 로컬 네트워크 주소가 없습니다.",
   "phone.why.relay_not_set_up": "양쪽 모두 닿을 수 있는 서버에서 “lectern relay”가 실행되어야 합니다. 설정 → 휴대폰 및 기기를 보세요.",

@@ -195,6 +195,12 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 	case strings.Contains(cmd, "conversation not found in the current account"):
 		// An account swap copying a conversation (internal/accounts.StageCommand).
 		return Result{0, "projects/-mock/conversation.jsonl\n", ""}, nil
+	case strings.Contains(cmd, "mktemp -d /tmp/lectern-launch-env."):
+		m.mu.Lock()
+		m.scratchN++
+		n := m.scratchN
+		m.mu.Unlock()
+		return Result{0, fmt.Sprintf("/tmp/lectern-launch-env.%08d\n", n), ""}, nil
 	case strings.Contains(cmd, "lectern-scratch") && strings.Contains(cmd, "mktemp -d"):
 		// a scratch directory is created by the target's own shell and its path
 		// read back from `pwd`; mktemp's uniqueness is modelled by a counter, so

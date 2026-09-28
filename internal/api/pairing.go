@@ -130,7 +130,7 @@ func (s *Server) exchangePairingCode(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		MaxAge:   pairingDeviceCookieMaxAge,
-		Secure:   true,
+		Secure:   !(s.WiFiURL != nil && s.WiFiURL() == "http://"+r.Host && r.TLS == nil),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})

@@ -30,6 +30,7 @@ const (
 var helpGroups = []string{groupStart, groupSessions, groupProjects, groupAdvanced}
 
 var commandDocs = []commandDoc{
+	{Name: "phone", Group: groupStart, Synopsis: "phone", Summary: "Connect your phone to this Lectern", Usage: []string{"lectern phone"}, About: "Shows a single-use pairing QR code. For a private local runtime, enables authenticated access on this Wi-Fi network using the same sessions and database. Wi-Fi HTTP is unencrypted: use a trusted network. The listener closes when the local runtime stops."},
 	{
 		Name: "up", Group: groupStart, Synopsis: "up",
 		Summary: "Start Lectern on this computer and open it in your browser",
@@ -64,8 +65,8 @@ Any agent added under Settings → Agents works the same way: lectern NAME.`,
 		Name: "doctor", Group: groupStart, Synopsis: "doctor",
 		Summary: "Check this computer and say how to fix anything missing",
 		Usage:   []string{"lectern doctor"},
-		About: `Checks what Lectern needs (tmux, git, Python 3, at least one agent), what
-it can use (the web terminal viewer, other agents, push alerts), which server
+		About: `Checks Git and installed agents, optional tools (tmux and Python 3),
+the built-in web terminal and push alerts, which server
 your commands talk to, and whether agents can reach it to report status and
 ask for approval. Every problem comes with the command that fixes it.
 

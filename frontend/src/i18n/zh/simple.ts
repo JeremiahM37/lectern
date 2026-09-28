@@ -2,6 +2,12 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "已停止",
+  "review.onMain.folderWarning": "提交会将此文件夹（包括编辑器和其他终端）切换到新分支：{branch}。",
+  "sessions.list.filterOptions": "筛选会话",
+  "phone.wifiWarning": "两台设备必须连接此网络。Wi-Fi HTTP 未加密，请仅在可信网络中启用。本地运行时停止后，访问即结束。",
+  "phone.enableWiFi": "让手机通过此 Wi-Fi 连接",
+  "phone.why.loopback_only": "此地址仅在本机上可用。请使用下方的 Wi-Fi 设置按钮，或运行 lectern phone。",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "工作中",
   "status.needs_you": "需要你",
@@ -136,7 +142,6 @@ const catalog: Record<string, string> = {
   "phone.explain.tailnet": "只要手机在你的 tailnet 上，在哪里都能用，而且加密。",
   "phone.explain.lan": "仅限同一网络，且未加密。",
   "phone.explain.relay": "在哪里都能用，经由你的中继端到端加密。",
-  "phone.why.loopback_only": "Lectern 只在这台计算机上监听。用“lectern serve”代替“lectern up”，其他设备才能连接。",
   "phone.why.tailscale_off": "这里没有运行 Tailscale。在这台计算机和手机上安装它，然后重新打开此窗口。",
   "phone.why.no_lan_address": "这台计算机没有局域网地址。",
   "phone.why.relay_not_set_up": "需要在双方都能访问的服务器上运行“lectern relay”。见 设置 → 手机和设备。",

@@ -1,3 +1,4 @@
+from navigation import restore_tools
 """Browser flows: the whole operator loop, on both a phone and a desktop."""
 import re
 import time
@@ -526,7 +527,7 @@ def test_discover_offers_to_adopt_a_hand_started_agent(page, server):
     """The sessions worth tracking are usually the ones you started yourself."""
     page.goto(server + "/#tasks")
     _tab(page, "sessions")
-    page.click("#sess-discover")
+    restore_tools(page);page.click("#sess-discover")
     row = page.locator(".cand", has_text="legacy-claude").first
     expect(row).to_be_visible(timeout=15000)
     row.locator("button", has_text="Adopt").click()
@@ -553,7 +554,7 @@ def test_adopted_session_offers_release_not_just_kill(page, server):
     started yourself must not be killed by a button labelled like a delete."""
     page.goto(server + "/#tasks")
     _tab(page, "sessions")
-    page.click("#sess-discover")
+    restore_tools(page);page.click("#sess-discover")
     row = page.locator(".cand", has_text="legacy-claude").first
     expect(row).to_be_visible(timeout=15000)
     row.locator("button", has_text="Adopt").click()
@@ -567,7 +568,7 @@ def test_adopted_session_offers_release_not_just_kill(page, server):
     card.locator("button", has_text="Stop tracking").click()
     expect(page.locator(".scard", has_text="legacy-claude")).to_have_count(0, timeout=10000)
     # released, not killed: discovery finds the terminal again
-    page.click("#sess-discover")
+    restore_tools(page);page.click("#sess-discover")
     expect(page.locator(".cand", has_text="legacy-claude").first).to_be_visible(timeout=15000)
 
 
@@ -669,7 +670,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
     card = page.locator(".scard", has_text="half an idea")
     expect(card).to_be_visible(timeout=15000)
     # it starts life unassigned, grouped apart from real projects
-    expect(card.locator(".scard-project", has_text="Unassigned")).to_be_visible(timeout=15000)
+    expect(card.locator(".scard-project", has_text="No project")).to_be_visible(timeout=15000)
     card.locator(".action-menu > summary").click()
     promote = card.locator("button", has_text="Make a project")
     expect(promote).to_be_visible()

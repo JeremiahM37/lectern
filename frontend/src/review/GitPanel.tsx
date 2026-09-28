@@ -141,6 +141,20 @@ export function GitPanel({
     };
   }, [sessionId, repo, reload, refreshKey]);
 
+  // Draft once from the actual diff. Never replace text the user starts typing
+  // while the model is answering, and retain manual entry if it is unavailable.
+  const draftRequested = useRef(false);
+  useEffect(() => {
+    if (!status?.files.length || status.operation || messageTouched.current || draftRequested.current) return;
+    draftRequested.current = true;
+    let live = true;
+    setMessageState("");
+    api.request<{ message: string }>(base + "/commit-message", { method: "POST", body: { repo } })
+      .then((draft) => { if (live && !messageTouched.current) setMessageState(draft.message); })
+      .catch(() => { /* Manual entry and Write message remain available. */ });
+    return () => { live = false; };
+  }, [!!status?.files.length, sessionId, repo]);
+
   const refresh = () => {
     setReload((n) => n + 1);
     onChanged();
@@ -495,6 +509,7 @@ export function GitPanel({
               <input type="radio" name={`on-main-${sessionId}`} checked={onMain === "branch"} onChange={() => setOnMain("branch")} />
               {t("review.onMain.newBranch")}
             </label>
+            {onMain === "branch" && <p role="note">{t("review.onMain.folderWarning", { branch: newBranch.trim() || "…" }, "Committing will switch this folder, including your editor and other terminals, to the new branch: {branch}.")}</p>}
             {onMain === "branch" && (
               <input
                 className="f commit-new-branch"

@@ -1,3 +1,4 @@
+from navigation import session_filters
 import json,subprocess,urllib.request,time
 from pathlib import Path
 import pytest
@@ -41,6 +42,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     def delete(path):
         return urllib.request.urlopen(urllib.request.Request(t['url']+'/api'+path,method='DELETE')).read()
     delete('/sessions/'+str(row['id']))
+    session_filters(page)
     page.locator('#sess-scope').select_option('all')
     expect(page.locator('#sesslist')).to_contain_text('Isolated UI proof')
     # Only one allocated worktree exists; the original adopted terminal has no removal action.

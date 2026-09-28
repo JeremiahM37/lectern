@@ -182,6 +182,7 @@ type linkEnv struct {
 	// client and pane the link was found on, when known: status messages
 	// and the highlight go to that client, over that pane.
 	client, pane string
+	directAction func(string, filelinks.Link) error
 }
 
 // ---- finding the link under the pointer
@@ -193,6 +194,10 @@ func (e *linkEnv) tmux(args ...string) (string, error) {
 
 // say shows a short message on the attached terminal's status line.
 func (e *linkEnv) say(message string) {
+	if e.directAction != nil {
+		fmt.Fprintln(os.Stderr, message)
+		return
+	}
 	args := []string{"display-message", "-d", "5000"}
 	if e.client != "" {
 		args = append(args, "-c", e.client)
@@ -591,6 +596,9 @@ func (e *linkEnv) shellWord(link filelinks.Link) string {
 // copy puts text on the clipboard of the terminal this client runs in (tmux
 // forwards it with OSC 52), which works over SSH too.
 func (e *linkEnv) copy(text, message string) error {
+	if e.directAction != nil {
+		return e.directAction("copy", filelinks.Link{Kind: "url", URL: text})
+	}
 	if _, err := e.tmux("set-buffer", "-w", "--", text); err != nil {
 		return err
 	}

@@ -33,7 +33,7 @@ def forge_server(tmp_path):
         "LECTERN_BASE_URL": f"http://127.0.0.1:{port}", "HOME": str(tmp_path / "home"),
         "TMUX": "", "TMUX_TMPDIR": str(tmp_path / "tmux"),
     }
-    proc = subprocess.Popen([_binary()], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen([_binary(), "serve"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(150):
             if proc.poll() is not None:

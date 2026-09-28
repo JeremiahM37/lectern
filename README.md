@@ -21,6 +21,8 @@ lectern up          # starts Lectern, finds your agent CLIs, opens the dashboard
 lectern claude      # or: lectern codex, lectern opencode, … in any folder
 ```
 
+Start here: [Linux](docs/getting-started-linux.md) · [macOS](docs/getting-started-macos.md) · [Windows](docs/getting-started-windows.md).
+
 ## What makes Lectern different
 
 ### Start work from an ordinary chat

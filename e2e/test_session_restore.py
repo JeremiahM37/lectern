@@ -1,3 +1,4 @@
+from navigation import session_filters
 """Recovery uses real tmux identity and retains the original durable record."""
 import concurrent.futures
 import json
@@ -70,6 +71,7 @@ def test_web_can_track_again_from_untracked_records(page,real_terminal,width):
     expect(page.locator('.scard')).to_have_count(0)
     pending=[]
     page.route('**/api/sessions?all=true',lambda route:pending.append(route))
+    session_filters(page)
     page.locator('#sess-scope').select_option('all')
     page.locator('#sess-search').fill('Real terminal')
     assert pending

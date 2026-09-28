@@ -345,9 +345,7 @@ export function SessionCard({
           </span>
         )}
         {s.group_path && <span className="chip">{s.group_path}</span>}
-        {live && s.agent !== "shell" && (
-          <CheckBadge session={s} api={api} onNotice={onNotice} />
-        )}
+
         <CIChip ci={s.ci} />
       </div>
       <div className="spane">{preview}</div>
@@ -452,10 +450,10 @@ export function SessionCard({
                 {t("sessions.card.makeProject")}
               </button>
             )}
-            {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? t("sessions.card.switching") : t("sessions.card.switch")}</button>}
+
           </>
         )}
-        <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
+
         {ended && !archived && s.can_restore && (
           <button
             className="b ok"
@@ -472,6 +470,16 @@ export function SessionCard({
           </button>
         )}
         <ActionMenu name={s.name}>
+          <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
+          {live && onSwitch && s.agent !== "shell" && (
+            <button className="b" disabled={s.handoff_in_flight} onClick={() => onSwitch(s)}>
+              {s.handoff_in_flight ? t("sessions.card.switching") : t("sessions.card.switch")}
+            </button>
+          )}
+          <div onClick={event => event.stopPropagation()}>
+            {live && s.agent !== "shell" && <CheckBadge session={s} api={api} onNotice={onNotice} />}
+            <SessionMemory api={api} sessionId={s.id} projectId={s.project_id ?? null} />
+          </div>
           {live && (
             <>
               <button className="b" onClick={() => onReview(s)}>
@@ -672,7 +680,7 @@ export function SessionCard({
       {/* Below the actions, not above them: on a card with no worktree the
           actions menu is the first disclosure, and the browser suite opens it
           that way. */}
-      <SessionMemory api={api} sessionId={s.id} projectId={s.project_id ?? null} />
+
     </article>
   );
 }

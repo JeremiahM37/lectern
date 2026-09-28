@@ -1,3 +1,4 @@
+from navigation import navigate
 """Mobile reading layout and soft keys against real ttyd/tmux."""
 import subprocess
 import re
@@ -51,7 +52,7 @@ def test_mobile_focus_gains_space_preserves_connection_and_allows_navigation(pag
         phone.get_by_role('button',name='Search sessions and actions').tap()
         dialog=phone.get_by_role('dialog',name='Search Lectern');dialog.get_by_role('combobox').fill('task board');dialog.get_by_role('option').tap()
         expect(phone.locator('#tabbar')).to_be_visible()
-        phone.locator('.tab[data-tab="terminals"]').tap();expect(phone.locator('#tabbar')).not_to_be_visible()
+        navigate(phone, "terminals");expect(phone.locator('#tabbar')).not_to_be_visible()
         assert one.locator('body').evaluate('()=>window.focusIdentity')=='same'
         assert len(sockets)==1,sockets
         for size in [{'width':844,'height':390},{'width':1440,'height':900},{'width':390,'height':550},{'width':390,'height':900}]:

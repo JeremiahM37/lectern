@@ -22,7 +22,7 @@ export function serviceWorkerPlugin():Plugin{return {name:'typed-service-worker'
  const visit=(name:string)=>{const item=bundle[name];if(!item||kept.has(name))return;if(item.type==='chunk'&&!item.isEntry&&item.facadeModuleId&&optional.test(item.facadeModuleId))return;kept.add(name);if(item.type!=='chunk')return;item.imports.forEach(visit);item.dynamicImports.forEach(visit);const meta=(item as {viteMetadata?:{importedCss?:Set<string>}}).viteMetadata;meta?.importedCss?.forEach(css=>kept.add(css));};
  for(const item of Object.values(bundle))if(item.type==='chunk'&&item.isEntry)visit(item.fileName);
  const assets=[...kept].filter(name=>/\.(js|css)$/.test(name)).sort();
- const result=buildSync({entryPoints:['src/service-worker.ts'],bundle:true,write:false,format:'iife',target:'es2022',platform:'browser',logLevel:'silent'});
+ const result=buildSync({entryPoints:['src/service-worker.ts'],bundle:true,minify:true,write:false,format:'iife',target:'es2022',platform:'browser',logLevel:'silent'});
  const outputFile=result.outputFiles[0];
  if(!outputFile)throw new Error('esbuild produced no output for service-worker.ts');
  const source=outputFile.text;

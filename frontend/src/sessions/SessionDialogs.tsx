@@ -31,6 +31,8 @@ type Agent = {
   yolo_args?: string[];
 };
 type LaunchProfile = {
+  command?: string;
+  env_json?: string;
   id: number;
   name: string;
   agent: string;
@@ -240,12 +242,18 @@ export function NewSession({
   // Only agents whose command is on that machine (or that cannot be checked)
   // are offered; the rest wait behind "More agents…".
   const usable = (name: string) => !installed || installed[name] !== "missing";
+  // A profile can choose a different executable or PATH; the default-agent
+  // probe cannot decide its availability. The server checks that exact launch.
+  const profileCommand = !!profile?.command?.trim() || (() => {
+    try { return Object.hasOwn(JSON.parse(profile?.env_json || "{}"), "PATH"); } catch { return false; }
+  })();
+  const unavailable = agent !== "demo" && !profileCommand && !usable(agent);
   const noAgent = !!installed && agents.length > 0 && !agents.some((row) => usable(row.name));
   useEffect(() => {
     if (agentTouched || !installed || profileId > 0 || usable(agent) || agent === "demo") return;
     const ordered = [...agentMenu, ...agents.map((row) => row.name)];
     const first = ordered.find((name) => agents.some((row) => row.name === name) && usable(name));
-    if (first) setAgent(first);
+    setAgent(first || "demo");
   }, [installed, agents, agentMenu, agentTouched, profileId]);
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
@@ -279,7 +287,7 @@ export function NewSession({
     return id;
   }
   async function start() {
-    if (busy) return;
+    if (busy || unavailable) return;
     setBusy(true);
     try {
       await ensureMachine();
@@ -467,7 +475,7 @@ export function NewSession({
               return (
                 <>
                   {options.map((a) => (
-                    <option key={a.name} value={a.name}>
+                    <option key={a.name} value={a.name} disabled={!usable(a.name)}>
                       {usable(a.name) ? a.name : t("start.sheet.notInstalled", { name: a.name })}
                     </option>
                   ))}
@@ -767,7 +775,7 @@ export function NewSession({
           <button
             className="b ok grow"
             id="ns-go"
-            disabled={busy}
+            disabled={busy || unavailable}
             onClick={() => void start()}
           >
             {t("sessions.dialogs.newSession.start")}

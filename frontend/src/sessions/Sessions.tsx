@@ -564,22 +564,6 @@ export function Sessions({
         <QuotaChip api={api} />
         <button
           className="b"
-          id="sess-saved-search"
-          onClick={() => setSearch(true)}
-          aria-label={t("sessions.list.searchSavedLabel")}
-        >
-          {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
-        </button>
-        <button
-          className="b"
-          id="sess-discover"
-          onClick={() => setSheet("discover")}
-          aria-label={t("sessions.list.findAgentsLabel")}
-        >
-          {t("sessions.list.findAgentsFind")}<span className="wide-only">{t("sessions.list.findAgentsWide")}</span>{t("sessions.list.findAgentsEnd")}
-        </button>
-        <button
-          className="b"
           id="sess-recent"
           aria-expanded={recentOpen}
           aria-label={t("sessions.list.restoreClosedLabel")}
@@ -587,10 +571,15 @@ export function Sessions({
         >
           {t("sessions.list.restoreButton")}
         </button>
+
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
           {t("sessions.list.newSession")}
         </button>
       </div>
+      <nav className="sessions-views" aria-label="Session views">
+        <a href="#sessions" aria-current="page">{t("sessions.list.title")}</a>
+        <a href="#terminals">{t("nav.terminals")}</a>
+      </nav>
       {relaunched.length > 0 && (
         <div className="restore-banner relaunch-notice" role="status">
           <span>
@@ -644,6 +633,8 @@ export function Sessions({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
+      <details className="session-filter-options" open={rows.length > 5 || group !== "none" || scope !== "active"}>
+      <summary>{t("sessions.list.filterOptions", undefined, "Filter sessions")}</summary>
       <div className="session-filters">
       <label className="session-grouping">
         {t("sessions.list.groupBy")}{" "}
@@ -678,7 +669,27 @@ export function Sessions({
         </select>
       </label>
       </div>
+      </details>
       {recentOpen && (
+        <section aria-label={t("sessions.list.restoreClosedLabel")}>
+          <div className="restore-tools">
+        <button
+          className="b"
+          id="sess-saved-search"
+          onClick={() => setSearch(true)}
+          aria-label={t("sessions.list.searchSavedLabel")}
+        >
+          {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
+        </button>
+        <button
+          className="b"
+          id="sess-discover"
+          onClick={() => setSheet("discover")}
+          aria-label={t("sessions.list.findAgentsLabel")}
+        >
+          {t("sessions.list.findAgentsFind")}<span className="wide-only">{t("sessions.list.findAgentsWide")}</span>{t("sessions.list.findAgentsEnd")}
+        </button>
+          </div>
         <RestorePanel
           api={api}
           onNotice={onNotice}
@@ -688,6 +699,7 @@ export function Sessions({
           }}
           onElsewhere={setRestoreElsewhere}
         />
+        </section>
       )}
       {restoreElsewhere && (
         <QuickSwitch
@@ -745,14 +757,14 @@ export function Sessions({
             )}
           </div>
         </section>
-        <ScratchTerminals
+        {(scratch.length > 0 || rows.length > 5) && <ScratchTerminals
           items={scratch}
           mode={group}
           query={query.trim()}
           collapsed={collapsed}
           onToggle={toggleGroup}
           render={render}
-        />
+        />}
       </div>
       {/* Below the sessions, not above them: a session that wants you is
           marked on its own card, and what is left here — approvals, failed

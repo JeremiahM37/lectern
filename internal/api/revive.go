@@ -33,6 +33,10 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 	}
 	cid, err := s.boundNativeCID(r, row)
 	if err != nil && row.AgentExitedAt != nil {
+		if checkErr := s.Sessions.CheckSessionExecutable(r.Context(), row); checkErr != nil {
+			httpError(w, 409, "%s", checkErr)
+			return
+		}
 		// The agent already exited and nothing was saved to resume: start it
 		// again in the same folder, primed with its last handoff if any. An
 		// adopted terminal is the operator's own shell, so it is released and
@@ -60,6 +64,10 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpError(w, 409, "no saved conversation is bound to this session (%s); stop it and start a new one", err)
+		return
+	}
+	if checkErr := s.Sessions.CheckSessionExecutable(r.Context(), row); checkErr != nil {
+		httpError(w, 409, "%s", checkErr)
 		return
 	}
 	if err := s.Sessions.Kill(r.Context(), row.ID); err != nil {

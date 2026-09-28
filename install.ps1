@@ -38,7 +38,7 @@ try {
     Write-Host "Agents need Git for Windows: https://git-scm.com/download/win"
   }
   Write-Host "Next: run 'lectern up' — it starts Lectern and opens your browser, ready to start an agent."
-  Write-Host "(To use a Lectern server elsewhere instead, set LECTERN_API, e.g. `$env:LECTERN_API = 'http://aiserver:9110'`.)"
+  Write-Host "(To use a Lectern server elsewhere instead, set LECTERN_API, e.g. `$env:LECTERN_API = 'http://your-server:9110'`.)"
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }

@@ -2,6 +2,12 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "Arrêté",
+  "review.onMain.folderWarning": "La validation basculera ce dossier, y compris votre éditeur et les autres terminaux, sur la nouvelle branche : {branch}.",
+  "sessions.list.filterOptions": "Filtrer les sessions",
+  "phone.wifiWarning": "Les deux appareils doivent être sur ce réseau. HTTP sur Wi-Fi n’est pas chiffré ; activez-le uniquement sur un réseau de confiance. L’accès prend fin à l’arrêt du service local.",
+  "phone.enableWiFi": "Connecter mon téléphone à ce Wi-Fi",
+  "phone.why.loopback_only": "Cette adresse fonctionne uniquement sur cet ordinateur. Utilisez le bouton Wi-Fi ci-dessous ou lancez lectern phone.",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "En cours",
   "status.needs_you": "Vous attend",
@@ -136,7 +142,6 @@ const catalog: Record<string, string> = {
   "phone.explain.tailnet": "Fonctionne partout où votre téléphone est sur votre tailnet, avec chiffrement.",
   "phone.explain.lan": "Seulement sur le même réseau, et sans chiffrement.",
   "phone.explain.relay": "Fonctionne partout, chiffré de bout en bout, via votre relais.",
-  "phone.why.loopback_only": "Lectern n’écoute que sur cet ordinateur. Lancez « lectern serve » au lieu de « lectern up » pour que d’autres appareils se connectent.",
   "phone.why.tailscale_off": "Tailscale ne tourne pas ici. Installez-le sur cet ordinateur et sur votre téléphone, puis rouvrez ceci.",
   "phone.why.no_lan_address": "Cet ordinateur n’a pas d’adresse sur le réseau local.",
   "phone.why.relay_not_set_up": "Il faut « lectern relay » sur un serveur joignable par les deux. Voir Réglages → Téléphone et appareils.",

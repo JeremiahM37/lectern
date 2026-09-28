@@ -1,3 +1,4 @@
+from navigation import card_actions
 """Quick provider switching through real tmux agents, HTTP and SSE."""
 import json
 import re
@@ -96,6 +97,7 @@ def test_saved_provider_survives_reload_and_switch_errors_are_visible(page,real_
     assert t['api']('/sessions/'+str(source['id']))['ended_at'] is None
     page.goto(t['url']+'/#sessions')
     card=page.locator('.scard').filter(has_text='deepseek-test')
+    card_actions(card)
     card.get_by_role('button',name='⇄ Switch',exact=True).click()
     expect(sheet).to_be_visible()
     sheet.get_by_role('button',name='Close switcher').click()

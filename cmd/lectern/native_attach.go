@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/filelinks"
 	"io"
 	"os"
 	"os/exec"
@@ -14,13 +16,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/console"
+	"github.com/JeremiahM37/lectern/v2/internal/ptyhost"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"golang.org/x/term"
+	"time"
 )
 
 // nativeControlsEnv disables the client-side wrapper entirely when it is set to
 // 0/off/false. Without it the resolved attachment runs exactly as it always
-// has: keys go to the agent and Ctrl-b d detaches.
+// has: keys go to the selected backend, which owns its detach chord.
 const nativeControlsEnv = "LECTERN_NATIVE_CONTROLS"
 
 // nativeControls is the identity and endpoint one attached terminal needs to
@@ -47,7 +51,7 @@ func nativeControlsOff() bool {
 }
 
 func warnNativeControls(reason string) {
-	fmt.Fprintln(os.Stderr, "lectern: native controls unavailable ("+reason+"); keys go straight to the agent, so Ctrl-b d still detaches.")
+	fmt.Fprintln(os.Stderr, "lectern: native controls unavailable ("+reason+"); use an interactive terminal for the Lectern menu and detach controls.")
 }
 
 // runAttachment executes a resolved attachment exactly like syscall.Exec did,
@@ -70,8 +74,7 @@ func startAttachment(argv []string, controls *nativeControls, replace bool) erro
 	}
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
-		warnNativeControls("tmux is not installed")
-		return directAttachment(argv, replace)
+		return runPortableAttachment(argv, *controls)
 	}
 	return runPrivateAttachment(tmuxPath, argv, *controls, replace)
 }
@@ -553,6 +556,9 @@ const (
 // terminal's popup. It reuses the dashboard's actions, forms and API client;
 // only native attach actions are disabled.
 func controlsCommand(c *console.Client, args []string) error {
+	if !interactiveTerminal() {
+		return fmt.Errorf("controls needs an interactive terminal; use lectern console --plain for a text view")
+	}
 	kind, rid, action, popup, err := parseControlsArgs(args)
 	if err != nil {
 		return err
@@ -673,4 +679,74 @@ func validateControlsTarget(kind, rid string) error {
 		return errors.New("controls ID must be a positive integer")
 	}
 	return nil
+}
+
+// runPortableAttachment keeps controls on the user's machine, even when the
+// terminal itself is reached over SSH. Credentials remain in the API client.
+func runPortableAttachment(argv []string, controls nativeControls) error {
+	c := console.New(controls.Base, controls.Token)
+	statusClient := console.New(controls.Base, controls.Token)
+	statusClient.HTTP.Timeout = 3 * time.Second
+	err := ptyhost.AttachProcess(argv, os.Stdin, os.Stdout, ptyhost.TerminalControls{
+		History: func(text string) error { return console.RunScrollback(text, os.Stdin, os.Stdout) },
+		Action: func(action string, insert func(string) error) error {
+			if action == "menu" {
+				action = ""
+			}
+			return console.RunControls(c, os.Stdin, os.Stdout, console.DashboardOptions{Popup: true, FocusKind: controls.Kind, FocusID: controls.ID, Action: action, Insert: insert})
+		},
+		Links: func(text string, width int, insert func(string) error) error {
+			dir, err := os.MkdirTemp("", "lectern-links-")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(dir)
+			e := &linkEnv{kind: controls.Kind, id: controls.ID, base: controls.Base, token: controls.Token, dir: dir}
+			var actionErr error
+			e.directAction = func(action string, link filelinks.Link) error {
+				switch action {
+				case "send":
+					actionErr = insert(e.shellWord(link) + " ")
+				case "copy":
+					value := link.URL
+					if link.Kind == "file" {
+						value = e.absolute(link)
+					}
+					_, actionErr = fmt.Fprintf(os.Stdout, "\x1b]52;c;%s\a", base64.StdEncoding.EncodeToString([]byte(value)))
+				case "open":
+					if _, ok := localOpener(); !ok && link.Kind == "file" {
+						actionErr = e.view(link)
+					} else {
+						actionErr = e.open(link)
+					}
+				default:
+					actionErr = e.act(action, link)
+				}
+				return actionErr
+			}
+			lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+			rows := make([]filelinks.Row, len(lines))
+			for i, line := range lines {
+				rows[i] = filelinks.Row{Text: line}
+			}
+			io.WriteString(os.Stdout, "\x1b[?1049h")
+			defer io.WriteString(os.Stdout, "\x1b[?1049l")
+			e.hintsFromRows(os.Stdin, os.Stdout, rows, width)
+			return actionErr
+		},
+		Status: func() string {
+			if controls.Kind != "session" {
+				return ""
+			}
+			data, err := statusClient.JSON("GET", "/approvals?status=pending", nil)
+			if err != nil {
+				return ""
+			}
+			return attachStatusLine(data, controls.ID)
+		},
+	})
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "Left the terminal. `lectern` shows your sessions.")
+	}
+	return err
 }

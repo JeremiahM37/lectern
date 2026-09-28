@@ -24,7 +24,7 @@ test("the server's word wins, with this page's approvals applied on top", () => 
 });
 
 test("the words", () => {
-  assert.equal(stateText({ state: "ended", reason: "agent_exited" }), "Ended · agent exited");
+  assert.equal(stateText({ state: "ended", reason: "agent_exited" }), "Stopped");
   assert.equal(stateText({ state: "needs_you", reason: "approval" }), "Needs you");
   assert.equal(stateText({ state: "working", reason: "" }), "Working");
 });

@@ -57,7 +57,7 @@ def one_command_server(tmp_path):
 
     log_path = tmp_path / "server.log"
     log = log_path.open("wb")
-    proc = subprocess.Popen([_binary()], env=env, stdout=log, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen([_binary(), "serve"], env=env, stdout=log, stderr=subprocess.STDOUT)
     try:
         for _ in range(100):
             if proc.poll() is not None:

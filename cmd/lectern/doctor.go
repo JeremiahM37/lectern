@@ -179,10 +179,10 @@ func doctorCommand(cfg *config.Config, args []string) error {
 	})
 	bcancel()
 	if berr != nil {
-		checks = append(checks, skip("browser", "no Chromium or Chrome here — the session browser needs one on the machine it runs on "+
+		checks = append(checks, skip("session browser", "no Chromium or Chrome here — the session browser needs one on the machine it runs on "+
 			"(install chromium, run `npx playwright install chromium`, or set LECTERN_BROWSER_BIN)"))
 	} else {
-		checks = append(checks, check("browser", true, bin+" ("+version+")", ""))
+		checks = append(checks, check("session browser", true, bin+" ("+version+") — available for agent browser tools; opening your desktop browser is separate", ""))
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
