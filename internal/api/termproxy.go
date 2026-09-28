@@ -86,6 +86,15 @@ func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *st
 	return att, target, err
 }
 
+// attemptBackend is targetBackend for an attempt: one in a sandbox runs in
+// its container's tmux.
+func (s *Server) attemptBackend(att *store.Attempt, target *store.Target) backend.Backend {
+	if att.SandboxVMID != "" {
+		return backend.Tmux
+	}
+	return s.targetBackend(target)
+}
+
 // targetBackend is the session backend of a target's executor; tmux when the
 // executor cannot be made (the attach then fails on its own terms).
 func (s *Server) targetBackend(target *store.Target) backend.Backend {

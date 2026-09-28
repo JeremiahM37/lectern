@@ -333,7 +333,21 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	if s, ok := m.procs[a.Key]; ok {
 		socket := s.socket
 		m.mu.Unlock()
-		return socket, "", nil
+		if s.cmd == nil || !gone(s) {
+			return socket, "", nil
+		}
+		// Its server died and has not been reaped yet: a reconnect right
+		// after a crash must get a fresh one, not a refused connection.
+		m.mu.Lock()
+		if cur, ok := m.procs[a.Key]; ok && cur == s {
+			if s.cmd.Process != nil {
+				_ = s.cmd.Process.Kill()
+			}
+			delete(m.procs, a.Key)
+			os.Remove(s.socket)
+		}
+		m.mu.Unlock()
+		return m.AttachWithNotice(ctx, a, target)
 	}
 	retired, err := m.makeRoomLocked()
 	if err != nil {
@@ -373,6 +387,31 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	m.procs[a.Key] = &session{socket: socket, cmd: cmd, started: time.Now(), exited: exited}
 	m.mu.Unlock()
 	return socket, retired, nil
+}
+
+// gone reports whether a terminal's server has exited, including one that
+// died a moment ago and has not been reaped: its socket refuses connections
+// and its process ends.
+func gone(s *session) bool {
+	if s.exited == nil {
+		return false
+	}
+	select {
+	case <-s.exited:
+		return true
+	default:
+	}
+	conn, err := net.DialTimeout("unix", s.socket, 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return false
+	}
+	select {
+	case <-s.exited:
+		return true
+	case <-time.After(300 * time.Millisecond):
+		return false
+	}
 }
 
 // BindWait is the longest Attach waits for a fresh ttyd to start listening.
