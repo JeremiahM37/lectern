@@ -28,6 +28,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -44,6 +45,8 @@ import (
 
 // AgentTaskFooter is appended to every non-reviewer prompt. Scope creep is the
 // failure mode that wastes a dispatch; the board is where the extra work goes.
+// This is the form for a target without a lectern binary; AgentTaskFooterFor
+// names the right kit for a target.
 const AgentTaskFooter = `
 
 ---
@@ -52,6 +55,16 @@ expand this task. File a card on the board instead:
   python3 .lectern/lec.py add-task "short title" "detailed prompt"            # → backlog
   python3 .lectern/lec.py add-task "short title" "detailed prompt" --dispatch # runs now
 Stay focused on the task above.`
+
+// AgentTaskFooterFor is AgentTaskFooter naming the task-filing kit the
+// target runs: `lectern helper lec` when it has a lectern binary, the staged
+// lec.py otherwise.
+func AgentTaskFooterFor(lectern string) string {
+	if lectern == "" {
+		return AgentTaskFooter
+	}
+	return strings.ReplaceAll(AgentTaskFooter, "python3 .lectern/lec.py", helpers.Invocation(lectern, "lec", nil))
+}
 
 // HostLocalKinds are the target kinds whose agent process runs on the control
 // plane host, as the control plane user — the only ones that inherit that user's

@@ -898,7 +898,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// answer the CLI's "do you trust this folder?" before it can ask: starting an
 	// agent here, on purpose, is the answer. Best-effort — a CLI that changes
 	// where it keeps this must not stop a session from launching.
-	if probe := spec.TrustProbe(workdir); probe != "" {
+	if probe := spec.TrustProbeOn(ex, workdir); probe != "" {
 		if r, err := ex.Run(ctx, envPrefix+"bash -c "+shellq.Quote(probe), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 			m.Log.Warn("could not pre-trust the working directory",
 				"agent", agent, "dir", workdir, "err", err)
@@ -918,15 +918,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if spec.Builtin {
 		switch agent {
 		case "claude":
-			install := envPrefix + agentevents.ClaudeSettingsInstallCommand(tmuxName, hookURL, askPermission)
+			install := envPrefix + agentevents.ClaudeSettingsInstall(ex, tmuxName, hookURL, askPermission)
 			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install claude hooks", "session", sess.ID, "err", err)
 			} else if settingsPath := strings.TrimSpace(r.Stdout); settingsPath != "" {
 				toolArgs = append(toolArgs, "--settings", settingsPath)
 			}
 		case "codex":
-			install := envPrefix + agentevents.CodexNotifyInstallCommand(tmuxName)
-			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+			if lectern := executor.TargetEnvOf(ex).Lectern; lectern != "" {
+				// The Go notify handler needs nothing written to disk.
+				toolArgs = append(toolArgs, codexNotifyHelperArg(lectern)...)
+			} else if r, err := ex.Run(ctx, envPrefix+agentevents.CodexNotifyInstallCommand(tmuxName), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install codex notify hook", "session", sess.ID, "err", err)
 			} else if notifyPath := strings.TrimSpace(r.Stdout); notifyPath != "" {
 				toolArgs = append(toolArgs, codexNotifyArg(notifyPath)...)
@@ -943,7 +945,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			// otherwise show; lectern wrote them, so it is exactly the
 			// "automation that already vets hook sources" case the flag's
 			// own description names.
-			hooksInstall := envPrefix + agentevents.CodexHooksInstallCommand(askPermission)
+			hooksInstall := envPrefix + agentevents.CodexHooksInstall(ex, askPermission)
 			if r, err := ex.Run(ctx, hooksInstall, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install codex hooks.json", "session", sess.ID, "err", err)
 			} else if strings.TrimSpace(r.Stdout) != "" {

@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -636,6 +639,17 @@ func codexNotifyArg(scriptPath string) []string {
 	return []string{"-c", `notify=["python3","` + esc + `"]`}
 }
 
+// codexNotifyHelperArg is codexNotifyArg for a target with a lectern binary:
+// codex runs `lectern helper codex-notify` directly, so no script is written.
+func codexNotifyHelperArg(lectern string) []string {
+	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	words := agentevents.CodexNotifyHelperArgs(lectern)
+	for i, w := range words {
+		words[i] = `"` + esc.Replace(w) + `"`
+	}
+	return []string{"-c", `notify=[` + strings.Join(words, ",") + `]`}
+}
+
 func validEnvName(k string) bool {
 	if k == "" || (k[0] >= '0' && k[0] <= '9') {
 		return false
@@ -780,6 +794,23 @@ func (s Spec) TrustProbe(dir string) string {
 	}
 	cmd := strings.ReplaceAll(currentTrustCommand(s.TrustCommand), "{dir}", shellq.Quote(dir))
 	return strings.ReplaceAll(cmd, "{dir_raw}", dir)
+}
+
+// TrustProbeOn is TrustProbe for the target ex drives: a built-in trust
+// command runs as its Go helper when the target has a lectern binary.
+// Operator-defined commands are the operator's and run as declared.
+func (s Spec) TrustProbeOn(ex executor.Executor, dir string) string {
+	probe := s.TrustProbe(dir)
+	if probe == "" {
+		return ""
+	}
+	switch currentTrustCommand(s.TrustCommand) {
+	case claudeTrust:
+		return helpers.Command(ex, "claude-trust", []string{dir}, probe)
+	case codexTrust:
+		return helpers.Command(ex, "codex-trust", []string{dir}, probe)
+	}
+	return probe
 }
 
 // Installed reports whether this spec's own binary resolves on PATH for
