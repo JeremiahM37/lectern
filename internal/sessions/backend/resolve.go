@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/gitbash"
 	"github.com/JeremiahM37/lectern/v2/internal/ptyhost"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -111,11 +110,13 @@ func (r Resolver) Local() string {
 	return NameTmux
 }
 
-// ShellPath is how a command line on this machine names a file: as it is,
-// or in Git Bash's /c/... form on Windows.
+// ShellPath is how a command line on this machine names the lectern binary:
+// as it is, or with forward slashes on Windows (C:/Users/…/lectern.exe),
+// which both Git Bash and a native program started by an agent (codex's
+// notify, say) accept.
 func ShellPath(p, goos string) string {
 	if goos == "windows" {
-		return gitbash.PosixPath(p)
+		return strings.ReplaceAll(p, `\`, "/")
 	}
 	return p
 }

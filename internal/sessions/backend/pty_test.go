@@ -69,7 +69,7 @@ func TestResolverPicksABackendPerTarget(t *testing.T) {
 	if got := (Resolver{Setting: "pty"}).Env(local, nil); got.SessionBackend != NameTmux || got.Lectern != "" {
 		t.Fatalf("no binary: %+v", got)
 	}
-	if got := ShellPath(`C:\Users\me\lectern.exe`, "windows"); got != "/c/Users/me/lectern.exe" {
+	if got := ShellPath(`C:\Users\me\lectern.exe`, "windows"); got != "C:/Users/me/lectern.exe" {
 		t.Fatalf("windows path = %q", got)
 	}
 }

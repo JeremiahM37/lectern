@@ -60,16 +60,6 @@ func find(lookPath func(string) (string, error), getenv func(string) string) (st
 	return "", errors.New("Git for Windows' bash.exe was not found; install Git for Windows (https://git-scm.com/download/win) or set " + Env)
 }
 
-// PosixPath turns C:\Users\me into /c/Users/me, the form Git Bash expects in a
-// command line. Other paths are returned unchanged.
-func PosixPath(p string) string {
-	if len(p) >= 2 && p[1] == ':' {
-		drive := strings.ToLower(p[:1])
-		return "/" + drive + strings.ReplaceAll(p[2:], `\`, "/")
-	}
-	return p
-}
-
 // NativePath turns a path a Git Bash command line used (/c/Users/me) into the
 // Windows form (C:\Users\me). Other paths are returned unchanged.
 func NativePath(p string) string {

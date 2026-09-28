@@ -38,14 +38,6 @@ func TestFindsBashBesideGit(t *testing.T) {
 	}
 }
 
-func TestPosixPath(t *testing.T) {
-	for in, want := range map[string]string{`C:\Users\me\x.exe`: "/c/Users/me/x.exe", "/usr/bin/x": "/usr/bin/x", `d:\a`: "/d/a"} {
-		if got := PosixPath(in); got != want {
-			t.Errorf("PosixPath(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestNativePath(t *testing.T) {
 	for in, want := range map[string]string{"/c/Users/me/x": `C:\Users\me\x`, "/d": `D:\`, `C:\x`: `C:\x`, "relative/x": "relative/x", "/usr/bin": "/usr/bin"} {
 		if got := NativePath(in); got != want {
