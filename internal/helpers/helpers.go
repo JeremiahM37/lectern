@@ -94,7 +94,15 @@ func Main(args []string) int {
 // the right multiplexer (see Mux).
 func Command(ex executor.Executor, name string, args []string, fallback string) string {
 	env := executor.TargetEnvOf(ex)
-	if env.Lectern == "" || (env.Helpers != nil && !slices.Contains(env.Helpers, name)) {
+	if env.Lectern == "" {
+		return fallback
+	}
+	if env.Helpers == nil {
+		// This very binary: it has every helper this build registered.
+		if _, ok := Lookup(name); !ok {
+			return fallback
+		}
+	} else if !slices.Contains(env.Helpers, name) {
 		return fallback
 	}
 	cmd := Invocation(env.Lectern, name, args)
