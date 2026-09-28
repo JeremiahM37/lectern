@@ -2,7 +2,7 @@
 
 A native Android app for Lectern. It is a prototype. A signed Android 0.1.0 APK is available on the
 [v2.4.1 release](https://github.com/JeremiahM37/lectern/releases/tag/v2.4.1).
-See "Tested" and "Limits" below before using it. This page describes 0.2.0, built from this source.
+See "Tested" and "Limits" below before using it. This page describes 0.2.1, built from this source (0.2.0 plus the in-app terminal fix and the back key closing overlays).
 
 It runs the **same web app** as the browser (`frontend/`, staged into `web/`),
 bundled and signed inside the APK, and adds what a web page cannot do:
