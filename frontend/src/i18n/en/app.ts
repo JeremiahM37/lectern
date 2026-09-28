@@ -1,45 +1,18 @@
 // English strings for this area of the app. Keys are "area.name"; values may
 // hold {placeholders}. Every other language has a file of the same name.
 const catalog: Record<string, string> = {
-  // FirstRun
-  "app.firstRun.title": "Get started",
-  "app.firstRun.intro": "Lectern dispatches AI coding agents onto machines you own. Here's what's ready so far.",
-  // {error} is a technical error message.
-  "app.firstRun.statusError": "Couldn't read setup status ({error}) — you can still start a session.",
-  "app.firstRun.machine": "A machine",
-  "app.firstRun.machineDetail": "add this machine or an SSH target in Settings",
-  "app.firstRun.agentCli": "Agent CLI on this server",
-  "app.firstRun.agentCliDetail": "install Claude Code, Codex, or Gemini so Lectern has something to launch",
-  "app.firstRun.tmux": "tmux ready",
-  "app.firstRun.git": "git ready",
-  "app.firstRun.python": "Python 3 ready",
-  "app.firstRun.project": "A project",
-  "app.firstRun.projectDetail": "optional — a blank room works with no project",
-  "app.firstRun.firstSession": "First session",
-  "app.firstRun.startSession": "Start your first session",
-  "app.firstRun.addMachine": "Add your first machine",
-  "app.firstRun.hint": "For SSH machines, install and sign in to your agent CLI on that machine. Docker does not inherit host tools or logins. You can also open a blank shell without an agent.",
-  "app.firstRun.connectTools": "Connect Claude Code, Codex, or another AI tool to this Lectern →",
-
-  // Deck (LiveViews)
+  // Overview (LiveViews Deck)
   "app.deck.badEvent": "Could not read a live event.",
-  "app.deck.empty": "Nothing live right now.",
-  "app.deck.emptyHint": "Dispatch tasks and watch them run here, side by side.",
+  "app.deck.empty": "No tasks are running.",
+  "app.deck.emptyHint": "Overview shows background tasks side by side while they run. Your sessions are on the Sessions page.",
 
   // Approvals (LiveViews)
-  "app.approvals.reasonPrompt": "Reason (sent back to the agent):",
   "app.approvals.approved": "Approved — agent continuing",
   "app.approvals.denied": "Denied — agent notified",
   // Heading reads "<tool name> wants to run".
-  "app.approvals.wantsToRun": "wants to run",
   // {id} is a task number, {title} the task title.
-  "app.approvals.task": "task #{id} · {title}",
-  "app.approvals.approve": "Approve",
-  "app.approvals.alwaysHint": "approve and never ask again for this pattern in this project",
-  "app.approvals.always": "∞ Always",
-  "app.approvals.deny": "Deny",
-  "app.approvals.empty": "No pending approvals.",
-  "app.approvals.emptyHint": "When an agent needs permission it shows up here — and pings your phone.",
+  "app.approvals.empty": "Nothing needs you right now.",
+  "app.approvals.emptyHint": "When an agent wants to do something risky, it waits here for you, and your phone gets an alert.",
 
   // Palette
   "app.palette.refreshFailed": "Could not refresh. Showing available results.",
@@ -210,9 +183,9 @@ const catalog: Record<string, string> = {
   // App: service worker and push notifications
   "app.offlineSupportError": "Offline support: {error}",
   "app.pushPrompt.enabled": "Push enabled on this device — sending a test notification",
-  "app.pushPrompt.error": "Push: {error}",
-  "app.pushPrompt.unsupported": "Notifications require a supported secure browser.",
-  "app.pushPrompt.notGranted": "Notifications not granted.",
+  "app.pushPrompt.error": "Phone alerts are not on: {error}",
+  "app.pushPrompt.unsupported": "this browser can't show notifications here. Install Lectern as an app, or open it over https.",
+  "app.pushPrompt.notGranted": "this browser blocked notifications for Lectern. Allow them in the site settings (the icon next to the address), then try again.",
   "app.pushPrompt.testError": "Test notification: {error}",
   "app.pushPrompt.unsubscribed": "Unsubscribed",
   "app.pushPrompt.unsubscribeError": "Unsubscribe: {error}",
@@ -227,12 +200,11 @@ const catalog: Record<string, string> = {
   "app.commands.savedSearch": "Search saved conversations",
   "app.commands.discover": "Find running agents",
   "app.commands.launchProfiles": "Manage launch profiles",
-  "app.commands.taskBoard": "Task board",
   // "Open" is an adjective here: the terminals that are open.
   "app.commands.openTerminals": "Open terminals",
   // Category of commands that go to a page.
   "app.commands.navigate": "Navigate",
-  "app.commands.targets": "Targets",
+  "app.commands.targets": "Machines",
   "app.commands.projects": "Projects",
   "app.commands.notifications": "Notifications",
   "app.commands.devices": "Devices",

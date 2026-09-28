@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createDeckApi, withToken } from "../api";
 import { t, useLocale } from "../i18n";
 import type { Approval, Event as AgentEvent, TaskView } from "../types";
+import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "../sessions/ApprovalCard";
 type Api = ReturnType<typeof createDeckApi>;
 function text(value: unknown) {
   return typeof value === "string"
@@ -120,86 +121,70 @@ export function Approvals({
   api,
   onChanged,
   onNotice,
+  onOpenSession,
+  onOpenTask,
+  onSettings,
 }: {
   rows: Approval[];
   api: Api;
   onChanged: () => void;
   onNotice: (message: string, error?: boolean) => void;
+  onOpenSession?: (id: number) => void;
+  onOpenTask?: (id: number) => void;
+  onSettings?: () => void;
 }) {
   useLocale();
-  const [busy, setBusy] = useState<number[]>([]);
-  async function decide(
-    id: number,
-    decision: "approved" | "denied",
-    always = false,
-  ) {
-    let note = "";
-    if (decision === "denied") {
-      const response = prompt(
-        t("app.approvals.reasonPrompt"),
-        "not safe, find another way",
-      );
-      if (response === null) return;
-      note = response;
-    }
-    setBusy((old) => [...old, id]);
+  // Whether agents are set to ask at all: an empty page on a bypass default
+  // says so, instead of looking like nothing will ever arrive here.
+  const [asks, setAsks] = useState<boolean>();
+  useEffect(() => {
+    void api
+      .request<Record<string, string>>("/settings")
+      .then((settings) => setAsks(settings.session_permission_mode === "ask"))
+      .catch(() => setAsks(undefined));
+  }, [api]);
+  async function decide(row: Approval, decision: "approved" | "denied", opts?: ApprovalDecisionOptions) {
     try {
-      await api.decideApproval(id, decision, note, always);
-      onNotice(
-        decision === "approved"
-          ? t("app.approvals.approved")
-          : t("app.approvals.denied"),
-      );
+      await api.request(`/approvals/${row.id}/decision`, { method: "POST", body: decisionBody(decision, opts) });
+      onNotice(decision === "approved" ? t("app.approvals.approved") : t("app.approvals.denied"));
       onChanged();
     } catch (error) {
       onNotice(String(error), true);
-    } finally {
-      setBusy((old) => old.filter((value) => value !== id));
     }
   }
   return rows.length ? (
-    <div className="list">
-      {rows.map((row) => (
-        <div className="rowcard" key={row.id}>
-          <h3>
-            {row.tool_name} <span>{t("app.approvals.wantsToRun")}</span>
-          </h3>
-          <div className="sub">
-            {t("app.approvals.task", { id: row.task_id ?? "", title: row.task_title ?? "" })}
-          </div>
-          <pre>{JSON.stringify(row.input, null, 2).slice(0, 1200)}</pre>
-          <div className="btnrow">
-            <button
-              className="b ok grow"
-              disabled={busy.includes(row.id)}
-              onClick={() => void decide(row.id, "approved")}
-            >
-              {t("app.approvals.approve")}
-            </button>
-            <button
-              className="b ok"
-              title={t("app.approvals.alwaysHint")}
-              disabled={busy.includes(row.id)}
-              onClick={() => void decide(row.id, "approved", true)}
-            >
-              {t("app.approvals.always")}
-            </button>
-            <button
-              className="b no grow"
-              disabled={busy.includes(row.id)}
-              onClick={() => void decide(row.id, "denied")}
-            >
-              {t("app.approvals.deny")}
-            </button>
-          </div>
-        </div>
+    <section className="list approvals-page" id="approvals-page">
+      <div className="page-heading">
+        <h2>{t("nav.approvals")}</h2>
+        <p className="subhint">{t("approval.pageHint")}</p>
+      </div>
+      {rows.map((row, index) => (
+        <ApprovalCard
+          key={row.id}
+          approval={row}
+          showContext
+          autoFocus={index === 0}
+          onDecide={(decision, opts) => decide(row, decision, opts)}
+          onOpenSession={onOpenSession}
+          onOpenTask={onOpenTask}
+        />
       ))}
-    </div>
+    </section>
   ) : (
-    <div className="hint">
-      {t("app.approvals.empty")}
+    <div className="hint empty-state" id="approvals-empty">
+      <strong>{t("app.approvals.empty")}</strong>
       <br />
       {t("app.approvals.emptyHint")}
+      {asks === false && (
+        <p className="subhint" id="approvals-ask-off">
+          {t("approval.askOff")}{" "}
+          {onSettings && (
+            <button type="button" className="linkish" onClick={onSettings}>
+              {t("approval.askOffLink")}
+            </button>
+          )}
+        </p>
+      )}
     </div>
   );
 }

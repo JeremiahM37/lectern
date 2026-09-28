@@ -114,7 +114,7 @@ export function Delegation({
   const workers = agents.filter((a) => a.task || a.builtin);
   const on = s.enabled;
   return (
-    <section id="delegation" className={"delegation-banner" + (on ? " on" : "")} aria-label={t("settings.delegation.title")}>
+    <section id="delegation" data-setting="delegation" className={"delegation-banner" + (on ? " on" : "")} aria-label={t("settings.delegation.title")}>
       <div className="delegation-head">
         <div>
           <h3>

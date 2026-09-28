@@ -3,6 +3,7 @@ import { LaunchProfiles } from "../settings/LaunchProfiles";
 import { Modal } from "./Modal";
 import { useEffect, useState } from "react";
 import type { Claim, Project, SessionView, Target } from "../types";
+import { FolderPicker, defaultMachine, type PickedFolder } from "./FolderPicker";
 import { claimScopeLabel } from "../claims/ClaimsPanel";
 import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
@@ -36,17 +37,23 @@ type LaunchProfile = {
   description?: string;
   instructions?: string;
 };
+// "Start an agent" (docs/design/simple-ui.md): a folder, an agent and one
+// safety toggle, with everything else under More options. Starting in a
+// folder that is not a project yet registers it first.
 export function NewSession({
   api,
   projects,
+  targets = [],
   onClose,
   onCreated,
   onNotice,
 }: {
   api: SessionsApi;
   projects: Project[];
+  targets?: Target[];
   onClose(): void;
-  onCreated(s: SessionView): void;
+  // Also called with no session after the sheet added a machine.
+  onCreated(s?: SessionView): void;
   onNotice(t: string, e?: boolean): void;
 }) {
   useLocale();
@@ -72,6 +79,18 @@ export function NewSession({
     [name, setName] = useState(""),
     [group, setGroup] = useState(""),
     [agent, setAgent] = useState("claude"),
+    // A folder chosen in the picker that is not a project yet.
+    [picked, setPicked] = useState<PickedFolder>(),
+    [browsing, setBrowsing] = useState(false),
+    // The machines to choose from. A brand-new server has none; the first
+    // folder or start then adds this computer (ensureMachine).
+    [machines, setMachines] = useState<Target[]>(targets),
+    // Whether the person chose the agent themselves; until then the sheet
+    // may switch to one that is actually installed.
+    [agentTouched, setAgentTouched] = useState(false),
+    // Which agent commands the folder's machine has: available, missing or
+    // unchecked (GET /api/targets/{id}/agents). Undefined until known.
+    [installed, setInstalled] = useState<Record<string, string>>(),
     [model, setModel] = useState(""),
     [mode, setMode] = useState("fresh"),
     [yolo, setYolo] = useState(true),
@@ -185,6 +204,46 @@ export function NewSession({
     };
   }, [project, name, prime]);
   const selectedProject = projects.find((row) => row.id === project) ?? null;
+  useEffect(() => {
+    if (targets.length) setMachines(targets);
+  }, [targets]);
+  const machine = selectedProject?.target_id ?? picked?.targetId ?? defaultMachine(machines);
+  // With no machine at all, this computer is the one: add it, once.
+  async function ensureMachine(): Promise<void> {
+    if (machines.length) return;
+    const created = await api.request<Target>("/targets", { method: "POST", body: { name: "local", kind: "local" } });
+    setMachines([created]);
+    onCreated();
+  }
+  async function browse() {
+    try {
+      await ensureMachine();
+      setBrowsing(true);
+    } catch (error) {
+      onNotice(String(error), true);
+    }
+  }
+  useEffect(() => {
+    if (!machine) return;
+    let live = true;
+    void api
+      .request<{ name: string; state: string }[]>(`/targets/${machine}/agents`)
+      .then((rows) => live && setInstalled(Object.fromEntries(rows.map((row) => [row.name, row.state]))))
+      .catch(() => live && setInstalled(undefined));
+    return () => {
+      live = false;
+    };
+  }, [machine]);
+  // Only agents whose command is on that machine (or that cannot be checked)
+  // are offered; the rest wait behind "More agents…".
+  const usable = (name: string) => !installed || installed[name] !== "missing";
+  const noAgent = !!installed && agents.length > 0 && !agents.some((row) => usable(row.name));
+  useEffect(() => {
+    if (agentTouched || !installed || profileId > 0 || usable(agent) || agent === "demo") return;
+    const ordered = [...agentMenu, ...agents.map((row) => row.name)];
+    const first = ordered.find((name) => agents.some((row) => row.name === name) && usable(name));
+    if (first) setAgent(first);
+  }, [installed, agents, agentMenu, agentTouched, profileId]);
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
   const { recent: recentProjects, rest: otherProjects } = orderProjectsByRecency(
@@ -203,17 +262,32 @@ export function NewSession({
     mode === "resume" ? t("sessions.dialogs.newSession.noteResume") : "",
   ].filter(Boolean);
   const launchSummary = launchNotes.join(" · ");
+  // A picked folder that is not a project yet becomes one first, so the
+  // session is in a project from its first moment (and shows as one).
+  async function folderProject(): Promise<number | null> {
+    if (!picked) return project;
+    if (picked.projectId) return picked.projectId;
+    const out = await api.request<{ imported: Project[]; skipped: { project_id?: number }[] }>("/projects/import", {
+      method: "POST",
+      body: { target_id: picked.targetId, paths: [picked.path] },
+    });
+    const id = out.imported[0]?.id ?? out.skipped[0]?.project_id;
+    if (!id) throw new Error(t("start.sheet.registerFailed", { path: picked.path }));
+    return id;
+  }
   async function start() {
     if (busy) return;
     setBusy(true);
     try {
+      await ensureMachine();
+      const projectID = await folderProject();
       const s = await api.request<SessionView>("/sessions", {
         method: "POST",
         body: {
           background: isolated,
           profile_id: profileId,
-          project_id: project,
-          scratch: project === null,
+          project_id: projectID,
+          scratch: projectID === null,
           worktree: isolated
             ? {
                 base: base.trim(),
@@ -244,7 +318,10 @@ export function NewSession({
         },
       });
       // Only a session that actually started counts as a recent project.
-      if (project !== null) rememberRecentProject(project);
+      if (projectID !== null) {
+        rememberRecentProject(projectID);
+        rememberProjectSelection(projectID);
+      }
       onCreated(s);
       onNotice(
         s.setup_state === "creating"
@@ -282,49 +359,67 @@ export function NewSession({
           {t("sessions.dialogs.newSession.intro")}
         </p>
         <div className="session-field">
-          <label htmlFor="ns-project">{t("sessions.dialogs.newSession.project")}</label>
-          <select
-            id="ns-project"
-            aria-label={t("sessions.dialogs.newSession.project")}
-            value={project ?? ""}
-            onChange={(e) => {
-              const next = e.target.value ? Number(e.target.value) : null;
-              setProject(next);
-              // An explicit choice is remembered even if the sheet is closed
-              // again, so a deliberate blank room does not snap back to a
-              // project next time.
-              rememberProjectSelection(next);
-            }}
-          >
-            <option value="">{t("sessions.dialogs.newSession.blankRoom")}</option>
-            {recentProjects.length > 0 ? (
-              <>
-                <optgroup label={t("sessions.dialogs.newSession.recentProjects")}>
-                  {recentProjects.map((p) => (
-                    <option value={p.id} key={p.id}>
-                      {p.name} — {p.target_name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label={t("sessions.dialogs.newSession.otherProjects")}>
-                  {otherProjects.map((p) => (
-                    <option value={p.id} key={p.id}>
-                      {p.name} — {p.target_name}
-                    </option>
-                  ))}
-                </optgroup>
-              </>
-            ) : (
-              otherProjects.map((p) => (
-                <option value={p.id} key={p.id}>
-                  {p.name} — {p.target_name}
-                </option>
-              ))
-            )}
-          </select>
+          <label htmlFor="ns-project">{t("start.sheet.folder")}</label>
+          <div className="ns-folder-row">
+            <select
+              id="ns-project"
+              aria-label={t("start.sheet.folder")}
+              value={picked ? "__folder__" : (project ?? "")}
+              onChange={(e) => {
+                if (e.target.value === "__browse__") {
+                  void browse();
+                  return;
+                }
+                if (e.target.value === "__folder__") return;
+                const next = e.target.value ? Number(e.target.value) : null;
+                setPicked(undefined);
+                setProject(next);
+                // An explicit choice is remembered even if the sheet is closed
+                // again, so a deliberate empty folder does not snap back to a
+                // project next time.
+                rememberProjectSelection(next);
+              }}
+            >
+              <option value="">{t("sessions.dialogs.newSession.blankRoom")}</option>
+              {picked && <option value="__folder__">{t("start.sheet.pickedFolder", { path: picked.path })}</option>}
+              {recentProjects.length > 0 ? (
+                <>
+                  <optgroup label={t("sessions.dialogs.newSession.recentProjects")}>
+                    {recentProjects.map((p) => (
+                      <option value={p.id} key={p.id}>
+                        {p.name} — {p.target_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t("sessions.dialogs.newSession.otherProjects")}>
+                    {otherProjects.map((p) => (
+                      <option value={p.id} key={p.id}>
+                        {p.name} — {p.target_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </>
+              ) : (
+                otherProjects.map((p) => (
+                  <option value={p.id} key={p.id}>
+                    {p.name} — {p.target_name}
+                  </option>
+                ))
+              )}
+              <option value="__browse__">{t("start.sheet.chooseOption")}</option>
+            </select>
+            <button type="button" className="b" id="ns-browse" onClick={() => void browse()}>
+              {t("start.sheet.choose")}
+            </button>
+          </div>
         </div>
         <div id="ns-proj-hint">
-          {selectedProject === null ? (
+          {picked ? (
+            <>
+              <span className="ns-proj-path">{picked.path}</span>
+              {picked.projectId ? "" : ` · ${t("start.sheet.becomesProject")}`}
+            </>
+          ) : selectedProject === null ? (
             t("sessions.dialogs.newSession.blankRoomHint")
           ) : (
             <>
@@ -351,23 +446,31 @@ export function NewSession({
                 setShowAllAgents(true);
                 return;
               }
+              setAgentTouched(true);
               setAgent(e.target.value);
             }}
           >
             {(() => {
               const all = agents.length ? agents : [{ name: "claude" }];
               const { shown, more } = splitAgentMenu(all, agentMenu);
-              const options = shown.some((a) => a.name === agent)
-                ? shown
-                : [...shown, ...all.filter((a) => a.name === agent)];
+              // Installed first; an agent not found on the folder's machine
+              // is one step away, under More agents.
+              const offered = shown.filter((a) => usable(a.name));
+              const options = offered.some((a) => a.name === agent)
+                ? offered
+                : [...offered, ...all.filter((a) => a.name === agent)];
+              const hidden = more.length + shown.length - offered.length;
               return (
                 <>
                   {options.map((a) => (
                     <option key={a.name} value={a.name}>
-                      {a.name}
+                      {usable(a.name) ? a.name : t("start.sheet.notInstalled", { name: a.name })}
                     </option>
                   ))}
-                  {more.length > 0 && (
+                  {agent === "demo" && !options.some((a) => a.name === "demo") && (
+                    <option value="demo">{t("start.sheet.demoAgent")}</option>
+                  )}
+                  {hidden > 0 && (
                     <option value="__more__">{t("sessions.dialogs.moreAgents")}</option>
                   )}
                 </>
@@ -375,10 +478,29 @@ export function NewSession({
             })()}
           </select>
         </div>
+        {noAgent && agent !== "demo" && (
+          <p className="subhint" id="ns-no-agent" role="status">
+            {t("start.sheet.noAgent")}{" "}
+            <button
+              type="button"
+              className="linkish"
+              id="ns-use-demo"
+              onClick={() => {
+                setAgentTouched(true);
+                setAgent("demo");
+              }}
+            >
+              {t("start.sheet.useDemo")}
+            </button>
+          </p>
+        )}
         {showAllAgents && (
           <AllAgentsPicker
             agents={agents}
-            onPick={setAgent}
+            onPick={(name) => {
+              setAgentTouched(true);
+              setAgent(name);
+            }}
             onClose={() => setShowAllAgents(false)}
           />
         )}
@@ -398,6 +520,29 @@ export function NewSession({
                 .filter(Boolean)
                 .join(" · ")
             : ""}
+        </div>
+        <label className="f check ns-ask">
+          <input
+            id="ns-ask"
+            type="checkbox"
+            disabled={!yoloSupported}
+            checked={!yolo}
+            onChange={(e) => setYolo(!e.target.checked)}
+          />{" "}
+          {t("start.sheet.ask")}
+        </label>
+        <div className="subhint" id="ns-yolo-hint">
+          {!yoloSupported
+            ? t("sessions.dialogs.newSession.yoloUnsupported", { agent })
+            : yolo
+              ? t("sessions.dialogs.newSession.yoloHint")
+              : agent === "claude" || agent === "codex"
+                ? // Session permission mode (docs/agent-events.md section
+                  // 3): asking launches claude/codex in "ask" mode, which is
+                  // also what registers the PermissionRequest hook — so the
+                  // question can be answered here or from a phone.
+                  t("sessions.dialogs.newSession.askHintPhone")
+                : t("sessions.dialogs.newSession.askHint")}
         </div>
         <details id="ns-advanced" className="session-advanced">
           <summary>{t("sessions.dialogs.newSession.advanced")}</summary>
@@ -548,33 +693,6 @@ export function NewSession({
           >
             {memoryStatus}
           </div>
-          <label className="f check">
-            <input
-              id="ns-yolo"
-              type="checkbox"
-              disabled={!yoloSupported}
-              checked={yolo}
-              onChange={(e) => setYolo(e.target.checked)}
-            />{" "}
-            {t("sessions.dialogs.newSession.yolo")}
-          </label>
-          <div className="subhint" id="ns-yolo-hint">
-            {!yoloSupported
-              ? t("sessions.dialogs.newSession.yoloUnsupported", { agent })
-              : yolo
-                ? t("sessions.dialogs.newSession.yoloHint")
-                : agent === "claude" || agent === "codex"
-                  ? // Session permission mode (docs/agent-events.md section
-                    // 3): unchecking Yolo is what launches claude/codex in
-                    // "ask" mode, which is also what registers the
-                    // PermissionRequest hook (confirmed real for codex
-                    // 0.156.1 — see agentevents.CodexHooksInstallCommand) —
-                    // so this is the same checkbox that used to only mean
-                    // "prompt in the terminal" and now also means "or from
-                    // my phone", for both agents.
-                    t("sessions.dialogs.newSession.askHintPhone")
-                  : t("sessions.dialogs.newSession.askHint")}
-          </div>
           <label htmlFor="ns-isolation">{t("sessions.dialogs.newSession.isolation")}</label>
           <select
             id="ns-isolation"
@@ -651,6 +769,32 @@ export function NewSession({
           </button>
         </div>
       </Modal>
+      {browsing && (
+        <FolderPicker
+          request={api.request}
+          targets={machines}
+          initialTarget={machine}
+          onClose={() => setBrowsing(false)}
+          onEmpty={() => {
+            setBrowsing(false);
+            setPicked(undefined);
+            setProject(null);
+            rememberProjectSelection(null);
+          }}
+          onPick={(folder) => {
+            setBrowsing(false);
+            const known = folder.projectId ?? projects.find((row) => row.target_id === folder.targetId && row.repo_path.replace(/\/+$/, "") === folder.path)?.id;
+            if (known) {
+              setPicked(undefined);
+              setProject(known);
+              rememberProjectSelection(known);
+            } else {
+              setProject(null);
+              setPicked({ ...folder, path: folder.path });
+            }
+          }}
+        />
+      )}
       {manageProfiles && (
         <LaunchProfiles
           api={api}

@@ -14,24 +14,33 @@ export interface SettingEntry {
   kind?: "setting" | "shortcut";
 }
 
+// Basics first; everything after it is Advanced (docs/design/simple-ui.md
+// "Settings"). Every section is one click from the top of the page.
 export const SECTIONS: [string, string][] = [
+  ["basics", "settings.section.basics"],
   ["machines", "settings.section.machines"],
   ["projects", "settings.section.projects"],
+  ["agents", "settings.section.agents"],
   ["notifications", "settings.section.notifications"],
   ["devices", "settings.section.devices"],
-  ["about", "settings.section.about"],
-  ["budgets", "settings.section.budgets"],
-  ["accounts", "settings.section.accounts"],
-  ["agents", "settings.section.agents"],
-  ["plugins", "settings.section.plugins"],
   ["appearance", "settings.section.appearance"],
   ["workspace", "settings.section.workspace"],
   ["shortcuts", "settings.section.shortcuts"],
+  ["connections", "settings.section.connections"],
+  ["plugins", "settings.section.plugins"],
+  ["accounts", "settings.section.accounts"],
+  ["budgets", "settings.section.budgets"],
+  ["about", "settings.section.about"],
 ];
 export const sectionLabel = (name: string) => t(SECTIONS.find(([key]) => key === name)?.[1] || name);
 
 // [section, id, label key, keywords]
 const rows: [string, string, string, string][] = [
+  ["basics", "basics.ask", "start.sheet.ask", "permission mode approvals ask bypass yolo risky safety"],
+  ["basics", "basics.phone", "phone.title", "pair qr code phone mobile tailscale relay connect"],
+  ["basics", "basics.alerts", "basics.alerts", "push notifications phone alerts"],
+  ["basics", "basics.agents", "basics.agents", "installed agents claude codex gemini"],
+  ["basics", "basics.enter", "basics.enter", "chat enter send newline shift keyboard"],
   ["appearance", "appearance.theme", "settings.appearance.theme", "dark light mode system colour scheme night"],
   ["appearance", "appearance.accent", "settings.appearance.accent", "color colour brand highlight"],
   ["appearance", "appearance.zoom", "settings.appearance.zoom", "scale size bigger smaller text"],
@@ -51,7 +60,8 @@ const rows: [string, string, string, string][] = [
   ["machines", "machines.user", "settings.index.machines.user", "ssh login"],
   ["machines", "machines.port", "settings.index.machines.port", "ssh"],
   ["machines", "machines.key", "settings.index.machines.key", "ssh identity private key"],
-  ["machines", "machines.connect", "settings.index.machines.connect", "mcp claude codex tools install"],
+  ["connections", "machines.connect", "settings.index.machines.connect", "mcp claude codex tools install connector"],
+  ["connections", "delegation", "settings.delegation.title", "delegated builds worker orchestrate"],
   ["machines", "machines.sshImport", "remote.index.sshImport", "ssh config import alias hosts proxyjump bastion kerberos gssapi fido2 security key"],
   ["machines", "machines.connection", "remote.index.connection", "ssh transport openssh alias proxyjump jump host bastion agent forwarding kerberos gssapi fido2 security key reconnect"],
   ["machines", "machines.ports", "remote.index.ports", "port forward forwarding localhost expose tunnel listening"],
@@ -66,7 +76,6 @@ const rows: [string, string, string, string][] = [
   ["plugins", "plugins.sources", "plugins.sources.title", "marketplace source index search available"],
   ["appearance", "appearance.preset", "settings.appearance.preset", "plugin theme colours preset"],
   ["projects", "projects.triggers", "settings.index.projects.triggers", "triggers webhooks schedule"],
-  ["projects", "projects.permission", "settings.index.projects.permission", "permission mode approvals"],
   ["notifications", "notifications.push", "settings.index.notifications.push", "push alerts phone browser"],
   ["notifications", "notifications.sessionAlerts", "settings.index.notifications.sessionAlerts", "waiting finished alerts"],
   ["notifications", "notifications.sinks", "settings.index.notifications.sinks", "ntfy slack discord webhook"],

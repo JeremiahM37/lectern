@@ -154,6 +154,12 @@ export interface SessionCheck extends SessionCheckSummary {
 }
 
 export interface SessionView extends Session {
+  // One status word for every surface (internal/vocab): working, needs_you,
+  // idle or ended, with the English words and an optional reason. Absent from
+  // an older server; sessions/status.ts computes it then.
+  state?: string;
+  state_label?: string;
+  state_reason?: string;
   launch_profile?: string;
   can_restore: boolean;
   workspace?: InteractiveWorkspace;
@@ -360,6 +366,9 @@ export interface Session {
   end_reason?: string;
   // Set while the agent has exited but its terminal is open at a shell.
   agent_exited_at?: number | null;
+  // The hook-driven lifecycle state (internal/agentevents), e.g.
+  // waiting_permission while the agent is blocked on a permission prompt.
+  agent_state?: string;
   // When restart recovery last relaunched this session.
   relaunched_at?: number | null;
   project_name?: string;

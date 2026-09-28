@@ -26,6 +26,8 @@ import { QuickSwitch } from "./QuickSwitch";
 import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
+import { GettingStarted } from "../shell/GettingStarted";
+import { sessionState, STATE_RANK } from "./status";
 import { t, useLocale } from "../i18n";
 import "./sessions.css";
 export interface SessionsApi {
@@ -55,13 +57,6 @@ export interface SessionsProps {
   onMetadataRefresh?: () => void;
   pushPrompt?: PushPrompt;
 }
-const order: Record<string, number> = {
-  waiting: 0,
-  running: 1,
-  starting: 2,
-  idle: 3,
-  dead: 4,
-};
 function savedGrouping(): GroupMode {
   try {
     const value = sessionStorage.getItem("lec-session-grouping");
@@ -277,10 +272,11 @@ export function Sessions({
       )
       .sort(
         (a, b) =>
-          (order[a.status] ?? 9) - (order[b.status] ?? 9) ||
+          STATE_RANK[sessionState(a, approvalBySession.has(a.id) || undefined).state] -
+            STATE_RANK[sessionState(b, approvalBySession.has(b.id) || undefined).state] ||
           a.idle_seconds - b.idle_seconds,
       );
-  }, [rows, scope, query]);
+  }, [rows, scope, query, approvalBySession]);
   // Blank shells and AI sessions share one dashboard but not one list. This is
   // presentation only: the same tracked rows, split so neither buries the other.
   const { regular, scratch } = useMemo(() => {
@@ -453,6 +449,22 @@ export function Sessions({
       onNotice(String(error), true);
     }
   }
+  // "Try a demo agent": the scripted stand-in (internal/sessions/demo.go) in
+  // a new empty folder, opened in Chat, for someone with no agent installed.
+  async function startDemo() {
+    try {
+      const session = await api.request<SessionView>("/sessions", {
+        method: "POST",
+        body: { agent: "demo", scratch: true, name: t("start.demoName") },
+      });
+      await refreshAll();
+      onConversation?.(session);
+      setConversation(session);
+      onNotice(t("start.demoStarted"));
+    } catch (error) {
+      onNotice(String(error), true);
+    }
+  }
   const interrupted = rows.filter(
     (session) => session.status === "interrupted" && !session.ended_at,
   );
@@ -523,8 +535,12 @@ export function Sessions({
       </SwipeRow>
     );
   }
+  // Nothing at all yet (the first run, or everything ended and archived):
+  // the page is the one "Start an agent" card, without filters for an
+  // empty list.
+  const firstRun = scope === "active" && !query && rows.length === 0;
   return (
-    <section className="list wide">
+    <section className={`list wide${firstRun ? " first-run" : ""}`}>
       <div className="sesshead">
         <div>
           <h2>{t("sessions.list.title")}</h2>
@@ -538,7 +554,7 @@ export function Sessions({
         </div>
         <QuotaChip api={api} />
         <button
-          className="b"
+          className="b first-run-hide"
           id="sess-saved-search"
           onClick={() => setSearch(true)}
           aria-label={t("sessions.list.searchSavedLabel")}
@@ -546,7 +562,7 @@ export function Sessions({
           {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
         </button>
         <button
-          className="b"
+          className="b first-run-hide"
           id="sess-discover"
           onClick={() => setSheet("discover")}
           aria-label={t("sessions.list.findAgentsLabel")}
@@ -705,13 +721,18 @@ export function Sessions({
                 render={render}
               />
             ) : (
-              <div className="hint">
-                {query
-                  ? t("sessions.list.noMatch")
-                  : scope === "archived"
-                    ? t("sessions.list.noArchived")
-                    : t("sessions.list.empty")}
-              </div>
+              query || scope !== "active" ? (
+                <div className="hint">
+                  {query ? t("sessions.list.noMatch") : scope === "archived" ? t("sessions.list.noArchived") : t("sessions.list.empty")}
+                </div>
+              ) : (
+                <GettingStarted
+                  request={api.request}
+                  onStart={() => setSheet("new")}
+                  onDemo={startDemo}
+                  onFind={() => setSheet("discover")}
+                />
+              )
             )}
           </div>
         </section>
@@ -747,6 +768,7 @@ export function Sessions({
         <NewSession
           api={api}
           projects={projects}
+          targets={targets}
           onClose={() => setSheet(undefined)}
           onCreated={() => void refreshAll()}
           onNotice={onNotice}

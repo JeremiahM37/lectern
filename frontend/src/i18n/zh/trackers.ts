@@ -110,7 +110,7 @@ const catalog: Record<string, string> = {
   "trackers.hub.startedSession": "已启动会话“{name}”",
   "trackers.hub.startedSessionOn": "已在 {branch} 上启动会话“{name}”",
   "trackers.hub.createdTask": "已创建任务 #{id}",
-  "trackers.hub.title": "任务",
+  "trackers.hub.title": "议题和 PR",
   "trackers.hub.noProjects": "请先添加一个项目；其仓库的拉取请求和议题会显示在这里。",
   "trackers.hub.subtitle": "来自 GitHub、GitLab、Linear 和 Jira 的拉取请求和议题",
   "trackers.hub.project": "项目",

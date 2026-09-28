@@ -36,18 +36,15 @@ function session(over: Partial<SessionView>): SessionView {
   } as SessionView;
 }
 
-test("sessionNowState maps a setup failure to error regardless of status", () => {
-  assert.equal(sessionNowState(session({ setup_state: "failed", status: "starting" })), "error");
-});
-
-test("sessionNowState maps dead to done and waiting to waiting", () => {
-  assert.equal(sessionNowState(session({ status: "dead" })), "done");
-  assert.equal(sessionNowState(session({ status: "waiting" })), "waiting");
-});
-
-test("sessionNowState treats running/starting/idle as working", () => {
-  for (const status of ["running", "starting", "idle"])
-    assert.equal(sessionNowState(session({ status })), "working", status);
+test("the strip uses the four shared states", () => {
+  assert.equal(sessionNowState(session({ setup_state: "failed", status: "starting" })), "ended");
+  assert.equal(sessionNowState(session({ status: "dead" })), "ended");
+  // An agent at its prompt is idle, not "needs you".
+  assert.equal(sessionNowState(session({ status: "waiting" })), "idle");
+  assert.equal(sessionNowState(session({ status: "running" })), "working");
+  assert.equal(sessionNowState(session({ status: "starting" })), "working");
+  assert.equal(sessionNowState(session({ status: "waiting", agent_exited_at: 1 })), "ended");
+  assert.equal(sessionNowState(session({ status: "running", state: "needs_you", state_reason: "approval" })), "needs_you");
 });
 
 test("nowItems excludes archived sessions", () => {
@@ -58,22 +55,15 @@ test("nowItems excludes archived sessions", () => {
   );
 });
 
-test("nowItems ranks waiting first, then error, then working, then done", () => {
+test("nowItems ranks needs you first, then working, idle and ended", () => {
   const rows = [
     session({ id: 1, status: "dead", name: "done" }),
     session({ id: 2, status: "running", name: "working" }),
-    session({ id: 3, status: "waiting", name: "waiting" }),
-    session({ id: 4, setup_state: "failed", name: "error" }),
+    session({ id: 3, status: "waiting", name: "idle" }),
+    session({ id: 4, status: "running", state: "needs_you", state_reason: "approval", name: "blocked" }),
   ];
   assert.deepEqual(
     nowItems(rows).map((row) => row.state),
-    ["waiting", "error", "working", "done"],
+    ["needs_you", "working", "idle", "ended"],
   );
-});
-
-test("an agent that exited to a shell is its own state, not waiting", () => {
-  assert.equal(sessionNowState(session({ status: "waiting", agent_exited_at: 1 })), "exited");
-  assert.equal(sessionNowState(session({ status: "dead", agent_exited_at: 1, ended_at: 2 })), "done");
-  const items = nowItems([session({ id: 1, status: "running" }), session({ id: 2, status: "idle", agent_exited_at: 5 })]);
-  assert.equal(items[0]?.id, 2);
 });

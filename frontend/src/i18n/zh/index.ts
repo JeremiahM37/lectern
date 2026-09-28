@@ -14,7 +14,8 @@ import trackers from "./trackers";
 import files from "./files";
 import remote from "./remote";
 import plugins from "./plugins";
+import simple from "./simple";
 
-export const areas: Record<string, Record<string, string>> = { core, app, settings, "settings-agents": settingsAgents, sessions, conversation, review, board, terminal, browser, trackers, files, remote, plugins };
+export const areas: Record<string, Record<string, string>> = { core, app, settings, "settings-agents": settingsAgents, sessions, conversation, review, board, terminal, browser, trackers, files, remote, plugins, simple };
 const catalog: Record<string, string> = Object.assign({}, ...Object.values(areas));
 export default catalog;

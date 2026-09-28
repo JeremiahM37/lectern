@@ -36,16 +36,19 @@ export const SHORTCUTS: ShortcutDef[] = [
   def("zoom.reset", "Reset zoom", "Appearance", "global"),
   def("accent.next", "Next accent colour", "Appearance", "global", [], "color"),
   // Navigation
-  def("nav.board", "Go to the task board", "Navigation", "global", ["Alt+Shift+1"]),
-  def("nav.sessions", "Go to sessions", "Navigation", "global", ["Alt+Shift+2"]),
-  def("nav.terminals", "Go to terminals", "Navigation", "global", ["Alt+Shift+3"], "workspace"),
-  def("nav.media", "Go to media", "Navigation", "global", ["Alt+Shift+4"]),
-  def("nav.deck", "Go to the deck", "Navigation", "global", ["Alt+Shift+5"], "overview"),
-  def("nav.approvals", "Go to approvals", "Navigation", "global", ["Alt+Shift+6"]),
-  def("nav.targets", "Go to settings", "Navigation", "global", ["Alt+Shift+7"]),
-  def("nav.tasks", "Go to tasks", "Navigation", "global", ["Alt+Shift+8"], "issues pull requests"),
+  // Ids predate the page renames (board → Tasks, tasks → Issues & PRs, deck →
+  // Overview, targets → Settings) and stay, so saved rebindings still work;
+  // the default keys follow the navigation's order.
+  def("nav.sessions", "Go to sessions", "Navigation", "global", ["Alt+Shift+1"]),
+  def("nav.approvals", "Go to approvals", "Navigation", "global", ["Alt+Shift+2"]),
+  def("nav.board", "Go to tasks", "Navigation", "global", ["Alt+Shift+3"], "board"),
+  def("nav.targets", "Go to settings", "Navigation", "global", ["Alt+Shift+4"]),
+  def("nav.terminals", "Go to terminals", "Navigation", "global", ["Alt+Shift+5"], "workspace"),
+  def("nav.deck", "Go to the overview", "Navigation", "global", ["Alt+Shift+6"], "deck live"),
+  def("nav.tasks", "Go to issues and pull requests", "Navigation", "global", ["Alt+Shift+7"], "issues pull requests"),
+  def("nav.media", "Go to media", "Navigation", "global", ["Alt+Shift+8"]),
   def("nav.evals", "Open agent tests", "Navigation", "global", [], "evals"),
-  def("settings.machines", "Settings: targets", "Settings", "global", [], "machines ssh"),
+  def("settings.machines", "Settings: machines", "Settings", "global", [], "machines ssh targets"),
   def("settings.projects", "Settings: projects", "Settings", "global", [], "repositories"),
   def("settings.notifications", "Settings: notifications", "Settings", "global", [], "push alerts"),
   def("settings.devices", "Settings: devices", "Settings", "global", [], "pair phone"),

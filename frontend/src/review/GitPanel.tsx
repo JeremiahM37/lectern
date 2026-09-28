@@ -5,6 +5,7 @@ import { DiffViewer } from "./DiffViewer";
 import type { Hunk } from "./diffModel";
 import type { CommitResult, CommitStep, FilePatch, GitFile, GitStatus } from "./types";
 import { t, useLocale } from "../i18n";
+import { branchFor } from "./branch";
 
 export interface ReviewApi {
   request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -106,6 +107,12 @@ export function GitPanel({
   };
   const [amend, setAmend] = useState(false);
   const [push, setPush] = useState(true);
+  // On the default branch: commit on a new branch (the default) or, after
+  // saying so, on the default branch itself.
+  const [onMain, setOnMain] = useState<"branch" | "main">("branch");
+  const [newBranch, setNewBranch] = useState(() => branchFor(defaultMessage || ""));
+  const [mainConfirmed, setMainConfirmed] = useState(false);
+  const remoteKnown = useRef(false);
   const [pr, setPr] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
@@ -122,6 +129,9 @@ export function GitPanel({
         if (!live) return;
         setStatus(s);
         setChosen({});
+        // Nowhere to push to: Push starts unticked (once, so a later tick sticks).
+        if (!remoteKnown.current && s.has_remote === false) setPush(false);
+        remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
       })
@@ -325,7 +335,12 @@ export function GitPanel({
           stage_all: staged.length === 0,
           amend,
           allow_pushed_amend: allowPushedAmend,
-          push: push && !(amend && allowPushedAmend),
+          push: push && status?.has_remote !== false && !(amend && allowPushedAmend),
+          ...(status?.on_base_branch
+            ? onMain === "branch"
+              ? { new_branch: newBranch.trim() }
+              : { allow_base_branch: true }
+            : {}),
           pr: pr && push,
           pr_title: prTitle,
           pr_body: prBody,
@@ -333,7 +348,17 @@ export function GitPanel({
       });
       setResult(out);
       const failed = out.steps.find((s) => Number(s.rc) !== 0);
-      onNotice(failed ? t("review.git.stepFailed", { step: failed.step }) : amend ? t("review.git.amended") : t("review.git.committed"), Boolean(failed));
+      const movedTo = status?.on_base_branch && onMain === "branch" && out.branch ? out.branch : "";
+      onNotice(
+        failed
+          ? t("review.git.stepFailed", { step: failed.step })
+          : amend
+            ? t("review.git.amended")
+            : movedTo
+              ? t("review.onMain.committedOn", { branch: movedTo })
+              : t("review.git.committed"),
+        Boolean(failed),
+      );
       if (!failed) {
         setAmend(false);
         if (amend && allowPushedAmend) setForceAsk(true);
@@ -377,6 +402,17 @@ export function GitPanel({
   const openPr = t("review.git.openPr").split("{gh}");
   const alreadyPushed = t("review.git.alreadyPushed").split("{refs}");
   if (!status) return <p className="sub">{t("review.git.loading")}</p>;
+  // Every reason Commit can be unavailable, said next to it (never a button
+  // that is simply greyed out).
+  const commitBlocked = !status.session_live
+    ? t("review.why.ended")
+    : !message.trim()
+      ? t("review.why.noMessage")
+      : status.on_base_branch && onMain === "branch" && !newBranch.trim()
+        ? t("review.why.noBranch")
+        : status.on_base_branch && onMain === "main" && !mainConfirmed
+          ? t("review.why.confirmMain", { branch: status.branch })
+          : "";
 
   return (
     <section className="git-panel" aria-label="Git">
@@ -453,9 +489,31 @@ export function GitPanel({
       <section className="review-commit-form">
         <h3>{t("review.git.commitHeading")}</h3>
         {status.on_base_branch && (
-          <p className="sub error">
-            {t("review.git.onBaseBranch", { branch: status.branch })}
-          </p>
+          <fieldset className="commit-on-main" id={`commit-on-main-${sessionId}`}>
+            <legend>{t("review.onMain.title", { branch: status.branch })}</legend>
+            <label className="review-checkbox">
+              <input type="radio" name={`on-main-${sessionId}`} checked={onMain === "branch"} onChange={() => setOnMain("branch")} />
+              {t("review.onMain.newBranch")}
+            </label>
+            {onMain === "branch" && (
+              <input
+                className="f commit-new-branch"
+                aria-label={t("review.onMain.branchName")}
+                value={newBranch}
+                onChange={(e) => setNewBranch(e.target.value)}
+              />
+            )}
+            <label className="review-checkbox">
+              <input type="radio" name={`on-main-${sessionId}`} checked={onMain === "main"} onChange={() => setOnMain("main")} />
+              {t("review.onMain.direct", { branch: status.branch })}
+            </label>
+            {onMain === "main" && (
+              <label className="review-checkbox commit-main-confirm">
+                <input type="checkbox" checked={mainConfirmed} onChange={(e) => setMainConfirmed(e.target.checked)} />
+                {t("review.onMain.confirm", { branch: status.branch })}
+              </label>
+            )}
+          </fieldset>
         )}
         <label className="f" htmlFor={`commit-msg-${sessionId}`}>
           {t("review.git.commitMessage")}
@@ -484,11 +542,12 @@ export function GitPanel({
           {status.head_pushed ? t("review.git.amendLastPushed") : t("review.git.amendLast")}
         </label>
         <label className="review-checkbox">
-          <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} />
+          <input type="checkbox" checked={push && status.has_remote !== false} disabled={status.has_remote === false} onChange={(e) => setPush(e.target.checked)} />
           {t("review.git.pushToOrigin")}
+          {status.has_remote === false && <span className="sub disabled-why"> — {t("review.why.noRemote")}</span>}
         </label>
         <label className="review-checkbox">
-          <input type="checkbox" checked={pr} disabled={!push} onChange={(e) => setPr(e.target.checked)} />
+          <input type="checkbox" checked={pr} disabled={!push || status.has_remote === false} onChange={(e) => setPr(e.target.checked)} />
           {openPr[0]}
           <code>gh</code>
           {openPr[1]}
@@ -516,11 +575,24 @@ export function GitPanel({
         <button
           type="button"
           className="b ok"
-          disabled={!!busy || !message.trim() || status.on_base_branch || !status.session_live}
+          disabled={!!busy || !!commitBlocked}
+          aria-describedby={commitBlocked ? `commit-why-${sessionId}` : undefined}
+          title={commitBlocked || undefined}
           onClick={() => void commit()}
         >
-          {busy === "commit" ? t("review.git.committing") : amend ? t("review.git.amendCommit") : t("review.git.commit")}
+          {busy === "commit"
+            ? t("review.git.committing")
+            : amend
+              ? t("review.git.amendCommit")
+              : status.on_base_branch && onMain === "branch"
+                ? t("review.onMain.commitOnBranch", { branch: newBranch.trim() || "…" })
+                : t("review.git.commit")}
         </button>
+        {commitBlocked && (
+          <p className="sub disabled-why" id={`commit-why-${sessionId}`}>
+            {commitBlocked}
+          </p>
+        )}
 
         {pushedGuard && (
           <div className="git-guard" role="alert">
@@ -590,3 +662,4 @@ export function GitPanel({
     </section>
   );
 }
+

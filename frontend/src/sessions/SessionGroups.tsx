@@ -1,3 +1,4 @@
+import { sessionState } from "./status";
 import type { ReactNode } from "react";
 import type { SessionView } from "../types";
 import { t, useLocale } from "../i18n";
@@ -68,9 +69,7 @@ export function SessionGroups({
             const next = [...path, label],
               key = JSON.stringify([mode, ...next]),
               open = !!query || !collapsed.has(key),
-              waiting = child.all.filter(
-                (row) => row.status === "waiting" && !row.ended_at,
-              ).length;
+              waiting = child.all.filter((row) => sessionState(row).state === "needs_you").length;
             return (
               <details
                 key={key}

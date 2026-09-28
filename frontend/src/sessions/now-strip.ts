@@ -4,29 +4,22 @@
 // NowStrip.tsx so it is testable the same way push.ts/badge.ts are, with no
 // DOM involved.
 import type { SessionView } from "../types";
+import { sessionState, STATE_RANK, type SessionState } from "./status";
 
-export type NowState = "working" | "waiting" | "exited" | "done" | "error";
+export type NowState = SessionState;
 
 export interface NowItem {
   id: number;
   name: string;
   state: NowState;
+  reason: string;
 }
 
-// sessionNowState collapses the session/setup state machine SessionCard
-// already reads (see its own `status` label map) down to the four states a
-// glance actually needs. A setup failure is "error" even for a session whose
-// last known `status` was something else; everything else follows `status`.
+// The strip uses the same four states as every session surface
+// (sessions/status.ts): a glance and a card never disagree.
 export function sessionNowState(session: SessionView): NowState {
-  if (session.setup_state === "failed") return "error";
-  if (session.status === "dead") return "done";
-  // The agent quit and left a shell prompt: not waiting for a reply.
-  if (session.agent_exited_at && !session.ended_at) return "exited";
-  if (session.status === "waiting") return "waiting";
-  return "working"; // running, starting, idle
+  return sessionState(session).state;
 }
-
-const RANK: Record<NowState, number> = { waiting: 0, exited: 1, error: 1, working: 2, done: 3 };
 
 // nowItems is what the strip shows: every non-archived session (archiving is
 // the person's own "stop showing me this" signal, so it is the one thing
@@ -35,6 +28,9 @@ const RANK: Record<NowState, number> = { waiting: 0, exited: 1, error: 1, workin
 export function nowItems(rows: SessionView[]): NowItem[] {
   return rows
     .filter((session) => session.archived_at == null)
-    .map((session) => ({ id: session.id, name: session.name, state: sessionNowState(session) }))
-    .sort((a, b) => RANK[a.state] - RANK[b.state]);
+    .map((session) => {
+      const info = sessionState(session);
+      return { id: session.id, name: session.name, state: info.state, reason: info.reason };
+    })
+    .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]);
 }

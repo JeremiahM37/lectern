@@ -110,7 +110,7 @@ const catalog: Record<string, string> = {
   "trackers.hub.startedSession": "Session « {name} » démarrée",
   "trackers.hub.startedSessionOn": "Session « {name} » démarrée sur {branch}",
   "trackers.hub.createdTask": "Tâche n° {id} créée",
-  "trackers.hub.title": "Tâches",
+  "trackers.hub.title": "Tickets et PR",
   "trackers.hub.noProjects": "Ajoutez d’abord un projet ; les pull requests et tickets de son dépôt apparaîtront ici.",
   "trackers.hub.subtitle": "Pull requests et tickets de GitHub, GitLab, Linear et Jira",
   "trackers.hub.project": "Projet",

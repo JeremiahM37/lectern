@@ -25,7 +25,9 @@ import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { MemoryDeliveries } from "./MemoryDeliveries";
 import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
-import { ApprovalCard, type ApprovalDecisionOptions } from "./ApprovalCard";
+import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "./ApprovalCard";
+import { ENTER_PREF, enterSends, shouldSend, touchOnly, type EnterMode } from "./enter";
+import { usePref } from "../prefs/store";
 import { FileLinksContext, Markdown, type FileLinks } from "./markdown";
 import { FileApi } from "../files/api";
 import { existenceCheck } from "../files/linkCheck";
@@ -138,6 +140,8 @@ export function Conversation({
   quickReply?: boolean;
 }) {
   useLocale();
+  const [enterMode] = usePref<EnterMode>(ENTER_PREF, "auto");
+  const touch = touchOnly();
   const key = `lec-draft-${kind}-${id}`;
   const [draft, setDraft] = useState(() => readDraft(key)),
     [rows, setRows] = useState<Row[]>([]),
@@ -654,11 +658,7 @@ export function Conversation({
     try {
       await api.request(`/approvals/${approval.id}/decision`, {
         method: "POST",
-        body: {
-          decision,
-          ...(opts?.forSession ? { for_session: true } : {}),
-          ...(opts?.note ? { note: opts.note } : {}),
-        },
+        body: decisionBody(decision, opts),
       });
       void refresh();
     } catch (error) {
@@ -685,7 +685,9 @@ export function Conversation({
   }
   const hint =
     kind === "session"
-      ? t("conversation.chat.hintSession")
+      ? enterSends(enterMode, touch)
+        ? t("conversation.chat.hintSessionEnter")
+        : t("conversation.chat.hintSession")
       : task?.takeover
         ? t("conversation.chat.hintTakeover")
         : task?.target_kind === "sandbox" && task.status !== "backlog"
@@ -1145,11 +1147,7 @@ export function Conversation({
             change((old) => ({ ...old, text, request_id: uid() }));
           }}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              (event.ctrlKey || event.metaKey) &&
-              !event.nativeEvent.isComposing
-            ) {
+            if (shouldSend({ ...event, key: event.key, isComposing: event.nativeEvent.isComposing }, enterMode, touch)) {
               event.preventDefault();
               void send();
             }

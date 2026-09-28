@@ -33,7 +33,7 @@ import { t, useLocale } from "./i18n";
 import { SECTIONS, settingsIndex } from "./settings/search-index";
 import { loadPluginContributions, safeHref, usePluginContributions } from "./plugins/contributions";
 import { Palette, type Command } from "./shell/Palette";
-import { FirstRun } from "./shell/FirstRun";
+import { canonicalHash, HOME, isView, moreEntries, primaryViews, VIEWS, type View } from "./shell/routes";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
@@ -46,6 +46,7 @@ import { envFromWindow, pushAvailability } from "./push";
 import { inApp, nativeBridge } from "./native/bridge";
 import { PUSH_EVENT, enableNativePush, syncNativePush } from "./native/push";
 import { applyBadge, computeBadgeCount } from "./badge";
+import { sessionState, stateText } from "./sessions/status";
 import type { NoticeAction } from "./types";
 import { offlineCache } from "./api/offline";
 import { OfflineBanner } from "./mobile/OfflineBanner";
@@ -101,37 +102,49 @@ function savedSwitches(): Record<string, PendingSwitch> {
     return out;
   } catch { return {}; }
 }
-const tabs = [
-  "board",
-  "sessions",
-  "tasks",
-  "terminals",
-  "media",
-  "deck",
-  "approvals",
-  "targets",
-  "evals",
-] as const;
-type Tab = (typeof tabs)[number];
+type Tab = View;
 const labelKeys: Record<Tab, string> = {
-  board: "nav.board",
   sessions: "nav.sessions",
-  tasks: "nav.tasks",
-  terminals: "nav.terminals",
-  media: "nav.media",
-  deck: "nav.deck",
   approvals: "nav.approvals",
-  targets: "nav.settings",
+  tasks: "nav.tasksPage",
+  terminals: "nav.terminals",
+  overview: "nav.overview",
+  issues: "nav.issues",
+  media: "nav.media",
   evals: "nav.evals",
+  settings: "nav.settings",
 };
 const label = (tab: Tab) => t(labelKeys[tab]);
 // "evals" opens a modal over the current view rather than a page of its own
 // (see showEvals below) — everywhere a tab click would otherwise navigate,
-// it toggles that modal instead. Kept out of `view`/`isTab`'s routing so an
-// evals modal never fights the board/sessions/etc. hash it was opened over.
+// it toggles that modal instead. Kept out of `view`'s routing so an evals
+// modal never fights the page hash it was opened over.
 const opensModal = (tab: Tab) => tab === "evals";
-const isTab = (value: string): value is Tab =>
-  tabs.some((tab) => tab === value);
+const isTab = isView;
+const NAV_ICON: Record<Tab, Parameters<typeof Icon>[0]["name"]> = {
+  sessions: "sessions",
+  approvals: "approvals",
+  tasks: "board",
+  terminals: "terminals",
+  overview: "deck",
+  issues: "tasks",
+  media: "media",
+  evals: "evals",
+  settings: "targets",
+};
+// The keyboard-shortcut id for each page. Ids predate the renames and stay,
+// so a rebinding someone saved keeps working.
+const NAV_SHORTCUT: Record<Tab, string> = {
+  sessions: "nav.sessions",
+  approvals: "nav.approvals",
+  tasks: "nav.board",
+  terminals: "nav.terminals",
+  overview: "nav.deck",
+  issues: "nav.tasks",
+  media: "nav.media",
+  evals: "nav.evals",
+  settings: "nav.targets",
+};
 // #media/<session id> narrows the feed to one session's posts.
 const mediaSessionOf = (hash: string) => {
   const match = /^#?media\/([1-9]\d*)$/.exec(hash);
@@ -139,7 +152,7 @@ const mediaSessionOf = (hash: string) => {
 };
 export default function App() {
   useLocale();
-  const [view, setView] = useState<Tab>("board"),
+  const [view, setView] = useState<Tab>(HOME),
     [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
     [targets, setTargets] = useState<Target[]>([]),
@@ -169,7 +182,7 @@ export default function App() {
       kind: "new" | "discover";
       version: number;
     }>(),
-    [section, setSection] = useState<{ name: string; version: number; focus?: string }>({ name: "machines", version: 0 }),
+    [section, setSection] = useState<{ name: string; version: number; focus?: string }>({ name: "basics", version: 0 }),
     [projectEdit, setProjectEdit] = useState<{ id: number; version: number }>(),
     [launchProfilesVersion, setLaunchProfilesVersion] = useState(0),
     [manageProfiles, setManageProfiles] = useState(false),
@@ -254,7 +267,8 @@ export default function App() {
     [],
   );
   const navigate = useCallback((hash: string) => {
-    const kind = hash.replace(/^#/, "").split("/")[0] || "board";
+    hash = canonicalHash(hash);
+    const kind = hash.replace(/^#/, "").split("/")[0] || HOME;
     if (isTab(kind) && opensModal(kind)) {
       setShowEvals(true);
       return;
@@ -262,9 +276,6 @@ export default function App() {
     if (isTab(kind)) {
       setView(kind);
       if (kind === "media") setMediaSession(mediaSessionOf(hash));
-      try {
-        localStorage.setItem("lec-last-view", kind);
-      } catch {}
       history.replaceState(null, "", hash);
     }
   }, []);
@@ -441,14 +452,14 @@ export default function App() {
     (id: number) => {
       setOpenTaskId(id);
       setOpenTaskVersion((old) => old + 1);
-      navigate("#board");
-      setView("board");
+      navigate("#tasks");
+      setView("tasks");
       history.replaceState(null, "", `#task/${id}`);
     },
     [navigate],
   );
   const newTask = () => {
-    navigate("#board");
+    navigate("#tasks");
     setNewTaskVersion((old) => old + 1);
   };
   const sessionCommand = (kind: "new" | "discover") => {
@@ -457,7 +468,7 @@ export default function App() {
   };
   const settings = (name: string, focus?: string) => {
     setSection({ name, version: Date.now(), focus });
-    navigate("#targets");
+    navigate("#settings");
   };
   // What a workspace pane can reach (workspace/registry.tsx).
   const services = useMemo<PaneServices>(() => ({
@@ -481,7 +492,7 @@ export default function App() {
   useShortcuts({
     "palette.open": () => setPalette((old) => !old),
     "search.saved": () => setSearch(true),
-    "settings.open": () => settings(section.name === "machines" ? "machines" : section.name),
+    "settings.open": () => settings(section.name),
     "settings.shortcuts": () => settings("shortcuts"),
     "settings.search": () => settings(section.name, "search"),
     "theme.toggle": () => setTheme(resolveMode(currentAppearance().theme, matchMedia("(prefers-color-scheme: dark)").matches) === "dark" ? "light" : "dark"),
@@ -495,28 +506,33 @@ export default function App() {
       const index = ACCENT_PRESETS.findIndex((preset) => preset.value === currentAppearance().accent);
       saveAppearance({ accent: ACCENT_PRESETS[(index + 1) % ACCENT_PRESETS.length]!.value });
     },
-    "nav.board": goto("board"),
+    // Shortcut ids keep their old names, so rebindings people saved still work.
+    "nav.board": goto("tasks"),
     "nav.sessions": goto("sessions"),
-    "nav.tasks": goto("tasks"),
+    "nav.tasks": goto("issues"),
     "nav.terminals": goto("terminals"),
     "nav.media": goto("media"),
-    "nav.deck": goto("deck"),
+    "nav.deck": goto("overview"),
     "nav.approvals": goto("approvals"),
-    "nav.targets": goto("targets"),
+    "nav.targets": goto("settings"),
     "nav.evals": () => setShowEvals(true),
     ...Object.fromEntries(["machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "plugins", "appearance", "workspace"].map((name) => [`settings.${name}`, () => settings(name)])),
     "session.new": () => sessionCommand("new"),
     "session.discover": () => sessionCommand("discover"),
     "task.new": () => newTask(),
-    "routines.open": () => { navigate("#board"); setRoutinesVersion((old) => old + 1); },
+    "routines.open": () => { navigate("#tasks"); setRoutinesVersion((old) => old + 1); },
     "profiles.manage": () => setManageProfiles(true),
     "terminal.new": () => void newTerminal(),
   });
   useEffect(() => {
     const apply = () => {
+      // Old names (#board, #deck, #targets, #tasks/<project>/…) are rewritten
+      // in place, so a bookmark or an older notification still lands.
+      const canonical = canonicalHash(location.hash);
+      if (location.hash && canonical !== location.hash) history.replaceState(null, "", canonical);
       let raw = "";
       try {
-        raw = decodeURIComponent(location.hash.slice(1));
+        raw = decodeURIComponent(canonical.slice(1));
       } catch {
         return;
       }
@@ -536,7 +552,7 @@ export default function App() {
         return;
       }
       if (kind === "task" && /^[1-9]\d*$/.test(id || "")) {
-        setView("board");
+        setView("tasks");
         setOpenTaskId(Number(id));
         setOpenTaskVersion((old) => old + 1);
         return;
@@ -557,27 +573,12 @@ export default function App() {
         return;
       }
       if (kind && isTab(kind)) {
-        setView(kind);
+        setView(kind === "terminals" && !terminals.active ? HOME : kind);
         if (kind === "media") setMediaSession(mediaSessionOf(raw));
         return;
       }
-      // Fresh phone loads land on Sessions, where the work is; an explicit
-      // hash, or a view the operator already chose, still wins.
-      let fallback = "board";
-      try {
-        if (matchMedia("(max-width: 1023px)").matches) fallback = "sessions";
-      } catch {}
-      let saved = fallback;
-      try {
-        saved = localStorage.getItem("lec-last-view") || fallback;
-      } catch {}
-      setView(
-        isTab(saved)
-          ? saved === "terminals" && !terminals.active
-            ? "sessions"
-            : saved
-          : "board",
-      );
+      // No page named: home. Not "the page visited last" — home stays put.
+      setView(HOME);
     };
     apply();
     window.addEventListener("hashchange", apply);
@@ -749,12 +750,12 @@ export default function App() {
   // a later push (which cannot see this state) can bump from a value that
   // was actually current a moment ago rather than an unbounded guess.
   useEffect(() => {
-    const waitingSessions = sessions.filter(
-      (session) =>
-        session.status === "waiting" &&
-        session.archived_at == null &&
-        session.ended_at == null,
-    ).length;
+    // Sessions blocked on a person with no approval to count them already:
+    // a permission prompt the agent shows in its own terminal.
+    const waitingSessions = sessions.filter((session) => {
+      const info = sessionState(session);
+      return info.state === "needs_you" && info.reason !== "approval";
+    }).length;
     const count = computeBadgeCount({ approvals: approvals.length, waitingSessions });
     applyBadge(navigator, count);
     navigator.serviceWorker?.controller?.postMessage({ type: "lec-badge-count", count });
@@ -814,7 +815,8 @@ export default function App() {
         notice(t("app.pushPrompt.testError", { error: String(error) }), true);
       }
     } catch (error) {
-      notice(t("app.pushPrompt.error", { error: String(error) }), true);
+      // The reason alone, not "Error: …": these read as sentences.
+      notice(t("app.pushPrompt.error", { error: error instanceof Error ? error.message : String(error) }), true);
     }
   }
   // Removes a device's subscription server-side; when it is this browser's
@@ -856,18 +858,6 @@ export default function App() {
   const pluginUI = usePluginContributions();
   const commands: Command[] = [
     {
-      id: "routines",
-      shortcut: chordsFor("routines.open"),
-      title: t("app.commands.routines"),
-      category: t("palette.actions"),
-      detail: t("app.commands.routinesDetail"),
-      keywords: "schedule takeover",
-      run: () => {
-        navigate("#board");
-        setRoutinesVersion((old) => old + 1);
-      },
-    },
-    {
       id: "new-session",
       shortcut: chordsFor("session.new"),
       title: t("app.commands.newSession"),
@@ -884,6 +874,18 @@ export default function App() {
       detail: t("app.commands.newTaskDetail"),
       keywords: "create",
       run: newTask,
+    },
+    {
+      id: "routines",
+      shortcut: chordsFor("routines.open"),
+      title: t("app.commands.routines"),
+      category: t("palette.actions"),
+      detail: t("app.commands.routinesDetail"),
+      keywords: "schedule takeover",
+      run: () => {
+        navigate("#tasks");
+        setRoutinesVersion((old) => old + 1);
+      },
     },
     {
       id: "saved-search",
@@ -909,17 +911,12 @@ export default function App() {
       keywords: "profiles accounts configuration",
       run: () => setManageProfiles(true),
     },
-    ...tabs.map((tab) => ({
+    ...VIEWS.map((tab) => ({
       id: `nav-${tab}`,
-      title:
-        tab === "board"
-          ? t("app.commands.taskBoard")
-          : tab === "terminals"
-            ? t("app.commands.openTerminals")
-            : label(tab),
+      title: tab === "terminals" ? t("app.commands.openTerminals") : label(tab),
       category: t("app.commands.navigate"),
-      keywords: "navigate view",
-      shortcut: chordsFor("nav." + tab),
+      keywords: "navigate view " + ({ tasks: "board", overview: "deck live", issues: "pull requests github", settings: "preferences" } as Record<string, string>)[tab],
+      shortcut: chordsFor(NAV_SHORTCUT[tab]),
       run: () => navigate(tab === "terminals" ? terminals.hash : "#" + tab),
     })),
     ...[
@@ -983,7 +980,7 @@ export default function App() {
       title: session.name || t("app.lineage.session", { id: session.id }),
       category: t("app.commands.sessions"),
       detail: [
-        session.status,
+        stateText(sessionState(session)),
         session.agent,
         session.group_path,
         session.project_name,
@@ -1054,18 +1051,7 @@ export default function App() {
       <main id="view" hidden={view === "terminals"}>
         <OfflineBanner onRetry={retryOffline} />
         <PullToRefresh target={viewElement} onRefresh={refresh} />
-        {version > 0 && projects.length === 0 && sessions.length === 0 && (
-          <FirstRun
-            request={api.request}
-            hasProject={projects.length > 0}
-            hasSession={sessions.length > 0}
-            hasTarget={targets.length > 0}
-            onSetupTarget={() => settings("machines")}
-            onStartSession={() => sessionCommand("new")}
-            onOpenConnectTools={() => settings("machines")}
-          />
-        )}
-        {view === "board" && (
+        {view === "tasks" && (
           <Board
             api={api}
             refreshVersion={version}
@@ -1136,7 +1122,7 @@ export default function App() {
             onNotice={notice}
           />
         )}{" "}
-        {view === "tasks" && (
+        {view === "issues" && (
           <TasksHub
             api={api}
             projects={projects}
@@ -1150,7 +1136,7 @@ export default function App() {
             }}
           />
         )}{" "}
-        {view === "deck" && <Deck tasks={tasks} api={api} onTask={openTask} />}{" "}
+        {view === "overview" && <Deck tasks={tasks} api={api} onTask={openTask} />}{" "}
         {view === "approvals" && (
           <Approvals
             rows={approvals}
@@ -1159,9 +1145,15 @@ export default function App() {
               void refresh().catch((error) => notice(String(error), true))
             }
             onNotice={notice}
+            onOpenSession={(id) => {
+              const session = sessions.find((row) => row.id === id);
+              setConversation({ kind: "session", id, name: session?.name || t("app.continuity.session") });
+            }}
+            onOpenTask={openTask}
+            onSettings={() => settings("basics")}
           />
         )}{" "}
-        {view === "targets" && (
+        {view === "settings" && (
           <Settings
             api={api}
             section={section}
@@ -1211,58 +1203,37 @@ export default function App() {
         id="fab"
         title={t("app.fabTitle")}
         aria-label={t("app.newTask")}
-        hidden={view !== "board"}
+        hidden={view !== "tasks"}
         onClick={newTask}
       >
         <Icon name="plus" size={24} />
         <span>{t("board.newTask")}</span>
       </button>
-      <nav id="tabbar">
-        {tabs.map((tab) => (
+      <nav id="tabbar" aria-label={t("nav.label")}>
+        {primaryViews(terminals.tabs.length > 0).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
-            className={[
-              "tab",
-              view === tab ? "on" : "",
-              tab === "deck" ? "desktop-only" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() =>
-              navigate(tab === "terminals" ? terminals.hash : "#" + tab)
-            }
+            aria-current={view === tab ? "page" : undefined}
+            className={["tab", view === tab ? "on" : ""].filter(Boolean).join(" ")}
+            onClick={() => navigate(tab === "terminals" ? terminals.hash : "#" + tab)}
           >
             <span className="tab-ic" aria-hidden="true">
-              <Icon name={tab} />
+              <Icon name={NAV_ICON[tab]} />
             </span>
             {label(tab)}
             {tab === "sessions" && (
-              <b id="sess-badge" className="badge dim" hidden={!live}>
+              <b id="sess-badge" className="badge dim" hidden={!live} title={t("nav.liveSessions", { n: live })}>
                 {live}
               </b>
             )}
             {tab === "terminals" && (
-              <b
-                id="terminal-badge"
-                className="badge dim"
-                hidden={!terminals.tabs.length}
-              >
+              <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
                 {terminals.tabs.length}
               </b>
             )}
-            {tab === "media" && (
-              <b
-                id="media-badge"
-                className={liveViews.length ? "badge" : "badge dim"}
-                hidden={!media.length && !liveViews.length}
-                title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : undefined}
-              >
-                {media.length + liveViews.length}
-              </b>
-            )}
             {tab === "approvals" && (
-              <b id="appr-badge" className="badge" hidden={!approvals.length}>
+              <b id="appr-badge" className="badge" hidden={!approvals.length} title={t("nav.approvalsWaiting", { n: approvals.length })}>
                 {approvals.length}
               </b>
             )}
@@ -1270,29 +1241,39 @@ export default function App() {
         ))}
         <details
           id="nav-overflow"
-          className={`action-menu ${["media", "deck", "approvals", "targets"].includes(view) ? "on" : ""}`}
+          className={`action-menu ${moreEntries(terminals.tabs.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
         >
           <summary aria-label={t("app.morePages")}>
-            <span aria-hidden="true">···</span>{t("nav.more")}
-            <b id="more-badge" className="badge" hidden={!approvals.length}>
-              {approvals.length}
+            <span aria-hidden="true">···</span>
+            {t("nav.more")}
+            <b
+              id="media-badge"
+              className={liveViews.length ? "badge" : "badge dim"}
+              hidden={!media.length && !liveViews.length}
+              title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : t("nav.mediaCount", { n: media.length })}
+            >
+              {media.length + liveViews.length}
             </b>
           </summary>
           <div className="action-menu-panel">
-            {(["media", "deck", "approvals", "targets", "evals"] as const).map((tab) => (
-              <button
-                key={tab}
-                data-nav-target={tab}
-                onClick={(event) => {
-                  navigate("#" + tab);
-                  event.currentTarget
-                    .closest("details")
-                    ?.removeAttribute("open");
-                }}
-              >
-                {tab === "deck" ? t("nav.deckOverview") : label(tab)}
-              </button>
-            ))}
+            {moreEntries(terminals.tabs.length > 0).map((entry) => {
+              const key = "view" in entry ? entry.view : entry.section;
+              return (
+                <button
+                  key={key}
+                  data-nav-target={key}
+                  aria-current={"view" in entry && view === entry.view ? "page" : undefined}
+                  onClick={(event) => {
+                    if ("view" in entry) navigate(entry.view === "terminals" ? terminals.hash : "#" + entry.view);
+                    else settings(entry.section);
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }}
+                >
+                  <span className="more-title">{"view" in entry ? label(entry.view) : t(`nav.more.${entry.section}`)}</span>
+                  <span className="more-detail">{t(`nav.moreDetail.${key}`)}</span>
+                </button>
+              );
+            })}
           </div>
         </details>
       </nav>

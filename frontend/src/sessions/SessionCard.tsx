@@ -7,7 +7,9 @@ import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
 import { CheckBadge } from "./CheckBadge";
 import { CIChip } from "../review/CIChip";
-import { approvalSummary } from "./approval-summary";
+import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "./ApprovalCard";
+import { StatusBadge } from "./StatusBadge";
+import { sessionState } from "./status";
 import {
   isScratchTerminal,
   scratchDefaultName,
@@ -89,31 +91,20 @@ export function SessionCard({
   useLocale();
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
-  const [approvalBusy, setApprovalBusy] = useState(false),
-    [denyReasonOpen, setDenyReasonOpen] = useState(false),
-    [denyReason, setDenyReason] = useState(""),
-    // Optimistic hide: `approval` is a prop from the parent's own poll (a
-    // separate cadence from onRefresh), so a decision here would otherwise
-    // stay visible until that poll's next tick catches up.
-    [resolvedApprovalID, setResolvedApprovalID] = useState<number | null>(null);
+  // Optimistic hide: `approval` is a prop from the parent's own poll (a
+  // separate cadence from onRefresh), so a decision here would otherwise stay
+  // visible until that poll's next tick catches up.
+  const [resolvedApprovalID, setResolvedApprovalID] = useState<number | null>(null);
   const activeApproval = approval && approval.id !== resolvedApprovalID ? approval : undefined;
-  async function decideApproval(decision: "approved" | "denied", note?: string) {
+  async function decideApproval(decision: "approved" | "denied", opts?: ApprovalDecisionOptions) {
     if (!activeApproval) return;
     const id = activeApproval.id;
-    setApprovalBusy(true);
     try {
-      await api.request(`/approvals/${id}/decision`, {
-        method: "POST",
-        body: note ? { decision, note } : { decision },
-      });
+      await api.request(`/approvals/${id}/decision`, { method: "POST", body: decisionBody(decision, opts) });
       setResolvedApprovalID(id);
-      setDenyReasonOpen(false);
-      setDenyReason("");
       await onRefresh();
     } catch (error) {
       onNotice(String(error), true);
-    } finally {
-      setApprovalBusy(false);
     }
   }
   const setup = s.setup_state === "creating",
@@ -230,43 +221,6 @@ export function SessionCard({
       onNotice(t("sessions.card.copyFailed"), true);
     }
   }
-  // The status key decides the chip; its label is translated on display. An
-  // unknown server status is shown as the server sent it.
-  const statusKey = setup
-    ? s.setup_cancel_requested
-      ? "cancelling"
-      : "settingUp"
-    : failed
-      ? "setupFailed"
-      : archived
-        ? "archived"
-        : agentExited
-          ? "agentExited"
-        : ended
-          ? s.status === "dead"
-            ? "ended"
-            : "untracked"
-          : ({
-              waiting: "wantsYou",
-              running: "working",
-              starting: "starting",
-              idle: "idle",
-              dead: "ended",
-            } as Record<string, string>)[s.status] || "";
-  const statusLabels: Record<string, string> = {
-    cancelling: t("sessions.card.status.cancelling"),
-    settingUp: t("sessions.card.status.settingUp"),
-    setupFailed: t("sessions.card.status.setupFailed"),
-    archived: t("sessions.card.status.archived"),
-    agentExited: t("sessions.card.status.agentExited"),
-    ended: t("sessions.card.status.ended"),
-    untracked: t("sessions.card.status.untracked"),
-    wantsYou: t("sessions.card.status.wantsYou"),
-    working: t("sessions.card.status.working"),
-    starting: t("sessions.card.status.starting"),
-    idle: t("sessions.card.status.idle"),
-  };
-  const status = statusKey ? statusLabels[statusKey]! : s.status;
   const preview = setup
     ? (s.setup_cancel_requested
         ? t("sessions.card.previewCancelling")
@@ -283,6 +237,7 @@ export function SessionCard({
     <article
       className={`scard s-${failed ? "failed" : s.status}`}
       data-session-id={s.id}
+      data-state={sessionState(s, approval ? !!activeApproval : undefined).state}
       data-scratch-terminal={scratch ? "true" : undefined}
     >
       {/* A blank shell has no project, so its location line names the machine
@@ -294,11 +249,7 @@ export function SessionCard({
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
         <span className="nm">{cardTitle}</span>
-        {statusKey === "wantsYou" ? (
-          <span className="sstate sstate-needs">{t("sessions.card.needsYou")}</span>
-        ) : (
-          <span className="sstate">{status}</span>
-        )}
+        <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} />
         <span className="sidle">
           {s.status === "dead" || setup
             ? ""
@@ -307,45 +258,7 @@ export function SessionCard({
       </div>
       {activeApproval && (
         <div className="scard-approval" data-approval-id={activeApproval.id}>
-          <div className="scard-approval-what">
-            <strong>{activeApproval.tool_name}</strong>
-            {approvalSummary(activeApproval) && <code>{approvalSummary(activeApproval)}</code>}
-          </div>
-          {denyReasonOpen ? (
-            <form
-              className="scard-approval-reason"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void decideApproval("denied", denyReason.trim() || undefined);
-              }}
-            >
-              <input
-                autoFocus
-                placeholder={t("sessions.card.reasonPlaceholder")}
-                value={denyReason}
-                onChange={(e) => setDenyReason(e.target.value)}
-                aria-label={t("sessions.card.reasonLabel")}
-              />
-              <button className="b" type="submit" disabled={approvalBusy}>
-                {t("sessions.card.send")}
-              </button>
-              <button className="b" type="button" onClick={() => setDenyReasonOpen(false)}>
-                {t("sessions.card.cancel")}
-              </button>
-            </form>
-          ) : (
-            <div className="scard-approval-actions">
-              <button className="b ok" disabled={approvalBusy} onClick={() => void decideApproval("approved")}>
-                {t("sessions.card.approve")}
-              </button>
-              <button className="b" disabled={approvalBusy} onClick={() => void decideApproval("denied")}>
-                {t("sessions.card.deny")}
-              </button>
-              <button className="b" disabled={approvalBusy} onClick={() => setDenyReasonOpen(true)}>
-                {t("sessions.card.denyWithReason")}
-              </button>
-            </div>
-          )}
+          <ApprovalCard compact approval={activeApproval} onDecide={decideApproval} />
         </div>
       )}
       {live && s.limit && (
@@ -708,17 +621,8 @@ export function SessionCard({
               </button>
             </>
           ) : (
-            <button
-              className="b no"
-              onClick={() => {
-                if (
-                  confirm(
-                    t("sessions.card.endConfirm", { name: s.name }),
-                  )
-                )
-                  end(true);
-              }}
-            >
+            // No confirmation: ending offers Undo, which reopens the session.
+            <button className="b no" onClick={() => end(true)}>
               {t("sessions.card.end")}
             </button>
           )}
@@ -726,12 +630,7 @@ export function SessionCard({
             <button
               className="b no"
               onClick={() => {
-                if (
-                  confirm(
-                    t("sessions.card.stopArchiveConfirm", { name: s.name }),
-                  )
-                )
-                  void close(
+                void close(
                     `/sessions/${s.id}/archive`,
                     "POST",
                     { stop: true },

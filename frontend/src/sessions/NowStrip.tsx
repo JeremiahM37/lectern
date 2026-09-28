@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { t, useLocale } from "../i18n";
 import type { SessionView } from "../types";
 import { nowItems, type NowState } from "./now-strip";
+import { stateText } from "./status";
 import "./now-strip.css";
 
 // The PWA analogue of a Live Activity: a phone cannot keep a native strip on
@@ -12,19 +13,11 @@ import "./now-strip.css";
 // `shown` list): a person typing to find one older session should not watch
 // their glanceable strip shrink to match.
 
-const LABEL = (): Record<NowState, string> => ({
-  working: t("sessions.now.working"),
-  waiting: t("sessions.now.waiting"),
-  exited: t("sessions.now.exited"),
-  done: t("sessions.now.done"),
-  error: t("sessions.now.error"),
-});
 const DOT: Record<NowState, string> = {
   working: "●",
-  waiting: "◆",
-  exited: "↻",
-  done: "○",
-  error: "✕",
+  needs_you: "◆",
+  idle: "◌",
+  ended: "○",
 };
 const CAP = 10;
 
@@ -37,7 +30,6 @@ interface Props {
 
 export function NowStrip({ rows, approvalsCount, onShowSession, onShowApprovals }: Props) {
   useLocale();
-  const labels = LABEL();
   const items = useMemo(() => nowItems(rows).slice(0, CAP), [rows]);
   if (!items.length && approvalsCount <= 0) return null;
   return (
@@ -64,15 +56,16 @@ export function NowStrip({ rows, approvalsCount, onShowSession, onShowApprovals 
               key={item.id}
               className="now-chip"
               data-state={item.state}
+              data-reason={item.reason || undefined}
               data-session-id={item.id}
-              aria-label={t("sessions.now.chipLabel", { name: item.name, state: labels[item.state] })}
+              aria-label={t("sessions.now.chipLabel", { name: item.name, state: stateText(item) })}
               onClick={() => session && onShowSession(session)}
             >
               <span className="now-dot" aria-hidden="true">
                 {DOT[item.state]}
               </span>
               <span className="now-name">{item.name}</span>
-              <span className="now-state">{labels[item.state]}</span>
+              <span className="now-state">{stateText(item)}</span>
             </button>
           );
         })}
