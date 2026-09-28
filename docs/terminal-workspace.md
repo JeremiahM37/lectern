@@ -1,13 +1,14 @@
 # Terminal workspace
 
-Attach opens an internal tab in **Terminals**, connected to the existing ttyd
-WebSocket and tmux session. Session attachments, running-task terminals and
+Attach opens an internal tab in **Terminals**, connected over Lectern's own
+terminal WebSocket (`lectern term-server`, which speaks ttyd's protocol) to the
+session in tmux or in Lectern's PTY host (docs/ptyhost.md). Session attachments, running-task terminals and
 project shells all use this workspace. Switching to the board or another tab
 keeps its terminal connection and output; attaching the same session reuses its
 tab. Closing a tab only disconnects that view. **Pop out** opens a separate
 browser tab when wanted. Open tabs restore after a page reload (inactive tabs
 connect when selected), and the workspace supports links such as
-`/#terminals/session/42`. ttyd still owns the PTY bridge and reconnects resolve by attachment
+`/#terminals/session/42`. The terminal server owns the PTY bridge and reconnects resolve by attachment
 identity. All JavaScript, fonts, PDF rendering, and terminal add-ons ship in the
 binary; clients do not contact a CDN.
 

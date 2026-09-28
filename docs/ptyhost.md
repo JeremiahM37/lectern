@@ -15,7 +15,7 @@ implementations, and a small PTY host that ships inside the `lectern` binary.
 | Platforms | Linux, macOS, WSL | Linux, macOS, Windows 10 1809+ |
 | Session survives a Lectern restart/upgrade | yes (tmux server) | yes (ptyhost process) |
 | Adopt sessions you started by hand | yes | no — tmux only (see below) |
-| Web terminal | ttyd wrapping `tmux attach` | built-in, straight to the PTY host |
+| Web terminal | `lectern term-server` running `tmux attach` | `lectern term-server`, straight from the PTY host |
 
 ## 1. The seam
 
@@ -32,8 +32,9 @@ target — locally, over SSH, or in a container), so both backends work on any
 target kind without new plumbing, and every parser (the framed poll, the
 agent probe, discovery) is shared.
 
-`backend.Tmux` produces exactly the strings the code produced before — the
-refactor is behaviour-neutral, and the existing suite is its proof.
+`backend.Tmux` produces the command lines the code produced before (one
+capture's argument order aside) — the refactor is behaviour-neutral, and the
+existing suite and a golden test are its proof.
 
 `backend.Pty` produces the same commands with the program word replaced:
 `'<lectern>' pty capture-pane -p -t '=lec-3:' -S -40` instead of
@@ -71,8 +72,8 @@ target** when its executor is made:
   on tmux; real terminals opened in mock mode (project shells) follow the
   setting.
 
-The resolved backend is reported by the target probe (`session_backend`) and
-by `lectern doctor`.
+The resolved backend is reported by the target probe (`session_backend`);
+`lectern doctor` says when tmux is not needed.
 
 Changing the setting does not move sessions. Sessions started under one
 backend are only visible while that backend is selected; switch back to reach
@@ -80,8 +81,8 @@ them.
 
 **Adoption is tmux-only.** Finding and adopting an agent you started by hand
 relies on tmux being a shared, discoverable server that any terminal can
-create sessions in. The PTY host only holds what Lectern started. With the
-pty backend, *Find running sessions* reports that adoption needs tmux.
+create sessions in. The PTY host only holds what Lectern started, so on a
+pty-backend target *Find running sessions* finds nothing to adopt.
 
 ## 2. `lectern ptyhost`
 
@@ -193,7 +194,7 @@ directory", and native identity.
 | `has-session`, `kill-session` | `-t =NAME` |
 | `capture-pane` | `-p -t T [-S -N] [-J] [-e]` |
 | `send-keys` | `-t T [-l] KEY…` (tmux key names: `Enter`, `Escape`, `C-c`, `Up`, `Tab`, …) |
-| `load-buffer` / `paste-buffer` | `-b NAME FILE`, `-b NAME -t T [-d] [-p]` |
+| `paste-file` (not tmux) | `-t T FILE`: tmux's load-buffer + paste-buffer -p in one command |
 | `display-message` | `-p -t T FORMAT` |
 | `list-panes`, `list-sessions` | `-a -F FORMAT` |
 | `set-option` / `show-options` | `[-o] -t T @name VALUE`, `-qv -t T @name` |
@@ -206,54 +207,103 @@ Plus the native `poll`, `probe`, and `lectern ptyhost status|stop|serve`.
 
 ## 4. Web and native terminals
 
-The web terminal speaks ttyd's WebSocket protocol (`/token`, `/ws`,
-subprotocol `tty`, `0`/`1`/`2`/`3` message prefixes). For a pty-backend
-attachment Lectern serves that protocol itself (`internal/terminal/ptyweb`)
-and connects the WebSocket straight to the PTY host — no ttyd, no extra PTY.
-For a remote pty target the same server runs `ssh -tt … lectern pty
-attach-session` in a local PTY. tmux attachments keep using ttyd.
+The browser terminal speaks ttyd's WebSocket protocol (`/token`, `/ws`,
+subprotocol `tty`, `0`/`1`/`2`/`3` message prefixes). Lectern now serves that
+protocol itself, for both backends, with `lectern term-server` (package
+`internal/terminal/webterm`), which takes ttyd's own arguments. ttyd is no
+longer needed anywhere; a Manager built without a binary (the Go tests) still
+uses it, so the protocol stays checked against the real thing.
 
-The native client (`lectern attach`) runs the attachment argv the server
-returns, which for the pty backend is `lectern pty attach-session -t NAME`
-(put the local terminal in raw mode, detach with Ctrl-] then `d`... or by
-closing the window). Lectern's Ctrl-] controls overlay still needs a local
-tmux; without one the attachment runs directly, as it already does.
+- A pty-backend attachment on this machine (`lectern pty attach-session …` or
+  the project-shell form `lectern pty new-session -A …`) runs the same client
+  code in the terminal server's process and streams the host's frames straight
+  to the WebSocket: no second pseudo-terminal, no re-encoding.
+- Anything else — `tmux attach`, an `ssh -tt …` to another machine, `pct exec`
+  — runs on a pseudo-terminal of its own per connection, as with ttyd.
+- A terminal server that dies is replaced on the next request, even before
+  it has been reaped.
+
+The native client (`lectern attach`) runs the argv the server returns, which
+for the pty backend is `lectern pty attach-session -t =NAME`: raw mode, the
+session's snapshot, then the live stream. Ctrl-] then `d` detaches, as does
+closing the window. Lectern's Ctrl-] controls overlay still needs a local
+tmux; without one the attachment runs directly, as it already did.
 
 ## 5. Python on the agent machine
 
-Every target-side Python helper has a Go port reachable as `lectern helper
-NAME …`, with byte-identical output. When the target has a `lectern` binary
-(always for the local target; probed for SSH/pct targets) Lectern runs the
-Go helper; otherwise it runs the existing Python, and `lectern doctor` and
-the target probe say that Python is then required. The inventory is in
-§8.
+Every target-side Python helper has a Go port run as `lectern helper NAME …`,
+with the same arguments, output and exit status (parity tests run both on the
+same fixtures). Lectern uses the Go port when the target has a `lectern`
+binary that lists the helper: always for the local target, and for an SSH or
+pct target whose probe (`lectern helper --capabilities`) lists it — a remote
+binary older than the server is only asked for what it has. Otherwise the
+Python runs as before.
+
+Still Python, by design: the desktop and computer-use tools (Linux-only, need
+Xvfb and AT-SPI), the autonomous workshop's host helpers under
+`/usr/local/libexec`, and plugin hook templates written by users.
 
 ## 6. Windows server
 
-- Commands run through Git for Windows' `bash.exe` (found beside `git.exe`),
-  so Lectern's shell command lines, and Claude Code, work unchanged. Git for
-  Windows is already a requirement for Claude Code on Windows.
-- The session backend is `pty`.
-- `lectern up --service` registers a per-user logon entry
-  (`HKCU\…\Run\Lectern`, no administrator rights) that starts
-  `lectern local supervise --detach`; the process re-launches itself
-  detached, so no console window stays open and closing one ends nothing.
-- State lives under `%LOCALAPPDATA%\lectern`.
+- Command lines run through Git for Windows' `bash.exe` (found beside
+  `git.exe`, never `System32\bash.exe`, which is WSL), so Lectern's POSIX
+  command lines work unchanged; paths they print in `/c/…` form are read back
+  as `C:\…`. Git for Windows is already what Claude Code needs on Windows.
+  `LECTERN_BASH` names another bash.
+- The local target's session backend is the PTY host; `/bin/sh`-style program
+  paths map to Git's own programs.
+- The local runtime (`lectern up`, the TUI) runs on Windows: its singleton
+  lock is `LockFileEx` and the engine inherits the locked handle and the token
+  pipe as handles.
+- `lectern up --service` writes a per-user logon entry
+  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Lectern`, no
+  administrator rights) running `lectern up --no-browser`, which starts the
+  runtime detached and exits; a console flashes briefly at logon. A logon
+  entry does not restart a crashed runtime; the next `lectern` command does.
+- State lives under `%LOCALAPPDATA%\lectern` (the PTY host's socket) and the
+  usual `XDG_STATE_HOME` fallback (`~/.local/state/lectern`).
 
 ## 7. Testing
 
-- Session-level Go tests run table-driven against both backends on Linux.
-- `internal/ptyhost` has unit tests for the protocol, the format language and
-  capture, and a real smoke test (spawn a shell, send text, capture, resize,
-  reattach after the client — standing in for a server — restarts).
-- CI adds `windows-latest` and `macos-latest` jobs running the backend and
-  ptyhost tests, including the smoke test. The reviewed isolated Linux runner
-  is unchanged.
-- A subset of the browser suite runs with `LECTERN_SESSION_BACKEND=pty`.
+- `internal/sessions/backend`: golden tests pin every tmux command to what
+  Lectern sent before the seam; the pty backend's commands and the resolver
+  are unit-tested.
+- `internal/ptyhost`: the format language, targets, flags and keys; and real
+  tests that start a detached host, type, capture, resize, attach, detach and
+  reattach, poll and probe, and stop a session only when its tracking identity
+  matches.
+- `internal/terminal/webterm`: a program on its own terminal, and a PTY-host
+  session streamed straight from the host, over the real WebSocket protocol.
+- `internal/api` real-process tests run once per backend: dispatch, failing
+  and custom tasks, interactive launch and priming, typed text, release, kill
+  and handoff.
+- `internal/smoke`: builds `lectern`, serves it with the pty backend, opens a
+  shell, types through the API and the web terminal, kills and restarts the
+  server, and finds the same shell.
+- The browser suite runs `e2e/test_pty_backend.py` against a real server with
+  `LECTERN_SESSION_BACKEND=pty`; the rest of it now uses `term-server` instead
+  of ttyd.
+- CI: `windows-latest` and `macos-latest` jobs run the backend, PTY host, web
+  terminal, Git Bash, local runtime and smoke tests. The reviewed isolated
+  Linux runner is unchanged, except that it no longer requires ttyd.
+
+## Known gaps
+
+- Windows and macOS are exercised by CI only; nothing here was run on those
+  systems by hand.
+- Windows has no public API for another process's working directory: the
+  pane's directory is the shell's last OSC 7 report, else where the session
+  started. The foreground process is the newest one in the session's tree.
+- Agent-exit detection on Windows reads the newest process's command line; it
+  is best-effort.
+- Native conversation identity reads Linux `/proc`; elsewhere it is
+  inconclusive, as it was.
+- The screen model does not reflow on resize, and `capture-pane -J` does not
+  join wrapped lines.
+- Sessions on the PTY host end when the user logs out if the OS ends the
+  user's processes (systemd `KillUserProcesses`), exactly as tmux's do.
 
 ## 8. Python helper inventory
-
-See the table maintained at the end of this file once the ports land.
 
 ### Agent hooks, drivers and trust
 
@@ -279,3 +329,18 @@ proxy rules, including proxying loopback, which the network=deny sandbox
 needs), so a curl-less target works too; `lec`'s usage text names the Go
 command. Operator- or catalog-defined trust commands (e.g. openclaude's) run
 as declared.
+
+### Native identity, conversations and search
+
+| helper | replaces | used by |
+|---|---|---|
+| `native-identity` | `native_records.py` + `native_identity.py` | `sessions.CaptureNativeID`, `sessions.CaptureNativeEvidence` |
+| `native-conversations` | `conversations.py` | conversation history (`api/native_conversations.go`), adopted-session matching |
+| `native-conversation-live` | `conversation_live.py` | the structured live conversation view |
+| `catalog-sessions` | `catalog_sessions.py` | catalog agents' conversation lists |
+| `configured-home` | the configured-home probe | `sessions.ProbeConfiguredHome` |
+| `claude-fork-path` | `claude_fork_path.py` | forking a Claude conversation |
+| `native-search`, `native-search-read` | the native search scripts | native search; the Go and Python versions read each other's SQLite index |
+
+These read Linux `/proc` as the scripts did, and ask the target's session
+backend about a pane through `helpers.Mux`.

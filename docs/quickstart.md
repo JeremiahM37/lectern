@@ -36,8 +36,10 @@ LECTERN_HOST=127.0.0.1 LECTERN_MOCK=1 ./lectern serve
 
 ## 2. Register a target
 
-A target is any machine that runs agents. It needs `git`, `tmux`, `python3`, and
-a coding-agent CLI (`claude`), reachable one of these ways:
+A target is any machine that runs agents. It needs `git` and a coding-agent CLI
+(`claude`), plus either the `lectern` binary (always true of the `local`
+target) or `tmux` and `python3` (docs/ptyhost.md). It is reachable one of these
+ways:
 
 | kind | reaches | `host` field |
 |------|---------|--------------|
