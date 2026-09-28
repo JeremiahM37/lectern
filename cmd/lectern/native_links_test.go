@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,6 +438,7 @@ func TestNativeMouseBindingsOnARealClient(t *testing.T) {
 	if lines := r.waitOpened(2); filepath.Base(lines[0]) != "Jeremiah_Mackey_Cerebras.pdf" {
 		t.Fatalf("opened %q", lines[0])
 	}
+	time.Sleep(flashFor + 300*time.Millisecond) // the highlight has gone
 	// A word: tmux selects and copies it, as without Lectern.
 	x, y = r.at("Both", 1)
 	mouse(0, x+1, y+2)
@@ -512,8 +515,8 @@ func TestBoundCommandReadsBackTmuxDefaults(t *testing.T) {
 	}
 	conf := linkBindings("/tmp/a b/link.sh", "/tmp/a b/menu.conf", map[string]string{"DoubleClick1Pane": "DBL", "MouseDown3Pane": "RIGHT"})
 	for _, want := range []string{
-		`bind-key -T root DoubleClick1Pane if-shell -F "#{pane_in_mode}" { DBL } { if-shell "! '/tmp/a b/link.sh' click #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink}" { DBL } }`,
-		`bind-key -T root MouseDown3Pane if-shell -F "#{pane_in_mode}" { RIGHT } { if-shell "'/tmp/a b/link.sh' menu #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink}" { source-file "/tmp/a b/menu.conf" } { RIGHT } }`,
+		`bind-key -T root DoubleClick1Pane if-shell -F "#{pane_in_mode}" { DBL } { if-shell "! '/tmp/a b/link.sh' click #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink} --client=#{q:client_name}" { DBL } }`,
+		`bind-key -T root MouseDown3Pane if-shell -F "#{pane_in_mode}" { RIGHT } { if-shell "'/tmp/a b/link.sh' menu #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink} --client=#{q:client_name}" { source-file "/tmp/a b/menu.conf" } { RIGHT } }`,
 	} {
 		if !strings.Contains(conf, want) {
 			t.Fatalf("bindings missing %q:\n%s", want, conf)
@@ -630,13 +633,14 @@ func TestNativeLinksTakePrecedenceOverAMouseTrackingAgent(t *testing.T) {
 	if lines := r.waitOpened(2); filepath.Base(lines[0]) != "Jeremiah_Mackey_Cerebras.pdf" {
 		t.Fatalf("opened %q", lines[0])
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(flashFor + 500*time.Millisecond) // the highlight has gone
 	x, y = r.at("https://example.com", 9)
 	mouse(0, x+1, y+2)
 	mouse(0, x+1, y+2)
 	if lines := r.waitOpened(3); lines[2] != "https://example.com/docs/page" {
 		t.Fatalf("opened %q", lines)
 	}
+	time.Sleep(flashFor + 300*time.Millisecond)
 	// A right-click on the path is Lectern's menu, not the agent's click.
 	x, y = r.at("application-testing", 4)
 	mouse(2, x+1, y+2)
@@ -651,4 +655,130 @@ func TestNativeLinksTakePrecedenceOverAMouseTrackingAgent(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func TestHintLabelsArePrefixFree(t *testing.T) {
+	if got := strings.Join(hintLabels(3), ","); got != "a,s,d" {
+		t.Fatalf("few links: %s", got)
+	}
+	for _, n := range []int{26, 27, 100, 676} {
+		labels := hintLabels(n)
+		if len(labels) != n {
+			t.Fatalf("%d labels for %d links", len(labels), n)
+		}
+		seen := map[string]bool{}
+		for _, a := range labels {
+			if seen[a] {
+				t.Fatalf("duplicate label %q", a)
+			}
+			seen[a] = true
+			for _, b := range labels {
+				if a != b && strings.HasPrefix(b, a) {
+					t.Fatalf("%q is a prefix of %q", a, b)
+				}
+			}
+		}
+	}
+	if failure("open", errors.New("No such file or directory")) != "Couldn't open: No such file or directory" {
+		t.Fatal("failure wording")
+	}
+}
+
+// outerScreen is what the operator's terminal shows.
+func (r *linkRig) outerScreen() string {
+	out, _ := exec.Command(r.tmux, "-S", filepath.Join(r.plan.dir, "outer"), "capture-pane", "-p", "-t", "outer").Output()
+	return string(out)
+}
+
+func (r *linkRig) waitOuter(what string, ok func(string) bool) string {
+	r.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		screen := r.outerScreen()
+		if ok(screen) {
+			return screen
+		}
+		if time.Now().After(deadline) {
+			r.t.Fatalf("%s never showed:\n%s", what, screen)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (r *linkRig) keys(keys ...string) {
+	r.t.Helper()
+	if out, err := exec.Command(r.tmux, append([]string{"-S", filepath.Join(r.plan.dir, "outer"), "send-keys", "-t", "outer"}, keys...)...).CombinedOutput(); err != nil {
+		r.t.Fatalf("keys: %v %s", err, out)
+	}
+}
+
+// Ctrl+] e labels every path and link on screen, wrapped ones included;
+// typing a label opens it, and Shift+label offers the other actions.
+func TestNativeHintsLabelAndOpenLinks(t *testing.T) {
+	r := newLinkRig(t, codexScreen(t), false, "Jeremiah_Mackey_Cerebras.pdf)")
+	r.client()
+	r.waitOuter("the attachment", func(s string) bool { return strings.Contains(s, "Ctrl+] e") && strings.Contains(s, "Cerebras.pdf)") })
+	r.keys("C-]", "e")
+	// The wrapped path is the first link, labelled "a" over its first row;
+	// the address is "s".
+	screen := r.waitOuter("the hints", func(s string) bool {
+		return strings.Contains(s, "(a") && strings.Contains(s, "(s")
+	})
+	if strings.Contains(screen, "(/home/admin/.formwork/") {
+		t.Fatalf("the label does not cover the path:\n%s", screen)
+	}
+	r.keys("a")
+	if lines := r.waitOpened(2); filepath.Base(lines[0]) != "Jeremiah_Mackey_Cerebras.pdf" {
+		t.Fatalf("opened %q", lines)
+	}
+	r.waitOuter("the status message", func(s string) bool { return strings.Contains(s, "Opened Jeremiah_Mackey_Cerebras.pdf") })
+	time.Sleep(flashFor + 300*time.Millisecond)
+	// Shift+label: the actions for the address.
+	r.keys("C-]", "e")
+	r.waitOuter("the hints", func(s string) bool { return strings.Contains(s, "(s") })
+	r.keys("S")
+	r.waitOuter("the actions", func(s string) bool { return strings.Contains(s, "o open") && strings.Contains(s, "c copy link") })
+	r.keys("c")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		out, _ := exec.Command(r.tmux, "-S", r.plan.socket, "show-buffer").Output()
+		if string(out) == "https://example.com/docs/page" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the link was not copied")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(flashFor + 300*time.Millisecond)
+	// Esc leaves without doing anything.
+	r.keys("C-]", "e")
+	r.waitOuter("the hints", func(s string) bool { return strings.Contains(s, "(a") })
+	r.keys("Escape")
+	r.waitOuter("the pane again", func(s string) bool { return strings.Contains(s, "(/home/admin/.formwork/") })
+}
+
+// A click says what happened: the path is highlighted for a moment, and the
+// status line says it is opening, or why it could not.
+func TestNativeClickFeedback(t *testing.T) {
+	r := newLinkRig(t, []byte("see /tmp/nowhere/gone.pdf and /tmp/also/missing.txt\r\n"), false, "missing.txt")
+	mouse := r.client()
+	x, y := r.at("/tmp/nowhere/gone.pdf", 3)
+	mouse(0, x+1, y+2)
+	mouse(0, x+1, y+2)
+	// The highlight: the path drawn again in reverse video, over the pane.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, _ := exec.Command(r.tmux, "-S", filepath.Join(r.plan.dir, "outer"), "capture-pane", "-p", "-e", "-t", "outer").Output()
+		if regexp.MustCompile(`\x1b\[[0-9;]*7m/tmp/nowhere/gone\.pdf`).Match(out) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the path was never highlighted:\n%q", out)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	r.waitOuter("the status message", func(s string) bool {
+		return strings.Contains(s, "Couldn't open: could not open /tmp/nowhere/gone.pdf: No such file or directory")
+	})
 }

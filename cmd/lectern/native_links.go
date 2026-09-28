@@ -90,7 +90,11 @@ func terminalLinkCommand(args []string) int {
 			if value, ok := strings.CutPrefix(arg, "--hyperlink="); ok {
 				hyperlink = value
 			}
+			if value, ok := strings.CutPrefix(arg, "--client="); ok {
+				e.client = value
+			}
 		}
+		e.pane = rest[0]
 		link, ok := e.detect(rest[0], x, y, hyperlink)
 		if !ok {
 			return 1
@@ -117,14 +121,42 @@ func terminalLinkCommand(args []string) int {
 		}
 		link, err := e.loadLink(rest[1])
 		if err != nil {
-			e.say("Lectern: " + err.Error())
+			e.say(failure(rest[0], err))
 			return 1
 		}
+		if delay, _ := strconv.Atoi(os.Getenv(linkDelayEnv)); delay > 0 {
+			time.Sleep(time.Duration(min(delay, 2000)) * time.Millisecond)
+		}
+		if rest[0] != "view" && rest[0] != "web" {
+			e.flash(link)
+		}
 		if err := e.act(rest[0], link); err != nil {
-			e.say("Lectern: " + err.Error())
+			e.say(failure(rest[0], err))
 			return 1
 		}
 		return 0
+	case "flash":
+		if len(rest) != 1 {
+			return 2
+		}
+		link, err := e.loadLink(rest[0])
+		if err != nil {
+			return 1
+		}
+		e.showFlash(link)
+		return 0
+	case "hints-open":
+		if len(rest) != 4 {
+			return 2
+		}
+		e.pane, e.client = rest[0], rest[1]
+		return e.openHints(rest[2], rest[3])
+	case "hints":
+		if len(rest) != 2 {
+			return 2
+		}
+		e.pane, e.client = rest[0], rest[1]
+		return e.hints(os.Stdin, os.Stdout)
 	case "view":
 		if len(rest) != 1 {
 			return 2
@@ -147,6 +179,9 @@ func terminalLinkCommand(args []string) int {
 type linkEnv struct {
 	kind, id, base, token string
 	socket, target, dir   string
+	// client and pane the link was found on, when known: status messages
+	// and the highlight go to that client, over that pane.
+	client, pane string
 }
 
 // ---- finding the link under the pointer
@@ -158,7 +193,11 @@ func (e *linkEnv) tmux(args ...string) (string, error) {
 
 // say shows a short message on the attached terminal's status line.
 func (e *linkEnv) say(message string) {
-	_, _ = e.tmux("display-message", "-d", "5000", "--", strings.ReplaceAll(message, "#", "##"))
+	args := []string{"display-message", "-d", "5000"}
+	if e.client != "" {
+		args = append(args, "-c", e.client)
+	}
+	_, _ = e.tmux(append(args, "--", strings.ReplaceAll(message, "#", "##"))...)
 }
 
 func (e *linkEnv) detect(pane string, x, y int, hyperlink string) (filelinks.Link, bool) {
@@ -378,8 +417,15 @@ func uniquePath(folder, name string) string {
 
 // ---- keeping a found link for the menu
 
+// linkRecord is a found link and where it was found.
+type linkRecord struct {
+	filelinks.Link
+	Client string `json:",omitempty"`
+	Pane   string `json:",omitempty"`
+}
+
 func (e *linkEnv) saveLink(link filelinks.Link) (string, error) {
-	data, err := json.Marshal(link)
+	data, err := json.Marshal(linkRecord{Link: link, Client: e.client, Pane: e.pane})
 	if err != nil {
 		return "", err
 	}
@@ -402,7 +448,17 @@ func (e *linkEnv) loadLink(file string) (filelinks.Link, error) {
 	if err != nil {
 		return link, errors.New("that link has expired")
 	}
-	return link, json.Unmarshal(data, &link)
+	var record linkRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return link, err
+	}
+	if e.client == "" {
+		e.client = record.Client
+	}
+	if e.pane == "" {
+		e.pane = record.Pane
+	}
+	return record.Link, nil
 }
 
 // spawn runs another step of this command on its own, detached from tmux.
@@ -547,6 +603,7 @@ func (e *linkEnv) openURL(target string) error {
 	if !ok {
 		return e.copy(target, "Copied link, open it in your browser: "+target)
 	}
+	e.say("Opening " + target + "…")
 	if err := open(target); err != nil {
 		return err
 	}
@@ -566,6 +623,7 @@ func (e *linkEnv) open(link filelinks.Link) error {
 	if !safeToOpen(link.Path) {
 		return fmt.Errorf("not opening %s: it could run as a program; use Download or View instead", path.Base(link.Path))
 	}
+	e.say("Opening " + path.Base(link.Path) + "…")
 	sweepOpened()
 	folder, err := os.MkdirTemp("", openedPrefix)
 	if err != nil {
@@ -870,7 +928,7 @@ var splitMenuItems = []string{"''", `"Split: shell in project"`, "|", "{ split-w
 func linkBindings(script, menu string, defaults map[string]string) string {
 	ask := func(verb string) string {
 		return strings.ReplaceAll(shellq.Quote(script), "#", "##") + " " + verb +
-			" #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink}"
+			" #{pane_id} #{mouse_x} #{mouse_y} --hyperlink=#{q:mouse_hyperlink} --client=#{q:client_name}"
 	}
 	var lines []string
 	if double, ok := defaults["DoubleClick1Pane"]; ok {

@@ -277,9 +277,9 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
 	// Double-click opens a path or link an agent printed, on this machine; it
 	// follows the controls key so a narrow terminal still shows Ctrl+] m.
-	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Double-click#[default] open path · Ctrl-b d detach "
+	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Ctrl+] e#[default] links · #[bold]Double-click#[default] open path · Ctrl-b d detach "
 	if p.controls.TabView {
-		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
+		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Ctrl+] e#[default] links · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
@@ -307,6 +307,9 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -T prefix C-] send-prefix",
 		// A shell on the session's machine, in the agent's directory, beside
 		// or below the agent (native_split.go).
+		// Label every path and link on screen; typing a label opens it
+		// (native_hints.go).
+		"bind-key -T prefix e run-shell -b " + tmuxDQ(strings.ReplaceAll(shellq.Quote(p.linkScript), "#", "##")+" hints-open '#{pane_id}' '#{client_name}' '#{pane_width}' '#{pane_height}'"),
 		"bind-key -T prefix | split-window -h",
 		"bind-key -T prefix - split-window -v",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
