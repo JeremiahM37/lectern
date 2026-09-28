@@ -41,6 +41,7 @@ type runResult struct {
 type runSpec struct {
 	dir   string
 	env   []string // added to the inherited environment
+	unset []string // removed from it
 	stdin string
 }
 
@@ -48,7 +49,12 @@ func runProcess(t *testing.T, spec runSpec, argv ...string) runResult {
 	t.Helper()
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = spec.dir
-	cmd.Env = append(os.Environ(), spec.env...)
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(spec.unset, name) {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, spec.env...)
 	cmd.Stdin = strings.NewReader(spec.stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -188,6 +194,7 @@ func twinSteps(t *testing.T, script, name string, normalize func(root, s string)
 		goRes := runGo(t, goSpec, name, goSteps[i]...)
 		py.stdout, goRes.stdout = norm(pyRoot, py.stdout), norm(goRoot, goRes.stdout)
 		sameResult(t, py, goRes)
+		t.Logf("step %d: rc %d %s", i, goRes.rc, strings.TrimSpace(goRes.stdout))
 		pyAll, goAll = append(pyAll, py), append(goAll, goRes)
 		if a, b := norm(pyRoot, treeOf(t, pyRoot)), norm(goRoot, treeOf(t, goRoot)); a != b {
 			t.Fatalf("after step %d trees differ\npython:\n%s\ngo:\n%s", i, a, b)

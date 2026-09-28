@@ -7,7 +7,6 @@ package helpers
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -257,15 +256,7 @@ const tempChars = "abcdefghijklmnopqrstuvwxyz0123456789_"
 func pyMkstemp(dir, prefix string) (*os.File, string, error) {
 	var last error
 	for range 100 {
-		var raw [8]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			return nil, "", err
-		}
-		name := make([]byte, 8)
-		for i, b := range raw {
-			name[i] = tempChars[int(b)%len(tempChars)]
-		}
-		path := pyAbspath(pyJoin(dir, prefix+string(name)))
+		path := pyAbspath(pyJoin(dir, prefix+tempName()))
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
 		if err == nil {
 			return f, path, nil
