@@ -7,9 +7,11 @@ package helpers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"os/exec"
 	"strings"
@@ -203,4 +205,111 @@ func pyEnviron(extra ...string) []string {
 		env = append(kept, prefix+extra[i+1])
 	}
 	return env
+}
+
+// text is how text=True reads a child's output: strict UTF-8 (a decoding
+// failure is a UnicodeDecodeError) with universal newlines.
+func (r pyResult) text(data []byte) (string, error) {
+	s, err := pyDecodeStrict(data)
+	if err != nil {
+		return "", err
+	}
+	return pyUniversalNewlines(s), nil
+}
+
+// pyMakedirs is os.makedirs(name, mode, exist_ok): parents missing on the way
+// are made with the default 0o777, only the last with mode.
+func pyMakedirs(name string, mode os.FileMode, existOK bool) error {
+	head, tail := pySplit(name)
+	if tail == "" {
+		head, tail = pySplit(head)
+	}
+	if head != "" && tail != "" && !pyExists(head) {
+		if err := pyMakedirs(head, 0o777, existOK); err != nil && pyErrKind(err) != "FileExistsError" {
+			return err
+		}
+		if tail == "." {
+			return nil
+		}
+	}
+	if err := os.Mkdir(name, mode); err != nil {
+		if !existOK || !pyIsDir(name) {
+			return pyErr(err, name)
+		}
+	}
+	return nil
+}
+
+// pySplit is os.path.split.
+func pySplit(p string) (string, string) {
+	i := strings.LastIndex(p, "/") + 1
+	head, tail := p[:i], p[i:]
+	if head != "" && head != strings.Repeat("/", len(head)) {
+		head = strings.TrimRight(head, "/")
+	}
+	return head, tail
+}
+
+const tempChars = "abcdefghijklmnopqrstuvwxyz0123456789_"
+
+// pyMkstemp is tempfile.mkstemp(prefix=prefix, dir=dir): a new 0600 file
+// with eight random name characters.
+func pyMkstemp(dir, prefix string) (*os.File, string, error) {
+	var last error
+	for range 100 {
+		var raw [8]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return nil, "", err
+		}
+		name := make([]byte, 8)
+		for i, b := range raw {
+			name[i] = tempChars[int(b)%len(tempChars)]
+		}
+		path := pyAbspath(pyJoin(dir, prefix+string(name)))
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
+		if err == nil {
+			return f, path, nil
+		}
+		if pyErrKind(err) != "FileExistsError" {
+			return nil, "", pyErr(err, path)
+		}
+		last = pyErr(err, path)
+	}
+	return nil, "", last
+}
+
+// pyReplace is os.replace(src, dst).
+func pyReplace(src, dst string) error {
+	err := os.Rename(src, dst)
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return pyErr(le.Err, src, dst)
+	}
+	return err
+}
+
+// pyKeyError is KeyError(key); str() of it is the key's repr.
+type pyKeyError struct{ key string }
+
+func (e *pyKeyError) Error() string { return pyReprString(e.key) }
+
+// pyTypeName is type(v).__name__ for a JSON value.
+func pyTypeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "NoneType"
+	case bool:
+		return "bool"
+	case int, int64, *big.Int:
+		return "int"
+	case float64:
+		return "float"
+	case string:
+		return "str"
+	case []any:
+		return "list"
+	case *pyObj:
+		return "dict"
+	}
+	return "object"
 }

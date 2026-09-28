@@ -256,7 +256,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		if err != nil {
 			return kw, err
 		}
-		result, err := ex.Run(ctx, stateEnv+agents.MCPInstallCommand(agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
+		result, err := ex.Run(ctx, stateEnv+agents.MCPInstallCommandFor(ex, agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
 		if err != nil || !result.OK() {
 			if err != nil {
 				return kw, err

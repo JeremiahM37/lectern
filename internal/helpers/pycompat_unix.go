@@ -13,3 +13,5 @@ func setSession(cmd *exec.Cmd, on bool) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 }
+
+const oNoFollow = syscall.O_NOFOLLOW

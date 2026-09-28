@@ -7,12 +7,14 @@ package helpers
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -149,4 +151,78 @@ func pythonConst(t *testing.T, rel, name string) string {
 		t.Fatalf("no constant %s in %s", name, rel)
 	}
 	return out
+}
+
+// twin runs the Python script in one copy of a fixture and the port in
+// another, then compares their output (with each copy's directory written
+// as $ROOT) and the trees they leave behind. build fills a fresh directory
+// and returns how to run in it and the arguments.
+func twin(t *testing.T, script, name string, build func(t *testing.T, root string) (runSpec, []string)) (py, goRes runResult) {
+	t.Helper()
+	var pyAll, goAll []runResult
+	pyAll, goAll = twinSteps(t, script, name, nil, func(t *testing.T, root string) (runSpec, [][]string) {
+		spec, args := build(t, root)
+		return spec, [][]string{args}
+	})
+	return pyAll[0], goAll[0]
+}
+
+// twinSteps is twin for a sequence of invocations in the same fixture.
+// normalize, when set, rewrites what depends on the fixture's own path
+// (a hash of it, say) in outputs and trees.
+func twinSteps(t *testing.T, script, name string, normalize func(root, s string) string,
+	build func(t *testing.T, root string) (runSpec, [][]string)) (pyAll, goAll []runResult) {
+	t.Helper()
+	requirePython(t)
+	pyRoot, goRoot := t.TempDir(), t.TempDir()
+	norm := func(root, s string) string {
+		if normalize != nil {
+			s = normalize(root, s)
+		}
+		return strings.ReplaceAll(s, root, "$ROOT")
+	}
+	pySpec, pySteps := build(t, pyRoot)
+	goSpec, goSteps := build(t, goRoot)
+	for i := range pySteps {
+		py := runPy(t, pySpec, script, pySteps[i]...)
+		goRes := runGo(t, goSpec, name, goSteps[i]...)
+		py.stdout, goRes.stdout = norm(pyRoot, py.stdout), norm(goRoot, goRes.stdout)
+		sameResult(t, py, goRes)
+		pyAll, goAll = append(pyAll, py), append(goAll, goRes)
+		if a, b := norm(pyRoot, treeOf(t, pyRoot)), norm(goRoot, treeOf(t, goRoot)); a != b {
+			t.Fatalf("after step %d trees differ\npython:\n%s\ngo:\n%s", i, a, b)
+		}
+	}
+	return pyAll, goAll
+}
+
+// treeOf lists a directory: every entry's type, permissions and content or
+// link target.
+func treeOf(t *testing.T, root string) string {
+	t.Helper()
+	var b strings.Builder
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		// Git's own files hold times and inode numbers; its exclude list is
+		// the one a helper edits.
+		if parts := strings.Split(filepath.ToSlash(rel), "/"); len(parts) > 1 && slices.Contains(parts[:len(parts)-1], ".git") &&
+			!strings.HasSuffix(filepath.ToSlash(rel), ".git/info/exclude") && !strings.HasSuffix(filepath.ToSlash(rel), ".git/info") {
+			return nil
+		}
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			target, _ := os.Readlink(path)
+			fmt.Fprintf(&b, "%s -> %s\n", rel, strings.ReplaceAll(target, root, "$ROOT"))
+		case info.IsDir():
+			fmt.Fprintf(&b, "%s/ %v\n", rel, info.Mode().Perm())
+		default:
+			data, _ := os.ReadFile(path)
+			fmt.Fprintf(&b, "%s %v %q\n", rel, info.Mode().Perm(), strings.ReplaceAll(string(data), root, "$ROOT"))
+		}
+		return nil
+	})
+	return b.String()
 }

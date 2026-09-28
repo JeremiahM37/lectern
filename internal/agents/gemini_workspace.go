@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 )
 
 // Interactive Gemini CLI has no per-session MCP file: its settings-file
@@ -90,6 +93,18 @@ func GeminiWorkspaceMCPCommand(workdir string, sessionID int64, owned bool, serv
 	}
 	raw, _ := json.Marshal(in)
 	return "python3 -c " + shellQuote(geminiWorkspaceScript) + " " + shellQuote(string(raw))
+}
+
+// GeminiWorkspaceMCPCommandFor is GeminiWorkspaceMCPCommand for the target ex
+// drives: the lectern helper when that target has the binary.
+func GeminiWorkspaceMCPCommandFor(ex executor.Executor, workdir string, sessionID int64, owned bool, servers map[string]any) string {
+	fallback := GeminiWorkspaceMCPCommand(workdir, sessionID, owned, servers)
+	in := map[string]any{"op": "remove", "workdir": workdir, "session": sessionID}
+	if servers != nil {
+		in = map[string]any{"op": "install", "workdir": workdir, "session": sessionID, "owned": owned, "servers": servers}
+	}
+	raw, _ := json.Marshal(in)
+	return helpers.Command(ex, "gemini-workspace", []string{string(raw)}, fallback)
 }
 
 // ParseGeminiWorkspaceMCP decodes the helper's reply.
