@@ -47,6 +47,9 @@ type agentQuickFakeAPI struct {
 	sessions []quickSessionView
 	created  map[string]any // last POST /sessions body
 	nextID   int64
+	// onboarding, when set, answers GET /onboarding; nil is an older server.
+	onboarding   any
+	projectPosts []map[string]any
 }
 
 func newAgentQuickFakeAPI() *agentQuickFakeAPI {
@@ -60,6 +63,18 @@ func (f *agentQuickFakeAPI) server(t *testing.T) *httptest.Server {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/projects":
 			json.NewEncoder(w).Encode(f.projects)
+		case r.Method == "GET" && r.URL.Path == "/api/onboarding" && f.onboarding != nil:
+			json.NewEncoder(w).Encode(f.onboarding)
+		case r.Method == "GET" && r.URL.Path == "/api/targets":
+			json.NewEncoder(w).Encode([]upTargetView{{ID: 1, Kind: "local"}})
+		case r.Method == "POST" && r.URL.Path == "/api/projects":
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			f.projectPosts = append(f.projectPosts, body)
+			repo, _ := body["repo_path"].(string)
+			f.projects = append(f.projects, quickProjectView{ID: 55, RepoPath: repo})
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(upProjectView{ID: 55, Name: fmt.Sprint(body["name"]), RepoPath: repo})
 		case r.Method == "GET" && r.URL.Path == "/api/sessions":
 			json.NewEncoder(w).Encode(f.sessions)
 		case r.Method == "POST" && r.URL.Path == "/api/sessions":
@@ -333,5 +348,63 @@ func TestPhoneBasePrefersServerPhoneURL(t *testing.T) {
 			t.Errorf("reported %q: phoneBase = %q, want %q", tc.reported, got, want)
 		}
 		srv.Close()
+	}
+}
+
+func TestAgentQuickRegistersTheGitFolderAsAProject(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	repo := filepath.Join(t.TempDir(), "otherapp")
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	sub := filepath.Join(repo, "src")
+	_ = os.MkdirAll(sub, 0o755)
+	f := newAgentQuickFakeAPI()
+	srv := f.server(t)
+	defer srv.Close()
+	c := console.New(srv.URL, "")
+	if _, err := resolveAgentSession(c, "claude", sub, agentQuickOpts{RegisterProject: true}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.projectPosts) != 1 || f.projectPosts[0]["name"] != "otherapp" || !samePath(fmt.Sprint(f.projectPosts[0]["repo_path"]), repo) {
+		t.Fatalf("project registration: %v", f.projectPosts)
+	}
+	if f.created["project_id"] != float64(55) {
+		t.Fatalf("session not placed in the new project: %v", f.created)
+	}
+	// The second launch finds it; no duplicate.
+	if _, err := resolveAgentSession(c, "claude", sub, agentQuickOpts{RegisterProject: true, New: true}, false, nil); err != nil || len(f.projectPosts) != 1 {
+		t.Fatalf("second launch: %v %v", err, f.projectPosts)
+	}
+	// A remote server cannot see this folder: nothing is registered.
+	f2 := newAgentQuickFakeAPI()
+	srv2 := f2.server(t)
+	defer srv2.Close()
+	if _, err := resolveAgentSession(console.New(srv2.URL, ""), "claude", sub, agentQuickOpts{}, false, nil); err != nil || len(f2.projectPosts) != 0 {
+		t.Fatalf("remote: %v %v", err, f2.projectPosts)
+	}
+}
+
+func TestAgentQuickRefusesAnAgentThatIsNotInstalled(t *testing.T) {
+	f := newAgentQuickFakeAPI()
+	f.onboarding = map[string]any{"agents": []map[string]any{
+		{"name": "claude", "found": true, "builtin": true},
+		{"name": "codex", "found": false, "builtin": true},
+		{"name": "aider", "found": false, "builtin": false},
+	}}
+	srv := f.server(t)
+	defer srv.Close()
+	c := console.New(srv.URL, "")
+	_, err := resolveAgentSession(c, "codex", t.TempDir(), agentQuickOpts{}, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "codex isn't installed") || !strings.Contains(err.Error(), "lectern claude") {
+		t.Fatalf("missing agent: %v", err)
+	}
+	if f.created != nil {
+		t.Fatal("a session was started for an agent that is not installed")
+	}
+	if _, err := resolveAgentSession(c, "claude", t.TempDir(), agentQuickOpts{}, false, nil); err != nil {
+		t.Fatalf("installed agent refused: %v", err)
 	}
 }

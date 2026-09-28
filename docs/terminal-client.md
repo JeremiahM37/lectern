@@ -1,12 +1,16 @@
 # Use Lectern from a terminal
 
 On a brand-new install, run `lectern up` first: it starts a private local
-runtime, detects the agent CLIs on PATH, offers to register the current git
-repository as a project, and opens the result in your browser instead of the
-terminal dashboard below. `lectern doctor` checks tmux, git, your agents'
-credentials, the configured port, auth mode, TLS and push keys, printing a fix
-next to anything that needs one. Both are independent of everything else on
-this page — see the top-level README's Install section.
+runtime, detects the agent CLIs on PATH, adds the current git repository as a
+project, and opens your browser, signed in, on Start an agent. `lectern
+doctor` checks what Lectern needs and can use, and whether agents can reach it
+to report status and ask for approval; every problem comes with its fix.
+Optional things (other agents, the terminal viewer, push alerts) are WARN or
+`--` lines, and doctor exits 0 when an agent can run.
+
+`lectern help` lists the commands by group, and `lectern help COMMAND` or
+`lectern COMMAND --help` shows one with examples. `lectern update` installs
+the latest release in place, after checking its checksum.
 
 ### One command, any folder: `lectern claude` / `lectern codex`
 
@@ -17,7 +21,7 @@ picking a project first.
 ```
 $ cd ~/projects/lectern
 $ lectern claude
-Session #14 "lectern · one-command" — also on your phone at http://127.0.0.1:9110/#session/14
+Session #14 "lectern · one-command" — also in your browser: run lectern up to open it.
 ```
 
 Run it in any folder. It starts (or reuses) Lectern exactly like every other
@@ -29,8 +33,11 @@ started automatically if it isn't already up (see
 - Creates a session for `agent=claude` (or `codex`) and `workdir=$PWD`.
 - Names it after the folder, plus the checked-out git branch when there is
   one: `lectern · one-command`.
-- Attaches it to the project whose registered repository contains `$PWD`, if
-  any; otherwise the session just has a workdir, no project.
+- Attaches it to the project whose registered repository contains `$PWD`.
+  On the private local runtime, a git folder with no project yet becomes one
+  (named after the repository); elsewhere the session just has a workdir.
+- Refuses a built-in agent that is not installed where Lectern runs, naming
+  the ones that are, instead of opening a pane that says `command not found`.
 - If a live session already exists for that same agent and folder, an
   interactive terminal asks `Attach to existing session 'x' (#id)? [Y/n]`
   (default yes). `--new` always starts a fresh one; `--attach` always reuses
@@ -54,7 +61,9 @@ Click a group heading to fold it; use arrows/j/k to select a session for preview
 without attaching. Detach with **Ctrl-b**, then **d**, to click another session.
 Mouse reporting is restored after returning, including inside tmux.
 Use `lectern serve` to start the server explicitly. Existing systemd/container
-launches with no arguments and no terminal still start the server.
+launches with no arguments and no terminal still start the server. Either way
+it listens only on 127.0.0.1 unless a token or Tailscale identity protects it
+(see [Remote access](remote-access.md#where-lectern-listens)).
 
 | Keys | Action |
 | --- | --- |

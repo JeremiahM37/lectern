@@ -20,10 +20,10 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
-	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
@@ -350,7 +350,8 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	if room.command != "" {
 		program = "bash -c " + shellq.Quote(room.command)
 	}
-	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + room.env + program + tmuxkeys.Suffix()
+	command := backend.For(ex).NewSession(backend.NewSession{Name: tmuxName, Dir: workdir,
+		Argv: "env " + identity + room.env + program, ExtendedKeys: true})
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		m.end(sess.ID, StatusDead)
@@ -373,7 +374,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 		// tracking was stopped while the target launch was in flight. A dead row
 		// means an explicit stop won the race, so clean up only our exact name.
 		if current.Status == StatusDead {
-			_, _ = ex.Run(ctx, "tmux kill-session -t "+shellq.Quote("="+tmuxName), executor.RunOpts{Timeout: 20})
+			_, _ = ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(tmuxName), false), executor.RunOpts{Timeout: 20})
 		}
 		return current, nil
 	}
@@ -836,7 +837,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 				m.end(sess.ID, StatusDead)
 				return nil, stateEnvErr
 			}
-			install := stateEnv + agentcfg.MCPInstallCommand(rel, raw)
+			install := stateEnv + agentcfg.MCPInstallCommandFor(ex, rel, raw)
 			result, installErr := ex.Run(ctx, install, executor.RunOpts{Timeout: 20})
 			if installErr != nil || !result.OK() {
 				m.end(sess.ID, StatusDead)
@@ -897,7 +898,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// answer the CLI's "do you trust this folder?" before it can ask: starting an
 	// agent here, on purpose, is the answer. Best-effort — a CLI that changes
 	// where it keeps this must not stop a session from launching.
-	if probe := spec.TrustProbe(workdir); probe != "" {
+	if probe := spec.TrustProbeOn(ex, workdir); probe != "" {
 		if r, err := ex.Run(ctx, envPrefix+"bash -c "+shellq.Quote(probe), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 			m.Log.Warn("could not pre-trust the working directory",
 				"agent", agent, "dir", workdir, "err", err)
@@ -917,15 +918,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if spec.Builtin {
 		switch agent {
 		case "claude":
-			install := envPrefix + agentevents.ClaudeSettingsInstallCommand(tmuxName, hookURL, askPermission)
+			install := envPrefix + agentevents.ClaudeSettingsInstall(ex, tmuxName, hookURL, askPermission)
 			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install claude hooks", "session", sess.ID, "err", err)
 			} else if settingsPath := strings.TrimSpace(r.Stdout); settingsPath != "" {
 				toolArgs = append(toolArgs, "--settings", settingsPath)
 			}
 		case "codex":
-			install := envPrefix + agentevents.CodexNotifyInstallCommand(tmuxName)
-			if r, err := ex.Run(ctx, install, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
+			if lectern := executor.TargetEnvOf(ex).Lectern; lectern != "" {
+				// The Go notify handler needs nothing written to disk.
+				toolArgs = append(toolArgs, codexNotifyHelperArg(lectern)...)
+			} else if r, err := ex.Run(ctx, envPrefix+agentevents.CodexNotifyInstallCommand(tmuxName), executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install codex notify hook", "session", sess.ID, "err", err)
 			} else if notifyPath := strings.TrimSpace(r.Stdout); notifyPath != "" {
 				toolArgs = append(toolArgs, codexNotifyArg(notifyPath)...)
@@ -942,7 +945,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			// otherwise show; lectern wrote them, so it is exactly the
 			// "automation that already vets hook sources" case the flag's
 			// own description names.
-			hooksInstall := envPrefix + agentevents.CodexHooksInstallCommand(askPermission)
+			hooksInstall := envPrefix + agentevents.CodexHooksInstall(ex, askPermission)
 			if r, err := ex.Run(ctx, hooksInstall, executor.RunOpts{Timeout: 20}); err != nil || !r.OK() {
 				m.Log.Warn("could not install codex hooks.json", "session", sess.ID, "err", err)
 			} else if strings.TrimSpace(r.Stdout) != "" {
@@ -1007,7 +1010,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
 		SessionID: assignedID,
 		Prompt:    argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
-		Isolation: config.Isolation, IsolationOpts: isolationOpts})
+		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -1144,7 +1147,7 @@ func (m *Manager) waitReady(ctx context.Context, id int64) bool {
 		if err != nil {
 			return false
 		}
-		out, err := ex.Run(ctx, PollCommand([]string{sess.TmuxSession}),
+		out, err := ex.Run(ctx, pollCommand(ex, []string{sess.TmuxSession}),
 			RunOptsShort())
 		if err != nil || !out.OK() {
 			continue
@@ -1265,7 +1268,7 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 	if err := ex.WriteFile(ctx, stage, []byte(text)); err != nil {
 		return err
 	}
-	r, err := ex.Run(ctx, SendTextCommand(sess.TmuxSession, stage),
+	r, err := ex.Run(ctx, sendTextCommand(backend.For(ex), sess.TmuxSession, stage),
 		executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return err
@@ -1296,7 +1299,7 @@ func (m *Manager) SendKey(ctx context.Context, id int64, key string) error {
 	if err != nil {
 		return err
 	}
-	cmd, ok := SendKeyCommand(sess.TmuxSession, key)
+	cmd, ok := sendKeyCommand(backend.For(ex), sess.TmuxSession, key)
 	if !ok {
 		return fmt.Errorf("unknown key %q", key)
 	}
@@ -1464,7 +1467,7 @@ func (m *Manager) installAdapterMCP(ctx context.Context, ex executor.Executor, i
 	if err != nil {
 		return nil, nil, err
 	}
-	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommand(agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
+	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommandFor(ex, agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {
 		return nil, nil, fmt.Errorf("could not secure interactive MCP runtime")
 	}
@@ -1507,7 +1510,7 @@ func (m *Manager) installGeminiWorkspaceMCP(ctx context.Context, ex executor.Exe
 	if err != nil {
 		return "", err
 	}
-	r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(workdir, sess.ID, owned, servers), executor.RunOpts{Timeout: 30})
+	r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommandFor(ex, workdir, sess.ID, owned, servers), executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return "", err
 	}
@@ -1587,7 +1590,7 @@ func (m *Manager) cleanupWorkspaceMCP(id int64) {
 		if err != nil {
 			return
 		}
-		r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(info["workdir"], id, false, nil), executor.RunOpts{Timeout: 30})
+		r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommandFor(ex, info["workdir"], id, false, nil), executor.RunOpts{Timeout: 30})
 		if err == nil {
 			_, err = agentcfg.ParseGeminiWorkspaceMCP(r.Stdout)
 		}

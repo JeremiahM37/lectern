@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/nativeidentity"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
@@ -35,11 +36,12 @@ func CaptureNativeEvidence(ctx context.Context, ex executor.Executor, agent, wor
 		b, _ := json.Marshal(v)
 		args = append(args, string(b))
 	}
-	flag := "False"
+	flag, goFlag := "False", ""
 	if discovery {
-		flag = "True"
+		flag, goFlag = "True", "1"
 	}
-	cmd := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\nimport json\nprint(json.dumps(native_identity("+strings.Join(args, ",")+","+flag+")))")
+	py := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\nimport json\nprint(json.dumps(native_identity("+strings.Join(args, ",")+","+flag+")))")
+	cmd := helpers.Command(ex, "native-identity", []string{agent, workdir, home, tmuxName, tracking, goFlag}, py)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return NativeEvidence{}, fmt.Errorf("could not inspect the interactive native process")

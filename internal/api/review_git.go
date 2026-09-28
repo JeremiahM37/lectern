@@ -5,7 +5,8 @@ package api
 // with amend and force-with-lease, an AI commit message, "Fix with agent"
 // for a failed commit hook, three-way conflict resolution and image blobs.
 // Everything runs through the session's own target executor, using
-// scripts/review_git.py so a remote target needs one round trip per action.
+// scripts/review_git.py (or its Go port, `lectern helper review-git`) so a
+// remote target needs one round trip per action.
 //
 // Destructive actions (discarding changes, resolving or aborting a merge,
 // amending a pushed commit, force pushing) need a signed-in human, the same
@@ -27,6 +28,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
@@ -48,10 +50,7 @@ func runReviewGit(ctx context.Context, ex executor.Executor, dir, action string,
 	if err != nil {
 		return err
 	}
-	q := executor.ShellQuote
-	cmd := "python3 -c " + q(reviewGitScript) + " " + q(dir) + " " + q(action) + " " +
-		q(base64.StdEncoding.EncodeToString(raw))
-	res, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 90})
+	res, err := ex.Run(ctx, reviewGitCommand(ex, dir, action, base64.StdEncoding.EncodeToString(raw)), executor.RunOpts{Timeout: 90})
 	if err != nil {
 		return err
 	}
@@ -68,6 +67,14 @@ func runReviewGit(ctx context.Context, ex executor.Executor, dir, action string,
 		return nil
 	}
 	return json.Unmarshal([]byte(res.Stdout), out)
+}
+
+// reviewGitCommand runs one review_git action on ex's target: the lectern
+// helper when that target has the binary, else the Python script.
+func reviewGitCommand(ex executor.Executor, dir, action, params string) string {
+	q := executor.ShellQuote
+	return helpers.Command(ex, "review-git", []string{dir, action, params},
+		"python3 -c "+q(reviewGitScript)+" "+q(dir)+" "+q(action)+" "+q(params))
 }
 
 func respondReviewGitErr(w http.ResponseWriter, err error) {

@@ -21,11 +21,9 @@ case "$mode" in go|e2e|frontend|all|smoke|android|stress) ;; *) echo "ADK_TEST_M
 
 command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 command -v go >/dev/null || { echo "go is required" >&2; exit 2; }
+# Lectern serves its own web terminals (lectern term-server); ttyd is only
+# exposed, when installed, for the Go test that still checks ttyd compatibility.
 ttyd=$(command -v ttyd || true)
-if [[ $mode == e2e || $mode == all || $mode == android ]] && [[ -z $ttyd ]]; then
-  echo "ttyd is required for isolated e2e mode" >&2
-  exit 2
-fi
 node_bin=$(command -v node || true)
 npm_bin=$(command -v npm || true)
 if [[ $mode == frontend || $mode == all || $mode == e2e ]]; then
@@ -229,8 +227,8 @@ if [[ -n ${ADK_TEST_CLAUDE_BIN:-} ]]; then
 fi
 
 if [[ -n "$ttyd" ]]; then
-  # e2e's real browser fixture needs ttyd; expose only this executable rather
-  # than the host's /usr/local tree, and keep it read-only in the namespace.
+  # Expose only this executable rather than the host's /usr/local tree, and
+  # keep it read-only in the namespace.
   bwrap_args+=(--ro-bind "$ttyd" /opt/test-bin/ttyd)
 fi
 

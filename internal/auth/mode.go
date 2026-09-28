@@ -49,3 +49,7 @@ func ResolveMode(setting, host string, tokenSet bool, tailscaleUp func() bool) M
 	}
 	return ModeNone
 }
+
+// IsLoopbackHost reports whether a listen host binds only the loopback
+// interface (empty counts, as above).
+func IsLoopbackHost(host string) bool { return isLoopbackHost(host) }

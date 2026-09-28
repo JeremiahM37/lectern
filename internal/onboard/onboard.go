@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
 // AgentCheck reports whether one agent CLI was found. Builtin agents (claude,
@@ -75,11 +77,20 @@ type EnvCheck struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
-// CheckTmux reports whether tmux is on PATH. tmux is required on any machine
-// that runs agents directly (local target, or a remote target reached over
-// SSH); the CLI itself only needs it when acting as that machine.
+// CheckTmux reports whether this machine's sessions have something to keep
+// them alive: tmux, or lectern's own PTY host, which needs nothing installed
+// (docs/ptyhost.md). Which one is used follows LECTERN_SESSION_BACKEND.
 func CheckTmux() EnvCheck {
-	return checkBinary("tmux", "tmux", "install tmux (see install.sh's distro hint, or your package manager) — it's what keeps an agent's session alive between visits")
+	self, _ := os.Executable()
+	setting := os.Getenv("LECTERN_SESSION_BACKEND")
+	if backend.NewResolver(setting, self).Local() == backend.NamePty {
+		detail := "not needed: sessions are kept by lectern's built-in PTY host"
+		if path, err := exec.LookPath("tmux"); err == nil {
+			detail += " (tmux at " + path + " is used only when LECTERN_SESSION_BACKEND=tmux)"
+		}
+		return EnvCheck{Name: "tmux", OK: true, Detail: detail}
+	}
+	return checkBinary("tmux", "tmux", "install tmux (see install.sh's distro hint, or your package manager) — it's what keeps an agent's session alive between visits — or set LECTERN_SESSION_BACKEND=pty to use lectern's built-in PTY host instead")
 }
 
 // CheckGit reports whether git is on PATH. Every dispatched task and every
@@ -113,6 +124,56 @@ func envEmpty(key string) bool {
 	return !ok || v == ""
 }
 
+// CheckPython reports on python3, which this machine no longer needs: the
+// helpers Lectern runs on it are built into the lectern binary
+// (docs/ptyhost.md §5). Machines reached over SSH without lectern installed,
+// and the Linux desktop tools, still use it.
 func CheckPython() EnvCheck {
-	return checkBinary("python3", "python3", "install Python 3 — session and terminal helpers need it")
+	if path, err := exec.LookPath("python3"); err == nil {
+		return EnvCheck{Name: "python3", OK: true, Detail: path}
+	}
+	return EnvCheck{Name: "python3", OK: true,
+		Detail: "not needed here: Lectern's helpers are built in (SSH machines without lectern installed, and the desktop tools, still use it)"}
+}
+
+// CheckTTYD reports whether ttyd is on PATH. It is optional: the web page
+// needs it to show a live terminal (Attach), and nothing else does.
+func CheckTTYD() EnvCheck {
+	check := checkBinary("ttyd", "ttyd", InstallCommand("ttyd"))
+	if !check.OK {
+		check.Detail = "not installed — the web page cannot show a live terminal (Attach) without it"
+	}
+	return check
+}
+
+// InstallCommand is the command that installs pkg with this machine's
+// package manager, the same choices install.sh makes.
+func InstallCommand(pkg string) string {
+	have := func(bin string) bool { _, err := exec.LookPath(bin); return err == nil }
+	switch runtime.GOOS {
+	case "darwin":
+		if have("brew") {
+			return "brew install " + pkg
+		}
+		return "install Homebrew (https://brew.sh), then run: brew install " + pkg
+	case "linux":
+		switch {
+		case have("apt-get"):
+			return "sudo apt-get install -y " + pkg
+		case have("dnf"):
+			return "sudo dnf install -y " + pkg
+		case have("pacman"):
+			return "sudo pacman -S --noconfirm " + pkg
+		case have("zypper"):
+			return "sudo zypper install -y " + pkg
+		case have("apk"):
+			return "sudo apk add " + pkg
+		case have("brew"):
+			return "brew install " + pkg
+		}
+	}
+	if pkg == "ttyd" {
+		return "install ttyd (https://github.com/tsl0922/ttyd#installation)"
+	}
+	return "install " + pkg + " with your package manager"
 }

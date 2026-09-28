@@ -96,7 +96,7 @@ func (m *Manager) PrepareTakeover(ctx context.Context, ex executor.Executor, tas
 			if stateEnvErr != nil {
 				return LaunchOpts{}, stateEnvErr
 			}
-			result, installErr := ex.Run(ctx, stateEnv+agents.MCPInstallCommand(agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
+			result, installErr := ex.Run(ctx, stateEnv+agents.MCPInstallCommandFor(ex, agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
 			if installErr != nil || !result.OK() {
 				return LaunchOpts{}, fmt.Errorf("could not secure takeover MCP runtime")
 			}

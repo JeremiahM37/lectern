@@ -3,12 +3,11 @@ package sessions
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -19,7 +18,7 @@ import (
 // exited" and offer Revive instead of waiting forever.
 
 // AgentProbeMarker starts the probe command; the mock executor keys on it.
-const AgentProbeMarker = ": LECTERN-AGENT-PROBE;"
+const AgentProbeMarker = backend.AgentProbeMarker
 
 // agentProbeEvery throttles the probe per target; exits are not urgent.
 const agentProbeEvery = 10 * time.Second
@@ -76,23 +75,7 @@ func runsCommand(args, name string) bool {
 // buildAgentProbe reports, per pane, the root process's arguments, the
 // foreground command and every process on its terminal — base64 framed like
 // the poll so no pane can forge another's answer.
-func buildAgentProbe(names []string) string {
-	var b strings.Builder
-	b.WriteString(AgentProbeMarker + " ")
-	for _, name := range names {
-		// One field per display-message: tmux 3.5 prints a tab inside a
-		// format as "_", so a tab-separated triple cannot be split again.
-		t := shellq.Quote("=" + name + ":")
-		fmt.Fprintf(&b, `if lec_pid=$(tmux display-message -p -t %s '#{pane_pid}' 2>/dev/null); then `+
-			`lec_cur=$(tmux display-message -p -t `+t+` '#{pane_current_command}' 2>/dev/null); lec_tty=$(tmux display-message -p -t `+t+` '#{pane_tty}' 2>/dev/null); `+
-			`lec_root=$(ps -o args= -p "$lec_pid" 2>/dev/null); lec_all=$(ps -o args= -t "${lec_tty#/dev/}" 2>/dev/null); `+
-			`printf '%%s\tok\t%%s\t%%s\t%%s\n' %s "$(printf '%%s' "$lec_root" | base64 | tr -d '\r\n')" "$(printf '%%s' "$lec_cur" | base64 | tr -d '\r\n')" "$(printf '%%s' "$lec_all" | base64 | tr -d '\r\n')"; `+
-			`else printf '%%s\tmissing\t\t\t\n' %s; fi; `,
-			shellq.Quote("="+name+":"), shellq.Quote(b64(name)), shellq.Quote(b64(name)))
-	}
-	fmt.Fprintf(&b, "printf '%%s\\n' %s", shellq.Quote(PollEnd))
-	return b.String()
-}
+func buildAgentProbe(names []string) string { return backend.Tmux.AgentProbe(names) }
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
@@ -169,7 +152,7 @@ func (m *Manager) probeAgents(ctx context.Context, ex executor.Executor, targetI
 	}
 	m.agentProbedAt[targetID] = time.Now()
 	m.mu.Unlock()
-	r, err := ex.Run(ctx, buildAgentProbe(names), executor.RunOpts{Timeout: 20})
+	r, err := ex.Run(ctx, backend.For(ex).AgentProbe(names), executor.RunOpts{Timeout: 20})
 	if err != nil || !r.OK() {
 		return
 	}

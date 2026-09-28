@@ -3,10 +3,12 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"path"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // Workspace operations reserve paths only while they use them. A slow checkout
@@ -80,10 +82,13 @@ func canonicalWorkspaceSource(ctx context.Context, ex executor.Executor, directo
 	return strings.TrimSuffix(result.Stdout, "\n"), nil
 }
 
-// Allocations may not exist yet (or may be partially removed). Worktree targets
-// already require Python; realpath also resolves symlinks in existing parents.
+// Allocations may not exist yet (or may be partially removed). realpath also
+// resolves symlinks in existing parents; a target without a lectern binary
+// runs Python's.
 func canonicalWorkspaceAllocation(ctx context.Context, ex executor.Executor, directory string) (string, error) {
-	result, err := ex.Run(ctx, "python3 -c "+shellq.Quote("import os,sys;print(os.path.realpath(sys.argv[1]))")+" "+shellq.Quote(directory), executor.RunOpts{Timeout: 10})
+	cmd := helpers.Command(ex, "realpath", []string{directory},
+		"python3 -c "+shellq.Quote("import os,sys;print(os.path.realpath(sys.argv[1]))")+" "+shellq.Quote(directory))
+	result, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 10})
 	if err != nil {
 		return "", err
 	}

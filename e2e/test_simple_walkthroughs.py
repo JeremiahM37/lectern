@@ -291,3 +291,22 @@ def test_g_connect_a_phone_never_shows_a_loopback_qr(page, server, size):
     assert click.n == 3, click.n
     box = wizard.bounding_box()
     assert box["x"] >= 0 and box["x"] + box["width"] <= size["width"] + 1, box
+
+
+# ---- the `lectern up` landing link --------------------------------------------
+
+
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_landing_link_opens_start_an_agent_on_the_up_project(browser, server, size):
+    """`lectern up` opens #sessions/new/<project>: Start an agent, already on
+    the folder it ran in — never a blank room because the project list was
+    still loading when the sheet opened."""
+    projects = [p for p in json.loads(__import__("urllib.request").request.urlopen(server + "/api/projects").read())]
+    wanted = projects[-1]["id"]
+    for landing, want in ((f"/#sessions/new/{wanted}", wanted), ("/#sessions/new", projects[0]["id"])):
+        with browser.new_context(viewport=size) as context:
+            page = context.new_page()
+            page.goto(server + landing)
+            sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
+            expect(sheet).to_be_visible()
+            expect(sheet.locator("#ns-project")).to_have_value(str(want))

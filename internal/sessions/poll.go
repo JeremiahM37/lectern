@@ -258,7 +258,7 @@ func (m *Manager) pollTargetGroup(ctx context.Context, targetID int64, group []*
 	for _, s := range group {
 		names = append(names, s.TmuxSession)
 	}
-	r, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 45})
+	r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 45})
 	if err != nil || !r.OK() {
 		// an unreachable target is not evidence a session died; leave the
 		// rows alone and try again after a backoff

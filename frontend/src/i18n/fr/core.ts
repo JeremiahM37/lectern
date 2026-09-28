@@ -104,6 +104,8 @@ const catalog: Record<string, string> = {
   "terminal.moreThemes": "Importer un thème",
   "terminal.copiedByProgram": "Le programme a copié {count} caractères dans votre presse-papiers.",
   "terminal.copyBlocked": "Le programme a tenté de copier dans votre presse-papiers, mais le navigateur l’a bloqué. Cliquez dans le terminal et réessayez.",
+  "terminal.viewerMissing": "Le visualiseur de terminal n’est pas installé — lancez {command}",
+  "terminal.copyCommand": "Copier la commande",
   "terminal.footer": "Déposez des fichiers ou collez une capture d’écran · {find} rechercher · {history} historique · {paste} coller",
   "terminal.noChord": "aucune touche",
   "quick.title": "Extraits",

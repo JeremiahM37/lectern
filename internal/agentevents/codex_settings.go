@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -145,6 +147,33 @@ func CodexNotifyInstallCommand(tmuxName string) string {
 	return "mkdir -p " + shellq.HomePath("/.lectern/hooks") + " && cat > " + path +
 		" <<'ADKCODEXNOTIFY'\n" + CodexNotifyScript + "ADKCODEXNOTIFY\n" +
 		"chmod 700 " + path + " && printf '%s' " + path
+}
+
+// CodexNotifyHelperArgs is codex's `notify` program on a target with a lectern
+// binary: `lectern helper codex-notify`, which needs nothing installed (codex
+// appends the notification JSON as the last argument, as it does for the
+// script). Rendered for the caller to put in a `-c notify=[...]` override.
+func CodexNotifyHelperArgs(lectern string) []string {
+	return []string{lectern, "helper", "codex-notify"}
+}
+
+// CodexHooksInstall is CodexHooksInstallCommand for the target ex drives.
+// With a lectern binary there is no handler script to write: the merged
+// hooks.json entries run `lectern helper codex-hook EVENT TIMEOUT`, and
+// entries naming the old Python handler are replaced.
+func CodexHooksInstall(ex executor.Executor, askPermission bool) string {
+	lectern := executor.TargetEnvOf(ex).Lectern
+	if lectern == "" {
+		return CodexHooksInstallCommand(askPermission)
+	}
+	ask := "0"
+	if askPermission {
+		ask = "1"
+	}
+	// The handler path is a $HOME-relative shell word, as in the Python
+	// installer, so it matches the entries that installer wrote.
+	return helpers.Command(ex, "codex-hooks-install", []string{ask}, "") + " " +
+		shellq.HomePath("/.lectern/hooks/"+codexHookMarker) + " " + shellq.Quote(lectern)
 }
 
 // CodexHookTrustBypassArg is the launch flag added for every builtin codex

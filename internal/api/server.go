@@ -38,6 +38,7 @@ import (
 	relayhost "github.com/JeremiahM37/lectern/v2/internal/relay/host"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
@@ -88,10 +89,14 @@ type Server struct {
 	Claims    *claims.Tracker
 	Memory    memory.Provider
 	Terminals *terminal.Manager
-	Push      *push.Sender
-	Cfg       *config.Config
-	Auth      *auth.Resolver
-	Log       *slog.Logger
+	// TerminalBackend, when set and not nil for a target, overrides which
+	// session backend its web terminals attach through (mock mode's real
+	// local shells).
+	TerminalBackend func(*store.Target) backend.Backend
+	Push            *push.Sender
+	Cfg             *config.Config
+	Auth            *auth.Resolver
+	Log             *slog.Logger
 	// Pairing is device pairing's store (internal/pairing, pairing.go in
 	// this package) — nil is safe everywhere it is read (pairingEnabled
 	// treats a nil Pairing as "off"), so a build or test harness that never
@@ -128,6 +133,10 @@ type Server struct {
 	searchMu    sync.Mutex
 	searchJobs  map[string]*conversationSearchJob
 	searchSlots chan struct{}
+
+	// hookPing identifies this process to its own hook check (hookcheck.go).
+	hookPingOnce sync.Once
+	hookPing     string
 
 	// mcpMu serialises conditional project MCP edits. The endpoint returns a
 	// revision instead of exposing credential-bearing values to its clients.
@@ -298,6 +307,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/hook/notes", s.hookAddNote)
 	// ---- agent hooks (docs/agent-events.md section 2): per-SESSION bearer
 	// token, not the per-attempt token the approval hooks above use ----
+	mux.HandleFunc("GET /api/hook/ping", s.hookPingHandler)
+	mux.HandleFunc("GET /api/diagnostics/hooks", s.hookDiagnostics)
 	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
 	// ---- cost per outcome (docs/outcomes.md): Claude Code's own OTLP/HTTP

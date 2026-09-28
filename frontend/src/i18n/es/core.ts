@@ -114,6 +114,8 @@ const catalog: Record<string, string> = {
   "terminal.moreThemes": "Importar un tema",
   "terminal.copiedByProgram": "El programa copió {count} caracteres a tu portapapeles.",
   "terminal.copyBlocked": "El programa intentó copiar a tu portapapeles, pero el navegador lo bloqueó. Haz clic en el terminal y vuelve a intentarlo.",
+  "terminal.viewerMissing": "El visor de terminal no está instalado; ejecuta {command}",
+  "terminal.copyCommand": "Copiar comando",
   "terminal.footer": "Suelta archivos o pega una captura · {find} buscar · {history} historial · {paste} pegar",
   "terminal.noChord": "sin tecla",
 

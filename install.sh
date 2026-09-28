@@ -66,10 +66,39 @@ else
   sudo install -m 755 "$tmp/$name" "$dir/$name"
 fi
 echo "Installed $("$dir/$name" version | head -1) to $dir/$name"
-case ":$PATH:" in
-  *":$dir:"*) ;;
-  *) echo "Note: $dir is not on your PATH. Add: export PATH=\"$dir:\$PATH\"" ;;
-esac
+
+# PATH: a fresh ~/.local/bin is often not on it (never on macOS), and then
+# the next command the user types fails. Name the exact line and file, and
+# with consent add it. LECTERN_MODIFY_PATH=1 adds it without asking, 0 never.
+on_path=0
+case ":$PATH:" in *":$dir:"*) on_path=1 ;; esac
+if [ "$on_path" = 0 ]; then
+  path_line="export PATH=\"$dir:\$PATH\""
+  case "$(basename "${SHELL:-sh}")" in
+    zsh) rc="$HOME/.zshrc" ;;
+    bash) if [ "$os" = darwin ]; then rc="$HOME/.bash_profile"; else rc="$HOME/.bashrc"; fi ;;
+    fish) rc="$HOME/.config/fish/config.fish"; path_line="fish_add_path $dir" ;;
+    *) rc="$HOME/.profile" ;;
+  esac
+  answer="${LECTERN_MODIFY_PATH:-}"
+  if grep -qsF "$dir" "$rc"; then
+    answer=already
+  elif [ -z "$answer" ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
+    # curl | sh: stdin is the script, so ask the terminal itself.
+    printf '\n%s is not on your PATH. Add it in %s? [Y/n] ' "$dir" "$rc"
+    read -r answer </dev/tty || answer=n
+    case "$answer" in [nN]*) answer=0 ;; *) answer=1 ;; esac
+  fi
+  case "$answer" in
+    already) echo "$rc already adds $dir to PATH; open a new terminal to use it." ;;
+    1|y|yes)
+      mkdir -p "$(dirname "$rc")"
+      printf '\n# Added by the Lectern installer\n%s\n' "$path_line" >>"$rc"
+      echo "Added $dir to PATH in $rc. Open a new terminal, or run now: $path_line" ;;
+    *) echo "To run lectern by name, add this line to $rc, then open a new terminal:"
+       echo "  $path_line" ;;
+  esac
+fi
 
 # distro_install NAME prints the exact command for whatever package manager
 # this machine has, so a missing prerequisite is one copy-paste away instead
@@ -111,9 +140,16 @@ if ! command -v python3 >/dev/null 2>&1; then
   missing="$missing python3"
 fi
 
+if ! command -v ttyd >/dev/null 2>&1; then
+  echo ""
+  echo "Optional: ttyd lets the web page show an agent's live terminal (Attach). Install it with:"
+  distro_install ttyd
+fi
+
+if [ "$on_path" = 1 ]; then run="$name"; else run="$dir/$name"; fi
 echo ""
 if [ -n "$missing" ]; then
-  echo "Next: install the missing tool(s) above (${missing# }), then run '$dir/$name up'."
+  echo "Next: install the missing tool(s) above (${missing# }), then run '$run up'."
 else
-  echo "Next: run '$dir/$name up' — it starts Lectern, opens your browser, and gets you to a first session."
+  echo "Next: run '$run up' — it starts Lectern and opens your browser, ready to start an agent."
 fi

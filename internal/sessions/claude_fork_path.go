@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -25,7 +26,9 @@ func claudeFileFork(args []string) bool {
 }
 
 func claudeForkPath(ctx context.Context, ex executor.Executor, prefix, workspace, cid string) (string, error) {
-	result, err := ex.Run(ctx, prefix+"python3 -c "+shellq.Quote(claudeForkPathScript)+" "+shellq.Quote(workspace)+" "+shellq.Quote(cid), executor.RunOpts{Timeout: 30})
+	py := "python3 -c " + shellq.Quote(claudeForkPathScript) + " " + shellq.Quote(workspace) + " " + shellq.Quote(cid)
+	cmd := prefix + helpers.Command(ex, "claude-fork-path", []string{workspace, cid}, py)
+	result, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 30})
 	var out struct{ Path, Error string }
 	if err != nil || json.Unmarshal([]byte(result.Stdout), &out) != nil {
 		return "", fmt.Errorf("could not locate Claude conversation on target")

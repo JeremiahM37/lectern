@@ -8,6 +8,7 @@ import { claimScopeLabel } from "../claims/ClaimsPanel";
 import { fetchAgentMenu, splitAgentMenu } from "../agents/menu";
 import { AllAgentsPicker } from "../agents/AllAgentsPicker";
 import {
+  defaultProject,
   orderProjectsByRecency,
   readProjectPreference,
   rememberProjectSelection,
@@ -44,6 +45,7 @@ export function NewSession({
   api,
   projects,
   targets = [],
+  initialProject,
   onClose,
   onCreated,
   onNotice,
@@ -51,6 +53,8 @@ export function NewSession({
   api: SessionsApi;
   projects: Project[];
   targets?: Target[];
+  /** Open on this project (e.g. the folder `lectern up` ran in). */
+  initialProject?: number;
   onClose(): void;
   // Also called with no session after the sheet added a machine.
   onCreated(s?: SessionView): void;
@@ -68,14 +72,10 @@ export function NewSession({
     // Nothing usable stored (first visit, deleted project, corrupt value)
     // keeps the old default of the first project.
     [preference] = useState(() => readProjectPreference()),
-    [project, setProject] = useState<number | null>(() => {
-      const remembered = preference.last;
-      if (remembered === undefined) return projects[0]?.id ?? null;
-      if (remembered === null) return null;
-      return projects.some((row) => row.id === remembered)
-        ? remembered
-        : (projects[0]?.id ?? null);
-    }),
+    [project, setProject] = useState<number | null>(() => defaultProject(projects, preference.last, initialProject)),
+    // Until the person picks a folder, the default follows the project list,
+    // which may still be loading when the sheet opens (the landing link).
+    [projectTouched, setProjectTouched] = useState(false),
     [name, setName] = useState(""),
     [group, setGroup] = useState(""),
     [agent, setAgent] = useState("claude"),
@@ -203,6 +203,9 @@ export function NewSession({
       controller.abort();
     };
   }, [project, name, prime]);
+  useEffect(() => {
+    if (!projectTouched && !picked) setProject(defaultProject(projects, preference.last, initialProject));
+  }, [projects, initialProject]);
   const selectedProject = projects.find((row) => row.id === project) ?? null;
   useEffect(() => {
     if (targets.length) setMachines(targets);
@@ -372,6 +375,7 @@ export function NewSession({
                 }
                 if (e.target.value === "__folder__") return;
                 const next = e.target.value ? Number(e.target.value) : null;
+                setProjectTouched(true);
                 setPicked(undefined);
                 setProject(next);
                 // An explicit choice is remembered even if the sheet is closed
@@ -777,12 +781,14 @@ export function NewSession({
           initialTarget={machine}
           onClose={() => setBrowsing(false)}
           onEmpty={() => {
+            setProjectTouched(true);
             setBrowsing(false);
             setPicked(undefined);
             setProject(null);
             rememberProjectSelection(null);
           }}
           onPick={(folder) => {
+            setProjectTouched(true);
             setBrowsing(false);
             const known = folder.projectId ?? projects.find((row) => row.target_id === folder.targetId && row.repo_path.replace(/\/+$/, "") === folder.path)?.id;
             if (known) {

@@ -33,7 +33,7 @@ func (m *Manager) recoverAfterBoot(ctx context.Context, target *store.Target, ex
 		if row.EndedAt != nil || row.ArchivedAt != nil || row.Origin != "lectern" || row.SetupState == "creating" || row.BootID == "" || row.BootID == boot || row.Status == StatusInterrupted {
 			continue
 		}
-		r, err := ex.Run(ctx, PollCommand([]string{row.TmuxSession}), executor.RunOpts{Timeout: 10})
+		r, err := ex.Run(ctx, pollCommand(ex, []string{row.TmuxSession}), executor.RunOpts{Timeout: 10})
 		if err != nil || !r.OK() {
 			continue
 		}

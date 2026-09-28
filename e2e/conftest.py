@@ -77,6 +77,20 @@ TMUX_PREFIXES = b"\x02\x07\x1d"
 CHORD_GAP = 0.2
 
 
+def terminal_server_pids(server_pid: int) -> list[int]:
+    """The web terminal servers a Lectern server started: its own
+    `lectern term-server` processes, or ttyd for a server built without one."""
+    rows = subprocess.check_output(
+        ["ps", "--ppid", str(server_pid), "-o", "pid=,args="]).decode().splitlines()
+    pids = []
+    for row in rows:
+        pid, _, args = row.strip().partition(" ")
+        words = args.split()
+        if words and (words[0].endswith("ttyd") or (len(words) > 1 and words[1] == "term-server")):
+            pids.append(int(pid))
+    return pids
+
+
 def tmux_chord(fd, chord, gap=CHORD_GAP):
     """Type a tmux prefix chord such as Ctrl-b d the way a person does.
 

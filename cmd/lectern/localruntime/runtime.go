@@ -182,11 +182,10 @@ func Ensure(ctx context.Context, binary string, base *config.Config) (Endpoint, 
 		return Endpoint{}, err
 	}
 	defer tokenWriter.Close()
-	cmd := exec.Command(binary, "--local-engine", "--local-state-dir", dir,
-		"--local-token-fd", strconv.Itoa(4), "--local-lock-fd", strconv.Itoa(3))
+	cmd := exec.Command(binary, "--local-engine", "--local-state-dir", dir)
+	lockArg, tokenArg := passFiles(cmd, lock, tokenReader)
+	cmd.Args = append(cmd.Args, "--local-token-fd", tokenArg, "--local-lock-fd", lockArg)
 	cmd.Env = localEnv(tmuxDir)
-	cmd.ExtraFiles = []*os.File{lock, tokenReader}
-	detach(cmd)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		_ = tokenReader.Close()
@@ -364,19 +363,16 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		return err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	cfg := *base
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("resolve local state directory: %w", err)
 	}
-	nsDigest := sha256.Sum256([]byte(absDir))
-	cfg.WorktreeNamespace = "local-" + hex.EncodeToString(nsDigest[:6])
-	cfg.DBPath = filepath.Join(dir, "lectern.db")
-	cfg.Host = "127.0.0.1"
-	cfg.Port = port
-	cfg.BaseURL = "http://127.0.0.1:" + strconv.Itoa(port)
-	cfg.AuthToken = token
-	cfg.Mock = false
+	cfg := engineConfig(base, absDir, port, token)
+	browserKey, err := loadBrowserKey(absDir)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("browser sign-in key: %w", err)
+	}
 	appInstance, err := app.New(&cfg, log)
 	if err != nil {
 		_ = listener.Close()
@@ -411,7 +407,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 			}()
 		})
 	}
-	server = &http.Server{Handler: localHandler(appInstance.Handler(), token, ep.Instance, func() error {
+	server = &http.Server{ReadHeaderTimeout: 15 * time.Second, Handler: localHandler(appInstance.Handler(), newGate(token, browserKey), ep.Instance, func() error {
 		active, err := appInstance.DB.TasksWhere("status IN ('queued','running','review')")
 		if err != nil {
 			return err
@@ -437,8 +433,40 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 	return nil
 }
 
-func localHandler(next http.Handler, token, instance string, stop func() error) http.Handler {
+// engineConfig is the runtime's configuration: the caller's, moved onto a
+// private database, a loopback listener on the chosen port, and its own token.
+//
+// config.Load computed HookBase before this engine picked its port (and
+// localEnv strips LECTERN_PORT), so it names the default :9110. Left alone,
+// every session's hooks call back to whatever answers there, which is
+// nothing on a fresh install and another server on a host running one: no
+// status, no approvals, and no error anywhere. A HookBase the operator set
+// explicitly (LECTERN_HOOK_BASE) differs from BaseURL and is kept.
+func engineConfig(base *config.Config, absDir string, port int, token string) config.Config {
+	cfg := *base
+	nsDigest := sha256.Sum256([]byte(absDir))
+	cfg.WorktreeNamespace = "local-" + hex.EncodeToString(nsDigest[:6])
+	cfg.DBPath = filepath.Join(absDir, "lectern.db")
+	cfg.Host = "127.0.0.1"
+	cfg.Port = port
+	cfg.BaseURL = "http://127.0.0.1:" + strconv.Itoa(port)
+	if base.HookBase == "" || base.HookBase == base.BaseURL {
+		cfg.HookBase = cfg.BaseURL
+	}
+	cfg.AuthToken = token
+	// Token mode, not the loopback default of none: a browser tab is not a
+	// trusted local process (gate.go). Nothing reaches the app without the
+	// token or the browser cookie that stands in for it.
+	cfg.Auth = "token"
+	cfg.Mock = false
+	return cfg
+}
+
+func localHandler(next http.Handler, g *gate, instance string, stop func() error) http.Handler {
+	token := g.token
 	mux := http.NewServeMux()
+	mux.HandleFunc(loginCodeRoute, g.mintHandler)
+	mux.HandleFunc(pathRoute, pathHandler(token))
 	mux.HandleFunc(identityRoute, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -459,7 +487,7 @@ func localHandler(next http.Handler, token, instance string, stop func() error) 
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.Handle("/", next)
-	return mux
+	return g.wrap(mux)
 }
 
 // Peek reports the local runtime's endpoint, token included, if one is
@@ -559,6 +587,11 @@ func Stop(ctx context.Context) error {
 		return fmt.Errorf("refusing to stop an unverified local endpoint: %w", err)
 	}
 	if _, ok := healthyEndpoint(ctx, dir); !ok {
+		// An endpoint left behind by a runtime that already stopped: nothing
+		// holds the lock, so there is nothing to stop.
+		if free, err := localLockFree(dir); err == nil && free {
+			return nil
+		}
 		return errors.New("refusing to stop an unverified local endpoint: identity check failed")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL+engineRoute, nil)

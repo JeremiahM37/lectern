@@ -179,14 +179,18 @@ the same tagged release.
 | **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 \| iex` |
 | **Scoop** (Windows) | `scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern` |
 | **Debian / Ubuntu**, **Fedora / RHEL** | the `.deb` / `.rpm` on the [latest release](https://github.com/JeremiahM37/lectern/releases/latest) |
-| **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
+| **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -e LECTERN_INSECURE_LISTEN=1 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
 | **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
 
 The installers verify the archive against the release's `checksums.txt`.
-Running agents on a machine needs `git`, `tmux`, and `python3` there; on Windows the
-binary is the client (`mcp`, `post`, `sessions`, `tasks`…) for a Lectern
-server elsewhere, since the control plane itself needs tmux (use WSL to host
-it). Then, on a single machine:
+Running agents on the machine Lectern runs on needs only `git` and the
+agent's CLI: Lectern's own PTY host keeps their terminals alive, and its
+helpers are built in (docs/ptyhost.md). That works on Linux, macOS and Windows
+(Windows needs Git for Windows, whose bash runs Lectern's command lines). A
+machine reached over SSH needs the `lectern` binary, or `tmux` and `python3`.
+`LECTERN_SESSION_BACKEND=tmux|pty|auto` chooses what keeps terminals alive;
+adopting agents you started by hand in tmux needs tmux. Then, on a single
+machine:
 
 ```bash
 lectern up                # start it, detect your agents, open the browser

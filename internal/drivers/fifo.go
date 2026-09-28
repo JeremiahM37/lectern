@@ -1,9 +1,13 @@
 package drivers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -38,6 +42,19 @@ while True:
             sys.stdout.flush()
 `
 
+// stagePump readies the pump for a run and returns the command that runs it
+// on the fifo: `lectern helper pump` when the target has a lectern binary,
+// otherwise pumpScript, written into the runtime dir.
+func stagePump(ctx context.Context, ex executor.Executor, rt string) (string, error) {
+	fallback := fmt.Sprintf("python3 %s/pump.py %s/steer.fifo", rt, rt)
+	if executor.TargetEnvOf(ex).Lectern == "" {
+		if err := ex.WriteFile(ctx, rt+"/pump.py", []byte(pumpScript)); err != nil {
+			return "", err
+		}
+	}
+	return helpers.Command(ex, "pump", []string{rt + "/steer.fifo"}, fallback), nil
+}
+
 // endSentinel closes a streaming run's input: the pump sees it, exits, and
 // its exit closes the agent's stdin, which is what lets the agent process
 // itself exit and the wrapper write exit_code — the same finalisation path
@@ -63,10 +80,11 @@ func ensureFifoCommand(rt string) string {
 }
 
 // streamLaunchCommand renders the tmux wrapper for a streaming driver: cd
-// into the worktree, run the pump (see ensureFifoCommand for why the fifo
-// itself is not created here) piped into the agent command, with the
-// agent's own stdout/stderr/exit_code redirected exactly like every other
-// attempt (agents.Launcher.Command does the same three redirects).
+// into the worktree, run the pump (stagePump's command; see
+// ensureFifoCommand for why the fifo itself is not created here) piped into
+// the agent command, with the agent's own stdout/stderr/exit_code redirected
+// exactly like every other attempt (agents.Launcher.Command does the same
+// three redirects).
 //
 // agentCmd is ONLY the agent invocation (env prefix + binary + flags), never
 // "cd WT && agent" pre-joined: `&&` binds looser than `|` in POSIX shell
@@ -79,11 +97,11 @@ func ensureFifoCommand(rt string) string {
 // message again. Verified against a real tmux pane's process tree
 // (`ps -ef`), not assumed from the grammar alone — that split silently
 // stranded the agent on the wrong stdin with no error anywhere.
-func streamLaunchCommand(session, rt, worktree, agentCmd string) string {
+func streamLaunchCommand(be backend.Backend, session, rt, worktree, pump, agentCmd string) string {
 	inner := fmt.Sprintf(
-		"cd %s && python3 %s/pump.py %s/steer.fifo | { %s; } > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
-		shellq.Quote(worktree), rt, rt, agentCmd, rt, rt, rt)
-	return "tmux new-session -d -s " + session + " " + shellq.Quote(inner)
+		"cd %s && %s | { %s; } > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
+		shellq.Quote(worktree), pump, agentCmd, rt, rt, rt)
+	return be.NewSession(backend.NewSession{Name: session, Shell: inner})
 }
 
 // appendCommand appends one line to the fifo. A short-lived writer is exactly

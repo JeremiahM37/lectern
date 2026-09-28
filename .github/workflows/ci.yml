@@ -90,6 +90,38 @@ jobs:
         shell: pwsh
         run: ./tests/check-powershell-client.ps1
 
+  # The PTY host is the session backend on Windows and macOS
+  # (docs/ptyhost.md). These machines are disposable, so the tests that start
+  # real programs run directly; on Linux they run in the reviewed isolated
+  # runner above. The smoke test builds lectern, serves it, opens a shell,
+  # types through the API and the web terminal, restarts the server and finds
+  # the same shell.
+  pty-backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Session backend, PTY host, web terminal and server smoke tests
+        shell: bash
+        env:
+          LECTERN_PTYHOST_TESTS: "1"
+          LECTERN_SERVER_SMOKE: "1"
+        run: >-
+          go test -count=1 -v
+          ./internal/sessions/backend/
+          ./internal/ptyhost/...
+          ./internal/terminal/webterm/
+          ./internal/gitbash/
+          ./internal/smoke/
+          ./cmd/lectern/localruntime/
+
   e2e:
     runs-on: ubuntu-latest
     steps:

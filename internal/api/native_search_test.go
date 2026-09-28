@@ -50,86 +50,91 @@ func writeSearchFixture(t *testing.T, home, cwd, id, text string) string {
 	return path
 }
 func TestNativeSearchAcrossSavedProfilesAndUntrackedWorkspaces(t *testing.T) {
-	requireRealTools(t)
-	h := newHarness(t, func(c *config.Config) { c.Mock = false })
-	target, _ := h.App.DB.InsertTarget(&store.Target{Name: "search local", Kind: "local"})
-	home, old, cache := t.TempDir(), t.TempDir(), t.TempDir()
-	cwd := t.TempDir()
-	env := obj{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
-	first := "11111111-1111-4111-8111-111111111111"
-	second := "22222222-2222-4222-8222-222222222222"
-	file := writeSearchFixture(t, home, cwd, first, "--needle résumé current profile")
-	writeSearchFixture(t, old, t.TempDir(), second, "--needle résumé historical profile")
-	original, _ := os.ReadFile(file)
-	snapshot, _ := json.Marshal(sessions.LaunchConfiguration{Version: 1, Spec: sessions.Spec{Name: "codex", Command: "codex", Env: map[string]string{"CODEX_HOME": old, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}}})
-	ended := float64(1)
-	for i := 0; i < 2; i++ {
-		row, err := h.App.DB.InsertSession(&store.Session{TargetID: target.ID, Name: fmt.Sprintf("historical%d", i), Agent: "codex", Workdir: t.TempDir(), TmuxSession: fmt.Sprintf("not-running%d", i), EndedAt: &ended, LaunchConfigJSON: string(snapshot)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := h.App.DB.Exec("UPDATE sessions SET launch_config_json=?,ended_at=?,archived_at=? WHERE id=?", string(snapshot), ended, ended, row.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var start obj
-	h.decode("POST", "/api/conversation-search", obj{"query": "--needle résumé", "target_id": target.ID, "agent": "codex"}, 202, &start)
-	result := waitNativeSearch(t, h, start["id"].(string))
-	if result["complete"] != true {
-		t.Fatal(result)
-	}
-	if len(result["scopes"].([]any)) != 2 {
-		t.Fatalf("profiles not deduplicated: %v", result)
-	}
-	hits := result["results"].([]any)
-	if len(hits) != 2 {
-		t.Fatal(result)
-	}
-	encoded := fmt.Sprint(result)
-	for _, secret := range []string{"never-public", home, old, cache, "PRIVATE_SENTINEL", "fingerprint", "profile_key"} {
-		if strings.Contains(encoded, secret) {
-			t.Fatalf("private data leaked: %s", secret)
-		}
-	}
-	var selected obj
-	for _, hit := range hits {
-		m := hit.(map[string]any)
-		if m["conversation_id"] == first {
-			selected = m
-		}
-	}
-	if selected == nil {
-		t.Fatal(result)
-	}
-	base := "/api/conversation-search/" + start["id"].(string) + "/results/" + selected["id"].(string)
-	var page obj
-	h.decode("GET", base, nil, 200, &page)
-	h.decode("GET", base+"?latest=1", nil, 200, nil)
-	h.decode("GET", base+"?latest=0", nil, 422, nil)
-	h.decode("GET", base+"?before=1&after=2", nil, 422, nil)
-	h.decode("GET", base+"?before=not-a-number", nil, 422, nil)
-	h.decode("GET", base+"?before=1", nil, 409, nil)
-	if !strings.Contains(fmt.Sprint(page), "--needle résumé current profile") || strings.Contains(fmt.Sprint(page), "PRIVATE_SENTINEL") {
-		t.Fatal(page)
-	}
-	// Current settings may change while the result remains bound to its captured profile.
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "LECTERN_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
-	h.decode("GET", base, nil, 200, &page)
-	h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
-	after, _ := os.ReadFile(file)
-	if string(after) != string(original) {
-		t.Fatal("reader mutated source")
-	}
-	if err := os.WriteFile(file, []byte(strings.ReplaceAll(string(original), "current profile", "changed profile")), 0600); err != nil {
-		t.Fatal(err)
-	}
-	h.decode("GET", base, nil, 409, nil)
-	// A new query refreshes the cache and exposes current text, including explicit rebuild.
-	h.decode("POST", "/api/conversation-search", obj{"query": "changed profile", "target_id": target.ID, "agent": "codex", "reset": true}, 202, &start)
-	result = waitNativeSearch(t, h, start["id"].(string))
-	if len(result["results"].([]any)) != 1 {
-		t.Fatal(result)
+	for _, mode := range helperModes {
+		t.Run(mode, func(t *testing.T) {
+			requireRealTools(t)
+			h := newHarness(t, func(c *config.Config) { c.Mock = false })
+			target, _ := h.App.DB.InsertTarget(&store.Target{Name: "search local", Kind: "local"})
+			useHelpers(t, h, target.ID, mode)
+			home, old, cache := t.TempDir(), t.TempDir(), t.TempDir()
+			cwd := t.TempDir()
+			env := obj{"CODEX_HOME": home, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}
+			h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
+			first := "11111111-1111-4111-8111-111111111111"
+			second := "22222222-2222-4222-8222-222222222222"
+			file := writeSearchFixture(t, home, cwd, first, "--needle résumé current profile")
+			writeSearchFixture(t, old, t.TempDir(), second, "--needle résumé historical profile")
+			original, _ := os.ReadFile(file)
+			snapshot, _ := json.Marshal(sessions.LaunchConfiguration{Version: 1, Spec: sessions.Spec{Name: "codex", Command: "codex", Env: map[string]string{"CODEX_HOME": old, "LECTERN_NATIVE_SEARCH_CACHE": cache, "SEARCH_TEST_SECRET": "never-public"}}})
+			ended := float64(1)
+			for i := 0; i < 2; i++ {
+				row, err := h.App.DB.InsertSession(&store.Session{TargetID: target.ID, Name: fmt.Sprintf("historical%d", i), Agent: "codex", Workdir: t.TempDir(), TmuxSession: fmt.Sprintf("not-running%d", i), EndedAt: &ended, LaunchConfigJSON: string(snapshot)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := h.App.DB.Exec("UPDATE sessions SET launch_config_json=?,ended_at=?,archived_at=? WHERE id=?", string(snapshot), ended, ended, row.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var start obj
+			h.decode("POST", "/api/conversation-search", obj{"query": "--needle résumé", "target_id": target.ID, "agent": "codex"}, 202, &start)
+			result := waitNativeSearch(t, h, start["id"].(string))
+			if result["complete"] != true {
+				t.Fatal(result)
+			}
+			if len(result["scopes"].([]any)) != 2 {
+				t.Fatalf("profiles not deduplicated: %v", result)
+			}
+			hits := result["results"].([]any)
+			if len(hits) != 2 {
+				t.Fatal(result)
+			}
+			encoded := fmt.Sprint(result)
+			for _, secret := range []string{"never-public", home, old, cache, "PRIVATE_SENTINEL", "fingerprint", "profile_key"} {
+				if strings.Contains(encoded, secret) {
+					t.Fatalf("private data leaked: %s", secret)
+				}
+			}
+			var selected obj
+			for _, hit := range hits {
+				m := hit.(map[string]any)
+				if m["conversation_id"] == first {
+					selected = m
+				}
+			}
+			if selected == nil {
+				t.Fatal(result)
+			}
+			base := "/api/conversation-search/" + start["id"].(string) + "/results/" + selected["id"].(string)
+			var page obj
+			h.decode("GET", base, nil, 200, &page)
+			h.decode("GET", base+"?latest=1", nil, 200, nil)
+			h.decode("GET", base+"?latest=0", nil, 422, nil)
+			h.decode("GET", base+"?before=1&after=2", nil, 422, nil)
+			h.decode("GET", base+"?before=not-a-number", nil, 422, nil)
+			h.decode("GET", base+"?before=1", nil, 409, nil)
+			if !strings.Contains(fmt.Sprint(page), "--needle résumé current profile") || strings.Contains(fmt.Sprint(page), "PRIVATE_SENTINEL") {
+				t.Fatal(page)
+			}
+			// Current settings may change while the result remains bound to its captured profile.
+			h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": obj{"CODEX_HOME": t.TempDir(), "LECTERN_NATIVE_SEARCH_CACHE": cache}}}, 200, nil)
+			h.decode("GET", base, nil, 200, &page)
+			h.decode("PUT", "/api/agents", []obj{{"name": "codex", "command": "codex", "env": env}}, 200, nil)
+			after, _ := os.ReadFile(file)
+			if string(after) != string(original) {
+				t.Fatal("reader mutated source")
+			}
+			if err := os.WriteFile(file, []byte(strings.ReplaceAll(string(original), "current profile", "changed profile")), 0600); err != nil {
+				t.Fatal(err)
+			}
+			h.decode("GET", base, nil, 409, nil)
+			// A new query refreshes the cache and exposes current text, including explicit rebuild.
+			h.decode("POST", "/api/conversation-search", obj{"query": "changed profile", "target_id": target.ID, "agent": "codex", "reset": true}, 202, &start)
+			result = waitNativeSearch(t, h, start["id"].(string))
+			if len(result["results"].([]any)) != 1 {
+				t.Fatal(result)
+			}
+		})
 	}
 }
 func TestNativeSearchDefaultsWithoutTrackedSessionsAndPartialTargetFailure(t *testing.T) {

@@ -810,10 +810,10 @@ func (s *Server) attachTerminal(w http.ResponseWriter, r *http.Request) {
 	_, retired, err := s.Terminals.AttachWithNotice(r.Context(), terminal.Attachment{
 		Key:         fmt.Sprintf("attempt:%d", att.ID),
 		TmuxSession: att.TmuxSession, SandboxVMID: att.SandboxVMID,
-		SandboxWrap: s.sandboxAttach(att, target),
+		SandboxWrap: s.sandboxAttach(att, target), Backend: s.attemptBackend(att, target),
 	}, target)
 	if err != nil {
-		httpError(w, 503, "%s", err.Error())
+		terminalError(w, err)
 		return
 	}
 	writeJSON(w, 200, withRetiredNotice(map[string]any{"url": fmt.Sprintf("/term/attempt/%d/", att.ID)}, retired))

@@ -12,6 +12,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -53,7 +54,8 @@ const codexRequestTimeout = 20 * time.Second
 
 func (codexAppServerDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) (Handle, error) {
 	rt := agents.RuntimeDir(spec.Worktree)
-	if err := ex.WriteFile(ctx, rt+"/pump.py", []byte(pumpScript)); err != nil {
+	pump, err := stagePump(ctx, ex, rt)
+	if err != nil {
 		return nil, err
 	}
 	if r, err := ex.Run(ctx, ensureFifoCommand(rt), executor.RunOpts{Timeout: 20}); err != nil {
@@ -70,7 +72,7 @@ func (codexAppServerDriver) Start(ctx context.Context, ex executor.Executor, spe
 		return nil, err
 	}
 	agentCmd := envPrefix + shellq.Quote(bin) + " app-server"
-	cmd := streamLaunchCommand(spec.TmuxSession, rt, spec.Worktree, agentCmd)
+	cmd := streamLaunchCommand(backend.For(ex), spec.TmuxSession, rt, spec.Worktree, pump, agentCmd)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return nil, err
@@ -104,7 +106,7 @@ func (codexAppServerDriver) Start(ctx context.Context, ex executor.Executor, spe
 		// open(), and would block for its full RunOpts timeout for nothing.
 		// Killing the tmux session directly works regardless of whether
 		// anything is still alive to read the fifo.
-		ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =%s 2>/dev/null || true", spec.TmuxSession),
+		ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(spec.TmuxSession), true),
 			executor.RunOpts{Timeout: 20})
 		// Keep codex exec --json as the fallback when app-server is unavailable
 		// or fails the handshake, exactly as claude/gemini's tmux-launched

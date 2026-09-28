@@ -9,6 +9,7 @@ import pytest
 from playwright.sync_api import expect
 
 from test_terminal_swipe_tabs import _session_frame, _touch_path, _touch_swipe
+from conftest import terminal_server_pids
 from test_terminal_workspace import capture, real_terminal
 
 
@@ -42,11 +43,8 @@ def wait_for_pane_height(t, smaller_than):
 
 
 def kill_ttyd(t):
-    children = subprocess.check_output(
-        ["ps", "--ppid", str(t["proc"].pid), "-o", "pid=,comm="]
-    ).decode().splitlines()
-    pids = [int(line.split()[0]) for line in children if line.split()[1] == "ttyd"]
-    assert pids, children
+    pids = terminal_server_pids(t["proc"].pid)
+    assert pids
     for pid in pids:
         os.kill(pid, 15)
     return pids

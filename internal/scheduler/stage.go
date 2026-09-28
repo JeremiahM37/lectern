@@ -127,6 +127,9 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		kw.Definition = &def
 	}
 	rt := agents.RuntimeDir(workdir)
+	// The target's lectern binary, if it has one, runs the agent-side helpers
+	// (task-filing kit, approval gate) instead of the staged Python scripts.
+	lectern := executor.TargetEnvOf(ex).Lectern
 	isReviewer := c.Task.CreatedBy == "reviewer-gate"
 
 	prompt := firstNonEmpty(att.Prompt, c.Task.Prompt, c.Task.Title)
@@ -144,7 +147,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 			}
 			prompt = BuildNotesPrefix(texts) + prompt
 		}
-		prompt += AgentTaskFooter
+		prompt += AgentTaskFooterFor(lectern)
 	}
 
 	// context bundle: target-wide files first (host conventions), then the
@@ -174,9 +177,12 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		return kw, err
 	}
 	kw.Prompt = prompt
-	// task-filing kit: lets the agent put follow-up cards on the board
-	if err := ex.WriteFile(ctx, rt+"/lec.py", hooks.ADK); err != nil {
-		return kw, err
+	// task-filing kit: lets the agent put follow-up cards on the board. The Go
+	// kit reads the same env file, so only the script is Python-only.
+	if lectern == "" {
+		if err := ex.WriteFile(ctx, rt+"/lec.py", hooks.ADK); err != nil {
+			return kw, err
+		}
 	}
 	if err := ex.WriteFile(ctx, rt+"/env", []byte(fmt.Sprintf(
 		"ADK_URL=%s\nADK_TOKEN=%s\n", s.Cfg.BaseURL, att.Token))); err != nil {
@@ -256,7 +262,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		if err != nil {
 			return kw, err
 		}
-		result, err := ex.Run(ctx, stateEnv+agents.MCPInstallCommand(agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
+		result, err := ex.Run(ctx, stateEnv+agents.MCPInstallCommandFor(ex, agents.TaskMCPRel(att.ID, nonce), raw), executor.RunOpts{Timeout: 20})
 		if err != nil || !result.OK() {
 			if err != nil {
 				return kw, err
@@ -281,7 +287,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 	// headless has no prompt, so a tool the rules don't grant is denied outright
 	// and the operator never learns why. Rules are how acceptEdits gets Bash.
 	gated := effPermissionMode(c, att) == "default"
-	if gated {
+	if gated && lectern == "" {
 		if err := ex.WriteFile(ctx, rt+"/hook.py", hooks.Hook); err != nil {
 			return kw, err
 		}
@@ -304,6 +310,7 @@ func (s *Scheduler) stageRuntime(ctx context.Context, ex executor.Executor, work
 		MCPServers:    EffectiveMCPServers(s.Cfg.HostClaudeConfig, c.Project, c.Target, mcp),
 		MemoryDir:     memoryDir,
 		ExpireSeconds: int(s.Cfg.ApprovalExpire.Seconds()),
+		Lectern:       lectern,
 	})
 	if err != nil {
 		return kw, err

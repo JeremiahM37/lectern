@@ -104,6 +104,8 @@ const catalog: Record<string, string> = {
   "terminal.moreThemes": "导入主题",
   "terminal.copiedByProgram": "程序已将 {count} 个字符复制到你的剪贴板。",
   "terminal.copyBlocked": "程序尝试复制到你的剪贴板，但被浏览器阻止了。请点击终端后重试。",
+  "terminal.viewerMissing": "终端查看器未安装——请运行 {command}",
+  "terminal.copyCommand": "复制命令",
   "terminal.footer": "拖入文件或粘贴截图 · {find} 查找 · {history} 历史 · {paste} 粘贴",
   "terminal.noChord": "无按键",
   "quick.title": "片段",

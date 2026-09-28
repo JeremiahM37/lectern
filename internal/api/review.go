@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -71,8 +72,7 @@ func (s *Server) terminalChanges(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "choose working or staged changes")
 		return
 	}
-	cmd := "python3 -c " + shellq.Quote(reviewScript) + " " + shellq.Quote(dir) + " " + shellq.Quote(scope) + " " + shellq.Quote(r.URL.Query().Get("path"))
-	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 30})
+	result, err := ex.Run(r.Context(), reviewCommand(ex, dir, scope, r.URL.Query().Get("path")), executor.RunOpts{Timeout: 30})
 	var out map[string]json.RawMessage
 	if err != nil || json.Unmarshal([]byte(result.Stdout), &out) != nil {
 		httpError(w, 502, "could not read Git changes on this target")
@@ -90,4 +90,11 @@ func (s *Server) terminalChanges(w http.ResponseWriter, r *http.Request) {
 		out["selected_repository"], _ = json.Marshal(selected)
 	}
 	writeJSON(w, 200, out)
+}
+
+// reviewCommand reads dir's changes in scope on ex's target, with the patch
+// of path (or of the first changed file).
+func reviewCommand(ex executor.Executor, dir, scope, path string) string {
+	return helpers.Command(ex, "review", []string{dir, scope, path},
+		"python3 -c "+shellq.Quote(reviewScript)+" "+shellq.Quote(dir)+" "+shellq.Quote(scope)+" "+shellq.Quote(path))
 }

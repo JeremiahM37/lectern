@@ -8,6 +8,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -211,7 +212,15 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 		info = map[string]any{"error": exErr.Error()}
 	default:
 		status = "degraded"
-		if info["git"] != nil && info["tmux"] != nil {
+		// A target needs git and a session backend: tmux, or a lectern
+		// binary that brings its own PTY host (docs/ptyhost.md).
+		probed := *t
+		raw, _ := json.Marshal(info)
+		probed.InfoJSON = string(raw)
+		s.Reg.Refresh(&probed)
+		sessionBackend := backend.For(ex).Name()
+		info["session_backend"] = sessionBackend
+		if info["git"] != nil && (info["tmux"] != nil || sessionBackend == backend.NamePty) {
 			status = "online"
 		}
 		if r.URL.Query().Get("deep") == "true" && info["claude"] != nil {

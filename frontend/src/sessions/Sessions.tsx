@@ -29,6 +29,7 @@ import { QuotaChip } from "./QuotaChip";
 import { GettingStarted } from "../shell/GettingStarted";
 import { sessionState, STATE_RANK } from "./status";
 import { t, useLocale } from "../i18n";
+import { missingViewer } from "../terminal/viewer";
 import "./sessions.css";
 export interface SessionsApi {
   sessions(options?: {
@@ -52,7 +53,7 @@ export interface SessionsProps {
   onOpenTask?(id: number): void;
   onNotice(message: string, error?: boolean, action?: NoticeAction): void;
   refreshVersion?: number;
-  action?: { kind: "new" | "discover"; version: number };
+  action?: { kind: "new" | "discover"; version: number; projectId?: number };
   onActionConsumed?: () => void;
   onMetadataRefresh?: () => void;
   pushPrompt?: PushPrompt;
@@ -105,6 +106,9 @@ export function Sessions({
     [group, setGroup] = useState<GroupMode>(savedGrouping),
     [collapsed, setCollapsed] = useState(savedCollapsed),
     [sheet, setSheet] = useState<"new" | "discover" | SessionView>(),
+    // The project "Start an agent" opens on when asked for one (the
+    // `lectern up` landing link names the folder it ran in).
+    [startProject, setStartProject] = useState<number>(),
     [conversation, setConversation] = useState<SessionView>(),
     [history, setHistory] = useState<SessionView>(),
     [workspaceSession, setWorkspaceSession] = useState<SessionView>(),
@@ -185,6 +189,7 @@ export function Sessions({
   }, [api, refreshVersion]);
   useEffect(() => {
     if (externalAction?.version) {
+      setStartProject(externalAction.projectId);
       setSheet(externalAction.kind);
       onActionConsumed();
     }
@@ -342,6 +347,11 @@ export function Sessions({
         if (result.notice) onNotice(result.notice);
         return;
       } catch (error) {
+        const viewer = missingViewer(error);
+        if (viewer) {
+          onNotice(viewer.message, true, viewer.action);
+          return;
+        }
         lastError = error;
         if (!(error instanceof ApiError) || error.status !== 503 || attempt === 19)
           break;
@@ -768,7 +778,11 @@ export function Sessions({
           api={api}
           projects={projects}
           targets={targets}
-          onClose={() => setSheet(undefined)}
+          initialProject={startProject}
+          onClose={() => {
+            setSheet(undefined);
+            setStartProject(undefined);
+          }}
           onCreated={() => void refreshAll()}
           onNotice={onNotice}
         />

@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
-	"strings"
 )
 
 // The marker is set by tmux new-session itself, before the launch client can
@@ -50,7 +51,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
 	}
-	result, err := ex.Run(ctx, PollCommand([]string{row.TmuxSession}), executor.RunOpts{Timeout: 15})
+	result, err := ex.Run(ctx, pollCommand(ex, []string{row.TmuxSession}), executor.RunOpts{Timeout: 15})
 	if err != nil || !result.OK() {
 		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
@@ -66,7 +67,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		return
 	}
 	marker := func() (bool, bool) {
-		result, err := ex.Run(ctx, "tmux show-environment -t "+shellq.Quote("="+row.TmuxSession+":")+" LECTERN_SETUP_TOKEN", executor.RunOpts{Timeout: 10})
+		result, err := ex.Run(ctx, backend.For(ex).ShowEnvironment(backend.Pane(row.TmuxSession), "LECTERN_SETUP_TOKEN"), executor.RunOpts{Timeout: 10})
 		if err != nil {
 			return false, false
 		}

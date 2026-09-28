@@ -308,7 +308,7 @@ func (s *Server) importBrowserCookies(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	res, err := browser.ImportCookies(ctx, sb.run, sb.proc, kind, source, domains)
+	res, err := browser.ImportCookiesWith(ctx, sb.run, sb.lectern, sb.proc, kind, source, domains)
 	if err != nil {
 		httpError(w, 422, "%s", err)
 		return

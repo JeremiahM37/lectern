@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/pluginpkg"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
@@ -308,7 +309,7 @@ print(json.dumps(main(json.loads(__import__('sys').argv[1])),separators=(',',':'
 
 func stageFile(ctx context.Context, ex executor.Executor, root string, parts []string, data []byte, mode uint32) error {
 	b, _ := json.Marshal(map[string]any{"root": root, "parts": parts, "data": base64.StdEncoding.EncodeToString(data), "mode": mode})
-	cmd := "python3 -c " + shellq.Quote(stageScript) + " " + shellq.Quote(string(b))
+	cmd := helpers.Command(ex, "workflow-stage", []string{string(b)}, "python3 -c "+shellq.Quote(stageScript)+" "+shellq.Quote(string(b)))
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return err

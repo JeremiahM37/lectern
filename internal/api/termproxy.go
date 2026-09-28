@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 )
@@ -47,7 +48,7 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.Log.Info("terminal could not be started", "attachment", att.Key, "err", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		terminalPageError(w, r, err)
 		return
 	}
 
@@ -78,6 +79,41 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 // resolveAttachment turns a URL like /term/session/24 into the tmux session it
 // names, refusing anything that is not a live session or attempt of this board.
 func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *store.Target, error) {
+	att, target, err := s.resolveAttachmentRow(kind, rawID)
+	if err == nil && att.SandboxVMID == "" {
+		att.Backend = s.targetBackend(target)
+	}
+	return att, target, err
+}
+
+// attemptBackend is targetBackend for an attempt: one in a sandbox runs in
+// its container's tmux.
+func (s *Server) attemptBackend(att *store.Attempt, target *store.Target) backend.Backend {
+	if att.SandboxVMID != "" {
+		return backend.Tmux
+	}
+	return s.targetBackend(target)
+}
+
+// targetBackend is the session backend of a target's executor; tmux when the
+// executor cannot be made (the attach then fails on its own terms).
+func (s *Server) targetBackend(target *store.Target) backend.Backend {
+	if target == nil || target.Kind == "sandbox" {
+		return backend.Tmux
+	}
+	if s.TerminalBackend != nil {
+		if be := s.TerminalBackend(target); be != nil {
+			return be
+		}
+	}
+	ex, err := s.Reg.For(target)
+	if err != nil {
+		return backend.Tmux
+	}
+	return backend.For(ex)
+}
+
+func (s *Server) resolveAttachmentRow(kind, rawID string) (terminal.Attachment, *store.Target, error) {
 	if strings.HasSuffix(kind, "-shell") {
 		base := strings.TrimSuffix(kind, "-shell")
 		if base != "session" && base != "attempt" {

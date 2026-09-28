@@ -52,6 +52,7 @@ import { offlineCache } from "./api/offline";
 import { OfflineBanner } from "./mobile/OfflineBanner";
 import { PullToRefresh } from "./mobile/PullToRefresh";
 import { noteView, setViewNavigator, useBackClose } from "./mobile/back";
+import { missingViewer } from "./terminal/viewer";
 const SWITCH_STORAGE = 'lec-pending-switches';
 const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
 // The Needs-you push prompt is one-time and dismissible: once a person taps
@@ -181,6 +182,8 @@ export default function App() {
     [sessionAction, setSessionAction] = useState<{
       kind: "new" | "discover";
       version: number;
+      // "Start an agent" in this project (the `lectern up` landing link).
+      projectId?: number;
     }>(),
     [section, setSection] = useState<{ name: string; version: number; focus?: string }>({ name: "basics", version: 0 }),
     [projectEdit, setProjectEdit] = useState<{ id: number; version: number }>(),
@@ -400,7 +403,9 @@ export default function App() {
         openTerminal(response.url, sessions.find((row) => row.id === id)?.name);
         if (response.notice) notice(response.notice);
       } catch (error) {
-        notice(String(error), true);
+        const viewer = missingViewer(error);
+        if (viewer) notice(viewer.message, true, viewer.action);
+        else notice(String(error), true);
       }
     },
     [api, openTerminal, sessions, notice],
@@ -443,7 +448,9 @@ export default function App() {
         openTerminal(response.url, shell.name);
         if (response.notice) notice(response.notice);
       } catch (error) {
-        notice(String(error), true);
+        const viewer = missingViewer(error);
+        if (viewer) notice(viewer.message, true, viewer.action);
+        else notice(String(error), true);
       }
     },
     [api, openTerminal, notice],
@@ -462,9 +469,9 @@ export default function App() {
     navigate("#tasks");
     setNewTaskVersion((old) => old + 1);
   };
-  const sessionCommand = (kind: "new" | "discover") => {
+  const sessionCommand = (kind: "new" | "discover", projectId?: number) => {
     navigate("#sessions");
-    setSessionAction({ kind, version: Date.now() });
+    setSessionAction({ kind, version: Date.now(), projectId });
   };
   const settings = (name: string, focus?: string) => {
     setSection({ name, version: Date.now(), focus });
@@ -555,6 +562,12 @@ export default function App() {
         setView("tasks");
         setOpenTaskId(Number(id));
         setOpenTaskVersion((old) => old + 1);
+        return;
+      }
+      // #sessions/new[/<project>]: `lectern up` lands here, on "Start an
+      // agent" in the project for the folder it ran in.
+      if (kind === "sessions" && id === "new") {
+        sessionCommand("new", /^[1-9]\d*$/.test(terminalID || "") ? Number(terminalID) : undefined);
         return;
       }
       if (kind === "session") {
