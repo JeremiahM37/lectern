@@ -286,4 +286,21 @@ palette.
 
 `e2e/test_simple_walkthroughs.py` replays the audit's seven web tasks at 1440
 and 390 px and asserts the number of clicks each takes, so the flows stay
-short. The before/after table is in the branch report.
+short.
+
+Measured again like the audit: a fresh sandbox home, `lectern up` in a git
+repository, the audit's stand-in `claude`, Playwright at 1440 px and 390 px
+(clicks counted once the path is known; phone taps in brackets).
+
+| Task | Before (audit, v2.6.1) | After |
+|---|---|---|
+| (a) first agent in the project, then talk | 4 + Send [4 + Send]; landing on an empty task board; Enter did not send | `lectern up`'s link opens Start an agent on that project: 2 + Enter [3] |
+| (b) see what agents are doing | 1 [0]; idle agents said "Needs you", the blocked one "working" | 0 [0]; Idle / Working / Needs you / Ended, the same on every surface |
+| (c) approve something | 4 to turn asking on + 1 [same + More]; three wordings | asking is on for a new install; 1 + **Y** [2], or 1 on the card; one wording |
+| (d) end, then come back | End 2 + a confirm dialog; Restore 1 | End 2 with Undo, no dialog; Restore 1 |
+| (e) second agent in another folder | ~9 + ~1,800 px of scrolling [~8 + 2,184 px] | 5, no scrolling, the folder becomes a project |
+| (f) see changes and commit | 4 to the diff, then Commit disabled (dead end) | 4 to a commit on `lectern/<session>`; Push unticked with the reason |
+| (g) connect a phone | 3 to a QR code for 127.0.0.1 (dead end) | 2 to Connect your phone; every unreachable address says why; a QR only for a reachable one (3) |
+
+Settings' section tabs sit at 249 px (desktop) and 218 px (phone), where they
+were at 1,800 px and 2,184 px.
