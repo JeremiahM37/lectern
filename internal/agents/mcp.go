@@ -7,6 +7,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 )
 
 // MCPPayload normalizes the project form into the standard Claude document.
@@ -161,6 +164,13 @@ finally:
 func MCPInstallCommand(rel string, payload []byte) string {
 	encoded := base64.StdEncoding.EncodeToString(payload)
 	return "python3 -c " + shellQuote(interactiveMCPInstallScript) + " -- " + shellQuote(rel) + " " + shellQuote(encoded)
+}
+
+// MCPInstallCommandFor is MCPInstallCommand for the target ex drives: the
+// lectern helper when that target has the binary.
+func MCPInstallCommandFor(ex executor.Executor, rel string, payload []byte) string {
+	encoded := base64.StdEncoding.EncodeToString(payload)
+	return helpers.Command(ex, "mcp-install", []string{"--", rel, encoded}, MCPInstallCommand(rel, payload))
 }
 
 // PrivateMCPPath validates the helper's absolute-path result before it becomes

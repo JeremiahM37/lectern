@@ -837,7 +837,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 				m.end(sess.ID, StatusDead)
 				return nil, stateEnvErr
 			}
-			install := stateEnv + agentcfg.MCPInstallCommand(rel, raw)
+			install := stateEnv + agentcfg.MCPInstallCommandFor(ex, rel, raw)
 			result, installErr := ex.Run(ctx, install, executor.RunOpts{Timeout: 20})
 			if installErr != nil || !result.OK() {
 				m.end(sess.ID, StatusDead)
@@ -1467,7 +1467,7 @@ func (m *Manager) installAdapterMCP(ctx context.Context, ex executor.Executor, i
 	if err != nil {
 		return nil, nil, err
 	}
-	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommand(agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
+	result, err := ex.Run(ctx, stateEnv+agentcfg.MCPInstallCommandFor(ex, agentcfg.InteractiveMCPRel(id, nonce), raw), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {
 		return nil, nil, fmt.Errorf("could not secure interactive MCP runtime")
 	}
@@ -1510,7 +1510,7 @@ func (m *Manager) installGeminiWorkspaceMCP(ctx context.Context, ex executor.Exe
 	if err != nil {
 		return "", err
 	}
-	r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(workdir, sess.ID, owned, servers), executor.RunOpts{Timeout: 30})
+	r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommandFor(ex, workdir, sess.ID, owned, servers), executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return "", err
 	}
@@ -1590,7 +1590,7 @@ func (m *Manager) cleanupWorkspaceMCP(id int64) {
 		if err != nil {
 			return
 		}
-		r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommand(info["workdir"], id, false, nil), executor.RunOpts{Timeout: 30})
+		r, err := ex.Run(ctx, stateEnv+agentcfg.GeminiWorkspaceMCPCommandFor(ex, info["workdir"], id, false, nil), executor.RunOpts{Timeout: 30})
 		if err == nil {
 			_, err = agentcfg.ParseGeminiWorkspaceMCP(r.Stdout)
 		}
