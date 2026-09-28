@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -183,11 +184,7 @@ func doctorCommand(cfg *config.Config, args []string) error {
 		} else {
 			checks = append(checks, check("push keys", true, "configured", ""))
 		}
-		if _, err := c.JSON("GET", "/health", nil); err != nil {
-			checks = append(checks, check("hook reachability", false, err.Error(), "the running instance did not answer its own health check over loopback — check it's still alive"))
-		} else {
-			checks = append(checks, check("hook reachability", true, base, ""))
-		}
+		checks = append(checks, hookRoundTrip(c))
 	}
 
 	report, ok := renderDoctorReport(checks)
@@ -196,6 +193,30 @@ func doctorCommand(cfg *config.Config, args []string) error {
 		os.Exit(1)
 	}
 	return nil
+}
+
+// hookRoundTrip asks the server to call the hook address it gives sessions
+// and confirm that it is the one answering. Recomputing the address here
+// would only repeat the server's own mistake if it has one.
+func hookRoundTrip(c *console.Client) doctorCheck {
+	const name = "agent hooks"
+	data, err := c.JSON("GET", "/diagnostics/hooks", nil)
+	if he, ok := err.(*console.HTTPError); ok && he.Status == 404 {
+		return skip(name, "the running server is too old to check; update it and run doctor again")
+	}
+	if err != nil {
+		return check(name, false, err.Error(), "the running server did not answer; check it is still alive (`lectern local status`)")
+	}
+	var got struct {
+		HookBase string `json:"hook_base"`
+		OK       bool   `json:"ok"`
+		Detail   string `json:"detail"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		return check(name, false, err.Error(), "")
+	}
+	return check(name, got.OK, got.Detail,
+		"agents cannot report status or ask for approval; unset LECTERN_HOOK_BASE if you set it, or set it to an address that reaches this server, then restart it (`lectern local stop`)")
 }
 
 func envOrAuto(mode string) string {

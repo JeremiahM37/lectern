@@ -364,19 +364,11 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		return err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	cfg := *base
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("resolve local state directory: %w", err)
 	}
-	nsDigest := sha256.Sum256([]byte(absDir))
-	cfg.WorktreeNamespace = "local-" + hex.EncodeToString(nsDigest[:6])
-	cfg.DBPath = filepath.Join(dir, "lectern.db")
-	cfg.Host = "127.0.0.1"
-	cfg.Port = port
-	cfg.BaseURL = "http://127.0.0.1:" + strconv.Itoa(port)
-	cfg.AuthToken = token
-	cfg.Mock = false
+	cfg := engineConfig(base, absDir, port, token)
 	appInstance, err := app.New(&cfg, log)
 	if err != nil {
 		_ = listener.Close()
@@ -435,6 +427,31 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 	}
 	<-shutdownDone
 	return nil
+}
+
+// engineConfig is the runtime's configuration: the caller's, moved onto a
+// private database, a loopback listener on the chosen port, and its own token.
+//
+// config.Load computed HookBase before this engine picked its port (and
+// localEnv strips LECTERN_PORT), so it names the default :9110. Left alone,
+// every session's hooks call back to whatever answers there, which is
+// nothing on a fresh install and another server on a host running one: no
+// status, no approvals, and no error anywhere. A HookBase the operator set
+// explicitly (LECTERN_HOOK_BASE) differs from BaseURL and is kept.
+func engineConfig(base *config.Config, absDir string, port int, token string) config.Config {
+	cfg := *base
+	nsDigest := sha256.Sum256([]byte(absDir))
+	cfg.WorktreeNamespace = "local-" + hex.EncodeToString(nsDigest[:6])
+	cfg.DBPath = filepath.Join(absDir, "lectern.db")
+	cfg.Host = "127.0.0.1"
+	cfg.Port = port
+	cfg.BaseURL = "http://127.0.0.1:" + strconv.Itoa(port)
+	if base.HookBase == "" || base.HookBase == base.BaseURL {
+		cfg.HookBase = cfg.BaseURL
+	}
+	cfg.AuthToken = token
+	cfg.Mock = false
+	return cfg
 }
 
 func localHandler(next http.Handler, token, instance string, stop func() error) http.Handler {

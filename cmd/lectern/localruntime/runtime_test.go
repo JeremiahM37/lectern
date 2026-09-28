@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
@@ -75,5 +76,20 @@ func TestLocalEnvUsesPrivateTmuxNamespace(t *testing.T) {
 	}
 	if values["TMUX_TMPDIR"] != "/private/lectern/tmux" || values["TMUX"] != "" {
 		t.Fatalf("local tmux environment not isolated: %v", values)
+	}
+}
+
+func TestEngineConfigPointsHooksAtItsOwnPort(t *testing.T) {
+	// What config.Load produces in the engine: LECTERN_PORT is stripped by
+	// localEnv, so both bases name the default port.
+	base := &config.Config{BaseURL: "http://127.0.0.1:9110", HookBase: "http://127.0.0.1:9110"}
+	cfg := engineConfig(base, t.TempDir(), 41429, "token")
+	if cfg.BaseURL != "http://127.0.0.1:41429" || cfg.HookBase != cfg.BaseURL {
+		t.Fatalf("hooks would call back to %q while the runtime listens on %q", cfg.HookBase, cfg.BaseURL)
+	}
+	// An operator's explicit LECTERN_HOOK_BASE is kept.
+	base.HookBase = "http://100.64.0.9:7000"
+	if cfg := engineConfig(base, t.TempDir(), 41429, "token"); cfg.HookBase != "http://100.64.0.9:7000" {
+		t.Fatalf("explicit hook base replaced: %q", cfg.HookBase)
 	}
 }
