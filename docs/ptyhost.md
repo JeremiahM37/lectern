@@ -299,9 +299,9 @@ profile (its SQLite database), and the relay a sandbox hook starts.
   is best-effort.
 - Native conversation identity reads Linux `/proc`; elsewhere it is
   inconclusive, as it was.
-- The worktree helpers (git worktrees for sessions and tasks) refuse on
-  Windows, as the Python they replace never ran there: sessions on Windows run
-  in the project directory itself.
+- The interactive-worktree helpers refuse on Windows (the Python they replace
+  never ran there), so a session in its own git worktree is not available on
+  a Windows machine yet; a session in the project directory is.
 - The screen model does not reflow on resize, and `capture-pane -J` does not
   join wrapped lines.
 - Sessions on the PTY host end when the user logs out if the OS ends the
