@@ -74,7 +74,7 @@ func shellCommandAt(cfg *config.Config, args []string, base, token string, local
 	if err != nil {
 		return err
 	}
-	return runAttachment(argv, &nativeControls{Kind: shellKind, ID: shellID, Base: base, Token: attachCfg.AuthToken})
+	return runAttachment(argv, &nativeControls{Kind: shellKind, ID: shellID, Base: base, Token: attachCfg.AuthToken, Local: local})
 }
 
 func shellEndpointError(err error) error {

@@ -213,6 +213,10 @@ line and column.
   terminal). For a web address: **Open in browser** and **Copy link**. Off a
   link, the browser's own menu appears. On a phone, a long press selects the
   text and the selection bar offers **Open**.
+- When a program tracks the mouse (a full-screen agent, or tmux with `mouse
+  on`), a click or right-click on a detected link is still Lectern's; every
+  other click goes to the program. Hold **Shift** to select text across a
+  link instead, as xterm always allows.
 - The page address follows the open file: `?open=src/app.ts#L42`. `#L42C5`
   points at a column and `#L10-L20` at a range. Clicking a line number sets it
   (Shift-click for a range), and **Copy link** in the file menu copies it.

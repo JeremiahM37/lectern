@@ -283,3 +283,51 @@ def test_link_menu_and_outside_viewer_contrast_and_open_beside(page, real_termin
     expect(pane).to_contain_text('Outside workspace · read-only', timeout=20000)
     expect(pane).to_contain_text('ship it')
     sweep.done()
+
+
+def test_links_win_over_a_program_that_tracks_the_mouse(page, real_terminal):
+    """A full-screen agent (or tmux with mouse on) asks for mouse reports;
+    a click on a detected link still opens it, and every other click still
+    reaches the program."""
+    import subprocess
+    t = real_terminal
+    log = t['root'] / 'agent-input'
+    script = t['root'] / 'tracking.py'
+    script.write_text(
+        "import os,sys,tty\n"
+        "tty.setraw(0)\n"
+        "sys.stdout.write('\\x1b[?1000h\\x1b[?1003h\\x1b[?1006h\\x1b[2J\\x1b[H')\n"
+        "sys.stdout.write('wrote hello.txt for you\\r\\nsee https://example.com/docs/page\\r\\nTRACKING\\r\\n')\n"
+        "sys.stdout.flush()\n"
+        f"f=open({str(log)!r},'ab',buffering=0)\n"
+        "while True:\n b=os.read(0,1024)\n if not b: break\n f.write(b)\n")
+    subprocess.run(['tmux', 'set-option', '-g', 'mouse', 'on'], env=t['env'], check=True)
+    open_terminal(page, t)
+    type_command(page, f'clear; python3 {script}')
+    expect(page.locator('#agent-terminal .xterm-rows')).to_contain_text('TRACKING')
+    page.wait_for_function("document.querySelector('#agent-terminal .xterm')?.classList.contains('enable-mouse-events')")
+    page.evaluate('window.__opened = []; window.open = (url) => { window.__opened.push(url); return null; }; 0')
+
+    def presses():
+        return log.read_bytes().count(b'\x1b[<0;') if log.exists() else 0
+
+    # A plain click is the program's.
+    point = page.evaluate(CHAR_POINT, ['TRACKING', 2])
+    page.mouse.click(point['x'], point['y'])
+    deadline = time.monotonic() + 5
+    while presses() == 0 and time.monotonic() < deadline:
+        time.sleep(.1)
+    assert presses() >= 1, 'the program never got its click'
+    before = presses()
+    # A click on a link is Lectern's: the file opens, the program sees no press.
+    point = page.evaluate(CHAR_POINT, ['wrote hello.txt', 8])
+    page.mouse.click(point['x'], point['y'])
+    expect(page.locator('.wb-doc-path')).to_have_text('hello.txt', timeout=20000)
+    page.locator('#preview-dialog [data-close]').click()
+    page.get_by_role('button', name='Close files').click()
+    point = page.evaluate(CHAR_POINT, ['see https://example.com/docs/page', 10])
+    page.mouse.click(point['x'], point['y'])
+    page.wait_for_function('window.__opened.length === 1')
+    assert page.evaluate('window.__opened') == ['https://example.com/docs/page']
+    time.sleep(.5)
+    assert presses() == before, 'a click on a link also reached the program'

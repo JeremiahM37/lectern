@@ -437,10 +437,10 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
 	for _, want := range []string{
 		"set -g status-position top",
-		"set -g status-left-length 100",
+		"set -g status-left-length 120",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl-b d detach '",
+		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Double-click#[default] open path · Ctrl-b d detach '",
 	} {
 		if !strings.Contains(plan.conf, want) {
 			t.Errorf("config is missing %q:\n%s", want, plan.conf)
@@ -511,15 +511,50 @@ func TestNativeWrapSplitsOpenOnTheSessionsMachine(t *testing.T) {
 		t.Fatalf("split script: %q", plan.splitBody)
 	}
 	// Through an SSH alias the hosted peer resolves the shell, as for attach.
-	argv, err := splitShellArgv("session", "17", "https://lectern.example", "", "lectern")
-	if err != nil || strings.Join(argv, " ") != "env TERM=xterm-256color ssh -tt lectern /usr/local/bin/lectern --hosted-attach split session 17" {
+	argv, err := splitShellArgv("session", "17", "https://lectern.example", "", "lectern", "")
+	if err != nil || strings.Join(argv, " ") != "env TERM=xterm-256color ssh -tt lectern /usr/local/bin/lectern --hosted-attach split session 17 agent" {
 		t.Fatalf("hosted split: %v %v", argv, err)
 	}
 	// A command naming the control plane's paths never runs on another machine.
-	if _, err := splitShellArgv("session", "17", "https://lectern.example", "", ""); err == nil {
+	if _, err := splitShellArgv("session", "17", "https://lectern.example", "", "", ""); err == nil {
 		t.Fatal("ran a remote control plane's command locally")
 	}
-	if _, err := splitShellArgv("session", "17", "http://127.0.0.1:9110", "", "-oProxyCommand=x"); err == nil {
+	if _, err := splitShellArgv("session", "17", "http://127.0.0.1:9110", "", "-oProxyCommand=x", ""); err == nil {
 		t.Fatal("accepted an option as an SSH alias")
+	}
+}
+
+// `lectern split` belongs to the attachment next door: one in the same
+// terminal instance, the most recently focused, and a question only when two
+// are too close to tell apart.
+func TestChooseAttachStateForASplit(t *testing.T) {
+	now := time.Now()
+	states := []attachState{
+		{Kind: "session", ID: "1", Terminal: map[string]string{"KITTY_PID": "100"}, focused: now.Add(-time.Minute)},
+		{Kind: "session", ID: "2", Terminal: map[string]string{"KITTY_PID": "200"}, focused: now},
+		{Kind: "session", ID: "3", Terminal: map[string]string{"KITTY_PID": "100"}, focused: now.Add(-2 * time.Minute)},
+	}
+	env := func(values map[string]string) func(string) string { return func(k string) string { return values[k] } }
+	pick := func(values map[string]string, force bool, answer string, interactive bool) (string, error) {
+		var out strings.Builder
+		got, err := chooseAttachState(append([]attachState(nil), states...), env(values), force, strings.NewReader(answer), &out, interactive)
+		return got.ID, err
+	}
+	if id, _ := pick(nil, false, "", true); id != "2" {
+		t.Fatalf("most recently focused: %s", id)
+	}
+	if id, _ := pick(map[string]string{"KITTY_PID": "100"}, false, "", true); id != "1" {
+		t.Fatalf("same kitty instance first: %s", id)
+	}
+	if id, _ := pick(nil, true, "3\n", true); id != "3" {
+		t.Fatalf("--pick asks: %s", id)
+	}
+	close := []attachState{{Kind: "session", ID: "7", focused: now}, {Kind: "session", ID: "8", focused: now.Add(-100 * time.Millisecond)}}
+	var out strings.Builder
+	if got, _ := chooseAttachState(close, env(nil), false, strings.NewReader("2\n"), &out, true); got.ID != "8" || !strings.Contains(out.String(), "Open a shell beside which session?") {
+		t.Fatalf("too close to tell: %s %q", got.ID, out.String())
+	}
+	if _, err := chooseAttachState(nil, env(nil), false, strings.NewReader(""), &out, true); err == nil {
+		t.Fatal("chose a session with none attached")
 	}
 }

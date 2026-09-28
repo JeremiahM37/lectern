@@ -53,7 +53,7 @@ var clientVerbs = map[string]bool{
 // win — so a test asserts the sets are disjoint.
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
-	"local": true, "up": true, "doctor": true, "serve": true, "attach": true,
+	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
 	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
@@ -206,6 +206,14 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: lectern serve")
 				os.Exit(2)
 			}
+		case "split":
+			// A shell beside an attached session, from the terminal's own split
+			// (native_split.go).
+			if err := splitCommand(cfg, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+				os.Exit(1)
+			}
+			return
 		case "attach":
 			if explicitRemote {
 				if err := attach(cfg, os.Args[2:]); err != nil {

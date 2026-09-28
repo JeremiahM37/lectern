@@ -33,6 +33,9 @@ type nativeControls struct {
 	Base    string
 	Token   string
 	TabView bool
+	// Local marks an attachment to this machine's private local runtime,
+	// whose address and credential `lectern split` asks for afresh.
+	Local bool
 }
 
 func nativeControlsOff() bool {
@@ -127,6 +130,7 @@ func runPrivateAttachment(tmuxPath string, argv []string, controls nativeControl
 	if err := plan.write(); err != nil {
 		return err
 	}
+	defer writeAttachState(plan.statePath, controls)()
 	if err := plan.start(tmuxPath); err != nil {
 		return err
 	}
@@ -175,6 +179,7 @@ type nativeWrapPlan struct {
 	uploadScript   string
 	linkScript     string
 	splitScript    string
+	statePath      string
 	controls       nativeControls
 	inWorkspace    string
 	innerArgv      []string
@@ -204,6 +209,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		linkScript:     filepath.Join(dir, "link.sh"),
 		splitScript:    filepath.Join(dir, "split.sh"),
+		statePath:      filepath.Join(attachStateDir(), strconv.Itoa(os.Getpid())+".json"),
 		controls:       controls,
 		inWorkspace:    workspace,
 		innerArgv:      withClientControlsMarker(argv),
@@ -271,9 +277,9 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
 	// Double-click opens a path or link an agent printed, on this machine; it
 	// follows the controls key so a narrow terminal still shows Ctrl+] m.
-	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl-b d detach "
+	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Double-click#[default] open path · Ctrl-b d detach "
 	if p.controls.TabView {
-		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
+		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
@@ -288,13 +294,20 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		// Splits and new windows (tmux's right-click menu, Ctrl+] % and ")
 		// open a shell on the session's machine in the agent's directory.
 		"set -g default-command " + shellq.Quote(p.splitScript),
+		// Focus marks this attachment as the one `lectern split` belongs to.
+		"set -g focus-events on",
+		"set-hook -g client-focus-in " + shellq.Quote("run-shell -b "+shellq.Quote("touch "+shellq.Quote(p.statePath))),
 		"bind-key -T prefix C-] send-prefix",
+		// A shell on the session's machine, in the agent's directory, beside
+		// or below the agent (native_split.go).
+		"bind-key -T prefix | split-window -h",
+		"bind-key -T prefix - split-window -v",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",
 		"set -g status-position top",
-		"set -g status-left-length 100",
+		"set -g status-left-length 120",
 		"set -g status-style fg=colour252,bg=colour236",
 		// The primary shortcut leads the row so a narrow client clips trailing
 		// text, never the hint itself. The window list is dropped: its text

@@ -230,15 +230,6 @@ func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) 
 	return onTarget(a, target, inner)
 }
 
-// ShellArgv is a plain interactive shell on the attachment's target, started
-// in dir (or the home directory, if dir is gone). It is what a split of a
-// native attachment runs (docs/terminal-client.md): the shell lives as long as
-// its pane, on the machine the session runs on, not the operator's own.
-func ShellArgv(a Attachment, target *store.Target, dir string) ([]string, error) {
-	inner := []string{"/bin/sh", "-c", `cd "$1" 2>/dev/null || cd; exec "${SHELL:-/bin/sh}" -i`, "sh", dir}
-	return onTarget(a, target, inner)
-}
-
 // onTarget wraps a command so it runs, with a terminal, on the attachment's
 // target: directly, in its container, or over SSH.
 func onTarget(a Attachment, target *store.Target, inner []string) ([]string, error) {

@@ -15,3 +15,8 @@ func ownedByMe(info os.FileInfo) bool {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	return ok && int(st.Uid) == os.Getuid()
 }
+
+// processAlive reports whether a process with this id is still running.
+func processAlive(pid int) bool {
+	return pid > 0 && syscall.Kill(pid, 0) == nil
+}

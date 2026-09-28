@@ -52,7 +52,7 @@ func (r *linkRig) asked() string {
 	return strings.Join(r.requests, " ")
 }
 
-func newLinkRig(t *testing.T, screen []byte, remote bool, shown string) *linkRig {
+func newLinkRig(t *testing.T, screen []byte, remote bool, shown string, program ...string) *linkRig {
 	t.Helper()
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
@@ -127,6 +127,9 @@ func newLinkRig(t *testing.T, screen []byte, remote bool, shown string) *linkRig
 		t.Fatal(err)
 	}
 	argv := []string{"sh", "-c", "printf '\\033[2J\\033[H'; cat " + shellQuoteTest(screenFile) + "; exec sleep 600"}
+	if len(program) > 0 {
+		argv = program
+	}
 	r.plan, err = newNativeWrapPlan(dir, filepath.Join(dir, "sock"), nativeControls{Kind: "session", ID: "17", Base: api.URL, Token: "scoped-secret"}, argv, "")
 	if err != nil {
 		t.Fatal(err)
@@ -554,5 +557,98 @@ func TestOpeningRefusesRunnableFilesAndCleansNames(t *testing.T) {
 	e := &linkEnv{kind: "session", id: "17", dir: t.TempDir()}
 	if menu := e.menu(link, filepath.Join(e.dir, "link-1.json")); !strings.Contains(menu, `{ run-shell -b "`+filepath.Join(e.dir, "link.sh")+` act copy `) {
 		t.Fatalf("menu actions do not run the link script:\n%s", menu)
+	}
+}
+
+// client attaches a real tmux client to the private server, inside a second
+// tmux that stands in for the operator's terminal, and returns a function
+// that clicks in it as a terminal reports mouse input.
+func (r *linkRig) client() func(button, x, y int) {
+	t := r.t
+	t.Helper()
+	outer := filepath.Join(r.plan.dir, "outer")
+	client := "env TERM=xterm-256color " + shellQuoteTest(r.tmux) + " -S " + shellQuoteTest(r.plan.socket) + " attach -t " + r.plan.session
+	if out, err := exec.Command(r.tmux, "-S", outer, "-f", "/dev/null", "new-session", "-d", "-x", "100", "-y", "30", "-s", "outer", client).CombinedOutput(); err != nil {
+		t.Fatalf("outer: %v %s", err, out)
+	}
+	t.Cleanup(func() { exec.Command(r.tmux, "-S", outer, "kill-server").Run() })
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		out, _ := exec.Command(r.tmux, "-S", outer, "display-message", "-p", "-t", "outer", "#{mouse_any_flag}").Output()
+		if strings.TrimSpace(string(out)) == "1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the client never turned mouse reporting on")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return func(button, x, y int) {
+		seq := fmt.Sprintf("\x1b[<%d;%d;%dM\x1b[<%d;%d;%dm", button, x, y, button, x, y)
+		if out, err := exec.Command(r.tmux, append([]string{"-S", outer, "send-keys", "-t", "outer", "-H"}, hexBytes(seq)...)...).CombinedOutput(); err != nil {
+			t.Fatalf("send mouse: %v %s", err, out)
+		}
+	}
+}
+
+// An agent that turns on mouse tracking (as Claude Code's full-screen view
+// does) still gets its single clicks, but a double-click on a path or link
+// opens it instead of going to the agent.
+func TestNativeLinksTakePrecedenceOverAMouseTrackingAgent(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "agent-input")
+	agent := "import os,sys,tty\n" +
+		"tty.setraw(0)\n" +
+		"sys.stdout.write('\\x1b[?1003h\\x1b[?1006h\\x1b[2J\\x1b[H')\n" +
+		"sys.stdout.write('Report at " + ownerPDF + "\\r\\nDocs at https://example.com/docs/page\\r\\nTRACKING\\r\\n')\n" +
+		"sys.stdout.flush()\n" +
+		"f=open(" + strconv.Quote(log) + ",'ab',buffering=0)\n" +
+		"while True:\n b=os.read(0,1024)\n if not b: break\n f.write(b)\n"
+	r := newLinkRig(t, nil, false, "TRACKING", "python3", "-c", agent)
+	if got := strings.TrimSpace(r.run("display-message", "-p", "-t", r.pane, "#{mouse_any_flag}")); got != "1" {
+		t.Fatalf("the stand-in agent did not turn tracking on: %q", got)
+	}
+	mouse := r.client()
+	// A single click is the agent's, as an SGR report at its own cell.
+	x, y := r.at("TRACKING", 2)
+	mouse(0, x+1, y+2)
+	want := fmt.Sprintf("\x1b[<0;%d;%dM", x+1, y+1)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		data, _ := os.ReadFile(log)
+		if strings.Contains(string(data), want) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the agent never got its click %q: %q", want, data)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond) // so the next clicks are a double-click of their own
+	x, y = r.at("application-testing", 4)
+	mouse(0, x+1, y+2)
+	mouse(0, x+1, y+2)
+	if lines := r.waitOpened(2); filepath.Base(lines[0]) != "Jeremiah_Mackey_Cerebras.pdf" {
+		t.Fatalf("opened %q", lines[0])
+	}
+	time.Sleep(500 * time.Millisecond)
+	x, y = r.at("https://example.com", 9)
+	mouse(0, x+1, y+2)
+	mouse(0, x+1, y+2)
+	if lines := r.waitOpened(3); lines[2] != "https://example.com/docs/page" {
+		t.Fatalf("opened %q", lines)
+	}
+	// A right-click on the path is Lectern's menu, not the agent's click.
+	x, y = r.at("application-testing", 4)
+	mouse(2, x+1, y+2)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		menu, _ := os.ReadFile(filepath.Join(r.plan.dir, "menu.conf"))
+		if strings.Contains(string(menu), "Open on this machine") && strings.Contains(string(menu), "Split: shell in project") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no link menu for a right-click over a tracking agent")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

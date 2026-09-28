@@ -187,12 +187,13 @@ directory and removes it when the attachment ends.
 | Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
 | Ctrl+] then m | Open Lectern actions for this attachment |
 | Ctrl+] then u | Same file sender as Ctrl+\ |
-| Ctrl+] then % or " | Split: a shell on the session's machine, in the agent's directory |
+| Ctrl+] then \| | A shell on the session's machine, in the agent's directory, beside the agent |
+| Ctrl+] then - | The same shell, below the agent (Ctrl+] % and " split the same way) |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
 
-The top status line keeps **Ctrl+\\ send file**, **Ctrl+] m** and **Double-click open path** visible while you are attached; a narrow terminal keeps at least the first
+The top status line keeps **Ctrl+\\ send file**, **Ctrl+] m**, **Ctrl+] | shell** and **Double-click open path** visible while you are attached; a narrow terminal keeps at least the first
 two. Direct SSH launchers also get this bar from the server;
 updated clients that provide their own controls mark the connection to avoid
 a second wrapper. Update an older installed native client and reattach to use
@@ -220,21 +221,59 @@ usable wherever the agent is running; submit it yourself when your prompt is
 ready. If the client cannot reach the attached pane, or the path cannot be
 typed literally, the popup reports the path instead of inserting it.
 
-### Splitting the attachment
+### A shell beside the agent
 
-A split opens a shell **where the session is**, not on the machine you are
-typing on: on the session's target (this machine, an SSH host or a container),
-in the directory the agent's pane is in now (tmux's `pane_current_path` there),
-or the session's workdir when that cannot be read. That holds however you split:
-**Ctrl+] %** or **Ctrl+] "**, **Horizontal/Vertical Split** in tmux's
-right-click menu, or a new window with **Ctrl+] c**. The private tmux server's
-`default-command` is a small Lectern script that asks the server for the shell
-(`GET /api/term/KIND/ID/split`) and becomes it; through an SSH alias
+Split an attachment into **[the agent | a shell where the agent is]**: the
+shell runs on the session's machine (this one, an SSH host or a container), in
+the directory the agent's pane is in now (tmux's `pane_current_path` there;
+the session's workdir if that cannot be read). Each one is a new tracked
+Lectern shell session on that machine, so it also appears in the web UI and
+keeps running if its pane closes. Three ways in:
+
+- **Ctrl+] |** side by side, **Ctrl+] -** stacked. Ctrl+] % and " do the same,
+  and so does Ctrl+] c for a new window.
+- **Right-click → Split: shell in project** (or **… (stacked)**), in the link
+  menu and at the top of tmux's own menu off a link.
+- **`lectern split`** from a split of your own terminal:
+
+  ```
+  lectern split [--session current|ID|KIND/ID] [--dir agent|workdir] [--pick]
+  ```
+
+  It finds the session attached in the neighbouring window: every native
+  attachment leaves a small record (no credential) in a private directory
+  (`$XDG_RUNTIME_DIR/lectern-attachments-UID`), its window's focus marks it
+  as the latest, and one in the same kitty or WezTerm instance wins. When two
+  were focused within a second of each other, or with `--pick`, it asks. The
+  shell opens with the same Ctrl+] controls. Bind it to your terminal's split:
+
+  kitty (`kitty.conf`; the `splits` layout must be enabled):
+
+  ```
+  enabled_layouts splits,stack
+  map ctrl+shift+backslash launch --location=vsplit lectern split
+  map ctrl+shift+minus     launch --location=hsplit lectern split
+  ```
+
+  WezTerm (`wezterm.lua`):
+
+  ```lua
+  config.keys = {
+    { key = '|', mods = 'CTRL|SHIFT', action = wezterm.action.SplitHorizontal { args = { 'lectern', 'split' } } },
+  }
+  ```
+
+  Ghostty's split keys (`new_split:right`) start your shell and cannot run a
+  command; type `lectern split` in the new split.
+
+Behind all three, the private tmux server's `default-command` is a small
+Lectern script that asks the server for the shell
+(`POST /api/term/KIND/ID/split`) and becomes it; through an SSH alias
 (`LECTERN_ATTACH_HOST`) the hosted server resolves it, exactly as for attach.
-The shell lasts as long as its pane. Your own tmux and its configuration are
-untouched; `Ctrl-b %` inside the agent's own tmux still splits that tmux as it
-always has. A split with an explicit command of its own runs that command
-here. If the server cannot be reached, the pane says why and waits for Enter.
+Your own tmux and its configuration are untouched; `Ctrl-b %` inside the
+agent's own tmux still splits that tmux as it always has. A split with an
+explicit command of its own runs that command here. If the server cannot be
+reached, the pane says why and waits for Enter.
 
 ### Paths and links the agent prints
 
@@ -247,7 +286,11 @@ for paths outside the workspace (`/home/you/.formwork/report.pdf`, `~/notes/x.md
 and for paths an agent's TUI wrapped across rows: detection is the Go port of
 the web terminal's (`internal/filelinks`), run on the same test vectors. A bare
 name (`report.md`) counts only if the workspace has that file. Double-clicking
-anything else still selects the word, as tmux always does.
+anything else still selects the word, as tmux always does. This holds for
+agents that track the mouse too (Claude Code's full-screen view, for one): the
+link check always runs first, and only a click that is not on a path or link
+goes to the agent. Single clicks, drags and the wheel are the agent's as
+before.
 
 Right-click one for a menu:
 
