@@ -8,9 +8,9 @@ export type View = (typeof VIEWS)[number];
 
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 
-/** Three primary pages plus More: opening a terminal never grows the bar. */
-export function primaryViews(_terminalsOpen: boolean): View[] {
-  return ["sessions", "approvals", "settings"];
+/** Wide sidebars expose every page; compact navigation keeps three plus More. */
+export function primaryViews(_terminalsOpen: boolean, desktop = false): View[] {
+  return desktop ? [...VIEWS] : ["sessions", "approvals", "settings"];
 }
 
 /** What More holds: every other page, then two Settings sections people look for by name. */

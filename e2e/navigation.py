@@ -1,4 +1,4 @@
-"""Use the four-item navigation as a person would, including More."""
+"""Use the desktop sidebar or compact navigation as a person would."""
 from playwright.sync_api import expect
 
 

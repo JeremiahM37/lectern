@@ -152,6 +152,14 @@ const mediaSessionOf = (hash: string) => {
   return match ? Number(match[1]) : null;
 };
 export default function App() {
+  const [desktopNavigation, setDesktopNavigation] = useState(() => matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const media = matchMedia("(min-width: 1024px)");
+    const update = () => setDesktopNavigation(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
   useLocale();
   const [view, setView] = useState<Tab>(HOME),
     [showEvals, setShowEvals] = useState(false),
@@ -1221,10 +1229,11 @@ export default function App() {
         <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar" aria-label={t("nav.label")}>
-        {primaryViews(terminals.tabs.length > 0).map((tab) => (
+        {primaryViews(terminals.tabs.length > 0, desktopNavigation).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
+            data-nav-target={tab}
             aria-current={view === tab ? "page" : undefined}
             className={["tab", view === tab ? "on" : ""].filter(Boolean).join(" ")}
             onClick={() => navigate(tab === "terminals" ? terminals.hash : "#" + tab)}
@@ -1243,6 +1252,13 @@ export default function App() {
                 {terminals.tabs.length}
               </b>
             )}
+            {tab === "media" && (
+              <b id="media-badge" className={liveViews.length ? "badge" : "badge dim"}
+                hidden={!media.length && !liveViews.length}
+                title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : t("nav.mediaCount", { n: media.length })}>
+                {media.length + liveViews.length}
+              </b>
+            )}
             {tab === "approvals" && (
               <b id="appr-badge" className="badge" hidden={!approvals.length} title={t("nav.approvalsWaiting", { n: approvals.length })}>
                 {approvals.length}
@@ -1250,7 +1266,15 @@ export default function App() {
             )}
           </button>
         ))}
-        <details
+        {desktopNavigation && (["machines", "plugins"] as const).map((name) => (
+          <button key={name} className={"tab" + (view === "settings" && section.name === name ? " on" : "")}
+            data-nav-target={name} aria-current={view === "settings" && section.name === name ? "page" : undefined}
+            onClick={() => settings(name)}>
+            <span className="tab-ic" aria-hidden="true"><Icon name={NAV_ICON.settings} /></span>
+            {t(`nav.more.${name}`)}
+          </button>
+        ))}
+        {!desktopNavigation && <details
           id="nav-overflow"
           className={`action-menu ${moreEntries(terminals.tabs.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
         >
@@ -1286,7 +1310,7 @@ export default function App() {
               );
             })}
           </div>
-        </details>
+        </details>}
       </nav>
       <div id="toasts" aria-live="polite">
         {toasts.map((toast) => (

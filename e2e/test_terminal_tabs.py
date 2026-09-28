@@ -9,7 +9,7 @@ from test_terminal_workspace import real_terminal, capture
 def attach(page, name):
     page.locator('.tab[data-tab="sessions"]').click()
     page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Terminal',exact=True).click()
-    expect(page.locator('#nav-overflow [data-nav-target="terminals"]')).to_have_attribute("aria-current", "page")
+    expect(page.locator('#tabbar [data-nav-target="terminals"]')).to_have_attribute("aria-current", "page")
 
 
 def frame(page, id):
@@ -122,7 +122,7 @@ def test_terminal_tabs_restore_in_a_fresh_browser_context(browser, real_terminal
         # Home is Sessions; the restored terminal waits under Terminals.
         expect(page.locator('.tab[data-tab="sessions"]')).to_have_class('tab on')
         navigate(page, "terminals")
-        expect(page.locator('#nav-overflow [data-nav-target="terminals"]')).to_have_attribute("aria-current", "page")
+        expect(page.locator('#tabbar [data-nav-target="terminals"]')).to_have_attribute("aria-current", "page")
         expect(page.get_by_role('tab', name='Real terminal', exact=True)).to_have_attribute('aria-selected', 'true')
         f = frame(page, t['id'])
         ready(f)
