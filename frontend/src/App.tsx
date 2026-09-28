@@ -51,7 +51,7 @@ import { offlineCache } from "./api/offline";
 import { OfflineBanner } from "./mobile/OfflineBanner";
 import { PullToRefresh } from "./mobile/PullToRefresh";
 import { noteView, setViewNavigator, useBackClose } from "./mobile/back";
-import { missingViewer } from "./terminal/viewer";
+import { viewerUnavailable } from "./terminal/viewer";
 const SWITCH_STORAGE = 'lec-pending-switches';
 const PUSH_PROMPT_DISMISSED = 'lec-push-prompt-dismissed';
 // The Needs-you push prompt is one-time and dismissible: once a person taps
@@ -390,9 +390,7 @@ export default function App() {
         openTerminal(response.url, sessions.find((row) => row.id === id)?.name);
         if (response.notice) notice(response.notice);
       } catch (error) {
-        const viewer = missingViewer(error);
-        if (viewer) notice(viewer.message, true, viewer.action);
-        else notice(String(error), true);
+        notice(viewerUnavailable(error) ?? String(error), true);
       }
     },
     [api, openTerminal, sessions, notice],
@@ -435,9 +433,7 @@ export default function App() {
         openTerminal(response.url, shell.name);
         if (response.notice) notice(response.notice);
       } catch (error) {
-        const viewer = missingViewer(error);
-        if (viewer) notice(viewer.message, true, viewer.action);
-        else notice(String(error), true);
+        notice(viewerUnavailable(error) ?? String(error), true);
       }
     },
     [api, openTerminal, notice],

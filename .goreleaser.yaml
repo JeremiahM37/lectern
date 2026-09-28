@@ -50,10 +50,10 @@ nfpms:
     license: MIT
     formats: [deb, rpm]
     bindir: /usr/local/bin
-    # tmux runs the sessions and git the worktrees; ssh reaches remote targets.
-    dependencies: [git, tmux, python3]
-    # ttyd shows an agent's live terminal on the web page (Attach).
-    recommends: [openssh-client, ttyd]
+    # git runs the worktrees; ssh reaches remote targets. Lectern keeps
+    # sessions alive itself (docs/ptyhost.md), so tmux is only used if present.
+    dependencies: [git]
+    recommends: [openssh-client]
     contents:
       - src: deploy/lectern.service
         dst: /usr/share/doc/lectern/lectern.service
@@ -77,9 +77,6 @@ homebrew_casks:
     binaries: [lectern]
     dependencies:
       - formula: git
-      - formula: tmux
-      - formula: python
-      - formula: ttyd
     hooks:
       post:
         # An unsigned binary downloaded by brew carries the quarantine flag;

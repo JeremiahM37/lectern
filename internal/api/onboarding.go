@@ -27,7 +27,6 @@ func (s *Server) onboardingStatus(w http.ResponseWriter, r *http.Request) {
 		"tmux":     onboard.CheckTmux(),
 		"git":      onboard.CheckGit(),
 		"python":   onboard.CheckPython(),
-		"ttyd":     onboard.CheckTTYD(),
 		"projects": len(projects),
 		"sessions": len(sessions),
 		"mock":     s.Cfg.Mock,

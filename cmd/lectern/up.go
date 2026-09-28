@@ -126,7 +126,6 @@ type onboardingStatus struct {
 	Tmux     onboard.EnvCheck     `json:"tmux"`
 	Python   onboard.EnvCheck     `json:"python"`
 	Git      onboard.EnvCheck     `json:"git"`
-	TTYD     *onboard.EnvCheck    `json:"ttyd"` // nil from a runtime older than this check
 	Projects int                  `json:"projects"`
 	Sessions int                  `json:"sessions"`
 }
@@ -170,9 +169,6 @@ func printOnboardingSummary(s *onboardingStatus) {
 		if !c.OK && c.Name != "" {
 			fmt.Printf("Missing %s (needed): %s\n", c.Name, c.Fix)
 		}
-	}
-	if s.TTYD != nil && !s.TTYD.OK {
-		fmt.Printf("Terminal viewer (ttyd) is not installed, so the web page can't show live terminals.\n  Install it: %s\n", s.TTYD.Fix)
 	}
 }
 

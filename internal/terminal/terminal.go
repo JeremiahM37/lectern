@@ -26,7 +26,6 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -308,13 +307,14 @@ func SSHPrefix(target *store.Target) []string {
 	return append(argv, user+"@"+target.Host)
 }
 
-// MissingViewer is Attach's error when ttyd, the terminal viewer the web
-// page uses, is not installed on the control plane. Fix is the command that
-// installs it here.
-type MissingViewer struct{ Fix string }
+// ViewerUnavailable is Attach's error when the web terminal server itself
+// cannot be started: `lectern term-server` could not be run (the binary was
+// moved or replaced under a running Lectern), or, for a hand-built Manager,
+// ttyd is missing. Retrying does not help; restarting Lectern usually does.
+type ViewerUnavailable struct{ Reason string }
 
-func (e MissingViewer) Error() string {
-	return "Terminal viewer isn't installed — run: " + e.Fix
+func (e ViewerUnavailable) Error() string {
+	return "The web terminal could not start (" + e.Reason + ")"
 }
 
 // Attach spawns (or reuses) a ttyd for an attachment and returns its socket.
@@ -329,7 +329,7 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	m.reap()
 	if m.Binary == "" {
 		if _, err := m.LookPath("ttyd"); err != nil {
-			return "", "", MissingViewer{Fix: onboard.InstallCommand("ttyd")}
+			return "", "", ViewerUnavailable{Reason: "ttyd is not installed"}
 		}
 	}
 	argv, err := WebAttachArgv(a, target)
@@ -375,7 +375,10 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	cmd, err := m.Spawn(socket, a.BasePath(), argv)
 	if err != nil {
 		m.release(a.Key)
-		return "", "", fmt.Errorf("ttyd failed to start: %w", err)
+		// The server program could not be run at all. Its exiting right
+		// after start (below) stays a plain error: that is usually a
+		// session still coming up, which a retry resolves.
+		return "", "", ViewerUnavailable{Reason: err.Error()}
 	}
 	var exited chan struct{}
 	if cmd.Process != nil { // test doubles may hand back a command never started

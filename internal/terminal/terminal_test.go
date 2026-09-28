@@ -312,9 +312,9 @@ func TestAttachFailsClearlyWithoutTTYD(t *testing.T) {
 	m, _ := fakeManager(t)
 	m.LookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	_, err := m.Attach(context.Background(), Attachment{Key: "attempt:1"}, target("local"))
-	var missing MissingViewer
-	if !errors.As(err, &missing) || missing.Fix == "" || !strings.Contains(err.Error(), "Terminal viewer isn't installed — run: "+missing.Fix) {
-		t.Errorf("expected a missing-viewer error naming the install command, got %v", err)
+	var unavailable ViewerUnavailable
+	if !errors.As(err, &unavailable) || !strings.Contains(err.Error(), "The web terminal could not start (ttyd is not installed)") {
+		t.Errorf("expected a viewer-unavailable error, got %v", err)
 	}
 }
 

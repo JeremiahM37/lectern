@@ -160,7 +160,8 @@ The same control loop runs in an installable phone app:
 On the machine that runs Lectern, agents need only `git` and the agent's own
 CLI: Lectern keeps their terminals alive itself, on Linux, macOS and Windows
 ([how](docs/ptyhost.md)). Other machines reached over SSH need the `lectern`
-binary installed, or `tmux` and `python3`.
+binary installed, or `tmux` and `python3`. The web terminal is built in too;
+nothing else to install.
 `lectern doctor` checks everything and prints a fix next to anything that's
 wrong, and `lectern update` installs a new release. You can try it with no
 setup at all, using fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on

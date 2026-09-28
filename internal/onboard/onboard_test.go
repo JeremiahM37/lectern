@@ -105,11 +105,3 @@ func TestCheckTmuxAndGit(t *testing.T) {
 		t.Errorf("missing git should be reported not-OK with a fix: %+v", git)
 	}
 }
-
-func TestTTYDCheckNamesAnInstallCommand(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	c := CheckTTYD()
-	if c.OK || !strings.Contains(c.Fix, "ttyd") || !strings.Contains(c.Detail, "Attach") {
-		t.Fatalf("missing ttyd: %+v", c)
-	}
-}

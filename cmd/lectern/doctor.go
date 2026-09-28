@@ -169,8 +169,6 @@ func doctorCommand(cfg *config.Config, args []string) error {
 
 	agents := onboard.DetectAgents(cfg.ClaudeBin, cfg.CodexBin, cfg.GeminiBin)
 	checks = append(checks, agentChecks(cfg, agents, func(p string) error { _, err := os.Stat(p); return err })...)
-	ttyd := onboard.CheckTTYD()
-	checks = append(checks, warn("terminal viewer (ttyd)", ttyd.OK, ttyd.Detail, ttyd.Fix))
 
 	// The Browser pane and the agent browser tools need a Chromium-family
 	// browser on the machine they run on; everything else works without one.

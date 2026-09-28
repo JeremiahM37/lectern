@@ -433,7 +433,7 @@ temporary databases, a separate vault, and a private tmux socket.
 - **Context parity** — staged context files, per-project MCP servers, and
   permission rules, so an agent on a remote target knows and can do what one on
   your own machine does ([docs/context-parity.md](context-parity.md)).
-- **Ops** — worktree janitor, cost stats, task templates, one-click ttyd terminal
+- **Ops** — worktree janitor, cost stats, task templates, one-click web terminal
   attach, and an **MCP server** so any MCP client can file and steer tasks.
 - **Budgets** — daily/weekly USD caps (overall and per agent), a per-task
   spend cap, Claude 5h/7d quota-threshold alerts and a cost-anomaly check,

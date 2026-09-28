@@ -1,20 +1,12 @@
 import { ApiError } from "../api";
 import { t } from "../i18n";
-import type { NoticeAction } from "../types";
 
-// missingViewer recognises the server saying its terminal viewer (ttyd) is not
-// installed. That is not a hiccup to retry: the answer names the command that
-// installs it, and the notice offers to copy it.
-export function missingViewer(error: unknown): { message: string; action: NoticeAction } | null {
+// viewerUnavailable recognises the server saying its web terminal server
+// could not be started at all. That is not a hiccup to retry (a session still
+// coming up is a plain 503 and is retried): say so once, with what helps.
+export function viewerUnavailable(error: unknown): string | null {
   if (!(error instanceof ApiError) || error.status !== 503) return null;
-  const payload = error.payload as { code?: unknown; fix?: unknown } | undefined;
-  if (payload?.code !== "terminal_viewer_missing" || typeof payload.fix !== "string") return null;
-  const fix = payload.fix;
-  return {
-    message: t("terminal.viewerMissing", { command: fix }),
-    action: {
-      label: t("terminal.copyCommand"),
-      run: () => navigator.clipboard?.writeText(fix),
-    },
-  };
+  const payload = error.payload as { code?: unknown; reason?: unknown } | undefined;
+  if (payload?.code !== "terminal_viewer_unavailable") return null;
+  return t("terminal.viewerUnavailable", { reason: typeof payload.reason === "string" ? payload.reason : "" });
 }

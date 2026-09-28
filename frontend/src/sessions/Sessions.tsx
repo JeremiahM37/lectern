@@ -27,7 +27,7 @@ import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
 import { t, useLocale } from "../i18n";
-import { missingViewer } from "../terminal/viewer";
+import { viewerUnavailable } from "../terminal/viewer";
 import "./sessions.css";
 export interface SessionsApi {
   sessions(options?: {
@@ -347,9 +347,9 @@ export function Sessions({
         if (result.notice) onNotice(result.notice);
         return;
       } catch (error) {
-        const viewer = missingViewer(error);
-        if (viewer) {
-          onNotice(viewer.message, true, viewer.action);
+        const unavailable = viewerUnavailable(error);
+        if (unavailable) {
+          onNotice(unavailable, true);
           return;
         }
         lastError = error;

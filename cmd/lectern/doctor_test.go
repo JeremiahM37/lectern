@@ -72,12 +72,12 @@ func TestDoctorPassesAWorkingSetupWithOptionalThingsMissing(t *testing.T) {
 		{Name: "codex", Builtin: true}, {Name: "gemini", Builtin: true}, {Name: "aider"},
 	}
 	missing := func(string) error { return os.ErrNotExist }
-	checks := append(agentChecks(cfg, agents, missing), warn("terminal viewer (ttyd)", false, "not installed", "brew install ttyd"))
+	checks := append(agentChecks(cfg, agents, missing), warn("phone alerts (push keys)", false, "404", "restart it"))
 	report, ok := renderDoctorReport(checks)
 	if !ok {
 		t.Fatalf("one installed agent with optional extras missing must pass:\n%s", report)
 	}
-	for _, want := range []string{"[--] agent: codex — not installed (optional)", "[WARN] claude sign-in", "fix: brew install ttyd", "Lectern can run agents here."} {
+	for _, want := range []string{"[--] agent: codex — not installed (optional)", "[WARN] claude sign-in", "fix: restart it", "Lectern can run agents here."} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report missing %q:\n%s", want, report)
 		}

@@ -105,7 +105,6 @@ fi
 # of a trip to search engine + docs.
 distro_install() {
   pkg="$1"
-  if [ "$pkg" = python3 ] && { [ "$os" = darwin ] || command -v pacman >/dev/null 2>&1; }; then pkg=python; fi
   if [ "$os" = darwin ]; then
     if command -v brew >/dev/null 2>&1; then echo "  brew install $pkg"
     else echo "  install Homebrew (https://brew.sh), then: brew install $pkg"; fi
@@ -121,29 +120,11 @@ distro_install() {
 }
 
 missing=""
-if ! command -v tmux >/dev/null 2>&1; then
-  echo ""
-  echo "tmux is missing — needed on any machine that runs agents directly (this one, or a remote target reached over SSH):"
-  distro_install tmux
-  missing="$missing tmux"
-fi
 if ! command -v git >/dev/null 2>&1; then
   echo ""
   echo "git is missing — every project and task worktree needs it:"
   distro_install git
   missing="$missing git"
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is missing — terminal and session helpers need it:"
-  distro_install python3
-  missing="$missing python3"
-fi
-
-if ! command -v ttyd >/dev/null 2>&1; then
-  echo ""
-  echo "Optional: ttyd lets the web page show an agent's live terminal (Attach). Install it with:"
-  distro_install ttyd
 fi
 
 if [ "$on_path" = 1 ]; then run="$name"; else run="$dir/$name"; fi

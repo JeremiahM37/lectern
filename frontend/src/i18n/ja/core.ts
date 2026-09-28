@@ -110,8 +110,7 @@ const catalog: Record<string, string> = {
   "terminal.moreThemes": "テーマをインポート",
   "terminal.copiedByProgram": "プログラムが {count} 文字をクリップボードにコピーしました。",
   "terminal.copyBlocked": "プログラムがクリップボードにコピーしようとしましたが、ブラウザーにブロックされました。ターミナル内をクリックしてもう一度お試しください。",
-  "terminal.viewerMissing": "ターミナルビューアーがインストールされていません。{command} を実行してください",
-  "terminal.copyCommand": "コマンドをコピー",
+  "terminal.viewerUnavailable": "Web ターミナルを起動できませんでした（{reason}）。Lectern を再起動してください：lectern local stop のあと lectern up。",
   "terminal.footer": "ファイルをドロップするかスクリーンショットを貼り付け · {find} 検索 · {history} 履歴 · {paste} 貼り付け",
   "terminal.noChord": "キーなし",
 

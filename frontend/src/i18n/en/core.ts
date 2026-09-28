@@ -120,8 +120,7 @@ const en: Record<string, string> = {
   "terminal.moreThemes": "Import a theme",
   "terminal.copiedByProgram": "The program copied {count} characters to your clipboard.",
   "terminal.copyBlocked": "The program tried to copy to your clipboard, but the browser blocked it. Click into the terminal and try again.",
-  "terminal.viewerMissing": "Terminal viewer isn't installed — run {command}",
-  "terminal.copyCommand": "Copy command",
+  "terminal.viewerUnavailable": "The web terminal could not start ({reason}). Restart Lectern: lectern local stop, then lectern up.",
   "terminal.footer": "Drop files or paste a screenshot · {find} find · {history} history · {paste} paste",
   "terminal.noChord": "no key",
 

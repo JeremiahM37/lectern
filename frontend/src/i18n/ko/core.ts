@@ -110,8 +110,7 @@ const catalog: Record<string, string> = {
   "terminal.moreThemes": "테마 가져오기",
   "terminal.copiedByProgram": "프로그램이 {count}자를 클립보드에 복사했습니다.",
   "terminal.copyBlocked": "프로그램이 클립보드에 복사하려 했지만 브라우저가 차단했습니다. 터미널을 클릭한 뒤 다시 시도하세요.",
-  "terminal.viewerMissing": "터미널 뷰어가 설치되어 있지 않습니다. {command} 를 실행하세요",
-  "terminal.copyCommand": "명령 복사",
+  "terminal.viewerUnavailable": "웹 터미널을 시작할 수 없습니다({reason}). Lectern을 다시 시작하세요: lectern local stop 후 lectern up.",
   "terminal.footer": "파일을 끌어 놓거나 스크린샷 붙여넣기 · {find} 찾기 · {history} 기록 · {paste} 붙여넣기",
   "terminal.noChord": "키 없음",
 

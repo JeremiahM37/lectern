@@ -5,9 +5,9 @@
 # Downloads the zip for this CPU from the latest GitHub release, verifies it
 # against checksums.txt, installs lectern.exe under
 # $env:LOCALAPPDATA\Programs\lectern and adds that directory to the user PATH.
-# On Windows the binary is the client (mcp, post, sessions, tasks…) against a
-# Lectern server elsewhere; the control plane itself needs tmux (Linux, macOS
-# or WSL).
+# The same binary runs Lectern on this PC (`lectern up`; agents need Git for
+# Windows and their own CLI) or talks to a Lectern server elsewhere
+# (LECTERN_API).
 $ErrorActionPreference = "Stop"
 $repo = "JeremiahM37/lectern"
 $version = if ($env:LECTERN_VERSION) { $env:LECTERN_VERSION } else { "latest" }
@@ -34,7 +34,11 @@ try {
     Write-Host "Added $dir to your user PATH (open a new terminal to pick it up)."
   }
   Write-Host ("Installed " + (& (Join-Path $dir "lectern.exe") version) + " to $dir")
-  Write-Host "Set LECTERN_API to your Lectern server, e.g. `$env:LECTERN_API = 'http://aiserver:9110'`."
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "Agents need Git for Windows: https://git-scm.com/download/win"
+  }
+  Write-Host "Next: run 'lectern up' — it starts Lectern and opens your browser, ready to start an agent."
+  Write-Host "(To use a Lectern server elsewhere instead, set LECTERN_API, e.g. `$env:LECTERN_API = 'http://aiserver:9110'`.)"
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
