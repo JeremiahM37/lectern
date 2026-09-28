@@ -65,15 +65,24 @@ steps:
       - shell: systemctl is-active lectern
       - shell: curl -sf http://127.0.0.1:9110/api/health | grep -q '"ok":true'
 
-  - name: board renders live
+  - name: home is the sessions list
     actions:
       - navigate: http://127.0.0.1:9110/
       - wait: 2.5
     expect:
       vision: >
-        a dark kanban board titled lectern, showing six
-        columns (backlog, queued, running, review, done, failed), a quick-dispatch
-        input bar at the top, and a LIVE connection indicator; no error text, no
+        the Lectern web app with a navigation showing Sessions, Approvals, Tasks
+        and Settings, and a list of agent sessions or a clear "Start an agent"
+        action; no error text, no blank white screen
+
+  - name: tasks board renders live
+    actions:
+      - navigate: http://127.0.0.1:9110/#tasks
+      - wait: 2.5
+    expect:
+      vision: >
+        a dark task board with several status columns (such as backlog, queued,
+        running, review, done, failed) and a way to add a task; no error text, no
         blank white screen
 
   - name: sessions tab lists live agents
@@ -83,7 +92,7 @@ steps:
     expect:
       vision: >
         a list of interactive agent session cards, each showing a name, a status
-        like working or wants you, how long it has been quiet, a preview of
+        like Working, Needs you or Idle, how long it has been quiet, a preview of
         terminal output, and an Attach button; not a blank page, not an error
 
   # Deterministic coverage of the sink settings (Discord/ntfy inputs, Save button,
@@ -91,9 +100,9 @@ steps:
   # renders in a real browser without erroring. The small local vision model is
   # unreliable at enumerating specific labelled fields, so the visual assert stays
   # coarse and the deterministic tests own the detail.
-  - name: targets tab renders
+  - name: settings tab renders
     actions:
-      - click: { selector: ".tab[data-tab='targets']" }
+      - click: { selector: ".tab[data-tab='settings']" }
       - wait: 1.5
     expect:
       vision: >
