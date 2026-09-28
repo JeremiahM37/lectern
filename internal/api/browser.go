@@ -48,6 +48,7 @@ type sessionBrowser struct {
 	tabs      *browser.Tabs
 	proc      *browser.Process
 	run       browser.Runner // where the browser runs
+	lectern   string         // the lectern binary there, if known
 	where     string         // target | host
 	binary    string
 	profile   string // the full profile name; "" is a throwaway one
@@ -292,6 +293,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 	var proxy *browser.LoopbackProxy
 	cdpDial := browser.Dial(dialer.DialTarget)
 	sb.where = "target"
+	sb.lectern = executor.TargetEnvOf(ex).Lectern
 	if errors.Is(err, browser.ErrNoBrowser) && target.Kind != "local" {
 		// The control plane stands in; the target's localhost stays the
 		// browser's localhost through the proxy.
@@ -306,6 +308,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		}
 		sb.where = "host"
+		sb.lectern = ""
 	}
 	if err != nil {
 		if proxy != nil {
