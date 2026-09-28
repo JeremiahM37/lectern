@@ -27,6 +27,7 @@ var allCommandsAction = dashboardAction{Label: "All commands…", Operation: "pa
 var preferred = map[string][]string{
 	"session":        {"Allow once", "Allow for this session", "Deny", "Attach", "Open in a new window", "Send message", "Upload context file", "Review changes", "Rename", "End session", "Stop tracking (leave running)"},
 	"session-exited": {reviveLabel, "Attach", "Review changes", "Read history", "Rename", "End session", "Stop tracking (leave running)"},
+	"session-archived": {"Unarchive record", "Archived terminal output", "Saved conversations", "Rename"},
 	"session-ended":  {"Track again", "Saved conversations", "Rename", "Handoff summaries", "Archive stopped record"},
 	"session-setup":  {"Cancel setup", "Retry cancellation", "Workspace setup progress", "Rename", "Move to group"},
 	"approval":       {"Allow once", "Allow for this session", "Deny", "Deny with a reason…", "Open the session"},
@@ -49,7 +50,9 @@ func (m *dashboard) selectionKind() string {
 		switch {
 		case r["setup_state"] == "creating":
 			return "session-setup"
-		case r["ended_at"] != nil || r["archived_at"] != nil:
+		case r["archived_at"] != nil:
+			return "session-archived"
+		case r["ended_at"] != nil:
 			return "session-ended"
 		case agentExited(r):
 			return "session-exited"

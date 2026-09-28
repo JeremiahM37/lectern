@@ -30,7 +30,7 @@ def test_attach_through_an_ssh_alias_without_a_token_opens_links(real_terminal, 
     env.update(HOME=str(home), DISPLAY=':99', PATH=f"{tools}:{env['PATH']}", LECTERN_ATTACH_HOST='desktop-alias')
     d = Dashboard(dict(t, env=env), args=('attach', 'session', str(t['id'])))
     try:
-        d.wait('Double-click')
+        d.wait('double-click')
         d.send(f"clear; cat {FIXTURES / 'codex-markdown-link.bin'}; echo\r")
         d.wait('Jeremiah_Mackey_Cerebras.pdf)')
         socks = [p for p in Path(os.environ.get('TMPDIR', '/tmp')).glob('lectern-attach-*/sock')]

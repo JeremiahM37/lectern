@@ -15,7 +15,7 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import DESKTOP, PHONE, _binary, _start, _stop, _unused_port
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command
 from test_ui import _tab
 
 
@@ -238,9 +238,8 @@ def test_project_skills_dashboard_real_pty_has_native_controls(skill_api, tmp_pa
     t = {"url": base, "env": env, "root": Path(tmp_path)}
     d = Dashboard(t)
     try:
-        d.wait("Lectern"); d.send("4"); d.wait("Skills fixture"); d.send("m")
-        for _ in range(9): d.send("j")
-        d.send("\r"); d.wait("Project skills"); d.wait("Attach discovered skill")
+        d.wait("Lectern"); d.send("3"); d.wait("Skills fixture")
+        run_command(d, "Skills (attach / detach)", "skills"); d.wait("Project skills"); d.wait("Attach discovered skill")
         d.send("\x13"); d.wait("skill is already attached")
         # The form remains open after the conflict, so retrying the same
         # selected skill is an explicit second action with no process restart.

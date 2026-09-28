@@ -5,7 +5,7 @@ import subprocess
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from test_multi_workspace import grouped
 from test_session_restore import request
 from session_sheet import open_advanced
@@ -61,10 +61,8 @@ def test_browser_background_setup_survives_reload(page,real_terminal,width):
 def test_terminal_background_setup_updates_selected_preview(real_terminal):
     t=real_terminal;release=hold_second_checkout(t);d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('/Real terminal\r');d.send('n');d.wait('New session')
-        # A selected project supplies target and directory, so two hidden
-        # fields are skipped before the isolation controls.
-        d.send('Slow terminal setup unique');d.send('\t\t\x1b[C'+'\t'*4+'\x1b[C\t\x1b[C\x13')
+        d.wait('Real terminal');d.send('/Real terminal\r')
+        new_session(d,where='Isolated project',name='Slow terminal setup unique',isolated=True,multi=True)
         d.wait('Workspace repositories:');d.send('\x13');d.wait('Base (blank uses committed HEAD)')
         d.send('HEAD\x13');d.wait('Create session');d.send('\x13');d.wait('Workspace setup started')
         # The new session is created from the unassigned adopted terminal. Use

@@ -68,7 +68,7 @@ def test_split_opens_a_tracked_shell_in_the_agents_directory_on_its_machine(requ
     (tmp_path / 'run').mkdir(mode=0o700)
     d = Dashboard(dict(t, env=env), args=('attach', 'session', str(t['id'])))
     try:
-        d.wait('Ctrl+] | shell')
+        d.wait('Ctrl+] menu')
         d.send('cd ' + shlex.quote(str(where)) + " && clear && printf 'AGENT-READY\\n'\r")
         d.wait('AGENT-READY')
         for keys in ('\x1d|', '\x1d-', '\x1d%'):

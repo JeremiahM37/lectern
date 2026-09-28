@@ -79,7 +79,7 @@ def test_resume_checks_live_released_foreign_and_duplicate_requests(real_termina
 def test_console_continues_exact_history(real_terminal):
     t=real_terminal;cid,_,_=prepare(t);stopped(t);d=Dashboard(t)
     try:
-        d.wait('No matching items');d.send('z');d.wait('Real terminal');d.send('H');d.wait('Saved conversations')
+        d.wait('No live sessions');d.send('z');d.wait('Real terminal');d.send('H');d.wait('Saved conversations')
         d.send('\t\x1b[C\x1b[C\x13');d.wait('previous terminal must be stopped');d.send('y')
         d.wait('Resume conversation completed');assert argv(t)==['--resume',cid]
         d.quit()

@@ -21,8 +21,9 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 		if m.popup {
 			return tea.Quit
 		}
-		if m.detailKey != "" || m.previewFocus {
-			// A detail view in the preview is a sub-view: q steps back first.
+		if m.previewFocus && m.width < 100 {
+			// A narrow terminal shows the preview instead of the list, so
+			// it is a sub-view there: q steps back to the list first.
 			m.leaveDetail()
 			return nil
 		}
@@ -253,9 +254,9 @@ func (m *dashboard) toggleBatchMode() tea.Cmd {
 	m.batchOpen = !m.batchOpen
 	m.batchSelected = map[string]bool{}
 	if m.batchOpen {
-		m.notice = "Select sessions: click or Space marks them, Enter opens them all, b or Esc stops"
+		m.notice = "Batch select · click/Space selects · Enter opens selected terminals · b cancels"
 	} else {
-		m.notice = "Multi-select off · Enter and click attach here again"
+		m.notice = "Batch open OFF · Enter/click attaches here"
 	}
 	return nil
 }

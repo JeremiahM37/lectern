@@ -2,7 +2,7 @@ import json,time,urllib.request,uuid
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from test_command_palette import search
 from session_sheet import open_advanced
 
@@ -78,7 +78,8 @@ def test_terminal_manages_profile_and_launches_with_it(real_terminal):
         d.wait('Real terminal');d.send('P');d.wait('Launch profiles — reusable');d.send('\x13');d.wait('Profile name')
         d.send('Terminal account\t\x1b[C\t'+str(agent)+'\tprofile-model\t\x01\x0b'+json.dumps(env)+'\x13')
         d.wait('Save launch profile completed');assert len(t['api']('/launch-profiles'))==1
-        d.send('n');d.wait('Launch profile:');d.send('Profile terminal\t\x1b[C'+'\t'*5+str(t['root'])+'\x13');d.wait('Create session completed',timeout=20)
+        new_session(d,name='Profile terminal',profile_right=1,folder=str(t['root']))
+        d.wait('Ctrl+] d leave',timeout=20);d.send('\x1dd');d.wait('Detached. Session keeps running.')
         row=next(r for r in t['api']('/sessions') if r['name']=='Profile terminal');assert row['agent']=='codex' and row['model']=='profile-model'
         assert wait_record(t,1)[0]['home']==env['CODEX_HOME']
         d.send('P');d.wait('Launch profiles — reusable');d.send('\x1b[C\x13');d.wait('Delete Terminal account?');d.send('y');d.wait('Delete launch profile completed')

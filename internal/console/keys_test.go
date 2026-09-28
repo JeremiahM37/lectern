@@ -370,8 +370,8 @@ func TestNewSessionOffersOnlyInstalledAgents(t *testing.T) {
 	m.form = nil
 	m.agentState["1"] = map[string]string{"codex": "missing", "claude": "missing", "gemini": "missing"}
 	m.newForm()
-	if m.form != nil || !strings.Contains(m.notice, "No agent CLI was found") {
-		t.Fatalf("launching a missing agent was offered: %q", m.notice)
+	if m.form == nil || !strings.Contains(m.formView(), "No agent CLI was found") || !strings.Contains(m.formView(), "not found on this machine") {
+		t.Fatalf("a machine with no agents was not explained: %q", m.notice)
 	}
 }
 

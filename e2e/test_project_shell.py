@@ -22,9 +22,9 @@ def test_project_enter_opens_shell_without_starting_agent(real_terminal):
     tmux_name = f"lec-sh{project['id']}"
     try:
         d.wait('Real terminal')
-        d.send('4')
+        d.send('3')
         d.wait('Open project files')
-        d.wait('Enter open project shell')
+        d.wait('Enter open shell')
         d.send('\r')
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:

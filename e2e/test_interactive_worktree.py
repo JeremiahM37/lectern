@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from session_sheet import open_advanced
 
 
@@ -60,12 +60,11 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
 def test_terminal_form_creates_an_isolated_session(real_terminal):
     t=real_terminal;project,git=setup(t);d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('n');d.wait('New session');d.send('TUI worktree')
-        # Name -> profile (defaults) -> project (choose project) -> agent ->
-        # model -> prompt -> isolation. Target and directory are derived from
-        # the selected project and skipped by the form.
-        d.send('\t\t\x1b[C'+'\t'*4+'\x1b[C')
-        d.send('\x13');d.wait('Workspace setup started')
+        d.wait('Real terminal')
+        # Where is the project the dashboard was started in; the worktree
+        # is under More options.
+        new_session(d,where='Isolated project',name='TUI worktree',isolated=True)
+        d.wait('Workspace setup started')
         row=next(s for s in t['api']('/sessions') if s['name']=='TUI worktree')
         deadline=time.monotonic()+15
         while row.get('setup_state')=='creating' and time.monotonic()<deadline:

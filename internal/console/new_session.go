@@ -228,9 +228,19 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 	}
 	project := strings.TrimPrefix(where, "project:")
 	agents, agent, missing := m.agentChoices(target, project, false)
-	if len(agents) == 0 {
-		m.notice = "No agent CLI was found on this machine (" + strings.Join(missing, ", ") + " are not installed). Install one, or add a custom agent with : → Agent runners."
-		return nil
+	none := len(agents) == 0
+	if none {
+		// Nothing is installed. Still open the form — a launch profile under
+		// More options may bring its own command — but say so, and never
+		// present a missing agent as if it would work.
+		for _, name := range missing {
+			agents = append(agents, choice{name + " (not found on this machine)", name})
+		}
+		if len(agents) == 0 {
+			m.notice = "No agents are defined. Add one with : → Agent runners."
+			return nil
+		}
+		agent = agents[0].Value
 	}
 	permission := "ask"
 	if m.permissionDefault == "bypass" {
@@ -250,6 +260,7 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 		adv(field{Key: "name", Label: "Session name (blank names it after the folder)"}),
 		adv(optionField("profile_id", "Launch profile", "", m.profileChoices("Agent and project defaults"), false)),
 		adv(field{Key: "model", Label: "Model (blank uses the agent's default)"}),
+		adv(field{Key: "folder", Label: "Folder path instead of Where (optional)"}),
 		adv(optionField("target_id", "Machine (for a folder or scratch)", "", targets, false)),
 		adv(boolField("isolated", "Work in a separate Git worktree", false)),
 		adv(boolField("multi_repo", "Choose additional repositories after this form", false)),
@@ -264,7 +275,10 @@ func (m *dashboard) newSessionForm() tea.Cmd {
 	})
 	if m.form != nil {
 		m.form.submitVerb = "start"
-		if len(missing) > 0 {
+		switch {
+		case none:
+			m.notice = "No agent CLI was found on this machine (" + strings.Join(missing, ", ") + "). Install one, or choose a launch profile under More options."
+		case len(missing) > 0:
 			m.notice = "Not installed here: " + strings.Join(missing, ", ") + "."
 		}
 	}
@@ -278,6 +292,10 @@ const moreKey = "__more"
 func (m *dashboard) submitNewSession(body map[string]any) tea.Cmd {
 	where := str(body["where"])
 	delete(body, "where")
+	if folder := strings.TrimSpace(str(body["folder"])); folder != "" {
+		where = "dir:" + folder // A typed path wins over the picked place.
+	}
+	delete(body, "folder")
 	if strings.TrimSpace(str(body["name"])) == "" {
 		if name := m.placeName(where); name != "" {
 			body["name"] = m.unusedName(name)

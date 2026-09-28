@@ -1343,9 +1343,9 @@ func (m *dashboard) View() string {
 		header += needsStyle.Render(clip(banner, m.width-1)) + "\n"
 	} else {
 		group := []string{"project", "machine", "none", "named group"}[m.grouping]
-		meta := fmt.Sprintf(" %d/%d items · grouped by %s", m.matched, len(m.rows), group)
+		meta := fmt.Sprintf(" %d/%d items · group: %s", m.matched, len(m.rows), group)
 		if m.batchOpen {
-			meta = fmt.Sprintf(" SELECTING · %d selected · click/Space marks · Enter opens · b stops", len(m.batchSelected))
+			meta = fmt.Sprintf(" BATCH SELECT · %d selected · click/Space marks · Enter opens · b stops", len(m.batchSelected))
 		}
 		if m.attention {
 			meta += " · needs you only"
@@ -1465,8 +1465,10 @@ func (m *dashboard) listView(height int) string {
 			return "\n No matching items.\n Esc clears the search."
 		case sections[m.section] == "approvals":
 			return "\n Nothing needs you right now.\n Agents that ask before running a command show up here."
+		case sections[m.section] == "sessions" && (m.ended || m.archived):
+			return "\n No matching items.\n z or A goes back to live sessions."
 		case sections[m.section] == "sessions":
-			return "\n No sessions yet.\n\n n    start an agent\n r    restore an ended one\n f    find agents already running"
+			return "\n No live sessions.\n\n n    start an agent\n r    restore an ended one\n z    include ended sessions\n f    find agents already running"
 		}
 		return "\n No matching items.\n n New · / Search"
 	}

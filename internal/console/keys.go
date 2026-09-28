@@ -347,9 +347,9 @@ func (m *dashboard) openHelp() {
 
 func (m *dashboard) helpView(height int) string {
 	lines := m.helpLines()
-	head := accent.Bold(true).Render(" Keys") + muted.Render(" · ↑↓ PgUp/PgDn scroll · / filter · Esc close")
+	head := accent.Bold(true).Render(" Keyboard shortcuts") + muted.Render(" · ↑↓ PgUp/PgDn scroll · / filter · Esc close")
 	if m.helpSearching || m.helpQuery != "" {
-		head = accent.Bold(true).Render(" Keys") + " / " + m.helpQuery
+		head = accent.Bold(true).Render(" Keyboard shortcuts") + " / " + m.helpQuery
 		if m.helpSearching {
 			head += "▏"
 		}
