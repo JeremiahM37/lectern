@@ -17,3 +17,12 @@ const oNoFollow = 0
 // lockExclusive: no flock here, so edits are not serialised against other
 // writers.
 func lockExclusive(*os.File) error { return nil }
+
+// pyAccessX is os.access(p, os.X_OK); Windows has no execute bit, so any
+// existing file counts, as Python reports there.
+func pyAccessX(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+const oNonblock = 0

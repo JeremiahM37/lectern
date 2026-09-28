@@ -225,6 +225,8 @@ func treeOf(t *testing.T, root string) string {
 			fmt.Fprintf(&b, "%s -> %s\n", rel, strings.ReplaceAll(target, root, "$ROOT"))
 		case info.IsDir():
 			fmt.Fprintf(&b, "%s/ %v\n", rel, info.Mode().Perm())
+		case !info.Mode().IsRegular() || info.Size() > 1<<20:
+			fmt.Fprintf(&b, "%s %v %d\n", rel, info.Mode(), info.Size())
 		default:
 			data, _ := os.ReadFile(path)
 			fmt.Fprintf(&b, "%s %v %q\n", rel, info.Mode().Perm(), strings.ReplaceAll(string(data), root, "$ROOT"))
