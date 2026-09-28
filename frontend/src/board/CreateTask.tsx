@@ -312,7 +312,7 @@ export function CreateTask({
             </small>
           ) : (
             <small>
-              {t("board.create.orchNeeds")}<a href="#targets">{t("board.quick.openSettings")}</a>.
+              {t("board.create.orchNeeds")}<a href="#settings/connections">{t("board.quick.openSettings")}</a>.
             </small>
           )}
         </span>

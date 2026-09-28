@@ -42,15 +42,15 @@ def test_browser_background_setup_survives_reload(page,real_terminal,width):
         expect(card.get_by_role('button',name='Setting up',exact=True)).to_be_disabled()
         expect(card.locator('.spane')).to_contain_text('Isolated project: ready',timeout=15000)
         expect(card.locator('.spane')).to_contain_text('Second repository: creating')
-        assert card.get_by_role('button',name='⌨ Attach',exact=True).count()==0
+        assert card.get_by_role('button',name='⌨ Terminal',exact=True).count()==0
         page.screenshot(path=f'/tmp/lectern-background-setup-{width}.png',full_page=True)
         page.reload()
         expect(card.locator('.spane')).to_contain_text('Isolated project: ready',timeout=15000)
         assert t['api'](f"/sessions/{session['id']}")['setup_state']=='creating'
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         release.touch()
-        expect(card.get_by_role('button',name='⌨ Attach',exact=True)).to_be_visible(timeout=15000)
-        card.get_by_role('button',name='⌨ Attach',exact=True).click()
+        expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_be_visible(timeout=15000)
+        card.get_by_role('button',name='⌨ Terminal',exact=True).click()
         frame=page.frame_locator('#terminal-workspace .terminal-tabpanel:not([hidden]) iframe')
         expect(frame.locator('#connection')).to_have_text('Connected',timeout=15000)
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)

@@ -102,7 +102,7 @@ The hash names the page. Old hashes keep working and are rewritten:
 | `#board` | `#tasks` |
 | `#tasks/<project>/…` (issues and PRs) | `#issues/<project>/…` |
 | `#deck` | `#overview` |
-| `#targets` | `#settings` |
+| `#targets` | `#settings/machines` |
 | `#settings/<section>`, `#task/<id>`, `#session/<id>[/terminal\|reply]`, `#approvals`, `#media[/<id>]`, `#terminals/…`, `#evals` | unchanged |
 
 A bare old `#tasks` now opens the task board, which is what "Tasks" means now.

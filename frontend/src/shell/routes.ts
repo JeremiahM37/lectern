@@ -26,7 +26,7 @@ export const HOME: View = "sessions";
 /**
  * Rewrites a hash from before the rename to the one that means the same page
  * now: #board → #tasks, #tasks/<project>/… (issues and pull requests) →
- * #issues/<project>/…, #deck → #overview, #targets → #settings. Anything else
+ * #issues/<project>/…, #deck → #overview, #targets → #settings/machines. Anything else
  * comes back as it was. A bare #tasks is the task list now, as its name says.
  */
 export function canonicalHash(hash: string): string {
@@ -39,7 +39,8 @@ export function canonicalHash(hash: string): string {
     case "deck":
       return "#overview";
     case "targets":
-      return "#settings" + tail;
+      // Its page opened on Machines, so that is where an old link lands.
+      return "#settings" + (tail || "/machines");
     case "tasks":
       return /^[1-9]\d*$/.test(rest[0] || "") ? "#issues" + tail : "#" + raw;
   }

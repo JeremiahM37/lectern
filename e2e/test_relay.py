@@ -81,16 +81,14 @@ def relay_stack():
 def _open_devices(page):
     if page.get_by_role("button", name="Show navigation", exact=True).is_visible():
         page.get_by_role("button", name="Show navigation", exact=True).click()
-    button = page.locator('.tab[data-tab="targets"]')
-    if not button.is_visible():
-        page.locator("#nav-overflow > summary").click()
-        page.locator('[data-nav-target="targets"]').click()
-    else:
-        button.click()
-    page.get_by_role("tab", name="Devices").click()
+    page.locator('.tab[data-tab="settings"]').click()
+    page.get_by_role("tab", name="Phone & devices").click()
 
 
 def _tab(page, name):
+    # Pages renamed in the simpler navigation (docs/design/simple-ui.md).
+    legacy = name
+    name = {"board": "tasks", "deck": "overview", "targets": "settings"}.get(name, name)
     if page.get_by_role("button", name="Show navigation", exact=True).is_visible():
         page.get_by_role("button", name="Show navigation", exact=True).click()
     button = page.locator(f'.tab[data-tab="{name}"]')
@@ -99,6 +97,9 @@ def _tab(page, name):
         page.locator(f'[data-nav-target="{name}"]').click()
     else:
         button.click()
+    if legacy == "targets":
+        # The old Settings page opened on Machines.
+        page.locator('[data-settings="machines"]').click()
 
 
 def test_approval_round_trip_over_the_relay(browser, relay_stack):
@@ -153,7 +154,7 @@ def test_approval_round_trip_over_the_relay(browser, relay_stack):
         row = phone.locator(".rowcard", has_text="Bash").first
         expect(row).to_be_visible()
         expect(row.locator("pre")).to_contain_text("rm -rf build/")
-        row.locator("button:has-text('Approve')").first.click()
+        row.locator("button:has-text('Allow once')").first.click()
         _tab(phone, "board")
         expect(phone.locator(".col.s-review .card", has_text=TITLE)).to_be_visible(timeout=20000)
 

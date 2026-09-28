@@ -248,6 +248,7 @@ const catalog: Record<string, string> = {
   "sessions.card.kill": "강제 종료",
   "sessions.card.end": "종료",
   "sessions.card.stoppedArchived": "“{name}”을(를) 중지하고 보관했습니다.",
+  "sessions.card.stopArchiveConfirm": "\"{name}\"을(를) 중지하고 기록을 보관함으로 옮길까요? 터미널 프로세스가 종료됩니다. 캡처된 출력, 저장된 대화 및 워크트리 파일은 유지됩니다.",
   "sessions.card.stopArchive": "중지 후 보관",
   "sessions.card.project": "프로젝트",
   "sessions.card.unassignedOption": "— 미지정 —",

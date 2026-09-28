@@ -630,7 +630,12 @@ export function SessionCard({
             <button
               className="b no"
               onClick={() => {
-                void close(
+                if (
+                  confirm(
+                    t("sessions.card.stopArchiveConfirm", { name: s.name }),
+                  )
+                )
+                  void close(
                     `/sessions/${s.id}/archive`,
                     "POST",
                     { stop: true },

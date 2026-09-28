@@ -314,11 +314,11 @@ def test_rejected_retry_shows_the_post_error_and_starts_nothing(page, real_termi
     assert pending[str(source['id'])]['error']
 
 
-def test_fresh_mobile_landing_is_sessions(page, server):
+def test_fresh_landing_is_sessions_on_every_device(page, server):
     page.set_viewport_size({'width': 390, 'height': 844})
     page.goto(server)
     expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))
-    # Desktop keeps the board as its landing view.
+    # The desktop lands on Sessions too: one home everywhere.
     page.set_viewport_size({'width': 1440, 'height': 900})
     page.goto(server)
-    expect(page.locator('.tab[data-tab="board"]')).to_have_class(re.compile(r'\bon\b'))
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))

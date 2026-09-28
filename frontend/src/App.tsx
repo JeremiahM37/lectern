@@ -573,7 +573,7 @@ export default function App() {
         return;
       }
       if (kind && isTab(kind)) {
-        setView(kind === "terminals" && !terminals.active ? HOME : kind);
+        setView(kind);
         if (kind === "media") setMediaSession(mediaSessionOf(raw));
         return;
       }

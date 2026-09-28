@@ -50,11 +50,13 @@ def test_connect_tools_card_renders_and_connects(browser):
         with browser.new_context() as context:
             x = context.new_page()
             x.goto(url)
+            # Its own section now (docs/design/simple-ui.md): the section
+            # tabs come first, so every section is reachable without scrolling.
+            x.locator('[data-settings="connections"]').click()
             card = x.locator("#connect-tools-heading")
             card.wait_for()
-            # It renders above the settings tabs (near the top of Settings).
             tabs = x.locator('.settings-page nav[role="tablist"]')
-            assert card.bounding_box()["y"] < tabs.bounding_box()["y"]
+            assert tabs.bounding_box()["y"] < card.bounding_box()["y"]
 
             claude_card = x.locator('[data-client="claude-code"]')
             claude_card.get_by_text("Not connected yet").wait_for()
@@ -108,6 +110,7 @@ def test_connect_tools_no_horizontal_overflow_at_phone_width(browser):
         with browser.new_context(viewport=PHONE) as context:
             x = context.new_page()
             x.goto(url)
+            x.locator('[data-settings="connections"]').click()
             x.locator("#connect-tools-heading").wait_for()
             x.locator('[data-client="web-connectors"]').wait_for()
             overflow = x.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
@@ -122,6 +125,7 @@ def test_connect_tools_renders_at_desktop_width(browser):
         with browser.new_context(viewport=DESKTOP) as context:
             x = context.new_page()
             x.goto(url)
+            x.locator('[data-settings="connections"]').click()
             x.locator("#connect-tools-heading").wait_for()
             x.locator('[data-client="claude-code"]').wait_for()
             x.locator('[data-client="web-connectors"]').wait_for()

@@ -50,7 +50,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     page.goto(t["url"] + "/#sessions")
 
     page.locator(".scard", has_text="Real terminal").get_by_role(
-        "button", name="⌨ Attach"
+        "button", name="⌨ Terminal"
     ).click()
     expect(page.locator(".terminal-tab", has_text="Real terminal")).to_have_attribute(
         "aria-selected", "true", timeout=15000
@@ -59,7 +59,7 @@ def test_mobile_swipe_switches_live_terminal_tabs_without_stealing_scroll_or_sel
     # same supported escape used by the terminal's Browse action.
     page.goto(t["url"] + "/#sessions")
     page.locator(".scard", has_text="Second terminal").get_by_role(
-        "button", name="⌨ Attach"
+        "button", name="⌨ Terminal"
     ).click()
     expect(page.locator(".terminal-tab", has_text="Second terminal")).to_have_attribute(
         "aria-selected", "true", timeout=15000

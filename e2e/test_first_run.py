@@ -1,6 +1,6 @@
-"""The first-run checklist: what a brand-new install shows instead of an
-empty kanban board with nothing to click, and that its one action always
-leads somewhere real (docs/../BUILD item 3 — "no dead ends").
+"""First run (docs/design/simple-ui.md): a brand-new install opens on
+Sessions with one primary action, "Start an agent", and that action always
+leads somewhere real — even with no machine registered yet ("no dead ends").
 
 Unlike every other e2e test here, this one deliberately does NOT use the
 shared `server` fixture: that server runs in mock mode, which seeds a demo
@@ -82,58 +82,55 @@ def blank_page(browser, blank_server, request):
 @pytest.mark.parametrize(
     "blank_page", [PHONE, DESKTOP], indirect=True, ids=["phone-390", "desktop"]
 )
-def test_first_run_checklist_shows_with_no_dead_end(blank_page, blank_server):
+def test_first_run_is_one_action_with_no_dead_end(blank_page, blank_server):
     page = blank_page
-    page.goto(blank_server + "/#board")
+    page.goto(blank_server)
 
-    checklist = page.locator(".first-run")
-    expect(checklist).to_be_visible()
-    expect(checklist).to_contain_text("Get started")
-    for label in (
-        "Agent CLI on this server",
-        "tmux ready",
-        "git ready",
-        "A project",
-        "First session",
-    ):
-        expect(checklist.get_by_text(label, exact=True)).to_be_visible()
+    start = page.locator("#getting-started")
+    expect(start).to_be_visible()
+    expect(start).to_contain_text("Start your first agent")
+    # No checklist to tick: only what is actually missing is listed, each
+    # with its fix, and a project is not a prerequisite.
+    expect(start).not_to_contain_text("A project")
+    for row in start.locator(".gs-problems li").all():
+        expect(row.locator("code")).to_have_count(1)
+    # With no agent installed, a demo agent is offered instead.
+    if start.locator(".gs-problems li[data-check='agent']").count():
+        expect(page.locator("#gs-demo")).to_be_visible()
 
-    # The single primary action stays on screen and inside the viewport at
-    # every width this suite tests, including the narrowest phone.
-    cta = checklist.locator(".first-run-cta")
-    expect(cta).to_be_visible()
-    expect(cta).to_have_text("Add your first machine")
+    # The single primary action is on screen at every width.
+    cta = page.locator("#gs-start")
+    expect(cta).to_have_text("Start an agent")
     box = cta.bounding_box()
-    viewport = page.viewport_size
     assert box is not None
-    assert 0 <= box["x"] and box["x"] + box["width"] <= viewport["width"] + 1, box
+    assert 0 <= box["x"] and box["x"] + box["width"] <= page.viewport_size["width"] + 1, box
+    assert box["y"] + box["height"] <= page.viewport_size["height"], box
 
-    # No dead end: pressing it always opens a real, usable dialog — whatever
-    # agent CLIs are or aren't installed on the machine running this test.
+    # No dead end: with no machine at all, choosing a folder adds this
+    # computer and browses it.
     cta.click()
-    expect(page).to_have_url(blank_server + "/#targets")
-    page.get_by_role("button", name="Add machine", exact=True).click()
-    dialog = page.get_by_role("dialog", name="Add machine", exact=True)
-    expect(dialog).to_be_visible()
-    bounds = dialog.bounding_box()
-    assert bounds["x"] >= 10 and bounds["x"] + bounds["width"] <= page.viewport_size["width"] - 10, bounds
-    dialog.get_by_label("Machine name").fill("first-run-machine")
-    dialog.get_by_label("Connection").select_option("local")
-    dialog.get_by_role("button", name="Save machine").click()
-    expect(dialog).not_to_be_visible()
-    expect(checklist.locator(".first-run-cta")).to_have_text("Start your first session")
-    checklist.locator(".first-run-cta").click()
-    expect(page.get_by_role("dialog", name="New session", exact=True)).to_be_visible()
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
+    expect(sheet).to_be_visible()
+    expect(sheet.locator("#ns-ask")).to_be_checked()
+    sheet.locator("#ns-browse").click()
+    picker = page.get_by_role("dialog", name="Choose a folder", exact=True)
+    expect(picker).to_be_visible()
+    expect(picker.locator("#folder-path")).to_have_text("~")
+    bounds = picker.bounding_box()
+    assert bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= page.viewport_size["width"] + 1, bounds
+    picker.locator("#folder-empty").click()
+    expect(picker).to_have_count(0)
+    expect(sheet.locator("#ns-project")).to_have_value("")
     targets = page.request.get(blank_server + "/api/targets").json()
-    target = next(t for t in targets if t["name"] == "first-run-machine")
-    assert page.request.delete(blank_server + f"/api/targets/{target['id']}").ok
+    assert [t["kind"] for t in targets] == ["local"], targets
+    assert page.request.delete(blank_server + f"/api/targets/{targets[0]['id']}").ok
 
 
-def test_first_run_checklist_hides_once_something_exists(blank_page, blank_server):
+def test_a_project_alone_does_not_hide_first_run(blank_page, blank_server):
+    """The old checklist vanished the moment `lectern up` registered a project,
+    so its "Start your first session" pointed at a button that no longer
+    existed. First run now lasts until there is a session."""
     page = blank_page
-    page.goto(blank_server + "/#board")
-    expect(page.locator(".first-run")).to_be_visible()
-
     target = page.request.post(
         blank_server + "/api/targets",
         data={"name": "local", "kind": "local"},
@@ -142,6 +139,8 @@ def test_first_run_checklist_hides_once_something_exists(blank_page, blank_serve
         blank_server + "/api/projects",
         data={"name": "myrepo", "target_id": target["id"], "repo_path": "/tmp/myrepo"},
     )
-
-    page.reload()
-    expect(page.locator(".first-run")).to_have_count(0)
+    page.goto(blank_server)
+    expect(page.locator("#getting-started")).to_be_visible()
+    page.locator("#gs-start").click()
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
+    expect(sheet.locator("#ns-project")).to_have_value(str(page.request.get(blank_server + "/api/projects").json()[0]["id"]))

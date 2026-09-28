@@ -79,9 +79,9 @@ def test_web_can_track_again_from_untracked_records(page,real_terminal,width):
     expect(page.locator('#sess-search')).to_have_value('Real terminal')
     card=page.locator('.scard',has_text='Real terminal')
     expect(card).to_contain_text('untracked');expect(card).to_contain_text('Work/Backend')
-    expect(card.get_by_role('button',name='⌨ Attach',exact=True)).to_have_count(0)
+    expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_have_count(0)
     card.get_by_role('button',name='Track again',exact=True).click()
-    expect(card.get_by_role('button',name='⌨ Attach',exact=True)).to_be_visible()
+    expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_be_visible()
     assert t['api'](f"/sessions/{t['id']}")['ended_at'] is None
     assert len(t['api']('/sessions?all=true'))==1
 

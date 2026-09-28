@@ -31,7 +31,7 @@ def test_phone_session_card_leads_with_chat_and_keeps_terminal_one_tap(page, rea
     page.goto(t["url"] + "/#sessions")
     card = session_card(page)
     chat = card.get_by_role("button", name="Chat", exact=True)
-    attach = card.get_by_role("button", name="⌨ Attach", exact=True)
+    attach = card.get_by_role("button", name="⌨ Terminal", exact=True)
     expect(chat).to_be_visible()
     expect(attach).to_be_visible()
     cb, ab = chat.bounding_box(), attach.bounding_box()
@@ -46,7 +46,7 @@ def test_desktop_session_card_keeps_the_terminal_first(page, real_terminal):
     page.goto(t["url"] + "/#sessions")
     card = session_card(page)
     cb = card.get_by_role("button", name="Chat", exact=True).bounding_box()
-    ab = card.get_by_role("button", name="⌨ Attach", exact=True).bounding_box()
+    ab = card.get_by_role("button", name="⌨ Terminal", exact=True).bounding_box()
     assert ab["x"] < cb["x"], (cb, ab)
 
 
@@ -150,7 +150,7 @@ def test_a_shell_session_is_not_forced_into_chat(page, server):
     card = page.locator(".scard", has_text="Shell ·")
     expect(card).to_be_visible(timeout=20000)
     expect(card.get_by_role("button", name="Chat", exact=True)).to_have_count(0)
-    expect(card.get_by_role("button", name="⌨ Attach", exact=True)).to_be_visible()
+    expect(card.get_by_role("button", name="⌨ Terminal", exact=True)).to_be_visible()
 
 
 def _button_fit(button):
@@ -200,9 +200,9 @@ def test_phone_card_actions_wrap_instead_of_clipping_their_labels(page, server):
         expect(agent).to_be_visible(timeout=20000)
         expect(scratch).to_be_visible(timeout=20000)
         # A live agent card: Attach, Chat and Switch share one row.
-        assert {"⌨ Attach", "Chat", "⇄ Switch"} <= _assert_row_labels_fit(agent, width)
+        assert {"⌨ Terminal", "Chat", "⇄ Switch"} <= _assert_row_labels_fit(agent, width)
         # A blank scratch shell adds the widest label a phone has to hold.
-        assert {"⌨ Attach", "⇑ Make a project", "✎ Rename"} <= _assert_row_labels_fit(
+        assert {"⌨ Terminal", "⇑ Make a project", "✎ Rename"} <= _assert_row_labels_fit(
             scratch, width
         )
         assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
@@ -240,7 +240,8 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
     card = page.locator(".scard", has_text="Waiting agent")
-    expect(card.locator(".sstate")).to_contain_text("Needs you", timeout=25000)
+    # At its prompt the agent is idle; "Needs you" is only for approvals.
+    expect(card.locator(".sstate")).to_contain_text("Idle", timeout=25000)
     page.reload()
 
     needs = page.locator("#needs-you")
@@ -249,11 +250,11 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     assert page.locator("#sesslist").bounding_box()["y"] < needs.bounding_box()["y"]
 
     approval = needs.locator('.ny-row[data-reason="approval"]')
-    expect(approval).to_contain_text("Approval needed")
+    expect(approval).to_contain_text("Needs you")
     expect(approval).to_contain_text("Gated deploy")
-    # A waiting session is marked on its own card, not repeated as a row.
+    # An idle session is not something that needs you, on its card or here.
     expect(needs.locator('.ny-row[data-reason="waiting"]')).to_have_count(0)
-    expect(card.locator(".sstate-needs")).to_have_text("Needs you")
+    expect(card.locator(".status-badge")).to_have_text("Idle")
     expect(needs.locator('.ny-row[data-reason="failed-task"]')).to_contain_text("Crashed run")
     # Board tasks in review are one link to the Board, never a row each —
     # they used to bury the sessions that actually wait on you.
@@ -261,7 +262,7 @@ def test_needs_you_answers_first_on_a_phone(page, server):
     review_link = needs.locator("#needs-you-review-link")
     expect(review_link).to_contain_text("1 task ready to review")
 
-    approval.get_by_role("button", name="Approve", exact=True).click()
+    approval.get_by_role("button", name="Allow once", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]')).to_have_count(0, timeout=20000)
 
     card.get_by_role("button", name="Chat", exact=True).click()
@@ -359,11 +360,10 @@ def test_needs_you_keeps_the_last_rows_and_says_when_it_cannot_refresh(page, ser
     assert needs.get_attribute("data-stale") is None
 
 
-def test_waiting_sessions_are_marked_on_their_cards_not_listed_twice(page, server):
-    # Nine sessions waiting on you used to become nine Needs-you rows above
-    # the cards they described. Each card now carries its own badge, and the
-    # panel (which only holds approvals, failed tasks and the review link)
-    # does not repeat them.
+def test_idle_sessions_are_idle_not_needs_you(page, server):
+    # Nine agents sitting at their prompts used to read "Needs you" — alarm
+    # fatigue that hid the one session actually blocked on an approval. They
+    # are idle, and say so; nothing is listed twice in the panel either.
     for i in range(9):
         page.request.post(
             server + "/api/sessions",
@@ -371,9 +371,10 @@ def test_waiting_sessions_are_marked_on_their_cards_not_listed_twice(page, serve
         )
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
-    badges = page.locator(".scard .sstate-needs")
-    expect(badges).to_have_count(9, timeout=30000)
-    expect(badges.first).to_have_text("Needs you")
+    idle = page.locator('.scard .status-badge[data-state="idle"]')
+    expect(idle).to_have_count(9, timeout=30000)
+    expect(idle.first).to_have_text("Idle")
+    expect(page.locator('.scard .status-badge[data-state="needs_you"]')).to_have_count(0)
     expect(page.locator('#needs-you .ny-row[data-reason="waiting"]')).to_have_count(0)
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
 

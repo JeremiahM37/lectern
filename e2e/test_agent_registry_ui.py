@@ -90,7 +90,7 @@ def test_custom_agent_settings_session_and_native_pty(page, real_terminal, tmp_p
     page.goto(t["url"] + "/#sessions")
     page.reload()
     page.locator("#sess-new").click()
-    sheet = page.get_by_role("dialog", name="New session", exact=True)
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
     open_advanced(sheet)
     sheet.get_by_label("Name", exact=True).fill("Local proof session")
     sheet.locator("#ns-project").select_option(str(project["id"]))

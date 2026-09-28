@@ -64,7 +64,7 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     page.get_by_label("Isolate in a new Git worktree", exact=True).check()
     page.locator("#ns-go").click()
     expect(page.locator(".scard", has_text="Review e2e session").get_by_role(
-        "button", name="⌨ Attach", exact=True)).to_be_visible(timeout=15000)
+        "button", name="⌨ Terminal", exact=True)).to_be_visible(timeout=15000)
 
     row = next(s for s in t["api"]("/sessions") if s["name"] == "Review e2e session")
     dest = Path(row["workspace"]["path"])

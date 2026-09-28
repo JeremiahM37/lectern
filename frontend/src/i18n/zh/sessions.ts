@@ -240,6 +240,7 @@ const catalog: Record<string, string> = {
   "sessions.card.kill": "强制终止",
   "sessions.card.end": "结束",
   "sessions.card.stoppedArchived": "已停止并归档“{name}”。",
+  "sessions.card.stopArchiveConfirm": "停止“{name}”并将其记录移至归档？这会结束其终端进程。捕获的输出、已保存的对话和工作树文件会保留。",
   "sessions.card.stopArchive": "停止并归档",
   "sessions.card.project": "项目",
   "sessions.card.unassignedOption": "— 未分配 —",

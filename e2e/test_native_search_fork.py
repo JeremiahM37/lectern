@@ -44,7 +44,7 @@ def test_web_forks_global_search_and_retains_original_terminal(page,real_termina
     created=response.value.json();assert response.value.status==(202 if isolated else 201),created
     expect(d).to_have_count(0)
     if isolated:
-        page.locator('.scard',has_text='Global fork proof').get_by_role('button',name='⌨ Attach',exact=True).click(timeout=20000)
+        page.locator('.scard',has_text='Global fork proof').get_by_role('button',name='⌨ Terminal',exact=True).click(timeout=20000)
     child=frame(page,created['id']);expect(child.owner).to_be_visible(timeout=15000);expect(child.locator('#connection')).to_have_text('Connected',timeout=15000)
     expect(child.locator('#agent-terminal .xterm-screen')).to_contain_text('GLOBAL FORK READY',timeout=15000)
     assert page.locator('#terminal-workspace iframe').count()==2

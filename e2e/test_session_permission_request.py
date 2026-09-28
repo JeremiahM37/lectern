@@ -59,10 +59,10 @@ def test_approve_permission_request_from_needs_you(page, real_terminal):
     page.goto(t["url"] + "/#sessions")
     needs = page.locator("#needs-you")
     row = needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session")
-    expect(row).to_contain_text("Approval needed", timeout=25000)
+    expect(row).to_contain_text("Needs you", timeout=25000)
     expect(row).to_contain_text("Bash")
 
-    row.get_by_role("button", name="Approve", exact=True).click()
+    row.get_by_role("button", name="Allow once", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session")).to_have_count(
         0, timeout=20000
     )
@@ -87,11 +87,11 @@ def test_deny_permission_request_with_reason_from_needs_you(page, real_terminal)
     page.goto(t["url"] + "/#sessions")
     needs = page.locator("#needs-you")
     row = needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session deny")
-    expect(row).to_contain_text("Approval needed", timeout=25000)
+    expect(row).to_contain_text("Needs you", timeout=25000)
 
-    row.get_by_role("button", name="Deny with reason…", exact=True).click()
-    row.get_by_placeholder("Reason (optional)").fill("not from a phone")
-    row.get_by_role("button", name="Send", exact=True).click()
+    row.get_by_role("button", name="Deny…", exact=True).click()
+    row.get_by_label("Tell the agent why (optional)").fill("not from a phone")
+    row.get_by_role("button", name="Deny", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session deny")).to_have_count(
         0, timeout=20000
     )
@@ -159,10 +159,10 @@ def test_approve_permission_request_from_needs_you_codex(page, real_terminal):
     page.goto(t["url"] + "/#sessions")
     needs = page.locator("#needs-you")
     row = needs.locator('.ny-row[data-reason="approval"]', has_text="Codex ask session")
-    expect(row).to_contain_text("Approval needed", timeout=25000)
+    expect(row).to_contain_text("Needs you", timeout=25000)
     expect(row).to_contain_text("Bash")
 
-    row.get_by_role("button", name="Approve", exact=True).click()
+    row.get_by_role("button", name="Allow once", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]', has_text="Codex ask session")).to_have_count(
         0, timeout=20000
     )

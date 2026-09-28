@@ -57,7 +57,7 @@ def test_web_project_setup_save_retry_and_launch(routed_page,real_terminal,width
     expect(page.locator('#ns-proj-hint')).to_contain_text('setup command')
     page.locator('#ns-go').click()
     card=page.locator('.scard',has_text='Prepared workspace')
-    expect(card.get_by_role('button',name='⌨ Attach',exact=True)).to_be_visible(timeout=20000)
+    expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_be_visible(timeout=20000)
     row=next(s for s in t['api']('/sessions') if s['name']=='Prepared workspace')
     assert (Path(row['workspace']['path'])/'prepared').read_text()=='ready'
     assert not (t['root']/'prepared').exists()

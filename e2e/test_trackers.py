@@ -69,7 +69,7 @@ def test_pr_page_checks_reviewers_and_confirmed_merge(browser, forge_server, vie
     ctx, page = _page(browser, viewport)
     try:
         page.goto(forge_server + "/")
-        _tab(page, "tasks")
+        _tab(page, "issues")
         expect(page.locator(".th-heading")).to_contain_text("mock/repo")
         expect(_row(page, "Stream sync progress to the dashboard")).to_contain_text("checks failing")
         expect(_row(page, "Rename the config loader")).to_contain_text("conflicts")
@@ -102,7 +102,7 @@ def test_pr_page_checks_reviewers_and_confirmed_merge(browser, forge_server, vie
         expect(detail.locator(".th-pr-head .th-state")).to_have_text("merged")
         assert _api(forge_server, "/projects/1/forge/prs/12")["state"] == "merged"
         # the page links straight to its item
-        assert "#tasks/1/github/pr/12" in page.url
+        assert "#issues/1/github/pr/12" in page.url
     finally:
         ctx.close()
 
@@ -136,7 +136,7 @@ def test_issue_starts_a_task_on_phone(browser, forge_server):
     ctx, page = _page(browser, PHONE)
     try:
         page.goto(forge_server + "/")
-        _tab(page, "tasks")
+        _tab(page, "issues")
         page.locator(".th-tabs").get_by_role("tab", name="Issues").click()
         _row(page, "Document the retry budget").click()
         detail = page.locator(".th-detail")

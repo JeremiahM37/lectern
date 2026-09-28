@@ -48,6 +48,9 @@ class Sweep:
 
 
 def nav(page, name):
+    # Pages renamed in the simpler navigation (docs/design/simple-ui.md).
+    legacy = name
+    name = {"board": "tasks", "deck": "overview", "targets": "settings"}.get(name, name)
     if page.get_by_role("button", name="Show navigation", exact=True).is_visible():
         page.get_by_role("button", name="Show navigation", exact=True).click()
     button = page.locator(f'.tab[data-tab="{name}"]')
@@ -56,6 +59,9 @@ def nav(page, name):
     else:
         page.locator("#nav-overflow > summary").click()
         page.locator(f'[data-nav-target="{name}"]').click()
+    if legacy == "targets":
+        # The old Settings page opened on Machines.
+        page.locator('[data-settings="machines"]').click()
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
@@ -93,20 +99,27 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
     pages = page.evaluate("""() => [...new Set([...document.querySelectorAll('#tabbar .tab[data-tab], [data-nav-target]')]
         .map((el) => el.dataset.tab || el.dataset.navTarget))]""")
     for name in pages:
-        if name in ("board", "targets", "evals", "terminals"):
+        if name in ("tasks", "settings", "evals", "terminals", "machines", "plugins"):
             continue
-        if name == "deck" and label == "phone":
+        if name == "overview" and label == "phone":
             continue
         nav(page, name)
         page.wait_for_timeout(400)
         sweep.check(name)
     nav(page, "targets")
-    for section in ("machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "plugins", "appearance", "workspace", "shortcuts"):
+    for section in ("basics", "machines", "projects", "notifications", "devices", "about", "budgets", "accounts", "agents", "plugins", "appearance", "workspace", "shortcuts", "connections"):
         tab = page.locator(f'[data-settings="{section}"]')
         if not tab.count():
             continue
         tab.click()
         sweep.check("settings-" + section)
+        if section == "basics":
+            # Connect your phone, the wizard Basics opens.
+            page.locator("#basics-phone").click()
+            expect(page.locator("#phone-wizard")).to_be_visible()
+            page.wait_for_timeout(600)
+            sweep.check("phone-wizard", root="#phone-wizard")
+            page.locator("#phone-wizard [data-close]").click()
         if section == "plugins":
             # The consent preview, the one screen a person must be able to read.
             page.locator(".plugin-add .segmented label", has_text="Folder on this server").click()
@@ -124,12 +137,20 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
     sweep.check("palette")
     page.keyboard.press("Escape")
     nav(page, "sessions")
-    new = page.get_by_role("button", name="New session")
+    new = page.locator("#sess-new")
     if new.count():
         new.first.click()
         page.wait_for_timeout(400)
         sweep.check("new-session")
+        page.locator("#ns-browse").click()
+        expect(page.locator("#folder-picker .folder-row").first).to_be_visible()
+        sweep.check("folder-picker", root="#folder-picker")
         page.keyboard.press("Escape")
+        page.keyboard.press("Escape")
+    # The More menu, open.
+    page.locator("#nav-overflow > summary").click()
+    sweep.check("more-menu")
+    page.locator("#nav-overflow > summary").click()
     page.goto(server + "/#evals")
     page.wait_for_timeout(600)
     sweep.check("agent-tests")

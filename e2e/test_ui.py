@@ -9,6 +9,9 @@ from session_sheet import open_advanced
 
 
 def _tab(page, name):
+    # Pages renamed in the simpler navigation (docs/design/simple-ui.md).
+    legacy = name
+    name = {"board": "tasks", "deck": "overview", "targets": "settings"}.get(name, name)
     if page.get_by_role('button',name='Show navigation',exact=True).is_visible():
         page.get_by_role('button',name='Show navigation',exact=True).click()
     button=page.locator(f'.tab[data-tab="{name}"]')
@@ -16,6 +19,9 @@ def _tab(page, name):
         page.locator('#nav-overflow > summary').click()
         page.locator(f'[data-nav-target="{name}"]').click()
     else: button.click()
+    if legacy == "targets":
+        # The old Settings page opened on Machines.
+        page.locator('[data-settings="machines"]').click()
 
 
 def _new_task(page, title, prompt="fix it", perm=None):
@@ -95,7 +101,7 @@ def test_approval_flow_from_phone(page, server):
     row = page.locator(".rowcard", has_text="Bash")
     expect(row.first).to_be_visible()
     expect(row.first.locator("pre")).to_contain_text("rm -rf build/")
-    row.first.locator("button:has-text('Approve')").first.click()
+    row.first.locator("button:has-text('Allow once')").first.click()
     # the agent continues and finishes
     _tab(page, "board")
     expect(page.locator(".col.s-review .card", has_text="E2E gated deploy")) \
@@ -193,8 +199,8 @@ def test_approval_card_has_always_allow(page, server):
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
     row = page.locator(".rowcard", has_text="Bash").first
-    expect(row.locator("button", has_text="∞ Always")).to_be_visible()
-    row.locator("button:has-text('Approve')").first.click()
+    expect(row.locator("button", has_text="Always allow in this project")).to_be_visible()
+    row.locator("button:has-text('Allow once')").first.click()
     _tab(page, "board")
     expect(page.locator(".col.s-review .card", has_text="E2E always allow")) \
         .to_be_visible(timeout=20000)
@@ -646,11 +652,11 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
     # the option people do not know exists is offered first, but a project stays
     # the default when you have one
     options = page.locator("#ns-project option").all_text_contents()
-    assert "Blank room" in options[0], options
+    assert "A new empty folder" in options[0], options
     assert page.locator("#ns-project").input_value() != "", "a project should be preselected"
 
     page.select_option("#ns-project", "")
-    expect(page.locator("#ns-proj-hint")).to_contain_text("throwaway directory")
+    expect(page.locator("#ns-proj-hint")).to_contain_text("new folder for this session")
     open_advanced(page)
     # nothing is known about a room that does not exist yet
     expect(page.locator("#ns-start option[value='brief']")).to_be_disabled()
@@ -760,32 +766,30 @@ def test_attach_opens_a_same_origin_terminal(page, server):
     assert resp.ok, f"{url} -> {resp.status}"
 
 
-def test_yolo_is_offered_and_on_by_default(page, server):
-    """Yolo is the default because you are sitting in the terminal watching the
-    agent — but it must be visible and switchable, not silent."""
+def test_ask_before_risky_actions_is_offered_and_on_for_a_new_install(page, server):
+    """Asking first is the new-install default (docs/design/simple-ui.md): it
+    sits on the Start an agent sheet itself, visible and switchable."""
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
 
-    open_advanced(page)
-    yolo = page.locator("#ns-yolo")
-    expect(yolo).to_be_visible()
-    assert yolo.is_checked(), "yolo should be on by default"
-    expect(page.locator("#ns-yolo-hint")).to_contain_text("without stopping to ask")
+    ask = page.locator("#ns-ask")
+    expect(ask).to_be_visible()
+    assert ask.is_checked(), "a new install asks before risky actions"
+    expect(page.locator("#ns-yolo-hint")).to_contain_text("asks you before")
 
     # unticking says what changes, so the choice is legible
-    yolo.uncheck()
-    page.wait_for_timeout(300)
-    expect(page.locator("#ns-yolo-hint")).to_contain_text("stops and asks")
+    ask.uncheck()
+    expect(page.locator("#ns-yolo-hint")).to_contain_text("without asking first")
+    ask.check()
 
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
-def test_yolo_toggle_fits_on_a_phone(page, server):
+def test_ask_toggle_fits_on_a_phone(page, server):
     page.goto(server)
     _tab(page, "sessions")
     page.click("#sess-new")
-    open_advanced(page)
-    box = page.locator("#ns-yolo").bounding_box()
+    box = page.locator("#ns-ask").bounding_box()
     assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"] + 1, box
     assert page.evaluate("() => document.documentElement.scrollWidth") <= PHONE["width"] + 1
 

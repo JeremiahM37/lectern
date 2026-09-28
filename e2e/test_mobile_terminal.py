@@ -7,7 +7,7 @@ import pytest
 
 def attach(page,t):
     page.goto(t['url']+'/#sessions')
-    page.locator('.scard',has_text='Real terminal').get_by_role('button',name='⌨ Attach',exact=True).click()
+    page.locator('.scard',has_text='Real terminal').get_by_role('button',name='⌨ Terminal',exact=True).click()
     f=page.frame_locator(f'iframe[src="/terminal/session/{t["id"]}?embed=1"]')
     expect(f.locator('#agent-terminal .xterm-screen')).to_contain_text('$',timeout=20000)
     return f

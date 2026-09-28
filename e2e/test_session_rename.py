@@ -11,10 +11,10 @@ def test_rename_session_from_conversation_header(page, server):
     page.get_by_text("Live sessions").wait_for()
     
     # Create a new session through the UI
-    page.get_by_text("+ New session").click()
+    page.locator("#sess-new").click()
     open_advanced(page)
     page.get_by_label("Name").fill("Header Rename Test")
-    page.get_by_text("▶ Start session").click()
+    page.locator("#ns-go").click()
     
     # Wait for the session to be created
     card = page.locator(".scard", has_text="Header Rename Test")
@@ -54,10 +54,10 @@ def test_rename_escape_cancels_inline_edit(page, server):
     page.get_by_text("Live sessions").wait_for()
     
     # Create a new session through the UI
-    page.get_by_text("+ New session").click()
+    page.locator("#sess-new").click()
     open_advanced(page)
     page.get_by_label("Name").fill("Escape Test")
-    page.get_by_text("▶ Start session").click()
+    page.locator("#ns-go").click()
     
     # Wait for the session to be created
     card = page.locator(".scard", has_text="Escape Test")
@@ -98,10 +98,10 @@ def test_rename_session_from_card_action_menu(page, server):
     page.get_by_text("Live sessions").wait_for()
     
     # Create a new session through the UI
-    page.get_by_text("+ New session").click()
+    page.locator("#sess-new").click()
     open_advanced(page)
     page.get_by_label("Name").fill("Original Name")
-    page.get_by_text("▶ Start session").click()
+    page.locator("#ns-go").click()
     
     # Wait for the session to be created
     card = page.locator(".scard", has_text="Original Name")

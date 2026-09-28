@@ -248,6 +248,7 @@ const catalog: Record<string, string> = {
   "sessions.card.kill": "Tuer",
   "sessions.card.end": "Terminer",
   "sessions.card.stoppedArchived": "« {name} » arrêtée et archivée.",
+  "sessions.card.stopArchiveConfirm": "Arrêter « {name} » et déplacer son enregistrement dans les archives ? Cela termine son processus de terminal. La sortie capturée, les conversations enregistrées et les fichiers du worktree sont conservés.",
   "sessions.card.stopArchive": "Arrêter et archiver",
   "sessions.card.project": "Projet",
   "sessions.card.unassignedOption": "— non attribué —",

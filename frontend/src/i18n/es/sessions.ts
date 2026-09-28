@@ -248,6 +248,7 @@ const catalog: Record<string, string> = {
   "sessions.card.kill": "Matar",
   "sessions.card.end": "Finalizar",
   "sessions.card.stoppedArchived": "Se detuvo y archivó «{name}».",
+  "sessions.card.stopArchiveConfirm": "¿Detener \"{name}\" y mover su registro al Archivo? Esto termina su proceso de terminal. La salida capturada, las conversaciones guardadas y los archivos del worktree se conservan.",
   "sessions.card.stopArchive": "Detener y archivar",
   "sessions.card.project": "Proyecto",
   "sessions.card.unassignedOption": "— sin asignar —",

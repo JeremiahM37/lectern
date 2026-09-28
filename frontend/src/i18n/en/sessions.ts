@@ -302,6 +302,7 @@ const catalog: Record<string, string> = {
   // Verb: end the session.
   "sessions.card.end": "End",
   "sessions.card.stoppedArchived": "Stopped and archived “{name}”.",
+  "sessions.card.stopArchiveConfirm": "Stop \"{name}\" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.",
   "sessions.card.stopArchive": "Stop and archive",
   "sessions.card.project": "Project",
   "sessions.card.unassignedOption": "— unassigned —",

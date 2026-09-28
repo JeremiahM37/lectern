@@ -23,13 +23,15 @@ def test_delegated_builds_banner_switch_and_preset(page, server):
     reset()
     page.goto(server)
     _tab(page, "targets")
+    page.locator('[data-settings="connections"]').click()
     banner = page.locator("#delegation")
     expect(banner).to_be_visible()
-    # It is the first thing on the page, above the tabs, and says OFF in the title.
+    # It leads its own section and says OFF in the title; the section tabs
+    # stay above it, so Settings opens on its tabs.
     expect(banner.locator("h3")).to_contain_text("Delegated builds")
     expect(banner.locator(".delegation-state")).to_have_text("OFF")
     tabs = page.locator('.settings-page nav[role="tablist"]')
-    assert banner.bounding_box()["y"] < tabs.bounding_box()["y"]
+    assert tabs.bounding_box()["y"] < banner.bounding_box()["y"]
     # The state is the largest text on the settings page.
     size = page.evaluate("getComputedStyle(document.querySelector('#delegation h3')).fontSize")
     assert float(size.rstrip("px")) >= 19
@@ -66,6 +68,7 @@ def test_delegated_builds_banner_switch_and_preset(page, server):
     page.route("**/api/projects/*/workflows/delegate", route_enable)
     page.reload()
     _tab(page, "targets")
+    page.locator('[data-settings="connections"]').click()
     banner = page.locator("#delegation")
     banner.get_by_role("button", name="Set up the worker").click()
     banner.locator("select").last.select_option(label="delegate fixture")

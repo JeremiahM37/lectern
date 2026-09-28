@@ -5,7 +5,7 @@ import { canonicalHash, HOME, moreEntries, primaryViews } from "./routes";
 test("old links land on the page that has the same meaning now", () => {
   assert.equal(canonicalHash("#board"), "#tasks");
   assert.equal(canonicalHash("#deck"), "#overview");
-  assert.equal(canonicalHash("#targets"), "#settings");
+  assert.equal(canonicalHash("#targets"), "#settings/machines");
   assert.equal(canonicalHash("#tasks/3/github/pr/12"), "#issues/3/github/pr/12");
   assert.equal(canonicalHash("#tasks/3"), "#issues/3");
   // A bare #tasks is the task list now; everything else is untouched.

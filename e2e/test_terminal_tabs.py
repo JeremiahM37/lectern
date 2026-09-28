@@ -7,7 +7,7 @@ from test_terminal_workspace import real_terminal, capture
 
 def attach(page, name):
     page.locator('.tab[data-tab="sessions"]').click()
-    page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Attach',exact=True).click()
+    page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Terminal',exact=True).click()
     expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')
 
 
@@ -36,7 +36,7 @@ def test_terminals_stay_connected_across_tabs_and_close_only_the_view(page,real_
     one.locator('#agent-terminal').click()
     page.keyboard.type("sleep 1; echo OUTPUT-WHILE-AWAY")
     page.keyboard.press('Enter')
-    page.locator('.tab[data-tab="board"]').click()
+    page.locator('.tab[data-tab="tasks"]').click()
     expect(page.locator('#board')).to_be_visible()
     expect(page.locator('#terminal-workspace iframe')).to_have_count(1)
     page.locator('.tab[data-tab="terminals"]').click()
@@ -85,7 +85,7 @@ def test_terminal_tabs_restore_and_fit_on_mobile(page,real_terminal):
     expect(page.get_by_role('tab',name='Real terminal',exact=True)).to_have_attribute('aria-selected','true')
     for size in [{'width':844,'height':390},{'width':390,'height':600},{'width':390,'height':844}]:
         page.set_viewport_size(size)
-        page.locator('.tab[data-tab="board"]').click()
+        page.locator('.tab[data-tab="tasks"]').click()
         page.locator('.tab[data-tab="terminals"]').click()
         expect(one.locator('#agent-terminal')).to_be_visible()
         expect(one.locator('#terminal-keybar')).to_be_visible()

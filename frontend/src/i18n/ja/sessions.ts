@@ -248,6 +248,7 @@ const catalog: Record<string, string> = {
   "sessions.card.kill": "強制終了",
   "sessions.card.end": "終了",
   "sessions.card.stoppedArchived": "「{name}」を停止してアーカイブしました。",
+  "sessions.card.stopArchiveConfirm": "「{name}」を停止して、記録をアーカイブに移動しますか？ターミナルのプロセスは終了します。取得済みの出力、保存済みの会話、ワークツリーのファイルは保持されます。",
   "sessions.card.stopArchive": "停止してアーカイブ",
   "sessions.card.project": "プロジェクト",
   "sessions.card.unassignedOption": "— 未割り当て —",
