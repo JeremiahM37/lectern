@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/nativeidentity"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -76,8 +77,9 @@ func MatchLaunchedConversation(convs []CatalogConversation, launchedAt float64, 
 
 // CatalogConversationsCommand is the target-side command that lists (cid
 // empty) or validates (cid set) a catalog agent's saved conversations in
-// workdir. spec must already be resolved and have Sessions set.
-func CatalogConversationsCommand(spec Spec, workdir, cid string) (string, error) {
+// workdir, for the target ex drives. spec must already be resolved and have
+// Sessions set.
+func CatalogConversationsCommand(ex executor.Executor, spec Spec, workdir, cid string) (string, error) {
 	if spec.Sessions == nil {
 		return "", fmt.Errorf("agent %q does not say where it keeps sessions", spec.Name)
 	}
@@ -104,13 +106,14 @@ func CatalogConversationsCommand(spec Spec, workdir, cid string) (string, error)
 	for i, a := range args {
 		quoted[i] = shellq.Quote(a)
 	}
-	return prefix + "python3 -c " + shellq.Quote(nativeidentity.CatalogSessionsScript) + " " + strings.Join(quoted, " "), nil
+	py := "python3 -c " + shellq.Quote(nativeidentity.CatalogSessionsScript) + " " + strings.Join(quoted, " ")
+	return prefix + helpers.Command(ex, "catalog-sessions", args, py), nil
 }
 
 // CatalogConversations runs CatalogConversationsCommand and returns its raw
 // JSON document, or the reader's own error message.
 func CatalogConversations(ctx context.Context, ex executor.Executor, spec Spec, workdir, cid string) (map[string]json.RawMessage, error) {
-	cmd, err := CatalogConversationsCommand(spec, workdir, cid)
+	cmd, err := CatalogConversationsCommand(ex, spec, workdir, cid)
 	if err != nil {
 		return nil, err
 	}

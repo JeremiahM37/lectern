@@ -134,6 +134,7 @@ func processEnv(pid int64, key, fallback string) string {
 // backend, as subprocess.check_output(..., timeout, text=True) did.
 func muxOutput(timeout time.Duration, args ...string) (string, error) {
 	cmd := Mux(args...)
+	cmd.Env = coercedLocale(os.Environ())
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Start(); err != nil {
@@ -157,6 +158,31 @@ func muxOutput(timeout time.Duration, args ...string) (string, error) {
 	// Text mode translates any newline convention to '\n'.
 	text := strings.ReplaceAll(strings.ReplaceAll(out.String(), "\r\n", "\n"), "\r", "\n")
 	return text, nil
+}
+
+// coercedLocale is the environment Python passed its children: in the C
+// locale it sets LC_CTYPE=C.UTF-8 (PEP 538). tmux needs that too: a client
+// it does not believe is UTF-8 gets the tabs in a -p format back as '_'.
+func coercedLocale(env []string) []string {
+	get := func(key string) string {
+		for i := len(env) - 1; i >= 0; i-- {
+			if k, v, ok := strings.Cut(env[i], "="); ok && k == key {
+				return v
+			}
+		}
+		return ""
+	}
+	if get("LC_ALL") != "" || get("PYTHONCOERCECLOCALE") == "0" {
+		return env
+	}
+	ctype := get("LC_CTYPE")
+	if ctype == "" {
+		ctype = get("LANG")
+	}
+	if ctype != "" && ctype != "C" && ctype != "POSIX" {
+		return env
+	}
+	return append(env, "LC_CTYPE=C.UTF-8")
 }
 
 const paneFormat = "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{?#{@lectern-tracking-identity},#{@lectern-tracking-identity},#{@agentdeck-tracking-identity}}"

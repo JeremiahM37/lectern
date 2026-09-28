@@ -121,7 +121,7 @@ func runReader(t *testing.T, spec Spec, workdir, cid string) map[string]json.Raw
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is not installed")
 	}
-	cmd, err := CatalogConversationsCommand(spec, workdir, cid)
+	cmd, err := CatalogConversationsCommand(nil, spec, workdir, cid)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -299,3 +299,27 @@ func TestClaudeForkPathParity(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dup)
 	same(t, "ambiguous", script, "claude-fork-path", []string{f.ws, cidA}, []string{f.ws, cidA})
 }
+
+func TestCoercedLocaleMatchesPython(t *testing.T) {
+	requirePython(t)
+	for _, env := range [][]string{
+		{}, {"LANG=C"}, {"LANG=POSIX"}, {"LANG=en_US.UTF-8"}, {"LC_ALL=C"}, {"LC_CTYPE=C", "LANG=en_US.UTF-8"},
+		{"LC_CTYPE=C.UTF-8"}, {"LANG=C", "PYTHONCOERCECLOCALE=0"},
+	} {
+		cmd := exec.Command("python3", "-c", "import os; print(os.environ.get('LC_CTYPE', ''))")
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		for _, kv := range coercedLocale(env) {
+			if strings.HasPrefix(kv, "LC_CTYPE=") {
+				got = strings.TrimPrefix(kv, "LC_CTYPE=")
+			}
+		}
+		if want := strings.TrimSpace(string(out)); got != want {
+			t.Errorf("%v: LC_CTYPE %q, python %q", env, got, want)
+		}
+	}
+}
