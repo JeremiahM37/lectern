@@ -1,26 +1,21 @@
-//go:build !windows
-
 package ptyhost
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/JeremiahM37/lectern/v2/internal/testutil"
-	"github.com/creack/pty"
 )
 
 func TestPortableAttachChild(t *testing.T) {
 	if os.Getenv("LECTERN_PORTABLE_TEST_CHILD") != "1" {
 		return
 	}
-	err := AttachProcess([]string{"sh", "-c", "printf 'AGENT_READY\\n'; cat"}, os.Stdin, os.Stdout, TerminalControls{
+	err := AttachProcess([]string{os.Args[0], "-test.run=^TestPortableAgentChild$"}, os.Stdin, os.Stdout, TerminalControls{
 		Action: func(action string, _ func(string) error) error {
 			fmt.Fprintf(os.Stdout, "ACTION_%s", action)
 			return nil
@@ -44,23 +39,28 @@ func TestPortableAttachChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Fprint(os.Stdout, "ATTACH_RETURNED")
+}
+
+func TestPortableAgentChild(t *testing.T) {
+	if os.Getenv("LECTERN_PORTABLE_TEST_CHILD") != "1" {
+		return
+	}
+	fmt.Println("AGENT_READY")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		fmt.Println("ECHO:", scanner.Text())
+	}
 }
 
 func TestPortableAttachmentControlsWithoutTmux(t *testing.T) {
-	testutil.RequireIsolated(t)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPortableAttachChild$")
-	cmd.Env = append(os.Environ(), "LECTERN_PORTABLE_TEST_CHILD=1")
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	requireRealProcesses(t)
+	t.Setenv("LECTERN_PORTABLE_TEST_CHILD", "1")
+	f, err := StartProcess([]string{os.Args[0], "-test.run=^TestPortableAttachChild$"}, 80, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	defer func() {
-		if cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	}()
 	var mu sync.Mutex
 	var output bytes.Buffer
 	go func() {
@@ -106,13 +106,9 @@ func TestPortableAttachmentControlsWithoutTmux(t *testing.T) {
 	_, _ = f.Write([]byte("still-alive\n"))
 	wait("still-alive")
 	_, _ = f.Write([]byte("\x1dd"))
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	wait("ATTACH_RETURNED")
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
+	case <-f.Done():
 	case <-time.After(8 * time.Second):
 		t.Fatal("detach did not return")
 	}
