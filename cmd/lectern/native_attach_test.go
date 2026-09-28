@@ -498,3 +498,28 @@ func TestPortableTermFallsBackOnlyWhenTheEntryIsMissing(t *testing.T) {
 		}
 	}
 }
+
+// Splits and new windows on the private server run the split script, which
+// opens a shell on the session's machine (native_split.go); the operator's
+// own tmux is never configured.
+func TestNativeWrapSplitsOpenOnTheSessionsMachine(t *testing.T) {
+	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
+	if !strings.Contains(plan.conf, "set -g default-command "+shellq.Quote(plan.splitScript)) {
+		t.Fatalf("config does not route splits:\n%s", plan.conf)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(plan.splitBody), terminalSplitFlag+" session 17 http://127.0.0.1:9110") || strings.Contains(plan.splitBody, "scoped-secret") {
+		t.Fatalf("split script: %q", plan.splitBody)
+	}
+	// Through an SSH alias the hosted peer resolves the shell, as for attach.
+	argv, err := splitShellArgv("session", "17", "https://lectern.example", "", "lectern")
+	if err != nil || strings.Join(argv, " ") != "env TERM=xterm-256color ssh -tt lectern /usr/local/bin/lectern --hosted-attach split session 17" {
+		t.Fatalf("hosted split: %v %v", argv, err)
+	}
+	// A command naming the control plane's paths never runs on another machine.
+	if _, err := splitShellArgv("session", "17", "https://lectern.example", "", ""); err == nil {
+		t.Fatal("ran a remote control plane's command locally")
+	}
+	if _, err := splitShellArgv("session", "17", "http://127.0.0.1:9110", "", "-oProxyCommand=x"); err == nil {
+		t.Fatal("accepted an option as an SSH alias")
+	}
+}

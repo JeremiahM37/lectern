@@ -187,6 +187,7 @@ directory and removes it when the attachment ends.
 | Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
 | Ctrl+] then m | Open Lectern actions for this attachment |
 | Ctrl+] then u | Same file sender as Ctrl+\ |
+| Ctrl+] then % or " | Split: a shell on the session's machine, in the agent's directory |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
 | Ctrl-b then d | Detach; the session keeps running and you return where you started |
@@ -218,6 +219,22 @@ menu. The path refers to the agent's workspace on its target, so it stays
 usable wherever the agent is running; submit it yourself when your prompt is
 ready. If the client cannot reach the attached pane, or the path cannot be
 typed literally, the popup reports the path instead of inserting it.
+
+### Splitting the attachment
+
+A split opens a shell **where the session is**, not on the machine you are
+typing on: on the session's target (this machine, an SSH host or a container),
+in the directory the agent's pane is in now (tmux's `pane_current_path` there),
+or the session's workdir when that cannot be read. That holds however you split:
+**Ctrl+] %** or **Ctrl+] "**, **Horizontal/Vertical Split** in tmux's
+right-click menu, or a new window with **Ctrl+] c**. The private tmux server's
+`default-command` is a small Lectern script that asks the server for the shell
+(`GET /api/term/KIND/ID/split`) and becomes it; through an SSH alias
+(`LECTERN_ATTACH_HOST`) the hosted server resolves it, exactly as for attach.
+The shell lasts as long as its pane. Your own tmux and its configuration are
+untouched; `Ctrl-b %` inside the agent's own tmux still splits that tmux as it
+always has. A split with an explicit command of its own runs that command
+here. If the server cannot be reached, the pane says why and waits for Enter.
 
 ### Paths and links the agent prints
 

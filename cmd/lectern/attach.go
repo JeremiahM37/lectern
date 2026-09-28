@@ -41,8 +41,17 @@ func attach(cfg *config.Config, args []string) error {
 // remote command so the peer leaves the attachment alone instead of stacking a
 // second controls layer.
 func hostedAttach(cfg *config.Config, args []string) error {
+	if len(args) == 3 && args[0] == "split" {
+		// A split of a client's native attachment: a shell on the session's
+		// target, resolved by this hosted server (native_split.go).
+		argv, err := splitShellArgv(args[1], args[2], "http://127.0.0.1:"+strconv.Itoa(cfg.Port), cfg.AuthToken, "")
+		if err != nil {
+			return err
+		}
+		return execArgv(argv)
+	}
 	if len(args) < 1 || args[0] != "attach" {
-		return fmt.Errorf("usage: --hosted-attach attach KIND ID")
+		return fmt.Errorf("usage: --hosted-attach attach|split KIND ID")
 	}
 	// Read and immediately drop the marker: this environment may later start
 	// another, independent client that must not inherit the client's choice.

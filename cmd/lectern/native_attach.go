@@ -174,6 +174,7 @@ type nativeWrapPlan struct {
 	controlsScript string
 	uploadScript   string
 	linkScript     string
+	splitScript    string
 	controls       nativeControls
 	inWorkspace    string
 	innerArgv      []string
@@ -182,6 +183,7 @@ type nativeWrapPlan struct {
 	controlsBody   string
 	uploadBody     string
 	linkBody       string
+	splitBody      string
 }
 
 func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []string, workspace string) (*nativeWrapPlan, error) {
@@ -201,6 +203,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		controlsScript: filepath.Join(dir, "controls.sh"),
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		linkScript:     filepath.Join(dir, "link.sh"),
+		splitScript:    filepath.Join(dir, "split.sh"),
 		controls:       controls,
 		inWorkspace:    workspace,
 		innerArgv:      withClientControlsMarker(argv),
@@ -220,6 +223,9 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// attachment's identity, and the server's environment its credential.
 	plan.linkBody = strings.TrimSuffix(execScriptWithEnv(append(insertEnv, linkDirEnv+"="+dir),
 		[]string{self, terminalLinkFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
+	// A new pane or window is a shell on the session's machine, in the agent
+	// pane's directory (native_split.go), not a shell here in $HOME.
+	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
 }
@@ -279,6 +285,9 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"set -g history-limit 100000",
 		"set -gw alternate-screen off",
 		"set -g prefix C-]",
+		// Splits and new windows (tmux's right-click menu, Ctrl+] % and ")
+		// open a shell on the session's machine in the agent's directory.
+		"set -g default-command " + shellq.Quote(p.splitScript),
 		"bind-key -T prefix C-] send-prefix",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
@@ -310,6 +319,7 @@ func (p *nativeWrapPlan) write() error {
 		{p.innerScript, p.inner, 0o700},
 		{p.controlsScript, p.controlsBody, 0o700},
 		{p.uploadScript, p.uploadBody, 0o700},
+		{p.splitScript, p.splitBody, 0o700},
 		{p.linkScript, p.linkBody, 0o700},
 	}
 	for _, file := range files {
