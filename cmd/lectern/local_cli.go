@@ -109,6 +109,7 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 	if command == "attach" {
 		localCfg := *cfg
 		localCfg.AuthToken = ep.Token
+		localAttachment = true
 		return attachAt(&localCfg, args, ep.URL, "", true)
 	}
 	return clientCommandAt(cfg, command, args, ep.URL, ep.Token, true)

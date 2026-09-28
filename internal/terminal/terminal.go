@@ -227,7 +227,12 @@ func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) 
 		}
 		inner = []string{"sh", "-c", extkeysProbe + " " + strings.Join(words, " ")}
 	}
+	return onTarget(a, target, inner)
+}
 
+// onTarget wraps a command so it runs, with a terminal, on the attachment's
+// target: directly, in its container, or over SSH.
+func onTarget(a Attachment, target *store.Target, inner []string) ([]string, error) {
 	switch {
 	case target.Kind == "sandbox":
 		if a.SandboxVMID == "" {

@@ -290,7 +290,7 @@ func attachAgentSession(cfg *config.Config, base, token string, local bool, id i
 	if err != nil {
 		return err
 	}
-	return runAttachment(argv, &nativeControls{Kind: "session", ID: idStr, Base: base, Token: token, TabView: os.Getenv("LECTERN_TAB_VIEW") == "1"})
+	return runAttachment(argv, &nativeControls{Kind: "session", ID: idStr, Base: base, Token: token, TabView: os.Getenv("LECTERN_TAB_VIEW") == "1", Local: local})
 }
 
 // agentQuickCommand implements `lectern claude`/`lectern codex`: resolve (or

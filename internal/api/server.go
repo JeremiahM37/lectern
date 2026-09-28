@@ -404,6 +404,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/term/{kind}/{id}/files", s.terminalFiles)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/changes", s.terminalChanges)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/file", s.terminalFile)
+	// a split of a native attachment: a tracked shell on the session's target, in its pane's directory
+	mux.HandleFunc("POST /api/term/{kind}/{id}/split", s.terminalSplit)
 	// ---- workspace files: editing, Quick Open, search (workspace_files.go) ----
 	mux.HandleFunc("PUT /api/term/{kind}/{id}/file", s.workspaceWrite)
 	mux.HandleFunc("GET /api/term/{kind}/{id}/stat", s.workspaceStat)

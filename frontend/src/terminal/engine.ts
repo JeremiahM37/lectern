@@ -361,12 +361,39 @@ export class Engine {
     let menuLink: TerminalLink | undefined;
     options.host.addEventListener("mousedown", (event) => {
       menuLink = undefined;
-      if (event.button !== 2 || !options.linkMenu) return;
+      if (event.button !== 2 || !options.linkMenu || event.shiftKey) return;
       const link = this.linkAtPoint({ x: event.clientX, y: event.clientY });
       if (!link) return;
       menuLink = link;
       event.preventDefault();
       event.stopPropagation();
+    }, { signal: this.lifetime.signal, capture: true });
+    // A program that tracks the mouse (a full-screen agent, tmux with mouse
+    // on) would otherwise get a click on a link and xterm would never open
+    // it. A click on a detected link is Lectern's; everywhere else, and with
+    // Shift held, clicks go to the program as before.
+    let pressed: TerminalLink | undefined;
+    const same = (a: TerminalLink, b: TerminalLink | undefined) =>
+      !!b && a.kind === b.kind && (a.kind === "url" ? a.url === (b as typeof a).url : a.path === (b as typeof a).path);
+    options.host.addEventListener("mousedown", (event) => {
+      pressed = undefined;
+      // A tap is tapAt's; this is for a mouse.
+      const fromTouch = (event as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents;
+      if (event.button !== 0 || event.shiftKey || fromTouch || this.term.modes.mouseTrackingMode === "none") return;
+      const link = this.linkAtPoint({ x: event.clientX, y: event.clientY });
+      if (!link) return;
+      pressed = link;
+      event.preventDefault();
+      event.stopPropagation();
+      this.term.focus();
+    }, { signal: this.lifetime.signal, capture: true });
+    options.host.addEventListener("mouseup", (event) => {
+      if (!pressed || event.button !== 0) return;
+      const link = pressed;
+      pressed = undefined;
+      event.preventDefault();
+      event.stopPropagation();
+      if (same(link, this.linkAtPoint({ x: event.clientX, y: event.clientY }))) this.open(link);
     }, { signal: this.lifetime.signal, capture: true });
     // A long press is a selection here, never the browser's context menu.
     options.host.addEventListener("contextmenu", (event) => {

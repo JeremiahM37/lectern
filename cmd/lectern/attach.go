@@ -41,8 +41,21 @@ func attach(cfg *config.Config, args []string) error {
 // remote command so the peer leaves the attachment alone instead of stacking a
 // second controls layer.
 func hostedAttach(cfg *config.Config, args []string) error {
+	if (len(args) == 3 || len(args) == 4) && args[0] == "split" {
+		dirMode := ""
+		if len(args) == 4 {
+			dirMode = args[3]
+		}
+		// A split of a client's native attachment: a shell on the session's
+		// target, resolved by this hosted server (native_split.go).
+		argv, err := splitShellArgv(args[1], args[2], "http://127.0.0.1:"+strconv.Itoa(cfg.Port), cfg.AuthToken, "", dirMode)
+		if err != nil {
+			return err
+		}
+		return execArgv(argv)
+	}
 	if len(args) < 1 || args[0] != "attach" {
-		return fmt.Errorf("usage: --hosted-attach attach KIND ID")
+		return fmt.Errorf("usage: --hosted-attach attach|split KIND ID")
 	}
 	// Read and immediately drop the marker: this environment may later start
 	// another, independent client that must not inherit the client's choice.
@@ -84,6 +97,10 @@ func takeClientControls() bool {
 	return marked
 }
 
+// localAttachment is set when attachAt runs for this machine's private local
+// runtime (local_cli.go), which `lectern split` must ask for its address.
+var localAttachment bool
+
 // attachAt resolves and runs an attachment. controls is false only when the
 // connecting client's own wrapper already owns the Ctrl-] prefix; otherwise
 // the resolved attachment is wrapped here so direct clients get controls too.
@@ -95,7 +112,7 @@ func attachAt(cfg *config.Config, args []string, base, attachHost string, contro
 	if !controls {
 		return runAttachment(argv, nil)
 	}
-	return runAttachment(argv, &nativeControls{Kind: args[0], ID: args[1], Base: base, Token: cfg.AuthToken, TabView: os.Getenv("LECTERN_TAB_VIEW") == "1"})
+	return runAttachment(argv, &nativeControls{Kind: args[0], ID: args[1], Base: base, Token: cfg.AuthToken, TabView: os.Getenv("LECTERN_TAB_VIEW") == "1", Local: localAttachment})
 }
 
 func attachmentCommand(cfg *config.Config, args []string) ([]string, error) {

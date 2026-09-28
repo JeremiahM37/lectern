@@ -136,6 +136,7 @@ const clientHelp = `Lectern — web and terminal control
   lectern shell [MACHINE]         Enter a blank persistent shell on a machine
   lectern attach KIND ID          Join tmux (Ctrl-b d returns to console)
   lectern controls [KIND ID]      Lectern actions without opening another terminal
+  lectern split [--session ID] [--dir agent|workdir]  A shell beside the attached session, on its machine
   lectern promote SESSION-ID      Bind a running conversation to a project
   lectern restore [QUERY|ID]      List or reopen closed, archived or interrupted sessions
                                     (--last, --agent A, --model M, --no-attach)
@@ -358,7 +359,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		attachClient := func(kind, id string) error {
 			var argv []string
 			var e error
-			controls := &nativeControls{Kind: kind, ID: id, Base: base, Token: token}
+			controls := &nativeControls{Kind: kind, ID: id, Base: base, Token: token, Local: local}
 			if local {
 				localCfg := *cfg
 				localCfg.AuthToken = token

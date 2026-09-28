@@ -464,7 +464,7 @@ func (e *linkEnv) menu(link filelinks.Link, file string) string {
 		item("Send path to the agent", "s", "send")
 		item("Open in web viewer", "w", "web")
 	}
-	return strings.Join(items, " ") + "\n"
+	return strings.Join(append(items, splitMenuItems...), " ") + "\n"
 }
 
 // ---- what the actions do
@@ -850,6 +850,10 @@ func tmuxDQ(s string) string {
 
 // linkBindings is the tmux configuration for the two bindings. In copy mode
 // both keep tmux's meaning, since the screen is then not what is on it.
+// splitMenuItems open a shell on the session's machine beside the agent
+// (native_split.go): split-window runs the private server's default-command.
+var splitMenuItems = []string{"''", `"Split: shell in project"`, "|", "{ split-window -h }", `"Split: shell in project (stacked)"`, "_", "{ split-window -v }"}
+
 func linkBindings(script, menu string, defaults map[string]string) string {
 	ask := func(verb string) string {
 		return strings.ReplaceAll(shellq.Quote(script), "#", "##") + " " + verb +
@@ -861,6 +865,8 @@ func linkBindings(script, menu string, defaults map[string]string) string {
 			" { "+double+" } { if-shell "+tmuxDQ("! "+ask("click"))+" { "+double+" } }")
 	}
 	if right, ok := defaults["MouseDown3Pane"]; ok {
+		// Off a link, tmux's own menu, led by the Lectern splits.
+		right = strings.Replace(right, "-x M -y M ", "-x M -y M "+strings.Join(splitMenuItems, " ")+" ", 1)
 		lines = append(lines, "bind-key -T root MouseDown3Pane if-shell -F "+tmuxDQ("#{pane_in_mode}")+
 			" { "+right+" } { if-shell "+tmuxDQ(ask("menu"))+" { source-file "+tmuxDQ(menu)+" } { "+right+" } }")
 	}

@@ -2159,7 +2159,7 @@
 
   // src/service-worker.ts
   var worker = self;
-  var CACHE = "lectern-react-bdceb92c7f58";
+  var CACHE = "lectern-react-30d1b7fd5d2d";
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2208,7 +2208,7 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
-    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-B9eUc7YZ.js","/react/assets/Workbench-DxMUtx0W.js","/react/assets/action-Dby-bL8q.js","/react/assets/app-Doe5fRMY.js","/react/assets/app-mBxhB7NZ.css","/react/assets/es-CpuNlVsQ.js","/react/assets/fr-Dnim5vld.js","/react/assets/ja-CCa1RiUc.js","/react/assets/jsx-runtime-MBMnoYz1.js","/react/assets/ko-s7EUzRQ6.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-DCSzEOUo.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-C_9_DpyD.js","/react/assets/zh-CBN9zUMY.js"]);
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-B9eUc7YZ.js","/react/assets/Workbench-DxMUtx0W.js","/react/assets/action-Dby-bL8q.js","/react/assets/app-Doe5fRMY.js","/react/assets/app-mBxhB7NZ.css","/react/assets/es-CpuNlVsQ.js","/react/assets/fr-Dnim5vld.js","/react/assets/ja-CCa1RiUc.js","/react/assets/jsx-runtime-MBMnoYz1.js","/react/assets/ko-s7EUzRQ6.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-CjQErkpb.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-C_9_DpyD.js","/react/assets/zh-CBN9zUMY.js"]);
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

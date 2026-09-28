@@ -292,6 +292,29 @@ func (m *Manager) LaunchProjectShell(ctx context.Context, projectID int64) (*sto
 	})
 }
 
+// LaunchShellIn opens a fresh tracked, agent-free shell on a target in dir —
+// what a split of a native attachment opens beside an agent
+// (docs/terminal-client.md). dir comes from the server's own records or the
+// agent's pane, never from a client; a directory that is gone is refused.
+func (m *Manager) LaunchShellIn(ctx context.Context, targetID int64, dir, name string, projectID *int64) (*store.Session, error) {
+	target, err := m.DB.Target(targetID)
+	if err != nil {
+		return nil, err
+	}
+	ex, err := m.Reg.For(target)
+	if err != nil {
+		return nil, err
+	}
+	directory, err := ex.Run(ctx, "test -d "+shellq.Quote(dir), executor.RunOpts{Timeout: 10})
+	if err != nil {
+		return nil, err
+	}
+	if !directory.OK() {
+		return nil, fmt.Errorf("%s is unavailable on %s", dir, target.Name)
+	}
+	return m.startShellRoom(ctx, shellRoom{target: target, ex: ex, name: name, workdir: dir, projectID: projectID})
+}
+
 // startShellRoom reserves the session row and launches the tracked, agent-free
 // tmux shell. It is the one place a shell room's identity and lifecycle are
 // established, shared by the scratch and project forms above.
