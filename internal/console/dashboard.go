@@ -469,7 +469,7 @@ func (m *dashboard) filter() {
 	m.visible = nil
 	for _, r := range m.rows {
 		s := str(r["status"])
-		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) {
+		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) && m.approvalFor(r) == nil && r["state"] != "needs_you" {
 			continue
 		}
 		if status != "" && s != status {
@@ -1105,6 +1105,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if v.String() == "n" || v.String() == "esc" || v.String() == "q" {
 				m.pending = nil
 				m.notice = "Cancelled"
+				if m.reviewPaused != nil {
+					m.review, m.reviewPaused = m.reviewPaused, nil
+				}
 			}
 			return m, nil
 		}
@@ -1487,7 +1490,7 @@ func (m *dashboard) listView(height int) string {
 		case "sessions":
 			s = m.sessionStatus(r)
 		case "approvals":
-			s = "needs you"
+			s = statusNeedsYou
 		}
 		if sections[m.section] == "routines" {
 			s = str(r["schedule"])
@@ -1519,12 +1522,12 @@ func (m *dashboard) listView(height int) string {
 		}
 		color := statusColor(s)
 		word := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(s)
-		if s == statusNeedsYou {
+		if strings.HasPrefix(s, statusNeedsYou) {
 			word = needsStyle.Render(s)
 		}
 		meta := muted.Render("  "+m.group(r)+" · ") + word + muted.Render(" · "+str(r["agent"]))
 		if sections[m.section] == "approvals" {
-			meta = muted.Render("  ") + needsStyle.Render("needs you") + muted.Render(" · "+approvalSummary(r))
+			meta = muted.Render("  ") + needsStyle.Render(statusNeedsYou) + muted.Render(" · "+approvalSummary(r))
 		}
 		lines = append(lines, line, clip(meta, w))
 		if m.rowHeight(i) == 3 {

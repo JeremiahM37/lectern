@@ -11,58 +11,89 @@ import (
 // operator types it and what it does here, in plain words.
 type keyHint struct{ Key, Label string }
 
-// The status words every surface uses (docs/design/simple-tui.md). "needs
-// you" is reserved for a person actually being needed: a pending approval.
+// The status words every surface uses (internal/vocab on the server,
+// docs/design/simple-ui.md "Session status"). The server sends them as
+// state / state_label / state_reason; an older server does not, so the same
+// rules are applied here to the facts it does send. "Needs you" is reserved
+// for a person actually being needed: a pending approval or a permission
+// prompt, never an agent idle at its prompt.
 const (
-	statusWorking  = "working"
-	statusNeedsYou = "needs you"
-	statusReady    = "ready"
-	statusStopped  = "stopped"
+	statusWorking  = "Working"
+	statusNeedsYou = "Needs you"
+	statusIdle     = "Idle"
+	statusEnded    = "Ended"
 )
 
-// sessionStatus is the one word a session row shows. Setup and reachability
-// keep their own honest wording; everything else maps onto the four words.
+var stateLabels = map[string]string{"working": statusWorking, "needs_you": statusNeedsYou, "idle": statusIdle, "ended": statusEnded}
+
+var reasonLabels = map[string]string{
+	"starting": "starting", "setting_up": "setting up", "setup_failed": "setup failed",
+	"agent_exited": "agent exited", "interrupted": "interrupted", "archived": "archived",
+	"untracked": "no longer tracked", "approval": "approval waiting", "permission_prompt": "permission prompt",
+}
+
+// sessionStatus is the status a session row shows: the state word, then the
+// reason when there is one ("Ended · agent exited").
 func (m *dashboard) sessionStatus(r row) string {
-	s := sessionWord(r, m.approvalFor(r) != nil)
+	state, reason := sessionState(r, m.approvalFor(r) != nil)
+	s := stateLabels[state]
+	if label := reasonLabels[reason]; label != "" && reason != "approval" {
+		s += " · " + label
+	}
 	if unreachable(r) {
 		s = "unreachable · " + s
 	}
 	return s
 }
 
-func sessionWord(r row, needsYou bool) string {
+// sessionState prefers the server's own state. A pending approval this
+// dashboard has seen more recently than the row still counts.
+func sessionState(r row, pendingApproval bool) (string, string) {
+	if state := str(r["state"]); stateLabels[state] != "" {
+		reason := str(r["state_reason"])
+		if pendingApproval && state == "idle" || pendingApproval && state == "working" && reason == "" {
+			return "needs_you", "approval"
+		}
+		return state, reason
+	}
+	status := str(r["status"])
 	switch {
-	case r["setup_state"] == "creating" && r["setup_cancel_requested"] == true:
-		return "cancelling"
-	case r["setup_state"] == "creating":
-		return "setting up"
+	case r["archived_at"] != nil:
+		return "ended", "archived"
 	case r["setup_state"] == "failed":
-		return "setup failed"
+		return "ended", "setup_failed"
+	case r["ended_at"] != nil && status != "dead":
+		return "ended", "untracked"
+	case r["ended_at"] != nil || status == "dead":
+		return "ended", ""
+	case status == "interrupted":
+		return "ended", "interrupted"
 	case agentExited(r):
-		return statusStopped + " · agent exited"
-	case r["ended_at"] != nil || str(r["status"]) == "dead":
-		return statusStopped
-	case needsYou:
-		return statusNeedsYou
+		return "ended", "agent_exited"
+	case r["setup_state"] == "creating":
+		return "working", "setting_up"
+	case pendingApproval:
+		return "needs_you", "approval"
+	case str(r["agent_state"]) == "waiting_permission":
+		return "needs_you", "permission_prompt"
+	case status == "starting":
+		return "working", "starting"
+	case status == "running":
+		return "working", ""
 	}
-	switch str(r["status"]) {
-	case "running", "starting":
-		return statusWorking
-	case "waiting", "idle":
-		return statusReady
-	}
-	return str(r["status"])
+	return "idle", ""
 }
 
 func statusColor(s string) string {
-	switch strings.TrimSuffix(strings.TrimPrefix(s, "unreachable · "), " · agent exited") {
-	case statusWorking, "starting", "setting up", "running":
-		return "114"
-	case statusNeedsYou, "pending", "review":
-		return "214"
-	case "failed", "setup failed", "dead":
+	s = strings.TrimPrefix(s, "unreachable · ")
+	switch {
+	case strings.Contains(s, "setup failed"), s == "failed", s == "dead":
 		return "203"
-	case statusReady:
+	case strings.HasPrefix(s, statusWorking), s == "running", s == "starting":
+		return "114"
+	case strings.HasPrefix(s, statusNeedsYou), s == "pending", s == "review", s == "waiting":
+		return "214"
+	case strings.HasPrefix(s, statusIdle):
 		return "111"
 	}
 	return "245"
@@ -219,7 +250,7 @@ func (m *dashboard) helpLines() []string {
 		{"1 2 3 4", "Sessions, Approvals, Projects, Tasks"},
 		{"Tab / ←→", "next pane (Shift+Tab goes back)"},
 		{"↑↓ / j k", "move"},
-		{"/", "filter the list; @ ready · ! working · # idle · & failed"},
+		{"/", "filter the list; start with @ at its prompt · ! running · # quiet · & failed"},
 		{"m", "short menu for the selection"},
 		{": / Ctrl+K", "all commands, searchable by plain words"},
 		{"Esc", "back one level (never quits)"},

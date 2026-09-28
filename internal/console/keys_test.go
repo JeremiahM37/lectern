@@ -492,3 +492,77 @@ func TestReviewCommitExplainsARefusalAndReturnsToTheReview(t *testing.T) {
 		t.Fatal("Esc did not return to the review")
 	}
 }
+
+// The dashboard says what the web says: the server's state when it sends
+// one, and the same rules applied to the raw facts when it does not.
+func TestSessionStatusUsesTheSharedVocabulary(t *testing.T) {
+	m := sampleDashboard()
+	for _, tc := range []struct {
+		r        row
+		approval bool
+		want     string
+	}{
+		{row{"state": "idle", "state_label": "Idle", "status": "waiting"}, false, "Idle"},
+		{row{"state": "ended", "state_reason": "agent_exited"}, false, "Ended · agent exited"},
+		{row{"state": "idle"}, true, "Needs you"},
+		{row{"status": "waiting"}, false, "Idle"},
+		{row{"status": "running"}, false, "Working"},
+		{row{"status": "running"}, true, "Needs you"},
+		{row{"status": "idle", "agent_exited_at": float64(1)}, false, "Ended · agent exited"},
+		{row{"status": "idle", "setup_state": "creating"}, false, "Working · setting up"},
+		{row{"status": "dead", "ended_at": float64(1)}, false, "Ended"},
+		{row{"status": "idle", "agent_state": "waiting_permission"}, false, "Needs you · permission prompt"},
+	} {
+		tc.r["id"] = float64(1)
+		m.approvals = nil
+		if tc.approval {
+			m.approvals = []row{pendingApproval(1)}
+		}
+		if got := m.sessionStatus(tc.r); got != tc.want {
+			t.Errorf("%v (approval %v) = %q, want %q", tc.r, tc.approval, got, tc.want)
+		}
+	}
+}
+
+// On a session that works straight on main, commit offers a new branch
+// first; main itself is the second choice and asks again.
+func TestReviewCommitOnMainOffersANewBranch(t *testing.T) {
+	srv, rec := recordingServer(t, 200, `{"steps":[]}`)
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	selectID(m, "1")
+	review := &codeReview{base: "/term/session/1/changes", scope: "working", data: reviewData{Branch: "main"}}
+	m.review = review
+	m.Update(key("c"))
+	for _, r := range "Add notes" {
+		m.updateForm(key(string(r)))
+	}
+	if !strings.Contains(m.formView(), "lectern/alpha-ui") {
+		t.Fatalf("no new branch offered:\n%s", m.formView())
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS}))
+	if len(rec.bodies) != 1 || rec.bodies[0]["new_branch"] != "lectern/alpha-ui" || rec.bodies[0]["allow_base_branch"] != nil {
+		t.Fatalf("new-branch commit sent %v", rec.bodies)
+	}
+	if m.review != review || !strings.Contains(m.notice, "new branch") {
+		t.Fatalf("did not return to the review: notice=%q", m.notice)
+	}
+	m.busy = false
+	m.Update(key("c"))
+	for _, r := range "Straight on main" {
+		m.updateForm(key(string(r)))
+	}
+	m.form.fields[1].Value = "base"
+	m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if m.pending == nil || len(rec.bodies) != 1 {
+		t.Fatal("committing onto main did not ask first")
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "straight onto main") {
+		t.Fatalf("the confirmation is not shown:\n%s", ansi.Strip(m.View()))
+	}
+	_, cmd := m.Update(key("y"))
+	run(m, cmd)
+	if len(rec.bodies) != 2 || rec.bodies[1]["allow_base_branch"] != true || m.review == nil {
+		t.Fatalf("main commit sent %v, review=%v", rec.bodies, m.review != nil)
+	}
+}

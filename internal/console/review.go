@@ -273,13 +273,36 @@ func (m *dashboard) commitForm() tea.Cmd {
 	}
 	m.reviewPaused = r
 	m.review = nil
-	cmd := m.openForm("Commit changes", []field{{Key: "message", Label: "Commit message", Required: true}}, func(values map[string]any) tea.Cmd {
+	fields := []field{{Key: "message", Label: "Commit message", Required: true}}
+	onBase := kind == "session" && (r.data.Branch == "main" || r.data.Branch == "master")
+	if onBase {
+		// A session started without a worktree works straight on the
+		// default branch. Offer a new branch first; committing onto the
+		// default branch itself is the second choice and asks again.
+		fields = append(fields,
+			optionField("commit_to", "Commit to", "new", []choice{{"A new branch (recommended)", "new"}, {r.data.Branch + " itself", "base"}}, true),
+			field{Key: "new_branch", Label: "New branch name", Value: "lectern/" + branchSlug(oneLine(name(m.current())))})
+	}
+	cmd := m.openForm("Commit changes", fields, func(values map[string]any) tea.Cmd {
 		if m.busy {
 			return nil
 		}
+		payload := body(str(values["message"]))
+		notice := "Committed: " + oneLine(str(payload["message"]))
+		if onBase {
+			if values["commit_to"] == "base" {
+				payload["allow_base_branch"] = true
+				// Named commitLabel so the result returns to the review.
+				m.pending = &dashboardAction{Label: commitLabel, Method: "POST", Path: path, Body: payload,
+					Warning: "The commit goes straight onto " + r.data.Branch + ", not onto a separate branch.", Confirm: "commit onto " + r.data.Branch, Notice: notice}
+				m.form = nil
+				return nil
+			}
+			payload["new_branch"] = str(values["new_branch"])
+			notice += " (on a new branch, " + str(values["new_branch"]) + ")"
+		}
 		m.busy = true
 		c := m.client
-		payload := body(str(values["message"]))
 		return func() tea.Msg {
 			data, err := c.JSON("POST", path, payload)
 			if err != nil {
@@ -292,7 +315,7 @@ func (m *dashboard) commitForm() tea.Cmd {
 			if json.Unmarshal(data, &out) == nil && out.Failed != "" {
 				return resultMsg{label: commitLabel, err: fmt.Errorf("%s", strings.TrimPrefix(out.Detail, "commit failed: "))}
 			}
-			return resultMsg{label: commitLabel, data: data, notice: "Committed: " + oneLine(str(payload["message"]))}
+			return resultMsg{label: commitLabel, data: data, notice: notice}
 		}
 	})
 	if m.form != nil {
@@ -310,7 +333,27 @@ func (m *dashboard) commitForm() tea.Cmd {
 func commitError(err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "refusing to commit directly on") {
-		return fmt.Errorf("Not committed: this session works directly on its main branch. To commit, attach (Enter) and use a shell beside the agent (Ctrl+] |), or start the session in a separate Git worktree (n → More options)")
+		return fmt.Errorf("Not committed: this server does not commit on a session's main branch. Attach (Enter) and commit in a shell beside the agent (Ctrl+] |), or start the session in a separate Git worktree (n → More options)")
 	}
 	return err
+}
+
+// branchSlug turns a session name into a branch name part.
+func branchSlug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	out := strings.TrimRight(b.String(), "-")
+	if out == "" {
+		out = "work"
+	}
+	return out
 }
