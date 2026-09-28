@@ -213,6 +213,13 @@ line and column.
   terminal). For a web address: **Open in browser** and **Copy link**. Off a
   link, the browser's own menu appears. On a phone, a long press selects the
   text and the selection bar offers **Open**.
+- **In the session Chat**, paths in agent messages are links the same way:
+  absolute and `~/` paths, workspace paths (a bare name once the pointer
+  reaches it and the workspace has it), a path in backticks, and Markdown
+  links to files (`[report](/home/you/report.pdf)`, `file://…`). They are
+  underlined on hover, open in a file pane beside the chat (or the session's
+  file viewer in a new tab), read-only outside the workspace, and a missing
+  one says which path was tried. Web addresses open in a new tab.
 - When a program tracks the mouse (a full-screen agent, or tmux with `mouse
   on`), a click or right-click on a detected link is still Lectern's; every
   other click goes to the program. Hold **Shift** to select text across a

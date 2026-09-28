@@ -7,6 +7,7 @@ import { Modal } from "./Modal";
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -25,7 +26,12 @@ import { MemoryDeliveries } from "./MemoryDeliveries";
 import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
 import { ApprovalCard, type ApprovalDecisionOptions } from "./ApprovalCard";
-import { Markdown } from "./markdown";
+import { FileLinksContext, Markdown, type FileLinks } from "./markdown";
+import { FileApi } from "../files/api";
+import { existenceCheck } from "../files/linkCheck";
+import { openExternal } from "../mobile/open";
+import { filesContext, openFilePane } from "../workspace/files-provider";
+import { paneType } from "../workspace/registry";
 import { buildChatCards, type ConversationItem } from "./tool-views/chatCards";
 import { ToolCardView } from "./tool-views/ToolCard";
 import { VoiceMode } from "./VoiceMode";
@@ -715,8 +721,37 @@ export function Conversation({
     setRenamingValue(currentName);
     setIsRenaming(false);
   }
+  // Paths an agent writes open as they do in the terminal (markdown.tsx).
+  const workdir = kind === "session" ? session?.workdir || "" : "";
+  const fileLinks = useMemo<FileLinks | null>(() => {
+    if (!workdir.startsWith("/")) return null;
+    const files = new FileApi(`/api/term/session/${id}`);
+    const exists = existenceCheck(files);
+    return {
+      workdir,
+      exists,
+      open: (link) => {
+        if (link.kind === "url") return openExternal(link.url);
+        void (async () => {
+          try {
+            if (link.external) {
+              const stat = await files.outsideStat(link.path);
+              if (!stat.exists) return onNotice(t("files.link.missing", { path: link.path }), true);
+              if (!stat.regular) return onNotice(t("files.link.notFile", { path: stat.path }), true);
+            } else if (!(await exists(link.path))) return onNotice(t("files.link.missing", { path: link.path }), true);
+          } catch (error) {
+            return onNotice(t("files.link.failed", { path: link.path, message: error instanceof Error ? error.message : String(error) }), true);
+          }
+          const context = filesContext();
+          if (context && paneType("file")) openFilePane({ ...context, session: id }, link.path, link.line, link.column);
+          else window.open(`/terminal/session/${id}?open=${encodeURIComponent(link.path)}${link.line ? "#L" + link.line : ""}`, "_blank", "noopener");
+        })();
+      },
+    };
+  }, [workdir, id, onNotice]);
   const chatCards = kind === "session" ? buildChatCards(liveItems) : [];
   return (
+    <FileLinksContext.Provider value={fileLinks}>
     <Modal
       id="conversation"
       className={showBrowser ? "conversation with-browser" : "conversation"}
@@ -1263,6 +1298,7 @@ export function Conversation({
         </p>
       </form>
     </Modal>
+    </FileLinksContext.Provider>
   );
 }
 
