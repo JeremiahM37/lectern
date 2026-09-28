@@ -254,3 +254,28 @@ the target probe say that Python is then required. The inventory is in
 ## 8. Python helper inventory
 
 See the table maintained at the end of this file once the ports land.
+
+### Agent hooks, drivers and trust
+
+These run on the agent machine, some of them launched by the agent itself
+(hook commands, codex's `notify`), so the Go form is written into the
+agent's configuration rather than only run by Lectern.
+
+| helper | replaces | used by |
+|---|---|---|
+| `approval-hook` | `internal/hooks/hook.py` | the PreToolUse gate in a task's settings.json (`agents.HookSettingsFor`) |
+| `lec` | `internal/hooks/lec.py` | the task-filing kit named in the task prompt footer (`scheduler.AgentTaskFooterFor`); reads `.lectern/env` from the working directory, as `python3 .lectern/lec.py` did |
+| `claude-settings-install` | agentevents' Claude settings installer | interactive Claude sessions (`agentevents.ClaudeSettingsInstall`) |
+| `claude-statusline` | the default status line's `python3 -c` | the status line script the installer writes |
+| `codex-notify` | `CodexNotifyScript` | codex `-c notify=[…]` (nothing is written to disk) |
+| `codex-hook` | `CodexHookScript` | the hooks.json entries the installer merges |
+| `codex-hooks-install` | agentevents' hooks.json merge | interactive codex sessions (`agentevents.CodexHooksInstall`); replaces entries naming the Python handler |
+| `pump` | the drivers' `pump.py` | streaming drivers (claude-steer, codex-appserver, ACP) |
+| `claude-trust`, `codex-trust` | the built-in trust commands (and the legacy Claude one) | `Spec.TrustProbeOn`; `codex-trust` carries a port of tomllib so it reads config.toml exactly as the script did |
+
+Differences from the scripts, all deliberate: the approval hook, `lec` and
+the codex handlers make their HTTP requests themselves (urllib's and curl's
+proxy rules, including proxying loopback, which the network=deny sandbox
+needs), so a curl-less target works too; `lec`'s usage text names the Go
+command. Operator- or catalog-defined trust commands (e.g. openclaude's) run
+as declared.

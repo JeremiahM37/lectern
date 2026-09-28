@@ -1,6 +1,24 @@
 package agentevents
 
-import "github.com/JeremiahM37/lectern/v2/internal/shellq"
+import (
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+)
+
+// ClaudeSettingsInstall is ClaudeSettingsInstallCommand for the target ex
+// drives: the Go port (`lectern helper claude-settings-install`, whose
+// default status line is `lectern helper claude-statusline`) when the target
+// has a lectern binary, the Python installer otherwise.
+func ClaudeSettingsInstall(ex executor.Executor, tmuxName, hookURL string, askPermission bool) string {
+	ask := "0"
+	if askPermission {
+		ask = "1"
+	}
+	return helpers.Command(ex, "claude-settings-install",
+		[]string{tmuxName, hookURL, ask, executor.TargetEnvOf(ex).Lectern},
+		ClaudeSettingsInstallCommand(tmuxName, hookURL, askPermission))
+}
 
 // ClaudeSettingsInstallCommand returns a shell command that, run on a
 // session's target (the same executor.Run seam internal/sessions/agents.go's

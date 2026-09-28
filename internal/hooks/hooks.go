@@ -1,10 +1,11 @@
-// Package hooks embeds the two agent-side Python scripts staged into every
-// worktree.
+// Package hooks embeds the two agent-side Python scripts staged into a
+// worktree on a target without a lectern binary.
 //
-// They stay Python and stdlib-only on purpose: they run on the TARGET, which may
-// be any LXC or SSH box, and python3 is the one interpreter every one of them
-// already has. Embedding them keeps the Go binary self-contained — there is no
-// hooks/ directory to deploy alongside it.
+// They run on the TARGET, which may be any LXC or SSH box, so they are
+// stdlib-only. A target with a lectern binary runs their Go ports instead
+// (`lectern helper approval-hook` and `lectern helper lec`, internal/helpers)
+// and needs no python3. Embedding them keeps the Go binary self-contained —
+// there is no hooks/ directory to deploy alongside it.
 package hooks
 
 import _ "embed"

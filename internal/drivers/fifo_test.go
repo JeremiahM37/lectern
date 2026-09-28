@@ -45,7 +45,8 @@ func TestEnsureFifoCommandShape(t *testing.T) {
 // ensureFifoCommand's doc comment for the race that would reopen) — assert
 // that split stays that way.
 func TestStreamLaunchCommandShape(t *testing.T) {
-	cmd := streamLaunchCommand(backend.Tmux, "lec-1", "/wt/.lectern", "/wt", "FOO=bar claude --input-format stream-json")
+	cmd := streamLaunchCommand(backend.Tmux, "lec-1", "/wt/.lectern", "/wt",
+		"python3 /wt/.lectern/pump.py /wt/.lectern/steer.fifo", "FOO=bar claude --input-format stream-json")
 	for _, want := range []string{
 		"tmux new-session -d -s lec-1",
 		"cd /wt &&",

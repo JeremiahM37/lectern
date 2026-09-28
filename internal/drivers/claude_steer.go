@@ -31,7 +31,8 @@ type claudeSteerDriver struct{}
 
 func (claudeSteerDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) (Handle, error) {
 	rt := agents.RuntimeDir(spec.Worktree)
-	if err := ex.WriteFile(ctx, rt+"/pump.py", []byte(pumpScript)); err != nil {
+	pump, err := stagePump(ctx, ex, rt)
+	if err != nil {
 		return nil, err
 	}
 	if r, err := ex.Run(ctx, ensureFifoCommand(rt), executor.RunOpts{Timeout: 20}); err != nil {
@@ -72,7 +73,7 @@ func (claudeSteerDriver) Start(ctx context.Context, ex executor.Executor, spec S
 		return nil, err
 	}
 	agentCmd := envPrefix + strings.Join(parts, " ")
-	cmd := streamLaunchCommand(backend.For(ex), spec.TmuxSession, rt, spec.Worktree, agentCmd)
+	cmd := streamLaunchCommand(backend.For(ex), spec.TmuxSession, rt, spec.Worktree, pump, agentCmd)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return nil, err
