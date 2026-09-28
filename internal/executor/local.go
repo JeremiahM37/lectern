@@ -25,14 +25,18 @@ func (l *Local) run(ctx context.Context, cmd string, opts RunOpts, input io.Read
 	d := time.Duration(opts.timeoutOrDefault() * float64(time.Second))
 	cctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
-	c := exec.CommandContext(cctx, "bash", "-c", cmd)
+	shell, err := localShell()
+	if err != nil {
+		return Result{}, Errf("%v", err)
+	}
+	c := exec.CommandContext(cctx, shell, "-c", cmd)
 	if opts.Cwd != "" {
 		c.Dir = opts.Cwd
 	}
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb
 	c.Stdin = input
-	err := c.Run()
+	err = c.Run()
 	if cctx.Err() == context.DeadlineExceeded {
 		return Result{124, "", "command timed out"}, nil
 	}
@@ -51,7 +55,7 @@ func (l *Local) run(ctx context.Context, cmd string, opts RunOpts, input io.Read
 // ReadFile reads from offset to EOF, treating a missing file as empty — the
 // scheduler polls for an agent log that does not exist yet on every tick.
 func (l *Local) ReadFile(_ context.Context, path string, offset int64) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(nativePath(path))
 	if err != nil {
 		return nil, nil
 	}
@@ -66,6 +70,7 @@ func (l *Local) ReadFile(_ context.Context, path string, offset int64) ([]byte, 
 
 // WriteFile writes data, creating parent directories.
 func (l *Local) WriteFile(_ context.Context, path string, data []byte) error {
+	path = nativePath(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

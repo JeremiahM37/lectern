@@ -76,6 +76,8 @@ func installService(binary string) (string, error) {
 		return installSystemdUserUnit(binary, stateDir)
 	case "darwin":
 		return installLaunchdAgent(binary, stateDir, filepath.Join(dir, "service.log"))
+	case "windows":
+		return installWindowsLogon(binary)
 	default:
 		return "", fmt.Errorf("--service is not supported on %s yet; run `lectern serve` yourself, e.g. from your OS's own startup mechanism", runtime.GOOS)
 	}

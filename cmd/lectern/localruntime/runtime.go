@@ -182,11 +182,10 @@ func Ensure(ctx context.Context, binary string, base *config.Config) (Endpoint, 
 		return Endpoint{}, err
 	}
 	defer tokenWriter.Close()
-	cmd := exec.Command(binary, "--local-engine", "--local-state-dir", dir,
-		"--local-token-fd", strconv.Itoa(4), "--local-lock-fd", strconv.Itoa(3))
+	cmd := exec.Command(binary, "--local-engine", "--local-state-dir", dir)
+	lockArg, tokenArg := passFiles(cmd, lock, tokenReader)
+	cmd.Args = append(cmd.Args, "--local-token-fd", tokenArg, "--local-lock-fd", lockArg)
 	cmd.Env = localEnv(tmuxDir)
-	cmd.ExtraFiles = []*os.File{lock, tokenReader}
-	detach(cmd)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		_ = tokenReader.Close()

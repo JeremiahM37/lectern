@@ -28,10 +28,14 @@ func (p *Pct) Stream(ctx context.Context, cmd string, w io.Writer, timeout float
 func streamLocal(ctx context.Context, cmd string, w io.Writer, timeout float64) (Result, error) {
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(RunOpts{Timeout: timeout}.timeoutOrDefault()*float64(time.Second)))
 	defer cancel()
-	c := exec.CommandContext(cctx, "bash", "-c", cmd)
+	shell, err := localShell()
+	if err != nil {
+		return Result{}, Errf("%v", err)
+	}
+	c := exec.CommandContext(cctx, shell, "-c", cmd)
 	var errb bytes.Buffer
 	c.Stdout, c.Stderr = w, &errb
-	err := c.Run()
+	err = c.Run()
 	if cctx.Err() != nil {
 		return Result{124, "", "command timed out"}, nil
 	}

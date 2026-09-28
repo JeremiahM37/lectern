@@ -50,8 +50,8 @@ func find(lookPath func(string) (string, error), getenv func(string) string) (st
 		roots = append(roots, filepath.Join(local, "Programs", "Git"))
 	}
 	for _, root := range roots {
-		for _, rel := range []string{`bin\bash.exe`, `usr\bin\bash.exe`} {
-			p := filepath.Join(root, rel)
+		for _, rel := range [][]string{{"bin", "bash.exe"}, {"usr", "bin", "bash.exe"}} {
+			p := filepath.Join(append([]string{root}, rel...)...)
 			if fi, e := os.Stat(p); e == nil && !fi.IsDir() {
 				return p, nil
 			}
@@ -66,6 +66,19 @@ func PosixPath(p string) string {
 	if len(p) >= 2 && p[1] == ':' {
 		drive := strings.ToLower(p[:1])
 		return "/" + drive + strings.ReplaceAll(p[2:], `\`, "/")
+	}
+	return p
+}
+
+// NativePath turns a path a Git Bash command line used (/c/Users/me) into the
+// Windows form (C:\Users\me). Other paths are returned unchanged.
+func NativePath(p string) string {
+	isDrive := func(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+	switch {
+	case len(p) >= 3 && p[0] == '/' && isDrive(p[1]) && p[2] == '/':
+		return strings.ToUpper(p[1:2]) + ":" + strings.ReplaceAll(p[2:], "/", `\`)
+	case len(p) == 2 && p[0] == '/' && isDrive(p[1]):
+		return strings.ToUpper(p[1:2]) + `:\`
 	}
 	return p
 }
