@@ -144,7 +144,7 @@ func handshake(ctx context.Context, c *pipeConn) error {
 	case r := <-got:
 		switch {
 		case r.err != nil:
-			return fmt.Errorf("the relay on the target ended before connecting (is python3 installed?): %w", r.err)
+			return fmt.Errorf("the relay on the target ended before connecting (is python3 or lectern there?): %w", r.err)
 		case r.line != "":
 			return fmt.Errorf("could not connect on the target: %s", strings.TrimSpace(strings.TrimPrefix(r.line, "E")))
 		}
