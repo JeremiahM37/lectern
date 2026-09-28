@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/vocab"
 	"io"
 	"net/http"
 	"path"
@@ -29,6 +30,12 @@ import (
 // sessionView is a session plus the two things a card always needs: how long it
 // has been quiet, and whether a handoff is currently being written.
 type sessionView struct {
+	// State is the one status word every surface shows (internal/vocab):
+	// working, needs_you, idle or ended; StateLabel is its English words and
+	// StateReason an optional refinement ("agent_exited").
+	State         string `json:"state"`
+	StateLabel    string `json:"state_label"`
+	StateReason   string `json:"state_reason,omitempty"`
 	LaunchProfile string `json:"launch_profile,omitempty"`
 	CanRestore    bool   `json:"can_restore"`
 	// SavedConversations says Lectern can list this session's saved
@@ -108,10 +115,26 @@ type recentSessionView struct {
 }
 
 func (s *Server) sessionView(row *store.Session) *sessionView {
-	return s.sessionViewWith(row, s.computeAwarenessOverlap(row))
+	return s.sessionViewWith(row, s.computeAwarenessOverlap(row), s.pendingApprovalSessions())
 }
 
-func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapView) *sessionView {
+// pendingApprovalSessions is the set of sessions with an approval waiting,
+// read once per listing so each row's status can say "needs you" truthfully.
+func (s *Server) pendingApprovalSessions() map[int64]bool {
+	out := map[int64]bool{}
+	rows, err := s.DB.ApprovalsByStatus("pending")
+	if err != nil {
+		return out
+	}
+	for _, row := range rows {
+		if row.SessionID != 0 {
+			out[row.SessionID] = true
+		}
+	}
+	return out
+}
+
+func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapView, pending map[int64]bool) *sessionView {
 	v := &sessionView{
 		Session:         row,
 		CanRestore:      row.EndedAt != nil && row.Origin == "discovered" && row.Status != sessions.StatusDead && row.TrackingIdentity != "",
@@ -119,6 +142,12 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 		UptimeSeconds:   store.Now() - row.CreatedAt,
 		HandoffInFlight: s.Sessions.InFlight(row.ID),
 	}
+	v.State, v.StateReason = vocab.SessionState(vocab.SessionFacts{
+		Status: row.Status, AgentState: row.AgentState, SetupState: row.SetupState,
+		Ended: row.EndedAt != nil, Archived: row.ArchivedAt != nil,
+		AgentExited: row.AgentExitedAt != nil, PendingApproval: pending[row.ID],
+	})
+	v.StateLabel = vocab.Label(v.State)
 	if row.WorktreeJSON != "" {
 		json.Unmarshal([]byte(row.WorktreeJSON), &v.Workspace)
 		if v.Workspace != nil {
@@ -171,9 +200,10 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 // of them at once rather than through sessionView's per-row lookup.
 func (s *Server) sessionViews(rows []*store.Session) []*sessionView {
 	overlaps := s.awarenessOverlaps(rows)
+	pending := s.pendingApprovalSessions()
 	out := make([]*sessionView, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, s.sessionViewWith(row, overlaps[row.ID]))
+		out = append(out, s.sessionViewWith(row, overlaps[row.ID], pending))
 	}
 	return out
 }
@@ -257,9 +287,10 @@ func (s *Server) recentSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	overlaps := s.awarenessOverlaps(rows)
+	pending := s.pendingApprovalSessions()
 	out := make([]*recentSessionView, 0, len(rows))
 	for _, row := range rows {
-		view := s.sessionViewWith(row, overlaps[row.ID])
+		view := s.sessionViewWith(row, overlaps[row.ID], pending)
 		out = append(out, &recentSessionView{
 			sessionView:      view,
 			Released:         row.Origin == "discovered" && row.Status != sessions.StatusDead,
@@ -342,7 +373,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Agent != "" {
-		if _, ok := sessions.Find(s.agentSpecs(), in.Agent); !ok {
+		// The demo agent ("Try a demo agent") launches like any other but is
+		// never listed in the registry.
+		if _, ok := sessions.Find(sessions.WithDemo(s.agentSpecs()), in.Agent); !ok {
 			httpError(w, 422, "unknown agent %q — define it in /api/agents", in.Agent)
 			return
 		}

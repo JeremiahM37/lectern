@@ -16,8 +16,25 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 )
 
-func TestSessionPermissionModeDefaultsToBypass(t *testing.T) {
+// A new install asks before risky actions (docs/design/simple-ui.md); an
+// existing database that never chose keeps the old bypass default.
+func TestSessionPermissionModeDefaultsToAskOnANewInstall(t *testing.T) {
 	h := newHarness(t)
+	pid := h.seededProjectID()
+	sess := h.session(obj{"project_id": pid, "name": "a", "agent": "claude"})
+	if got := sess.str("permission_mode"); got != "ask" {
+		t.Fatalf("permission_mode = %q, want ask on a new install", got)
+	}
+	if got := h.get("/api/settings").str("session_permission_mode"); got != "ask" {
+		t.Fatalf("the new-install default must be a visible setting: %q", got)
+	}
+}
+
+func TestSessionPermissionModeUnsetStillMeansBypass(t *testing.T) {
+	h := newHarness(t)
+	if err := h.App.DB.SetSetting("session_permission_mode", ""); err != nil {
+		t.Fatal(err)
+	}
 	pid := h.seededProjectID()
 	sess := h.session(obj{"project_id": pid, "name": "a", "agent": "claude"})
 	if got := sess.str("permission_mode"); got != "bypass" {
