@@ -25,7 +25,7 @@ var allCommandsAction = dashboardAction{Label: "All commands…", Operation: "pa
 // preferred lists, per selection kind, the labels the context menu shows
 // first. Anything missing for this row is skipped.
 var preferred = map[string][]string{
-	"session":        {"Allow once", "Allow for this session", "Attach", "Open in a new window", "Send message", "Upload context file", "Review changes", "Rename", "End session", "Stop tracking (leave running)"},
+	"session":        {"Allow once", "Allow for this session", "Deny", "Attach", "Open in a new window", "Send message", "Upload context file", "Review changes", "Rename", "End session", "Stop tracking (leave running)"},
 	"session-exited": {reviveLabel, "Attach", "Review changes", "Read history", "Rename", "End session", "Stop tracking (leave running)"},
 	"session-ended":  {"Track again", "Saved conversations", "Rename", "Handoff summaries", "Archive stopped record"},
 	"session-setup":  {"Cancel setup", "Retry cancellation", "Workspace setup progress", "Rename", "Move to group"},

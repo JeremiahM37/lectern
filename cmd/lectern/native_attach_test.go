@@ -502,6 +502,12 @@ func TestNativeAttachBarRendersOnRealTmux(t *testing.T) {
 			t.Errorf("pending bar %q is missing %q", pending, want)
 		}
 	}
+	if !strings.Contains(format, "#(\""+plan.statusScript+"\")") {
+		t.Errorf("the bar does not poll for a pending approval: %q", format)
+	}
+	if script, err := os.ReadFile(plan.statusScript); err != nil || !strings.Contains(string(script), attachStatusFlag+" session 17 ") {
+		t.Errorf("status script: %q %v", script, err)
+	}
 	keys := run("list-keys", "-T", "prefix")
 	for _, want := range []string{"Lectern actions for this session", "Shell to the right", "Leave (the session keeps running)", "Send Ctrl+] to the agent"} {
 		if !strings.Contains(keys, want) {

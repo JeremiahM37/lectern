@@ -184,6 +184,7 @@ type nativeWrapPlan struct {
 	uploadScript   string
 	linkScript     string
 	splitScript    string
+	statusScript   string
 	statePath      string
 	controls       nativeControls
 	inWorkspace    string
@@ -194,6 +195,7 @@ type nativeWrapPlan struct {
 	uploadBody     string
 	linkBody       string
 	splitBody      string
+	statusBody     string
 }
 
 func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []string, workspace string) (*nativeWrapPlan, error) {
@@ -214,6 +216,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		linkScript:     filepath.Join(dir, "link.sh"),
 		splitScript:    filepath.Join(dir, "split.sh"),
+		statusScript:   filepath.Join(dir, "status.sh"),
 		statePath:      filepath.Join(attachStateDir(), strconv.Itoa(os.Getpid())+".json"),
 		controls:       controls,
 		inWorkspace:    workspace,
@@ -237,6 +240,9 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// A new pane or window is a shell on the session's machine, in the agent
 	// pane's directory (native_split.go), not a shell here in $HOME.
 	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
+	if controls.Kind == "session" && controls.Base != "" {
+		plan.statusBody = execScript([]string{self, attachStatusFlag, controls.Kind, controls.ID, controls.Base})
+	}
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
 }
@@ -324,6 +330,13 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 	// obvious mnemonic, is line-kill in all of them). Double-click opens a
 	// path or link an agent printed, on this machine.
 	hint := attachHints(p.controls.TabView)
+	if p.statusBody != "" {
+		// A session waiting for an approval says so first, in the bar the
+		// person is looking at; the Ctrl+] m menu then answers it. The job
+		// is a script in this attachment's private directory, so no quoting
+		// of the binary, ID or address has to survive the status format.
+		hint = "#[fg=colour214,bold]#(\"" + strings.ReplaceAll(p.statusScript, "#", "##") + "\")#[default]" + hint
+	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
 		// Windows Terminal/xterm translate wheel motion in the alternate screen
@@ -371,7 +384,8 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"set -g status-right ''",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-interval 0",
+		// Polls the "needs you" note; the rest of the bar never changes.
+		"set -g status-interval 5",
 		"set -g escape-time 0",
 		"",
 	}, "\n")
@@ -389,6 +403,13 @@ func (p *nativeWrapPlan) write() error {
 		{p.uploadScript, p.uploadBody, 0o700},
 		{p.splitScript, p.splitBody, 0o700},
 		{p.linkScript, p.linkBody, 0o700},
+	}
+	if p.statusBody != "" {
+		files = append(files, struct {
+			path string
+			body string
+			mode os.FileMode
+		}{p.statusScript, p.statusBody, 0o700})
 	}
 	for _, file := range files {
 		if err := os.WriteFile(file.path, []byte(file.body), file.mode); err != nil {

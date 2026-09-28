@@ -89,6 +89,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == terminalLinkFlag {
 		os.Exit(terminalLinkCommand(os.Args[2:]))
 	}
+	// The attach bar's "needs you" note (native_status.go).
+	if len(os.Args) > 1 && os.Args[1] == attachStatusFlag {
+		os.Exit(attachStatusCommand(os.Args[2:]))
+	}
 	// A new pane in a native attachment (native_split.go).
 	if len(os.Args) > 1 && os.Args[1] == terminalSplitFlag {
 		os.Exit(terminalSplitCommand(os.Args[2:]))

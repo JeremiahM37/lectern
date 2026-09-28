@@ -1005,6 +1005,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.review, m.reviewPaused = m.reviewPaused, nil
 			return m, tea.Batch(m.loadReview(""), m.refresh())
 		}
+		if v.label == decideLabel {
+			if m.popup {
+				// Answered from Ctrl+] m while attached: go straight back to
+				// the agent that asked.
+				return m, tea.Quit
+			}
+			return m, tea.Batch(m.refresh(), m.pollApprovals())
+		}
 		return m, tea.Batch(m.refresh(), m.references(), m.pollApprovals())
 	case loadedFormMsg:
 		m.busy = false

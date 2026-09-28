@@ -566,3 +566,26 @@ func TestReviewCommitOnMainOffersANewBranch(t *testing.T) {
 		t.Fatalf("main commit sent %v, review=%v", rec.bodies, m.review != nil)
 	}
 }
+
+// Answering from the attached terminal's Ctrl+] m popup returns to the
+// agent at once.
+func TestPopupClosesAfterAnApprovalDecision(t *testing.T) {
+	srv, _ := recordingServer(t, 200, `{}`)
+	m := controlsDashboard(DashboardOptions{Popup: true})
+	m.client = New(srv.URL, "")
+	m.rows = []row{runningSessionRow(2, "Asking")}
+	m.filter()
+	m.approvals = []row{pendingApproval(2)}
+	m.openMenu()
+	list := m.contextActions()
+	if list[0].Label != "Allow once" || list[2].Label != "Deny" {
+		t.Fatalf("popup menu does not lead with the answers: %+v", list)
+	}
+	_, cmd := m.Update(key("y"))
+	if cmd == nil {
+		t.Fatal("y did not allow")
+	}
+	if _, next := m.Update(cmd()); !quitFrom(next) {
+		t.Fatal("the popup stayed open after allowing")
+	}
+}
