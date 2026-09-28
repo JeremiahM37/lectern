@@ -45,33 +45,45 @@ func upCommand(cfg *config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Starting Lectern…")
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
+	if _, running := localruntime.Peek(ctx); running {
+		fmt.Println("Lectern is already running; checking for anything new…")
+	} else {
+		fmt.Println("Starting Lectern…")
+	}
 	ep, err := localruntime.Ensure(ctx, binary, cfg)
 	if err != nil {
-		return fmt.Errorf("start local runtime: %w", err)
+		return fmt.Errorf("start Lectern: %w", err)
+	}
+	if note := localruntime.OutdatedNote(ep.Build); note != "" {
+		fmt.Println("Note: " + note)
+	}
+	// A runtime started earlier keeps the PATH it started with; hand it this
+	// shell's, so an agent installed since then is found now.
+	if _, err := localruntime.SharePath(ctx, ep); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not update Lectern's PATH: %v\n", err)
 	}
 	c := console.New(ep.URL, ep.Token)
 
 	status, err := fetchOnboarding(c)
 	if err != nil {
 		// Not fatal: the runtime is up and the board is reachable either way.
-		fmt.Fprintf(os.Stderr, "warning: could not read onboarding status: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: could not check agents and tools: %v\n", err)
 	} else {
 		printOnboardingSummary(status)
 	}
 
 	if cwd, err := os.Getwd(); err == nil {
 		if name, repoPath, ok := currentGitProject(cwd); ok {
-			id, created, err := ensureLocalProject(c, name, repoPath)
+			_, created, err := ensureLocalProject(c, name, repoPath)
 			switch {
 			case err != nil:
-				fmt.Fprintf(os.Stderr, "warning: could not register %s as a project: %v\n", repoPath, err)
+				fmt.Fprintf(os.Stderr, "warning: could not add %s as a project: %v\n", repoPath, err)
 			case created:
-				fmt.Printf("Registered %q (%s) as a project (id %d).\n", name, repoPath, id)
+				fmt.Printf("Project: added %q (%s).\n", name, repoPath)
 			default:
-				fmt.Printf("%q is already a registered project (id %d).\n", repoPath, id)
+				fmt.Printf("Project: %q is already added.\n", name)
 			}
 		}
 	}
@@ -85,17 +97,27 @@ func upCommand(cfg *config.Config, args []string) error {
 	}
 
 	// The runtime only answers a signed-in browser (localruntime/gate.go);
-	// this one-time link signs this browser in.
-	link, err := localruntime.BrowserURL(ctx, ep, "/")
+	// this one-time link signs this browser in and lands on "Start an agent".
+	link, err := localruntime.BrowserURL(ctx, ep, "/#sessions/new")
 	if err != nil {
 		return err
 	}
+	opened := false
 	if !noBrowser {
 		if err := openBrowser(link); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not open a browser automatically (%v).\n", err)
+			fmt.Fprintf(os.Stderr, "Could not open a browser (%v).\n", err)
+		} else {
+			opened = true
 		}
 	}
-	fmt.Printf("\nLectern is running at %s\nSign this browser in with: %s\n", ep.URL, link)
+	fmt.Printf("\nLectern is running at %s\n", ep.URL)
+	if opened {
+		fmt.Println("Your browser is opening on \"Start an agent\".")
+		fmt.Printf("If it didn't, open this link (it works once, for 10 minutes):\n  %s\n", link)
+	} else {
+		fmt.Printf("Open this link to sign in and start an agent (it works once, for 10 minutes):\n  %s\n", link)
+	}
+	fmt.Println("Or stay in the terminal: cd into a project and run lectern claude.")
 	return nil
 }
 
@@ -104,6 +126,7 @@ type onboardingStatus struct {
 	Tmux     onboard.EnvCheck     `json:"tmux"`
 	Python   onboard.EnvCheck     `json:"python"`
 	Git      onboard.EnvCheck     `json:"git"`
+	TTYD     *onboard.EnvCheck    `json:"ttyd"` // nil from a runtime older than this check
 	Projects int                  `json:"projects"`
 	Sessions int                  `json:"sessions"`
 }
@@ -133,20 +156,23 @@ func printOnboardingSummary(s *onboardingStatus) {
 			missing = append(missing, a.Name)
 		}
 	}
-	if len(found) > 0 {
-		fmt.Printf("Detected agent CLIs: %s\n", strings.Join(found, ", "))
+	switch {
+	case len(found) == 0:
+		fmt.Println("Agents: none found. Install one, for example Claude Code:")
+		fmt.Println("  npm install -g @anthropic-ai/claude-code")
+		fmt.Println("then run lectern up again (no restart needed).")
+	case len(missing) > 0:
+		fmt.Printf("Agents: %s (not installed: %s — optional)\n", strings.Join(found, ", "), strings.Join(missing, ", "))
+	default:
+		fmt.Printf("Agents: %s\n", strings.Join(found, ", "))
 	}
-	if len(missing) > 0 {
-		fmt.Printf("Not on PATH (install and re-run `lectern up` to pick them up): %s\n", strings.Join(missing, ", "))
+	for _, c := range []onboard.EnvCheck{s.Tmux, s.Git, s.Python} {
+		if !c.OK && c.Name != "" {
+			fmt.Printf("Missing %s (needed): %s\n", c.Name, c.Fix)
+		}
 	}
-	if !s.Tmux.OK {
-		fmt.Printf("tmux: %s — %s\n", s.Tmux.Detail, s.Tmux.Fix)
-	}
-	if !s.Python.OK {
-		fmt.Printf("python3: %s — %s\n", s.Python.Detail, s.Python.Fix)
-	}
-	if !s.Git.OK {
-		fmt.Printf("git: %s — %s\n", s.Git.Detail, s.Git.Fix)
+	if s.TTYD != nil && !s.TTYD.OK {
+		fmt.Printf("Terminal viewer (ttyd) is not installed, so the web page can't show live terminals.\n  Install it: %s\n", s.TTYD.Fix)
 	}
 }
 

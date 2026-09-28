@@ -106,6 +106,9 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 	if command == "mcp" {
 		return mcp.New(ep.URL, ep.Token).Serve(os.Stdin, os.Stdout)
 	}
+	// The runtime keeps the PATH it started with; an agent installed since
+	// then would otherwise be "not found" until someone restarts it.
+	_, _ = localruntime.SharePath(ctx, ep)
 	// A running runtime is reused whatever its build; say so when it is
 	// older than this CLI rather than stopping it under its sessions.
 	if note := localruntime.OutdatedNote(ep.Build); note != "" && stderrIsTerminal() {

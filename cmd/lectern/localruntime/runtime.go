@@ -467,6 +467,7 @@ func localHandler(next http.Handler, g *gate, instance string, stop func() error
 	token := g.token
 	mux := http.NewServeMux()
 	mux.HandleFunc(loginCodeRoute, g.mintHandler)
+	mux.HandleFunc(pathRoute, pathHandler(token))
 	mux.HandleFunc(identityRoute, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -587,6 +588,11 @@ func Stop(ctx context.Context) error {
 		return fmt.Errorf("refusing to stop an unverified local endpoint: %w", err)
 	}
 	if _, ok := healthyEndpoint(ctx, dir); !ok {
+		// An endpoint left behind by a runtime that already stopped: nothing
+		// holds the lock, so there is nothing to stop.
+		if free, err := localLockFree(dir); err == nil && free {
+			return nil
+		}
 		return errors.New("refusing to stop an unverified local endpoint: identity check failed")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL+engineRoute, nil)

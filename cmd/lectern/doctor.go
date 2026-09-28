@@ -23,12 +23,14 @@ import (
 
 // doctorCheck is one line of the report. Skip means "not applicable /
 // not evaluable right now" rather than pass or fail — e.g. TLS when the
-// resolved auth mode doesn't call for it, or the live checks when nothing is
-// running yet.
+// resolved auth mode doesn't call for it, or an optional agent that isn't
+// installed. Warn is a problem worth fixing that does not stop Lectern
+// working: it prints its fix but never fails the report.
 type doctorCheck struct {
 	Name   string
 	OK     bool
 	Skip   bool
+	Warn   bool
 	Detail string
 	Fix    string
 }
@@ -41,17 +43,26 @@ func skip(name, detail string) doctorCheck {
 	return doctorCheck{Name: name, Skip: true, Detail: detail}
 }
 
+// warn is check for something optional: OK when ok, else a warning.
+func warn(name string, ok bool, detail, fix string) doctorCheck {
+	return doctorCheck{Name: name, OK: ok, Warn: !ok, Detail: detail, Fix: fix}
+}
+
 // renderDoctorReport formats checks and reports whether every evaluated
-// (non-skipped) check passed. Pure and deterministic so it can be unit
-// tested without touching tmux, git, or the network.
+// (non-skipped, non-warning) check passed. Pure and deterministic so it can
+// be unit tested without touching tmux, git, or the network.
 func renderDoctorReport(checks []doctorCheck) (string, bool) {
 	var b strings.Builder
 	allOK := true
 	for _, c := range checks {
 		mark := "OK"
-		if c.Skip {
+		switch {
+		case c.Skip:
 			mark = "--"
-		} else if !c.OK {
+		case c.OK:
+		case c.Warn:
+			mark = "WARN"
+		default:
 			mark = "FAIL"
 			allOK = false
 		}
@@ -64,7 +75,66 @@ func renderDoctorReport(checks []doctorCheck) (string, bool) {
 			fmt.Fprintf(&b, "       fix: %s\n", c.Fix)
 		}
 	}
+	if allOK {
+		b.WriteString("\nLectern can run agents here.")
+		if hasWarnings(checks) {
+			b.WriteString(" The WARN lines above are optional.")
+		}
+		b.WriteByte('\n')
+	} else {
+		b.WriteString("\nFix the FAIL lines above, then run lectern doctor again.\n")
+	}
 	return b.String(), allOK
+}
+
+func hasWarnings(checks []doctorCheck) bool {
+	for _, c := range checks {
+		if c.Warn && !c.OK {
+			return true
+		}
+	}
+	return false
+}
+
+// agentChecks: every builtin agent that is installed is OK and one that is
+// not is optional; only having none at all fails, since then nothing can
+// run. Credentials are only looked for beside an installed agent, and are a
+// warning: a CLI can sign in other ways (the macOS keychain, an API key).
+func agentChecks(cfg *config.Config, agents []onboard.AgentCheck, stat func(string) error) []doctorCheck {
+	var out []doctorCheck
+	found := 0
+	for _, a := range agents {
+		if a.Found {
+			found++
+			out = append(out, check("agent: "+a.Name, true, a.Path, ""))
+			continue
+		}
+		out = append(out, skip("agent: "+a.Name, "not installed (optional)"))
+	}
+	if found == 0 {
+		out = append(out, check("an agent to run", false, "no agent CLI found on PATH",
+			"install one, for example Claude Code: npm install -g @anthropic-ai/claude-code (then run `claude` once to sign in), and run lectern up again"))
+	}
+	creds := map[string][2]string{
+		"claude": {cfg.ClaudeCredsPath, "run `claude` once and sign in, or set LECTERN_ANTHROPIC_API_KEY"},
+		"codex":  {cfg.CodexCredsPath, "run `codex` once and sign in"},
+	}
+	for _, a := range agents {
+		c, ok := creds[a.Name]
+		if !a.Found || !ok {
+			continue
+		}
+		if a.Name == "claude" && (cfg.AnthropicAPIKey != "" || os.Getenv("ANTHROPIC_API_KEY") != "") {
+			out = append(out, check("claude sign-in", true, "API key set", ""))
+			continue
+		}
+		if err := stat(c[0]); err == nil {
+			out = append(out, check(a.Name+" sign-in", true, c[0], ""))
+		} else {
+			out = append(out, warn(a.Name+" sign-in", false, "no saved sign-in at "+c[0]+" (fine if it signs in another way)", c[1]))
+		}
+	}
+	return out
 }
 
 func agentInstallHint(name string) string {
@@ -78,13 +148,6 @@ func agentInstallHint(name string) string {
 	default:
 		return fmt.Sprintf("install %s and make sure it's on PATH, or configure a custom agent (see docs/agents.md) pointing at wherever it lives", name)
 	}
-}
-
-func agentCredHint(path string) (ok bool, detail string) {
-	if _, err := os.Stat(path); err == nil {
-		return true, path
-	}
-	return false, "no credentials at " + path
 }
 
 func doctorCommand(cfg *config.Config, args []string) error {
@@ -104,17 +167,10 @@ func doctorCommand(cfg *config.Config, args []string) error {
 	git := onboard.CheckGit()
 	checks = append(checks, check("git", git.OK, git.Detail, git.Fix))
 
-	for _, a := range onboard.DetectAgents(cfg.ClaudeBin, cfg.CodexBin, cfg.GeminiBin) {
-		detail := a.Path
-		if !a.Found {
-			detail = "not found on PATH"
-		}
-		checks = append(checks, check("agent: "+a.Name, a.Found, detail, agentInstallHint(a.Name)))
-	}
-	claudeCredsOK, claudeCredsDetail := agentCredHint(cfg.ClaudeCredsPath)
-	checks = append(checks, check("claude credentials", claudeCredsOK, claudeCredsDetail, "run `claude` once and sign in, or set LECTERN_ANTHROPIC_API_KEY"))
-	codexCredsOK, codexCredsDetail := agentCredHint(cfg.CodexCredsPath)
-	checks = append(checks, check("codex credentials", codexCredsOK, codexCredsDetail, "run `codex` once and sign in"))
+	agents := onboard.DetectAgents(cfg.ClaudeBin, cfg.CodexBin, cfg.GeminiBin)
+	checks = append(checks, agentChecks(cfg, agents, func(p string) error { _, err := os.Stat(p); return err })...)
+	ttyd := onboard.CheckTTYD()
+	checks = append(checks, warn("terminal viewer (ttyd)", ttyd.OK, ttyd.Detail, ttyd.Fix))
 
 	// The Browser pane and the agent browser tools need a Chromium-family
 	// browser on the machine they run on; everything else works without one.
@@ -137,18 +193,24 @@ func doctorCommand(cfg *config.Config, args []string) error {
 		Socket: cfg.TailscaleSocket, AllowedUsersCSV: cfg.TailscaleUsers,
 		AllowedTagsCSV: cfg.TailscaleTags, TrustServeHeaders: cfg.TrustServeHeaders,
 	}, log)
-	checks = append(checks, check("auth mode", true, string(resolver.Mode)+" (LECTERN_AUTH="+envOrAuto(cfg.Auth)+")", ""))
+	checks = append(checks, check("sign-in for lectern serve", true, string(resolver.Mode)+" (LECTERN_AUTH="+envOrAuto(cfg.Auth)+"); your private Lectern always uses its own", ""))
 
-	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	// Only `lectern serve` (a Lectern service) uses this port; `lectern up`
+	// picks a free one of its own.
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.Port))
+	serving := false
 	if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
 		_ = conn.Close()
-		checks = append(checks, check("port "+strconv.Itoa(cfg.Port), true, "something is already listening on "+addr, ""))
+		serving = true
+		checks = append(checks, check("port "+strconv.Itoa(cfg.Port), true, "a server is listening (see \"server\" below)", ""))
 	} else {
-		checks = append(checks, skip("port "+strconv.Itoa(cfg.Port), "nothing listening yet — `lectern serve` or `lectern up` will bind it"))
+		checks = append(checks, skip("port "+strconv.Itoa(cfg.Port), "free — only `lectern serve` uses it; `lectern up` picks its own port"))
 	}
 
-	if resolver.Mode == auth.ModeTailscale && cfg.TLSPort <= 0 {
-		checks = append(checks, check("TLS", false, "auth mode is tailscale but LECTERN_TLS_PORT is not set", "set LECTERN_TLS_PORT=8443 for a secure context (needed for push notifications and PWA install)"))
+	if !serving {
+		checks = append(checks, skip("TLS", "only for lectern serve, which is not running"))
+	} else if resolver.Mode == auth.ModeTailscale && cfg.TLSPort <= 0 {
+		checks = append(checks, warn("TLS", false, "auth mode is tailscale but LECTERN_TLS_PORT is not set", "set LECTERN_TLS_PORT=8443 for a secure context (needed for push notifications and PWA install)"))
 	} else if resolver.Mode == auth.ModeTailscale {
 		checks = append(checks, check("TLS", true, fmt.Sprintf("configured on port %d", cfg.TLSPort), ""))
 	} else {
@@ -165,16 +227,17 @@ func doctorCommand(cfg *config.Config, args []string) error {
 	checks = append(checks, serverChecks(explicit, choice, localStatus(ctx))...)
 	base, token := liveEndpoint(ctx, cfg, choice)
 	if base == "" {
-		checks = append(checks, skip("push keys", "no running instance found — `lectern up` provisions them on first start"))
-		checks = append(checks, skip("hook reachability", "no running instance found — start one with `lectern up` or `lectern serve`"))
+		checks = append(checks, skip("phone alerts (push keys)", "nothing running yet — `lectern up` provisions them on first start"))
+		checks = append(checks, skip("agent hooks", "nothing running yet — start it with `lectern up`, then run doctor again"))
 	} else {
 		c := console.New(base, token)
-		if _, err := c.JSON("GET", "/push/vapid-key", nil); err != nil {
-			checks = append(checks, check("push keys", false, err.Error(), "push keys are generated automatically the first time Lectern starts with a database; restart it if this persists"))
+		if _, err := c.JSON("GET", "/push/vapid", nil); err != nil {
+			checks = append(checks, warn("phone alerts (push keys)", false, err.Error(), "push keys are generated automatically the first time Lectern starts with a database; restart it if this persists"))
 		} else {
-			checks = append(checks, check("push keys", true, "configured", ""))
+			checks = append(checks, check("phone alerts (push keys)", true, "configured", ""))
 		}
 		checks = append(checks, hookRoundTrip(c))
+		checks = append(checks, serverSeesAgents(c, agents)...)
 	}
 
 	report, ok := renderDoctorReport(checks)
@@ -207,6 +270,36 @@ func hookRoundTrip(c *console.Client) doctorCheck {
 	}
 	return check(name, got.OK, got.Detail,
 		"agents cannot report status or ask for approval; unset LECTERN_HOOK_BASE if you set it, or set it to an address that reaches this server, then restart it (`lectern local stop`)")
+}
+
+// serverSeesAgents catches a server started before an agent was installed:
+// it looks agents up on its own PATH, so it cannot start one it cannot see.
+func serverSeesAgents(c *console.Client, local []onboard.AgentCheck) []doctorCheck {
+	data, err := c.JSON("GET", "/onboarding", nil)
+	if err != nil {
+		return nil
+	}
+	var remote struct {
+		Agents []onboard.AgentCheck `json:"agents"`
+	}
+	if json.Unmarshal(data, &remote) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, a := range remote.Agents {
+		seen[a.Name] = a.Found
+	}
+	var missing []string
+	for _, a := range local {
+		if a.Found && a.Builtin && !seen[a.Name] {
+			missing = append(missing, a.Name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return []doctorCheck{warn("server's agents", false, "the running Lectern cannot see "+strings.Join(missing, ", ")+" (it started before they were installed, or with another PATH)",
+		"run lectern up: it hands your PATH to your private Lectern")}
 }
 
 func envOrAuto(mode string) string {

@@ -745,7 +745,7 @@ func (s *Server) projectTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	_, retired, err := s.Terminals.AttachWithNotice(r.Context(), att, target)
 	if err != nil {
-		httpError(w, 503, "%s", err.Error())
+		terminalError(w, err)
 		return
 	}
 	writeJSON(w, 200, withRetiredNotice(map[string]any{"url": fmt.Sprintf("/term/project/%d/", id), "tmux_session": att.TmuxSession}, retired))

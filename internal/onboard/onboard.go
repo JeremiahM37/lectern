@@ -116,3 +116,45 @@ func envEmpty(key string) bool {
 func CheckPython() EnvCheck {
 	return checkBinary("python3", "python3", "install Python 3 — session and terminal helpers need it")
 }
+
+// CheckTTYD reports whether ttyd is on PATH. It is optional: the web page
+// needs it to show a live terminal (Attach), and nothing else does.
+func CheckTTYD() EnvCheck {
+	check := checkBinary("ttyd", "ttyd", InstallCommand("ttyd"))
+	if !check.OK {
+		check.Detail = "not installed — the web page cannot show a live terminal (Attach) without it"
+	}
+	return check
+}
+
+// InstallCommand is the command that installs pkg with this machine's
+// package manager, the same choices install.sh makes.
+func InstallCommand(pkg string) string {
+	have := func(bin string) bool { _, err := exec.LookPath(bin); return err == nil }
+	switch runtime.GOOS {
+	case "darwin":
+		if have("brew") {
+			return "brew install " + pkg
+		}
+		return "install Homebrew (https://brew.sh), then run: brew install " + pkg
+	case "linux":
+		switch {
+		case have("apt-get"):
+			return "sudo apt-get install -y " + pkg
+		case have("dnf"):
+			return "sudo dnf install -y " + pkg
+		case have("pacman"):
+			return "sudo pacman -S --noconfirm " + pkg
+		case have("zypper"):
+			return "sudo zypper install -y " + pkg
+		case have("apk"):
+			return "sudo apk add " + pkg
+		case have("brew"):
+			return "brew install " + pkg
+		}
+	}
+	if pkg == "ttyd" {
+		return "install ttyd (https://github.com/tsl0922/ttyd#installation)"
+	}
+	return "install " + pkg + " with your package manager"
+}

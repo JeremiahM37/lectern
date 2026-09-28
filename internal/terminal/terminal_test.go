@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -311,8 +312,9 @@ func TestAttachFailsClearlyWithoutTTYD(t *testing.T) {
 	m, _ := fakeManager(t)
 	m.LookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	_, err := m.Attach(context.Background(), Attachment{Key: "attempt:1"}, target("local"))
-	if err == nil || !strings.Contains(err.Error(), "ttyd is not installed") {
-		t.Errorf("expected a clear missing-ttyd error, got %v", err)
+	var missing MissingViewer
+	if !errors.As(err, &missing) || missing.Fix == "" || !strings.Contains(err.Error(), "Terminal viewer isn't installed — run: "+missing.Fix) {
+		t.Errorf("expected a missing-viewer error naming the install command, got %v", err)
 	}
 }
 

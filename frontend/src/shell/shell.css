@@ -21,7 +21,8 @@
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: transparent;
-  color: var(--accent);
+  /* The text token, kept readable on every surface (theme/app-theme.ts). */
+  color: var(--accent-soft);
   font-weight: 600;
   cursor: pointer;
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -91,5 +92,16 @@ func TestEngineConfigPointsHooksAtItsOwnPort(t *testing.T) {
 	base.HookBase = "http://100.64.0.9:7000"
 	if cfg := engineConfig(base, t.TempDir(), 41429, "token"); cfg.HookBase != "http://100.64.0.9:7000" {
 		t.Fatalf("explicit hook base replaced: %q", cfg.HookBase)
+	}
+}
+
+func TestMergePathOnlyAdds(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	got, changed := mergePath("/usr/bin"+sep+"/bin", "/home/u/.local/bin"+sep+"/usr/bin"+sep+"relative"+sep)
+	if !changed || got != "/usr/bin"+sep+"/bin"+sep+"/home/u/.local/bin" {
+		t.Fatalf("merge = %q changed=%v", got, changed)
+	}
+	if _, changed := mergePath(got, "/bin"); changed {
+		t.Fatal("a thinner PATH changed the runtime's")
 	}
 }

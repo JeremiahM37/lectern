@@ -731,7 +731,7 @@ func (s *Server) attachSession(w http.ResponseWriter, r *http.Request) {
 		TmuxSession: row.TmuxSession,
 	}, target)
 	if err != nil {
-		httpError(w, 503, "%s", err.Error())
+		terminalError(w, err)
 		return
 	}
 	// url is what the UI opens: same-origin, so it works through nginx, over the

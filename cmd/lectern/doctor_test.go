@@ -2,9 +2,11 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 )
 
 func TestRenderDoctorReportAllOK(t *testing.T) {
@@ -63,18 +65,33 @@ func TestAgentInstallHintNamesKnownAgents(t *testing.T) {
 	}
 }
 
-func TestAgentCredHint(t *testing.T) {
-	dir := t.TempDir()
-	present := filepath.Join(dir, "creds.json")
-	if err := os.WriteFile(present, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
+func TestDoctorPassesAWorkingSetupWithOptionalThingsMissing(t *testing.T) {
+	cfg := &config.Config{ClaudeCredsPath: "/c/creds.json", CodexCredsPath: "/x/auth.json"}
+	agents := []onboard.AgentCheck{
+		{Name: "claude", Found: true, Path: "/bin/claude", Builtin: true},
+		{Name: "codex", Builtin: true}, {Name: "gemini", Builtin: true}, {Name: "aider"},
 	}
-	if ok, detail := agentCredHint(present); !ok || detail != present {
-		t.Errorf("existing creds file should report ok=true detail=path: ok=%v detail=%q", ok, detail)
+	missing := func(string) error { return os.ErrNotExist }
+	checks := append(agentChecks(cfg, agents, missing), warn("terminal viewer (ttyd)", false, "not installed", "brew install ttyd"))
+	report, ok := renderDoctorReport(checks)
+	if !ok {
+		t.Fatalf("one installed agent with optional extras missing must pass:\n%s", report)
 	}
-	missing := filepath.Join(dir, "nope.json")
-	if ok, detail := agentCredHint(missing); ok || !strings.Contains(detail, missing) {
-		t.Errorf("missing creds file should report ok=false with the path in detail: ok=%v detail=%q", ok, detail)
+	for _, want := range []string{"[--] agent: codex — not installed (optional)", "[WARN] claude sign-in", "fix: brew install ttyd", "Lectern can run agents here."} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "codex sign-in") {
+		t.Errorf("sign-in checked for an agent that is not installed:\n%s", report)
+	}
+	// No agent at all is the one thing that fails.
+	for i := range agents {
+		agents[i].Found = false
+	}
+	report, ok = renderDoctorReport(agentChecks(cfg, agents, missing))
+	if ok || !strings.Contains(report, "[FAIL] an agent to run") {
+		t.Fatalf("no agents must fail:\n%s", report)
 	}
 }
 

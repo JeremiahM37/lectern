@@ -813,7 +813,7 @@ func (s *Server) attachTerminal(w http.ResponseWriter, r *http.Request) {
 		SandboxWrap: s.sandboxAttach(att, target),
 	}, target)
 	if err != nil {
-		httpError(w, 503, "%s", err.Error())
+		terminalError(w, err)
 		return
 	}
 	writeJSON(w, 200, withRetiredNotice(map[string]any{"url": fmt.Sprintf("/term/attempt/%d/", att.ID)}, retired))
