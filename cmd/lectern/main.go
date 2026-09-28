@@ -94,6 +94,14 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == terminalSplitFlag {
 		os.Exit(terminalSplitCommand(os.Args[2:]))
 	}
+	// The PTY host and its tmux-language client (docs/ptyhost.md). Like the
+	// helpers below they run on agent machines, before any configuration.
+	if len(os.Args) > 1 && os.Args[1] == "pty" {
+		os.Exit(ptyCommand(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "ptyhost" {
+		os.Exit(ptyhostCommand(os.Args[2:]))
+	}
 	// A target-side helper (internal/helpers): runs on an agent machine,
 	// before any configuration is read, and prints only what it was asked.
 	if len(os.Args) > 1 && os.Args[1] == "helper" {

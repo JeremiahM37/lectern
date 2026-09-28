@@ -3,6 +3,8 @@ package backend
 import (
 	"strings"
 	"testing"
+
+	"github.com/JeremiahM37/lectern/v2/internal/ptyhost"
 )
 
 // The tmux backend must build exactly the command lines Lectern built before
@@ -54,5 +56,11 @@ func TestTmuxAttachArgv(t *testing.T) {
 	web := Tmux.AttachArgv("lec-7", true)
 	if web[0] != "sh" || !strings.Contains(web[2], "extended-keys") || !strings.Contains(web[2], "-T extkeys,hyperlinks") {
 		t.Fatalf("web attach = %q", web)
+	}
+}
+
+func TestPtyHostSharesThePollFraming(t *testing.T) {
+	if ptyhost.PollEnd != PollEnd {
+		t.Fatalf("ptyhost.PollEnd %q != %q", ptyhost.PollEnd, PollEnd)
 	}
 }
