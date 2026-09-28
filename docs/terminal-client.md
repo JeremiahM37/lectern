@@ -275,6 +275,28 @@ agent's own tmux still splits that tmux as it always has. A split with an
 explicit command of its own runs that command here. If the server cannot be
 reached, the pane says why and waits for Enter.
 
+### Copying to your clipboard
+
+Copies reach the clipboard of the terminal you are sitting at, over SSH too,
+through OSC 52:
+
+- **An agent's copy.** Claude Code copies inside tmux with
+  `tmux load-buffer -w`; the session's tmux sends it on to the attached
+  client as OSC 52 (with tmux's default `set-clipboard external`), and this
+  attachment's private server passes it through to your terminal
+  (`set-clipboard on` there).
+- **A selection here.** Dragging to select in copy mode (where the agent does
+  not use the mouse itself) copies to the clipboard the same way.
+
+The terminal must accept OSC 52 writes. kitty, WezTerm, Ghostty, foot and
+iTerm2 do by default; xterm needs `allowWindowOps`. The private server
+declares the clipboard feature for every terminal, and a terminal that cannot
+take OSC 52 ignores it. Because the private server passes OSC 52 on, a program
+in the attachment can set your clipboard, the same as it could in your
+terminal without tmux. Your own tmux configuration is not touched; if your
+tmux on the session's machine has `set-clipboard off`, agents' copies stop
+there.
+
 ### Paths and links the agent prints
 
 Double-click a path or web address in an attached terminal and it opens **on
