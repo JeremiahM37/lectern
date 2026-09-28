@@ -90,8 +90,9 @@ def test_console_restores_original_session_without_starting_a_process(real_termi
     t=real_terminal;request(t,'DELETE',f"/sessions/{t['id']}")
     d=Dashboard(t)
     try:
-        d.wait('No matching items');d.send('z');d.wait('Real terminal')
-        d.send('\r');d.wait('Track again');d.send('\r');d.wait('Track again completed')
+        d.wait('No live sessions');d.send('z');d.wait('Real terminal')
+        # Enter on an ended row says what brings it back; r does it.
+        d.send('\r');d.wait('r tracks it again');d.send('r');d.wait('Track again completed')
         assert t['api'](f"/sessions/{t['id']}")['ended_at'] is None
         d.quit()
         subprocess.run(['tmux','has-session','-t','=terminal-test'],env=t['env'],check=True)

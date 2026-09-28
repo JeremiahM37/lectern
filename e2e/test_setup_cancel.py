@@ -5,30 +5,14 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from test_background_setup_ui import hold_second_checkout
 from test_session_restore import request
 
 
-def choose_action(dashboard, label, timeout=12):
-    """Select a named action from the rendered menu, independent of its index."""
-    dashboard.send('m')
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        dashboard.pump()
-        lines = dashboard.text.splitlines()
-        try:
-            start = next(i for i, line in enumerate(lines)
-                         if line.strip().startswith('Actions ·'))
-            end = next(i for i in range(start + 1, len(lines))
-                       if lines[i].strip().startswith(('Enter attach ·', 'Click attach ·', 'Click/Enter attach ·', 'n new session ·')))
-        except StopIteration:
-            continue
-        actions = [line.strip() for line in lines[start + 1:end] if line.strip()]
-        if label in actions:
-            dashboard.send('j' * actions.index(label) + '\r')
-            return
-    raise AssertionError(f'Menu action {label!r} was not selected:\n{dashboard.text}')
+def choose_action(dashboard, label):
+    """Run a named action from the : palette."""
+    run_command(dashboard, label)
 
 
 def prepare(t):

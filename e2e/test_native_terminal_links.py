@@ -71,7 +71,7 @@ def test_native_double_and_right_click_open_on_the_operators_machine(remote_term
     screen = FIXTURES / 'codex-markdown-link.bin'
     d = Dashboard(t, args=('attach', 'session', str(t['id'])))
     try:
-        d.wait('Double-click')
+        d.wait('double-click')
         # The agent's output also carries what a double-click would send.
         d.send(f"clear; cat {screen}; printf '{fake}{fake}'; echo\r")
         d.wait('Jeremiah_Mackey_Cerebras.pdf)')

@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_interactive_worktree import setup
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from conftest import _binary
 from test_ui import _tab
 
@@ -94,12 +94,11 @@ def test_terminal_extension_form_and_progress(real_terminal):
     t = real_terminal; row, extra = group(t)
     d = Dashboard(t)
     try:
-        d.wait(row['name']); d.send('/'+row['name']+'\r'); d.send('m'); d.wait('Add repository')
-        # Thirteen standard session actions precede grouped workspace actions.
-        d.send('j'*13+'\r'); d.wait('Add repository (runs project setup)')
+        d.wait(row['name']); d.send('/'+row['name']+'\r')
+        run_command(d, 'Add repository'); d.wait('Add repository (runs project setup)')
         d.wait('Additional tools'); d.send('\x13')
         d.wait('Repository addition started')
-        d.send('r'); d.wait('ADDED_REPO_READY')
+        d.send('\x12'); d.wait('ADDED_REPO_READY')
         same_terminal(t,row); d.quit()
     finally: d.close()
 

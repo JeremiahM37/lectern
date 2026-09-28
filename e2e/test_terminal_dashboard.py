@@ -39,7 +39,9 @@ class Dashboard:
             # cannot accidentally open a separate local database.
             command=["tmux","new-session","-s","dashboard-outer","env",
                      f"LECTERN_API={t['url']}",*command]
-        self.proc=subprocess.Popen(command,stdin=self.slave,stdout=self.slave,stderr=self.slave,
+        # Started in the fixture's workspace, like a person running `lectern`
+        # in their project: New session offers this folder.
+        self.proc=subprocess.Popen(command,stdin=self.slave,stdout=self.slave,stderr=self.slave,cwd=str(t['root']) if 'root' in t else None,
           env={**t['env'],**({'XDG_CONFIG_HOME':str(t['root'].parent/'.console-config')} if 'root' in t else {}),'LECTERN_API':t['url'],'TERM':'xterm-256color','LECTERN_ATTACH_HOST':''},
           preexec_fn=controlling_terminal)
     def pump(self,duration=.1):
@@ -82,6 +84,37 @@ class Dashboard:
         os.close(self.master);os.close(self.slave)
 
 
+def run_command(d, label, query=None):
+    """Run a command from the : palette by name, checking that the
+    highlighted row is the one asked for before pressing Enter."""
+    d.send(':'+(query or label.lower()));d.wait(label)
+    for _ in range(12):
+        current=[line for line in d.text.splitlines() if '›' in line]
+        if current and label in current[0]:
+            d.send('\r');return
+        d.send('\x1b[B')
+    raise AssertionError(f'{label!r} was never highlighted:\n{d.text}')
+
+
+def new_session(d, where=None, name=None, profile_right=0, folder=None, isolated=False, multi=False, submit=True):
+    """Fill the one-screen New session form (docs/design/simple-tui.md):
+    Where, Agent, Approvals, First message, then More options: name,
+    profile, model, folder, machine, worktree, extra repositories."""
+    d.send('n');d.wait('New session')
+    if where:
+        d.send(where);d.wait('1 matches');d.send('\r')
+    else:
+        d.send('\t')
+    d.wait('Agent')
+    d.send('\t\t\t');d.send('\r');d.wait('Fewer options')
+    d.send('\t')
+    if name:d.send(name)
+    d.send('\t'+'\x1b[C'*profile_right+'\t\t')
+    if folder:d.send(folder)
+    d.send('\t\t'+('\x1b[C' if isolated else '')+'\t'+('\x1b[C' if multi else ''))
+    if submit:d.send('\x13')
+
+
 def test_dashboard_search_rename_live_refresh_and_resize(real_terminal):
     t=real_terminal;d=Dashboard(t)
     try:
@@ -111,9 +144,9 @@ def test_dashboard_details_are_readable_at_wide_and_narrow_widths_and_api_stays_
                                      'repo_path': str(t['root'])})
     d = Dashboard(t)
     try:
-        d.wait('Real terminal'); d.send('4'); d.wait('Readable fixture project')
+        d.wait('Real terminal'); d.send('3'); d.wait('Readable fixture project')
         for cols in (144, 80):
-            d.resize(cols, 30); d.send('/Readable fixture project\r'); d.send('\t'); d.wait('Repo Path')
+            d.resize(cols, 30); d.send('/Readable fixture project\r'); d.send('p'); d.wait('Repo Path')
             assert 'Repo Path' in d.text and 'repo_path' not in d.text
             assert 'Env Json' not in d.text
             assert '{' not in d.text and '"' not in d.text
@@ -157,7 +190,7 @@ def test_dashboard_creates_task_with_named_project_and_multiline_prompt(real_ter
     project=t['api']('/projects',{'name':'Dashboard project','target_id':t['target_id'],'repo_path':str(t['root'])})
     d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('2n');d.wait('New task')
+        d.wait('Real terminal');d.send('4n');d.wait('New task')
         d.send('Task from keyboard\t');d.wait('Dashboard project')
         d.send('\tFirst line\rSecond line')
         d.send('\t\t\t\t');d.wait('Dispatch now')
@@ -168,6 +201,15 @@ def test_dashboard_creates_task_with_named_project_and_multiline_prompt(real_ter
         assert task['status']=='backlog'
         d.quit()
     finally:d.close()
+
+
+def wait_session(t, match, timeout=15):
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        rows=[s for s in t['api']('/sessions') if match(s)]
+        if rows:return rows[0]
+        time.sleep(.2)
+    raise AssertionError('session was not created')
 
 
 def test_dashboard_project_picker_searches_many_projects_and_creates_selected(real_terminal):
@@ -187,19 +229,15 @@ def test_dashboard_project_picker_searches_many_projects_and_creates_selected(re
     d=Dashboard(t)
     try:
         d.wait('Real terminal');d.send('n');d.wait('New session')
-        d.send('Picker session\t\t')
-        d.wait('Project')
+        # Where is the first question and filters as you type.
         d.send('Picker project 099');d.wait('1 matches')
-        # Selecting a project derives both the target and directory. The
-        # next visible field is the agent; there is no stale target override
-        # to tab through.
-        d.send('\r');d.wait('Agent (without a profile)')
-        # Return to the project with Shift-Tab, then move forward again. The
-        # selected ID must survive the focus round trip before submit.
+        d.send('\r');d.wait('Agent')
+        # Return to Where with Shift-Tab, then move forward again. The
+        # selected project must survive the focus round trip before submit.
         d.send('\x1b[Z');d.wait('Selected: Picker project 099')
-        d.send('\t\t');d.send('\x13');d.wait('Create session completed')
-        row=next(s for s in t['api']('/sessions') if s['name']=='Picker session')
-        assert row['project_id']==chosen['id'],row
+        d.send('\t');d.send('\x13')
+        row=wait_session(t,lambda s:s['project_id']==chosen['id'])
+        assert row['name']=='Picker project 099',row
     finally:d.close()
 
 
@@ -216,22 +254,18 @@ def test_dashboard_project_selection_uses_project_target_and_keeps_blank_target_
     d=Dashboard(t)
     try:
         d.wait('Real terminal');d.send('n');d.wait('New session')
-        d.send('Project B session\t\t')
-        d.wait('Project')
         d.send('Project B location');d.wait('1 matches');d.send('\r')
-        # Enter skips the now-derived target and directory. Shift-Tab must
-        # return to the project, proving hidden fields are absent from focus.
-        d.wait('Agent (without a profile)');d.send('\x1b[Z');d.wait('Selected: Project B location')
-        d.send('\t\x13');d.wait('Create session completed')
-        row=next(s for s in t['api']('/sessions') if s['name']=='Project B session')
-        assert row['project_id']==project_b['id'],row
+        d.wait('Agent');d.send('\x1b[Z');d.wait('Selected: Project B location')
+        d.send('\t\x13')
+        row=wait_session(t,lambda s:s['project_id']==project_b['id'])
         assert row['target_id']==other['id'],row
         assert row['workdir']==str(t['root']),row
+        # The new session is attached, like `lectern claude`; Ctrl+] d leaves.
+        d.wait('Ctrl+] d leave');d.send('\x1dd');d.wait('Detached. Session keeps running.')
 
-        # The project-free path still exposes a target and directory in the
-        # same form; verify it can be cancelled after reaching that field.
-        d.send('n');d.wait('New session');d.send('Scratch session\t\t')
-        d.wait('Project');d.send('\r');d.wait('Target');d.send('\x1b');
+        # A scratch room still offers a machine, under More options.
+        d.send('n');d.wait('New session');d.send('scratch');d.wait('1 matches');d.send('\r')
+        d.send('\t\t\t\r');d.wait('Machine (for a folder or scratch)');d.send('\x1b')
         d.wait('Real terminal');d.quit()
     finally:d.close()
 
@@ -422,13 +456,13 @@ def test_actions_are_discoverable_and_searchable_in_real_terminal(real_terminal)
         d.wait('Real terminal')
         for width in (120, 80, 40):
             d.resize(width, 30)
-            d.wait('n new'); d.wait('m actions'); d.wait('f '); d.wait('F ')
+            d.wait('n new'); d.wait('q quit'); d.wait('? keys')
         d.resize(120, 35)
-        d.send('m/PAST conversation')
-        d.wait('Search past saved conversation text')
+        d.send(':past conversation')
+        d.wait('Search past conversation text')
         d.send('\r'); d.wait('Search saved conversations'); d.wait('Conversation text')
         d.send('\x1b'); d.pump(.3)
-        d.send('m/running agents'); d.wait('Find and track running agents')
+        d.send(':running agents'); d.wait('Find and track agents already running')
         d.send('\x1b'); d.pump(.3)
         d.send('\x1b'); d.pump(.3)
         d.quit()

@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal, terminal_tool
 from test_interactive_worktree import setup
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from session_sheet import open_advanced
 
 
@@ -117,15 +117,11 @@ def test_browser_creates_grouped_workspace(page,real_terminal,width):
 def test_terminal_creates_grouped_workspace(real_terminal):
     t=real_terminal;grouped(t);d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('/Real terminal\r');d.send('n');d.wait('New session')
-        d.send('Terminal grouped creation')
+        d.wait('Real terminal');d.send('/Real terminal\r')
         # The adopted terminal is intentionally unassigned. Search for the
         # primary project by name instead of depending on API/list ordering;
         # target and directory are supplied by the selected project.
-        d.send('\t\t');d.wait('Project')
-        d.send('Isolated project');d.wait('1 matches');d.send('\r')
-        d.wait('Agent (without a profile)')
-        d.send('\t'*3+'\x1b[C\t\x1b[C\x13')
+        new_session(d,where='Isolated project',name='Terminal grouped creation',isolated=True,multi=True)
         # Additional repository workflow immediately follows isolation.
         # The action defaults to the first available addition. Ctrl-s submits
         # that action directly; tab/right would wrap to “Back” when this

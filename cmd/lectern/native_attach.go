@@ -135,6 +135,11 @@ func runPrivateAttachment(tmuxPath string, argv []string, controls nativeControl
 		return err
 	}
 	err = plan.attach(tmuxPath)
+	if err == nil && replace && controls.Kind == "session" {
+		// tmux's own "[detached]" or "[exited]" line reads like a failure.
+		// Say plainly what happened and how to get back.
+		fmt.Fprintln(os.Stderr, "Left the session; it keeps running. `lectern` shows all your sessions.")
+	}
 	if err != nil && replace {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
@@ -179,6 +184,7 @@ type nativeWrapPlan struct {
 	uploadScript   string
 	linkScript     string
 	splitScript    string
+	statusScript   string
 	statePath      string
 	controls       nativeControls
 	inWorkspace    string
@@ -189,6 +195,7 @@ type nativeWrapPlan struct {
 	uploadBody     string
 	linkBody       string
 	splitBody      string
+	statusBody     string
 }
 
 func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []string, workspace string) (*nativeWrapPlan, error) {
@@ -209,6 +216,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		linkScript:     filepath.Join(dir, "link.sh"),
 		splitScript:    filepath.Join(dir, "split.sh"),
+		statusScript:   filepath.Join(dir, "status.sh"),
 		statePath:      filepath.Join(attachStateDir(), strconv.Itoa(os.Getpid())+".json"),
 		controls:       controls,
 		inWorkspace:    workspace,
@@ -232,6 +240,9 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// A new pane or window is a shell on the session's machine, in the agent
 	// pane's directory (native_split.go), not a shell here in $HOME.
 	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
+	if controls.Kind == "session" && controls.Base != "" {
+		plan.statusBody = execScript([]string{self, attachStatusFlag, controls.Kind, controls.ID, controls.Base})
+	}
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
 }
@@ -271,15 +282,60 @@ func execScriptWithEnv(env []string, argv []string) string {
 	return "#!/bin/sh\nexec env " + strings.Join(words, " ") + "\n"
 }
 
+// attachHints is the status row of an attached terminal, in plain words
+// (docs/design/simple-tui.md). The leave key comes second so a narrow
+// terminal still shows it; below 60 columns only the menu and leave keys
+// remain. While Ctrl+] is pending the row turns into the list of keys that
+// can follow it, so the prefix itself is the menu.
+func attachHints(tabView bool) string {
+	leave, word := "#[bold]Ctrl+] d#[default] leave", "leave"
+	if tabView {
+		leave, word = "#[bold]Ctrl+] d#[default] close tab", "close tab"
+	}
+	wide := "#[bold]Ctrl+]#[default] menu · " + leave + " · #[bold]Ctrl+\\#[default] send file · #[bold]double-click#[default] opens paths "
+	narrow := "#[bold]Ctrl+]#[default] menu · " + leave + " "
+	prefix := "#[reverse] Ctrl+] then #[default] m actions · u send file · | shell right · - shell below · e open a link · d " + word + " · ? all keys "
+	return "#{?client_prefix," + prefix + ",#{?#{e|<:#{client_width},60}," + narrow + "," + wide + "}}"
+}
+
+// attachMenu is Ctrl+] ?: every attach key in one clickable list, each item
+// run by the same key it has after Ctrl+].
+func (p *nativeWrapPlan) attachMenu() string {
+	controls := "display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript)
+	upload := "display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript)
+	links := "run-shell -b " + tmuxDQ(strings.ReplaceAll(shellq.Quote(p.linkScript), "#", "##")+" hints-open '#{pane_id}' '#{client_name}' '#{pane_width}' '#{pane_height}'")
+	leave := "Leave (the session keeps running)"
+	if p.controls.TabView {
+		leave = "Close this tab (the session keeps running)"
+	}
+	items := []string{
+		`"Lectern actions for this session"`, "m", "{ " + controls + " }",
+		tmuxDQ(`Send a file to the agent (also Ctrl+\)`), "u", "{ " + upload + " }",
+		`"Pick a path or link on screen"`, "e", "{ " + links + " }",
+		"''",
+		`"Shell to the right"`, "|", "{ split-window -h }",
+		`"Shell below"`, "-", "{ split-window -v }",
+		`"Shell in a new window"`, "c", "{ new-window }",
+		`"Scroll back (q stops)"`, "[", "{ copy-mode }",
+		"''",
+		tmuxDQ(leave), "d", "{ detach-client }",
+		`"Send Ctrl+] to the agent"`, "C-]", "{ send-prefix }",
+	}
+	return "display-menu -T " + tmuxDQ("#[align=centre]Attach keys · Ctrl-b d also leaves") + " -x C -y C " + strings.Join(items, " ")
+}
+
 func (p *nativeWrapPlan) tmuxConfig() string {
 	// Sending a file is the most-used control, so it gets its own one-chord
-	// key and leads the row. Ctrl+\ is free in shells, Claude Code and Codex
-	// (Ctrl+U, the obvious mnemonic, is line-kill in all of them).
-	// Double-click opens a path or link an agent printed, on this machine; it
-	// follows the controls key so a narrow terminal still shows Ctrl+] m.
-	hint := "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Ctrl+] e#[default] links · #[bold]Double-click#[default] open path · Ctrl-b d detach "
-	if p.controls.TabView {
-		hint = "#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Ctrl+] e#[default] links · #[bold]Double-click#[default] open path · Ctrl+] d close tab "
+	// key (Ctrl+\ is free in shells, Claude Code and Codex; Ctrl+U, the
+	// obvious mnemonic, is line-kill in all of them). Double-click opens a
+	// path or link an agent printed, on this machine.
+	hint := attachHints(p.controls.TabView)
+	if p.statusBody != "" {
+		// A session waiting for an approval says so first, in the bar the
+		// person is looking at; the Ctrl+] m menu then answers it. The job
+		// is a script in this attachment's private directory, so no quoting
+		// of the binary, ID or address has to survive the status format.
+		hint = "#[fg=colour214,bold]#(\"" + strings.ReplaceAll(p.statusScript, "#", "##") + "\")#[default]" + hint
 	}
 	return strings.Join([]string{
 		// This private client wrapper owns scrollback. Without mouse reports,
@@ -314,6 +370,8 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -T prefix - split-window -v",
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
+		"bind-key -T prefix ? " + p.attachMenu(),
+		"bind-key -T prefix Space " + p.attachMenu(),
 		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",
 		"set -g status-position top",
@@ -326,7 +384,8 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"set -g status-right ''",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-interval 0",
+		// Polls the "needs you" note; the rest of the bar never changes.
+		"set -g status-interval 5",
 		"set -g escape-time 0",
 		"",
 	}, "\n")
@@ -344,6 +403,13 @@ func (p *nativeWrapPlan) write() error {
 		{p.uploadScript, p.uploadBody, 0o700},
 		{p.splitScript, p.splitBody, 0o700},
 		{p.linkScript, p.linkBody, 0o700},
+	}
+	if p.statusBody != "" {
+		files = append(files, struct {
+			path string
+			body string
+			mode os.FileMode
+		}{p.statusScript, p.statusBody, 0o700})
 	}
 	for _, file := range files {
 		if err := os.WriteFile(file.path, []byte(file.body), file.mode); err != nil {

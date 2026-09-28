@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"golang.org/x/term"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -291,6 +292,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 				TerminalWorkspace: os.Getenv("TMUX") == "" && !desktopTerminalAvailable(),
 				BatchOpen:         os.Getenv("LECTERN_INITIAL_BATCH") == "true",
 				InitialSessionID:  os.Getenv("LECTERN_INITIAL_SESSION"),
+				Cwd:               dashboardCwd(base, local),
 			})
 		}
 		return console.NewUI(c, os.Stdin, os.Stdout, attachClient).Run()
@@ -512,4 +514,26 @@ func validateTerminal(args []string, task bool) error {
 
 func interactiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// dashboardCwd is the folder a new session defaults to: the directory the
+// dashboard was started in, but only when the server shares this machine's
+// filesystem (the private local runtime or a loopback service). A remote
+// server's machine has no such path.
+func dashboardCwd(base string, local bool) string {
+	if !local {
+		u, err := url.Parse(base)
+		if err != nil {
+			return ""
+		}
+		host := u.Hostname()
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return ""
+		}
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }

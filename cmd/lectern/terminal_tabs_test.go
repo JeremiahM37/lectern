@@ -56,7 +56,7 @@ func TestWorkspaceCommandsPinTheOwningSocket(t *testing.T) {
 		t.Fatal("popup could reach default tmux server", argv)
 	}
 	p := &nativeWrapPlan{controls: nativeControls{TabView: true}}
-	if !strings.Contains(p.tmuxConfig(), "Ctrl+] d close tab") || strings.Contains(p.tmuxConfig(), "Ctrl-b d detach") {
+	if !strings.Contains(p.tmuxConfig(), "Ctrl+] d#[default] close tab") || strings.Contains(p.tmuxConfig(), "Ctrl-b d detach") {
 		t.Fatal("tab hints collide with existing tmux prefix")
 	}
 }

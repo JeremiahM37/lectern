@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -431,8 +432,8 @@ func TestClientControlsMarkedHonoursOnlyTruthyValues(t *testing.T) {
 	}
 }
 
-// A narrow client clips the status row from the right, so the primary shortcut
-// must lead it and the window list must not crowd it out.
+// A narrow client clips the status row from the right, so the menu and leave
+// keys lead it, and the window list must not crowd it out.
 func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 	plan := testWrapPlan(t, []string{"tmux", "attach", "-t", "agent"}, "")
 	for _, want := range []string{
@@ -440,14 +441,78 @@ func TestNativeWrapStatusLineLeadsWithTheShortcut(t *testing.T) {
 		"set -g status-left-length 120",
 		"set -g window-status-format ''",
 		"set -g window-status-current-format ''",
-		"set -g status-left '#[bold]Ctrl+\\#[default] send file · #[bold]Ctrl+] m#[default] controls · #[bold]Ctrl+] |#[default] shell · #[bold]Ctrl+] e#[default] links · #[bold]Double-click#[default] open path · Ctrl-b d detach '",
+		"#[bold]Ctrl+]#[default] menu · #[bold]Ctrl+] d#[default] leave · #[bold]Ctrl+\\#[default] send file · #[bold]double-click#[default] opens paths",
+		"bind-key -T prefix ? display-menu",
 	} {
 		if !strings.Contains(plan.conf, want) {
 			t.Errorf("config is missing %q:\n%s", want, plan.conf)
 		}
 	}
-	if strings.Contains(plan.conf, "Lectern#[default] Ctrl+] then m") {
-		t.Fatalf("status line still leads with the long prefix:\n%s", plan.conf)
+	if strings.Contains(plan.conf, "Ctrl-b d detach") {
+		t.Fatalf("status line still teaches the agent's tmux prefix:\n%s", plan.conf)
+	}
+}
+
+// The status row is a tmux format, so check what a real tmux renders: the
+// four plain hints when wide, the menu and leave keys when narrow, and the
+// keys that can follow Ctrl+] while it is pending. Ctrl+] ? must also parse
+// into a working menu binding.
+func TestNativeAttachBarRendersOnRealTmux(t *testing.T) {
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux not installed")
+	}
+	plan := testWrapPlan(t, []string{"sh", "-c", "sleep 30"}, "")
+	if err := plan.write(); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		out, err := exec.Command(tmuxPath, append([]string{"-S", plan.socket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux %v: %v %s", args, err, out)
+		}
+		return string(out)
+	}
+	run("-f", plan.confPath, "new-session", "-d", "-x", "120", "-y", "20", "-s", "bar", "sleep 30")
+	t.Cleanup(func() { exec.Command(tmuxPath, "-S", plan.socket, "kill-server").Run() })
+	format := strings.TrimSpace(run("show-options", "-gv", "status-left"))
+	styles := regexp.MustCompile(`#\[[^]]*\]`)
+	// display-message has no client, so the client's width and prefix state
+	// are substituted into the format the way a real client supplies them.
+	render := func(width string, pending bool) string {
+		f := strings.ReplaceAll(format, "#{client_width}", width)
+		if pending {
+			f = strings.Replace(f, "#{?client_prefix,", "#{?#{==:1,1},", 1)
+		}
+		out := strings.TrimSpace(run("display-message", "-p", "-t", "bar", f))
+		return strings.ReplaceAll(styles.ReplaceAllString(out, ""), `\\`, `\`)
+	}
+	wide := render("120", false)
+	for _, want := range []string{"Ctrl+] menu", "Ctrl+] d leave", "Ctrl+\\ send file", "double-click opens paths"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf("wide bar %q is missing %q", wide, want)
+		}
+	}
+	if narrow := render("50", false); !strings.Contains(narrow, "Ctrl+] d leave") || strings.Contains(narrow, "send file") {
+		t.Errorf("narrow bar: %q", narrow)
+	}
+	pending := render("120", true)
+	for _, want := range []string{"Ctrl+] then", "m actions", "| shell right", "d leave", "? all keys"} {
+		if !strings.Contains(pending, want) {
+			t.Errorf("pending bar %q is missing %q", pending, want)
+		}
+	}
+	if !strings.Contains(format, "#(\""+plan.statusScript+"\")") {
+		t.Errorf("the bar does not poll for a pending approval: %q", format)
+	}
+	if script, err := os.ReadFile(plan.statusScript); err != nil || !strings.Contains(string(script), attachStatusFlag+" session 17 ") {
+		t.Errorf("status script: %q %v", script, err)
+	}
+	keys := run("list-keys", "-T", "prefix")
+	for _, want := range []string{"Lectern actions for this session", "Shell to the right", "Leave (the session keeps running)", "Send Ctrl+] to the agent"} {
+		if !strings.Contains(keys, want) {
+			t.Errorf("Ctrl+] ? menu is missing %q:\n%s", want, keys)
+		}
 	}
 }
 

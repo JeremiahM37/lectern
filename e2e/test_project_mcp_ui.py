@@ -14,7 +14,7 @@ from playwright.sync_api import expect
 
 from conftest import DESKTOP, PHONE, _binary
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from test_ui import _tab
 
 @pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone390", "desktop1440"])
@@ -120,12 +120,10 @@ def test_project_mcp_full_dashboard_editor_keyboard_crud(real_terminal):
     d = Dashboard(t)
     try:
         d.wait("Real terminal")
-        d.send("4")
+        d.send("3")
         d.wait("Dashboard MCP fixture")
         def open_mcp_editor():
-            d.send("m")
-            d.wait("MCP settings (add / edit / remove)")
-            d.send("j" * 8 + "\r")
+            run_command(d, "MCP settings (add / edit / remove)", "mcp settings")
             d.wait("Servers JSON")
 
         open_mcp_editor()

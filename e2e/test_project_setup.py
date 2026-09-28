@@ -5,7 +5,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_interactive_worktree import setup
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command
 from session_sheet import open_advanced
 
 
@@ -73,10 +73,8 @@ def test_web_project_setup_save_retry_and_launch(routed_page,real_terminal,width
 def test_terminal_edits_project_setup_and_creates_workspace(real_terminal):
     t=real_terminal;project,git=setup(t);d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('4');d.wait('Isolated project');d.send('/Isolated project\r')
-        d.send('m');d.wait('Edit project')
-        # Project actions: shell, review, brief, notes, handoffs, capability, rename, edit.
-        d.send('j'*7+'\r');d.wait('New worktree setup command')
+        d.wait('Real terminal');d.send('3');d.wait('Isolated project');d.send('/Isolated project\r')
+        run_command(d,'Edit project');d.wait('New worktree setup command')
         d.send('\t'*3+'printf terminal-ready > prepared; echo TERMINAL_SETUP\x13');d.wait('Edit project completed')
         saved=t['api']('/projects')[0];assert 'terminal-ready' in saved['setup_cmd']
         row=t['api']('/sessions',{'name':'Terminal prepared','project_id':project['id'],'worktree':{}})

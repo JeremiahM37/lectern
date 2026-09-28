@@ -4,7 +4,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_interactive_worktree import setup
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 from session_sheet import open_advanced
 
 
@@ -48,8 +48,8 @@ def test_terminal_can_remove_failed_worktree_from_ended_session(real_terminal):
     d=Dashboard(t)
     try:
         d.wait('Real terminal');d.send('z');d.wait('Failed terminal setup');d.send('/Failed terminal setup\r')
-        d.wait('TUI SETUP FAILURE');d.send('m');d.wait('Remove worktree (keep branch)')
+        d.wait('TUI SETUP FAILURE')
         # Find the named action without depending on how many other actions exist.
-        d.send('/remove worktree\r');d.wait('Changed, untracked or ignored');d.send('y');d.wait('Remove worktree (keep branch) completed')
+        run_command(d,'Remove worktree (keep branch)','remove worktree');d.wait('Changed, untracked or ignored');d.send('y');d.wait('Remove worktree (keep branch) completed')
         assert not dest.exists();git('rev-parse','tui-failed-setup');d.quit()
     finally:d.close()

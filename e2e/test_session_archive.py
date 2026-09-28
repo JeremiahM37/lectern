@@ -3,7 +3,7 @@ import subprocess,time
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
-from test_terminal_dashboard import Dashboard
+from test_terminal_dashboard import Dashboard, run_command, new_session
 
 
 def choose_console_action(d, label):
@@ -111,10 +111,9 @@ def test_web_archive_output_and_unarchive(page,real_terminal,width):
 def test_console_archive_view_output_and_unarchive(real_terminal):
     t=real_terminal;seed(t);d=Dashboard(t)
     try:
-        d.wait('Real terminal');d.send('m');d.wait('Actions')
-        choose_console_action(d,'Stop and archive');d.wait('Stop and archive?');d.send('n');assert not gone(t)
-        d.send('m');d.wait('Actions')
-        choose_console_action(d,'Stop and archive');d.wait('Stop and archive?');d.send('y');d.wait('Stop and archive completed')
+        d.wait('Real terminal')
+        run_command(d,'Stop and archive');d.wait('Stop and archive?');d.send('n');assert not gone(t)
+        run_command(d,'Stop and archive');d.wait('Stop and archive?');d.send('y');d.wait('Stop and archive completed')
         d.send('A');d.wait('archive');d.wait('Real terminal');d.send('m');d.wait('Unarchive record')
         d.send('\x1b[B\r');d.wait('ARCHIVE HISTORY PROOF')
         d.send('m');d.wait('Unarchive record');d.send('\r');d.wait('Unarchive record completed');assert gone(t)

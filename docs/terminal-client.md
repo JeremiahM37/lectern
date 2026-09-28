@@ -44,10 +44,10 @@ started automatically if it isn't already up (see
   (and errors if there is nothing to reuse). A non-interactive caller (a
   script, a pipe) defaults to reuse.
 - Attaches your terminal to it with the same native attach `lectern attach
-  session ID` uses — the status bar (Ctrl-\\ to send a file, Ctrl-] then m for
-  controls) is right there. **Ctrl-b, then d** detaches back to your shell;
-  the session keeps running and stays reachable from the dashboard and your
-  phone.
+  session ID` uses. The bar at the top says `Ctrl+] menu · Ctrl+] d leave ·
+  Ctrl+\\ send file · double-click opens paths`. **Ctrl+], then d** leaves
+  and returns you to your shell; the session keeps running and stays
+  reachable from the dashboard and your phone. (Ctrl-b, then d, still works.)
 
 Extra arguments are the documented subset the session API actually accepts:
 `--model NAME` and `--resume`. Anything else is a clear error rather than a
@@ -58,39 +58,74 @@ Run `lectern` in an interactive terminal, or `lectern console`, for the live
 dashboard. It opens on Sessions, groups by project, and refreshes automatically.
 A single left-click on a session row attaches in the current terminal.
 Click a group heading to fold it; use arrows/j/k to select a session for preview
-without attaching. Detach with **Ctrl-b**, then **d**, to click another session.
+without attaching. **Ctrl+], then d** comes back to the same selection.
 Mouse reporting is restored after returning, including inside tmux.
 Use `lectern serve` to start the server explicitly. Existing systemd/container
 launches with no arguments and no terminal still start the server. Either way
 it listens only on 127.0.0.1 unless a token or Tailscale identity protects it
 (see [Remote access](remote-access.md#where-lectern-listens)).
 
+The bottom line is the **key bar**: it shows only the keys that work for the
+pane and row you are on, most useful first, with `q quit` and `? keys` always
+at the right. `?` opens every key for the current view; it scrolls, and `/`
+filters it. The panes are numbered: **1 Sessions · 2 Approvals · 3 Projects ·
+4 Tasks**. The Approvals tab shows how many are waiting, and a line above the
+list says when something needs you.
+
+Status words are the same as on the web: **Working**, **Needs you** (only
+when a person is actually needed: an approval, or a permission prompt),
+**Idle** (at its prompt; your turn) and **Ended**, sometimes with a reason
+such as "Ended · agent exited".
+
 | Keys | Action |
 | --- | --- |
-| ↑/↓ or j/k | Select a session, task, routine, project, target or approval |
-| Click a session | Attach immediately in this terminal; click a group to fold/unfold |
-| Enter | Attach; Ctrl-b then d returns to the same selection |
-| o / right-click | Open selected session in a new terminal window; keep the list visible |
-| b | Select multiple sessions: click/Space marks them, Enter opens all selected |
-| S | Choose a machine and open a blank persistent shell |
-| / | Fuzzy search names, projects, targets, agent names and paths |
-| @ / ! / # / & at start of search | Waiting / running / idle / failed |
-| 1–6, ←/→ | Switch sections |
-| g / w | Group by project or target / show items needing attention |
-| Tab / p, PgUp/PgDn | Focus and scroll the preview |
-| n / e / m | Create / rename / all actions |
-| P | Manage named launch profiles |
-| Q | Manage agent runners (add custom CLIs) |
-| h / v / u | Read retained history / review a task diff / upload context |
-| C / U | Restore list (closed, archived, interrupted) / undo: reopen the session closed last |
-| R | Revive a session whose agent exited to a shell prompt |
-| f | Find running agents and add one to tracking by name |
-| 7 / 8 / 9 | Settings / usage / full API |
-| ? / q | Help / quit without stopping agents |
+| ↑/↓ or j/k | Move |
+| Enter / click | Attach here; Ctrl+] then d comes back to the same selection |
+| o / right-click | Open the session in a new terminal window; the list stays open |
+| b | Select several sessions: click/Space marks them, Enter opens all of them |
+| n | New session (on Projects: new project; on Tasks: new task) |
+| x / d / Delete | End the session, after a confirmation. An adopted session is released (it keeps running) instead |
+| r | Restore: start an agent that exited again, track an ended row again, or open the Restore list |
+| y / a | On a session that needs you: allow once / allow for this session (asks first) |
+| y / a / n | On the Approvals pane: allow once / allow for this session / deny |
+| v | Review changes; `c` in the review commits |
+| / | Filter the list (start with @ ! # & for at-its-prompt / running / quiet / failed) |
+| m | Short menu for the selected row (at most eight items), each with its key |
+| : or Ctrl+K | Every command, searched by plain words; Enter runs the highlighted one |
+| 1–4, Tab / Shift+Tab, ←/→ | Switch panes |
+| p, PgUp/PgDn | Focus / scroll the preview |
+| Esc | Back one level; never quits |
+| q | Back in a sub-view; quits at the top (agents keep running) |
+| ? | Every key for this view |
+| Ctrl+R | Refresh now (the list also refreshes every 3 seconds) |
 
-In **Projects** (key **4**), select a project and press **Enter** to open a
+Everything else is in the palette (`:`): Routines and Machines, find and
+track running agents, search past conversations, saved conversations, blank
+shells, launch profiles, agent runners, notification settings, usage, the API
+explorer, grouping, the archive and including ended sessions.
+
+**Keys that moved in this release.** The old key still works unless noted:
+`C` → `r` (Restore list); `R` → `r` on a session whose agent exited; `r`
+(refresh) → Ctrl+R, since `r` now restores; `Tab` (focus preview) → `p`, since
+Tab now switches panes; `2 3 4` now open Approvals, Projects and Tasks
+(Routines moved to the palette), while `5` still opens Machines and `6`
+Approvals; `q` in a review goes back instead of quitting. `U F H O P Q S G A`,
+`7 8 9`, `e h u s f g w z` keep working and are also listed in the palette.
+
+**New session** is one screen: **Where** (the project that contains the folder
+you started `lectern` in, or that folder itself, or a new empty folder),
+**Agent** (only agents installed on that machine; the project's default agent
+when it is installed, otherwise the first installed one), **Approvals** (ask
+before running commands, recommended; the server's default setting is
+respected) and an optional **First message**. Enter moves to the next question
+and starts the session on the last one; Ctrl+S starts it from anywhere. **More
+options…** holds the rest: name, launch profile, model, machine, a separate
+Git worktree, extra repositories, resume, the project brief and a group. The
+new session is selected and attached, like `lectern claude`.
+
+In **Projects** (key **3**), select a project and press **Enter** to open a
 persistent shell in its repository on the project's machine. No agent is
-launched. You can inspect files and run commands directly; **Ctrl-b**, then
+launched. You can inspect files and run commands directly; **Ctrl+]**, then
 **d** returns to the project list. A configured tmux `default-command` does
 not replace this shell with an agent launcher.
 
@@ -127,7 +162,8 @@ console, use the project's **workflows** action and select a pack to toggle it.
 The wide layout shows a live preview beside the list. Narrow terminals keep one
 focused pane visible; Tab switches between the list and preview. Forms use named
 project/target choices, accept multiline prompts, and keep your draft after an
-API error. Tab changes fields, arrows choose options, Ctrl-s submits, Esc cancels.
+API error. Tab changes fields, arrows choose options, Enter moves on and
+submits on the last field, Ctrl-s submits from anywhere, Esc cancels.
 Task creation can dispatch into an isolated worktree; Tasks → Actions also offers
 routine takeover, follow-up, diff review, completion and cancellation.
 
@@ -189,30 +225,39 @@ The agent's session, the control plane's tmux, and your own tmux config and
 server are untouched: the wrapper binds its own socket in a private `0700`
 directory and removes it when the attachment ends.
 
+The bar at the top reads `Ctrl+] menu · Ctrl+] d leave · Ctrl+\\ send file ·
+double-click opens paths`. Below 60 columns it keeps `Ctrl+] menu · Ctrl+] d
+leave`. When the session is waiting for an approval, the bar starts with
+`⏸ Needs you: <what it asks> · Ctrl+] m answers`.
+
+Pressing **Ctrl+]** turns the bar into the list of keys that can follow it,
+until you press one: `m actions · u send file · | shell right · - shell below
+· e open a link · d leave · ? all keys`. **Ctrl+] ?** opens a menu with every
+attach key, which you can also click.
+
 | Keys while attached | Action |
 | --- | --- |
-| Ctrl+\ | Send a file from this machine to the agent as context (one chord) |
+| Ctrl+] then d | Leave; the session keeps running and you return where you started. This is Lectern's own key, so it also works inside your own tmux |
+| Ctrl+\\ | Send a file from this machine to the agent as context (one chord) |
 | Double-click a path or link | Open it on this machine (see below) |
 | Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
+| Ctrl+] then m | Lectern actions for this session. When it needs you, the first items answer the approval (y allow once, a allow for this session) and the popup closes back to the agent |
 | Ctrl+] then e | Label every path and link on screen; type a label to open it, Shift+label for its menu |
-| Ctrl+] then m | Open Lectern actions for this attachment |
-| Ctrl+] then u | Same file sender as Ctrl+\ |
+| Ctrl+] then u | Same file sender as Ctrl+\\ |
 | Ctrl+] then \| | A shell on the session's machine, in the agent's directory, beside the agent |
-| Ctrl+] then - | The same shell, below the agent (Ctrl+] % and " split the same way) |
+| Ctrl+] then - | The same shell, below the agent (Ctrl+] % and " split the same way; Ctrl+] c opens it in a new window) |
+| Ctrl+] then ? | Every attach key in a menu |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
-| Ctrl-b … | Everything the agent's own tmux normally does, unchanged |
-| Ctrl-b then d | Detach; the session keeps running and you return where you started |
+| Ctrl-b … | Everything the agent's own tmux normally does, unchanged; Ctrl-b then d also leaves |
 
-The top status line keeps **Ctrl+\\ send file**, **Ctrl+] m**, **Ctrl+] | shell** and **Double-click open path** visible while you are attached; a narrow terminal keeps at least the first
-two. Direct SSH launchers also get this bar from the server;
+Direct SSH launchers also get this bar from the server;
 updated clients that provide their own controls mark the connection to avoid
 a second wrapper. Update an older installed native client and reattach to use
-the current behavior. The menu is the same
-one the dashboard shows — upload, send message, rename, groups, review, handoff,
-settings — opened with the current session or task already selected. Native
-attach actions are hidden there, because the popup never nests another terminal
-inside itself. Esc from that menu closes the popup; Esc from a form or a code
-review returns to the menu.
+the current behavior. The Ctrl+] m menu is the dashboard's own short menu for
+the current session or task, with its key beside each item, and `:` inside it
+searches every command. Native attach actions are hidden there, because the
+popup never nests another terminal inside itself. Esc from that menu closes
+the popup; Esc from a form or a code review returns to the menu.
 
 The popup runs on the machine where the native client runs, so upload paths refer to files on that machine. Reviews still show the agent's
 workspace on its target. When a direct SSH launcher uses the server-provided
@@ -631,7 +676,7 @@ attachment is resolved on the server, where its tmux sessions and SSH targets
 exist. The Linux installer sets the URL and alias in its launcher.
 
 Inside an existing tmux workspace, native attachment opens a full-size popup
-(tmux 3.2 or newer). The attachment owns its keyboard input; Ctrl-b d closes it
+(tmux 3.2 or newer). The attachment owns its keyboard input; Ctrl+] d closes it
 and returns to the same dashboard selection without detaching the outer workspace.
 
 ## Which server
@@ -652,7 +697,10 @@ lectern: using the Lectern service on :9110; `lectern local …` uses your priva
 
 On a session or project, press `v` for live Git review. Left/right changes files,
 `s` switches working-tree versus staged changes, PgUp/PgDn scrolls, `r` refreshes
-the current file, and Esc returns. Tasks retain their captured diff on `v`; their
+the current file, and Esc or `q` returns. `c` commits every change in a
+session's workspace with the message you type. On a session that works
+directly on `main` (or `master`), the form offers a new branch first; choosing
+the branch itself asks once more. Tasks retain their captured diff on `v`; their
 actions menu also offers **Review live changes** for an existing attempt.
 
 The same review is available on the web through a session's **More → Review
@@ -689,9 +737,10 @@ fails. A record another session already continued is not listed again.
   end of its conversation (native conversations do not carry across agents).
   Ending, stopping tracking or stopping and archiving a session shows a toast
   with **Undo** for ten seconds.
-- **Terminal dashboard**: `C` opens the list (`/` filters it, Enter restores,
-  `h` opens history, Esc returns); `U` reopens the session closed last without
-  attaching.
+- **Terminal dashboard**: `r` opens the list (`/` filters it, Enter restores,
+  `h` opens history, Esc returns); `x` ends the selected session after a
+  confirmation, and "Undo: reopen the session ended last" in the `:` palette
+  (or `U`) reopens it without attaching.
 - **CLI**: `lectern restore` lists; `lectern restore QUERY` restores the one
   match (several matches are listed, not guessed); `lectern restore ID`,
   `--last`, `--agent NAME`, `--model M`, `--profile ID`, `--no-attach`.
@@ -702,12 +751,12 @@ fails. A record another session already continued is not listed again.
   conversation from the history picker.
 
 **An agent that exits but leaves its terminal open** (the pane drops to a shell
-prompt) is shown as **agent exited**, not idle — on its card, in the Now strip,
+prompt) is shown as **Ended · agent exited**, not idle — on its card, in the Now strip,
 in the terminal view and in the dashboard. Lectern checks each pane's root
 process about every ten seconds: a Lectern launch runs the agent under
 `bash -c "…; exec bash"`, so a bare `bash` there means the agent returned. For
 an adopted session it looks for a shell in the foreground and no agent left on
-the terminal. **↻ Revive** (web, phone terminal, `R` in the dashboard,
+the terminal. **↻ Revive** (web, phone terminal, `r` on that session in the dashboard,
 `POST /api/sessions/{id}/revive`) resumes the saved conversation in a new
 terminal, or starts the agent fresh in the same folder when none was saved.
 An adopted session's shell is yours, so Revive releases it and leaves it open
@@ -841,11 +890,10 @@ their tracking metadata. Renamed Codex binaries may require manual selection.
 
 ### Find commands without memorizing shortcuts
 
-The dashboard footer keeps **n new** and **m actions** visible, including in
-narrow terminals. Press **m**, then **/** to search actions by name. Try
-`past conversation` to search saved conversation text, `running agents` to find
-and track agents, or `closed` to reopen previous work. **Enter** runs the
-matching action; arrow keys browse results. **Esc** leaves the search, then
-closes the menu. Existing shortcuts remain available, including **/** to filter
-the current list, **f** to discover running agents, and **F** to search past
-conversation text. The footer distinguishes those two searches.
+The key bar always shows the keys that work where you are. **m** opens a short
+menu for the selected row, with each item's key beside it, so the menu teaches
+the shortcuts; pressing an item's key runs it. **:** (or Ctrl+K) opens every
+command, searched by plain words: try `end`, `past conversation`, `running
+agents` or `closed`. A label word that starts with what you typed ranks first,
+so `end` finds End session before Send message. **Enter** runs the highlighted
+item; arrow keys move the highlight. **Esc** clears the search, then closes.

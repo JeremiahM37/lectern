@@ -202,13 +202,12 @@ def test_tui_quick_shell_action_is_real_and_cancellable(real_terminal):
     output = b""
     try:
         output = _read_until(master, b"Lectern", 20, output)
-        os.write(master, b"?")
-        output = _read_until(master, b"Blank persistent shell", 20, output)
+        # The : palette finds the action by plain words and shows its key, S.
+        os.write(master, b":blank shell")
+        output = _read_until(master, b"Open a blank shell in a project or on a machine", 20, output)
         clean = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output).decode(errors="replace")
-        assert "S             Blank persistent shell in a project or on a machine" in clean, clean
-        # Help closes on one key; S is the documented quick action.
-        os.write(master, b"xS")
-        # Discard the help frame: it has the same title as the form.
+        assert re.search(r"Open a blank shell in a project or on a machine +S", clean), clean
+        os.write(master, b"\r")
         output = _read_until(master, b"Blank persistent shell", 20, b"")
         # The one-field searchable shell form submits on Enter after the
         # machine name is filtered/committed.  This exercises the documented

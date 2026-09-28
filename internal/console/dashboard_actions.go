@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
@@ -42,6 +43,7 @@ func (m *dashboard) sortByAgentMenu(agents []choice) []choice {
 	})
 	return out
 }
+
 type field struct {
 	Key, Label, Value   string
 	Options             []choice
@@ -49,8 +51,10 @@ type field struct {
 	Compact             bool
 	Searchable          bool
 	HideWhenProject     bool
-	OptionFilter        string
-	OptionCursor        int
+	// Advanced fields stay folded under "More options…" until it is opened.
+	Advanced     bool
+	OptionFilter string
+	OptionCursor int
 }
 type dashboardForm struct {
 	title     string
@@ -64,11 +68,59 @@ type dashboardForm struct {
 	// project is selected. Hidden values never enter formBody; restoring them
 	// when the project is cleared makes switching back predictable.
 	projectHiddenValues map[string]string
+	// submitVerb names what Ctrl+S (or Enter on the last field) does.
+	submitVerb string
 }
+
+// singleLine reports a form with one visible one-line field, which Enter
+// submits.
+func (f *dashboardForm) singleLine() bool {
+	visible := 0
+	for i := range f.fields {
+		if fieldVisible(f.fields, i) {
+			visible++
+		}
+	}
+	return visible == 1 && !f.fields[f.index].Multiline
+}
+
+func (f *dashboardForm) submitLabel() string {
+	if f.submitVerb != "" {
+		return f.submitVerb
+	}
+	return "submit"
+}
+
+// lastAnswer reports that no visible question follows index, so Enter there
+// submits. The "More options…" switch is not a question.
+func lastAnswer(fields []field, index int) bool {
+	for i := index + 1; i < len(fields); i++ {
+		if fields[i].Key != moreKey && fieldVisible(fields, i) {
+			return false
+		}
+	}
+	return true
+}
+
 type dashboardAction struct {
 	Label, Method, Path, Operation, Warning string
 	Body                                    any
+	// Key is the shortcut shown beside the action in menus and the palette;
+	// Keywords are extra words the palette search matches.
+	Key, Keywords string
+	// Notice replaces "<Label> completed" when the request succeeds, and
+	// Confirm is the verb the confirmation's y key is labelled with.
+	Notice, Confirm string
 }
+
+// confirmWord is what y does in a confirmation, in plain words.
+func (a *dashboardAction) confirmWord() string {
+	if a.Confirm != "" {
+		return a.Confirm
+	}
+	return "confirm"
+}
+
 type loadedFormMsg struct {
 	title, method, path string
 	data                []byte
@@ -96,21 +148,74 @@ func (m *dashboard) request(label, method, path string, body any, preview bool) 
 	}
 }
 func (m *dashboard) execute(a dashboardAction) tea.Cmd {
-	return m.request(a.Label, a.Method, a.Path, a.Body, false)
+	cmd := m.request(a.Label, a.Method, a.Path, a.Body, false)
+	if cmd == nil || a.Notice == "" {
+		return cmd
+	}
+	return func() tea.Msg {
+		msg := cmd()
+		if r, ok := msg.(resultMsg); ok && r.err == nil {
+			r.notice = a.Notice
+			return r
+		}
+		return msg
+	}
 }
 func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	if a.Warning != "" {
 		m.pending = &a
 		return nil
 	}
+	if strings.HasPrefix(a.Operation, "pane:") {
+		n, _ := strconv.Atoi(strings.TrimPrefix(a.Operation, "pane:"))
+		return m.switchSection(n)
+	}
 	switch a.Operation {
+	case "palette":
+		m.openPalette("")
+		return nil
+	case "new-session":
+		if sections[m.section] != "sessions" {
+			refresh := m.switchSection(0)
+			return tea.Batch(refresh, m.newForm())
+		}
+		return m.newForm()
+	case "allow-once":
+		return m.decide(m.approvalFor(m.current()), "approved", false, "")
+	case "allow-session":
+		return m.decide(m.approvalFor(m.current()), "approved", true, "")
+	case "deny":
+		return m.decide(m.approvalFor(m.current()), "denied", false, "")
+	case "deny-reason":
+		return m.denyWithReasonForm(m.approvalFor(m.current()))
+	case "open-approval-session":
+		return m.attachApprovalSession()
+	case "attention":
+		m.attention = !m.attention
+		m.filter()
+		return nil
+	case "ended":
+		m.archived = false
+		m.ended = !m.ended
+		return m.refresh()
+	case "archive":
+		m.archived = !m.archived
+		return m.refresh()
+	case "grouping":
+		m.cycleGrouping()
+		return nil
+	case "quit":
+		return tea.Quit
 	case "new":
 		return m.newForm()
 	case "new-terminal":
 		return m.attachSelectedTo(false, true)
 	case "batch-terminals":
-		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
-		return cmd
+		if sections[m.section] != "sessions" {
+			refresh := m.switchSection(0)
+			return tea.Batch(refresh, m.toggleBatchMode())
+		}
+		return m.toggleBatchMode()
 	case "api":
 		return m.apiForm()
 	case "refresh":
@@ -127,7 +232,7 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	case "usage":
 		return m.readResource("Usage", "/stats")
 	case "help":
-		m.help = true
+		m.openHelp()
 		return nil
 	case "recent-sessions":
 		return m.loadRecentSessions()
@@ -209,84 +314,30 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	}
 	return m.execute(a)
 }
+
+// actions is every command the palette can run for the current selection,
+// without the ones a controls popup cannot run.
 func (m *dashboard) actions() []dashboardAction {
-	list := m.allActions()
-	if !m.controlOnly {
-		return list
-	}
-	filtered := make([]dashboardAction, 0, len(list))
-	for _, action := range list {
-		if nativeTerminalAction(action.Operation) {
-			continue
-		}
-		filtered = append(filtered, action)
-	}
-	return filtered
+	return m.actionsFor(m.allActions())
 }
 
 // nativeTerminalAction reports whether an action opens another native
 // terminal. A controls popup omits these so it cannot attach inside itself.
 func nativeTerminalAction(operation string) bool {
 	switch operation {
-	case "attach", "shell", "blank-shell", "new-terminal", "batch-terminals":
+	case "attach", "shell", "blank-shell", "new-terminal", "batch-terminals", "open-approval-session":
 		return true
 	}
 	return false
 }
+
+// filteredActions is the palette's current result list.
 func (m *dashboard) filteredActions() []dashboardAction {
-	list := m.actions()
-	words := strings.Fields(strings.ToLower(m.menuQuery))
-	if len(words) == 0 {
-		return list
-	}
-	var filtered []dashboardAction
-	for _, a := range list {
-		match := true
-		for _, word := range words {
-			if !strings.Contains(strings.ToLower(a.Label), word) {
-				match = false
-				break
-			}
-		}
-		if match {
-			filtered = append(filtered, a)
-		}
-	}
-	return filtered
+	return m.paletteActions()
 }
 
 func (m *dashboard) allActions() []dashboardAction {
-	common := []dashboardAction{
-		{Label: "New item in this section (n)", Operation: "new"},
-		{Label: "Filter current list by name, project or agent (/)", Operation: "filter-list"},
-		{Label: "Find and track running agents (f)", Operation: "discover"},
-		{Label: "Search past saved conversation text across targets (F)", Operation: "search-history"},
-		{Label: "Restore closed, archived or interrupted sessions (C)", Operation: "recent-sessions"},
-		{Label: "Undo: reopen the session closed last (U)", Operation: "undo-close"},
-		{Label: "Open blank persistent shell (S)", Operation: "blank-shell"},
-		{Label: "Manage launch profiles (P)", Operation: "launch-profiles"},
-		{Label: "Manage agent runners (Q)", Operation: "agents"},
-		{Label: "Settings (7)", Operation: "settings"},
-		{Label: "Full API explorer (9)", Operation: "api"},
-		{Label: "Refresh current list (r)", Operation: "refresh"},
-		{Label: "Usage and token statistics (8)", Operation: "usage"},
-		{Label: "Keyboard shortcuts and help (?)", Operation: "help"},
-	}
-	if m.section == 0 {
-		common[0].Label = "New session (n)"
-		common = append(common, dashboardAction{Label: "Open selected session in a new terminal (o)", Operation: "new-terminal"}, dashboardAction{Label: "Select multiple sessions to open in new terminals (b)", Operation: "batch-terminals"})
-	}
-	actions := m.rowActions()
-	// Keep the selected item's actions first and destructive actions last.
-	var safe, dangerous []dashboardAction
-	for _, a := range actions {
-		if a.Warning != "" {
-			dangerous = append(dangerous, a)
-		} else {
-			safe = append(safe, a)
-		}
-	}
-	return append(append(safe, common...), dangerous...)
+	return append(m.rowActions(), m.globalActions()...)
 }
 func (m *dashboard) rowActions() []dashboardAction {
 	if m.selectedGroup() != nil {
@@ -319,10 +370,10 @@ func (m *dashboard) rowActions() []dashboardAction {
 			if r["setup_cancel_requested"] == true {
 				label = "Retry cancellation"
 			}
-			return append([]dashboardAction{post(label, "/setup/cancel"), op("Rename", "rename"), op("Move to group", "group")}, workspaceActions(r, path)...)
+			return keyed(append([]dashboardAction{post(label, "/setup/cancel"), op("Rename", "rename"), op("Move to group", "group")}, workspaceActions(r, path)...))
 		}
 		if r["archived_at"] != nil {
-			return append([]dashboardAction{{Label: "Unarchive record", Method: "DELETE", Path: path + "/archive"}, read("Archived terminal output", "/archive/history"), op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group")}, workspaceActions(r, path)...)
+			return keyed(append([]dashboardAction{{Label: "Unarchive record", Method: "DELETE", Path: path + "/archive"}, read("Archived terminal output", "/archive/history"), op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group")}, workspaceActions(r, path)...))
 		}
 		if r["agent_exited_at"] != nil && r["ended_at"] == nil {
 			actions = append(actions, reviveAction(r))
@@ -331,11 +382,20 @@ func (m *dashboard) rowActions() []dashboardAction {
 		if r["ended_at"] != nil {
 			actions = []dashboardAction{op("Saved conversations", "saved-history"), op("Rename", "rename"), op("Move to group", "group"), read("Handoff summaries", "/wraps"), {Label: "Archive stopped record", Method: "POST", Path: path + "/archive", Body: map[string]any{"stop": false}}}
 			if r["can_restore"] == true {
-				actions = append([]dashboardAction{post("Track again", "/restore")}, actions...)
+				track := post("Track again", "/restore")
+				track.Key = "r"
+				actions = append([]dashboardAction{track}, actions...)
 			}
-			return append(actions, workspaceActions(r, path)...)
+			return keyed(append(actions, workspaceActions(r, path)...))
 		}
-		actions = []dashboardAction{op("Attach", "attach"), op("Companion shell", "shell"), op("Send message", "send"), op("Upload context file", "upload"), op("Review changes", "review"), op("Read history", "history"), op("Saved conversations", "saved-history"), op("Browse files", "files"), op("Rename", "rename"), op("Move / edit session", "edit"), op("Move to group", "group"), op("Request handoff", "handoff"), read("Handoff summaries", "/wraps")}
+		if a := m.approvalFor(r); a != nil {
+			actions = append(actions, dashboardAction{Label: "Allow once", Operation: "allow-once", Key: "y", Keywords: "approve approval yes"})
+			if approvalSessionID(a) != "" {
+				actions = append(actions, dashboardAction{Label: "Allow for this session", Operation: "allow-session", Key: "a", Keywords: "approve approval always"})
+			}
+			actions = append(actions, dashboardAction{Label: "Deny", Operation: "deny", Keywords: "reject approval no"}, dashboardAction{Label: "Deny with a reason…", Operation: "deny-reason", Keywords: "reject approval note"})
+		}
+		actions = append(actions, op("Attach", "attach"), op("Open in a new window", "new-terminal"), op("Companion shell", "shell"), op("Send message", "send"), op("Upload context file", "upload"), op("Review changes", "review"), op("Read history", "history"), op("Saved conversations", "saved-history"), op("Browse files", "files"), op("Rename", "rename"), op("Move / edit session", "edit"), op("Move to group", "group"), op("Request handoff", "handoff"), read("Handoff summaries", "/wraps"))
 		if r["project_id"] == nil && (str(r["agent"]) == "shell" || str(r["agent"]) == "claude" || str(r["agent"]) == "codex") {
 			actions = append(actions, op("Promote conversation", "promote-conversation"))
 		}
@@ -355,7 +415,14 @@ func (m *dashboard) rowActions() []dashboardAction {
 	case "targets":
 		actions = []dashboardAction{post("Check connection", "/check"), read("Check agent commands", "/agents"), op("Rename", "rename"), op("Edit target", "edit")}
 	case "approvals":
-		actions = []dashboardAction{{Label: "Approve", Method: "POST", Path: path + "/decision", Body: map[string]any{"decision": "approved"}, Warning: "Allow the selected pending tool request?"}, {Label: "Deny", Method: "POST", Path: path + "/decision", Body: map[string]any{"decision": "denied"}}}
+		actions = []dashboardAction{{Label: "Allow once", Operation: "allow-once", Key: "y", Keywords: "approve approval yes"}}
+		if approvalSessionID(r) != "" {
+			actions = append(actions, dashboardAction{Label: "Allow for this session", Operation: "allow-session", Key: "a", Keywords: "approve approval always"})
+		}
+		actions = append(actions, dashboardAction{Label: "Deny", Operation: "deny", Key: "n", Keywords: "reject approval no"}, dashboardAction{Label: "Deny with a reason…", Operation: "deny-reason", Keywords: "reject approval note"})
+		if approvalSessionID(r) != "" {
+			actions = append(actions, dashboardAction{Label: "Open the session", Operation: "open-approval-session", Key: "Enter", Keywords: "attach"})
+		}
 	}
 	if kind != "approvals" {
 		actions = append(actions, op("Edit advanced fields (JSON)", "advanced"))
@@ -367,10 +434,39 @@ func (m *dashboard) rowActions() []dashboardAction {
 				warning = "Remove this adopted session from tracking? It keeps running. Use z to include untracked records, then m → Track again; f finds other running sessions."
 			} else {
 				label = "End session"
-				warning = "Stop this Lectern-owned session and remove it from tracking?"
+				warning = "The agent stops. r (Restore) brings it back with its conversation."
 			}
 		}
-		actions = append(actions, dashboardAction{Label: label, Method: "DELETE", Path: path, Warning: warning})
+		end := dashboardAction{Label: label, Method: "DELETE", Path: path, Warning: warning, Key: "x", Keywords: "stop kill close remove delete quit"}
+		switch {
+		case label == "End session":
+			end.Confirm = "end"
+			end.Notice = "Ended " + strconv.Quote(oneLine(name(r))) + ". r brings it back."
+		case kind == "sessions":
+			end.Confirm = "stop tracking"
+		default:
+			end.Confirm = "delete"
+		}
+		actions = append(actions, end)
+	}
+	return keyed(actions)
+}
+
+// keyed fills in the shortcut each well-known action already has, so menus
+// and the palette show it beside the label.
+func keyed(actions []dashboardAction) []dashboardAction {
+	keys := map[string]string{"attach": "Enter", "new-terminal": "o", "shell": "s", "upload": "u", "review": "v", "diff": "v",
+		"history": "h", "saved-history": "H", "rename": "e", "group": "G"}
+	for i := range actions {
+		if actions[i].Key == "" {
+			actions[i].Key = keys[actions[i].Operation]
+		}
+		if actions[i].Label == reviveLabel {
+			actions[i].Key = "r"
+		}
+		if actions[i].Operation == "upload" {
+			actions[i].Keywords = "file send attach"
+		}
 	}
 	return actions
 }
@@ -392,6 +488,10 @@ func (m *dashboard) openForm(title string, fields []field, submit func(map[strin
 func (m *dashboard) focusField() tea.Cmd {
 	f := m.form
 	current := &f.fields[f.index]
+	if current.Key == moreKey {
+		f.editor.Blur()
+		return nil
+	}
 	f.editor.SetValue(current.Value)
 	if current.Multiline {
 		f.editor.SetHeight(max(3, min(7, m.height-16)))
@@ -410,6 +510,13 @@ func (m *dashboard) focusField() tea.Cmd {
 func fieldVisible(fields []field, index int) bool {
 	if index < 0 || index >= len(fields) {
 		return false
+	}
+	if fields[index].Advanced {
+		for _, f := range fields {
+			if f.Key == moreKey && f.Value != "true" {
+				return false
+			}
+		}
 	}
 	if !fields[index].HideWhenProject {
 		return true
@@ -463,7 +570,7 @@ func (m *dashboard) syncProjectTarget() {
 }
 func (m *dashboard) saveField() {
 	f := m.form
-	if len(f.fields[f.index].Options) == 0 {
+	if len(f.fields[f.index].Options) == 0 && f.fields[f.index].Key != moreKey {
 		f.fields[f.index].Value = f.editor.Value()
 	}
 }
@@ -543,14 +650,21 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 		f.index = nextVisibleField(f.fields, f.index, delta)
 		return m.focusField()
 	case "enter":
+		if current.Key == moreKey {
+			m.toggleMoreOptions()
+			return nil
+		}
 		if current.Searchable {
 			if !commitOptionSelection(current) {
 				m.notice = "No matching " + noun + ". Clear the filter with Ctrl-u or Backspace."
 				return nil
 			}
 			m.syncProjectTarget()
-			if f.title == "Blank persistent shell" {
-				m.saveField()
+		}
+		if !f.fields[f.index].Multiline {
+			m.saveField()
+			// Enter on the last question submits; before that it moves on.
+			if lastAnswer(f.fields, f.index) {
 				body, err := formBody(f.fields)
 				if err != nil {
 					m.notice = err.Error()
@@ -561,10 +675,10 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 			f.index = nextVisibleField(f.fields, f.index, 1)
 			return m.focusField()
 		}
-		if !f.fields[f.index].Multiline {
-			m.saveField()
-			f.index = nextVisibleField(f.fields, f.index, 1)
-			return m.focusField()
+	case " ", "right", "left":
+		if current.Key == moreKey {
+			m.toggleMoreOptions()
+			return nil
 		}
 	}
 	if len(current.Options) > 0 {
@@ -598,10 +712,27 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 	f.editor, cmd = f.editor.Update(msg)
 	return cmd
 }
+
+// toggleMoreOptions opens or folds the advanced fields of a form.
+func (m *dashboard) toggleMoreOptions() {
+	f := m.form
+	for i := range f.fields {
+		if f.fields[i].Key == moreKey {
+			if f.fields[i].Value == "true" {
+				f.fields[i].Value = ""
+				f.fields[i].Label = "More options…"
+			} else {
+				f.fields[i].Value = "true"
+				f.fields[i].Label = "Fewer options"
+			}
+		}
+	}
+}
+
 func formBody(fields []field) (map[string]any, error) {
 	out := map[string]any{}
 	for i, f := range fields {
-		if !fieldVisible(fields, i) {
+		if !fieldVisible(fields, i) || strings.HasPrefix(f.Key, "__") {
 			continue
 		}
 		v := f.Value
@@ -639,13 +770,21 @@ func formBody(fields []field) (map[string]any, error) {
 }
 func (m *dashboard) formView() string {
 	f := m.form
-	lines := []string{accent.Bold(true).Render(clip(" "+f.title, m.width-4)), muted.Render(clip(" Tab next · Shift-Tab back · arrows choose · Ctrl-s submit · Esc cancel", m.width-4)), ""}
+	lines := []string{accent.Bold(true).Render(clip(" "+f.title, m.width-4)), ""}
 	start := max(0, f.index-max(1, m.height-17))
 	for i := start; i < len(f.fields) && len(lines) < max(5, m.height-12); i++ {
 		if !fieldVisible(f.fields, i) {
 			continue
 		}
 		v := f.fields[i]
+		if v.Key == moreKey {
+			line := "  " + v.Label
+			if i == f.index {
+				line = chosen.Render("› " + v.Label)
+			}
+			lines = append(lines, clip(line, m.width-4))
+			continue
+		}
 		value := v.Value
 		for _, c := range v.Options {
 			if c.Value == value {
@@ -663,6 +802,9 @@ func (m *dashboard) formView() string {
 		lines = append(lines, clip(line, m.width-4))
 	}
 	current := f.fields[f.index]
+	if current.Key == moreKey {
+		return strings.Join(append(lines, "", muted.Render(" Enter or Space shows the other settings: name, profile, model, machine, worktree, resume, brief and group.")), "\n")
+	}
 	lines = append(lines, "", accent.Render(" "+current.Label))
 	if len(current.Options) > 0 {
 		options := filteredChoices(current)
@@ -698,6 +840,11 @@ func (m *dashboard) formView() string {
 	}
 	if current.Key == "project_id" && strings.TrimSpace(current.Value) != "" {
 		lines = append(lines, muted.Render(" Target: derived from selected project"))
+	}
+	// A refusal is often longer than the status line; show it whole here,
+	// next to the draft it refers to.
+	if m.notice != "" {
+		lines = append(lines, "", ansi.Wrap(" "+m.notice, max(10, m.width-4), ""))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -771,91 +918,40 @@ func boolField(key, label string, def bool) field {
 }
 func (m *dashboard) newForm() tea.Cmd {
 	kind := sections[m.section]
-	r := m.current()
-	project := str(r["project_id"])
-	target := str(r["target_id"])
-	if project != "" {
-		target = ""
-	}
-	if kind == "sessions" && project == "" {
-		// Nothing contextual to inherit: remember the project last used for a
-		// successful session, falling back to Scratch when that project is
-		// gone or the operator last chose Scratch explicitly.
-		project = m.defaultProjectChoice()
+	if kind == "sessions" {
+		return m.newSessionForm()
 	}
 	if kind == "approvals" {
 		m.notice = "Approvals are created by agents when they need a decision."
 		return nil
 	}
-	projects := options(orderProjects(m.projects, m.recentProjects), "Scratch / no project")
-	targets := options(m.targets, "Server default")
-	agents := []choice{}
-	taskCapable := kind == "tasks" || kind == "routines"
-	for _, a := range m.agents {
-		if taskCapable && a["builtin"] != true && a["task"] == nil && a["acp"] == nil {
-			continue
-		}
-		value := str(a["id"])
-		if value == "" {
-			value = str(a["name"])
-		}
-		agents = append(agents, choice{value, value})
+	r := m.current()
+	project := str(r["project_id"])
+	if kind == "projects" {
+		project = ""
 	}
-	if len(agents) == 0 {
-		agents = []choice{{"Codex", "codex"}, {"Claude", "claude"}}
-	}
-	agents = m.sortByAgentMenu(agents)
-	agent := optionField("agent", "Agent", "codex", agents, true)
+	agents, defaultAgent, _ := m.agentChoices(m.sessionTarget("project:"+project), project, kind == "tasks" || kind == "routines")
+	agent := optionField("agent", "Agent", defaultAgent, agents, true)
 	var fields []field
 	switch kind {
-	case "sessions":
-		agent.Label = "Agent (without a profile)"
-		targetField := optionField("target_id", "Target", target, targets, false)
-		targetField.HideWhenProject = true
-		workdirField := field{Key: "workdir", Label: "Directory (blank uses project or scratch)"}
-		workdirField.HideWhenProject = true
-		fields = []field{{Key: "name", Label: "Session name", Required: true}, optionField("profile_id", "Launch profile", "", m.profileChoices("Agent and project defaults"), false), optionField("project_id", "Project", project, projects, false), targetField, agent, {Key: "model", Label: "Model (blank uses default)"}, workdirField, {Key: "prime", Label: "Initial prompt", Multiline: true}, boolField("isolated", "Isolate files in a new Git worktree", false), boolField("multi_repo", "Choose additional repositories after this form", false), {Key: "worktree_base", Label: "Worktree base (blank = committed HEAD)"}, {Key: "worktree_branch", Label: "New branch (blank = unique name)"}, boolField("resume", "Resume latest conversation", false), boolField("brief", "Include project brief", true), boolField("yolo", "Skip agent permission prompts", false), {Key: "group_path", Label: "Group path (optional, e.g. Work/Client)"}}
 	case "tasks":
 		fields = []field{{Key: "title", Label: "Task title", Required: true}, optionField("project_id", "Project", project, options(m.projects, ""), true), {Key: "prompt", Label: "Task prompt", Multiline: true, Required: true}, agent, {Key: "model", Label: "Model"}, {Key: "base_branch", Label: "Base branch (blank uses project default)"}, boolField("dispatch", "Dispatch now in an isolated worktree", true)}
 	case "routines":
 		fields = []field{{Key: "name", Label: "Routine name", Required: true}, optionField("project_ids", "Project", "", options(m.projects, ""), true), {Key: "prompt", Label: "Prompt", Multiline: true, Required: true}, {Key: "schedule", Label: "Schedule (blank for manual)"}, agent, boolField("dispatch", "Dispatch generated tasks", true)}
 	case "projects":
-		fields = []field{{Key: "name", Label: "Project name", Required: true}, optionField("target_id", "Target", target, options(m.targets, ""), true), {Key: "repo_path", Label: "Repository path", Required: true}, {Key: "default_base_branch", Label: "Base branch", Value: "main"}}
+		repo := ""
+		if m.cwd != "" && projectContaining(m.projects, m.cwd) == "" {
+			repo = m.cwd
+		}
+		fields = []field{{Key: "name", Label: "Project name", Required: true}, optionField("target_id", "Machine", m.sessionTarget(""), options(m.targets, ""), true), {Key: "repo_path", Label: "Repository path", Value: repo, Required: true}, {Key: "default_base_branch", Label: "Base branch", Value: "main"}}
 	case "targets":
-		fields = []field{{Key: "name", Label: "Target name", Required: true}, optionField("kind", "Connection", "ssh", []choice{{"SSH", "ssh"}, {"Local", "local"}}, true), {Key: "host", Label: "Host / SSH alias"}, {Key: "user", Label: "SSH user"}, {Key: "port", Label: "SSH port", Value: "22"}, {Key: "key_path", Label: "SSH key path on server"}, {Key: "max_concurrent", Label: "Concurrent agents", Value: "4"}}
+		fields = []field{{Key: "name", Label: "Machine name", Required: true}, optionField("kind", "Connection", "ssh", []choice{{"SSH", "ssh"}, {"Local", "local"}}, true), {Key: "host", Label: "Host / SSH alias"}, {Key: "user", Label: "SSH user"}, {Key: "port", Label: "SSH port", Value: "22"}, {Key: "key_path", Label: "SSH key path on server"}, {Key: "max_concurrent", Label: "Concurrent agents", Value: "4"}}
 	}
-	return m.openForm("New "+strings.TrimSuffix(kind, "s"), fields, func(body map[string]any) tea.Cmd {
-		if kind == "sessions" {
-			if body["multi_repo"] == true {
-				if body["isolated"] != true || body["project_id"] == nil || body["workdir"] != nil || body["resume"] == true {
-					m.notice = "Choose a primary project and isolated files, with no directory override or resume."
-					return nil
-				}
-			}
-			if body["profile_id"] != nil {
-				delete(body, "agent") // The selected profile determines its agent.
-			}
-			if body["isolated"] == true {
-				body["background"] = true
-				body["worktree"] = map[string]any{"base": body["worktree_base"], "branch": body["worktree_branch"]}
-			}
-			delete(body, "isolated")
-			delete(body, "worktree_base")
-			delete(body, "worktree_branch")
-			if body["project_id"] != nil {
-				delete(body, "target_id")
-			}
-			if body["project_id"] == nil && body["workdir"] == nil {
-				body["scratch"] = true
-			}
-		}
-		if kind == "sessions" {
-			multi := body["multi_repo"] == true
-			delete(body, "multi_repo")
-			if multi {
-				return m.workspaceRepositoryForm(body, m.form)
-			}
-		}
+	title := "New " + strings.TrimSuffix(kind, "s")
+	if kind == "targets" {
+		title = "New machine"
+	}
+	return m.openForm(title, fields, func(body map[string]any) tea.Cmd {
 		if kind == "tasks" && body["dispatch"] == true {
 			return m.createAndDispatch(body)
 		}

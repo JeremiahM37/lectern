@@ -108,7 +108,7 @@ func TestFormatDetailKeepsGenericAPIFieldsReadable(t *testing.T) {
 
 func TestReadableDashboardPreviewAtWideAndNarrowTerminalWidths(t *testing.T) {
 	m := sampleDashboard()
-	m.section = 4
+	m.section = 5
 	m.rows = []row{{"id": float64(1), "name": "Fixture target", "provider_extra": map[string]any{"region": "west", "mode": "fixture"}}}
 	m.filter()
 	m.selected = 0
@@ -184,7 +184,7 @@ func TestDashboardIgnoresStaleResponsesAndKeepsRowsOnFailure(t *testing.T) {
 	m := sampleDashboard()
 	cmd := m.refresh()
 	_ = cmd
-	m.switchSection(1)
+	m.switchSection(3)
 	m.Update(rowsMsg{section: "sessions", generation: 1, rows: []row{{"id": float64(9)}}})
 	if len(m.rows) != 0 {
 		t.Fatal("stale tab response applied")
@@ -238,36 +238,40 @@ func TestDashboardFormsUseNamesPreserveDraftsAndSubmitRealHTTP(t *testing.T) {
 	m := sampleDashboard()
 	m.client = New(srv.URL, "")
 	m.projects = []row{{"id": float64(7), "name": "Named project"}}
-	m.targets = []row{{"id": float64(8), "name": "Named target"}}
 	m.newForm()
 	for i := range m.form.fields {
 		f := &m.form.fields[i]
 		switch f.Key {
 		case "name":
 			f.Value = "Test name"
-		case "project_id":
-			f.Value = "7"
+		case "where":
+			f.Value = "project:7"
 		case "prime":
-			f.Value = "first line\nsecond line"
+			f.Value = "first message"
 		}
 	}
-	m.form.index = 1
-	m.focusField()
 	if !strings.Contains(m.formView(), "Named project") {
 		t.Fatal("project name absent")
 	}
 	m.Update(rowsMsg{section: "sessions", generation: m.generation, rows: m.rows})
-	if m.form.fields[0].Value != "Test name" {
+	if m.form.fields[3].Value != "first message" {
 		t.Fatal("refresh replaced draft")
 	}
+	// The name lives under More options…; a folded field is still sent once
+	// the operator opened and filled it, so open it before submitting.
+	m.form.index = 4
+	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 	cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS})
 	msg := cmd()
 	m.Update(msg)
-	if got["name"] != "Test name" || got["project_id"] != float64(7) || got["target_id"] != nil || got["prime"] != "first line\nsecond line" || got["yolo"] != false {
+	if got["name"] != "Test name" || got["project_id"] != float64(7) || got["target_id"] != nil || got["prime"] != "first message" || got["permission_mode"] != "ask" {
 		t.Fatalf("body: %#v", got)
 	}
 	if m.form != nil {
 		t.Fatal("successful form stayed open")
+	}
+	if m.focusSessionID != "4" || !strings.Contains(m.notice, "Started") {
+		t.Fatalf("the new session was not selected: focus=%q notice=%q", m.focusSessionID, m.notice)
 	}
 }
 
@@ -281,7 +285,7 @@ func TestDashboardProjectPickerFiltersAndPreservesSelection(t *testing.T) {
 	m.newForm()
 	projectIndex := -1
 	for i, f := range m.form.fields {
-		if f.Key == "project_id" {
+		if f.Key == "where" {
 			projectIndex = i
 			if !f.Searchable {
 				t.Fatal("project field is not searchable")
@@ -301,8 +305,8 @@ func TestDashboardProjectPickerFiltersAndPreservesSelection(t *testing.T) {
 		t.Fatalf("filtered project count = %d, want 9", got)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyDown})
-	if m.form.fields[projectIndex].Value != "2" {
-		t.Fatalf("filtered down selected %q, want 2", m.form.fields[projectIndex].Value)
+	if m.form.fields[projectIndex].Value != "project:2" {
+		t.Fatalf("filtered down selected %q, want project:2", m.form.fields[projectIndex].Value)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlU})
 
@@ -318,14 +322,14 @@ func TestDashboardProjectPickerFiltersAndPreservesSelection(t *testing.T) {
 	if cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
 		t.Fatal("entering a project field should only move focus")
 	}
-	if m.form.fields[projectIndex].Value != "99" {
-		t.Fatalf("selected project = %q, want 99", m.form.fields[projectIndex].Value)
+	if m.form.fields[projectIndex].Value != "project:99" {
+		t.Fatalf("selected project = %q, want project:99", m.form.fields[projectIndex].Value)
 	}
-	if m.form.index != projectIndex+2 {
-		t.Fatalf("enter advanced to field %d, want %d", m.form.index, projectIndex+2)
+	if m.form.index != projectIndex+1 {
+		t.Fatalf("enter advanced to field %d, want %d", m.form.index, projectIndex+1)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "99" {
+	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("shift-tab lost project selection: index=%d value=%q", m.form.index, m.form.fields[projectIndex].Value)
 	}
 
@@ -337,24 +341,24 @@ func TestDashboardProjectPickerFiltersAndPreservesSelection(t *testing.T) {
 		t.Fatal("expected no matching projects")
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "99" {
+	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("no-result enter changed form state: index=%d value=%q", m.form.index, m.form.fields[projectIndex].Value)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyTab})
-	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "99" {
+	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("no-result tab changed form state: index=%d value=%q", m.form.index, m.form.fields[projectIndex].Value)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS})
-	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "99" {
+	if m.form.index != projectIndex || m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("no-result submit changed form state: index=%d value=%q", m.form.index, m.form.fields[projectIndex].Value)
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlU})
-	if m.form.fields[projectIndex].OptionFilter != "" || m.form.fields[projectIndex].Value != "99" {
+	if m.form.fields[projectIndex].OptionFilter != "" || m.form.fields[projectIndex].Value != "project:99" {
 		t.Fatalf("ctrl-u did not clear filter safely: filter=%q value=%q", m.form.fields[projectIndex].OptionFilter, m.form.fields[projectIndex].Value)
 	}
 	body, err := formBody([]field{m.form.fields[projectIndex]})
-	if err != nil || body["project_id"] != int64(99) {
-		t.Fatalf("form body project = %#v, err=%v", body["project_id"], err)
+	if err != nil || body["where"] != "project:99" {
+		t.Fatalf("form body where = %#v, err=%v", body["where"], err)
 	}
 }
 
@@ -372,83 +376,65 @@ func TestDashboardProjectFilterCommitsOnTab(t *testing.T) {
 	m := sampleDashboard()
 	m.projects = []row{{"id": float64(1), "name": "Alpha"}, {"id": float64(2), "name": "Beta"}}
 	m.newForm()
-	projectIndex := 2
-	m.form.index = projectIndex
+	m.form.index = 0
 	m.focusField()
 	for _, r := range []rune("Beta") {
 		m.updateForm(key(string(r)))
 	}
 	m.updateForm(tea.KeyMsg{Type: tea.KeyTab})
-	if m.form.fields[projectIndex].Value != "2" || m.form.index != projectIndex+2 {
-		t.Fatalf("tab did not commit filtered project: value=%q index=%d", m.form.fields[projectIndex].Value, m.form.index)
+	if m.form.fields[0].Value != "project:2" || m.form.index != 1 {
+		t.Fatalf("tab did not commit filtered project: value=%q index=%d", m.form.fields[0].Value, m.form.index)
 	}
 }
 
-func TestDashboardProjectSelectionDerivesTargetAndSkipsOverrides(t *testing.T) {
-	m := sampleDashboard()
-	delete(m.rows[0], "project_id")
-	m.rows[0]["target_id"] = float64(1)
-	m.projects = []row{
-		{"id": float64(1), "name": "Project A", "target_id": float64(1)},
-		{"id": float64(2), "name": "Project B", "target_id": float64(2)},
-	}
-	m.targets = []row{{"id": float64(1), "name": "Target A"}, {"id": float64(2), "name": "Target B"}}
-	m.newForm()
-	projectIndex, targetIndex, workdirIndex := -1, -1, -1
-	for i, f := range m.form.fields {
-		switch f.Key {
-		case "project_id":
-			projectIndex = i
-		case "target_id":
-			targetIndex = i
-		case "workdir":
-			workdirIndex = i
+// Where decides the session's place: a project sends its id and never a
+// machine (the project's own machine is used), a folder sends workdir, and a
+// scratch room sends scratch. The advanced machine applies only to the last
+// two.
+func TestNewSessionWhereMapsToProjectFolderOrScratch(t *testing.T) {
+	for _, tc := range []struct {
+		where string
+		check func(map[string]any) bool
+	}{
+		{"project:2", func(b map[string]any) bool {
+			return b["project_id"] == float64(2) && b["target_id"] == nil && b["workdir"] == nil && b["scratch"] == nil
+		}},
+		{"dir:/home/me/app", func(b map[string]any) bool {
+			return b["workdir"] == "/home/me/app" && b["project_id"] == nil && b["target_id"] == float64(1)
+		}},
+		{"scratch", func(b map[string]any) bool { return b["scratch"] == true && b["project_id"] == nil }},
+	} {
+		var got map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&got)
+			fmt.Fprint(w, `{"id":5}`)
+		}))
+		m := sampleDashboard()
+		m.client = New(srv.URL, "")
+		m.cwd = "/home/me/app"
+		m.projects = []row{{"id": float64(2), "name": "Project B", "target_id": float64(2), "repo_path": "/srv/b"}}
+		m.targets = []row{{"id": float64(1), "name": "Here", "kind": "local"}, {"id": float64(2), "name": "There"}}
+		m.agentState = map[string]map[string]string{"1": {}, "2": {}}
+		m.newForm()
+		for i := range m.form.fields {
+			switch m.form.fields[i].Key {
+			case "where":
+				m.form.fields[i].Value = tc.where
+			case "target_id":
+				m.form.fields[i].Value = "1"
+			case moreKey:
+				m.form.fields[i].Value = "true"
+			}
 		}
-	}
-	m.form.fields[0].Value = "derive target"
-	m.form.fields[targetIndex].Value = "2"
-	m.form.fields[workdirIndex].Value = "/scratch/draft"
-	m.form.index = projectIndex
-	m.focusField()
-	for _, r := range []rune("Project B") {
-		m.updateForm(key(string(r)))
-	}
-	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.form.fields[projectIndex].Value != "2" {
-		t.Fatalf("selected project = %q, want 2", m.form.fields[projectIndex].Value)
-	}
-	if fieldVisible(m.form.fields, targetIndex) || fieldVisible(m.form.fields, workdirIndex) {
-		t.Fatal("target and directory remained editable with a project selected")
-	}
-	if m.form.fields[targetIndex].Value != "" || m.form.fields[workdirIndex].Value != "" {
-		t.Fatalf("stale project overrides remain: target=%q workdir=%q", m.form.fields[targetIndex].Value, m.form.fields[workdirIndex].Value)
-	}
-	if m.form.index != targetIndex+1 { // project -> agent, skipping target
-		t.Fatalf("focus landed on field %d, want agent field %d", m.form.index, targetIndex+1)
-	}
-	m.updateForm(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.form.index != projectIndex {
-		t.Fatalf("shift-tab did not return to previous visible project field: %d", m.form.index)
-	}
-	m.form.fields[projectIndex].Value = ""
-	m.syncProjectTarget()
-	if m.form.fields[targetIndex].Value != "2" || m.form.fields[workdirIndex].Value != "/scratch/draft" {
-		t.Fatalf("clearing project did not restore manual scratch draft: target=%q workdir=%q", m.form.fields[targetIndex].Value, m.form.fields[workdirIndex].Value)
-	}
-	m.form.index = projectIndex
-	m.focusField()
-	m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.form.index != targetIndex || !fieldVisible(m.form.fields, targetIndex) {
-		t.Fatalf("scratch session did not expose target field: index=%d visible=%v", m.form.index, fieldVisible(m.form.fields, targetIndex))
-	}
-	m.updateForm(tea.KeyMsg{Type: tea.KeyLeft})
-
-	body, err := formBody(m.form.fields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if body["project_id"] != nil || body["target_id"] == nil {
-		t.Fatalf("scratch body did not retain target choice: %#v", body)
+		body, err := formBody(m.form.fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Update(m.form.submit(body)())
+		srv.Close()
+		if !tc.check(got) {
+			t.Fatalf("%s sent %#v", tc.where, got)
+		}
 	}
 }
 
@@ -493,7 +479,7 @@ func TestDashboardMCPSettingsEditorUsesRevisionAndKeepsDraftOnConflict(t *testin
 	}))
 	defer srv.Close()
 	m := newDashboard(New(srv.URL, ""), nil)
-	m.section = 3
+	m.section = 2
 	m.rows = []row{{"id": float64(7), "name": "Fixture"}}
 	m.filter()
 	msg := m.mcpSettingsForm()()
@@ -533,7 +519,7 @@ func TestDashboardTaskCreateDispatchDoesNotDuplicateAfterPartialFailure(t *testi
 	}))
 	defer srv.Close()
 	m := newDashboard(New(srv.URL, ""), nil)
-	m.section = 1
+	m.section = 3
 	m.openForm("New task", []field{{Key: "title", Label: "Title", Value: "One task"}}, nil)
 	cmd := m.createAndDispatch(map[string]any{"title": "One task", "project_id": 7})
 	m.Update(cmd())
@@ -554,8 +540,12 @@ func TestDashboardDestructiveActionsRequireConfirmationAndRetainIdentity(t *test
 	m := sampleDashboard()
 	m.client = New(srv.URL, "")
 	m.current()["origin"] = "discovered"
-	actions := m.actions()
-	a := actions[len(actions)-1]
+	var a dashboardAction
+	for _, action := range m.actions() {
+		if action.Method == "DELETE" && action.Key == "x" {
+			a = action
+		}
+	}
 	if !strings.Contains(a.Label, "leave running") {
 		t.Fatal("adopted session warning wrong")
 	}
@@ -689,7 +679,7 @@ func TestConfirmationWrapsConversationIdentity(t *testing.T) {
 	cid := "11111111-1111-4111-8111-111111111111"
 	m.pending = &dashboardAction{Label: "Resume conversation", Warning: "The previous terminal must be stopped. Continue this same saved history in its original workspace? Conversation: " + cid}
 	view := ansi.Strip(m.View())
-	if !strings.Contains(view, cid) || !strings.Contains(view, "y Confirm") {
+	if !strings.Contains(view, cid) || !strings.Contains(view, "y confirm") {
 		t.Fatalf("confirmation clipped essential details:\n%s", view)
 	}
 	for _, line := range strings.Split(view, "\n") {
@@ -865,16 +855,21 @@ func TestActionSearchEmptyAndEscapePreserveDashboard(t *testing.T) {
 	for _, r := range "nonexistent-command" {
 		m.Update(key(string(r)))
 	}
-	if !strings.Contains(m.View(), "No matching actions") {
+	if !strings.Contains(m.View(), "No command matches") {
 		t.Fatal("missing empty result guidance")
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.menu {
+	if !m.palette || m.form != nil || m.pending != nil {
 		t.Fatal("empty result executed an action")
 	}
+	// Esc clears the search first, then closes; it never quits.
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if m.menu {
-		t.Fatal("Escape did not close actions")
+	if !m.palette || m.paletteQuery != "" {
+		t.Fatal("Escape did not clear the search first")
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.palette || m.menu || quitFrom(cmd) {
+		t.Fatal("Escape did not close the palette back to the list")
 	}
 }
 
@@ -883,9 +878,13 @@ func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
 		m := sampleDashboard()
 		m.width = width
 		view := ansi.Strip(m.View())
-		for _, hint := range []string{"n new", "m actions", "f ", "F ", "q quit"} {
+		want := []string{"n new", "q quit", "? keys"}
+		if width >= 80 {
+			want = append(want, "x end", "r restore", ": commands")
+		}
+		for _, hint := range want {
 			if !strings.Contains(view, hint) {
-				t.Fatalf("width %d missing %q", width, hint)
+				t.Fatalf("width %d missing %q:\n%s", width, hint, view)
 			}
 		}
 		for _, line := range strings.Split(view, "\n") {
@@ -895,10 +894,10 @@ func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
 		}
 	}
 	m := sampleDashboard()
-	m.menuQuery = "running agents"
+	m.paletteQuery = "running agents"
 	actions := m.filteredActions()
-	if len(actions) != 1 || actions[0].Operation != "discover" {
-		t.Fatal("running-agent discovery missing from actions")
+	if len(actions) == 0 || actions[0].Operation != "discover" {
+		t.Fatalf("running-agent discovery is not the first match: %+v", actions)
 	}
 }
 

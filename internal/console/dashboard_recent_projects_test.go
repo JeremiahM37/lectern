@@ -19,7 +19,7 @@ func projectField(t *testing.T, m *dashboard) field {
 		t.Fatal("form did not open")
 	}
 	for _, f := range m.form.fields {
-		if f.Key == "project_id" {
+		if f.Key == "where" {
 			return f
 		}
 	}
@@ -132,22 +132,22 @@ func TestNewSessionFormDefaultsToLastProjectAndFallsBackWhenDeleted(t *testing.T
 	m.projects = []row{{"id": float64(7), "name": "Site"}, {"id": float64(9), "name": "API"}}
 	m.recentProjects = []int64{9, 7}
 	m.newForm()
-	if got := projectField(t, m).Value; got != "9" {
+	if got := projectField(t, m).Value; got != "project:9" {
 		t.Fatalf("new session defaulted to %q, want the most recent project", got)
 	}
-	if vals := optionValues(projectField(t, m)); len(vals) < 3 || vals[1] != "9" || vals[2] != "7" {
+	if vals := optionValues(projectField(t, m)); len(vals) < 3 || vals[0] != "project:9" || vals[1] != "project:7" || vals[len(vals)-1] != "scratch" {
 		t.Fatalf("project choices not ordered by recency: %v", vals)
 	}
 	// The most recent project was deleted: fall back to the next recency entry.
 	m.projects = []row{{"id": float64(7), "name": "Site"}}
 	m.newForm()
-	if got := projectField(t, m).Value; got != "7" {
+	if got := projectField(t, m).Value; got != "project:7" {
 		t.Fatalf("deleted recent project did not fall back: %q", got)
 	}
 	// Every remembered project is gone: degrade to the blank Scratch option.
 	m.projects = nil
 	m.newForm()
-	if got := projectField(t, m).Value; got != "" {
+	if got := projectField(t, m).Value; got != "scratch" {
 		t.Fatalf("stale recency did not degrade to Scratch: %q", got)
 	}
 }
@@ -163,7 +163,7 @@ func TestExplicitScratchNewSessionKeepsScratchDefault(t *testing.T) {
 		t.Fatal("an ordinary session with no project was not remembered as Scratch")
 	}
 	m.newForm()
-	if got := projectField(t, m).Value; got != "" {
+	if got := projectField(t, m).Value; got != "scratch" {
 		t.Fatalf("explicit Scratch did not keep the blank default: %q", got)
 	}
 }

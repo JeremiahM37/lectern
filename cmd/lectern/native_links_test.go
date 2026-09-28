@@ -407,7 +407,7 @@ func TestNativeMouseBindingsOnARealClient(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		out, _ := exec.Command(r.tmux, "-S", outer, "capture-pane", "-p", "-t", "outer").Output()
-		if strings.Contains(string(out), "Double-click") && strings.Contains(string(out), "Cerebras.pdf)") {
+		if strings.Contains(string(out), "double-click") && strings.Contains(string(out), "Cerebras.pdf)") {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -717,7 +717,7 @@ func (r *linkRig) keys(keys ...string) {
 func TestNativeHintsLabelAndOpenLinks(t *testing.T) {
 	r := newLinkRig(t, codexScreen(t), false, "Jeremiah_Mackey_Cerebras.pdf)")
 	r.client()
-	r.waitOuter("the attachment", func(s string) bool { return strings.Contains(s, "Ctrl+] e") && strings.Contains(s, "Cerebras.pdf)") })
+	r.waitOuter("the attachment", func(s string) bool { return strings.Contains(s, "Ctrl+] menu") && strings.Contains(s, "Cerebras.pdf)") })
 	r.keys("C-]", "e")
 	// The wrapped path is the first link, labelled "a" over its first row;
 	// the address is "s".

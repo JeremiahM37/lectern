@@ -46,7 +46,7 @@ func TestControlsModeHidesNativeTerminalActions(t *testing.T) {
 
 func TestControlsModeDoesNotOfferAttachForTasks(t *testing.T) {
 	m := controlsDashboard(DashboardOptions{})
-	m.section = 1
+	m.section = 3
 	m.rows = []row{{"id": float64(3), "name": "Task", "status": "running", "attempt": map[string]any{"id": float64(4)}}}
 	m.filter()
 	for _, action := range m.actions() {
@@ -111,7 +111,7 @@ func TestControlsFocusReportsAMissingRow(t *testing.T) {
 
 func TestControlsAttemptFocusResolvesOwningTask(t *testing.T) {
 	m := controlsDashboard(DashboardOptions{FocusKind: "attempt", FocusID: "9"})
-	if m.section != 1 {
+	if sections[m.section] != "tasks" {
 		t.Fatalf("attempt controls should open Tasks, got section %d", m.section)
 	}
 	rows := []row{

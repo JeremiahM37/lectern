@@ -50,6 +50,8 @@ func TestSessionFormUsesSelectedProfileAgentAndKeepsDraftOnError(t *testing.T) {
 			m.form.fields[i].Value = "7"
 		case "agent":
 			m.form.fields[i].Value = "claude"
+		case moreKey:
+			m.form.fields[i].Value = "true"
 		}
 	}
 	body, err := formBody(m.form.fields)
@@ -61,8 +63,13 @@ func TestSessionFormUsesSelectedProfileAgentAndKeepsDraftOnError(t *testing.T) {
 	if received["profile_id"] != float64(7) || received["agent"] != nil {
 		t.Fatal("profile selection sent a conflicting agent", received)
 	}
-	if m.form == nil || m.form.fields[0].Value != "keep profile draft" {
-		t.Fatal("launch failure lost the profile draft")
+	if m.form == nil {
+		t.Fatal("launch failure closed the form")
+	}
+	for _, f := range m.form.fields {
+		if f.Key == "name" && f.Value != "keep profile draft" {
+			t.Fatal("launch failure lost the profile draft")
+		}
 	}
 }
 

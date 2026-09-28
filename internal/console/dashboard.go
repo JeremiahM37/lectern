@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -16,7 +17,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-var sections = []string{"sessions", "tasks", "routines", "projects", "targets", "approvals"}
+// sections are the panes. The first four are numbered on screen (1–4);
+// Routines and Machines are reached from the palette, and 5 still opens
+// Machines as a silent alias from the old numbering.
+var sections = []string{"sessions", "approvals", "projects", "tasks", "routines", "targets"}
+
+const numberedPanes = 4
 
 type row map[string]any
 
@@ -113,7 +119,7 @@ type refsMsg struct {
 	// relaunched is what restart recovery brought back since the notice was
 	// last dismissed.
 	relaunched []row
-	err            error
+	err        error
 }
 type tickMsg time.Time
 type resultMsg struct {
@@ -145,43 +151,57 @@ type promotionPreviewMsg struct {
 	err  error
 }
 type dashboard struct {
-	focusSessionID                      string
-	client                              *Client
-	attach                              func(string, string) error
-	openTerminal                        func(string, string, bool) error
-	openBatch                           func([]string) error
-	batchSelected                       map[string]bool
-	terminalWorkspace                   bool
-	batchOpen                           bool
-	insert                              func(string) error
-	section                             int
-	rows, visible                       []row
-	selected, offset                    int
-	width, height                       int
-	generation                          int
-	loading                             bool
-	updated                             time.Time
-	failure, notice                     string
-	query                               textinput.Model
-	searching                           bool
-	review                              *codeReview
-	nativeSearch                        *nativeSearchState
-	native                              *nativeSelection
-	grouping                            int
-	groupingBySection                   map[string]int
-	preferencePath                      string
-	recentProjects                      []int64
-	scratchNewSession                   bool
-	collapsed                           map[string]bool
-	matched                             int
-	attention, ended, archived          bool
-	preview                             viewport.Model
-	previewFocus                        bool
-	detailKey, detailTitle, detail      string
-	help, menu                          bool
-	menuIndex                           int
-	menuQuery                           string
-	menuSearching                       bool
+	focusSessionID                 string
+	client                         *Client
+	attach                         func(string, string) error
+	openTerminal                   func(string, string, bool) error
+	openBatch                      func([]string) error
+	batchSelected                  map[string]bool
+	terminalWorkspace              bool
+	batchOpen                      bool
+	insert                         func(string) error
+	section                        int
+	rows, visible                  []row
+	selected, offset               int
+	width, height                  int
+	generation                     int
+	loading                        bool
+	updated                        time.Time
+	failure, notice                string
+	query                          textinput.Model
+	searching                      bool
+	review                         *codeReview
+	nativeSearch                   *nativeSearchState
+	native                         *nativeSelection
+	grouping                       int
+	groupingBySection              map[string]int
+	preferencePath                 string
+	recentProjects                 []int64
+	scratchNewSession              bool
+	collapsed                      map[string]bool
+	matched                        int
+	attention, ended, archived     bool
+	preview                        viewport.Model
+	previewFocus                   bool
+	detailKey, detailTitle, detail string
+	help, menu, palette            bool
+	menuIndex                      int
+	paletteQuery                   string
+	helpOffset                     int
+	helpQuery, helpContext         string
+	helpSearching                  bool
+	approvals                      []row
+	approvalsLoading               bool
+	// agentState caches GET /targets/{id}/agents per machine for this run:
+	// agent name → available / missing / unchecked.
+	agentState map[string]map[string]string
+	// cwd is where the dashboard was started, offered as the new session's
+	// folder when the server runs on this machine.
+	cwd string
+	// reviewPaused keeps an open review while its commit form is shown.
+	reviewPaused *codeReview
+	// permissionDefault is the server's session_permission_mode setting.
+	permissionDefault                   string
 	form                                *dashboardForm
 	pending                             *dashboardAction
 	busy                                bool
@@ -230,6 +250,9 @@ type DashboardOptions struct {
 	FocusKind   string
 	FocusID     string
 	Action      string
+	// Cwd is the directory the dashboard was started in, set only when the
+	// server shares this machine's filesystem.
+	Cwd string
 }
 
 // RunDashboard uses a full-screen renderer that owns raw mode, resizing and the
@@ -280,6 +303,8 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	m.focusSessionID = opts.InitialSessionID
 	m.controlOnly = opts.ControlOnly
 	m.popup = opts.Popup
+	m.cwd = opts.Cwd
+	m.agentState = map[string]map[string]string{}
 	if kind := controlsKind(opts.FocusKind); kind != "" && opts.FocusID != "" {
 		m.section = controlsSection(kind)
 		m.pendingFocus = &dashboardFocus{section: m.section, id: opts.FocusID, attempt: kind == "attempt", action: opts.Action, openMenu: true}
@@ -303,13 +328,15 @@ func controlsKind(kind string) string {
 func controlsSection(kind string) int {
 	switch kind {
 	case "task", "attempt":
-		return 1
-	case "project":
 		return 3
+	case "project":
+		return 2
 	}
 	return 0
 }
-func (m *dashboard) Init() tea.Cmd { return tea.Batch(m.refresh(), m.references(), nextTick()) }
+func (m *dashboard) Init() tea.Cmd {
+	return tea.Batch(m.refresh(), m.references(), m.pollApprovals(), nextTick())
+}
 func nextTick() tea.Cmd {
 	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
@@ -442,7 +469,7 @@ func (m *dashboard) filter() {
 	m.visible = nil
 	for _, r := range m.rows {
 		s := str(r["status"])
-		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) {
+		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) && m.approvalFor(r) == nil && r["state"] != "needs_you" {
 			continue
 		}
 		if status != "" && s != status {
@@ -480,7 +507,7 @@ func (m *dashboard) ensureSelection() {
 		m.offset = m.selected
 	}
 	m.offset = max(0, min(m.offset, m.selected))
-	for m.offset < m.selected && m.rowsHeight(m.offset, m.selected+1) > max(3, m.height-9) {
+	for m.offset < m.selected && m.rowsHeight(m.offset, m.selected+1) > m.bodyHeight() {
 		m.offset++
 	}
 }
@@ -539,7 +566,7 @@ func focusMissingNotice(f *dashboardFocus) string {
 	case "projects":
 		return "No project in the current list matches " + f.id + "."
 	}
-	return "No session in the current live list matches " + f.id + "; press A or z to widen the view."
+	return "No session in the current live list matches " + f.id + "; press z to include ended sessions."
 }
 
 // controlAction runs one direct controls shortcut (Ctrl-] u and friends) after
@@ -565,7 +592,7 @@ func (m *dashboard) controlAction(name string) tea.Cmd {
 
 // nativeDisabled explains why a native terminal action is unavailable here.
 func (m *dashboard) nativeDisabled() tea.Cmd {
-	m.notice = "Native terminals are disabled in the controls popup; detach (Ctrl-b d) or quit and attach from the dashboard."
+	m.notice = "Native terminals are disabled in the controls popup; Esc goes back to the agent, and Ctrl+] d leaves it."
 	return nil
 }
 
@@ -599,7 +626,7 @@ func (m *dashboard) updatePreview() {
 	}
 	r := m.current()
 	if r == nil && m.detailKey != m.key() {
-		m.preview.SetContent("No matches. / Search · n New · f Find running agents")
+		m.preview.SetContent("")
 		return
 	}
 	bottom := m.preview.AtBottom()
@@ -613,7 +640,12 @@ func (m *dashboard) updatePreview() {
 	if m.detailKey == "" {
 		switch sections[m.section] {
 		case "sessions":
-			content = fmt.Sprintf("%s\n%s · %s · %s\n%s\n\n%s", name(r), str(r["agent"]), str(r["status"]), str(r["target_name"]), str(r["workdir"]), str(r["pane_tail"]))
+			content = fmt.Sprintf("%s\n%s · %s · %s\n%s\n\n%s", name(r), str(r["agent"]), m.sessionStatus(r), str(r["target_name"]), str(r["workdir"]), str(r["pane_tail"]))
+			if a := m.approvalFor(r); a != nil {
+				content = "Needs you: " + approvalSummary(a) + "\ny allow once · a allow for this session · 2 to deny\n\n" + content
+			} else if agentExited(r) {
+				content = "The agent exited; this terminal is at a shell prompt.\nr starts the agent again (its conversation is resumed when one was saved).\n\n" + content
+			}
 			if unreachable(r) {
 				content = str(r["target_name"]) + " is not answering; this is the last status seen.\n" + content
 			}
@@ -667,6 +699,8 @@ func (m *dashboard) updatePreview() {
 					}
 				}
 			}
+		case "approvals":
+			content = approvalPreview(r)
 		case "tasks":
 			content = fmt.Sprintf("%s\n%s · %s\n\n%s", name(r), str(r["status"]), str(r["project_name"]), str(r["prompt"]))
 			if a, ok := r["attempt"].(map[string]any); ok {
@@ -755,7 +789,18 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(m.refresh(), nextTick())
+		return m, tea.Batch(m.refresh(), m.pollApprovals(), nextTick())
+	case approvalsMsg:
+		m.approvalsLoading = false
+		if v.err == nil {
+			m.approvals = v.rows
+			if sections[m.section] == "sessions" {
+				m.updatePreview()
+			}
+		}
+		return m, nil
+	case agentStateMsg:
+		return m, m.receiveAgentState(v)
 	case rowsMsg:
 		if v.generation != m.generation || v.section != sections[m.section] {
 			return m, nil
@@ -936,6 +981,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Scratch as the default; a shell never reaches this path.
 					m.rememberScratchSession()
 				}
+				// Like `lectern claude`: the new session is selected and, once it
+				// is ready, attached, so the next thing is talking to the agent.
+				m.focusSessionID = id(created)
+				m.notice = "Started " + strconv.Quote(oneLine(name(created)))
+				if created["setup_state"] != "creating" && !m.controlOnly && m.attach != nil {
+					m.attachAfterRefresh = true
+					m.notice += "; attaching. Ctrl+] d comes back here."
+				}
 			}
 		}
 		if v.label == "Add repository" {
@@ -948,7 +1001,19 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if reserved["setup_cancel_requested"] == true && (v.label == "Cancel setup" || v.label == "Retry cancellation" || v.label == "Cancel remaining checkout") {
 			m.notice = "Cancellation requested. Files already created will be retained."
 		}
-		return m, tea.Batch(m.refresh(), m.references())
+		if v.label == commitLabel && m.reviewPaused != nil {
+			m.review, m.reviewPaused = m.reviewPaused, nil
+			return m, tea.Batch(m.loadReview(""), m.refresh())
+		}
+		if v.label == decideLabel {
+			if m.popup {
+				// Answered from Ctrl+] m while attached: go straight back to
+				// the agent that asked.
+				return m, tea.Quit
+			}
+			return m, tea.Batch(m.refresh(), m.pollApprovals())
+		}
+		return m, tea.Batch(m.refresh(), m.references(), m.pollApprovals())
 	case loadedFormMsg:
 		m.busy = false
 		if v.err != nil {
@@ -1015,13 +1080,14 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.review != nil {
 			return m, m.updateReview(v)
 		}
+		typing := m.searching || m.palette || m.helpSearching || m.form != nil || m.recentSearching
 		// A terminal read can contain several ordinary keystrokes. Process them
 		// in order, allowing '/' to focus search before its following text.
 		// Bracketed paste outside an input is data, never a command sequence.
-		if v.Paste && !m.searching && !m.menuSearching && m.form == nil {
+		if v.Paste && !typing {
 			return m, nil
 		}
-		if len(v.Runes) > 1 && !m.searching && !m.menuSearching && m.form == nil {
+		if len(v.Runes) > 1 && !typing {
 			var cmds []tea.Cmd
 			for _, r := range v.Runes {
 				_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -1044,14 +1110,17 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pending = nil
 				return m, m.execute(a)
 			}
-			if v.String() == "n" || v.String() == "esc" {
+			if v.String() == "n" || v.String() == "esc" || v.String() == "q" {
 				m.pending = nil
+				m.notice = "Cancelled"
+				if m.reviewPaused != nil {
+					m.review, m.reviewPaused = m.reviewPaused, nil
+				}
 			}
 			return m, nil
 		}
 		if m.help {
-			m.help = false
-			return m, nil
+			return m, m.updateHelp(v)
 		}
 		if m.searching {
 			if v.String() == "enter" || v.String() == "esc" {
@@ -1064,61 +1133,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filter()
 			return m, cmd
 		}
+		if m.palette {
+			return m, m.updatePalette(v)
+		}
 		if m.menu {
-			list := m.filteredActions()
-			m.menuIndex = max(0, min(m.menuIndex, len(list)-1))
-			if m.menuSearching {
-				switch v.String() {
-				case "esc":
-					m.menuSearching = false
-					m.menuQuery = ""
-				case "enter":
-					m.menuSearching = false
-					if len(list) > 0 {
-						m.menu = false
-						m.menuQuery = ""
-						return m, m.choose(list[0])
-					}
-				case "down", "up":
-					m.menuSearching = false
-				case "backspace":
-					r := []rune(m.menuQuery)
-					if len(r) > 0 {
-						m.menuQuery = string(r[:len(r)-1])
-					}
-				default:
-					if v.Type == tea.KeyRunes && len([]rune(m.menuQuery)) < 200 {
-						m.menuQuery += string(v.Runes)
-					}
-					if v.Type == tea.KeySpace {
-						m.menuQuery += " "
-					}
-				}
-				m.menuIndex = 0
-				return m, nil
-			}
-			switch v.String() {
-			case "/":
-				m.menuSearching = true
-			case "esc", "q":
-				m.menuQuery = ""
-				if m.popup {
-					return m, tea.Quit
-				}
-				m.menu = false
-			case "m":
-				m.menu = false
-			case "up", "k":
-				m.menuIndex = max(0, m.menuIndex-1)
-			case "down", "j":
-				m.menuIndex = min(len(list)-1, m.menuIndex+1)
-			case "enter":
-				if len(list) > 0 {
-					m.menu = false
-					return m, m.choose(list[m.menuIndex])
-				}
-			}
-			return m, nil
+			return m, m.updateMenu(v)
 		}
 		if m.recentOpen && m.recentSearching {
 			switch v.Type {
@@ -1141,7 +1160,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.recentOpen {
 			switch v.String() {
-			case "esc", "backspace", "q", "C":
+			case "esc", "backspace", "q", "C", "r":
 				if m.recentQuery != "" && v.String() == "esc" {
 					m.recentQuery = ""
 					m.recentSelected = 0
@@ -1158,191 +1177,12 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.resumeRecentSelected()
 			case "h", "H":
 				return m, m.recentHistorySelected()
+			case "?":
+				m.openHelp()
 			}
 			return m, nil
 		}
-		switch v.String() {
-		case "q":
-			return m, tea.Quit
-		case "G":
-			return m, m.groupForm()
-		case "F":
-			return m, m.nativeSearchForm()
-		case "H":
-			return m, m.savedConversations()
-		case "C":
-			return m, m.loadRecentSessions()
-		case "U":
-			return m, m.undoLastClose()
-		case "R":
-			if r := m.current(); sections[m.section] == "sessions" && r != nil && m.selectedGroup() == nil {
-				if !agentExited(r) {
-					m.notice = "R revives an agent that exited; this one is still running"
-					return m, nil
-				}
-				return m, m.choose(reviveAction(r))
-			}
-		case "O":
-			return m, m.olderNative()
-		case "?":
-			m.help = true
-		case "/":
-			m.searching = true
-			return m, m.query.Focus()
-		case "esc":
-			if m.popup && !m.searching && m.detailKey == "" {
-				return m, tea.Quit
-			}
-			m.query.SetValue("")
-			m.detailKey = ""
-			m.detail = ""
-			m.previewFocus = false
-			m.filter()
-		case "1", "2", "3", "4", "5", "6":
-			return m, m.switchSection(int(v.String()[0] - '1'))
-		case "left":
-			return m, m.switchSection(m.section - 1)
-		case "right":
-			return m, m.switchSection(m.section + 1)
-		case "tab":
-			m.previewFocus = !m.previewFocus
-		case "up", "k":
-			if m.previewFocus {
-				m.preview.LineUp(1)
-			} else {
-				m.selected--
-				m.ensureSelection()
-				m.updatePreview()
-			}
-		case "down", "j":
-			if m.previewFocus {
-				m.preview.LineDown(1)
-			} else {
-				m.selected++
-				m.ensureSelection()
-				m.updatePreview()
-			}
-		case "pgup", "ctrl+u":
-			m.preview.HalfPageUp()
-		case "pgdown", "ctrl+d":
-			m.preview.HalfPageDown()
-		case "home":
-			if m.previewFocus {
-				m.preview.GotoTop()
-			} else {
-				m.selected = 0
-				m.ensureSelection()
-				m.updatePreview()
-			}
-		case "end":
-			if m.previewFocus {
-				m.preview.GotoBottom()
-			} else {
-				m.selected = len(m.visible) - 1
-				m.ensureSelection()
-				m.updatePreview()
-			}
-		case "g":
-			modes := 3
-			if m.section == 0 {
-				modes = 4
-			}
-			m.grouping = (m.grouping + 1) % modes
-			m.filter()
-			m.savePreferences()
-		case " ":
-			if m.batchOpen && m.section == 0 && m.selectedGroup() == nil {
-				m.toggleBatchSelection()
-			} else {
-				m.toggleGroup()
-			}
-		case "[":
-			m.collapseGroup()
-		case "]":
-			m.expandGroup()
-		case "w":
-			m.attention = !m.attention
-			m.filter()
-		case "A":
-			m.archived = !m.archived
-			return m, m.refresh()
-		case "z":
-			m.archived = false
-			m.ended = !m.ended
-			return m, m.refresh()
-		case "r":
-			return m, m.refresh()
-		case "P":
-			return m, m.manageProfilesForm()
-		case "Q":
-			return m, m.manageAgentsForm()
-		case "p":
-			m.detailKey = ""
-			m.previewFocus = !m.previewFocus
-			m.updatePreview()
-		case "o":
-			return m, m.attachSelectedTo(false, true)
-		case "b":
-			if m.controlOnly {
-				return m, m.nativeDisabled()
-			}
-			if m.section != 0 {
-				m.notice = "Select sessions in the Sessions section (1)"
-				return m, nil
-			}
-			m.batchOpen = !m.batchOpen
-			m.batchSelected = map[string]bool{}
-			if m.batchOpen {
-				m.notice = "Batch select · click/Space selects · Enter opens selected terminals · b cancels"
-			} else {
-				m.notice = "Batch open OFF · Enter/click attaches here"
-			}
-		case "enter", "a":
-			if m.batchOpen && m.section == 0 {
-				return m, m.openSelectedBatch()
-			}
-			if m.selectedGroup() != nil {
-				m.toggleGroup()
-				return m, nil
-			}
-			if m.controlOnly {
-				return m, m.nativeDisabled()
-			}
-			return m, m.attachSelected(false)
-		case "s":
-			if m.controlOnly {
-				return m, m.nativeDisabled()
-			}
-			return m, m.attachSelected(true)
-		case "S":
-			if m.controlOnly {
-				return m, m.nativeDisabled()
-			}
-			return m, m.newShellForm()
-		case "m":
-			m.menuQuery = ""
-			m.menuSearching = false
-			m.menu = true
-			m.menuIndex = 0
-		case "n":
-			return m, m.newForm()
-		case "e":
-			return m, m.renameForm()
-		case "h":
-			return m, m.readDetail("History")
-		case "v":
-			return m, m.readDetail("Diff")
-		case "f":
-			return m, m.discover()
-		case "7":
-			return m, m.settingsForm()
-		case "8":
-			return m, m.readResource("Usage", "/stats")
-		case "9":
-			return m, m.apiForm()
-		case "u":
-			return m, m.uploadForm()
-		}
+		return m, m.updateTopLevel(v)
 	case tea.MouseMsg:
 		if m.nativeSearch != nil && m.form == nil {
 			var cmd tea.Cmd
@@ -1417,9 +1257,11 @@ func (m *dashboard) attachSelectedTo(shell, newTerminal bool) tea.Cmd {
 		return nil
 	}
 	if kind == "session" && r["ended_at"] != nil {
-		m.menu = true
-		m.menuIndex = 0
-		m.notice = "Restore tracking before attaching, or use f to find running sessions."
+		if r["can_restore"] == true && r["archived_at"] == nil {
+			m.notice = "This session has ended. r tracks it again, then Enter attaches."
+		} else {
+			m.notice = "This session has ended. r opens the Restore list, which brings back its conversation."
+		}
 		return nil
 	}
 	if kind == "task" {
@@ -1432,8 +1274,7 @@ func (m *dashboard) attachSelectedTo(shell, newTerminal bool) tea.Cmd {
 		rid = id(row(a))
 	}
 	if kind != "session" && kind != "attempt" && kind != "project" {
-		m.menu = true
-		m.menuIndex = 0
+		m.openMenu()
 		return nil
 	}
 	// Projects already resolve to a shell; Enter and s open the same terminal
@@ -1470,6 +1311,11 @@ var muted = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 var chosen = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("60"))
 
 func clip(s string, w int) string { return ansi.Truncate(s, max(0, w), "…") }
+
+// bodyHeight is the room between the four header lines and the two footer
+// lines (the key bar and the status line).
+func (m *dashboard) bodyHeight() int { return max(3, m.height-8) }
+
 func (m *dashboard) View() string {
 	if m.nativeSearch != nil && m.form == nil {
 		return m.nativeSearchView()
@@ -1480,10 +1326,7 @@ func (m *dashboard) View() string {
 	if m.width < 35 || m.height < 12 {
 		return "Lectern\nResize to at least 35 × 12.\nq to quit"
 	}
-	title := accent.Bold(true).Render(" ◆ Lectern") + muted.Render("  Terminal workspace")
-	if m.width < 65 {
-		title = accent.Bold(true).Render(" ◆ Lectern")
-	}
+	title := accent.Bold(true).Render(" ◆ Lectern")
 	connection := "Connecting…"
 	if !m.updated.IsZero() {
 		connection = "LIVE · " + m.updated.Format("15:04:05")
@@ -1495,59 +1338,38 @@ func (m *dashboard) View() string {
 		connection = "OFFLINE · retrying"
 	}
 	title += strings.Repeat(" ", max(1, m.width-ansi.StringWidth(title)-len(connection)-2)) + connection
-	var tabs []string
-	for i, s := range sections {
-		label := fmt.Sprintf(" %d %s ", i+1, strings.Title(s))
-		if i == m.section {
-			label = chosen.Render(label)
+	header := clip(title, m.width) + "\n" + clip(m.tabsView(), m.width) + "\n" + clip(m.query.View(), m.width-1) + "\n"
+	if banner := m.approvalBanner(); banner != "" {
+		header += needsStyle.Render(clip(banner, m.width-1)) + "\n"
+	} else {
+		group := []string{"project", "machine", "none", "named group"}[m.grouping]
+		meta := fmt.Sprintf(" %d/%d items · group: %s", m.matched, len(m.rows), group)
+		if m.batchOpen {
+			meta = fmt.Sprintf(" BATCH SELECT · %d selected · click/Space marks · Enter opens · b stops", len(m.batchSelected))
 		}
-		tabs = append(tabs, label)
+		if m.attention {
+			meta += " · needs you only"
+		}
+		if m.archived {
+			meta += " · archive"
+		} else if m.ended {
+			meta += " · includes ended"
+		}
+		header += muted.Render(clip(meta, m.width)) + "\n"
 	}
-	if m.width < 100 {
-		tabs = []string{chosen.Render(fmt.Sprintf(" ‹ %d %s › ", m.section+1, strings.Title(sections[m.section]))), muted.Render(" 1–6 sections · ←/→ switch")}
-	}
-	header := clip(title, m.width) + "\n" + clip(strings.Join(tabs, ""), m.width) + "\n" + clip(m.query.View(), m.width-1) + "\n"
-	group := []string{"project", "target", "none", "named group"}[m.grouping]
-	meta := fmt.Sprintf(" %d/%d items · group: %s", m.matched, len(m.rows), group)
-	if m.batchOpen {
-		meta = fmt.Sprintf(" BATCH SELECT · %d selected · click/Space selects · Enter opens", len(m.batchSelected))
-	}
-	if m.attention {
-		meta += " · needs attention"
-	}
-	if m.archived {
-		meta += " · archive"
-	} else if m.ended {
-		meta += " · includes ended"
-	}
-	header += muted.Render(clip(meta, m.width)) + "\n"
-	bodyHeight := max(3, m.height-9)
+	bodyHeight := m.bodyHeight()
 	var body string
 	switch {
 	case m.form != nil:
 		body = m.formView()
 	case m.pending != nil:
-		body = "\n " + m.pending.Label + "?\n\n " + ansi.Wrap(m.pending.Warning, max(10, m.width-2), "") + "\n\n y Confirm · n / Esc Cancel"
+		body = "\n " + accent.Bold(true).Render(m.pending.Label+"?") + "\n\n " + ansi.Wrap(m.pending.Warning, max(10, m.width-2), "")
 	case m.help:
-		body = dashboardHelp
+		body = m.helpView(bodyHeight)
+	case m.palette:
+		body = m.paletteView(bodyHeight)
 	case m.menu:
-		list := m.filteredActions()
-		start := max(0, min(m.menuIndex, len(list)-1)-bodyHeight+4)
-		lines := []string{" Actions · / search · ↑↓ choose · Enter run · Esc close", ""}
-		if m.menuQuery != "" || m.menuSearching {
-			lines[1] = " Search actions: " + m.menuQuery
-		}
-		if len(list) == 0 {
-			lines = append(lines, " No matching actions. / to edit search · Esc close")
-		}
-		for i := start; i < len(list) && len(lines) < bodyHeight; i++ {
-			s := "  " + list[i].Label
-			if i == m.menuIndex {
-				s = chosen.Render(s)
-			}
-			lines = append(lines, s)
-		}
-		body = strings.Join(lines, "\n")
+		body = m.menuView(bodyHeight)
 	case m.recentOpen:
 		body = m.recentView(bodyHeight)
 	default:
@@ -1560,9 +1382,9 @@ func (m *dashboard) View() string {
 			previewTitle = m.detailTitle
 		}
 		if m.previewFocus {
-			previewTitle += " · focused"
+			previewTitle += " · focused (Esc back)"
 		}
-		preview := accent.Render(" "+previewTitle) + "\n" + m.preview.View() + "\n" + muted.Render(fmt.Sprintf(" %.0f%% · Tab focus · PgUp/PgDn scroll", 100*m.preview.ScrollPercent()))
+		preview := accent.Render(" "+previewTitle) + "\n" + m.preview.View() + "\n" + muted.Render(fmt.Sprintf(" %.0f%% · p focus · PgUp/PgDn scroll", 100*m.preview.ScrollPercent()))
 		if m.width >= 100 {
 			body = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.listWidth()).Render(list), muted.Render(" │ "), preview)
 		} else if m.previewFocus {
@@ -1584,44 +1406,71 @@ func (m *dashboard) View() string {
 		lines = append(lines, "")
 	}
 	status := m.notice
+	if m.form != nil {
+		status = "" // The form shows its notice in full.
+	}
 	if m.failure != "" {
 		status = m.failure
 	}
 	if m.busy {
 		status = "Working… " + status
 	}
-	keys := " n new · Enter open · / filter · m actions · ? help · q quit"
-	more := " m actions: search, history, settings and more"
-	if m.section == 0 {
-		keys = " n new session · Enter attach · o new terminal · b select · m actions · q quit"
-		more = " / filter list · f find running agents · F search past conversations · C restore · ? help"
-		if m.width < 100 {
-			keys = " n new · Enter attach · o terminal · m actions · q quit"
-			more = " / filter · f find agents · F search history · C restore · ? help"
+	footer := renderKeyBar(m.keyBar(), m.width) + "\n" + clip(" "+status, m.width-1)
+	return header + strings.Join(lines, "\n") + "\n" + footer
+}
+
+// tabsView numbers the four main panes and shows the approval count. On a
+// pane reached from the palette (Routines, Machines) its name is added.
+func (m *dashboard) tabsView() string {
+	label := func(i int) string {
+		text := fmt.Sprintf("%d %s", i+1, paneTitle(sections[i]))
+		if sections[i] == "approvals" && len(m.approvals) > 0 {
+			text += fmt.Sprintf(" (%d)", len(m.approvals))
 		}
-		if m.selectedGroup() != nil {
-			keys = " n new · Enter fold · b select · m actions · q quit"
-		}
-		if m.batchOpen {
-			keys = " Space select · Enter open selected · b cancel · m actions · q quit"
-		}
-	}
-	if sections[m.section] == "projects" {
-		keys = " n new · Enter open project shell · / filter · m actions · q quit"
+		return text
 	}
 	if m.width < 60 {
-		keys = " n new · m actions · ? help · q quit"
-		more = " / filter · f agents · F history"
-		if m.batchOpen {
-			more = " Space select · Enter open · b cancel"
+		current := paneTitle(sections[m.section])
+		if m.section < numberedPanes {
+			current = label(m.section)
 		}
+		out := chosen.Render(" ‹ " + current + " › ")
+		if len(m.approvals) > 0 && sections[m.section] != "approvals" {
+			out += needsStyle.Render(fmt.Sprintf(" 2 Approvals (%d)", len(m.approvals)))
+		} else {
+			out += muted.Render(" Tab next")
+		}
+		return out
 	}
-	footer := muted.Render(clip(keys, m.width-1)) + "\n" + muted.Render(clip(more, m.width-1)) + "\n" + clip(" "+status, m.width-1)
-	return header + strings.Join(lines, "\n") + "\n" + footer
+	var tabs []string
+	for i := 0; i < numberedPanes; i++ {
+		text := " " + label(i) + " "
+		switch {
+		case i == m.section:
+			text = chosen.Render(text)
+		case sections[i] == "approvals" && len(m.approvals) > 0:
+			text = needsStyle.Render(text)
+		}
+		tabs = append(tabs, text)
+	}
+	if m.section >= numberedPanes {
+		tabs = append(tabs, chosen.Render(" "+paneTitle(sections[m.section])+" "))
+	}
+	return strings.Join(tabs, " ")
 }
 func (m *dashboard) listView(height int) string {
 	if len(m.visible) == 0 {
-		return "\n No matching items.\n / Search · n New · f Discover"
+		switch {
+		case m.query.Value() != "":
+			return "\n No matching items.\n Esc clears the search."
+		case sections[m.section] == "approvals":
+			return "\n Nothing needs you right now.\n Agents that ask before running a command show up here."
+		case sections[m.section] == "sessions" && (m.ended || m.archived):
+			return "\n No matching items.\n z or A goes back to live sessions."
+		case sections[m.section] == "sessions":
+			return "\n No live sessions.\n\n n    start an agent\n r    restore an ended one\n z    include ended sessions\n f    find agents already running"
+		}
+		return "\n No matching items.\n n New · / Search"
 	}
 	w := m.width - 2
 	if m.width >= 100 {
@@ -1647,20 +1496,11 @@ func (m *dashboard) listView(height int) string {
 			continue
 		}
 		s := str(r["status"])
-		if agentExited(r) {
-			s = "agent exited"
-		}
-		if r["setup_state"] == "creating" {
-			s = "setting up"
-			if r["setup_cancel_requested"] == true {
-				s = "cancelling"
-			}
-		}
-		if r["setup_state"] == "failed" {
-			s = "setup failed"
-		}
-		if unreachable(r) {
-			s = "unreachable · " + s
+		switch sections[m.section] {
+		case "sessions":
+			s = m.sessionStatus(r)
+		case "approvals":
+			s = statusNeedsYou
 		}
 		if sections[m.section] == "routines" {
 			s = str(r["schedule"])
@@ -1668,9 +1508,9 @@ func (m *dashboard) listView(height int) string {
 				s = "disabled"
 			}
 		}
-		line := "  " + oneLine(name(r))
+		line := "  " + oneLine(m.rowTitle(r))
 		if i == m.selected {
-			line = "› " + oneLine(name(r))
+			line = "› " + oneLine(m.rowTitle(r))
 		}
 		if m.batchOpen && m.section == 0 {
 			marker := "[ ] "
@@ -1681,7 +1521,7 @@ func (m *dashboard) listView(height int) string {
 			if i == m.selected {
 				prefix = "› "
 			}
-			line = prefix + marker + oneLine(name(r))
+			line = prefix + marker + oneLine(m.rowTitle(r))
 		}
 		line = clip(line, w)
 		if m.batchOpen && m.batchSelected[id(r)] && i != m.selected {
@@ -1690,16 +1530,15 @@ func (m *dashboard) listView(height int) string {
 		if i == m.selected {
 			line = chosen.Render(line + strings.Repeat(" ", max(0, w-ansi.StringWidth(line))))
 		}
-		color := "245"
-		switch s {
-		case "running", "starting", "setting up":
-			color = "114"
-		case "waiting", "pending", "review":
-			color = "214"
-		case "failed", "dead", "setup failed":
-			color = "203"
+		color := statusColor(s)
+		word := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(s)
+		if strings.HasPrefix(s, statusNeedsYou) {
+			word = needsStyle.Render(s)
 		}
-		meta := muted.Render("  "+m.group(r)+" · ") + lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(s) + muted.Render(" · "+str(r["agent"]))
+		meta := muted.Render("  "+m.group(r)+" · ") + word + muted.Render(" · "+str(r["agent"]))
+		if sections[m.section] == "approvals" {
+			meta = muted.Render("  ") + needsStyle.Render(statusNeedsYou) + muted.Render(" · "+approvalSummary(r))
+		}
 		lines = append(lines, line, clip(meta, w))
 		if m.rowHeight(i) == 3 {
 			lines = append(lines, "")
@@ -1707,39 +1546,6 @@ func (m *dashboard) listView(height int) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-const dashboardHelp = ` Keyboard shortcuts
-
- Click session  Attach          Click group  Fold/unfold
- o / right-click  Open a new terminal (keep list open)
- b             Select sessions: click/Space marks; Enter opens selected
- ↑/k ↓/j       Select item       Enter/a  Attach (Ctrl-b d returns)
- 1–6 / ←→      Change section    Tab/p    Focus list / preview
- /             Fuzzy search     @ ! # &  Search prefix: waiting/running/idle/failed
- G             Move to named group
- Space/Enter   Fold selected group   [ Collapse parent   ] Expand group
- g             Group by project/target/name   w  Needs attention only
- n             New item         e        Rename   u Upload context
- S             Blank persistent shell in a project or on a machine
- P             Launch profiles
- Q             Agent runners (add custom CLIs)
- m             All actions      f        Find and track running agents
- C             Restore closed, archived or interrupted sessions
- U             Undo: reopen the session closed last
- R             Revive an agent that exited to a shell prompt
- h             Full history     v        Review task diff
- F             Search saved conversation text across targets
- H             Saved conversations / fork   O Earlier saved messages
- PgUp/PgDn     Scroll preview   Esc       Clear search / return to live preview
- z             Include ended sessions   A  Archive view
- r             Refresh now
- 7 Settings    8 Usage           9 Full API
-
- Forms: Tab/Shift-Tab move; ←/→ choose named options; Ctrl-s submit; Esc cancel.
- Quit closes only this dashboard. Your tmux sessions keep running.
- Grouping and folded groups are remembered for this server on this device.
-
- Press any key to close help.`
 
 func (m *dashboard) toggleBatchSelection() {
 	if m.busy || m.controlOnly || m.section != 0 || m.selectedGroup() != nil || m.selected < 0 || m.selected >= len(m.visible) {
