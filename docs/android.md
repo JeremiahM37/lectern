@@ -1,8 +1,11 @@
 # Android app
 
-A native Android app for Lectern. It is a prototype. A signed Android 0.1.0 APK is available on the
-[v2.4.1 release](https://github.com/JeremiahM37/lectern/releases/tag/v2.4.1).
-See "Tested" and "Limits" below before using it. This page describes 0.2.1, built from this source (0.2.0 plus the in-app terminal fix and the back key closing overlays).
+A native Android app for Lectern. It is a prototype. The signed 0.2.1 APK is on the
+[v2.6.0 release](https://github.com/JeremiahM37/lectern/releases/download/v2.6.0/lectern-android-0.2.1.apk) (SHA-256 `11f2ee2fa4ea56a38f753c748c1abf0cf82a353c67758eb7fc241ec12a3b7925`).
+It is signed with the same key as 0.1.0, so an installed 0.1.0 upgrades in place and keeps its pairing.
+0.1.0 opened every in-app terminal as a second copy of the app; 0.2.1 fixes that, and the back key now closes overlays first.
+If notifications don't arrive, open ntfy once and turn off battery optimisation for it.
+See "Tested" and "Limits" below before using it.
 
 It runs the **same web app** as the browser (`frontend/`, staged into `web/`),
 bundled and signed inside the APK, and adds what a web page cannot do:
