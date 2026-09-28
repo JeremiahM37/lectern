@@ -141,7 +141,7 @@ func StartProcess(argv []string, cols, rows int) (*Process, error) {
 	if cols <= 0 || rows <= 0 {
 		cols, rows = 80, 24
 	}
-	env := append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	env := append(os.Environ(), "TERM=xterm-256color")
 	p, cmd, err := startOnPty(argv, env, "", cols, rows)
 	if err != nil {
 		return nil, err
@@ -203,7 +203,7 @@ func sessionEnv(base, extra []string, name string) []string {
 		}
 	}
 	env = append(env, extra...)
-	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor", "LECTERN_PTY_SESSION="+name)
+	return append(env, "TERM=xterm-256color", "LECTERN_PTY_SESSION="+name)
 }
 
 // lookPath resolves a program with the PATH the program itself will get,
