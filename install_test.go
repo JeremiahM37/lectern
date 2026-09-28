@@ -94,6 +94,31 @@ func TestInstallShAgainstFakeReleaseServer(t *testing.T) {
 		}
 	})
 
+	t.Run("PATH: says the exact line, adds it only with consent", func(t *testing.T) {
+		installDir, home := t.TempDir(), t.TempDir()
+		line := `export PATH="` + installDir + `:$PATH"`
+		out := runInstallSh(t, srv.URL, installDir, "HOME="+home, "SHELL=/bin/zsh")
+		if !strings.Contains(out, "add this line to "+filepath.Join(home, ".zshrc")) || !strings.Contains(out, line) {
+			t.Errorf("without consent install.sh must name the file and line:\n%s", out)
+		}
+		if _, err := os.Stat(filepath.Join(home, ".zshrc")); err == nil {
+			t.Errorf("install.sh changed .zshrc without consent")
+		}
+		out = runInstallSh(t, srv.URL, installDir, "HOME="+home, "SHELL=/bin/bash", "LECTERN_MODIFY_PATH=1")
+		rc, _ := os.ReadFile(filepath.Join(home, ".bashrc"))
+		if runtime.GOOS == "darwin" {
+			rc, _ = os.ReadFile(filepath.Join(home, ".bash_profile"))
+		}
+		if !strings.Contains(string(rc), line) || !strings.Contains(out, "open a new terminal") && !strings.Contains(out, "Open a new terminal") {
+			t.Errorf("consented PATH line missing: rc=%q\n%s", rc, out)
+		}
+		out = runInstallSh(t, srv.URL, installDir, "HOME="+home, "SHELL=/bin/bash", "LECTERN_MODIFY_PATH=1")
+		rc2, _ := os.ReadFile(filepath.Join(home, ".bashrc"))
+		if runtime.GOOS != "darwin" && strings.Count(string(rc2), line) != 1 {
+			t.Errorf("a second run added the line again:\n%s", rc2)
+		}
+	})
+
 	t.Run("idempotent re-run", func(t *testing.T) {
 		installDir := t.TempDir()
 		runInstallSh(t, srv.URL, installDir)
@@ -134,14 +159,18 @@ func TestInstallShAgainstFakeReleaseServer(t *testing.T) {
 	})
 }
 
-func runInstallSh(t *testing.T, releaseBase, installDir string) string {
+func runInstallSh(t *testing.T, releaseBase, installDir string, env ...string) string {
 	t.Helper()
 	cmd := exec.Command("sh", "install.sh")
+	// A throwaway HOME unless the caller names one: install.sh may edit a
+	// shell rc file there.
 	cmd.Env = append(os.Environ(),
+		"HOME="+t.TempDir(),
 		"LECTERN_RELEASE_BASE="+releaseBase,
 		"LECTERN_INSTALL_DIR="+installDir,
 		"LECTERN_VERSION=vTEST",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install.sh failed: %v\n%s", err, out)

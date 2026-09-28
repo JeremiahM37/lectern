@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
@@ -323,6 +324,15 @@ func SSHPrefix(target *store.Target) []string {
 	return append(argv, user+"@"+target.Host)
 }
 
+// MissingViewer is Attach's error when ttyd, the terminal viewer the web
+// page uses, is not installed on the control plane. Fix is the command that
+// installs it here.
+type MissingViewer struct{ Fix string }
+
+func (e MissingViewer) Error() string {
+	return "Terminal viewer isn't installed — run: " + e.Fix
+}
+
 // Attach spawns (or reuses) a ttyd for an attachment and returns its socket.
 func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target) (string, error) {
 	socket, _, err := m.AttachWithNotice(ctx, a, target)
@@ -334,7 +344,7 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *store.Target) (string, string, error) {
 	m.reap()
 	if _, err := m.LookPath("ttyd"); err != nil {
-		return "", "", errors.New("ttyd is not installed on the control plane")
+		return "", "", MissingViewer{Fix: onboard.InstallCommand("ttyd")}
 	}
 	argv, err := WebAttachArgv(a, target)
 	if err != nil {

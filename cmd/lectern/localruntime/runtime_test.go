@@ -5,14 +5,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
 
 func TestLocalHandlerRequiresIdentityAndReportsStopConflict(t *testing.T) {
-	h := localHandler(http.NotFoundHandler(), "secret", "instance", func() error {
+	h := localHandler(http.NotFoundHandler(), newGate("secret", "browser-key"), "instance", func() error {
 		return errors.New("active task must finish first")
 	})
 	server := httptest.NewServer(h)
@@ -75,5 +77,31 @@ func TestLocalEnvUsesPrivateTmuxNamespace(t *testing.T) {
 	}
 	if values["TMUX_TMPDIR"] != "/private/lectern/tmux" || values["TMUX"] != "" {
 		t.Fatalf("local tmux environment not isolated: %v", values)
+	}
+}
+
+func TestEngineConfigPointsHooksAtItsOwnPort(t *testing.T) {
+	// What config.Load produces in the engine: LECTERN_PORT is stripped by
+	// localEnv, so both bases name the default port.
+	base := &config.Config{BaseURL: "http://127.0.0.1:9110", HookBase: "http://127.0.0.1:9110"}
+	cfg := engineConfig(base, t.TempDir(), 41429, "token")
+	if cfg.BaseURL != "http://127.0.0.1:41429" || cfg.HookBase != cfg.BaseURL {
+		t.Fatalf("hooks would call back to %q while the runtime listens on %q", cfg.HookBase, cfg.BaseURL)
+	}
+	// An operator's explicit LECTERN_HOOK_BASE is kept.
+	base.HookBase = "http://100.64.0.9:7000"
+	if cfg := engineConfig(base, t.TempDir(), 41429, "token"); cfg.HookBase != "http://100.64.0.9:7000" {
+		t.Fatalf("explicit hook base replaced: %q", cfg.HookBase)
+	}
+}
+
+func TestMergePathOnlyAdds(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	got, changed := mergePath("/usr/bin"+sep+"/bin", "/home/u/.local/bin"+sep+"/usr/bin"+sep+"relative"+sep)
+	if !changed || got != "/usr/bin"+sep+"/bin"+sep+"/home/u/.local/bin" {
+		t.Fatalf("merge = %q changed=%v", got, changed)
+	}
+	if _, changed := mergePath(got, "/bin"); changed {
+		t.Fatal("a thinner PATH changed the runtime's")
 	}
 }

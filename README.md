@@ -154,13 +154,15 @@ The same control loop runs in an installable phone app:
 | **Linux / macOS** | `curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh \| sh` |
 | **Homebrew** | `brew install JeremiahM37/tap/lectern` |
 | **Windows** | `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 \| iex` (client; host the server in WSL) |
-| **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
+| **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -e LECTERN_INSECURE_LISTEN=1 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
 | **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
 
 Agents run on any machine with `git`, `tmux`, `python3` and the agent's own CLI.
-`lectern doctor` checks everything and prints a fix next to anything that's
-wrong. You can try it with no setup at all, using fake agents:
-`LECTERN_MOCK=1 lectern serve`.
+The web page's live terminal (Attach) also needs `ttyd`; the installer and
+`lectern up` print the command that installs it. `lectern doctor` checks
+everything and prints a fix next to anything that's wrong, and `lectern
+update` installs a new release. You can try it with no setup at all, using
+fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on 127.0.0.1 only).
 
 ## Documentation
 

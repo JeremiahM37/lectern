@@ -125,6 +125,10 @@ type Server struct {
 	searchJobs  map[string]*conversationSearchJob
 	searchSlots chan struct{}
 
+	// hookPing identifies this process to its own hook check (hookcheck.go).
+	hookPingOnce sync.Once
+	hookPing     string
+
 	// mcpMu serialises conditional project MCP edits. The endpoint returns a
 	// revision instead of exposing credential-bearing values to its clients.
 	mcpMu  sync.Mutex
@@ -292,6 +296,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/hook/notes", s.hookAddNote)
 	// ---- agent hooks (docs/agent-events.md section 2): per-SESSION bearer
 	// token, not the per-attempt token the approval hooks above use ----
+	mux.HandleFunc("GET /api/hook/ping", s.hookPingHandler)
+	mux.HandleFunc("GET /api/diagnostics/hooks", s.hookDiagnostics)
 	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
 	// ---- cost per outcome (docs/outcomes.md): Claude Code's own OTLP/HTTP

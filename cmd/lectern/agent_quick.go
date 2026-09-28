@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/console"
+	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 )
 
@@ -55,6 +59,10 @@ type agentQuickOpts struct {
 	Attach bool
 	Model  string
 	Resume bool
+	// RegisterProject adds the folder's git repository as a project when no
+	// project holds it yet. Only for the private local runtime: a remote
+	// server cannot see this machine's folders.
+	RegisterProject bool
 }
 
 func parseAgentQuickArgs(agentName string, args []string) (agentQuickOpts, error) {
@@ -229,9 +237,25 @@ func resolveAgentSession(c *console.Client, agentName, workdir string, opts agen
 	if reuse {
 		return existing, nil
 	}
+	if err := checkAgentInstalled(c, agentName); err != nil {
+		return nil, err
+	}
 	projectID, err := projectForWorkdir(c, workdir)
 	if err != nil {
 		return nil, fmt.Errorf("look up the project for %s: %w", workdir, err)
+	}
+	if projectID == nil && opts.RegisterProject {
+		if root, ok := gitRoot(workdir); ok {
+			id, created, err := ensureLocalProject(c, filepath.Base(root), root)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not add %s as a project: %v\n", root, err)
+			} else {
+				if created {
+					fmt.Fprintf(os.Stdout, "Added %q as a project.\n", filepath.Base(root))
+				}
+				projectID = &id
+			}
+		}
 	}
 	body := map[string]any{
 		"agent":   agentName,
@@ -256,6 +280,58 @@ func resolveAgentSession(c *console.Client, agentName, workdir string, opts agen
 		return nil, fmt.Errorf("read new session: %w", err)
 	}
 	return &created, nil
+}
+
+// gitRoot is the top of the git repository holding dir, if any.
+func gitRoot(dir string) (string, bool) {
+	if _, err := exec.LookPath("git"); err == nil {
+		if out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output(); err == nil {
+			if root := strings.TrimSpace(string(out)); root != "" {
+				return root, true
+			}
+		}
+	}
+	if _, root, ok := currentGitProject(dir); ok {
+		return root, true
+	}
+	return "", false
+}
+
+// checkAgentInstalled refuses to start a built-in agent the server cannot
+// find, instead of opening a session whose pane just says "command not
+// found", and names the agents that are installed. Custom agents, and
+// servers too old to say, are left to try.
+func checkAgentInstalled(c *console.Client, agentName string) error {
+	data, err := c.JSON("GET", "/onboarding", nil)
+	if err != nil {
+		return nil
+	}
+	var status struct {
+		Agents []onboard.AgentCheck `json:"agents"`
+	}
+	if json.Unmarshal(data, &status) != nil {
+		return nil
+	}
+	var installed []string
+	missing := false
+	for _, a := range status.Agents {
+		if !a.Builtin {
+			continue
+		}
+		if a.Found {
+			installed = append(installed, a.Name)
+		} else if a.Name == agentName {
+			missing = true
+		}
+	}
+	if !missing {
+		return nil
+	}
+	msg := fmt.Sprintf("lectern %s: %s isn't installed where Lectern runs. To use it, %s, then run lectern up once so Lectern finds it.", agentName, agentName, agentInstallHint(agentName))
+	if len(installed) > 0 {
+		msg += fmt.Sprintf("\nInstalled now: %s — for example: lectern %s", strings.Join(installed, ", "), installed[0])
+	}
+	return errors.New(msg)
 }
 
 // confirmReuse is resolveAgentSession's real, interactive confirm function:
@@ -309,12 +385,17 @@ func agentQuickCommand(cfg *config.Config, agentName string, args []string, base
 		return err
 	}
 	c := console.New(base, token)
+	opts.RegisterProject = local
 	sess, err := resolveAgentSession(c, agentName, workdir, opts, interactiveTerminal(), confirmReuse)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "Session #%d %q — also on your phone at %s/#session/%d\n",
-		sess.ID, sess.Name, strings.TrimRight(phoneBase(c, base), "/"), sess.ID)
+	// A loopback address is no use to a phone; say where it really is.
+	if phone := strings.TrimRight(phoneBase(c, base), "/"); isLoopbackURL(phone) {
+		fmt.Fprintf(os.Stdout, "Session #%d %q — also in your browser: run lectern up to open it.\n", sess.ID, sess.Name)
+	} else {
+		fmt.Fprintf(os.Stdout, "Session #%d %q — also on your phone at %s/#session/%d\n", sess.ID, sess.Name, phone, sess.ID)
+	}
 	return attachAgentSession(cfg, base, token, local, sess.ID)
 }
 
@@ -330,4 +411,17 @@ func phoneBase(c *console.Client, base string) string {
 		return health.PhoneURL
 	}
 	return base
+}
+
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

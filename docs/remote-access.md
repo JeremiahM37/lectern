@@ -143,6 +143,19 @@ only — it never checks or assumes a tailnet identity, so "Enable phone
 alerts" works the same way for a paired device as it does for a tailnet
 browser.
 
+## Where Lectern listens
+
+`lectern serve` (and bare `lectern` with no terminal, as a service runs it)
+listens only on `127.0.0.1` unless something protects remote access: a
+`LECTERN_AUTH_TOKEN`, or Tailscale identity (automatic when tailscaled is
+running, or `LECTERN_AUTH=tailscale`). With one, it listens on every
+interface as before. An explicit non-loopback `LECTERN_HOST` with no sign-in
+is refused at startup, with the fixes listed, unless you pass
+`--insecure-listen` (or set `LECTERN_INSECURE_LISTEN=1`) because something in
+front of Lectern already checks who is asking. The Docker image listens on
+the container's interfaces and needs a token or that flag; the Compose file
+sets the flag while it publishes on the host's loopback only.
+
 ## Do not expose Lectern without pairing or auth
 
 To say the obvious part plainly: putting a tunnel in front of Lectern with

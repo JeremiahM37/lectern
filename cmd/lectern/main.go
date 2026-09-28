@@ -54,7 +54,7 @@ var clientVerbs = map[string]bool{
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
-	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true,
+	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -84,6 +84,9 @@ func routesToServer(args []string, interactive bool) bool {
 	return true
 }
 
+// insecureListen is `lectern serve --insecure-listen` (listen.go).
+var insecureListen bool
+
 func main() {
 	// A double-click or right-click in a native attachment (native_links.go).
 	if len(os.Args) > 1 && os.Args[1] == terminalLinkFlag {
@@ -99,6 +102,12 @@ func main() {
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "autonomy-overlay" || os.Args[1] == "autonomy-overlay-inspect") {
 		os.Exit(autonomyOverlayCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
+	}
+	// Help never starts a runtime or needs a server (help.go).
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--local") && os.Args[1] != "--hosted-attach" && os.Args[1] != "relay" {
+		if code, handled := helpCommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+			os.Exit(code)
+		}
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
@@ -199,6 +208,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "update":
+			if err := updateCommand(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+				os.Exit(1)
+			}
+			return
 		case "doctor":
 			if err := doctorCommand(cfg, os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, err)
@@ -206,10 +221,16 @@ func main() {
 			}
 			return
 		case "serve":
-			if len(os.Args) != 2 {
-				fmt.Fprintln(os.Stderr, "usage: lectern serve")
+			insecure, help, err := serveArgs(os.Args[2:])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(2)
 			}
+			if help {
+				printCommandHelp(os.Stdout, "serve")
+				return
+			}
+			insecureListen = insecure
 		case "split":
 			// A shell beside an attached session, from the terminal's own split
 			// (native_split.go).
@@ -250,7 +271,11 @@ func main() {
 			}
 			return
 		case "relay":
-			if err := relayCommand(os.Args[2:], os.Stderr); err != nil {
+			out := io.Writer(os.Stderr)
+			if wantsHelp(os.Args[2:]) {
+				out = os.Stdout
+			}
+			if err := relayCommand(os.Args[2:], out); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
@@ -282,6 +307,10 @@ func main() {
 		}
 	}
 
+	if err := resolveListen(cfg, insecureListen); err != nil {
+		fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+		os.Exit(2)
+	}
 	a, err := app.New(cfg, log)
 	if err != nil {
 		log.Error("startup failed", "err", err)

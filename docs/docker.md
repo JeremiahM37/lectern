@@ -13,7 +13,11 @@ From a source checkout (Docker Compose v2):
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Open http://localhost:9110. The default published port binds only to localhost.
+Open http://localhost:9110. The default published port binds only to localhost,
+which is why the Compose file sets `LECTERN_INSECURE_LISTEN=1`: inside the
+container Lectern listens on every interface, and without a token it refuses
+to unless told something else guards it. `docker run` needs the same
+(`-e LECTERN_INSECURE_LISTEN=1`) or a token.
 Choose **Add your first machine** and add a local or SSH target in Settings.
 A local target can open a blank shell immediately; an agent session additionally
 requires an installed, authenticated CLI. Target **Probe** reports missing tools.
@@ -39,6 +43,7 @@ or configure a trusted-network listener and a token before starting Compose:
 ```sh
 export LECTERN_BIND=0.0.0.0
 export LECTERN_AUTH_TOKEN="$(openssl rand -hex 32)"
+export LECTERN_INSECURE_LISTEN=0   # refuse to start if the token is ever missing
 export LECTERN_BASE_URL=https://lectern.your-private-domain.example
 ```
 

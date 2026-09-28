@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,13 @@ func TestCheckTmuxAndGit(t *testing.T) {
 	}
 	if git := CheckGit(); git.OK || git.Fix == "" {
 		t.Errorf("missing git should be reported not-OK with a fix: %+v", git)
+	}
+}
+
+func TestTTYDCheckNamesAnInstallCommand(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	c := CheckTTYD()
+	if c.OK || !strings.Contains(c.Fix, "ttyd") || !strings.Contains(c.Detail, "Attach") {
+		t.Fatalf("missing ttyd: %+v", c)
 	}
 }

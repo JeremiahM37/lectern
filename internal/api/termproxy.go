@@ -47,7 +47,7 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.Log.Info("terminal could not be started", "attachment", att.Key, "err", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		terminalPageError(w, r, err)
 		return
 	}
 
