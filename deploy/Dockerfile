@@ -43,7 +43,11 @@ COPY --from=build /out/lectern /usr/local/bin/lectern
 # NOTE: runs as root deliberately — the container drives targets over SSH with
 # keys bind-mounted from the host (see deploy/docker-compose.yml) and manages
 # tmux sessions for the `local` target. Harden by scoping the mounted key.
-ENV LECTERN_DB=/data/lectern.db HOME=/data/home
+# Listen on the container's interfaces: the published port is the boundary.
+# Without LECTERN_AUTH_TOKEN, lectern refuses a non-loopback listener unless
+# LECTERN_INSECURE_LISTEN=1 says something else guards it (compose sets that
+# only while it publishes on the host's loopback).
+ENV LECTERN_DB=/data/lectern.db HOME=/data/home LECTERN_HOST=0.0.0.0
 RUN mkdir -p /data/home && chmod 700 /data/home
 WORKDIR /data
 VOLUME /data

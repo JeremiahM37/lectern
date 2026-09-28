@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -111,5 +112,60 @@ exec sleep 120
 	out, _ := doctor.CombinedOutput()
 	if !bytes.Contains(out, []byte("[OK] agent hooks")) {
 		t.Fatalf("doctor did not confirm the hook round trip:\n%s", out)
+	}
+}
+
+// TestLocalRuntimeRefusesOtherWebsites reproduces the audit's attack on a
+// real runtime: a page on another site posting a "simple" (no preflight)
+// request, and a DNS-rebound name. Neither may create anything.
+func TestLocalRuntimeRefusesOtherWebsites(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local runtime currently uses POSIX process locks")
+	}
+	bin := filepath.Join(t.TempDir(), "lectern")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build local CLI: %v\n%s", err, out)
+	}
+	state := t.TempDir()
+	env := append(localTestEnv(state), "HOME="+t.TempDir())
+	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
+	if out, err := runLocalCLI(bin, env, "api", "GET", "/health"); err != nil {
+		t.Fatalf("start runtime: %v %s", err, out)
+	}
+	var endpoint struct {
+		URL string `json:"url"`
+	}
+	data, _ := os.ReadFile(filepath.Join(state, "lectern", "local", "endpoint.json"))
+	if err := json.Unmarshal(data, &endpoint); err != nil {
+		t.Fatal(err)
+	}
+	post := func(host, origin string) int {
+		req, _ := http.NewRequest("POST", endpoint.URL+"/api/projects", strings.NewReader(`{"name":"pwned","target_id":1,"repo_path":"/tmp"}`))
+		req.Header.Set("Content-Type", "text/plain")
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		if host != "" {
+			req.Host = host
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if code := post("", "http://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("cross-site POST answered %d", code)
+	}
+	if code := post("evil.example", ""); code != http.StatusMisdirectedRequest {
+		t.Fatalf("rebound POST answered %d", code)
+	}
+	if code := post("", ""); code != http.StatusUnauthorized {
+		t.Fatalf("POST with no credential answered %d", code)
+	}
+	projects, err := runLocalCLI(bin, env, "api", "GET", "/projects")
+	if err != nil || bytes.Contains(projects, []byte("pwned")) {
+		t.Fatalf("a refused request created a project: %v %s", err, projects)
 	}
 }

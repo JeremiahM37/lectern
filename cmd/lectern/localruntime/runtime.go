@@ -369,6 +369,11 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		return fmt.Errorf("resolve local state directory: %w", err)
 	}
 	cfg := engineConfig(base, absDir, port, token)
+	browserKey, err := loadBrowserKey(absDir)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("browser sign-in key: %w", err)
+	}
 	appInstance, err := app.New(&cfg, log)
 	if err != nil {
 		_ = listener.Close()
@@ -403,7 +408,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 			}()
 		})
 	}
-	server = &http.Server{Handler: localHandler(appInstance.Handler(), token, ep.Instance, func() error {
+	server = &http.Server{ReadHeaderTimeout: 15 * time.Second, Handler: localHandler(appInstance.Handler(), newGate(token, browserKey), ep.Instance, func() error {
 		active, err := appInstance.DB.TasksWhere("status IN ('queued','running','review')")
 		if err != nil {
 			return err
@@ -450,12 +455,18 @@ func engineConfig(base *config.Config, absDir string, port int, token string) co
 		cfg.HookBase = cfg.BaseURL
 	}
 	cfg.AuthToken = token
+	// Token mode, not the loopback default of none: a browser tab is not a
+	// trusted local process (gate.go). Nothing reaches the app without the
+	// token or the browser cookie that stands in for it.
+	cfg.Auth = "token"
 	cfg.Mock = false
 	return cfg
 }
 
-func localHandler(next http.Handler, token, instance string, stop func() error) http.Handler {
+func localHandler(next http.Handler, g *gate, instance string, stop func() error) http.Handler {
+	token := g.token
 	mux := http.NewServeMux()
+	mux.HandleFunc(loginCodeRoute, g.mintHandler)
 	mux.HandleFunc(identityRoute, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -476,7 +487,7 @@ func localHandler(next http.Handler, token, instance string, stop func() error) 
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.Handle("/", next)
-	return mux
+	return g.wrap(mux)
 }
 
 // Peek reports the local runtime's endpoint, token included, if one is

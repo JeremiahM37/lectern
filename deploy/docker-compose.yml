@@ -15,6 +15,10 @@ services:
       # URL targets use to call back for approvals — set to a host reachable FROM targets
       LECTERN_BASE_URL: "${LECTERN_BASE_URL:-http://localhost:9110}"
       LECTERN_AUTH_TOKEN: "${LECTERN_AUTH_TOKEN:-}"
+      # The port above is published on the host's loopback only, so no sign-in
+      # is needed. If you change LECTERN_BIND, set LECTERN_AUTH_TOKEN and set
+      # this to 0: then Lectern refuses to start without a token.
+      LECTERN_INSECURE_LISTEN: "${LECTERN_INSECURE_LISTEN:-1}"
       # LECTERN_VAPID_PUBLIC: ""
       # LECTERN_VAPID_PRIVATE: ""
 

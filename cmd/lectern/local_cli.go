@@ -35,7 +35,7 @@ func localCommand(cfg *config.Config, args []string) error {
 		return localClientCommand(cfg, "console", nil)
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		fmt.Print(clientHelp)
+		printCommandHelp(os.Stdout, "local")
 		return nil
 	}
 	if args[0] == "supervise" {
@@ -45,17 +45,33 @@ func localCommand(cfg *config.Config, args []string) error {
 		return superviseLocal(cfg)
 	}
 	if args[0] == "status" || args[0] == "stop" {
-		if len(args) != 1 {
-			return fmt.Errorf("usage: lectern local %s", args[0])
+		asJSON := len(args) == 2 && args[0] == "status" && args[1] == "--json"
+		if len(args) != 1 && !asJSON {
+			return fmt.Errorf("usage: lectern local %s", map[string]string{"status": "status [--json]", "stop": "stop"}[args[0]])
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
 		if args[0] == "stop" {
-			return localruntime.Stop(ctx)
+			before, _ := localruntime.StatusOf(ctx)
+			if err := localruntime.Stop(ctx); err != nil {
+				return err
+			}
+			if before.State == "running" {
+				fmt.Println("Stopped your private Lectern. Sessions keep running; the next lectern command starts it again.")
+			} else {
+				fmt.Println("Your private Lectern was not running.")
+			}
+			return nil
 		}
 		status, err := localruntime.StatusOf(ctx)
 		if err != nil {
 			return err
+		}
+		// People get a sentence; scripts and pipes keep getting the JSON
+		// they always did.
+		if !asJSON && interactiveTerminal() {
+			fmt.Println(describeLocalStatus(status))
+			return nil
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -73,8 +89,8 @@ func localCommand(cfg *config.Config, args []string) error {
 }
 
 func localClientCommand(cfg *config.Config, command string, args []string) error {
-	if command == "help" || command == "--help" || command == "-h" || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Print(clientHelp)
+	if command == "help" || command == "--help" || command == "-h" {
+		printOverview(os.Stdout)
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -113,6 +129,28 @@ func localClientCommand(cfg *config.Config, command string, args []string) error
 		return attachAt(&localCfg, args, ep.URL, "", true)
 	}
 	return clientCommandAt(cfg, command, args, ep.URL, ep.Token, true)
+}
+
+func describeLocalStatus(s localruntime.Status) string {
+	switch s.State {
+	case "running":
+		out := "Your private Lectern is running"
+		if s.Version != "" {
+			out += " (" + s.Version + ")"
+		}
+		if s.Endpoint != nil {
+			out += " at " + s.Endpoint.URL
+		}
+		out += ". Open it with: lectern up"
+		if s.Outdated {
+			out += "\n" + s.Detail
+		}
+		return out
+	case "stopped":
+		return "Your private Lectern is not running. Any lectern command starts it; lectern up also opens it."
+	default:
+		return "Your private Lectern is " + s.State + ": " + s.Detail + "\nIf this persists, see lectern doctor."
+	}
 }
 
 func localMCPCommand(cfg *config.Config) error { return localClientCommand(cfg, "mcp", nil) }

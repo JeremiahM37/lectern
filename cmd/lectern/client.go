@@ -116,100 +116,6 @@ func promoteError(err error) error {
 	return fmt.Errorf("conversation promotion failed: %w", err)
 }
 
-const clientHelp = `Lectern — web and terminal control
-
-  lectern                         Open the dashboard in an interactive terminal
-  lectern claude [--model M] [--resume] [--new|--attach]
-  lectern codex [--model M] [--resume] [--new|--attach]
-                                    One command, any folder: start/reuse a tracked
-                                    session here and attach to it (see below)
-  lectern up                      One command: start it, register a project, open the browser
-  lectern up --service            Also install a systemd user unit (macOS: launchd)
-  lectern doctor                  Check tmux/git/agents/auth/TLS/push/hooks; print fixes
-  lectern local                   Start/use a private local runtime, then open the dashboard
-  lectern local status            Show local runtime status without starting it
-                                    (says when it is older than this CLI)
-  lectern local stop              Stop the local runtime (active tasks are refused)
-  lectern serve                   Start the control-plane server
-  lectern console                 Live terminal dashboard (also: tui)
-  lectern console --plain         Line-oriented menu for pipes / accessibility
-  lectern shell [MACHINE]         Enter a blank persistent shell on a machine
-  lectern attach KIND ID          Join tmux (Ctrl-b d returns to console)
-  lectern controls [KIND ID]      Lectern actions without opening another terminal
-  lectern split [--session ID] [--dir agent|workdir]  A shell beside the attached session, on its machine
-  lectern promote SESSION-ID      Bind a running conversation to a project
-  lectern restore [QUERY|ID]      List or reopen closed, archived or interrupted sessions
-                                    (--last, --agent A, --model M, --no-attach)
-  lectern api METHOD /path [JSON|@file|-]
-  lectern upload KIND ID FILE     Add a local file as agent context
-  lectern files KIND ID [PATH]    Browse files on the agent's machine
-  lectern download KIND ID REMOTE LOCAL
-  lectern post FILE|URL [--title T] [--note N] [--session ID]
-                                    Show a recording, file or link in the Media feed
-  lectern live [URL] [--title T] [--machine NAME] [--session ID]
-                                    Start a desktop you can watch in Media; prints its DISPLAY
-  lectern expose PORT [--title T] [--machine NAME] [--session ID]
-                                    Reach a machine's localhost:PORT from your own browser
-  lectern live list | lectern live stop ID
-  lectern browser ACTION [ARGS]   Drive this session's browser: open, snapshot, click, fill,
-                                    press, eval, console, network, screenshot (docs/browser.md)
-  lectern computer ACTION [ARGS]  Operate this session's live desktop, when allowed
-  lectern agent list
-  lectern agent save JSON|@file|-
-  lectern account list            Logins the swap limit policy moves work between
-  lectern account add AGENT LABEL [--machine NAME] [--dir PATH]
-  lectern account login ID        Sign an account in, in a terminal
-  lectern account remove ID
-  lectern skill list PROJECT [--agent AGENT]
-  lectern skill attached PROJECT [--agent AGENT]
-  lectern skill attach PROJECT SKILL_ID [--agent AGENT]
-  lectern skill detach PROJECT ATTACHMENT_ID
-  lectern plugin list | search | install | update | trust | enable | disable | remove
-  lectern plugin new ID [DIR] | validate [DIR]      (docs/plugins.md)
-  lectern mcp                     MCP on standard input/output
-  lectern mcp --http              The same tools for claude.ai / ChatGPT, over OAuth
-  lectern relay                   Run an end-to-end encrypted relay for phones (docs/relay.md)
-  lectern version
-
-KIND: session, attempt, project (upload also accepts task).
-API paths can omit /api. JSON goes to stdout; errors go to stderr.
-
-lectern claude / lectern codex: run in any folder to start (or reuse) a
-tracked session for that directory and attach immediately — no dashboard
-required. Name is the folder's basename, plus its git branch when there is
-one ("lectern · main"). The project is auto-detected when the folder is
-inside a registered project's repo. If a live session already exists for the
-same agent and folder, an interactive terminal asks to attach to it
-(default yes); --new always starts fresh, --attach always reuses (and errors
-if there is nothing to reuse); a non-interactive caller defaults to reuse.
-Detaching (Ctrl-b d) returns to your shell; the session keeps running and is
-reachable from the dashboard and your phone.
-Examples:
-  lectern claude
-  lectern codex --resume
-  lectern claude --model opus --new
-  lectern api GET /sessions
-  lectern api POST /tasks/12/takeover '{}'
-  lectern api PATCH /routines/3 '{"enabled":false}'
-  lectern api POST /sessions/4/send '{"text":"Run the tests"}'
-  lectern upload session 4 ./requirements.pdf
-  lectern post ./demo.mp4 --title "Checkout flow passing"
-  lectern post http://127.0.0.1:5173 --title "Dev server"
-  lectern expose 5173 --title "Dev server"
-  lectern live http://127.0.0.1:18080 --title "Watching the replay"
-  lectern agent list
-  lectern agent save @agents.json
-
-LECTERN_API selects an explicit hosted server URL.
-LECTERN_AUTH_TOKEN supplies bearer authentication.
-LECTERN_ATTACH_HOST sets an SSH alias for native attachment to a remote server.
-All web operations use this same API. See docs/terminal-client.md for the catalog.
-With no LECTERN_API, client commands use a Lectern service running on this
-machine (127.0.0.1 on LECTERN_PORT, default 9110) when one answers, and the
-private local runtime otherwise; lectern doctor shows which.
-lectern local [COMMAND ...] forces those existing Lectern commands onto the private runtime.
-`
-
 // liveCommand opens a desktop or forwards a port. Inside a Lectern session it
 // uses that session's machine; --machine names another, and outside both it
 // falls to the server's default.
@@ -337,8 +243,8 @@ func clientCommand(cfg *config.Config, command string, args []string) error {
 }
 
 func clientCommandAt(cfg *config.Config, command string, args []string, base, token string, local bool) error {
-	if command == "help" || command == "--help" || command == "-h" || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Print(clientHelp)
+	if command == "help" || command == "--help" || command == "-h" {
+		printOverview(os.Stdout)
 		return nil
 	}
 	c := console.New(base, token)
@@ -460,7 +366,7 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		if ok, lookupErr := dynamicAgentQuick(c, command); lookupErr == nil && ok {
 			return agentQuickCommand(cfg, command, args, base, token, local)
 		}
-		return fmt.Errorf("unknown command %q — not a lectern subcommand or a registered agent name (see 'lectern agent list')", command)
+		return fmt.Errorf("lectern: unknown command %q.%s Run \"lectern help\" for the commands, or \"lectern agent list\" for agents you can start by name", command, didYouMean(command))
 	}
 	if err != nil {
 		return err

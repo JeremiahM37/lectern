@@ -21,16 +21,6 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 )
 
-const doctorHelp = `lectern doctor — checks the things a working install needs.
-
-Reports on tmux, git, agent CLIs and their credentials, the configured port,
-the resolved auth mode, TLS, which server plain commands use (a Lectern
-service on this machine or the private local runtime, and whether that
-runtime is older than this binary), push notification keys, and whether that
-server answers its own health check — with a suggested fix for anything
-that's missing. Exits non-zero if something needs attention.
-`
-
 // doctorCheck is one line of the report. Skip means "not applicable /
 // not evaluable right now" rather than pass or fail — e.g. TLS when the
 // resolved auth mode doesn't call for it, or the live checks when nothing is
@@ -99,7 +89,7 @@ func agentCredHint(path string) (ok bool, detail string) {
 
 func doctorCommand(cfg *config.Config, args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Print(doctorHelp)
+		printCommandHelp(os.Stdout, "doctor")
 		return nil
 	}
 	if len(args) != 0 {

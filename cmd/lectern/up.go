@@ -18,19 +18,6 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 )
 
-const upHelp = `lectern up — the one-command path to a working local install.
-
-Starts (or reuses) the private local runtime on 127.0.0.1, registers a local
-target if one isn't there yet, offers to register the current directory as a
-project if it looks like a git repository, opens it in your browser, and
-prints the URL.
-
-  lectern up             Start it, open the browser
-  lectern up --no-browser  Skip opening a browser (e.g. over SSH)
-  lectern up --service   Also install a systemd user unit (macOS: launchd)
-                            so it survives a reboot
-`
-
 // upCommand is deliberately independent of the terminal-first `lectern local`
 // command: that one attaches your terminal to the console dashboard, this one
 // gets a browser onto a working board as fast as possible. Both share the
@@ -45,7 +32,7 @@ func upCommand(cfg *config.Config, args []string) error {
 		case "--no-browser":
 			noBrowser = true
 		case "--help", "-h":
-			fmt.Print(upHelp)
+			printCommandHelp(os.Stdout, "up")
 			return nil
 		default:
 			return fmt.Errorf("usage: lectern up [--service] [--no-browser]")
@@ -97,12 +84,18 @@ func upCommand(cfg *config.Config, args []string) error {
 		}
 	}
 
+	// The runtime only answers a signed-in browser (localruntime/gate.go);
+	// this one-time link signs this browser in.
+	link, err := localruntime.BrowserURL(ctx, ep, "/")
+	if err != nil {
+		return err
+	}
 	if !noBrowser {
-		if err := openBrowser(ep.URL); err != nil {
+		if err := openBrowser(link); err != nil {
 			fmt.Fprintf(os.Stderr, "Could not open a browser automatically (%v).\n", err)
 		}
 	}
-	fmt.Printf("\nLectern is running at %s\nNext: open it and press \"Start your first session\".\n", ep.URL)
+	fmt.Printf("\nLectern is running at %s\nSign this browser in with: %s\n", ep.URL, link)
 	return nil
 }
 
