@@ -25,16 +25,16 @@ var allCommandsAction = dashboardAction{Label: "All commands…", Operation: "pa
 // preferred lists, per selection kind, the labels the context menu shows
 // first. Anything missing for this row is skipped.
 var preferred = map[string][]string{
-	"session":        {"Allow once", "Allow for this session", "Deny", "Attach", "Open in a new window", "Send message", "Upload context file", "Review changes", "Rename", "End session", "Stop tracking (leave running)"},
-	"session-exited": {reviveLabel, "Attach", "Review changes", "Read history", "Rename", "End session", "Stop tracking (leave running)"},
+	"session":          {"Allow once", "Allow for this session", "Deny", "Attach", "Open in a new window", "Send message", "Upload context file", "Review changes", "Rename", "End session", "Stop tracking (leave running)"},
+	"session-exited":   {reviveLabel, "Attach", "Review changes", "Read history", "Rename", "End session", "Stop tracking (leave running)"},
 	"session-archived": {"Unarchive record", "Archived terminal output", "Saved conversations", "Rename"},
-	"session-ended":  {"Track again", "Saved conversations", "Rename", "Handoff summaries", "Archive stopped record"},
-	"session-setup":  {"Cancel setup", "Retry cancellation", "Workspace setup progress", "Rename", "Move to group"},
-	"approval":       {"Allow once", "Allow for this session", "Deny", "Deny with a reason…", "Open the session"},
-	"task":           {"Attach to attempt", "Review diff", "Send message", "Dispatch in worktree", "Request changes", "Commit changes", "Mark complete"},
-	"project":        {"Open project shell", "Review changes", "Project brief", "Rename", "Edit project", "Skills (attach / detach)", "MCP settings (add / edit / remove)"},
-	"target":         {"Check connection", "Check agent commands", "Rename", "Edit target"},
-	"routine":        {"Run now", "Enable schedule", "Disable schedule", "Rename", "Edit routine"},
+	"session-ended":    {"Track again", "Saved conversations", "Rename", "Handoff summaries", "Archive stopped record"},
+	"session-setup":    {"Cancel setup", "Retry cancellation", "Workspace setup progress", "Rename", "Move to group"},
+	"approval":         {"Allow once", "Allow for this session", "Deny", "Deny with a reason…", "Open the session"},
+	"task":             {"Attach to attempt", "Review diff", "Send message", "Dispatch in worktree", "Request changes", "Commit changes", "Mark complete"},
+	"project":          {"Open project shell", "Review changes", "Project brief", "Rename", "Edit project", "Skills (attach / detach)", "MCP settings (add / edit / remove)"},
+	"target":           {"Check connection", "Check agent commands", "Rename", "Edit target"},
+	"routine":          {"Run now", "Enable schedule", "Disable schedule", "Rename", "Edit routine"},
 }
 
 func (m *dashboard) selectionKind() string {
