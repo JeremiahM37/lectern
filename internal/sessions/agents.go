@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
-	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 // Spec describes how to start one interactive coding CLI.
@@ -539,6 +539,8 @@ type Start struct {
 	// IsolationOpts carries what Isolation needs beyond the fields above
 	// (the proxy socket for network=deny). Ignored when Isolation is none.
 	IsolationOpts isolation.WrapOpts
+	// Backend keeps the session's terminal; nil means tmux.
+	Backend backend.Backend
 }
 
 // invocation is the agent's own command line — environment, binary and
@@ -608,15 +610,19 @@ func (s Spec) LaunchCommand(o Start) string {
 	}
 	inner := fmt.Sprintf("cd %s && %s; exec bash",
 		shellq.Quote(o.Workdir), agentInvocation)
-	setupEnv := ""
+	var setupEnv []string
 	if o.SetupToken != "" {
-		setupEnv = " -e " + shellq.Quote("LECTERN_SETUP_TOKEN="+o.SetupToken)
+		setupEnv = []string{"LECTERN_SETUP_TOKEN=" + o.SetupToken}
+	}
+	be := o.Backend
+	if be == nil {
+		be = backend.Tmux
 	}
 	// Spell out the shell invocation so tmux cannot reinterpret the generated
 	// command string differently across versions or target configurations.
 	// Extended keys go on before the agent can ask for them (tmuxkeys).
-	return fmt.Sprintf("tmux new-session -d%s -s %s -- bash -c %s", setupEnv,
-		shellq.Quote(o.TmuxName), shellq.Quote(inner)) + tmuxkeys.Suffix()
+	return be.NewSession(backend.NewSession{Name: o.TmuxName, Env: setupEnv,
+		Argv: "bash -c " + shellq.Quote(inner), ExtendedKeys: true})
 }
 
 // codexNotifyArg builds the `-c notify=[...]` override that points codex at

@@ -9,6 +9,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -71,7 +72,7 @@ func (claudeSteerDriver) Start(ctx context.Context, ex executor.Executor, spec S
 		return nil, err
 	}
 	agentCmd := envPrefix + strings.Join(parts, " ")
-	cmd := streamLaunchCommand(spec.TmuxSession, rt, spec.Worktree, agentCmd)
+	cmd := streamLaunchCommand(backend.For(ex), spec.TmuxSession, rt, spec.Worktree, agentCmd)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return nil, err
@@ -224,7 +225,7 @@ func (r *streamRun) loop(ctx context.Context) {
 			r.mu.Lock()
 			canceled := r.canceled
 			r.mu.Unlock()
-			alive, err := r.ex.Run(ctx, fmt.Sprintf("tmux has-session -t =%s 2>/dev/null", r.tmux),
+			alive, err := r.ex.Run(ctx, backend.For(r.ex).HasSession(backend.Exact(r.tmux), true),
 				executor.RunOpts{Timeout: 20})
 			if err == nil && !alive.OK() {
 				ghost++

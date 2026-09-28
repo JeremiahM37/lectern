@@ -24,6 +24,7 @@ import (
 	"unicode"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -104,7 +105,7 @@ const PollDelimiter = "\x1e---LECTERN-PANE---\x1e"
 // One exec per target per tick, not one per session: over SSH the round trip
 // dominates, and a board with a dozen live sessions would otherwise spend the
 // whole tick opening channels.
-func PollCommand(names []string) string { return buildPollCommand(names, PaneLines) }
+func PollCommand(names []string) string { return backend.Tmux.Poll(names, PaneLines) }
 
 // ParsePoll splits a batched capture back into per-session pane text.
 func ParsePoll(out string) map[string]string {
@@ -249,10 +250,11 @@ func lastLines(s string, n int) string {
 // verbatim: newlines, quotes and unicode all reach the agent as one paste
 // instead of being re-interpreted as shell syntax or as separate submissions.
 func SendTextCommand(tmuxName, stagePath string) string {
-	q, p := shellq.Quote("="+tmuxName+":"), shellq.Quote(stagePath)
-	return fmt.Sprintf("tmux load-buffer -b lectern %s && "+
-		"tmux paste-buffer -b lectern -t %s -d -p && "+
-		"tmux send-keys -t %s Enter && rm -f %s", p, q, q, p)
+	return sendTextCommand(backend.Tmux, tmuxName, stagePath)
+}
+
+func sendTextCommand(be backend.Backend, tmuxName, stagePath string) string {
+	return be.SendText(backend.Pane(tmuxName), stagePath)
 }
 
 // Keys the operator may send. An allowlist, because this is a raw input channel
@@ -267,24 +269,29 @@ var Keys = map[string]string{
 
 // SendKeyCommand presses one named key in a session.
 func SendKeyCommand(tmuxName, key string) (string, bool) {
+	return sendKeyCommand(backend.Tmux, tmuxName, key)
+}
+
+func sendKeyCommand(be backend.Backend, tmuxName, key string) (string, bool) {
 	code, ok := Keys[key]
 	if !ok {
 		return "", false
 	}
-	return fmt.Sprintf("tmux send-keys -t %s %s", shellq.Quote("="+tmuxName+":"), code), true
+	return be.SendKeys(backend.Pane(tmuxName), code), true
 }
 
 // KillCommand ends a session's tmux process.
 func KillCommand(tmuxName string) string {
-	return fmt.Sprintf("tmux kill-session -t %s", shellq.Quote("="+tmuxName))
+	return backend.Tmux.KillSession(backend.Exact(tmuxName), false)
 }
 
 // HasSessionCommand asks whether a tmux session still exists.
+//
+// The leading '=' prevents tmux from treating a numeric-looking name as a
+// prefix. Stderr is kept intact: callers must distinguish a missing session
+// (a normal non-zero result) from a target-side probe failure.
 func HasSessionCommand(tmuxName string) string {
-	// The leading '=' prevents tmux from treating a numeric-looking name as a
-	// prefix. Keep stderr intact: callers must distinguish a missing session
-	// (a normal non-zero result) from a target-side probe failure.
-	return fmt.Sprintf("tmux has-session -t %s", shellq.Quote("="+tmuxName))
+	return backend.Tmux.HasSession(backend.Exact(tmuxName), false)
 }
 
 // TimesCommand asks tmux when a session started and when it last did anything.
@@ -293,9 +300,10 @@ func HasSessionCommand(tmuxName string) string {
 // not "up 4s", and its idle clock should start from tmux's own activity stamp
 // rather than from the moment lectern happened to notice it. It doubles as the
 // existence check, since it fails on a session that is not there.
-func TimesCommand(tmuxName string) string {
-	return fmt.Sprintf("tmux display-message -p -t %s '#{session_created} #{session_activity}'",
-		shellq.Quote(tmuxName))
+func TimesCommand(tmuxName string) string { return timesCommand(backend.Tmux, tmuxName) }
+
+func timesCommand(be backend.Backend, tmuxName string) string {
+	return be.Display(tmuxName, "#{session_created} #{session_activity}")
 }
 
 // ParseTimes reads the epoch pair TimesCommand prints.
@@ -322,3 +330,8 @@ func orDefault(v, def string) string {
 // RunOptsShort is the timeout used for the quick pane reads that back the
 // readiness wait.
 func RunOptsShort() executor.RunOpts { return executor.RunOpts{Timeout: 20} }
+
+// pollCommand is PollCommand for the backend of the target ex drives.
+func pollCommand(ex executor.Executor, names []string) string {
+	return backend.For(ex).Poll(names, PaneLines)
+}

@@ -4,22 +4,22 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
 // DiscoverDelimiter separates the tmux listing from the process listing.
-const DiscoverDelimiter = "\x1e---LECTERN-PS---\x1e"
+const DiscoverDelimiter = backend.DiscoverDelimiter
 
 // DiscoverCommand finds agents the operator started themselves.
 //
 // This is the half of the problem a task board misses: most long-running agents
 // were launched by hand in a terminal, and a tool that can only see what it
 // started is blind to the actual work. One command, two listings, joined on the
-// pane's tty — `pane_current_command` is NOT usable here, because an agent
-// launched from a login shell leaves bash in the foreground of the pane.
+// pane's tty (backend.Tmux.Discover).
 func DiscoverCommand() string {
-	return "tmux list-panes -a -F '#{session_name}\t#{pane_tty}\t#{pane_current_path}' " +
-		"2>/dev/null; printf '%s' " + "'" + DiscoverDelimiter + "'" +
-		"; ps -eo tty=,args= 2>/dev/null"
+	cmd, _ := backend.Tmux.Discover()
+	return cmd
 }
 
 // Candidate is an agent found running on a target that lectern does not own.

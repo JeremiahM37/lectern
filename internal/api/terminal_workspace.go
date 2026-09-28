@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 	"github.com/JeremiahM37/lectern/v2/web"
 )
@@ -125,7 +125,7 @@ func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := ex.Run(r.Context(), "tmux capture-pane -p -J -S -100000 -t "+shellq.Quote("="+att.TmuxSession+":"), executor.RunOpts{Timeout: 20})
+	result, err := ex.Run(r.Context(), backend.For(ex).CapturePane(backend.Pane(att.TmuxSession), 100000, true), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {
 		httpError(w, 502, "could not read terminal history")
 		return

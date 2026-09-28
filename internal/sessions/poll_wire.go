@@ -2,34 +2,16 @@ package sessions
 
 import (
 	"encoding/base64"
-	"fmt"
 	"strings"
 
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
-const PollEnd = "ADK-POLL-END-v2"
+const PollEnd = backend.PollEnd
 
 type PollCapture struct {
 	Text            string
 	Missing, Failed bool
-}
-
-func buildPollCommand(names []string, lines int) string {
-	var command strings.Builder
-	seen := map[string]bool{}
-	for _, name := range names {
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		// Encode payloads so a pane cannot forge another pane's frame. Known tmux
-		// absence errors are distinct from socket permissions, bad arguments, etc.
-		fmt.Fprintf(&command, `if lec_poll_text=$(LC_ALL=C tmux capture-pane -p -t %s -S -%d 2>&1); then lec_poll_state=ok; else case "$lec_poll_text" in "can't find session:"*|"no server running on "*|"error connecting to "*" (No such file or directory)") lec_poll_state=missing; lec_poll_text='' ;; *) lec_poll_state=error ;; esac; fi; lec_poll_payload=$(printf '%%s' "$lec_poll_text" | base64) || exit 1; lec_poll_payload=$(printf '%%s' "$lec_poll_payload" | tr -d '\r\n') || exit 1; printf '%%s\t%%s\t%%s\n' %s "$lec_poll_state" "$lec_poll_payload"; `,
-			shellq.Quote("="+name+":"), lines, shellq.Quote(base64.StdEncoding.EncodeToString([]byte(name))))
-	}
-	fmt.Fprintf(&command, "printf '%%s\\n' %s", shellq.Quote(PollEnd))
-	return command.String()
 }
 
 // A complete, validated snapshot is required before any session is updated.

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -18,7 +18,7 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 	}
 	check := func() (PollCapture, error) {
 		names := []string{row.TmuxSession}
-		r, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 20})
+		r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 20})
 		if err != nil || !r.OK() {
 			return PollCapture{}, fmt.Errorf("could not check whether the terminal stopped")
 		}
@@ -35,7 +35,7 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 	if before.Missing {
 		return nil
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommand(row.TmuxSession, ""), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), row.TmuxSession, ""), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("could not identify the terminal to stop")
 	}
@@ -58,7 +58,7 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 			return fmt.Errorf("session changed before stop; refresh before retrying")
 		}
 	}
-	command := "tmux if-shell -F -t " + shellq.Quote("="+row.TmuxSession+":") + " " + shellq.Quote(trackingCondition(identity)) + " " + shellq.Quote("kill-session -t "+shellq.Quote("="+row.TmuxSession))
+	command := backend.For(ex).KillIf(backend.Pane(row.TmuxSession), trackingCondition(identity), backend.Exact(row.TmuxSession))
 	r, err = ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("terminal stop failed; the session remains tracked")

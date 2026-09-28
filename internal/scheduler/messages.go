@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/state"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -76,11 +77,12 @@ func (s *Scheduler) deliverTaskMessages(ctx context.Context, id int64) error {
 		if err != nil {
 			return err
 		}
-		_, err = ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", active[0].ID), executor.RunOpts{Timeout: 20})
+		be, run := backend.For(ex), backend.Exact(fmt.Sprintf("lec-%d", active[0].ID))
+		_, err = ex.Run(ctx, be.KillSession(run, true), executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
 		}
-		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =lec-%d 2>/dev/null", active[0].ID), executor.RunOpts{Timeout: 20})
+		alive, err := ex.Run(ctx, be.HasSession(run, true), executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
 		}

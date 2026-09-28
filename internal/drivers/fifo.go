@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -79,11 +80,11 @@ func ensureFifoCommand(rt string) string {
 // message again. Verified against a real tmux pane's process tree
 // (`ps -ef`), not assumed from the grammar alone — that split silently
 // stranded the agent on the wrong stdin with no error anywhere.
-func streamLaunchCommand(session, rt, worktree, agentCmd string) string {
+func streamLaunchCommand(be backend.Backend, session, rt, worktree, agentCmd string) string {
 	inner := fmt.Sprintf(
 		"cd %s && python3 %s/pump.py %s/steer.fifo | { %s; } > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
 		shellq.Quote(worktree), rt, rt, agentCmd, rt, rt, rt)
-	return "tmux new-session -d -s " + session + " " + shellq.Quote(inner)
+	return be.NewSession(backend.NewSession{Name: session, Shell: inner})
 }
 
 // appendCommand appends one line to the fifo. A short-lived writer is exactly

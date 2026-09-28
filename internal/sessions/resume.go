@@ -67,7 +67,7 @@ func (m *Manager) ResumeConversation(ctx context.Context, sourceID int64, cid, n
 			}
 		}
 	}
-	result, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 10})
+	result, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 10})
 	if err != nil || !result.OK() {
 		return nil, fmt.Errorf("could not establish that the previous terminal has stopped")
 	}

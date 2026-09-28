@@ -20,10 +20,10 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
-	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
@@ -350,7 +350,8 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	if room.command != "" {
 		program = "bash -c " + shellq.Quote(room.command)
 	}
-	command := "tmux new-session -d -s " + shellq.Quote(tmuxName) + " -c " + shellq.Quote(workdir) + " -- env " + identity + room.env + program + tmuxkeys.Suffix()
+	command := backend.For(ex).NewSession(backend.NewSession{Name: tmuxName, Dir: workdir,
+		Argv: "env " + identity + room.env + program, ExtendedKeys: true})
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		m.end(sess.ID, StatusDead)
@@ -373,7 +374,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 		// tracking was stopped while the target launch was in flight. A dead row
 		// means an explicit stop won the race, so clean up only our exact name.
 		if current.Status == StatusDead {
-			_, _ = ex.Run(ctx, "tmux kill-session -t "+shellq.Quote("="+tmuxName), executor.RunOpts{Timeout: 20})
+			_, _ = ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(tmuxName), false), executor.RunOpts{Timeout: 20})
 		}
 		return current, nil
 	}
@@ -1007,7 +1008,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
 		SessionID: assignedID,
 		Prompt:    argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
-		Isolation: config.Isolation, IsolationOpts: isolationOpts})
+		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -1144,7 +1145,7 @@ func (m *Manager) waitReady(ctx context.Context, id int64) bool {
 		if err != nil {
 			return false
 		}
-		out, err := ex.Run(ctx, PollCommand([]string{sess.TmuxSession}),
+		out, err := ex.Run(ctx, pollCommand(ex, []string{sess.TmuxSession}),
 			RunOptsShort())
 		if err != nil || !out.OK() {
 			continue
@@ -1265,7 +1266,7 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 	if err := ex.WriteFile(ctx, stage, []byte(text)); err != nil {
 		return err
 	}
-	r, err := ex.Run(ctx, SendTextCommand(sess.TmuxSession, stage),
+	r, err := ex.Run(ctx, sendTextCommand(backend.For(ex), sess.TmuxSession, stage),
 		executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return err
@@ -1296,7 +1297,7 @@ func (m *Manager) SendKey(ctx context.Context, id int64, key string) error {
 	if err != nil {
 		return err
 	}
-	cmd, ok := SendKeyCommand(sess.TmuxSession, key)
+	cmd, ok := sendKeyCommand(backend.For(ex), sess.TmuxSession, key)
 	if !ok {
 		return fmt.Errorf("unknown key %q", key)
 	}

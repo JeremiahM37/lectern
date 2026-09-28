@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -41,7 +42,13 @@ func (m *Manager) Discover(ctx context.Context) ([]Candidate, error) {
 		if err != nil {
 			continue
 		}
-		r, err := ex.Run(ctx, DiscoverCommand(), executor.RunOpts{Timeout: 30})
+		// Adoption needs a shared server that sessions started by hand live
+		// in. The PTY host only holds what Lectern started (docs/ptyhost.md).
+		discover, ok := backend.For(ex).Discover()
+		if !ok {
+			continue
+		}
+		r, err := ex.Run(ctx, discover, executor.RunOpts{Timeout: 30})
 		if err != nil {
 			m.Log.Debug("discovery failed", "target", t.Name, "err", err)
 			continue
@@ -95,7 +102,7 @@ func (m *Manager) Adopt(ctx context.Context, o AdoptOpts) (*store.Session, error
 	// shows a session that was already gone when we claimed it — and take tmux's
 	// own timestamps while we are asking, so an agent you started three days ago
 	// says "up 3d" instead of "up 4s"
-	r, err := ex.Run(ctx, TimesCommand(o.TmuxSession), executor.RunOpts{Timeout: 20})
+	r, err := ex.Run(ctx, timesCommand(backend.For(ex), o.TmuxSession), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		return nil, err
 	}

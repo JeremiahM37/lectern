@@ -23,6 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -334,7 +335,7 @@ func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, tmuxName s
 	if !checkpointTmuxName.MatchString(tmuxName) {
 		return "", errors.New("invalid tmux session name")
 	}
-	q := "tmux display-message -p -t " + shellq.Quote("="+tmuxName+":") + " " + shellq.Quote(trackingFormat)
+	q := backend.For(ex).Display(backend.Pane(tmuxName), trackingFormat)
 	r, err := ex.Run(ctx, q, executor.RunOpts{Timeout: 10})
 	identity := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !checkpointTracking.MatchString(identity) {
@@ -347,11 +348,12 @@ func ProbeExactTmux(ctx context.Context, ex executor.Executor, name string) erro
 	if !checkpointTmuxName.MatchString(name) {
 		return errors.New("invalid tmux session name")
 	}
-	r, err := ex.Run(ctx, "tmux has-session -t "+shellq.Quote("="+name), executor.RunOpts{Timeout: 10})
+	be := backend.For(ex)
+	r, err := ex.Run(ctx, be.HasSession(backend.Exact(name), false), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("tmux session %q is unavailable", name)
 	}
-	r, err = ex.Run(ctx, "tmux display-message -p -t "+shellq.Quote("="+name+":")+" '#{session_name}'", executor.RunOpts{Timeout: 10})
+	r, err = ex.Run(ctx, be.Display(backend.Pane(name), "#{session_name}"), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() || strings.TrimSpace(r.Stdout) != name {
 		return fmt.Errorf("tmux session %q failed exact identity check", name)
 	}

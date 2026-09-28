@@ -13,6 +13,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/broker"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -141,7 +142,7 @@ func (acpDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) (Ha
 		parts = append(parts, shellq.Quote(a))
 	}
 	agentCmd := envPrefix + strings.Join(parts, " ")
-	cmd := streamLaunchCommand(spec.TmuxSession, rt, spec.Worktree, agentCmd)
+	cmd := streamLaunchCommand(backend.For(ex), spec.TmuxSession, rt, spec.Worktree, agentCmd)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return nil, err
@@ -178,7 +179,7 @@ func (acpDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) (Ha
 	// agent has no other invocation shape to fall back to.
 	kill := func() {
 		cancelLoop()
-		ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =%s 2>/dev/null || true", spec.TmuxSession),
+		ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(spec.TmuxSession), true),
 			executor.RunOpts{Timeout: 20})
 	}
 

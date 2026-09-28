@@ -7,6 +7,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -32,7 +33,8 @@ func (s *Server) sessionReader(w http.ResponseWriter, r *http.Request) {
 	}
 	// Join soft-wrapped terminal lines, then let the phone wrap at its own width.
 	// Exact target avoids tmux treating a session name as a prefix match.
-	cmd := fmt.Sprintf("printf '%%s' %s; tmux capture-pane -p -t %s -S -500 -J", shellq.Quote(sessions.PollDelimiter+row.TmuxSession+"\n"), shellq.Quote("="+row.TmuxSession+":"))
+	cmd := fmt.Sprintf("printf '%%s' %s; %s", shellq.Quote(sessions.PollDelimiter+row.TmuxSession+"\n"),
+		backend.For(ex).CapturePane(backend.Pane(row.TmuxSession), 500, true))
 	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 15})
 	if err != nil || !result.OK() {
 		httpError(w, 502, "could not read the session; its target may be offline")
