@@ -69,13 +69,32 @@ func main(){ cid:="11111111-1111-4111-8111-111111111111"; cwd:=os.Getenv("FAKE_C
 	if got != "11111111-1111-4111-8111-111111111111" {
 		t.Fatalf("native identity = %q", got)
 	}
+	// The same probes through a real lectern binary, as on a target that has
+	// one, agree with the Python helpers.
+	goEx := executor.NewLocal()
+	executor.SetTargetEnv(goEx, executor.TargetEnv{Lectern: testutil.LecternBinary(t)})
+	if got := CaptureNativeID(ctx, goEx, "codex", work, home, name, identity); got != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("native identity through lectern helper = %q", got)
+	}
+	pyEvidence, pyErr := CaptureNativeEvidence(ctx, ex, "codex", work, home, name, identity, true)
+	goEvidence, goErr := CaptureNativeEvidence(ctx, goEx, "codex", work, home, name, identity, true)
+	if pyErr != nil || goErr != nil || pyEvidence != goEvidence || pyEvidence.ID != got {
+		t.Fatalf("evidence: python %+v (%v), go %+v (%v)", pyEvidence, pyErr, goEvidence, goErr)
+	}
+	pyHome, pyErr := ProbeConfiguredHome(ctx, ex, "codex", name)
+	goHome, goErr := ProbeConfiguredHome(ctx, goEx, "codex", name)
+	if pyErr != nil || goErr != nil || pyHome != goHome {
+		t.Fatalf("configured home: python %q (%v), go %q (%v)", pyHome, pyErr, goHome, goErr)
+	}
 	// Killing the fixture process must make the identity unavailable; a stale
 	// transcript on disk alone cannot authorize recovery.
 	if out, err := exec.Command("tmux", "kill-session", "-t", "="+name).CombinedOutput(); err != nil {
 		t.Fatalf("kill tmux: %v: %s", err, out)
 	}
-	if got := CaptureNativeID(ctx, ex, "codex", work, home, name, identity); got != "" {
-		t.Fatalf("identity survived process loss: %q", got)
+	for _, e := range []executor.Executor{ex, goEx} {
+		if got := CaptureNativeID(ctx, e, "codex", work, home, name, identity); got != "" {
+			t.Fatalf("identity survived process loss: %q", got)
+		}
 	}
 }
 

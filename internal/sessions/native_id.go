@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/nativeidentity"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -23,7 +24,8 @@ func CaptureNativeID(ctx context.Context, ex executor.Executor, agent, workdir, 
 	// native_identity validates the transcript header with native_metadata;
 	// embed the shared decoder in the same isolated invocation so capture does
 	// not depend on files/modules installed on the target.
-	cmd := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\nimport json\nprint(json.dumps(native_identity("+strings.Join(args, ",")+")))")
+	py := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\nimport json\nprint(json.dumps(native_identity("+strings.Join(args, ",")+")))")
+	cmd := helpers.Command(ex, "native-identity", []string{agent, workdir, home, tmuxName, tracking}, py)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return ""
