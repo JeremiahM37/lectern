@@ -54,7 +54,7 @@ var clientVerbs = map[string]bool{
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
-	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true,
+	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -201,6 +201,12 @@ func main() {
 		case "up":
 			if err := upCommand(cfg, os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		case "update":
+			if err := updateCommand(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
 				os.Exit(1)
 			}
 			return
