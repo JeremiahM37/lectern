@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,8 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -276,46 +279,16 @@ func readSourceSessions(ctx context.Context, db *sql.DB) ([]sourceSession, error
 	return out, rows.Err()
 }
 
-// Discover the configuration directory from the agent process below the exact
-// tmux pane. This deliberately does not use the exporting user's HOME.
-const configuredHomeScript = `import os, subprocess, sys
-agent, name = sys.argv[1:]
-try:
-    root = int(subprocess.check_output(['tmux','display-message','-p','-t','='+name+':','#{pane_pid}'], stderr=subprocess.DEVNULL, text=True).strip())
-    seen = set(); queue = [root]; children = {}
-    for ent in os.listdir('/proc'):
-        if not ent.isdigit(): continue
-        try:
-            p = int(ent); fields = open('/proc/'+ent+'/stat').read().rsplit(')',1)[1].split(); children.setdefault(int(fields[1]), []).append(p)
-        except (OSError, ValueError, IndexError): pass
-    while queue:
-        p = queue.pop()
-        if p in seen: continue
-        seen.add(p); queue.extend(children.get(p, []))
-    for p in sorted(seen):
-        try:
-            executable = os.path.basename(os.readlink('/proc/'+str(p)+'/exe'))
-            # Claude Code installs each release under a versioned executable
-            # path (for example .../versions/2.1.268), while its process comm
-            # remains the name claude. This probe only locates the configured home;
-            # CaptureNativeID separately validates PID/starttime, transcript,
-            # workspace, and tmux tracking identity before accepting a CID.
-            comm = open('/proc/'+str(p)+'/comm').read().strip()
-            if executable != agent and not (agent == 'claude' and comm == 'claude'): continue
-            env = {}
-            for line in open('/proc/'+str(p)+'/environ','rb').read().split(b'\0'):
-                if b'=' in line:
-                    k,v=line.split(b'=',1); env[k.decode(errors='ignore')]=v.decode(errors='ignore')
-            key = 'CODEX_HOME' if agent == 'codex' else 'CLAUDE_CONFIG_DIR'
-            value = env.get(key, '')
-            if not value: value = os.path.join(env.get('HOME',''), '.codex' if agent == 'codex' else '.claude')
-            if value: print(os.path.realpath(os.path.expanduser(value))); raise SystemExit(0)
-        except (OSError, ValueError): pass
-except (OSError, ValueError, subprocess.SubprocessError): pass
-raise SystemExit(1)`
+// configuredHomeScript discovers the configuration directory from the agent
+// process below the exact tmux pane. This deliberately does not use the
+// exporting user's HOME.
+//
+//go:embed configured_home.py
+var configuredHomeScript string
 
 func ProbeConfiguredHome(ctx context.Context, ex executor.Executor, agent, tmuxName string) (string, error) {
-	cmd := "python3 -c " + shellq.Quote(configuredHomeScript) + " " + shellq.Quote(agent) + " " + shellq.Quote(tmuxName)
+	py := "python3 -c " + shellq.Quote(configuredHomeScript) + " " + shellq.Quote(agent) + " " + shellq.Quote(tmuxName)
+	cmd := helpers.Command(ex, "configured-home", []string{agent, tmuxName}, py)
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		if err != nil {
@@ -334,7 +307,7 @@ func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, tmuxName s
 	if !checkpointTmuxName.MatchString(tmuxName) {
 		return "", errors.New("invalid tmux session name")
 	}
-	q := "tmux display-message -p -t " + shellq.Quote("="+tmuxName+":") + " " + shellq.Quote(trackingFormat)
+	q := backend.For(ex).Display(backend.Pane(tmuxName), trackingFormat)
 	r, err := ex.Run(ctx, q, executor.RunOpts{Timeout: 10})
 	identity := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !checkpointTracking.MatchString(identity) {
@@ -347,11 +320,12 @@ func ProbeExactTmux(ctx context.Context, ex executor.Executor, name string) erro
 	if !checkpointTmuxName.MatchString(name) {
 		return errors.New("invalid tmux session name")
 	}
-	r, err := ex.Run(ctx, "tmux has-session -t "+shellq.Quote("="+name), executor.RunOpts{Timeout: 10})
+	be := backend.For(ex)
+	r, err := ex.Run(ctx, be.HasSession(backend.Exact(name), false), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("tmux session %q is unavailable", name)
 	}
-	r, err = ex.Run(ctx, "tmux display-message -p -t "+shellq.Quote("="+name+":")+" '#{session_name}'", executor.RunOpts{Timeout: 10})
+	r, err = ex.Run(ctx, be.Display(backend.Pane(name), "#{session_name}"), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() || strings.TrimSpace(r.Stdout) != name {
 		return fmt.Errorf("tmux session %q failed exact identity check", name)
 	}

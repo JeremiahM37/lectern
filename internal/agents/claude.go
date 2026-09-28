@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
@@ -184,6 +185,9 @@ type SettingsInput struct {
 	MemoryDir   string
 	// ExpireSeconds sizes the hook's own timeout.
 	ExpireSeconds int
+	// Lectern is the lectern binary on the target, when it has one: the gate
+	// then runs as `lectern helper approval-hook` instead of hook.py.
+	Lectern string
 }
 
 // BuildSettings renders the settings.json every attempt gets: permission rules
@@ -223,7 +227,7 @@ func BuildSettings(in SettingsInput) (map[string]any, error) {
 		settings["permissions"] = perms
 	}
 	if in.Gated {
-		for k, v := range HookSettings(in.BaseURL, in.Token, in.Matcher, in.ExpireSeconds) {
+		for k, v := range HookSettingsFor(in.BaseURL, in.Token, in.Matcher, in.ExpireSeconds, in.Lectern) {
 			settings[k] = v
 		}
 	}
@@ -233,14 +237,23 @@ func BuildSettings(in SettingsInput) (map[string]any, error) {
 // HookSettings is the PreToolUse gate; only used when permission mode is
 // 'default'.
 func HookSettings(baseURL, token, matcher string, expireSeconds int) map[string]any {
+	return HookSettingsFor(baseURL, token, matcher, expireSeconds, "")
+}
+
+// HookSettingsFor is HookSettings for a target whose lectern binary is at
+// lectern ("" when it has none, which keeps the staged hook.py).
+func HookSettingsFor(baseURL, token, matcher string, expireSeconds int, lectern string) map[string]any {
 	if matcher == "" {
 		matcher = DefaultGateMatcher
 	}
 	if expireSeconds <= 0 {
 		expireSeconds = 900
 	}
-	cmd := fmt.Sprintf("LECTERN_URL=%s LECTERN_TOKEN=%s python3 .lectern/hook.py",
-		baseURL, token)
+	gate := "python3 .lectern/hook.py"
+	if lectern != "" {
+		gate = helpers.Invocation(lectern, "approval-hook", nil)
+	}
+	cmd := fmt.Sprintf("LECTERN_URL=%s LECTERN_TOKEN=%s %s", baseURL, token, gate)
 	return map[string]any{"hooks": map[string]any{
 		"PreToolUse": []any{map[string]any{
 			"matcher": matcher,

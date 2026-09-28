@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/nativeidentity"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -72,7 +73,9 @@ func (s *Server) nativeConversationData(r *http.Request, row *store.Session, cid
 	if row.EndedAt == nil && row.ArchivedAt == nil {
 		name, identity = row.TmuxSession, row.TrackingIdentity
 	}
-	cmd := prefix + "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\n"+nativeidentity.ConversationsScript) + " " + shellq.Quote(row.Agent) + " " + shellq.Quote(row.Workdir) + " " + shellq.Quote(cid) + " " + shellq.Quote(r.URL.Query().Get("before")) + " " + shellq.Quote(name) + " " + shellq.Quote(identity)
+	args := []string{row.Agent, row.Workdir, cid, r.URL.Query().Get("before"), name, identity}
+	py := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.IdentityScript+"\n"+nativeidentity.ConversationsScript) + " " + shellq.Quote(row.Agent) + " " + shellq.Quote(row.Workdir) + " " + shellq.Quote(cid) + " " + shellq.Quote(r.URL.Query().Get("before")) + " " + shellq.Quote(name) + " " + shellq.Quote(identity)
+	cmd := prefix + helpers.Command(ex, "native-conversations", args, py)
 	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 30})
 	var out map[string]json.RawMessage
 	if err != nil || json.Unmarshal([]byte(result.Stdout), &out) != nil {
@@ -106,6 +109,7 @@ func (s *Server) nativeConversations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
 }
+
 // liveConversationData runs conversation_live.py on the target: same
 // security posture as nativeConversationData (paths resolved and checked on
 // the target, never trusted from HTTP), but it reads ONE already-identified
@@ -137,8 +141,9 @@ func (s *Server) liveConversationData(r *http.Request, row *store.Session, cid, 
 	if err != nil {
 		return nil, err
 	}
-	cmd := prefix + "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.ConversationLiveScript) + " " +
+	py := "python3 -c " + shellq.Quote(nativeidentity.RecordsScript+"\n"+nativeidentity.ConversationLiveScript) + " " +
 		shellq.Quote(row.Agent) + " " + shellq.Quote(row.Workdir) + " " + shellq.Quote(cid) + " " + shellq.Quote(since)
+	cmd := prefix + helpers.Command(ex, "native-conversation-live", []string{row.Agent, row.Workdir, cid, since}, py)
 	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 20})
 	var out map[string]json.RawMessage
 	if err != nil || json.Unmarshal([]byte(result.Stdout), &out) != nil {

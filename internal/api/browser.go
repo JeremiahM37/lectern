@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/browser"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -47,6 +48,7 @@ type sessionBrowser struct {
 	tabs      *browser.Tabs
 	proc      *browser.Process
 	run       browser.Runner // where the browser runs
+	lectern   string         // the lectern binary there, if known
 	where     string         // target | host
 	binary    string
 	profile   string // the full profile name; "" is a throwaway one
@@ -291,6 +293,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 	var proxy *browser.LoopbackProxy
 	cdpDial := browser.Dial(dialer.DialTarget)
 	sb.where = "target"
+	sb.lectern = executor.TargetEnvOf(ex).Lectern
 	if errors.Is(err, browser.ErrNoBrowser) && target.Kind != "local" {
 		// The control plane stands in; the target's localhost stays the
 		// browser's localhost through the proxy.
@@ -305,6 +308,7 @@ func (s *Server) ensureBrowser(ctx context.Context, sess *store.Session, vp brow
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		}
 		sb.where = "host"
+		sb.lectern = ""
 	}
 	if err != nil {
 		if proxy != nil {
@@ -1186,7 +1190,7 @@ func (s *Server) sessionPorts(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	res, err := ex.Run(ctx, "python3 -c "+shellQuoteArg(portsScript)+" "+shellQuoteArg(sess.Workdir), executor.RunOpts{Timeout: 20})
+	res, err := ex.Run(ctx, portsCommand(ex, sess.Workdir), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		respondErr(w, err)
 		return
@@ -1202,6 +1206,12 @@ func (s *Server) sessionPorts(w http.ResponseWriter, r *http.Request) {
 		out.Ports = []map[string]any{}
 	}
 	writeJSON(w, 200, map[string]any{"ports": out.Ports, "target": target.Name, "workdir": sess.Workdir})
+}
+
+// portsCommand lists ports on ex's target, marking those owned by processes
+// in workdir.
+func portsCommand(ex executor.Executor, workdir string) string {
+	return helpers.Command(ex, "ports", []string{workdir}, "python3 -c "+shellQuoteArg(portsScript)+" "+shellQuoteArg(workdir))
 }
 
 func shellQuoteArg(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

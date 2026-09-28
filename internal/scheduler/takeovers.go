@@ -7,6 +7,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -125,10 +126,11 @@ func (s *Scheduler) takeover(ctx context.Context, id int64) error {
 	// tmux kill-session is synchronous. Check on the target before permitting
 	// another writer, including after an interrupted control-plane request.
 	old := fmt.Sprintf("=lec-%d", att.ID)
-	if _, err = ex.Run(ctx, "tmux kill-session -t "+shellq.Quote(old)+" 2>/dev/null || true", executor.RunOpts{Timeout: 20}); err != nil {
+	be := backend.For(ex)
+	if _, err = ex.Run(ctx, be.KillSession(old, true), executor.RunOpts{Timeout: 20}); err != nil {
 		return err
 	}
-	alive, err := ex.Run(ctx, "tmux has-session -t "+shellq.Quote(old)+" 2>/dev/null", executor.RunOpts{Timeout: 20})
+	alive, err := ex.Run(ctx, be.HasSession(old, true), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		return err
 	}
@@ -151,7 +153,7 @@ func (s *Scheduler) takeover(ctx context.Context, id int64) error {
 		return err
 	}
 	// An earlier process may have launched successfully just before restart.
-	alive, err = ex.Run(ctx, "tmux has-session -t "+shellq.Quote("="+sess.TmuxSession)+" 2>/dev/null", executor.RunOpts{Timeout: 20})
+	alive, err = ex.Run(ctx, be.HasSession(backend.Exact(sess.TmuxSession), true), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		return err
 	}

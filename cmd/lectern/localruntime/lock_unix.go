@@ -34,3 +34,11 @@ func keepPrivate(fd int) { syscall.CloseOnExec(fd) }
 
 // runtimeSupported reports whether this platform can host the local runtime.
 func runtimeSupported() error { return nil }
+
+// passFiles hands the locked lock file and the token pipe to the engine as
+// descriptors 3 and 4, and detaches it.
+func passFiles(cmd *exec.Cmd, lock, token *os.File) (lockArg, tokenArg string) {
+	cmd.ExtraFiles = []*os.File{lock, token}
+	detach(cmd)
+	return "3", "4"
+}

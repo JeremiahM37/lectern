@@ -1,6 +1,11 @@
-// Package terminal is one-click terminal attach: spawn a ttyd on the control
-// plane that wraps `tmux attach` (locally, over ssh, or via pct) for a running
-// attempt. Browser and desktop clients share the same persistent tmux sessions.
+// Package terminal is one-click terminal attach: spawn a terminal server on
+// the control plane that wraps the attach command (`tmux attach` or `lectern
+// pty attach-session`, locally, over ssh, or via pct) for a running attempt
+// or session. Browser and desktop clients share the same persistent sessions.
+//
+// The server is lectern's own `term-server` (package webterm), which speaks
+// ttyd's WebSocket protocol; ttyd itself is used only by a Manager built
+// without a Binary, as the tests' is.
 package terminal
 
 import (
@@ -8,7 +13,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"net"
 	"os"
 	"os/exec"
@@ -18,10 +22,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
+	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
-	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 // DefaultMaxTerminals is how many terminals may run at once unless
@@ -106,8 +112,18 @@ type Attachment struct {
 	// Workdir turns this into a plain shell in a directory rather than an attach
 	// to an existing agent session — a way into the machine where the code
 	// actually lives, to read something or make a change by hand. It is still a
-	// tmux session, so it survives a closed tab and comes back where you left it.
+	// persistent session, so it survives a closed tab and comes back where you
+	// left it.
 	Workdir string
+	// Backend keeps the session on its target; nil means tmux.
+	Backend backend.Backend
+}
+
+func (a Attachment) backend() backend.Backend {
+	if a.Backend == nil {
+		return backend.Tmux
+	}
+	return a.Backend
 }
 
 // IsShell reports whether this attachment is a shell rather than an agent.
@@ -130,6 +146,12 @@ type Manager struct {
 	// SocketDir overrides where the private socket directory is made.
 	SocketDir string
 
+	// Binary is this lectern binary. When set, terminals are served by its
+	// own `term-server` (internal/terminal/webterm), which speaks ttyd's
+	// protocol, so ttyd is not needed. A hand-built Manager (tests) leaves it
+	// empty and uses ttyd.
+	Binary string
+
 	// Spawn is the process launcher. Tests replace it; production shells out.
 	Spawn func(socket, basePath string, argv []string) (*exec.Cmd, error)
 	// LookPath reports whether ttyd is installed. Tests override it.
@@ -145,18 +167,22 @@ type session struct {
 
 // NewManager builds a terminal manager wired to the real ttyd binary.
 func NewManager() *Manager {
-	return &Manager{
+	m := &Manager{
 		procs:   map[string]*session{},
 		viewers: map[string]int{}, lastViewed: map[string]time.Time{},
 		LookPath: exec.LookPath,
-		Spawn: func(socket, basePath string, argv []string) (*exec.Cmd, error) {
-			cmd := exec.Command("ttyd", TTYDArgs(socket, basePath, argv)...)
-			if err := cmd.Start(); err != nil {
-				return nil, err
-			}
-			return cmd, nil
-		},
 	}
+	m.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
+		cmd := exec.Command("ttyd", TTYDArgs(socket, basePath, argv)...)
+		if m.Binary != "" {
+			cmd = exec.Command(m.Binary, append([]string{"term-server"}, TTYDArgs(socket, basePath, argv)...)...)
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return cmd, nil
+	}
+	return m
 }
 
 // AttachArgv is the command a ttyd wraps, per target kind.
@@ -181,52 +207,10 @@ func WebAttachArgv(a Attachment, target *store.Target) ([]string, error) {
 	return attachArgv(a, target, true)
 }
 
-// extkeysProbe picks the client flag by the target's tmux version. -T (and
-// the extkeys feature) arrived in tmux 3.2, and an older tmux refuses an
-// unknown flag outright, which would leave the browser with no terminal.
-// tmux 3.2-3.4 accept it but then drop Shift+Enter and Ctrl+Enter meant for a
-// program that did not ask for extended keys (a shell), and send Ctrl+letters
-// in legacy form even to one that did, so the browser only declares extended
-// keys to tmux 3.5 and later (see tmuxkeys).
-//
-// The browser also declares OSC 8 hyperlinks (tmux 3.4 and later), so a link
-// an agent prints — Claude Code's Markdown links to files, say — reaches the
-// browser's terminal as one (docs/files.md, terminal links).
-const extkeysProbe = `case "$(tmux -V 2>/dev/null)" in "tmux "[0-2].*|"tmux 3."[0-3]|"tmux 3."[0-3][!0-9]*) set -- ;; "tmux 3.4"|"tmux 3.4"[!0-9]*) set -- -T hyperlinks ;; *) set -- -T extkeys,hyperlinks ;; esac; exec tmux "$@"`
-
 func attachArgv(a Attachment, target *store.Target, web bool) ([]string, error) {
-	sess := a.TmuxSession
-	// `new-session -A` attaches if it is already there and creates it otherwise,
-	// so reopening a shell returns to the same one with its history and whatever
-	// was half-typed, rather than starting over in a fresh directory.
-	inner := []string{"tmux", "attach", "-t", sess}
+	inner := a.backend().AttachArgv(a.TmuxSession, web)
 	if a.IsShell() {
-		// An empty command inherits tmux's default-command, which may launch an
-		// agent. Resolve SHELL on the target, not on the control-plane host, and
-		// pass a real shell explicitly for project and companion terminals.
-		inner = []string{"tmux", "new-session", "-A", "-s", sess, "-c", a.Workdir,
-			"--", "/bin/sh", "-c", `exec "${SHELL:-/bin/sh}" -i`}
-	}
-	// One pane has one grid, so one client decides its size. `latest` gives it
-	// to the client that last attached, typed or resized, and the browser
-	// re-announces its size whenever its terminal is shown or focused, so the
-	// screen being used is drawn at its own size. `smallest` let a forgotten
-	// client (a sleeping phone, a hidden tab, a split pane) pin every other
-	// view to a sliver of Claude's input box padded with tmux's dots until the
-	// session was restarted. Apply this to the attached window, never to the
-	// user's global tmux options. Queue it after new-session so companion
-	// shells are created before targeting.
-	inner = append(inner, ";", "set-option", "-w", "-t", "="+sess+":", "window-size", "latest")
-	if web {
-		// The server options go first: tmux asks the outer terminal for
-		// extended keys when the client starts, not when the option changes.
-		// (tmuxkeys: the session's own launch did this already; a session
-		// Lectern adopted, or a server restarted since, has it done here.)
-		words := append(append(append([]string(nil), tmuxkeys.Commands...), ";"), inner[1:]...)
-		for i, word := range words {
-			words[i] = shellq.Quote(word)
-		}
-		inner = []string{"sh", "-c", extkeysProbe + " " + strings.Join(words, " ")}
+		inner = a.backend().ShellArgv(a.TmuxSession, a.Workdir, web)
 	}
 	return onTarget(a, target, inner)
 }
@@ -343,8 +327,10 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 // room, if any ("" when none), so the caller can tell the user.
 func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *store.Target) (string, string, error) {
 	m.reap()
-	if _, err := m.LookPath("ttyd"); err != nil {
-		return "", "", MissingViewer{Fix: onboard.InstallCommand("ttyd")}
+	if m.Binary == "" {
+		if _, err := m.LookPath("ttyd"); err != nil {
+			return "", "", MissingViewer{Fix: onboard.InstallCommand("ttyd")}
+		}
 	}
 	argv, err := WebAttachArgv(a, target)
 	if err != nil {
@@ -357,7 +343,21 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	if s, ok := m.procs[a.Key]; ok {
 		socket := s.socket
 		m.mu.Unlock()
-		return socket, "", nil
+		if s.cmd == nil || !gone(s) {
+			return socket, "", nil
+		}
+		// Its server died and has not been reaped yet: a reconnect right
+		// after a crash must get a fresh one, not a refused connection.
+		m.mu.Lock()
+		if cur, ok := m.procs[a.Key]; ok && cur == s {
+			if s.cmd.Process != nil {
+				_ = s.cmd.Process.Kill()
+			}
+			delete(m.procs, a.Key)
+			os.Remove(s.socket)
+		}
+		m.mu.Unlock()
+		return m.AttachWithNotice(ctx, a, target)
 	}
 	retired, err := m.makeRoomLocked()
 	if err != nil {
@@ -397,6 +397,31 @@ func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *st
 	m.procs[a.Key] = &session{socket: socket, cmd: cmd, started: time.Now(), exited: exited}
 	m.mu.Unlock()
 	return socket, retired, nil
+}
+
+// gone reports whether a terminal's server has exited, including one that
+// died a moment ago and has not been reaped: its socket refuses connections
+// and its process ends.
+func gone(s *session) bool {
+	if s.exited == nil {
+		return false
+	}
+	select {
+	case <-s.exited:
+		return true
+	default:
+	}
+	conn, err := net.DialTimeout("unix", s.socket, 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return false
+	}
+	select {
+	case <-s.exited:
+		return true
+	case <-time.After(300 * time.Millisecond):
+		return false
+	}
 }
 
 // BindWait is the longest Attach waits for a fresh ttyd to start listening.

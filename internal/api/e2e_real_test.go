@@ -97,9 +97,23 @@ type realRig struct {
 	url     string
 	repo    string
 	project int64
+	// backend keeps the rig's terminals: tmux, or the PTY host.
+	backend string
+	socket  string // the PTY host's, for the pty backend
 }
 
-func newRealRig(t *testing.T) *realRig {
+// sessionBackends are the session backends the parity tests run against
+// (docs/ptyhost.md). Each gets its own rig, so the two never share a session.
+var sessionBackends = []string{"tmux", "pty"}
+
+// forEachBackend runs a test once per session backend.
+func forEachBackend(t *testing.T, test func(t *testing.T, backend string)) {
+	for _, name := range sessionBackends {
+		t.Run(name, func(t *testing.T) { test(t, name) })
+	}
+}
+
+func newRealRig(t *testing.T, backendName ...string) *realRig {
 	t.Helper()
 	// Real git, tmux and processes: only inside the reviewed namespace, so a
 	// plain `go test` on the host can never reach the operator's tmux server.
@@ -124,6 +138,30 @@ func newRealRig(t *testing.T) *realRig {
 	// at this test's own temp dir. The local executor inherits this process's
 	// environment, which is what makes the override reach the target.
 	t.Setenv("LECTERN_SCRATCH_ROOT", filepath.Join(dir, "scratch"))
+
+	sessionBackend := "tmux"
+	if len(backendName) > 0 {
+		sessionBackend = backendName[0]
+	}
+	var self, socket string
+	if sessionBackend == "pty" {
+		// The test binary stands in for lectern: TestMain runs `pty`,
+		// `ptyhost`, `helper` and `term-server` (internal/testutil/lecternbin).
+		var err error
+		if self, err = os.Executable(); err != nil {
+			t.Fatal(err)
+		}
+		short, err := os.MkdirTemp("", "lec-pty-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		socket = filepath.Join(short, "s.sock")
+		t.Setenv("LECTERN_PTYHOST_SOCKET", socket)
+		t.Cleanup(func() {
+			_ = exec.Command(self, "ptyhost", "stop", "--force", "--socket", socket).Run()
+			os.RemoveAll(short)
+		})
+	}
 
 	agentPath := filepath.Join(dir, "fake-claude")
 	if err := os.WriteFile(agentPath, []byte(fakeAgent), 0o755); err != nil {
@@ -151,6 +189,8 @@ func newRealRig(t *testing.T) *realRig {
 		HostClaudeConfig: filepath.Join(dir, "none.json"),
 		ClaudeCredsPath:  filepath.Join(dir, "none.json"),
 		CodexCredsPath:   filepath.Join(dir, "none.json"),
+		SessionBackend:   sessionBackend,
+		Self:             self,
 	}
 	a, err := app.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -184,7 +224,7 @@ func newRealRig(t *testing.T) *realRig {
 		t.Fatalf("reserving the session id range: %v", err)
 	}
 
-	r := &realRig{t: t, app: a, url: cfg.BaseURL, repo: repo, project: project.ID}
+	r := &realRig{t: t, app: a, url: cfg.BaseURL, repo: repo, project: project.ID, backend: sessionBackend, socket: socket}
 	t.Cleanup(func() {
 		srv.Close()
 		a.Close()
@@ -284,112 +324,116 @@ func (r *realRig) waitStatus(id int64, want ...string) *store.Task {
 // agent in it, the poller reads its output, the exit code finalises the attempt,
 // and the edit the agent made is captured as a diff.
 func TestARealDispatchRunsAnAgentInARealWorktree(t *testing.T) {
-	r := newRealRig(t)
-	id := r.dispatch("real run", "add a line to NOTES.md")
-	task := r.waitStatus(id, "done", "review", "failed")
-	if task.Status == "failed" {
-		att, _ := r.app.DB.LatestAttempt(id)
-		t.Fatalf("the real pipeline failed: %s", att.ResultJSON)
-	}
-
-	att, err := r.app.DB.LatestAttempt(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// a real worktree on disk, on its own branch
-	if att.WorktreePath == "" {
-		t.Fatal("no worktree was recorded")
-	}
-	if _, err := os.Stat(att.WorktreePath); err != nil {
-		t.Fatalf("the worktree is not on disk: %v", err)
-	}
-	if att.Branch == "" || att.Branch == "main" {
-		t.Errorf("the attempt must run on its own branch, got %q", att.Branch)
-	}
-	branch := strings.TrimSpace(mustRun(t, att.WorktreePath, "git", "rev-parse", "--abbrev-ref", "HEAD"))
-	if branch != att.Branch {
-		t.Errorf("the worktree is on %q but the attempt recorded %q", branch, att.Branch)
-	}
-
-	// the agent's real edit landed in the worktree and NOT in the source repo
-	edited, err := os.ReadFile(filepath.Join(att.WorktreePath, "NOTES.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(edited), "agent was here") {
-		t.Errorf("the agent's edit is missing from the worktree: %q", edited)
-	}
-	original, _ := os.ReadFile(filepath.Join(r.repo, "NOTES.md"))
-	if strings.Contains(string(original), "agent was here") {
-		t.Error("the agent wrote into the source repository instead of its worktree")
-	}
-	// the prompt genuinely reached the agent process
-	if !strings.Contains(string(edited), "prompt-bytes:") {
-		t.Error("the agent never received a prompt argument")
-	}
-	for _, line := range strings.Split(string(edited), "\n") {
-		if n, ok := strings.CutPrefix(line, "prompt-bytes:"); ok && n == "0" {
-			t.Error("the agent was launched with an empty prompt")
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newRealRig(t, backend)
+		id := r.dispatch("real run", "add a line to NOTES.md")
+		task := r.waitStatus(id, "done", "review", "failed")
+		if task.Status == "failed" {
+			att, _ := r.app.DB.LatestAttempt(id)
+			t.Fatalf("the real pipeline failed: %s", att.ResultJSON)
 		}
-	}
 
-	// the poller parsed the real stream-json the process wrote
-	events, err := r.app.DB.TaskEvents(id, 0, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(events) == 0 {
-		t.Fatal("no events were captured from the agent's output")
-	}
-	var sawAssistant bool
-	for _, e := range events {
-		if strings.Contains(e.PayloadJSON, "Adding the note") {
-			sawAssistant = true
+		att, err := r.app.DB.LatestAttempt(id)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !sawAssistant {
-		t.Errorf("the agent's own message never reached the event log (%d events)", len(events))
-	}
 
-	// the exit code came back through the real file the launcher redirects to
-	if att.ExitCode == nil || *att.ExitCode != 0 {
-		t.Errorf("exit code: %v", att.ExitCode)
-	}
-
-	// and the diff of the real edit was captured
-	code, body := r.do("GET", fmt.Sprintf("/api/tasks/%d/diff", id), nil)
-	if code != 200 {
-		t.Fatalf("diff: %d %s", code, body)
-	}
-	if !strings.Contains(string(body), "agent was here") {
-		t.Errorf("the captured diff does not contain the agent's edit: %s", truncate(string(body), 400))
-	}
-
-	// The exit-code file is written before the wrapper exits, so finalization
-	// can beat tmux noticing that exit. Require cleanup within a bounded wait.
-	deadline := time.Now().Add(3 * time.Second)
-	for exec.Command("tmux", "has-session", "-t", "="+att.TmuxSession).Run() == nil {
-		if time.Now().After(deadline) {
-			t.Fatalf("tmux session %s is still alive after the attempt finished", att.TmuxSession)
+		// a real worktree on disk, on its own branch
+		if att.WorktreePath == "" {
+			t.Fatal("no worktree was recorded")
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		if _, err := os.Stat(att.WorktreePath); err != nil {
+			t.Fatalf("the worktree is not on disk: %v", err)
+		}
+		if att.Branch == "" || att.Branch == "main" {
+			t.Errorf("the attempt must run on its own branch, got %q", att.Branch)
+		}
+		branch := strings.TrimSpace(mustRun(t, att.WorktreePath, "git", "rev-parse", "--abbrev-ref", "HEAD"))
+		if branch != att.Branch {
+			t.Errorf("the worktree is on %q but the attempt recorded %q", branch, att.Branch)
+		}
+
+		// the agent's real edit landed in the worktree and NOT in the source repo
+		edited, err := os.ReadFile(filepath.Join(att.WorktreePath, "NOTES.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(edited), "agent was here") {
+			t.Errorf("the agent's edit is missing from the worktree: %q", edited)
+		}
+		original, _ := os.ReadFile(filepath.Join(r.repo, "NOTES.md"))
+		if strings.Contains(string(original), "agent was here") {
+			t.Error("the agent wrote into the source repository instead of its worktree")
+		}
+		// the prompt genuinely reached the agent process
+		if !strings.Contains(string(edited), "prompt-bytes:") {
+			t.Error("the agent never received a prompt argument")
+		}
+		for _, line := range strings.Split(string(edited), "\n") {
+			if n, ok := strings.CutPrefix(line, "prompt-bytes:"); ok && n == "0" {
+				t.Error("the agent was launched with an empty prompt")
+			}
+		}
+
+		// the poller parsed the real stream-json the process wrote
+		events, err := r.app.DB.TaskEvents(id, 0, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) == 0 {
+			t.Fatal("no events were captured from the agent's output")
+		}
+		var sawAssistant bool
+		for _, e := range events {
+			if strings.Contains(e.PayloadJSON, "Adding the note") {
+				sawAssistant = true
+			}
+		}
+		if !sawAssistant {
+			t.Errorf("the agent's own message never reached the event log (%d events)", len(events))
+		}
+
+		// the exit code came back through the real file the launcher redirects to
+		if att.ExitCode == nil || *att.ExitCode != 0 {
+			t.Errorf("exit code: %v", att.ExitCode)
+		}
+
+		// and the diff of the real edit was captured
+		code, body := r.do("GET", fmt.Sprintf("/api/tasks/%d/diff", id), nil)
+		if code != 200 {
+			t.Fatalf("diff: %d %s", code, body)
+		}
+		if !strings.Contains(string(body), "agent was here") {
+			t.Errorf("the captured diff does not contain the agent's edit: %s", truncate(string(body), 400))
+		}
+
+		// The exit-code file is written before the wrapper exits, so finalization
+		// can beat tmux noticing that exit. Require cleanup within a bounded wait.
+		deadline := time.Now().Add(3 * time.Second)
+		for exec.Command("tmux", "has-session", "-t", "="+att.TmuxSession).Run() == nil {
+			if time.Now().After(deadline) {
+				t.Fatalf("tmux session %s is still alive after the attempt finished", att.TmuxSession)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 }
 
 // A failing agent must be reported as failed with its real exit code, not
 // silently swallowed or left running.
 func TestARealFailingAgentIsReportedAsFailed(t *testing.T) {
-	r := newRealRig(t)
-	id := r.dispatch("real failure", "FAIL-THIS-RUN please")
-	task := r.waitStatus(id, "failed", "done", "review")
-	if task.Status != "failed" {
-		t.Fatalf("a nonzero agent exit must fail the task, got %q", task.Status)
-	}
-	att, _ := r.app.DB.LatestAttempt(id)
-	if att.ExitCode == nil || *att.ExitCode != 3 {
-		t.Errorf("the real exit code should be preserved, got %v", att.ExitCode)
-	}
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newRealRig(t, backend)
+		id := r.dispatch("real failure", "FAIL-THIS-RUN please")
+		task := r.waitStatus(id, "failed", "done", "review")
+		if task.Status != "failed" {
+			t.Fatalf("a nonzero agent exit must fail the task, got %q", task.Status)
+		}
+		att, _ := r.app.DB.LatestAttempt(id)
+		if att.ExitCode == nil || *att.ExitCode != 3 {
+			t.Errorf("the real exit code should be preserved, got %v", att.ExitCode)
+		}
+	})
 }
 
 // A configured task definition uses its own batch command and plain-output
@@ -397,78 +441,80 @@ func TestARealFailingAgentIsReportedAsFailed(t *testing.T) {
 // cannot strand the last timeline message; the second definition proves its
 // nonzero exit remains a failed task.
 func TestARealCustomTaskCapturesPlainOutputAndExitCode(t *testing.T) {
-	r := newRealRig(t)
-	bin := filepath.Join(filepath.Dir(r.repo), "custom-task-agent")
-	script := `#!/bin/sh
-cat >/dev/null
-if [ "$1" = "--fail" ]; then
-  printf 'custom failure Ω'
-  exit 3
-fi
-printf 'custom output Ω $(literal)'
-exit 0
-`
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	code, body := r.do("PUT", "/api/agents", []map[string]any{
-		{"name": "plain-custom", "command": bin,
-			"task": map[string]any{"command": bin, "prompt_template": "stdin", "output_mode": "plain"}},
-		{"name": "plain-failing", "command": bin,
-			"task": map[string]any{"command": bin, "args": []string{"--fail"}, "prompt_template": "stdin", "output_mode": "plain"}},
-	})
-	if code != 200 {
-		t.Fatalf("custom agent setup: %d %s", code, body)
-	}
-	customTask := func(agent string) int64 {
-		code, body := r.do("POST", "/api/tasks", map[string]any{
-			"project_id": r.project, "title": agent, "prompt": "custom prompt", "agent": agent})
-		if code != 201 {
-			t.Fatalf("creating %s task: %d %s", agent, code, body)
-		}
-		var task struct {
-			ID int64 `json:"id"`
-		}
-		if err := json.Unmarshal(body, &task); err != nil {
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newRealRig(t, backend)
+		bin := filepath.Join(filepath.Dir(r.repo), "custom-task-agent")
+		script := `#!/bin/sh
+	cat >/dev/null
+	if [ "$1" = "--fail" ]; then
+	  printf 'custom failure Ω'
+	  exit 3
+	fi
+	printf 'custom output Ω $(literal)'
+	exit 0
+	`
+		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		code, body = r.do("POST", fmt.Sprintf("/api/tasks/%d/dispatch", task.ID), map[string]any{})
+		code, body := r.do("PUT", "/api/agents", []map[string]any{
+			{"name": "plain-custom", "command": bin,
+				"task": map[string]any{"command": bin, "prompt_template": "stdin", "output_mode": "plain"}},
+			{"name": "plain-failing", "command": bin,
+				"task": map[string]any{"command": bin, "args": []string{"--fail"}, "prompt_template": "stdin", "output_mode": "plain"}},
+		})
 		if code != 200 {
-			t.Fatalf("dispatching %s task: %d %s", agent, code, body)
+			t.Fatalf("custom agent setup: %d %s", code, body)
 		}
-		return task.ID
-	}
-	okID := customTask("plain-custom")
-	okTask := r.waitStatus(okID, "done", "failed", "review")
-	if okTask.Status != "done" && okTask.Status != "review" {
-		attempt, _ := r.app.DB.LatestAttempt(okID)
-		t.Fatalf("custom plain task failed: task=%q result=%s status=%s worktree=%s", okTask.Status, attempt.ResultJSON, attempt.Status, attempt.WorktreePath)
-	}
-	okEvents, err := r.app.DB.TaskEvents(okID, 0, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawOutput bool
-	for _, event := range okEvents {
-		if strings.Contains(event.PayloadJSON, "custom output Ω $(literal)") {
-			sawOutput = true
+		customTask := func(agent string) int64 {
+			code, body := r.do("POST", "/api/tasks", map[string]any{
+				"project_id": r.project, "title": agent, "prompt": "custom prompt", "agent": agent})
+			if code != 201 {
+				t.Fatalf("creating %s task: %d %s", agent, code, body)
+			}
+			var task struct {
+				ID int64 `json:"id"`
+			}
+			if err := json.Unmarshal(body, &task); err != nil {
+				t.Fatal(err)
+			}
+			code, body = r.do("POST", fmt.Sprintf("/api/tasks/%d/dispatch", task.ID), map[string]any{})
+			if code != 200 {
+				t.Fatalf("dispatching %s task: %d %s", agent, code, body)
+			}
+			return task.ID
 		}
-	}
-	if !sawOutput {
-		attempt, _ := r.app.DB.LatestAttempt(okID)
-		eventsRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "events.jsonl"))
-		stderrRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "stderr.log"))
-		t.Fatalf("unterminated custom output was lost: events=%q stderr=%q db=%#v", eventsRaw, stderrRaw, okEvents)
-	}
-	failID := customTask("plain-failing")
-	failTask := r.waitStatus(failID, "failed", "done", "review")
-	if failTask.Status != "failed" {
-		t.Fatalf("custom nonzero task was not failed: %q", failTask.Status)
-	}
-	failAttempt, err := r.app.DB.LatestAttempt(failID)
-	if err != nil || failAttempt.ExitCode == nil || *failAttempt.ExitCode != 3 {
-		t.Fatalf("custom nonzero exit code was not captured: %#v (err=%v)", failAttempt, err)
-	}
+		okID := customTask("plain-custom")
+		okTask := r.waitStatus(okID, "done", "failed", "review")
+		if okTask.Status != "done" && okTask.Status != "review" {
+			attempt, _ := r.app.DB.LatestAttempt(okID)
+			t.Fatalf("custom plain task failed: task=%q result=%s status=%s worktree=%s", okTask.Status, attempt.ResultJSON, attempt.Status, attempt.WorktreePath)
+		}
+		okEvents, err := r.app.DB.TaskEvents(okID, 0, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sawOutput bool
+		for _, event := range okEvents {
+			if strings.Contains(event.PayloadJSON, "custom output Ω $(literal)") {
+				sawOutput = true
+			}
+		}
+		if !sawOutput {
+			attempt, _ := r.app.DB.LatestAttempt(okID)
+			eventsRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "events.jsonl"))
+			stderrRaw, _ := os.ReadFile(filepath.Join(attempt.WorktreePath, ".lectern", "stderr.log"))
+			t.Fatalf("unterminated custom output was lost: events=%q stderr=%q db=%#v", eventsRaw, stderrRaw, okEvents)
+		}
+		failID := customTask("plain-failing")
+		failTask := r.waitStatus(failID, "failed", "done", "review")
+		if failTask.Status != "failed" {
+			t.Fatalf("custom nonzero task was not failed: %q", failTask.Status)
+		}
+		failAttempt, err := r.app.DB.LatestAttempt(failID)
+		if err != nil || failAttempt.ExitCode == nil || *failAttempt.ExitCode != 3 {
+			t.Fatalf("custom nonzero exit code was not captured: %#v (err=%v)", failAttempt, err)
+		}
+	})
 }
 
 // Two attempts must not collide: separate worktrees, separate branches,
@@ -546,9 +592,28 @@ func tmuxAlive(name string) bool {
 	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
 }
 
+// alive reports whether the rig's backend still has the session.
+func (r *realRig) alive(name string) bool {
+	if r.backend != "pty" {
+		return tmuxAlive(name)
+	}
+	self, _ := os.Executable()
+	return exec.Command(self, "pty", "has-session", "-t", "="+strings.TrimPrefix(name, "=")).Run() == nil
+}
+
+// stop ends a session the rig's backend holds, for test cleanup.
+func (r *realRig) stop(name string) {
+	if r.backend != "pty" {
+		exec.Command("tmux", "kill"+"-session", "-t", name).Run()
+		return
+	}
+	self, _ := os.Executable()
+	exec.Command(self, "pty", "kill"+"-session", "-t", "="+name).Run()
+}
+
 // interactiveRig points the agent binary at the long-lived fake instead.
-func newInteractiveRig(t *testing.T) *realRig {
-	r := newRealRig(t)
+func newInteractiveRig(t *testing.T, backendName ...string) *realRig {
+	r := newRealRig(t, backendName...)
 	if err := os.WriteFile(r.app.Cfg.ClaudeBin, []byte(fakeInteractiveAgent), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +630,7 @@ func (r *realRig) launchSession(body map[string]any) *store.Session {
 	if err := json.Unmarshal(raw, &sess); err != nil {
 		r.t.Fatalf("%v: %s", err, raw)
 	}
-	r.t.Cleanup(func() { exec.Command("tmux", "kill-session", "-t", sess.TmuxSession).Run() })
+	r.t.Cleanup(func() { r.stop(sess.TmuxSession) })
 	return &sess
 }
 
@@ -574,29 +639,31 @@ func (r *realRig) launchSession(body map[string]any) *store.Session {
 // — that delivery is the whole "resume any project with any agent and it has
 // full context" feature.
 func TestARealInteractiveSessionStartsAndIsPrimed(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{
-		"project_id": r.project, "agent": "claude",
-		"prime": "CONTEXT-MARKER: you are resuming the inference project"})
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{
+			"project_id": r.project, "agent": "claude",
+			"prime": "CONTEXT-MARKER: you are resuming the inference project"})
 
-	if !strings.HasPrefix(sess.TmuxSession, "lec-s") {
-		t.Errorf("an interactive session must not collide with an attempt's naming: %q", sess.TmuxSession)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for !tmuxAlive(sess.TmuxSession) && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !tmuxAlive(sess.TmuxSession) {
-		t.Fatalf("no real tmux session named %q exists", sess.TmuxSession)
-	}
+		if !strings.HasPrefix(sess.TmuxSession, "lec-s") {
+			t.Errorf("an interactive session must not collide with an attempt's naming: %q", sess.TmuxSession)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for !r.alive(sess.TmuxSession) && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if !r.alive(sess.TmuxSession) {
+			t.Fatalf("no real tmux session named %q exists", sess.TmuxSession)
+		}
 
-	log := r.waitForLog(r.repo, "argv:", 10*time.Second)
-	if !strings.Contains(log, "CONTEXT-MARKER") {
-		t.Errorf("the priming context never reached the agent:\n%s", log)
-	}
-	if !strings.Contains(log, "cwd:"+r.repo) {
-		t.Errorf("the agent started in the wrong directory:\n%s", log)
-	}
+		log := r.waitForLog(r.repo, "argv:", 10*time.Second)
+		if !strings.Contains(log, "CONTEXT-MARKER") {
+			t.Errorf("the priming context never reached the agent:\n%s", log)
+		}
+		if !strings.Contains(log, "cwd:"+r.repo) {
+			t.Errorf("the agent started in the wrong directory:\n%s", log)
+		}
+	})
 }
 
 // MCP credentials are target-user state, not worktree files. A real Git
@@ -656,88 +723,96 @@ func TestARealInteractiveMCPWorktreeStaysCleanAndRemovable(t *testing.T) {
 
 // Typing at a live session has to actually reach the process.
 func TestARealSessionReceivesTypedText(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
-	r.waitForLog(r.repo, "argv:", 10*time.Second)
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
+		r.waitForLog(r.repo, "argv:", 10*time.Second)
 
-	code, body := r.do("POST", fmt.Sprintf("/api/sessions/%d/send", sess.ID),
-		map[string]any{"text": "TYPED-MARKER hello"})
-	if code != 200 {
-		t.Fatalf("send: %d %s", code, body)
-	}
-	log := r.waitForLog(r.repo, "typed:", 10*time.Second)
-	if !strings.Contains(log, "TYPED-MARKER hello") {
-		t.Errorf("the text never arrived at the agent:\n%s", log)
-	}
+		code, body := r.do("POST", fmt.Sprintf("/api/sessions/%d/send", sess.ID),
+			map[string]any{"text": "TYPED-MARKER hello"})
+		if code != 200 {
+			t.Fatalf("send: %d %s", code, body)
+		}
+		log := r.waitForLog(r.repo, "typed:", 10*time.Second)
+		if !strings.Contains(log, "TYPED-MARKER hello") {
+			t.Errorf("the text never arrived at the agent:\n%s", log)
+		}
+	})
 }
 
 // THIS is the regression that matters most. Removing an adopted session from the
 // board once killed seven live conversations, because delete meant kill. An
 // adopted session is someone else's; letting go of it must leave it running.
 func TestReleasingAnAdoptedSessionLeavesItRunning(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
-	r.waitForLog(r.repo, "argv:", 10*time.Second)
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
+		r.waitForLog(r.repo, "argv:", 10*time.Second)
 
-	// make it look adopted: lectern found it, it did not start it
-	if err := r.app.DB.Update("sessions", sess.ID, map[string]any{"origin": "discovered"}); err != nil {
-		t.Fatal(err)
-	}
-	code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d", sess.ID), nil)
-	if code != 200 {
-		t.Fatalf("delete: %d %s", code, body)
-	}
-	var out struct {
-		Killed bool `json:"killed"`
-	}
-	json.Unmarshal(body, &out)
-	if out.Killed {
-		t.Error("the API reported killing a session it was only asked to stop tracking")
-	}
-	time.Sleep(300 * time.Millisecond)
-	if !tmuxAlive(sess.TmuxSession) {
-		t.Fatal("stopping tracking killed a live conversation — this is the seven-session incident")
-	}
+		// make it look adopted: lectern found it, it did not start it
+		if err := r.app.DB.Update("sessions", sess.ID, map[string]any{"origin": "discovered"}); err != nil {
+			t.Fatal(err)
+		}
+		code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d", sess.ID), nil)
+		if code != 200 {
+			t.Fatalf("delete: %d %s", code, body)
+		}
+		var out struct {
+			Killed bool `json:"killed"`
+		}
+		json.Unmarshal(body, &out)
+		if out.Killed {
+			t.Error("the API reported killing a session it was only asked to stop tracking")
+		}
+		time.Sleep(300 * time.Millisecond)
+		if !r.alive(sess.TmuxSession) {
+			t.Fatal("stopping tracking killed a live conversation — this is the seven-session incident")
+		}
+	})
 }
 
 // The explicit kill still has to work, or the board cannot clean anything up.
 func TestKillingAnAdoptedSessionRequiresAskingForIt(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
-	r.waitForLog(r.repo, "argv:", 10*time.Second)
-	if err := r.app.DB.Update("sessions", sess.ID, map[string]any{"origin": "discovered"}); err != nil {
-		t.Fatal(err)
-	}
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
+		r.waitForLog(r.repo, "argv:", 10*time.Second)
+		if err := r.app.DB.Update("sessions", sess.ID, map[string]any{"origin": "discovered"}); err != nil {
+			t.Fatal(err)
+		}
 
-	code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d?kill=true", sess.ID), nil)
-	if code != 200 {
-		t.Fatalf("delete: %d %s", code, body)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for tmuxAlive(sess.TmuxSession) && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if tmuxAlive(sess.TmuxSession) {
-		t.Error("an explicit kill did not stop the tmux session")
-	}
+		code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d?kill=true", sess.ID), nil)
+		if code != 200 {
+			t.Fatalf("delete: %d %s", code, body)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for r.alive(sess.TmuxSession) && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if r.alive(sess.TmuxSession) {
+			t.Error("an explicit kill did not stop the tmux session")
+		}
+	})
 }
 
 // A session lectern launched itself is its own to clean up.
 func TestDeletingAnOwnedSessionKillsIt(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
-	r.waitForLog(r.repo, "argv:", 10*time.Second)
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{"project_id": r.project, "agent": "claude"})
+		r.waitForLog(r.repo, "argv:", 10*time.Second)
 
-	if code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d", sess.ID), nil); code != 200 {
-		t.Fatalf("delete: %d %s", code, body)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for tmuxAlive(sess.TmuxSession) && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if tmuxAlive(sess.TmuxSession) {
-		t.Error("lectern did not clean up a session it started itself")
-	}
+		if code, body := r.do("DELETE", fmt.Sprintf("/api/sessions/%d", sess.ID), nil); code != 200 {
+			t.Fatalf("delete: %d %s", code, body)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for r.alive(sess.TmuxSession) && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if r.alive(sess.TmuxSession) {
+			t.Error("lectern did not clean up a session it started itself")
+		}
+	})
 }
 
 // Discovery has to find a real tmux session running a real agent process, and
@@ -769,64 +844,66 @@ func TestDiscoveryFindsARealTmuxSession(t *testing.T) {
 // wrap, kill that session, or launch its successor. Only publication of the
 // completed file may do those things.
 func TestRealHandoffWaitsForCompletedPublication(t *testing.T) {
-	r := newInteractiveRig(t)
-	sess := r.launchSession(map[string]any{"project_id": r.project, "name": "handoff-real", "group_path": "Work/Handoffs"})
-	r.waitForLog(r.repo, "cwd:", 5*time.Second)
-	code, raw := r.do("POST", fmt.Sprintf("/api/sessions/%d/handoff", sess.ID), map[string]any{"successor": true, "kill_old": true})
-	if code != 202 {
-		t.Fatalf("%d %s", code, raw)
-	}
-	log := r.waitForLog(r.repo, "completion marker", 5*time.Second)
-	start := strings.Index(log, "/tmp/lectern-handoff-")
-	if start < 0 {
-		t.Fatal(log)
-	}
-	end := strings.Index(log[start:], ".md")
-	if end < 0 {
-		t.Fatal(log)
-	}
-	path := log[start : start+end+3]
-	t.Cleanup(func() { os.Remove(path); os.Remove(path + ".partial") })
-	body := "## WHERE WE ARE\nThe real file is still being written.\n## NEXT\nKeep the existing session alive.\n"
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Cross a full handoff read interval, exercising the old >40-byte bug.
-	time.Sleep(3500 * time.Millisecond)
-	wraps, err := r.app.DB.Wraps(r.project, 10)
-	if err != nil || len(wraps) != 0 || !tmuxAlive(sess.TmuxSession) {
-		t.Fatalf("partial publication finalized: wraps=%v err=%v", wraps, err)
-	}
-	final := body + "<!-- lectern:complete " + path + " -->\n"
-	if err := os.WriteFile(path+".partial", []byte(final), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(path+".partial", path); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		wraps, _ = r.app.DB.Wraps(r.project, 10)
-		if len(wraps) > 0 && wraps[0].NextSessionID != nil {
-			break
+	forEachBackend(t, func(t *testing.T, backend string) {
+		r := newInteractiveRig(t, backend)
+		sess := r.launchSession(map[string]any{"project_id": r.project, "name": "handoff-real", "group_path": "Work/Handoffs"})
+		r.waitForLog(r.repo, "cwd:", 5*time.Second)
+		code, raw := r.do("POST", fmt.Sprintf("/api/sessions/%d/handoff", sess.ID), map[string]any{"successor": true, "kill_old": true})
+		if code != 202 {
+			t.Fatalf("%d %s", code, raw)
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if len(wraps) != 1 || wraps[0].NextSessionID == nil {
-		t.Fatalf("completed handoff not finalized: %+v", wraps)
-	}
-	next, err := r.app.DB.Session(*wraps[0].NextSessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { exec.Command("tmux", "kill-session", "-t", next.TmuxSession).Run() })
-	if tmuxAlive(sess.TmuxSession) || !tmuxAlive(next.TmuxSession) {
-		t.Fatal("completion did not transfer the session")
-	}
-	if next.GroupPath != "Work/Handoffs" {
-		t.Fatal("successor lost its group")
-	}
-	if strings.Contains(wraps[0].Summary, "lectern:complete") {
-		t.Fatal("protocol marker leaked into saved memory")
-	}
+		log := r.waitForLog(r.repo, "completion marker", 5*time.Second)
+		start := strings.Index(log, "/tmp/lectern-handoff-")
+		if start < 0 {
+			t.Fatal(log)
+		}
+		end := strings.Index(log[start:], ".md")
+		if end < 0 {
+			t.Fatal(log)
+		}
+		path := log[start : start+end+3]
+		t.Cleanup(func() { os.Remove(path); os.Remove(path + ".partial") })
+		body := "## WHERE WE ARE\nThe real file is still being written.\n## NEXT\nKeep the existing session alive.\n"
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Cross a full handoff read interval, exercising the old >40-byte bug.
+		time.Sleep(3500 * time.Millisecond)
+		wraps, err := r.app.DB.Wraps(r.project, 10)
+		if err != nil || len(wraps) != 0 || !r.alive(sess.TmuxSession) {
+			t.Fatalf("partial publication finalized: wraps=%v err=%v", wraps, err)
+		}
+		final := body + "<!-- lectern:complete " + path + " -->\n"
+		if err := os.WriteFile(path+".partial", []byte(final), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(path+".partial", path); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			wraps, _ = r.app.DB.Wraps(r.project, 10)
+			if len(wraps) > 0 && wraps[0].NextSessionID != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if len(wraps) != 1 || wraps[0].NextSessionID == nil {
+			t.Fatalf("completed handoff not finalized: %+v", wraps)
+		}
+		next, err := r.app.DB.Session(*wraps[0].NextSessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { r.stop(next.TmuxSession) })
+		if r.alive(sess.TmuxSession) || !r.alive(next.TmuxSession) {
+			t.Fatal("completion did not transfer the session")
+		}
+		if next.GroupPath != "Work/Handoffs" {
+			t.Fatal("successor lost its group")
+		}
+		if strings.Contains(wraps[0].Summary, "lectern:complete") {
+			t.Fatal("protocol marker leaked into saved memory")
+		}
+	})
 }

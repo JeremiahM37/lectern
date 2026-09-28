@@ -23,7 +23,7 @@ func (m *Manager) terminalGone(ctx context.Context, ex executor.Executor, row *s
 		return nil
 	}
 	names := []string{row.TmuxSession}
-	r, err := ex.Run(ctx, PollCommand(names), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("could not check the original terminal; retry when the machine is reachable")
 	}

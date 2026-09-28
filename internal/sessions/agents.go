@@ -8,9 +8,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
+	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
-	"github.com/JeremiahM37/lectern/v2/internal/tmuxkeys"
 )
 
 // Spec describes how to start one interactive coding CLI.
@@ -539,6 +542,8 @@ type Start struct {
 	// IsolationOpts carries what Isolation needs beyond the fields above
 	// (the proxy socket for network=deny). Ignored when Isolation is none.
 	IsolationOpts isolation.WrapOpts
+	// Backend keeps the session's terminal; nil means tmux.
+	Backend backend.Backend
 }
 
 // invocation is the agent's own command line — environment, binary and
@@ -608,15 +613,19 @@ func (s Spec) LaunchCommand(o Start) string {
 	}
 	inner := fmt.Sprintf("cd %s && %s; exec bash",
 		shellq.Quote(o.Workdir), agentInvocation)
-	setupEnv := ""
+	var setupEnv []string
 	if o.SetupToken != "" {
-		setupEnv = " -e " + shellq.Quote("LECTERN_SETUP_TOKEN="+o.SetupToken)
+		setupEnv = []string{"LECTERN_SETUP_TOKEN=" + o.SetupToken}
+	}
+	be := o.Backend
+	if be == nil {
+		be = backend.Tmux
 	}
 	// Spell out the shell invocation so tmux cannot reinterpret the generated
 	// command string differently across versions or target configurations.
 	// Extended keys go on before the agent can ask for them (tmuxkeys).
-	return fmt.Sprintf("tmux new-session -d%s -s %s -- bash -c %s", setupEnv,
-		shellq.Quote(o.TmuxName), shellq.Quote(inner)) + tmuxkeys.Suffix()
+	return be.NewSession(backend.NewSession{Name: o.TmuxName, Env: setupEnv,
+		Argv: "bash -c " + shellq.Quote(inner), ExtendedKeys: true})
 }
 
 // codexNotifyArg builds the `-c notify=[...]` override that points codex at
@@ -628,6 +637,17 @@ func (s Spec) LaunchCommand(o Start) string {
 func codexNotifyArg(scriptPath string) []string {
 	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(scriptPath)
 	return []string{"-c", `notify=["python3","` + esc + `"]`}
+}
+
+// codexNotifyHelperArg is codexNotifyArg for a target with a lectern binary:
+// codex runs `lectern helper codex-notify` directly, so no script is written.
+func codexNotifyHelperArg(lectern string) []string {
+	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	words := agentevents.CodexNotifyHelperArgs(lectern)
+	for i, w := range words {
+		words[i] = `"` + esc.Replace(w) + `"`
+	}
+	return []string{"-c", `notify=[` + strings.Join(words, ",") + `]`}
 }
 
 func validEnvName(k string) bool {
@@ -774,6 +794,23 @@ func (s Spec) TrustProbe(dir string) string {
 	}
 	cmd := strings.ReplaceAll(currentTrustCommand(s.TrustCommand), "{dir}", shellq.Quote(dir))
 	return strings.ReplaceAll(cmd, "{dir_raw}", dir)
+}
+
+// TrustProbeOn is TrustProbe for the target ex drives: a built-in trust
+// command runs as its Go helper when the target has a lectern binary.
+// Operator-defined commands are the operator's and run as declared.
+func (s Spec) TrustProbeOn(ex executor.Executor, dir string) string {
+	probe := s.TrustProbe(dir)
+	if probe == "" {
+		return ""
+	}
+	switch currentTrustCommand(s.TrustCommand) {
+	case claudeTrust:
+		return helpers.Command(ex, "claude-trust", []string{dir}, probe)
+	case codexTrust:
+		return helpers.Command(ex, "codex-trust", []string{dir}, probe)
+	}
+	return probe
 }
 
 // Installed reports whether this spec's own binary resolves on PATH for

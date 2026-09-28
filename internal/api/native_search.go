@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -365,10 +366,13 @@ func (s *Server) runConversationSearchScope(ctx context.Context, job *conversati
 	scope.State = "indexing"
 	job.mu.Unlock()
 	flags := ""
+	args := []string{scope.Agent, "--", job.query}
 	if reset {
 		flags = " --reset"
+		args = append([]string{"--reset"}, args...)
 	}
-	cmd := scope.prefix + "python3 -c " + shellq.Quote(nativeRecordsScript+"\n"+nativeSearchScript) + flags + " " + shellq.Quote(scope.Agent) + " -- " + shellq.Quote(job.query)
+	py := "python3 -c " + shellq.Quote(nativeRecordsScript+"\n"+nativeSearchScript) + flags + " " + shellq.Quote(scope.Agent) + " -- " + shellq.Quote(job.query)
+	cmd := scope.prefix + helpers.Command(ex, "native-search", args, py)
 	result, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 15})
 	<-s.searchSlots
 	if err != nil {
@@ -516,10 +520,11 @@ func (s *Server) readSearchMatch(parent context.Context, job *conversationSearch
 	if anchor != "" {
 		args = append(args, anchor)
 	}
-	cmd := chosen.prefix + "python3 -c " + shellq.Quote(script) + " --"
+	py := "python3 -c " + shellq.Quote(script) + " --"
 	for _, arg := range args {
-		cmd += " " + shellq.Quote(arg)
+		py += " " + shellq.Quote(arg)
 	}
+	cmd := chosen.prefix + helpers.Command(ex, "native-search-read", append([]string{"--"}, args...), py)
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	select {

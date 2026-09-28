@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
 // Names are the agents lectern knows how to launch.
@@ -80,6 +81,8 @@ type TaskLaunchConfig struct {
 
 // LaunchSpec is one attempt's launch parameters.
 type LaunchSpec struct {
+	// Backend keeps the attempt's terminal; nil means tmux.
+	Backend        backend.Backend
 	Agent          string
 	Worktree       string
 	TmuxSession    string
@@ -228,7 +231,7 @@ func (l Launcher) Command(s LaunchSpec) (string, error) {
 	}
 	inner := fmt.Sprintf("cd %s && %s < /dev/null > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
 		s.Worktree, invocation, rt, rt, rt)
-	return "tmux new-session -d -s " + s.TmuxSession + " " + shellQuote(inner), nil
+	return s.newSession(inner), nil
 }
 
 // genericTaskCommand launches a configured CLI as a bounded background task.
@@ -302,7 +305,7 @@ func genericTaskCommand(s LaunchSpec, prefix string, d TaskDefinition) (string, 
 		inner = fmt.Sprintf("cd %s && %s < /dev/null > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
 			shellQuote(s.Worktree), invocation, quotedRT, quotedRT, quotedRT)
 	}
-	return "tmux new-session -d -s " + shellQuote(s.TmuxSession) + " " + shellQuote(inner), nil
+	return s.newSession(inner), nil
 }
 
 func permissionArgsConfigured(args []string) bool {
@@ -423,7 +426,16 @@ func (l Launcher) claudeCommand(s LaunchSpec, prefix string) (string, error) {
 	}
 	inner := fmt.Sprintf("cd %s && %s > %s/events.jsonl 2> %s/stderr.log; echo $? > %s/exit_code",
 		s.Worktree, invocation, rt, rt, rt)
-	return "tmux new-session -d -s " + s.TmuxSession + " " + shellQuote(inner), nil
+	return s.newSession(inner), nil
+}
+
+// newSession starts inner, one shell command line, in the attempt's session.
+func (s LaunchSpec) newSession(inner string) string {
+	be := s.Backend
+	if be == nil {
+		be = backend.Tmux
+	}
+	return be.NewSession(backend.NewSession{Name: s.TmuxSession, Shell: inner})
 }
 
 func (l Launcher) bin(configured, def string) string {

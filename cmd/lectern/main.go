@@ -31,6 +31,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/app"
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/mcp"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
@@ -95,6 +96,22 @@ func main() {
 	// A new pane in a native attachment (native_split.go).
 	if len(os.Args) > 1 && os.Args[1] == terminalSplitFlag {
 		os.Exit(terminalSplitCommand(os.Args[2:]))
+	}
+	// The PTY host and its tmux-language client (docs/ptyhost.md). Like the
+	// helpers below they run on agent machines, before any configuration.
+	if len(os.Args) > 1 && os.Args[1] == "pty" {
+		os.Exit(ptyCommand(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "ptyhost" {
+		os.Exit(ptyhostCommand(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "term-server" {
+		os.Exit(termServerCommand(os.Args[2:]))
+	}
+	// A target-side helper (internal/helpers): runs on an agent machine,
+	// before any configuration is read, and prints only what it was asked.
+	if len(os.Args) > 1 && os.Args[1] == "helper" {
+		os.Exit(helpers.Main(os.Args[2:]))
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "autonomy-overlay" || os.Args[1] == "autonomy-overlay-inspect") {
 		os.Exit(autonomyOverlayCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))

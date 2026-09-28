@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -31,8 +31,12 @@ func trackingCondition(identity string) string {
 }
 
 func trackingIdentityCommand(name, seed string) string {
-	target := shellq.Quote("=" + name + ":")
-	show := func(option string) string { return "tmux show-options -qv -t " + target + " " + option }
+	return trackingIdentityCommandFor(backend.Tmux, name, seed)
+}
+
+func trackingIdentityCommandFor(be backend.Backend, name, seed string) string {
+	target := backend.Pane(name)
+	show := func(option string) string { return be.ShowOption(target, option) }
 	if seed == "" {
 		return `v=$(` + show(trackingOption) + `); [ -n "$v" ] || v=$(` + show(legacyTrackingOption) + `); printf '%s\n' "$v"`
 	}
@@ -40,7 +44,7 @@ func trackingIdentityCommand(name, seed string) string {
 	// name; seeding a second one under the new name would make it look like a
 	// different session. Only a session with neither is given one.
 	return `v=$(` + show(legacyTrackingOption) + `); if [ -n "$v" ]; then printf '%s\n' "$v"; else ` +
-		"tmux set-option -o -t " + target + " " + trackingOption + " " + shellq.Quote(seed) + " && " + show(trackingOption) + `; fi`
+		be.SetOptionOnce(target, trackingOption, seed) + " && " + show(trackingOption) + `; fi`
 }
 
 func validTrackingIdentity(value string) bool {
@@ -53,7 +57,7 @@ func captureTrackingIdentity(ctx context.Context, ex executor.Executor, name str
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return ""
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommand(name, hex.EncodeToString(nonce[:])), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), name, hex.EncodeToString(nonce[:])), executor.RunOpts{Timeout: 10})
 	value := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !validTrackingIdentity(value) {
 		return ""
@@ -101,7 +105,7 @@ func (m *Manager) Restore(ctx context.Context, id int64) (*store.Session, error)
 	} else if err != store.ErrNotFound {
 		return nil, err
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommand(sess.TmuxSession, ""), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), sess.TmuxSession, ""), executor.RunOpts{Timeout: 10})
 	if err != nil {
 		return nil, err
 	}

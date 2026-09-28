@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
-	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
 )
@@ -71,7 +71,8 @@ func (s *Server) terminalSplit(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "%s", err)
 		return
 	}
-	argv, err := terminal.AttachArgv(terminal.Attachment{Key: fmt.Sprintf("session:%d", shell.ID), TmuxSession: shell.TmuxSession}, target)
+	argv, err := terminal.AttachArgv(terminal.Attachment{Key: fmt.Sprintf("session:%d", shell.ID), TmuxSession: shell.TmuxSession,
+		Backend: s.targetBackend(target)}, target)
 	if err != nil {
 		httpError(w, 409, "%s", err)
 		return
@@ -91,7 +92,7 @@ func (s *Server) paneDirectory(ctx context.Context, att terminal.Attachment, tar
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	out, err := ex.Run(ctx, "tmux display-message -p -t "+shellq.Quote("="+att.TmuxSession+":")+" '#{pane_current_path}'", executor.RunOpts{Timeout: 15})
+	out, err := ex.Run(ctx, backend.For(ex).Display(backend.Pane(att.TmuxSession), "#{pane_current_path}"), executor.RunOpts{Timeout: 15})
 	if err != nil || out.RC != 0 {
 		return ""
 	}

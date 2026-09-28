@@ -19,6 +19,11 @@ type Registry struct {
 	// MockHTTP is the client fake agents use for hook callbacks. Tests point it
 	// at their own server.
 	MockHTTP *http.Client
+	// Env, when set, resolves what is known about a target (its session
+	// backend, its lectern binary) once its executor is made; see TargetEnv.
+	// It runs under the registry's lock, so it must not reach the target:
+	// it decides from the row (and its stored probe) and this host alone.
+	Env func(t *store.Target, ex Executor) TargetEnv
 }
 
 // NewRegistry builds an executor registry.
@@ -61,8 +66,21 @@ func (r *Registry) For(t *store.Target) (Executor, error) {
 	default:
 		return nil, Errf("unknown target kind %q", kind)
 	}
+	if r.Env != nil {
+		SetTargetEnv(ex, r.Env(t, ex))
+	}
 	r.cache[t.ID] = ex
 	return ex, nil
+}
+
+// Refresh re-resolves what is known about a target whose row changed (a new
+// probe), keeping its executor and connection.
+func (r *Registry) Refresh(t *store.Target) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ex, ok := r.cache[t.ID]; ok && r.Env != nil {
+		SetTargetEnv(ex, r.Env(t, ex))
+	}
 }
 
 // Cached returns the executor already made for a target, without making one,
@@ -80,6 +98,7 @@ func (r *Registry) Forget(id int64) {
 	delete(r.cache, id)
 	r.mu.Unlock()
 	if ex != nil {
+		forgetTargetEnv(ex)
 		_ = ex.Close()
 	}
 }
@@ -102,6 +121,7 @@ func (r *Registry) Reset() {
 	r.cache = map[int64]Executor{}
 	r.mu.Unlock()
 	for _, ex := range old {
+		forgetTargetEnv(ex)
 		_ = ex.Close()
 	}
 }

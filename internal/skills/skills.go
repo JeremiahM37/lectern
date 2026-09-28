@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -161,7 +162,7 @@ main_in=json.loads(sys.argv[1]); print(json.dumps(main(main_in),separators=(',',
 
 func run(ctx context.Context, ex executor.Executor, in map[string]any) (map[string]any, error) {
 	b, _ := json.Marshal(in)
-	cmd := "python3 -c " + shellq.Quote(script) + " " + shellq.Quote(string(b))
+	cmd := helpers.Command(ex, "skills", []string{string(b)}, "python3 -c "+shellq.Quote(script)+" "+shellq.Quote(string(b)))
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return nil, err

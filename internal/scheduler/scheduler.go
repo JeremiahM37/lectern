@@ -28,12 +28,14 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
 	"github.com/JeremiahM37/lectern/v2/internal/drivers"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
 	"github.com/JeremiahM37/lectern/v2/internal/outcomes"
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
 	"github.com/JeremiahM37/lectern/v2/internal/scratch"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/state"
@@ -43,6 +45,8 @@ import (
 
 // AgentTaskFooter is appended to every non-reviewer prompt. Scope creep is the
 // failure mode that wastes a dispatch; the board is where the extra work goes.
+// This is the form for a target without a lectern binary; AgentTaskFooterFor
+// names the right kit for a target.
 const AgentTaskFooter = `
 
 ---
@@ -51,6 +55,16 @@ expand this task. File a card on the board instead:
   python3 .lectern/lec.py add-task "short title" "detailed prompt"            # → backlog
   python3 .lectern/lec.py add-task "short title" "detailed prompt" --dispatch # runs now
 Stay focused on the task above.`
+
+// AgentTaskFooterFor is AgentTaskFooter naming the task-filing kit the
+// target runs: `lectern helper lec` when it has a lectern binary, the staged
+// lec.py otherwise.
+func AgentTaskFooterFor(lectern string) string {
+	if lectern == "" {
+		return AgentTaskFooter
+	}
+	return strings.ReplaceAll(AgentTaskFooter, "python3 .lectern/lec.py", helpers.Invocation(lectern, "lec", nil))
+}
 
 // HostLocalKinds are the target kinds whose agent process runs on the control
 // plane host, as the control plane user — the only ones that inherit that user's
@@ -454,7 +468,7 @@ func (s *Scheduler) launch(ctx context.Context, att *store.Attempt, c *runCtx) e
 	if kind := att.Driver; kind == drivers.KindClaudeSteer || kind == drivers.KindCodexAppServer || kind == drivers.KindACP {
 		return s.launchDriver(ctx, att, c, ex, wt, branch, sess, launchKW, kind)
 	}
-	cmd, err := s.buildLaunch(att, c, wt, sess, false, launchKW)
+	cmd, err := s.buildLaunch(backend.For(ex), att, c, wt, sess, false, launchKW)
 	if err != nil {
 		return err
 	}
@@ -653,7 +667,7 @@ func (s *Scheduler) launchSandboxInner(ctx context.Context, att *store.Attempt, 
 	s.Creds.Provision(ctx, inside, "pct", "sandbox-"+vmid, effAgent(c, att))
 
 	sess := fmt.Sprintf("lec-%d", att.ID)
-	cmd, err := s.buildLaunch(att, c, workdir, sess, true, launchKW)
+	cmd, err := s.buildLaunch(backend.For(inside), att, c, workdir, sess, true, launchKW)
 	if err != nil {
 		return err
 	}
@@ -707,7 +721,7 @@ func (s *Scheduler) runSetupCommand(ctx context.Context, ex executor.Executor, w
 	return nil
 }
 
-func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess string,
+func (s *Scheduler) buildLaunch(be backend.Backend, att *store.Attempt, c *runCtx, workdir, sess string,
 	isSandbox bool, kw launchKW) (string, error) {
 	env := map[string]string{}
 	for k, v := range s.Creds.BaseAgentEnv() {
@@ -734,6 +748,7 @@ func (s *Scheduler) buildLaunch(att *store.Attempt, c *runCtx, workdir, sess str
 		env[accounts.EnvKey(agent)] = dir
 	}
 	return s.Launcher.Command(agents.LaunchSpec{
+		Backend:        be,
 		Agent:          agent,
 		Worktree:       workdir,
 		TmuxSession:    sess,
@@ -907,7 +922,7 @@ func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
 	}
 
 	if len(chunk) == 0 { // no output and no exit code — is the session even alive?
-		alive, err := ex.Run(ctx, fmt.Sprintf("tmux has-session -t =lec-%d 2>/dev/null", att.ID),
+		alive, err := ex.Run(ctx, backend.For(ex).HasSession(backend.Exact(fmt.Sprintf("lec-%d", att.ID)), true),
 			executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
@@ -1353,7 +1368,7 @@ func (s *Scheduler) CancelAttempt(ctx context.Context, att *store.Attempt) {
 	}
 	if c, err := s.contextFor(att); err == nil {
 		if ex, err := s.attemptExecutor(att, c.Target); err == nil {
-			ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", att.ID),
+			ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(fmt.Sprintf("lec-%d", att.ID)), true),
 				executor.RunOpts{Timeout: 20})
 		}
 		if c.Target.Kind == "sandbox" && att.SandboxVMID != "" {
@@ -1385,7 +1400,7 @@ func (s *Scheduler) forceKillIfStillRunning(attemptID int64) {
 	if err != nil {
 		return
 	}
-	ex.Run(context.Background(), fmt.Sprintf("tmux kill-session -t =lec-%d 2>/dev/null || true", attemptID),
+	ex.Run(context.Background(), backend.For(ex).KillSession(backend.Exact(fmt.Sprintf("lec-%d", attemptID)), true),
 		executor.RunOpts{Timeout: 20})
 	s.DB.Update("attempts", attemptID, map[string]any{
 		"status": "cancelled", "finished_at": store.Now()})

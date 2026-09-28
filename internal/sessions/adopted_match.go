@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/nativeidentity"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -107,7 +108,8 @@ func (m *Manager) nativeCandidates(ctx context.Context, ex executor.Executor, ro
 	for i, a := range args {
 		quoted[i] = shellq.Quote(a)
 	}
-	r, err := ex.Run(ctx, prefix+"python3 -c "+shellq.Quote(script)+" "+strings.Join(quoted, " "), executor.RunOpts{Timeout: 30})
+	cmd := prefix + helpers.Command(ex, "native-conversations", args, "python3 -c "+shellq.Quote(script)+" "+strings.Join(quoted, " "))
+	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return nil, err
 	}

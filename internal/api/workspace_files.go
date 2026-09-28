@@ -17,12 +17,14 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 )
 
 // workspaceFilesScript runs on the workspace's own target through the
 // executor, so symlinks and path escapes are judged on the machine that holds
-// the files (docs/files.md). Every file endpoint goes through it.
+// the files (docs/files.md). Every file endpoint goes through it, or through
+// its Go port (`lectern helper workspace-files`) when the target has lectern.
 //
 //go:embed workspace_files.py
 var workspaceFilesScript string
@@ -72,11 +74,13 @@ func (s *Server) workspaceFor(w http.ResponseWriter, r *http.Request) (workspace
 // runWorkspaceScript returns the script's JSON and exit status: 0 success,
 // 1 refusal ({"error"}), 3 write conflict ({"conflict"}).
 func runWorkspaceScript(ctx context.Context, ref workspaceRef, timeout float64, action, rel string, extra ...string) (map[string]json.RawMessage, int, error) {
-	parts := []string{"python3 -c", shellq.Quote(workspaceFilesScript), shellq.Quote(ref.dir), shellq.Quote(rel), shellq.Quote(action), shellq.Quote(ref.mode)}
-	for _, arg := range extra {
+	args := append([]string{ref.dir, rel, action, ref.mode}, extra...)
+	parts := []string{"python3 -c", shellq.Quote(workspaceFilesScript)}
+	for _, arg := range args {
 		parts = append(parts, shellq.Quote(arg))
 	}
-	result, err := ref.ex.Run(ctx, strings.Join(parts, " "), executor.RunOpts{Timeout: timeout})
+	cmd := helpers.Command(ref.ex, "workspace-files", args, strings.Join(parts, " "))
+	result, err := ref.ex.Run(ctx, cmd, executor.RunOpts{Timeout: timeout})
 	if err != nil {
 		return nil, 0, err
 	}

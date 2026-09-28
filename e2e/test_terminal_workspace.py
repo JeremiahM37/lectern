@@ -14,7 +14,7 @@ import urllib.request
 
 import pytest
 from playwright.sync_api import expect
-from conftest import _binary, _unused_port, OUTSIDE_WORLD, tmux_chord
+from conftest import _binary, _unused_port, OUTSIDE_WORLD, terminal_server_pids, tmux_chord
 
 @pytest.fixture()
 def real_terminal(tmp_path, request):
@@ -277,9 +277,8 @@ def test_real_terminal_previews_failure_recovery_and_reconnect(page,real_termina
     page.locator('#file-input').set_input_files({'name':'retry.txt','mimeType':'text/plain','buffer':b'retry'})
     expect(page.locator('#notice')).to_contain_text('Path inserted')
     page.keyboard.press('Control+C')
-    # Stop only this isolated server's ttyd. The named URL must respawn it.
-    children=subprocess.check_output(['ps','--ppid',str(t['proc'].pid),'-o','pid=,comm=']).decode().splitlines()
-    ttyds=[int(line.split()[0]) for line in children if line.split()[1]=='ttyd']
+    # Stop only this isolated server's terminal server. The named URL must respawn it.
+    ttyds=terminal_server_pids(t['proc'].pid)
     assert ttyds
     for pid in ttyds:os.kill(pid,15)
     expect(page.locator('#connection')).to_have_text('Reconnecting…',timeout=10000)

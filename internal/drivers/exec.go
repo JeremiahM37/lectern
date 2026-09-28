@@ -9,6 +9,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
 // execDriver is claude-exec / codex-exec / gemini-exec: exactly what the
@@ -37,7 +38,7 @@ func (d execDriver) Start(ctx context.Context, ex executor.Executor, spec Spec) 
 		launcher.GeminiBin = spec.Bin
 	}
 	cmd, err := launcher.Command(agents.LaunchSpec{
-		Agent: d.Agent, Worktree: spec.Worktree, TmuxSession: spec.TmuxSession,
+		Backend: backend.For(ex), Agent: d.Agent, Worktree: spec.Worktree, TmuxSession: spec.TmuxSession,
 		PermissionMode: spec.PermissionMode, Model: spec.Model, ResumeSession: spec.ResumeSession,
 		Sandbox: spec.Sandbox, Env: spec.Env, SettingsPath: spec.SettingsPath,
 		MCPConfig: spec.MCPConfig, StrictMCP: spec.StrictMCP,
@@ -95,7 +96,7 @@ func (r *execRun) Cancel(ctx context.Context) error {
 	r.mu.Lock()
 	r.canceled = true
 	r.mu.Unlock()
-	_, err := r.ex.Run(ctx, fmt.Sprintf("tmux kill-session -t =%s 2>/dev/null || true", r.tmux),
+	_, err := r.ex.Run(ctx, backend.For(r.ex).KillSession(backend.Exact(r.tmux), true),
 		executor.RunOpts{Timeout: 20})
 	return err
 }
@@ -175,7 +176,7 @@ func (r *execRun) loop(ctx context.Context) {
 				r.result = Result{ExitCode: -1, Err: "cancelled"}
 				return
 			}
-			alive, err := r.ex.Run(ctx, fmt.Sprintf("tmux has-session -t =%s 2>/dev/null", r.tmux),
+			alive, err := r.ex.Run(ctx, backend.For(r.ex).HasSession(backend.Exact(r.tmux), true),
 				executor.RunOpts{Timeout: 20})
 			if err == nil && !alive.OK() {
 				ghost++

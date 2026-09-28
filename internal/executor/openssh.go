@@ -221,7 +221,7 @@ func (o *OpenSSH) DialTarget(ctx context.Context, addr string) (net.Conn, error)
 		if err != nil {
 			return nil, err
 		}
-		c = o.command(context.Background(), o.wrap(bridgeCommand(port), ""))
+		c = o.command(context.Background(), o.wrap(bridgeCommand(o, port), ""))
 	} else {
 		if _, err := bridgeTarget(addr); err != nil {
 			return nil, err
