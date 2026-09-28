@@ -32,22 +32,26 @@ splits, the Restore list and Undo.
 5. **Few shifted letters.** Every old shifted key still works for this release
    as a silent alias unless its key now means something else. The changed keys
    are listed below.
-6. **The same status words as the web:** working, needs you, ready, stopped.
+6. **The same status words as the web:** Working, Needs you, Idle, Ended.
 
 ## Status words
 
-| Session state (API) | Word | Notes |
-|---|---|---|
-| `running`, `starting` | **working** | |
-| a pending approval names this session | **needs you** | Only when a person is actually needed |
-| `waiting`, `idle` | **ready** | At its prompt or quiet; your turn |
-| `ended_at` set, `dead`, agent exited | **stopped** | The preview says why ("the agent exited", "ended") and what `r` does |
-| `setup_state` creating / failed | setting up / setup failed | Temporary states, unchanged |
-| machine not answering | `unreachable · <word>` | Unchanged |
+The web stream defined one vocabulary on the server (`internal/vocab`, sent
+as `state`, `state_label` and `state_reason` on every session). The dashboard
+shows those words, and applies the same rules itself when a server does not
+send them yet.
 
-One function, `sessionStatus()`, produces these words for the list, the
-preview, the `w` filter and the search prefixes. If the web stream adds a
-status label to the API, the dashboard should read that field instead.
+| State | Word | When |
+|---|---|---|
+| `working` | **Working** | busy, starting, or its workspace is being set up |
+| `needs_you` | **Needs you** | a pending approval for this session, or a permission prompt |
+| `idle` | **Idle** | at its prompt or quiet; your turn |
+| `ended` | **Ended** | ended, agent exited, setup failed, interrupted or archived |
+
+A reason follows the word when there is one: "Ended · agent exited",
+"Working · setting up". An approval the dashboard has seen more recently than
+the row still reads "Needs you". A machine that is not answering keeps its
+`unreachable ·` prefix.
 
 ## Panes
 
@@ -102,7 +106,7 @@ status label to the API, the dashboard should read that field instead.
 | Key | Before | After |
 |---|---|---|
 | **q** | quits the whole dashboard | back (like Esc) |
-| **c** | nothing | commit: message form, then `POST /sessions/{id}/git/commit` with stage-all. A refusal (for example "refusing to commit directly on main") is shown in plain words with the next step. |
+| **c** | nothing | commit: message form, then `POST /sessions/{id}/git/commit` with stage-all. On `main`/`master` the form offers a new branch first (`new_branch`) and the branch itself second (`allow_base_branch`, confirmed). A server that still refuses is explained in plain words with the next step. |
 | ←/→, [ ], s, Tab, r, Esc | files, scope, repository, refresh, back | same |
 
 ### Forms
@@ -145,29 +149,29 @@ Sessions, 120×36, with one approval pending:
  ⏸ 1 approval needs you — press 2, or y / a on the session
 / Search name, project, agent…
 › approve-me                                   │  Needs you: Bash  echo hi > NOTES.md
-  myapp · needs you · claude                   │  y allow once · a allow for this session · 2 all approvals
+  myapp · Needs you · claude                   │  y allow once · a allow for this session · 2 to deny
   myapp · main                                 │
-  myapp · ready · claude                       │  approve-me
-                                               │  claude · needs you · local
+  myapp · Idle · claude                        │  approve-me
+                                               │  claude · Needs you · local
                                                │  …live pane…
 
  y allow once · a allow for session · Enter attach · x end · n new · : commands · q quit     ? keys
  Started "approve-me"
 ```
 
-Sessions, 80×24, a ready session selected:
+Sessions, 80×24, an idle session selected:
 
 ```
  ◆ Lectern                                            LIVE · 10:04:12
  ‹ 1 Sessions › 2 Approvals · 3 Projects · 4 Tasks
 / Search…
 › myapp · main
-  myapp · ready · claude
+  myapp · Idle · claude
 …
  Enter attach · n new · x end · r restore · / search · q quit   ? keys
 ```
 
-The context menu (`m`) on a ready session:
+The context menu (`m`) on an idle session:
 
 ```
  myapp · main
@@ -191,8 +195,9 @@ The palette (`:` or Ctrl+K), after typing `end`:
    Send message
 ```
 
-New session (one screen). Folder defaults to the project that contains the
-directory the dashboard was started in, or to that directory itself:
+New session (one screen). Where defaults to the project that contains the
+directory the dashboard was started in, or to that directory itself (only
+when the server runs on this machine), or to the only project:
 
 ```
  New session
@@ -212,9 +217,13 @@ directory the dashboard was started in, or to that directory itself:
   never picked just because it is first. When nothing is installed, the form
   says so instead of launching something that will fail.
 - A name is optional; the server names the session as `lectern claude` does.
-- "More options…" reveals the other fields: name, launch profile, model,
-  machine, a separate Git worktree, extra repositories, worktree base and
-  branch, resume, project brief and group.
+- "More options…" reveals the other fields: name, launch profile, model, a
+  typed folder path, machine, a separate Git worktree, extra repositories,
+  worktree base and branch, resume, project brief and group.
+- A name is optional: the session is named after its project or folder.
+- If no agent is installed on the machine, the form still opens (a launch
+  profile may bring its own command) and says so; missing agents are labelled
+  "not found on this machine".
 - After the session is created it is selected and attached, like
   `lectern claude`.
 
@@ -254,9 +263,20 @@ Pressing Ctrl+] turns the bar into its key list until the next key:
 Ctrl+] then:  m actions · u send file · | shell right · - shell below · e open a link · d leave · ? all keys
 ```
 
-`Ctrl+] ?` opens a clickable menu with every attach key and what it does.
-The same menu has "Lectern actions" (the `Ctrl+] m` popup). The popup's own
-context menu shows the key next to each item.
+`Ctrl+] ?` (or `Ctrl+] Space`) opens a clickable menu with every attach key
+and what it does, including "Lectern actions" (the `Ctrl+] m` popup). The
+popup's own context menu shows the key next to each item, and an item's key
+runs it.
+
+While the session waits for an approval, the bar starts with
+`⏸ Needs you: Bash: rm -rf build · Ctrl+] m answers`. The popup then leads
+with Allow once (y), Allow for this session (a) and Deny, and closes back to
+the agent after the answer, so answering while attached is `Ctrl+] m y`. The
+note comes from a small status job that asks the server every 5 seconds; the
+agent-written text in it is escaped so tmux cannot run it as a format.
+
+After a CLI attachment ends, Lectern prints "Left the session; it keeps
+running." instead of leaving tmux's `[exited]` as the last line.
 
 ## Tests
 
