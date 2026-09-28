@@ -40,7 +40,7 @@ func nativeContent(value any) string {
 	}
 	var out []string
 	for _, item := range list {
-		block, ok := item.(*pyDict)
+		block, ok := item.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -51,7 +51,7 @@ func nativeContent(value any) string {
 				out = append(out, text)
 			}
 		case strIn(kind, "tool_use"):
-			out = append(out, "Tool: "+pyStr(block.getOr("name", ""))+"\n"+jsonDumps(block.getOr("input", newDict()), false))
+			out = append(out, "Tool: "+nPyStr(block.getOr("name", ""))+"\n"+jsonDumps(block.getOr("input", newDict()), false))
 		case strIn(kind, "tool_result"):
 			out = append(out, "Tool result:\n"+nativeContent(block.getOr("content", "")))
 		case strIn(kind, "image", "input_image"):
@@ -62,11 +62,11 @@ func nativeContent(value any) string {
 }
 
 // nativeRecord is native_record(row, agent, limit); nil is None.
-func nativeRecord(row *pyDict, agent string, limit int) *pyDict {
+func nativeRecord(row *nPyDict, agent string, limit int) *nPyDict {
 	var role any
 	var body string
 	if agent == "codex" {
-		p, ok := row.getOr("payload", newDict()).(*pyDict)
+		p, ok := row.getOr("payload", newDict()).(*nPyDict)
 		if !ok {
 			return nil
 		}
@@ -82,9 +82,9 @@ func nativeRecord(row *pyDict, agent string, limit int) *pyDict {
 			role, body = p.getOr("role", nil), nativeContent(p.getOr("content", nil))
 		case strIn(kind, "function_call", "custom_tool_call"):
 			role = "tool"
-			body = pyStr(p.getOr("name", "Tool")) + "\n" + pyStr(p.getOr("arguments", p.getOr("input", "")))
+			body = nPyStr(p.getOr("name", "Tool")) + "\n" + nPyStr(p.getOr("arguments", p.getOr("input", "")))
 		case strIn(kind, "function_call_output", "custom_tool_call_output"):
-			role, body = "tool", pyStr(p.getOr("output", ""))
+			role, body = "tool", nPyStr(p.getOr("output", ""))
 		default:
 			return nil
 		}
@@ -95,7 +95,7 @@ func nativeRecord(row *pyDict, agent string, limit int) *pyDict {
 		if truthy(row.getOr("isSidechain", nil)) {
 			return nil
 		}
-		msg, ok := row.getOr("message", newDict()).(*pyDict)
+		msg, ok := row.getOr("message", newDict()).(*nPyDict)
 		if !ok {
 			return nil
 		}
@@ -103,7 +103,7 @@ func nativeRecord(row *pyDict, agent string, limit int) *pyDict {
 		if list, ok := msg.getOr("content", nil).([]any); ok && len(list) > 0 {
 			all := true
 			for _, item := range list {
-				if b, ok := item.(*pyDict); ok && !strIn(b.getOr("type", nil), "tool_result") {
+				if b, ok := item.(*nPyDict); ok && !strIn(b.getOr("type", nil), "tool_result") {
 					all = false
 					break
 				}
@@ -124,15 +124,15 @@ func nativeRecord(row *pyDict, agent string, limit int) *pyDict {
 	return dict("role", role, "text", text, "truncated", truncated, "timestamp", row.getOr("timestamp", ""))
 }
 
-func textBlock(role any, kind string, text any, limit int, timestamp any) *pyDict {
+func textBlock(role any, kind string, text any, limit int, timestamp any) *nPyDict {
 	s, ok := text.(string)
-	if !ok || pyStrip(s) == "" {
+	if !ok || nPyStrip(s) == "" {
 		return nil
 	}
 	return dict("role", role, "kind", kind, "text", runePrefix(s, limit), "truncated", runeLen(s) > limit, "timestamp", timestamp)
 }
 
-func codexReasoningText(payload *pyDict) string {
+func codexReasoningText(payload *nPyDict) string {
 	// Codex rollouts carry a reasoning item's visible text as a list of
 	// summary blocks; fall back to a raw content list on older shapes.
 	for _, key := range []string{"summary", "content"} {
@@ -142,7 +142,7 @@ func codexReasoningText(payload *pyDict) string {
 		}
 		var parts []string
 		for _, item := range blocks {
-			if b, ok := item.(*pyDict); ok {
+			if b, ok := item.(*nPyDict); ok {
 				if text, ok := b.getOr("text", nil).(string); ok {
 					parts = append(parts, text)
 				}
@@ -158,12 +158,12 @@ func codexReasoningText(payload *pyDict) string {
 // asInput is _as_input: tool input as an object the client renders field by
 // field.
 func asInput(raw any) any {
-	if d, ok := raw.(*pyDict); ok {
+	if d, ok := raw.(*nPyDict); ok {
 		return d
 	}
 	if s, ok := raw.(string); ok {
 		if parsed, err := jsonLoadsStr(s); err == nil {
-			if d, ok := parsed.(*pyDict); ok {
+			if d, ok := parsed.(*nPyDict); ok {
 				return d
 			}
 		}
@@ -175,16 +175,16 @@ func asInput(raw any) any {
 }
 
 // structuredRecords is structured_records(row, agent, limit).
-func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
-	var out []*pyDict
-	add := func(item *pyDict) {
+func structuredRecords(row *nPyDict, agent string, limit int) []*nPyDict {
+	var out []*nPyDict
+	add := func(item *nPyDict) {
 		if item != nil {
 			out = append(out, item)
 		}
 	}
 	ts := row.getOr("timestamp", "")
 	if agent == "codex" {
-		p, ok := row.getOr("payload", newDict()).(*pyDict)
+		p, ok := row.getOr("payload", newDict()).(*nPyDict)
 		if !ok || !strIn(row.getOr("type", nil), "response_item") {
 			return out
 		}
@@ -202,7 +202,7 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 			role := p.getOr("role", nil)
 			blocks, _ := p.getOr("content", nil).([]any)
 			for _, item := range blocks {
-				block, ok := item.(*pyDict)
+				block, ok := item.(*nPyDict)
 				if !ok {
 					continue
 				}
@@ -213,12 +213,12 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 		case strIn(kind, "function_call", "custom_tool_call"):
 			raw := p.getOr("arguments", p.getOr("input", newDict()))
 			out = append(out, dict("role", "assistant", "kind", "tool_use", "timestamp", ts,
-				"tool_name", pyStr(p.getOr("name", "Tool")), "tool_use_id", pyStr(p.getOr("call_id", p.getOr("id", ""))),
+				"tool_name", nPyStr(p.getOr("name", "Tool")), "tool_use_id", nPyStr(p.getOr("call_id", p.getOr("id", ""))),
 				"input", asInput(raw)))
 		case strIn(kind, "function_call_output", "custom_tool_call_output"):
-			text := pyStr(p.getOr("output", ""))
+			text := nPyStr(p.getOr("output", ""))
 			out = append(out, dict("role", "tool", "kind", "tool_result", "timestamp", ts,
-				"tool_use_id", pyStr(p.getOr("call_id", p.getOr("id", ""))),
+				"tool_use_id", nPyStr(p.getOr("call_id", p.getOr("id", ""))),
 				"output", runePrefix(text, limit), "truncated", runeLen(text) > limit, "is_error", truthy(p.getOr("is_error", nil))))
 		}
 		return out
@@ -226,7 +226,7 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 	if !strIn(row.getOr("type", nil), "user", "assistant") || truthy(row.getOr("isSidechain", nil)) {
 		return out
 	}
-	msg, ok := row.getOr("message", newDict()).(*pyDict)
+	msg, ok := row.getOr("message", newDict()).(*nPyDict)
 	if !ok {
 		return out
 	}
@@ -236,7 +236,7 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 		add(textBlock(role, "text", b, limit, ts))
 	case []any:
 		for _, item := range b {
-			block, ok := item.(*pyDict)
+			block, ok := item.(*nPyDict)
 			if !ok {
 				continue
 			}
@@ -248,12 +248,12 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 				add(textBlock("assistant", "thinking", block.getOr("thinking", block.getOr("text", "")), limit, ts))
 			case strIn(bkind, "tool_use"):
 				out = append(out, dict("role", "assistant", "kind", "tool_use", "timestamp", ts,
-					"tool_name", pyStr(block.getOr("name", "Tool")), "tool_use_id", pyStr(block.getOr("id", "")),
+					"tool_name", nPyStr(block.getOr("name", "Tool")), "tool_use_id", nPyStr(block.getOr("id", "")),
 					"input", asInput(block.getOr("input", newDict()))))
 			case strIn(bkind, "tool_result"):
 				text := nativeContent(block.getOr("content", ""))
 				out = append(out, dict("role", "tool", "kind", "tool_result", "timestamp", ts,
-					"tool_use_id", pyStr(block.getOr("tool_use_id", "")),
+					"tool_use_id", nPyStr(block.getOr("tool_use_id", "")),
 					"output", runePrefix(text, limit), "truncated", runeLen(text) > limit, "is_error", truthy(block.getOr("is_error", nil))))
 			case strIn(bkind, "image", "input_image"):
 				add(textBlock(role, "text", "[Image attachment]", limit, ts))
@@ -265,7 +265,7 @@ func structuredRecords(row *pyDict, agent string, limit int) []*pyDict {
 
 // nativeMetadata is native_metadata(file, agent, workspace, max_bytes);
 // workspace nil is None. A nil dict with a nil error is None.
-func nativeMetadata(file, agent string, workspace *string, maxBytes int64) (*pyDict, error) {
+func nativeMetadata(file, agent string, workspace *string, maxBytes int64) (*nPyDict, error) {
 	f, err := openPy(file)
 	if err != nil {
 		return nil, err
@@ -289,7 +289,7 @@ func nativeMetadata(file, agent string, workspace *string, maxBytes int64) (*pyD
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -297,7 +297,7 @@ func nativeMetadata(file, agent string, workspace *string, maxBytes int64) (*pyD
 			// Forks copy the parent's header into their history. The first
 			// native header belongs to this file; later headers are context.
 			codexHeaderSeen = true
-			p, ok := row.getOr("payload", newDict()).(*pyDict)
+			p, ok := row.getOr("payload", newDict()).(*nPyDict)
 			if !ok {
 				continue
 			}
@@ -312,7 +312,7 @@ func nativeMetadata(file, agent string, workspace *string, maxBytes int64) (*pyD
 		}
 		item := nativeRecord(row, agent, 64000)
 		if item != nil && strIn(item.vals["role"], "user") && title == "" {
-			title = runePrefix(strings.ReplaceAll(pyStrip(item.vals["text"].(string)), "\n", " "), 160)
+			title = runePrefix(strings.ReplaceAll(nPyStrip(item.vals["text"].(string)), "\n", " "), 160)
 		}
 		if truthy(cid) && truthy(cwd) && title != "" {
 			break

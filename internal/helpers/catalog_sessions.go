@@ -32,7 +32,7 @@ var catalogID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 const catalogMax = 2000
 
 type catalogReader struct {
-	spec      *pyDict
+	spec      *nPyDict
 	workspace string
 	binary    string
 	slug      string
@@ -43,7 +43,7 @@ func catalogSessionsMain(args []string, _ io.Reader, stdout, stderr io.Writer) i
 		return crashed(stderr, fmt.Errorf("%w: missing arguments", errCrash))
 	}
 	v, err := jsonLoadsStr(args[0])
-	spec, ok := v.(*pyDict)
+	spec, ok := v.(*nPyDict)
 	if err != nil || !ok {
 		return crashed(stderr, fmt.Errorf("%w: invalid spec", errCrash))
 	}
@@ -86,7 +86,7 @@ func (r *catalogReader) expand(pattern string) (string, bool) {
 
 func catalogField(obj any, name string) any {
 	for _, part := range strings.Split(name, ".") {
-		d, ok := obj.(*pyDict)
+		d, ok := obj.(*nPyDict)
 		if !ok {
 			return nil
 		}
@@ -100,7 +100,7 @@ func catalogField(obj any, name string) any {
 func seconds(value any) (any, error) {
 	var v float64
 	switch x := value.(type) {
-	case pyInt:
+	case nPyInt:
 		f, err := pyIntToFloat(x)
 		if err != nil {
 			return nil, err
@@ -114,7 +114,7 @@ func seconds(value any) (any, error) {
 		if x == "" {
 			return nil, nil
 		}
-		text := strings.ReplaceAll(pyStrip(x), "Z", "+00:00")
+		text := strings.ReplaceAll(nPyStrip(x), "Z", "+00:00")
 		if ts, ok := isoTimestamp(text); ok {
 			return ts, nil
 		}
@@ -133,7 +133,7 @@ func seconds(value any) (any, error) {
 }
 
 // pyIntToFloat is float(int), which overflows rather than returning inf.
-func pyIntToFloat(x pyInt) (float64, error) {
+func pyIntToFloat(x nPyInt) (float64, error) {
 	f, ok := pyFloatParse(string(x))
 	if !ok || math.IsInf(f, 0) {
 		return 0, fmt.Errorf("%w: OverflowError: int too large to convert to float", errCrash)
@@ -141,7 +141,7 @@ func pyIntToFloat(x pyInt) (float64, error) {
 	return f, nil
 }
 
-func (r *catalogReader) entry(obj *pyDict, path string) (*pyDict, error) {
+func (r *catalogReader) entry(obj *nPyDict, path string) (*nPyDict, error) {
 	name := r.specStr("id")
 	if name == "" {
 		name = "id"
@@ -185,8 +185,8 @@ func (r *catalogReader) entry(obj *pyDict, path string) (*pyDict, error) {
 	}
 	title := "Saved conversation"
 	if key := r.specStr("title"); key != "" {
-		if t, ok := catalogField(obj, key).(string); ok && pyStrip(t) != "" {
-			title = runePrefix(strings.ReplaceAll(pyStrip(t), "\n", " "), 160)
+		if t, ok := catalogField(obj, key).(string); ok && nPyStrip(t) != "" {
+			title = runePrefix(strings.ReplaceAll(nPyStrip(t), "\n", " "), 160)
 		}
 	}
 	if !truthy(modified) {
@@ -195,12 +195,12 @@ func (r *catalogReader) entry(obj *pyDict, path string) (*pyDict, error) {
 	return dict("id", id, "title", title, "created", created, "modified", modified), nil
 }
 
-func (r *catalogReader) fromCommand() ([]*pyDict, error) {
+func (r *catalogReader) fromCommand() ([]*nPyDict, error) {
 	raw, err := r.specItem("command")
 	if err != nil {
 		return nil, err
 	}
-	command := strings.ReplaceAll(pyStr(raw), "{bin}", r.binary)
+	command := strings.ReplaceAll(nPyStr(raw), "{bin}", r.binary)
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
@@ -218,7 +218,7 @@ func (r *catalogReader) fromCommand() ([]*pyDict, error) {
 	}
 	err = cmd.Run()
 	if ctx.Err() != nil {
-		return nil, pyError("TimeoutExpired", "Command '"+pyRepr([]any{"bash", "-c", command})+"' timed out after 25 seconds")
+		return nil, pyError("TimeoutExpired", "Command '"+nPyRepr([]any{"bash", "-c", command})+"' timed out after 25 seconds")
 	}
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -227,14 +227,14 @@ func (r *catalogReader) fromCommand() ([]*pyDict, error) {
 		}
 		return nil, osError(err, "")
 	}
-	text := pyStrip(decodeReplace(stdout.Bytes()))
+	text := nPyStrip(decodeReplace(stdout.Bytes()))
 	var rows []any
 	var doc any = []any{}
 	if text != "" {
 		doc, err = jsonLoadsStr(text)
 	}
 	if err == nil {
-		if d, ok := doc.(*pyDict); ok {
+		if d, ok := doc.(*nPyDict); ok {
 			doc = []any{}
 			for _, k := range d.keys {
 				if list, ok := d.vals[k].([]any); ok {
@@ -254,9 +254,9 @@ func (r *catalogReader) fromCommand() ([]*pyDict, error) {
 	if len(rows) > catalogMax {
 		rows = rows[:catalogMax]
 	}
-	var out []*pyDict
+	var out []*nPyDict
 	for _, row := range rows {
-		obj, ok := row.(*pyDict)
+		obj, ok := row.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -271,7 +271,7 @@ func (r *catalogReader) fromCommand() ([]*pyDict, error) {
 	return out, nil
 }
 
-func (r *catalogReader) fromFiles() ([]*pyDict, error) {
+func (r *catalogReader) fromFiles() ([]*nPyDict, error) {
 	raw, err := r.specItem("files")
 	if err != nil {
 		return nil, err
@@ -279,7 +279,7 @@ func (r *catalogReader) fromFiles() ([]*pyDict, error) {
 	patterns, _ := raw.([]any)
 	var paths []string
 	for _, p := range patterns {
-		pattern, ok := r.expand(pyStr(p))
+		pattern, ok := r.expand(nPyStr(p))
 		if !ok {
 			continue
 		}
@@ -305,7 +305,7 @@ func (r *catalogReader) fromFiles() ([]*pyDict, error) {
 	}
 	whole := truthy(r.spec.getOr("whole", nil))
 	header := r.spec.getOr("header", nil)
-	var out []*pyDict
+	var out []*nPyDict
 	for _, path := range paths {
 		if !isFile(path) {
 			continue
@@ -334,7 +334,7 @@ func (r *catalogReader) fromFiles() ([]*pyDict, error) {
 
 // readCatalogFile merges a session file's first rows (or its whole JSON
 // document); ok is false where the script skipped the file.
-func readCatalogFile(path string, whole bool, header any) (*pyDict, bool) {
+func readCatalogFile(path string, whole bool, header any) (*nPyDict, bool) {
 	f, err := openPy(path)
 	if err != nil {
 		return nil, false
@@ -350,7 +350,7 @@ func readCatalogFile(path string, whole bool, header any) (*pyDict, bool) {
 		if err != nil {
 			return nil, false
 		}
-		if d, ok := doc.(*pyDict); ok {
+		if d, ok := doc.(*nPyDict); ok {
 			merged = d
 		}
 		return merged, true
@@ -367,7 +367,7 @@ func readCatalogFile(path string, whole bool, header any) (*pyDict, bool) {
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -394,10 +394,10 @@ func pyEqual(a, b any) bool {
 		y, ok := a.(bool)
 		return ok && y == x
 	}
-	return pyRepr(a) == pyRepr(b)
+	return nPyRepr(a) == nPyRepr(b)
 }
 
-func (r *catalogReader) fromSQLite() ([]*pyDict, error) {
+func (r *catalogReader) fromSQLite() ([]*nPyDict, error) {
 	raw, err := r.specItem("sqlite")
 	if err != nil {
 		return nil, err
@@ -405,7 +405,7 @@ func (r *catalogReader) fromSQLite() ([]*pyDict, error) {
 	candidates, _ := raw.([]any)
 	path, found := "", false
 	for _, c := range candidates {
-		if p, ok := r.expand(pyStr(c)); ok {
+		if p, ok := r.expand(nPyStr(c)); ok {
 			path, found = p, true
 			break
 		}
@@ -422,11 +422,11 @@ func (r *catalogReader) fromSQLite() ([]*pyDict, error) {
 	if err != nil {
 		return nil, err
 	}
-	names, rows, err := catalogQuery(db, pyStr(q))
+	names, rows, err := catalogQuery(db, nPyStr(q))
 	if err != nil {
 		return nil, err
 	}
-	var out []*pyDict
+	var out []*nPyDict
 	for _, row := range rows {
 		obj := newDict()
 		for i, n := range names {
@@ -494,7 +494,7 @@ func catalogQuery(db *sqliteDB, query string) ([]string, [][]any, error) {
 		for i, v := range vals {
 			switch x := v.(type) {
 			case int64:
-				vals[i] = pyInt(fmt.Sprint(x))
+				vals[i] = nPyInt(fmt.Sprint(x))
 			case string:
 				if !utf8.ValidString(x) {
 					return nil, nil, pyError("sqlite3.Error", fmt.Sprintf("Could not decode to UTF-8 column '%s' with text '%s'", names[i], x))
@@ -508,11 +508,11 @@ func catalogQuery(db *sqliteDB, query string) ([]string, [][]any, error) {
 	return names, out, sqliteError(rows.Err())
 }
 
-func (r *catalogReader) run(selected string) (*pyDict, error) {
+func (r *catalogReader) run(selected string) (*nPyDict, error) {
 	if selected != "" && !catalogID.MatchString(selected) {
 		return nil, pyError("ValueError", "Choose a saved conversation ID")
 	}
-	var rows []*pyDict
+	var rows []*nPyDict
 	var err error
 	switch {
 	case truthy(r.spec.getOr("command", nil)):
@@ -527,17 +527,17 @@ func (r *catalogReader) run(selected string) (*pyDict, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := func(d *pyDict) float64 {
+	key := func(d *nPyDict) float64 {
 		if m := d.vals["modified"]; truthy(m) {
 			return m.(float64)
 		}
 		return 0
 	}
-	sorted := append([]*pyDict(nil), rows...)
+	sorted := append([]*nPyDict(nil), rows...)
 	sortDictsDesc(sorted, key)
 	seen := map[string]bool{}
 	conversations := []any{}
-	var chosen *pyDict
+	var chosen *nPyDict
 	for _, row := range sorted {
 		id := row.vals["id"].(string)
 		if seen[id] {
@@ -564,6 +564,6 @@ func (r *catalogReader) run(selected string) (*pyDict, error) {
 }
 
 // sortDictsDesc is sorted(rows, key=key, reverse=True), which is stable.
-func sortDictsDesc(rows []*pyDict, key func(*pyDict) float64) {
+func sortDictsDesc(rows []*nPyDict, key func(*nPyDict) float64) {
 	sort.SliceStable(rows, func(i, j int) bool { return key(rows[i]) > key(rows[j]) })
 }

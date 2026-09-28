@@ -259,7 +259,7 @@ func caughtBySync(err error) bool {
 	return pyClass(err) != "sqlite3.Error"
 }
 
-func (ix *searchIndex) sync(byteBudget int64, seconds time.Duration) (*pyDict, error) {
+func (ix *searchIndex) sync(byteBudget int64, seconds time.Duration) (*nPyDict, error) {
 	deadline := time.Now().Add(seconds)
 	used := int64(0)
 	var issues []string
@@ -495,7 +495,7 @@ func (ix *searchIndex) syncFile(path string, old map[string]any, st **fileStat, 
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -546,7 +546,7 @@ func searchMarkers() (string, string) {
 	return "[" + marker + "]", "[/" + marker + "]"
 }
 
-func (ix *searchIndex) search(query string) (*pyDict, error) {
+func (ix *searchIndex) search(query string) (*nPyDict, error) {
 	if len(pySplit(query)) == 0 || runeLen(query) > 500 {
 		return nil, pyError("ValueError", "Enter between 1 and 500 characters")
 	}
@@ -609,13 +609,13 @@ func markedExcerpt(text, opening, closing string, limit int) (string, bool) {
 // searchHomeAndCache is where the scripts found the native profile and the
 // index cache.
 func searchHomeAndCache(agent string) (string, string) {
-	home := expanduser(envOr("CLAUDE_CONFIG_DIR", "~/.claude"))
+	home := expanduser(nEnvOr("CLAUDE_CONFIG_DIR", "~/.claude"))
 	if agent == "codex" {
-		home = expanduser(envOr("CODEX_HOME", "~/.codex"))
+		home = expanduser(nEnvOr("CODEX_HOME", "~/.codex"))
 	}
 	cache := os.Getenv("LECTERN_NATIVE_SEARCH_CACHE")
 	if cache == "" {
-		cache = pathStr(envOr("XDG_CACHE_HOME", pathStr(expanduser("~"), ".cache")), "lectern")
+		cache = pathStr(nEnvOr("XDG_CACHE_HOME", pathStr(expanduser("~"), ".cache")), "lectern")
 	}
 	return home, cache
 }
@@ -652,8 +652,8 @@ func nativeSearchMain(args []string, _ io.Reader, stdout, stderr io.Writer) int 
 		return argparseError(stderr, prog, "argument agent: invalid choice: "+strRepr(agent)+" (choose from 'claude', 'codex')")
 	}
 	home, cache := searchHomeAndCache(agent)
-	out, err := func() (*pyDict, error) {
-		if pyStrip(query) == "" || runeLen(query) > 500 {
+	out, err := func() (*nPyDict, error) {
+		if nPyStrip(query) == "" || runeLen(query) > 500 {
 			return nil, pyError("ValueError", "Enter between 1 and 500 characters")
 		}
 		ix, err := openSearchIndex(cache, home, agent)

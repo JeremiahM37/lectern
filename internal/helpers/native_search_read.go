@@ -55,7 +55,7 @@ func nativeSearchReadMain(args []string, _ io.Reader, stdout, stderr io.Writer) 
 	}
 	cid, cwd, fingerprint, profile, query := positional[2], positional[3], positional[5], positional[6], positional[7]
 	home, cache := searchHomeAndCache(agent)
-	out, err := func() (*pyDict, error) {
+	out, err := func() (*nPyDict, error) {
 		ix, err := openSearchIndex(cache, home, agent)
 		if err != nil {
 			return nil, err
@@ -80,7 +80,7 @@ func isNegativeNumber(s string) bool {
 
 // readMatch reads inside one read transaction, always rolled back, so every
 // query sees the same index state.
-func (ix *searchIndex) readMatch(document int64, cid, cwd string, offset int64, fingerprint, query, mode string, anchor *int64) (*pyDict, error) {
+func (ix *searchIndex) readMatch(document int64, cid, cwd string, offset int64, fingerprint, query, mode string, anchor *int64) (*nPyDict, error) {
 	if _, err := ix.db.exec("BEGIN"); err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (ix *searchIndex) readMatch(document int64, cid, cwd string, offset int64, 
 	return ix.readMatchIn(document, cid, cwd, offset, fingerprint, query, mode, anchor)
 }
 
-func (ix *searchIndex) readMatchIn(document int64, cid, cwd string, offset int64, fingerprint, query, mode string, anchor *int64) (*pyDict, error) {
+func (ix *searchIndex) readMatchIn(document int64, cid, cwd string, offset int64, fingerprint, query, mode string, anchor *int64) (*nPyDict, error) {
 	doc, err := ix.db.queryRow("SELECT * FROM documents WHERE id=? AND cid=? AND cwd=?", document, cid, cwd)
 	if err != nil {
 		return nil, err
@@ -202,10 +202,10 @@ func (ix *searchIndex) readMatchIn(document int64, cid, cwd string, offset int64
 		if err != nil {
 			return nil, err
 		}
-		var message *pyDict
+		var message *nPyDict
 		if len(line) > 0 && line[len(line)-1] == '\n' && len(line) <= searchLineLimit {
 			if v, err := jsonLoadsBytes(line); err == nil {
-				if raw, ok := v.(*pyDict); ok {
+				if raw, ok := v.(*nPyDict); ok {
 					message = nativeRecord(raw, ix.agent, noLimit)
 				}
 			}

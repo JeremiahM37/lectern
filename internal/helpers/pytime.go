@@ -85,7 +85,7 @@ func isoSeparator(s string, at func(int) byte) int {
 			if n == 9 {
 				return -1
 			}
-			if n > 10 && isDigit(at(10)) {
+			if n > 10 && nIsDigit(at(10)) {
 				return 8
 			}
 			return 10
@@ -95,7 +95,7 @@ func isoSeparator(s string, at func(int) byte) int {
 	if at(4) == 'W' {
 		idx := 7
 		for ; idx < n; idx++ {
-			if !isDigit(s[idx]) {
+			if !nIsDigit(s[idx]) {
 				break
 			}
 		}
@@ -115,7 +115,7 @@ func digitsAt(at func(int) byte, i, n int) (int, int, bool) {
 	v := 0
 	for k := 0; k < n; k++ {
 		c := at(i + k)
-		if !isDigit(c) {
+		if !nIsDigit(c) {
 			return 0, i, false
 		}
 		v = v*10 + int(c-'0')
@@ -259,7 +259,7 @@ func hhmmssff(at func(int) byte, p, end int) (rv, hour, minute, second, micro in
 	if toParse < 6 {
 		v *= []int{100000, 10000, 1000, 100, 10}[toParse-1]
 	}
-	for isDigit(at(q)) {
+	for nIsDigit(at(q)) {
 		q++
 	}
 	if at(q) != 0 {
@@ -352,9 +352,9 @@ func pyFloatParse(text string) (float64, bool) {
 	for i := 0; i < len(body); i++ {
 		c := body[i]
 		switch {
-		case isDigit(c), c == '.', c == 'e', c == 'E', c == '+', c == '-':
+		case nIsDigit(c), c == '.', c == 'e', c == 'E', c == '+', c == '-':
 		case c == '_':
-			if i == 0 || i == len(body)-1 || !isDigit(body[i-1]) || !isDigit(body[i+1]) {
+			if i == 0 || i == len(body)-1 || !nIsDigit(body[i-1]) || !nIsDigit(body[i+1]) {
 				return 0, false
 			}
 		default:
@@ -385,7 +385,7 @@ func pyNumberASCII(s string) string {
 		switch {
 		case r < 0x80:
 			b.WriteRune(r)
-		case pyIsSpace(r):
+		case nPyIsSpace(r):
 			b.WriteByte(' ')
 		case unicode.IsDigit(r):
 			k := rune(0)

@@ -26,7 +26,7 @@ func claudeForkPathMain(args []string, _ io.Reader, stdout, stderr io.Writer) in
 	case len(args) > 2:
 		return printError(stdout, stderr, pyError("TypeError", fmt.Sprintf("resolve() takes 3 positional arguments but %d were given", len(args)+1)))
 	}
-	path, err := claudeForkPath(envOr("CLAUDE_CONFIG_DIR", "~/.claude"), args[0], args[1])
+	path, err := claudeForkPath(nEnvOr("CLAUDE_CONFIG_DIR", "~/.claude"), args[0], args[1])
 	if err != nil {
 		return printError(stdout, stderr, err)
 	}
@@ -41,7 +41,7 @@ func canonicalUUID(text string) (string, error) {
 	if runeLen(h) != 32 {
 		return "", pyError("ValueError", "badly formed hexadecimal UUID string")
 	}
-	s := pyStrip(h)
+	s := nPyStrip(h)
 	neg := false
 	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
 		neg, s = s[0] == '-', s[1:]
@@ -143,7 +143,7 @@ func claudeTranscriptMatches(path, cid, workspace string) (bool, error) {
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}

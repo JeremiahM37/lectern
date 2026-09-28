@@ -18,17 +18,17 @@ import (
 	"unicode/utf8"
 )
 
-// pyDict is a JSON object in Python dict order: a key keeps the position of
+// nPyDict is a JSON object in Python dict order: a key keeps the position of
 // its first insertion, and assigning it again only replaces the value.
-type pyDict struct {
+type nPyDict struct {
 	keys []string
 	vals map[string]any
 }
 
-func newDict() *pyDict { return &pyDict{vals: map[string]any{}} }
+func newDict() *nPyDict { return &nPyDict{vals: map[string]any{}} }
 
-// dict builds a pyDict from alternating keys and values.
-func dict(kv ...any) *pyDict {
+// dict builds a nPyDict from alternating keys and values.
+func dict(kv ...any) *nPyDict {
 	d := newDict()
 	for i := 0; i+1 < len(kv); i += 2 {
 		d.set(kv[i].(string), kv[i+1])
@@ -36,33 +36,33 @@ func dict(kv ...any) *pyDict {
 	return d
 }
 
-func (d *pyDict) get(k string) (any, bool) {
+func (d *nPyDict) get(k string) (any, bool) {
 	v, ok := d.vals[k]
 	return v, ok
 }
 
 // getOr is dict.get(k, def).
-func (d *pyDict) getOr(k string, def any) any {
+func (d *nPyDict) getOr(k string, def any) any {
 	if v, ok := d.vals[k]; ok {
 		return v
 	}
 	return def
 }
 
-func (d *pyDict) set(k string, v any) {
+func (d *nPyDict) set(k string, v any) {
 	if _, ok := d.vals[k]; !ok {
 		d.keys = append(d.keys, k)
 	}
 	d.vals[k] = v
 }
 
-func (d *pyDict) setdefault(k string, v any) {
+func (d *nPyDict) setdefault(k string, v any) {
 	if _, ok := d.vals[k]; !ok {
 		d.set(k, v)
 	}
 }
 
-func (d *pyDict) del(k string) {
+func (d *nPyDict) del(k string) {
 	if _, ok := d.vals[k]; !ok {
 		return
 	}
@@ -75,11 +75,11 @@ func (d *pyDict) del(k string) {
 	}
 }
 
-func (d *pyDict) len() int { return len(d.keys) }
+func (d *nPyDict) len() int { return len(d.keys) }
 
-// pyInt is a JSON integer with its exact decimal digits (Python ints are
+// nPyInt is a JSON integer with its exact decimal digits (Python ints are
 // unbounded).
-type pyInt string
+type nPyInt string
 
 var errJSON = errors.New("invalid JSON")
 
@@ -285,7 +285,7 @@ func (p *jsonParser) value(depth int) (any, error) {
 	}
 }
 
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+func nIsDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func (p *jsonParser) number() (any, error) {
 	start, i, s := p.i, p.i, p.s
@@ -294,7 +294,7 @@ func (p *jsonParser) number() (any, error) {
 	}
 	switch {
 	case i < len(s) && s[i] >= '1' && s[i] <= '9':
-		for i++; i < len(s) && isDigit(s[i]); i++ {
+		for i++; i < len(s) && nIsDigit(s[i]); i++ {
 		}
 	case i < len(s) && s[i] == '0':
 		i++
@@ -302,9 +302,9 @@ func (p *jsonParser) number() (any, error) {
 		return nil, errJSON
 	}
 	float := false
-	if i+1 < len(s) && s[i] == '.' && isDigit(s[i+1]) {
+	if i+1 < len(s) && s[i] == '.' && nIsDigit(s[i+1]) {
 		float = true
-		for i += 2; i < len(s) && isDigit(s[i]); i++ {
+		for i += 2; i < len(s) && nIsDigit(s[i]); i++ {
 		}
 	}
 	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
@@ -313,10 +313,10 @@ func (p *jsonParser) number() (any, error) {
 		if i < len(s) && (s[i] == '-' || s[i] == '+') {
 			i++
 		}
-		for i < len(s) && isDigit(s[i]) {
+		for i < len(s) && nIsDigit(s[i]) {
 			i++
 		}
-		if isDigit(s[i-1]) {
+		if nIsDigit(s[i-1]) {
 			float = true
 		} else {
 			i = e
@@ -337,7 +337,7 @@ func (p *jsonParser) number() (any, error) {
 	if text == "-0" {
 		text = "0"
 	}
-	return pyInt(text), nil
+	return nPyInt(text), nil
 }
 
 func (p *jsonParser) str() (string, error) {
@@ -427,7 +427,7 @@ func dumpValue(b *strings.Builder, v any, ascii bool) {
 		} else {
 			b.WriteString("false")
 		}
-	case pyInt:
+	case nPyInt:
 		b.WriteString(string(x))
 	case int:
 		b.WriteString(strconv.Itoa(x))
@@ -461,7 +461,7 @@ func dumpValue(b *strings.Builder, v any, ascii bool) {
 			items[i] = s
 		}
 		dumpValue(b, items, ascii)
-	case *pyDict:
+	case *nPyDict:
 		b.WriteByte('{')
 		for i, k := range x.keys {
 			if i > 0 {
@@ -554,16 +554,16 @@ func floatRepr(f float64) string {
 	}
 }
 
-// pyStr is str(v) for a decoded JSON value.
-func pyStr(v any) string {
+// nPyStr is str(v) for a decoded JSON value.
+func nPyStr(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	return pyRepr(v)
+	return nPyRepr(v)
 }
 
-// pyRepr is repr(v) for a decoded JSON value.
-func pyRepr(v any) string {
+// nPyRepr is repr(v) for a decoded JSON value.
+func nPyRepr(v any) string {
 	switch x := v.(type) {
 	case nil:
 		return "None"
@@ -572,7 +572,7 @@ func pyRepr(v any) string {
 			return "True"
 		}
 		return "False"
-	case pyInt:
+	case nPyInt:
 		return string(x)
 	case int:
 		return strconv.Itoa(x)
@@ -585,13 +585,13 @@ func pyRepr(v any) string {
 	case []any:
 		parts := make([]string, len(x))
 		for i, item := range x {
-			parts[i] = pyRepr(item)
+			parts[i] = nPyRepr(item)
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
-	case *pyDict:
+	case *nPyDict:
 		parts := make([]string, len(x.keys))
 		for i, k := range x.keys {
-			parts[i] = strRepr(k) + ": " + pyRepr(x.vals[k])
+			parts[i] = strRepr(k) + ": " + nPyRepr(x.vals[k])
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	}
@@ -652,7 +652,7 @@ func truthy(v any) bool {
 		return false
 	case bool:
 		return x
-	case pyInt:
+	case nPyInt:
 		return x != "0"
 	case int:
 		return x != 0
@@ -664,7 +664,7 @@ func truthy(v any) bool {
 		return x != ""
 	case []any:
 		return len(x) > 0
-	case *pyDict:
+	case *nPyDict:
 		return x.len() > 0
 	}
 	return true
@@ -674,7 +674,7 @@ func truthy(v any) bool {
 // 0 and 1, false and true all compare equal to the int.
 func pyEqualInt(v any, n int64) bool {
 	switch x := v.(type) {
-	case pyInt:
+	case nPyInt:
 		return string(x) == strconv.FormatInt(n, 10)
 	case float64:
 		return x == float64(n) && math.Abs(x) < 1<<62
@@ -690,17 +690,17 @@ func isStr(v any) (string, bool) {
 	return s, ok
 }
 
-// pyIsSpace is str.isspace for one character; Go's unicode.IsSpace lacks
+// nPyIsSpace is str.isspace for one character; Go's unicode.IsSpace lacks
 // the four information separators Python counts.
-func pyIsSpace(r rune) bool {
+func nPyIsSpace(r rune) bool {
 	return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
 }
 
-// pyStrip is str.strip().
-func pyStrip(s string) string { return strings.TrimFunc(s, pyIsSpace) }
+// nPyStrip is str.strip().
+func nPyStrip(s string) string { return strings.TrimFunc(s, nPyIsSpace) }
 
 // pySplit is str.split() with no separator.
-func pySplit(s string) []string { return strings.FieldsFunc(s, pyIsSpace) }
+func pySplit(s string) []string { return strings.FieldsFunc(s, nPyIsSpace) }
 
 // runeLen is len(str).
 func runeLen(s string) int { return utf8.RuneCountInString(s) }

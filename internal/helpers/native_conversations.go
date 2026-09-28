@@ -31,17 +31,17 @@ type nativeStore struct {
 
 func storeFor(agent, workspace string) nativeStore {
 	if agent == "codex" {
-		home := expanduser(envOr("CODEX_HOME", "~/.codex"))
-		base := pyJoin(home, "sessions")
-		return nativeStore{home, base, pyJoin(base, "**", "*.jsonl"), true}
+		home := expanduser(nEnvOr("CODEX_HOME", "~/.codex"))
+		base := nPyJoin(home, "sessions")
+		return nativeStore{home, base, nPyJoin(base, "**", "*.jsonl"), true}
 	}
-	home := expanduser(envOr("CLAUDE_CONFIG_DIR", "~/.claude"))
-	base := pyJoin(home, "projects", slugUnsafe.ReplaceAllString(workspace, "-"))
-	return nativeStore{home, base, pyJoin(base, "*.jsonl"), false}
+	home := expanduser(nEnvOr("CLAUDE_CONFIG_DIR", "~/.claude"))
+	base := nPyJoin(home, "projects", slugUnsafe.ReplaceAllString(workspace, "-"))
+	return nativeStore{home, base, nPyJoin(base, "*.jsonl"), false}
 }
 
-// envOr is os.environ.get(key, fallback): a variable set to "" stays "".
-func envOr(key, fallback string) string {
+// nEnvOr is os.environ.get(key, fallback): a variable set to "" stays "".
+func nEnvOr(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
@@ -76,7 +76,7 @@ func nativeConversationsMain(args []string, _ io.Reader, stdout, stderr io.Write
 	return 0
 }
 
-func nativeConversations(args []string) (*pyDict, error) {
+func nativeConversations(args []string) (*nPyDict, error) {
 	agent, workspace, selected, before := args[0], realpathLoose(args[1]), args[2], args[3]
 	if agent != "codex" && agent != "claude" {
 		return nil, pyError("ValueError", "Native history is available for Claude and Codex; use terminal history for this agent")
@@ -114,7 +114,7 @@ func nativeConversations(args []string) (*pyDict, error) {
 	scanLimited := len(paths) > 500
 	titles := map[string]string{}
 	if agent == "codex" {
-		readCodexTitles(pyJoin(store.home, "session_index.jsonl"), titles)
+		readCodexTitles(nPyJoin(store.home, "session_index.jsonl"), titles)
 	}
 	current := dict("state", "unavailable")
 	if selected == "" && len(args) >= 6 {
@@ -137,7 +137,7 @@ func nativeConversations(args []string) (*pyDict, error) {
 	}
 	conversations := []any{}
 	seen := map[string]bool{}
-	var chosen *pyDict
+	var chosen *nPyDict
 	chosenFile := ""
 	if len(paths) > 500 {
 		paths = paths[:500]
@@ -186,7 +186,7 @@ func nativeConversations(args []string) (*pyDict, error) {
 		return nil, pyError("ValueError", "Invalid history cursor")
 	}
 	start := max(0, end-nativeLimit)
-	var items []*pyDict
+	var items []*nPyDict
 	f, err := openPy(chosenFile)
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func nativeConversations(args []string) (*pyDict, error) {
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -274,7 +274,7 @@ func readCodexTitles(path string, titles map[string]string) {
 		if err != nil {
 			continue
 		}
-		entry, ok := v.(*pyDict)
+		entry, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}
@@ -304,7 +304,7 @@ func conversationLiveMain(args []string, _ io.Reader, stdout, stderr io.Writer) 
 // livePage caps items per poll so a huge backlog cannot stall a request.
 const livePage = 500
 
-func conversationLive(agent, workspace, cid, since string) (*pyDict, error) {
+func conversationLive(agent, workspace, cid, since string) (*nPyDict, error) {
 	if agent != "codex" && agent != "claude" {
 		return nil, pyError("ValueError", "Structured chat is available for Claude and Codex; use terminal text for this agent")
 	}
@@ -369,7 +369,7 @@ func conversationLive(agent, workspace, cid, since string) (*pyDict, error) {
 		if err != nil {
 			continue
 		}
-		row, ok := v.(*pyDict)
+		row, ok := v.(*nPyDict)
 		if !ok {
 			continue
 		}

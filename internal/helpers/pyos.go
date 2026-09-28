@@ -241,8 +241,8 @@ func expandvars(path string) string {
 	})
 }
 
-// pyJoin is os.path.join.
-func pyJoin(a string, more ...string) string {
+// nPyJoin is os.path.join.
+func nPyJoin(a string, more ...string) string {
 	path := a
 	for _, b := range more {
 		switch {
@@ -368,7 +368,7 @@ func scandir(dir string) ([]scandirEntry, error) {
 	for _, e := range list {
 		p := e.Name()
 		if dir != "" {
-			p = pyJoin(dir, e.Name())
+			p = nPyJoin(dir, e.Name())
 		}
 		out = append(out, scandirEntry{name: e.Name(), path: p, symlink: e.Type()&fs.ModeSymlink != 0, dir: e.IsDir()})
 	}
@@ -439,14 +439,14 @@ func globIter(pathname string, recursive, dironly bool) []string {
 		case globMagic(base):
 			names = glob1(d, base, dironly)
 		case base != "":
-			if lexists(pyJoin(d, base)) {
+			if lexists(nPyJoin(d, base)) {
 				names = []string{base}
 			}
 		case isDir(d):
 			names = []string{base}
 		}
 		for _, n := range names {
-			out = append(out, pyJoin(d, n))
+			out = append(out, nPyJoin(d, n))
 		}
 	}
 	return out
@@ -497,10 +497,10 @@ func rlistdir(dir string, dironly bool) []string {
 		out = append(out, x)
 		p := x
 		if dir != "" {
-			p = pyJoin(dir, x)
+			p = nPyJoin(dir, x)
 		}
 		for _, y := range rlistdir(p, dironly) {
-			out = append(out, pyJoin(x, y))
+			out = append(out, nPyJoin(x, y))
 		}
 	}
 	return out

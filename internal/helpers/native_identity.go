@@ -53,8 +53,8 @@ var errUnknown = errors.New("unavailable")
 // nativeIdentity is native_identity(agent, workspace, home, name, expected,
 // discovery). Its only error is errCrash-like: an exception Python let
 // escape.
-func nativeIdentity(agent, workspace, home, name, expected string, discovery bool) (*pyDict, error) {
-	unknown := func() *pyDict { return dict("state", "unavailable") }
+func nativeIdentity(agent, workspace, home, name, expected string, discovery bool) (*nPyDict, error) {
+	unknown := func() *nPyDict { return dict("state", "unavailable") }
 	if name == "" || (expected != "" && !trackingHex.MatchString(expected)) {
 		return unknown(), nil
 	}
@@ -215,7 +215,7 @@ func readJSONDocument(path string) (any, error) {
 	return jsonLoadsStr(string(data))
 }
 
-func probeIdentity(agent, workspace, home, name, expected string, discovery bool) (*pyDict, error) {
+func probeIdentity(agent, workspace, home, name, expected string, discovery bool) (*nPyDict, error) {
 	before, err := readPane(name)
 	if err != nil {
 		return nil, err
@@ -238,7 +238,7 @@ func probeIdentity(agent, workspace, home, name, expected string, discovery bool
 	if err != nil || !utf8.Valid(bootData) {
 		return nil, errUnknown
 	}
-	bootID := pyStrip(string(bootData))
+	bootID := nPyStrip(string(bootData))
 	// Snapshot ancestry once, and verify each evidence-bearing process again.
 	type proc struct {
 		parent int64
@@ -294,7 +294,7 @@ func probeIdentity(agent, workspace, home, name, expected string, discovery bool
 	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
 	candidates := map[string]bool{}
 	var order []string
-	evidence := map[string]*pyDict{}
+	evidence := map[string]*nPyDict{}
 	record := func(cid string, pid int64, start, actualCwd, nativeHome string) {
 		if !candidates[cid] {
 			order = append(order, cid)
@@ -317,11 +317,11 @@ func probeIdentity(agent, workspace, home, name, expected string, discovery bool
 			if err != nil {
 				continue
 			}
-			row, ok := v.(*pyDict)
+			row, ok := v.(*nPyDict)
 			if !ok {
 				continue
 			}
-			if !pyEqualInt(row.getOr("pid", nil), pid) || pyStr(row.getOr("procStart", nil)) != start {
+			if !pyEqualInt(row.getOr("pid", nil), pid) || nPyStr(row.getOr("procStart", nil)) != start {
 				continue
 			}
 			if !strIn(row.getOr("kind", nil), "interactive") || !strIn(row.getOr("entrypoint", nil), "cli") {
@@ -336,7 +336,7 @@ func probeIdentity(agent, workspace, home, name, expected string, discovery bool
 				if err != nil {
 					return nil, err
 				}
-				if !strIn(domain, "linux:"+pyStrip(string(machine))+":"+ns) {
+				if !strIn(domain, "linux:"+nPyStrip(string(machine))+":"+ns) {
 					continue
 				}
 			}
@@ -442,12 +442,12 @@ func codexTranscriptID(fd, base, proc, workspace, start string, pid int64, disco
 	if err != nil {
 		return "", "", err
 	}
-	row, ok := v.(*pyDict)
+	row, ok := v.(*nPyDict)
 	if !ok {
 		// row.get on a non-dict raised AttributeError, which nothing caught.
 		return "", "", fmt.Errorf("%w: AttributeError reading %s", errCrash, path)
 	}
-	meta, ok := row.getOr("payload", newDict()).(*pyDict)
+	meta, ok := row.getOr("payload", newDict()).(*nPyDict)
 	if !strIn(row.getOr("type", nil), "session_meta") || !ok {
 		return "", "", nil
 	}

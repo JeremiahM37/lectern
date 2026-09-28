@@ -91,7 +91,7 @@ func asciiDigits(s string) bool {
 		return false
 	}
 	for i := 0; i < len(s); i++ {
-		if !isDigit(s[i]) {
+		if !nIsDigit(s[i]) {
 			return false
 		}
 	}
@@ -112,7 +112,7 @@ func homeOf(agent string, pid int64) (string, bool) {
 	if err != nil || !utf8.Valid(comm) {
 		return "", false
 	}
-	if basename(exe) != agent && !(agent == "claude" && pyStrip(string(comm)) == "claude") {
+	if basename(exe) != agent && !(agent == "claude" && nPyStrip(string(comm)) == "claude") {
 		return "", false
 	}
 	data, err := os.ReadFile(proc + "/environ")
@@ -131,7 +131,7 @@ func homeOf(agent string, pid int64) (string, bool) {
 	}
 	value := env[key]
 	if value == "" {
-		value = pyJoin(env["HOME"], dir)
+		value = nPyJoin(env["HOME"], dir)
 	}
 	return realpathLoose(expanduser(value)), true
 }
