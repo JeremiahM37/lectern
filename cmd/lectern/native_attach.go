@@ -288,6 +288,13 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		// Keep the inner attachment on the wrapper's normal screen so output
 		// remains available to tmux copy-mode. Shared agent tmux is untouched.
 		"set -g mouse on",
+		// Copies reach the system clipboard of the terminal this client runs
+		// in (OSC 52): what the attached agent's tmux sends up (Claude Code
+		// copies with load-buffer -w, which tmux passes on as OSC 52), and
+		// what is selected here in copy mode. A terminal that cannot take
+		// OSC 52 ignores it.
+		"set -g set-clipboard on",
+		"set -as terminal-features ',*:clipboard'",
 		"set -g history-limit 100000",
 		"set -gw alternate-screen off",
 		"set -g prefix C-]",

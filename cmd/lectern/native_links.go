@@ -773,16 +773,10 @@ func wsl() bool {
 // matches the installed tmux): a double-click still selects a word, a
 // right-click still opens tmux's menu. The operator's own tmux is untouched.
 func (p *nativeWrapPlan) bindLinks(tmuxPath string) error {
-	defaults := map[string]string{}
-	for _, key := range []string{"DoubleClick1Pane", "MouseDown3Pane"} {
-		out, err := exec.Command(tmuxPath, "-S", p.socket, "list-keys", "-T", "root", key).Output()
-		if err != nil {
-			continue
-		}
-		if command, ok := boundCommand(string(out), key); ok {
-			defaults[key] = command
-		}
-	}
+	// The whole root table: tmux 3.7 prints nothing for `list-keys -T root
+	// KEY`, which left a 3.7 client with no link bindings at all.
+	listing, _ := exec.Command(tmuxPath, "-S", p.socket, "list-keys", "-T", "root").Output()
+	defaults := mouseDefaults(string(listing))
 	conf := linkBindings(p.linkScript, filepath.Join(p.dir, "menu.conf"), defaults)
 	if conf == "" {
 		return errors.New("tmux has no mouse bindings to extend")
@@ -796,6 +790,25 @@ func (p *nativeWrapPlan) bindLinks(tmuxPath string) error {
 		return fmt.Errorf("link bindings: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// Tmux's own mouse bindings (3.3 to 3.7), for a tmux whose listing cannot be
+// read back: the link bindings then fall back to exactly these.
+const (
+	defaultDoubleClick = `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }`
+	defaultRightClick  = `if-shell -F -t = "#{||:#{mouse_any_flag},#{&&:#{pane_in_mode},#{?#{m/r:(copy|view)-mode,#{pane_mode}},0,1}}}" { select-pane -t = ; send-keys -M } { display-menu -T "#[align=centre]#{pane_index} (#{pane_id})" -t = -x M -y M "Horizontal Split" h { split-window -h } "Vertical Split" v { split-window -v } '' "#{?#{>:#{window_panes},1},,-}#{?window_zoomed_flag,Unzoom,Zoom}" z { resize-pane -Z } Kill X { kill-pane } }`
+)
+
+// mouseDefaults reads tmux's own double-click and right-click bindings from
+// a root-table listing, falling back to the built-in ones.
+func mouseDefaults(listing string) map[string]string {
+	defaults := map[string]string{"DoubleClick1Pane": defaultDoubleClick, "MouseDown3Pane": defaultRightClick}
+	for key := range defaults {
+		if command, ok := boundCommand(listing, key); ok {
+			defaults[key] = command
+		}
+	}
+	return defaults
 }
 
 // boundCommand is the command list-keys shows for key in the root table, as
