@@ -148,6 +148,8 @@ func (m *Mock) Run(ctx context.Context, cmd string, opts RunOpts) (Result, error
 		return f.run(cmd), nil
 	}
 	switch {
+	case strings.HasPrefix(cmd, "# lectern-folders\n"):
+		return mockFolders(cmd), nil
 	case strings.HasPrefix(cmd, MockAgentProbeMarker):
 		return m.handleAgentProbe(cmd), nil
 	case strings.HasPrefix(cmd, "python3 -c ") && strings.Contains(cmd, "os.O_NOFOLLOW"):
@@ -691,4 +693,45 @@ func hasAnyPrefix(s string, prefixes ...string) bool {
 		}
 	}
 	return false
+}
+
+// mockFolderTree is the demo machine's home as the folder picker sees it
+// (internal/api/folders.go): a couple of repositories and a plain folder.
+var mockFolderTree = map[string][]string{
+	"/":                      {"mock\t0"},
+	"/mock":                  {"demo-app\t1", "home\t0"},
+	"/mock/home":             {"demo-app\t1", "notes\t0", "website\t1"},
+	"/mock/home/website":     {"src\t0"},
+	"/mock/home/notes":       {},
+	"/mock/home/demo-app":    {},
+	"/mock/demo-app":         {},
+	"/mock/home/website/src": {},
+}
+
+var mockFolderPath = regexp.MustCompile(`(?m)^p=('(?:[^']|'\\'')*'|\S*)$`)
+
+func mockFolders(cmd string) Result {
+	want := ""
+	if m := mockFolderPath.FindStringSubmatch(cmd); m != nil {
+		want = strings.Trim(m[1], "'")
+	}
+	switch {
+	case want == "" || want == "~":
+		want = "/mock/home"
+	case strings.HasPrefix(want, "~/"):
+		want = "/mock/home/" + strings.TrimPrefix(want, "~/")
+	}
+	want = strings.TrimRight(want, "/")
+	if want == "" {
+		want = "/"
+	}
+	entries, ok := mockFolderTree[want]
+	if !ok {
+		return Result{2, "", "cannot open that folder\n"}
+	}
+	out := want + "\n/mock/home\n"
+	for _, e := range entries {
+		out += e + "\n"
+	}
+	return Result{0, out, ""}
 }

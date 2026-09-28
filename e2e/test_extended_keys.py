@@ -216,7 +216,7 @@ def test_the_setting_turns_extended_keys_off(page, real_terminal):
 def test_phone_key_bar_and_sticky_modifiers_send_extended_keys(page, real_terminal):
     t = real_terminal
     page.goto(t['url'] + '/#sessions')
-    page.locator('.scard', has_text='Real terminal').get_by_role('button', name='⌨ Attach', exact=True).click()
+    page.locator('.scard', has_text='Real terminal').get_by_role('button', name='⌨ Terminal', exact=True).click()
     f = page.frame_locator(f'iframe[src="/terminal/session/{t["id"]}?embed=1"]')
     expect(f.locator('#agent-terminal .xterm-screen')).to_contain_text('$', timeout=20000)
     script = t['root'] / 'keyecho.py'; script.write_text(KEYECHO)

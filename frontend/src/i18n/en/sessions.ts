@@ -27,7 +27,7 @@ const catalog: Record<string, string> = {
   "sessions.list.restoreClosedLabel": "Restore closed sessions",
   // Button (verb): opens the list of closed sessions to restore.
   "sessions.list.restoreButton": "↺ Restore",
-  "sessions.list.newSession": "+ New session",
+  "sessions.list.newSession": "Start an agent",
   // Followed by a list of the relaunched sessions' names.
   "sessions.list.relaunched.one": "Relaunched {count} session after a restart:",
   "sessions.list.relaunched.other": "Relaunched {count} sessions after a restart:",
@@ -45,7 +45,7 @@ const catalog: Record<string, string> = {
   "sessions.list.groupNamed": "Named group",
   "sessions.list.groupProject": "Project",
   // A target is the machine a session runs on.
-  "sessions.list.groupTarget": "Target",
+  "sessions.list.groupTarget": "Machine",
   // Label before a filter: which sessions to show.
   "sessions.list.show": "Show",
   "sessions.list.scopeActive": "Active sessions",
@@ -55,7 +55,7 @@ const catalog: Record<string, string> = {
   "sessions.list.sectionTitle": "Sessions and projects",
   "sessions.list.noMatch": "No sessions match your search.",
   "sessions.list.noArchived": "No archived sessions. Use “Stop and archive” in a session’s actions to keep it here for later.",
-  "sessions.list.empty": "No sessions yet. Start one here, or hit Find running agents to adopt sessions already running in tmux.",
+  "sessions.list.empty": "No sessions here.",
   "sessions.list.archivedOutput": "Archived terminal output",
   "sessions.list.closeArchivedOutput": "Close archived output",
   "sessions.list.close": "Close",
@@ -84,8 +84,8 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.newSession.memoryPreviewFailed": "Could not preview project context. You can still start the session.",
   // {agent} is an agent program name, e.g. claude.
   "sessions.dialogs.newSession.noteNoYolo": "{agent} has no way to skip its prompts — it will ask",
-  "sessions.dialogs.newSession.yolo": "Yolo — no approval prompts",
-  "sessions.dialogs.newSession.noteAsks": "Asks before it acts",
+  "sessions.dialogs.newSession.yolo": "Runs without asking",
+  "sessions.dialogs.newSession.noteAsks": "Asks before risky actions",
   // Part of a " · "-joined launch summary. {name} is a launch profile name, {agent} an agent name.
   "sessions.dialogs.newSession.noteProfile": "launch profile “{name}” ({agent})",
   "sessions.dialogs.newSession.noteWorktree": "isolated Git worktree",
@@ -93,21 +93,21 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.newSession.noteResume": "resumes the agent’s last conversation",
   "sessions.dialogs.newSession.setupStarted": "Workspace setup started. You can keep using Lectern.",
   "sessions.dialogs.newSession.started": "Session started",
-  "sessions.dialogs.newSession.title": "New session",
-  "sessions.dialogs.newSession.close": "Close new session",
-  "sessions.dialogs.newSession.intro": "An interactive agent you attach to and work with — not a dispatched task.",
+  "sessions.dialogs.newSession.title": "Start an agent",
+  "sessions.dialogs.newSession.close": "Close",
+  "sessions.dialogs.newSession.intro": "Pick a folder and an agent. Lectern runs it and tells you when it needs you.",
   "sessions.dialogs.newSession.project": "Project",
-  "sessions.dialogs.newSession.blankRoom": "▢ Blank room — no project yet",
+  "sessions.dialogs.newSession.blankRoom": "A new empty folder",
   "sessions.dialogs.newSession.recentProjects": "Recent",
   "sessions.dialogs.newSession.otherProjects": "Other projects",
-  "sessions.dialogs.newSession.blankRoomHint": "Starts the agent in a fresh throwaway directory. Turn it into a project later.",
+  "sessions.dialogs.newSession.blankRoomHint": "Lectern makes a new folder for this session. You can turn it into a project later.",
   "sessions.dialogs.newSession.setupCommandHint": "This project’s setup command runs in the new checkout before the agent starts.",
   "sessions.dialogs.newSession.agent": "Agent",
   // {agent} is an agent name, {name} a launch profile name.
-  "sessions.dialogs.newSession.lockedByProfile": "Locked to {agent} by the “{name}” launch profile — pick another profile under Advanced options.",
+  "sessions.dialogs.newSession.lockedByProfile": "Locked to {agent} by the “{name}” launch profile — pick another profile under More options.",
   "sessions.dialogs.newSession.hintNoModel": "no model switch — the Model field is ignored",
   "sessions.dialogs.newSession.hintNoResume": "cannot resume its own history",
-  "sessions.dialogs.newSession.advanced": "Advanced options",
+  "sessions.dialogs.newSession.advanced": "More options",
   "sessions.dialogs.newSession.name": "Name",
   // Label: a folder-like group the session is filed under.
   "sessions.dialogs.newSession.group": "Group",
@@ -131,31 +131,31 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.newSession.startResume": "Resume the agent's own last conversation",
   "sessions.dialogs.newSession.briefHint": "Pulls the project’s durable memory and its last handoff into the first message.",
   "sessions.dialogs.newSession.resumeHint": "Reopens the agent’s own previous conversation in this directory.",
-  "sessions.dialogs.newSession.yoloUnsupported": "{agent} has no way to skip its prompts — it will ask.",
-  "sessions.dialogs.newSession.yoloHint": "The agent acts without stopping to ask. You are the supervision.",
-  "sessions.dialogs.newSession.askHintPhone": "The agent stops and asks before it edits or runs anything — from the terminal, or Approve/Deny on your phone.",
-  "sessions.dialogs.newSession.askHint": "The agent stops and asks before it edits or runs anything.",
+  "sessions.dialogs.newSession.yoloUnsupported": "{agent} always asks before risky actions.",
+  "sessions.dialogs.newSession.yoloHint": "The agent runs commands and edits files without asking first.",
+  "sessions.dialogs.newSession.askHintPhone": "The agent asks you before it runs commands or edits files. Answer here, in Approvals, or from your phone.",
+  "sessions.dialogs.newSession.askHint": "The agent asks you before it runs commands or edits files.",
   // Label: process sandboxing for the agent.
-  "sessions.dialogs.newSession.isolation": "Isolation",
+  "sessions.dialogs.newSession.isolation": "Sandbox",
   "sessions.dialogs.newSession.isolationDefault": "Project default",
-  "sessions.dialogs.newSession.isolationNone": "None (today's behavior)",
+  "sessions.dialogs.newSession.isolationNone": "No sandbox",
   // bwrap is a program name; keep it.
-  "sessions.dialogs.newSession.isolationBwrap": "bwrap — fast, no daemon",
-  "sessions.dialogs.newSession.isolationDocker": "Docker container",
+  "sessions.dialogs.newSession.isolationBwrap": "Sandbox with bubblewrap (fast)",
+  "sessions.dialogs.newSession.isolationDocker": "Sandbox in a Docker container",
   "sessions.dialogs.newSession.network": "Network",
-  "sessions.dialogs.newSession.networkAllow": "Allow — unrestricted, like today",
-  "sessions.dialogs.newSession.networkDeny": "Deny — allowlist proxy only (see docs/isolation.md)",
+  "sessions.dialogs.newSession.networkAllow": "Allow all network access",
+  "sessions.dialogs.newSession.networkDeny": "Only allow-listed sites",
   "sessions.dialogs.newSession.bwrapHint": "Runs the agent inside bubblewrap: its own filesystem view, this project's directory and its own auth read-write, the rest of $HOME hidden.",
   "sessions.dialogs.newSession.dockerHint": "Runs the agent inside a disposable Docker container with the same mounts.",
   "sessions.dialogs.newSession.firstMessage": "First message (optional)",
   "sessions.dialogs.newSession.overlapWarning": "⚠ This looks like it might already be claimed:",
   "sessions.dialogs.newSession.overlapAdvice": "Check their work or ask the operator before starting.",
-  "sessions.dialogs.newSession.start": "▶ Start session",
+  "sessions.dialogs.newSession.start": "Start",
 
   // SessionDialogs: Discover (running agents)
   "sessions.dialogs.discover.title": "Running agents",
   "sessions.dialogs.discover.intro": "Adopting does not restart or disturb it.",
-  "sessions.dialogs.discover.empty": "No agents found running on any target.",
+  "sessions.dialogs.discover.empty": "No agents found running on any machine.",
   // {name} is a tmux session name.
   "sessions.dialogs.discover.projectFor": "Project for {name}",
   "sessions.dialogs.discover.unassigned": "Unassigned",
@@ -198,7 +198,7 @@ const catalog: Record<string, string> = {
   // Heading for sessions with no project or no machine.
   "sessions.groups.unassigned": "Unassigned",
   // Follows the group's session count, e.g. "5 · 2 waiting".
-  "sessions.groups.waiting": " · {n} waiting",
+  "sessions.groups.waiting": " · {n} need you",
 
   // SessionCard
   // Compact durations: seconds, minutes, hours and minutes, days and hours.
@@ -220,33 +220,14 @@ const catalog: Record<string, string> = {
   "sessions.card.pathCopied": "Scratch folder path copied.",
   "sessions.card.copyFailed": "Copy failed. Select the path and copy it manually.",
   // Session status labels.
-  "sessions.card.status.cancelling": "cancelling",
-  "sessions.card.status.settingUp": "setting up",
-  "sessions.card.status.setupFailed": "setup failed",
-  "sessions.card.status.archived": "archived",
-  "sessions.card.status.agentExited": "agent exited",
-  "sessions.card.status.ended": "ended",
   // Lectern no longer tracks this session.
-  "sessions.card.status.untracked": "untracked",
-  "sessions.card.status.wantsYou": "wants you",
-  "sessions.card.status.working": "working",
-  "sessions.card.status.starting": "starting",
-  "sessions.card.status.idle": "idle",
   "sessions.card.previewCancelling": "Cancellation requested. Waiting for checkout to stop; files will be retained.",
   "sessions.card.previewSettingUp": "Setting up workspace… Attach becomes available when setup finishes.",
   "sessions.card.progressUnavailable": "Progress unavailable: {error}",
   "sessions.card.setupFailedPreview": "Setup failed: {error}",
   "sessions.card.unassigned": "Unassigned",
-  "sessions.card.needsYou": "Needs you",
   // {duration} is a compact time such as "5m": how long the session has been quiet.
   "sessions.card.quiet": "quiet {duration}",
-  "sessions.card.reasonPlaceholder": "Reason (optional)",
-  "sessions.card.reasonLabel": "Reason for denying",
-  "sessions.card.send": "Send",
-  "sessions.card.cancel": "Cancel",
-  "sessions.card.approve": "Approve",
-  "sessions.card.deny": "Deny",
-  "sessions.card.denyWithReason": "Deny with reason…",
   "sessions.card.copyPath": "Copy path",
   "sessions.card.accountTitle": "The login this agent runs under (Settings → Accounts)",
   // {duration} is a compact time such as "2h 5m".
@@ -285,7 +266,7 @@ const catalog: Record<string, string> = {
   "sessions.card.cancelSetup": "Cancel setup",
   "sessions.card.revive": "↻ Revive",
   "sessions.card.restore": "↺ Restore",
-  "sessions.card.attach": "⌨ Attach",
+  "sessions.card.attach": "⌨ Terminal",
   "sessions.card.chat": "Chat",
   "sessions.card.makeProject": "⇑ Make a project",
   "sessions.card.switching": "Switching…",
@@ -318,11 +299,10 @@ const catalog: Record<string, string> = {
   "sessions.card.stopTracking": "Stop tracking",
   "sessions.card.killConfirm": "Kill \"{name}\"?\n\nThis ends the tmux session and the conversation. Stop tracking leaves it running.",
   "sessions.card.kill": "Kill",
-  "sessions.card.endConfirm": "End \"{name}\"? The tmux session is killed; the record and its handoffs stay.",
   // Verb: end the session.
   "sessions.card.end": "End",
-  "sessions.card.stopArchiveConfirm": "Stop \"{name}\" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.",
   "sessions.card.stoppedArchived": "Stopped and archived “{name}”.",
+  "sessions.card.stopArchiveConfirm": "Stop \"{name}\" and move its record to Archive? This ends its terminal process. Captured output, saved conversations and worktree files are retained.",
   "sessions.card.stopArchive": "Stop and archive",
   "sessions.card.project": "Project",
   "sessions.card.unassignedOption": "— unassigned —",
@@ -343,7 +323,6 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.pushDismiss": "Not now",
   "sessions.needsYou.stale": "Couldn’t refresh — showing the last known state",
   // {id} is a task attempt's number.
-  "sessions.needsYou.attempt": "Attempt {id}",
   // {a} and {b} are two session names.
   "sessions.needsYou.pairNames": "{a} & {b}",
   "sessions.needsYou.showFewer": "Show fewer",
@@ -351,7 +330,7 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.reviewLink.one": "{count} task ready to review",
   "sessions.needsYou.reviewLink.other": "{count} tasks ready to review",
   // Link destination: the Board screen.
-  "sessions.needsYou.toBoard": "→ Board",
+  "sessions.needsYou.toBoard": "→ Tasks",
   "sessions.needsYou.setupUnfinished": "workspace setup did not finish",
   "sessions.needsYou.terminalGone": "its terminal is gone",
   // Shown in place of a project name for a session with no project.
@@ -361,16 +340,8 @@ const catalog: Record<string, string> = {
   // {name} is a session name; "Open" is a verb.
   "sessions.needsYou.openNamed": "Open {name}",
   "sessions.needsYou.openTask": "Open task",
-  "sessions.needsYou.reasonPlaceholder": "Reason (optional)",
-  "sessions.needsYou.reasonLabel": "Reason for denying",
   "sessions.needsYou.stopDictating": "Stop dictating",
   "sessions.needsYou.dictate": "Dictate reason",
-  "sessions.needsYou.send": "Send",
-  "sessions.needsYou.cancel": "Cancel",
-  "sessions.needsYou.approve": "Approve",
-  "sessions.needsYou.allowForSession": "Allow for session",
-  "sessions.needsYou.deny": "Deny",
-  "sessions.needsYou.denyWithReason": "Deny with reason…",
   "sessions.needsYou.showSession": "Show session",
   "sessions.needsYou.terminal": "⌨ Terminal",
   // Verb: review the session's or task's work.
@@ -422,11 +393,11 @@ const catalog: Record<string, string> = {
   "sessions.workspaceExtension.operation": "Addition {id}: {state}",
   "sessions.workspaceExtension.cancelRequested": "cancellation requested",
   "sessions.workspaceExtension.ready": "Ready to add a repository.",
-  "sessions.workspaceExtension.noOthers": "No other projects on this target.",
+  "sessions.workspaceExtension.noOthers": "No other projects on this machine.",
   "sessions.workspaceExtension.needsRecovery": "Workspace needs recovery before another repository can be added. Allocated files are retained.",
   "sessions.workspaceExtension.title": "Workspace repositories",
   "sessions.workspaceExtension.close": "Close",
-  "sessions.workspaceExtension.intro": "Add a registered project on the same target. Its checkout uses this workspace’s branch and runs its project setup command. Your existing terminal stays available.",
+  "sessions.workspaceExtension.intro": "Add a registered project on the same machine. Its checkout uses this workspace’s branch and runs its project setup command. Your existing terminal stays available.",
   "sessions.workspaceExtension.project": "Project",
   "sessions.workspaceExtension.base": "Base (optional)",
   "sessions.workspaceExtension.basePlaceholder": "Default branch",
@@ -473,11 +444,6 @@ const catalog: Record<string, string> = {
 
   // NowStrip
   "sessions.now.label": "Now",
-  "sessions.now.working": "Working",
-  "sessions.now.waiting": "Wants you",
-  "sessions.now.exited": "Agent exited",
-  "sessions.now.done": "Done",
-  "sessions.now.error": "Error",
   "sessions.now.toApprove": "{count} to approve",
   // {name} is the session name, {state} one of the state labels above
   "sessions.now.chipLabel": "{name} — {state}",
@@ -523,9 +489,9 @@ const catalog: Record<string, string> = {
   // RepositoryPicker
   "sessions.repoPicker.summary": "Additional repositories",
   "sessions.repoPicker.summaryCount": "Additional repositories ({n})",
-  "sessions.repoPicker.help": "Add up to seven other projects on the same target. Each gets separate files on the new branch.",
+  "sessions.repoPicker.help": "Add up to seven other projects on the same machine. Each gets separate files on the new branch.",
   "sessions.repoPicker.pickerLabel": "Additional repository",
-  "sessions.repoPicker.noOthers": "No other projects on this target",
+  "sessions.repoPicker.noOthers": "No other projects on this machine",
   "sessions.repoPicker.add": "Add repository",
   "sessions.repoPicker.selected": "Selected repositories",
   // {name} is a project; the field holds the git revision to start from

@@ -17,12 +17,7 @@ from conftest import PHONE, DESKTOP
 def _open_settings_tab(page, name):
     if page.get_by_role("button", name="Show navigation", exact=True).is_visible():
         page.get_by_role("button", name="Show navigation", exact=True).click()
-    button = page.locator('.tab[data-tab="targets"]')
-    if not button.is_visible():
-        page.locator("#nav-overflow > summary").click()
-        page.locator('[data-nav-target="targets"]').click()
-    else:
-        button.click()
+    page.locator('.tab[data-tab="settings"]').click()
     page.get_by_role("tab", name=name).click()
 
 
@@ -34,7 +29,7 @@ def test_device_pairing_full_flow(browser, pairing_server):
         owner.goto(pairing_server)
         owner.evaluate("localStorage.setItem('lec-token','pairsecret123')")
         owner.reload()
-        expect(owner.locator(".col-head")).to_have_count(6, timeout=10000)
+        expect(owner.locator('.tab[data-tab="sessions"]')).to_have_class("tab on", timeout=10000)
 
         _open_settings_tab(owner, "Devices")
         owner.get_by_role("button", name="Pair a phone").click()

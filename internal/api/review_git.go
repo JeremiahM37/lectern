@@ -141,6 +141,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	out["base"] = target.base
 	out["on_base_branch"] = refuseOnBaseBranch(target.branch, target.base) != nil
+	// Push starts unticked when there is nowhere to push to.
+	remotes, _ := ex.Run(r.Context(), "git remote", executor.RunOpts{Cwd: target.dir, Timeout: 15})
+	out["has_remote"] = remotes.OK() && strings.TrimSpace(remotes.Stdout) != ""
 	out["session_live"] = row.Status != sessions.StatusDead && row.EndedAt == nil
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
@@ -227,7 +230,22 @@ type gitCommitIn struct {
 	PR               bool   `json:"pr"`
 	PRTitle          string `json:"pr_title"`
 	PRBody           string `json:"pr_body"`
+	// A session working straight on the default branch (every session started
+	// without a worktree) has two ways to commit, and must pick one: NewBranch
+	// creates that branch from the current state first and commits there; a
+	// taken name gets a -2, -3… suffix. AllowBaseBranch commits onto the
+	// default branch itself, which needs a signed-in person.
+	NewBranch       string `json:"new_branch"`
+	AllowBaseBranch bool   `json:"allow_base_branch"`
 }
+
+// newBranchScript creates and switches to a branch for "Commit on a new
+// branch", printing the name it used. Exit 3 is a name git refuses.
+const newBranchScript = `n=__NAME__
+git check-ref-format --branch "$n" >/dev/null 2>&1 || { echo "not a valid branch name" >&2; exit 3; }
+b=$n; i=2
+while git show-ref --verify --quiet "refs/heads/$b"; do b="$n-$i"; i=$((i + 1)); [ "$i" -gt 50 ] && { echo "too many branches named $n" >&2; exit 4; }; done
+git switch -q -c "$b" && printf '%s' "$b"`
 
 var shaRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
@@ -271,8 +289,34 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
-		httpError(w, 409, "%s", err.Error())
-		return
+		switch {
+		case strings.TrimSpace(body.NewBranch) != "":
+			if row.WorktreeJSON != "" {
+				httpError(w, 409, "this session has its own worktree; commit on its branch")
+				return
+			}
+			res, runErr := ex.Run(r.Context(), strings.Replace(newBranchScript, "__NAME__", executor.ShellQuote(strings.TrimSpace(body.NewBranch)), 1),
+				executor.RunOpts{Cwd: target.dir, Timeout: 30})
+			if runErr != nil {
+				respondErr(w, runErr)
+				return
+			}
+			if !res.OK() {
+				httpError(w, 409, "could not create the branch: %s", strings.TrimSpace(res.Stderr+res.Stdout))
+				return
+			}
+			target.branch = strings.TrimSpace(body.NewBranch)
+			if made := strings.TrimSpace(res.Stdout); made != "" {
+				target.branch = made
+			}
+		case body.AllowBaseBranch:
+			if !s.humanPrincipal(w, r, "committing directly to the default branch") {
+				return
+			}
+		default:
+			writeJSON(w, 409, map[string]any{"detail": err.Error(), "code": "on_base_branch", "branch": target.branch})
+			return
+		}
 	}
 	if body.Amend && target.base != "" {
 		// Before the session's first commit, HEAD is the base branch's own
@@ -293,7 +337,7 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	})
 	var se *worktree.StepError
 	if errors.As(err, &se) && len(steps) > 0 {
-		out := map[string]any{"steps": steps, "failed": "commit", "detail": se.Msg}
+		out := map[string]any{"steps": steps, "failed": "commit", "detail": se.Msg, "branch": target.branch}
 		output, _ := steps[0]["output"].(string)
 		if se.Msg != "commit failed: nothing to commit" && (len(hooks) > 0 || hookFailureRe.MatchString(output)) {
 			out["hook_failure"] = map[string]any{"hooks": hooks, "output": output}
@@ -309,7 +353,7 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	ci := s.armCIFromSteps(ciloop.Owner{SessionID: &sessionID, ProjectID: target.projectID,
 		TargetID: row.TargetID, Branch: target.branch}, steps)
 	s.Bus.Publish(fmt.Sprintf("session:%d", row.ID), "git", map[string]any{"steps": steps})
-	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci})
+	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci, "branch": target.branch})
 }
 
 // gitPush is POST /api/sessions/{id}/git/push: push the branch, plainly or

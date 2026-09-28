@@ -451,18 +451,27 @@ func TestAModelYouHaveUsedIsSuggestedAgain(t *testing.T) {
 	}
 }
 
-// Yolo is on unless the caller says otherwise — the request that omits it is
-// the common one, so that default is worth pinning.
-func TestYoloIsOnByDefaultAndCanBeTurnedOff(t *testing.T) {
+// Omitting yolo follows the install's default: a new install asks first
+// (docs/design/simple-ui.md), an install that never chose runs without asking.
+// An explicit yolo always wins. The request that omits it is the common one,
+// so that default is worth pinning.
+func TestYoloFollowsTheDefaultAndCanBeSetEitherWay(t *testing.T) {
 	for name, tc := range map[string]struct {
 		body     obj
+		unset    bool
 		wantFlag bool
 	}{
-		"omitted means on": {obj{"agent": "claude", "scratch": true}, true},
-		"explicitly on":    {obj{"agent": "claude", "scratch": true, "yolo": true}, true},
-		"explicitly off":   {obj{"agent": "claude", "scratch": true, "yolo": false}, false},
+		"omitted on a new install asks": {obj{"agent": "claude", "scratch": true}, false, false},
+		"omitted with no default runs":  {obj{"agent": "claude", "scratch": true}, true, true},
+		"explicitly on":                 {obj{"agent": "claude", "scratch": true, "yolo": true}, false, true},
+		"explicitly off":                {obj{"agent": "claude", "scratch": true, "yolo": false}, true, false},
 	} {
 		h := newHarness(t)
+		if tc.unset {
+			if err := h.App.DB.SetSetting("session_permission_mode", ""); err != nil {
+				t.Fatal(err)
+			}
+		}
 		code, body := h.request("POST", "/api/sessions", tc.body, nil)
 		if code != 201 {
 			t.Fatalf("%s: %d %s", name, code, body)

@@ -110,7 +110,7 @@ const catalog: Record<string, string> = {
   "trackers.hub.startedSession": "セッション「{name}」を開始しました",
   "trackers.hub.startedSessionOn": "{branch} でセッション「{name}」を開始しました",
   "trackers.hub.createdTask": "タスク #{id} を作成しました",
-  "trackers.hub.title": "タスク",
+  "trackers.hub.title": "Issue と PR",
   "trackers.hub.noProjects": "先にプロジェクトを追加してください。そのリポジトリのプルリクエストと Issue がここに表示されます。",
   "trackers.hub.subtitle": "GitHub、GitLab、Linear、Jira のプルリクエストと Issue",
   "trackers.hub.project": "プロジェクト",

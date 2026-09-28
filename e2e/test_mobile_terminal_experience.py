@@ -16,7 +16,7 @@ from test_terminal_workspace import capture, real_terminal
 def attach(page, t, name="Real terminal"):
     page.goto(t["url"] + "/#sessions")
     page.locator(".scard", has_text=name).get_by_role(
-        "button", name="⌨ Attach", exact=True
+        "button", name="⌨ Terminal", exact=True
     ).click()
     expect(page.locator(".terminal-tab", has_text=name)).to_have_attribute(
         "aria-selected", "true", timeout=15000
@@ -164,7 +164,7 @@ def test_a_swipe_over_a_mouse_reporting_tui_changes_tabs_and_keeps_scroll(page, 
     attach(page, t, "Real terminal")
     page.goto(t["url"] + "/#sessions")
     page.locator(".scard", has_text="Second terminal").get_by_role(
-        "button", name="⌨ Attach", exact=True
+        "button", name="⌨ Terminal", exact=True
     ).click()
     expect(page.locator(".terminal-tab", has_text="Second terminal")).to_have_attribute(
         "aria-selected", "true", timeout=15000

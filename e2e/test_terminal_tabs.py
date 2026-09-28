@@ -7,7 +7,7 @@ from test_terminal_workspace import real_terminal, capture
 
 def attach(page, name):
     page.locator('.tab[data-tab="sessions"]').click()
-    page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Attach',exact=True).click()
+    page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Terminal',exact=True).click()
     expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')
 
 
@@ -36,7 +36,7 @@ def test_terminals_stay_connected_across_tabs_and_close_only_the_view(page,real_
     one.locator('#agent-terminal').click()
     page.keyboard.type("sleep 1; echo OUTPUT-WHILE-AWAY")
     page.keyboard.press('Enter')
-    page.locator('.tab[data-tab="board"]').click()
+    page.locator('.tab[data-tab="tasks"]').click()
     expect(page.locator('#board')).to_be_visible()
     expect(page.locator('#terminal-workspace iframe')).to_have_count(1)
     page.locator('.tab[data-tab="terminals"]').click()
@@ -78,14 +78,17 @@ def test_terminal_tabs_restore_and_fit_on_mobile(page,real_terminal):
     one=frame(page,t['id']);ready(one)
     expect(one.locator('#agent-terminal .xterm-screen')).to_contain_text('BEFORE-PAGE-RELOAD')
     expect(page.get_by_role('tab',name='Real terminal',exact=True)).to_have_attribute('aria-selected','true')
-    # Opening the root in this same browser tab restores its retained terminal.
+    # Opening the root lands on Sessions (home stays put); the retained
+    # terminal is one tap away in the navigation, still connected.
     page.goto(t['url'])
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class('tab on')
+    page.locator('.tab[data-tab="terminals"]').click()
     one=frame(page,t['id']);ready(one)
     expect(one.locator('#agent-terminal .xterm-screen')).to_contain_text('BEFORE-PAGE-RELOAD')
     expect(page.get_by_role('tab',name='Real terminal',exact=True)).to_have_attribute('aria-selected','true')
     for size in [{'width':844,'height':390},{'width':390,'height':600},{'width':390,'height':844}]:
         page.set_viewport_size(size)
-        page.locator('.tab[data-tab="board"]').click()
+        page.locator('.tab[data-tab="tasks"]').click()
         page.locator('.tab[data-tab="terminals"]').click()
         expect(one.locator('#agent-terminal')).to_be_visible()
         expect(one.locator('#terminal-keybar')).to_be_visible()
@@ -115,6 +118,9 @@ def test_terminal_tabs_restore_in_a_fresh_browser_context(browser, real_terminal
             "localStorage.setItem('lec-last-view', 'terminals');")
         page = context.new_page()
         page.goto(t['url'])
+        # Home is Sessions; the restored terminal waits under Terminals.
+        expect(page.locator('.tab[data-tab="sessions"]')).to_have_class('tab on')
+        page.locator('.tab[data-tab="terminals"]').click()
         expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')
         expect(page.get_by_role('tab', name='Real terminal', exact=True)).to_have_attribute('aria-selected', 'true')
         f = frame(page, t['id'])

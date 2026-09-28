@@ -208,16 +208,19 @@ def test_approval_shows_the_command_and_allow_for_session_answers_the_next_call(
     page.goto(t["url"] + "/#sessions")
     session_card(page, "Graduated approval").get_by_role("button", name="Chat", exact=True).click()
 
-    approval = page.locator(".approval-card")
-    expect(approval).to_contain_text("Approval needed: Bash", timeout=25000)
+    # The chat sheet's copy of the one approval card (the session card has one too).
+    approval = page.locator("#conversation-approvals .approval-card")
+    expect(approval).to_contain_text("Needs you: Bash", timeout=25000)
     # The command is shown, never a JSON blob of the tool_input.
     expect(approval).to_contain_text("git status")
     expect(approval).not_to_contain_text('"command"')
     expect(approval.get_by_role("button", name="Allow once", exact=True)).to_be_visible()
     expect(approval.get_by_role("button", name="Deny…", exact=True)).to_be_visible()
-    # The button names exactly what it will allow for the rest of the session.
-    allow_for_session = approval.get_by_role("button", name="Allow “git …” commands this session", exact=True)
+    # One wording everywhere; the card says exactly what the session rule
+    # will also allow.
+    allow_for_session = approval.get_by_role("button", name="Allow for this session", exact=True)
     expect(allow_for_session).to_be_visible()
+    expect(approval.locator(".approval-scope")).to_contain_text("“git …”")
     allow_for_session.click()
     expect(page.locator(".approval-card")).to_have_count(0, timeout=20000)
 
@@ -248,12 +251,13 @@ def test_deny_with_feedback_carries_the_note_back_to_the_agent(page, real_termin
     page.goto(t["url"] + "/#sessions")
     session_card(page, "Deny feedback").get_by_role("button", name="Chat", exact=True).click()
 
-    approval = page.locator(".approval-card")
-    expect(approval).to_contain_text("Approval needed: Bash", timeout=25000)
+    # The chat sheet's copy of the one approval card (the session card has one too).
+    approval = page.locator("#conversation-approvals .approval-card")
+    expect(approval).to_contain_text("Needs you: Bash", timeout=25000)
     expect(approval).to_contain_text("rm -rf important")
     approval.get_by_role("button", name="Deny…", exact=True).click()
     approval.get_by_placeholder("e.g. not touching prod from a phone").fill("not from a phone")
-    approval.get_by_role("button", name="Deny with feedback", exact=True).click()
+    approval.get_by_role("button", name="Deny", exact=True).click()
     expect(page.locator(".approval-card")).to_have_count(0, timeout=20000)
 
     response_path = Path(t["root"]) / "hook-response.json"

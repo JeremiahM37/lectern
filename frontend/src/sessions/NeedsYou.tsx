@@ -3,8 +3,7 @@ import { t, useLocale } from "../i18n";
 import type { Approval, DuplicatePromptPair, SessionView, TaskView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
-import { approvalSummary } from "./approval-summary";
-import { useDictation } from "../voice";
+import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "./ApprovalCard";
 import "./session-home.css";
 
 // What actually wants a person, drawn only from state the server already
@@ -80,16 +79,8 @@ export function NeedsYou({
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicatePromptPair[]>([]);
-  const [busy, setBusy] = useState("");
   const [stale, setStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  // Which approval's "deny with reason" field is open, keyed by approval id.
-  const [denying, setDenying] = useState<number | null>(null);
-  const [reason, setReason] = useState("");
-  const { supported: dictationSupported, dictating, transcribing, toggle: toggleDictation } = useDictation({
-    onChange: setReason,
-    onNotice,
-  });
   useEffect(() => {
     const abort = new AbortController();
     // Attention is derived, never invented: a failed poll hides the row rather
@@ -172,29 +163,13 @@ export function NeedsYou({
     return out.sort((a, b) => RANK[a.reason] - RANK[b.reason]);
   }, [approvals, tasks, duplicates, rows]);
 
-  async function decide(
-    approval: Approval,
-    decision: "approved" | "denied",
-    opts?: { note?: string; forSession?: boolean },
-  ) {
-    setBusy(`approval-${approval.id}`);
+  async function decide(approval: Approval, decision: "approved" | "denied", opts?: ApprovalDecisionOptions) {
     try {
-      await api.request(`/approvals/${approval.id}/decision`, {
-        method: "POST",
-        body: {
-          decision,
-          ...(opts?.note ? { note: opts.note } : {}),
-          ...(opts?.forSession ? { for_session: true } : {}),
-        },
-      });
+      await api.request(`/approvals/${approval.id}/decision`, { method: "POST", body: decisionBody(decision, opts) });
       setApprovals((old) => old.filter((row) => row.id !== approval.id));
-      setDenying(null);
-      setReason("");
       onChanged?.();
     } catch (error) {
       onNotice(String(error), true);
-    } finally {
-      setBusy("");
     }
   }
 
@@ -248,7 +223,24 @@ export function NeedsYou({
             )}
           </header>
           <ul className="ny-list">
-            {shown.map((item) => (
+            {shown.map((item) =>
+              "approval" in item ? (
+                <li className="ny-row ny-approval" key={item.key} data-reason="approval" data-id={item.key} data-stale={stale ? "true" : undefined}>
+                  <ApprovalCard
+                    compact
+                    showContext
+                    approval={item.approval}
+                    onDecide={(decision, opts) => decide(item.approval, decision, opts)}
+                    onOpenSession={(id) => {
+                      const session = rows.find((row) => row.id === id);
+                      if (session) onShowSession(session);
+                      else location.hash = `#session/${id}`;
+                    }}
+                    onOpenTask={onOpenTask}
+                    onNotice={onNotice}
+                  />
+                </li>
+              ) : (
               <li
                 className="ny-row"
                 key={item.key}
@@ -259,11 +251,7 @@ export function NeedsYou({
                 <div className="ny-why">
                   <span className="ny-reason">{REASON()[item.reason]}</span>
                   <span className="ny-what">
-                    {"approval" in item
-                      ? item.approval.session_name ||
-                        item.approval.task_title ||
-                        t("sessions.needsYou.attempt", { id: item.approval.attempt_id ?? "" })
-                      : "session" in item
+                    {"session" in item
                         ? item.session.name
                         : "pair" in item
                           ? t("sessions.needsYou.pairNames", { a: item.pair.session_a, b: item.pair.session_b })
@@ -281,7 +269,8 @@ export function NeedsYou({
                 </div>
                 <div className="ny-actions">{actions(item)}</div>
               </li>
-            ))}
+              ),
+            )}
           </ul>
         </>
       )}
@@ -297,7 +286,7 @@ export function NeedsYou({
         </button>
       )}
       {reviewCount > 0 && (
-        <a className="ny-review-link" id="needs-you-review-link" href="#board">
+        <a className="ny-review-link" id="needs-you-review-link" href="#tasks">
           {t("sessions.needsYou.reviewLink", { count: reviewCount })}
           <span aria-hidden="true"> {t("sessions.needsYou.toBoard")}</span>
         </a>
@@ -305,11 +294,7 @@ export function NeedsYou({
     </section>
   );
 
-  function describe(item: Item) {
-    if ("approval" in item)
-      return [item.approval.tool_name, approvalSummary(item.approval)]
-        .filter(Boolean)
-        .join(" · ");
+  function describe(item: Exclude<Item, { reason: "approval" }>) {
     if ("session" in item) {
       if (item.reason === "failed-session")
         return item.session.setup_error || t("sessions.needsYou.setupUnfinished");
@@ -356,90 +341,7 @@ export function NeedsYou({
     );
   }
 
-  function actions(item: Item) {
-    if ("approval" in item) {
-      const { approval } = item;
-      const isBusy = busy === `approval-${approval.id}`;
-      if (denying === approval.id) {
-        return (
-          <form
-            className="ny-deny-reason"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void decide(approval, "denied", { note: reason.trim() || undefined });
-            }}
-          >
-            <input
-              autoFocus
-              placeholder={t("sessions.needsYou.reasonPlaceholder")}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              aria-label={t("sessions.needsYou.reasonLabel")}
-            />
-            {dictationSupported && (
-              <button
-                type="button"
-                className={dictating ? "b mic-recording" : "b"}
-                id="needs-you-deny-mic"
-                aria-label={dictating ? t("sessions.needsYou.stopDictating") : t("sessions.needsYou.dictate")}
-                aria-pressed={dictating}
-                onClick={() => toggleDictation(reason)}
-              >
-                {transcribing ? "⏳" : dictating ? "🔴" : "🎙"}
-              </button>
-            )}
-            <button className="b" type="submit" disabled={isBusy}>
-              {t("sessions.needsYou.send")}
-            </button>
-            <button
-              className="b"
-              type="button"
-              onClick={() => {
-                setDenying(null);
-                setReason("");
-              }}
-            >
-              {t("sessions.needsYou.cancel")}
-            </button>
-          </form>
-        );
-      }
-      return (
-        <>
-          <button className="b ok" disabled={isBusy} onClick={() => void decide(approval, "approved")}>
-            {t("sessions.needsYou.approve")}
-          </button>
-          {/* Only a session-scoped approval has a session for the rule to
-              live against for the rest of — a task attempt's approval has
-              no persistent session, so there is nothing "this session"
-              could mean. */}
-          {!!approval.session_id && (
-            <button
-              className="b"
-              disabled={isBusy}
-              onClick={() => void decide(approval, "approved", { forSession: true })}
-            >
-              {t("sessions.needsYou.allowForSession")}
-            </button>
-          )}
-          <button className="b" disabled={isBusy} onClick={() => void decide(approval, "denied")}>
-            {t("sessions.needsYou.deny")}
-          </button>
-          <button
-            className="b ny-deny-more"
-            disabled={isBusy}
-            onClick={() => {
-              setDenying(approval.id);
-              setReason("");
-            }}
-          >
-            {t("sessions.needsYou.denyWithReason")}
-          </button>
-          {!!approval.session_id && sessionAction(approval.session_id)}
-          {!approval.session_id && !!approval.task_id && taskAction(approval.task_id, t("sessions.needsYou.openTask"))}
-        </>
-      );
-    }
+  function actions(item: Exclude<Item, { reason: "approval" }>) {
     if ("session" in item) {
       if (item.reason !== "waiting") {
         return (

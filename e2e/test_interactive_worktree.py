@@ -21,7 +21,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     t=real_terminal;project,git=setup(t)
     page.set_viewport_size({'width':width,'height':900})
     page.goto(t['url']+'/#sessions');page.locator('#sess-new').click()
-    page.get_by_label('Project',exact=True).select_option(str(project['id']))
+    page.get_by_label('Folder',exact=True).select_option(str(project['id']))
     open_advanced(page)
     page.locator('label[for=ns-name]').click()
     expect(page.get_by_label('Name',exact=True)).to_be_focused()
@@ -33,7 +33,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     expect(page.locator('#sesslist')).to_contain_text('feature/ui-proof',timeout=15000)
     # The branch is visible as soon as the allocation is planned. Attach only
     # appears when setup actually completes.
-    expect(page.locator('.scard',has_text='Isolated UI proof').get_by_role('button',name='⌨ Attach',exact=True)).to_be_visible(timeout=15000)
+    expect(page.locator('.scard',has_text='Isolated UI proof').get_by_role('button',name='⌨ Terminal',exact=True)).to_be_visible(timeout=15000)
     row=next(s for s in t['api']('/sessions') if s['name']=='Isolated UI proof')
     dest=Path(row['workspace']['path']);assert dest!=t['root'] and (dest/'hello.txt').exists()
     assert git('status','--porcelain')==''

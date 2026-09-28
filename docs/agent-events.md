@@ -273,6 +273,15 @@ no hook event arrived for that session in the last 10 minutes, or the agent has
 no hooks. Every change publishes bus event `session.state`
 `{id, state, previous, source, at}`.
 
+What people see is one status word per session, computed on the server
+(`internal/vocab`) and sent on every session as `state` (`working` |
+`needs_you` | `idle` | `ended`), `state_label` (the English words) and an
+optional `state_reason` (`starting`, `setting_up`, `setup_failed`,
+`agent_exited`, `interrupted`, `archived`, `untracked`, `approval`,
+`permission_prompt`). `needs_you` means a pending approval for the session or
+`agent_state = waiting_permission` — never an agent idle at its prompt. The web
+app, the phone and the terminal client use these same words.
+
 ### Usage (from statusline, transcript, codex rollout, stream-json)
 
 Table `usage_samples`-free design: latest values on the row, history in

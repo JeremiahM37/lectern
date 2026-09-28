@@ -27,19 +27,20 @@ def _projects(page, server):
     ids=["small-phone", "phone", "desktop"],
 )
 def test_new_session_leads_with_project_and_agent(page, server, size):
-    """Project, agent and one visible Start button; everything else folded."""
+    """Folder, agent, the ask toggle and one visible Start button; everything
+    else folded."""
     page.set_viewport_size(size)
     projects = _projects(page, server)
     assert projects, "the mock server seeds projects"
     page.goto(server + "/#sessions")
     page.click("#sess-new")
-    sheet = page.get_by_role("dialog", name="New session", exact=True)
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
     expect(sheet).to_be_visible()
 
     # Only the two choices and the action are visible at first.
-    for sel in ("#ns-project", "#ns-agent", "#ns-go"):
+    for sel in ("#ns-project", "#ns-browse", "#ns-agent", "#ns-ask", "#ns-go"):
         expect(sheet.locator(sel)).to_be_visible()
-    for sel in ("#ns-name", "#ns-group", "#ns-profile", "#ns-model", "#ns-yolo", "#ns-prime"):
+    for sel in ("#ns-name", "#ns-group", "#ns-profile", "#ns-model", "#ns-prime"):
         expect(sheet.locator(sel)).not_to_be_visible()
 
     # The chosen project's folder and machine are spelled out right there.
@@ -53,16 +54,18 @@ def test_new_session_leads_with_project_and_agent(page, server, size):
     box = sheet.locator("#ns-go").bounding_box()
     assert box and box["y"] >= 0 and box["y"] + box["height"] <= size["height"] + 1, box
 
-    # The default launch is a bypass run, and the collapsed sheet says so.
-    expect(sheet.locator("#ns-launch-summary")).to_contain_text("no approval prompts")
+    # A new install asks before risky actions, and the sheet says so.
+    expect(sheet.locator("#ns-ask")).to_be_checked()
+    expect(sheet.locator("#ns-launch-summary")).to_contain_text("Asks before risky actions")
 
     # The disclosure reveals the rest without a second dialog.
     open_advanced(sheet)
     expect(sheet.locator("#ns-name")).to_be_visible()
     expect(sheet.get_by_role("dialog", name="Launch profiles")).to_have_count(0)
 
-    sheet.locator("#ns-yolo").uncheck()
-    expect(sheet.locator("#ns-launch-summary")).to_contain_text("Asks before it acts")
+    sheet.locator("#ns-ask").uncheck()
+    expect(sheet.locator("#ns-launch-summary")).to_contain_text("Runs without asking")
+    sheet.locator("#ns-ask").check()
 
 
 @pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone", "desktop"])
@@ -71,12 +74,12 @@ def test_advanced_values_are_what_gets_sent(page, server):
     projects = _projects(page, server)
     page.goto(server + "/#sessions")
     page.click("#sess-new")
-    sheet = page.get_by_role("dialog", name="New session", exact=True)
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
     chosen = sheet.locator("#ns-project").input_value()
     open_advanced(sheet)
     sheet.locator("#ns-name").fill("Simplified launch")
     sheet.locator("#ns-group").fill("followup")
-    sheet.locator("#ns-yolo").uncheck()
+    sheet.locator("#ns-ask").check()
     with page.expect_response(
         lambda r: r.request.method == "POST" and r.url.endswith("/api/sessions")
     ) as response:
@@ -107,7 +110,7 @@ def test_project_memory_survives_reload_blank_and_a_deleted_project(page, server
 
     # A deliberate blank room does not snap back to the first project.
     select.select_option("")
-    expect(page.locator("#ns-proj-hint")).to_contain_text("throwaway directory")
+    expect(page.locator("#ns-proj-hint")).to_contain_text("new folder for this session")
     page.keyboard.press("Escape")
     page.click("#sess-new")
     assert page.locator("#ns-project").input_value() == ""

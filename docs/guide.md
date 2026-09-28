@@ -349,7 +349,7 @@ temporary databases, a separate vault, and a private tmux socket.
   whether it includes local changes. Missing build metadata is shown as unknown.
 
 - **Board** — kanban (mobile PWA + desktop), quick-dispatch bar, drag-to-dispatch,
-  live SSE timeline, mobile diff review, and a desktop **Deck** multi-pane cockpit.
+  live SSE timeline, mobile diff review, and a desktop **Overview** multi-pane cockpit.
 - **Sessions** — long-lived interactive agents, grouped by project. Live status
   (working / wants you / idle) derived from the pane itself, uptime and idle time
   taken from tmux's own clock, a preview of what is on screen, one-tap terminal
@@ -543,11 +543,15 @@ The main **New terminal** button still opens a scratch workspace. In the
 terminal dashboard, press `S` and select a project or machine from the single
 searchable location picker.
 
-Recently opened projects appear first on each device. **New session** remembers
-your project choice (including a blank room) and starts with just Project and
-Agent. Expand **Advanced options** for naming, profiles, models, worktrees,
-resume, permissions, and a first message; the launch summary keeps the current
-permission mode visible. The terminal dashboard remembers successful project
+Recently opened projects appear first on each device. **Start an agent** remembers
+your folder choice (including a new empty folder) and starts with just Folder and
+Agent, plus **Ask before risky actions**. Expand **More options** for naming,
+profiles, models, worktrees, resume, sandboxing, and a first message; the launch
+summary keeps the permission choice visible. **Choose…** browses the machine's folders
+(`GET /api/targets/{id}/folders?path=`, names only, starting at home); starting
+in a folder that is not a project yet registers it first. With no agent CLI
+installed, **Try a demo agent** starts `demo`, a scripted stand-in that answers
+messages and writes `demo-notes.md`, so chat, status and review can be tried. The terminal dashboard remembers successful project
 launches separately for each server.
 
 Remote CLI attachments automatically use a portable `xterm-256color` terminal
@@ -712,7 +716,7 @@ one identity across installs). What you do have to do, once per device:
    you there. On iPhone/iPad, Home Screen installation is also required:
    Safari does not support web push for a page opened in the ordinary
    browser tab, only for one added via Share → Add to Home Screen.
-2. Open **Settings → Notifications** and tap **Enable phone alerts**. A test
+2. Open **Settings → Basics** and tap **Enable phone alerts**. A test
    notification is sent immediately so you know it worked. The same tab
    lists every device that's subscribed and lets you unsubscribe one (a
    subscription a browser has itself dropped — an uninstalled PWA, for

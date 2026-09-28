@@ -69,7 +69,7 @@ def test_restore_lists_groups_searches_and_tracks_again_narrow(page, real_termin
     seed_closed_rows(t, count=35)
     open_recent(page, t, width=390)
 
-    expect(page.locator("#regular-sessions .hint")).to_contain_text("No sessions yet")
+    expect(page.locator("#getting-started")).to_contain_text("Start your first agent")
     rows = page.locator(".recent-row")
     expect(rows).to_have_count(36)
     expect(rows.first).to_contain_text("Real terminal")

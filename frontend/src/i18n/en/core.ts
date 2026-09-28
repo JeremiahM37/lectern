@@ -21,7 +21,6 @@ const en: Record<string, string> = {
   "nav.settings": "Settings",
   "nav.evals": "Agent tests",
   "nav.more": "More",
-  "nav.deckOverview": "Deck · live overview",
   "board.newTask": "New task",
 
   // Command palette
@@ -144,10 +143,10 @@ const en: Record<string, string> = {
   "settings.searchResults": "Matching settings",
   "settings.searchNone": "No setting matches that.",
   "settings.searchShortcut": "keyboard shortcut",
-  "settings.section.machines": "Targets",
+  "settings.section.machines": "Machines",
   "settings.section.projects": "Projects",
   "settings.section.notifications": "Notifications",
-  "settings.section.devices": "Devices",
+  "settings.section.devices": "Phone & devices",
   "settings.section.about": "Usage & about",
   "settings.section.budgets": "Budgets",
   "settings.section.accounts": "Accounts",
@@ -232,7 +231,6 @@ const en: Record<string, string> = {
   "settings.index.projects.skills": "Project skills",
   "settings.index.projects.workflows": "Project workflows",
   "settings.index.projects.triggers": "Triggers",
-  "settings.index.projects.permission": "New session permission mode",
   "settings.index.notifications.push": "Push notifications on this device",
   "settings.index.notifications.sessionAlerts": "Session alerts",
   "settings.index.notifications.sinks": "Alert channels (webhooks)",

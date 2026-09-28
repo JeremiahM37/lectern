@@ -75,7 +75,7 @@ def test_browser_cancels_setup_and_retains_completed_checkout(page,real_terminal
         card.get_by_role('button',name='Recover allocation',exact=True).click()
         expect(page.locator('#toasts')).to_contain_text('Allocation validated',timeout=15000)
         recovery_outcome(t,row,kept)
-        expect(card.get_by_role('button',name='⌨ Attach',exact=True)).to_have_count(0)
+        expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_have_count(0)
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         assert not errors
     finally:release.touch()

@@ -1,4 +1,5 @@
 """Feature access and state retention across the cleaned-up navigation."""
+import re
 import pytest
 from playwright.sync_api import expect
 from conftest import PHONE, DESKTOP
@@ -14,8 +15,8 @@ def test_settings_sections_keep_drafts_and_keyboard_navigation(page,server):
     expect(page.locator('#imp-root')).not_to_be_visible()
     projects.click();expect(page.locator('#imp-root')).to_have_value('/tmp/unsubmitted-project-draft')
     projects.focus();page.keyboard.press('ArrowRight')
-    expect(page.locator('[data-settings=notifications]')).to_be_focused()
-    expect(page.locator('[data-settings=notifications]')).to_have_attribute('aria-selected','true')
+    expect(page.locator('[data-settings=agents]')).to_be_focused()
+    expect(page.locator('[data-settings=agents]')).to_have_attribute('aria-selected','true')
     expect(page.locator('#fab')).not_to_be_visible()
     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
 
@@ -86,32 +87,25 @@ def test_open_in_terminal_keeps_browser_terminal_alive(page,real_terminal,link):
 
 
 @pytest.mark.parametrize('page', [PHONE, DESKTOP], indirect=True)
-def test_root_remembers_view_but_explicit_links_win(page, server):
+def test_root_is_always_sessions_and_explicit_links_win(page, server):
+    # Home stays put (docs/design/simple-ui.md): a bare URL is Sessions on every
+    # device, whatever was visited last; a named page — old names included —
+    # still opens that page.
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(server)
-    page.locator('.tab[data-tab="sessions"]').click()
-    expect(page.locator('#sess-search')).to_be_visible()
+    page.goto(server + '/#tasks')
+    expect(page.locator('#fab')).to_be_visible()
     page.goto(server)
     expect(page.locator('#sess-search')).to_be_visible()
     assert page.evaluate('location.hash') == ''
     page.goto(server + '/#board')
     expect(page.locator('#fab')).to_be_visible()
+    assert page.evaluate('location.hash') == '#tasks'
+    page.evaluate("localStorage.setItem('lec-last-view', 'tasks')")
     page.goto(server)
     expect(page.locator('#sess-search')).to_be_visible()
-    # Terminal frame history is per tab; a new tab still reaches useful work.
-    page.evaluate("localStorage.setItem('lec-last-view', 'terminals')")
-    other = page.context.new_page()
-    try:
-        other.goto(server)
-        expect(other.locator('#sess-search')).to_be_visible()
-    finally:
-        other.close()
-    page.evaluate("localStorage.setItem('lec-last-view', 'unknown-view')")
-    page.goto(server)
-    expect(page.locator('#fab')).to_be_visible()
     page.goto(server + '/#%E0%A4%A')
-    expect(page.locator('#fab')).to_be_visible()
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))
     assert not errors
 
 
@@ -120,10 +114,10 @@ def test_session_sheet_keeps_keyboard_focus_and_returns_to_opener(page, server):
     page.goto(server + '/#sessions')
     opener = page.locator('#sess-new')
     opener.click()
-    sheet = page.get_by_role('dialog', name='New session', exact=True)
+    sheet = page.get_by_role('dialog', name='Start an agent', exact=True)
     expect(sheet).to_be_visible()
     assert sheet.evaluate('(e)=>e.contains(document.activeElement)')
-    close = sheet.get_by_role('button', name='Close new session', exact=True)
+    close = sheet.get_by_role('button', name='Close', exact=True)
     close.focus()
     page.keyboard.press('Shift+Tab')
     expect(sheet.locator('#ns-go')).to_be_focused()
@@ -156,7 +150,7 @@ def test_session_launch_stays_visible_through_long_form(page, server, size):
     page.set_viewport_size({'width':size[0],'height':size[1]})
     page.goto(server + '/#sessions')
     page.locator('#sess-new').click()
-    sheet = page.get_by_role('dialog', name='New session', exact=True)
+    sheet = page.get_by_role('dialog', name='Start an agent', exact=True)
     # This test is about the long form: open Advanced up front so the sheet is
     # the full-height one the assertions below were written for.
     open_advanced(sheet)

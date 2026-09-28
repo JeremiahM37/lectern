@@ -96,6 +96,8 @@ export interface GitStatus {
   base: string;
   on_base_branch: boolean;
   session_live: boolean;
+  // Whether the repository has any remote; Push starts unticked without one.
+  has_remote?: boolean;
 }
 
 export interface CommitStep {
@@ -110,6 +112,8 @@ export interface CommitResult {
   failed?: string;
   detail?: string;
   hook_failure?: { hooks: string[] | null; output: string };
+  // The branch the commit landed on (a new one, for "Commit on a new branch").
+  branch?: string;
 }
 
 export interface StoredComment {

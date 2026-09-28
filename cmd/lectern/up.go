@@ -74,9 +74,15 @@ func upCommand(cfg *config.Config, args []string) error {
 		printOnboardingSummary(status)
 	}
 
+	// landing is where the browser opens: "Start an agent", with the project
+	// for the folder `up` ran in already chosen when there is one.
+	landing := "/#sessions/new"
 	if cwd, err := os.Getwd(); err == nil {
 		if name, repoPath, ok := currentGitProject(cwd); ok {
-			_, created, err := ensureLocalProject(c, name, repoPath)
+			id, created, err := ensureLocalProject(c, name, repoPath)
+			if err == nil && id > 0 {
+				landing = fmt.Sprintf("/#sessions/new/%d", id)
+			}
 			switch {
 			case err != nil:
 				fmt.Fprintf(os.Stderr, "warning: could not add %s as a project: %v\n", repoPath, err)
@@ -98,7 +104,7 @@ func upCommand(cfg *config.Config, args []string) error {
 
 	// The runtime only answers a signed-in browser (localruntime/gate.go);
 	// this one-time link signs this browser in and lands on "Start an agent".
-	link, err := localruntime.BrowserURL(ctx, ep, "/#sessions/new")
+	link, err := localruntime.BrowserURL(ctx, ep, landing)
 	if err != nil {
 		return err
 	}

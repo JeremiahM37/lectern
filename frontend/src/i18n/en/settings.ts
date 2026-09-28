@@ -64,7 +64,7 @@ const catalog: Record<string, string> = {
   "settings.projects.shellIn": "Shell in {name}",
   "settings.projects.editName": "Edit {name}",
   "settings.projects.import": "Import projects",
-  "settings.projects.importTarget": "Import target",
+  "settings.projects.importTarget": "Machine",
   // Verb: look for projects under a folder
   "settings.projects.scan": "Scan",
   "settings.projects.nothingFound": "Nothing project-shaped found.",
@@ -104,7 +104,7 @@ const catalog: Record<string, string> = {
   "settings.projects.checkExample": "e.g. go test ./...",
   "settings.projects.saveCheck": "Save check command",
   "settings.projects.checkAuto": "Check command: auto-detected: {command}",
-  "settings.projects.checkNone": "Check command: none configured, and no .verify.yaml found on the target",
+  "settings.projects.checkNone": "Check command: none configured, and no .verify.yaml found on the machine",
   "settings.projects.ciFix": "Fix CI failures automatically",
   "settings.projects.ciFixHint": "Fix CI failures automatically — when a PR opened here fails its checks, send the failing jobs to the agent and ask it to push a fix",
   "settings.projects.ciAttempts": "Fix attempts per PR",
@@ -167,12 +167,6 @@ const catalog: Record<string, string> = {
   "settings.notifications.alertCompacting": "Compacting",
   "settings.notifications.alertsSaved": "Alert settings saved",
   "settings.notifications.saveAlerts": "Save alerts",
-  "settings.notifications.permissionMode": "New session permission mode",
-  "settings.notifications.permissionHint": "The default for a new interactive session that does not say otherwise. \"Ask\" registers the PermissionRequest hook, so a tool call can be approved or denied from the phone; \"Bypass\" is today's default — the agent runs unattended.",
-  "settings.notifications.bypass": "Bypass (no approval prompts)",
-  "settings.notifications.ask": "Ask (approve/deny from the phone)",
-  "settings.notifications.permissionSaved": "Default permission mode saved",
-  "settings.notifications.saveDefault": "Save default",
 
   // Agents tab (menus, runners, launch profiles)
   "settings.agentsTab.menus": "Show in menus",

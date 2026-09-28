@@ -138,7 +138,7 @@ export function Appearance({
       </label>
       <p>
         {t("terminal.appearanceHint")}{" "}
-        <a href="/#targets" target="_top">{t("terminal.moreThemes")}</a>
+        <a href="/#settings/workspace" target="_top">{t("terminal.moreThemes")}</a>
       </p>
     </Dialog>
   );

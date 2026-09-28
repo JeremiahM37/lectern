@@ -1,5 +1,7 @@
 import { AppHosts, VoiceSettings } from "./PhonePanels";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { Basics } from "./Basics";
+import { PhoneWizard } from "./PhoneWizard";
 import type { JsonValue } from "../api";
 import type { IsolationConfig, Project, Target } from "../types";
 import { AgentEditor, type AgentSpec } from "./AgentEditor";
@@ -90,7 +92,7 @@ export function Settings({
   pushUnavailableReasonKind,
   pushEndpoint,
   onUnsubscribePush,
-  initialSection = "machines",
+  initialSection = "basics",
   section,
   projectEdit,
   launchProfilesVersion = 0,
@@ -187,10 +189,14 @@ export function Settings({
         setFocused(entry.id);
         requestAnimationFrame(() => focusSetting(entry));
       }} />
-      <ConnectTools api={api} onNotice={onNotice} />
-      <Delegation api={api} agents={agents} projects={projects} onNotice={onNotice} onChanged={load} />
-      <nav role="tablist">
+      <nav role="tablist" className="settings-tabs" aria-label={t("settings.title")}>
         {SECTIONS.map(([k, key]) => [k, t(key)] as const).map(([k, v]) => (
+          <Fragment key={k}>
+          {k === "machines" && (
+            <span className="settings-group-label" role="presentation">
+              {t("settings.advanced")}
+            </span>
+          )}
           <button
             data-settings={k}
             role="tab"
@@ -203,12 +209,31 @@ export function Settings({
               requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-settings="${next}"]`)?.focus());
             }}
             onClick={() => setTab(k)}
-            key={k}
           >
             {v}
           </button>
+          </Fragment>
         ))}
       </nav>
+      {tab === "basics" && (
+        <Basics
+          api={api}
+          values={settings}
+          onNotice={onNotice}
+          onSection={setTab}
+          onEnablePush={onEnablePush}
+          pushAvailable={pushAvailable}
+          pushUnavailableReason={pushUnavailableReason}
+          pushEndpoint={pushEndpoint}
+          onChanged={() => void load().catch((e) => onNotice(String(e), true))}
+        />
+      )}
+      {tab === "connections" && (
+        <>
+          <ConnectTools api={api} onNotice={onNotice} />
+          <Delegation api={api} agents={agents} projects={projects} onNotice={onNotice} onChanged={load} />
+        </>
+      )}
       {tab === "machines" && (
         <Targets
           api={api}
@@ -244,6 +269,7 @@ export function Settings({
         />
       )}{" "}
       {tab === "notifications" && <VoiceSettings />}
+      {tab === "devices" && <PhoneConnect api={api} onNotice={onNotice} />}
       {tab === "devices" && <AppHosts />}
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (
@@ -1064,9 +1090,6 @@ function Notifications({
   const [alerts, setAlerts] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(alertKeys.map(([key]) => [key, String(values[key] ?? "") !== "0"])),
   );
-  const [permissionMode, setPermissionMode] = useState(
-    String(values.session_permission_mode ?? "") === "ask" ? "ask" : "bypass",
-  );
   const [devices, setDevices] = useState<PushSubscriptionInfo[]>([]);
   const loadDevices = () =>
     void api
@@ -1209,33 +1232,6 @@ function Notifications({
         {t("settings.notifications.saveAlerts")}
       </button>
 
-      <h4 data-setting="projects.permission">{t("settings.notifications.permissionMode")}</h4>
-      <p className="subhint">
-        {t("settings.notifications.permissionHint")}
-      </p>
-      <label>
-        <select
-          id="s-permission-mode"
-          value={permissionMode}
-          onChange={(e) => setPermissionMode(e.target.value)}
-        >
-          <option value="bypass">{t("settings.notifications.bypass")}</option>
-          <option value="ask">{t("settings.notifications.ask")}</option>
-        </select>
-      </label>
-      <button
-        id="s-save-permission-mode"
-        onClick={() =>
-          void api
-            .request("/settings", {
-              method: "PUT",
-              body: { session_permission_mode: permissionMode },
-            })
-            .then(() => onNotice(t("settings.notifications.permissionSaved")))
-        }
-      >
-        {t("settings.notifications.saveDefault")}
-      </button>
     </article>
   );
 }
@@ -1603,5 +1599,21 @@ function ProfileEditor({
         {t("settings.profileEditor.save")}
       </button>
     </Modal>
+  );
+}
+
+// The top of Settings → Phone & devices: the same wizard Basics opens.
+function PhoneConnect({ api, onNotice }: { api: SettingsApi; onNotice(t: string, e?: boolean): void }) {
+  useLocale();
+  const [open, setOpen] = useState(false);
+  return (
+    <article className="phone-connect">
+      <h3>{t("phone.title")}</h3>
+      <p className="subhint">{t("basics.phoneHint")}</p>
+      <button type="button" className="b ok" id="devices-phone" onClick={() => setOpen(true)}>
+        {t("phone.title")}
+      </button>
+      {open && <PhoneWizard api={api} onNotice={onNotice} onClose={() => setOpen(false)} />}
+    </article>
   );
 }

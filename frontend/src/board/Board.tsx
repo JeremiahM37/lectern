@@ -484,7 +484,7 @@ export function Board({
             </>
           ) : (
             <>
-              {t("board.quick.needsBefore")}<b>{t("board.quick.needsDelegated")}</b>{t("board.quick.needsMiddle")}<a href="#targets">{t("board.quick.openSettings")}</a>{t("board.quick.needsAfter")}
+              {t("board.quick.needsBefore")}<b>{t("board.quick.needsDelegated")}</b>{t("board.quick.needsMiddle")}<a href="#settings/connections">{t("board.quick.openSettings")}</a>{t("board.quick.needsAfter")}
             </>
           )}
         </div>

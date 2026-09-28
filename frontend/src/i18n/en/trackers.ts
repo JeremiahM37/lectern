@@ -137,7 +137,7 @@ const catalog: Record<string, string> = {
   "trackers.hub.startedSession": "Started session \"{name}\"",
   "trackers.hub.startedSessionOn": "Started session \"{name}\" on {branch}",
   "trackers.hub.createdTask": "Created task #{id}",
-  "trackers.hub.title": "Tasks",
+  "trackers.hub.title": "Issues & PRs",
   "trackers.hub.noProjects": "Add a project first; its repository's pull requests and issues show up here.",
   "trackers.hub.subtitle": "Pull requests and issues from GitHub, GitLab, Linear and Jira",
   "trackers.hub.project": "Project",

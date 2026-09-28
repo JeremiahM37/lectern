@@ -53,7 +53,7 @@ def test_web_profiles_keep_drafts_launch_and_preserve_continuation(page,real_ter
     d.get_by_role('button',name='Close',exact=True).click()
     expect(page.locator('#ns-name')).to_have_value('Profile web session');expect(page.locator('#ns-profile')).to_have_value(str(profile['id']))
     expect(page.locator('#ns-agent')).to_have_value('codex');expect(page.locator('#ns-agent')).to_be_disabled()
-    page.locator('#ns-yolo').uncheck();page.locator('#ns-model').fill('explicit-model')
+    page.locator('#ns-ask').check();page.locator('#ns-model').fill('explicit-model')
     with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/sessions')) as response:page.locator('#ns-go').click()
     row=response.value.json();assert response.value.status==201,row
     observed=wait_record(t,1)[0];assert 'explicit-model' in observed['argv'] and observed['home']==env['CODEX_HOME'] and observed['cwd']==str(t['root'])

@@ -1,5 +1,5 @@
 """`lectern up` opens the browser on /#sessions/new: the page lands on
-Sessions with the New session dialog already open, ready to start an agent."""
+Sessions with the Start an agent sheet already open."""
 import pytest
 from playwright.sync_api import expect
 
@@ -12,7 +12,7 @@ from test_light_mode_sweep import Sweep, light
 def test_up_lands_on_start_an_agent(page, server, theme):
     light(page, theme)
     page.goto(server + "/#sessions/new")
-    dialog = page.get_by_role("dialog", name="New session", exact=True)
+    dialog = page.get_by_role("dialog", name="Start an agent", exact=True)
     expect(dialog).to_be_visible(timeout=10000)
     # The link is used once: a reload does not reopen the dialog.
     expect(page).to_have_url(server + "/#sessions")

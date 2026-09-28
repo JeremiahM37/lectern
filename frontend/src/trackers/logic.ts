@@ -53,7 +53,8 @@ export function itemMark(item: Pick<Item, "source" | "kind" | "id">): string {
 
 const SOURCES: Source[] = ["github", "gitlab", "bitbucket", "gitea", "azure", "linear", "jira"];
 
-/** Reads #tasks/<project>[/<source>/<kind>/<id>[/<connection>]]. */
+/** Reads #issues/<project>[/<source>/<kind>/<id>[/<connection>]]; the page's
+ * old name, #tasks/<project>/…, is read the same way. */
 export function parseTasksHash(hash: string): { project?: number; ref?: ItemRef } {
   let raw = hash.replace(/^#/, "");
   try {
@@ -62,7 +63,7 @@ export function parseTasksHash(hash: string): { project?: number; ref?: ItemRef 
     return {};
   }
   const [head, project, source, kind, id, conn] = raw.split("/");
-  if (head !== "tasks") return {};
+  if (head !== "issues" && head !== "tasks") return {};
   const pid = /^[1-9]\d*$/.test(project || "") ? Number(project) : undefined;
   if (!pid) return {};
   if (!SOURCES.includes(source as Source) || (kind !== "pr" && kind !== "issue") || !id) return { project: pid };
@@ -72,9 +73,9 @@ export function parseTasksHash(hash: string): { project?: number; ref?: ItemRef 
 }
 
 export function tasksHash(project: number, ref?: ItemRef): string {
-  if (!ref) return `#tasks/${project}`;
+  if (!ref) return `#issues/${project}`;
   const tail = ref.connection_id ? `/${ref.connection_id}` : "";
-  return `#tasks/${project}/${ref.source}/${ref.kind}/${encodeURIComponent(ref.id)}${tail}`;
+  return `#issues/${project}/${ref.source}/${ref.kind}/${encodeURIComponent(ref.id)}${tail}`;
 }
 
 export function sameRef(a?: ItemRef, b?: Pick<Item, "source" | "kind" | "id" | "connection_id">): boolean {

@@ -26,7 +26,8 @@ def test_now_strip_shows_a_waiting_session_and_the_approval_count(page, server):
     page.set_viewport_size(PHONE)
     page.goto(server + "/#sessions")
     card = page.locator(".scard", has_text="Waiting agent")
-    expect(card.locator(".sstate")).to_contain_text("Needs you", timeout=25000)
+    # At its prompt the agent is idle: "Needs you" is only for approvals.
+    expect(card.locator(".sstate")).to_contain_text("Idle", timeout=25000)
     # Same settle-then-reload as the equivalent Needs-you test — the mock
     # task's approval lands over SSE, but a reload is the deterministic way
     # to prove the strip reflects a fresh full load, not just a live event.
@@ -38,9 +39,8 @@ def test_now_strip_shows_a_waiting_session_and_the_approval_count(page, server):
     approvals_chip = page.locator("#now-approvals")
     expect(approvals_chip).to_contain_text("1 to approve", timeout=25000)
 
-    waiting_chip = strip.locator('.now-chip[data-state="waiting"]')
-    expect(waiting_chip).to_contain_text("Waiting agent")
-    expect(waiting_chip).to_contain_text("Wants you")
+    waiting_chip = strip.locator('.now-chip[data-state="idle"]', has_text="Waiting agent")
+    expect(waiting_chip).to_contain_text("Idle")
 
     # The strip sits above the fold and never causes horizontal overflow at
     # phone width, same guarantee every other mobile surface here keeps.
@@ -122,6 +122,6 @@ def test_deny_with_reason_mic_follows_the_same_feature_detection(page, server):
     needs = page.locator("#needs-you")
     expect(needs).to_be_visible(timeout=25000)
     needs.locator('.ny-row[data-reason="approval"]').get_by_role(
-        "button", name="Deny with reason…", exact=True
+        "button", name="Deny…", exact=True
     ).click()
-    expect(page.locator("#needs-you-deny-mic")).to_be_visible()
+    expect(page.locator('#needs-you [id^="approval-mic-"]')).to_be_visible()

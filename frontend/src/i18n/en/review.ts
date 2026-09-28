@@ -211,7 +211,6 @@ const catalog: Record<string, string> = {
   "review.git.truncated": "Some patches were too large to show.",
   // Heading (noun): the commit form.
   "review.git.commitHeading": "Commit",
-  "review.git.onBaseBranch": "This session works directly on {branch}; commit from an isolated worktree instead.",
   "review.git.commitMessage": "Commit message",
   "review.git.writing": "Writing…",
   "review.git.writeMessage": "✨ Write message",
@@ -219,7 +218,7 @@ const catalog: Record<string, string> = {
   "review.git.amendLastPushed": "Amend the last commit (already pushed)",
   "review.git.pushToOrigin": "Push to origin",
   // {gh} is replaced by the command name "gh", shown as code.
-  "review.git.openPr": "Open a PR (needs {gh} on the target)",
+  "review.git.openPr": "Open a PR (needs {gh} on the machine)",
   "review.git.prTitle": "PR title",
   "review.git.prBody": "PR body",
   "review.git.generating": "Generating…",

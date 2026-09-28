@@ -148,6 +148,16 @@ and the working tree split into **Staged** and **Changes**.
   with the session's model), then the PR-description settings.
 - **Commit** commits what is staged. When nothing is staged, it commits every
   change.
+- **On the default branch** (every session started without a worktree works
+  straight in the project's checkout) Commit asks where to go instead of
+  refusing: **Commit on a new branch** (the default) creates a branch named
+  from the session — `lectern/fix-login`, with `-2`, `-3`… when taken — and
+  commits there; **Commit to main directly** needs a tick box first and a
+  signed-in person. API: `new_branch` or `allow_base_branch` on the commit
+  request; without either the answer is 409 with `code: "on_base_branch"`.
+- A control that cannot be used says why beside it: no commit message, an
+  ended session, or — for **Push to origin**, which starts unticked — a
+  repository with no remote (`has_remote` in the status).
 - **Amend the last commit** is refused when that commit belongs to the base
   branch. When the commit is already on a remote branch, Lectern says so and
   asks before rewriting it.

@@ -15,7 +15,8 @@ const opts = (over: Partial<MergeOptions> = {}): MergeOptions => ({
 
 test("tasks deep links round trip, including a connection and an identifier with a slash-free key", () => {
   const ref = { source: "linear" as const, kind: "issue" as const, id: "ENG-12", connection_id: 4 };
-  assert.equal(tasksHash(3, ref), "#tasks/3/linear/issue/ENG-12/4");
+  assert.equal(tasksHash(3, ref), "#issues/3/linear/issue/ENG-12/4");
+  assert.deepEqual(parseTasksHash("#issues/3/linear/issue/ENG-12/4"), { project: 3, ref });
   assert.deepEqual(parseTasksHash("#tasks/3/linear/issue/ENG-12/4"), { project: 3, ref });
   assert.deepEqual(parseTasksHash("#tasks/3"), { project: 3 });
   assert.deepEqual(parseTasksHash("#tasks/3/trello/issue/x"), { project: 3 });

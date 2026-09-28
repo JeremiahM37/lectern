@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  defaultProject,
   PROJECT_PREFERENCE_KEY,
   RECENT_PROJECT_LIMIT,
   orderProjectsByRecency,
@@ -139,4 +140,18 @@ test("nothing remembered leaves the alphabetical list untouched", () => {
   const ordered = orderProjectsByRecency(projects, []);
   assert.deepEqual(ordered.recent, []);
   assert.deepEqual(ordered.rest, projects);
+});
+
+test("Start an agent opens on the asked-for project, then the remembered one", () => {
+  const projects = [{ id: 1 }, { id: 2 }];
+  // The `lectern up` landing link names the folder it ran in.
+  assert.equal(defaultProject(projects, undefined, 2), 2);
+  assert.equal(defaultProject(projects, null, 2), 2);
+  assert.equal(defaultProject(projects, 1, 9), 1);
+  // Nothing asked: this device's last choice, a deliberate empty folder included.
+  assert.equal(defaultProject(projects, 2), 2);
+  assert.equal(defaultProject(projects, null), null);
+  assert.equal(defaultProject(projects, undefined), 1);
+  // Still loading: nothing to choose yet.
+  assert.equal(defaultProject([], undefined, 2), null);
 });

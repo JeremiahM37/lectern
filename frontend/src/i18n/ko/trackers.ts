@@ -110,7 +110,7 @@ const catalog: Record<string, string> = {
   "trackers.hub.startedSession": "세션 \"{name}\"을(를) 시작했습니다",
   "trackers.hub.startedSessionOn": "{branch}에서 세션 \"{name}\"을(를) 시작했습니다",
   "trackers.hub.createdTask": "작업 #{id}을(를) 만들었습니다",
-  "trackers.hub.title": "작업",
+  "trackers.hub.title": "이슈 및 PR",
   "trackers.hub.noProjects": "먼저 프로젝트를 추가하세요. 해당 저장소의 풀 리퀘스트와 이슈가 여기에 표시됩니다.",
   "trackers.hub.subtitle": "GitHub, GitLab, Linear, Jira의 풀 리퀘스트와 이슈",
   "trackers.hub.project": "프로젝트",

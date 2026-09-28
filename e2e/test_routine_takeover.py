@@ -32,7 +32,7 @@ def test_take_over_started_routine_in_browser(page, real_terminal):
         if task['status']=='running':break
         time.sleep(.1)
     assert task['status']=='running'
-    page.goto(t['url'])
+    page.goto(t['url'] + '/#tasks')
     page.locator('#qb-routines').click()
     page.get_by_role('button',name='Existing routine · Routine project · running',exact=True).click()
     page.get_by_role('button',name='Take over as session',exact=True).click()

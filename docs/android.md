@@ -66,7 +66,7 @@ and sign on a machine that holds the key (`apksigner sign`).
 1. Install the APK (`adb install app-release.apk`, or open it on the phone
    after allowing installs from your file manager).
 2. Open **Lectern**. It asks for a pairing QR code or link. On your Lectern,
-   open **Settings → Devices** and either:
+   open **Settings → Phone & devices** and either:
    - **Pair a phone over the relay** (end-to-end encrypted, works from
      anywhere; see [relay.md](relay.md)), or
    - **Pair a phone** (device pairing, when the phone reaches Lectern
@@ -82,7 +82,7 @@ the same host key fingerprint to compare. The pairing link's own origin is
 ignored: the app never loads code from it.
 
 To remove a Lectern: **Your Lecterns** (below) → hold it → **Remove**, or on
-the Lectern's own pages **Settings → Devices → Encrypted relay → Forget this
+the Lectern's own pages **Settings → Phone & devices → Encrypted relay → Forget this
 pairing** (relay) or **Disconnect this app** (direct). The owner can revoke the
 device from Settings on the host as usual.
 
@@ -106,7 +106,7 @@ key fingerprint the pairing page then shows); nothing is paired until you tap
 **Connect**, and adding a Lectern never changes the ones already paired.
 
 - `lectern://pair?p=…` (relay) and `lectern://pair?origin=…&code=…` (direct)
-  work with the published app. Settings → Devices shows them as **Open in
+  work with the published app. Settings → Phone & devices shows them as **Open in
   Android app** beside **Copy link** and **Share…**, and the pairing page,
   opened in a phone browser, offers them too.
 - **App Links.** Android lets an app open ordinary https links only for host
@@ -119,9 +119,9 @@ key fingerprint the pairing page then shows); nothing is paired until you tap
   QR code's https link opens the app directly.
 
 **Several Lecterns.** Each pairing becomes an entry in **Your Lecterns**,
-reached from **Settings → Devices → Add or manage Lecterns…** in the app, and
+reached from **Settings → Phone & devices → Add or manage Lecterns…** in the app, and
 from **Switch Lectern** on the launcher icon's long-press menu. Tap one to open
-it, hold one to rename or remove it, or **Add a Lectern**. Settings → Devices
+it, hold one to rename or remove it, or **Add a Lectern**. Settings → Phone & devices
 also lists them with a **Switch** button. Each Lectern keeps its own device key
 (a separate Keystore alias, so two Lecterns cannot tell they share a phone), its
 own sealed tokens, its own UnifiedPush registration, and, over the relay, its

@@ -37,7 +37,7 @@ def test_attach_when_terminal_server_cannot_start(page, server, theme):
     light(page, theme)
     page.goto(server + "/#sessions")
     card = page.locator(".scard", has_text="viewer check").first
-    card.get_by_role("button", name="⌨ Attach", exact=True).click()
+    card.get_by_role("button", name="⌨ Terminal", exact=True).click()
     toast = page.locator(".toast", has_text="The web terminal could not start")
     expect(toast).to_contain_text("lectern local stop, then lectern up", timeout=10000)
     # Not a transient error: asked once, not retried for five seconds.

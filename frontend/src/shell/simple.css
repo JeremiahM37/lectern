@@ -1,0 +1,161 @@
+/* The simpler web app (docs/design/simple-ui.md): status words, the approval
+   card, the navigation's More menu, first run, Start an agent, Settings →
+   Basics, the commit choice and Connect your phone. Tokens only. */
+
+/* ---- one status vocabulary ---- */
+.status-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  font-weight: 600;
+  font-size: 10.5px;
+  line-height: 16px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  white-space: nowrap;
+}
+.status-badge[data-state="working"] { color: var(--accent-soft); border-color: color-mix(in srgb, var(--accent-soft) 45%, var(--bg)); }
+.status-badge[data-state="needs_you"] { color: var(--amber); border-color: var(--amber); }
+.status-badge[data-state="idle"] { color: var(--ink-dim); }
+.status-badge[data-state="ended"] { color: var(--ink-faint); border-style: dashed; }
+.status-badge[data-reason="setup_failed"] { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, var(--bg)); }
+.scard[data-state="needs_you"] { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); }
+
+/* ---- the one approval card ---- */
+.approval-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.approval-card.compact { margin: 8px 0 0; padding: 10px 12px; }
+.approval-card .approval-summary {
+  display: block; margin: 2px 0 4px; padding: 6px 8px; border-radius: 8px;
+  background: var(--bg); color: var(--ink); font: 400 12px/1.45 var(--mono);
+  white-space: pre-wrap; word-break: break-word;
+}
+.approval-context { color: var(--ink-dim); font-size: 12px; }
+.approval-actions > button { display: inline-flex; align-items: center; gap: 8px; }
+.approval-kbd {
+  font: 600 10px/1 var(--mono); padding: 2px 5px; border-radius: 4px;
+  border: 1px solid currentColor; opacity: 0.75;
+}
+.approval-scope { margin: 6px 0 0; font-size: 12px; color: var(--ink-dim); }
+.approval-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.approvals-page .approval-card { margin-bottom: 14px; }
+/* A touch screen has no keys to press. */
+@media (hover: none) and (pointer: coarse) { .approval-kbd { display: none; } }
+
+/* ---- navigation: More ---- */
+#nav-overflow .action-menu-panel > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+#nav-overflow .more-title { font-weight: 600; color: var(--ink); }
+#nav-overflow .more-detail { font-size: 11.5px; color: var(--ink-dim); font-weight: 400; }
+#nav-overflow > summary { position: relative; }
+@media (min-width: 1024px) {
+  #nav-overflow { display: block; flex: none; }
+  #nav-overflow > summary {
+    min-height: 44px; padding: 0 12px; display: flex; align-items: center; justify-content: flex-start; gap: 12px;
+    border: 0; border-radius: var(--r); color: var(--ink-dim); font-size: 13px; background: transparent; cursor: pointer;
+  }
+  #nav-overflow > summary > span { width: 20px; text-align: center; }
+  #nav-overflow.on > summary, #nav-overflow[open] > summary { color: var(--ink); background: var(--panel-2); }
+  #nav-overflow .badge { margin-left: auto; }
+  #nav-overflow > .action-menu-panel {
+    position: static; margin: 4px 0 0 8px; min-width: 0; box-shadow: none;
+    border: 0; border-left: 1px solid var(--line); border-radius: 0; background: transparent; padding: 2px 0 2px 8px;
+  }
+  /* Settings sits at the foot of the sidebar, More just above it. */
+  #nav-overflow { order: 1; }
+  #tabbar [data-tab=settings] { order: 2; margin-top: auto; }
+}
+@media (max-width: 1023px) {
+  #nav-overflow > .action-menu-panel { min-width: 260px; }
+}
+
+/* ---- empty states and first run ---- */
+.empty-state { max-width: 640px; }
+.getting-started {
+  margin: 4px 0 18px; padding: 22px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); max-width: 720px;
+}
+.getting-started h2 { margin: 0 0 6px; font-size: 20px; }
+.getting-started p { margin: 0 0 14px; color: var(--ink-dim); }
+.getting-started .gs-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.getting-started .gs-actions .b { min-height: 44px; }
+.getting-started .gs-problems { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+.getting-started .gs-problems li { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); border: 1px solid var(--warn-border); font-size: 13px; }
+.getting-started .gs-problems code { font-size: 12px; }
+
+/* ---- Start an agent: folder and the ask toggle ---- */
+.ns-folder-row { display: flex; gap: 8px; align-items: stretch; }
+.ns-folder-row select { flex: 1 1 auto; min-width: 0; }
+.ns-folder-row .b { flex: none; min-height: 40px; }
+.ns-ask { display: flex; align-items: center; gap: 8px; margin: 14px 0 2px; font-weight: 600; color: var(--ink); }
+.ns-ask input { width: 18px; height: 18px; }
+
+/* ---- Choose a folder ---- */
+.folder-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.folder-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink); }
+.folder-list { list-style: none; margin: 0; padding: 0; max-height: min(52vh, 420px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.folder-list > li + li { border-top: 1px solid var(--line); }
+.folder-list > li.subhint { padding: 12px; }
+.folder-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.folder-row:hover, .folder-row:focus-visible { background: var(--panel-2); }
+.folder-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.folder-actions .b { min-height: 44px; }
+
+/* ---- Settings: tabs visible without scrolling, Basics ---- */
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0 0 18px; }
+.settings-tabs > button { min-height: 40px; }
+.settings-group-label {
+  margin: 0 4px 0 10px; padding-left: 10px; border-left: 1px solid var(--line-2);
+  color: var(--ink-faint); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+@media (max-width: 1023px) {
+  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+  .settings-tabs > button, .settings-group-label { flex: none; }
+}
+.basics { max-width: 760px; }
+.basics-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 14px 0; border-bottom: 1px solid var(--line);
+}
+.basics-label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; color: var(--ink); flex: 1 1 260px; }
+.basics-hint { font-weight: 400; font-size: 12.5px; color: var(--ink-dim); }
+.basics-value { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.basics-row select { min-width: 200px; max-width: 100%; }
+.basics-row input[type="checkbox"] { width: 22px; height: 22px; }
+.basics .chip.ok { border-color: color-mix(in srgb, var(--green) 50%, var(--bg)); color: var(--ink); }
+.basics-more { margin-top: 14px; }
+
+/* ---- Connect your phone ---- */
+.phone-choices { display: grid; gap: 8px; margin: 12px 0; }
+.phone-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.phone-choice[data-available="false"] { cursor: default; background: var(--bg-soft); }
+.phone-choice input { margin-top: 3px; }
+.phone-choice-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.phone-choice-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-weight: 600; color: var(--ink); }
+.phone-choice-title code { font-weight: 400; font-size: 12px; overflow-wrap: anywhere; }
+.phone-choice-note { font-size: 12.5px; color: var(--ink-dim); }
+.phone-choice-why { font-size: 12.5px; color: var(--ink); }
+.phone-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.phone-actions .b { min-height: 44px; }
+.phone-connect { margin-bottom: 18px; }
+
+/* ---- commit on the default branch; a disabled control says why ---- */
+.commit-on-main { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: 10px; background: var(--warn-bg); }
+.commit-on-main legend { padding: 0 4px; font-weight: 600; color: var(--ink); }
+.commit-on-main .commit-new-branch { margin: 4px 0 8px 24px; max-width: calc(100% - 24px); }
+.disabled-why { color: var(--ink-dim); font-size: 12.5px; margin: 6px 0 0; }
+.settings-tabs > button {
+  padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--ink-dim); font: 500 13px var(--sans); cursor: pointer;
+}
+.settings-page .settings-tabs > button[aria-selected="true"] { background: var(--accent-wash); border-color: var(--accent-soft); color: var(--ink); }
+.settings-tabs > button[data-settings="basics"] { font-weight: 700; }
+
+.phone-wizard .phone-choice { display: flex; }
+.phone-wizard .phone-choice input[type="radio"] { flex: none; width: auto; margin: 4px 0 0; }
+/* First run: no empty "Scratch terminals" section under the Start card. */
+.list.first-run .session-section-title, .list.first-run #scratch-terminals { display: none; }

@@ -48,7 +48,7 @@ def test_restart_recovers_agent_created_before_setup_publication(page,real_termi
         assert counter.read_text()=='start\n'
         assert subprocess.check_output(['tmux','display-message','-p','-t','='+before['tmux_session']+':','#{session_id}'],env=t['env']).decode().strip()==original_id
         page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
-        page.locator('.scard',has_text='Recovered setup proof').get_by_role('button',name='⌨ Attach',exact=True).click()
+        page.locator('.scard',has_text='Recovered setup proof').get_by_role('button',name='⌨ Terminal',exact=True).click()
         terminal=page.frame_locator('#terminal-workspace iframe')
         expect(terminal.locator('#connection')).to_have_text('Connected',timeout=15000)
         expect(terminal.locator('#agent-terminal .xterm-screen')).to_contain_text('RECOVERY AGENT READY',timeout=15000)

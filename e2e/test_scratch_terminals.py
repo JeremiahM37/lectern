@@ -50,7 +50,7 @@ def test_quick_terminal_stays_scratch_until_promoted(page, real_terminal, width)
     page.locator('#sess-grouping').select_option('none')
     page.reload()
     expect(scratch.locator(selector)).to_be_visible()
-    scratch.locator(selector).get_by_role('button', name='⌨ Attach', exact=True).click()
+    scratch.locator(selector).get_by_role('button', name='⌨ Terminal', exact=True).click()
     expect(frame.locator('#connection')).to_have_text('Connected', timeout=20000)
     assert pane_pid() == pid
     page.goto(t['url'] + '/?view=board#sessions')

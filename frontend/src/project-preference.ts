@@ -141,3 +141,15 @@ export function orderProjectsByRecency<T extends { id: number }>(
   }
   return { recent: remembered, rest: projects.filter((row) => !seen.has(row.id)) };
 }
+
+/**
+ * Which folder Start an agent opens on: the project it was asked for (the
+ * folder `lectern up` ran in), else the one this device picked last (a new
+ * empty folder included), else the first project, else a new empty folder.
+ */
+export function defaultProject(projects: { id: number }[], remembered: number | null | undefined, wanted?: number): number | null {
+  if (wanted && projects.some((row) => row.id === wanted)) return wanted;
+  if (remembered === null) return null;
+  if (remembered !== undefined && projects.some((row) => row.id === remembered)) return remembered;
+  return projects[0]?.id ?? null;
+}

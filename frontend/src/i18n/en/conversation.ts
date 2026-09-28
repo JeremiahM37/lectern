@@ -78,7 +78,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.interruptSent": "Interrupt sent. Check the agent output before sending new instructions.",
 
   // Conversation — composer hints
-  "conversation.chat.hintSession": "Sends to the same running session. Enter adds a new line.",
+  "conversation.chat.hintSession": "Sends to the same running session. Enter adds a new line; use Send to send.",
   "conversation.chat.hintTakeover": "This run is continuing as an interactive session. Close Chat and choose Open session.",
   "conversation.chat.hintSandbox": "Send queues a new sandbox run with your instructions and the previous result.",
   "conversation.chat.hintBacklog": "Adds instructions to this task without dispatching it.",
@@ -133,7 +133,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.draftSaved": "Draft saved on this device · not sent yet",
   "conversation.chat.attachUnavailable": "Attachments unavailable for this session or sandbox",
   "conversation.chat.attachHint": "PDFs, images, documents and other files · 25 MiB each",
-  "conversation.chat.attach": "📎 Attach",
+  "conversation.chat.attach": "📎 Add file",
   "conversation.chat.interruptAndSend": "Interrupt and send",
   // Verb: stop the running agent.
   "conversation.chat.interrupt": "Interrupt",
@@ -150,11 +150,8 @@ const catalog: Record<string, string> = {
 
   // ApprovalCard
   // {tool} is a tool name such as Edit.
-  "conversation.approval.allowTool": "Allow {tool} this session",
   // {command} is the first word of a shell command, e.g. git.
-  "conversation.approval.allowCommand": "Allow “{command} …” commands this session",
   // {tool} is a tool name such as Bash.
-  "conversation.approval.needed": "Approval needed: {tool}",
   "conversation.approval.allowing": "Allowing…",
   "conversation.approval.allowOnce": "Allow once",
   "conversation.approval.deny": "Deny…",
@@ -162,7 +159,6 @@ const catalog: Record<string, string> = {
   "conversation.approval.notePlaceholder": "e.g. not touching prod from a phone",
   "conversation.approval.cancel": "Cancel",
   "conversation.approval.denying": "Denying…",
-  "conversation.approval.denyWithFeedback": "Deny with feedback",
   "conversation.approval.openTask": "Open task",
 
   // Tool cards (ToolCard)
@@ -247,8 +243,8 @@ const catalog: Record<string, string> = {
   "conversation.search.queryLabel": "Conversation text",
   "conversation.search.queryPlaceholder": "Find something discussed…",
   // A machine the agent runs on.
-  "conversation.search.target": "Target",
-  "conversation.search.allTargets": "All targets",
+  "conversation.search.target": "Machine",
+  "conversation.search.allTargets": "All machines",
   "conversation.search.agent": "Agent",
   "conversation.search.claudeAndCodex": "Claude and Codex",
   // Button: run the search (verb).
@@ -256,8 +252,8 @@ const catalog: Record<string, string> = {
   "conversation.search.stop": "Stop search",
   "conversation.search.retry": "Retry connection",
   // {count} is the number of agent profiles.
-  "conversation.search.progress.one": "Target progress · {count} profile",
-  "conversation.search.progress.other": "Target progress · {count} profiles",
+  "conversation.search.progress.one": "Machine progress · {count} profile",
+  "conversation.search.progress.other": "Machine progress · {count} profiles",
   // {count} is the number of profiles with problems.
   "conversation.search.withIssues": " · {count} with issues",
   // {target}, {agent} and {state} come from the server; {documents} is a number.

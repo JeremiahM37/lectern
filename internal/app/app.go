@@ -63,9 +63,21 @@ type App struct {
 
 // New builds the whole service and starts its scheduler.
 func New(cfg *config.Config, log *slog.Logger) (*App, error) {
+	_, statErr := os.Stat(cfg.DBPath)
+	fresh := os.IsNotExist(statErr)
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return nil, err
+	}
+	if fresh {
+		// A new install asks before risky actions: agents start in "ask"
+		// permission mode, so approvals are on from the first session
+		// (docs/design/simple-ui.md). An existing database keeps whatever it
+		// had — unset still means bypass there.
+		if err := db.SetSetting("session_permission_mode", "ask"); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	b := bus.New()
 	// Phone alerts must work with zero manual setup: when no VAPID env vars
@@ -111,7 +123,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sessMgr.HookBase = firstNonEmptyString(cfg.HookBase, cfg.BaseURL)
 	// the agent set is the operator's, read fresh so a change takes effect
 	// without a restart
-	sessMgr.Specs = func() []sessions.Spec { return sessions.ParseSpecs(db.Setting("agents")) }
+	sessMgr.Specs = func() []sessions.Spec { return sessions.WithDemo(sessions.ParseSpecs(db.Setting("agents"))) }
 	sched := scheduler.New(db, b, br, notifier, reg, cfg, provisioner, log)
 	sched.AgentDefinitions = func() map[string]agents.TaskDefinition {
 		out := map[string]agents.TaskDefinition{}

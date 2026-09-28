@@ -35,7 +35,7 @@ const catalog: Record<string, string> = {
   "agentSettings.editor.groupOther": "Other",
   "agentSettings.editor.alreadyAdded": "already added",
   // {binary} is a program name such as npx.
-  "agentSettings.editor.binaryNotDetected": "{binary} not detected on any target",
+  "agentSettings.editor.binaryNotDetected": "{binary} not detected on any machine",
   "agentSettings.editor.installedHere": "installed here",
   // A capability chip for something the agent cannot do; {label} is e.g. "Resume".
   "agentSettings.editor.capabilityMissing": "no {label}",
@@ -130,10 +130,10 @@ const catalog: Record<string, string> = {
   "agentSettings.profiles.delete": "Delete profile",
 
   // AgentCommands
-  "agentSettings.commands.checking": "Checking target commands…",
+  "agentSettings.commands.checking": "Checking commands on this machine…",
   "agentSettings.commands.complete": "Command lookup complete. No agents were started.",
   "agentSettings.commands.title": "Agent commands",
-  "agentSettings.commands.intro": "Checks commands on this target’s default PATH. This does not check login or model access.",
+  "agentSettings.commands.intro": "Checks commands on this machine’s default PATH. This does not check login or model access.",
   "agentSettings.commands.found": "Found",
   "agentSettings.commands.notFound": "Not found",
   "agentSettings.commands.notChecked": "Not checked",
@@ -369,7 +369,7 @@ const catalog: Record<string, string> = {
   "agentSettings.skills.attachedHeading": "Attached",
   "agentSettings.skills.noneAttached": "No skills attached for this provider.",
   "agentSettings.skills.detach": "Detach",
-  "agentSettings.skills.available": "Available on target",
+  "agentSettings.skills.available": "Available on this machine",
   // A disabled button's label: this skill is already attached.
   "agentSettings.skills.attachedButton": "Attached",
   "agentSettings.skills.attach": "Attach",

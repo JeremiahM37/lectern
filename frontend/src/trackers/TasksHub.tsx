@@ -61,7 +61,7 @@ function save(key: string, value: string) {
 /** The Tasks hub: a project's pull requests and issues from its GitHub or
  * GitLab repository, plus its Linear and Jira issues, in one list (or board,
  * or table), with each item's page beside it on a desktop and over it on a
- * phone. Deep links: #tasks/<project>/<source>/<pr|issue>/<id>[/<connection>]. */
+ * phone. Deep links: #issues/<project>/<source>/<pr|issue>/<id>[/<connection>]. */
 export function TasksHub({
   api,
   projects,
@@ -100,7 +100,7 @@ export function TasksHub({
   const project = projects.find((p) => p.id === projectId) || projects[0];
   const pid = project?.id;
 
-  // follow #tasks/... links, including ones the app navigates to later
+  // follow #issues/... links, including ones the app navigates to later
   useEffect(() => {
     const apply = () => {
       const h = parseTasksHash(location.hash);

@@ -355,7 +355,7 @@ a strip of scrolling content beneath the first footer layout.
 
 ### Target command inventory
 
-Settings → Targets → **Agent commands**, or the terminal dashboard’s target
+Settings → Machines → **Agent commands**, or the terminal dashboard’s target
 **Check agent commands** action, performs an on-demand lookup through the target’s
 local/SSH executor. The same read-only endpoint is available with
 `lectern api GET /targets/<id>/agents`.
