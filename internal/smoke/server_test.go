@@ -169,10 +169,18 @@ func TestAServerKeepsAPtySessionAcrossARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(short, "s.sock")
-	bin := build(t, dir)
+	// The binary lives outside t.TempDir: on Windows a running executable
+	// cannot be deleted, and the PTY host started from it takes a moment to
+	// exit after being stopped.
+	bin := build(t, short)
 	t.Cleanup(func() {
 		_ = exec.Command(bin, "ptyhost", "stop", "--force", "--socket", socket).Run()
-		os.RemoveAll(short)
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+			if os.RemoveAll(short) == nil {
+				return
+			}
+		}
+		t.Logf("could not remove %s; a process started from it may still be running", short)
 	})
 	port := freePort(t)
 	env := append(os.Environ(),
