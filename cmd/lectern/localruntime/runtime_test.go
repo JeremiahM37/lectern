@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -97,11 +98,21 @@ func TestEngineConfigPointsHooksAtItsOwnPort(t *testing.T) {
 
 func TestMergePathOnlyAdds(t *testing.T) {
 	sep := string(os.PathListSeparator)
-	got, changed := mergePath("/usr/bin"+sep+"/bin", "/home/u/.local/bin"+sep+"/usr/bin"+sep+"relative"+sep)
-	if !changed || got != "/usr/bin"+sep+"/bin"+sep+"/home/u/.local/bin" {
+	usr, bin, local := "/usr/bin", "/bin", "/home/u/.local/bin"
+	if runtime.GOOS == "windows" {
+		usr, bin, local = `C:\Windows\System32`, `C:\Program Files\Git\cmd`, `C:\Users\u\.local\bin`
+	}
+	got, changed := mergePath(usr+sep+bin, local+sep+usr+sep+"relative"+sep)
+	if !changed || got != usr+sep+bin+sep+local {
 		t.Fatalf("merge = %q changed=%v", got, changed)
 	}
-	if _, changed := mergePath(got, "/bin"); changed {
+	if _, changed := mergePath(got, bin); changed {
 		t.Fatal("a thinner PATH changed the runtime's")
+	}
+	if runtime.GOOS == "windows" {
+		// A drive letter's case and a trailing separator do not make a new entry.
+		if _, changed := mergePath(got, `c:\windows\system32\`); changed {
+			t.Fatal("the same Windows directory was added twice")
+		}
 	}
 }
