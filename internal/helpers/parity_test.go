@@ -1,3 +1,5 @@
+//go:build unix
+
 package helpers
 
 // Shared parity harness: each port is run beside the Python script it
