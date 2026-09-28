@@ -18,6 +18,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/app"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
@@ -73,6 +74,9 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 	a, err := app.New(cfg, log)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv(goHelpersEnv) == "1" {
+		useGoHelpers(a)
 	}
 	srv := &httptest.Server{Listener: ln,
 		Config: &http.Server{Handler: a.Handler()}}
@@ -390,4 +394,25 @@ func (h *harness) request2(method, path string, body any, want int) obj {
 	var out obj
 	h.decode(method, path, body, want, &out)
 	return out
+}
+
+// goHelpersEnv makes every local target in a harness run the Go helpers
+// (`lectern helper …`, served by this test binary; see TestMain) instead of
+// their Python scripts, so the real-target tests can run against either.
+const goHelpersEnv = "LECTERN_API_GO_HELPERS"
+
+func useGoHelpers(a *app.App) {
+	env := func(t *store.Target, _ executor.Executor) executor.TargetEnv {
+		if t.Kind == "local" {
+			return executor.TargetEnv{Lectern: os.Args[0]}
+		}
+		return executor.TargetEnv{}
+	}
+	a.Reg.Env = env
+	targets, _ := a.DB.Targets()
+	for _, t := range targets {
+		if ex := a.Reg.Cached(t.ID); ex != nil {
+			executor.SetTargetEnv(ex, env(t, ex))
+		}
+	}
 }
