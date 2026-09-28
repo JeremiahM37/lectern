@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 )
 
 // Interactive records an allocation before any remote Git mutation. A failed
@@ -78,32 +79,47 @@ var setupControlScript = func() string {
 	return "setup_control_source = " + string(source) + "\n" + setupControlRaw
 }()
 
+// helperCommand picks the Go helper or the Python fallback; tests replace it
+// to run the whole suite against the Go helpers.
+var helperCommand = helpers.Command
+
 func RunInteractive(ctx context.Context, ex executor.Executor, action string, plan *Interactive) error {
 	return RunInteractiveWithTimeout(ctx, ex, action, plan, 120)
 }
 
 func RunInteractiveWithTimeout(ctx context.Context, ex executor.Executor, action string, plan *Interactive, timeout float64) error {
 	script := setupControlScript + "\n" + interactiveScript
-	extra := fmt.Sprintf(" - %.0f", max(1, timeout-30))
+	// helper and helperExtra are the Go port run instead when the target has
+	// a lectern binary (internal/helpers/worktree_*.go).
+	helper := "worktree"
+	singleTimeout := fmt.Sprintf("%.0f", max(1, timeout-30))
+	extra := " - " + singleTimeout
+	helperExtra := []string{"-", singleTimeout}
 	if len(plan.Repositories) > 0 {
 		if action == "check-create" {
 			script = multiPreflightScript
 			extra = ""
+			helper, helperExtra = "worktree-preflight", nil
 		} else {
+			groupTimeout := fmt.Sprintf("%.0f", max(1, timeout-15))
 			script = setupControlScript + "\n" + multiWorkerScript
-			extra = " " + executor.ShellQuote(multiPreflightScript) + " " + executor.ShellQuote(setupControlScript+"\n"+interactiveScript) + fmt.Sprintf(" %.0f", max(1, timeout-15))
+			extra = " " + executor.ShellQuote(multiPreflightScript) + " " + executor.ShellQuote(setupControlScript+"\n"+interactiveScript) + " " + groupTimeout
+			helper, helperExtra = "worktree-group", []string{groupTimeout}
 		}
 	}
 	if action == "cancel" {
 		script = setupControlScript + "\nimport sys\np=json.loads(sys.argv[2])\ntry:\n SetupControl(p).access(cancel=True)\n print(json.dumps({'workspace':p}))\nexcept (OSError,ValueError,KeyError) as e:\n print(json.dumps({'error':str(e)}));sys.exit(1)"
 		extra = ""
+		helper, helperExtra = "worktree-cancel", nil
 		timeout = 10
 	}
 	data, _ := json.Marshal(plan)
 	if action == "status" {
 		timeout = 10
 	}
-	result, err := ex.Run(ctx, "python3 -c "+executor.ShellQuote(script)+" "+executor.ShellQuote(action)+" "+executor.ShellQuote(string(data))+extra, executor.RunOpts{Timeout: timeout})
+	python := "python3 -c " + executor.ShellQuote(script) + " " + executor.ShellQuote(action) + " " + executor.ShellQuote(string(data)) + extra
+	command := helperCommand(ex, helper, append([]string{action, string(data)}, helperExtra...), python)
+	result, err := ex.Run(ctx, command, executor.RunOpts{Timeout: timeout})
 	if err != nil {
 		return err
 	}
