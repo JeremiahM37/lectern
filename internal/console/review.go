@@ -132,12 +132,21 @@ func (m *dashboard) reviewFiles() []reviewFile {
 func (m *dashboard) updateReview(k tea.KeyMsg) tea.Cmd {
 	r := m.review
 	switch k.String() {
-	case "q", "ctrl+c":
+	case "ctrl+c":
 		return tea.Quit
-	case "esc":
+	case "esc", "q":
+		// q steps back here like Esc; it quits only from the top level.
 		m.review = nil
 		m.showHome()
 		return nil
+	case "?":
+		m.review = nil
+		m.reviewPaused = r
+		m.openHelp()
+		m.helpContext = "Review"
+		return nil
+	case "c":
+		return m.commitForm()
 	case "tab":
 		if r.loading || len(r.data.Repositories) < 2 {
 			return nil
@@ -196,7 +205,7 @@ func (m *dashboard) updateReview(k tea.KeyMsg) tea.Cmd {
 func (m *dashboard) reviewView() string {
 	r := m.review
 	r.viewport.Width = max(1, m.width-2)
-	r.viewport.Height = max(1, m.height-8)
+	r.viewport.Height = max(1, m.height-9)
 	files := m.reviewFiles()
 	index := 0
 	for i, f := range files {
@@ -219,12 +228,89 @@ func (m *dashboard) reviewView() string {
 		status += " · truncated at 512 KiB"
 	}
 	clip := func(s string) string { return ansi.Truncate(s, max(1, m.width-2), "…") }
-	footer := "←/→ file · s staged/working · r refresh · Esc back · q quit"
-	if m.width < 65 {
-		footer = "←/→ file · s scope · Esc back · q quit"
-	}
+	hints := []keyHint{{"←→", "file"}, {"c", "commit"}, {"s", "staged/working"}, {"r", "refresh"}, {"Esc", "back"}}
 	if len(r.data.Repositories) > 1 {
-		footer = "Tab repo · " + footer
+		hints = append([]keyHint{{"Tab", "repository"}}, hints...)
 	}
-	return accent.Bold(true).Render(clip(title)) + "\n" + clip(status) + "\n" + clip(clean(r.data.Path)) + "\n\n" + r.viewport.View() + "\n\n" + clip(footer)
+	footer := renderKeyBar(hints, m.width)
+	return accent.Bold(true).Render(clip(title)) + "\n" + clip(status) + "\n" + clip(clean(r.data.Path)) + "\n\n" + r.viewport.View() + "\n\n" + footer + "\n" + clip(" "+m.notice)
+}
+
+const commitLabel = "Commit"
+
+// commitForm asks for a message and commits every change in the reviewed
+// workspace. The server refuses a session that works directly on its base
+// branch; that refusal is explained with the next step rather than shown raw.
+func (m *dashboard) commitForm() tea.Cmd {
+	r := m.review
+	parts := strings.Split(strings.TrimPrefix(r.base, "/term/"), "/")
+	if len(parts) < 2 {
+		return nil
+	}
+	kind, rid := parts[0], parts[1]
+	var path string
+	var body func(message string) map[string]any
+	switch kind {
+	case "session":
+		path = "/sessions/" + rid + "/git/commit"
+		body = func(message string) map[string]any {
+			out := map[string]any{"message": message, "stage_all": true}
+			if len(r.data.Repositories) > 1 {
+				out["repo"] = fmt.Sprint(r.repository)
+			}
+			return out
+		}
+	case "attempt":
+		task := m.current()
+		if task == nil {
+			return nil
+		}
+		path = "/tasks/" + id(task) + "/commit"
+		body = func(message string) map[string]any { return map[string]any{"message": message} }
+	default:
+		m.notice = "Commit from a session in this project: select it on Sessions and press v, then c."
+		return nil
+	}
+	m.reviewPaused = r
+	m.review = nil
+	cmd := m.openForm("Commit changes", []field{{Key: "message", Label: "Commit message", Required: true}}, func(values map[string]any) tea.Cmd {
+		if m.busy {
+			return nil
+		}
+		m.busy = true
+		c := m.client
+		payload := body(str(values["message"]))
+		return func() tea.Msg {
+			data, err := c.JSON("POST", path, payload)
+			if err != nil {
+				return resultMsg{label: commitLabel, err: commitError(err)}
+			}
+			var out struct {
+				Failed string `json:"failed"`
+				Detail string `json:"detail"`
+			}
+			if json.Unmarshal(data, &out) == nil && out.Failed != "" {
+				return resultMsg{label: commitLabel, err: fmt.Errorf("%s", strings.TrimPrefix(out.Detail, "commit failed: "))}
+			}
+			return resultMsg{label: commitLabel, data: data, notice: "Committed: " + oneLine(str(payload["message"]))}
+		}
+	})
+	if m.form != nil {
+		m.form.submitVerb = "commit"
+		m.form.cancel = func() tea.Cmd {
+			m.form = nil
+			m.review, m.reviewPaused = m.reviewPaused, nil
+			m.notice = "Commit cancelled"
+			return nil
+		}
+	}
+	return cmd
+}
+
+func commitError(err error) error {
+	msg := err.Error()
+	if strings.Contains(msg, "refusing to commit directly on") {
+		return fmt.Errorf("Not committed: this session works directly on its main branch. To commit, attach (Enter) and use a shell beside the agent (Ctrl+] |), or start the session in a separate Git worktree (n → More options)")
+	}
+	return err
 }

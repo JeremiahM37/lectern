@@ -166,7 +166,7 @@ func (m *dashboard) rowsHeight(start, end int) int {
 	return total
 }
 func (m *dashboard) rowAt(y int) int {
-	remaining := max(3, m.height-9)
+	remaining := m.bodyHeight()
 	if y < 0 || y >= remaining {
 		return -1
 	}

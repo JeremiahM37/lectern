@@ -48,7 +48,7 @@ func workflowServer(t *testing.T) (*httptest.Server, *[]string) {
 func TestWorkflowFormBindsProjectAndProviderAndOnlyWritesSelectedPack(t *testing.T) {
 	s, writes := workflowServer(t)
 	m := newDashboard(New(s.URL, ""), nil)
-	m.section = 3
+	m.section = 2
 	m.rows = []row{{"id": float64(7), "name": "Project", "default_agent": "codex"}}
 	m.filter()
 	load := m.workflowsForm()

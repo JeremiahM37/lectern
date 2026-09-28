@@ -28,7 +28,7 @@ func TestDashboardPreferencesRoundTripPerSectionAndServer(t *testing.T) {
 	}
 	m.setGroupCollapsed("Work/Backend", true)
 	m.setGroupCollapsed("\x00", true)
-	m.switchSection(1)
+	m.switchSection(3)
 	for range 2 {
 		m.Update(key("g"))
 	}
@@ -44,7 +44,7 @@ func TestDashboardPreferencesRoundTripPerSectionAndServer(t *testing.T) {
 	if reloaded.attention || reloaded.ended || reloaded.query.Value() != "" {
 		t.Fatal("transient filters persisted")
 	}
-	reloaded.switchSection(1)
+	reloaded.switchSection(3)
 	if reloaded.grouping != 2 {
 		t.Fatal("task grouping not restored")
 	}

@@ -7,7 +7,7 @@ import (
 
 func TestTargetCommandCheckIsReadOnly(t *testing.T) {
 	m := sampleDashboard()
-	m.section = 4
+	m.section = 5 // Machines
 	for _, action := range m.actions() {
 		if action.Label == "Check agent commands" {
 			if action.Method != "GET" || action.Path != "/targets/"+id(m.current())+"/agents" {
