@@ -273,7 +273,7 @@ export function Settings({
       )}{" "}
       {tab === "plugins" && <Plugins api={api} projects={projects} onNotice={onNotice} />}
       {tab === "appearance" && <AppearancePanel />}
-      {tab === "workspace" && <WorkspacePanel projects={projects} />}
+      {tab === "workspace" && <WorkspacePanel projects={projects} api={api} values={settings} onNotice={onNotice} />}
       {tab === "shortcuts" && <ShortcutsPanel focus={focused} />}
       {tab === "agents" && (
         <Agents
@@ -677,6 +677,7 @@ function ProjectCard({
     [ciLoop, setCiLoop] = useState(Boolean(p.ci_loop)),
     [ciMax, setCiMax] = useState(p.ci_max_attempts || 3),
     [computerUse, setComputerUse] = useState(Boolean(p.computer_use)),
+    [claudeMouse, setClaudeMouse] = useState(p.claude_terminal_mouse || ""),
     [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
   function loadCheckCommand() {
     api
@@ -936,6 +937,26 @@ function ProjectCard({
           }}
         />{" "}
         {t("settings.projects.computerUseHint")}
+      </label>
+      <label data-setting="projects.claudeMouse">
+        {t("settings.projects.claudeMouse")}
+        <select
+          value={claudeMouse}
+          onChange={(e) => {
+            const value = e.target.value;
+            void api
+              .request(`/projects/${p.id}`, { method: "PATCH", body: { claude_terminal_mouse: value } })
+              .then(() => {
+                setClaudeMouse(value);
+                onNotice(t("settings.projects.claudeMouseSaved"));
+              })
+              .catch((error) => onNotice(String(error), true));
+          }}
+        >
+          <option value="">{t("settings.projects.claudeMouseInherit")}</option>
+          <option value="1">{t("settings.projects.claudeMouseOn")}</option>
+          <option value="0">{t("settings.projects.claudeMouseOff")}</option>
+        </select>
       </label>
       <label>
         {t("settings.projects.setup")}

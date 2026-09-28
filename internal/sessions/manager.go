@@ -559,9 +559,15 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	for k, v := range spec.Env {
 		env[k] = v
 	}
+	// A continuation's saved env holds what Lectern injected last time; drop
+	// it so the terminal-mouse setting is decided afresh (terminal_mouse.go).
+	if config.TerminalMouse {
+		delete(env, EnvClaudeDisableMouse)
+	}
 	for k, v := range o.Env {
 		env[k] = v
 	}
+	config.TerminalMouse = m.applyTerminalMouse(env, spec, sess.ProjectID)
 	identityEnv(env, sess.ID)
 	// Agent hooks (docs/agent-events.md section 2): every interactive session
 	// gets a random hook secret and the env an agent's own hooks/statusline

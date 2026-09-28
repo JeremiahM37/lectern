@@ -241,6 +241,8 @@ export interface Project {
   ci_max_attempts?: number;
   // Agents may operate this project's live desktops (docs/browser.md).
   computer_use?: number;
+  // "" follows the global claude_terminal_mouse setting; "1"/"0" force it.
+  claude_terminal_mouse?: string;
   created_at: number;
   target_name?: string;
   target_kind?: string;

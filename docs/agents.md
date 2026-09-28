@@ -261,6 +261,11 @@ conversations (above). Gemini and other custom agents expose those actions only
 when their definition provides the corresponding argument templates; Lectern
 never falls back to an unrelated last conversation.
 
+Claude Code and OpenClaude are launched with `CLAUDE_CODE_DISABLE_MOUSE=1`
+so their fullscreen mode leaves selection, copying and links to the terminal;
+see [terminal-client.md](terminal-client.md#claude-code-and-the-mouse) for why
+and how to turn it off.
+
 ## Binary not found
 
 Agents installed under `~/.local/bin` are invisible to a systemd unit, whose

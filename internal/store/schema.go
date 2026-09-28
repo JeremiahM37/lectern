@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS projects(
   -- computer_use lets this project's agents operate a live desktop
   -- (docs/browser.md); off unless a person turns it on.
   computer_use INTEGER NOT NULL DEFAULT 0,
+  -- claude_terminal_mouse overrides the global setting of that name for
+  -- this project's Claude Code launches: '' follows it, '1'/'0' force it.
+  claude_terminal_mouse TEXT NOT NULL DEFAULT '',
   created_at REAL
 );
 CREATE TABLE IF NOT EXISTS tasks(
@@ -1069,4 +1072,7 @@ var migrations = []string{
   error TEXT NOT NULL DEFAULT ''
 )`,
 	"CREATE INDEX IF NOT EXISTS idx_plugin_hook_runs ON plugin_hook_runs(plugin_id, id)",
+	// Per-project override of whether Claude Code leaves the mouse to the
+	// terminal (internal/sessions/terminal_mouse.go).
+	"ALTER TABLE projects ADD COLUMN claude_terminal_mouse TEXT NOT NULL DEFAULT ''",
 }

@@ -283,6 +283,24 @@ The wrapper needs a working `tmux` on the machine where the native client runs
 with every key going to the agent. A missing tmux or non-interactive terminal
 prints a note that controls are unavailable.
 
+### Claude Code and the mouse
+
+Claude Code's fullscreen mode (`"tui": "fullscreen"`) turns on full mouse
+tracking, so the terminal forwards every click to Claude: selection, copying,
+clicking links, and the double-click and right-click actions above all stop
+working in its sessions (tmux shows `mouse_any_flag` 1 for the pane). Lectern
+therefore starts Claude Code, and OpenClaude, with `CLAUDE_CODE_DISABLE_MOUSE=1`:
+fullscreen rendering stays, the mouse stays with the terminal. Exporting the
+variable in `~/.bashrc` does not reach these sessions, because Lectern launches
+through a non-interactive `bash -c` that reads no rc file.
+
+It applies to every launch, resume, fork, restore and account swap. Turn it
+off under **Settings → Workspace & terminal** if you prefer Claude's own mouse
+scrolling; a project can override it in its settings, and an explicit
+`CLAUDE_CODE_DISABLE_MOUSE` in the project, agent or launch-profile environment
+always wins. Sessions already running keep what they started with until they
+are resumed or restored.
+
 In the browser terminal, **Ctrl+] then m** opens **Tools**, and **Esc** returns
 to typing. The shortcut is visible beside Tools on desktop. Phone controls omit
 hardware-keyboard hints; tap Tools there. **Ctrl+] twice** sends a literal Ctrl+] here too.

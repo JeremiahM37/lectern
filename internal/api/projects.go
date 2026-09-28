@@ -64,7 +64,14 @@ type projectIn struct {
 	// CIMaxAttempts caps its fix requests per PR (default 3).
 	CILoop        bool `json:"ci_loop"`
 	CIMaxAttempts *int `json:"ci_max_attempts"`
+	// ClaudeTerminalMouse overrides the global setting of the same name:
+	// "" follows it, "1" leaves the mouse to the terminal, "0" gives it to
+	// Claude Code (internal/sessions/terminal_mouse.go).
+	ClaudeTerminalMouse *string `json:"claude_terminal_mouse"`
 }
+
+// validTerminalMouse accepts the three states of a project's override.
+func validTerminalMouse(v *string) bool { return v == nil || oneOf(*v, "", "0", "1") }
 
 // validCIMaxAttempts bounds the cap: at least one fix request, and few
 // enough that a flaky suite cannot keep an agent busy all day.
@@ -125,6 +132,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "ci_max_attempts must be between 1 and 10")
 		return
 	}
+	if !validTerminalMouse(in.ClaudeTerminalMouse) {
+		httpError(w, 422, `claude_terminal_mouse must be "", "0" or "1"`)
+		return
+	}
 	if _, err := s.DB.Target(in.TargetID); err != nil {
 		httpError(w, 400, "no such target")
 		return
@@ -156,6 +167,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.DefaultPermissionMode != nil {
 		p.DefaultPermissionMode = *in.DefaultPermissionMode
+	}
+	if in.ClaudeTerminalMouse != nil {
+		p.ClaudeTerminalMouse = *in.ClaudeTerminalMouse
 	}
 	out, err := s.DB.InsertProject(p)
 	if err != nil {
@@ -191,6 +205,7 @@ type projectPatch struct {
 	CILoop                *bool             `json:"ci_loop"`
 	CIMaxAttempts         *int              `json:"ci_max_attempts"`
 	ComputerUse           *bool             `json:"computer_use"`
+	ClaudeTerminalMouse   *string           `json:"claude_terminal_mouse"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +252,10 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "ci_max_attempts must be between 1 and 10")
 		return
 	}
+	if !validTerminalMouse(p.ClaudeTerminalMouse) {
+		httpError(w, 422, `claude_terminal_mouse must be "", "0" or "1"`)
+		return
+	}
 	if _, err := s.DB.Project(id); err != nil {
 		httpError(w, 404, "no such project")
 		return
@@ -260,6 +279,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	setStr(fields, "setup_cmd", p.SetupCmd)
 	setStr(fields, "capability_profile", p.CapabilityProfile)
 	setStr(fields, "default_permission_mode", p.DefaultPermissionMode)
+	setStr(fields, "claude_terminal_mouse", p.ClaudeTerminalMouse)
 	if p.Isolation != nil {
 		fields["default_isolation_json"] = isolationJSON(p.Isolation)
 	}

@@ -44,6 +44,10 @@ var Keys = []string{
 	// "default ON, off only when explicitly '0'" convention. claims_auto_paths
 	// is the "first PostToolUse edit on a path gets an implicit claim" toggle.
 	"claims_briefing", "claims_edit_warning", "claims_auto_paths",
+	// Whether Claude Code leaves the mouse to the terminal
+	// (internal/sessions/terminal_mouse.go): same registry, same "default ON,
+	// off only when explicitly '0'" convention.
+	"claude_terminal_mouse",
 }
 
 // Payload is one outbound notification, already addressed and rendered.

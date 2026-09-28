@@ -3,6 +3,8 @@
 // (prefs/store.ts), so it follows them to every device.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "../types";
+import type { JsonValue } from "../api";
+import type { SettingsApi } from "./Settings";
 import { prefsLocalOnly, setPref, usePref, usePrefsState } from "../prefs/store";
 import { t, useLocale, LANGUAGES } from "../i18n";
 import { ACCENT_PRESETS, ZOOM_STEPS, themeTokens, resolveMode } from "../theme/app-theme";
@@ -267,7 +269,25 @@ function TerminalSettings() {
   );
 }
 
-export function WorkspacePanel({ projects }: { projects: Project[] }) {
+// Unlike the rest of this panel it is a server setting, not a personal one: it
+// changes how Lectern launches Claude Code, for everyone (terminal_mouse.go).
+function ClaudeMouse({ api, values, onNotice }: { api: SettingsApi; values: Record<string, JsonValue>; onNotice(text: string, error?: boolean): void }) {
+  const [on, setOn] = useState(String(values.claude_terminal_mouse ?? "") !== "0");
+  useEffect(() => setOn(String(values.claude_terminal_mouse ?? "") !== "0"), [values.claude_terminal_mouse]);
+  return (
+    <label className="personal-row personal-check" data-setting="workspace.claudeMouse">
+      <input type="checkbox" checked={on} onChange={(event) => {
+        const next = event.target.checked;
+        void api.request("/settings", { method: "PUT", body: { claude_terminal_mouse: next ? "1" : "0" } })
+          .then(() => { setOn(next); onNotice(t("settings.workspace.claudeMouseSaved")); })
+          .catch((error) => onNotice(String(error), true));
+      }} />
+      <span><span className="personal-label">{t("settings.workspace.claudeMouse")}</span><span className="personal-hint">{t("settings.workspace.claudeMouseHint")}</span></span>
+    </label>
+  );
+}
+
+export function WorkspacePanel({ projects, api, values, onNotice }: { projects: Project[]; api: SettingsApi; values: Record<string, JsonValue>; onNotice(text: string, error?: boolean): void }) {
   useLocale();
   return (
     <section className="personal" aria-labelledby="workspace-heading">
@@ -276,6 +296,7 @@ export function WorkspacePanel({ projects }: { projects: Project[] }) {
       <SavedLayouts projects={projects} />
       <QuickCommands projects={projects} />
       <TerminalSettings />
+      <ClaudeMouse api={api} values={values} onNotice={onNotice} />
     </section>
   );
 }

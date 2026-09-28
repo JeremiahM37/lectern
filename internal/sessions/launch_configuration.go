@@ -34,6 +34,10 @@ type LaunchConfiguration struct {
 	// this exact session keeps running the way it started even if the
 	// project's own default changes later.
 	Isolation isolation.Config `json:"isolation,omitempty"`
+	// TerminalMouse says Spec.Env's CLAUDE_CODE_DISABLE_MOUSE was set by
+	// Lectern rather than by a person (terminal_mouse.go), so a continuation
+	// re-decides it from the current setting instead of keeping it.
+	TerminalMouse bool `json:"terminal_mouse,omitempty"`
 }
 
 // profileBriefing renders a captured profile's instructions as a labelled,
