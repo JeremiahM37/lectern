@@ -50,7 +50,7 @@ picks up agents you have installed since, and signs in another browser.
 		About: `Starts a session for this folder (or reuses the one already running) and
 connects this terminal to it. A git folder becomes a project the first time.
 The session keeps running when you leave; it is on the web page and your
-phone too. Leave with Ctrl-b d, come back with the same command.
+phone too. Leave with Ctrl+] d, come back with the same command.
 
   --new          Always start a new session
   --attach       Only reuse a running one (fails if there is none)
@@ -108,7 +108,7 @@ screen readers and pipes.`,
 		Name: "attach", Group: groupSessions, Synopsis: "attach KIND ID",
 		Summary:  "Connect this terminal to a session",
 		Usage:    []string{"lectern attach session ID", "lectern attach attempt ID"},
-		About:    "Leave with Ctrl-b d; the session keeps running. Ctrl+] m opens Lectern's menu while connected.",
+		About:    "Leave with Ctrl+] d; the session keeps running. Press Ctrl+] to see the other keys; Ctrl+] m opens Lectern's menu while connected.",
 		Examples: []string{"lectern attach session 4"},
 	},
 	{

@@ -570,7 +570,7 @@ lectern attach session 4
 Run `lectern` in a terminal for a live session dashboard with project/target
 groups, fuzzy search, status filters, previews, one-key attachment, and keyboard
 forms. Tasks, routines, targets, approvals, context uploads and worktree diff
-review are available without opening the browser. Ctrl-b then d returns from an
+review are available without opening the browser. Ctrl+] then d returns from an
 attached session. Use `lectern serve` to run the server explicitly, or
 `lectern console --plain` for the line-oriented client.
 See [terminal client](terminal-client.md) for installation and shortcuts,
