@@ -239,9 +239,10 @@ pct target whose probe (`lectern helper --capabilities`) lists it — a remote
 binary older than the server is only asked for what it has. Otherwise the
 Python runs as before.
 
-Still Python, by design: the desktop and computer-use tools (Linux-only, need
-Xvfb and AT-SPI), the autonomous workshop's host helpers under
-`/usr/local/libexec`, and plugin hook templates written by users.
+Still Python: the desktop and computer-use tools (Linux-only, need Xvfb and
+AT-SPI), the autonomous workshop's host helpers under `/usr/local/libexec`,
+plugin hook templates written by users, importing cookies from a Chrome
+profile (its SQLite database), and the relay a sandbox hook starts.
 
 ## 6. Windows server
 
@@ -298,6 +299,9 @@ Xvfb and AT-SPI), the autonomous workshop's host helpers under
   is best-effort.
 - Native conversation identity reads Linux `/proc`; elsewhere it is
   inconclusive, as it was.
+- The worktree helpers (git worktrees for sessions and tasks) refuse on
+  Windows, as the Python they replace never ran there: sessions on Windows run
+  in the project directory itself.
 - The screen model does not reflow on resize, and `capture-pane -J` does not
   join wrapped lines.
 - Sessions on the PTY host end when the user logs out if the OS ends the
@@ -344,3 +348,20 @@ as declared.
 
 These read Linux `/proc` as the scripts did, and ask the target's session
 backend about a pane through `helpers.Mux`.
+
+### Workspace, files, review and the rest
+
+| helper | replaces | used by |
+|---|---|---|
+| `workspace-files` | `api/workspace_files.py` | the file explorer, reads and edits (`runWorkspaceScript`) |
+| `review`, `review-git` | `api/scripts/review.py`, `review_git.py` | the terminal's changes view and review actions |
+| `worktree`, `worktree-cancel`, `worktree-preflight`, `worktree-group` | the interactive worktree scripts | `worktree.RunInteractiveWithTimeout` |
+| `realpath` | the realpath one-liner | workspace allocation |
+| `mcp-install`, `gemini-workspace` | the MCP and Gemini workspace installers | sessions and the scheduler |
+| `skills`, `workflow-stage` | their staging scripts | project skills and workflows |
+| `ports` | the ports script | the browser pane's port list |
+| `browser-cookies` | `cookies.py` (file imports) | importing a cookies file |
+| `bridge` | the stdio-to-TCP relay | pct targets' `DialTarget` |
+
+A folder download's zip has the same entries but Go's compressed bytes, and
+text search without ripgrep or git uses Go's regular expressions.

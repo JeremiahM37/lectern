@@ -124,6 +124,14 @@ func envEmpty(key string) bool {
 	return !ok || v == ""
 }
 
+// CheckPython reports on python3, which this machine no longer needs: the
+// helpers Lectern runs on it are built into the lectern binary
+// (docs/ptyhost.md §5). Machines reached over SSH without lectern installed,
+// and the Linux desktop tools, still use it.
 func CheckPython() EnvCheck {
-	return checkBinary("python3", "python3", "install Python 3 — session and terminal helpers need it")
+	if path, err := exec.LookPath("python3"); err == nil {
+		return EnvCheck{Name: "python3", OK: true, Detail: path}
+	}
+	return EnvCheck{Name: "python3", OK: true,
+		Detail: "not needed here: Lectern's helpers are built in (SSH machines without lectern installed, and the desktop tools, still use it)"}
 }
