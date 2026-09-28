@@ -31,7 +31,7 @@ func (p *Pct) DialTarget(ctx context.Context, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return startBridge(ctx, Wrap(p.VMID, bridgeCommand(port), ""))
+	return startBridge(ctx, Wrap(p.VMID, bridgeCommand(p, port), ""))
 }
 
 // bridge runs the relay through the wrapper, over one SSH session, for a
@@ -59,7 +59,7 @@ func (s *SSH) bridge(ctx context.Context, addr string) (net.Conn, error) {
 		sess.Close()
 		return nil, err
 	}
-	if err := sess.Start(s.buildCommand(bridgeCommand(port), "")); err != nil {
+	if err := sess.Start(s.buildCommand(bridgeCommand(s, port), "")); err != nil {
 		sess.Close()
 		return nil, err
 	}

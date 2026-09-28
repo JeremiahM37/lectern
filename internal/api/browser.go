@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/browser"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
@@ -1186,7 +1187,7 @@ func (s *Server) sessionPorts(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	res, err := ex.Run(ctx, "python3 -c "+shellQuoteArg(portsScript)+" "+shellQuoteArg(sess.Workdir), executor.RunOpts{Timeout: 20})
+	res, err := ex.Run(ctx, portsCommand(ex, sess.Workdir), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		respondErr(w, err)
 		return
@@ -1202,6 +1203,12 @@ func (s *Server) sessionPorts(w http.ResponseWriter, r *http.Request) {
 		out.Ports = []map[string]any{}
 	}
 	writeJSON(w, 200, map[string]any{"ports": out.Ports, "target": target.Name, "workdir": sess.Workdir})
+}
+
+// portsCommand lists ports on ex's target, marking those owned by processes
+// in workdir.
+func portsCommand(ex executor.Executor, workdir string) string {
+	return helpers.Command(ex, "ports", []string{workdir}, "python3 -c "+shellQuoteArg(portsScript)+" "+shellQuoteArg(workdir))
 }
 
 func shellQuoteArg(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

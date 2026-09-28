@@ -21,8 +21,9 @@ import (
 // the executor's ordinary command path, connects to the port there, and
 // carries the bytes over its stdin and stdout.
 //
-// It needs python3 on the target, which Lectern already requires, and a
-// command path that passes stdin through. A wrapper that does not (docker exec
+// It runs `lectern helper bridge` when the target has the lectern binary,
+// else the Python version below, and needs a command path that passes stdin
+// through. A wrapper that does not (docker exec
 // without -i, for one) fails the handshake with a message saying so, rather
 // than hanging.
 
@@ -76,8 +77,12 @@ func bridgeTarget(addr string) (int, error) {
 	return port, nil
 }
 
-// bridgeCommand is the shell command that runs the relay for port.
-func bridgeCommand(port int) string {
+// bridgeCommand is the shell command that runs the relay for port on ex's
+// target (internal/helpers cannot be imported here; it imports this package).
+func bridgeCommand(ex Executor, port int) string {
+	if bin := TargetEnvOf(ex).Lectern; bin != "" {
+		return "exec " + ShellQuote(bin) + " helper bridge " + strconv.Itoa(port)
+	}
 	return "exec python3 -u -c " + ShellQuote(bridgeScript) + " " + strconv.Itoa(port)
 }
 
@@ -186,5 +191,5 @@ func BridgeCommand(ctx context.Context, addr string, wrap func(relay string) str
 	if err != nil {
 		return nil, err
 	}
-	return startBridge(ctx, wrap(bridgeCommand(port)))
+	return startBridge(ctx, wrap(bridgeCommand(nil, port)))
 }
