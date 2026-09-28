@@ -158,9 +158,17 @@ type Config struct {
 	// not answer in time is shown as unreachable and retried with backoff,
 	// without holding up the others.
 	TargetPollTimeout time.Duration
-	// TerminalsMax caps how many web terminals (ttyd processes) run at once;
-	// 0 keeps internal/terminal's default.
+	// TerminalsMax caps how many web terminals run at once; 0 keeps
+	// internal/terminal's default.
 	TerminalsMax int
+
+	// SessionBackend is what keeps terminals alive on targets: "tmux", "pty"
+	// (Lectern's own PTY host) or "auto" (docs/ptyhost.md).
+	SessionBackend string
+	// Self is this lectern binary, which the local target runs for its PTY
+	// host, its target-side helpers and the web terminal. Empty in a
+	// hand-built Config (tests), which keeps tmux, Python and ttyd.
+	Self string
 
 	// MediaPath overrides MediaDir; MediaMaxBytes caps one posted file.
 	MediaPath     string
@@ -281,7 +289,13 @@ func Load() *Config {
 		SessionPoll:                 envSeconds("LECTERN_SESSION_POLL", 3.0),
 		TargetPollTimeout:           envSeconds("LECTERN_TARGET_POLL_TIMEOUT", 20),
 		TerminalsMax:                int(envFloat("LECTERN_TERMINALS_MAX", 0)),
+		SessionBackend:              env("LECTERN_SESSION_BACKEND", "auto"),
 		CheckTimeout:                envSeconds("LECTERN_CHECK_TIMEOUT", 900),
+	}
+	// The path, not whatever it resolves to: an upgrade replaces the file
+	// there, and later helper and PTY-host runs should use the new one.
+	if self, err := os.Executable(); err == nil {
+		c.Self = self
 	}
 	c.BaseURL = env("LECTERN_BASE_URL", "http://127.0.0.1:"+strconv.Itoa(port))
 	c.HookBase = env("LECTERN_HOOK_BASE", c.BaseURL)

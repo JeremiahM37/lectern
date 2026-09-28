@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
@@ -33,6 +34,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/sandbox"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/terminal"
@@ -78,6 +80,13 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	notifier := &sinks.Notifier{DB: db, BaseURL: cfg.BaseURL, Push: pushSender, Log: log}
 	br := broker.New(db, b, notifier, cfg.ApprovalExpire)
 	reg := executor.NewRegistry(cfg.Mock, cfg.MockAgentDelay)
+	// Which session backend each target uses, and whether it has a lectern
+	// binary for target-side helpers (docs/ptyhost.md). Mock targets script
+	// the tmux dialect, so they stay on tmux.
+	resolver := backend.NewResolver(cfg.SessionBackend, cfg.Self)
+	if !cfg.Mock {
+		reg.Env = resolver.Env
+	}
 	provisioner := creds.New(cfg.ClaudeCredsPath, cfg.CodexCredsPath, cfg.AnthropicAPIKey, log)
 	var mem memory.Provider = memory.None{}
 	if cfg.GrimoireURL != "" {
@@ -143,6 +152,8 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sched.Memory = mem
 	terms := terminal.NewManager()
 	terms.Max = cfg.TerminalsMax
+	// Web terminals are served by this binary itself, so ttyd is not needed.
+	terms.Binary = cfg.Self
 	events := agentevents.New(db, b)
 	activity := alerts.NewActivity()
 	alertWatcher := &alerts.Watcher{DB: db, Notifier: notifier, Activity: activity}
@@ -245,6 +256,20 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
 		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
 		Plugins: pluginMgr,
+	}
+	if cfg.Mock {
+		// The real terminals a mock server opens (project shells) run on
+		// this machine, with the backend configured for it, decided once as
+		// for a real target.
+		var once sync.Once
+		var local backend.Backend
+		srv.TerminalBackend = func(t *store.Target) backend.Backend {
+			if t.Kind != "local" {
+				return nil
+			}
+			once.Do(func() { local = backend.FromEnv(resolver.Env(t, nil)) })
+			return local
+		}
 	}
 	if cfg.RelayURL != "" {
 		if cfg.RelayHostSecret == "" {

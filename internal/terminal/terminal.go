@@ -1,6 +1,11 @@
-// Package terminal is one-click terminal attach: spawn a ttyd on the control
-// plane that wraps `tmux attach` (locally, over ssh, or via pct) for a running
-// attempt. Browser and desktop clients share the same persistent tmux sessions.
+// Package terminal is one-click terminal attach: spawn a terminal server on
+// the control plane that wraps the attach command (`tmux attach` or `lectern
+// pty attach-session`, locally, over ssh, or via pct) for a running attempt
+// or session. Browser and desktop clients share the same persistent sessions.
+//
+// The server is lectern's own `term-server` (package webterm), which speaks
+// ttyd's WebSocket protocol; ttyd itself is used only by a Manager built
+// without a Binary, as the tests' is.
 package terminal
 
 import (
@@ -140,6 +145,12 @@ type Manager struct {
 	// SocketDir overrides where the private socket directory is made.
 	SocketDir string
 
+	// Binary is this lectern binary. When set, terminals are served by its
+	// own `term-server` (internal/terminal/webterm), which speaks ttyd's
+	// protocol, so ttyd is not needed. A hand-built Manager (tests) leaves it
+	// empty and uses ttyd.
+	Binary string
+
 	// Spawn is the process launcher. Tests replace it; production shells out.
 	Spawn func(socket, basePath string, argv []string) (*exec.Cmd, error)
 	// LookPath reports whether ttyd is installed. Tests override it.
@@ -155,18 +166,22 @@ type session struct {
 
 // NewManager builds a terminal manager wired to the real ttyd binary.
 func NewManager() *Manager {
-	return &Manager{
+	m := &Manager{
 		procs:   map[string]*session{},
 		viewers: map[string]int{}, lastViewed: map[string]time.Time{},
 		LookPath: exec.LookPath,
-		Spawn: func(socket, basePath string, argv []string) (*exec.Cmd, error) {
-			cmd := exec.Command("ttyd", TTYDArgs(socket, basePath, argv)...)
-			if err := cmd.Start(); err != nil {
-				return nil, err
-			}
-			return cmd, nil
-		},
 	}
+	m.Spawn = func(socket, basePath string, argv []string) (*exec.Cmd, error) {
+		cmd := exec.Command("ttyd", TTYDArgs(socket, basePath, argv)...)
+		if m.Binary != "" {
+			cmd = exec.Command(m.Binary, append([]string{"term-server"}, TTYDArgs(socket, basePath, argv)...)...)
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return cmd, nil
+	}
+	return m
 }
 
 // AttachArgv is the command a ttyd wraps, per target kind.
@@ -302,8 +317,10 @@ func (m *Manager) Attach(ctx context.Context, a Attachment, target *store.Target
 // room, if any ("" when none), so the caller can tell the user.
 func (m *Manager) AttachWithNotice(ctx context.Context, a Attachment, target *store.Target) (string, string, error) {
 	m.reap()
-	if _, err := m.LookPath("ttyd"); err != nil {
-		return "", "", errors.New("ttyd is not installed on the control plane")
+	if m.Binary == "" {
+		if _, err := m.LookPath("ttyd"); err != nil {
+			return "", "", errors.New("ttyd is not installed on the control plane")
+		}
 	}
 	argv, err := WebAttachArgv(a, target)
 	if err != nil {

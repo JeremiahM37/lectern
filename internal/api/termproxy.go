@@ -92,6 +92,11 @@ func (s *Server) targetBackend(target *store.Target) backend.Backend {
 	if target == nil || target.Kind == "sandbox" {
 		return backend.Tmux
 	}
+	if s.TerminalBackend != nil {
+		if be := s.TerminalBackend(target); be != nil {
+			return be
+		}
+	}
 	ex, err := s.Reg.For(target)
 	if err != nil {
 		return backend.Tmux

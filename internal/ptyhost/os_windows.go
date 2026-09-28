@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -80,4 +81,30 @@ func defaultShell() []string {
 		return []string{bash, "-c"}
 	}
 	return []string{"cmd.exe", "/c"}
+}
+
+// posixProgram maps a POSIX path such as /bin/sh or /usr/bin/env, which
+// Lectern's command lines name, to the program in Git for Windows; "" when
+// file is not such a path or Git has no such program.
+func posixProgram(file string) string {
+	if !strings.HasPrefix(file, "/") {
+		return ""
+	}
+	bash, err := gitbash.Find()
+	if err != nil {
+		return ""
+	}
+	root := filepath.Dir(filepath.Dir(bash)) // <root>\bin\bash.exe or <root>\usr\bin\bash.exe
+	if strings.EqualFold(filepath.Base(root), "usr") {
+		root = filepath.Dir(root)
+	}
+	rel := filepath.FromSlash(file)
+	for _, p := range []string{filepath.Join(root, rel), filepath.Join(root, "usr", rel)} {
+		for _, ext := range []string{"", ".exe"} {
+			if fi, err := os.Stat(p + ext); err == nil && !fi.IsDir() {
+				return p + ext
+			}
+		}
+	}
+	return ""
 }

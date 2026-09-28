@@ -17,6 +17,10 @@ type TargetEnv struct {
 	// target's shell accepts, or "" when there is none. Target-side helpers
 	// then fall back to their Python versions.
 	Lectern string
+	// Helpers lists the helpers that lectern has; nil means all of this
+	// build's (the local target runs this very binary). A remote lectern
+	// may be older than the server, so only what its probe listed is used.
+	Helpers []string
 }
 
 var targetEnvs sync.Map // Executor -> TargetEnv

@@ -73,6 +73,16 @@ func (r *Registry) For(t *store.Target) (Executor, error) {
 	return ex, nil
 }
 
+// Refresh re-resolves what is known about a target whose row changed (a new
+// probe), keeping its executor and connection.
+func (r *Registry) Refresh(t *store.Target) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ex, ok := r.cache[t.ID]; ok && r.Env != nil {
+		SetTargetEnv(ex, r.Env(t, ex))
+	}
+}
+
 // Cached returns the executor already made for a target, without making one,
 // so asking how a connection is doing never opens it.
 func (r *Registry) Cached(id int64) Executor {

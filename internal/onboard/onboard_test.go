@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -92,8 +93,13 @@ func TestCheckTmuxAndGit(t *testing.T) {
 		t.Errorf("git should be OK: %+v", git)
 	}
 	fakePath(t) // now neither is on PATH
+	// Without tmux, sessions are kept by the built-in PTY host instead.
+	if tmux := CheckTmux(); !tmux.OK || !strings.Contains(tmux.Detail, "not needed") {
+		t.Errorf("missing tmux should be fine with the PTY host: %+v", tmux)
+	}
+	t.Setenv("LECTERN_SESSION_BACKEND", "tmux")
 	if tmux := CheckTmux(); tmux.OK || tmux.Fix == "" {
-		t.Errorf("missing tmux should be reported not-OK with a fix: %+v", tmux)
+		t.Errorf("missing tmux should be reported not-OK with a fix when tmux is chosen: %+v", tmux)
 	}
 	if git := CheckGit(); git.OK || git.Fix == "" {
 		t.Errorf("missing git should be reported not-OK with a fix: %+v", git)

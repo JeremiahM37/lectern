@@ -102,6 +102,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "ptyhost" {
 		os.Exit(ptyhostCommand(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "term-server" {
+		os.Exit(termServerCommand(os.Args[2:]))
+	}
 	// A target-side helper (internal/helpers): runs on an agent machine,
 	// before any configuration is read, and prints only what it was asked.
 	if len(os.Args) > 1 && os.Args[1] == "helper" {

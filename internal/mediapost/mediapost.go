@@ -44,7 +44,13 @@ func SessionID() int64 {
 // TmuxSession names the tmux session this process runs inside, which is how a
 // post finds its Lectern session without the agent knowing its own id: the
 // poster is a child of the agent, and the agent lives in the session's pane.
+//
+// A process in a PTY-host session is told its session's name directly
+// (LECTERN_PTY_SESSION, docs/ptyhost.md).
 func TmuxSession() string {
+	if name := strings.TrimSpace(os.Getenv("LECTERN_PTY_SESSION")); name != "" {
+		return name
+	}
 	if os.Getenv("TMUX") == "" {
 		return ""
 	}

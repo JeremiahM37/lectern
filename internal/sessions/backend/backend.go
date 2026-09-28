@@ -108,8 +108,17 @@ func Pane(name string) string { return "=" + name + ":" }
 // Tmux is the tmux backend.
 var Tmux Backend = tmuxBackend{cli{prog: "tmux"}}
 
-// For is the backend of the target an executor drives.
+// For is the backend of the target an executor drives. A target whose
+// environment was never resolved (tests, a sandbox's container) uses tmux.
 func For(ex executor.Executor) Backend {
+	return FromEnv(executor.TargetEnvOf(ex))
+}
+
+// FromEnv is the backend a resolved target environment names.
+func FromEnv(env executor.TargetEnv) Backend {
+	if env.SessionBackend == NamePty && env.Lectern != "" {
+		return Pty(env.Lectern)
+	}
 	return Tmux
 }
 

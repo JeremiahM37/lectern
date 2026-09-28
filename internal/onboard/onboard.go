@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 )
 
 // AgentCheck reports whether one agent CLI was found. Builtin agents (claude,
@@ -75,11 +77,20 @@ type EnvCheck struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
-// CheckTmux reports whether tmux is on PATH. tmux is required on any machine
-// that runs agents directly (local target, or a remote target reached over
-// SSH); the CLI itself only needs it when acting as that machine.
+// CheckTmux reports whether this machine's sessions have something to keep
+// them alive: tmux, or lectern's own PTY host, which needs nothing installed
+// (docs/ptyhost.md). Which one is used follows LECTERN_SESSION_BACKEND.
 func CheckTmux() EnvCheck {
-	return checkBinary("tmux", "tmux", "install tmux (see install.sh's distro hint, or your package manager) — it's what keeps an agent's session alive between visits")
+	self, _ := os.Executable()
+	setting := os.Getenv("LECTERN_SESSION_BACKEND")
+	if backend.NewResolver(setting, self).Local() == backend.NamePty {
+		detail := "not needed: sessions are kept by lectern's built-in PTY host"
+		if path, err := exec.LookPath("tmux"); err == nil {
+			detail += " (tmux at " + path + " is used only when LECTERN_SESSION_BACKEND=tmux)"
+		}
+		return EnvCheck{Name: "tmux", OK: true, Detail: detail}
+	}
+	return checkBinary("tmux", "tmux", "install tmux (see install.sh's distro hint, or your package manager) — it's what keeps an agent's session alive between visits — or set LECTERN_SESSION_BACKEND=pty to use lectern's built-in PTY host instead")
 }
 
 // CheckGit reports whether git is on PATH. Every dispatched task and every

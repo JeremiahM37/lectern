@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -63,6 +64,15 @@ func Names() []string {
 
 // Main is `lectern helper NAME ARG…`.
 func Main(args []string) int {
+	if len(args) == 1 && args[0] == "--capabilities" {
+		// What a target's probe records (backend.RemoteLectern): this build
+		// has the PTY host, and these helpers.
+		fmt.Println("pty")
+		for _, name := range Names() {
+			fmt.Println("helper:" + name)
+		}
+		return 0
+	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprintf(os.Stderr, "usage: lectern helper NAME [ARG...]\nhelpers: %s\n", strings.Join(Names(), ", "))
 		return 2
@@ -84,7 +94,7 @@ func Main(args []string) int {
 // the right multiplexer (see Mux).
 func Command(ex executor.Executor, name string, args []string, fallback string) string {
 	env := executor.TargetEnvOf(ex)
-	if env.Lectern == "" {
+	if env.Lectern == "" || (env.Helpers != nil && !slices.Contains(env.Helpers, name)) {
 		return fallback
 	}
 	cmd := Invocation(env.Lectern, name, args)

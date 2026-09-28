@@ -76,25 +76,9 @@ func (h *Host) newSession(req Request) (*Session, error) {
 	if cols <= 0 || rows <= 0 {
 		cols, rows = 80, 24 // tmux's default-size
 	}
-	env := sessionEnv(req.Env, req.SessionEnv, req.Name)
-	path, err := lookPath(argv[0], env)
+	p, cmd, err := startOnPty(argv, sessionEnv(req.Env, req.SessionEnv, req.Name), req.Dir, cols, rows)
 	if err != nil {
 		return nil, err
-	}
-	p, err := xpty.NewPty(cols, rows)
-	if err != nil {
-		return nil, fmt.Errorf("open a pseudo-terminal: %w", err)
-	}
-	cmd := &exec.Cmd{Path: path, Args: argv, Env: env, Dir: req.Dir}
-	cmd.SysProcAttr = childAttr()
-	if err := p.Start(cmd); err != nil {
-		p.Close()
-		return nil, fmt.Errorf("start %s: %w", argv[0], err)
-	}
-	// The host keeps only the master side. With the slave still open here, a
-	// program that exits would never hang the terminal up.
-	if u, ok := p.(*xpty.UnixPty); ok {
-		u.Slave().Close()
 	}
 	now := time.Now()
 	s := &Session{
@@ -112,6 +96,91 @@ func (h *Host) newSession(req Request) (*Session, error) {
 	go s.pump()
 	go s.wait()
 	return s, nil
+}
+
+// startOnPty starts argv on a new pseudo-terminal of the given size.
+func startOnPty(argv, env []string, dir string, cols, rows int) (xpty.Pty, *exec.Cmd, error) {
+	path, err := lookPath(argv[0], env)
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := xpty.NewPty(cols, rows)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open a pseudo-terminal: %w", err)
+	}
+	cmd := &exec.Cmd{Path: path, Args: argv, Env: env, Dir: dir}
+	cmd.SysProcAttr = childAttr()
+	if err := p.Start(cmd); err != nil {
+		p.Close()
+		return nil, nil, fmt.Errorf("start %s: %w", argv[0], err)
+	}
+	// Only the master side is kept. With the slave still open here, a
+	// program that exits would never hang the terminal up.
+	if u, ok := p.(*xpty.UnixPty); ok {
+		u.Slave().Close()
+	}
+	return p, cmd, nil
+}
+
+// Process is one program on a pseudo-terminal of its own, with no screen
+// model and no host: what the web terminal runs for an attachment that is
+// not a PTY-host session (a `tmux attach`, an ssh to another machine).
+type Process struct {
+	pty    xpty.Pty
+	cmd    *exec.Cmd
+	reaped chan struct{}
+	once   sync.Once
+}
+
+// StartProcess starts argv on a new pseudo-terminal, in this process's
+// environment with TERM set for an xterm-compatible client.
+func StartProcess(argv []string, cols, rows int) (*Process, error) {
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("no command")
+	}
+	if cols <= 0 || rows <= 0 {
+		cols, rows = 80, 24
+	}
+	env := append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	p, cmd, err := startOnPty(argv, env, "", cols, rows)
+	if err != nil {
+		return nil, err
+	}
+	pr := &Process{pty: p, cmd: cmd, reaped: make(chan struct{})}
+	go func() {
+		_ = xpty.WaitProcess(context.Background(), cmd)
+		close(pr.reaped)
+	}()
+	return pr, nil
+}
+
+// Read returns the program's output; io.EOF-like errors once it has exited.
+func (p *Process) Read(b []byte) (int, error) { return p.pty.Read(b) }
+
+// Write types into the program.
+func (p *Process) Write(b []byte) (int, error) { return p.pty.Write(b) }
+
+// Resize changes the terminal's size.
+func (p *Process) Resize(cols, rows int) error { return p.pty.Resize(cols, rows) }
+
+// Done closes when the program has exited.
+func (p *Process) Done() <-chan struct{} { return p.reaped }
+
+// Close hangs the terminal up, as a closed terminal window does, and kills
+// whatever is left of the program a moment later.
+func (p *Process) Close() error {
+	p.once.Do(func() {
+		signalGroup(p.cmd.Process)
+		_ = p.pty.Close()
+		go func() {
+			select {
+			case <-p.reaped:
+			case <-time.After(3 * time.Second):
+				killGroup(p.cmd.Process)
+			}
+		}()
+	})
+	return nil
 }
 
 // sessionEnv is the program's environment: the caller's, with the terminal
@@ -140,6 +209,9 @@ func sessionEnv(base, extra []string, name string) []string {
 // lookPath resolves a program with the PATH the program itself will get,
 // not the host's own, which may be years older than the caller's.
 func lookPath(file string, env []string) (string, error) {
+	if p := posixProgram(file); p != "" {
+		return p, nil
+	}
 	if strings.ContainsAny(file, `/\`) {
 		return file, nil
 	}

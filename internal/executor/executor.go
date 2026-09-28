@@ -70,6 +70,11 @@ func Probe(ctx context.Context, ex Executor) (map[string]any, error) {
 		// run on a target before they save it (see AgentEditor.tsx).
 		{"npx", "npx --version"},
 		{"python3", "python3 --version"},
+		// A lectern binary on the target, and what it can do: the PTY host
+		// and which target-side helpers (docs/ptyhost.md). The path comes
+		// first, then one capability per line; an older lectern without
+		// `helper --capabilities` reads as absent.
+		{"lectern", `p=$(command -v lectern 2>/dev/null) && caps=$("$p" helper --capabilities 2>/dev/null) && printf '%s\n%s\n' "$p" "$caps"`},
 		{"disk_free", "df -h --output=avail / | tail -1"},
 	}
 	info := map[string]any{}

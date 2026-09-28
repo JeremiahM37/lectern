@@ -73,3 +73,6 @@ func childAttr() *syscall.SysProcAttr {
 // every command line Lectern builds is POSIX sh, and a fish or nu login shell
 // would misread it, so this is always sh.
 func defaultShell() []string { return []string{"/bin/sh", "-c"} }
+
+// posixProgram is only needed on Windows.
+func posixProgram(string) string { return "" }
