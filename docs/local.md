@@ -153,6 +153,7 @@ the remote client when one board should manage agents on several machines;
 choose local when the terminal workspace should stay on this computer.
 
 The built-in terminal uses a Unix PTY on Linux/macOS and ConPTY on Windows;
-tmux is optional. The current candidate has Linux runtime regression coverage
-and Windows/macOS cross-build checks. Those compilation checks do not establish
-native runtime parity on macOS or Windows.
+tmux is optional. Linux has full runtime/browser regression coverage. Windows/macOS CI exercises
+real PTY sessions, server restarts, web terminal streams, phone pairing and
+no-tmux controls on disposable native runners. Physical-device desktop and
+network configurations can still differ from CI.

@@ -29,6 +29,8 @@ smoke-repo/
 
 # Local verification output and dependency caches
 node_modules/
+# Also exclude dependency directories linked from another local checkout.
+/frontend/node_modules
 
 # goreleaser output
 dist/

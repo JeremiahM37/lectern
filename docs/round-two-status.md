@@ -1,7 +1,8 @@
-# Simplicity round two: candidate status
+# Simplicity round two: deployment status
 
 Implementation is in `codex/simple-round-two`, based on `69dc2e53`, in
-`/mnt/bulk/lectern-simple-round-two`. It has not been deployed, pushed or committed.
+`/mnt/bulk/lectern-simple-round-two`. Implementation commit `da571086` and native-test follow-up `e22c4bc7` are pushed
+to main. The implementation was deployed on 2026-09-28.
 The old `/home/admin/projects/lectern` checkout was not changed.
 
 ## Implemented
@@ -40,9 +41,8 @@ then runs go vet and Windows amd64/macOS arm64 cross-builds. It deliberately doe
 not use the running production binary as evidence for candidate changes.
 
 The production `.verify.yaml` remains the deployment gate, with visual expectations
-updated for the four-item navigation and Chat/Terminal actions. No production restart
-or session mutation has been performed. Native Windows/macOS runtime behavior is
-not established by cross-compilation. Keyboard link actions are covered; no new
+updated for the four-item navigation and Chat/Terminal actions. The production restart preserved all 8 session records and all 10 pane process
+identities. Native Windows/macOS CI now passes; see the deployment receipt below. Keyboard link actions are covered; no new
 mouse link gesture parity claim is made.
 
 The review's Changes count includes committed changes relative to the base branch;
@@ -60,5 +60,21 @@ Static analysis and Windows amd64/macOS arm64 compilation passed. `git diff
 --check` is clean. Full suite logs are saved as
 `/mnt/bulk/lectern-round-two-final-{go,frontend,e2e}.log`.
 
-Read-only live health still reports `2.6.2+162602a8b6a8`; it does not contain
-this candidate. Deployment and its live verification are separate follow-up work.
+This was the pre-deployment candidate result; the deployment result follows.
+
+## Deployment and native verification (2026-09-28)
+
+Full production verification: **PASS: 7/7 steps passed (backend=web)**, including
+workshop regressions, Go/frontend/browser suites and actual live UI checks.
+The restart preserved all eight session records and ten exact pane processes.
+Database backup passed SQLite integrity checking; off-box AIServer snapshot
+`e366c129` and the previous immutable binary are available for rollback.
+Local deployment evidence is in `/mnt/bulk/lectern-round-two-deploy/`.
+
+[Native CI run](https://github.com/JeremiahM37/lectern/actions/runs/36474792928):
+Windows and macOS jobs passed real PTY session/restart, web terminal,
+same-runtime phone pairing/approval, and portable no-tmux attachment tests.
+The latter covers menu, upload, links, scrollback and detach. The initial macOS
+failure was the new test incorrectly requiring a Linux namespace; the follow-up
+uses the existing platform-aware test gate. No skip was added.
+This verifies disposable native runners, not physical-device GUI or Wi-Fi reachability.

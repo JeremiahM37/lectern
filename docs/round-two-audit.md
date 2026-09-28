@@ -1,7 +1,7 @@
 # Round-two new-user audit
 
-Candidate: `codex/simple-round-two` (base `69dc2e53`). This audit covers the
-implemented candidate on Linux; it is not a report about the deployed server.
+Candidate: `codex/simple-round-two` (base `69dc2e53`). The implementation is now deployed, with production verification PASS 7/7.
+Native Windows/macOS CI also passes; see round-two-status.md for evidence.
 
 | New-user task | Candidate behavior | Evidence |
 | --- | --- | --- |
@@ -21,8 +21,8 @@ implemented candidate on Linux; it is not a report about the deployed server.
 - Local Wi-Fi is HTTP on a private interface and says so. Tailscale HTTPS
   remains the remote/secure alternative. The Wi-Fi listener lasts until the
   runtime stops and uses the existing paired-device authentication.
-- Windows/macOS binaries compile. Native runtime parity on those operating
-  systems is not established by the Linux suite. Keyboard link access is
+- Native Windows/macOS CI passes the PTY, restart, phone pairing and portable
+  attachment flows; physical-device GUI/network behavior is not covered. Keyboard link access is
   implemented without tmux; no new mouse gesture parity claim is made.
 
 Run `verify run .verify-candidate.yaml` for the candidate gate. The production
