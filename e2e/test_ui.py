@@ -25,6 +25,8 @@ def _tab(page, name):
 
 
 def _new_task(page, title, prompt="fix it", perm=None):
+    if not page.locator("#fab").is_visible():
+        _tab(page, "tasks")
     page.click("#fab")
     page.fill("#f-title", title)
     page.fill("#f-prompt", prompt)
@@ -34,7 +36,7 @@ def _new_task(page, title, prompt="fix it", perm=None):
 
 
 def test_board_renders(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     expect(page.locator(".brand h1")).to_contain_text("lectern")
     expect(page.locator(".col-head")).to_have_count(6)
     for name in ["backlog", "queued", "running", "review", "done", "failed"]:
@@ -66,7 +68,7 @@ def test_phone_board_focuses_work_that_wants_a_decision(page, server):
 
 
 def test_full_flow_dispatch_review_diff_done(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "E2E ship it", "add health endpoint")
     card = page.locator(".card", has_text="E2E ship it")
     # the card lands on the board and travels to review as the agent works
@@ -98,9 +100,9 @@ def test_approval_flow_from_phone(page, server):
     _new_task(page, "E2E gated deploy", "deploy [mock:approval]", perm="default")
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
-    row = page.locator(".rowcard", has_text="Bash")
+    row = page.locator("#approvals-page .approval-card", has_text="Bash")
     expect(row.first).to_be_visible()
-    expect(row.first.locator("pre")).to_contain_text("rm -rf build/")
+    expect(row.first).to_contain_text("rm -rf build/")
     row.first.locator("button:has-text('Allow once')").first.click()
     # the agent continues and finishes
     _tab(page, "board")
@@ -109,7 +111,7 @@ def test_approval_flow_from_phone(page, server):
 
 
 def test_targets_tab_probe(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     # scope by heading: project cards name their target too, so a bare has_text
     # would match both the target card and every project pointed at it
@@ -122,7 +124,7 @@ def test_targets_tab_probe(page, server):
 
 def test_targets_tab_shows_project_capability(page, server):
     """The parity settings had no UI at all — they could only be set by curl."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="projects"]').click()
     # projects are a filterable list now — tapping one opens its settings
@@ -156,7 +158,7 @@ def test_new_task_sheet_states_the_agent_capability(page, server):
 
 
 def test_quickbar_instant_dispatch(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.fill("#qb-input", "quick: bump the version")
     page.press("#qb-input", "Enter")
     expect(page.locator(".card", has_text="quick: bump the version")) \
@@ -166,7 +168,7 @@ def test_quickbar_instant_dispatch(page, server):
 
 
 def test_drag_card_to_queued_dispatches(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#fab")
     page.fill("#f-title", "Drag me")
     page.fill("#f-prompt", "dragged task")
@@ -179,7 +181,7 @@ def test_drag_card_to_queued_dispatches(page, server):
 
 
 def test_verify_badge_shows_on_card(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.evaluate("""async () => {
       const projects = await fetch('/api/projects').then(r => r.json());
       await fetch(`/api/projects/${projects[0].id}`, {
@@ -194,11 +196,11 @@ def test_verify_badge_shows_on_card(page, server):
 
 
 def test_approval_card_has_always_allow(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "E2E always allow", "risky [mock:approval]", perm="default")
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
-    row = page.locator(".rowcard", has_text="Bash").first
+    row = page.locator("#approvals-page .approval-card", has_text="Bash").first
     expect(row.locator("button", has_text="Always allow in this project")).to_be_visible()
     row.locator("button:has-text('Allow once')").first.click()
     _tab(page, "board")
@@ -207,7 +209,7 @@ def test_approval_card_has_always_allow(page, server):
 
 
 def test_board_filter_narrows_cards(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.fill("#qb-input", "alpha unique thing")
     page.press("#qb-input", "Enter")
     page.fill("#qb-input", "beta other thing")
@@ -222,7 +224,7 @@ def test_board_filter_narrows_cards(page, server):
 
 
 def test_deck_view_streams_panes(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     # high priority so this task sorts to the top of the deck and is not evicted
     # by the 16-pane cap once the shared server has accumulated tasks
     proj = page.evaluate("async () => (await (await fetch('/api/projects')).json())[0].id")
@@ -242,7 +244,7 @@ def test_deck_view_streams_panes(page, server):
 
 
 def test_settings_ui_saves_sinks(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="notifications"]').click()
     page.fill("#s-ntfy-server", "https://ntfy.sh")
@@ -258,7 +260,7 @@ def test_settings_ui_saves_sinks(page, server):
 def test_multi_attempt_badge_not_mislabeled_ab(page, server):
     """A retry produces 2 attempts but is NOT a parallel A/B run — the card must
     not claim 'A/B'."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "Retry me", "do it")
     expect(page.locator(".col.s-review .card", has_text="Retry me")) \
         .to_be_visible(timeout=20000)
@@ -276,7 +278,7 @@ def test_multi_attempt_badge_not_mislabeled_ab(page, server):
 def test_foreground_resync_refetches(page, server):
     """Returning to foreground (or an SSE reconnect, the shared path) must resync
     the board — otherwise a phone that missed events shows stale state."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.wait_for_selector("#board")
     page.wait_for_timeout(500)
     hits = []
@@ -300,7 +302,7 @@ def test_token_auth_ui_works(browser, auth_server):
     ctx = browser.new_context(viewport=DESKTOP)
     pg = ctx.new_page()
     try:
-        pg.goto(auth_server)
+        pg.goto(auth_server + "/#tasks")
         status = pg.evaluate("async () => (await fetch('/api/tasks')).status")
         assert status == 401, f"expected 401 without a token, got {status}"
         pg.evaluate("localStorage.setItem('lec-token','secret123')")
@@ -315,7 +317,7 @@ def test_token_auth_ui_works(browser, auth_server):
 def test_delete_task_from_ui(page, server):
     """Delete removes the card (via the task_deleted SSE event) and closes the
     sheet."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "UI delete target", "noop")
     card = page.locator(".card", has_text="UI delete target")
     expect(card).to_be_visible(timeout=15000)
@@ -332,7 +334,7 @@ def test_running_task_card_no_console_crash(page, server):
     errors = []
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "Long runner", "work [mock:slow]")
     expect(page.locator(".col.s-running .card", has_text="Long runner")) \
         .to_be_visible(timeout=10000)
@@ -345,7 +347,7 @@ def test_deck_persists_streams_across_updates(page, server):
     tear down and reopen every pane's SSE. A persisting pane must be the SAME DOM
     node before and after."""
     marker = "DeckPersistA-uniqmark"
-    page.goto(server)
+    page.goto(server + "/#tasks")
     proj = page.evaluate("async () => (await (await fetch('/api/projects')).json())[0].id")
     page.evaluate(f"""async () => {{
       const t = await (await fetch('/api/tasks', {{method:'POST',
@@ -382,7 +384,7 @@ def test_deck_persists_streams_across_updates(page, server):
 def test_fable_dispatch_requires_confirmation(page, server):
     """Fable 5 is the highest-usage model — dispatching on it must prompt, and
     dismissing the prompt must abort."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#fab")
     page.fill("#f-title", "Fable guarded task")
     page.fill("#f-model", "fable")
@@ -403,7 +405,7 @@ def test_agent_toggle_reshapes_the_form(page, server):
     it produces a dispatch that fails later for reasons the operator cannot
     see. The Attempts (Best-of-N) control stays available for every agent:
     unlike the old A/B row it is not Claude-only."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#fab")
     expect(page.locator("#f-agent button.on")).to_have_text("Claude Code")
     expect(page.locator("#f-variants")).to_be_visible()
@@ -423,7 +425,7 @@ def test_attempts_control_adds_and_removes_best_of_n_variants(page, server):
     """The Attempts control replaces the old single-model A/B row with up to
     8 variants, each with its own agent/model/permission — this is the
     Best-of-N generalisation."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#fab")
     page.fill("#f-title", "Best-of-N task")
     expect(page.locator(".variant-row")).to_have_count(0)
@@ -447,7 +449,7 @@ def test_attempts_control_adds_and_removes_best_of_n_variants(page, server):
 
 
 def test_codex_task_dispatches_from_the_toggle(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#fab")
     page.fill("#f-title", "Codex toggle task")
     page.click("#f-agent button[data-agent='codex']")
@@ -458,7 +460,7 @@ def test_codex_task_dispatches_from_the_toggle(page, server):
 
 
 def test_pwa_assets(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     for asset in ("/manifest.webmanifest", "/sw.js", "/icon.svg", "/style.css", "/fonts.css"):
         assert page.evaluate(f"fetch('{asset}').then(r=>r.ok)"), asset
 
@@ -483,7 +485,7 @@ def test_mobile_board_has_no_page_level_horizontal_overflow(browser, server):
 def test_sessions_tab_starts_and_shows_a_session(page, server):
     """A session is an agent you work WITH — its card leads with how long it has
     been quiet and what is on its screen."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     expect(page.locator("#sess-new")).to_be_visible()
 
@@ -498,12 +500,12 @@ def test_sessions_tab_starts_and_shows_a_session(page, server):
     expect(card.locator(".sidle")).to_contain_text("quiet", timeout=15000)
     expect(card.locator(".spane")).to_contain_text("mock agent", timeout=15000)
     # and the primary action is getting into the real terminal
-    expect(card.locator("button", has_text="Attach")).to_be_visible()
+    expect(card.locator("button", has_text="Terminal")).to_be_visible()
     expect(page.locator("#sess-badge")).to_be_visible(timeout=10000)
 
 
 def test_session_send_reaches_the_pane(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -522,7 +524,7 @@ def test_session_send_reaches_the_pane(page, server):
 
 def test_discover_offers_to_adopt_a_hand_started_agent(page, server):
     """The sessions worth tracking are usually the ones you started yourself."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-discover")
     row = page.locator(".cand", has_text="legacy-claude").first
@@ -535,7 +537,7 @@ def test_discover_offers_to_adopt_a_hand_started_agent(page, server):
 
 def test_import_registers_projects_from_a_scan(page, server):
     """An empty board is why a tool like this gets abandoned in week one."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="projects"]').click()
     expect(page.locator("#imp-root")).to_be_visible()
@@ -549,7 +551,7 @@ def test_import_registers_projects_from_a_scan(page, server):
 def test_adopted_session_offers_release_not_just_kill(page, server):
     """Adoption is non-destructive, so letting go has to be too — an agent you
     started yourself must not be killed by a button labelled like a delete."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-discover")
     row = page.locator(".cand", has_text="legacy-claude").first
@@ -585,7 +587,7 @@ def test_hash_opens_the_named_tab(page, server):
 
 def test_hash_opens_a_task_sheet(page, server):
     """This is the link every 'Ready for review' notification carries."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "Deep linked task", "do it")
     card = page.locator(".card", has_text="Deep linked task")
     expect(card).to_be_visible(timeout=15000)
@@ -599,7 +601,7 @@ def test_hash_opens_a_task_sheet(page, server):
 
 
 def test_switching_tabs_updates_the_hash(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.wait_for_timeout(400)
     assert page.evaluate("location.hash") == "#sessions"
@@ -645,7 +647,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
     """A blank room is for work that has no name yet: any agent, a throwaway
     directory, no project. Deciding what it is happens afterwards, and the
     session keeps running through it."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
 
@@ -678,7 +680,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
     # the work is a project now, and the conversation is still running in it
     expect(page.locator(".scard-project", has_text="half-an-idea")).to_be_visible(timeout=15000)
     card = page.locator(".scard", has_text="half an idea")
-    expect(card.locator("button", has_text="Attach")).to_be_visible()
+    expect(card.locator("button", has_text="Terminal")).to_be_visible()
     expect(card.locator("button", has_text="Make a project")).to_have_count(0)
 
     # and it is dispatchable: the new project is offered on the task form
@@ -691,7 +693,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
 def test_phone_session_cards_do_not_overflow_with_every_button(page, server):
     """Session cards grew a "Make a project" button. A phone is 390px wide and
     the button row is where that shows up first."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     page.select_option("#ns-project", "")          # blank room: the most buttons
@@ -727,7 +729,7 @@ def test_phone_session_cards_do_not_overflow_with_every_button(page, server):
 def test_phone_new_session_sheet_fits(page, server):
     """The sheet gained a project option and a model list; it still has to be
     usable one-handed."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -744,7 +746,7 @@ def test_attach_opens_a_same_origin_terminal(page, server):
     """Attach used to open http://<the browser's hostname>:<port>, which named
     whichever machine served the page — the reverse proxy, usually, which runs no
     ttyd. It must be a path on this origin."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -754,7 +756,7 @@ def test_attach_opens_a_same_origin_terminal(page, server):
     expect(card).to_be_visible(timeout=15000)
 
     pages_before = len(page.context.pages)
-    card.locator("button", has_text="Attach").click()
+    card.locator("button", has_text="Terminal").click()
     frame = page.locator('#terminal-workspace iframe')
     expect(frame).to_be_visible(timeout=10000)
     url = frame.get_attribute('src')
@@ -769,13 +771,16 @@ def test_attach_opens_a_same_origin_terminal(page, server):
 def test_ask_before_risky_actions_is_offered_and_on_for_a_new_install(page, server):
     """Asking first is the new-install default (docs/design/simple-ui.md): it
     sits on the Start an agent sheet itself, visible and switchable."""
-    page.goto(server)
+    # Other tests share this server and may have changed the default; a fresh
+    # database starts at "ask" (TestSessionPermissionModeDefaultsToAskOnANewInstall).
+    page.request.put(server + "/api/settings", data={"session_permission_mode": "ask"})
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
 
     ask = page.locator("#ns-ask")
     expect(ask).to_be_visible()
-    assert ask.is_checked(), "a new install asks before risky actions"
+    expect(ask).to_be_checked()
     expect(page.locator("#ns-yolo-hint")).to_contain_text("asks you before")
 
     # unticking says what changes, so the choice is legible
@@ -786,7 +791,7 @@ def test_ask_before_risky_actions_is_offered_and_on_for_a_new_install(page, serv
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_ask_toggle_fits_on_a_phone(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     box = page.locator("#ns-ask").bounding_box()
@@ -797,7 +802,7 @@ def test_ask_toggle_fits_on_a_phone(page, server):
 def test_projects_can_be_filtered_and_deleted(page, server):
     """Eighty-one projects is a wall. The list leads with staleness, filters by
     name, and deletion is itemised before it happens."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="projects"]').click()
     expect(page.locator("#pj-list")).to_be_visible(timeout=10000)
@@ -853,7 +858,7 @@ def test_projects_can_be_filtered_and_deleted(page, server):
 
 @pytest.mark.parametrize("page", [PHONE], indirect=True, ids=["phone"])
 def test_project_list_is_usable_on_a_phone(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="projects"]').click()
     expect(page.locator("#pj-list")).to_be_visible(timeout=10000)
@@ -867,7 +872,7 @@ def test_project_list_is_usable_on_a_phone(page, server):
 def test_a_shell_into_the_project_is_one_click(page, server):
     """Sometimes you just want to look at the code yourself — read a file, fix
     one line — without asking an agent to do it."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="projects"]').click()
     expect(page.locator("#pj-list")).to_be_visible(timeout=10000)
@@ -891,7 +896,7 @@ def test_a_shell_into_the_project_is_one_click(page, server):
 
 def test_a_routine_can_be_saved_and_run_with_one_button(page, server):
     """The job you keep asking for, saved: one button across every project."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#qb-routines")
     expect(page.locator("#rt-list")).to_be_visible(timeout=10000)
 
@@ -913,7 +918,7 @@ def test_a_routine_can_be_saved_and_run_with_one_button(page, server):
 
 
 def test_a_scheduled_routine_shows_when_it_next_runs(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#qb-routines")
     page.click("#sheet summary")
     page.fill("#rt-name", "Nightly sweep")
@@ -942,7 +947,7 @@ def test_a_scheduled_routine_shows_when_it_next_runs(page, server):
 def test_a_card_has_an_x_and_a_column_has_a_clear(page, server):
     """Deleting one card should be one click on that card, and clearing a
     column should live on the column it clears — not a dialog asking which."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "Sweep me", "do a thing")
     expect(page.locator(".col.s-review .card", has_text="Sweep me")).to_be_visible(timeout=30000)
 
@@ -973,7 +978,7 @@ def test_a_card_has_an_x_and_a_column_has_a_clear(page, server):
 
 
 def test_clearing_a_column_lives_on_that_column(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     for title in ("First", "Second"):
         _new_task(page, title, "x")
         expect(page.locator(".col.s-review .card", has_text=title)).to_be_visible(timeout=30000)
@@ -998,7 +1003,7 @@ def test_clearing_a_column_lives_on_that_column(page, server):
 
 def test_the_quickbar_has_no_unstyled_buttons(page, server):
     """Two native buttons in a styled bar looked exactly as bad as that sounds."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.wait_for_timeout(1000)
     for i in range(page.locator("#quickbar > *").count()):
         el = page.locator("#quickbar > *").nth(i)
@@ -1011,7 +1016,7 @@ def test_the_quickbar_has_no_unstyled_buttons(page, server):
 def test_handoff_lets_you_choose_which_agent_picks_it_up(page, server):
     """The point of a handoff is usually moving the work to a different agent.
     It used to be a yes/no confirm that always reused the same one."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -1051,7 +1056,7 @@ def test_handoff_lets_you_choose_which_agent_picks_it_up(page, server):
 
 
 def test_running_build_identifies_the_serving_binary(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "targets")
     page.locator('[data-settings="about"]').click()
     health = page.request.get(server + "/api/health").json()
@@ -1071,7 +1076,7 @@ def test_session_preview_shows_memory_status(page, server, status, message):
     page.route("**/api/projects/*/brief", lambda route: route.fulfill(json={
         "brief": "test brief", "memory": {"status": status, "message": message}
     }))
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -1082,7 +1087,7 @@ def test_session_preview_shows_memory_status(page, server, status, message):
 
 def test_a_routine_can_be_edited(page, server):
     """A saved job you cannot change is one you delete and retype."""
-    page.goto(server)
+    page.goto(server + "/#tasks")
     page.click("#qb-routines")
     page.click("#rt-legend")
     page.fill("#rt-name", "Editable")
@@ -1124,7 +1129,8 @@ def test_mobile_task_conversation_keeps_drafts_and_continues(page, server):
     expect(page.locator("#conversation-log")).to_contain_text("Create a friendly welcome page")
     box = page.locator("#conversation-input")
     box.fill("Use larger headings")
-    box.press("Enter")
+    # Enter sends now (docs/design/simple-ui.md); Shift+Enter adds the line.
+    box.press("Shift+Enter")
     box.type("Keep the footer")
     expect(box).to_have_value("Use larger headings\nKeep the footer")
     page.wait_for_timeout(2300)  # a live refresh must leave the caret and draft alone
@@ -1188,7 +1194,7 @@ def test_dispatch_directly_into_chat_and_message_running_task(page, server):
 
 def test_mobile_context_attachments_keep_drafts_and_send(page, server):
     page.set_viewport_size(PHONE)
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _tab(page, "sessions")
     page.click("#sess-new")
     open_advanced(page)
@@ -1230,7 +1236,7 @@ def test_mobile_context_attachments_keep_drafts_and_send(page, server):
 
 
 def test_context_upload_failure_and_attachment_only_task_message(page, server):
-    page.goto(server)
+    page.goto(server + "/#tasks")
     _new_task(page, "Attachment followup", "Read the next file")
     card = page.locator(".col.s-review .card", has_text="Attachment followup")
     expect(card).to_be_visible(timeout=15000)

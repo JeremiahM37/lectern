@@ -51,7 +51,7 @@ def test_web_project_setup_save_retry_and_launch(routed_page,real_terminal,width
     expect(page.locator('.project-setup-status')).to_contain_text('Saved')
     page.keyboard.press('Escape')
     page.goto(t['url']+'/#sessions');page.locator('#sess-new').click()
-    page.get_by_label('Project',exact=True).select_option(str(project['id']))
+    page.get_by_label('Folder',exact=True).select_option(str(project['id']))
     open_advanced(page)
     page.locator('#ns-name').fill('Prepared workspace');page.locator('#ns-worktree').check()
     expect(page.locator('#ns-proj-hint')).to_contain_text('setup command')

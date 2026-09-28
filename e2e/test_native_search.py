@@ -33,7 +33,7 @@ def test_native_search_reads_old_match_and_retains_terminal(page,real_terminal,w
     search(page,'real terminal').get_by_role('option').click();one=frame(page,t['id']);ready(one)
     one.locator('body').evaluate('()=>window.savedSearchIdentity="retained"')
     d=open_search(page);d.get_by_label('Agent',exact=True).select_option('codex')
-    d.get_by_label('Target',exact=True).select_option(str(t['target_id']))
+    d.get_by_label('Machine',exact=True).select_option(str(t['target_id']))
     d.get_by_label('Conversation text').fill('résumé needle');d.get_by_role('button',name='Search',exact=True).click()
     expect(d.locator('.ns-result')).to_have_count(1,timeout=20000)
     expect(d.locator('.ns-status')).to_contain_text('1 conversation found')

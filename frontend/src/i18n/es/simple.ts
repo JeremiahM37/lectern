@@ -160,6 +160,8 @@ const catalog: Record<string, string> = {
   "review.why.noBranch": "Primero ponle nombre a la rama nueva.",
   "review.why.confirmMain": "Marca la casilla de arriba para hacer commit en {branch}.",
   "review.why.noRemote": "este repositorio no tiene un remoto al que enviar",
+  "review.why.prNeedsPush": "una pull request necesita Enviar",
+  "start.sheet.worktreeNeedsProject": "primero elige una carpeta de proyecto",
 };
 
 export default catalog;

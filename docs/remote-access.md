@@ -24,10 +24,24 @@ There are now two ways to do that:
   (github.com/slopus/happy) also relays end-to-end encrypted traffic, with a
   different design (relay.md compares them).
 
+## The quick way: Connect your phone
+
+**Settings → Basics → Connect your phone** (also at the top of Settings →
+Phone & devices) lists the addresses a phone could use — the address the
+browser is already on, the tailnet name, the LAN address (only on the same
+network, unencrypted) and the relay — each with one line on what it means and,
+when it cannot work, why and the one step that fixes it. It never offers a
+loopback address: a QR code for `127.0.0.1` is useless to a phone. **Show QR
+code** turns device pairing on if it was off (you pressed the button; that is
+the deliberate choice) and mints a pairing code for the chosen address. The
+list comes from `GET /api/phone/addresses`; when Lectern listens on loopback
+only (the local runtime from `lectern up`) the tailnet and LAN rows say so and
+point at `lectern serve`.
+
 ## Setting it up
 
 1. **Turn on device pairing.** Either set `LECTERN_DEVICE_PAIRING=1` in
-   Lectern's environment, or flip the toggle in Settings → Devices — either
+   Lectern's environment, or flip the toggle in Settings → Phone & devices — either
    one turns it on; the env var cannot be overridden off from the UI (see
    `pairing.Enabled`). It is **off by default**: enabling it is a deliberate
    choice, not something a bare upgrade turns on for you.
@@ -50,7 +64,7 @@ There are now two ways to do that:
    a browser or `curl`, never handed to the phone itself. Pairing is the
    phone's credential from then on.
 4. Open `https://<your-tunnel-hostname>/pair` on the phone (or scan the QR
-   code minted in Settings → Devices — see below), pair it, and use Lectern
+   code minted in Settings → Phone & devices — see below), pair it, and use Lectern
    there exactly as you would over Tailscale.
 
 ## The loopback trap (and how Lectern closes it)
@@ -111,7 +125,7 @@ itself requires) and why revoking a device is instant and final
 
 **Trade-offs worth knowing about, not hidden:**
 - A device token idles out after `LECTERN_DEVICE_PAIRING`'s configured
-  `idle_days` (default 30, editable in Settings → Devices) of no requests —
+  `idle_days` (default 30, editable in Settings → Phone & devices) of no requests —
   but the browser cookie itself is set with a ~400-day `Max-Age` (the
   practical ceiling most browsers enforce), so the cookie's own lifetime is
   never the limiting factor; the server-side idle check, refreshed on every
@@ -122,7 +136,7 @@ itself requires) and why revoking a device is instant and final
   deliberate scope match to the actual risk (a browser tricked into sending a
   cookie it holds), not an oversight; a script that already has the raw
   bearer value out-of-band is not the CSRF scenario.
-- Settings → Devices shows a hint when the request reaching it arrived over
+- Settings → Phone & devices shows a hint when the request reaching it arrived over
   neither loopback nor a tailnet address while pairing is off
   (`GET /api/pair/settings`'s `untrusted_origin_hint`) — but this cannot
   detect a tunnel that forwards to loopback (see "The loopback trap" above);

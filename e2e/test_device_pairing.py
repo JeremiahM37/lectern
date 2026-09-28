@@ -29,7 +29,7 @@ def test_device_pairing_full_flow(browser, pairing_server):
         owner.goto(pairing_server)
         owner.evaluate("localStorage.setItem('lec-token','pairsecret123')")
         owner.reload()
-        expect(owner.locator("#sess-search")).to_be_visible(timeout=10000)
+        expect(owner.locator('.tab[data-tab="sessions"]')).to_have_class("tab on", timeout=10000)
 
         _open_settings_tab(owner, "Devices")
         owner.get_by_role("button", name="Pair a phone").click()

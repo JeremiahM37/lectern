@@ -157,6 +157,5 @@
 
 .phone-wizard .phone-choice { display: flex; }
 .phone-wizard .phone-choice input[type="radio"] { flex: none; width: auto; margin: 4px 0 0; }
-/* First run: nothing to search or filter yet. */
-.list.first-run .sesshead .first-run-hide, .list.first-run #sess-search, .list.first-run .session-filters,
+/* First run: no empty "Scratch terminals" section under the Start card. */
 .list.first-run .session-section-title, .list.first-run #scratch-terminals { display: none; }

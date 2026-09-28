@@ -78,8 +78,11 @@ def test_terminal_tabs_restore_and_fit_on_mobile(page,real_terminal):
     one=frame(page,t['id']);ready(one)
     expect(one.locator('#agent-terminal .xterm-screen')).to_contain_text('BEFORE-PAGE-RELOAD')
     expect(page.get_by_role('tab',name='Real terminal',exact=True)).to_have_attribute('aria-selected','true')
-    # Opening the root in this same browser tab restores its retained terminal.
+    # Opening the root lands on Sessions (home stays put); the retained
+    # terminal is one tap away in the navigation, still connected.
     page.goto(t['url'])
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class('tab on')
+    page.locator('.tab[data-tab="terminals"]').click()
     one=frame(page,t['id']);ready(one)
     expect(one.locator('#agent-terminal .xterm-screen')).to_contain_text('BEFORE-PAGE-RELOAD')
     expect(page.get_by_role('tab',name='Real terminal',exact=True)).to_have_attribute('aria-selected','true')
@@ -115,6 +118,9 @@ def test_terminal_tabs_restore_in_a_fresh_browser_context(browser, real_terminal
             "localStorage.setItem('lec-last-view', 'terminals');")
         page = context.new_page()
         page.goto(t['url'])
+        # Home is Sessions; the restored terminal waits under Terminals.
+        expect(page.locator('.tab[data-tab="sessions"]')).to_have_class('tab on')
+        page.locator('.tab[data-tab="terminals"]').click()
         expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')
         expect(page.get_by_role('tab', name='Real terminal', exact=True)).to_have_attribute('aria-selected', 'true')
         f = frame(page, t['id'])

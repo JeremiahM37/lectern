@@ -160,6 +160,8 @@ const catalog: Record<string, string> = {
   "review.why.noBranch": "请先为新分支命名。",
   "review.why.confirmMain": "勾选上方的复选框才能提交到 {branch}。",
   "review.why.noRemote": "此仓库没有可推送的远程仓库",
+  "review.why.prNeedsPush": "拉取请求需要先推送",
+  "start.sheet.worktreeNeedsProject": "请先选择项目文件夹",
 };
 
 export default catalog;

@@ -7,9 +7,9 @@ not partition the session database or change a running process. Profile paths
 are interpreted on the session's selected target.
 
 In the web UI, choose **Manage launch profiles** — and pick the profile itself —
-under **Advanced options** in New session, or from command search. In the
+under **More options** in Start an agent, or from command search. In the
 terminal dashboard press **P** (also in All actions). Create, edit and delete
-profiles there, then choose one in New session. The selected profile supplies
+profiles there, then choose one in Start an agent. The selected profile supplies
 the agent; the collapsed sheet says which profile is in charge, and an explicit
 model field overrides its default model. Failed saves and launches retain the
 form draft.

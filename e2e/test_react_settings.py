@@ -9,7 +9,7 @@ def test_react_settings_fixture(browser):
    try:urllib.request.urlopen(url);break
    except Exception:time.sleep(.1)
   with browser.new_context() as context:
-   x=context.new_page();x.goto(url);x.get_by_text('local',exact=True).wait_for();x.get_by_text('Probe').click();x.wait_for_function("calls.some(c=>String(c[0]).endsWith('/check'))")
+   x=context.new_page();x.goto(url);x.get_by_role('tab',name='Machines').click();x.get_by_text('local',exact=True).wait_for();x.get_by_text('Probe').click();x.wait_for_function("calls.some(c=>String(c[0]).endsWith('/check'))")
    x.get_by_role('tab',name='Projects').click();x.locator('.pjrow').first.click();x.get_by_text('Save project').click();x.get_by_text('Skill A').wait_for();x.get_by_role('button',name='Attach',exact=True).click();x.wait_for_function("calls.some(c=>c[0]==='/projects/1/skills' && c[1]?.method==='POST')");x.wait_for_function("calls.some(c=>c[0]==='/projects/1')");x.locator('#sheet .x').click();x.get_by_placeholder('/home/you/projects').fill('/src');x.get_by_text('Scan').click();x.get_by_text('Found repo').wait_for();x.get_by_text('Import selected').click();x.wait_for_function("calls.some(c=>c[0]==='/projects/import')")
    x.get_by_role('tab',name='Notifications').click();x.get_by_text('Enable phone alerts').click();x.get_by_text('Save sinks').click();x.get_by_text('Send test').click();x.wait_for_function("calls.some(c=>c[0]==='/settings/test-notification')")
    # push subscribe is not reliably scriptable headless (real PushManager

@@ -28,7 +28,7 @@ def test_exited_agent_card_terminal_and_revive(page, real_terminal):
     page.goto(t["url"] + "/#sessions")
     card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
     expect(card).to_contain_text("agent exited", timeout=15000)
-    expect(page.locator("#now-strip")).to_contain_text("Agent exited")
+    expect(page.locator("#now-strip")).to_contain_text("Ended · agent exited")
     card.get_by_role("button", name="↻ Revive").click()
     expect(page.locator("#toasts")).to_contain_text("Revived", timeout=20000)
     old = t["api"](f"/sessions/{t['id']}")

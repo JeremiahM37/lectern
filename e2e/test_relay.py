@@ -151,9 +151,9 @@ def test_approval_round_trip_over_the_relay(browser, relay_stack):
         phone.click("#f-go")
         expect(phone.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=20000)
         _tab(phone, "approvals")
-        row = phone.locator(".rowcard", has_text="Bash").first
+        row = phone.locator("#approvals-page .approval-card", has_text="Bash").first
         expect(row).to_be_visible()
-        expect(row.locator("pre")).to_contain_text("rm -rf build/")
+        expect(row).to_contain_text("rm -rf build/")
         row.locator("button:has-text('Allow once')").first.click()
         _tab(phone, "board")
         expect(phone.locator(".col.s-review .card", has_text=TITLE)).to_be_visible(timeout=20000)

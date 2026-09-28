@@ -40,8 +40,14 @@ func TestSettingsRoundtrip(t *testing.T) {
 	h := newHarness(t)
 	got := h.get("/api/settings")
 	for _, k := range sinks.Keys {
-		if got.str(k) != "" {
-			t.Errorf("%s should start empty: %q", k, got.str(k))
+		// A new install asks before risky actions (docs/design/simple-ui.md);
+		// everything else starts empty.
+		want := ""
+		if k == "session_permission_mode" {
+			want = "ask"
+		}
+		if got.str(k) != want {
+			t.Errorf("%s should start as %q: %q", k, want, got.str(k))
 		}
 	}
 	var saved obj

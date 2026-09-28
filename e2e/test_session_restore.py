@@ -78,7 +78,7 @@ def test_web_can_track_again_from_untracked_records(page,real_terminal,width):
     expect(page.locator('#sess-search')).to_be_focused()
     expect(page.locator('#sess-search')).to_have_value('Real terminal')
     card=page.locator('.scard',has_text='Real terminal')
-    expect(card).to_contain_text('untracked');expect(card).to_contain_text('Work/Backend')
+    expect(card).to_contain_text('no longer tracked');expect(card).to_contain_text('Work/Backend')
     expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_have_count(0)
     card.get_by_role('button',name='Track again',exact=True).click()
     expect(card.get_by_role('button',name='⌨ Terminal',exact=True)).to_be_visible()

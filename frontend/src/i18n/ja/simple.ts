@@ -160,6 +160,8 @@ const catalog: Record<string, string> = {
   "review.why.noBranch": "先に新しいブランチに名前を付けてください。",
   "review.why.confirmMain": "{branch} にコミットするには上のチェックボックスをオンにしてください。",
   "review.why.noRemote": "このリポジトリにはプッシュ先のリモートがありません",
+  "review.why.prNeedsPush": "プルリクエストにはプッシュが必要です",
+  "start.sheet.worktreeNeedsProject": "先にプロジェクトのフォルダーを選んでください",
 };
 
 export default catalog;

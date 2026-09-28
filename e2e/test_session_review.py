@@ -58,7 +58,7 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     # which is what makes the commit/push step legal (see refuseOnBaseBranch).
     page.goto(t["url"] + "/#sessions")
     page.locator("#sess-new").click()
-    page.get_by_label("Project", exact=True).select_option(str(project["id"]))
+    page.get_by_label("Folder", exact=True).select_option(str(project["id"]))
     open_advanced(page)
     page.get_by_label("Name", exact=True).fill("Review e2e session")
     page.get_by_label("Isolate in a new Git worktree", exact=True).check()

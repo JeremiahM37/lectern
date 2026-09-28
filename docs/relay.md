@@ -73,7 +73,7 @@ Properties:
 
 ## Pairing
 
-1. In **Settings → Devices → Encrypted relay** the owner presses *Pair a
+1. In **Settings → Phone & devices → Encrypted relay** the owner presses *Pair a
    phone over the relay*. This needs the same rights as deciding an approval
    (`CanDecide`), exactly like ordinary pairing.
 2. Lectern mints a single-use pairing code (128 bits, 5 minutes) and a
@@ -196,7 +196,7 @@ detected, but availability is not protected.
 - A compromised **host**: Lectern holds the plaintext by design.
 - A malicious **install origin** or browser extension (see above).
 - Someone who photographs the pairing QR code in the five minutes it is
-  valid. Pairing shows up in Settings → Devices immediately; revoke anything
+  valid. Pairing shows up in Settings → Phone & devices immediately; revoke anything
   you do not recognise.
 - Metadata analysis, as listed above.
 
@@ -284,7 +284,7 @@ LECTERN_RELAY_URL=wss://relay.example.com
 LECTERN_RELAY_HOST_SECRET=<the same secret>
 ```
 
-Restart Lectern. Settings → Devices → Encrypted relay shows the connection
+Restart Lectern. Settings → Phone & devices → Encrypted relay shows the connection
 state and the host's key fingerprint.
 
 ### 3. Pair a phone
@@ -293,7 +293,7 @@ state and the host's key fingerprint.
    control (see "Trusting the app code"). Set that origin as
    `LECTERN_RELAY_SHELL_URL` if it differs from the address you use for
    Settings.
-2. Settings → Devices → Encrypted relay → *Pair a phone over the relay*.
+2. Settings → Phone & devices → Encrypted relay → *Pair a phone over the relay*.
 3. Scan the QR code with the phone, name the device and pair. Add the app to
    the home screen.
 4. Close the tunnel if you opened one. The phone now reaches Lectern only
@@ -301,7 +301,7 @@ state and the host's key fingerprint.
 
 ### Revoke
 
-Settings → Devices → Encrypted relay lists every relay device with its key
+Settings → Phone & devices → Encrypted relay lists every relay device with its key
 fingerprint and last use. *Revoke* deletes the key, closes its connections
 and removes its relay route at once. On the phone, *Forget this pairing*
 deletes the local key.

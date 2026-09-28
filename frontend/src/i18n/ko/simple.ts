@@ -160,6 +160,8 @@ const catalog: Record<string, string> = {
   "review.why.noBranch": "먼저 새 브랜치 이름을 정하세요.",
   "review.why.confirmMain": "{branch}에 커밋하려면 위 확인란을 선택하세요.",
   "review.why.noRemote": "이 저장소에는 푸시할 원격이 없습니다",
+  "review.why.prNeedsPush": "풀 리퀘스트에는 푸시가 필요합니다",
+  "start.sheet.worktreeNeedsProject": "먼저 프로젝트 폴더를 고르세요",
 };
 
 export default catalog;

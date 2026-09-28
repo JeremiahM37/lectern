@@ -93,7 +93,9 @@ export function NewSession({
     [installed, setInstalled] = useState<Record<string, string>>(),
     [model, setModel] = useState(""),
     [mode, setMode] = useState("fresh"),
-    [yolo, setYolo] = useState(true),
+    // Asks until the install's default says otherwise: the safe side while
+    // the setting loads (a new install asks; an unset one runs freely).
+    [yolo, setYolo] = useState(false),
     [prime, setPrime] = useState(""),
     [isolated, setIsolated] = useState(false),
     // Sandbox isolation (internal/isolation, docs/isolation.md) — distinct
@@ -123,14 +125,12 @@ export function NewSession({
         onNotice(t("sessions.dialogs.newSession.loadFailed", { error: String(error) }), true),
       );
     // The operator's global default (docs/agent-events.md section 3) is
-    // what this dialog's Yolo checkbox opens set to — its own explicit
+    // what the "Ask before risky actions" toggle opens set to — its own explicit
     // choice, once touched, is still what actually launches: the request
     // always sends a concrete `yolo` boolean, never omits it.
     void api
       .request<Record<string, string>>("/settings")
-      .then((settings) => {
-        if (settings.session_permission_mode === "ask") setYolo(false);
-      })
+      .then((settings) => setYolo(settings.session_permission_mode !== "ask"))
       .catch(() => {});
     void fetchAgentMenu(api).then(setAgentMenu);
   }, []);
@@ -636,6 +636,7 @@ export function NewSession({
               onChange={(e) => setIsolated(e.target.checked)}
             />{" "}
             {t("sessions.dialogs.newSession.worktree")}
+            {!project && <span className="subhint disabled-why"> — {t("start.sheet.worktreeNeedsProject")}</span>}
           </label>
           {isolated && (
             <div id="ns-worktree-options">

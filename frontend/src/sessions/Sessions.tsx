@@ -535,9 +535,8 @@ export function Sessions({
       </SwipeRow>
     );
   }
-  // Nothing at all yet (the first run, or everything ended and archived):
-  // the page is the one "Start an agent" card, without filters for an
-  // empty list.
+  // Nothing live yet (the first run, or everything ended): the Start an agent
+  // card leads, without an empty "Scratch terminals" section under it.
   const firstRun = scope === "active" && !query && rows.length === 0;
   return (
     <section className={`list wide${firstRun ? " first-run" : ""}`}>
@@ -554,7 +553,7 @@ export function Sessions({
         </div>
         <QuotaChip api={api} />
         <button
-          className="b first-run-hide"
+          className="b"
           id="sess-saved-search"
           onClick={() => setSearch(true)}
           aria-label={t("sessions.list.searchSavedLabel")}
@@ -562,7 +561,7 @@ export function Sessions({
           {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
         </button>
         <button
-          className="b first-run-hide"
+          className="b"
           id="sess-discover"
           onClick={() => setSheet("discover")}
           aria-label={t("sessions.list.findAgentsLabel")}

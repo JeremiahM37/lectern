@@ -551,6 +551,7 @@ export function GitPanel({
           {openPr[0]}
           <code>gh</code>
           {openPr[1]}
+          {(!push || status.has_remote === false) && <span className="sub disabled-why"> — {t("review.why.prNeedsPush")}</span>}
         </label>
         {pr && (
           <>

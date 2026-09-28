@@ -244,5 +244,5 @@ curl .../api/projects/3/capability
 
 Returns the resolved view — profile, reachable MCP servers, memory store,
 granted tools — plus `notes` naming each gap it found, so a remote target with
-no MCP says so instead of looking configured. The Targets tab renders the same
+no MCP says so instead of looking configured. Settings → Machines renders the same
 thing per project with a profile picker.

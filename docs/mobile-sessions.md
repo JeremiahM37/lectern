@@ -1,20 +1,28 @@
 # Using sessions on a phone
 
-A fresh phone opens Sessions. An explicit URL or your remembered view still wins.
+Every device opens on Sessions, the home page; an explicit URL still wins. The
+bottom bar is **Sessions · Approvals · Tasks · Settings · More** (Terminals joins
+it while a terminal is open), and Approvals carries the count of what is waiting
+for you. Session status uses four words everywhere — **Working**, **Needs you**,
+**Idle**, **Ended** — and "Needs you" means an approval or permission prompt,
+never an agent quietly at its prompt.
 Blank shells with no project sit under their own **Scratch terminals** heading,
 apart from **Sessions and projects**, and both lists keep the search, scope and
 grouping controls. **Make a project** on a scratch card promotes it without
 moving its files or restarting its terminal. Agent cards put **Chat** first.
 
-**New session** opens with just **Project** and **Agent** and one **Start
-session** button; the name, group, launch profile, model, worktree isolation,
-start mode, YOLO and first message wait behind **Advanced options**. The chosen
-project's folder and machine are spelled out beneath the picker, and the state
-that changes what a launch does — permission mode above all — stays visible next
-to Start. This browser remembers the project you picked last (a deliberate
-**Blank room** included) and lists recently opened projects first, in New
-session and in Terminal's new-terminal menu. A creation that fails is not
-remembered as recent.
+**Start an agent** opens with a **Folder**, an **Agent** and one toggle, **Ask
+before risky actions** (on for a new install), and one **Start** button; the
+name, group, launch profile, model, worktree isolation, sandbox, start mode and
+first message wait behind **More options**. **Choose…** browses the machine's
+folders; starting in a folder that is not a project yet adds it to your
+projects. Only agents found on that machine are offered, the rest under **More
+agents…**; with none installed, **Try a demo agent** runs a scripted stand-in.
+The chosen folder and machine are spelled out beneath the picker, and the launch
+summary next to Start says whether the agent will ask. This browser remembers
+the project you picked last (a deliberate **new empty folder** included) and
+lists recently opened projects first, in Start an agent and in Terminal's
+new-terminal menu. A creation that fails is not remembered as recent.
 
 Two quick shells never read the same: each scratch card is titled with its own
 scratch folder, shows that full path so it can be read or copied, and keeps
@@ -24,8 +32,10 @@ reload. Cards nobody renamed are titled from their folder; stored rows are never
 rewritten behind your back.
 **Terminal** remains one tap away. Chat preserves
 an unsent draft on the device, shows connection state, and offers working-file
-changes. **Needs you** collects pending approvals, waiting sessions, setup/task
-failures and work ready for review. A failed refresh is shown explicitly.
+changes. **Needs you** collects pending approvals, setup/task failures and work
+ready for review. A failed refresh is shown explicitly. The chat box sends on
+Enter (Shift+Enter adds a line); on a touch-only phone Enter adds a line and the
+Send button sends — Settings → Basics → **Enter in chat** changes either.
 
 In Terminal, session names have their own full-width row. The switcher, new
 terminal, search, menu and navigation controls use a separate row. Swipe sideways
@@ -100,7 +110,7 @@ the targets where its command and credentials are installed.
 <img src="media/mobile/offline-phone.png" width="200" alt="Sessions shown offline with a stale marker">
 </p>
 
-- **Pull to refresh** at the top of Sessions or the Board fetches everything
+- **Pull to refresh** at the top of Sessions or Tasks fetches everything
   again (not the whole page).
 - **Swipe a session card** right to approve what it is waiting on, left to
   archive it (a live session asks first, since archiving stops it). Every
@@ -128,7 +138,7 @@ the targets where its command and credentials are installed.
 <img src="media/mobile/pair-open-in-app-phone.png" width="180" alt="The pairing page in a phone browser offering the Android app">
 </p>
 
-Under each pairing QR code (Settings → Devices), **Copy link** and **Share…**
+Under each pairing QR code (Settings → Phone & devices), **Copy link** and **Share…**
 send the same one-time link by message or email instead of scanning it. The
 https link works in any browser and in the installed web app. **Open in
 Android app** is its `lectern://pair?…` twin, and the pairing page itself, opened
@@ -203,13 +213,14 @@ treatment, split per file. A tool this registry doesn't specifically know
 still gets a real card — name plus collapsed, pretty-printed arguments —
 never a raw JSON blob.
 
-**Approvals are graduated**, in the chat and in Needs you: **Allow once**
-decides just this call; **Allow for this session** (session-scoped
-approvals only — a task attempt's approval has no persistent session for
-the rule to outlive) tells the broker to stop asking for this same tool, or
-this exact Bash command's first token, for the rest of the session, entirely
-in memory and forgotten when the session ends; **Deny with feedback** opens
-a note that is sent back to the agent as the hook's denial message. The
+**Approvals are graduated**, and one card shows them everywhere — the session
+card, the Approvals page, the chat and Needs you: **Allow once** (key **Y**)
+decides just this call; **Allow for this session** (**A**) tells the broker to
+stop asking for this same tool, or this Bash command's first word, for the rest
+of the session, entirely in memory and forgotten when the session ends (a task
+attempt's approval has no session, so there it is **Always allow in this
+project**); **Deny…** (**N**) opens a note that is sent back to the agent as
+the hook's denial message. The
 approval's command or diff renders through the same tool-view registry as a
 chat card, never `JSON.stringify(approval.input)`. Claude and Codex
 interactive sessions share one PermissionRequest hook path end to end, so

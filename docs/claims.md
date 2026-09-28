@@ -128,7 +128,7 @@ b. **PreToolUse edit warning**: an `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
 c. **Launch-time topic check.** `GET /api/claims/topic-overlap?project_id=&text=`
    scores a prospective prompt/title against every active `topic` claim in
    that project's repository. The New task dialog (title + prompt) and the
-   New session dialog (name + first message) both call it (debounced) and
+   Start an agent sheet (name + first message) both call it (debounced) and
    show a warning banner naming the overlapping claim(s) *before* dispatch
    or launch — advisory, the button still works. The same claim also shows up in the
    next briefing (point a) once the session is actually running, so the

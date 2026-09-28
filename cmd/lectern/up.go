@@ -102,7 +102,7 @@ func upCommand(cfg *config.Config, args []string) error {
 			fmt.Fprintf(os.Stderr, "Could not open a browser automatically (%v).\n", err)
 		}
 	}
-	fmt.Printf("\nLectern is running at %s\nNext: open it and press \"Start your first session\".\n", ep.URL)
+	fmt.Printf("\nLectern is running at %s\nNext: open it and press \"Start an agent\".\n", ep.URL)
 	return nil
 }
 
