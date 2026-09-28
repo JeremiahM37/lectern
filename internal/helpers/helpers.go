@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -77,12 +78,32 @@ func Main(args []string) int {
 // Command renders a helper invocation for the target ex drives: the Go port
 // when the target has a lectern binary, otherwise fallback, the Python
 // command line it replaces. args are quoted here.
+//
+// The target's session backend travels with the call as
+// LECTERN_SESSION_BACKEND, so a helper that asks about a session's pane asks
+// the right multiplexer (see Mux).
 func Command(ex executor.Executor, name string, args []string, fallback string) string {
-	bin := executor.TargetEnvOf(ex).Lectern
-	if bin == "" {
+	env := executor.TargetEnvOf(ex)
+	if env.Lectern == "" {
 		return fallback
 	}
-	return Invocation(bin, name, args)
+	cmd := Invocation(env.Lectern, name, args)
+	if env.SessionBackend == "pty" {
+		cmd = "LECTERN_SESSION_BACKEND=pty " + cmd
+	}
+	return cmd
+}
+
+// Mux returns the command that runs a tmux-language command (display-message,
+// list-panes, …) against this machine's session backend: tmux, or this very
+// binary's `pty` subcommand when LECTERN_SESSION_BACKEND=pty.
+func Mux(args ...string) *exec.Cmd {
+	if os.Getenv("LECTERN_SESSION_BACKEND") == "pty" {
+		if self, err := os.Executable(); err == nil {
+			return exec.Command(self, append([]string{"pty"}, args...)...)
+		}
+	}
+	return exec.Command("tmux", args...)
 }
 
 // Invocation renders `BIN helper NAME ARG…` with every word quoted.
