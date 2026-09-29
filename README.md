@@ -2,152 +2,118 @@
 
 # Lectern
 
-**Run every coding agent you use — Claude Code, Codex, Gemini, OpenCode, Aider, Cursor and more —
-on machines you own, and drive them from your terminal, your phone, or a claude.ai chat.**
+**The self-hosted control plane for coding agents.**
 
-![version](https://img.shields.io/badge/version-2.6.2-8b5cf6)
+Run Claude Code, Codex, Gemini CLI and other agents across your workstation,
+SSH servers and disposable sandboxes. Dispatch work, choose where it runs,
+and supervise it from your terminal or phone.
+
+![version](https://img.shields.io/github/v/release/JeremiahM37/lectern)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
-![PWA](https://img.shields.io/badge/phone-PWA-19c37d)
-![MCP](https://img.shields.io/badge/MCP-server-8b5cf6)
-
-![Lectern terminal dashboard](docs/media/terminal-dashboard.gif)
 
 </div>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh
-lectern up          # starts Lectern, finds your agent CLIs, opens the dashboard
-lectern claude      # or: lectern codex, lectern opencode, … in any folder
+lectern up
 ```
 
-Start here: [Linux](docs/getting-started-linux.md) · [macOS](docs/getting-started-macos.md) · [Windows](docs/getting-started-windows.md).
+[Linux](docs/getting-started-linux.md) · [macOS](docs/getting-started-macos.md) · [Windows](docs/getting-started-windows.md)
 
-## What makes Lectern different
+![Choose a machine, dispatch agent work, and review the result in Lectern](docs/media/control-plane/dispatch-review.gif)
 
-### Start work from an ordinary chat
+[Watch the walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots and recording details](docs/media/control-plane/README.md)
 
-Brainstorm in **claude.ai** (web, desktop or phone). Then say *"start a Lectern
-session that builds this"* or *"give my session fixing checkout this PDF"*. The
-design you worked out arrives as context, and uploaded files arrive as the real
-file. Your agent starts on your machine, and *"end that session"* archives it
-when you're done. ChatGPT works the same way with Developer mode. You approve
-the connection yourself, and a chat can never approve an agent's actions.
-→ [Use Lectern from claude.ai and ChatGPT](docs/use-from-chat.md)
+*Recorded from the current app with disposable demo projects and scripted agents.
+The recording demonstrates the control workflow, not model performance or a live cluster.*
 
-![Starting a Lectern session from claude.ai](docs/media/claude-ai-handoff.gif)
+## Your agents. Your machines. One place to run the work.
 
-### Every session one keystroke away
+A coding task needs somewhere to run, a workspace of its own, and a way to
+bring you back when it needs a decision. Lectern connects those pieces across
+the machines you already use.
 
-Type `lectern` for a live dashboard of every agent on every machine.
+1. **Choose the machine and project.** Work locally, on a server over SSH,
+   in an existing Proxmox LXC, or in a fresh sandbox for each task attempt.
+2. **Dispatch to your agent of choice.** Queue work with per-machine concurrency
+   limits. Task attempts get separate git worktrees; race agents on the same
+   problem or use a lead agent to review delegated work.
+3. **Supervise and review from anywhere.** Return to the terminal, inspect
+   changes, answer an approval on your phone, or continue the conversation
+   with another agent.
 
-- **Click** a session to jump in.
-- **Right-click** it to open it in a new terminal window while the list stays put.
-- Press **`b`**, tick several sessions, and open them all at once.
-- Open **Projects** to get a shell in any repository instantly.
+```mermaid
+flowchart LR
+    U["Terminal · Web · Phone · MCP"] --> L["Lectern<br/>Projects, task queue, sessions & approvals"]
+    L --> W["Workstation<br/>Local execution"]
+    L --> S["Servers & VPSes<br/>SSH execution"]
+    L --> E["Disposable environments<br/>Proxmox · Docker · Script hooks"]
+    W & S & E --> A["Claude Code · Codex · Gemini CLI · Custom agents"]
+    A --> R["Changes, checks & requests for approval"]
+    R --> U
+```
 
-`lectern claude` in any folder starts, or reuses, a tracked session there and
-drops you in. In an attached session, **`Ctrl+\`** sends a file to the agent.
-→ [Terminal client](docs/terminal-client.md)
+**Today, placement is explicit:** a project selects its machine and the scheduler
+runs its queued tasks there. Automatic placement by GPU, RAM or OS requirements
+is a future direction, not a current feature. Worktrees separate changes;
+use a sandbox when you also need execution isolation.
 
-**Click any file path or link an agent prints** — even one wrapped across
-lines or outside the project — and it opens. In `lectern attach`, double-click
-opens PDFs in your PDF viewer and links in your browser, on your own machine
-even when the session runs on a server; right-click to download it or send the
-path back to the agent; **`Ctrl+] e`** labels every path on screen so you can
-open one from the keyboard. In the browser terminal and the chat, paths are
-underlined on hover and open in Lectern's viewer (read-only outside the
-project).
-→ [Paths and links](docs/terminal-client.md#paths-and-links-the-agent-prints)
+## Run work where it belongs
 
-![Opening a project shell from the dashboard](docs/media/projects-shell.gif)
+| Execution environment | What Lectern does |
+|---|---|
+| **Your workstation** | Runs the installed agent CLIs locally, with persistent terminals on Linux, macOS and Windows. |
+| **SSH server or VPS** | Runs agents and manages workspaces remotely. Import SSH aliases, use jump hosts, and reconnect to sessions. |
+| **Existing Proxmox LXC** | Executes through `pct` from the Proxmox host. |
+| **Disposable sandbox** | Creates a Proxmox template clone, Docker container, or environment supplied by trusted script hooks for each attempt. Saves results before configured cleanup. |
 
-### Any agent, without cluttered menus
+[SSH machines](docs/ssh.md) · [Sandbox providers and lifecycle](docs/sandboxes.md) · [Isolation options and limits](docs/isolation.md)
 
-Claude Code, Codex and Gemini are built in. Settings → Agents adds 30 more from a
-searchable catalog in one click — OpenCode, Cursor, Copilot CLI, Grok, Amp,
-Antigravity, Qwen Code, Kimi, Goose, Aider, Droid, Kiro, Devin, Pi and the rest —
-or any CLI as a custom agent. Only the agents you pick appear in
-menus, and the rest sit under **More agents…**. Resume, fork, models, approvals,
-tasks and `lectern <agent>` work with each agent as far as its CLI allows.
-Lectern tells you plainly when a CLI can't do something.
-→ [Agents](docs/agents.md)
+![Machines and projects in the current desktop UI](docs/media/control-plane/machines.png)
 
-![Adding an agent from the catalog](docs/media/any-agent.gif)
+## Keep the agent choice yours
 
-**Switch a live session to another agent or model** without losing the thread:
+Claude Code, Codex and Gemini CLI are built in. Add OpenCode, Aider, Goose,
+Cursor and other runners from the catalog, or configure a custom CLI. Agent
+capabilities vary; Lectern exposes what each runner supports.
 
-![Switching a session from Claude to Codex](docs/media/switch-agent.gif)
+Switch a session to another agent with a saved handoff. Adopt Claude and Codex
+sessions started outside Lectern, search saved conversations, and restore
+ended sessions when the agent has resumable history.
 
-### Nothing gets lost
+[Agent catalog and capabilities](docs/agents.md) · [Delegated builds](docs/DELEGATED_BUILDS.md) · [Replay evals](docs/replay-evals.md)
 
-- **Restore** brings back anything that ended: closed, archived, crashed, or
-  cut off by a reboot, with its exact conversation when one was saved — for
-  Claude, Codex and the catalog agents that name or list their sessions
-  (OpenCode, Qwen Code, Goose, Pi and more; see docs/agents.md). Ending a
-  session offers **Undo**, an agent that exits shows **Revive**, and
-  `lectern restore` does the same from any terminal.
-- Sessions stay grouped by project and machine.
-- Lectern finds and adopts Claude and Codex sessions you started outside it.
-- Every saved Claude and Codex conversation on your machines is searchable,
-  including ones Lectern never launched.
+## Stay in control from your desk or phone
 
-![Restoring a session: ending one offers Undo, and Restore brings its conversation back](docs/media/recently-closed.gif)
+The terminal dashboard, desktop web app and installable phone PWA look at the
+same work. See which sessions need you, read tool calls and diffs, and approve
+or deny requests. Phone pairing and an optional encrypted relay support access
+without requiring Tailscale.
 
-### Your phone is the remote
+<img src="docs/media/control-plane/phone-approval.png" alt="A pending approval in the phone layout" width="300">
 
-The same control loop runs in an installable phone app:
+Start work from a claude.ai or supported ChatGPT connector, too: send a design
+or attachment into a session on your machine. Chat connectors cannot approve
+agent actions.
 
-- Sessions that need you are flagged on their cards.
-- Chat shows tool calls as cards, with real diffs.
-- Approvals offer **allow once**, **allow `npm …` this session**, or **deny with
-  feedback**, from the app or straight from the notification.
-- **Voice mode** lets you talk to your agent and approve out loud, using only
-  the browser's free speech engine.
-- No Tailscale? Run **`lectern relay`** on any small server and pair a phone
-  by QR code. Traffic is **end-to-end encrypted** (Noise, the protocol behind
-  WireGuard); the relay only passes sealed frames and never serves app code.
-- An **Android app prototype** bundles the same web app:
-  [download the signed 0.2.1 APK](https://github.com/JeremiahM37/lectern/releases/download/v2.6.0/lectern-android-0.2.1.apk) or
-  [build it from source](docs/android.md). It
-  keeps the relay key in Keystore, and takes Approve / Deny / Reply from the
-  notification with no Lectern screen open, via UnifiedPush and ntfy.
+[Terminal client](docs/terminal-client.md) · [Phone supervision](docs/mobile-sessions.md) · [Remote access](docs/remote-access.md) · [Chat connectors](docs/use-from-chat.md)
 
-→ [Mobile sessions](docs/mobile-sessions.md) · [Relay](docs/relay.md) · [Remote access](docs/remote-access.md) · [Android app](docs/android.md)
+## The everyday details are here, too
 
-![Lectern on a phone](docs/media/phone.gif)
+- **Files travel with the work.** Open a remote PDF or file path an agent prints;
+  the native client opens it locally, while the web app has a built-in viewer.
+  Drop files into the web workspace or upload them to a session.
+  [Files](docs/files.md) · [Paths and links](docs/terminal-client.md#paths-and-links-the-agent-prints)
+- **Review and follow-through.** Inspect diffs, run checks, open PRs, and send
+  failed CI results back to the agent. [Review](docs/review.md) · [CI loop](docs/ci-loop.md)
+- **Continuity.** Restore sessions, handle provider rate limits, track usage and
+  budgets, and bring project knowledge through optional Grimoire integration.
+  [Rate limits](docs/rate-limits.md) · [Budgets](docs/budgets.md) · [Memory](docs/AUTOMATIC_MEMORY.md)
+- **A browser beside the work.** Watch the agent's browser, take over, or send
+  a page element's context back to the agent. [Browser tools](docs/browser.md)
 
-### More than a launcher
-
-- **A board of tasks:** dispatch work to any machine, each task in its own git
-  worktree, and review the diff or open a PR when it's done.
-- **CI loop:** when a PR's checks fail, Lectern sends the failing jobs and a
-  trimmed log back to the agent that wrote the code, up to 3 tries, and pings
-  your phone when it goes green. → [CI loop](docs/ci-loop.md)
-- **Usage limits:** when Claude, Codex or Gemini hits its limit, the card and
-  your phone show when it resets. Lectern can resume the same agent after the
-  reset, hand the work to another agent in the same workspace, or (opt-in)
-  continue the same conversation under another of your signed-in accounts of
-  that CLI. → [Rate limits](docs/rate-limits.md), [Accounts](docs/accounts.md)
-- **Best-of-N with a judge, and delegated builds:** a cheap worker builds and a
-  lead reviews and integrates.
-- **A browser beside every session:** watch the agent drive a real browser on
-  its machine and take over at any time, or click any element of your dev
-  server to send its HTML, CSS and a cropped screenshot to the agent.
-  → [Browser](docs/browser.md)
-- **Replay evals:** find out which agent or model is best *for your repo*,
-  scored against what actually shipped.
-- **Agents that know about each other:** each session sees what its peers are
-  editing in the same repo, plus a claim board for who's doing what.
-- **Memory:** pairs with [Grimoire](https://github.com/JeremiahM37/grimoire), so
-  a new session starts with the project's knowledge.
-- **Budgets, usage and quota** at a glance, and checks that run when an agent
-  stops.
-- **Runs anywhere:** your laptop, anything reachable over SSH, a Proxmox
-  container, or an ephemeral sandbox. One static binary, MIT licensed.
-- **Scales:** one Lectern process ran 250 concurrent sessions across 4
-  targets with 65 MB of memory; approvals round-trip in about 7 ms.
-  → [Benchmark](docs/benchmarks/scale.md)
+[More screenshots and file demonstrations](docs/media/control-plane/README.md) · [Full guide](docs/guide.md)
 
 ## Install
 
