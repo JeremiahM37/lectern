@@ -71,9 +71,9 @@ steps:
       - wait: 2.5
     expect:
       vision: >
-        the Lectern web app with a desktop sidebar showing Sessions, Approvals, Tasks, Terminals
-        and Settings directly, with no More flyout, and a list of agent sessions or a clear "Start an agent"
-        action; no error text, no blank white screen
+        the Lectern web app with a short desktop sidebar whose main items are Sessions, Approvals and
+        Settings plus a "More" group (Tasks or Terminals may also appear while in use), and a list of
+        agent sessions or a clear "Start an agent" action; no error text, no blank white screen
 
   - name: tasks board renders live
     actions:

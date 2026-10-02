@@ -117,6 +117,11 @@ func TestLimitedTaskWithEveryAccountLimitedFallsBack(t *testing.T) {
 	task := h.task(pid, "limited", "Refactor the parser [mock:limit]", nil)
 	h.post(fmt.Sprintf("/api/tasks/%d/dispatch", task.id()), obj{}, 200)
 	h.waitUntil("the continuation attempt", func() bool { return len(h.attempts(task.id())) == 2 })
+	// The second attempt can start a moment before the hold is marked requeued.
+	h.waitUntil("the hold to be requeued", func() bool {
+		hold, _ := h.App.DB.LatestLimitHoldForTask(task.id())
+		return hold != nil && hold.State == limits.StateRequeued
+	})
 	hold, _ := h.App.DB.LatestLimitHoldForTask(task.id())
 	if hold.State != limits.StateRequeued || hold.Policy != limits.ModeWait {
 		t.Fatalf("fallback hold: %+v", hold)
