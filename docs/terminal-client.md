@@ -219,33 +219,47 @@ separate desktop URI installers enable opening an attachment from the web UI.
 
 ## Attached terminal controls
 
-A native attachment (`lectern attach`, Enter in the dashboard, or `lectern
-shell`) runs inside a private tmux server Lectern owns for that one attachment.
-The agent's session, the control plane's tmux, and your own tmux config and
-server are untouched: the wrapper binds its own socket in a private `0700`
-directory and removes it when the attachment ends.
+A native attachment (`lectern attach`, `lectern claude`, Enter in the
+dashboard, or `lectern shell`) gets the same key bar and keys whether or not
+tmux is installed:
 
-The bar at the top reads `Ctrl+] menu · Ctrl+] d leave · Ctrl+\\ send file ·
+- **With tmux on this machine**, the attachment runs inside a private tmux
+  server Lectern owns for that one attachment. The agent's session, the
+  control plane's tmux, and your own tmux config and server are untouched:
+  the wrapper binds its own socket in a private `0700` directory and removes
+  it when the attachment ends.
+- **Without tmux** (the usual case on macOS, Windows and minimal Linux, where
+  sessions live on Lectern's own PTY host), the `lectern` client draws the
+  session itself in a terminal emulator, with the key bar on the bottom row.
+  Set `LECTERN_NATIVE_BARE=1` to use it even where tmux is installed.
+
+The bar reads `Ctrl+] menu · Ctrl+] d leave · Ctrl+\\ send file ·
 double-click opens paths`. Below 60 columns it keeps `Ctrl+] menu · Ctrl+] d
 leave`. When the session is waiting for an approval, the bar starts with
-`⏸ Needs you: <what it asks> · Ctrl+] m answers`.
+`⏸ Needs you · Ctrl+] y allow · Ctrl+] m more`, then what it asks; the keys
+come first so a narrow terminal cuts the request, not the way to answer it.
 
 Pressing **Ctrl+]** turns the bar into the list of keys that can follow it,
-until you press one: `m actions · u send file · | shell right · - shell below
-· e open a link · d leave · ? all keys`. **Ctrl+] ?** opens a menu with every
-attach key, which you can also click.
+until you press one: `m actions · d leave · u send file · | shell right ·
+- shell below · e open a link · ? all keys`. **Ctrl+] ?** opens a menu with
+every attach key, which you can also click; clicking the bar does the same
+without tmux.
 
 | Keys while attached | Action |
 | --- | --- |
 | Ctrl+] then d | Leave; the session keeps running and you return where you started. This is Lectern's own key, so it also works inside your own tmux |
-| Ctrl+\\ | Send a file from this machine to the agent as context (one chord) |
+| Ctrl+\\ | Send a file from this machine to the agent as context (one chord). Always taken by Lectern: it never reaches the agent as SIGQUIT, which would end it |
 | Double-click a path or link | Open it on this machine (see below) |
 | Right-click a path or link | Its menu: open, download, copy, send to the agent, web viewer |
+| Ctrl+] then y | Allow the request the bar says is waiting, once |
 | Ctrl+] then m | Lectern actions for this session. When it needs you, the first items answer the approval (y allow once, a allow for this session) and the popup closes back to the agent |
 | Ctrl+] then e | Label every path and link on screen; type a label to open it, Shift+label for its menu |
 | Ctrl+] then u | Same file sender as Ctrl+\\ |
 | Ctrl+] then \| | A shell on the session's machine, in the agent's directory, beside the agent |
 | Ctrl+] then - | The same shell, below the agent (Ctrl+] % and " split the same way; Ctrl+] c opens it in a new window) |
+| Ctrl+] then o / x | Without tmux: move to the next pane / close a shell pane (its shell session keeps running) |
+| Ctrl+] then [ | Scroll back (↑↓ PgUp PgDn; q or Esc returns). Without tmux, the wheel does the same when the program does not use the mouse |
+| Drag | Without tmux: select text and copy it to your clipboard (OSC 52) |
 | Ctrl+] then ? | Every attach key in a menu |
 | Ctrl+] then Ctrl+] | Send a literal Ctrl+] to the agent |
 | Ctrl-b … | Everything the agent's own tmux normally does, unchanged; Ctrl-b then d also leaves |
@@ -257,7 +271,16 @@ the current behavior. The Ctrl+] m menu is the dashboard's own short menu for
 the current session or task, with its key beside each item, and `:` inside it
 searches every command. Native attach actions are hidden there, because the
 popup never nests another terminal inside itself. Esc from that menu closes
-the popup; Esc from a form or a code review returns to the menu.
+the popup; Esc from a form or a code review returns to the menu. A popup
+opened for one action (Ctrl+\\ to send a file) closes back to the agent when
+that action is done or cancelled.
+
+Without tmux, a program that turns on mouse reporting gets clicks in its own
+coordinates (hold Shift to select text instead), keyboard protocols the agent
+asks for (kitty keys, modifyOtherKeys) are passed through, and a copy the
+agent makes (OSC 52) reaches your clipboard; a request to read the clipboard
+is never passed on. Ctrl-b keys go to the session as typed: on the PTY host
+there is no agent-side tmux, so leave with Ctrl+] d.
 
 The popup runs on the machine where the native client runs, so upload paths refer to files on that machine. Reviews still show the agent's
 workspace on its target. When a direct SSH launcher uses the server-provided

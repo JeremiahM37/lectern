@@ -132,7 +132,7 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.discover.intro": "L’adopter ne le redémarre pas et ne le perturbe pas.",
   "sessions.dialogs.discover.empty": "Aucun agent en cours trouvé sur aucune machine.",
   "sessions.dialogs.discover.projectFor": "Projet pour {name}",
-  "sessions.dialogs.discover.unassigned": "Non attribué",
+  "sessions.dialogs.discover.unassigned": "Sans projet",
   "sessions.dialogs.discover.adopt": "Adopter",
 
   "sessions.dialogs.handoff.requested": "Passation demandée — elle arrivera quand l’agent aura fini son tour",
@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "sessions.actionMenu.more": "Plus ···",
 
   "sessions.groups.ungrouped": "Sans groupe",
-  "sessions.groups.unassigned": "Non attribué",
+  "sessions.groups.unassigned": "Sans projet",
   "sessions.groups.waiting": " · {n} vous attendent",
 
   "sessions.card.duration.seconds": "{s} s",
@@ -180,7 +180,7 @@ const catalog: Record<string, string> = {
   "sessions.card.previewSettingUp": "Configuration de l’espace de travail… Le rattachement sera possible une fois la configuration terminée.",
   "sessions.card.progressUnavailable": "Progression indisponible : {error}",
   "sessions.card.setupFailedPreview": "Échec de la configuration : {error}",
-  "sessions.card.unassigned": "Non attribuée",
+  "sessions.card.unassigned": "Sans projet",
   "sessions.card.quiet": "silencieuse depuis {duration}",
   "sessions.card.copyPath": "Copier le chemin",
   "sessions.card.accountTitle": "Le compte sous lequel tourne cet agent (Réglages → Comptes)",
@@ -251,7 +251,7 @@ const catalog: Record<string, string> = {
   "sessions.card.stopArchiveConfirm": "Arrêter « {name} » et déplacer son enregistrement dans les archives ? Cela termine son processus de terminal. La sortie capturée, les conversations enregistrées et les fichiers du worktree sont conservés.",
   "sessions.card.stopArchive": "Arrêter et archiver",
   "sessions.card.project": "Projet",
-  "sessions.card.unassignedOption": "— non attribué —",
+  "sessions.card.unassignedOption": "— sans projet —",
 
   "sessions.needsYou.reason.approval": "Approbation requise",
   "sessions.needsYou.reason.waiting": "Vous attend",
@@ -274,7 +274,7 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.toBoard": "→ Tâches",
   "sessions.needsYou.setupUnfinished": "la configuration de l’espace de travail n’a pas abouti",
   "sessions.needsYou.terminalGone": "son terminal a disparu",
-  "sessions.needsYou.unassigned": "non attribuée",
+  "sessions.needsYou.unassigned": "sans projet",
   "sessions.needsYou.overlap": "Leurs dernières invites se recoupent à {percent} % — vérifiez qu’elles ne construisent pas la même chose",
   "sessions.needsYou.openSession": "Ouvrir la session",
   "sessions.needsYou.openNamed": "Ouvrir {name}",

@@ -132,7 +132,7 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.discover.intro": "가져와도 다시 시작되거나 방해받지 않습니다.",
   "sessions.dialogs.discover.empty": "어느 머신에서도 실행 중인 에이전트를 찾지 못했습니다.",
   "sessions.dialogs.discover.projectFor": "{name}의 프로젝트",
-  "sessions.dialogs.discover.unassigned": "미지정",
+  "sessions.dialogs.discover.unassigned": "프로젝트 없음",
   "sessions.dialogs.discover.adopt": "가져오기",
 
   "sessions.dialogs.handoff.requested": "인계를 요청했습니다 — 에이전트가 현재 차례를 마치면 반영됩니다",
@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "sessions.actionMenu.more": "더 보기 ···",
 
   "sessions.groups.ungrouped": "그룹 없음",
-  "sessions.groups.unassigned": "미지정",
+  "sessions.groups.unassigned": "프로젝트 없음",
   "sessions.groups.waiting": " · {n}개 확인 필요",
 
   "sessions.card.duration.seconds": "{s}초",
@@ -180,7 +180,7 @@ const catalog: Record<string, string> = {
   "sessions.card.previewSettingUp": "작업 공간을 설정하는 중… 설정이 끝나면 연결할 수 있습니다.",
   "sessions.card.progressUnavailable": "진행 상황을 확인할 수 없음: {error}",
   "sessions.card.setupFailedPreview": "설정 실패: {error}",
-  "sessions.card.unassigned": "미지정",
+  "sessions.card.unassigned": "프로젝트 없음",
   "sessions.card.quiet": "{duration} 동안 조용함",
   "sessions.card.copyPath": "경로 복사",
   "sessions.card.accountTitle": "이 에이전트가 사용하는 로그인 계정(설정 → 계정)",
@@ -251,7 +251,7 @@ const catalog: Record<string, string> = {
   "sessions.card.stopArchiveConfirm": "\"{name}\"을(를) 중지하고 기록을 보관함으로 옮길까요? 터미널 프로세스가 종료됩니다. 캡처된 출력, 저장된 대화 및 워크트리 파일은 유지됩니다.",
   "sessions.card.stopArchive": "중지 후 보관",
   "sessions.card.project": "프로젝트",
-  "sessions.card.unassignedOption": "— 미지정 —",
+  "sessions.card.unassignedOption": "— 프로젝트 없음 —",
 
   "sessions.needsYou.reason.approval": "승인 필요",
   "sessions.needsYou.reason.waiting": "사용자 대기",
@@ -274,7 +274,7 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.toBoard": "→ 작업",
   "sessions.needsYou.setupUnfinished": "작업 공간 설정이 끝나지 않았습니다",
   "sessions.needsYou.terminalGone": "터미널이 사라졌습니다",
-  "sessions.needsYou.unassigned": "미지정",
+  "sessions.needsYou.unassigned": "프로젝트 없음",
   "sessions.needsYou.overlap": "마지막 프롬프트가 {percent}% 겹칩니다 — 같은 것을 만들고 있지 않은지 확인하세요",
   "sessions.needsYou.openSession": "세션 열기",
   "sessions.needsYou.openNamed": "{name} 열기",

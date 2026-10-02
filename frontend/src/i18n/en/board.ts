@@ -317,9 +317,9 @@ const catalog: Record<string, string> = {
   "board.claims.release": "Release",
 
   // SessionClaims
-  "board.claims.sessionChipTitle": "Active claims in this repository",
-  "board.claims.sessionChip.one": "📌 {count} claim",
-  "board.claims.sessionChip.other": "📌 {count} claims",
+  "board.claims.sessionChipTitle": "Work announced in this repository, so agents do not repeat it",
+  "board.claims.sessionChip.one": "{count} in progress here",
+  "board.claims.sessionChip.other": "{count} in progress here",
 
   // Evals (agent tests)
   // Run, result and run-comparison statuses.
