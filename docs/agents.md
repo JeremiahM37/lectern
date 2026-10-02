@@ -390,7 +390,7 @@ onto Lectern's timeline, and its limits.
 ## Catalog verification
 
 Checked on 2026-09-27. Each CLI was installed under a throwaway prefix
-(`/mnt/bulk/cli-probe`, a private `HOME`, nothing logged in) and every flag
+(a private `HOME`, nothing logged in) and every flag
 below was read from its `--help`; every ACP command was started and answered
 an ACP `initialize` request (Kiro's needs a login first, so only its
 `acp --help` was read). "Interactive context" is what Lectern passes to an

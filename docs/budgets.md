@@ -10,7 +10,7 @@ path.
 
 Budgets answer "how much did we spend" and "stop us before we spend too
 much." They deliberately do not answer "was the spend worth it" — that is
-[docs/outcomes.md](docs/outcomes.md), which ties the same `usage_daily`/
+[docs/outcomes.md](outcomes.md), which ties the same `usage_daily`/
 `attempts` history (plus exact OTel telemetry where available) to what each
 dollar actually produced.
 

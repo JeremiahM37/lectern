@@ -1,6 +1,6 @@
 // "Report keyboard layout" — a hidden Tools-menu diagnostic for the
 // long-running "the keyboard still covers the prompt on my phone" issue
-// (docs/testing/mobile-terminal.md, and the Sept 2026 investigation notes in
+// (docs/internal/testing/mobile-terminal.md, and the Sept 2026 investigation notes in
 // agent memory) that every emulator/Playwright reproduction attempt has
 // failed to reproduce on the owner's actual device. Rather than guess again,
 // this captures the exact numbers a real device sees — visualViewport, the

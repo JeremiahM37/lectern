@@ -2,7 +2,7 @@
 
 Status: design for branch `simple-tui`. It covers the terminal side of the
 2026-09-28 usability audit (problems #12 and #13, and the terminal parts of
-#5, #6 and #8). Inputs: `/mnt/bulk/ux-audit/audit.md`, `notes-tui.md` and the
+#5, #6 and #8). Inputs: the new-user audit, its `notes-tui.md` and the
 TUI section of `research.md` (lazygit, k9s and btop conventions).
 
 ## Goal
@@ -291,7 +291,7 @@ running." instead of leaving tmux's `[exited]` as the last line.
 
 ## Round 2: attaching without tmux
 
-The re-audit (`/mnt/bulk/ux-audit/after/reaudit.md`, N1) found that with the
+The re-audit (N1) found that with the
 PTY host as the default backend, a machine without tmux got none of the above:
 no bar, no Ctrl+] menu, a wrong "Ctrl-b d still detaches" line that the agent
 wiped at once, a Ctrl+\ that killed the agent, and a dead agent's pane that

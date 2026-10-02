@@ -11,7 +11,7 @@ America/Denver, without interrupting an active worker. It searches Grimoire,
 checks Lectern projects, active tasks, saved artifacts and prior cycle records,
 then refreshes a persistent, ranked backlog. The backlog favors ambitious,
 high-value projects with strong leads, affordable next steps, novelty and clear
-reasons. It may include long-running research contributions and homelab fixes;
+reasons. It may include long-running research contributions and infrastructure fixes;
 the planner chooses work that can make useful progress within the current
 budget. A cycle is a bounded interval, not a cap on the project's scope. Later
 cycles continue from retained files, reports and explicit checkpoints.
@@ -65,7 +65,7 @@ promotion is deliberately separate from autonomous building.
 Source repositories are snapshotted at committed HEAD; dirty work and live
 sessions are not edited. Source archives over100MiB or with unsafe/link entries
 are refused. Build/review workspaces have 2GiB hard capacity. Durable gzip
-artifact snapshots are made after completion/stopping, and the homelab backup
+artifact snapshots are made after completion/stopping, and the host backup
 includes them. Private auth/runtime assets and duplicate backing images are
 excluded from off-box artifact backups. A control-plane database backup keeps
 the daily state and task receipts. Retained work uses at most50GiB before the
@@ -117,7 +117,7 @@ uses persisted operational retry backoff and resumes with a fresh job.
 
 Autonomous mode and peer approval never authorize a public action. Pushes, PRs,
 issues, comments, releases, public uploads, messages and deployments require
-Jeremiah’s explicit consent for the specific action. Workers prepare local drafts
+the owner’s explicit consent for the specific action. Workers prepare local drafts
 and downloadable artifacts only. This release offers no publish button or agent
 approval path. A human-directed session may publish only after receiving consent.
 

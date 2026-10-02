@@ -61,8 +61,8 @@ dashboard required, and it's still on your phone the moment you detach.
   **Pick this one** or **⚖ Judge**. Delegated builds (opt-in) run a cheap
   worker in its own worktree while a lead reviews, corrects and integrates its
   diff.
-- **Eval suites on your own repo.** `eval/capability` runs the real agent loop
-  against a simulated homelab — no production side effects, model-agnostic.
+- **Eval suites on your own repo.** [Agent tests](evals.md) check an agent's
+  work against your own test cases.
   [Replay evals](replay-evals.md) build a suite straight from a project's
   own merged-PR history, so "which agent/model is best for MY repo" is
   ground-truthed against what actually shipped instead of a hand-written prompt.
@@ -290,7 +290,7 @@ combinations and saved replies, and held arrows repeat. Use **Tools → Write or
 paste text** for a longer prompt; **Insert** pastes the text and **Send** also
 presses Enter. Pinch changes text size, long press selects output while the
 agent keeps running, a tap on a `path:line` or an address opens it, and **Live**
-returns from retained scrollback. See [Using sessions on a phone](mobile-sessions.md#the-phone-terminal). See the [mobile testing guide](testing/mobile-terminal.md)
+returns from retained scrollback. See [Using sessions on a phone](mobile-sessions.md#the-phone-terminal). See the [mobile testing guide](internal/testing/mobile-terminal.md)
 for the Android emulator audit and its coverage limits.
 
 **A hung agent is caught where it happens.** An agent's TUI can deadlock while
@@ -574,7 +574,7 @@ review are available without opening the browser. Ctrl+] then d returns from an
 attached session. Use `lectern serve` to run the server explicitly, or
 `lectern console --plain` for the line-oriented client.
 See [terminal client](terminal-client.md) for installation and shortcuts,
-and the [bounded terminal experience comparison](terminal-experience-review.md)
+and the [bounded terminal experience comparison](internal/terminal-experience-review.md)
 for the current evidence ledger.
 
 

@@ -170,8 +170,8 @@ repeats the network checks after the hold to support that test.
 
 ## Controller research directory
 
-The homelab service runs as admin. Provision its persistent research directory
-before enabling the workshop:
+When the controller service runs as a regular user (`admin` in this example),
+provision its persistent research directory before enabling the workshop:
 
 ```sh
 sudo install -d -o admin -g admin -m 0750 /mnt/bulk/lectern-autonomy/research
@@ -180,8 +180,8 @@ sudo install -d -o admin -g admin -m 0750 /mnt/bulk/lectern-autonomy/research
 The root-owned parent remains protected; its research child must be writable by
 the controller so first-run Git/project initialization succeeds. Do not
 recursively chown job images or worker mounts. This directory is persistent and
-already covered by the workshop backup. Do not use systemd-tmpfiles here: this
-host's admin-owned /mnt/bulk followed by the root-owned workshop parent triggers
+already covered by the workshop backup. Do not use systemd-tmpfiles here: a
+user-owned /mnt/bulk followed by the root-owned workshop parent triggers
 its unsafe ownership-transition check.
 
 

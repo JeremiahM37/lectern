@@ -381,7 +381,7 @@ the machine you are sitting at**, even when the session runs on a server: a
 web address in your default browser, a file (a PDF, an image, a report) in its
 default app. The file is fetched read-only through the Lectern API into a
 private folder (`0700`) under its own name, and swept after a day. It works
-for paths outside the workspace (`/home/you/.formwork/report.pdf`, `~/notes/x.md`)
+for paths outside the workspace (`/home/you/reports/report.pdf`, `~/notes/x.md`)
 and for paths an agent's TUI wrapped across rows: detection is the Go port of
 the web terminal's (`internal/filelinks`), run on the same test vectors. A bare
 name (`report.md`) counts only if the workspace has that file. Double-clicking
@@ -486,7 +486,7 @@ lectern agent save @agents.json
 lectern api POST /sessions '{"name":"Work","profile_id":7,"scratch":true}'
 lectern api GET /sessions
 lectern api POST /sessions '{"name":"Scratch","agent":"codex","scratch":true}'
-lectern shell AIServer
+lectern shell build-box
 lectern api POST /tasks/12/takeover '{}'
 lectern api PATCH /routines/3 '{"enabled":false}'
 lectern api POST /sessions/4/send '{"text":"Run the tests"}'

@@ -75,25 +75,6 @@ independent terminals, reload, mobile geometry, pop-out and non-destructive clos
 `e2e/test_terminal_scroll.py` verifies wheel and real touch gestures against a
 mouse-driven full-screen process, plus history from before attachment.
 
-## Deployment verification — 2026-09-08
-
-Deployed on AIServer; all 10 pre-existing tmux sessions survived the restart.
-`verify`: **PASS: 6/6 steps passed (backend=web)**, including the full Go suite
-and 68 browser tests. No error-priority service journal entries after deployment.
-
-A portable Windows WezTerm 20240203-110809-5046fc22 trial displayed a tmux
-session also attached through the deployed browser terminal. Its native
-`wezterm cli get-text` returned the marker entered in the browser. Windows
-PowerShell parsed the setup and launcher scripts and rejected malformed links.
-The native desktop connection still requires the operator's SSH alias/key setup;
-the trial did not install WezTerm or the URI handler permanently.
-
-The desktop's WSL instance subsequently stopped and returned
-`Wsl/Service/E_UNEXPECTED` to new invocations. No WSL restart or configuration
-change was performed. The production local-target browser check separately
-verified keyboard input and upload/path insertion. Existing remote-upload tests
-remain in the suite; do not mistake a stopped WSL instance for a ttyd failure.
-
 ## Shared native and browser terminals
 
 Opening Kitty or WezTerm keeps the browser attached to the same tmux session.

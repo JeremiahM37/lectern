@@ -1,10 +1,9 @@
 # Delegated builds: measured against the all-lead baseline and the upstream workflow
 
-Taken 2026-09-21/22 on one machine (AIServer, 32 cores), lead model GPT-6
+Taken 2026-09-21/22 on one machine (32 cores), lead model GPT-6
 Astra on a ChatGPT subscription, worker DeepSeek Flash through the DeepSeek
-API. Every number below was recorded by the harness in
-`/mnt/bulk/codex-bench` from Codex's own session records; nothing is
-estimated from task counts or durations.
+API. Every number below was recorded by the benchmark harness from Codex's
+own session records; nothing is estimated from task counts or durations.
 
 ## What was measured
 
