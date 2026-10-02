@@ -129,7 +129,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   // Cmd+P (Mac) or Ctrl+Alt+P opens Go to file.
   def("files.goToFile", "Go to file", "Files", "terminal", ["Mod+P", "Mod+Alt+P"], "quick open fuzzy file finder"),
   def("files.search", "Search in files", "Files", "terminal", ["Mod+Alt+F"], "grep ripgrep find in files"),
-  def("terminal.attach", "Attach files", "Terminal", "terminal", [], "upload"),
+  def("terminal.attach", "Add file", "Terminal", "terminal", [], "upload"),
   def("terminal.compose", "Write or paste text", "Terminal", "terminal", [], "compose prompt"),
   def("terminal.quickCommands", "Quick commands", "Terminal", "terminal", ["Mod+Shift+Space"], "snippets saved replies"),
   def("terminal.appearance", "Terminal appearance", "Terminal", "terminal", [], "theme font"),

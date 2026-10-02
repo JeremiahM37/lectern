@@ -1307,7 +1307,7 @@ export default function App() {
               <summary className="tab nav-group-summary" aria-label={t("app.morePages")}>
                 <span className="tab-ic" aria-hidden="true">···</span>
                 {t("nav.more")}
-                <b className="badge dim" hidden={here || moreOpen || !terminals.tabs.length}
+                <b className="badge dim" hidden={here || moreOpen || !terminals.tabs.length || !entries.some((entry) => "view" in entry && entry.view === "terminals")}
                   title={t("nav.terminalsOpen", { n: terminals.tabs.length })}>
                   {terminals.tabs.length}
                 </b>

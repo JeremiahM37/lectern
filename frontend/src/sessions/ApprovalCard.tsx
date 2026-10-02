@@ -55,6 +55,7 @@ export function ApprovalCard({
   compact = false,
   showContext = false,
   autoFocus = false,
+  globalKeys = false,
   onNotice,
 }: {
   approval: Approval;
@@ -66,6 +67,12 @@ export function ApprovalCard({
   /** Name the session or task it came from (the Approvals page). */
   showContext?: boolean;
   autoFocus?: boolean;
+  /**
+   * Y / A / N work anywhere on the page, not only while the card has focus —
+   * except while typing in a field (a terminal's input is a textarea, so keys
+   * typed into the terminal still go to the terminal).
+   */
+  globalKeys?: boolean;
   /** Given, the deny note can be dictated (it reports dictation errors). */
   onNotice?(text: string, error?: boolean): void;
 }) {
@@ -124,10 +131,11 @@ export function ApprovalCard({
   };
   const deny = () => void act("deny", "denied", { note: note.trim() || undefined });
 
-  function keys(event: KeyboardEvent<HTMLDivElement>) {
-    if (decided || busy || event.altKey || event.ctrlKey || event.metaKey) return;
-    const tag = (event.target as HTMLElement).tagName;
-    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+  function keys(event: KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent) {
+    if (decided || busy || denying || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || target?.isContentEditable) return;
     const key = event.key.toLowerCase();
     if (key === "y") allowOnce();
     else if (key === "a") allowSecond();
@@ -135,6 +143,18 @@ export function ApprovalCard({
     else return;
     event.preventDefault();
   }
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  useEffect(() => {
+    if (!globalKeys) return;
+    const listener = (event: globalThis.KeyboardEvent) => {
+      // The card's own handler already ran for keys pressed inside it.
+      if (root.current?.contains(event.target as Node)) return;
+      keysRef.current(event);
+    };
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, [globalKeys]);
 
   const context = approval.session_id
     ? approval.session_name || t("approval.sessionFallback", { id: approval.session_id })

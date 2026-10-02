@@ -14,7 +14,7 @@ const catalog: Record<string, string> = {
 
   "terminalPage.header.back": "Lectern に戻る",
   "terminalPage.tools.navLabel": "ターミナルツール",
-  "terminalPage.tools.attach": "ファイルを添付",
+  "terminalPage.tools.attach": "ファイルを追加",
   "terminalPage.tools.files": "ファイル",
   "terminalPage.tools.openInTerminal": "ターミナルで開く",
   "terminalPage.tools.toggle": "ツール",
@@ -172,6 +172,8 @@ const catalog: Record<string, string> = {
   "terminalPage.tabs.projects": "プロジェクト",
   "terminalPage.tabs.machines": "マシン",
   "terminalPage.tabs.noMatches": "一致するプロジェクトやマシンはありません",
+  "terminalPage.approval.label": "承認待ち",
+  "terminalPage.approval.more": "このあとにさらに {n} 件が待っています",
 };
 
 export default catalog;

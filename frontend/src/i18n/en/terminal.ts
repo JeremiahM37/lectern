@@ -23,7 +23,7 @@ const catalog: Record<string, string> = {
   // Header and Tools menu
   "terminalPage.header.back": "Back to Lectern",
   "terminalPage.tools.navLabel": "Terminal tools",
-  "terminalPage.tools.attach": "Attach files",
+  "terminalPage.tools.attach": "Add file",
   // Noun: opens the workspace file browser.
   "terminalPage.tools.files": "Files",
   "terminalPage.tools.openInTerminal": "Open in terminal",
@@ -220,6 +220,8 @@ const catalog: Record<string, string> = {
   "terminalPage.tabs.projects": "Projects",
   "terminalPage.tabs.machines": "Machines",
   "terminalPage.tabs.noMatches": "No matching projects or machines",
+  "terminalPage.approval.label": "Waiting for your approval",
+  "terminalPage.approval.more": "{n} more waiting after this one",
 };
 
 export default catalog;
