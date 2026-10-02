@@ -660,3 +660,35 @@ func TestReviewCommitAsksForAGitIdentity(t *testing.T) {
 		t.Fatalf("did not return to the review: form=%v notice=%q", m.form != nil, m.notice)
 	}
 }
+
+// `lectern restore ID` for a session whose conversation is unknown opens
+// that session's saved conversations at once, with Resume chosen.
+func TestHistorySessionOptionOpensThePicker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/sessions/7":
+			fmt.Fprint(w, `{"id":7,"name":"old work","agent":"claude","status":"dead","ended_at":1}`)
+		case "/api/sessions/7/conversations":
+			fmt.Fprint(w, `{"conversations":[{"id":"abc","title":"Fix login","modified":1}],"resume_supported":true}`)
+		default:
+			fmt.Fprint(w, `[]`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	m := newDashboardOpts(New(srv.URL, ""), DashboardOptions{HistorySessionID: "7"})
+	_, cmd := m.Update(rowsMsg{section: "sessions", generation: m.generation})
+	if cmd == nil {
+		t.Fatal("the session was not looked up")
+	}
+	_, cmd = m.Update(cmd())
+	if cmd == nil {
+		t.Fatalf("the picker was not opened: %q", m.notice)
+	}
+	m.Update(cmd())
+	if m.form == nil || m.form.title != "Saved conversations" {
+		t.Fatalf("no picker: notice=%q", m.notice)
+	}
+	if got := m.form.fields[1].Value; got != "resume" {
+		t.Fatalf("default action %q", got)
+	}
+}

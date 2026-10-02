@@ -256,5 +256,6 @@ func (m *dashboard) recentHistory(r row) tea.Cmd {
 			break
 		}
 	}
+	m.historyResume = true
 	return m.savedConversations()
 }

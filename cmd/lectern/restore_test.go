@@ -84,8 +84,15 @@ func TestRestoreCommandListsMatchesAndReopens(t *testing.T) {
 	if strings.Join(calls, ",") != "GET /api/sessions/restorable?limit=1,POST /api/sessions/12/reopen" {
 		t.Fatalf("--last: %v", calls)
 	}
+	// No conversation to continue: off a terminal, say how to choose one
+	// (no trip through menus); on a terminal, open the picker at once.
 	err = restoreCommand(cfg, []string{"9"}, srv.URL, "", false, &out, false)
-	if err == nil || !strings.Contains(err.Error(), "press h") {
+	if err == nil || !strings.Contains(err.Error(), "lectern restore 9") || strings.Contains(err.Error(), "press h") {
 		t.Fatalf("history needed: %v", err)
+	}
+	var opened string
+	err = restoreCommandWith(cfg, []string{"9"}, srv.URL, "", false, &out, true, func(id string) error { opened = id; return nil })
+	if err != nil || opened != "9" {
+		t.Fatalf("history picker: opened %q, %v", opened, err)
 	}
 }

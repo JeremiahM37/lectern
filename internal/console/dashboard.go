@@ -124,6 +124,13 @@ type refsMsg struct {
 	err  error
 }
 type tickMsg time.Time
+
+// historyRowMsg is the session whose history picker the dashboard was asked
+// to open.
+type historyRowMsg struct {
+	row row
+	err error
+}
 type resultMsg struct {
 	label   string
 	data    []byte
@@ -202,6 +209,11 @@ type dashboard struct {
 	cwd string
 	// reviewPaused keeps an open review while its commit form is shown.
 	reviewPaused *codeReview
+	// historySessionID is DashboardOptions.HistorySessionID until used.
+	historySessionID string
+	// historyResume makes the next saved-conversation picker default to
+	// resuming, for a picker opened to restore a session.
+	historyResume bool
 	// noTmux: the server has no tmux, so there are no agents running in
 	// tmux to find, and the dashboard does not offer to look.
 	noTmux bool
@@ -262,6 +274,10 @@ type DashboardOptions struct {
 	// Cwd is the directory the dashboard was started in, set only when the
 	// server shares this machine's filesystem.
 	Cwd string
+	// HistorySessionID opens that session's saved-conversation picker as
+	// soon as the dashboard has loaded (`lectern restore ID` for a session
+	// whose own conversation cannot be found).
+	HistorySessionID string
 }
 
 // RunDashboard uses a full-screen renderer that owns raw mode, resizing and the
@@ -311,6 +327,7 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	m.batchOpen = opts.BatchOpen
 	m.focusSessionID = opts.InitialSessionID
 	m.controlOnly = opts.ControlOnly
+	m.historySessionID = opts.HistorySessionID
 	m.popup = opts.Popup
 	m.cwd = opts.Cwd
 	m.agentState = map[string]map[string]string{}
@@ -858,7 +875,27 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd, handled := m.resolveFocus(v); handled {
 			return m, cmd
 		}
+		if sid := m.historySessionID; sid != "" && v.section == "sessions" {
+			m.historySessionID = ""
+			c := m.client
+			m.notice = "Finding the saved conversations of session " + sid + "…"
+			return m, func() tea.Msg {
+				b, e := c.JSON("GET", "/sessions/"+sid, nil)
+				var r row
+				if e == nil {
+					e = json.Unmarshal(b, &r)
+				}
+				return historyRowMsg{row: r, err: e}
+			}
+		}
 		return m, nil
+	case historyRowMsg:
+		if v.err != nil {
+			m.notice = "Restore: " + clean(v.err.Error())
+			return m, nil
+		}
+		m.notice = "Pick the conversation to continue"
+		return m, m.recentHistory(v.row)
 	case undoMsg:
 		m.busy = false
 		if v.history {

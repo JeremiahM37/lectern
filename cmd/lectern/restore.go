@@ -148,6 +148,14 @@ func listRestorable(c *console.Client, query string, limit int, all bool) ([]res
 // restoreCommand is `lectern restore`: find a closed, archived or interrupted
 // session and reopen it the way the web Restore list does.
 func restoreCommand(cfg *config.Config, args []string, base, token string, local bool, out io.Writer, interactive bool) error {
+	return restoreCommandWith(cfg, args, base, token, local, out, interactive, func(sessionID string) error {
+		return runConsoleDashboard(cfg, base, token, local, console.DashboardOptions{HistorySessionID: sessionID})
+	})
+}
+
+// restoreCommandWith is restoreCommand with the history picker it opens for
+// a session whose conversation cannot be found (nil: say how instead).
+func restoreCommandWith(cfg *config.Config, args []string, base, token string, local bool, out io.Writer, interactive bool, openHistory func(sessionID string) error) error {
 	o, err := parseRestoreArgs(args)
 	if err != nil {
 		return err
@@ -212,7 +220,13 @@ func restoreCommand(cfg *config.Config, args []string, base, token string, local
 	data, err := c.JSON("POST", "/sessions/"+strconv.FormatInt(target.ID, 10)+"/reopen", body)
 	if err != nil {
 		if he, ok := err.(*console.HTTPError); ok && he.Status == 409 && (strings.Contains(he.Detail, "saved conversations") || strings.Contains(he.Detail, "history picker")) {
-			return fmt.Errorf("%s — pick one with `lectern console`, then C, select it and press h", he.Detail)
+			if interactive && openHistory != nil {
+				// Which conversation to continue is a choice: show the
+				// list of them right away.
+				fmt.Fprintf(out, "%s\nOpening its saved conversations so you can pick one…\n", he.Detail)
+				return openHistory(strconv.FormatInt(target.ID, 10))
+			}
+			return fmt.Errorf("%s — run `lectern restore %d` in a terminal to pick one from a list", he.Detail, target.ID)
 		}
 		return err
 	}

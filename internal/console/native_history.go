@@ -84,7 +84,13 @@ func (m *dashboard) nativePicker(v nativeListMsg) tea.Cmd {
 	if data.ResumeSupported {
 		actions = append(actions, choice{"Resume this conversation", "resume"})
 	}
-	fields := []field{{Key: "conversation", Label: "Saved conversation (this workspace)", Value: selected, Options: choices}, {Key: "action", Label: "Action", Value: "read", Options: actions}, {Key: "name", Label: "New session name", Value: ""}}
+	action := "read"
+	if m.historyResume && data.ResumeSupported {
+		// Opened to restore a session: continuing it is the likely answer.
+		action = "resume"
+	}
+	m.historyResume = false
+	fields := []field{{Key: "conversation", Label: "Saved conversation (this workspace)", Value: selected, Options: choices}, {Key: "action", Label: "Action", Value: action, Options: actions}, {Key: "name", Label: "New session name", Value: ""}}
 	if data.ForkSupported {
 		fields = append(fields, field{Key: "workspace", Label: "Workspace for forks", Value: "shared", Options: []choice{{"Use the same files", "shared"}, {"New isolated Git worktree", "isolated"}}}, field{Key: "branch", Label: "Fork branch (blank = automatic)"}, field{Key: "base", Label: "Fork base commit or branch (blank = HEAD)"})
 	}

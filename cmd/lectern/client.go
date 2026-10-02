@@ -265,39 +265,13 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 	case "controls":
 		return controlsCommand(c, args)
 	case "console", "tui":
-		attachClient := func(kind, id string) error {
-			var argv []string
-			var e error
-			controls := &nativeControls{Kind: kind, ID: id, Base: base, Token: token, Local: local}
-			if local {
-				localCfg := *cfg
-				localCfg.AuthToken = token
-				argv, e = attachmentCommandAt(&localCfg, []string{kind, id}, base, "")
-			} else {
-				argv, e = attachmentCommand(cfg, []string{kind, id})
-			}
-			if e != nil {
-				return e
-			}
-			// The dashboard callback waits for the attachment instead of
-			// replacing the process: Bubble Tea must resume afterwards.
-			return startAttachment(argv, controls, false)
-		}
 		if len(args) > 0 && (len(args) != 1 || args[0] != "--plain") {
 			return fmt.Errorf("usage: lectern console [--plain]")
 		}
 		if len(args) == 0 && interactiveTerminal() {
-			return console.RunDashboardWithOptions(c, os.Stdin, os.Stdout, console.DashboardOptions{
-				Attach:            attachClient,
-				OpenTerminal:      func(kind, id string, batch bool) error { return openTerminalTab(base, token, kind, id, batch) },
-				OpenBatch:         func(ids []string) error { return openTerminalBatch(base, token, ids) },
-				TerminalWorkspace: os.Getenv("TMUX") == "" && !desktopTerminalAvailable(),
-				BatchOpen:         os.Getenv("LECTERN_INITIAL_BATCH") == "true",
-				InitialSessionID:  os.Getenv("LECTERN_INITIAL_SESSION"),
-				Cwd:               dashboardCwd(base, local),
-			})
+			return runConsoleDashboard(cfg, base, token, local, console.DashboardOptions{})
 		}
-		return console.NewUI(c, os.Stdin, os.Stdout, attachClient).Run()
+		return console.NewUI(c, os.Stdin, os.Stdout, consoleAttach(cfg, base, token, local)).Run()
 	case "api":
 		if len(args) < 2 || len(args) > 3 {
 			return fmt.Errorf("usage: lectern api METHOD /path [JSON|@file|-]")
@@ -538,4 +512,41 @@ func dashboardCwd(base string, local bool) string {
 		return ""
 	}
 	return dir
+}
+
+// consoleAttach is how the dashboard attaches this terminal to a session or
+// task: it waits for the attachment instead of replacing the process, since
+// Bubble Tea must resume afterwards.
+func consoleAttach(cfg *config.Config, base, token string, local bool) func(kind, id string) error {
+	return func(kind, id string) error {
+		var argv []string
+		var e error
+		controls := &nativeControls{Kind: kind, ID: id, Base: base, Token: token, Local: local}
+		if local {
+			localCfg := *cfg
+			localCfg.AuthToken = token
+			argv, e = attachmentCommandAt(&localCfg, []string{kind, id}, base, "")
+		} else {
+			argv, e = attachmentCommand(cfg, []string{kind, id})
+		}
+		if e != nil {
+			return e
+		}
+		return startAttachment(argv, controls, false)
+	}
+}
+
+// runConsoleDashboard is `lectern console` on a terminal; opts adds to the
+// usual options (restore uses it to open a session's history picker).
+func runConsoleDashboard(cfg *config.Config, base, token string, local bool, opts console.DashboardOptions) error {
+	opts.Attach = consoleAttach(cfg, base, token, local)
+	opts.OpenTerminal = func(kind, id string, batch bool) error { return openTerminalTab(base, token, kind, id, batch) }
+	opts.OpenBatch = func(ids []string) error { return openTerminalBatch(base, token, ids) }
+	opts.TerminalWorkspace = os.Getenv("TMUX") == "" && !desktopTerminalAvailable()
+	opts.BatchOpen = os.Getenv("LECTERN_INITIAL_BATCH") == "true"
+	if opts.InitialSessionID == "" {
+		opts.InitialSessionID = os.Getenv("LECTERN_INITIAL_SESSION")
+	}
+	opts.Cwd = dashboardCwd(base, local)
+	return console.RunDashboardWithOptions(console.New(base, token), os.Stdin, os.Stdout, opts)
 }
