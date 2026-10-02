@@ -87,7 +87,12 @@ def browser_checks():
             dialog.get_by_label('Access token', exact=True).fill(TOKEN)
             dialog.get_by_role('button', name='Connect', exact=True).click()
             expect(dialog).not_to_be_visible()
-            page.get_by_role('button', name='Add your first machine').click()
+            # A new user lands on Sessions with one clear first step, and the
+            # 401s from before the token was entered are not left as toasts.
+            expect(page.get_by_text('Start your first agent')).to_be_visible()
+            expect(page.locator('#toasts')).not_to_contain_text('nauthorized')
+            # Adding a machine still fits on screen at both widths.
+            page.goto(url + '/#settings/machines')
             page.get_by_role('button', name='Add machine', exact=True).click()
             form = page.get_by_role('dialog', name='Add machine', exact=True)
             expect(form).to_be_visible()
@@ -97,7 +102,6 @@ def browser_checks():
             form.get_by_label('Connection').select_option('local')
             form.get_by_role('button', name='Save machine').click()
             expect(form).not_to_be_visible()
-            expect(page.get_by_role('button', name='Start your first session')).to_be_visible()
             target = next(t for t in api('/targets') if t['name'] == 'browser-' + str(width))
             api('/targets/' + str(target['id']), method='DELETE')
             ctx.close()

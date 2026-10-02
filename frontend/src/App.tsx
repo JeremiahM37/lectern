@@ -247,7 +247,11 @@ export default function App() {
   viewRef.current = view;
   // A toast can carry one action (Undo after closing a session). It stays
   // long enough to be reached on a phone, and taking the action dismisses it.
+  // While the access-token dialog is up, every screen's failed load is the
+  // same 401 the dialog already explains; don't stack them up as toasts.
+  const awaitingToken = useRef(false);
   const notice = useCallback((text: string, error = false, action?: NoticeAction) => {
+    if (error && awaitingToken.current && /unauthori[sz]ed/i.test(text)) return;
     const id = ++toastCounter.current;
     setToasts((old) => [...old, { id, text, error, action }]);
     window.setTimeout(
@@ -282,6 +286,7 @@ export default function App() {
               return;
             }
           }
+          awaitingToken.current = true;
           setUnauthorized(true);
         },
       }),
@@ -891,6 +896,8 @@ export default function App() {
     localStorage.setItem("lec-token", token);
     try {
       await api.projects();
+      awaitingToken.current = false;
+      setToasts((old) => old.filter((row) => !(row.error && /unauthori[sz]ed/i.test(row.text))));
       setUnauthorized(false);
       setAuthVersion((old) => old + 1);
     } catch (error) {
