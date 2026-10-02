@@ -287,6 +287,36 @@ func (br *Broker) ExpireForSession(sessionID int64) int {
 	return n
 }
 
+// ExpireForGoneSessions resolves every approval still pending for a session
+// that has ended or whose agent has exited. Nothing can deliver a decision to
+// either, so leaving it pending only shows "needs you" for a process that no
+// longer exists. Swept on the scheduler's tick, so every way a session ends —
+// End, a dead pane, an agent that quit or crashed — is covered by one rule.
+func (br *Broker) ExpireForGoneSessions() int {
+	rows, err := br.DB.ApprovalsByStatus("pending")
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, r := range rows {
+		if r.SessionID == 0 {
+			continue
+		}
+		reason := ""
+		if sess, err := br.DB.Session(r.SessionID); err != nil {
+			reason = "the session no longer exists"
+		} else if sess.EndedAt != nil {
+			reason = "the session ended before a decision arrived"
+		} else if sess.AgentExitedAt != nil {
+			reason = "the agent exited before a decision arrived"
+		}
+		if reason != "" && br.Decide(r.ID, "expired", reason, "system") != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // Wait is the hook's long-poll: it returns once the approval is decided, expires,
 // or the poll window closes.
 func (br *Broker) Wait(ctx context.Context, id int64, timeout time.Duration) *store.Approval {

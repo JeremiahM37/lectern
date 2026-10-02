@@ -22,7 +22,9 @@ func TestRealDemoAgentAnswersAndLeavesAChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	var row obj
-	h.decode("POST", "/api/sessions", obj{"agent": "demo", "scratch": true, "target_id": target.ID}, 201, &row)
+	// Bypass: this test is about the answer and the change; asking is
+	// cmd/lectern TestDemoAgentAsksForApproval.
+	h.decode("POST", "/api/sessions", obj{"agent": "demo", "scratch": true, "target_id": target.ID, "permission_mode": "bypass"}, 201, &row)
 	id := int64(row.num("id"))
 	deadline := time.Now().Add(30 * time.Second)
 	for {

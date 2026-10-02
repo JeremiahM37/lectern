@@ -253,6 +253,9 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	if s.Sessions != nil && store.Now()-s.lastSessionPoll >= s.Cfg.SessionPoll.Seconds() {
 		s.lastSessionPoll = store.Now()
 		s.Sessions.Poll(ctx)
+		if s.Broker != nil {
+			s.Broker.ExpireForGoneSessions()
+		}
 	}
 	if s.Limits != nil {
 		s.Limits(ctx)

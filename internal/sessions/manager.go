@@ -494,6 +494,19 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if name == "" {
 		name = agent
 	}
+	// Refuse an agent that is not on the machine before there is a session
+	// to report as started (agent_installed.go).
+	if o.ReservedID == 0 {
+		if pre, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration); err == nil {
+			iso := pre.Isolation
+			if o.Isolation != nil && o.Configuration == nil {
+				iso = o.Isolation.Normalized()
+			}
+			if err := m.checkAgentInstalled(ctx, ex, target, pre, iso); err != nil {
+				return nil, err
+			}
+		}
+	}
 	var sess *store.Session
 	if o.ReservedID != 0 {
 		sess, err = m.DB.Session(o.ReservedID)
@@ -546,6 +559,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	spec.Args = append([]string(nil), spec.Args...)
 	for _, arg := range o.ExtraArgs {
 		spec.Args = append(spec.Args, shellq.Quote(arg))
+	}
+	// The demo agent cannot read Lectern's permission settings the way a real
+	// CLI's hook file does; it is told (demo.go).
+	if spec.Name == DemoAgent && len(spec.Args) > 2 && spec.Args[2] == "lectern-demo" {
+		mode := o.PermissionMode
+		if mode == "" && o.Configuration != nil {
+			mode = config.PermissionMode
+		}
+		if m.AskPermission || mode == "ask" {
+			spec.Args = append(spec.Args, demoAsks)
+		}
 	}
 	// The selected profile's launch briefing rides with whatever prime this
 	// launch already has — a project brief, a predecessor's handoff, or nothing.
