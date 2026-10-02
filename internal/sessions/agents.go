@@ -527,6 +527,14 @@ type Start struct {
 	SessionID string
 	Prompt    string
 	EnvPrefix string
+	// EnvFile, when set, is a 0600 file on the target holding the
+	// session's secrets (its hook token) as `export` lines. The pane reads
+	// and deletes it before the agent starts, so the secrets are never part
+	// of a command line — not in the process list, and not in the text a
+	// shell prints when the agent dies of a signal. EnvFileNames are unset
+	// again before the shell the pane falls back to.
+	EnvFile      string
+	EnvFileNames []string
 	// Yolo runs the agent without its approval prompts. On by default for
 	// interactive sessions: you are sitting in the terminal watching it, which
 	// is the supervision, and being asked to confirm every edit in a session you
@@ -611,8 +619,19 @@ func (s Spec) LaunchCommand(o Start) string {
 			agentInvocation = wrapped
 		}
 	}
-	inner := fmt.Sprintf("cd %s && %s; exec bash",
-		shellq.Quote(o.Workdir), agentInvocation)
+	// bash reports an agent killed by a signal ("Quit (core dumped)" for
+	// Ctrl+\) by printing its whole command line into the pane. The agent's
+	// own stderr goes on through fd 3, the shell's report goes nowhere.
+	source, unset := "", ""
+	if o.EnvFile != "" {
+		file := `"` + o.EnvFile + `"`
+		source = ". " + file + " && rm -f " + file + "; "
+		if len(o.EnvFileNames) > 0 {
+			unset = "unset " + strings.Join(o.EnvFileNames, " ") + "; "
+		}
+	}
+	inner := fmt.Sprintf("cd %s && { %s%s 2>&3 3>&-; } 3>&2 2>/dev/null; %sexec bash",
+		shellq.Quote(o.Workdir), source, agentInvocation, unset)
 	var setupEnv []string
 	if o.SetupToken != "" {
 		setupEnv = []string{"LECTERN_SETUP_TOKEN=" + o.SetupToken}

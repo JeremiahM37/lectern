@@ -75,6 +75,10 @@ func AttachTerminal(cl *Client, name string, in, out *os.File) error {
 					prefix = true
 					chunk = chunk[:i]
 				}
+				// Ctrl+\ is never passed on: a terminal turns it into SIGQUIT,
+				// which ends the agent. Lectern's attach clients use it to
+				// send a file; this plain one has nothing to send.
+				chunk = bytes.ReplaceAll(chunk, []byte{0x1c}, nil)
 				if len(chunk) > 0 && stream.Write(append([]byte(nil), chunk...)) != nil {
 					return
 				}

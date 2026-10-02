@@ -624,6 +624,15 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			env[k] = v
 		}
 	}
+	// The session's own secrets go through a private file rather than the
+	// launch command line (writeSecretEnv); everything else stays a prefix.
+	secretEnv := map[string]string{}
+	for _, k := range []string{agentevents.EnvHookToken, "OTEL_EXPORTER_OTLP_HEADERS"} {
+		if v, ok := env[k]; ok {
+			secretEnv[k] = v
+			delete(env, k)
+		}
+	}
 	envPrefix, err := EnvPrefix(env)
 	if err != nil {
 		m.end(sess.ID, "dead")
@@ -1005,11 +1014,12 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.snapshotCatalogConversations(ctx, sess.ID, ex, spec, workdir)
 	}
 	m.launched.set(sess.ID, store.Now())
+	envFile, envFileNames, secretPrefix := writeSecretEnv(ctx, ex, tmuxName, secretEnv, config.Isolation)
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
-		SessionID: assignedID,
-		Prompt:    argPrompt, EnvPrefix: envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		SessionID: assignedID, EnvFile: envFile, EnvFileNames: envFileNames,
+		Prompt: argPrompt, EnvPrefix: secretPrefix + envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
