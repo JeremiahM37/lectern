@@ -125,7 +125,11 @@ func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := ex.Run(r.Context(), backend.For(ex).CapturePane(backend.Pane(att.TmuxSession), 100000, true), executor.RunOpts{Timeout: 20})
+	be := att.Backend
+	if be == nil {
+		be = backend.For(ex)
+	}
+	result, err := ex.Run(r.Context(), be.CapturePane(backend.Pane(att.TmuxSession), 100000, true), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {
 		httpError(w, 502, "could not read terminal history")
 		return

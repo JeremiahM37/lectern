@@ -92,7 +92,11 @@ func (s *Server) paneDirectory(ctx context.Context, att terminal.Attachment, tar
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	out, err := ex.Run(ctx, backend.For(ex).Display(backend.Pane(att.TmuxSession), "#{pane_current_path}"), executor.RunOpts{Timeout: 15})
+	be := att.Backend
+	if be == nil {
+		be = backend.For(ex)
+	}
+	out, err := ex.Run(ctx, be.Display(backend.Pane(att.TmuxSession), "#{pane_current_path}"), executor.RunOpts{Timeout: 15})
 	if err != nil || out.RC != 0 {
 		return ""
 	}

@@ -64,8 +64,9 @@ target** when its executor is made:
 
 - `tmux` / `pty`: every target uses that backend.
 - `auto`, local target: `pty` on Windows and macOS; on Linux `tmux` when it is
-  installed, else `pty`. A local ptyhost that already holds sessions keeps
-  `pty` in use, so installing tmux later never hides running sessions.
+  installed, else `pty`. A backend that already holds Lectern sessions keeps
+  being used; when both do, tmux wins wherever it is installed, because a PTY
+  host is easy to start by accident (a test, a sandboxed `lectern local`).
 - `auto`, SSH/pct targets: `tmux`, unless the target's probe found no tmux but
   found a `lectern` binary, in which case `pty`.
 - Mock mode (`LECTERN_MOCK=1`) scripts the tmux dialect, so mock targets stay
@@ -75,9 +76,21 @@ target** when its executor is made:
 The resolved backend is reported by the target probe (`session_backend`);
 `lectern doctor` says when tmux is not needed.
 
-Changing the setting does not move sessions. Sessions started under one
-backend are only visible while that backend is selected; switch back to reach
-them.
+This choice is only where **new** sessions start. Each session records the
+backend that holds it (`sessions.session_backend`) when it is started or
+adopted, and is polled, attached, typed into and stopped through that
+backend, so changing the setting, or auto changing its mind, never hides or
+ends a running session. A session its own backend reports missing counts as
+gone only when no other backend on that machine has a session of that name;
+if one does, the row follows it there. Rows from before the column existed
+are recorded on their first poll, in whichever backend answers.
+
+That rule exists because of 2026-10-01: stray PTY hosts left on the user's
+socket by tests made a restarted server switch a Linux machine to `pty`, poll
+its tmux sessions there and end all eight. Tests now never use the default
+socket: under a test (`LECTERN_PTYHOST_TEST_GUARD`, set by every Go test
+binary, the isolated runner and the browser suite) it is refused, and each
+test names its own with `LECTERN_PTYHOST_SOCKET` and stops its host.
 
 **Adoption is tmux-only.** Finding and adopting an agent you started by hand
 relies on tmux being a shared, discoverable server that any terminal can

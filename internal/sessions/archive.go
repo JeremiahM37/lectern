@@ -45,19 +45,17 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 	defer func() { m.mu.Lock(); delete(m.transitions, key); m.mu.Unlock() }()
 	identity := ""
 
-	names := []string{s.TmuxSession}
-	check := func(command string) (PollCapture, error) {
-		r, e := ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
-		if e != nil || !r.OK() {
+	check := func(lines int) (PollCapture, error) {
+		panes, e := m.captureHeld(ctx, ex, []*store.Session{s}, lines, 20)
+		if e != nil {
 			return PollCapture{}, fmt.Errorf("could not check the terminal; nothing was archived")
 		}
-		panes, ok := ParsePollSnapshot(r.Stdout, names)
-		if !ok || panes[s.TmuxSession].Failed {
+		if panes[s.TmuxSession].Failed {
 			return PollCapture{}, fmt.Errorf("incomplete terminal capture; nothing was archived")
 		}
 		return panes[s.TmuxSession], nil
 	}
-	pane, err := check(backend.For(ex).Poll(names, 10000))
+	pane, err := check(10000)
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +72,11 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 			return nil, fmt.Errorf("this untracked terminal is still running; track it again before stopping and archiving it")
 		}
 		if s.EndedAt == nil {
-			existing, readErr := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), s.TmuxSession, ""), executor.RunOpts{Timeout: 10})
+			existing, readErr := ex.Run(ctx, trackingIdentityCommandFor(sessionBackend(ex, s), s.TmuxSession, ""), executor.RunOpts{Timeout: 10})
 			if readErr == nil && existing.OK() {
 				identity = strings.TrimSpace(existing.Stdout)
 				if identity == "" {
-					identity = captureTrackingIdentity(ctx, ex, s.TmuxSession)
+					identity = captureTrackingIdentity(ctx, ex, sessionBackend(ex, s), s.TmuxSession)
 				}
 			}
 			if !validTrackingIdentity(identity) || (s.TrackingIdentity != "" && identity != s.TrackingIdentity) {
@@ -91,12 +89,12 @@ func (m *Manager) Archive(ctx context.Context, id int64, stop bool) (*store.Sess
 		}
 		// tmux checks its session-local identity before ending the exact session.
 		// A replaced session with the same name must never inherit this action.
-		command := backend.For(ex).KillIf(backend.Pane(s.TmuxSession), trackingCondition(identity), backend.Exact(s.TmuxSession))
+		command := sessionBackend(ex, s).KillIf(backend.Pane(s.TmuxSession), trackingCondition(identity), backend.Exact(s.TmuxSession))
 		_, err = ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return nil, err
 		}
-		gone, e := check(pollCommand(ex, names))
+		gone, e := check(PaneLines)
 		if e != nil {
 			return nil, e
 		}

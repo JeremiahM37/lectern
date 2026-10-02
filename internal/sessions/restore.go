@@ -52,12 +52,12 @@ func validTrackingIdentity(value string) bool {
 	return err == nil && len(b) == 16
 }
 
-func captureTrackingIdentity(ctx context.Context, ex executor.Executor, name string) string {
+func captureTrackingIdentity(ctx context.Context, ex executor.Executor, be backend.Backend, name string) string {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return ""
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), name, hex.EncodeToString(nonce[:])), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(be, name, hex.EncodeToString(nonce[:])), executor.RunOpts{Timeout: 10})
 	value := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !validTrackingIdentity(value) {
 		return ""
@@ -77,7 +77,7 @@ func (m *Manager) EnsureTrackingIdentity(ctx context.Context, row *store.Session
 	if err != nil {
 		return "", err
 	}
-	identity := captureTrackingIdentity(ctx, ex, row.TmuxSession)
+	identity := captureTrackingIdentity(ctx, ex, sessionBackend(ex, row), row.TmuxSession)
 	if identity == "" {
 		return "", fmt.Errorf("could not establish terminal identity")
 	}
@@ -105,7 +105,7 @@ func (m *Manager) Restore(ctx context.Context, id int64) (*store.Session, error)
 	} else if err != store.ErrNotFound {
 		return nil, err
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), sess.TmuxSession, ""), executor.RunOpts{Timeout: 10})
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(sessionBackend(ex, sess), sess.TmuxSession, ""), executor.RunOpts{Timeout: 10})
 	if err != nil {
 		return nil, err
 	}

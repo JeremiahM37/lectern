@@ -126,14 +126,12 @@ func parseAgentProbe(out string, names []string) (map[string]AgentProbe, bool) {
 // sessions. It runs at most every agentProbeEvery per target.
 func (m *Manager) probeAgents(ctx context.Context, ex executor.Executor, targetID int64, group []*store.Session) {
 	var rows []*store.Session
-	var names []string
 	now := store.Now()
 	for _, s := range group {
 		if s.Agent == "shell" || s.EndedAt != nil || s.Status == StatusStarting || s.Status == StatusDead || now-s.CreatedAt < 20 {
 			continue
 		}
 		rows = append(rows, s)
-		names = append(names, s.TmuxSession)
 	}
 	if len(rows) == 0 {
 		return
@@ -152,13 +150,30 @@ func (m *Manager) probeAgents(ctx context.Context, ex executor.Executor, targetI
 	}
 	m.agentProbedAt[targetID] = time.Now()
 	m.mu.Unlock()
-	r, err := ex.Run(ctx, backend.For(ex).AgentProbe(names), executor.RunOpts{Timeout: 20})
-	if err != nil || !r.OK() {
-		return
+	// Each session is probed through the backend that holds it.
+	byBackend := map[string][]string{}
+	backends := map[string]backend.Backend{}
+	for _, s := range rows {
+		be, ok := backend.ForSession(ex, s)
+		if !ok {
+			continue
+		}
+		backends[be.Name()] = be
+		byBackend[be.Name()] = append(byBackend[be.Name()], s.TmuxSession)
 	}
-	probes, ok := parseAgentProbe(r.Stdout, names)
-	if !ok {
-		return
+	probes := map[string]AgentProbe{}
+	for name, names := range byBackend {
+		r, err := ex.Run(ctx, backends[name].AgentProbe(names), executor.RunOpts{Timeout: 20})
+		if err != nil || !r.OK() {
+			continue
+		}
+		got, ok := parseAgentProbe(r.Stdout, names)
+		if !ok {
+			continue
+		}
+		for k, v := range got {
+			probes[k] = v
+		}
 	}
 	for _, s := range rows {
 		p, seen := probes[s.TmuxSession]

@@ -51,14 +51,13 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
 	}
-	result, err := ex.Run(ctx, pollCommand(ex, []string{row.TmuxSession}), executor.RunOpts{Timeout: 15})
-	if err != nil || !result.OK() {
+	panes, err := m.captureHeld(ctx, ex, []*store.Session{row}, PaneLines, 15)
+	if err != nil {
 		pending("Lectern restarted; target unavailable while checking whether the agent started")
 		return
 	}
-	panes, complete := ParsePollSnapshot(result.Stdout, []string{row.TmuxSession})
 	pane := panes[row.TmuxSession]
-	if !complete || pane.Failed {
+	if pane.Failed {
 		pending("Lectern restarted; terminal status could not be verified yet")
 		return
 	}
@@ -67,7 +66,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		return
 	}
 	marker := func() (bool, bool) {
-		result, err := ex.Run(ctx, backend.For(ex).ShowEnvironment(backend.Pane(row.TmuxSession), "LECTERN_SETUP_TOKEN"), executor.RunOpts{Timeout: 10})
+		result, err := ex.Run(ctx, sessionBackend(ex, row).ShowEnvironment(backend.Pane(row.TmuxSession), "LECTERN_SETUP_TOKEN"), executor.RunOpts{Timeout: 10})
 		if err != nil {
 			return false, false
 		}
@@ -86,7 +85,7 @@ func (m *Manager) recoverSetup(ctx context.Context, row *store.Session) {
 		m.releaseSessionResources(row.ID)
 		return
 	}
-	identity := captureTrackingIdentity(ctx, ex, row.TmuxSession)
+	identity := captureTrackingIdentity(ctx, ex, sessionBackend(ex, row), row.TmuxSession)
 	matched, verified = marker()
 	if !validTrackingIdentity(identity) || !matched || !verified {
 		pending("Lectern restarted; terminal identity changed during recovery, retrying verification")

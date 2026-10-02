@@ -237,6 +237,7 @@ type sourceSession struct {
 	CreatedAt                    float64
 	Tracking, ResumeID           string
 	LaunchConfig                 string
+	SessionBackend               string
 }
 
 func readSourceSessions(ctx context.Context, db *sql.DB) ([]sourceSession, error) {
@@ -253,7 +254,8 @@ func readSourceSessions(ctx context.Context, db *sql.DB) ([]sourceSession, error
 	q := "SELECT id,target_id,name," + column(cols, "agent", "'claude'") + "," +
 		column(cols, "model", "''") + ",workdir,tmux_session," + column(cols, "status", "'starting'") +
 		",created_at," + column(cols, "tracking_identity", "''") + "," +
-		column(cols, "resume_id", "''") + "," + column(cols, "launch_config_json", "''") +
+		column(cols, "resume_id", "''") + "," + column(cols, "launch_config_json", "''") + "," +
+		column(cols, "session_backend", "''") +
 		" FROM sessions WHERE " + ended + " IS NULL AND " + archived + " IS NULL ORDER BY id"
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
@@ -263,14 +265,14 @@ func readSourceSessions(ctx context.Context, db *sql.DB) ([]sourceSession, error
 	var out []sourceSession
 	for rows.Next() {
 		var s sourceSession
-		var name, agent, model, workdir, tmuxName, status, tracking, resumeID, launchConfig sql.NullString
+		var name, agent, model, workdir, tmuxName, status, tracking, resumeID, launchConfig, sessionBackend sql.NullString
 		var createdAt sql.NullFloat64
 		if err := rows.Scan(&s.ID, &s.TargetID, &name, &agent, &model, &workdir,
-			&tmuxName, &status, &createdAt, &tracking, &resumeID, &launchConfig); err != nil {
+			&tmuxName, &status, &createdAt, &tracking, &resumeID, &launchConfig, &sessionBackend); err != nil {
 			return nil, err
 		}
 		s.Name, s.Agent, s.Model, s.Workdir, s.TmuxSession, s.Status = name.String, agent.String, model.String, workdir.String, tmuxName.String, status.String
-		s.Tracking, s.ResumeID, s.LaunchConfig = tracking.String, resumeID.String, launchConfig.String
+		s.Tracking, s.ResumeID, s.LaunchConfig, s.SessionBackend = tracking.String, resumeID.String, launchConfig.String, sessionBackend.String
 		if createdAt.Valid {
 			s.CreatedAt = createdAt.Float64
 		}
@@ -303,11 +305,11 @@ func ProbeConfiguredHome(ctx context.Context, ex executor.Executor, agent, tmuxN
 	return home, nil
 }
 
-func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, tmuxName string) (string, error) {
+func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, be backend.Backend, tmuxName string) (string, error) {
 	if !checkpointTmuxName.MatchString(tmuxName) {
 		return "", errors.New("invalid tmux session name")
 	}
-	q := backend.For(ex).Display(backend.Pane(tmuxName), trackingFormat)
+	q := be.Display(backend.Pane(tmuxName), trackingFormat)
 	r, err := ex.Run(ctx, q, executor.RunOpts{Timeout: 10})
 	identity := strings.TrimSpace(r.Stdout)
 	if err != nil || !r.OK() || !checkpointTracking.MatchString(identity) {
@@ -316,11 +318,10 @@ func ProbeTrackingIdentity(ctx context.Context, ex executor.Executor, tmuxName s
 	return identity, nil
 }
 
-func ProbeExactTmux(ctx context.Context, ex executor.Executor, name string) error {
+func ProbeExactTmux(ctx context.Context, ex executor.Executor, be backend.Backend, name string) error {
 	if !checkpointTmuxName.MatchString(name) {
 		return errors.New("invalid tmux session name")
 	}
-	be := backend.For(ex)
 	r, err := ex.Run(ctx, be.HasSession(backend.Exact(name), false), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("tmux session %q is unavailable", name)
@@ -386,10 +387,11 @@ func ExportCheckpoint(ctx context.Context, dbPath string, factory CheckpointExec
 		if err != nil {
 			return CheckpointManifest{}, fmt.Errorf("session %d target %d: %w", row.ID, row.TargetID, err)
 		}
-		if err := ProbeExactTmux(ctx, ex, row.TmuxSession); err != nil {
+		be := sessionBackend(ex, &store.Session{SessionBackend: row.SessionBackend})
+		if err := ProbeExactTmux(ctx, ex, be, row.TmuxSession); err != nil {
 			return CheckpointManifest{}, fmt.Errorf("session %d: %w", row.ID, err)
 		}
-		liveTracking, err := ProbeTrackingIdentity(ctx, ex, row.TmuxSession)
+		liveTracking, err := ProbeTrackingIdentity(ctx, ex, be, row.TmuxSession)
 		if err != nil || liveTracking != row.Tracking {
 			return CheckpointManifest{}, fmt.Errorf("session %d: tmux tracking identity changed", row.ID)
 		}

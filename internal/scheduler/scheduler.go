@@ -925,10 +925,21 @@ func (s *Scheduler) poll(ctx context.Context, att *store.Attempt) error {
 	}
 
 	if len(chunk) == 0 { // no output and no exit code — is the session even alive?
-		alive, err := ex.Run(ctx, backend.For(ex).HasSession(backend.Exact(fmt.Sprintf("lec-%d", att.ID)), true),
-			executor.RunOpts{Timeout: 20})
+		run := backend.Exact(fmt.Sprintf("lec-%d", att.ID))
+		be := backend.For(ex)
+		alive, err := ex.Run(ctx, be.HasSession(run, true), executor.RunOpts{Timeout: 20})
 		if err != nil {
 			return err
+		}
+		// The target may have started new sessions in another backend since
+		// this run began; a run some backend still holds is not a ghost.
+		for _, other := range backend.Others(ex, be.Name()) {
+			if alive.OK() {
+				break
+			}
+			if alive, err = ex.Run(ctx, other.HasSession(run, true), executor.RunOpts{Timeout: 20}); err != nil {
+				return err
+			}
 		}
 		if alive.OK() {
 			s.mu.Lock()

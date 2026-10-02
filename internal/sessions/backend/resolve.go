@@ -47,7 +47,10 @@ func (r Resolver) Env(t *store.Target, _ executor.Executor) executor.TargetEnv {
 		if r.Self == "" {
 			return executor.TargetEnv{SessionBackend: NameTmux}
 		}
-		return executor.TargetEnv{SessionBackend: r.Local(), Lectern: ShellPath(r.Self, r.GOOS)}
+		env := executor.TargetEnv{SessionBackend: r.Local(), Lectern: ShellPath(r.Self, r.GOOS)}
+		_, tmuxErr := r.lookPath("tmux")
+		env.Backends = backends(env.SessionBackend, r.GOOS != "windows" && tmuxErr == nil, true)
+		return env
 	case "ssh", "pct":
 		probe := RemoteLectern(t.InfoJSON)
 		env := executor.TargetEnv{SessionBackend: NameTmux, Lectern: probe.Path, Helpers: probe.Helpers}
@@ -64,11 +67,32 @@ func (r Resolver) Env(t *store.Target, _ executor.Executor) executor.TargetEnv {
 				env.SessionBackend = NamePty
 			}
 		}
+		env.Backends = backends(env.SessionBackend, probe.Tmux, probe.Pty)
 		return env
 	}
 	// Sandboxes run their agents in a container through a per-attempt
 	// executor; the host side needs nothing.
 	return executor.TargetEnv{}
+}
+
+// backends lists what a target can drive, the selected backend always
+// included.
+func backends(selected string, tmux, pty bool) []string {
+	var out []string
+	if tmux || selected == NameTmux {
+		out = append(out, NameTmux)
+	}
+	if pty || selected == NamePty {
+		out = append(out, NamePty)
+	}
+	return out
+}
+
+func (r Resolver) lookPath(name string) (string, error) {
+	if r.LookPath == nil {
+		return "", exec.ErrNotFound
+	}
+	return r.LookPath(name)
 }
 
 func (r Resolver) setting() string {
@@ -81,10 +105,16 @@ func (r Resolver) setting() string {
 
 // Local is the backend for this machine.
 //
-// auto keeps whichever backend already holds Lectern sessions, so neither
-// installing tmux nor upgrading Lectern hides a running session. With none,
-// it is the PTY host on Windows and macOS, and tmux on Linux when tmux is
-// installed.
+// It is only where new sessions start: a running session is always driven
+// through the backend recorded on its row (ForSession), so this choice
+// changing never hides or ends one.
+//
+// auto keeps whichever backend already holds Lectern sessions. With none, it
+// is the PTY host on Windows and macOS, and tmux on Linux when tmux is
+// installed. When both hold sessions, tmux wins wherever it is installed:
+// a PTY host is easy to start by accident (a test, a sandboxed `lectern
+// local`), and its presence must not move a machine whose sessions live in
+// tmux.
 func (r Resolver) Local() string {
 	switch r.setting() {
 	case SettingTmux:
@@ -95,13 +125,13 @@ func (r Resolver) Local() string {
 	if r.GOOS == "windows" {
 		return NamePty
 	}
-	_, tmuxErr := r.LookPath("tmux")
+	_, tmuxErr := r.lookPath("tmux")
 	if r.HoldsSessions != nil {
-		if r.HoldsSessions(NamePty) {
-			return NamePty
-		}
 		if tmuxErr == nil && r.HoldsSessions(NameTmux) {
 			return NameTmux
+		}
+		if r.HoldsSessions(NamePty) {
+			return NamePty
 		}
 	}
 	if r.GOOS == "darwin" || tmuxErr != nil {

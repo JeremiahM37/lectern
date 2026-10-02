@@ -36,7 +36,7 @@ func TestDemoAgentAsksForApproval(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	env := append(localTestEnv(state), "HOME="+home, "LECTERN_SESSION_BACKEND=pty")
+	env := append(localTestEnv(t, state), "HOME="+home, "LECTERN_SESSION_BACKEND=pty")
 	t.Cleanup(func() {
 		_, _ = runLocalCLI(bin, env, "api", "DELETE", "/sessions/1?kill=true")
 		_, _ = runLocalCLI(bin, env, "local", "stop")
@@ -95,7 +95,7 @@ func TestStartingAnUninstalledAgentIsRefused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fake, "claude-for-test"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	env := append(localTestEnv(state), "HOME="+home, "LECTERN_SESSION_BACKEND=pty",
+	env := append(localTestEnv(t, state), "HOME="+home, "LECTERN_SESSION_BACKEND=pty",
 		"LECTERN_CLAUDE_BIN=claude-for-test", "LECTERN_CODEX_BIN=codex-not-installed-here", "LECTERN_GEMINI_BIN=gemini-not-installed-here",
 		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
@@ -140,7 +140,7 @@ func TestLocalStatusAndControlsWithoutATerminal(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	env := append(localTestEnv(t.TempDir()), "HOME="+t.TempDir())
+	env := append(localTestEnv(t, t.TempDir()), "HOME="+t.TempDir())
 	out, err := runLocalCLI(bin, env, "local", "status")
 	if err != nil || !bytes.Contains(out, []byte("Your private Lectern is not running")) {
 		t.Fatalf("status: %v %s", err, out)

@@ -80,7 +80,7 @@ func (s *Server) termProxy(w http.ResponseWriter, r *http.Request) {
 // names, refusing anything that is not a live session or attempt of this board.
 func (s *Server) resolveAttachment(kind, rawID string) (terminal.Attachment, *store.Target, error) {
 	att, target, err := s.resolveAttachmentRow(kind, rawID)
-	if err == nil && att.SandboxVMID == "" {
+	if err == nil && att.SandboxVMID == "" && att.Backend == nil {
 		att.Backend = s.targetBackend(target)
 	}
 	return att, target, err
@@ -93,6 +93,20 @@ func (s *Server) attemptBackend(att *store.Attempt, target *store.Target) backen
 		return backend.Tmux
 	}
 	return s.targetBackend(target)
+}
+
+// sessionBackend is targetBackend for a session's own terminal: the backend
+// recorded as holding it, which need not be the one the target now starts
+// new sessions in.
+func (s *Server) sessionBackend(row *store.Session, target *store.Target) backend.Backend {
+	if target == nil || target.Kind == "sandbox" || s.TerminalBackend != nil {
+		return s.targetBackend(target)
+	}
+	ex, err := s.Reg.For(target)
+	if err != nil {
+		return backend.Tmux
+	}
+	return backend.SessionOrTarget(ex, row)
 }
 
 // targetBackend is the session backend of a target's executor; tmux when the
@@ -152,6 +166,7 @@ func (s *Server) resolveAttachmentRow(kind, rawID string) (terminal.Attachment, 
 		return terminal.Attachment{
 			Key:         fmt.Sprintf("session:%d", row.ID),
 			TmuxSession: row.TmuxSession,
+			Backend:     s.sessionBackend(row, target),
 		}, target, nil
 	case "project":
 		// a plain shell where the project's code lives, for reading something or

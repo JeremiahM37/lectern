@@ -18,6 +18,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 // Names of the backends, as configured and as reported.
@@ -120,6 +121,60 @@ func FromEnv(env executor.TargetEnv) Backend {
 		return Pty(env.Lectern)
 	}
 	return Tmux
+}
+
+// ForSession is the backend that holds a session: the one recorded on its row
+// when it was started or adopted, whatever the target now picks for new
+// sessions. A row from before backends were recorded ("") uses the target's
+// current one until a poll records where it really is. ok is false when the
+// recorded backend cannot be driven here (a PTY session on a target whose
+// lectern binary is no longer known); callers must then leave the session
+// alone rather than ask another backend, which would report it missing.
+func ForSession(ex executor.Executor, s *store.Session) (be Backend, ok bool) {
+	env := executor.TargetEnvOf(ex)
+	if s == nil || s.SessionBackend == "" {
+		return FromEnv(env), true
+	}
+	return Named(env, s.SessionBackend)
+}
+
+// SessionOrTarget is ForSession for callers that act on a session but have
+// no way to report an undrivable one: they fall back to the target's backend,
+// where the command then fails on its own terms.
+func SessionOrTarget(ex executor.Executor, s *store.Session) Backend {
+	if be, ok := ForSession(ex, s); ok {
+		return be
+	}
+	return For(ex)
+}
+
+// Named is the backend called name on a target, when the target can drive it.
+func Named(env executor.TargetEnv, name string) (Backend, bool) {
+	switch name {
+	case NameTmux:
+		return Tmux, true
+	case NamePty:
+		if env.Lectern != "" {
+			return Pty(env.Lectern), true
+		}
+	}
+	return nil, false
+}
+
+// Others are the target's backends other than name, for asking whether one
+// of them holds a session its own backend reports missing.
+func Others(ex executor.Executor, name string) []Backend {
+	env := executor.TargetEnvOf(ex)
+	var out []Backend
+	for _, other := range env.Backends {
+		if other == name {
+			continue
+		}
+		if be, ok := Named(env, other); ok {
+			out = append(out, be)
+		}
+	}
+	return out
 }
 
 // cli renders tmux-language commands for a program word.

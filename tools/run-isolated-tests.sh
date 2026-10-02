@@ -371,6 +371,9 @@ env_args=(
   --setenv TMUX_TMPDIR "$tmux_root"
   --setenv ADK_TEST_TMUX_ROOT "$tmux_root"
   --setenv ADK_TEST_ISOLATED 1
+  # Anything that would use the default PTY host socket fails instead: a test
+  # names a private one (internal/ptyhost TestGuardEnv).
+  --setenv LECTERN_PTYHOST_TEST_GUARD 1
   "${tmux_env[@]}"
   --setenv ADK_HOST_TMUX_SOCKET "$host_tmux_socket"
 )

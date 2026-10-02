@@ -126,6 +126,25 @@ for _name in [*OUTSIDE_WORLD, "LECTERN_BASE_URL", "LECTERN_DB",
               "LECTERN_GRIMOIRE_CONTEXT_MODE", "LECTERN_GRIMOIRE_CONTEXT_PROJECTS"]:
     os.environ.pop(_name, None)
 
+# PTY hosts. A server, `lectern local` runtime or `lectern pty` started here
+# would otherwise use the user's own PTY host socket, where a running Lectern
+# counts the sessions as its own: on 2026-10-01 stray test hosts there made a
+# live server switch its sessions' backend and end them. Each test process
+# gets a private socket, stopped when the run ends, and the guard turns the
+# default socket into an error for anything that escapes it. A test that needs
+# a host of its own still sets its own socket.
+_PTY_DIR = tempfile.mkdtemp(prefix="lpty-", dir="/tmp")
+_PTY_SOCKET = str(Path(_PTY_DIR) / "s.sock")
+os.environ["LECTERN_PTYHOST_SOCKET"] = _PTY_SOCKET
+os.environ["LECTERN_PTYHOST_TEST_GUARD"] = "1"
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if Path(_PTY_SOCKET).exists():
+        subprocess.run([_binary(), "ptyhost", "stop", "--force", "--socket", _PTY_SOCKET],
+                       capture_output=True, timeout=30)
+    shutil.rmtree(_PTY_DIR, ignore_errors=True)
+
 # A shell starts background jobs (`cmd &`) with SIGINT and SIGQUIT ignored,
 # and an ignored signal survives every exec after it. Tests that press Ctrl-C
 # in a child's PTY then wait forever for a process that never saw it. Put the

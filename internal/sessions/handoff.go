@@ -413,7 +413,7 @@ func (m *Manager) runHandoff(ctx context.Context, sess *store.Session, o Handoff
 func (m *Manager) limitWrap(ctx context.Context, sess *store.Session, ex executor.Executor, hold *store.LimitHold) string {
 	pane := sess.PaneTail
 	cmd := fmt.Sprintf("printf '%%s' %s; %s", shellq.Quote(PollDelimiter+sess.TmuxSession+"\n"),
-		backend.For(ex).CapturePane(backend.Pane(sess.TmuxSession), 200, true))
+		sessionBackend(ex, sess).CapturePane(backend.Pane(sess.TmuxSession), 200, true))
 	if r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 15}); err == nil && r.OK() {
 		if text := ParsePoll(r.Stdout)[sess.TmuxSession]; strings.TrimSpace(text) != "" {
 			pane = text

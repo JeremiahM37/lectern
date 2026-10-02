@@ -2,11 +2,9 @@ package sessions
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
-	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -254,27 +252,15 @@ func (m *Manager) pollTargetGroup(ctx context.Context, targetID int64, group []*
 			return ""
 		}
 	}
-	names := make([]string, 0, len(group))
-	for _, s := range group {
-		names = append(names, s.TmuxSession)
-	}
-	r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 45})
-	if err != nil || !r.OK() {
+	panes, err := m.captureHeld(ctx, ex, group, PaneLines, 45)
+	if err != nil {
 		// an unreachable target is not evidence a session died; leave the
 		// rows alone and try again after a backoff
-		m.Log.Debug("session poll failed", "target", target.Name, "err", err, "exit_code", r.RC)
-		if err != nil {
-			if ctx.Err() != nil {
-				return "not answering"
-			}
-			return err.Error()
+		m.Log.Debug("session poll failed", "target", target.Name, "err", err)
+		if ctx.Err() != nil {
+			return "not answering"
 		}
-		return fmt.Sprintf("status poll failed (exit %d)", r.RC)
-	}
-	panes, complete := ParsePollSnapshot(r.Stdout, names)
-	if !complete {
-		m.Log.Debug("incomplete session poll", "target", target.Name)
-		return "incomplete status poll"
+		return err.Error()
 	}
 	for _, s := range group {
 		pane := panes[s.TmuxSession]
@@ -292,7 +278,7 @@ func (m *Manager) pollTargetGroup(ctx context.Context, targetID int64, group []*
 		// after a known boot and a live, identity-bound pane are observed;
 		// a missing pane must remain unresolved until a later probe.
 		if known && s.BootID == "" && !pane.Missing && s.Origin == "lectern" && validTrackingIdentity(s.TrackingIdentity) {
-			identity, identityErr := ProbeTrackingIdentity(ctx, ex, s.TmuxSession)
+			identity, identityErr := ProbeTrackingIdentity(ctx, ex, sessionBackend(ex, s), s.TmuxSession)
 			if identityErr == nil && identity == s.TrackingIdentity {
 				if err := m.DB.Update("sessions", s.ID, map[string]any{"boot_id": boot, "updated_at": store.Now()}); err == nil {
 					s.BootID = boot

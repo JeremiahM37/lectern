@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
@@ -51,7 +50,7 @@ func (m *Manager) ResumeConversation(ctx context.Context, sourceID int64, cid, n
 	if err != nil {
 		return nil, err
 	}
-	names := []string{source.TmuxSession}
+	held := []*store.Session{source}
 	seenNames := map[string]bool{source.TmuxSession: true}
 	for _, row := range rows {
 		if row.ID == source.ID {
@@ -62,18 +61,14 @@ func (m *Manager) ResumeConversation(ctx context.Context, sourceID int64, cid, n
 				return nil, fmt.Errorf("session %d has an unfinished launch; inspect it before retrying", row.ID)
 			}
 			if !seenNames[row.TmuxSession] {
-				names = append(names, row.TmuxSession)
+				held = append(held, row)
 				seenNames[row.TmuxSession] = true
 			}
 		}
 	}
-	result, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 10})
-	if err != nil || !result.OK() {
+	panes, err := m.captureHeld(ctx, ex, held, PaneLines, 10)
+	if err != nil {
 		return nil, fmt.Errorf("could not establish that the previous terminal has stopped")
-	}
-	panes, complete := ParsePollSnapshot(result.Stdout, names)
-	if !complete {
-		return nil, fmt.Errorf("incomplete terminal check; retry when the target is reachable")
 	}
 	for _, pane := range panes {
 		if !pane.Missing {

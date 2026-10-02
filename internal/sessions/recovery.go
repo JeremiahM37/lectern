@@ -33,12 +33,8 @@ func (m *Manager) recoverAfterBoot(ctx context.Context, target *store.Target, ex
 		if row.EndedAt != nil || row.ArchivedAt != nil || row.Origin != "lectern" || row.SetupState == "creating" || row.BootID == "" || row.BootID == boot || row.Status == StatusInterrupted {
 			continue
 		}
-		r, err := ex.Run(ctx, pollCommand(ex, []string{row.TmuxSession}), executor.RunOpts{Timeout: 10})
-		if err != nil || !r.OK() {
-			continue
-		}
-		panes, complete := ParsePollSnapshot(r.Stdout, []string{row.TmuxSession})
-		if !complete {
+		panes, err := m.captureHeld(ctx, ex, []*store.Session{row}, PaneLines, 10)
+		if err != nil {
 			continue
 		}
 		pane, found := panes[row.TmuxSession]

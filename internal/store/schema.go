@@ -1075,4 +1075,9 @@ var migrations = []string{
 	// Per-project override of whether Claude Code leaves the mouse to the
 	// terminal (internal/sessions/terminal_mouse.go).
 	"ALTER TABLE projects ADD COLUMN claude_terminal_mouse TEXT NOT NULL DEFAULT ''",
+	// The session backend (tmux or pty) holding a session's terminal,
+	// recorded when it is started or adopted so a session is always driven
+	// through its own backend. '' is a row from before: a poll records the
+	// backend it finds the session in (internal/sessions/poll.go).
+	"ALTER TABLE sessions ADD COLUMN session_backend TEXT NOT NULL DEFAULT ''",
 }

@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/ptyhost"
 	"github.com/JeremiahM37/lectern/v2/internal/testutil"
+	"github.com/JeremiahM37/lectern/v2/internal/testutil/ptytest"
 )
 
 func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
@@ -27,7 +29,7 @@ func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	env := localTestEnv(state)
+	env := localTestEnv(t, state)
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
 	fixtureDir := t.TempDir()
 	fixtureSocket := filepath.Join(fixtureDir, "fixture")
@@ -150,7 +152,7 @@ func TestExplicitRemoteFailureDoesNotFallbackToLocal(t *testing.T) {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	env := append(localTestEnv(state), "LECTERN_API=http://127.0.0.1:1")
+	env := append(localTestEnv(t, state), "LECTERN_API=http://127.0.0.1:1")
 	if _, err := runLocalCLI(bin, env, "api", "GET", "/health"); err == nil {
 		t.Fatal("explicit remote unexpectedly succeeded")
 	}
@@ -169,7 +171,7 @@ func TestHostedAttachMarkerReachesHostedLookup(t *testing.T) {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	env := localTestEnv(state)
+	env := localTestEnv(t, state)
 	env = append(env, "LECTERN_PORT=1")
 	out, err := runLocalCLI(bin, env, "--hosted-attach", "attach", "session", "17")
 	if err == nil {
@@ -183,9 +185,12 @@ func TestHostedAttachMarkerReachesHostedLookup(t *testing.T) {
 	}
 }
 
-func localTestEnv(state string) []string {
+// localTestEnv is the environment of a local runtime private to one test: its
+// own state directory, which holds its tmux directory, and its own PTY host
+// socket, stopped when the test ends.
+func localTestEnv(t *testing.T, state string) []string {
 	blocked := map[string]bool{}
-	for _, key := range []string{"LECTERN_API", "LECTERN_ATTACH_HOST", "LECTERN_DB", "LECTERN_HOST", "LECTERN_PORT", "LECTERN_BASE_URL", "LECTERN_AUTH_TOKEN", "LECTERN_MOCK", "LECTERN_GRIMOIRE_URL", "LECTERN_GRIMOIRE_TOKEN", "LECTERN_HOST_CLAUDE_CONFIG", "LECTERN_CREDS", "LECTERN_CODEX_CREDS", "LECTERN_ANTHROPIC_API_KEY", "XDG_STATE_HOME"} {
+	for _, key := range []string{ptyhost.SocketEnv, "LECTERN_API", "LECTERN_ATTACH_HOST", "LECTERN_DB", "LECTERN_HOST", "LECTERN_PORT", "LECTERN_BASE_URL", "LECTERN_AUTH_TOKEN", "LECTERN_MOCK", "LECTERN_GRIMOIRE_URL", "LECTERN_GRIMOIRE_TOKEN", "LECTERN_HOST_CLAUDE_CONFIG", "LECTERN_CREDS", "LECTERN_CODEX_CREDS", "LECTERN_ANTHROPIC_API_KEY", "XDG_STATE_HOME"} {
 		blocked[key] = true
 	}
 	base := make([]string, 0, len(os.Environ())+2)
@@ -197,7 +202,7 @@ func localTestEnv(state string) []string {
 	}
 	// LECTERN_PORT=1: no Lectern service answers there, so plain commands
 	// choose the local runtime even on a host running one on 9110.
-	return append(base, "XDG_STATE_HOME="+state, "LECTERN_MOCK=1", "LECTERN_PORT=1")
+	return append(base, "XDG_STATE_HOME="+state, "LECTERN_MOCK=1", "LECTERN_PORT=1", ptyhost.SocketEnv+"="+ptytest.Socket(t))
 }
 
 func runLocalCLI(bin string, env []string, args ...string) ([]byte, error) {

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/testutil"
 )
 
@@ -61,7 +62,7 @@ func main(){ cid:="11111111-1111-4111-8111-111111111111"; cwd:=os.Getenv("FAKE_C
 		t.Fatalf("tmux: %v: %s", err, out)
 	}
 	ctx := context.Background()
-	identity := captureTrackingIdentity(ctx, ex, name)
+	identity := captureTrackingIdentity(ctx, ex, backend.Tmux, name)
 	if identity == "" {
 		t.Fatal("could not establish tmux tracking identity")
 	}

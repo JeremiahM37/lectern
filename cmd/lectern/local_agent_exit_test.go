@@ -53,7 +53,7 @@ func TestAgentExitIsStoppedOnEveryBackend(t *testing.T) {
 			if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 				t.Fatalf("git init: %v %s", err, out)
 			}
-			env := append(localTestEnv(state), "HOME="+home, "LECTERN_SESSION_BACKEND="+backendName,
+			env := append(localTestEnv(t, state), "HOME="+home, "LECTERN_SESSION_BACKEND="+backendName,
 				"LECTERN_SESSION_POLL=0.5", "LECTERN_CLAUDE_BIN=claude-exit-test",
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 			t.Cleanup(func() {

@@ -34,7 +34,7 @@ func (s *Server) sessionReader(w http.ResponseWriter, r *http.Request) {
 	// Join soft-wrapped terminal lines, then let the phone wrap at its own width.
 	// Exact target avoids tmux treating a session name as a prefix match.
 	cmd := fmt.Sprintf("printf '%%s' %s; %s", shellq.Quote(sessions.PollDelimiter+row.TmuxSession+"\n"),
-		backend.For(ex).CapturePane(backend.Pane(row.TmuxSession), 500, true))
+		backend.SessionOrTarget(ex, row).CapturePane(backend.Pane(row.TmuxSession), 500, true))
 	result, err := ex.Run(r.Context(), cmd, executor.RunOpts{Timeout: 15})
 	if err != nil || !result.OK() {
 		httpError(w, 502, "could not read the session; its target may be offline")

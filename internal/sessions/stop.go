@@ -17,13 +17,11 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 		return fmt.Errorf("session has no terminal to check")
 	}
 	check := func() (PollCapture, error) {
-		names := []string{row.TmuxSession}
-		r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 20})
-		if err != nil || !r.OK() {
+		panes, err := m.captureHeld(ctx, ex, []*store.Session{row}, PaneLines, 20)
+		if err != nil {
 			return PollCapture{}, fmt.Errorf("could not check whether the terminal stopped")
 		}
-		panes, complete := ParsePollSnapshot(r.Stdout, names)
-		if !complete || panes[row.TmuxSession].Failed {
+		if panes[row.TmuxSession].Failed {
 			return PollCapture{}, fmt.Errorf("incomplete terminal check; retry when the target is reachable")
 		}
 		return panes[row.TmuxSession], nil
@@ -35,13 +33,14 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 	if before.Missing {
 		return nil
 	}
-	r, err := ex.Run(ctx, trackingIdentityCommandFor(backend.For(ex), row.TmuxSession, ""), executor.RunOpts{Timeout: 10})
+	be := sessionBackend(ex, row)
+	r, err := ex.Run(ctx, trackingIdentityCommandFor(be, row.TmuxSession, ""), executor.RunOpts{Timeout: 10})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("could not identify the terminal to stop")
 	}
 	identity := strings.TrimSpace(r.Stdout)
 	if identity == "" && row.TrackingIdentity == "" && row.EndedAt == nil {
-		identity = captureTrackingIdentity(ctx, ex, row.TmuxSession)
+		identity = captureTrackingIdentity(ctx, ex, be, row.TmuxSession)
 	}
 	if !validTrackingIdentity(identity) || (row.TrackingIdentity != "" && identity != row.TrackingIdentity) || (row.EndedAt != nil && row.TrackingIdentity == "") {
 		return fmt.Errorf("the original terminal could not be identified; track the current terminal before stopping it")
@@ -58,7 +57,7 @@ func (m *Manager) stopProcess(ctx context.Context, ex executor.Executor, row *st
 			return fmt.Errorf("session changed before stop; refresh before retrying")
 		}
 	}
-	command := backend.For(ex).KillIf(backend.Pane(row.TmuxSession), trackingCondition(identity), backend.Exact(row.TmuxSession))
+	command := be.KillIf(backend.Pane(row.TmuxSession), trackingCondition(identity), backend.Exact(row.TmuxSession))
 	r, err = ex.Run(ctx, command, executor.RunOpts{Timeout: 20})
 	if err != nil || !r.OK() {
 		return fmt.Errorf("terminal stop failed; the session remains tracked")

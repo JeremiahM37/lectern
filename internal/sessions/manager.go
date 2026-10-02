@@ -320,13 +320,14 @@ func (m *Manager) LaunchShellIn(ctx context.Context, targetID int64, dir, name s
 // established, shared by the scratch and project forms above.
 func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Session, error) {
 	ex, target, workdir := room.ex, room.target, room.workdir
+	be := backend.For(ex)
 	bootID, _ := ProbeBootID(ctx, ex)
 	// Reserve the record only after target-side preparation has completed. The
 	// lifecycle lock is deliberately not held across SSH/PCT/local executor I/O.
 	m.lifecycleMu.Lock()
 	sess, err := m.DB.InsertSession(&store.Session{
 		ProjectID: room.projectID, TargetID: target.ID, Name: room.name, Agent: "shell",
-		Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID,
+		Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID, SessionBackend: be.Name(),
 	})
 	if err != nil {
 		m.lifecycleMu.Unlock()
@@ -350,7 +351,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	if room.command != "" {
 		program = "bash -c " + shellq.Quote(room.command)
 	}
-	command := backend.For(ex).NewSession(backend.NewSession{Name: tmuxName, Dir: workdir,
+	command := be.NewSession(backend.NewSession{Name: tmuxName, Dir: workdir,
 		Argv: "env " + identity + room.env + program, ExtendedKeys: true})
 	r, err := ex.Run(ctx, command, executor.RunOpts{Timeout: 30})
 	if err != nil {
@@ -363,7 +364,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 	}
 	// Mark the already-running shell so later native promotion can prove this
 	// exact terminal without restarting or adopting a different pane.
-	if identity := captureTrackingIdentity(ctx, ex, tmuxName); identity != "" {
+	if identity := captureTrackingIdentity(ctx, ex, be, tmuxName); identity != "" {
 		_ = m.DB.Update("sessions", sess.ID, map[string]any{"tracking_identity": identity})
 	}
 	m.lifecycleMu.Lock()
@@ -374,7 +375,7 @@ func (m *Manager) startShellRoom(ctx context.Context, room shellRoom) (*store.Se
 		// tracking was stopped while the target launch was in flight. A dead row
 		// means an explicit stop won the race, so clean up only our exact name.
 		if current.Status == StatusDead {
-			_, _ = ex.Run(ctx, backend.For(ex).KillSession(backend.Exact(tmuxName), false), executor.RunOpts{Timeout: 20})
+			_, _ = ex.Run(ctx, be.KillSession(backend.Exact(tmuxName), false), executor.RunOpts{Timeout: 20})
 		}
 		return current, nil
 	}
@@ -524,6 +525,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		sess, err = m.DB.InsertSession(&store.Session{
 			ResumeID: o.ResumeID, GroupPath: group, ProjectID: o.ProjectID, TargetID: o.TargetID, Name: name, Agent: agent,
 			Model: o.Model, Workdir: workdir, Status: StatusStarting, Origin: "lectern", BootID: bootID, AccountID: o.AccountID,
+			SessionBackend: backend.For(ex).Name(),
 		})
 	}
 	if err != nil {
@@ -533,11 +535,13 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// the `lec-s` prefix keeps interactive sessions clearly apart from the
 	// `lec-<attempt>` sessions a dispatched task owns
 	tmuxName := fmt.Sprintf("lec-s%d", sess.ID)
+	// A reserved row (a revive, a recovery) gets a new terminal in the
+	// backend new sessions start in, so it is recorded again here.
 	if err := m.DB.Update("sessions", sess.ID, map[string]any{
-		"tmux_session": tmuxName, "resume_id": o.ResumeID}); err != nil {
+		"tmux_session": tmuxName, "resume_id": o.ResumeID, "session_backend": backend.For(ex).Name()}); err != nil {
 		return nil, err
 	}
-	sess.TmuxSession = tmuxName
+	sess.TmuxSession, sess.SessionBackend = tmuxName, backend.For(ex).Name()
 	// Persist the exact launch settings before publishing a background reservation.
 	// A failed checkout must retain its profile rather than falling back to later
 	// edits of the reusable agent or profile settings.
@@ -1079,7 +1083,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.recordDelivery(sess.ID, recalled)
 	}
 	// Bind new owned terminals as well as adopted ones to their tmux identity.
-	if identity := captureTrackingIdentity(ctx, ex, tmuxName); identity != "" {
+	if identity := captureTrackingIdentity(ctx, ex, backend.For(ex), tmuxName); identity != "" {
 		if err := m.DB.Update("sessions", sess.ID, map[string]any{"tracking_identity": identity}); err != nil {
 			m.Log.Warn("could not record terminal identity", "session", sess.ID, "err", err)
 		}
@@ -1191,12 +1195,8 @@ func (m *Manager) waitReady(ctx context.Context, id int64) bool {
 		if err != nil {
 			return false
 		}
-		out, err := ex.Run(ctx, pollCommand(ex, []string{sess.TmuxSession}),
-			RunOptsShort())
-		if err != nil || !out.OK() {
-			continue
-		}
-		panes, complete := ParsePollSnapshot(out.Stdout, []string{sess.TmuxSession})
+		panes, err := m.captureHeld(ctx, ex, []*store.Session{sess}, PaneLines, RunOptsShort().Timeout)
+		complete := err == nil
 		capture := panes[sess.TmuxSession]
 		if !complete || capture.Missing || capture.Failed {
 			continue
@@ -1312,7 +1312,7 @@ func (m *Manager) sendText(ctx context.Context, id int64, text string, automatic
 	if err := ex.WriteFile(ctx, stage, []byte(text)); err != nil {
 		return err
 	}
-	r, err := ex.Run(ctx, sendTextCommand(backend.For(ex), sess.TmuxSession, stage),
+	r, err := ex.Run(ctx, sendTextCommand(sessionBackend(ex, sess), sess.TmuxSession, stage),
 		executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return err
@@ -1343,7 +1343,7 @@ func (m *Manager) SendKey(ctx context.Context, id int64, key string) error {
 	if err != nil {
 		return err
 	}
-	cmd, ok := sendKeyCommand(backend.For(ex), sess.TmuxSession, key)
+	cmd, ok := sendKeyCommand(sessionBackend(ex, sess), sess.TmuxSession, key)
 	if !ok {
 		return fmt.Errorf("unknown key %q", key)
 	}
@@ -1429,7 +1429,7 @@ func (m *Manager) Release(ctx context.Context, id int64) error {
 	if identity == "" && origin == "discovered" && status != StatusDead {
 		if _, ex, err := m.resolve(id); err == nil {
 			captureCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			identity = captureTrackingIdentity(captureCtx, ex, tmuxSession)
+			identity = captureTrackingIdentity(captureCtx, ex, sessionBackend(ex, sess), tmuxSession)
 			cancel()
 		}
 	}

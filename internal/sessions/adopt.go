@@ -102,7 +102,8 @@ func (m *Manager) Adopt(ctx context.Context, o AdoptOpts) (*store.Session, error
 	// shows a session that was already gone when we claimed it — and take tmux's
 	// own timestamps while we are asking, so an agent you started three days ago
 	// says "up 3d" instead of "up 4s"
-	r, err := ex.Run(ctx, timesCommand(backend.For(ex), o.TmuxSession), executor.RunOpts{Timeout: 20})
+	be := backend.For(ex)
+	r, err := ex.Run(ctx, timesCommand(be, o.TmuxSession), executor.RunOpts{Timeout: 20})
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +118,7 @@ func (m *Manager) Adopt(ctx context.Context, o AdoptOpts) (*store.Session, error
 	if agent == "" {
 		agent = "claude"
 	}
-	identity := captureTrackingIdentity(ctx, ex, o.TmuxSession)
+	identity := captureTrackingIdentity(ctx, ex, be, o.TmuxSession)
 	var sess *store.Session
 	err = func() error {
 		m.lifecycleMu.Lock()
@@ -130,7 +131,7 @@ func (m *Manager) Adopt(ctx context.Context, o AdoptOpts) (*store.Session, error
 		sess, err = m.DB.InsertSession(&store.Session{
 			ProjectID: o.ProjectID, TargetID: o.TargetID, Name: name, Agent: agent,
 			Model: o.Model, Workdir: o.Workdir, TmuxSession: o.TmuxSession,
-			Status: StatusIdle, Origin: "discovered",
+			Status: StatusIdle, Origin: "discovered", SessionBackend: be.Name(),
 		})
 		if err != nil {
 			return err

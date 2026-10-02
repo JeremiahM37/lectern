@@ -330,8 +330,3 @@ func orDefault(v, def string) string {
 // RunOptsShort is the timeout used for the quick pane reads that back the
 // readiness wait.
 func RunOptsShort() executor.RunOpts { return executor.RunOpts{Timeout: 20} }
-
-// pollCommand is PollCommand for the backend of the target ex drives.
-func pollCommand(ex executor.Executor, names []string) string {
-	return backend.For(ex).Poll(names, PaneLines)
-}

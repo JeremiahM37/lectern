@@ -5,10 +5,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"testing"
 )
 
 // SocketEnv overrides where the host listens (tests, several instances).
 const SocketEnv = "LECTERN_PTYHOST_SOCKET"
+
+// TestGuardEnv marks a process started by a test, directly or through any
+// number of children. Under it the default socket is refused: a test names
+// its own (SocketEnv), so it never starts, reaches or leaves behind a host on
+// the user's real socket — where a running Lectern server would count its
+// sessions as its own. The test runners set it; every Go test binary sets it
+// for itself below, so a `go test` run by hand is guarded too.
+const TestGuardEnv = "LECTERN_PTYHOST_TEST_GUARD"
+
+// ErrDefaultSocketInTest is SocketPath's answer under TestGuardEnv when no
+// socket was named.
+var ErrDefaultSocketInTest = errors.New("refusing the default PTY host socket in a test: set " + SocketEnv + " to a private path")
+
+func init() {
+	if testing.Testing() {
+		_ = os.Setenv(TestGuardEnv, "1")
+	}
+}
 
 // SocketPath is where this user's PTY host listens on this machine.
 //
@@ -17,6 +36,9 @@ const SocketEnv = "LECTERN_PTYHOST_SOCKET"
 func SocketPath() (string, error) {
 	if p := os.Getenv(SocketEnv); p != "" {
 		return filepath.Abs(p)
+	}
+	if os.Getenv(TestGuardEnv) != "" {
+		return "", ErrDefaultSocketInTest
 	}
 	dir, err := defaultDir()
 	if err != nil {

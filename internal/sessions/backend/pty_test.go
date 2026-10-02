@@ -57,6 +57,9 @@ func TestResolverPicksABackendPerTarget(t *testing.T) {
 		{"windows", "auto", "windows", noTmux, none, NamePty},
 		{"macOS keeps running tmux sessions", "auto", "darwin", tmuxThere, func(b string) bool { return b == NameTmux }, NameTmux},
 		{"linux keeps running pty sessions", "auto", "linux", tmuxThere, func(b string) bool { return b == NamePty }, NamePty},
+		// 2026-10-01: a stray PTY host must not move a machine whose
+		// sessions live in tmux.
+		{"linux with both keeps tmux", "auto", "linux", tmuxThere, func(string) bool { return true }, NameTmux},
 		{"forced tmux", "tmux", "darwin", tmuxThere, none, NameTmux},
 		{"forced pty", "pty", "linux", tmuxThere, none, NamePty},
 	} {
@@ -93,4 +96,68 @@ func TestResolverReadsARemoteTargetsProbe(t *testing.T) {
 	if b := FromEnv(executor.TargetEnv{SessionBackend: NamePty}); b.Name() != NameTmux {
 		t.Fatal("pty without a binary must fall back to tmux")
 	}
+}
+
+func TestEveryTargetListsTheBackendsItCanDrive(t *testing.T) {
+	tmuxThere := func(string) (string, error) { return "/usr/bin/tmux", nil }
+	noTmux := func(string) (string, error) { return "", errors.New("not found") }
+	none := func(string) bool { return false }
+	local := &store.Target{Kind: "local"}
+	for _, tc := range []struct {
+		name, setting, goos string
+		look                func(string) (string, error)
+		want                string
+	}{
+		{"linux with tmux", "auto", "linux", tmuxThere, "tmux,pty"},
+		{"linux without tmux", "auto", "linux", noTmux, "pty"},
+		{"forced tmux without it", "tmux", "linux", noTmux, "tmux,pty"},
+		{"windows", "auto", "windows", tmuxThere, "pty"},
+	} {
+		r := Resolver{Setting: tc.setting, Self: "/bin/lectern", GOOS: tc.goos, LookPath: tc.look, HoldsSessions: none}
+		if got := strings.Join(r.Env(local, nil).Backends, ","); got != tc.want {
+			t.Errorf("%s: backends %s, want %s", tc.name, got, tc.want)
+		}
+	}
+	remote := Resolver{Setting: "auto", GOOS: "linux"}
+	for info, want := range map[string]string{
+		`{"tmux":"tmux 3.4","lectern":"/usr/local/bin/lectern\npty\n"}`: "tmux,pty",
+		`{"tmux":null,"lectern":"/usr/local/bin/lectern\npty\n"}`:       "pty",
+		`{"tmux":"tmux 3.4","lectern":null}`:                              "tmux",
+		`{}`:                                                              "tmux",
+	} {
+		if got := strings.Join(remote.Env(&store.Target{Kind: "ssh", InfoJSON: info}, nil).Backends, ","); got != want {
+			t.Errorf("remote %s: backends %s, want %s", info, got, want)
+		}
+	}
+}
+
+func TestASessionIsDrivenThroughItsOwnBackend(t *testing.T) {
+	ex := &envOnly{id: 1}
+	executor.SetTargetEnv(ex, executor.TargetEnv{SessionBackend: NamePty, Lectern: "/bin/lectern", Backends: []string{NameTmux, NamePty}})
+	if be, ok := ForSession(ex, &store.Session{SessionBackend: NameTmux}); !ok || be.Name() != NameTmux {
+		t.Fatal("a tmux session on a target now starting pty sessions must stay on tmux")
+	}
+	if be, ok := ForSession(ex, &store.Session{}); !ok || be.Name() != NamePty {
+		t.Fatal("an unrecorded session starts from the target's backend")
+	}
+	if others := Others(ex, NamePty); len(others) != 1 || others[0].Name() != NameTmux {
+		t.Fatalf("others = %v", others)
+	}
+	// A PTY session on a target whose lectern binary is no longer known
+	// cannot be driven, and is not handed to tmux to be called missing.
+	bare := &envOnly{id: 2}
+	executor.SetTargetEnv(bare, executor.TargetEnv{SessionBackend: NameTmux})
+	if _, ok := ForSession(bare, &store.Session{SessionBackend: NamePty}); ok {
+		t.Fatal("an undrivable pty session must be reported")
+	}
+	if SessionOrTarget(bare, &store.Session{SessionBackend: NamePty}).Name() != NameTmux {
+		t.Fatal("SessionOrTarget falls back to the target's backend")
+	}
+}
+
+// envOnly is an executor that only carries a TargetEnv; its size keeps two of
+// them distinct map keys.
+type envOnly struct {
+	executor.Executor
+	id int
 }

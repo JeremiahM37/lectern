@@ -770,7 +770,7 @@ func (s *Server) attachSession(w http.ResponseWriter, r *http.Request) {
 	_, retired, err := s.Terminals.AttachWithNotice(r.Context(), terminal.Attachment{
 		Key:         fmt.Sprintf("session:%d", row.ID),
 		TmuxSession: row.TmuxSession,
-		Backend:     s.targetBackend(target),
+		Backend:     s.sessionBackend(row, target),
 	}, target)
 	if err != nil {
 		terminalError(w, err)

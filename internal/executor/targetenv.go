@@ -11,8 +11,13 @@ import "sync"
 // nobody resolved (tests, a sandbox's per-attempt container) has the zero
 // value: tmux, and no lectern binary.
 type TargetEnv struct {
-	// SessionBackend is "tmux" or "pty"; "" means tmux.
+	// SessionBackend is "tmux" or "pty"; "" means tmux. It is the backend
+	// new sessions start in; a session already running stays in the one
+	// recorded on its row (backend.ForSession).
 	SessionBackend string
+	// Backends lists every backend the target can drive, SessionBackend
+	// included; nil means SessionBackend alone.
+	Backends []string
 	// Lectern is the lectern binary's path on the target, in a form the
 	// target's shell accepts, or "" when there is none. Target-side helpers
 	// then fall back to their Python versions.

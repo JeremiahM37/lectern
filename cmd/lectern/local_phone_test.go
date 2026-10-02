@@ -25,7 +25,7 @@ func TestPhoneOnTheSameWiFi(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	env := append(localTestEnv(t.TempDir()), "HOME="+t.TempDir())
+	env := append(localTestEnv(t, t.TempDir()), "HOME="+t.TempDir())
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "phone", "--off"); _, _ = runLocalCLI(bin, env, "local", "stop") })
 	out, err := runLocalCLI(bin, env, "phone", "--no-qr")
 	if err != nil || !bytes.Contains(out, []byte("not encrypted")) || !bytes.Contains(out, []byte("Tailscale")) {

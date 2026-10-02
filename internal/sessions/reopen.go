@@ -22,13 +22,11 @@ func (m *Manager) terminalGone(ctx context.Context, ex executor.Executor, row *s
 	if row.TmuxSession == "" {
 		return nil
 	}
-	names := []string{row.TmuxSession}
-	r, err := ex.Run(ctx, pollCommand(ex, names), executor.RunOpts{Timeout: 10})
-	if err != nil || !r.OK() {
+	panes, err := m.captureHeld(ctx, ex, []*store.Session{row}, PaneLines, 10)
+	if err != nil {
 		return fmt.Errorf("could not check the original terminal; retry when the machine is reachable")
 	}
-	panes, complete := ParsePollSnapshot(r.Stdout, names)
-	if !complete || panes[row.TmuxSession].Failed {
+	if panes[row.TmuxSession].Failed {
 		return fmt.Errorf("incomplete terminal check; retry when the machine is reachable")
 	}
 	if !panes[row.TmuxSession].Missing {

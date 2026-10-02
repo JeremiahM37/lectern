@@ -287,6 +287,9 @@ type Session struct {
 	// AccountID is the registered login (agent_accounts, docs/accounts.md)
 	// this session's agent runs under; nil is the CLI's own default login.
 	AccountID *int64 `json:"account_id,omitempty"`
+	// SessionBackend is the backend holding this session's terminal, "tmux"
+	// or "pty"; "" on a row from before it was recorded.
+	SessionBackend string `json:"session_backend,omitempty"`
 
 	// HookToken authenticates POST /api/hook/session/{id}/* (see
 	// internal/agentevents). Never serialized: it is a bearer secret handed to

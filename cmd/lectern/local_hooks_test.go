@@ -56,7 +56,7 @@ exec sleep 120
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	env := append(localTestEnv(state), "HOME="+home, "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
+	env := append(localTestEnv(t, state), "HOME="+home, "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Cleanup(func() {
 		testutil.CleanupTmuxSocket(t, filepath.Join(state, "lectern", "local", "tmux", fmt.Sprintf("tmux-%d", os.Getuid()), "default"))
 		_, _ = runLocalCLI(bin, env, "local", "stop")
@@ -127,7 +127,7 @@ func TestLocalRuntimeRefusesOtherWebsites(t *testing.T) {
 		t.Fatalf("build local CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	env := append(localTestEnv(state), "HOME="+t.TempDir())
+	env := append(localTestEnv(t, state), "HOME="+t.TempDir())
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
 	if out, err := runLocalCLI(bin, env, "api", "GET", "/health"); err != nil {
 		t.Fatalf("start runtime: %v %s", err, out)

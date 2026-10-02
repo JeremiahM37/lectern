@@ -11,7 +11,11 @@ import (
 )
 
 // Local runs commands on the control-plane host itself.
-type Local struct{}
+//
+// It is not zero-sized: Go may give every zero-sized allocation the same
+// address, and each executor is a key of its own TargetEnv (SetTargetEnv), so
+// one local target's backend would otherwise become every Local's.
+type Local struct{ _ byte }
 
 // NewLocal builds a Local executor.
 func NewLocal() *Local { return &Local{} }

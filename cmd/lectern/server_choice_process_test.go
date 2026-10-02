@@ -31,7 +31,7 @@ func TestPlainCommandsPreferHostedService(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, out)
 	}
 	state := t.TempDir()
-	base := localTestEnv(state)
+	base := localTestEnv(t, state)
 	t.Cleanup(func() { _, _ = runLocalCLI(bin, base, "local", "stop") })
 
 	open := startHostedServe(t, bin, base, "")
@@ -170,7 +170,7 @@ func TestExplicitAPINeverProbes(t *testing.T) {
 	}))
 	defer explicit.Close()
 	state := t.TempDir()
-	env := append(localTestEnv(state), "LECTERN_PORT="+decoy.URL[strings.LastIndex(decoy.URL, ":")+1:], "LECTERN_API="+explicit.URL)
+	env := append(localTestEnv(t, state), "LECTERN_PORT="+decoy.URL[strings.LastIndex(decoy.URL, ":")+1:], "LECTERN_API="+explicit.URL)
 
 	out, stderr, err := runCLISplit(bin, env, "api", "GET", "/health")
 	if err != nil || !bytes.Contains(out, []byte(`"explicit":true`)) || stderr != "" {
