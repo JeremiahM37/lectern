@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -19,7 +20,24 @@ import (
 // client runs a stand-in agent on one of its own. It is what the PTY-backend
 // CI job runs on Windows and macOS.
 
-const bareChildEnv = "LECTERN_BARE_TEST_CHILD"
+const (
+	bareChildEnv  = "LECTERN_BARE_TEST_CHILD"
+	bareReportEnv = "LECTERN_BARE_TEST_REPORT"
+)
+
+// bareReport appends a line to the file the test reads. The popup cannot
+// say what it was asked for on the screen: on Windows the test reads a
+// ConPTY, which sends a picture of the screen every frame rather than the
+// bytes written to it, and a popup that names its action and closes at once
+// is redrawn over before the next frame, so its words are never sent.
+func bareReport(line string) {
+	f, err := os.OpenFile(os.Getenv(bareReportEnv), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintln(f, line)
+}
 
 func requireRealTerminal(t *testing.T) {
 	t.Helper()
@@ -48,13 +66,13 @@ func TestBareAttachmentControlsChild(t *testing.T) {
 		if action == "" {
 			action = "menu"
 		}
-		fmt.Fprint(os.Stdout, "ACTION_"+action)
+		bareReport("ACTION_" + action)
 	}
 	agent := []string{os.Args[0], "-test.run=^TestBareAttachmentControlsAgent$"}
 	if err := c.run(agent, false); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprint(os.Stdout, "ATTACH_RETURNED")
+	bareReport("ATTACH_RETURNED")
 }
 
 // TestBareAttachmentControlsAgent is the stand-in agent: it echoes lines.
@@ -72,6 +90,8 @@ func TestBareAttachmentControlsAgent(t *testing.T) {
 func TestBareAttachmentControls(t *testing.T) {
 	requireRealTerminal(t)
 	t.Setenv(bareChildEnv, "client")
+	report := filepath.Join(t.TempDir(), "report")
+	t.Setenv(bareReportEnv, report)
 	t.Setenv(ptyhost.SocketEnv, shortSocket(t))
 	f, err := ptyhost.StartProcess([]string{os.Args[0], "-test.run=^TestBareAttachmentControlsChild$"}, 80, 24)
 	if err != nil {
@@ -92,6 +112,7 @@ func TestBareAttachmentControls(t *testing.T) {
 			}
 		}
 	}()
+	// wait looks for what the client drew on the screen.
 	wait := func(want string) {
 		t.Helper()
 		deadline := time.Now().Add(15 * time.Second)
@@ -108,6 +129,22 @@ func TestBareAttachmentControls(t *testing.T) {
 		defer mu.Unlock()
 		t.Fatalf("missing %q in %q", want, output.String())
 	}
+	// reported waits for what the client's popup was asked to do.
+	reported := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		var got []byte
+		for time.Now().Before(deadline) {
+			got, _ = os.ReadFile(report)
+			if bytes.Contains(got, []byte(want+"\n")) {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("client did not report %q; reported %q; screen %q", want, got, output.String())
+	}
 	type_ := func(s string) {
 		t.Helper()
 		if _, err := f.Write([]byte(s)); err != nil {
@@ -119,13 +156,13 @@ func TestBareAttachmentControls(t *testing.T) {
 	// Each key goes in the moment the previous popup reports, while the
 	// client is still taking the keyboard back.
 	type_("\x1dm")
-	wait("ACTION_menu")
+	reported("ACTION_menu")
 	type_("\x1c")
-	wait("ACTION_upload")
+	reported("ACTION_upload")
 	type_("still-alive\r")
 	wait("ECHO: still-alive")
 	type_("\x1dd")
-	wait("ATTACH_RETURNED")
+	reported("ATTACH_RETURNED")
 	select {
 	case <-f.Done():
 	case <-time.After(15 * time.Second):
