@@ -192,6 +192,10 @@ const catalog: Record<string, string> = {
   "review.identity.needName": "请输入你的姓名。",
   "review.identity.needEmail": "请输入邮箱地址。",
   "review.session.tabCommitCount": "提交 ({n})",
+  "approval.neededAction.terminal": "需要你：运行一条命令",
+  "approval.neededAction.edit": "需要你：修改文件",
+  "approval.neededAction.read": "需要你：读取文件",
+  "approval.neededAction.web": "需要你：访问网络",
 };
 
 export default catalog;

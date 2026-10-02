@@ -192,6 +192,10 @@ const catalog: Record<string, string> = {
   "review.identity.needName": "Saisissez votre nom.",
   "review.identity.needEmail": "Saisissez une adresse e-mail.",
   "review.session.tabCommitCount": "Commit ({n})",
+  "approval.neededAction.terminal": "Vous attend : lancer une commande",
+  "approval.neededAction.edit": "Vous attend : modifier un fichier",
+  "approval.neededAction.read": "Vous attend : lire un fichier",
+  "approval.neededAction.web": "Vous attend : utiliser le web",
 };
 
 export default catalog;

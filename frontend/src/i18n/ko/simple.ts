@@ -192,6 +192,10 @@ const catalog: Record<string, string> = {
   "review.identity.needName": "이름을 입력하세요.",
   "review.identity.needEmail": "이메일 주소를 입력하세요.",
   "review.session.tabCommitCount": "커밋 ({n})",
+  "approval.neededAction.terminal": "확인 필요: 명령 실행",
+  "approval.neededAction.edit": "확인 필요: 파일 변경",
+  "approval.neededAction.read": "확인 필요: 파일 읽기",
+  "approval.neededAction.web": "확인 필요: 웹 사용",
 };
 
 export default catalog;

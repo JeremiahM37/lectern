@@ -5,10 +5,13 @@
 // Allow once · Allow for this session · Deny… — and the same keys, Y / A / N,
 // while the card has focus. The tool call is shown through the tool-view
 // registry the chat cards use (a Bash approval shows the command, an Edit
-// approval shows the diff), or as one line when `compact`.
+// approval shows the diff), or as one line when `compact`. Either way the
+// command or file appears once, under a plain heading ("Needs you: run a
+// command") rather than the tool's internal name and icon.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Approval } from "../types";
-import { ToolCardBody, ToolCardHeader } from "./tool-views/ToolCard";
+import { ToolCardBody } from "./tool-views/ToolCard";
+import { describeTool } from "./tool-views/describe";
 import type { ToolCard } from "./tool-views/chatCards";
 import { approvalSummary } from "./approval-summary";
 import { t, useLocale } from "../i18n";
@@ -151,9 +154,8 @@ export function ApprovalCard({
       onKeyDown={keys}
     >
       <div className="approval-head">
-        <strong>{t("approval.needed", { tool: approval.tool_name })}</strong>
+        <strong>{approvalHeading(approval.tool_name, approval.input || {})}</strong>
         {showContext && context && <span className="approval-context">{context}</span>}
-        {!compact && <ToolCardHeader card={card} />}
       </div>
       {compact ? (
         approvalSummary(approval) && <code className="approval-summary">{approvalSummary(approval)}</code>
@@ -259,6 +261,15 @@ export function ApprovalCard({
       ) : null}
     </div>
   );
+}
+
+/** "Needs you: run a command" — what the agent wants to do, in plain words. */
+export function approvalHeading(tool: string, input: Record<string, unknown>): string {
+  const category = describeTool(tool, input).category;
+  const key = category === "terminal" || category === "edit" || category === "read" || category === "web"
+    ? `approval.neededAction.${category}`
+    : "";
+  return key ? t(key) : t("approval.needed", { tool });
 }
 
 /** The decision request every surface sends. */
