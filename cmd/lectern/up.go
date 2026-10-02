@@ -127,7 +127,7 @@ func upCommand(cfg *config.Config, args []string) error {
 	if agent := firstFoundAgent(status); agent != "" {
 		fmt.Printf("Or stay in the terminal: cd into a project and run lectern %s.\n", agent)
 	} else {
-		fmt.Println("No agent yet? In the browser, \"Try a demo agent\" shows how it works with nothing installed.")
+		fmt.Println("No agent yet? \"Try a demo agent\" in the browser, or lectern demo here, shows how it works with nothing installed.")
 	}
 	return nil
 }

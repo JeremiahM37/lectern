@@ -329,6 +329,8 @@ func checkAgentInstalled(c *console.Client, agentName string) error {
 	msg := fmt.Sprintf("lectern %s: %s isn't installed where Lectern runs. To use it, %s, then run lectern up once so Lectern finds it.", agentName, agentName, agentInstallHint(agentName))
 	if len(installed) > 0 {
 		msg += fmt.Sprintf("\nInstalled now: %s — for example: lectern %s", strings.Join(installed, ", "), installed[0])
+	} else {
+		msg += "\nTo see how Lectern works first, try the demo agent, which needs nothing installed: lectern demo"
 	}
 	return errors.New(msg)
 }

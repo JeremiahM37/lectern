@@ -30,7 +30,7 @@ func TestDispatchTable(t *testing.T) {
 		{"agent", true}, {"account", true}, {"upload", true}, {"files", true}, {"download", true},
 		{"post", true}, {"live", true}, {"expose", true}, {"skill", true}, {"plugin", true},
 		{"promote", true}, {"controls", true}, {"help", true}, {"--help", true}, {"-h", true},
-		{"claude", true}, {"codex", true},
+		{"claude", true}, {"codex", true}, {"demo", true}, {"phone", true},
 		{"local", false}, {"up", false}, {"doctor", false}, {"serve", false},
 		{"attach", false}, {"mcp", false}, {"version", false}, {"--version", false}, {"-v", false},
 		{"nonexistent-command", false},
