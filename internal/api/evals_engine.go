@@ -209,8 +209,20 @@ func (s *Server) dispatchEvalCell(ctx context.Context, run *store.EvalRun, suite
 	if err != nil {
 		return err
 	}
-	s.DB.Update("eval_results", res.ID, map[string]any{
-		"status": "running", "task_id": task.ID, "attempt_id": att.ID})
+	// Claim the cell only if it is still queued. A cancel that landed while
+	// this cell was being dispatched has already marked it "error"; writing
+	// "running" over that would revive a cancelled cell and leave its agent
+	// running, so cancel the attempt just created instead.
+	claimed, err := s.DB.Exec(`UPDATE eval_results SET status='running', task_id=?, attempt_id=?
+		WHERE id=? AND status='queued'`, task.ID, att.ID, res.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := claimed.RowsAffected(); n == 0 {
+		s.Sched.CancelAttempt(ctx, att)
+		s.DB.Update("tasks", task.ID, map[string]any{"status": "cancelled", "updated_at": store.Now()})
+		return nil
+	}
 	s.Bus.Publish("board", "task", task)
 	return nil
 }
