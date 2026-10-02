@@ -1,7 +1,7 @@
 const catalog: Record<string, string> = {
   "conversation.chat.dialogLabel": "Conversación con {name}",
   "conversation.chat.connecting": "Conectando…",
-  "conversation.chat.sessionStatus": "{agent} · {state} · lector en vivo",
+  "conversation.chat.sessionStatus": "{agent} · {state}",
   "conversation.chat.ended": "Finalizada",
   "conversation.chat.taskStatus": "{agent} · {status}",
   "conversation.chat.taskStatusTurn": "{agent} · {status} · turno {n}",

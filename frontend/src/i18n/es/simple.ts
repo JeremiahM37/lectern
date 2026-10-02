@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "No se pudo añadir {path} como proyecto.",
   "start.sheet.notInstalled": "{name} (no instalado)",
   "start.sheet.demoAgent": "demo (no hace falta instalar nada)",
-  "start.sheet.noAgent": "No hay ningún agente instalado en esta máquina.",
-  "start.sheet.useDemo": "Usar el agente de demostración",
   "start.sheet.ask": "Preguntar antes de acciones arriesgadas",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -162,6 +160,14 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "este repositorio no tiene un remoto al que enviar",
   "review.why.prNeedsPush": "una pull request necesita Enviar",
   "start.sheet.worktreeNeedsProject": "primero elige una carpeta de proyecto",
+  "start.sheet.installHint": "Instala Claude Code o Codex para usar un agente real. Mientras tanto, el agente de demostración muestra cómo funciona Lectern.",
+  "start.sheet.notInstalledWhy": "{name} no está instalado en esta máquina. Elige un agente instalado o la demostración.",
+  "sessions.card.renameHint": "Renombrar",
+  "sessions.list.moreLabel": "Más herramientas de sesión",
+  "sessions.list.openTerminals": "⌨ Terminales ({n})",
+  "nav.terminalsOpen": "{n} terminales abiertos",
+  "review.onMain.ownFolder": "Esto crea la rama {branch} en tu carpeta {dir} y cambia la carpeta a ella. Tu editor y tu terminal también estarán en esa rama.",
+  "review.onMain.folderNowOn": "Commit hecho. Tu carpeta {dir} está ahora en la rama {branch}.",
 };
 
 export default catalog;

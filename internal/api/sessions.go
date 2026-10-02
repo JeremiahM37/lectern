@@ -726,6 +726,7 @@ func (s *Server) sendToSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case strings.TrimSpace(in.Text) != "":
+		s.Sessions.NameFromPrompt(row.ID, in.Text)
 		if err := s.Sessions.SendText(r.Context(), row.ID, in.Text); err != nil {
 			httpError(w, 409, "%s", err.Error())
 			return

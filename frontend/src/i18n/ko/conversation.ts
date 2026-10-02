@@ -1,7 +1,7 @@
 const catalog: Record<string, string> = {
   "conversation.chat.dialogLabel": "{name}와(과)의 대화",
   "conversation.chat.connecting": "연결 중…",
-  "conversation.chat.sessionStatus": "{agent} · {state} · 실시간 보기",
+  "conversation.chat.sessionStatus": "{agent} · {state}",
   "conversation.chat.ended": "종료됨",
   "conversation.chat.taskStatus": "{agent} · {status}",
   "conversation.chat.taskStatusTurn": "{agent} · {status} · {n}번째 턴",

@@ -17,7 +17,7 @@ const demoScript = `printf '\033[1mDemo agent\033[0m: a stand-in that needs noth
 	`[ -z "$line" ] && continue; ` +
 	`printf 'Working on it...\n'; sleep 2; ` +
 	`printf -- '- %s\n' "$line" >> demo-notes.md; ` +
-	`printf 'Done: I added that to demo-notes.md. Open Review to see the change.\n\n'; ` +
+	`printf 'Done: I added that to demo-notes.md. Open Review & merge to see the change.\n\n'; ` +
 	`done`
 
 // DemoSpec is the demo agent's definition. It is not in Builtins: agent

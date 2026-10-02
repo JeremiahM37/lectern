@@ -22,10 +22,13 @@ export function CheckBadge({
   session: s,
   api,
   onNotice,
+  hideRun = false,
 }: {
   session: SessionView;
   api: SessionsApi;
   onNotice: (text: string, error?: boolean) => void;
+  /** The card offers "Run check" in its ⋯ menu instead. */
+  hideRun?: boolean;
 }) {
   useLocale();
   const [expanded, setExpanded] = useState(false);
@@ -83,14 +86,14 @@ export function CheckBadge({
                   : t("sessions.check.skipped")}
         </button>
       )}
-      <button
+      {!hideRun && <button
         type="button"
         className="chip check-run"
         disabled={busy}
         onClick={() => void runNow()}
       >
         {busy ? t("sessions.check.starting") : t("sessions.check.run")}
-      </button>
+      </button>}
       {expanded && (
         <div className="check-detail">
           <code>{detail?.command || lc?.command}</code>

@@ -14,6 +14,7 @@ def prepare(t, tmp_path):
     runner.write_text(r'''#!/usr/bin/env python3
 import json,os,re,sys
 from pathlib import Path
+from session_sheet import card_action
 record=Path.cwd()/('agent-%s.json'%os.getpid())
 record.with_suffix('.partial').write_text(json.dumps({'argv':sys.argv[1:],'provider':os.environ.get('SWITCH_PROVIDER'),'cwd':os.getcwd()}))
 record.with_suffix('.partial').replace(record)
@@ -96,7 +97,7 @@ def test_saved_provider_survives_reload_and_switch_errors_are_visible(page,real_
     assert t['api']('/sessions/'+str(source['id']))['ended_at'] is None
     page.goto(t['url']+'/#sessions')
     card=page.locator('.scard').filter(has_text='deepseek-test')
-    card.get_by_role('button',name='⇄ Switch',exact=True).click()
+    card_action(page,card,'⇄ Switch').click()
     expect(sheet).to_be_visible()
     sheet.get_by_role('button',name='Close switcher').click()
     card.get_by_role('button',name='Chat',exact=True).click()

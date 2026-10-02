@@ -108,13 +108,10 @@ def test_rename_session_from_card_action_menu(page, server):
     card.wait_for()
     session_id = int(card.get_attribute("data-session-id"))
     
-    # Set up dialog handler before clicking the rename button
-    page.once("dialog", lambda dialog: dialog.accept("New Name From Card"))
-    
     # Wait for the API call to complete
     with page.expect_response(lambda r: r.request.method == "PATCH" and f"/api/sessions/{session_id}" in r.url and r.ok):
-        # The card's own Rename button - this will trigger the prompt dialog
-        card.get_by_role("button", name="✎ Rename").click()
+        # The card's title renames in place: click it, type, Enter.
+        card.locator('button.nm').click();card.locator('.nm-edit').fill("New Name From Card");card.locator('.nm-edit').press('Enter')
     
     # Verify the name changed in the UI by finding the card with the new name
     new_card = page.locator(".scard", has_text="New Name From Card")

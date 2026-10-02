@@ -492,7 +492,17 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	}
 	name := o.Name
 	if name == "" {
-		name = agent
+		// Project (or agent) plus the first message's topic, unique among live
+		// sessions (naming.go). Without a first message the topic comes with
+		// the first prompt instead (NameFromPrompt).
+		projectName := ""
+		if project != nil {
+			projectName = project.Name
+		}
+		name = WithTopic(NameBase(projectName, agent), o.Prime)
+		if live, err := m.DB.Sessions(false); err == nil {
+			name = UniqueName(name, live, 0)
+		}
 	}
 	var sess *store.Session
 	if o.ReservedID != 0 {
@@ -1609,4 +1619,29 @@ func (m *Manager) cleanupWorkspaceMCP(id int64) {
 func (m *Manager) releaseSessionResources(id int64) {
 	m.IsolationProxies.Stop(id)
 	m.cleanupWorkspaceMCP(id)
+}
+
+// NameFromPrompt gives a session that still has its default name a topic
+// from its first prompt: "myapp" becomes "myapp — fix the login page". A
+// session someone renamed, or one that already has a topic, is left alone.
+func (m *Manager) NameFromPrompt(id int64, prompt string) {
+	row, err := m.DB.Session(id)
+	if err != nil || row.LastPromptExcerpt != "" || row.Agent == "shell" {
+		return
+	}
+	base := NameBase(row.ProjectName, row.Agent)
+	if !IsDefaultName(row.Name, base) || Topic(prompt) == "" {
+		return
+	}
+	live, err := m.DB.Sessions(false)
+	if err != nil {
+		return
+	}
+	name := UniqueName(WithTopic(base, prompt), live, id)
+	if name == row.Name || m.DB.Update("sessions", id, map[string]any{"name": name, "updated_at": store.Now()}) != nil {
+		return
+	}
+	if fresh, err := m.DB.Session(id); err == nil {
+		m.publish(fresh)
+	}
 }

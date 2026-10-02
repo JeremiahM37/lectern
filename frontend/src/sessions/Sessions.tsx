@@ -57,6 +57,8 @@ export interface SessionsProps {
   onActionConsumed?: () => void;
   onMetadataRefresh?: () => void;
   pushPrompt?: PushPrompt;
+  /** Terminal tabs already open: a way back to them from Sessions. */
+  openTerminals?: { count: number; open(): void };
 }
 function savedGrouping(): GroupMode {
   try {
@@ -98,6 +100,7 @@ export function Sessions({
   onActionConsumed = () => {},
   onMetadataRefresh,
   pushPrompt,
+  openTerminals,
 }: SessionsProps) {
   useLocale();
   const [rows, setRows] = useState<SessionView[]>([]),
@@ -548,8 +551,78 @@ export function Sessions({
   // Nothing live yet (the first run, or everything ended): the Start an agent
   // card leads, without an empty "Scratch terminals" section under it.
   const firstRun = scope === "active" && !query && rows.length === 0;
+  // With only a couple of sessions there is nothing to search, group or
+  // filter (re-audit N8): those tools wait under ⋯ until the list grows.
+  const few = scope === "active" && !query && rows.filter((row) => !row.ended_at && row.status !== "dead").length <= 2;
+  const headerExtras = (
+    <>
+        <button
+        className="b"
+        id="sess-saved-search"
+        onClick={() => setSearch(true)}
+        aria-label={t("sessions.list.searchSavedLabel")}
+      >
+        {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
+      </button>
+        <button
+        className="b"
+        id="sess-discover"
+        onClick={() => setSheet("discover")}
+        aria-label={t("sessions.list.findAgentsLabel")}
+      >
+        {t("sessions.list.findAgentsFind")}<span className="wide-only">{t("sessions.list.findAgentsWide")}</span>{t("sessions.list.findAgentsEnd")}
+      </button>
+    </>
+  );
+  const listTools = (
+    <>
+      <input
+        id="sess-search"
+        className="f"
+        type="search"
+        placeholder={t("sessions.list.searchPlaceholder")}
+        aria-label={t("sessions.list.searchLabel")}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <div className="session-filters">
+      <label className="session-grouping">
+        {t("sessions.list.groupBy")}{" "}
+        <select
+          className="f"
+          id="sess-grouping"
+          aria-label={t("sessions.list.groupByLabel")}
+          value={group}
+          onChange={(event) => {
+            const value = event.target.value as GroupMode;
+            setGroup(value);
+            sessionStorage.setItem("lec-session-grouping", value);
+          }}
+        >
+          <option value="none">{t("sessions.list.groupNone")}</option>
+          <option value="group">{t("sessions.list.groupNamed")}</option>
+          <option value="project">{t("sessions.list.groupProject")}</option>
+          <option value="target">{t("sessions.list.groupTarget")}</option>
+        </select>
+      </label>
+      <label className="session-grouping session-scope">
+        {t("sessions.list.show")}{" "}
+        <select
+          className="f"
+          id="sess-scope"
+          value={scope}
+          onChange={(event) => setScope(event.target.value as typeof scope)}
+        >
+          <option value="active">{t("sessions.list.scopeActive")}</option>
+          <option value="all">{t("sessions.list.scopeAll")}</option>
+          <option value="archived">{t("sessions.list.scopeArchived")}</option>
+        </select>
+      </label>
+      </div>
+    </>
+  );
   return (
-    <section className={`list wide${firstRun ? " first-run" : ""}`}>
+    <section className={`list wide${firstRun ? " first-run" : ""}${few ? " few" : ""}`}>
       <div className="sesshead">
         <div>
           <h2>{t("sessions.list.title")}</h2>
@@ -562,22 +635,7 @@ export function Sessions({
           </p>
         </div>
         <QuotaChip api={api} />
-        <button
-          className="b"
-          id="sess-saved-search"
-          onClick={() => setSearch(true)}
-          aria-label={t("sessions.list.searchSavedLabel")}
-        >
-          {t("sessions.list.searchSaved")}<span className="wide-only">{t("sessions.list.searchSavedWide")}</span>
-        </button>
-        <button
-          className="b"
-          id="sess-discover"
-          onClick={() => setSheet("discover")}
-          aria-label={t("sessions.list.findAgentsLabel")}
-        >
-          {t("sessions.list.findAgentsFind")}<span className="wide-only">{t("sessions.list.findAgentsWide")}</span>{t("sessions.list.findAgentsEnd")}
-        </button>
+        {!few && headerExtras}
         <button
           className="b"
           id="sess-recent"
@@ -587,9 +645,23 @@ export function Sessions({
         >
           {t("sessions.list.restoreButton")}
         </button>
+        {openTerminals && (
+          <button className="b" id="sess-terminals" onClick={openTerminals.open}>
+            {t("sessions.list.openTerminals", { n: openTerminals.count })}
+          </button>
+        )}
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
           {t("sessions.list.newSession")}
         </button>
+        {few && (
+          <details className="action-menu sess-more" id="sess-more">
+            <summary aria-label={t("sessions.list.moreLabel")}>⋯</summary>
+            <div className="action-menu-panel">
+              {headerExtras}
+              {listTools}
+            </div>
+          </details>
+        )}
       </div>
       {relaunched.length > 0 && (
         <div className="restore-banner relaunch-notice" role="status">
@@ -635,49 +707,7 @@ export function Sessions({
         onShowSession={showSession}
         onShowApprovals={showApprovals}
       />
-      <input
-        id="sess-search"
-        className="f"
-        type="search"
-        placeholder={t("sessions.list.searchPlaceholder")}
-        aria-label={t("sessions.list.searchLabel")}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
-      <div className="session-filters">
-      <label className="session-grouping">
-        {t("sessions.list.groupBy")}{" "}
-        <select
-          className="f"
-          id="sess-grouping"
-          aria-label={t("sessions.list.groupByLabel")}
-          value={group}
-          onChange={(event) => {
-            const value = event.target.value as GroupMode;
-            setGroup(value);
-            sessionStorage.setItem("lec-session-grouping", value);
-          }}
-        >
-          <option value="none">{t("sessions.list.groupNone")}</option>
-          <option value="group">{t("sessions.list.groupNamed")}</option>
-          <option value="project">{t("sessions.list.groupProject")}</option>
-          <option value="target">{t("sessions.list.groupTarget")}</option>
-        </select>
-      </label>
-      <label className="session-grouping session-scope">
-        {t("sessions.list.show")}{" "}
-        <select
-          className="f"
-          id="sess-scope"
-          value={scope}
-          onChange={(event) => setScope(event.target.value as typeof scope)}
-        >
-          <option value="active">{t("sessions.list.scopeActive")}</option>
-          <option value="all">{t("sessions.list.scopeAll")}</option>
-          <option value="archived">{t("sessions.list.scopeArchived")}</option>
-        </select>
-      </label>
-      </div>
+      {!few && listTools}
       {recentOpen && (
         <RestorePanel
           api={api}
@@ -745,6 +775,7 @@ export function Sessions({
             )}
           </div>
         </section>
+        {(!few || scratch.length > 0) && (
         <ScratchTerminals
           items={scratch}
           mode={group}
@@ -753,6 +784,7 @@ export function Sessions({
           onToggle={toggleGroup}
           render={render}
         />
+        )}
       </div>
       {/* Below the sessions, not above them: a session that wants you is
           marked on its own card, and what is left here — approvals, failed
@@ -891,7 +923,7 @@ export function Sessions({
           <pre>{archiveText.text || t("sessions.list.noOutput")}</pre>
         </Modal>
       )}
-      <ScratchReview api={api} onNotice={onNotice} />
+      {!few && <ScratchReview api={api} onNotice={onNotice} />}
     </section>
   );
 }

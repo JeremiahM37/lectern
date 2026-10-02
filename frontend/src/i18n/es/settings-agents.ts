@@ -137,7 +137,7 @@ const catalog: Record<string, string> = {
   "agentSettings.usage.tokensInOut": "{input} entrada / {output} salida",
   "agentSettings.usage.nothingYet": "Nada todavía.",
   "agentSettings.usage.byProject": "Por proyecto",
-  "agentSettings.usage.unassigned": "Sin asignar",
+  "agentSettings.usage.unassigned": "Sin proyecto",
   "agentSettings.usage.topSessionsLabel": "Sesiones con mayor coste",
   "agentSettings.usage.topSessions": "Sesiones principales",
   "agentSettings.usage.noneYet": "Ninguna todavía.",

@@ -8,6 +8,7 @@ from playwright.sync_api import expect
 from conftest import PHONE
 from test_terminal_workspace import real_terminal  # noqa: F401
 from test_terminal_split import attach, frame, ready
+from session_sheet import nav_to
 
 
 def prefs(t):
@@ -78,7 +79,7 @@ def test_light_theme_accent_and_zoom_apply_everywhere_and_persist(page, real_ter
     page.locator('.tab[data-tab="settings"]').click()
     page.locator('[data-settings="appearance"]').click()
     page.get_by_role('combobox', name='Zoom').select_option('1')
-    page.locator('.tab[data-tab="terminals"]').click()
+    nav_to(page, 'terminals')
     expect(f.locator('html')).to_have_attribute('data-theme', 'light')
     assert luminance(f.locator('body').evaluate('el => getComputedStyle(el).backgroundColor')) > 200
     # Reload: still light, before and after the server answers.
@@ -149,9 +150,9 @@ def test_language_follows_the_browser_and_can_be_chosen(browser, real_terminal):
     page.goto(t['url'] + '/#sessions')
     expect(page.locator('html')).to_have_attribute('lang', 'fr')
     expect(page.locator('.tab[data-tab="sessions"]')).to_contain_text('Sessions')
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('Tâches')
+    expect(page.locator('.tab[data-tab="approvals"]')).to_contain_text('Approbations')
     # Longer French labels still fit a phone on the main screens.
-    for tab in ('tasks', 'sessions'):
+    for tab in ('approvals', 'sessions'):
         page.locator(f'.tab[data-tab="{tab}"]').click()
         assert page.evaluate('document.documentElement.scrollWidth') <= 391, tab
     # Choosing Japanese in Settings changes the whole app at once, and is kept.
@@ -159,12 +160,12 @@ def test_language_follows_the_browser_and_can_be_chosen(browser, real_terminal):
     page.locator('[data-settings="appearance"]').click()
     page.locator('[data-setting="appearance.language"] select').select_option('ja')
     expect(page.locator('html')).to_have_attribute('lang', 'ja')
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('タスク')
+    expect(page.locator('.tab[data-tab="approvals"]')).to_contain_text('承認')
     expect(page.locator('[data-settings="appearance"]')).to_have_text('外観')
     page.wait_for_timeout(600)
     assert prefs(t)['appearance']['language'] == 'ja'
     page.reload()
-    expect(page.locator('.tab[data-tab="tasks"]')).to_contain_text('タスク')
+    expect(page.locator('.tab[data-tab="approvals"]')).to_contain_text('承認')
     # The terminal page, a separate document, follows too.
     page.goto(t['url'] + f"/terminal/session/{t['id']}")
     expect(page.locator('html')).to_have_attribute('lang', 'ja')

@@ -5,7 +5,7 @@ import pytest
 from playwright.sync_api import expect
 
 from conftest import DESKTOP, PHONE
-from session_sheet import open_advanced
+from session_sheet import open_advanced, session_tool
 
 
 def _tab(page, name):
@@ -526,7 +526,7 @@ def test_discover_offers_to_adopt_a_hand_started_agent(page, server):
     """The sessions worth tracking are usually the ones you started yourself."""
     page.goto(server + "/#tasks")
     _tab(page, "sessions")
-    page.click("#sess-discover")
+    session_tool(page, "#sess-discover").click()
     row = page.locator(".cand", has_text="legacy-claude").first
     expect(row).to_be_visible(timeout=15000)
     row.locator("button", has_text="Adopt").click()
@@ -553,7 +553,7 @@ def test_adopted_session_offers_release_not_just_kill(page, server):
     started yourself must not be killed by a button labelled like a delete."""
     page.goto(server + "/#tasks")
     _tab(page, "sessions")
-    page.click("#sess-discover")
+    session_tool(page, "#sess-discover").click()
     row = page.locator(".cand", has_text="legacy-claude").first
     expect(row).to_be_visible(timeout=15000)
     row.locator("button", has_text="Adopt").click()
@@ -567,7 +567,7 @@ def test_adopted_session_offers_release_not_just_kill(page, server):
     card.locator("button", has_text="Stop tracking").click()
     expect(page.locator(".scard", has_text="legacy-claude")).to_have_count(0, timeout=10000)
     # released, not killed: discovery finds the terminal again
-    page.click("#sess-discover")
+    session_tool(page, "#sess-discover").click()
     expect(page.locator(".cand", has_text="legacy-claude").first).to_be_visible(timeout=15000)
 
 

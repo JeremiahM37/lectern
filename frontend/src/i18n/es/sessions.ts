@@ -132,7 +132,7 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.discover.intro": "Adoptarlo no lo reinicia ni lo interrumpe.",
   "sessions.dialogs.discover.empty": "No se encontraron agentes en marcha en ninguna máquina.",
   "sessions.dialogs.discover.projectFor": "Proyecto para {name}",
-  "sessions.dialogs.discover.unassigned": "Sin asignar",
+  "sessions.dialogs.discover.unassigned": "Sin proyecto",
   "sessions.dialogs.discover.adopt": "Adoptar",
 
   "sessions.dialogs.handoff.requested": "Traspaso solicitado: llegará cuando el agente termine su turno",
@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "sessions.actionMenu.more": "Más ···",
 
   "sessions.groups.ungrouped": "Sin grupo",
-  "sessions.groups.unassigned": "Sin asignar",
+  "sessions.groups.unassigned": "Sin proyecto",
   "sessions.groups.waiting": " · {n} te necesitan",
 
   "sessions.card.duration.seconds": "{s} s",
@@ -180,7 +180,7 @@ const catalog: Record<string, string> = {
   "sessions.card.previewSettingUp": "Configurando el espacio de trabajo… Podrás conectarte cuando termine la configuración.",
   "sessions.card.progressUnavailable": "Progreso no disponible: {error}",
   "sessions.card.setupFailedPreview": "Falló la configuración: {error}",
-  "sessions.card.unassigned": "Sin asignar",
+  "sessions.card.unassigned": "Sin proyecto",
   "sessions.card.quiet": "inactiva {duration}",
   "sessions.card.copyPath": "Copiar ruta",
   "sessions.card.accountTitle": "La cuenta con la que se ejecuta este agente (Ajustes → Cuentas)",
@@ -251,7 +251,7 @@ const catalog: Record<string, string> = {
   "sessions.card.stopArchiveConfirm": "¿Detener \"{name}\" y mover su registro al Archivo? Esto termina su proceso de terminal. La salida capturada, las conversaciones guardadas y los archivos del worktree se conservan.",
   "sessions.card.stopArchive": "Detener y archivar",
   "sessions.card.project": "Proyecto",
-  "sessions.card.unassignedOption": "— sin asignar —",
+  "sessions.card.unassignedOption": "— sin proyecto —",
 
   "sessions.needsYou.reason.approval": "Se necesita aprobación",
   "sessions.needsYou.reason.waiting": "Esperándote",
@@ -274,7 +274,7 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.toBoard": "→ Tareas",
   "sessions.needsYou.setupUnfinished": "la configuración del espacio de trabajo no terminó",
   "sessions.needsYou.terminalGone": "su terminal ya no existe",
-  "sessions.needsYou.unassigned": "sin asignar",
+  "sessions.needsYou.unassigned": "sin proyecto",
   "sessions.needsYou.overlap": "Sus últimos prompts coinciden en un {percent} %: comprueba que no estén construyendo lo mismo",
   "sessions.needsYou.openSession": "Abrir sesión",
   "sessions.needsYou.openNamed": "Abrir {name}",

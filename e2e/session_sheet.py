@@ -21,3 +21,33 @@ def open_advanced(root):
         details.locator("summary").click()
     expect(details).to_have_js_property("open", True)
     return details
+
+
+def nav_to(page, name):
+    """Open a page from the navigation: the main bar, or More (docs/design/
+    simple-ui.md — Terminals always, and Tasks until it is used, live there)."""
+    tab = page.locator(f'#tabbar .tab[data-tab="{name}"]')
+    if tab.count() and tab.is_visible():
+        tab.click()
+        return
+    page.locator("#nav-overflow > summary").click()
+    page.locator(f'#nav-overflow [data-nav-target="{name}"]').click()
+
+
+def session_tool(page, selector):
+    """A Sessions-page tool (search, Group by, Show, Search saved, Find running).
+    With only a couple of sessions they wait under the header's ⋯ menu."""
+    tool = page.locator(selector)
+    more = page.locator("#sess-more")
+    if more.count() and not tool.is_visible():
+        if not more.evaluate("el => el.open"):
+            more.locator("summary").click()
+    return tool
+
+
+def card_action(page, card, name, exact=True):
+    """A session card action that lives in its ⋯ menu (Rename, Switch, Run check, Memory)."""
+    button = card.get_by_role("button", name=name, exact=exact)
+    if not button.is_visible():
+        card.locator(".action-menu > summary").first.click()
+    return button

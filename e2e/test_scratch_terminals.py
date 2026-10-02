@@ -4,6 +4,7 @@ import subprocess
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
+from session_sheet import session_tool
 
 
 @pytest.mark.parametrize('width', [320, 1280])
@@ -40,14 +41,14 @@ def test_quick_terminal_stays_scratch_until_promoted(page, real_terminal, width)
     # Projectless AI conversations still belong among regular sessions.
     expect(regular.locator(f'.scard[data-session-id="{t["id"]}"]')).to_be_visible()
     expect(scratch.locator(selector).get_by_role('button', name='Make a project')).to_be_visible()
-    page.locator('#sess-search').fill(shell['workdir'])
+    session_tool(page, '#sess-search').fill(shell['workdir'])
     expect(scratch.locator(selector)).to_be_visible()
     expect(regular.locator('.scard')).to_have_count(0)
-    page.locator('#sess-search').fill('')
-    page.locator('#sess-grouping').select_option('target')
+    session_tool(page, '#sess-search').fill('')
+    session_tool(page, '#sess-grouping').select_option('target')
     expect(scratch.locator(selector)).to_be_visible()
     expect(regular.locator(f'.scard[data-session-id="{t["id"]}"]')).to_be_visible()
-    page.locator('#sess-grouping').select_option('none')
+    session_tool(page, '#sess-grouping').select_option('none')
     page.reload()
     expect(scratch.locator(selector)).to_be_visible()
     scratch.locator(selector).get_by_role('button', name='⌨ Terminal', exact=True).click()

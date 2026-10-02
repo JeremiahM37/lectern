@@ -99,7 +99,9 @@ export function GitPanel({
   // action reloads the patches, so the choice is cleared with it.
   const [chosen, setChosen] = useState<Record<string, number[]>>({});
 
-  const [message, setMessageState] = useState(defaultMessage ?? "");
+  // Starts from what the person asked for or what changed (suggested_message,
+  // once the status loads) — the session's name is not a commit message.
+  const [message, setMessageState] = useState("");
   const messageTouched = useRef(false);
   const setMessage = (m: string) => {
     messageTouched.current = true;
@@ -134,6 +136,7 @@ export function GitPanel({
         remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
+        else if (!messageTouched.current && s.suggested_message) setMessageState(s.suggested_message);
       })
       .catch((e) => live && setError(String(e instanceof Error ? e.message : e)));
     return () => {
@@ -355,7 +358,9 @@ export function GitPanel({
           : amend
             ? t("review.git.amended")
             : movedTo
-              ? t("review.onMain.committedOn", { branch: movedTo })
+              ? status?.own_checkout
+                ? t("review.onMain.folderNowOn", { branch: movedTo, dir: status.dir || "" })
+                : t("review.onMain.committedOn", { branch: movedTo })
               : t("review.git.committed"),
         Boolean(failed),
       );
@@ -502,6 +507,11 @@ export function GitPanel({
                 value={newBranch}
                 onChange={(e) => setNewBranch(e.target.value)}
               />
+            )}
+            {onMain === "branch" && status.own_checkout && (
+              <p className="sub commit-own-folder" role="note">
+                {t("review.onMain.ownFolder", { branch: newBranch.trim() || "…", dir: status.dir || "" })}
+              </p>
             )}
             <label className="review-checkbox">
               <input type="radio" name={`on-main-${sessionId}`} checked={onMain === "main"} onChange={() => setOnMain("main")} />

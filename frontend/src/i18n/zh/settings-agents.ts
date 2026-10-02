@@ -133,7 +133,7 @@ const catalog: Record<string, string> = {
   "agentSettings.usage.tokensInOut": "输入 {input} / 输出 {output}",
   "agentSettings.usage.nothingYet": "暂无数据。",
   "agentSettings.usage.byProject": "按项目",
-  "agentSettings.usage.unassigned": "未分配",
+  "agentSettings.usage.unassigned": "无项目",
   "agentSettings.usage.topSessionsLabel": "成本最高的会话",
   "agentSettings.usage.topSessions": "主要会话",
   "agentSettings.usage.noneYet": "暂无。",

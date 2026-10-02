@@ -42,10 +42,13 @@ export function SessionMemory({
   api,
   sessionId,
   projectId,
+  open = false,
 }: {
   api: SessionsApi;
   sessionId: number;
   projectId: number | null;
+  /** Opened from the card's ⋯ menu: start open and load at once. */
+  open?: boolean;
 }) {
   useLocale();
   const [activity, setActivity] = useState<Activity>(),
@@ -78,6 +81,7 @@ export function SessionMemory({
   return (
     <details
       className="session-memory"
+      open={open || undefined}
       onToggle={(event) => {
         if (event.currentTarget.open && !activity && !loading) load();
       }}

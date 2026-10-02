@@ -4,7 +4,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard, run_command, new_session
-from session_sheet import open_advanced
+from session_sheet import open_advanced, session_tool
 
 
 def setup(t):
@@ -41,7 +41,7 @@ def test_web_launches_and_safely_removes_interactive_worktree(page,real_terminal
     def delete(path):
         return urllib.request.urlopen(urllib.request.Request(t['url']+'/api'+path,method='DELETE')).read()
     delete('/sessions/'+str(row['id']))
-    page.locator('#sess-scope').select_option('all')
+    session_tool(page, '#sess-scope').select_option('all')
     expect(page.locator('#sesslist')).to_contain_text('Isolated UI proof')
     # Only one allocated worktree exists; the original adopted terminal has no removal action.
     page.locator('summary[aria-label="More actions for Isolated UI proof"]').click()

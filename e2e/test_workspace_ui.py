@@ -3,7 +3,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 from conftest import PHONE, DESKTOP
-from session_sheet import open_advanced
+from session_sheet import open_advanced, session_tool
 from test_terminal_workspace import real_terminal, open_terminal, terminal_tool
 
 @pytest.mark.parametrize('page',[PHONE,DESKTOP],indirect=True)
@@ -23,7 +23,7 @@ def test_settings_sections_keep_drafts_and_keyboard_navigation(page,server):
 @pytest.mark.parametrize('page',[PHONE,DESKTOP],indirect=True)
 def test_session_search_and_secondary_actions_survive_refresh(page,real_terminal):
     t=real_terminal;page.goto(t['url']+'/#sessions')
-    search=page.locator('#sess-search');search.fill('Real terminal')
+    search=session_tool(page, '#sess-search');search.fill('Real terminal')
     expect(page.locator('.scard')).to_have_count(1)
     page.locator('.scard .action-menu>summary').click()
     expect(page.get_by_role('button',name='Stop tracking',exact=True)).to_be_visible()
@@ -96,14 +96,14 @@ def test_root_is_always_sessions_and_explicit_links_win(page, server):
     page.goto(server + '/#tasks')
     expect(page.locator('#fab')).to_be_visible()
     page.goto(server)
-    expect(page.locator('#sess-search')).to_be_visible()
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))
     assert page.evaluate('location.hash') == ''
     page.goto(server + '/#board')
     expect(page.locator('#fab')).to_be_visible()
     assert page.evaluate('location.hash') == '#tasks'
     page.evaluate("localStorage.setItem('lec-last-view', 'tasks')")
     page.goto(server)
-    expect(page.locator('#sess-search')).to_be_visible()
+    expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))
     page.goto(server + '/#%E0%A4%A')
     expect(page.locator('.tab[data-tab="sessions"]')).to_have_class(re.compile(r'\bon\b'))
     assert not errors

@@ -4,6 +4,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_command_palette import search
 from test_terminal_tabs import frame,ready
+from session_sheet import session_tool
 
 
 def open_search(page):
@@ -101,7 +102,7 @@ def test_native_search_progress_retry_cancel_and_close(page,real_terminal):
 def test_native_search_direct_entries_and_close_during_start(page,real_terminal):
     from test_terminal_workspace import open_terminal,terminal_tool
     t=real_terminal;page.goto(t['url']+'/#sessions')
-    page.locator('#sess-saved-search').click()
+    session_tool(page, '#sess-saved-search').click()
     d=page.get_by_role('dialog',name='Search saved conversations',exact=True)
     expect(d).to_be_visible();d.get_by_role('button',name='Close saved conversation search').click()
     open_terminal(page,t)

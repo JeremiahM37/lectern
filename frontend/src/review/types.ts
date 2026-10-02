@@ -98,6 +98,11 @@ export interface GitStatus {
   session_live: boolean;
   // Whether the repository has any remote; Push starts unticked without one.
   has_remote?: boolean;
+  // The session works in the person's own folder (dir), not a Lectern
+  // worktree; and the message the commit form starts with.
+  own_checkout?: boolean;
+  dir?: string;
+  suggested_message?: string;
 }
 
 export interface CommitStep {

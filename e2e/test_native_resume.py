@@ -10,6 +10,7 @@ from test_native_history import prepare
 from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard
 from test_session_restore import request
+from session_sheet import session_tool
 
 
 def stopped(t):
@@ -29,7 +30,7 @@ def argv(t):
 def test_web_resumes_exact_stopped_conversation(page,real_terminal,agent,width):
     t=real_terminal;cid,file,_=prepare(t,agent);before=file.read_bytes();stopped(t)
     page.set_viewport_size({'width':width,'height':900});page.goto(t['url']+'/#sessions')
-    page.locator('#sess-scope').select_option('all')
+    session_tool(page, '#sess-scope').select_option('all')
     title='Real terminal' if agent=='claude' else 'Native source'
     card=page.locator('.scard',has_text=title)
     card.locator('summary').first.click();card.get_by_role('button',name='Saved conversations',exact=True).click()

@@ -2,12 +2,13 @@
 import subprocess
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal, capture
+from session_sheet import nav_to
 
 
 def attach(page, name):
     page.locator('.tab[data-tab="sessions"]').click()
     page.locator('.scard',has_text=name).get_by_role('button',name='⌨ Terminal',exact=True).click()
-    expect(page.locator('.tab[data-tab="terminals"]')).to_have_class('tab on')
+    expect(page.locator('#terminal-workspace')).to_be_visible()
 
 
 def frame(page, id):

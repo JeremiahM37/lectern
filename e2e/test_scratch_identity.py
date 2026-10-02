@@ -62,8 +62,7 @@ def test_scratch_cards_are_named_by_folder_and_keep_a_manual_rename(page, server
         assert card.locator(".nm").evaluate("el=>el.scrollWidth<=el.clientWidth+1")
 
     # An explicit rename replaces the folder title and survives a reload.
-    page.once("dialog", lambda dialog: dialog.accept("deploy scratch"))
-    first_card.get_by_role("button", name="Rename").click()
+    first_card.locator('button.nm').click();first_card.locator('.nm-edit').fill("deploy scratch");first_card.locator('.nm-edit').press('Enter')
     expect(first_card.locator(".nm")).to_have_text("deploy scratch", timeout=10000)
     stored = page.request.get(f'{server}/api/sessions/{first["id"]}').json()
     assert stored["name"] == "deploy scratch"

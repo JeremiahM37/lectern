@@ -239,14 +239,18 @@ export function NewSession({
   }, [machine]);
   // Only agents whose command is on that machine (or that cannot be checked)
   // are offered; the rest wait behind "More agents…".
-  const usable = (name: string) => !installed || installed[name] !== "missing";
+  const usable = (name: string) => name === "demo" || !installed || installed[name] !== "missing";
   const noAgent = !!installed && agents.length > 0 && !agents.some((row) => usable(row.name));
+  // Only an installed agent can be started (re-audit N2). Until the person
+  // picks one, follow what the machine has: the first installed agent, or
+  // the demo when there is none.
   useEffect(() => {
-    if (agentTouched || !installed || profileId > 0 || usable(agent) || agent === "demo") return;
+    if (!installed || profileId > 0 || usable(agent)) return;
     const ordered = [...agentMenu, ...agents.map((row) => row.name)];
     const first = ordered.find((name) => agents.some((row) => row.name === name) && usable(name));
-    if (first) setAgent(first);
-  }, [installed, agents, agentMenu, agentTouched, profileId]);
+    setAgent(first || "demo");
+  }, [installed, agents, agentMenu, agentTouched, profileId, agent]);
+  const startBlocked = !usable(agent) ? t("start.sheet.notInstalledWhy", { name: agent }) : "";
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
   const { recent: recentProjects, rest: otherProjects } = orderProjectsByRecency(
@@ -460,18 +464,21 @@ export function NewSession({
               // Installed first; an agent not found on the folder's machine
               // is one step away, under More agents.
               const offered = shown.filter((a) => usable(a.name));
-              const options = offered.some((a) => a.name === agent)
+              // A launch profile can name an agent that is not installed;
+              // it is shown so the sheet tells the truth, and Start says why
+              // it is off.
+              const options = offered.some((a) => a.name === agent) || agent === "demo"
                 ? offered
                 : [...offered, ...all.filter((a) => a.name === agent)];
               const hidden = more.length + shown.length - offered.length;
               return (
                 <>
                   {options.map((a) => (
-                    <option key={a.name} value={a.name}>
+                    <option key={a.name} value={a.name} disabled={!usable(a.name)}>
                       {usable(a.name) ? a.name : t("start.sheet.notInstalled", { name: a.name })}
                     </option>
                   ))}
-                  {agent === "demo" && !options.some((a) => a.name === "demo") && (
+                  {(noAgent || agent === "demo") && (
                     <option value="demo">{t("start.sheet.demoAgent")}</option>
                   )}
                   {hidden > 0 && (
@@ -482,25 +489,14 @@ export function NewSession({
             })()}
           </select>
         </div>
-        {noAgent && agent !== "demo" && (
+        {noAgent && (
           <p className="subhint" id="ns-no-agent" role="status">
-            {t("start.sheet.noAgent")}{" "}
-            <button
-              type="button"
-              className="linkish"
-              id="ns-use-demo"
-              onClick={() => {
-                setAgentTouched(true);
-                setAgent("demo");
-              }}
-            >
-              {t("start.sheet.useDemo")}
-            </button>
+            {t("start.sheet.installHint")}
           </p>
         )}
         {showAllAgents && (
           <AllAgentsPicker
-            agents={agents}
+            agents={agents.filter((row) => usable(row.name))}
             onPick={(name) => {
               setAgentTouched(true);
               setAgent(name);
@@ -767,11 +763,17 @@ export function NewSession({
           <button
             className="b ok grow"
             id="ns-go"
-            disabled={busy}
+            disabled={busy || !!startBlocked}
+            aria-describedby={startBlocked ? "ns-go-why" : undefined}
             onClick={() => void start()}
           >
             {t("sessions.dialogs.newSession.start")}
           </button>
+          {startBlocked && (
+            <p className="subhint disabled-why" id="ns-go-why">
+              {startBlocked}
+            </p>
+          )}
         </div>
       </Modal>
       {browsing && (

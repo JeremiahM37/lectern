@@ -5,6 +5,7 @@ import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal,open_terminal
 from test_terminal_tabs import attach,frame,ready
+from session_sheet import nav_to
 
 def assert_compact_controls_clear_viewport(one):
     viewport = one.locator('#agent-terminal .xterm-viewport').bounding_box()
@@ -51,7 +52,7 @@ def test_mobile_focus_gains_space_preserves_connection_and_allows_navigation(pag
         phone.get_by_role('button',name='Search sessions and actions').tap()
         dialog=phone.get_by_role('dialog',name='Search Lectern');dialog.get_by_role('combobox').fill('task board');dialog.get_by_role('option').tap()
         expect(phone.locator('#tabbar')).to_be_visible()
-        phone.locator('.tab[data-tab="terminals"]').tap();expect(phone.locator('#tabbar')).not_to_be_visible()
+        nav_to(phone, 'terminals');expect(phone.locator('#tabbar')).not_to_be_visible()
         assert one.locator('body').evaluate('()=>window.focusIdentity')=='same'
         assert len(sockets)==1,sockets
         for size in [{'width':844,'height':390},{'width':1440,'height':900},{'width':390,'height':550},{'width':390,'height':900}]:

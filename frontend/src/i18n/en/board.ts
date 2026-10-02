@@ -318,8 +318,8 @@ const catalog: Record<string, string> = {
 
   // SessionClaims
   "board.claims.sessionChipTitle": "Active claims in this repository",
-  "board.claims.sessionChip.one": "📌 {count} claim",
-  "board.claims.sessionChip.other": "📌 {count} claims",
+  "board.claims.sessionChip.one": "{count} area it says it's working on",
+  "board.claims.sessionChip.other": "{count} areas it says it's working on",
 
   // Evals (agent tests)
   // Run, result and run-comparison statuses.

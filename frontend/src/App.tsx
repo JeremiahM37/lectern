@@ -674,6 +674,19 @@ export default function App() {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, [api, authVersion, refresh, notice, completeSwitch, switchFailure]);
+  // More is a flyout: a click anywhere else closes it.
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      const menu = document.getElementById("nav-overflow");
+      if (menu?.hasAttribute("open") && !menu.contains(event.target as Node)) menu.removeAttribute("open");
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+  // ...and so does going anywhere.
+  useEffect(() => {
+    document.getElementById("nav-overflow")?.removeAttribute("open");
+  }, [view, section.version]);
   useEffect(() => {
     document.body.classList.toggle("terminals-open", view === "terminals");
     return () => document.body.classList.remove("terminals-open");
@@ -1106,6 +1119,7 @@ export default function App() {
             onOpenTask={openTask}
             onSwitch={setSwitchSession}
             onNotice={notice}
+            openTerminals={terminals.tabs.length ? { count: terminals.tabs.length, open: () => navigate(terminals.hash) } : undefined}
             pushPrompt={{
               show: pushAvail.available && pushEndpoint === null && !pushPromptGone,
               onEnable: () => void enablePush(),
@@ -1219,7 +1233,7 @@ export default function App() {
         <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar" aria-label={t("nav.label")}>
-        {primaryViews(terminals.tabs.length > 0).map((tab) => (
+        {primaryViews(tasks.length > 0).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
@@ -1236,11 +1250,6 @@ export default function App() {
                 {live}
               </b>
             )}
-            {tab === "terminals" && (
-              <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
-                {terminals.tabs.length}
-              </b>
-            )}
             {tab === "approvals" && (
               <b id="appr-badge" className="badge" hidden={!approvals.length} title={t("nav.approvalsWaiting", { n: approvals.length })}>
                 {approvals.length}
@@ -1250,7 +1259,7 @@ export default function App() {
         ))}
         <details
           id="nav-overflow"
-          className={`action-menu ${moreEntries(terminals.tabs.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
+          className={`action-menu ${moreEntries(tasks.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
         >
           <summary aria-label={t("app.morePages")}>
             <span aria-hidden="true">···</span>
@@ -1263,9 +1272,17 @@ export default function App() {
             >
               {media.length + liveViews.length}
             </b>
+            <b
+              id="more-terminal-badge"
+              className="badge dim"
+              hidden={!terminals.tabs.length}
+              title={t("nav.terminalsOpen", { n: terminals.tabs.length })}
+            >
+              {terminals.tabs.length}
+            </b>
           </summary>
           <div className="action-menu-panel">
-            {moreEntries(terminals.tabs.length > 0).map((entry) => {
+            {moreEntries(tasks.length > 0).map((entry) => {
               const key = "view" in entry ? entry.view : entry.section;
               return (
                 <button
@@ -1278,7 +1295,14 @@ export default function App() {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                   }}
                 >
-                  <span className="more-title">{"view" in entry ? label(entry.view) : t(`nav.more.${entry.section}`)}</span>
+                  <span className="more-title">
+                    {"view" in entry ? label(entry.view) : t(`nav.more.${entry.section}`)}
+                    {key === "terminals" && (
+                      <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
+                        {terminals.tabs.length}
+                      </b>
+                    )}
+                  </span>
                   <span className="more-detail">{t(`nav.moreDetail.${key}`)}</span>
                 </button>
               );
