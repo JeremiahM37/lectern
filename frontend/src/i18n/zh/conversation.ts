@@ -1,7 +1,7 @@
 const catalog: Record<string, string> = {
   "conversation.chat.dialogLabel": "与 {name} 的对话",
   "conversation.chat.connecting": "正在连接…",
-  "conversation.chat.sessionStatus": "{agent} · {state} · 实时阅读",
+  "conversation.chat.sessionStatus": "{agent} · {state}",
   "conversation.chat.ended": "已结束",
   "conversation.chat.taskStatus": "{agent} · {status}",
   "conversation.chat.taskStatusTurn": "{agent} · {status} · 第 {n} 轮",

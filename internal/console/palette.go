@@ -294,8 +294,7 @@ func (m *dashboard) updatePalette(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		m.closeMenus()
-		m.showHome()
-		return nil
+		return m.showHome()
 	case tea.KeyEnter:
 		if len(list) == 0 {
 			return nil

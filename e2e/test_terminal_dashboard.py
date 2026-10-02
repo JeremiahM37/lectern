@@ -146,9 +146,10 @@ def test_dashboard_details_are_readable_at_wide_and_narrow_widths_and_api_stays_
     try:
         d.wait('Real terminal'); d.send('3'); d.wait('Readable fixture project')
         for cols in (144, 80):
-            d.resize(cols, 30); d.send('/Readable fixture project\r'); d.send('p'); d.wait('Repo Path')
-            assert 'Repo Path' in d.text and 'repo_path' not in d.text
-            assert 'Env Json' not in d.text
+            d.resize(cols, 30); d.send('/Readable fixture project\r'); d.send('p'); d.wait('Folder:')
+            # A project, described: not its database record.
+            assert 'repo_path' not in d.text and 'Repo Path' not in d.text
+            assert 'Env Json' not in d.text and 'Created At' not in d.text
             assert '{' not in d.text and '"' not in d.text
             d.send('\x1b')
         raw = subprocess.run([_binary(), 'api', 'GET', '/projects'],

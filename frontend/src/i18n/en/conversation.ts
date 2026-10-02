@@ -6,7 +6,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.dialogLabel": "Conversation with {name}",
   "conversation.chat.connecting": "Connecting…",
   // {agent} is the agent name; {state} is "Ended" or a status word from the server.
-  "conversation.chat.sessionStatus": "{agent} · {state} · live reader",
+  "conversation.chat.sessionStatus": "{agent} · {state}",
   // A session that has finished.
   "conversation.chat.ended": "Ended",
   // {agent} is the agent name, {status} a status word from the server.

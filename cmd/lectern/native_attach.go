@@ -47,7 +47,7 @@ func nativeControlsOff() bool {
 }
 
 func warnNativeControls(reason string) {
-	fmt.Fprintln(os.Stderr, "lectern: native controls unavailable ("+reason+"); keys go straight to the agent, so Ctrl-b d still detaches.")
+	fmt.Fprintln(os.Stderr, "lectern: no key bar ("+reason+"); keys go straight to the session. Leave with Ctrl+] then d (Ctrl-b then d for a tmux session).")
 }
 
 // runAttachment executes a resolved attachment exactly like syscall.Exec did,
@@ -69,9 +69,10 @@ func startAttachment(argv []string, controls *nativeControls, replace bool) erro
 		return directAttachment(argv, replace)
 	}
 	tmuxPath, err := exec.LookPath("tmux")
-	if err != nil {
-		warnNativeControls("tmux is not installed")
-		return directAttachment(argv, replace)
+	if err != nil || bareForced() {
+		// No tmux to wrap the attachment in: Lectern's own client draws the
+		// same key bar and offers the same Ctrl+] keys (native_bare.go).
+		return runBareAttachment(argv, *controls, replace)
 	}
 	return runPrivateAttachment(tmuxPath, argv, *controls, replace)
 }
@@ -241,7 +242,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// pane's directory (native_split.go), not a shell here in $HOME.
 	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
 	if controls.Kind == "session" && controls.Base != "" {
-		plan.statusBody = execScript([]string{self, attachStatusFlag, controls.Kind, controls.ID, controls.Base})
+		plan.statusBody = strings.TrimSuffix(execScript([]string{self, attachStatusFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
 	}
 	plan.conf = plan.tmuxConfig()
 	return plan, nil
@@ -294,7 +295,7 @@ func attachHints(tabView bool) string {
 	}
 	wide := "#[bold]Ctrl+]#[default] menu · " + leave + " · #[bold]Ctrl+\\#[default] send file · #[bold]double-click#[default] opens paths "
 	narrow := "#[bold]Ctrl+]#[default] menu · " + leave + " "
-	prefix := "#[reverse] Ctrl+] then #[default] m actions · u send file · | shell right · - shell below · e open a link · d " + word + " · ? all keys "
+	prefix := "#[reverse] Ctrl+] then #[default] m actions · d " + word + " · u send file · | shell right · - shell below · e open a link · ? all keys "
 	return "#{?client_prefix," + prefix + ",#{?#{e|<:#{client_width},60}," + narrow + "," + wide + "}}"
 }
 
@@ -371,6 +372,8 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		"bind-key -T prefix m display-popup -E -w 90% -h 85% -T 'Lectern controls' " + shellq.Quote(p.controlsScript),
 		"bind-key -T prefix u display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"bind-key -T prefix ? " + p.attachMenu(),
+		// Ctrl+] y allows the request the bar says is waiting, once.
+		"bind-key -T prefix y run-shell -b " + tmuxDQ(strings.ReplaceAll(shellq.Quote(p.statusScript), "#", "##")+" allow"),
 		"bind-key -T prefix Space " + p.attachMenu(),
 		"bind-key -n 'C-\\' display-popup -E -w 90% -h 85% -T 'Lectern upload' " + shellq.Quote(p.uploadScript),
 		"set -g status on",

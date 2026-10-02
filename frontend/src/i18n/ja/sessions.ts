@@ -132,7 +132,7 @@ const catalog: Record<string, string> = {
   "sessions.dialogs.discover.intro": "取り込んでも再起動や中断はされません。",
   "sessions.dialogs.discover.empty": "どのマシンでも実行中のエージェントは見つかりませんでした。",
   "sessions.dialogs.discover.projectFor": "{name} のプロジェクト",
-  "sessions.dialogs.discover.unassigned": "未割り当て",
+  "sessions.dialogs.discover.unassigned": "プロジェクトなし",
   "sessions.dialogs.discover.adopt": "取り込む",
 
   "sessions.dialogs.handoff.requested": "引き継ぎを依頼しました — エージェントのターンが終わると反映されます",
@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "sessions.actionMenu.more": "その他 ···",
 
   "sessions.groups.ungrouped": "グループなし",
-  "sessions.groups.unassigned": "未割り当て",
+  "sessions.groups.unassigned": "プロジェクトなし",
   "sessions.groups.waiting": " · {n} 件が対応待ち",
 
   "sessions.card.duration.seconds": "{s}秒",
@@ -180,7 +180,7 @@ const catalog: Record<string, string> = {
   "sessions.card.previewSettingUp": "ワークスペースをセットアップ中… 完了するとアタッチできるようになります。",
   "sessions.card.progressUnavailable": "進行状況を取得できません：{error}",
   "sessions.card.setupFailedPreview": "セットアップに失敗しました：{error}",
-  "sessions.card.unassigned": "未割り当て",
+  "sessions.card.unassigned": "プロジェクトなし",
   "sessions.card.quiet": "{duration} 無応答",
   "sessions.card.copyPath": "パスをコピー",
   "sessions.card.accountTitle": "このエージェントが使用しているログイン（設定 → アカウント）",
@@ -251,7 +251,7 @@ const catalog: Record<string, string> = {
   "sessions.card.stopArchiveConfirm": "「{name}」を停止して、記録をアーカイブに移動しますか？ターミナルのプロセスは終了します。取得済みの出力、保存済みの会話、ワークツリーのファイルは保持されます。",
   "sessions.card.stopArchive": "停止してアーカイブ",
   "sessions.card.project": "プロジェクト",
-  "sessions.card.unassignedOption": "— 未割り当て —",
+  "sessions.card.unassignedOption": "— プロジェクトなし —",
 
   "sessions.needsYou.reason.approval": "承認が必要",
   "sessions.needsYou.reason.waiting": "あなた待ち",
@@ -274,7 +274,7 @@ const catalog: Record<string, string> = {
   "sessions.needsYou.toBoard": "→ タスク",
   "sessions.needsYou.setupUnfinished": "ワークスペースのセットアップが完了していません",
   "sessions.needsYou.terminalGone": "ターミナルがなくなっています",
-  "sessions.needsYou.unassigned": "未割り当て",
+  "sessions.needsYou.unassigned": "プロジェクトなし",
   "sessions.needsYou.overlap": "直近のプロンプトが {percent}% 重複しています — 同じものを作っていないか確認してください",
   "sessions.needsYou.openSession": "セッションを開く",
   "sessions.needsYou.openNamed": "{name} を開く",

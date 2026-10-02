@@ -669,7 +669,7 @@ def test_blank_room_session_can_be_promoted_to_a_project(page, server):
     card = page.locator(".scard", has_text="half an idea")
     expect(card).to_be_visible(timeout=15000)
     # it starts life unassigned, grouped apart from real projects
-    expect(card.locator(".scard-project", has_text="Unassigned")).to_be_visible(timeout=15000)
+    expect(card.locator(".scard-project", has_text="No project")).to_be_visible(timeout=15000)
     card.locator(".action-menu > summary").click()
     promote = card.locator("button", has_text="Make a project")
     expect(promote).to_be_visible()

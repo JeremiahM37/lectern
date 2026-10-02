@@ -84,7 +84,7 @@ func CheckTmux() EnvCheck {
 	self, _ := os.Executable()
 	setting := os.Getenv("LECTERN_SESSION_BACKEND")
 	if backend.NewResolver(setting, self).Local() == backend.NamePty {
-		detail := "not needed: sessions are kept by lectern's built-in PTY host"
+		detail := "not needed: sessions are kept by lectern's built-in PTY host, and lectern attach draws its own key bar"
 		if path, err := exec.LookPath("tmux"); err == nil {
 			detail += " (tmux at " + path + " is used only when LECTERN_SESSION_BACKEND=tmux)"
 		}

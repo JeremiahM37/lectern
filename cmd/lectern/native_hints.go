@@ -116,7 +116,7 @@ func drawPane(out io.Writer, rows []filelinks.Row, style func(row, col int) cell
 
 // flash shows, for a moment, which text a link was: every row of it.
 func (e *linkEnv) flash(link filelinks.Link) {
-	if e.client == "" || e.pane == "" || len(link.Spans) == 0 {
+	if e.ui != nil || e.client == "" || e.pane == "" || len(link.Spans) == 0 {
 		return
 	}
 	file, err := e.saveLink(link)

@@ -220,6 +220,7 @@ type dashboard struct {
 	// surface as the tmux popup whose Esc leaves the popup.
 	controlOnly  bool
 	popup        bool
+	directAction bool
 	pendingFocus *dashboardFocus
 }
 
@@ -449,9 +450,9 @@ func (m *dashboard) group(r row) string {
 		if m.grouping == 3 {
 			s = "Ungrouped"
 		} else if m.grouping == 1 {
-			s = "Local / unassigned"
+			s = "No machine"
 		} else {
-			s = "Unassigned"
+			s = "No project"
 		}
 	}
 	return oneLine(s)
@@ -554,6 +555,7 @@ func (m *dashboard) resolveFocus(v rowsMsg) (tea.Cmd, bool) {
 	m.menuIndex = 0
 	if f.action != "" {
 		m.menu = false
+		m.directAction = true
 		return m.controlAction(f.action), true
 	}
 	return nil, true
@@ -597,12 +599,18 @@ func (m *dashboard) nativeDisabled() tea.Cmd {
 }
 
 // showHome returns the controls popup to its actions menu after a form or detail
-// closes, so Esc keeps the popup on the menu it was opened with.
-func (m *dashboard) showHome() {
+// closes, so Esc keeps the popup on the menu it was opened with. A popup
+// opened for one action (Ctrl+\ sends a file) closes instead: the person
+// asked for that action, not for the menu.
+func (m *dashboard) showHome() tea.Cmd {
+	if m.popup && m.directAction {
+		return tea.Quit
+	}
 	if m.popup {
 		m.menu = true
 		m.menuIndex = 0
 	}
+	return nil
 }
 func (m *dashboard) layout() {
 	m.query.Width = max(12, m.width-6)
@@ -706,6 +714,8 @@ func (m *dashboard) updatePreview() {
 			if a, ok := r["attempt"].(map[string]any); ok {
 				content += "\n\nBranch: " + str(a["branch"]) + "\nWorktree: " + str(a["worktree_path"]) + "\n\nResult\n" + readable(a["result"])
 			}
+		case "projects", "targets", "routines":
+			content = itemPreview(sections[m.section], r)
 		default:
 			content = readable(r)
 		}
@@ -922,6 +932,11 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.form = nil
 		m.pending = nil
+		if m.popup && m.directAction {
+			// The one thing this popup was opened for is done (a file sent,
+			// a message typed): go straight back to the agent.
+			return m, tea.Quit
+		}
 		if v.label == reviveLabel {
 			var revived row
 			if json.Unmarshal(v.data, &revived) == nil && id(revived) != "" {
@@ -1536,6 +1551,9 @@ func (m *dashboard) listView(height int) string {
 			word = needsStyle.Render(s)
 		}
 		meta := muted.Render("  "+m.group(r)+" · ") + word + muted.Render(" · "+str(r["agent"]))
+		if line := itemMeta(sections[m.section], r); line != "" {
+			meta = muted.Render("  " + line)
+		}
 		if sections[m.section] == "approvals" {
 			meta = muted.Render("  ") + needsStyle.Render(statusNeedsYou) + muted.Render(" · "+approvalSummary(r))
 		}

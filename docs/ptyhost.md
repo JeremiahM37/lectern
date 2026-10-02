@@ -226,8 +226,17 @@ uses it, so the protocol stays checked against the real thing.
 The native client (`lectern attach`) runs the argv the server returns, which
 for the pty backend is `lectern pty attach-session -t =NAME`: raw mode, the
 session's snapshot, then the live stream. Ctrl-] then `d` detaches, as does
-closing the window. Lectern's Ctrl-] controls overlay still needs a local
-tmux; without one the attachment runs directly, as it already did.
+closing the window. `lectern attach` and `lectern claude` show it with the
+same key bar and Ctrl+] keys as the tmux path: without a local tmux the
+client draws the session in its own emulator (`cmd/lectern/native_bare.go`,
+docs/terminal-client.md "Attached terminal controls"). That plain
+`attach-session` never passes Ctrl+\\ on, so it cannot send SIGQUIT.
+
+A session's secrets (its hook token) reach the agent through a private
+`~/.lectern/hooks/<session>.env` file the pane reads and deletes before the
+agent starts, never through the launch command line, and the shell's report
+of an agent killed by a signal is discarded, so a dead agent's pane cannot
+show them.
 
 ## 5. Python on the agent machine
 

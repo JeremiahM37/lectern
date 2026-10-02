@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 	"unicode"
@@ -18,13 +19,25 @@ import (
 const attachStatusFlag = "--attach-status"
 
 func attachStatusCommand(args []string) int {
-	if len(args) != 3 || args[0] != "session" {
+	if len(args) < 3 || args[0] != "session" {
 		return 0
 	}
 	c := console.New(args[2], os.Getenv("LECTERN_AUTH_TOKEN"))
 	c.HTTP.Timeout = 3 * time.Second
 	data, err := c.JSON("GET", "/approvals?status=pending", nil)
 	if err != nil {
+		return 0
+	}
+	if len(args) == 4 && args[3] == "allow" {
+		// Ctrl+] y: allow the waiting request once, and say so on the bar.
+		message := "Nothing is waiting for you · Ctrl+] m has the other actions"
+		if id := pendingApprovalID(data, args[1]); id != "" {
+			message = "Allowed once: " + strings.TrimPrefix(needsYouNote(data, args[1]), "⏸ Needs you: ")
+			if _, err := c.JSON("POST", "/approvals/"+id+"/decision", map[string]any{"decision": "approved"}); err != nil {
+				message = "Couldn't allow it: " + err.Error()
+			}
+		}
+		_ = exec.Command("tmux", "display-message", "-d", "4000", "--", strings.ReplaceAll(message, "#", "##")).Run()
 		return 0
 	}
 	fmt.Print(attachStatusLine(data, args[1]))
@@ -36,6 +49,17 @@ func attachStatusCommand(args []string) int {
 // agent chose, so every # is doubled and control characters are dropped:
 // "#(…)" in a command must never become a job tmux runs.
 func attachStatusLine(data []byte, sessionID string) string {
+	note := needsYouNote(data, sessionID)
+	if note == "" {
+		return ""
+	}
+	// The keys lead, so a narrow terminal cuts the request, never the answer.
+	return strings.ReplaceAll("⏸ Needs you · Ctrl+] y allow · Ctrl+] m more · "+strings.TrimPrefix(note, "⏸ Needs you: ")+" · ", "#", "##")
+}
+
+// needsYouNote is "⏸ Needs you: <what it asks>" for a session with a pending
+// approval, with control characters dropped, or "".
+func needsYouNote(data []byte, sessionID string) string {
 	var rows []struct {
 		SessionID int64          `json:"session_id"`
 		ToolName  string         `json:"tool_name"`
@@ -64,7 +88,7 @@ func attachStatusLine(data []byte, sessionID string) string {
 		if runes := []rune(summary); len(runes) > 60 {
 			summary = string(runes[:60]) + "…"
 		}
-		return strings.ReplaceAll("⏸ Needs you: "+summary+" · Ctrl+] m answers · ", "#", "##")
+		return "⏸ Needs you: " + summary
 	}
 	return ""
 }

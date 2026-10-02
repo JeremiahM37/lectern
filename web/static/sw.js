@@ -2159,7 +2159,11 @@
 
   // src/service-worker.ts
   var worker = self;
+<<<<<<< HEAD
   var CACHE = "lectern-react-130d2585f952";
+=======
+  var CACHE = "lectern-react-9d881879eea8";
+>>>>>>> simple-tui-2
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2208,7 +2212,11 @@
     const cache = await caches.open(CACHE);
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
+<<<<<<< HEAD
     else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-B6rbhOIr.js","/react/assets/Workbench-D51V6bXy.js","/react/assets/action-C0ldWb1-.js","/react/assets/app-Cnwx9Jir.css","/react/assets/app-HJ02Pyjy.js","/react/assets/es-BjvOFIqx.js","/react/assets/fr-BgU7KYtZ.js","/react/assets/ja-KZkHyd2O.js","/react/assets/jsx-runtime-DKr7__-1.js","/react/assets/ko-BANBmYm_.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-BiylDP49.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-C3cMAG2N.js","/react/assets/zh-DF7kEYYZ.js"]);
+=======
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-D8gj3EW6.js","/react/assets/Workbench-CdOmoDCG.js","/react/assets/action-DgoT6u-Z.js","/react/assets/app-Bmi8DgMA.js","/react/assets/app-Cnwx9Jir.css","/react/assets/es-CQ2xsPic.js","/react/assets/fr-DbwLjgwa.js","/react/assets/ja-FORQR6Ty.js","/react/assets/jsx-runtime-CTc3L-Ek.js","/react/assets/ko-DVlu-jXb.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-BBKSMpBk.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-DbSIDRBH.js","/react/assets/zh-BttOdNY4.js"]);
+>>>>>>> simple-tui-2
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

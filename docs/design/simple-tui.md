@@ -260,7 +260,7 @@ works as before.
 Pressing Ctrl+] turns the bar into its key list until the next key:
 
 ```
-Ctrl+] then:  m actions · u send file · | shell right · - shell below · e open a link · d leave · ? all keys
+Ctrl+] then:  m actions · d leave · u send file · | shell right · - shell below · e open a link · ? all keys
 ```
 
 `Ctrl+] ?` (or `Ctrl+] Space`) opens a clickable menu with every attach key
@@ -269,7 +269,7 @@ popup's own context menu shows the key next to each item, and an item's key
 runs it.
 
 While the session waits for an approval, the bar starts with
-`⏸ Needs you: Bash: rm -rf build · Ctrl+] m answers`. The popup then leads
+`⏸ Needs you · Ctrl+] y allow · Ctrl+] m more · Bash: rm -rf build`. The popup then leads
 with Allow once (y), Allow for this session (a) and Deny, and closes back to
 the agent after the answer, so answering while attached is `Ctrl+] m y`. The
 note comes from a small status job that asks the server every 5 seconds; the
@@ -287,3 +287,34 @@ running." instead of leaving tmux's `[exited]` as the last line.
 - e2e in a real pty (`e2e/test_simple_tui.py`), using the fake agent's hook
   protocol: the audit's terminal walkthroughs (b) see agents, (c) approve,
   (d) end and restore, (f) review and commit, and the attach bar at 80×24.
+
+## Round 2: attaching without tmux
+
+The re-audit (`/mnt/bulk/ux-audit/after/reaudit.md`, N1) found that with the
+PTY host as the default backend, a machine without tmux got none of the above:
+no bar, no Ctrl+] menu, a wrong "Ctrl-b d still detaches" line that the agent
+wiped at once, a Ctrl+\ that killed the agent, and a dead agent's pane that
+showed its hook token.
+
+Now `lectern attach` / `lectern claude` without a local tmux run Lectern's own
+client (`cmd/lectern/native_bare.go`, `native_bare_screen.go`):
+
+- The session is read into a terminal emulator (`charmbracelet/x/vt`, as the
+  PTY host uses) and drawn above a key bar on the bottom row; only changed
+  rows are redrawn, inside synchronized updates.
+- The keys are the tmux path's: Ctrl+] then m, y, u, e, |, -, d, ?, Ctrl+];
+  plus o and x for panes and [ for scrolling. Ctrl+\ always opens the file
+  sender.
+- "Needs you" is polled every 3 seconds and leads the bar with its keys.
+- Double-click opens a path or link, right-click shows its menu, a drag
+  copies (OSC 52), and the wheel scrolls back, unless the program asked for
+  the mouse, which then gets it.
+- Splits are panes in the client: side by side or stacked, up to four.
+- The Ctrl+] m dashboard and the file sender run in the same process, in
+  place of the session until they close; text they type (an uploaded path)
+  goes straight to the agent.
+- Ctrl+] y allows the waiting request once; the tmux path has it too.
+
+The launch wrapper keeps secrets off command lines and off the screen: the
+hook token and OTLP header go through a 0600 env file read and deleted by the
+pane, and the shell's report of an agent killed by a signal is discarded.

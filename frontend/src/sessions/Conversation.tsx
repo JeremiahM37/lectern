@@ -340,7 +340,8 @@ export function Conversation({
         setStatus(
           t("conversation.chat.sessionStatus", {
             agent: data.session.agent,
-            state: data.ended ? t("conversation.chat.ended") : data.session.status,
+            // The same status word as the session card (internal/vocab).
+            state: data.ended ? t("conversation.chat.ended") : data.session.state_label || data.session.status,
           }),
         );
         setSessionAgent(data.session.agent);
