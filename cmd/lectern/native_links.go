@@ -179,6 +179,9 @@ func terminalLinkCommand(args []string) int {
 type linkEnv struct {
 	kind, id, base, token string
 	socket, target, dir   string
+	// ui, when set, is Lectern's own attach client (native_bare.go): it
+	// shows messages, copies, types and views without a tmux server.
+	ui linkUI
 	// client and pane the link was found on, when known: status messages
 	// and the highlight go to that client, over that pane.
 	client, pane string
@@ -191,8 +194,20 @@ func (e *linkEnv) tmux(args ...string) (string, error) {
 	return string(out), err
 }
 
+// linkUI is what a link action needs from the terminal it runs in.
+type linkUI interface {
+	say(message string)
+	copy(text string) error
+	send(text string) error
+	view(link filelinks.Link) error
+}
+
 // say shows a short message on the attached terminal's status line.
 func (e *linkEnv) say(message string) {
+	if e.ui != nil {
+		e.ui.say(message)
+		return
+	}
 	args := []string{"display-message", "-d", "5000"}
 	if e.client != "" {
 		args = append(args, "-c", e.client)
@@ -201,14 +216,22 @@ func (e *linkEnv) say(message string) {
 }
 
 func (e *linkEnv) detect(pane string, x, y int, hyperlink string) (filelinks.Link, bool) {
+	rows, width, err := e.paneRows(pane)
+	if err != nil {
+		return filelinks.Link{}, false
+	}
+	return e.detectIn(rows, width, x, y, hyperlink)
+}
+
+// detectIn finds the link at cell x of row y in rows.
+func (e *linkEnv) detectIn(rows []filelinks.Row, width, x, y int, hyperlink string) (filelinks.Link, bool) {
 	workdir := e.workdir()
 	if hyperlink != "" {
 		if link, ok := filelinks.HyperlinkTarget(hyperlink, workdir); ok && e.usable(link, workdir) {
 			return link, true
 		}
 	}
-	rows, width, err := e.paneRows(pane)
-	if err != nil || y < 0 || y >= len(rows) {
+	if y < 0 || y >= len(rows) {
 		return filelinks.Link{}, false
 	}
 	link, ok := filelinks.LinkAt(rows, y, cellToRune(rows[y].Text, x), workdir, width)
@@ -541,6 +564,13 @@ func (e *linkEnv) act(action string, link filelinks.Link) error {
 		if link.Kind != "file" {
 			return errors.New("only a path can be sent to the agent")
 		}
+		if e.ui != nil {
+			if err := e.ui.send(e.shellWord(link) + " "); err != nil {
+				return err
+			}
+			e.say("Sent " + e.absolute(link) + " to the agent")
+			return nil
+		}
 		args, err := insertSendKeysArgs(e.socket, e.target, e.shellWord(link)+" ")
 		if err != nil {
 			return err
@@ -557,6 +587,9 @@ func (e *linkEnv) act(action string, link filelinks.Link) error {
 		}
 		return e.openURL(viewer)
 	case "view":
+		if e.ui != nil {
+			return e.ui.view(link)
+		}
 		file, err := e.saveLink(link)
 		if err != nil {
 			return err
@@ -591,6 +624,13 @@ func (e *linkEnv) shellWord(link filelinks.Link) string {
 // copy puts text on the clipboard of the terminal this client runs in (tmux
 // forwards it with OSC 52), which works over SSH too.
 func (e *linkEnv) copy(text, message string) error {
+	if e.ui != nil {
+		if err := e.ui.copy(text); err != nil {
+			return err
+		}
+		e.say(message)
+		return nil
+	}
 	if _, err := e.tmux("set-buffer", "-w", "--", text); err != nil {
 		return err
 	}

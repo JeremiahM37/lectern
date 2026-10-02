@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -170,4 +171,78 @@ func humanLabel(s string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// itemMeta is the second line of a project, machine or routine row: what
+// tells two of them apart, in place of the session row's group and status.
+func itemMeta(section string, r row) string {
+	switch section {
+	case "projects":
+		return oneLine(joinNonEmpty(" · ", str(r["repo_path"]), str(r["target_name"])))
+	case "targets":
+		kind := str(r["kind"])
+		if kind == "local" {
+			kind = "this machine"
+		}
+		return oneLine(joinNonEmpty(" · ", kind, str(r["host"])))
+	}
+	return ""
+}
+
+// itemPreview describes a project, machine or routine in plain words, with
+// what can be done with it, instead of its database record.
+func itemPreview(section string, r row) string {
+	var lines []string
+	add := func(label, value string) {
+		if strings.TrimSpace(value) != "" {
+			lines = append(lines, label+": "+value)
+		}
+	}
+	switch section {
+	case "projects":
+		lines = append(lines, name(r), "")
+		add("Folder", str(r["repo_path"]))
+		add("Machine", str(r["target_name"]))
+		add("Default agent", str(r["default_agent"]))
+		add("Base branch", str(r["default_base_branch"]))
+		add("Setup command for new worktrees", str(r["setup_cmd"]))
+		add("Check command", str(r["verify_cmd"]))
+		lines = append(lines, "", "Enter opens a shell in this folder.", "n on Sessions starts an agent here; v reviews its changes.", "m has the brief, notes, skills, MCP and editing.")
+	case "targets":
+		lines = append(lines, name(r), "")
+		kind := map[string]string{"local": "This machine", "ssh": "SSH", "pct": "Proxmox container"}[str(r["kind"])]
+		if kind == "" {
+			kind = str(r["kind"])
+		}
+		add("Connection", kind)
+		add("Host", str(r["host"]))
+		add("User", str(r["user"]))
+		if v, ok := r["max_concurrent"].(float64); ok && v > 0 {
+			add("Agents at once", strconv.FormatInt(int64(v), 10))
+		}
+		lines = append(lines, "", "m checks the connection and which agents are installed.")
+	case "routines":
+		lines = append(lines, name(r), "")
+		schedule := str(r["schedule"])
+		if schedule == "" {
+			schedule = "run by hand"
+		}
+		add("Schedule", schedule)
+		if r["enabled"] == false {
+			add("State", "paused")
+		}
+		add("Prompt", str(r["prompt"]))
+		lines = append(lines, "", "m runs it now, pauses or edits it.")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }

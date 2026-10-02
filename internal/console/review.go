@@ -137,8 +137,7 @@ func (m *dashboard) updateReview(k tea.KeyMsg) tea.Cmd {
 	case "esc", "q":
 		// q steps back here like Esc; it quits only from the top level.
 		m.review = nil
-		m.showHome()
-		return nil
+		return m.showHome()
 	case "?":
 		m.review = nil
 		m.reviewPaused = r

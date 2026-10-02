@@ -613,8 +613,7 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.form = nil
 		m.notice = "Cancelled"
-		m.showHome()
-		return nil
+		return m.showHome()
 	case "ctrl+s":
 		if len(current.Options) > 0 && current.Searchable && current.OptionFilter != "" && len(filteredChoices(*current)) == 0 {
 			m.notice = "No matching " + noun + ". Clear the filter with Ctrl-u or Backspace."

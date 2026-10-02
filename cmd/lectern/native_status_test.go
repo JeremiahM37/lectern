@@ -7,7 +7,7 @@ import (
 
 func TestAttachStatusSaysNeedsYouOnlyForThisSession(t *testing.T) {
 	data := []byte(`[{"session_id":4,"tool_name":"Bash","input":{"command":"rm -rf build"}},{"session_id":9,"tool_name":"Edit","input":{"file_path":"/x"}}]`)
-	if got := attachStatusLine(data, "9"); got != "⏸ Needs you: Edit: /x · Ctrl+] m answers · " {
+	if got := attachStatusLine(data, "9"); got != "⏸ Needs you · Ctrl+] y allow · Ctrl+] m more · Edit: /x · " {
 		t.Fatalf("line: %q", got)
 	}
 	if got := attachStatusLine(data, "5"); got != "" {

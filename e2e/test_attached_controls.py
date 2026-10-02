@@ -110,13 +110,20 @@ def test_native_controls_upload_to_ssh_target(remote_terminal, tmp_path, entry):
             d.send('\x1dm');d.wait('Upload context file')
             d.send('j\r')
         d.wait('Local file path')
-        d.send(str(source)+'\x13');d.wait('Uploaded:',timeout=20)
+        d.send(str(source)+'\x13')
+        if entry=='shortcut':
+            # Opened for that one action, the popup closes when it is done.
+            d.wait("sha256sum '",timeout=20)
+        else:
+            d.wait('Uploaded:',timeout=20)
         files=list((t['remote_root']/'.lectern/context').rglob('*laptop notes.txt'))
         assert len(files)==1
         assert files[0].read_bytes()==payload
         # The bytes landed on the SSH target, not the control-plane host.
         assert not (t['root']/'.lectern/context').exists()
-        d.send('\x1b');d.wait('Ctrl+]')
+        if entry!='shortcut':
+            d.send('\x1b')
+        d.wait('Ctrl+]')
         # The quoted path was appended to the unsubmitted command line, and the
         # upload did not run anything yet.
         assert "sha256sum '" in d.text

@@ -118,8 +118,31 @@ func TestReadableDashboardPreviewAtWideAndNarrowTerminalWidths(t *testing.T) {
 		if strings.Contains(view, "provider_extra") || strings.ContainsAny(view, "{}\"") {
 			t.Fatalf("width %d rendered raw JSON:\n%s", width, view)
 		}
-		if width >= 100 && !strings.Contains(view, "Provider Extra") {
-			t.Fatalf("width %d omitted readable preview:\n%s", width, view)
+		if width >= 100 && !strings.Contains(view, "checks the connection") {
+			t.Fatalf("width %d omitted the machine's preview:\n%s", width, view)
+		}
+	}
+}
+
+// The Projects pane describes a project and what to do with it, not its
+// database record (re-audit: "Created At: 1.79e+09", "Ci Loop: 0",
+// "Unassigned · ·").
+func TestProjectsPaneShowsAProjectNotItsRecord(t *testing.T) {
+	m := sampleDashboard()
+	m.section = 2
+	m.rows = []row{{"id": float64(1), "name": "myapp", "repo_path": "/home/me/myapp", "target_name": "local",
+		"default_agent": "claude", "default_base_branch": "main", "created_at": 1.79e9, "ci_loop": float64(0), "memory_topic": "lectern-abc"}}
+	m.filter()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"/home/me/myapp · local", "Folder: /home/me/myapp", "Default agent: claude", "Enter opens a shell"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q:\n%s", want, view)
+		}
+	}
+	for _, raw := range []string{"Created At", "Ci Loop", "Memory Topic", "Unassigned"} {
+		if strings.Contains(view, raw) {
+			t.Fatalf("raw field %q shown:\n%s", raw, view)
 		}
 	}
 }
