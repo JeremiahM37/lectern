@@ -10,7 +10,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.rename": "이름 변경",
   "conversation.chat.offlineStatus": "오프라인 — 마지막 출력을 표시합니다. 전송이 일시 중지되었습니다",
   "conversation.chat.reconnectingStatus": "{status} · 다시 연결하는 중…",
-  "conversation.chat.switch": "⇄ 전환",
+  "conversation.chat.switch": "⇄ 에이전트 바꾸기",
   "conversation.chat.close": "대화 닫기",
   "conversation.chat.viewChat": "채팅",
   "conversation.chat.viewLiveOutput": "실시간 출력 · 최근 500줄",
@@ -22,8 +22,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.latest": "↓ 최신",
   "conversation.chat.openTerminal": "⌨ 터미널 열기",
   "conversation.chat.reviewMerge": "± 리뷰 및 병합",
-  "conversation.chat.browser": "◎ 브라우저",
-
+  "conversation.chat.browser": "◎ 브라우저 열기",
   "conversation.chat.rowTask": "작업",
   "conversation.chat.rowQueued": "나 · 다음 턴에 전달 예정",
   "conversation.chat.rowNotDelivered": "전달되지 않음 · {error}",
@@ -264,6 +263,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.startResumed": "재개된 세션 시작",
   "conversation.saved.createFork": "포크 만들기",
   "conversation.saved.cancel": "취소",
+  "conversation.chat.detailsLabel": "이 세션에 대해 더 보기",
+  "conversation.chat.textSize": "글자 크기",
 };
 
 export default catalog;

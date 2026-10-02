@@ -10,7 +10,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.rename": "Renommer",
   "conversation.chat.offlineStatus": "Hors ligne — dernière sortie affichée ; envois suspendus",
   "conversation.chat.reconnectingStatus": "{status} · reconnexion…",
-  "conversation.chat.switch": "⇄ Changer",
+  "conversation.chat.switch": "⇄ Changer d’agent",
   "conversation.chat.close": "Fermer la conversation",
   "conversation.chat.viewChat": "Discussion",
   "conversation.chat.viewLiveOutput": "Sortie en direct · 500 dernières lignes",
@@ -22,8 +22,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.latest": "↓ Plus récent",
   "conversation.chat.openTerminal": "⌨ Ouvrir le terminal",
   "conversation.chat.reviewMerge": "± Relire et fusionner",
-  "conversation.chat.browser": "◎ Navigateur",
-
+  "conversation.chat.browser": "◎ Ouvrir un navigateur",
   "conversation.chat.rowTask": "Tâche",
   "conversation.chat.rowQueued": "Vous · en file pour le prochain tour",
   "conversation.chat.rowNotDelivered": "Non remis · {error}",
@@ -264,6 +263,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.startResumed": "Démarrer la session reprise",
   "conversation.saved.createFork": "Créer la copie",
   "conversation.saved.cancel": "Annuler",
+  "conversation.chat.detailsLabel": "Plus sur cette session",
+  "conversation.chat.textSize": "Taille du texte",
 };
 
 export default catalog;

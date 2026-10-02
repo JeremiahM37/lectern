@@ -166,6 +166,10 @@ export function Conversation({
     [drag, setDrag] = useState(false),
     [showMergeReview, setShowMergeReview] = useState(false),
     [showBrowser, setShowBrowser] = useState(false),
+    // The header's ⋯: usage, checks, agent switching, text size and the
+    // memory record, out of the way until someone asks for them.
+    [showDetails, setShowDetails] = useState(false),
+    [showMemory, setShowMemory] = useState(false),
     [font, setFont] = useState(() =>
       Math.max(
         16,
@@ -847,24 +851,20 @@ export function Conversation({
                 ? t("conversation.chat.reconnectingStatus", { status })
                 : status}
           </p>
-          {session && (
-            <div className="conversation-usage">
-              {session.model && <span className="chip">{session.model}</span>}
-              <ContextBadge session={session} />
-              <CostBadge session={session} />
-              <LinesBadge session={session} />
-              <CompactionWarning session={session} />
-              <AwarenessOverlapChip session={session} />
-              <SessionClaims session={session} request={api.request} onNotice={onNotice} />
-            </div>
-          )}
-          {kind === "session" && session && (
-            <div className="conversation-checks">
-              <CheckBadge session={session} api={api} onNotice={onNotice} />
-            </div>
-          )}
+          {session && <CompactionWarning session={session} />}
         </div>
-        {onSwitch && <button className="b" onClick={onSwitch}>{t("conversation.chat.switch")}</button>}
+        <button
+          type="button"
+          className="b conversation-details-toggle"
+          id="conversation-details-toggle"
+          aria-expanded={showDetails}
+          aria-controls="conversation-details"
+          aria-label={t("conversation.chat.detailsLabel")}
+          title={t("conversation.chat.detailsLabel")}
+          onClick={() => setShowDetails((old) => !old)}
+        >
+          ⋯
+        </button>
         <button
           className="b"
           id="conversation-close"
@@ -874,6 +874,72 @@ export function Conversation({
           ✕
         </button>
       </header>
+      {showDetails && (
+        <div className="conversation-details" id="conversation-details">
+          {session && (
+            <div className="conversation-usage">
+              {session.model && <span className="chip">{session.model}</span>}
+              <ContextBadge session={session} />
+              <CostBadge session={session} />
+              <LinesBadge session={session} />
+              <AwarenessOverlapChip session={session} />
+              <SessionClaims session={session} request={api.request} onNotice={onNotice} />
+            </div>
+          )}
+          {kind === "session" && session && (
+            <div className="conversation-checks">
+              <CheckBadge session={session} api={api} onNotice={onNotice} />
+            </div>
+          )}
+          <div className="conversation-details-actions">
+            {onSwitch && (
+              <button type="button" className="b" id="conversation-switch" onClick={onSwitch}>
+                {t("conversation.chat.switch")}
+              </button>
+            )}
+            {kind === "session" && onAttach && !unavailable && (
+              <button
+                type="button"
+                className="b"
+                id="conversation-browser"
+                aria-pressed={showBrowser}
+                onClick={() => setShowBrowser(!showBrowser)}
+              >
+                {t("conversation.chat.browser")}
+              </button>
+            )}
+            {kind === "session" && (
+              <button
+                type="button"
+                className="b"
+                id="conversation-memory-toggle"
+                aria-pressed={showMemory}
+                onClick={() => setShowMemory((old) => !old)}
+              >
+                {t("sessions.memoryDeliveries.summary")}
+              </button>
+            )}
+            <span className="conversation-text-size" role="group" aria-label={t("conversation.chat.textSize")}>
+              <button
+                className="b"
+                id="reader-smaller"
+                aria-label={t("conversation.chat.smallerText")}
+                onClick={() => setFont((old) => Math.max(16, old - 1))}
+              >
+                A−
+              </button>
+              <button
+                className="b"
+                id="reader-larger"
+                aria-label={t("conversation.chat.largerText")}
+                onClick={() => setFont((old) => Math.min(24, old + 1))}
+              >
+                A+
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
       {session && onOpenSession && <SessionLineage api={api} session={session} onOpen={onOpenSession} className="conversation-lineage" />}
       <div className="reader-controls">
         <span>
@@ -893,22 +959,6 @@ export function Conversation({
             {viewMode === "cards" ? t("conversation.chat.showTerminalText") : t("conversation.chat.showChatCards")}
           </button>
         )}
-        <button
-          className="b"
-          id="reader-smaller"
-          aria-label={t("conversation.chat.smallerText")}
-          onClick={() => setFont((old) => Math.max(16, old - 1))}
-        >
-          A−
-        </button>
-        <button
-          className="b"
-          id="reader-larger"
-          aria-label={t("conversation.chat.largerText")}
-          onClick={() => setFont((old) => Math.min(24, old + 1))}
-        >
-          A+
-        </button>
         <button
           className="b"
           id="reader-latest"
@@ -943,15 +993,6 @@ export function Conversation({
             onClick={() => setShowMergeReview(true)}
           >
             {t("conversation.chat.reviewMerge")}
-          </button>
-          <button
-            type="button"
-            className="b"
-            id="conversation-browser"
-            aria-pressed={showBrowser}
-            onClick={() => setShowBrowser(!showBrowser)}
-          >
-            {t("conversation.chat.browser")}
           </button>
         </div>
       )}
@@ -1024,7 +1065,7 @@ export function Conversation({
           </div>
         </details>
       )}
-      {kind === "session" && (
+      {kind === "session" && showMemory && (
         <MemoryDeliveries api={api} kind="session" id={id} onNotice={onNotice} />
       )}
       <div

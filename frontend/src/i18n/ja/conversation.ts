@@ -10,7 +10,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.rename": "名前を変更",
   "conversation.chat.offlineStatus": "オフライン — 最後の出力を表示中です。送信は一時停止しています",
   "conversation.chat.reconnectingStatus": "{status} · 再接続中…",
-  "conversation.chat.switch": "⇄ 切り替え",
+  "conversation.chat.switch": "⇄ エージェントを変更",
   "conversation.chat.close": "会話を閉じる",
   "conversation.chat.viewChat": "チャット",
   "conversation.chat.viewLiveOutput": "ライブ出力 · 直近 500 行",
@@ -22,8 +22,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.latest": "↓ 最新",
   "conversation.chat.openTerminal": "⌨ ターミナルを開く",
   "conversation.chat.reviewMerge": "± レビューとマージ",
-  "conversation.chat.browser": "◎ ブラウザー",
-
+  "conversation.chat.browser": "◎ ブラウザーを開く",
   "conversation.chat.rowTask": "タスク",
   "conversation.chat.rowQueued": "あなた · 次のターンで送信予定",
   "conversation.chat.rowNotDelivered": "未送達 · {error}",
@@ -264,6 +263,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.startResumed": "再開したセッションを開始",
   "conversation.saved.createFork": "フォークを作成",
   "conversation.saved.cancel": "キャンセル",
+  "conversation.chat.detailsLabel": "このセッションの詳細",
+  "conversation.chat.textSize": "文字サイズ",
 };
 
 export default catalog;

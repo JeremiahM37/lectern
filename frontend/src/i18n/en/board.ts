@@ -318,9 +318,8 @@ const catalog: Record<string, string> = {
 
   // SessionClaims
   "board.claims.sessionChipTitle": "Work announced in this repository, so agents do not repeat it",
-  "board.claims.sessionChip.one": "{count} in progress here",
-  "board.claims.sessionChip.other": "{count} in progress here",
-
+  "board.claims.sessionChip.one": "{count} piece of work claimed in this folder",
+  "board.claims.sessionChip.other": "{count} pieces of work claimed in this folder",
   // Evals (agent tests)
   // Run, result and run-comparison statuses.
   "board.evals.status.queued": "queued",

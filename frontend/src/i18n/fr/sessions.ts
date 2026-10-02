@@ -421,7 +421,7 @@ const catalog: Record<string, string> = {
   "sessions.check.error": "erreur de vérification",
   "sessions.check.skipped": "vérification ignorée",
   "sessions.check.starting": "Démarrage…",
-  "sessions.check.run": "Lancer la vérification",
+  "sessions.check.run": "Lancer les tests",
   "sessions.check.noOutput": "(aucune sortie capturée)",
 
   "sessions.quota.budgetTitle": "Budget global : {spent} $ sur {cap} $",
@@ -487,7 +487,7 @@ const catalog: Record<string, string> = {
   "sessions.memoryDeliveries.challengePrompt": "Pourquoi cette mémoire est-elle fausse ou obsolète ?",
   "sessions.memoryDeliveries.challengeNeedsReason": "Une contestation nécessite un motif — sinon personne ne peut l’examiner.",
   "sessions.memoryDeliveries.challengeSent": "Signalée comme fausse — la base de mémoire conservera l’affirmation et votre objection côte à côte.",
-  "sessions.memoryDeliveries.summary": "Mémoire",
+  "sessions.memoryDeliveries.summary": "Notes transmises à l’agent",
   "sessions.memoryDeliveries.reading": "Lecture de ce qui a été transmis…",
   "sessions.memoryDeliveries.unavailable": "Ce qui a été transmis est indisponible : cela ne signifie donc pas « rien ne l’a été ».",
   "sessions.memoryDeliveries.empty": "Rien n’a encore été injecté ici. La mémoire du projet est ajoutée au lancement et quand un message récupère quelque chose de nouveau.",

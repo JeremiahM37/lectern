@@ -508,7 +508,7 @@ const catalog: Record<string, string> = {
   "sessions.check.error": "check error",
   "sessions.check.skipped": "check skipped",
   "sessions.check.starting": "Starting…",
-  "sessions.check.run": "Run check",
+  "sessions.check.run": "Run tests",
   "sessions.check.noOutput": "(no output captured)",
 
   // QuotaChip — {spent}/{cap} are US dollar amounts
@@ -591,7 +591,7 @@ const catalog: Record<string, string> = {
   "sessions.memoryDeliveries.challengeNeedsReason": "A challenge needs a reason — otherwise nobody can review it.",
   "sessions.memoryDeliveries.challengeSent": "Reported as wrong — the memory store will keep the claim and your objection side by side.",
   // Section heading (noun)
-  "sessions.memoryDeliveries.summary": "Memory",
+  "sessions.memoryDeliveries.summary": "Notes given to the agent",
   "sessions.memoryDeliveries.reading": "Reading what was delivered…",
   "sessions.memoryDeliveries.unavailable": "What was delivered is unavailable, so this is not “nothing was”.",
   "sessions.memoryDeliveries.empty": "Nothing has been injected here yet. Project memory is added at launch and when a message retrieves something new.",

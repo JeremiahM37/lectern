@@ -421,7 +421,7 @@ const catalog: Record<string, string> = {
   "sessions.check.error": "검사 오류",
   "sessions.check.skipped": "검사 건너뜀",
   "sessions.check.starting": "시작하는 중…",
-  "sessions.check.run": "검사 실행",
+  "sessions.check.run": "테스트 실행",
   "sessions.check.noOutput": "(캡처된 출력 없음)",
 
   "sessions.quota.budgetTitle": "전체 예산: ${cap} 중 ${spent}",
@@ -487,7 +487,7 @@ const catalog: Record<string, string> = {
   "sessions.memoryDeliveries.challengePrompt": "이 메모리가 틀렸거나 오래된 이유는 무엇인가요?",
   "sessions.memoryDeliveries.challengeNeedsReason": "이의 제기에는 사유가 필요합니다. 그렇지 않으면 아무도 검토할 수 없습니다.",
   "sessions.memoryDeliveries.challengeSent": "틀린 것으로 신고했습니다 — 메모리 저장소는 원래 내용과 이의 제기를 함께 보관합니다.",
-  "sessions.memoryDeliveries.summary": "메모리",
+  "sessions.memoryDeliveries.summary": "에이전트에게 준 메모",
   "sessions.memoryDeliveries.reading": "전달된 내용을 읽는 중…",
   "sessions.memoryDeliveries.unavailable": "전달된 내용을 확인할 수 없으므로 “전달된 것이 없음”을 뜻하지 않습니다.",
   "sessions.memoryDeliveries.empty": "아직 여기에 주입된 것이 없습니다. 프로젝트 메모리는 실행 시와 메시지가 새로운 내용을 검색할 때 추가됩니다.",

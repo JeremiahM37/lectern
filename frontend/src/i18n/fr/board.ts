@@ -261,9 +261,8 @@ const catalog: Record<string, string> = {
   "board.claims.release": "Libérer",
 
   "board.claims.sessionChipTitle": "Revendications actives dans ce dépôt",
-  "board.claims.sessionChip.one": "{count} en cours ici",
-  "board.claims.sessionChip.other": "{count} en cours ici",
-
+  "board.claims.sessionChip.one": "{count} travail réservé dans ce dossier",
+  "board.claims.sessionChip.other": "{count} travaux réservés dans ce dossier",
   "board.evals.status.queued": "en file",
   "board.evals.status.running": "en cours",
   "board.evals.status.done": "terminé",
