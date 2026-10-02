@@ -501,8 +501,20 @@ func buildCommitMessagePrompt(diff string) string {
 		"fences, no quotes, no commentary and no Co-authored-by trailers.\n\nDIFF:\n" + diff
 }
 
+// maxDraftLines is the most non-blank lines a drafted commit message may
+// have. A real draft is a subject and a short body; anything longer is an
+// agent CLI's banner, a transcript or an explanation, not a message.
+const maxDraftLines = 5
+
 // cleanCommitMessage strips what a model adds despite being asked not to.
+// It returns "" for output that is not a commit message at all: escape codes
+// or other control bytes (an agent CLI's screen, not its answer) or more
+// than maxDraftLines lines.
 func cleanCommitMessage(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	if strings.ContainsFunc(raw, func(r rune) bool { return (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f || r == 0x9b }) {
+		return ""
+	}
 	msg := strings.TrimSpace(raw)
 	if strings.HasPrefix(msg, "```") {
 		msg = strings.TrimPrefix(msg, "```")
@@ -518,7 +530,36 @@ func cleanCommitMessage(raw string) string {
 		}
 		kept = append(kept, strings.TrimRight(line, " \t"))
 	}
-	return strings.Trim(strings.TrimSpace(strings.Join(kept, "\n")), "\"'`")
+	msg = strings.Trim(strings.TrimSpace(strings.Join(kept, "\n")), "\"'`")
+	lines := 0
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	if lines > maxDraftLines {
+		return ""
+	}
+	return msg
+}
+
+// diffFiles lists the files a unified diff touches, in the shape the status
+// action reports them, for suggestCommitMessage.
+func diffFiles(diff string) []any {
+	var out []any
+	seen := map[string]bool{}
+	for _, line := range strings.Split(diff, "\n") {
+		if !strings.HasPrefix(line, "diff --git ") {
+			continue
+		}
+		_, after, ok := strings.Cut(line, " b/")
+		if !ok || seen[after] {
+			continue
+		}
+		seen[after] = true
+		out = append(out, map[string]any{"path": after})
+	}
+	return out
 }
 
 // commitMessageModel picks the headless agent and model: the configured
@@ -588,7 +629,13 @@ func (s *Server) gitCommitMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := cleanCommitMessage(raw)
 	if msg == "" {
-		httpError(w, 502, "the model returned an empty message")
+		// Not a usable draft (empty, escape codes, a whole transcript): offer
+		// the form's own suggestion rather than garbage or an error.
+		if suggestion := suggestCommitMessage(row.LastPromptExcerpt, diffFiles(diff)); suggestion != "" {
+			writeJSON(w, 200, map[string]any{"message": suggestion, "agent": agent, "model": model, "fallback": true})
+			return
+		}
+		httpError(w, 502, "the model did not return a usable commit message")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"message": msg, "agent": agent, "model": model})

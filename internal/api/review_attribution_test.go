@@ -100,6 +100,27 @@ func TestCleanCommitMessage(t *testing.T) {
 	if got := cleanCommitMessage(`"Fix typo"`); got != "Fix typo" {
 		t.Fatalf("quotes: %q", got)
 	}
+	if got := cleanCommitMessage("Fix typo\r\n\r\nWindows line endings.\r\n"); got != "Fix typo\n\nWindows line endings." {
+		t.Fatalf("CRLF: %q", got)
+	}
+	// What an agent CLI prints when it is not really answering: its screen
+	// (escape codes) or a long transcript. Neither is a commit message.
+	for _, junk := range []string{
+		"\x1b[1m✻ Claude Code\x1b[22m\nWelcome!",
+		"Add notes\x07",
+		"one\ntwo\nthree\nfour\nfive\nsix",
+	} {
+		if got := cleanCommitMessage(junk); got != "" {
+			t.Errorf("%q was accepted as %q", junk, got)
+		}
+	}
+	if got := cleanCommitMessage("Add notes\n\nOne.\nTwo.\nThree.\nFour."); got == "" {
+		t.Error("a subject and a four-line body is a commit message")
+	}
+	files := diffFiles("diff --git a/app.py b/app.py\n+x\ndiff --git a/docs/a b.md b/docs/a b.md\n")
+	if got := suggestCommitMessage("", files); got != "Update app.py, a b.md" {
+		t.Fatalf("suggestion from a diff: %q", got)
+	}
 }
 
 func TestFixHookPromptCarriesOutputAndRules(t *testing.T) {

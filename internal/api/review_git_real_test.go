@@ -335,6 +335,15 @@ func TestRealGitCommitMessageUsesStagedDiff(t *testing.T) {
 	if usedAgent == "" {
 		t.Fatal("no agent was chosen")
 	}
+	// An agent CLI that prints its screen instead of an answer: the form
+	// gets the suggestion built from what changed, never escape codes.
+	h.App.Server.SummaryGen = func(ctx context.Context, ex executor.Executor, agent, model, p string) (string, error) {
+		return "\x1b[1m✻ Claude Code\x1b[22m\n  /help for help", nil
+	}
+	out = h.post(fmt.Sprintf("/api/sessions/%d/git/commit-message", id), obj{}, 200)
+	if out.str("message") != "Update app.py" || out["fallback"] != true {
+		t.Fatalf("fallback message: %v", out)
+	}
 }
 
 func TestRealGitConflictResolution(t *testing.T) {
