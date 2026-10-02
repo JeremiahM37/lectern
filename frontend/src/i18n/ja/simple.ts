@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "あなたのフォルダー {dir} にブランチ {branch} を作成し、フォルダーをそのブランチに切り替えます。エディターとターミナルもそのブランチになります。",
   "review.onMain.folderNowOn": "コミットしました。フォルダー {dir} は今ブランチ {branch} にあります。",
   "review.git.noIdentity": "Git にまだ名前とメールアドレスが設定されていないため、コミットできません。何も変更していません。ターミナルで次の 2 つのコマンドを実行してから、もう一度コミットしてください：",
+  "review.git.writeMessageHint": "このセッションのエージェントに変更内容を説明させます。エージェントを使うため、その利用量に含まれます。",
+  "review.git.messagePlaceholder": "変更内容を説明してください",
+  "review.git.committedTo": "{branch} にコミットしました",
+  "review.git.nothingLeft": "コミットする変更は残っていません",
+  "review.git.folderMoved": "フォルダー {dir} は現在 {branch} にあります。{base} に戻すには、ターミナルで次を実行してください：",
+  "review.git.copySwitchBack": "コピー：フォルダーを {base} に戻す",
+  "review.git.switchCopied": "コピーしました。ターミナルに貼り付けると {base} に戻ります。",
+  "review.git.copyFailed": "このブラウザーではコピーできませんでした。コマンドを選択して手動でコピーしてください。",
+  "review.identity.intro": "コミットするには、Git に名前とメールアドレスが必要です。まだ何も変更していません。",
+  "review.identity.name": "名前",
+  "review.identity.email": "メールアドレス",
+  "review.identity.global": "すべてのプロジェクトに保存",
+  "review.identity.repo": "このプロジェクトのみ",
+  "review.identity.saveAndCommit": "保存してコミット",
+  "review.identity.needName": "名前を入力してください。",
+  "review.identity.needEmail": "メールアドレスを入力してください。",
+  "review.session.tabCommitCount": "コミット ({n})",
 };
 
 export default catalog;

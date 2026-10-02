@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "Cela crée la branche {branch} dans votre dossier {dir} et y bascule le dossier. Votre éditeur et votre terminal seront aussi sur cette branche.",
   "review.onMain.folderNowOn": "Commit fait. Votre dossier {dir} est maintenant sur la branche {branch}.",
   "review.git.noIdentity": "Git ne connaît pas encore votre nom ni votre e-mail, il ne peut donc pas faire le commit. Rien n’a été modifié. Lancez ces deux commandes dans un terminal, puis refaites le commit :",
+  "review.git.writeMessageHint": "Demande à l’agent de cette session de décrire les changements. Cela utilise l’agent et compte dans sa consommation.",
+  "review.git.messagePlaceholder": "Décrivez ce qui a changé",
+  "review.git.committedTo": "Commit fait sur {branch}",
+  "review.git.nothingLeft": "plus rien à committer",
+  "review.git.folderMoved": "Votre dossier {dir} est maintenant sur {branch}. Pour revenir sur {base}, lancez ceci dans un terminal :",
+  "review.git.copySwitchBack": "Copier : remettre le dossier sur {base}",
+  "review.git.switchCopied": "Copié. Collez-le dans un terminal pour revenir sur {base}.",
+  "review.git.copyFailed": "Ce navigateur n’a pas pu copier. Sélectionnez la commande et copiez-la à la main.",
+  "review.identity.intro": "Git a besoin de votre nom et de votre e-mail pour faire le commit. Rien n’a encore été modifié.",
+  "review.identity.name": "Nom",
+  "review.identity.email": "E-mail",
+  "review.identity.global": "Enregistrer pour tous mes projets",
+  "review.identity.repo": "Seulement ce projet",
+  "review.identity.saveAndCommit": "Enregistrer et committer",
+  "review.identity.needName": "Saisissez votre nom.",
+  "review.identity.needEmail": "Saisissez une adresse e-mail.",
+  "review.session.tabCommitCount": "Commit ({n})",
 };
 
 export default catalog;

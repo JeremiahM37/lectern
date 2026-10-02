@@ -181,3 +181,12 @@
 .commit-no-identity { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
 .commit-no-identity p { margin: 0 0 6px; }
 .commit-no-identity pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.commit-no-identity .identity-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; margin: 6px 0; }
+.commit-no-identity .identity-fields label.f { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.commit-no-identity .identity-scope { border: 0; padding: 0; margin: 4px 0 8px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.commit-done { margin: 10px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); color: var(--ink); }
+.commit-done p { margin: 0 0 4px; }
+.commit-done-line b { color: var(--ink); }
+.commit-switch-back { margin-top: 8px; }
+.commit-switch-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.commit-switch-row code { flex: 1 1 260px; min-width: 0; padding: 6px 8px; border-radius: 6px; background: var(--bg); color: var(--ink); font: 400 12px/1.4 var(--mono); overflow-wrap: anywhere; user-select: all; }

@@ -213,7 +213,7 @@ const catalog: Record<string, string> = {
   "review.git.commitHeading": "Commit",
   "review.git.commitMessage": "Commit message",
   "review.git.writing": "Writing…",
-  "review.git.writeMessage": "✨ Write message",
+  "review.git.writeMessage": "✨ Write message for me",
   "review.git.amendLast": "Amend the last commit",
   "review.git.amendLastPushed": "Amend the last commit (already pushed)",
   "review.git.pushToOrigin": "Push to origin",

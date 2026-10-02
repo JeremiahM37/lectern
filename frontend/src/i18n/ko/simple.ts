@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "폴더 {dir}에 브랜치 {branch}를 만들고 폴더를 그 브랜치로 바꿉니다. 편집기와 터미널도 그 브랜치에 있게 됩니다.",
   "review.onMain.folderNowOn": "커밋했습니다. 폴더 {dir}은(는) 이제 브랜치 {branch}에 있습니다.",
   "review.git.noIdentity": "Git에 아직 이름과 이메일이 설정되지 않아 커밋할 수 없습니다. 아무것도 바뀌지 않았습니다. 터미널에서 아래 두 명령을 실행한 뒤 다시 커밋하세요:",
+  "review.git.writeMessageHint": "이 세션의 에이전트에게 변경 내용을 설명하게 합니다. 에이전트를 사용하므로 사용량에 포함됩니다.",
+  "review.git.messagePlaceholder": "무엇이 바뀌었는지 적어 주세요",
+  "review.git.committedTo": "{branch}에 커밋했습니다",
+  "review.git.nothingLeft": "남은 변경 사항이 없습니다",
+  "review.git.folderMoved": "폴더 {dir}이(가) 이제 {branch}에 있습니다. {base}(으)로 되돌리려면 터미널에서 다음을 실행하세요:",
+  "review.git.copySwitchBack": "복사: 폴더를 {base}(으)로 되돌리기",
+  "review.git.switchCopied": "복사했습니다. 터미널에 붙여 넣으면 {base}(으)로 돌아갑니다.",
+  "review.git.copyFailed": "이 브라우저에서는 복사할 수 없습니다. 명령을 선택해 직접 복사하세요.",
+  "review.identity.intro": "커밋하려면 Git에 이름과 이메일이 필요합니다. 아직 아무것도 바뀌지 않았습니다.",
+  "review.identity.name": "이름",
+  "review.identity.email": "이메일",
+  "review.identity.global": "내 모든 프로젝트에 저장",
+  "review.identity.repo": "이 프로젝트에만",
+  "review.identity.saveAndCommit": "저장하고 커밋",
+  "review.identity.needName": "이름을 입력하세요.",
+  "review.identity.needEmail": "이메일 주소를 입력하세요.",
+  "review.session.tabCommitCount": "커밋 ({n})",
 };
 
 export default catalog;

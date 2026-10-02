@@ -168,7 +168,7 @@ const catalog: Record<string, string> = {
   "review.git.commitHeading": "コミット",
   "review.git.commitMessage": "コミットメッセージ",
   "review.git.writing": "作成中…",
-  "review.git.writeMessage": "✨ メッセージを作成",
+  "review.git.writeMessage": "✨ メッセージを書いてもらう",
   "review.git.amendLast": "直前のコミットを修正",
   "review.git.amendLastPushed": "直前のコミットを修正（プッシュ済み）",
   "review.git.pushToOrigin": "origin にプッシュ",

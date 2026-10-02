@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "This creates branch {branch} in your folder {dir} and switches the folder to it. Your editor and terminal will be on that branch too.",
   "review.onMain.folderNowOn": "Committed. Your folder {dir} is now on branch {branch}.",
   "review.git.noIdentity": "Git doesn't know your name and email yet, so it can't commit. Nothing was changed. Run these two commands in a terminal, then commit again:",
+  "review.git.writeMessageHint": "Asks this session's agent to describe the changes. It uses the agent, so it counts toward its usage.",
+  "review.git.messagePlaceholder": "Describe what changed",
+  "review.git.committedTo": "Committed to {branch}",
+  "review.git.nothingLeft": "nothing left to commit",
+  "review.git.folderMoved": "Your folder {dir} is now on {branch}. To put it back on {base}, run this in a terminal:",
+  "review.git.copySwitchBack": "Copy: switch folder back to {base}",
+  "review.git.switchCopied": "Copied. Paste it in a terminal to switch back to {base}.",
+  "review.git.copyFailed": "This browser would not copy. Select the command and copy it by hand.",
+  "review.identity.intro": "Git needs your name and email before it can commit. Nothing was changed yet.",
+  "review.identity.name": "Name",
+  "review.identity.email": "Email",
+  "review.identity.global": "Save for all my projects",
+  "review.identity.repo": "Only this project",
+  "review.identity.saveAndCommit": "Save and commit",
+  "review.identity.needName": "Enter your name.",
+  "review.identity.needEmail": "Enter an email address.",
+  "review.session.tabCommitCount": "Commit ({n})",
 };
 
 export default catalog;

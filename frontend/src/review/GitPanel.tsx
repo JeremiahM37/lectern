@@ -6,6 +6,7 @@ import type { Hunk } from "./diffModel";
 import type { CommitResult, CommitStep, FilePatch, GitFile, GitStatus } from "./types";
 import { t, useLocale } from "../i18n";
 import { branchFor } from "./branch";
+import { commitRequestBody, identityProblem, switchBackCommand, type GitIdentity } from "./commit";
 
 export interface ReviewApi {
   request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -77,6 +78,7 @@ export function GitPanel({
   onChanged,
   onNotice,
   onShowConflicts,
+  onUncommitted,
 }: {
   api: ReviewApi;
   sessionId: number;
@@ -86,6 +88,8 @@ export function GitPanel({
   onChanged(): void;
   onNotice(text: string, error?: boolean): void;
   onShowConflicts?(): void;
+  /** How many files have changes not yet committed, after every load. */
+  onUncommitted?(count: number): void;
 }) {
   useLocale();
   const base = `/sessions/${sessionId}/git`;
@@ -103,8 +107,6 @@ export function GitPanel({
   // once the status loads) — the session's name is not a commit message.
   const [message, setMessageState] = useState("");
   const messageTouched = useRef(false);
-  // Set once a drafted message has replaced the suggestion (below).
-  const drafted = useRef(false);
   const setMessage = (m: string) => {
     messageTouched.current = true;
     setMessageState(m);
@@ -123,6 +125,9 @@ export function GitPanel({
   const [result, setResult] = useState<CommitResult>();
   const [pushedGuard, setPushedGuard] = useState<string[]>();
   const [noIdentity, setNoIdentity] = useState(false);
+  // The last successful commit, said in a sentence: where it went and, when
+  // it moved the person's own folder onto a new branch, how to go back.
+  const [done, setDone] = useState<{ branch: string; movedFrom: string; dir: string }>();
   const [forceAsk, setForceAsk] = useState(false);
 
   useEffect(() => {
@@ -134,12 +139,13 @@ export function GitPanel({
         if (!live) return;
         setStatus(s);
         setChosen({});
+        onUncommitted?.(s.files.length);
         // Nowhere to push to: Push starts unticked (once, so a later tick sticks).
         if (!remoteKnown.current && s.has_remote === false) setPush(false);
         remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
-        else if (!messageTouched.current && !drafted.current && s.suggested_message) setMessageState(s.suggested_message);
+        else if (!messageTouched.current && s.suggested_message) setMessageState(s.suggested_message);
       })
       .catch((e) => live && setError(String(e instanceof Error ? e.message : e)));
     return () => {
@@ -147,25 +153,9 @@ export function GitPanel({
     };
   }, [sessionId, repo, reload, refreshKey]);
 
-  // Draft once from the actual diff. Never replace text the user starts typing
-  // while the model is answering, and retain manual entry if it is unavailable.
-  const draftRequested = useRef(false);
-  useEffect(() => {
-    if (!status?.files.length || status.operation || messageTouched.current || draftRequested.current) return;
-    draftRequested.current = true;
-    let live = true;
-    // The suggestion from the changed files stays until the draft arrives,
-    // and is what is left if drafting is unavailable.
-    api.request<{ message: string }>(base + "/commit-message", { method: "POST", body: { repo } })
-      .then((draft) => {
-        if (live && !messageTouched.current && draft.message) {
-          drafted.current = true;
-          setMessageState(draft.message);
-        }
-      })
-      .catch(() => { /* Manual entry and Write message remain available. */ });
-    return () => { live = false; };
-  }, [!!status?.files.length, sessionId, repo]);
+  // A message is drafted by the agent only when someone presses "Write
+  // message for me": drafting runs the session's agent CLI and costs quota,
+  // so opening this tab must never do it on its own.
 
   const refresh = () => {
     setReload((n) => n + 1);
@@ -348,31 +338,32 @@ export function GitPanel({
     }
   }
 
-  async function commit(allowPushedAmend = false) {
+  async function commit(allowPushedAmend = false, identity?: GitIdentity) {
     setBusy("commit");
     setResult(undefined);
+    setDone(undefined);
     setPushedGuard(undefined);
-    setNoIdentity(false);
     try {
       const out = await api.request<CommitResult>(base + "/commit", {
         method: "POST",
-        body: {
+        body: commitRequestBody({
           repo,
           message,
-          stage_all: staged.length === 0,
+          stagedCount: staged.length,
           amend,
-          allow_pushed_amend: allowPushedAmend,
-          push: push && status?.has_remote !== false && !(amend && allowPushedAmend),
-          ...(status?.on_base_branch
-            ? onMain === "branch"
-              ? { new_branch: newBranch.trim() }
-              : { allow_base_branch: true }
-            : {}),
-          pr: pr && push,
-          pr_title: prTitle,
-          pr_body: prBody,
-        },
+          allowPushedAmend,
+          push,
+          hasRemote: status?.has_remote,
+          onBaseBranch: !!status?.on_base_branch,
+          onMain,
+          newBranch,
+          pr,
+          prTitle,
+          prBody,
+          identity,
+        }),
       });
+      setNoIdentity(false);
       setResult(out);
       const failed = out.steps.find((s) => Number(s.rc) !== 0);
       const movedTo = status?.on_base_branch && onMain === "branch" && out.branch ? out.branch : "";
@@ -391,11 +382,20 @@ export function GitPanel({
       if (!failed) {
         setAmend(false);
         if (amend && allowPushedAmend) setForceAsk(true);
+        // The message was used: an empty box, ready for the next change.
+        messageTouched.current = false;
+        setMessageState("");
+        setDone({
+          branch: out.branch || status?.branch || "",
+          movedFrom: movedTo && status?.own_checkout ? status.branch : "",
+          dir: status?.dir || "",
+        });
       }
       refresh();
     } catch (e) {
       if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "no_git_identity") {
         setNoIdentity(true);
+        if (identity) onNotice(e.message, true);
       } else if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
         setPushedGuard(((e.payload as { refs?: string[] }).refs ?? []) as string[]);
       } else {
@@ -429,6 +429,7 @@ export function GitPanel({
   }
 
   if (error) return <p className="sub error">{error}</p>;
+  const committedOk = !!done && !!result && !result.steps.some((s) => Number(s.rc) !== 0);
   // Sentences with markup inside: the text around the <code>/<b> element.
   const openPr = t("review.git.openPr").split("{gh}");
   const alreadyPushed = t("review.git.alreadyPushed").split("{refs}");
@@ -559,6 +560,7 @@ export function GitPanel({
           className="f commit-message"
           rows={3}
           value={message}
+          placeholder={t("review.git.messagePlaceholder")}
           onChange={(e) => setMessage(e.target.value)}
           // Once someone is in the field it is theirs: a draft arriving now
           // would land in the middle of what they are typing.
@@ -567,7 +569,14 @@ export function GitPanel({
           }}
         />
         <div className="btnrow">
-          <button type="button" className="b" disabled={!!busy} onClick={() => void writeMessage()}>
+          <button
+            type="button"
+            className="b"
+            id={`commit-write-message-${sessionId}`}
+            disabled={!!busy || !status.files.length}
+            title={t("review.git.writeMessageHint")}
+            onClick={() => void writeMessage()}
+          >
             {busy === "message" ? t("review.git.writing") : t("review.git.writeMessage")}
           </button>
         </div>
@@ -673,12 +682,23 @@ export function GitPanel({
         )}
 
         {noIdentity && (
-          <div className="commit-no-identity" role="alert">
-            <p>{t("review.git.noIdentity")}</p>
-            <pre>{'git config --global user.name "Your Name"\ngit config --global user.email you@example.com'}</pre>
+          <IdentityForm busy={busy === "commit"} onSubmit={(identity) => void commit(false, identity)} />
+        )}
+        {committedOk && done && (
+          <div className="commit-done" role="status">
+            <p className="commit-done-line">
+              <b>✓ {done.branch ? t("review.git.committedTo", { branch: done.branch }) : t("review.git.committed")}</b>
+              {status.files.length === 0 && <span className="sub"> · {t("review.git.nothingLeft")}</span>}
+            </p>
+            {result?.steps.filter((s) => s.url).map((s, i) => (
+              <p key={i} className="sub">
+                <a href={s.url} target="_blank" rel="noreferrer">{s.url}</a>
+              </p>
+            ))}
+            {done.movedFrom && <SwitchBack dir={done.dir} branch={done.branch} base={done.movedFrom} onNotice={onNotice} />}
           </div>
         )}
-        {result && (
+        {result && !committedOk && (
           <ul className="review-commit-steps">
             {result.steps.map((s, i) => (
               <li key={i} data-ok={Number(s.rc) === 0}>
@@ -711,3 +731,81 @@ export function GitPanel({
   );
 }
 
+
+/** Git has no name and email on this machine: ask for them here, then commit. */
+export function IdentityForm({ busy, onSubmit }: { busy: boolean; onSubmit(identity: GitIdentity): void }) {
+  useLocale();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [scope, setScope] = useState<GitIdentity["scope"]>("global");
+  const problem = identityProblem(name, email);
+  const why = problem === "name" ? t("review.identity.needName") : problem === "email" ? t("review.identity.needEmail") : "";
+  return (
+    <form
+      className="commit-no-identity"
+      role="alert"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!problem && !busy) onSubmit({ name: name.trim(), email: email.trim(), scope });
+      }}
+    >
+      <p>{t("review.identity.intro")}</p>
+      <div className="identity-fields">
+        <label className="f">
+          {t("review.identity.name")}
+          <input className="f" name="git-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="f">
+          {t("review.identity.email")}
+          <input className="f" name="git-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+      </div>
+      <fieldset className="identity-scope">
+        <label className="review-checkbox">
+          <input type="radio" name="git-identity-scope" checked={scope === "global"} onChange={() => setScope("global")} />
+          {t("review.identity.global")}
+        </label>
+        <label className="review-checkbox">
+          <input type="radio" name="git-identity-scope" checked={scope === "repo"} onChange={() => setScope("repo")} />
+          {t("review.identity.repo")}
+        </label>
+      </fieldset>
+      <div className="btnrow">
+        <button type="submit" className="b ok" disabled={busy || !!problem}>
+          {busy ? t("review.git.committing") : t("review.identity.saveAndCommit")}
+        </button>
+        {why && (name || email) ? <span className="sub disabled-why">{why}</span> : null}
+      </div>
+    </form>
+  );
+}
+
+/**
+ * After "Commit on a new branch" moved the person's own folder: how to put it
+ * back. There is no server endpoint that switches a folder's branch, so this
+ * shows the one git command, ready to copy, rather than doing it.
+ */
+function SwitchBack({ dir, branch, base, onNotice }: { dir: string; branch: string; base: string; onNotice(text: string, error?: boolean): void }) {
+  useLocale();
+  const command = switchBackCommand(dir, base);
+  return (
+    <div className="commit-switch-back">
+      <p className="sub">{t("review.git.folderMoved", { dir: dir || ".", branch, base })}</p>
+      <div className="commit-switch-row">
+        <code>{command}</code>
+        <button
+          type="button"
+          className="b"
+          onClick={() =>
+            void navigator.clipboard
+              ?.writeText(command)
+              .then(() => onNotice(t("review.git.switchCopied", { base })))
+              .catch(() => onNotice(t("review.git.copyFailed"), true))
+          }
+        >
+          {t("review.git.copySwitchBack", { base })}
+        </button>
+      </div>
+    </div>
+  );
+}

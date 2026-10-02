@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "Esto crea la rama {branch} en tu carpeta {dir} y cambia la carpeta a ella. Tu editor y tu terminal también estarán en esa rama.",
   "review.onMain.folderNowOn": "Commit hecho. Tu carpeta {dir} está ahora en la rama {branch}.",
   "review.git.noIdentity": "Git todavía no conoce tu nombre ni tu correo, así que no puede hacer el commit. No se ha cambiado nada. Ejecuta estos dos comandos en una terminal y vuelve a hacer el commit:",
+  "review.git.writeMessageHint": "Pide al agente de esta sesión que describa los cambios. Usa el agente, así que cuenta para su consumo.",
+  "review.git.messagePlaceholder": "Describe qué ha cambiado",
+  "review.git.committedTo": "Commit hecho en {branch}",
+  "review.git.nothingLeft": "no queda nada por confirmar",
+  "review.git.folderMoved": "Tu carpeta {dir} está ahora en {branch}. Para volver a {base}, ejecuta esto en una terminal:",
+  "review.git.copySwitchBack": "Copiar: volver la carpeta a {base}",
+  "review.git.switchCopied": "Copiado. Pégalo en una terminal para volver a {base}.",
+  "review.git.copyFailed": "Este navegador no permitió copiar. Selecciona el comando y cópialo a mano.",
+  "review.identity.intro": "Git necesita tu nombre y tu correo para hacer el commit. Todavía no se ha cambiado nada.",
+  "review.identity.name": "Nombre",
+  "review.identity.email": "Correo",
+  "review.identity.global": "Guardar para todos mis proyectos",
+  "review.identity.repo": "Solo este proyecto",
+  "review.identity.saveAndCommit": "Guardar y hacer commit",
+  "review.identity.needName": "Escribe tu nombre.",
+  "review.identity.needEmail": "Escribe una dirección de correo.",
+  "review.session.tabCommitCount": "Commit ({n})",
 };
 
 export default catalog;

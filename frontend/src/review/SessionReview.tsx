@@ -73,6 +73,8 @@ export function SessionReview({
   const [state, setState] = useState<ReviewState>({ comments: [], viewed: [] });
   const [attribution, setAttribution] = useState<Attribution>();
   const [conflicts, setConflicts] = useState(0);
+  // Files with changes not yet committed, once the Commit tab has looked.
+  const [uncommitted, setUncommitted] = useState<number>();
 
   const [mode, setMode] = useStoredPref<DiffMode>(PREF_KEYS.mode, "unified", ["unified", "split"]);
   const [wrap, setWrap] = useStoredFlag(PREF_KEYS.wrap, false);
@@ -346,7 +348,7 @@ export function SessionReview({
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "changes", label: t("review.session.tabChanges", { n: totalFiles }) },
-    { id: "commit", label: t("review.session.tabCommit") },
+    { id: "commit", label: uncommitted ? t("review.session.tabCommitCount", { n: uncommitted }) : t("review.session.tabCommit") },
     ...(conflicts > 0 ? [{ id: "conflicts" as Tab, label: t("review.session.tabConflicts", { n: conflicts }) }] : []),
     { id: "checks", label: t("review.session.tabChecks") },
   ];
@@ -499,6 +501,7 @@ export function SessionReview({
             onChanged={() => setReload((n) => n + 1)}
             onNotice={onNotice}
             onShowConflicts={() => setTab("conflicts")}
+            onUncommitted={setUncommitted}
           />
         )
       )}

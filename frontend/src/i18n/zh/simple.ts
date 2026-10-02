@@ -175,6 +175,23 @@ const catalog: Record<string, string> = {
   "review.onMain.ownFolder": "这会在你的文件夹 {dir} 中创建分支 {branch} 并切换到该分支。你的编辑器和终端也会在这个分支上。",
   "review.onMain.folderNowOn": "已提交。你的文件夹 {dir} 现在在分支 {branch} 上。",
   "review.git.noIdentity": "Git 还不知道你的姓名和邮箱，所以无法提交。没有做任何更改。请在终端里运行下面两条命令，然后再提交一次：",
+  "review.git.writeMessageHint": "让此会话的智能体描述这些更改。这会使用智能体，计入其用量。",
+  "review.git.messagePlaceholder": "描述改了什么",
+  "review.git.committedTo": "已提交到 {branch}",
+  "review.git.nothingLeft": "没有剩余要提交的内容",
+  "review.git.folderMoved": "你的文件夹 {dir} 现在位于 {branch}。要切回 {base}，请在终端运行：",
+  "review.git.copySwitchBack": "复制：把文件夹切回 {base}",
+  "review.git.switchCopied": "已复制。粘贴到终端即可切回 {base}。",
+  "review.git.copyFailed": "此浏览器无法复制。请手动选中命令并复制。",
+  "review.identity.intro": "Git 需要你的姓名和邮箱才能提交。目前还没有做任何更改。",
+  "review.identity.name": "姓名",
+  "review.identity.email": "邮箱",
+  "review.identity.global": "保存到我的所有项目",
+  "review.identity.repo": "仅此项目",
+  "review.identity.saveAndCommit": "保存并提交",
+  "review.identity.needName": "请输入你的姓名。",
+  "review.identity.needEmail": "请输入邮箱地址。",
+  "review.session.tabCommitCount": "提交 ({n})",
 };
 
 export default catalog;

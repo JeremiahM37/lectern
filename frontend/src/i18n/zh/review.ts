@@ -158,7 +158,7 @@ const catalog: Record<string, string> = {
   "review.git.commitHeading": "提交",
   "review.git.commitMessage": "提交信息",
   "review.git.writing": "正在编写…",
-  "review.git.writeMessage": "✨ 编写信息",
+  "review.git.writeMessage": "✨ 帮我写提交说明",
   "review.git.amendLast": "修订上一次提交",
   "review.git.amendLastPushed": "修订上一次提交（已推送）",
   "review.git.pushToOrigin": "推送到 origin",

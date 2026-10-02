@@ -168,7 +168,7 @@ const catalog: Record<string, string> = {
   "review.git.commitHeading": "커밋",
   "review.git.commitMessage": "커밋 메시지",
   "review.git.writing": "작성 중…",
-  "review.git.writeMessage": "✨ 메시지 작성",
+  "review.git.writeMessage": "✨ 메시지 대신 써 주기",
   "review.git.amendLast": "마지막 커밋 수정",
   "review.git.amendLastPushed": "마지막 커밋 수정(이미 푸시됨)",
   "review.git.pushToOrigin": "origin에 푸시",
