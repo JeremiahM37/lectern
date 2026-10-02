@@ -31,6 +31,11 @@ func (s *Server) reviveSession(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 409, "workspace setup is still running; wait for it before restarting the agent")
 		return
 	}
+	// Refuse before anything is closed when the agent's program is gone.
+	if err := s.Sessions.CheckAgentInstalledFor(r.Context(), row); err != nil {
+		httpError(w, 409, "%s", err.Error())
+		return
+	}
 	cid, err := s.boundNativeCID(r, row)
 	if err != nil && row.AgentExitedAt != nil {
 		// The agent already exited and nothing was saved to resume: start it

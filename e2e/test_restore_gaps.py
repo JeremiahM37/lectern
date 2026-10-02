@@ -2,6 +2,7 @@
 import sqlite3
 import time
 
+import pytest
 from playwright.sync_api import expect
 
 from test_terminal_workspace import real_terminal  # noqa: F401  (fixture)
@@ -14,6 +15,9 @@ def mark(t, **fields):
         db.commit()
 
 
+# Revive starts the agent again, so it must be installed: Lectern refuses an
+# agent whose program is missing (sessions/agent_installed.go).
+@pytest.mark.parametrize("real_terminal", [{"agent_script": "#!/bin/sh\nexec sleep 600\n"}], indirect=True)
 def test_exited_agent_card_terminal_and_revive(page, real_terminal):
     t = real_terminal
     mark(t, agent_exited_at=time.time())

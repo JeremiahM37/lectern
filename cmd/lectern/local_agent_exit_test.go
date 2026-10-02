@@ -47,14 +47,14 @@ func TestAgentExitIsStoppedOnEveryBackend(t *testing.T) {
 			}
 			state, home, fake, repo := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 			// Exits by itself shortly after starting.
-			if err := os.WriteFile(filepath.Join(fake, "claude"), []byte(exitingAgent), 0o755); err != nil {
+			if err := os.WriteFile(filepath.Join(fake, "claude-exit-test"), []byte(exitingAgent), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 				t.Fatalf("git init: %v %s", err, out)
 			}
 			env := append(localTestEnv(state), "HOME="+home, "LECTERN_SESSION_BACKEND="+backendName,
-				"LECTERN_SESSION_POLL=0.5",
+				"LECTERN_SESSION_POLL=0.5", "LECTERN_CLAUDE_BIN=claude-exit-test",
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 			t.Cleanup(func() {
 				_, _ = runLocalCLI(bin, env, "api", "DELETE", "/sessions/1?kill=true")
@@ -96,6 +96,18 @@ func TestAgentExitIsStoppedOnEveryBackend(t *testing.T) {
 			}
 			if expired, _ := runLocalCLI(bin, env, "api", "GET", "/approvals?status=expired"); !bytes.Contains(expired, []byte(`"session_id":`+id)) {
 				t.Fatalf("the agent's approval was never expired: %s", expired)
+			}
+			// Revive with the agent's program gone is refused before the old
+			// terminal is closed.
+			if err := os.Remove(filepath.Join(fake, "claude-exit-test")); err != nil {
+				t.Fatal(err)
+			}
+			out, err := runLocalCLI(bin, env, "api", "POST", "/sessions/"+id+"/revive", `{}`)
+			if err == nil || !bytes.Contains(out, []byte("claude isn't installed")) {
+				t.Fatalf("revive without the agent: %v %s", err, out)
+			}
+			if view, _ := runLocalCLI(bin, env, "api", "GET", "/sessions/"+id); !bytes.Contains(view, []byte(`"ended_at":null`)) {
+				t.Fatalf("a refused revive closed the session: %s", view)
 			}
 		})
 	}

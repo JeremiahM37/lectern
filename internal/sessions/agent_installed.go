@@ -95,3 +95,22 @@ func (m *Manager) checkAgentInstalled(ctx context.Context, ex executor.Executor,
 	}
 	return missing
 }
+
+// CheckAgentInstalledFor is the same check for a session about to be started
+// again (Revive), made before its old terminal is closed, so a refusal leaves
+// it as it was.
+func (m *Manager) CheckAgentInstalledFor(ctx context.Context, row *store.Session) error {
+	cfg, err := m.SessionLaunchConfiguration(row)
+	if err != nil {
+		return nil
+	}
+	target, err := m.DB.Target(row.TargetID)
+	if err != nil {
+		return nil
+	}
+	ex, err := m.Reg.For(target)
+	if err != nil {
+		return nil
+	}
+	return m.checkAgentInstalled(ctx, ex, target, cfg, cfg.Isolation)
+}
