@@ -560,6 +560,11 @@ export function GitPanel({
           rows={3}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
+          // Once someone is in the field it is theirs: a draft arriving now
+          // would land in the middle of what they are typing.
+          onFocus={() => {
+            messageTouched.current = true;
+          }}
         />
         <div className="btnrow">
           <button type="button" className="b" disabled={!!busy} onClick={() => void writeMessage()}>

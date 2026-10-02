@@ -90,6 +90,20 @@ export function prefsLocalOnly() {
 export function loadPrefs(): Promise<void> {
   loading ??= request<{ prefs: Values }>("/ui/prefs")
     .then((body) => {
+      // Another document (a terminal frame) may have changed something while
+      // this request was out; its storage event can still be queued. Take its
+      // unsent changes from the shared cache first, or writing the cache below
+      // would put the server's older copy back over them.
+      const stored = readJSON(CACHE);
+      for (const key of Object.keys(readJSON(UNSENT))) {
+        if (unsent[key]) continue;
+        unsent = { ...unsent, [key]: true };
+        if (key in stored) values = { ...values, [key]: stored[key]! };
+        else {
+          const { [key]: _gone, ...rest } = values;
+          values = rest;
+        }
+      }
       const next: Values = { ...(body.prefs || {}) };
       for (const key of Object.keys(unsent)) {
         if (key in values) next[key] = values[key]!;

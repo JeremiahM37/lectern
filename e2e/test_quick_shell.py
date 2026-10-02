@@ -92,8 +92,22 @@ def _wait_file(path: Path, expected: str, timeout=15):
 
 
 def _detach(master, child):
-    tmux_chord(master, b"\x02d")
-    child.wait(timeout=15)
+    # On a loaded machine the attach wrapper can relay Ctrl-b and d to the
+    # session's tmux in one write, which tmux takes for pasted text and types
+    # into the shell instead of detaching. A person would press it again; so
+    # does this, after clearing what the first try left on the command line.
+    for attempt in range(3):
+        if attempt:
+            os.write(master, b"\x15")
+            time.sleep(0.3)
+        tmux_chord(master, b"\x02d")
+        try:
+            child.wait(timeout=10)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    else:
+        child.wait(timeout=5)
     assert child.returncode == 0
 
 

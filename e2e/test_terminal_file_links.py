@@ -7,6 +7,7 @@ answered "No such file or directory". These replay the exact bytes Codex
 against a local stand-in model; internal/filelinks/testdata/*.bin) into a real
 terminal, with a real PDF at the owner's path, and click every row."""
 import os
+import re
 import time
 from pathlib import Path
 
@@ -309,7 +310,9 @@ def test_links_win_over_a_program_that_tracks_the_mouse(page, real_terminal):
     page.evaluate('window.__opened = []; window.open = (url) => { window.__opened.push(url); return null; }; 0')
 
     def presses():
-        return log.read_bytes().count(b'\x1b[<0;') if log.exists() else 0
+        # Button presses only (SGR ...M). A click's release (...m) arrives
+        # separately and, under load, after the press was counted.
+        return len(re.findall(rb'\x1b\[<0;\d+;\d+M', log.read_bytes())) if log.exists() else 0
 
     # A plain click is the program's.
     point = page.evaluate(CHAR_POINT, ['TRACKING', 2])

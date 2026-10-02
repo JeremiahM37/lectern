@@ -34,3 +34,26 @@ test("a refused write keeps the value on this device and says so", async () => {
   assert.equal(prefsLocalOnly(), true);
   assert.equal(getPref("theme", ""), "light");
 });
+
+test("a change another document has not delivered yet survives this one's load", async () => {
+  // A terminal frame added a quick command while this page's first load was
+  // out; that frame's storage event has not arrived here yet.
+  const storage = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => void storage.set(key, value),
+  };
+  try {
+    resetPrefsForTest({}, (async () => ({ prefs: { theme: "dark" } })) as never);
+    storage.set("lec-ui-prefs-v1", JSON.stringify({ "quick-commands": [{ id: "q1", text: "echo hi" }] }));
+    storage.set("lec-ui-prefs-unsent-v1", JSON.stringify({ "quick-commands": true }));
+    await loadPrefs();
+    assert.deepEqual(getPref("quick-commands", null), [{ id: "q1", text: "echo hi" }]);
+    assert.equal(getPref("theme", ""), "dark");
+    assert.match(storage.get("lec-ui-prefs-v1") || "", /echo hi/);
+    assert.match(storage.get("lec-ui-prefs-unsent-v1") || "", /quick-commands/);
+  } finally {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    resetPrefsForTest();
+  }
+});
