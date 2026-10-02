@@ -125,10 +125,15 @@ export function GitPanel({
   const [result, setResult] = useState<CommitResult>();
   const [pushedGuard, setPushedGuard] = useState<string[]>();
   const [noIdentity, setNoIdentity] = useState(false);
+  // The server's reason a name or email was refused (422 invalid_git_identity).
+  const [identityError, setIdentityError] = useState("");
   // The last successful commit, said in a sentence: where it went and, when
   // it moved the person's own folder onto a new branch, how to go back.
   const [done, setDone] = useState<{ branch: string; movedFrom: string; dir: string }>();
   const [forceAsk, setForceAsk] = useState(false);
+  // Amend, push and pull request are under "Options"; the summary line says
+  // what is on, so nothing happens that the closed section hides.
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -145,7 +150,7 @@ export function GitPanel({
         remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
-        else if (!messageTouched.current && s.suggested_message) setMessageState(s.suggested_message);
+        else if (!messageTouched.current && s.suggested_message && s.files.length) setMessageState(s.suggested_message);
       })
       .catch((e) => live && setError(String(e instanceof Error ? e.message : e)));
     return () => {
@@ -306,15 +311,19 @@ export function GitPanel({
   async function writeMessage() {
     setBusy("message");
     try {
-      const out = await api.request<{ message: string; agent: string; model: string }>(
+      const out = await api.request<{ message: string; agent: string; model: string; fallback?: boolean }>(
         base + "/commit-message",
         { method: "POST", body: { repo } },
       );
       setMessage(out.message);
+      // fallback: the agent could not draft one, so this is the plain
+      // suggestion from the changed files — not something the agent wrote.
       onNotice(
-        out.model
-          ? t("review.git.messageByModel", { agent: out.agent, model: out.model })
-          : t("review.git.messageBy", { agent: out.agent }),
+        out.fallback
+          ? t("review.git.messageFallback")
+          : out.model
+            ? t("review.git.messageByModel", { agent: out.agent, model: out.model })
+            : t("review.git.messageBy", { agent: out.agent }),
       );
     } catch (e) {
       onNotice(e instanceof Error ? e.message : String(e), true);
@@ -364,6 +373,7 @@ export function GitPanel({
         }),
       });
       setNoIdentity(false);
+      setIdentityError("");
       setResult(out);
       const failed = out.steps.find((s) => Number(s.rc) !== 0);
       const movedTo = status?.on_base_branch && onMain === "branch" && out.branch ? out.branch : "";
@@ -393,9 +403,13 @@ export function GitPanel({
       }
       refresh();
     } catch (e) {
-      if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "no_git_identity") {
+      const code = e instanceof ApiError ? (e.payload as { code?: string } | undefined)?.code : undefined;
+      if (code === "no_git_identity") {
         setNoIdentity(true);
-        if (identity) onNotice(e.message, true);
+        setIdentityError(identity ? (e as Error).message : "");
+      } else if (code === "invalid_git_identity") {
+        setNoIdentity(true);
+        setIdentityError((e as Error).message);
       } else if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
         setPushedGuard(((e.payload as { refs?: string[] }).refs ?? []) as string[]);
       } else {
@@ -429,6 +443,13 @@ export function GitPanel({
   }
 
   if (error) return <p className="sub error">{error}</p>;
+  const nothingToCommit = !!status && !status.files.length && !status.operation && !amend;
+  const willPush = push && status?.has_remote !== false;
+  const optionSummary = [
+    amend ? t("review.git.optAmend") : "",
+    willPush ? t("review.git.optPush") : "",
+    pr && willPush ? t("review.git.optPr") : "",
+  ].filter(Boolean).join(" · ") || t("review.git.optNone");
   const committedOk = !!done && !!result && !result.steps.some((s) => Number(s.rc) !== 0);
   // Sentences with markup inside: the text around the <code>/<b> element.
   const openPr = t("review.git.openPr").split("{gh}");
@@ -520,6 +541,17 @@ export function GitPanel({
 
       <section className="review-commit-form">
         <h3>{t("review.git.commitHeading")}</h3>
+        {nothingToCommit && (
+          <p className="sub commit-nothing">
+            {t("review.git.nothingToCommit")}{" "}
+            {status.head_message && (
+              <button type="button" className="linkish" onClick={() => { setAmend(true); if (!message.trim()) setMessage(status.head_message); }}>
+                {t("review.git.editLastMessage")}
+              </button>
+            )}
+          </p>
+        )}
+        {!nothingToCommit && <>
         {status.on_base_branch && (
           <fieldset className="commit-on-main" id={`commit-on-main-${sessionId}`}>
             <legend>{t("review.onMain.title", { branch: status.branch })}</legend>
@@ -580,6 +612,11 @@ export function GitPanel({
             {busy === "message" ? t("review.git.writing") : t("review.git.writeMessage")}
           </button>
         </div>
+        <details className="commit-options" open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)}>
+          <summary>
+            {t("review.git.options")}{" "}
+            <span className="sub">{optionSummary}</span>
+          </summary>
         <label className="review-checkbox">
           <input
             type="checkbox"
@@ -618,6 +655,7 @@ export function GitPanel({
             </button>
           </>
         )}
+        </details>
         <p className="sub commit-scope">
           {staged.length
             ? t("review.git.commitsStaged", { count: staged.length })
@@ -644,6 +682,7 @@ export function GitPanel({
             {commitBlocked}
           </p>
         )}
+        </>}
 
         {pushedGuard && (
           <div className="git-guard" role="alert">
@@ -682,12 +721,13 @@ export function GitPanel({
         )}
 
         {noIdentity && (
-          <IdentityForm busy={busy === "commit"} onSubmit={(identity) => void commit(false, identity)} />
+          <IdentityForm busy={busy === "commit"} error={identityError} onSubmit={(identity) => void commit(false, identity)} />
         )}
         {committedOk && done && (
           <div className="commit-done" role="status">
             <p className="commit-done-line">
               <b>✓ {done.branch ? t("review.git.committedTo", { branch: done.branch }) : t("review.git.committed")}</b>
+              {result?.steps.some((s) => s.step === "push" && Number(s.rc) === 0) && <span> · {t("review.git.pushed")}</span>}
               {status.files.length === 0 && <span className="sub"> · {t("review.git.nothingLeft")}</span>}
             </p>
             {result?.steps.filter((s) => s.url).map((s, i) => (
@@ -733,7 +773,7 @@ export function GitPanel({
 
 
 /** Git has no name and email on this machine: ask for them here, then commit. */
-export function IdentityForm({ busy, onSubmit }: { busy: boolean; onSubmit(identity: GitIdentity): void }) {
+export function IdentityForm({ busy, error, onSubmit }: { busy: boolean; error?: string; onSubmit(identity: GitIdentity): void }) {
   useLocale();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -753,13 +793,14 @@ export function IdentityForm({ busy, onSubmit }: { busy: boolean; onSubmit(ident
       <div className="identity-fields">
         <label className="f">
           {t("review.identity.name")}
-          <input className="f" name="git-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="f" name="git-name" autoComplete="name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="f">
           {t("review.identity.email")}
           <input className="f" name="git-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
       </div>
+      {error && <p className="identity-error" role="status">{error}</p>}
       <fieldset className="identity-scope">
         <label className="review-checkbox">
           <input type="radio" name="git-identity-scope" checked={scope === "global"} onChange={() => setScope("global")} />

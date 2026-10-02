@@ -190,3 +190,9 @@
 .commit-switch-back { margin-top: 8px; }
 .commit-switch-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .commit-switch-row code { flex: 1 1 260px; min-width: 0; padding: 6px 8px; border-radius: 6px; background: var(--bg); color: var(--ink); font: 400 12px/1.4 var(--mono); overflow-wrap: anywhere; user-select: all; }
+.commit-options { margin: 8px 0; }
+.commit-options > summary { cursor: pointer; font-weight: 600; color: var(--ink); padding: 4px 0; }
+.commit-options > summary .sub { font-weight: 400; color: var(--ink-dim); }
+.commit-options[open] > summary { margin-bottom: 4px; }
+.commit-nothing .linkish { background: none; border: 0; padding: 0; color: var(--accent-soft); font: inherit; cursor: pointer; text-decoration: underline; }
+.commit-no-identity .identity-error { margin: 2px 0 6px; color: var(--red); font-weight: 600; }

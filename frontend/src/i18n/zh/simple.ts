@@ -196,6 +196,15 @@ const catalog: Record<string, string> = {
   "approval.neededAction.edit": "需要你：修改文件",
   "approval.neededAction.read": "需要你：读取文件",
   "approval.neededAction.web": "需要你：访问网络",
+  "review.git.nothingToCommit": "目前没有可提交的内容。",
+  "review.git.editLastMessage": "改为修改上一次提交",
+  "review.git.options": "选项",
+  "review.git.optAmend": "修改上一次提交",
+  "review.git.optPush": "推送到 origin",
+  "review.git.optPr": "创建拉取请求",
+  "review.git.optNone": "仅提交，不推送",
+  "review.git.messageFallback": "智能体没能写出说明，这里是根据更改文件生成的简单摘要。",
+  "review.git.pushed": "已推送到 origin",
 };
 
 export default catalog;

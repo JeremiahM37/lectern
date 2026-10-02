@@ -219,7 +219,7 @@ const catalog: Record<string, string> = {
   "sessions.card.chat": "Discussion",
   "sessions.card.makeProject": "⇑ En faire un projet",
   "sessions.card.switching": "Changement…",
-  "sessions.card.switch": "⇄ Changer",
+  "sessions.card.switch": "⇄ Changer d’agent",
   "sessions.card.rename": "✎ Renommer",
   "sessions.card.trackingRestored": "Suivi rétabli. Votre session continue de tourner.",
   "sessions.card.trackAgain": "Suivre à nouveau",

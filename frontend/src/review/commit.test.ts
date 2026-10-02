@@ -50,3 +50,9 @@ test("opening the Commit tab never asks the agent for a message", () => {
   const handler = panel.slice(panel.indexOf("async function writeMessage"), panel.indexOf("async function generateDescription"));
   assert.ok(handler.includes("/commit-message"));
 });
+
+test("a refused name or email is said under the fields, and a fallback draft is not credited to the agent", () => {
+  const panel = readFileSync(join(import.meta.dirname, "GitPanel.tsx"), "utf8");
+  assert.match(panel, /code === "invalid_git_identity"[\s\S]{0,120}setIdentityError\(/);
+  assert.match(panel, /out\.fallback\s*\?\s*t\("review\.git\.messageFallback"\)/);
+});

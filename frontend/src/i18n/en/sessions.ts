@@ -271,7 +271,7 @@ const catalog: Record<string, string> = {
   "sessions.card.makeProject": "⇑ Make a project",
   "sessions.card.switching": "Switching…",
   // Verb: move the session to another agent.
-  "sessions.card.switch": "⇄ Switch",
+  "sessions.card.switch": "⇄ Change agent",
   "sessions.card.rename": "✎ Rename",
   "sessions.card.trackingRestored": "Tracking restored. Your session keeps running.",
   "sessions.card.trackAgain": "Track again",

@@ -219,7 +219,7 @@ const catalog: Record<string, string> = {
   "sessions.card.chat": "チャット",
   "sessions.card.makeProject": "⇑ プロジェクトにする",
   "sessions.card.switching": "切り替え中…",
-  "sessions.card.switch": "⇄ 切り替え",
+  "sessions.card.switch": "⇄ エージェントを変更",
   "sessions.card.rename": "✎ 名前を変更",
   "sessions.card.trackingRestored": "追跡を再開しました。セッションは動作し続けます。",
   "sessions.card.trackAgain": "再度追跡",

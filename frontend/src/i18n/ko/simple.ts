@@ -196,6 +196,15 @@ const catalog: Record<string, string> = {
   "approval.neededAction.edit": "확인 필요: 파일 변경",
   "approval.neededAction.read": "확인 필요: 파일 읽기",
   "approval.neededAction.web": "확인 필요: 웹 사용",
+  "review.git.nothingToCommit": "지금은 커밋할 내용이 없습니다.",
+  "review.git.editLastMessage": "대신 마지막 커밋 수정",
+  "review.git.options": "옵션",
+  "review.git.optAmend": "마지막 커밋 수정",
+  "review.git.optPush": "origin에 푸시",
+  "review.git.optPr": "풀 리퀘스트 열기",
+  "review.git.optNone": "커밋만 하고 푸시하지 않음",
+  "review.git.messageFallback": "에이전트가 작성하지 못해 변경된 파일의 간단한 요약을 넣었습니다.",
+  "review.git.pushed": "origin에 푸시함",
 };
 
 export default catalog;

@@ -196,6 +196,15 @@ const catalog: Record<string, string> = {
   "approval.neededAction.edit": "確認が必要：ファイルの変更",
   "approval.neededAction.read": "確認が必要：ファイルの読み取り",
   "approval.neededAction.web": "確認が必要：Web へのアクセス",
+  "review.git.nothingToCommit": "今はコミットするものがありません。",
+  "review.git.editLastMessage": "代わりに直前のコミットを変更",
+  "review.git.options": "オプション",
+  "review.git.optAmend": "直前のコミットを変更",
+  "review.git.optPush": "origin にプッシュ",
+  "review.git.optPr": "プルリクエストを作成",
+  "review.git.optNone": "コミットのみ、プッシュはしません",
+  "review.git.messageFallback": "エージェントが書けなかったため、変更されたファイルの簡単な要約を入れました。",
+  "review.git.pushed": "origin にプッシュしました",
 };
 
 export default catalog;

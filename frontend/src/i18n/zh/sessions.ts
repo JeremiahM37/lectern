@@ -211,7 +211,7 @@ const catalog: Record<string, string> = {
   "sessions.card.chat": "聊天",
   "sessions.card.makeProject": "⇑ 转为项目",
   "sessions.card.switching": "正在切换…",
-  "sessions.card.switch": "⇄ 切换",
+  "sessions.card.switch": "⇄ 更换智能体",
   "sessions.card.rename": "✎ 重命名",
   "sessions.card.trackingRestored": "已恢复跟踪。你的会话继续运行。",
   "sessions.card.trackAgain": "重新跟踪",

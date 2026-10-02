@@ -196,6 +196,15 @@ const catalog: Record<string, string> = {
   "approval.neededAction.edit": "Needs you: change a file",
   "approval.neededAction.read": "Needs you: read a file",
   "approval.neededAction.web": "Needs you: use the web",
+  "review.git.nothingToCommit": "Nothing to commit right now.",
+  "review.git.editLastMessage": "Change the last commit instead",
+  "review.git.options": "Options",
+  "review.git.optAmend": "changes the last commit",
+  "review.git.optPush": "pushes to origin",
+  "review.git.optPr": "opens a pull request",
+  "review.git.optNone": "commit only, nothing is pushed",
+  "review.git.messageFallback": "The agent couldn't write one, so this is a plain summary of the changed files.",
+  "review.git.pushed": "pushed to origin",
 };
 
 export default catalog;

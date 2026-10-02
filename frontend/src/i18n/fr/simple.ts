@@ -196,6 +196,15 @@ const catalog: Record<string, string> = {
   "approval.neededAction.edit": "Vous attend : modifier un fichier",
   "approval.neededAction.read": "Vous attend : lire un fichier",
   "approval.neededAction.web": "Vous attend : utiliser le web",
+  "review.git.nothingToCommit": "Rien à committer pour l’instant.",
+  "review.git.editLastMessage": "Modifier plutôt le dernier commit",
+  "review.git.options": "Options",
+  "review.git.optAmend": "modifie le dernier commit",
+  "review.git.optPush": "pousse vers origin",
+  "review.git.optPr": "ouvre une pull request",
+  "review.git.optNone": "commit seulement, rien n’est poussé",
+  "review.git.messageFallback": "L’agent n’a pas pu le rédiger : voici un simple résumé des fichiers modifiés.",
+  "review.git.pushed": "poussé vers origin",
 };
 
 export default catalog;

@@ -219,7 +219,7 @@ const catalog: Record<string, string> = {
   "sessions.card.chat": "채팅",
   "sessions.card.makeProject": "⇑ 프로젝트로 만들기",
   "sessions.card.switching": "전환하는 중…",
-  "sessions.card.switch": "⇄ 전환",
+  "sessions.card.switch": "⇄ 에이전트 바꾸기",
   "sessions.card.rename": "✎ 이름 바꾸기",
   "sessions.card.trackingRestored": "추적을 복원했습니다. 세션은 계속 실행됩니다.",
   "sessions.card.trackAgain": "다시 추적",
