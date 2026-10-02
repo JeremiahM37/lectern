@@ -221,7 +221,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
     assert collision_candidates, "fixture tmux did not publish its default socket"
     collision_socket = collision_candidates[0]
 
-    before = _json_command(binary, env, "status")
+    before = _json_command(binary, env, "status", "--json")
     assert before["state"] == "stopped"
     targets = _json_command(binary, env, "api", "GET", "/targets")
     target = next(row for row in targets if row["kind"] == "local")
@@ -349,7 +349,7 @@ def test_source_and_binary_local_install_create_persist_and_reattach(local_binar
     _json_command(binary, env, "api", "PATCH", f"/tasks/{task['id']}", json.dumps({"status": "done"}))
     stopped = _run(binary, env, "stop")
     assert stopped.returncode == 0, stopped.stderr
-    assert _json_command(binary, env, "status")["state"] == "stopped"
+    assert _json_command(binary, env, "status", "--json")["state"] == "stopped"
 
     sessions = _json_command(binary, env, "api", "GET", "/sessions")
     projects = _json_command(binary, env, "api", "GET", "/projects")
@@ -421,19 +421,19 @@ def test_service_supervisor_reuses_board_and_recovers_engine(local_binary, tmp_p
     up = subprocess.run([binary, 'up', '--no-browser'], env=env, cwd=tmp_path,
                         capture_output=True, text=True, timeout=30)
     assert up.returncode == 0, up.stderr
-    before = _json_command(binary, env, 'status')['endpoint']
+    before = _json_command(binary, env, 'status', '--json')['endpoint']
     targets = _json_command(binary, env, 'api', 'GET', '/targets')
     supervisor = subprocess.Popen([binary, 'local', 'supervise'], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         time.sleep(1)
         assert supervisor.poll() is None
-        assert _json_command(binary, env, 'status')['endpoint']['pid'] == before['pid']
+        assert _json_command(binary, env, 'status', '--json')['endpoint']['pid'] == before['pid']
         # An ordinary stop of this isolated engine is healed by the service.
         _run(binary, env, 'stop')
         deadline = time.time() + 20
         while time.time() < deadline:
-            status = _json_command(binary, env, 'status')
+            status = _json_command(binary, env, 'status', '--json')
             if status.get('endpoint', {}).get('pid') not in (None, before['pid']):
                 break
             time.sleep(.2)

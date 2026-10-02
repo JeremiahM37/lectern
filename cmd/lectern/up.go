@@ -123,7 +123,12 @@ func upCommand(cfg *config.Config, args []string) error {
 	} else {
 		fmt.Printf("Open this link to sign in and start an agent (it works once, for 10 minutes):\n  %s\n", link)
 	}
-	fmt.Println("Or stay in the terminal: cd into a project and run lectern claude.")
+	// Only name an agent that is there to start.
+	if agent := firstFoundAgent(status); agent != "" {
+		fmt.Printf("Or stay in the terminal: cd into a project and run lectern %s.\n", agent)
+	} else {
+		fmt.Println("No agent yet? In the browser, \"Try a demo agent\" shows how it works with nothing installed.")
+	}
 	return nil
 }
 
@@ -297,4 +302,16 @@ func openBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
+}
+
+func firstFoundAgent(s *onboardingStatus) string {
+	if s == nil {
+		return ""
+	}
+	for _, a := range s.Agents {
+		if a.Found && a.Builtin {
+			return a.Name
+		}
+	}
+	return ""
 }

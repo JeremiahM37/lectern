@@ -129,3 +129,29 @@ func TestStartingAnUninstalledAgentIsRefused(t *testing.T) {
 	}
 	_, _ = runLocalCLI(bin, env, "api", "DELETE", "/sessions/1?kill=true")
 }
+
+// local status speaks to people by default; --json is for scripts. controls
+// without a terminal says what to use instead of failing inside the TUI.
+func TestLocalStatusAndControlsWithoutATerminal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local runtime test uses POSIX process locks")
+	}
+	bin := filepath.Join(t.TempDir(), "lectern")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	env := append(localTestEnv(t.TempDir()), "HOME="+t.TempDir())
+	out, err := runLocalCLI(bin, env, "local", "status")
+	if err != nil || !bytes.Contains(out, []byte("Your private Lectern is not running")) {
+		t.Fatalf("status: %v %s", err, out)
+	}
+	out, err = runLocalCLI(bin, env, "local", "status", "--json")
+	if err != nil || !bytes.Contains(out, []byte(`"state": "stopped"`)) {
+		t.Fatalf("status --json: %v %s", err, out)
+	}
+	t.Cleanup(func() { _, _ = runLocalCLI(bin, env, "local", "stop") })
+	out, err = runLocalCLI(bin, env, "controls")
+	if err == nil || !bytes.Contains(out, []byte("needs a terminal")) || bytes.Contains(out, []byte("epoll")) {
+		t.Fatalf("controls without a terminal: %v %s", err, out)
+	}
+}

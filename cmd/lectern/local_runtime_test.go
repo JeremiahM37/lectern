@@ -120,7 +120,7 @@ func TestLocalRuntimeRealProcessPersistenceAndConcurrency(t *testing.T) {
 	if out, err := runLocalCLI(bin, env, "local", "stop"); err != nil {
 		t.Fatalf("local stop: %v (%s)", err, out)
 	}
-	status, err := runLocalCLI(bin, env, "local", "status")
+	status, err := runLocalCLI(bin, env, "local", "status", "--json")
 	if err != nil || !bytes.Contains(status, []byte(`"state": "stopped"`)) {
 		t.Fatalf("stopped status: err=%v output=%s", err, status)
 	}

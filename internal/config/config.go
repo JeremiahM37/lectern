@@ -234,6 +234,28 @@ func envSeconds(key string, def float64) time.Duration {
 	return time.Duration(envFloat(key, def) * float64(time.Second))
 }
 
+// defaultDBPath is where a server keeps its database when LECTERN_DB is not
+// set: Lectern's state directory, not whatever folder it was started from (a
+// bare `lectern` run from a script or an IDE used to leave lectern.db there).
+// A lectern.db already in the starting folder is still used, so an existing
+// install keeps its data.
+func defaultDBPath(cwd, home string) string {
+	if cwd != "" {
+		legacy := filepath.Join(cwd, "lectern.db")
+		if _, err := os.Stat(legacy); err == nil {
+			return legacy
+		}
+	}
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		if home == "" {
+			return filepath.Join(cwd, "lectern.db")
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(base, "lectern", "server", "lectern.db")
+}
+
 // Load resolves configuration from the process environment.
 func Load() *Config {
 	home, _ := os.UserHomeDir()
@@ -243,7 +265,7 @@ func Load() *Config {
 	}
 	cwd, _ := os.Getwd()
 	c := &Config{
-		DBPath:                      env("LECTERN_DB", filepath.Join(cwd, "lectern.db")),
+		DBPath:                      env("LECTERN_DB", defaultDBPath(cwd, home)),
 		Port:                        port,
 		Host:                        env("LECTERN_HOST", "0.0.0.0"),
 		Mock:                        os.Getenv("LECTERN_MOCK") == "1",

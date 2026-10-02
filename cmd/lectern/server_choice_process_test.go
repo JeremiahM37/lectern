@@ -42,7 +42,7 @@ func TestPlainCommandsPreferHostedService(t *testing.T) {
 	if err != nil || !bytes.Contains(out, []byte(`"mock":true`)) {
 		t.Fatalf("plain command did not reach the hosted service: err=%v out=%s", err, out)
 	}
-	if status, _ := runLocalCLI(bin, withOpen, "local", "status"); !bytes.Contains(status, []byte(`"state": "stopped"`)) {
+	if status, _ := runLocalCLI(bin, withOpen, "local", "status", "--json"); !bytes.Contains(status, []byte(`"state": "stopped"`)) {
 		t.Fatalf("choosing the service started the local runtime: %s", status)
 	}
 
