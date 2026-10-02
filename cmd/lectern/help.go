@@ -442,9 +442,8 @@ var commandSynonyms = map[string]string{
 	"resume": "restore", "reopen": "restore",
 	"dashboard": "console", "sessions": "console", "list": "console", "ls": "console",
 	"start": "up", "open": "up",
-	"upgrade": "update",
+	"upgrade": "update", "check": "doctor",
 	"try": "demo", "tutorial": "demo",
-	"check": "doctor",
 }
 
 // didYouMean suggests the known command closest to a mistyped one, as

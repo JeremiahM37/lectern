@@ -72,4 +72,3 @@ func startDemoSession(c *console.Client, fresh bool) (*quickSessionView, bool, e
 	}
 	return &created, false, nil
 }
-
