@@ -83,4 +83,18 @@ func TestDidYouMean(t *testing.T) {
 	if got := didYouMean("xyzzyplugh"); got != "" {
 		t.Errorf("unrelated word got a suggestion: %q", got)
 	}
+	// Words that are not a typo of anything but name what a command does.
+	for word, want := range map[string]string{"pair": "phone", "Resume": "restore", "try": "demo"} {
+		if got := didYouMean(word); !strings.Contains(got, `"lectern `+want+`"`) {
+			t.Errorf("didYouMean(%q) = %q, want %s", word, got, want)
+		}
+	}
+	for word, name := range commandSynonyms {
+		if findDoc(strings.Fields(name)) == nil {
+			t.Errorf("synonym %q points at %q, which has no help", word, name)
+		}
+		if clientVerbs[word] || reservedVerbs[word] || agentQuickVerbs[word] || findDoc([]string{word}) != nil {
+			t.Errorf("synonym %q is already a command", word)
+		}
+	}
 }

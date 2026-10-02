@@ -40,7 +40,10 @@ browser on "Start an agent", already signed in. Run it again any time: it
 picks up agents you have installed since, and signs in another browser.
 
   --no-browser   Print the sign-in link instead of opening a browser (over SSH)
-  --service      Also start Lectern when you log in (systemd user unit; launchd on macOS)`,
+  --service      Also start Lectern when you log in: a systemd user unit on
+                 Linux, a launchd agent on macOS, and on Windows an entry in
+                 your account's startup list (the HKCU ...\CurrentVersion\Run
+                 registry key; no administrator rights needed)`,
 		Examples: []string{"cd ~/myapp && lectern up", "lectern up --no-browser"},
 	},
 	{
@@ -59,6 +62,18 @@ phone too. Leave with Ctrl+] d, come back with the same command.
 
 Any agent added under Settings → Agents works the same way: lectern NAME.`,
 		Examples: []string{"cd ~/myapp && lectern claude", "lectern codex --resume", "lectern claude --model opus --new"},
+	},
+	{
+		Name: "demo", Group: groupStart, Synopsis: "demo",
+		Summary: "Try Lectern with a demo agent that needs nothing installed",
+		Usage:   []string{"lectern demo [--new]"},
+		About: `Starts a stand-in agent in a throwaway folder and connects this terminal to
+it — the same demo as "Try a demo agent" on the web page. It uses no AI:
+type a message and it writes it to a file, asking you first, so you can try
+approvals (Ctrl+] y allows), leaving and coming back, and reviewing a change.
+
+  --new   Start another demo instead of going back to the running one`,
+		Examples: []string{"lectern demo"},
 	},
 	{
 		Name: "doctor", Group: groupStart, Synopsis: "doctor",
@@ -139,8 +154,9 @@ screen readers and pipes.`,
 		Usage:   []string{"lectern restore [QUERY|ID] [--last] [--agent NAME] [--model M] [--profile ID] [--all] [--no-attach]"},
 		About: `With nothing else, lists what can be restored, newest first. A word
 restores the one closed session that matches it; a number restores that
-session. --agent continues it in another agent, primed with its last handoff
-or the end of its conversation.`,
+session. When Lectern cannot tell which saved conversation to continue, it
+shows them so you can pick one. --agent continues it in another agent,
+primed with its last handoff or the end of its conversation.`,
 		Examples: []string{"lectern restore", "lectern restore --last", "lectern restore parser", "lectern restore 42 --agent codex"},
 	},
 	{
@@ -419,11 +435,26 @@ func docFor(words []string) *commandDoc {
 	return d
 }
 
+// commandSynonyms are words people reach for that are not Lectern's name for
+// the thing, mapped to the command that does it.
+var commandSynonyms = map[string]string{
+	"pair": "phone", "mobile": "phone", "qr": "phone",
+	"resume": "restore", "reopen": "restore",
+	"dashboard": "console", "sessions": "console", "list": "console", "ls": "console",
+	"start": "up", "open": "up",
+	"upgrade": "update",
+	"try": "demo", "tutorial": "demo",
+	"check": "doctor",
+}
+
 // didYouMean suggests the known command closest to a mistyped one, as
 // " Did you mean \"lectern restore\"?", or "" when nothing is close.
 func didYouMean(word string) string {
 	if word == "" {
 		return ""
+	}
+	if name, ok := commandSynonyms[strings.ToLower(word)]; ok {
+		return fmt.Sprintf(" Did you mean \"lectern %s\"?", name)
 	}
 	best, bestDist := "", 3
 	var names []string
