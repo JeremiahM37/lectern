@@ -2,7 +2,7 @@
 
 # Lectern — full guide
 
-> The short version is the [README](../README.md). This is the full guide.
+> The short version is the [README](../README.md); the first three steps are [Getting started](getting-started.md). This is the full guide.
 
 **Dispatch AI coding agents onto machines you own — and approve their work from your phone.**
 
@@ -223,21 +223,10 @@ first machine** to register an SSH target with your existing agents, or add a
 local target to open a shell inside the container. See [Docker and remote setup](docker.md)
 for access tokens, SSH keys, persistence, and restart behavior.
 
-For a terminal-only workspace on the same computer as your agent, install the
-standalone local command. It needs no hosted server, SSH alias, or Grimoire:
-
-```bash
-git clone https://github.com/JeremiahM37/lectern.git
-cd lectern
-bash tools/install-local.sh
-lectern local
-```
-
-Use `lectern-local` in that last command if the installer reported that the
-existing remote `lectern` launcher was kept.
-
-See [Standalone local Lectern](local.md) for Linux, macOS, and WSL
-installation and the difference between local and remote operation.
+For Lectern on the same computer as your agents, you do not need any of
+this: follow [Getting started](getting-started.md) (install, `lectern up`,
+start an agent). [Local runtime](local.md) explains how that private runtime
+works and how to build it from source.
 
 Project-specific optional Spec Kit and Maestro workflows are documented in
 [Project workflows](workflows.md).

@@ -7,32 +7,27 @@ Lectern starts a private local helper on demand; no manual server setup is
 needed. Your existing agent CLI and its provider/model environment remain the
 source of truth.
 
-## Install on Linux or macOS
+## Install
 
-The local runtime uses `tmux` for durable sessions, Git for project workspaces,
-and Python 3 for its local session/task helpers. Install those first, then use
-the installer from a Lectern checkout:
+Follow [Getting started](getting-started.md): the installer for Linux, macOS
+or Windows, then `lectern up`. The machine needs Git and an agent CLI. Agent
+terminals are kept by Lectern's built-in PTY host, so tmux and Python are not
+needed; on Linux an installed tmux is used instead, which also lets Lectern
+adopt agent sessions you started by hand ([how](ptyhost.md)).
+
+### Build from source
+
+`tools/install-local.sh` builds a checkout (Go 1.25) or installs a binary you
+already have, into `~/.local/bin`:
 
 ```sh
 git clone https://github.com/JeremiahM37/lectern.git
 cd lectern
-bash tools/install-local.sh
+bash tools/install-local.sh                     # or: --binary ./lectern
 ```
 
-The installer builds the checkout with Go and installs `lectern` in
-`~/.local/bin`. If the remote client already owns that name, it installs
-`lectern-local` instead, leaving the remote launcher unchanged. Add
-`~/.local/bin` to `PATH` if your shell does not already include it.
-
-To install a binary you built or received through a release process:
-
-```sh
-bash tools/install-local.sh --binary ./lectern --prefix "$HOME/.local/bin"
-```
-
-`tools/install-local.sh` accepts a checkout or an already-built binary.
-The root `install.sh` downloads checksummed GitHub release assets instead.
-The `up` workflow ships in v2.4.1 and later.
+If the remote client already owns the name `lectern`, it installs
+`lectern-local` instead, leaving the remote launcher unchanged.
 
 ## Hosted service recovery
 
@@ -48,8 +43,6 @@ and native conversation identity; adoption must require exact target/session
 matches. A deployment replaces the binary atomically, validates this unit
 setting, runs `systemctl daemon-reload`, and stops for operator review. It must
 not issue `systemctl restart` automatically.
-
-Source builds require Go 1.25.x in addition to the runtime prerequisites.
 
 ## Start an agent locally
 
@@ -94,8 +87,8 @@ lectern local stop
 ```
 
 A running helper is reused whatever build started it. When it is older than
-the `lectern` binary you run, `lectern local status` reports `"outdated":
-true` with a note, `lectern doctor` says so, and interactive local commands
+the `lectern` binary you run, `lectern local status` says so (with
+`--json`, `"outdated": true`), `lectern doctor` says so, and interactive local commands
 print a reminder. Nothing stops it for you; run `lectern local stop` and the
 next local command starts the current build.
 
@@ -119,8 +112,8 @@ Local state defaults to `~/.local/state/lectern/local`, or to
 `$XDG_STATE_HOME/lectern/local` when `XDG_STATE_HOME` is set.
 
 `lectern local` opens the local dashboard/console, where you choose the
-configured coding-agent command and its project. The local command keeps the
-interactive workspace in tmux. Configure the coding-agent command and its
+configured coding-agent command and its project. Sessions keep running when
+you close it, in the PTY host (or tmux). Configure the coding-agent command and its
 provider/model settings in Lectern; a model API endpoint alone is not an
 executable coding agent.
 
@@ -131,23 +124,24 @@ the local runtime create its workspace.
 
 ## Windows and WSL
 
-The local runtime is Linux-based. On Windows, install WSL2, Git, tmux, Python
-3, Go (for a source build), and the agent CLI inside the same WSL distribution,
-then run `tools/install-local.sh` from WSL. The Windows-native CLI and Windows
-paths are not automatically available inside WSL. The installer intentionally
-refuses Git Bash, MSYS, and Cygwin so a partial Windows installation is not
-mistaken for a working tmux runtime.
+Native Windows runs the private runtime too (`lectern up`); agents need Git for
+Windows. Inside WSL, use the Linux installer. The two are separate installs:
+each sees only the agent CLIs and files on its own side.
 
-The existing PowerShell remote client installer remains available when the
-control plane is on another machine. That path still requires your existing
-OpenSSH host/key setup and is separate from the local command.
+## Phones
+
+`lectern phone` (or Settings → Connect your phone) lets a phone on the same
+Wi-Fi reach this private runtime: the same sessions, on this computer's network
+address, for paired devices only. It is unencrypted on the LAN, so use it on a
+network you trust; `lectern phone --off` stops it. Away from home, use
+Tailscale or a relay ([Remote access](remote-access.md)).
 
 ## Local versus remote
 
 | | Standalone local | Remote client |
 |---|---|---|
 | Agent process | Same machine as the terminal | Lectern server or a registered target |
-| Setup | Git, tmux, Python 3, agent CLI; Go for source builds | SSH alias/key and reachable control plane |
+| Setup | Git and an agent CLI | SSH alias/key and reachable control plane |
 | Command | `lectern local` | `lectern` or `lectern console` |
 | Server URL | Not required | `LECTERN_API`, installer `--api`, or a service on this machine |
 | Grimoire | Optional/not required | Optional; configured by the control plane |
@@ -155,9 +149,3 @@ OpenSSH host/key setup and is separate from the local command.
 Both paths preserve the agent CLI's own provider and model settings. Choose
 the remote client when one board should manage agents on several machines;
 choose local when the terminal workspace should stay on this computer.
-
-Linux local terminal mode is the tested path. macOS local terminal mode is
-experimental and has not been runtime-tested. Browser and file integrations
-currently rely on Linux-specific assumptions, so this guide makes no macOS
-support or test claim for them; use the hosted client for those integrations
-when required.

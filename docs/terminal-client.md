@@ -1,6 +1,6 @@
 # Use Lectern from a terminal
 
-On a brand-new install, run `lectern up` first: it starts a private local
+On a brand-new install, follow [Getting started](getting-started.md): run `lectern up` first. It starts a private local
 runtime, detects the agent CLIs on PATH, adds the current git repository as a
 project, and opens your browser, signed in, on Start an agent. `lectern
 doctor` checks what Lectern needs and can use, and whether agents can reach it
@@ -208,11 +208,9 @@ management runs on the server with an explicit hosted API environment.
 `lectern upload` stages local files over SCP.
 The native Windows launcher requires OpenSSH, with your existing host/key setup.
 
-For a terminal workspace that runs entirely on the current computer, use the
-[standalone local installer](local.md) instead. It installs `lectern` (or
-`lectern-local` when the remote client already owns that name) and does not
-need a control-plane URL or SSH server; the remote installer above continues to
-install the `lectern` client.
+For a terminal workspace that runs entirely on the current computer, follow
+[Getting started](getting-started.md) instead: it needs no control-plane URL
+or SSH server.
 
 This client works in your existing terminal. The
 separate desktop URI installers enable opening an attachment from the web UI.
