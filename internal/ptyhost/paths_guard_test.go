@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,8 +35,10 @@ func TestTestsCannotUseTheDefaultSocket(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != "1" {
 		t.Fatalf("children do not inherit the guard: %q %v", out, err)
 	}
-	t.Setenv(SocketEnv, "/tmp/lectern-test-guard/s.sock")
-	if p, err := SocketPath(); err != nil || p != "/tmp/lectern-test-guard/s.sock" {
-		t.Fatalf("a named socket: %q %v", p, err)
+	named := filepath.Join(t.TempDir(), "s.sock")
+	want, _ := filepath.Abs(named)
+	t.Setenv(SocketEnv, named)
+	if p, err := SocketPath(); err != nil || p != want {
+		t.Fatalf("a named socket: %q %v, want %q", p, err, want)
 	}
 }

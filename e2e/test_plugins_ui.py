@@ -13,6 +13,8 @@ EXAMPLE = str(Path(__file__).resolve().parents[1] / "examples" / "plugins" / "he
 
 @pytest.mark.parametrize("page", [PHONE, DESKTOP], indirect=True, ids=["phone390", "desktop1440"])
 def test_install_consent_and_contributions_visible(page, server):
+    # The example theme is a dark palette; the app follows the device's theme.
+    page.emulate_media(color_scheme="dark")
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
@@ -80,11 +82,19 @@ def test_turning_off_the_agent_catalog_asks_first(page, server):
     page.goto(server + "/#settings/plugins")
     card = page.locator('[data-plugin="lectern.agent-catalog"]')
     expect(card.locator(".plugin-status")).to_have_text("on")
-    with page.expect_event("dialog") as info:
-        card.get_by_role("button", name="Turn off").click()
-    dialog = info.value
-    message = dialog.message
-    dialog.dismiss()
+    # Dismiss inside the handler: a confirm() left open blocks the click from
+    # returning, which made this test time out on slower CI machines.
+    seen = []
+    def dismiss(d):
+        seen.append(d.message)
+        d.dismiss()
+    page.once("dialog", dismiss)
+    card.get_by_role("button", name="Turn off").click()
+    for _ in range(50):
+        if seen:
+            break
+        page.wait_for_timeout(100)
+    message = seen[0] if seen else ""
     assert "Add from catalog" in message and "will be empty" in message, message
     # Dismissed: nothing changed.
     expect(card.locator(".plugin-status")).to_have_text("on")
