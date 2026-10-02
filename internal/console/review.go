@@ -291,6 +291,7 @@ func (m *dashboard) commitForm() tea.Cmd {
 		if onBase {
 			if values["commit_to"] == "base" {
 				payload["allow_base_branch"] = true
+				m.commitRetry = &commitRequest{path: path, payload: payload, notice: notice}
 				// Named commitLabel so the result returns to the review.
 				m.pending = &dashboardAction{Label: commitLabel, Method: "POST", Path: path, Body: payload,
 					Warning: "The commit goes straight onto " + r.data.Branch + ", not onto a separate branch.", Confirm: "commit onto " + r.data.Branch, Notice: notice}
@@ -300,22 +301,7 @@ func (m *dashboard) commitForm() tea.Cmd {
 			payload["new_branch"] = str(values["new_branch"])
 			notice += " — this folder is now on " + str(values["new_branch"])
 		}
-		m.busy = true
-		c := m.client
-		return func() tea.Msg {
-			data, err := c.JSON("POST", path, payload)
-			if err != nil {
-				return resultMsg{label: commitLabel, err: commitError(err)}
-			}
-			var out struct {
-				Failed string `json:"failed"`
-				Detail string `json:"detail"`
-			}
-			if json.Unmarshal(data, &out) == nil && out.Failed != "" {
-				return resultMsg{label: commitLabel, err: fmt.Errorf("%s", strings.TrimPrefix(out.Detail, "commit failed: "))}
-			}
-			return resultMsg{label: commitLabel, data: data, notice: notice}
-		}
+		return m.postCommit(commitRequest{path: path, payload: payload, notice: notice})
 	})
 	if m.form != nil {
 		m.form.submitVerb = "commit"
@@ -329,6 +315,85 @@ func (m *dashboard) commitForm() tea.Cmd {
 			return nil
 		}
 	}
+	return cmd
+}
+
+// commitRequest is one commit as sent, kept so that a commit refused for a
+// missing git name and email can be sent again once they are given.
+type commitRequest struct {
+	path, notice string
+	payload      map[string]any
+}
+
+func (m *dashboard) postCommit(req commitRequest) tea.Cmd {
+	m.busy = true
+	m.commitRetry = &req
+	c := m.client
+	return func() tea.Msg {
+		data, err := c.JSON("POST", req.path, req.payload)
+		if err != nil {
+			return resultMsg{label: commitLabel, err: commitError(err)}
+		}
+		var out struct {
+			Failed string `json:"failed"`
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(data, &out) == nil && out.Failed != "" {
+			return resultMsg{label: commitLabel, err: fmt.Errorf("%s", strings.TrimPrefix(out.Detail, "commit failed: "))}
+		}
+		return resultMsg{label: commitLabel, data: data, notice: req.notice}
+	}
+}
+
+// needsGitIdentity reports a commit the server refused because git has no
+// name and email on that machine yet.
+func needsGitIdentity(err error) bool {
+	he, ok := err.(*HTTPError)
+	return ok && he.Code == "no_git_identity"
+}
+
+// gitIdentityForm asks for the name and email git puts on commits, saves
+// them for every repository on that machine, and sends the commit again —
+// instead of sending the person off to run git config.
+func (m *dashboard) gitIdentityForm() tea.Cmd {
+	req := m.commitRetry
+	if req == nil {
+		return nil
+	}
+	fields := []field{
+		{Key: "name", Label: "Your name", Required: true},
+		{Key: "email", Label: "Your email", Required: true},
+	}
+	cmd := m.openForm("Git needs your name and email", fields, func(values map[string]any) tea.Cmd {
+		if m.busy {
+			return nil
+		}
+		name, email := strings.TrimSpace(str(values["name"])), strings.TrimSpace(str(values["email"]))
+		if !strings.Contains(email, "@") {
+			m.notice = "Enter an email address, like you@example.com"
+			return nil
+		}
+		payload := map[string]any{}
+		for k, v := range req.payload {
+			payload[k] = v
+		}
+		payload["identity"] = map[string]any{"name": name, "email": email, "scope": "global"}
+		return m.postCommit(commitRequest{path: req.path, payload: payload, notice: req.notice})
+	})
+	if m.form != nil {
+		m.form.submitVerb = "save and commit"
+		m.form.help = "Git puts these on every commit. They are saved for all your repositories on this computer (git config --global), then the commit goes ahead."
+		m.form.cancel = func() tea.Cmd {
+			m.form = nil
+			m.commitRetry = nil
+			if m.reviewPaused != nil {
+				m.review, m.reviewPaused = m.reviewPaused, nil
+			}
+			m.notice = "Commit cancelled"
+			return nil
+		}
+	}
+	m.notice = "Git needs your name and email before it can commit."
 	return cmd
 }
 

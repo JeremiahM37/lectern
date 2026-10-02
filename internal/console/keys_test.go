@@ -593,3 +593,60 @@ func TestPopupClosesAfterAnApprovalDecision(t *testing.T) {
 		t.Fatal("the popup stayed open after allowing")
 	}
 }
+
+// A machine with no git name and email: the commit form asks for both right
+// there, saves them for every repository, and commits — no detour to a
+// shell to run git config.
+func TestReviewCommitAsksForAGitIdentity(t *testing.T) {
+	rec := &recorded{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		json.NewDecoder(r.Body).Decode(&got)
+		rec.mu.Lock()
+		rec.requests = append(rec.requests, r.Method+" "+r.URL.Path)
+		rec.bodies = append(rec.bodies, got)
+		rec.mu.Unlock()
+		if got["identity"] == nil {
+			w.WriteHeader(409)
+			fmt.Fprint(w, `{"detail":"Git needs your name and email before it can commit.","code":"no_git_identity"}`)
+			return
+		}
+		fmt.Fprint(w, `{"steps":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	m := sampleDashboard()
+	m.client = New(srv.URL, "")
+	selectID(m, "1")
+	review := &codeReview{base: "/term/session/1/changes", scope: "working"}
+	m.review = review
+	m.Update(key("c"))
+	for _, r := range "Add notes" {
+		m.updateForm(key(string(r)))
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyEnter}))
+	if m.form == nil || m.form.title != "Git needs your name and email" {
+		t.Fatalf("no identity form after the refusal: notice=%q", m.notice)
+	}
+	view := ansi.Strip(m.formView())
+	if strings.Contains(view, "git config --global user.name \"") || !strings.Contains(view, "all your repositories") {
+		t.Fatalf("identity form:\n%s", view)
+	}
+	for _, r := range "Ada Lovelace" {
+		m.updateForm(key(string(r)))
+	}
+	m.updateForm(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range "ada@example.invalid" {
+		m.updateForm(key(string(r)))
+	}
+	run(m, m.updateForm(tea.KeyMsg{Type: tea.KeyCtrlS}))
+	if len(rec.bodies) != 2 {
+		t.Fatalf("sent %v", rec.bodies)
+	}
+	identity, _ := rec.bodies[1]["identity"].(map[string]any)
+	if rec.bodies[1]["message"] != "Add notes" || identity["name"] != "Ada Lovelace" || identity["email"] != "ada@example.invalid" || identity["scope"] != "global" {
+		t.Fatalf("retry sent %v", rec.bodies[1])
+	}
+	if m.form != nil || m.review != review || !strings.Contains(m.notice, "Committed: Add notes") {
+		t.Fatalf("did not return to the review: form=%v notice=%q", m.form != nil, m.notice)
+	}
+}

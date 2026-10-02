@@ -200,6 +200,9 @@ type dashboard struct {
 	cwd string
 	// reviewPaused keeps an open review while its commit form is shown.
 	reviewPaused *codeReview
+	// commitRetry is the last commit sent, to send again with a git name
+	// and email when the server says it has none.
+	commitRetry *commitRequest
 	// permissionDefault is the server's session_permission_mode setting.
 	permissionDefault                   string
 	form                                *dashboardForm
@@ -900,6 +903,12 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.notice = "Conversation promotion is unavailable on the running server; restart or update Lectern, then try again."
 					return m, nil
 				}
+			}
+			if v.label == commitLabel && needsGitIdentity(v.err) && m.commitRetry != nil {
+				if m.review != nil && m.reviewPaused == nil {
+					m.review, m.reviewPaused = nil, m.review
+				}
+				return m, m.gitIdentityForm()
 			}
 			if v.label == restoreLabel && m.recentPending != nil {
 				// A resume whose conversation cannot be found falls back to

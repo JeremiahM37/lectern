@@ -18,6 +18,9 @@ import (
 type HTTPError struct {
 	Status int
 	Detail string
+	// Code is the server's machine-readable reason, when it sends one
+	// (no_git_identity, on_base_branch…).
+	Code string
 }
 
 func (e *HTTPError) Error() string { return e.Detail }
@@ -66,12 +69,13 @@ func (c *Client) Request(method, path string, body io.Reader, contentType string
 	if res.StatusCode >= 300 {
 		var v struct {
 			Detail string `json:"detail"`
+			Code   string `json:"code"`
 		}
 		_ = json.Unmarshal(data, &v)
 		if v.Detail == "" {
 			v.Detail = res.Status
 		}
-		return nil, &HTTPError{Status: res.StatusCode, Detail: v.Detail}
+		return nil, &HTTPError{Status: res.StatusCode, Detail: v.Detail, Code: v.Code}
 	}
 	return data, nil
 }
