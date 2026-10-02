@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "{n} 個のターミナルが開いています",
   "review.onMain.ownFolder": "あなたのフォルダー {dir} にブランチ {branch} を作成し、フォルダーをそのブランチに切り替えます。エディターとターミナルもそのブランチになります。",
   "review.onMain.folderNowOn": "コミットしました。フォルダー {dir} は今ブランチ {branch} にあります。",
+  "review.git.noIdentity": "Git にまだ名前とメールアドレスが設定されていないため、コミットできません。何も変更していません。ターミナルで次の 2 つのコマンドを実行してから、もう一度コミットしてください：",
 };
 
 export default catalog;

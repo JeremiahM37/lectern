@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "{n} terminales abiertos",
   "review.onMain.ownFolder": "Esto crea la rama {branch} en tu carpeta {dir} y cambia la carpeta a ella. Tu editor y tu terminal también estarán en esa rama.",
   "review.onMain.folderNowOn": "Commit hecho. Tu carpeta {dir} está ahora en la rama {branch}.",
+  "review.git.noIdentity": "Git todavía no conoce tu nombre ni tu correo, así que no puede hacer el commit. No se ha cambiado nada. Ejecuta estos dos comandos en una terminal y vuelve a hacer el commit:",
 };
 
 export default catalog;

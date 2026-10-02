@@ -181,3 +181,6 @@
 }
 #nav-overflow .more-title .badge { position: static; margin-left: 6px; }
 .commit-own-folder { color: var(--ink); font-weight: 600; margin: 4px 0 8px 24px; }
+.commit-no-identity { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.commit-no-identity p { margin: 0 0 6px; }
+.commit-no-identity pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }

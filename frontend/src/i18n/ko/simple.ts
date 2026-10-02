@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "터미널 {n}개 열림",
   "review.onMain.ownFolder": "폴더 {dir}에 브랜치 {branch}를 만들고 폴더를 그 브랜치로 바꿉니다. 편집기와 터미널도 그 브랜치에 있게 됩니다.",
   "review.onMain.folderNowOn": "커밋했습니다. 폴더 {dir}은(는) 이제 브랜치 {branch}에 있습니다.",
+  "review.git.noIdentity": "Git에 아직 이름과 이메일이 설정되지 않아 커밋할 수 없습니다. 아무것도 바뀌지 않았습니다. 터미널에서 아래 두 명령을 실행한 뒤 다시 커밋하세요:",
 };
 
 export default catalog;

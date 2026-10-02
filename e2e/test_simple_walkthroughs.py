@@ -29,6 +29,8 @@ from playwright.sync_api import expect
 from conftest import DESKTOP, PHONE
 from test_terminal_workspace import real_terminal  # noqa: F401  (fixture)
 from test_session_permission_request import STUB_AGENT as APPROVAL_AGENT
+from test_light_mode_sweep import Sweep, light
+from session_sheet import session_tool
 
 WIDTHS = [DESKTOP, PHONE]
 IDS = ["desk-1440", "phone-390"]
@@ -254,6 +256,62 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     assert "NOTES.md" in git(root, "show", "--name-only", "--format=", "lectern/fix-login")
     assert click.n == 4, click.n
 
+
+
+@pytest.mark.parametrize("real_terminal", [{"agent_script": CHAT_AGENT}], indirect=True)
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_f_commit_without_a_git_identity_moves_nothing_and_says_why(page, real_terminal, size, theme):
+    """A fresh machine has no git name and email. Committing from the person's
+    own folder must say so before it switches that folder to a new branch, and
+    the round-two controls (the Sessions ⋯ menu, inline rename, the own-folder
+    note, this message) must read in light and dark."""
+    t = real_terminal
+    root = Path(t["root"])
+    git(root, "add", ".")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+    for key, value in (("user.useConfigOnly", "true"), ("user.name", ""), ("user.email", "")):
+        git(root, "config", key, value)
+    base = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    project = t["api"]("/projects", {"name": "myapp", "target_id": t["target_id"], "repo_path": str(root), "default_base_branch": base})
+    t["api"]("/sessions", {"project_id": project["id"], "agent": "claude", "name": "Fix login"})
+    (root / "NOTES.md").write_text("what the agent changed\n")
+
+    light(page, theme)
+    page.set_viewport_size(size)
+    sweep = Sweep(page, f"round2-{size['width']}", theme)
+    page.goto(t["url"] + "/#sessions")
+    card = page.locator(".scard", has_text="Fix login")
+    expect(card).to_be_visible(timeout=20000)
+    session_tool(page, "#sess-search")
+    sweep.check("sessions-more-menu")
+    page.locator("#sess-more > summary").click()
+    sid = card.get_attribute("data-session-id")
+    card = page.locator(f'.scard[data-session-id="{sid}"]')
+    card.locator("button.nm").click()
+    expect(card.locator(".nm-edit")).to_be_focused()
+    sweep.check("inline-rename")
+    card.locator(".nm-edit").press("Escape")
+
+    card.locator(".action-menu > summary").first.click()
+    page.get_by_role("button", name="Review & merge").click()
+    review = page.locator("#session-review")
+    review.get_by_role("tab", name="Commit").click()
+    expect(review.locator(".commit-own-folder")).to_contain_text("in your folder")
+    sweep.check("own-folder-note", root="#session-review")
+    review.get_by_role("button", name="Commit on lectern/fix-login", exact=True).click()
+    note = review.locator(".commit-no-identity")
+    expect(note).to_contain_text("doesn't know your name and email", timeout=20000)
+    expect(note).to_contain_text("Nothing was changed")
+    expect(note.locator("pre")).to_contain_text("git config --global user.email")
+    # Sample the resting state, not the button still under the pointer.
+    page.mouse.move(0, 0)
+    sweep.check("no-git-identity", root="#session-review")
+    # Nothing moved: the folder is on its branch, no new branch exists.
+    assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == base
+    assert git(root, "branch", "--list", "lectern/fix-login") == ""
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    sweep.done()
 
 # ---- (g) -------------------------------------------------------------------
 

@@ -120,6 +120,7 @@ export function GitPanel({
   const [prBody, setPrBody] = useState("");
   const [result, setResult] = useState<CommitResult>();
   const [pushedGuard, setPushedGuard] = useState<string[]>();
+  const [noIdentity, setNoIdentity] = useState(false);
   const [forceAsk, setForceAsk] = useState(false);
 
   useEffect(() => {
@@ -329,6 +330,7 @@ export function GitPanel({
     setBusy("commit");
     setResult(undefined);
     setPushedGuard(undefined);
+    setNoIdentity(false);
     try {
       const out = await api.request<CommitResult>(base + "/commit", {
         method: "POST",
@@ -370,7 +372,9 @@ export function GitPanel({
       }
       refresh();
     } catch (e) {
-      if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
+      if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "no_git_identity") {
+        setNoIdentity(true);
+      } else if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
         setPushedGuard(((e.payload as { refs?: string[] }).refs ?? []) as string[]);
       } else {
         onNotice(e instanceof Error ? e.message : String(e), true);
@@ -641,6 +645,12 @@ export function GitPanel({
           </div>
         )}
 
+        {noIdentity && (
+          <div className="commit-no-identity" role="alert">
+            <p>{t("review.git.noIdentity")}</p>
+            <pre>{'git config --global user.name "Your Name"\ngit config --global user.email you@example.com'}</pre>
+          </div>
+        )}
         {result && (
           <ul className="review-commit-steps">
             {result.steps.map((s, i) => (

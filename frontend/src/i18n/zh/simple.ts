@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "已打开 {n} 个终端",
   "review.onMain.ownFolder": "这会在你的文件夹 {dir} 中创建分支 {branch} 并切换到该分支。你的编辑器和终端也会在这个分支上。",
   "review.onMain.folderNowOn": "已提交。你的文件夹 {dir} 现在在分支 {branch} 上。",
+  "review.git.noIdentity": "Git 还不知道你的姓名和邮箱，所以无法提交。没有做任何更改。请在终端里运行下面两条命令，然后再提交一次：",
 };
 
 export default catalog;

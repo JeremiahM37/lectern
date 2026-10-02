@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "{n} terminaux ouverts",
   "review.onMain.ownFolder": "Cela crée la branche {branch} dans votre dossier {dir} et y bascule le dossier. Votre éditeur et votre terminal seront aussi sur cette branche.",
   "review.onMain.folderNowOn": "Commit fait. Votre dossier {dir} est maintenant sur la branche {branch}.",
+  "review.git.noIdentity": "Git ne connaît pas encore votre nom ni votre e-mail, il ne peut donc pas faire le commit. Rien n’a été modifié. Lancez ces deux commandes dans un terminal, puis refaites le commit :",
 };
 
 export default catalog;

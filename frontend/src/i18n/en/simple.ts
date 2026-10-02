@@ -168,6 +168,7 @@ const catalog: Record<string, string> = {
   "nav.terminalsOpen": "{n} terminals open",
   "review.onMain.ownFolder": "This creates branch {branch} in your folder {dir} and switches the folder to it. Your editor and terminal will be on that branch too.",
   "review.onMain.folderNowOn": "Committed. Your folder {dir} is now on branch {branch}.",
+  "review.git.noIdentity": "Git doesn't know your name and email yet, so it can't commit. Nothing was changed. Run these two commands in a terminal, then commit again:",
 };
 
 export default catalog;

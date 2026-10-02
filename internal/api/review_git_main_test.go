@@ -84,3 +84,29 @@ func TestRealGitCommitOnMainOffersABranchOrAnExplicitMain(t *testing.T) {
 		t.Fatal("has_remote once there is one")
 	}
 }
+
+// A machine with no git name and email is told so before the folder moves to
+// a new branch, not after the commit has already failed on it.
+func TestCommitWithoutGitIdentityLeavesTheFolderAlone(t *testing.T) {
+	h, proj, repo := newRealSessionHarness(t)
+	// Local config beats any global identity; an empty name is what a fresh
+	// account amounts to once git refuses to guess one.
+	gitIn(t, repo, "config", "user.useConfigOnly", "true")
+	gitIn(t, repo, "config", "user.name", "")
+	gitIn(t, repo, "config", "user.email", "")
+	var row obj
+	h.decode("POST", "/api/sessions", obj{"project_id": proj.ID, "agent": "review-real-agent", "yolo": false, "name": "work · main"}, 201, &row)
+	base := fmt.Sprintf("/api/sessions/%d/git", int64(row.num("id")))
+	writeReviewFile(t, filepath.Join(repo, "app.py"), "def main():\n    print('one')\n")
+	var refused obj
+	h.decode("POST", base+"/commit", obj{"message": "one", "stage_all": true, "new_branch": "lectern/fix-login"}, 409, &refused)
+	if refused.str("code") != "no_git_identity" {
+		t.Fatalf("refusal: %v", refused)
+	}
+	if got, _ := gitCmd(repo, "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(got) != "main" {
+		t.Fatalf("the folder must stay on main: %q", got)
+	}
+	if got, _ := gitCmd(repo, "branch", "--list", "lectern/fix-login"); strings.TrimSpace(got) != "" {
+		t.Fatalf("no branch may be created: %q", got)
+	}
+}

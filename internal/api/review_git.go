@@ -269,6 +269,10 @@ func activeCommitHooks(ctx context.Context, ex executor.Executor, dir string) []
 	return strings.Fields(res.Stdout)
 }
 
+// gitIdentityScript fails exactly when `git commit` would stop with "Please
+// tell me who you are".
+const gitIdentityScript = "git var GIT_AUTHOR_IDENT >/dev/null 2>&1 && git var GIT_COMMITTER_IDENT >/dev/null 2>&1"
+
 // gitCommit is POST /api/sessions/{id}/git/commit. A commit that runs and
 // fails answers 200 with the failed step, plus hook_failure when a commit
 // hook rejected it, so the client can offer "Fix with agent".
@@ -292,6 +296,13 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	}
 	row, ex, target, ok := s.reviewRepo(w, r, body.Repo)
 	if !ok || !liveSession(w, row) {
+		return
+	}
+	// A brand-new machine often has no git name and email. Say so before
+	// anything moves: otherwise "Commit on a new branch" switches the
+	// person's folder and only then fails at the commit itself.
+	if res, err := ex.Run(r.Context(), gitIdentityScript, executor.RunOpts{Cwd: target.dir, Timeout: 15}); err == nil && !res.OK() {
+		writeJSON(w, 409, map[string]any{"detail": `git does not know your name and email yet, so it cannot commit. Run git config --global user.name "Your Name" and git config --global user.email you@example.com, then try again.`, "code": "no_git_identity"})
 		return
 	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
