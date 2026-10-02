@@ -97,12 +97,14 @@ def test_saved_provider_survives_reload_and_switch_errors_are_visible(page,real_
     assert t['api']('/sessions/'+str(source['id']))['ended_at'] is None
     page.goto(t['url']+'/#sessions')
     card=page.locator('.scard').filter(has_text='deepseek-test')
-    card_action(page,card,'⇄ Switch').click()
+    card_action(page,card,'⇄ Change agent').click()
     expect(sheet).to_be_visible()
     sheet.get_by_role('button',name='Close switcher').click()
     card.get_by_role('button',name='Chat',exact=True).click()
     page.locator('#conversation-input').fill('Keep this unsent draft')
-    page.get_by_role('button',name='⇄ Switch',exact=True).last.click()
+    # In chat it is under the header's ⋯.
+    page.locator('#conversation-details-toggle').click()
+    page.get_by_role('button',name='⇄ Change agent',exact=True).last.click()
     expect(sheet).to_be_visible()
     sheet.get_by_role('button',name='Close switcher').click()
     card.get_by_role('button',name='Chat',exact=True).click()

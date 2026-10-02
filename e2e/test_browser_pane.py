@@ -97,6 +97,8 @@ def open_pane(page, t):
     page.goto(t['url'] + '/#sessions')
     page.locator('.scard', has_text='Real terminal').get_by_role('button', name='Chat', exact=True).click()
     expect(page.locator('#conversation')).to_be_visible()
+    # Browser is under the chat header's ⋯.
+    page.locator('#conversation-details-toggle').click()
     page.locator('#conversation-browser').click()
     pane = page.locator('.browser-pane')
     expect(pane).to_be_visible()

@@ -30,8 +30,13 @@ def nav_to(page, name):
     if tab.count() and tab.is_visible():
         tab.click()
         return
-    page.locator("#nav-overflow > summary").click()
-    page.locator(f'#nav-overflow [data-nav-target="{name}"]').click()
+    # More: a menu on a narrow screen, a group that opens in place in the
+    # desktop sidebar.
+    if page.locator("#nav-overflow").count():
+        page.locator("#nav-overflow > summary").click()
+    elif not page.locator("#nav-more-group").evaluate("el => el.open"):
+        page.locator("#nav-more-group > summary").click()
+    page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
 
 
 def session_tool(page, selector):
@@ -46,7 +51,7 @@ def session_tool(page, selector):
 
 
 def card_action(page, card, name, exact=True):
-    """A session card action that lives in its ⋯ menu (Rename, Switch, Run check, Memory)."""
+    """A session card action that lives in its ⋯ menu (Rename, Change agent, Run tests, Notes)."""
     button = card.get_by_role("button", name=name, exact=exact)
     if not button.is_visible():
         card.locator(".action-menu > summary").first.click()

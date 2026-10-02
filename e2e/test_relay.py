@@ -93,8 +93,13 @@ def _tab(page, name):
         page.get_by_role("button", name="Show navigation", exact=True).click()
     button = page.locator(f'.tab[data-tab="{name}"]')
     if not button.is_visible():
-        page.locator("#nav-overflow > summary").click()
-        page.locator(f'[data-nav-target="{name}"]').click()
+        # More: a menu on a narrow screen, a group that opens in place in the
+        # desktop sidebar.
+        if page.locator("#nav-overflow").count():
+            page.locator("#nav-overflow > summary").click()
+        elif not page.locator("#nav-more-group").evaluate("el => el.open"):
+            page.locator("#nav-more-group > summary").click()
+        page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
     else:
         button.click()
     if legacy == "targets":
@@ -151,7 +156,7 @@ def test_approval_round_trip_over_the_relay(browser, relay_stack):
         phone.click("#f-go")
         expect(phone.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=20000)
         _tab(phone, "approvals")
-        row = phone.locator("#approvals-page .approval-card", has_text="Bash").first
+        row = phone.locator("#approvals-page .approval-card", has_text="rm -rf build/").first
         expect(row).to_be_visible()
         expect(row).to_contain_text("rm -rf build/")
         row.locator("button:has-text('Allow once')").first.click()

@@ -60,7 +60,7 @@ def test_approve_permission_request_from_needs_you(page, real_terminal):
     needs = page.locator("#needs-you")
     row = needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session")
     expect(row).to_contain_text("Needs you", timeout=25000)
-    expect(row).to_contain_text("Bash")
+    expect(row).to_contain_text("run a command")
 
     row.get_by_role("button", name="Allow once", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]', has_text="Ask session")).to_have_count(
@@ -160,7 +160,7 @@ def test_approve_permission_request_from_needs_you_codex(page, real_terminal):
     needs = page.locator("#needs-you")
     row = needs.locator('.ny-row[data-reason="approval"]', has_text="Codex ask session")
     expect(row).to_contain_text("Needs you", timeout=25000)
-    expect(row).to_contain_text("Bash")
+    expect(row).to_contain_text("run a command")
 
     row.get_by_role("button", name="Allow once", exact=True).click()
     expect(needs.locator('.ny-row[data-reason="approval"]', has_text="Codex ask session")).to_have_count(
@@ -172,5 +172,40 @@ def test_approve_permission_request_from_needs_you_codex(page, real_terminal):
     while time.time() < deadline and not response_path.exists():
         time.sleep(0.2)
     assert response_path.exists(), "the stub codex agent never received a hook response"
+    decision = json.loads(response_path.read_text())["hookSpecificOutput"]["decision"]
+    assert decision["behavior"] == "allow", decision
+
+
+@pytest.mark.parametrize("real_terminal", [{"agent_script": STUB_AGENT}], indirect=True)
+def test_terminal_view_shows_the_approval_and_y_allows_it(page, real_terminal):
+    """Round-3 B5: the web terminal is where a person is looking when the agent
+    stops at a tool call, so the approval is a strip above it, with Y/A/N
+    working whenever the keyboard is not in the terminal itself."""
+    t = real_terminal
+    sess = t["api"]("/sessions", {
+        "target_id": t["target_id"], "workdir": str(t["root"]), "agent": "claude",
+        "name": "Terminal ask", "permission_mode": "ask",
+    })
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.goto(t["url"] + f"/#terminals/session/{sess['id']}")
+    term = page.frame_locator(f'iframe[src="/terminal/session/{sess["id"]}?embed=1"]')
+    strip = term.locator("#terminal-approval")
+    expect(strip).to_contain_text("Needs you: run a command", timeout=25000)
+    expect(strip).to_contain_text("rm -rf important")
+    for name in ("Allow once", "Allow for this session", "Deny…"):
+        expect(strip.get_by_role("button", name=name)).to_be_visible()
+    # A key typed into the terminal goes to the terminal, not the approval.
+    term.locator("#agent-terminal").click()
+    page.keyboard.press("y")
+    page.wait_for_timeout(500)
+    expect(strip).to_be_visible()
+    # Outside the terminal, Y allows once.
+    strip.locator(".approval-head").click()
+    page.keyboard.press("y")
+    expect(strip).to_have_count(0, timeout=20000)
+    response_path = Path(t["root"]) / "hook-response.json"
+    deadline = time.time() + 20
+    while time.time() < deadline and not response_path.exists():
+        time.sleep(0.2)
     decision = json.loads(response_path.read_text())["hookSpecificOutput"]["decision"]
     assert decision["behavior"] == "allow", decision

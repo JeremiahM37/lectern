@@ -210,7 +210,7 @@ def test_approval_shows_the_command_and_allow_for_session_answers_the_next_call(
 
     # The chat sheet's copy of the one approval card (the session card has one too).
     approval = page.locator("#conversation-approvals .approval-card")
-    expect(approval).to_contain_text("Needs you: Bash", timeout=25000)
+    expect(approval).to_contain_text("Needs you: run a command", timeout=25000)
     # The command is shown, never a JSON blob of the tool_input.
     expect(approval).to_contain_text("git status")
     expect(approval).not_to_contain_text('"command"')
@@ -253,7 +253,7 @@ def test_deny_with_feedback_carries_the_note_back_to_the_agent(page, real_termin
 
     # The chat sheet's copy of the one approval card (the session card has one too).
     approval = page.locator("#conversation-approvals .approval-card")
-    expect(approval).to_contain_text("Needs you: Bash", timeout=25000)
+    expect(approval).to_contain_text("Needs you: run a command", timeout=25000)
     expect(approval).to_contain_text("rm -rf important")
     approval.get_by_role("button", name="Deny…", exact=True).click()
     approval.get_by_placeholder("e.g. not touching prod from a phone").fill("not from a phone")

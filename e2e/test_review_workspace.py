@@ -197,9 +197,11 @@ def test_merge_conflict_resolution_writes_the_file_and_finishes_the_merge(page, 
     review.get_by_role("tab", name="Commit").click()
     expect(review.locator(".git-operation")).to_contain_text("All conflicts are resolved")
     expect(review.get_by_label("Commit message", exact=True)).to_have_value(f"Merge branch '{base}' into {sess['workspace']['branch']}")
+    # Push, amend and PR sit under Options; its summary says what is on.
+    review.locator(".commit-options > summary").click()
     review.locator(".review-checkbox", has_text="Push to origin").locator("input").uncheck()
     review.get_by_role("button", name="⎇ Commit").click()
-    expect(review.locator(".review-commit-steps")).to_contain_text("commit: ok", timeout=15000)
+    expect(review.locator(".commit-done")).to_contain_text("Committed to " + sess['workspace']['branch'], timeout=15000)
     assert len(git(wt, "log", "-1", "--format=%P").split()) == 2
 
 
