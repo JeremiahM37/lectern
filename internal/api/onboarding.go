@@ -23,12 +23,16 @@ func (s *Server) onboardingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"agents":   onboard.DetectAgents(s.Cfg.ClaudeBin, s.Cfg.CodexBin, s.Cfg.GeminiBin),
-		"tmux":     onboard.CheckTmux(),
-		"git":      onboard.CheckGit(),
-		"python":   onboard.CheckPython(),
-		"projects": len(projects),
-		"sessions": len(sessions),
-		"mock":     s.Cfg.Mock,
+		"agents": onboard.DetectAgents(s.Cfg.ClaudeBin, s.Cfg.CodexBin, s.Cfg.GeminiBin),
+		"tmux":   onboard.CheckTmux(),
+		"git":    onboard.CheckGit(),
+		"python": onboard.CheckPython(),
+		// tmux_installed is whether tmux is on this server's PATH at all
+		// (tmux.ok is also true when the PTY host makes tmux unnecessary).
+		// Clients hide "find agents already running in tmux" without it.
+		"tmux_installed": onboard.TmuxInstalled(),
+		"projects":       len(projects),
+		"sessions":       len(sessions),
+		"mock":           s.Cfg.Mock,
 	})
 }

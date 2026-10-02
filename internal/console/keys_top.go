@@ -182,6 +182,10 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 	case "u":
 		return m.uploadForm()
 	case "f":
+		if m.noTmux {
+			m.notice = "tmux is not installed where Lectern runs, so there are no agents running in it to find."
+			return nil
+		}
 		return m.discover()
 	// Silent aliases: the palette lists all of these by name.
 	case "G":

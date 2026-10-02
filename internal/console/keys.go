@@ -168,7 +168,9 @@ func (m *dashboard) sessionKeys() []keyHint {
 		return []keyHint{{"n", "new session"}, {"r", "restore"}, {":", "commands"}}
 	}
 	if m.approvalFor(r) != nil {
-		return []keyHint{{"y", "allow once"}, {"a", "allow for session"}, {"2", "deny…"}, {"Enter", "attach"}, {"x", "end"}, {"n", "new"}}
+		// n answers the request here, as on Approvals; a new session is
+		// still on : and m.
+		return []keyHint{{"y", "allow once"}, {"a", "allow for session"}, {"n", "deny"}, {"Enter", "attach"}, {"x", "end"}, {"m", "more"}}
 	}
 	switch {
 	case r["setup_state"] == "creating":

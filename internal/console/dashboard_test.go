@@ -922,6 +922,17 @@ func TestDiscoverableFooterAndActionsAtCommonWidths(t *testing.T) {
 	if len(actions) == 0 || actions[0].Operation != "discover" {
 		t.Fatalf("running-agent discovery is not the first match: %+v", actions)
 	}
+	// Without tmux on the server there is nothing running in it to find.
+	m.Update(refsMsg{tmux: new(bool)})
+	for _, a := range m.filteredActions() {
+		if a.Operation == "discover" {
+			t.Fatalf("discovery offered without tmux: %+v", a)
+		}
+	}
+	m.Update(key("f"))
+	if !strings.Contains(m.notice, "tmux is not installed") {
+		t.Fatalf("f without tmux: %q", m.notice)
+	}
 }
 
 // TestSortByAgentMenuOrdersShownAgentsFirst proves the create-session/task

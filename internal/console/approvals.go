@@ -172,9 +172,8 @@ func (m *dashboard) approvalKey(key string) (tea.Cmd, bool) {
 		}
 		return m.decide(a, "approved", true, ""), true
 	case "n":
-		if sections[m.section] != "approvals" {
-			return nil, false
-		}
+		// The same key on Approvals, on a session that is asking, and
+		// (as Ctrl+] then m) while attached.
 		return m.decide(a, "denied", false, ""), true
 	}
 	return nil, false
@@ -200,7 +199,7 @@ func (m *dashboard) approvalBanner() string {
 		return ""
 	}
 	if n == 1 {
-		return fmt.Sprintf(" ⏸ %s needs you: %s — press 2, or y on the session", approvalWho(m.approvals[0]), approvalSummary(m.approvals[0]))
+		return fmt.Sprintf(" ⏸ %s needs you: %s — y allow or n deny on the session, or 2 for Approvals", approvalWho(m.approvals[0]), approvalSummary(m.approvals[0]))
 	}
 	return fmt.Sprintf(" ⏸ %d approvals need you — press 2", n)
 }

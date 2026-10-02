@@ -119,7 +119,9 @@ type refsMsg struct {
 	// relaunched is what restart recovery brought back since the notice was
 	// last dismissed.
 	relaunched []row
-	err        error
+	// tmux is the server's tmux_installed, nil when it does not say.
+	tmux *bool
+	err  error
 }
 type tickMsg time.Time
 type resultMsg struct {
@@ -200,6 +202,9 @@ type dashboard struct {
 	cwd string
 	// reviewPaused keeps an open review while its commit form is shown.
 	reviewPaused *codeReview
+	// noTmux: the server has no tmux, so there are no agents running in
+	// tmux to find, and the dashboard does not offer to look.
+	noTmux bool
 	// commitRetry is the last commit sent, to send again with a git name
 	// and email when the server says it has none.
 	commitRetry *commitRequest
@@ -363,6 +368,14 @@ func (m *dashboard) references() tea.Cmd {
 		}
 		if b, e := c.JSON("GET", "/sessions/relaunched", nil); e == nil {
 			_ = json.Unmarshal(b, &out.relaunched)
+		}
+		if b, e := c.JSON("GET", "/onboarding", nil); e == nil {
+			var status struct {
+				Tmux *bool `json:"tmux_installed"`
+			}
+			if json.Unmarshal(b, &status) == nil {
+				out.tmux = status.Tmux
+			}
 		}
 		if out.err == nil {
 			if b, e := c.JSON("GET", "/agents/menu", nil); e == nil {
@@ -653,7 +666,7 @@ func (m *dashboard) updatePreview() {
 		case "sessions":
 			content = fmt.Sprintf("%s\n%s · %s · %s\n%s\n\n%s", name(r), str(r["agent"]), m.sessionStatus(r), str(r["target_name"]), str(r["workdir"]), str(r["pane_tail"]))
 			if a := m.approvalFor(r); a != nil {
-				content = "Needs you: " + approvalSummary(a) + "\ny allow once · a allow for this session · 2 to deny\n\n" + content
+				content = "Needs you: " + approvalSummary(a) + "\ny allow once · a allow for this session · n deny\n\n" + content
 			} else if agentExited(r) {
 				content = "The agent exited; this terminal is at a shell prompt.\nr starts the agent again (its conversation is resumed when one was saved).\n\n" + content
 			}
@@ -877,6 +890,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = v.agents
 		m.agentMenuOrder = v.agentMenuOrder
 		m.profiles = v.profiles
+		if v.tmux != nil {
+			m.noTmux = !*v.tmux
+		}
 		if v.err != nil {
 			m.notice = "Reference lists: " + clean(v.err.Error())
 		} else if len(v.relaunched) > 0 && !m.relaunchShown {

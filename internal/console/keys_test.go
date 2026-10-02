@@ -267,7 +267,17 @@ func TestApprovalKeysDecideInline(t *testing.T) {
 	if last["for_session"] != true || last["decision"] != "approved" {
 		t.Fatalf("allow for session sent %v", last)
 	}
-	// n on Sessions still starts a new session; on Approvals it denies.
+	// n denies, on the asking session as on Approvals: the same key the
+	// key bar and the session preview name.
+	m.busy = false
+	if bar := barText(m); !strings.Contains(bar, "n deny") || strings.Contains(bar, "2 deny") {
+		t.Fatalf("asking session bar: %q", bar)
+	}
+	_, cmd = m.Update(key("n"))
+	run(m, cmd)
+	if last = rec.bodies[len(rec.bodies)-1]; last["decision"] != "denied" || m.form != nil {
+		t.Fatalf("n on the asking session sent %v (form open: %v)", last, m.form != nil)
+	}
 	m.busy = false
 	m.switchSection(1)
 	m.rows = []row{pendingApproval(2)}

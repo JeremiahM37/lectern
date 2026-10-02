@@ -93,6 +93,13 @@ func CheckTmux() EnvCheck {
 	return checkBinary("tmux", "tmux", "install tmux (see install.sh's distro hint, or your package manager) — it's what keeps an agent's session alive between visits — or set LECTERN_SESSION_BACKEND=pty to use lectern's built-in PTY host instead")
 }
 
+// TmuxInstalled reports whether tmux is on PATH, whichever backend keeps
+// sessions. Finding agents already running in tmux needs it.
+func TmuxInstalled() bool {
+	_, err := exec.LookPath("tmux")
+	return err == nil
+}
+
 // CheckGit reports whether git is on PATH. Every dispatched task and every
 // registered project needs it.
 func CheckGit() EnvCheck {

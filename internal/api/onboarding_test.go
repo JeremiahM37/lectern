@@ -1,6 +1,9 @@
 package api_test
 
-import "testing"
+import (
+	"os/exec"
+	"testing"
+)
 
 func TestOnboardingStatusShape(t *testing.T) {
 	h := newHarness(t)
@@ -32,6 +35,11 @@ func TestOnboardingStatusShape(t *testing.T) {
 	}
 	if _, ok := body["projects"]; !ok {
 		t.Errorf("missing projects count: %v", body)
+	}
+	// The web hides "Agents already running in tmux? Find them" on this.
+	_, lookErr := exec.LookPath("tmux")
+	if installed, ok := body["tmux_installed"].(bool); !ok || installed != (lookErr == nil) {
+		t.Errorf("tmux_installed = %v, tmux on PATH: %v", body["tmux_installed"], lookErr == nil)
 	}
 	if _, ok := body["sessions"]; !ok {
 		t.Errorf("missing sessions count: %v", body)

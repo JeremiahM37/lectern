@@ -135,7 +135,7 @@ func (m *dashboard) globalActions() []dashboardAction {
 		dashboardAction{Label: "Filter this list", Operation: "filter-list", Key: "/", Keywords: "search find"},
 		dashboardAction{Label: "Search past conversation text", Operation: "search-history", Key: "F", Keywords: "history transcript find saved"},
 		dashboardAction{Label: "Saved conversations and forks", Operation: "saved-history", Key: "H", Keywords: "history resume fork"},
-		dashboardAction{Label: "Find and track agents already running", Operation: "discover", Key: "f", Keywords: "adopt discover tmux untracked"},
+		dashboardAction{Label: "Find and track agents already running in tmux", Operation: "discover", Key: "f", Keywords: "adopt discover tmux untracked"},
 		dashboardAction{Label: "Open a blank shell in a project or on a machine", Operation: "blank-shell", Key: "S", Keywords: "terminal bash"},
 		dashboardAction{Label: "Select several sessions to open", Operation: "batch-terminals", Key: "b", Keywords: "batch multiple windows"},
 		dashboardAction{Label: "Open the selected session in a new window", Operation: "new-terminal", Key: "o", Keywords: "terminal window tab"},
@@ -159,10 +159,12 @@ func (m *dashboard) globalActions() []dashboardAction {
 		dashboardAction{Label: "Keys and help", Operation: "help", Key: "?", Keywords: "shortcuts keyboard"},
 		dashboardAction{Label: "Quit (agents keep running)", Operation: "quit", Key: "q", Keywords: "exit close"},
 	)
-	if m.popup {
+	if m.popup || m.noTmux {
 		out := list[:0]
 		for _, a := range list {
-			if a.Operation != "quit" {
+			// A popup cannot quit; without tmux there is nothing running in
+			// it to find.
+			if !(m.popup && a.Operation == "quit") && !(m.noTmux && a.Operation == "discover") {
 				out = append(out, a)
 			}
 		}
