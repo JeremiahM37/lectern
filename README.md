@@ -2,33 +2,89 @@
 
 # Lectern
 
-**The self-hosted control plane for coding agents.**
+**Lectern runs coding agents such as Claude Code, Codex and Gemini CLI on your
+own computer, and lets you follow them, approve what they do and review their
+changes from your terminal, browser or phone.**
 
-Run Claude Code, Codex, Gemini CLI and other agents across your workstation,
-SSH servers and disposable sandboxes. Dispatch work, choose where it runs,
-and supervise it from your terminal or phone.
-
-![version](https://img.shields.io/badge/version-2.6.2-8b5cf6)
+[![Latest release: v2.6.2](https://img.shields.io/github/v/release/JeremiahM37/lectern?label=release&color=8b5cf6)](https://github.com/JeremiahM37/lectern/releases/latest)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
 
 </div>
 
-```bash
+## Quick start
+
+You need [Git](https://git-scm.com/downloads) and, for real work, an agent CLI
+such as Claude Code, Codex or Gemini CLI. Without one you can still try Lectern
+with its built-in demo agent.
+
+**macOS and Linux**
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh
-lectern up
 ```
 
-[Getting started on Linux, macOS and Windows](docs/getting-started.md)
+Or on macOS with Homebrew: `brew install JeremiahM37/tap/lectern`
+
+**Windows** (PowerShell, with [Git for Windows](https://git-scm.com/download/win) installed)
+
+```powershell
+irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 | iex
+```
+
+Or with Scoop: `scoop bucket add jeremiahm37 https://github.com/JeremiahM37/scoop-bucket && scoop install lectern`
+
+**Then, in a project folder:**
+
+```sh
+cd ~/myapp
+lectern claude    # start your first agent here (or: lectern codex, lectern gemini)
+lectern up        # open the web dashboard in your browser
+lectern phone     # show a QR code to pair a phone on the same Wi-Fi
+```
+
+The agent keeps running when you leave the terminal (**Ctrl+]** then **d**),
+and the same session shows up in the browser and on your phone. On a new
+install the agent asks before risky actions, such as running a command or
+editing a file, and you can answer from any of them.
+
+**New to Lectern?** [Getting started](docs/getting-started.md) walks through
+your first session: install, start an agent, approve from the browser and the
+phone, then review and commit the change.
+
+`lectern doctor` checks your setup and prints a fix for anything missing.
+`lectern update` installs a new release. `lectern help` lists every command.
 
 ![Choose a machine, dispatch agent work, and review the result in Lectern](docs/media/control-plane/dispatch-review.gif)
 
 [Watch the walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots and recording details](docs/media/control-plane/README.md)
 
 *Recorded from the current app with disposable demo projects and scripted agents.
-The recording demonstrates the control workflow, not model performance or a live cluster.*
+The recording demonstrates the workflow, not model performance.*
 
-## Your agents. Your machines. One place to run the work.
+## What you can do
+
+- **Watch and talk to agents.** Every session has a terminal and a chat view.
+  See which sessions are working, idle or waiting for you.
+- **Approve or deny.** A pending request shows the command or the diff, with
+  **Allow once**, **Allow for this session** or **Deny**, on the desktop and
+  on the phone.
+- **Review and commit.** **Review & merge** shows what the agent changed. Leave
+  comments for the agent, stage what you want and commit. On your main branch
+  it offers a new branch first.
+- **Use your phone.** The phone layout is installable as an app, with
+  notifications when an agent needs you.
+
+<img src="docs/media/control-plane/phone-approval.png" alt="A pending approval in the phone layout" width="300">
+
+[Terminal client](docs/terminal-client.md) · [Phone supervision](docs/mobile-sessions.md) · [Review](docs/review.md)
+
+## Going further
+
+Everything above runs on one computer. Lectern can also manage agents across
+several machines.
+
+### Run work where it belongs
 
 A coding task needs somewhere to run, a workspace of its own, and a way to
 bring you back when it needs a decision. Lectern connects those pieces across
@@ -59,8 +115,6 @@ runs its queued tasks there. Automatic placement by GPU, RAM or OS requirements
 is a future direction, not a current feature. Worktrees separate changes;
 use a sandbox when you also need execution isolation.
 
-## Run work where it belongs
-
 | Execution environment | What Lectern does |
 |---|---|
 | **Your workstation** | Runs the installed agent CLIs locally, with persistent terminals on Linux, macOS and Windows. |
@@ -68,11 +122,11 @@ use a sandbox when you also need execution isolation.
 | **Existing Proxmox LXC** | Executes through `pct` from the Proxmox host. |
 | **Disposable sandbox** | Creates a Proxmox template clone, Docker container, or environment supplied by trusted script hooks for each attempt. Saves results before configured cleanup. |
 
-[SSH machines](docs/ssh.md) · [Sandbox providers and lifecycle](docs/sandboxes.md) · [Isolation options and limits](docs/isolation.md)
+[Run a shared server](docs/quickstart.md) · [SSH machines](docs/ssh.md) · [Sandbox providers and lifecycle](docs/sandboxes.md) · [Isolation options and limits](docs/isolation.md)
 
 ![Machines and projects in the current desktop UI](docs/media/control-plane/machines.png)
 
-## Keep the agent choice yours
+### Keep the agent choice yours
 
 Claude Code, Codex and Gemini CLI are built in. Add OpenCode, Aider, Goose,
 Cursor and other runners from the catalog, or configure a custom CLI. Agent
@@ -84,22 +138,19 @@ ended sessions when the agent has resumable history.
 
 [Agent catalog and capabilities](docs/agents.md) · [Delegated builds](docs/DELEGATED_BUILDS.md) · [Replay evals](docs/replay-evals.md)
 
-## Stay in control from your desk or phone
+### Reach it from anywhere
 
-The terminal dashboard, desktop web app and installable phone PWA look at the
-same work. See which sessions need you, read tool calls and diffs, and approve
-or deny requests. Phone pairing and an optional encrypted relay support access
-without requiring Tailscale.
-
-<img src="docs/media/control-plane/phone-approval.png" alt="A pending approval in the phone layout" width="300">
+Phone pairing on the same Wi-Fi needs nothing extra. Away from home, use
+Tailscale, a public tunnel with device pairing, or the optional end-to-end
+encrypted relay.
 
 Start work from a claude.ai or supported ChatGPT connector, too: send a design
 or attachment into a session on your machine. Chat connectors cannot approve
 agent actions.
 
-[Terminal client](docs/terminal-client.md) · [Phone supervision](docs/mobile-sessions.md) · [Remote access](docs/remote-access.md) · [Chat connectors](docs/use-from-chat.md)
+[Remote access](docs/remote-access.md) · [Relay](docs/relay.md) · [Chat connectors](docs/use-from-chat.md)
 
-## The everyday details are here, too
+### The everyday details
 
 - **Files travel with the work.** Open a remote PDF or file path an agent prints;
   the native client opens it locally, while the web app has a built-in viewer.
@@ -115,31 +166,26 @@ agent actions.
 
 [More screenshots and file demonstrations](docs/media/control-plane/README.md) · [Full guide](docs/guide.md)
 
-## Install
+## Other ways to install
 
 | | |
 |---|---|
-| **Linux / macOS** | `curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh \| sh` |
-| **Homebrew** | `brew install JeremiahM37/tap/lectern` |
-| **Windows** | `irm https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.ps1 \| iex` (needs [Git for Windows](https://git-scm.com/download/win)) |
 | **Docker** | `docker run -d -p 127.0.0.1:9110:9110 -e LECTERN_INSECURE_LISTEN=1 -v lectern-data:/data ghcr.io/jeremiahm37/lectern:latest` |
 | **Go** | `go install github.com/JeremiahM37/lectern/v2/cmd/lectern@latest` |
+| **deb / rpm** | Packages are attached to each [release](https://github.com/JeremiahM37/lectern/releases/latest). |
 
 On the machine that runs Lectern, agents need only `git` and the agent's own
 CLI: Lectern keeps their terminals alive itself, on Linux, macOS and Windows
 ([how](docs/ptyhost.md)). Other machines reached over SSH need the `lectern`
-binary installed, or `tmux` and `python3`. The web terminal is built in too;
-nothing else to install.
-`lectern doctor` checks everything and prints a fix next to anything that's
-wrong, and `lectern update` installs a new release. You can try it with no
-setup at all, using fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on
-127.0.0.1 only).
+binary installed, or `tmux` and `python3`. The web terminal is built in.
+To try it with fake agents and no setup: `LECTERN_MOCK=1 lectern serve` (it
+listens on 127.0.0.1 only).
 
 ## Documentation
 
 | | |
 |---|---|
-| [Getting started](docs/getting-started.md) | Install, start, first agent: three steps on Linux, macOS and Windows |
+| [Getting started](docs/getting-started.md) | Install, first agent, approvals on the web and phone, review and commit |
 | [Full guide](docs/guide.md) | Everything in depth: sessions, tasks, auth, phone alerts, delegated builds, local models |
 | [Use from claude.ai / ChatGPT](docs/use-from-chat.md) | The chat connector: setup, what a chat can do, troubleshooting |
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
