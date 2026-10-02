@@ -42,6 +42,11 @@ func bareReport(line string) {
 func requireRealTerminal(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "linux" {
+		// Plain `go test` (the release job's quick pass, a contributor's
+		// checkout) skips; the reviewed isolated runner runs it.
+		if os.Getenv("ADK_TEST_ISOLATED") != "1" {
+			t.Skip("runs in the isolated test runner (tools/run-isolated-tests.sh)")
+		}
 		testutil.RequireIsolated(t)
 		return
 	}
