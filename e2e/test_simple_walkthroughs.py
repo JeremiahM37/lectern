@@ -244,10 +244,12 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     expect(review.locator(".commit-on-main")).to_contain_text(f"works directly on {base}")
     # It is the person's own folder: say so before switching it to a branch.
     expect(review.locator(".commit-own-folder")).to_contain_text(f"creates branch lectern/fix-login in your folder {root}")
+    expect(review.locator(".commit-options > summary")).to_contain_text("nothing is pushed")
     push = review.get_by_role("checkbox", name="Push to origin")
     expect(push).to_be_disabled()
     expect(review).to_contain_text("no remote to push to")
-    # The message is drafted from what changed, not from the session's name.
+    # Opening the tab never runs the agent; the message is drafted only when asked.
+    click(review.get_by_role("button", name="✨ Write message for me"))
     expect(review.locator(".commit-message")).to_have_value("Add project notes")
     commit = review.get_by_role("button", name="Commit on lectern/fix-login", exact=True)
     expect(commit).to_be_enabled()
@@ -257,7 +259,9 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     assert git(root, "log", "-1", "--format=%s", base) == "base"
     assert "NOTES.md" in git(root, "show", "--name-only", "--format=", "lectern/fix-login")
     assert git(root, "log", "-1", "--format=%s") == "Add project notes"
-    assert click.n == 4, click.n
+    expect(review.locator(".commit-done")).to_contain_text("Committed to lectern/fix-login")
+    expect(review.locator(".commit-done")).to_contain_text(f"switch {base}")
+    assert click.n == 5, click.n
 
 
 
@@ -303,16 +307,31 @@ def test_f_commit_without_a_git_identity_moves_nothing_and_says_why(page, real_t
     expect(review.locator(".commit-own-folder")).to_contain_text("in your folder")
     sweep.check("own-folder-note", root="#session-review")
     review.get_by_role("button", name="Commit on lectern/fix-login", exact=True).click()
+    # Git has no name and email here: the commit asks for them inline
+    # instead of sending the person to a terminal.
     note = review.locator(".commit-no-identity")
-    expect(note).to_contain_text("doesn't know your name and email", timeout=20000)
+    expect(note).to_contain_text("needs your name and email", timeout=20000)
     expect(note).to_contain_text("Nothing was changed")
-    expect(note.locator("pre")).to_contain_text("git config --global user.email")
+    expect(note.locator("input[name=git-name]")).to_be_visible()
+    expect(note.locator("input[name=git-email]")).to_be_visible()
+    expect(note.get_by_label("Save for all my projects")).to_be_checked()
+    expect(note.get_by_label("Only this project")).not_to_be_checked()
     # Sample the resting state, not the button still under the pointer.
     page.mouse.move(0, 0)
     sweep.check("no-git-identity", root="#session-review")
     # Nothing moved: the folder is on its branch, no new branch exists.
     assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == base
     assert git(root, "branch", "--list", "lectern/fix-login") == ""
+    # Name and email for this project only, then the same commit goes through.
+    note.locator("input[name=git-name]").fill("Ada Lovelace")
+    note.locator("input[name=git-email]").fill("ada@example.com")
+    note.get_by_label("Only this project").check()
+    note.get_by_role("button", name="Save and commit").click()
+    done = review.locator(".commit-done")
+    expect(done).to_contain_text("Committed to lectern/fix-login", timeout=20000)
+    expect(done.get_by_role("button", name="Copy: switch folder back to " + base)).to_be_visible()
+    assert git(root, "config", "--local", "user.email") == "ada@example.com"
+    assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == "lectern/fix-login"
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     sweep.done()
 
@@ -422,21 +441,21 @@ def test_chat_keeps_the_last_line_in_view(page, server, size):
 @pytest.mark.parametrize("size", WIDTHS, ids=IDS)
 def test_navigation_is_short_and_more_stays_in_its_place(page, real_terminal, size):
     """N9: on a phone, Sessions, Approvals, Settings (+ Tasks once used) and
-    More, and an open terminal never takes a slot. A desktop sidebar shows every
-    page directly and has no More to open over the terminal."""
+    More, and an open terminal never takes a slot. A desktop sidebar has the
+    same three, Terminals while one is open, and a More group that opens in
+    place, never over the terminal."""
     t = real_terminal
     page.set_viewport_size(size)
     page.goto(t["url"] + "/#sessions")
     tabs = page.locator("#tabbar > .tab")
-    pages = 3 if size is PHONE else 11
-    expect(tabs).to_have_count(pages)
+    expect(tabs).to_have_count(3)
     page.locator(".scard", has_text="Real terminal").get_by_role("button", name="⌨ Terminal", exact=True).click()
     expect(page.locator("#terminal-workspace")).to_be_visible()
     if size is PHONE:
         show = page.get_by_role("button", name="Show navigation", exact=True)
         if show.is_visible():
             show.click()
-    expect(tabs).to_have_count(pages)
+    expect(tabs).to_have_count(3 if size is PHONE else 4)
     if size is PHONE:
         expect(page.locator("#more-terminal-badge")).to_have_text("1")
         page.locator("#nav-overflow > summary").click()

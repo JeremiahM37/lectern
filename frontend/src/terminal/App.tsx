@@ -28,6 +28,7 @@ import { Workbench, type FileRequest } from "../files/Workbench";
 import { FileApi, isOutside } from "../files/api";
 import { existenceCheck } from "../files/linkCheck";
 import { LinkMenu } from "./LinkMenu";
+import { ApprovalStrip } from "./ApprovalStrip";
 import {
   copyClipboard,
   downloadBlob,
@@ -55,6 +56,7 @@ import { useAppearance } from "../theme/appearance";
 import { resolveMode } from "../theme/app-theme";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
+import "./approval-strip.css";
 export type SharedTool = "review" | "saved" | "search";
 interface PaneSpec {
   id: string;
@@ -1344,6 +1346,13 @@ export function TerminalApp({
             {t("terminal.close")}
           </button>
         </div>
+      )}
+      {kind === "session" && /^[1-9]\d*$/.test(id) && (
+        <ApprovalStrip
+          sessionId={Number(id)}
+          onNotice={setNotice}
+          onDecided={() => setTimeout(() => current()?.term.focus(), 0)}
+        />
       )}
       <div id="workspace-row">
       <main id="workspace">

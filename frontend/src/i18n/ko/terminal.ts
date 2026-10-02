@@ -14,7 +14,7 @@ const catalog: Record<string, string> = {
 
   "terminalPage.header.back": "Lectern으로 돌아가기",
   "terminalPage.tools.navLabel": "터미널 도구",
-  "terminalPage.tools.attach": "파일 첨부",
+  "terminalPage.tools.attach": "파일 추가",
   "terminalPage.tools.files": "파일",
   "terminalPage.tools.openInTerminal": "터미널에서 열기",
   "terminalPage.tools.toggle": "도구",
@@ -172,6 +172,8 @@ const catalog: Record<string, string> = {
   "terminalPage.tabs.projects": "프로젝트",
   "terminalPage.tabs.machines": "머신",
   "terminalPage.tabs.noMatches": "일치하는 프로젝트나 머신이 없습니다",
+  "terminalPage.approval.label": "승인 대기 중",
+  "terminalPage.approval.more": "이후 {n}개가 더 기다리고 있습니다",
 };
 
 export default catalog;

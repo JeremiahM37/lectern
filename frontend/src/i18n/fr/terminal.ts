@@ -14,7 +14,7 @@ const catalog: Record<string, string> = {
 
   "terminalPage.header.back": "Retour à Lectern",
   "terminalPage.tools.navLabel": "Outils du terminal",
-  "terminalPage.tools.attach": "Joindre des fichiers",
+  "terminalPage.tools.attach": "Ajouter un fichier",
   "terminalPage.tools.files": "Fichiers",
   "terminalPage.tools.openInTerminal": "Ouvrir dans le terminal",
   "terminalPage.tools.toggle": "Outils",
@@ -172,6 +172,8 @@ const catalog: Record<string, string> = {
   "terminalPage.tabs.projects": "Projets",
   "terminalPage.tabs.machines": "Machines",
   "terminalPage.tabs.noMatches": "Aucun projet ni aucune machine correspondant",
+  "terminalPage.approval.label": "En attente de votre accord",
+  "terminalPage.approval.more": "{n} autres en attente après celle-ci",
 };
 
 export default catalog;

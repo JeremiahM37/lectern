@@ -169,5 +169,5 @@ def test_language_follows_the_browser_and_can_be_chosen(browser, real_terminal):
     # The terminal page, a separate document, follows too.
     page.goto(t['url'] + f"/terminal/session/{t['id']}")
     expect(page.locator('html')).to_have_attribute('lang', 'ja')
-    expect(page.locator('#upload')).to_have_text('ファイルを添付', timeout=15000)
+    expect(page.locator('#upload')).to_have_text('ファイルを追加', timeout=15000)
     context.close()

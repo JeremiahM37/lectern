@@ -1,20 +1,6 @@
 import { useEffect, useState } from "react";
 import { t, useLocale } from "../i18n";
-
-interface AgentCheck {
-  name: string;
-  found: boolean;
-}
-interface EnvCheck {
-  ok: boolean;
-  fix?: string;
-}
-interface OnboardingStatus {
-  agents: AgentCheck[];
-  tmux: EnvCheck;
-  git: EnvCheck;
-  python?: EnvCheck;
-}
+import { tmuxOnPath, type OnboardingStatus } from "./onboarding";
 
 // The Sessions page's empty state, which is also the first screen after an
 // install (docs/design/simple-ui.md "First run"): one sentence, one primary
@@ -76,9 +62,11 @@ export function GettingStarted({
             {busy ? t("start.demoStarting") : t("start.demo")}
           </button>
         )}
-        <button type="button" className="linkish" id="gs-find" onClick={onFind}>
-          {t("start.find")}
-        </button>
+        {tmuxOnPath(status) && (
+          <button type="button" className="linkish" id="gs-find" onClick={onFind}>
+            {t("start.find")}
+          </button>
+        )}
       </div>
       {problems.length > 0 && (
         <ul className="gs-problems" aria-label={t("start.problems")}>

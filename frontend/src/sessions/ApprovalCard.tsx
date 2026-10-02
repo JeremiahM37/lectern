@@ -5,10 +5,13 @@
 // Allow once · Allow for this session · Deny… — and the same keys, Y / A / N,
 // while the card has focus. The tool call is shown through the tool-view
 // registry the chat cards use (a Bash approval shows the command, an Edit
-// approval shows the diff), or as one line when `compact`.
+// approval shows the diff), or as one line when `compact`. Either way the
+// command or file appears once, under a plain heading ("Needs you: run a
+// command") rather than the tool's internal name and icon.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Approval } from "../types";
-import { ToolCardBody, ToolCardHeader } from "./tool-views/ToolCard";
+import { ToolCardBody } from "./tool-views/ToolCard";
+import { describeTool } from "./tool-views/describe";
 import type { ToolCard } from "./tool-views/chatCards";
 import { approvalSummary } from "./approval-summary";
 import { t, useLocale } from "../i18n";
@@ -52,6 +55,7 @@ export function ApprovalCard({
   compact = false,
   showContext = false,
   autoFocus = false,
+  globalKeys = false,
   onNotice,
 }: {
   approval: Approval;
@@ -63,6 +67,12 @@ export function ApprovalCard({
   /** Name the session or task it came from (the Approvals page). */
   showContext?: boolean;
   autoFocus?: boolean;
+  /**
+   * Y / A / N work anywhere on the page, not only while the card has focus —
+   * except while typing in a field (a terminal's input is a textarea, so keys
+   * typed into the terminal still go to the terminal).
+   */
+  globalKeys?: boolean;
   /** Given, the deny note can be dictated (it reports dictation errors). */
   onNotice?(text: string, error?: boolean): void;
 }) {
@@ -121,10 +131,11 @@ export function ApprovalCard({
   };
   const deny = () => void act("deny", "denied", { note: note.trim() || undefined });
 
-  function keys(event: KeyboardEvent<HTMLDivElement>) {
-    if (decided || busy || event.altKey || event.ctrlKey || event.metaKey) return;
-    const tag = (event.target as HTMLElement).tagName;
-    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+  function keys(event: KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent) {
+    if (decided || busy || denying || event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || target?.isContentEditable) return;
     const key = event.key.toLowerCase();
     if (key === "y") allowOnce();
     else if (key === "a") allowSecond();
@@ -132,6 +143,18 @@ export function ApprovalCard({
     else return;
     event.preventDefault();
   }
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  useEffect(() => {
+    if (!globalKeys) return;
+    const listener = (event: globalThis.KeyboardEvent) => {
+      // The card's own handler already ran for keys pressed inside it.
+      if (root.current?.contains(event.target as Node)) return;
+      keysRef.current(event);
+    };
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, [globalKeys]);
 
   const context = approval.session_id
     ? approval.session_name || t("approval.sessionFallback", { id: approval.session_id })
@@ -151,9 +174,8 @@ export function ApprovalCard({
       onKeyDown={keys}
     >
       <div className="approval-head">
-        <strong>{t("approval.needed", { tool: approval.tool_name })}</strong>
+        <strong>{approvalHeading(approval.tool_name, approval.input || {})}</strong>
         {showContext && context && <span className="approval-context">{context}</span>}
-        {!compact && <ToolCardHeader card={card} />}
       </div>
       {compact ? (
         approvalSummary(approval) && <code className="approval-summary">{approvalSummary(approval)}</code>
@@ -259,6 +281,15 @@ export function ApprovalCard({
       ) : null}
     </div>
   );
+}
+
+/** "Needs you: run a command" — what the agent wants to do, in plain words. */
+export function approvalHeading(tool: string, input: Record<string, unknown>): string {
+  const category = describeTool(tool, input).category;
+  const key = category === "terminal" || category === "edit" || category === "read" || category === "web"
+    ? `approval.neededAction.${category}`
+    : "";
+  return key ? t(key) : t("approval.needed", { tool });
 }
 
 /** The decision request every surface sends. */

@@ -261,9 +261,8 @@ const catalog: Record<string, string> = {
   "board.claims.release": "解放",
 
   "board.claims.sessionChipTitle": "このリポジトリで有効なクレーム",
-  "board.claims.sessionChip.one": "作業中 {count} 件",
-  "board.claims.sessionChip.other": "作業中 {count} 件",
-
+  "board.claims.sessionChip.one": "このフォルダーで {count} 件の作業が進行中",
+  "board.claims.sessionChip.other": "このフォルダーで {count} 件の作業が進行中",
   "board.evals.status.queued": "待機中",
   "board.evals.status.running": "実行中",
   "board.evals.status.done": "完了",

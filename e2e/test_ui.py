@@ -16,8 +16,13 @@ def _tab(page, name):
         page.get_by_role('button',name='Show navigation',exact=True).click()
     button=page.locator(f'.tab[data-tab="{name}"]')
     if not button.is_visible():
-        page.locator('#nav-overflow > summary').click()
-        page.locator(f'[data-nav-target="{name}"]').click()
+        # More: a menu on a narrow screen, a group that opens in place in the
+        # desktop sidebar.
+        if page.locator("#nav-overflow").count():
+            page.locator("#nav-overflow > summary").click()
+        elif not page.locator("#nav-more-group").evaluate("el => el.open"):
+            page.locator("#nav-more-group > summary").click()
+        page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
     else: button.click()
     if legacy == "targets":
         # The old Settings page opened on Machines.
@@ -100,7 +105,7 @@ def test_approval_flow_from_phone(page, server):
     _new_task(page, "E2E gated deploy", "deploy [mock:approval]", perm="default")
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
-    row = page.locator("#approvals-page .approval-card", has_text="Bash")
+    row = page.locator("#approvals-page .approval-card", has_text="rm -rf build/")
     expect(row.first).to_be_visible()
     expect(row.first).to_contain_text("rm -rf build/")
     row.first.locator("button:has-text('Allow once')").first.click()
@@ -200,7 +205,7 @@ def test_approval_card_has_always_allow(page, server):
     _new_task(page, "E2E always allow", "risky [mock:approval]", perm="default")
     expect(page.locator("#appr-badge:visible, #more-badge:visible")).to_be_visible(timeout=15000)
     _tab(page, "approvals")
-    row = page.locator("#approvals-page .approval-card", has_text="Bash").first
+    row = page.locator("#approvals-page .approval-card", has_text="run a command").first
     expect(row.locator("button", has_text="Always allow in this project")).to_be_visible()
     row.locator("button:has-text('Allow once')").first.click()
     _tab(page, "board")
@@ -1150,6 +1155,7 @@ def test_mobile_task_conversation_keeps_drafts_and_continues(page, server):
     expect(page.locator("#conversation-log")).to_contain_text("You · delivered to agent", timeout=20000)
     expect(page.locator("#conversation-status")).to_contain_text("turn 2", timeout=20000)
     expect(page.locator("#conversation-log")).to_contain_text("Result · turn 2", timeout=20000)
+    page.click("#conversation-details-toggle")
     page.click("#reader-larger")
     assert page.locator(".reader-text").first.evaluate("e=>parseFloat(getComputedStyle(e).fontSize)") >= 18
     page.screenshot(path="/tmp/lectern-mobile-conversation.png")

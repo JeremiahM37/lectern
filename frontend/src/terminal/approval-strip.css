@@ -1,0 +1,41 @@
+/* The approval strip above the web terminal (ApprovalStrip.tsx). The terminal
+   page does not load the app's stylesheets, so the card's look is restated
+   here, scoped to the strip. Tokens only. */
+.terminal-approval-strip {
+  margin: 0 10px 8px;
+  flex: none;
+}
+.terminal-approval-strip .approval-card {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  margin: 0;
+}
+.terminal-approval-strip .approval-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.terminal-approval-strip .approval-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.terminal-approval-strip .approval-head strong { font-size: 13px; color: var(--amber); }
+.terminal-approval-strip .approval-summary {
+  display: block; margin: 2px 0 4px; padding: 6px 8px; border-radius: 8px;
+  background: var(--bg); color: var(--ink); font: 400 12px/1.45 var(--mono, monospace);
+  white-space: pre-wrap; word-break: break-word;
+}
+.terminal-approval-strip .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.terminal-approval-strip .approval-actions > button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; }
+.terminal-approval-strip .b.ok { background: color-mix(in srgb, var(--green) 12%, transparent); border-color: color-mix(in srgb, var(--green) 45%, transparent); color: var(--green); }
+.terminal-approval-strip .b.warn { border-color: color-mix(in srgb, var(--amber) 45%, transparent); color: var(--amber); }
+.terminal-approval-strip .approval-kbd {
+  font: 600 10px/1 var(--mono, monospace); padding: 2px 5px; border-radius: 4px;
+  border: 1px solid currentColor; opacity: 0.75;
+}
+.terminal-approval-strip .approval-scope { margin: 6px 0 0; font-size: 12px; color: var(--ink-dim); }
+.terminal-approval-strip .approval-deny { display: flex; flex-direction: column; gap: 6px; }
+.terminal-approval-strip .approval-deny textarea { width: 100%; resize: vertical; min-height: 48px; }
+.terminal-approval-strip .approval-deny label { font-size: 12px; color: var(--ink); }
+.terminal-approval-strip .approval-deny-actions { display: flex; gap: 8px; }
+.terminal-approval-more { margin: 4px 2px 0; font-size: 12px; color: var(--ink-dim); }
+@media (hover: none) and (pointer: coarse) { .terminal-approval-strip .approval-kbd { display: none; } }
+@media (max-width: 600px) {
+  .terminal-approval-strip { margin: 0 6px 6px; }
+  .terminal-approval-strip .approval-scope { display: none; }
+}

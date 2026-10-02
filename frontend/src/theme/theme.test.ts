@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { contrast, ensureContrast } from "./color";
-import { ACCENT_PRESETS, normalizeAppearance, palettes, SURFACE_TOKENS, TEXT_TOKENS, themeTokens } from "./app-theme";
+import { ACCENT_PRESETS, DEFAULT_APPEARANCE, normalizeAppearance, palettes, SURFACE_TOKENS, TEXT_TOKENS, themeTokens } from "./app-theme";
 import { builtinTerminalThemes, importTerminalTheme } from "./terminal-themes";
 
 // WCAG 2.x AA: 4.5:1 for body text. Every text token must read on every
@@ -36,8 +36,10 @@ test("the two palettes define the same tokens", () => {
 
 test("stored appearance is validated, not trusted", () => {
   assert.deepEqual(normalizeAppearance({ theme: "neon", accent: "javascript:1", zoom: 9, language: 4, preset: 7 }), {
-    theme: "dark", accent: "", zoom: 1, language: "", preset: "",
+    theme: "system", accent: "", zoom: 1, language: "", preset: "",
   });
+  assert.equal(normalizeAppearance(undefined).theme, "system");
+  assert.equal(DEFAULT_APPEARANCE.theme, "system");
   assert.deepEqual(normalizeAppearance({ theme: "light", accent: "#123abc", zoom: 1.25, language: "fr", preset: "acme.x/forest" }), {
     theme: "light", accent: "#123abc", zoom: 1.25, language: "fr", preset: "acme.x/forest",
   });

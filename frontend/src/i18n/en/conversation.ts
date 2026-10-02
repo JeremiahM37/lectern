@@ -19,7 +19,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.offlineStatus": "Offline — showing the last output; sends are paused",
   // {status} is the last known status line.
   "conversation.chat.reconnectingStatus": "{status} · reconnecting…",
-  "conversation.chat.switch": "⇄ Switch",
+  "conversation.chat.switch": "⇄ Change agent",
   "conversation.chat.close": "Close conversation",
   // Heading of the structured chat view (noun).
   "conversation.chat.viewChat": "Chat",
@@ -32,8 +32,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.latest": "↓ Latest",
   "conversation.chat.openTerminal": "⌨ Open terminal",
   "conversation.chat.reviewMerge": "± Review & merge",
-  "conversation.chat.browser": "◎ Browser",
-
+  "conversation.chat.browser": "◎ Open a browser",
   // Conversation — task rows
   // Label of the task's original prompt (noun).
   "conversation.chat.rowTask": "Task",
@@ -342,6 +341,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.startResumed": "Start resumed session",
   "conversation.saved.createFork": "Create fork",
   "conversation.saved.cancel": "Cancel",
+  "conversation.chat.detailsLabel": "More about this session",
+  "conversation.chat.textSize": "Text size",
 };
 
 export default catalog;

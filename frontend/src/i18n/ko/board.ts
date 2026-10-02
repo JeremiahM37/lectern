@@ -261,9 +261,8 @@ const catalog: Record<string, string> = {
   "board.claims.release": "해제",
 
   "board.claims.sessionChipTitle": "이 저장소의 활성 작업 선언",
-  "board.claims.sessionChip.one": "진행 중 {count}개",
-  "board.claims.sessionChip.other": "진행 중 {count}개",
-
+  "board.claims.sessionChip.one": "이 폴더에서 {count}개 작업이 진행 중",
+  "board.claims.sessionChip.other": "이 폴더에서 {count}개 작업이 진행 중",
   "board.evals.status.queued": "대기 중",
   "board.evals.status.running": "실행 중",
   "board.evals.status.done": "완료",

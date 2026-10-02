@@ -10,7 +10,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.rename": "重命名",
   "conversation.chat.offlineStatus": "离线——显示最后的输出；发送已暂停",
   "conversation.chat.reconnectingStatus": "{status} · 正在重新连接…",
-  "conversation.chat.switch": "⇄ 切换",
+  "conversation.chat.switch": "⇄ 更换智能体",
   "conversation.chat.close": "关闭对话",
   "conversation.chat.viewChat": "聊天",
   "conversation.chat.viewLiveOutput": "实时输出 · 最近 500 行",
@@ -22,7 +22,7 @@ const catalog: Record<string, string> = {
   "conversation.chat.latest": "↓ 最新",
   "conversation.chat.openTerminal": "⌨ 打开终端",
   "conversation.chat.reviewMerge": "± 审查与合并",
-  "conversation.chat.browser": "◎ 浏览器",
+  "conversation.chat.browser": "◎ 打开浏览器",
   "conversation.chat.rowTask": "任务",
   "conversation.chat.rowQueued": "你 · 排队等待下一轮",
   "conversation.chat.rowNotDelivered": "未送达 · {error}",
@@ -252,6 +252,8 @@ const catalog: Record<string, string> = {
   "conversation.saved.startResumed": "启动继续的会话",
   "conversation.saved.createFork": "创建分叉",
   "conversation.saved.cancel": "取消",
+  "conversation.chat.detailsLabel": "关于此会话的更多信息",
+  "conversation.chat.textSize": "文字大小",
 };
 
 export default catalog;

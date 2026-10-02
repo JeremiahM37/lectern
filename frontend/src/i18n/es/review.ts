@@ -168,7 +168,7 @@ const catalog: Record<string, string> = {
   "review.git.commitHeading": "Commit",
   "review.git.commitMessage": "Mensaje de commit",
   "review.git.writing": "Escribiendo…",
-  "review.git.writeMessage": "✨ Escribir mensaje",
+  "review.git.writeMessage": "✨ Escribir el mensaje por mí",
   "review.git.amendLast": "Enmendar el último commit",
   "review.git.amendLastPushed": "Enmendar el último commit (ya con push)",
   "review.git.pushToOrigin": "Hacer push a origin",

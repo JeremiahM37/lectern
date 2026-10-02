@@ -120,11 +120,14 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     # Commit, push, and land on the bare remote — no GitHub, no `gh`.
     page.get_by_role("tab", name="Commit").click()
     page.get_by_label("Commit message", exact=True).fill("feat: extend hello")
+    # Push is on by default with a remote, and the closed Options says so.
+    expect(page.locator(".commit-options > summary")).to_contain_text("pushes to origin")
+    page.locator(".commit-options > summary").click()
     push_checkbox = page.locator(".review-checkbox", has_text="Push to origin").locator("input")
     expect(push_checkbox).to_be_checked()
     page.get_by_role("button", name="⎇ Commit").click()
-    expect(page.locator(".review-commit-steps")).to_contain_text("commit: ok", timeout=15000)
-    expect(page.locator(".review-commit-steps")).to_contain_text("push: ok", timeout=15000)
+    expect(page.locator(".commit-done")).to_contain_text("Committed to", timeout=15000)
+    expect(page.locator(".commit-done")).to_contain_text("pushed to origin", timeout=15000)
 
     branches = subprocess.check_output(["git", "-C", str(bare), "branch", "--list", branch], text=True)
     assert branch in branches, branches

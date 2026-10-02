@@ -49,10 +49,24 @@
 #nav-overflow .more-detail { font-size: 11.5px; color: var(--ink-dim); font-weight: 400; }
 #nav-overflow > summary { position: relative; }
 @media (min-width: 1024px) {
-  /* All desktop destinations stay in the sidebar, never above the terminal. */
+  /* Every desktop destination stays in the sidebar, never above the terminal:
+     the main items, then More as a group that opens in place. */
   #tabbar { overflow-y: auto; overflow-x: hidden; }
   #tabbar .tab { flex-shrink: 0; }
   #tabbar [data-tab=settings] { order: 2; margin-top: auto; }
+  #nav-more-group { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+  #nav-more-group > summary { list-style: none; width: 100%; box-sizing: border-box; }
+  #nav-more-group > summary::-webkit-details-marker { display: none; }
+  #nav-more-group > summary::after {
+    content: "▸"; position: static; width: auto; height: auto; background: none; box-shadow: none;
+    margin-left: auto; color: var(--ink-faint); font-size: 11px; display: inline;
+  }
+  #nav-more-group[open] > summary::after { content: "▾"; }
+  #nav-more-group .tab-ic { width: 20px; font-weight: 700; letter-spacing: 1px; }
+  #nav-more-group > .nav-group-item { width: 100%; box-sizing: border-box; padding-left: 24px; min-height: 38px; font-size: 12.5px; }
+}
+@media (max-width: 1023px) {
+  #nav-more-group { display: none; }
 }
 @media (max-width: 1023px) {
   #nav-overflow > .action-menu-panel { min-width: 260px; }
@@ -143,6 +157,12 @@
 }
 .settings-page .settings-tabs > button[aria-selected="true"] { background: var(--accent-wash); border-color: var(--accent-soft); color: var(--ink); }
 .settings-tabs > button[data-settings="basics"] { font-weight: 700; }
+/* Basics is the one bordered tab; the advanced sections read as a quiet list
+   of links beside it until one is chosen. */
+#view .settings-tabs > button:not([data-settings="basics"]):not([aria-selected="true"]) {
+  border-color: transparent; background: transparent; padding: 6px 8px; font-size: 12.5px;
+}
+#view .settings-tabs > button:not([data-settings="basics"]):not([aria-selected="true"]):hover { color: var(--ink); text-decoration: underline; }
 
 .phone-wizard .phone-choice { display: flex; }
 .phone-wizard .phone-choice input[type="radio"] { flex: none; width: auto; margin: 4px 0 0; }
@@ -167,3 +187,18 @@
 .commit-no-identity { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
 .commit-no-identity p { margin: 0 0 6px; }
 .commit-no-identity pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.commit-no-identity .identity-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; margin: 6px 0; }
+.commit-no-identity .identity-fields label.f { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.commit-no-identity .identity-scope { border: 0; padding: 0; margin: 4px 0 8px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.commit-done { margin: 10px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); background: color-mix(in srgb, var(--green) 8%, var(--panel)); color: var(--ink); }
+.commit-done p { margin: 0 0 4px; }
+.commit-done-line b { color: var(--ink); }
+.commit-switch-back { margin-top: 8px; }
+.commit-switch-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.commit-switch-row code { flex: 1 1 260px; min-width: 0; padding: 6px 8px; border-radius: 6px; background: var(--bg); color: var(--ink); font: 400 12px/1.4 var(--mono); overflow-wrap: anywhere; user-select: all; }
+.commit-options { margin: 8px 0; }
+.commit-options > summary { cursor: pointer; font-weight: 600; color: var(--ink); padding: 4px 0; }
+.commit-options > summary .sub { font-weight: 400; color: var(--ink-dim); }
+.commit-options[open] > summary { margin-bottom: 4px; }
+.commit-nothing .linkish { background: none; border: 0; padding: 0; color: var(--accent-soft); font: inherit; cursor: pointer; text-decoration: underline; }
+.commit-no-identity .identity-error { margin: 2px 0 6px; color: var(--red); font-weight: 600; }

@@ -261,9 +261,8 @@ const catalog: Record<string, string> = {
   "board.claims.release": "释放",
 
   "board.claims.sessionChipTitle": "此仓库中的有效认领",
-  "board.claims.sessionChip.one": "{count} 项进行中",
-  "board.claims.sessionChip.other": "{count} 项进行中",
-
+  "board.claims.sessionChip.one": "此文件夹中有 {count} 项工作已被认领",
+  "board.claims.sessionChip.other": "此文件夹中有 {count} 项工作已被认领",
   "board.evals.status.queued": "排队中",
   "board.evals.status.running": "运行中",
   "board.evals.status.done": "已完成",

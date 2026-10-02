@@ -12,7 +12,7 @@ const catalog: Record<string, string> = {
   "terminalPage.pane.companionShell": "配套 Shell",
   "terminalPage.header.back": "返回 Lectern",
   "terminalPage.tools.navLabel": "终端工具",
-  "terminalPage.tools.attach": "附加文件",
+  "terminalPage.tools.attach": "添加文件",
   "terminalPage.tools.files": "文件",
   "terminalPage.tools.openInTerminal": "在终端中打开",
   "terminalPage.tools.toggle": "工具",
@@ -155,6 +155,8 @@ const catalog: Record<string, string> = {
   "terminalPage.tabs.projects": "项目",
   "terminalPage.tabs.machines": "机器",
   "terminalPage.tabs.noMatches": "没有匹配的项目或机器",
+  "terminalPage.approval.label": "等待你的批准",
+  "terminalPage.approval.more": "之后还有 {n} 个在等待",
 };
 
 export default catalog;

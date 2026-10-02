@@ -38,3 +38,18 @@ dialog.conversation::backdrop {
 .reader-text a.md-file-link.unverified:hover {
   text-decoration: underline dotted;
 }
+
+/* The header's ⋯ opens this strip: usage, checks, switching agent, text size
+   and the notes the agent was given. Closed by default (round-3 audit P3). */
+.conversation-head .conversation-details-toggle { margin-left: auto; min-width: 40px; font-size: 18px; line-height: 1; }
+.conversation-details {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 16px;
+  border-bottom: 1px solid var(--line); background: var(--bg-soft); flex-shrink: 0;
+}
+.conversation-details .conversation-usage, .conversation-details .conversation-checks { margin: 0; }
+.conversation-details-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.conversation-text-size { display: inline-flex; gap: 4px; margin-left: auto; }
+@media (max-width: 600px) {
+  .conversation-details { padding: 8px 12px; max-height: 45vh; overflow-y: auto; }
+  .conversation-text-size { margin-left: 0; }
+}

@@ -17,7 +17,7 @@ export interface Appearance {
   // A plugin theme ("<plugin>/<theme>", docs/plugins.md), or "" for Lectern's own.
   preset: string;
 }
-export const DEFAULT_APPEARANCE: Appearance = { theme: "dark", accent: "", zoom: 1, language: "", preset: "" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "system", accent: "", zoom: 1, language: "", preset: "" };
 
 // A plugin theme's colours: token overrides per mode, and an accent used
 // when the person has not chosen one of their own.
@@ -139,9 +139,9 @@ export function clampZoom(value: unknown): number {
 export function normalizeAppearance(value: unknown): Appearance {
   const row = value && typeof value === "object" ? (value as Partial<Appearance>) : {};
   return {
-    // Dark stays the default: an existing install looks the same until
-    // someone chooses System or Light.
-    theme: row.theme === "dark" || row.theme === "light" || row.theme === "system" ? row.theme : "dark",
+    // Follow the device until someone picks Dark or Light: a phone in light
+    // mode should not open on a dark page.
+    theme: row.theme === "dark" || row.theme === "light" || row.theme === "system" ? row.theme : "system",
     accent: typeof row.accent === "string" && parseColor(row.accent) ? row.accent : "",
     zoom: clampZoom(row.zoom),
     language: typeof row.language === "string" ? row.language.slice(0, 35) : "",
