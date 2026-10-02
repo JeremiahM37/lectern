@@ -260,7 +260,6 @@ func resolveAgentSession(c *console.Client, agentName, workdir string, opts agen
 	body := map[string]any{
 		"agent":   agentName,
 		"workdir": workdir,
-		"name":    sessionDisplayName(workdir),
 	}
 	if projectID != nil {
 		body["project_id"] = *projectID

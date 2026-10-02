@@ -35,6 +35,10 @@ type phoneAddresses struct {
 	Listening    string        `json:"listening"`
 	LoopbackOnly bool          `json:"loopback_only"`
 	Options      []phoneOption `json:"options"`
+	// CanEnableWiFi says this is the private runtime, which can also listen
+	// on the Wi-Fi address on request; WiFiOpen says it is doing so now.
+	CanEnableWiFi bool `json:"can_enable_wifi"`
+	WiFiOpen      bool `json:"wifi_open"`
 }
 
 // tailnetStatus asks tailscaled who this node is; tests replace it.
@@ -85,7 +89,7 @@ func loopbackHost(host string) bool {
 // phoneAddressesHandler is GET /api/phone/addresses.
 func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 	port := strconv.Itoa(s.Cfg.Port)
-	out := phoneAddresses{Listening: net.JoinHostPort(s.Cfg.Host, port), LoopbackOnly: loopbackHost(s.Cfg.Host)}
+	out := phoneAddresses{CanEnableWiFi: s.EnableWiFi != nil, Listening: net.JoinHostPort(s.Cfg.Host, port), LoopbackOnly: loopbackHost(s.Cfg.Host)}
 
 	tailnet := phoneOption{Kind: "tailnet"}
 	switch {
@@ -124,6 +128,12 @@ func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 			lan.Available = true
 		}
 	}
+	if s.WiFiURL != nil {
+		if address := s.WiFiURL(); address != "" {
+			lan.URL, lan.Available, lan.Reason = address, true, ""
+			out.WiFiOpen = true
+		}
+	}
 	out.Options = append(out.Options, lan)
 
 	relay := phoneOption{Kind: "relay"}
@@ -139,4 +149,39 @@ func (s *Server) phoneAddressesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
+}
+
+// enablePhoneWiFi is POST /api/phone/wifi: the private runtime also listens
+// on this computer's Wi-Fi address, where only a paired device gets in, and
+// pairing is turned on. Owner-only.
+func (s *Server) enablePhoneWiFi(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireOwner(w, r); !ok {
+		return
+	}
+	if s.EnableWiFi == nil {
+		httpError(w, 409, "Wi-Fi setup is available for the private local runtime; this server uses its configured network listener")
+		return
+	}
+	address, err := s.EnableWiFi()
+	if err != nil {
+		httpError(w, 409, "%s", err)
+		return
+	}
+	if err := s.DB.SetSetting("pairing_enabled", "1"); err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"url": address})
+}
+
+// disablePhoneWiFi is DELETE /api/phone/wifi: phones on the Wi-Fi can no
+// longer reach Lectern. Paired devices stay paired for the next time.
+func (s *Server) disablePhoneWiFi(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireOwner(w, r); !ok {
+		return
+	}
+	if s.DisableWiFi != nil {
+		s.DisableWiFi()
+	}
+	writeJSON(w, 200, map[string]any{"open": false})
 }

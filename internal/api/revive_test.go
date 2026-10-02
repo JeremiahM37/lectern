@@ -78,6 +78,20 @@ func TestReviveReplacesTheAgentWithAResumeOfItsConversation(t *testing.T) {
 	if _, err := h.App.DB.Exec(`UPDATE sessions SET native_recovery_cid = ? WHERE id = ?`, cid, hung.id()); err != nil {
 		t.Fatal(err)
 	}
+	// Removing the executable must refuse before killing the still-running agent.
+	if err := os.Rename(wrapper, wrapper+".hidden"); err != nil {
+		t.Fatal(err)
+	}
+	code, body := h.request("POST", fmt.Sprintf("/api/sessions/%d/revive", hung.id()), obj{}, nil)
+	if code != 409 || !strings.Contains(string(body), "isn't installed") {
+		t.Fatalf("missing executable: %d %s", code, body)
+	}
+	if got := h.get(fmt.Sprintf("/api/sessions/%d", hung.id())); got["ended_at"] != nil {
+		t.Fatal("refused revive ended the running agent")
+	}
+	if err := os.Rename(wrapper+".hidden", wrapper); err != nil {
+		t.Fatal(err)
+	}
 	revived := h.post(fmt.Sprintf("/api/sessions/%d/revive", hung.id()), obj{}, 201)
 	if revived.id() == hung.id() || revived.str("resume_id") != cid || revived.str("name") != "hung" {
 		t.Fatalf("successor: %v", revived)

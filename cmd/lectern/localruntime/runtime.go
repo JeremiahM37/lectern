@@ -24,9 +24,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/app"
-	"github.com/JeremiahM37/lectern/v2/internal/auth"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
-	"github.com/JeremiahM37/lectern/v2/internal/pairing"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"github.com/JeremiahM37/lectern/v2/internal/version"
 )
@@ -381,6 +379,13 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 		return err
 	}
 	defer appInstance.Close()
+	appHandler := appInstance.Handler()
+	// Phones on this Wi-Fi reach this same runtime only when asked (phone.go).
+	wifi := &wifiListener{handler: appHandler, port: port}
+	defer wifi.close()
+	appInstance.Server.EnableWiFi = wifi.enable
+	appInstance.Server.DisableWiFi = wifi.close
+	appInstance.Server.WiFiURL = wifi.address
 	if !cfg.Mock {
 		targets, err := appInstance.DB.Targets()
 		if err != nil {
@@ -409,18 +414,7 @@ func Engine(ctx context.Context, base *config.Config, dir, token string, lockFD 
 			}()
 		})
 	}
-	appHandler := appInstance.Handler()
-	phone := &phoneShare{token: token, loopback: port, serve: appHandler, addresses: lanAddresses,
-		mint: func() (string, time.Time, error) {
-			if err := pairing.SetEnabled(appInstance.DB, true); err != nil {
-				return "", time.Time{}, err
-			}
-			// The person at this computer, holding the runtime token, is
-			// the owner the paired phone acts for.
-			return appInstance.Server.Pairing.MintCode(auth.Principal{Kind: auth.KindToken, Human: true})
-		}}
-	defer phone.close()
-	server = &http.Server{ReadHeaderTimeout: 15 * time.Second, Handler: localHandler(appHandler, newGate(token, browserKey), ep.Instance, map[string]http.HandlerFunc{phoneRoute: phone.handler}, func() error {
+	server = &http.Server{ReadHeaderTimeout: 15 * time.Second, Handler: localHandler(appHandler, newGate(token, browserKey), ep.Instance, func() error {
 		active, err := appInstance.DB.TasksWhere("status IN ('queued','running','review')")
 		if err != nil {
 			return err
@@ -475,12 +469,9 @@ func engineConfig(base *config.Config, absDir string, port int, token string) co
 	return cfg
 }
 
-func localHandler(next http.Handler, g *gate, instance string, extra map[string]http.HandlerFunc, stop func() error) http.Handler {
+func localHandler(next http.Handler, g *gate, instance string, stop func() error) http.Handler {
 	token := g.token
 	mux := http.NewServeMux()
-	for route, h := range extra {
-		mux.HandleFunc(route, h)
-	}
 	mux.HandleFunc(loginCodeRoute, g.mintHandler)
 	mux.HandleFunc(pathRoute, pathHandler(token))
 	mux.HandleFunc(identityRoute, func(w http.ResponseWriter, r *http.Request) {

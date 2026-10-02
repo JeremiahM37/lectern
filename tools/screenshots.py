@@ -106,7 +106,7 @@ Next: verify the HTTP contract and document the handoff protocol.
                 "LECTERN_CREDS": str(tmp / "no-credentials"), "LECTERN_CODEX_CREDS": str(tmp / "no-codex-credentials")}
             log = open(tmp / "lectern.log", "w")
             logs.append(log)
-            proc = subprocess.Popen([str(binary)], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
+            proc = subprocess.Popen([str(binary), "serve"], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
             processes.append(proc)
             wait_for(lambda: api(base, "/health"))
             request = lambda path, body=None, method=None: api(base, path, body, method)
@@ -327,7 +327,7 @@ Next: verify the HTTP contract and document the handoff protocol.
             snapshot = {kind: [r["id"] for r in request('/' + kind)] for kind in ["projects", "routines", "tasks"]}
             stop(proc)
             processes.remove(proc)
-            proc = subprocess.Popen([str(binary)], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
+            proc = subprocess.Popen([str(binary), "serve"], env=lec_env, cwd=ROOT, stdout=log, stderr=log)
             processes.append(proc)
             wait_for(lambda: api(base, "/health"))
             for kind, ids in snapshot.items():

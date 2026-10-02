@@ -70,6 +70,7 @@ type dashboardForm struct {
 	projectHiddenValues map[string]string
 	// submitVerb names what Ctrl+S (or Enter on the last field) does.
 	submitVerb string
+	help       string
 }
 
 // singleLine reports a form with one visible one-line field, which Enter
@@ -642,6 +643,10 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 			m.syncProjectTarget()
 		}
 		m.saveField()
+		if msg.String() == "tab" && f.submitVerb == "commit" && current.Key == "message" && strings.TrimSpace(f.fields[f.index].Value) == "" {
+			m.notice = "Commit message is required"
+			return nil
+		}
 		delta := 1
 		if msg.String() == "shift+tab" {
 			delta = -1
@@ -662,6 +667,10 @@ func (m *dashboard) updateForm(msg tea.KeyMsg) tea.Cmd {
 		}
 		if !f.fields[f.index].Multiline {
 			m.saveField()
+			if f.submitVerb == "commit" && current.Key == "message" && strings.TrimSpace(f.fields[f.index].Value) == "" {
+				m.notice = "Commit message is required"
+				return nil
+			}
 			// Enter on the last question submits; before that it moves on.
 			if lastAnswer(f.fields, f.index) {
 				body, err := formBody(f.fields)
@@ -770,6 +779,9 @@ func formBody(fields []field) (map[string]any, error) {
 func (m *dashboard) formView() string {
 	f := m.form
 	lines := []string{accent.Bold(true).Render(clip(" "+f.title, m.width-4)), ""}
+	if f.help != "" {
+		lines = append(lines, muted.Width(max(20, m.width-6)).Render(f.help), "")
+	}
 	start := max(0, f.index-max(1, m.height-17))
 	for i := start; i < len(f.fields) && len(lines) < max(5, m.height-12); i++ {
 		if !fieldVisible(f.fields, i) {

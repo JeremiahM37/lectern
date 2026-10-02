@@ -267,3 +267,29 @@ func TestPairingSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("expected idle_days=14, got %v", got)
 	}
 }
+
+// A phone on the explicitly enabled HTTP listener must receive a cookie its
+// browser can actually send. Other listeners keep the Secure cookie policy.
+func TestWiFiPairingUsesSameDatabaseAndRestrictedCookieException(t *testing.T) {
+	h := pairingHarness(t, func(c *config.Config) { c.Auth = "token"; c.AuthToken = "secret" })
+	h.App.Server.WiFiURL = func() string { return h.URL }
+	minted := decodeBody(t, rawDo(t, "POST", h.URL+"/api/pair/mint", nil,
+		map[string]string{"Authorization": "Bearer secret"}, nil))
+	response := rawDo(t, "POST", h.URL+"/api/pair/exchange", obj{"code": minted.str("code"), "name": "Wi-Fi phone"}, nil, nil)
+	cookie := setCookie(response, "lectern_device")
+	response.Body.Close()
+	if cookie == nil || cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("HTTP Wi-Fi cookie: %+v", cookie)
+	}
+	read := rawDo(t, "GET", h.URL+"/api/sessions", nil, nil, map[string]*http.Cookie{"d": cookie})
+	read.Body.Close()
+	if read.StatusCode != 200 {
+		t.Fatalf("paired phone cannot read existing runtime: %d", read.StatusCode)
+	}
+	// Enabling Wi-Fi does not let anonymous callers mint more devices.
+	anonymous := rawDo(t, "POST", h.URL+"/api/pair/mint", nil, nil, nil)
+	anonymous.Body.Close()
+	if anonymous.StatusCode != 401 {
+		t.Fatalf("anonymous pairing mint: %d", anonymous.StatusCode)
+	}
+}

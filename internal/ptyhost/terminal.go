@@ -1,7 +1,6 @@
 package ptyhost
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"sync"
@@ -57,29 +56,15 @@ func AttachTerminal(cl *Client, name string, in, out *os.File) error {
 	go func() {
 		defer finish()
 		buf := make([]byte, 4096)
-		prefix := false
+		var keys attachKeys
 		for {
 			n, err := in.Read(buf)
 			if n > 0 {
-				chunk := buf[:n]
-				if prefix {
-					prefix = false
-					if chunk[0] == 'd' {
-						return
-					}
-					if chunk[0] != detachPrefix {
-						chunk = append([]byte{detachPrefix}, chunk...)
-					}
+				chunk, detach := keys.feed(buf[:n])
+				if len(chunk) > 0 && stream.Write(chunk) != nil {
+					return
 				}
-				if i := bytes.IndexByte(chunk, detachPrefix); i == len(chunk)-1 {
-					prefix = true
-					chunk = chunk[:i]
-				}
-				// Ctrl+\ is never passed on: a terminal turns it into SIGQUIT,
-				// which ends the agent. Lectern's attach clients use it to
-				// send a file; this plain one has nothing to send.
-				chunk = bytes.ReplaceAll(chunk, []byte{0x1c}, nil)
-				if len(chunk) > 0 && stream.Write(append([]byte(nil), chunk...)) != nil {
+				if detach {
 					return
 				}
 			}

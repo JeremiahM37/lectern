@@ -52,7 +52,7 @@ def claims_server(tmp_path):
         "TMUX_TMPDIR": str(tmux_dir),
     }
     proc = subprocess.Popen(
-        [_binary()], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        [_binary(), "serve"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     base = f"http://127.0.0.1:{port}"
     try:

@@ -1,25 +1,34 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"golang.org/x/term"
 	"rsc.io/qr"
 
-	"github.com/JeremiahM37/lectern/v2/cmd/lectern/localruntime"
-	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/console"
 )
 
-// phoneCommand is `lectern phone`: let a phone on this Wi-Fi reach your
-// private Lectern, and print a QR code that pairs it (localruntime/phone.go).
-func phoneCommand(cfg *config.Config, args []string) error {
-	off, showQR := false, term.IsTerminal(int(os.Stdout.Fd()))
+// phoneWarning is said wherever a phone is paired over plain HTTP.
+const phoneWarning = "This address is not encrypted (plain HTTP on your network). Only paired devices can use it, " +
+	"but use it on a network you trust."
+
+// phoneCommand is `lectern phone`: pair a phone with this Lectern. It uses an
+// address a phone can already reach (the tailnet, or a server's own network
+// address); the private local runtime, which only answers this computer, is
+// first made reachable on this computer's Wi-Fi address (POST
+// /api/phone/wifi, cmd/lectern/localruntime/phone.go). --off stops that.
+func phoneCommand(c *console.Client, args []string, out io.Writer) error {
+	off, showQR := false, false
+	if f, ok := out.(*os.File); ok {
+		showQR = term.IsTerminal(int(f.Fd()))
+	}
 	for _, a := range args {
 		switch a {
 		case "--off":
@@ -30,44 +39,81 @@ func phoneCommand(cfg *config.Config, args []string) error {
 			return errors.New("usage: lectern phone [--off] [--no-qr]")
 		}
 	}
-	if os.Getenv("LECTERN_API") != "" {
-		return errors.New("lectern phone sets up your private Lectern on this computer, but LECTERN_API points at a server elsewhere; open that server's web page and use Settings → Connect your phone")
-	}
-	binary, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	ep, err := localruntime.Ensure(ctx, binary, cfg)
-	if err != nil {
-		return fmt.Errorf("start Lectern: %w", err)
-	}
-	st, err := localruntime.Phone(ctx, ep, !off)
-	if err != nil {
-		return err
-	}
 	if off {
-		fmt.Println("Phones on this Wi-Fi can no longer reach Lectern. Paired phones stay paired for when you turn it back on.")
+		if _, err := c.JSON("DELETE", "/phone/wifi", nil); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "Phones on this Wi-Fi can no longer reach Lectern. Paired phones stay paired for when you turn it back on.")
 		return nil
 	}
-	printPhone(os.Stdout, st, showQR)
-	return nil
-}
-
-func printPhone(w io.Writer, st localruntime.PhoneState, showQR bool) {
-	fmt.Fprintf(w, "Lectern is reachable on this Wi-Fi at %s\n\n", st.URL)
-	if showQR {
-		if code, err := qr.Encode(st.PairURL, qr.M); err == nil {
-			writeQR(w, code)
-			fmt.Fprintln(w)
+	data, err := c.JSON("GET", "/phone/addresses", nil)
+	if err != nil {
+		return err
+	}
+	var state struct {
+		CanEnable bool `json:"can_enable_wifi"`
+		Options   []struct {
+			Kind, URL string
+			Available bool
 		}
 	}
-	fmt.Fprintln(w, "Scan this with your phone's camera, or open this link on the phone (it works once, for 5 minutes):")
-	fmt.Fprintf(w, "  %s\n\n", st.PairURL)
-	fmt.Fprintln(w, "⚠ "+st.Warning)
-	fmt.Fprintln(w, "\nAway from this Wi-Fi: install Tailscale on this computer and the phone (encrypted, works anywhere),")
-	fmt.Fprintln(w, "or run `lectern relay` on a server both can reach (docs/relay.md). Settings → Connect your phone shows both.")
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	address := ""
+	for _, o := range state.Options {
+		if o.Available && (o.Kind == "tailnet" || o.Kind == "lan") {
+			address = o.URL
+			break
+		}
+	}
+	if address == "" && state.CanEnable {
+		data, err = c.JSON("POST", "/phone/wifi", nil)
+		if err != nil {
+			return err
+		}
+		var result struct{ URL string }
+		if err := json.Unmarshal(data, &result); err != nil {
+			return err
+		}
+		address = result.URL
+	}
+	if address == "" {
+		return fmt.Errorf("no phone-accessible address is available; open Settings → Connect your phone for this server's network options")
+	}
+	if _, err := c.JSON("PUT", "/pair/settings", map[string]any{"enabled": true}); err != nil {
+		return err
+	}
+	data, err = c.JSON("POST", "/pair/mint", nil)
+	if err != nil {
+		return err
+	}
+	var minted struct {
+		Code string `json:"code"`
+		TTL  int    `json:"ttl_s"`
+	}
+	if err := json.Unmarshal(data, &minted); err != nil {
+		return err
+	}
+	link := address + "/pair#code=" + url.QueryEscape(minted.Code)
+	fmt.Fprintf(out, "Lectern is reachable from your phone at %s\n\n", address)
+	if showQR {
+		if code, err := qr.Encode(link, qr.M); err == nil {
+			writeQR(out, code)
+			fmt.Fprintln(out)
+		}
+	}
+	fmt.Fprintf(out, "Scan this with your phone's camera, or open this link on the phone (it works once, for %d seconds):\n", minted.TTL)
+	fmt.Fprintf(out, "  %s\n\n", link)
+	if u, _ := url.Parse(address); u != nil && u.Scheme == "http" {
+		fmt.Fprintln(out, "⚠ "+phoneWarning)
+		if state.CanEnable {
+			fmt.Fprintln(out, "Turn it off with: lectern phone --off. It also stops when this Lectern stops.")
+		}
+		fmt.Fprintln(out, "\nAway from this Wi-Fi: install Tailscale on this computer and the phone (encrypted, works anywhere),")
+		fmt.Fprintln(out, "or run `lectern relay` on a server both can reach (docs/relay.md). Settings → Connect your phone shows both.")
+	}
+	return nil
 }
 
 // writeQR draws a QR code with half blocks, two modules per character cell,

@@ -62,6 +62,7 @@ func TestCatalogAgentsGetProjectMCPThroughTheirOwnConfig(t *testing.T) {
 			p := h.project("mcp-"+tc.agent, obj{"default_agent": tc.agent, "mcp": mcp})
 			h.session(obj{"agent": tc.agent, "project_id": p.id()})
 			cmd := h.launchCmd()
+			cmd += h.launchEnv(cmd)
 			if !strings.Contains(cmd, tc.want) || !strings.Contains(cmd, "/lectern/mcp/mock/mcp.json") {
 				t.Fatalf("%s launch does not point at the private MCP file: %s", tc.agent, cmd)
 			}

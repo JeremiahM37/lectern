@@ -503,12 +503,12 @@ func TestSessionStatusUsesTheSharedVocabulary(t *testing.T) {
 		want     string
 	}{
 		{row{"state": "idle", "state_label": "Idle", "status": "waiting"}, false, "Idle"},
-		{row{"state": "ended", "state_reason": "agent_exited"}, false, "Ended · agent exited"},
+		{row{"state": "ended", "state_reason": "agent_exited"}, false, "Stopped"},
 		{row{"state": "idle"}, true, "Needs you"},
 		{row{"status": "waiting"}, false, "Idle"},
 		{row{"status": "running"}, false, "Working"},
 		{row{"status": "running"}, true, "Needs you"},
-		{row{"status": "idle", "agent_exited_at": float64(1)}, false, "Ended · agent exited"},
+		{row{"status": "idle", "agent_exited_at": float64(1)}, false, "Stopped"},
 		{row{"status": "idle", "setup_state": "creating"}, false, "Working · setting up"},
 		{row{"status": "dead", "ended_at": float64(1)}, false, "Ended"},
 		{row{"status": "idle", "agent_state": "waiting_permission"}, false, "Needs you · permission prompt"},
@@ -534,6 +534,10 @@ func TestReviewCommitOnMainOffersANewBranch(t *testing.T) {
 	review := &codeReview{base: "/term/session/1/changes", scope: "working", data: reviewData{Branch: "main"}}
 	m.review = review
 	m.Update(key("c"))
+	m.updateForm(tea.KeyMsg{Type: tea.KeyTab})
+	if m.form.index != 0 || m.notice != "Commit message is required" {
+		t.Fatal("empty commit message was allowed past its field")
+	}
 	for _, r := range "Add notes" {
 		m.updateForm(key(string(r)))
 	}
@@ -544,7 +548,7 @@ func TestReviewCommitOnMainOffersANewBranch(t *testing.T) {
 	if len(rec.bodies) != 1 || rec.bodies[0]["new_branch"] != "lectern/alpha-ui" || rec.bodies[0]["allow_base_branch"] != nil {
 		t.Fatalf("new-branch commit sent %v", rec.bodies)
 	}
-	if m.review != review || !strings.Contains(m.notice, "new branch") {
+	if m.review != review || !strings.Contains(m.notice, "this folder is now on lectern/alpha-ui") {
 		t.Fatalf("did not return to the review: notice=%q", m.notice)
 	}
 	m.busy = false

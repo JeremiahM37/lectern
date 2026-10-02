@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 	"unicode"
@@ -84,4 +85,14 @@ func UniqueName(name string, live []*store.Session, self int64) string {
 			return candidate
 		}
 	}
+}
+
+// FolderName is a working directory's last element, the name a session
+// without a project goes by, or "" when it has none worth showing.
+func FolderName(workdir string) string {
+	name := path.Base(strings.ReplaceAll(strings.TrimSpace(workdir), "\\", "/"))
+	if name == "." || name == "/" || name == "" {
+		return ""
+	}
+	return name
 }

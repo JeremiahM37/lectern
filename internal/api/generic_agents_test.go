@@ -113,7 +113,7 @@ func TestAgentProviderSecretsUseTypedRetentionMarkers(t *testing.T) {
 	h.decode("PUT", "/api/agents", []obj{updated}, 200, nil)
 	p := h.project("local-runner", obj{"default_agent": "local-runner"})
 	h.session(obj{"agent": "local-runner", "model": "local-model", "project_id": p.id()})
-	if cmd := h.launchCmd(); !strings.Contains(cmd, "OPENAI_API_KEY=test-only-secret") {
+	if cmd := h.launchEnv(h.launchCmd()); !strings.Contains(cmd, "OPENAI_API_KEY=test-only-secret") {
 		t.Fatalf("retained provider key did not reach the session launcher: %s", cmd)
 	}
 	for _, placeholder := range []string{"[secret retained]", "__KEEP__", "••••"} {

@@ -152,6 +152,14 @@ const mediaSessionOf = (hash: string) => {
   return match ? Number(match[1]) : null;
 };
 export default function App() {
+  const [desktopNavigation, setDesktopNavigation] = useState(() => matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const media = matchMedia("(min-width: 1024px)");
+    const update = () => setDesktopNavigation(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
   useLocale();
   const [view, setView] = useState<Tab>(HOME),
     [showEvals, setShowEvals] = useState(false),
@@ -270,6 +278,7 @@ export default function App() {
     [],
   );
   const navigate = useCallback((hash: string) => {
+    document.getElementById("nav-overflow")?.removeAttribute("open");
     hash = canonicalHash(hash);
     const kind = hash.replace(/^#/, "").split("/")[0] || HOME;
     if (isTab(kind) && opensModal(kind)) {
@@ -529,6 +538,7 @@ export default function App() {
   });
   useEffect(() => {
     const apply = () => {
+      document.getElementById("nav-overflow")?.removeAttribute("open");
       // Old names (#board, #deck, #targets, #tasks/<project>/…) are rewritten
       // in place, so a bookmark or an older notification still lands.
       const canonical = canonicalHash(location.hash);
@@ -1233,10 +1243,11 @@ export default function App() {
         <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar" aria-label={t("nav.label")}>
-        {primaryViews(tasks.length > 0).map((tab) => (
+        {primaryViews(tasks.length > 0, desktopNavigation).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
+            data-nav-target={tab}
             aria-current={view === tab ? "page" : undefined}
             className={["tab", view === tab ? "on" : ""].filter(Boolean).join(" ")}
             onClick={() => navigate(tab === "terminals" ? terminals.hash : "#" + tab)}
@@ -1250,6 +1261,18 @@ export default function App() {
                 {live}
               </b>
             )}
+            {tab === "terminals" && (
+              <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
+                {terminals.tabs.length}
+              </b>
+            )}
+            {tab === "media" && (
+              <b id="media-badge" className={liveViews.length ? "badge" : "badge dim"}
+                hidden={!media.length && !liveViews.length}
+                title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : t("nav.mediaCount", { n: media.length })}>
+                {media.length + liveViews.length}
+              </b>
+            )}
             {tab === "approvals" && (
               <b id="appr-badge" className="badge" hidden={!approvals.length} title={t("nav.approvalsWaiting", { n: approvals.length })}>
                 {approvals.length}
@@ -1257,7 +1280,15 @@ export default function App() {
             )}
           </button>
         ))}
-        <details
+        {desktopNavigation && (["machines", "plugins"] as const).map((name) => (
+          <button key={name} className={"tab" + (view === "settings" && section.name === name ? " on" : "")}
+            data-nav-target={name} aria-current={view === "settings" && section.name === name ? "page" : undefined}
+            onClick={() => settings(name)}>
+            <span className="tab-ic" aria-hidden="true"><Icon name={NAV_ICON.settings} /></span>
+            {t(`nav.more.${name}`)}
+          </button>
+        ))}
+        {!desktopNavigation && <details
           id="nav-overflow"
           className={`action-menu ${moreEntries(tasks.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
         >
@@ -1308,7 +1339,7 @@ export default function App() {
               );
             })}
           </div>
-        </details>
+        </details>}
       </nav>
       <div id="toasts" aria-live="polite">
         {toasts.map((toast) => (

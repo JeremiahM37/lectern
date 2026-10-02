@@ -230,6 +230,8 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     t["api"]("/sessions", {"project_id": project["id"], "agent": "claude", "name": "Fix login"})
     (root / "NOTES.md").write_text("what the agent changed\n")
 
+    page.route("**/api/sessions/*/git/commit-message", lambda route: route.fulfill(
+        json={"message": "Add project notes", "agent": "stub", "model": "test"}))
     page.set_viewport_size(size)
     click = Clicks()
     page.goto(t["url"] + "/#sessions")
@@ -242,11 +244,11 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     expect(review.locator(".commit-on-main")).to_contain_text(f"works directly on {base}")
     # It is the person's own folder: say so before switching it to a branch.
     expect(review.locator(".commit-own-folder")).to_contain_text(f"creates branch lectern/fix-login in your folder {root}")
-    # The message starts from what changed, not from the session's name.
-    expect(review.locator("textarea.commit-message")).to_have_value("Update NOTES.md")
     push = review.get_by_role("checkbox", name="Push to origin")
     expect(push).to_be_disabled()
     expect(review).to_contain_text("no remote to push to")
+    # The message is drafted from what changed, not from the session's name.
+    expect(review.locator(".commit-message")).to_have_value("Add project notes")
     commit = review.get_by_role("button", name="Commit on lectern/fix-login", exact=True)
     expect(commit).to_be_enabled()
     click(commit)
@@ -254,6 +256,7 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == "lectern/fix-login"
     assert git(root, "log", "-1", "--format=%s", base) == "base"
     assert "NOTES.md" in git(root, "show", "--name-only", "--format=", "lectern/fix-login")
+    assert git(root, "log", "-1", "--format=%s") == "Add project notes"
     assert click.n == 4, click.n
 
 
@@ -418,30 +421,33 @@ def test_chat_keeps_the_last_line_in_view(page, server, size):
 
 @pytest.mark.parametrize("size", WIDTHS, ids=IDS)
 def test_navigation_is_short_and_more_stays_in_its_place(page, real_terminal, size):
-    """N9: Sessions, Approvals, Settings (+ Tasks once used) and More; an open
-    terminal never takes a slot; More fits the sidebar and closes on the way out."""
+    """N9: on a phone, Sessions, Approvals, Settings (+ Tasks once used) and
+    More, and an open terminal never takes a slot. A desktop sidebar shows every
+    page directly and has no More to open over the terminal."""
     t = real_terminal
     page.set_viewport_size(size)
     page.goto(t["url"] + "/#sessions")
     tabs = page.locator("#tabbar > .tab")
-    expect(tabs).to_have_count(3)
+    pages = 3 if size is PHONE else 11
+    expect(tabs).to_have_count(pages)
     page.locator(".scard", has_text="Real terminal").get_by_role("button", name="⌨ Terminal", exact=True).click()
     expect(page.locator("#terminal-workspace")).to_be_visible()
     if size is PHONE:
         show = page.get_by_role("button", name="Show navigation", exact=True)
         if show.is_visible():
             show.click()
-    expect(tabs).to_have_count(3)
-    expect(page.locator("#more-terminal-badge")).to_have_text("1")
-    page.locator("#nav-overflow > summary").click()
-    panel = page.locator("#nav-overflow > .action-menu-panel")
-    expect(panel).to_be_visible()
-    if size is DESKTOP:
-        nav = page.locator("#tabbar").bounding_box()
-        box = panel.bounding_box()
-        assert box["x"] + box["width"] <= nav["x"] + nav["width"] + 1, (box, nav)
-    page.locator('#tabbar .tab[data-tab="settings"]').click()
-    expect(panel).not_to_be_visible()
+    expect(tabs).to_have_count(pages)
+    if size is PHONE:
+        expect(page.locator("#more-terminal-badge")).to_have_text("1")
+        page.locator("#nav-overflow > summary").click()
+        panel = page.locator("#nav-overflow > .action-menu-panel")
+        expect(panel).to_be_visible()
+        page.locator('#tabbar .tab[data-tab="settings"]').click()
+        expect(panel).not_to_be_visible()
+    else:
+        expect(page.locator("#nav-overflow")).to_have_count(0)
+        expect(page.locator("#terminal-badge")).to_have_text("1")
+        page.locator('#tabbar .tab[data-tab="settings"]').click()
     # Sessions offers the way back to the open terminal.
     page.locator('#tabbar .tab[data-tab="sessions"]').click()
     expect(page.locator("#sess-terminals")).to_contain_text("Terminals (1)")

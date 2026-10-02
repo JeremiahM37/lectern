@@ -94,7 +94,7 @@ func (f *agentQuickFakeAPI) server(t *testing.T) *httptest.Server {
 	}))
 }
 
-func TestResolveAgentSessionCreatesWithWorkdirNameAndProject(t *testing.T) {
+func TestResolveAgentSessionCreatesWithServerAssignedNameAndProject(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
@@ -123,8 +123,8 @@ func TestResolveAgentSessionCreatesWithWorkdirNameAndProject(t *testing.T) {
 	if f.created["workdir"] != sub {
 		t.Errorf("workdir = %v, want %v", f.created["workdir"], sub)
 	}
-	if f.created["name"] != filepath.Base(sub) {
-		t.Errorf("name = %v, want %v", f.created["name"], filepath.Base(sub))
+	if _, present := f.created["name"]; present {
+		t.Errorf("name must be assigned uniquely by the server, got %v", f.created["name"])
 	}
 	if got, ok := f.created["project_id"].(float64); !ok || int64(got) != 7 {
 		t.Errorf("project_id = %v, want 7 (workdir is inside the registered repo)", f.created["project_id"])

@@ -103,6 +103,8 @@ export function GitPanel({
   // once the status loads) — the session's name is not a commit message.
   const [message, setMessageState] = useState("");
   const messageTouched = useRef(false);
+  // Set once a drafted message has replaced the suggestion (below).
+  const drafted = useRef(false);
   const setMessage = (m: string) => {
     messageTouched.current = true;
     setMessageState(m);
@@ -137,13 +139,33 @@ export function GitPanel({
         remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
-        else if (!messageTouched.current && s.suggested_message) setMessageState(s.suggested_message);
+        else if (!messageTouched.current && !drafted.current && s.suggested_message) setMessageState(s.suggested_message);
       })
       .catch((e) => live && setError(String(e instanceof Error ? e.message : e)));
     return () => {
       live = false;
     };
   }, [sessionId, repo, reload, refreshKey]);
+
+  // Draft once from the actual diff. Never replace text the user starts typing
+  // while the model is answering, and retain manual entry if it is unavailable.
+  const draftRequested = useRef(false);
+  useEffect(() => {
+    if (!status?.files.length || status.operation || messageTouched.current || draftRequested.current) return;
+    draftRequested.current = true;
+    let live = true;
+    // The suggestion from the changed files stays until the draft arrives,
+    // and is what is left if drafting is unavailable.
+    api.request<{ message: string }>(base + "/commit-message", { method: "POST", body: { repo } })
+      .then((draft) => {
+        if (live && !messageTouched.current && draft.message) {
+          drafted.current = true;
+          setMessageState(draft.message);
+        }
+      })
+      .catch(() => { /* Manual entry and Write message remain available. */ });
+    return () => { live = false; };
+  }, [!!status?.files.length, sessionId, repo]);
 
   const refresh = () => {
     setReload((n) => n + 1);

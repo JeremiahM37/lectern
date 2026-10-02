@@ -112,6 +112,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	sessMgr := sessions.New(db, reg, b, sessions.Launcher{
 		ClaudeBin: cfg.ClaudeBin, CodexBin: cfg.CodexBin, GeminiBin: cfg.GeminiBin,
 	}, mem, log)
+	sessMgr.ExpireApprovals = br.ExpireForSession
 	sessMgr.WorktreeNamespace = cfg.WorktreeNamespace
 	sessMgr.HandoffPoll = cfg.HandoffPoll
 	sessMgr.TargetPollTimeout = cfg.TargetPollTimeout

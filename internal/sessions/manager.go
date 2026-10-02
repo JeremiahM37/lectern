@@ -16,6 +16,7 @@ import (
 	agentcfg "github.com/JeremiahM37/lectern/v2/internal/agents"
 	"github.com/JeremiahM37/lectern/v2/internal/bus"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
+	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -59,6 +60,9 @@ type Manager struct {
 	// as a hard operator override (e.g. a future config knob) that cannot
 	// be turned off per launch.
 	AskPermission bool
+
+	// ExpireApprovals wakes waiting hooks when their agent can no longer answer.
+	ExpireApprovals func(int64) int
 
 	// Checks, when set, is told when the screen-derived status moves a
 	// session from busy/working (StatusRunning) to idle (StatusIdle) — see
@@ -474,6 +478,20 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	if agent == "" {
 		agent = "claude"
 	}
+	// Probe on the selected target before allocating a session or workspace.
+	// A missing executable must never look like a successfully started agent
+	// (agent_installed.go).
+	config, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	preIsolation := config.Isolation
+	if o.Isolation != nil && o.Configuration == nil {
+		preIsolation = o.Isolation.Normalized()
+	}
+	if err := m.checkAgentInstalled(ctx, ex, target, config, preIsolation, o.Env); err != nil {
+		return nil, err
+	}
 	// lecternWorkspace is true when this launch created workdir itself; see
 	// the Gemini MCP branch below, the only thing that writes into a workspace.
 	lecternWorkspace := false
@@ -493,29 +511,19 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	}
 	name := o.Name
 	if name == "" {
-		// Project (or agent) plus the first message's topic, unique among live
-		// sessions (naming.go). Without a first message the topic comes with
-		// the first prompt instead (NameFromPrompt).
+		// Project (or, without one, the folder; or the agent for a scratch
+		// session) plus the first message's topic, unique among live sessions
+		// (naming.go). Without a first message the topic comes with the first
+		// prompt instead (NameFromPrompt).
 		projectName := ""
 		if project != nil {
 			projectName = project.Name
+		} else if !lecternWorkspace {
+			projectName = FolderName(workdir)
 		}
 		name = WithTopic(NameBase(projectName, agent), o.Prime)
 		if live, err := m.DB.Sessions(false); err == nil {
 			name = UniqueName(name, live, 0)
-		}
-	}
-	// Refuse an agent that is not on the machine before there is a session
-	// to report as started (agent_installed.go).
-	if o.ReservedID == 0 {
-		if pre, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration); err == nil {
-			iso := pre.Isolation
-			if o.Isolation != nil && o.Configuration == nil {
-				iso = o.Isolation.Normalized()
-			}
-			if err := m.checkAgentInstalled(ctx, ex, target, pre, iso); err != nil {
-				return nil, err
-			}
 		}
 	}
 	var sess *store.Session
@@ -545,11 +553,6 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// Persist the exact launch settings before publishing a background reservation.
 	// A failed checkout must retain its profile rather than falling back to later
 	// edits of the reusable agent or profile settings.
-	config, err := m.launchConfiguration(agent, o.ProjectID, o.Configuration)
-	if err != nil {
-		m.end(sess.ID, "dead")
-		return nil, err
-	}
 	// A per-launch Isolation override applies only to a fresh launch — a
 	// continuation (o.Configuration != nil) keeps exactly what it started
 	// with, which m.launchConfiguration already copied forward.
@@ -662,8 +665,9 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 			env[k] = v
 		}
 	}
-	// The session's own secrets go through a private file rather than the
-	// launch command line (writeSecretEnv); everything else stays a prefix.
+	// The session's own secrets are kept out of its saved launch settings and
+	// out of the setup commands below; only the launch's private environment
+	// file carries them (stageLaunchEnvironment).
 	secretEnv := map[string]string{}
 	for _, k := range []string{agentevents.EnvHookToken, "OTEL_EXPORTER_OTLP_HEADERS"} {
 		if v, ok := env[k]; ok {
@@ -698,6 +702,20 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 	// PermissionRequest hook is registered below, and what gets persisted
 	// as this session's effective permission_mode.
 	askPermission := m.AskPermission || o.PermissionMode == "ask"
+	if agent == DemoAgent && spec.Command == "sh" {
+		if helper := helpers.Command(ex, "demo-agent", nil, ""); helper != "" {
+			spec.Command, spec.Args = helper, nil
+			config.Spec = spec
+			if askPermission {
+				env["LECTERN_DEMO_ASK"] = "1"
+			}
+			envPrefix, err = EnvPrefix(env)
+			if err != nil {
+				m.end(sess.ID, StatusDead)
+				return nil, err
+			}
+		}
+	}
 	config.Spec, config.Yolo = spec, o.Yolo
 	if askPermission {
 		config.PermissionMode = "ask"
@@ -1052,12 +1070,25 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.snapshotCatalogConversations(ctx, sess.ID, ex, spec, workdir)
 	}
 	m.launched.set(sess.ID, store.Now())
-	envFile, envFileNames, secretPrefix := writeSecretEnv(ctx, ex, tmuxName, secretEnv, config.Isolation)
+	// Everything the agent's environment holds, its secrets included, goes
+	// through a private one-use file rather than the launch command line, so
+	// neither the process list nor a dead agent's shell can show it.
+	secretPrefix, err := EnvPrefix(secretEnv)
+	if err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	envFile, cleanupEnv, err := stageLaunchEnvironment(ctx, ex, secretPrefix+envPrefix+mcpEnvPrefix)
+	if err != nil {
+		m.end(sess.ID, StatusDead)
+		return nil, err
+	}
+	defer cleanupEnv()
 	cmd := spec.LaunchCommand(Start{
 		SetupToken: setupToken,
 		Workdir:    workdir, TmuxName: tmuxName, Model: o.Model, Resume: o.Resume, ResumeID: resumeID, ForkID: forkID,
-		SessionID: assignedID, EnvFile: envFile, EnvFileNames: envFileNames,
-		Prompt: argPrompt, EnvPrefix: secretPrefix + envPrefix + mcpEnvPrefix, Yolo: o.Yolo, ToolArgs: toolArgs,
+		SessionID: assignedID,
+		Prompt:    argPrompt, EnvFile: envFile, Yolo: o.Yolo, ToolArgs: toolArgs,
 		Isolation: config.Isolation, IsolationOpts: isolationOpts, Backend: backend.For(ex)})
 	r, err := ex.Run(ctx, cmd, executor.RunOpts{Timeout: 60})
 	if err != nil {
@@ -1270,10 +1301,10 @@ func (m *Manager) endWith(id int64, status, reason string) {
 	// nothing was ever started for this id, and the one place every
 	// stop/kill/dead-detection path converges, so it is the one place the
 	// egress proxy's lifetime needs to be tied to.
-	m.releaseSessionResources(id)
 	now := store.Now()
 	m.DB.Update("sessions", id, map[string]any{
 		"status": status, "ended_at": now, "updated_at": now, "end_reason": reason})
+	m.releaseSessionResources(id)
 	if reason != EndFailed {
 		m.finishCatalogCapture(id)
 	}
@@ -1458,6 +1489,9 @@ func (m *Manager) Release(ctx context.Context, id int64) error {
 	}()
 	if err != nil {
 		return err
+	}
+	if m.ExpireApprovals != nil {
+		m.ExpireApprovals(id)
 	}
 	m.Bus.Publish("board", "session_dismissed", map[string]any{"id": id})
 	m.Log.Info("session released (process left running)", "session", id,
@@ -1651,6 +1685,9 @@ func (m *Manager) cleanupWorkspaceMCP(id int64) {
 // Every path that ends a session calls it; both halves are no-ops when the
 // session never had the resource.
 func (m *Manager) releaseSessionResources(id int64) {
+	if m.ExpireApprovals != nil {
+		m.ExpireApprovals(id)
+	}
 	m.IsolationProxies.Stop(id)
 	m.cleanupWorkspaceMCP(id)
 }
@@ -1664,6 +1701,9 @@ func (m *Manager) NameFromPrompt(id int64, prompt string) {
 		return
 	}
 	base := NameBase(row.ProjectName, row.Agent)
+	if row.ProjectName == "" && !IsDefaultName(row.Name, base) {
+		base = NameBase(FolderName(row.Workdir), row.Agent)
+	}
 	if !IsDefaultName(row.Name, base) || Topic(prompt) == "" {
 		return
 	}

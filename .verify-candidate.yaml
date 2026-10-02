@@ -1,0 +1,33 @@
+# Validate the candidate without restarting production or touching live sessions.
+# The isolated browser suite starts this checkout's binary and exercises its API,
+# desktop/phone UI and real PTY flows in private namespaces.
+backend: web
+launch:
+  url: about:blank
+options:
+  web:
+    headless: true
+steps:
+  - name: candidate Go, frontend artifact and browser regressions
+    actions:
+      - shell:
+          cmd: >-
+            ADK_ISOLATION_REVIEWED=1 ADK_TEST_CPUS=24
+            ADK_TEST_GOCACHE=/mnt/bulk/admin-cache/lectern-test-gocache
+            tools/test-all-parallel.sh .
+          timeout: 900
+  - name: candidate static analysis
+    actions:
+      - shell:
+          cmd: go vet ./...
+          timeout: 180
+  - name: portable binaries compile
+    actions:
+      - shell:
+          cmd: |
+            set -eu
+            candidate_build_dir=$(mktemp -d /tmp/lectern-portable-build.XXXXXX)
+            trap 'rm -rf "$candidate_build_dir"' EXIT
+            GOOS=windows GOARCH=amd64 go build -o "$candidate_build_dir/lectern.exe" ./cmd/lectern
+            GOOS=darwin GOARCH=arm64 go build -o "$candidate_build_dir/lectern" ./cmd/lectern
+          timeout: 180

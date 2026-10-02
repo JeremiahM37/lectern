@@ -169,6 +169,7 @@ func TestCredentialPathsAreOverridable(t *testing.T) {
 func TestDefaultDBPathIsTheStateDirectory(t *testing.T) {
 	cwd, home := t.TempDir(), t.TempDir()
 	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("LOCALAPPDATA", "")
 	if got, want := defaultDBPath(cwd, home), filepath.Join(home, ".local", "state", "lectern", "server", "lectern.db"); got != want {
 		t.Fatalf("default db = %q, want %q", got, want)
 	}

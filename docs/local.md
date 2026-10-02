@@ -105,7 +105,7 @@ address without signing in shows a page saying to run `lectern up`.
 `lectern up` also hands the running helper your shell's `PATH`, so an agent
 you installed after it started is found without restarting it.
 
-Stopping the helper does not discard the local database or durable tmux
+Stopping the helper does not discard the local database or durable terminal
 sessions; later local commands can start it again and resume them. A stop is
 refused while a task is still active, so inspect or finish that task first.
 Local state defaults to `~/.local/state/lectern/local`, or to
@@ -149,3 +149,9 @@ Tailscale or a relay ([Remote access](remote-access.md)).
 Both paths preserve the agent CLI's own provider and model settings. Choose
 the remote client when one board should manage agents on several machines;
 choose local when the terminal workspace should stay on this computer.
+
+The built-in terminal uses a Unix PTY on Linux/macOS and ConPTY on Windows;
+tmux is optional. Linux has full runtime/browser regression coverage. Windows
+and macOS CI runs the session backend, PTY host, web terminal and server smoke
+tests on native runners;
+physical desktops and networks can still differ from CI.

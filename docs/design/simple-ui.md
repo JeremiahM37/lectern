@@ -43,7 +43,8 @@ so the web app, the phone and the terminal client cannot disagree.
 "Needs you" is never shown for an idle prompt. A short reason can accompany a
 state (`state_reason`: `starting`, `setting_up`, `setup_failed`,
 `agent_exited`, `interrupted`, `archived`, `untracked`); the card shows it
-after the state word, e.g. "Ended · agent exited".
+after the state word, e.g. "Ended · interrupted". An agent that exited while
+its terminal stays open is shown as **Stopped**, with Revive.
 
 ## Information architecture
 
@@ -66,32 +67,21 @@ Desktop sidebar (9)                Phone bottom bar
 
 ### After
 
-```
-Desktop sidebar                    Phone bottom bar
-┌─────────────────┐                ┌────────┬──────────┬──────┬────────┬──────┐
-│ Sessions  ← home│                │Sessions│Approvals²│Tasks │Settings│ More │
-│ Approvals    ²  │                └────────┴──────────┴──────┴────────┴──────┘
-│ Tasks           │                 (Terminals joins the bar while a terminal
-│ (Terminals)     │                  tab is open)
-│ ▸ More          │
-│   Overview      │                 More: Overview, Issues & PRs, Terminals,
-│   Issues & PRs  │                       Media, Agent tests, Machines, Plugins
-│   Terminals     │
-│   Media         │
-│   Agent tests   │
-│   Machines      │
-│   Plugins       │
-│ Settings        │
-└─────────────────┘
-```
+Desktop (1024px and wider) exposes every destination directly in the sidebar:
+Sessions, Approvals, Tasks, Terminals, Overview, Issues & PRs, Media, Agent tests,
+Machines, Plugins and Settings. The sidebar scrolls when the window is short;
+it has no More menu or floating navigation panel over the terminal.
 
-- **Home is always Sessions**, on every device. A reload returns to Sessions
-  unless the URL names a page.
-- **Approvals** carries the count of pending approvals. The count is the only
-  red/amber badge in the navigation.
-- **Terminals** is in the main navigation only while at least one terminal tab
-  is open; otherwise it is under More.
-- **Machines** and **Plugins** in More open those Settings sections.
+Narrow screens keep Sessions, Approvals, Settings and More; Tasks joins them
+once there is a task, i.e. once someone uses it. More holds the remaining
+destinations, Terminals with a count of open tabs, and closes on navigation. Resizing an open More menu to
+desktop removes the menu rather than leaving its panel over the workspace.
+
+- **Home is always Sessions**, unless the URL names a page.
+- **Approvals** carries the count of pending approvals.
+- **Terminals** is always available in the desktop sidebar and under More on
+  narrow screens, including when no terminal is open.
+- **Machines** and **Plugins** open their Settings sections.
 
 ### Deep links
 

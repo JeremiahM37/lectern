@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canonicalHash, HOME, moreEntries, primaryViews } from "./routes";
+import { canonicalHash, HOME, moreEntries, primaryViews, VIEWS } from "./routes";
 
 test("old links land on the page that has the same meaning now", () => {
   assert.equal(canonicalHash("#board"), "#tasks");
@@ -14,7 +14,7 @@ test("old links land on the page that has the same meaning now", () => {
     assert.equal(canonicalHash(hash), hash);
 });
 
-test("the main navigation is three pages and More; Tasks joins once used", () => {
+test("narrow navigation is three pages and More; Tasks joins once used", () => {
   assert.equal(HOME, "sessions");
   assert.deepEqual(primaryViews(false), ["sessions", "approvals", "settings"]);
   assert.deepEqual(primaryViews(true), ["sessions", "approvals", "tasks", "settings"]);
@@ -22,4 +22,9 @@ test("the main navigation is three pages and More; Tasks joins once used", () =>
   assert.deepEqual(more(false), ["tasks", "terminals", "overview", "issues", "media", "evals", "machines", "plugins"]);
   assert.ok(!more(true).includes("tasks"));
   assert.ok(more(true).includes("terminals"));
+});
+
+test("a desktop sidebar shows every page directly", () => {
+  assert.deepEqual(primaryViews(false, true), [...VIEWS]);
+  assert.deepEqual(primaryViews(true, true), [...VIEWS]);
 });

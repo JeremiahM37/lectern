@@ -16,6 +16,8 @@ export interface PhoneOption {
 }
 
 export interface PhoneAddresses {
+  can_enable_wifi?: boolean;
+  wifi_open?: boolean;
   listening: string;
   loopback_only: boolean;
   options: PhoneOption[];

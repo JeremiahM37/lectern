@@ -75,7 +75,8 @@ list says when something needs you.
 Status words are the same as on the web: **Working**, **Needs you** (only
 when a person is actually needed: an approval, or a permission prompt),
 **Idle** (at its prompt; your turn) and **Ended**, sometimes with a reason
-such as "Ended · agent exited".
+such as "Ended · interrupted"; an agent that exited while its terminal stays
+open is **Stopped**.
 
 | Keys | Action |
 | --- | --- |
@@ -772,7 +773,7 @@ fails. A record another session already continued is not listed again.
   conversation from the history picker.
 
 **An agent that exits but leaves its terminal open** (the pane drops to a shell
-prompt) is shown as **Ended · agent exited**, not idle — on its card, in the Now strip,
+prompt) is shown as **Stopped**, not idle — on its card, in the Now strip,
 in the terminal view and in the dashboard. Lectern checks each pane's root
 process about every ten seconds: a Lectern launch runs the agent under
 `bash -c "…; exec bash"`, so a bare `bash` there means the agent returned. For

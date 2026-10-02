@@ -171,6 +171,8 @@ def test_launch_payload_references_profile_and_shows_its_description(page, real_
              "env_json": "{}", "description": "Every change gets a review pass.",
              "instructions": "Review the diff before you report."}
     mock_launch_profiles(page, [saved])
+    page.route("**/api/targets/*/agents", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=json.dumps([{"name":"claude", "state":"available"}])))
 
     def sessions(route):
         if route.request.method == "POST":

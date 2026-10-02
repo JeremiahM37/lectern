@@ -1,9 +1,14 @@
 # Getting started
 
-Three steps on any computer. You need **git** and at least one agent CLI
-(Claude Code, Codex, Gemini, or another from Settings → Agents). Nothing else:
-Lectern keeps your agents' terminals alive itself, so tmux, Python and ttyd are
-not needed.
+Three steps on any computer. You need **git** and, for real work, an agent CLI
+(Claude Code, Codex, Gemini, or another from Settings → Agents); the built-in
+demo agent needs neither an install nor an account. Nothing else: Lectern keeps
+your agents' terminals alive itself (a Unix PTY on Linux and macOS, ConPTY on
+Windows), so tmux, Python and ttyd are not needed.
+
+Git: your distribution's package manager on Linux, `xcode-select --install` on
+macOS, [Git for Windows](https://git-scm.com/download/win) (which brings Git
+Bash) on Windows 10 or later.
 
 ## Linux and macOS
 
@@ -37,7 +42,10 @@ not needed.
    ```
 
    No agent installed yet? **Try a demo agent** in the browser needs nothing
-   installed and shows chat, approvals and review.
+   installed. Send it a message, approve its first edit, then open
+   **Review & merge** to see the small file change it made. Committing on a
+   new branch switches that folder to the branch, including any editor or
+   terminal using it.
 
 ## Windows
 
@@ -58,11 +66,26 @@ not needed.
 Inside WSL, follow the Linux steps instead. A WSL install and a Windows install
 are separate: each sees only the agent CLIs installed on its own side.
 
+## In the terminal
+
+`lectern` alone lists your sessions; `lectern claude` (or another installed
+agent's name) in a project folder starts or reattaches one. Inside a session,
+**Ctrl+] then m** opens the menu, **Ctrl+] then u** sends a file,
+**Ctrl+] then e** picks a path or link the agent printed, **Ctrl+] then [**
+scrolls back and **Ctrl+] then d** leaves; the agent keeps running. The same
+keys work with or without tmux ([Terminal client](terminal-client.md)).
+
 ## Next
 
-- **Your phone.** On the same Wi-Fi, run `lectern phone` (or Settings →
-  Connect your phone) and scan the QR code. Away from home, use Tailscale or a
-  relay; see [Remote access](remote-access.md) and [Relay](relay.md).
+- **Your phone.** On the same trusted Wi-Fi, run `lectern phone` (or Settings →
+  Connect your phone) and scan the QR code. It reaches the same sessions, for
+  paired devices only, over plain HTTP, until Lectern stops or
+  `lectern phone --off`. If a firewall asks, allow Lectern on your private
+  network. Away from home, use Tailscale or a relay; see
+  [Remote access](remote-access.md) and [Relay](relay.md).
+- **Check or stop it.** `lectern local status` shows the private runtime;
+  `lectern local stop` stops it and keeps its database. `lectern up` starts it
+  again.
 - **Something not working?** `lectern doctor` checks everything and prints the
   command that fixes each problem.
 - **Updates:** `lectern update`.

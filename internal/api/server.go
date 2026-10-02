@@ -50,15 +50,22 @@ import (
 type Server struct {
 	// PhoneURL is the tailnet HTTPS origin (real certificate) once that
 	// listener is up — the address to hand a phone. Empty otherwise.
-	PhoneURL    string
+	PhoneURL string
+	// EnableWiFi, DisableWiFi and WiFiURL are set only by the private local
+	// runtime: they let it also listen on this computer's Wi-Fi address for
+	// paired phones (cmd/lectern/localruntime/phone.go, POST/DELETE
+	// /api/phone/wifi). A server keeps its configured listener.
+	EnableWiFi  func() (string, error)
+	DisableWiFi func()
+	WiFiURL     func() string
 	// TailnetStatus and LANAddresses answer "Connect your phone"
 	// (phone.go); nil uses tailscaled and this computer's interfaces.
 	TailnetStatus func(context.Context) (*auth.StatusResponse, error)
 	LANAddresses  func() []string
-	autoWG      sync.WaitGroup
-	autoMu      sync.Mutex
-	autoChecked time.Time
-	autoBridges map[string][]*http.Server
+	autoWG        sync.WaitGroup
+	autoMu        sync.Mutex
+	autoChecked   time.Time
+	autoBridges   map[string][]*http.Server
 
 	DB       *store.DB
 	Bus      *bus.Bus
@@ -204,6 +211,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/agents", s.targetAgentCommands)
 	mux.HandleFunc("GET /api/targets/{id}/folders", s.targetFolders)
 	mux.HandleFunc("GET /api/phone/addresses", s.phoneAddressesHandler)
+	mux.HandleFunc("POST /api/phone/wifi", s.enablePhoneWiFi)
+	mux.HandleFunc("DELETE /api/phone/wifi", s.disablePhoneWiFi)
 	// ---- SSH depth and sandbox providers (remote_ssh.go, sandboxes.go) ----
 	mux.HandleFunc("GET /api/ssh/hosts", s.listSSHHosts)
 	mux.HandleFunc("POST /api/ssh/import", s.importSSHHosts)

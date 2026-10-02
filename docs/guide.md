@@ -4,18 +4,21 @@
 
 > The short version is the [README](../README.md); the first three steps are [Getting started](getting-started.md). This is the full guide.
 
-**Dispatch AI coding agents onto machines you own — and approve their work from your phone.**
+**The self-hosted control plane for coding agents.**
+
+Choose where work runs, dispatch to your agent, and supervise from your terminal or phone.
 
 <!-- badges -->
-![status](https://img.shields.io/badge/status-v2.6.2-8b5cf6)
+![status](https://img.shields.io/github/v/release/JeremiahM37/lectern)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/go-1.25%2B-00add8)
 ![docker](https://img.shields.io/badge/docker-ready-2496ed)
 ![binary](https://img.shields.io/badge/deploy-single%20binary-8b5cf6)
 ![PWA](https://img.shields.io/badge/PWA-mobile--first-19c37d)
 
-<!-- TODO: record a short demo GIF (install → `lectern up` → dispatch → phone approval) and drop it here as docs/screenshots/demo.gif -->
-![Lectern board](screenshots/board-current.png)
+![Dispatch and review in the current UI](media/control-plane/dispatch-review.gif)
+
+[Walkthrough and recording details](media/control-plane/README.md) — demo data and scripted agents.
 
 </div>
 

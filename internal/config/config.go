@@ -247,6 +247,9 @@ func defaultDBPath(cwd, home string) string {
 		}
 	}
 	base := os.Getenv("XDG_STATE_HOME")
+	if v := os.Getenv("LOCALAPPDATA"); v != "" {
+		base = v // Windows keeps per-user state here
+	}
 	if base == "" {
 		if home == "" {
 			return filepath.Join(cwd, "lectern.db")

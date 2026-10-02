@@ -1,87 +1,194 @@
 package localruntime
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/app"
+	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/sessions"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
 
-func TestPhoneShareOpensTheLANAddressBehindItsGate(t *testing.T) {
-	minted := 0
-	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Stands in for the app in token mode: only a paired device gets in.
-		if strings.HasPrefix(r.URL.Path, "/api/") && r.Header.Get("Cookie") != "lectern_device=ok" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+func TestWiFiHandlerKeepsHostOriginAndLocalRoutesPrivate(t *testing.T) {
+	handler := wifiHandler("192.0.2.10:32100", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	for _, tc := range []struct {
+		host, origin, path string
+		want               int
+	}{
+		{"192.0.2.10:32100", "http://192.0.2.10:32100", "/api/health", 204},
+		{"evil.example:32100", "", "/api/health", 421},
+		{"192.0.2.10:32100", "https://evil.example", "/api/projects", 403},
+		{"192.0.2.10:32100", "", "/__lectern_local/stop", 404},
+		{"192.0.2.10:32100", "", "/api/local/anything", 404},
+	} {
+		r := httptest.NewRequest("GET", "http://"+tc.host+tc.path, nil)
+		r.Host = tc.host
+		if tc.origin != "" {
+			r.Header.Set("Origin", tc.origin)
 		}
-		_, _ = io.WriteString(w, "token="+r.URL.Query().Get("token"))
-	})
-	p := &phoneShare{token: "runtime-token", serve: app, addresses: func() []string { return []string{"127.0.0.1"} },
-		mint: func() (string, time.Time, error) { minted++; return "CODE-1", time.Now().Add(5 * time.Minute), nil }}
-	t.Cleanup(p.close)
-	h := httptest.NewServer(http.HandlerFunc(p.handler))
-	t.Cleanup(h.Close)
-	call := func(method, token string) *http.Response {
-		req, _ := http.NewRequest(method, h.URL, nil)
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Errorf("%+v: got %d", tc, w.Code)
 		}
-		res, err := http.DefaultClient.Do(req)
+	}
+}
+
+// The runtime token is for this computer only: a ?token= arriving over the
+// network is removed before the app sees the request.
+func TestWiFiHandlerNeverPassesTheRuntimeToken(t *testing.T) {
+	var seen string
+	handler := wifiHandler("192.0.2.10:32100", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.URL.RawQuery }))
+	r := httptest.NewRequest("GET", "http://192.0.2.10:32100/?token=runtime-token&x=1", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), r)
+	if seen != "x=1" {
+		t.Fatalf("query reaching the app: %q", seen)
+	}
+	r = httptest.NewRequest("GET", "http://192.0.2.10:32100/api/health", nil)
+	r.Header.Set("Referer", "https://evil.example/page")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatalf("cross-site Referer: %d", w.Code)
+	}
+}
+
+func TestWiFiPairsIntoTheExistingRuntimeAndApprovesItsSession(t *testing.T) {
+	const token = "test-owner-token"
+	cfg := engineConfig(&config.Config{TickInterval: time.Second, ApprovalExpire: time.Hour}, t.TempDir(), 0, token)
+	cfg.Mock = true // No target processes; routing, auth, pairing, broker and DB are real.
+	instance, err := app.New(&cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	target, err := instance.DB.InsertTarget(&store.Target{Name: "existing machine", Kind: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := instance.Sessions.Launch(context.Background(), sessions.LaunchOpts{Name: "Existing session", TargetID: target.ID, Agent: "demo", Workdir: "/mock/project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := instance.Broker.CreateForSession(session.ID, "Write", map[string]any{"file_path": "demo-notes.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wifi := &wifiListener{handler: instance.Handler()}
+	defer wifi.close()
+	instance.Server.EnableWiFi = func() (string, error) { return wifi.enableAt("127.0.0.1") }
+	instance.Server.WiFiURL = wifi.address
+	instance.Server.DisableWiFi = wifi.close
+	local := httptest.NewServer(localHandler(instance.Handler(), newGate(token, "test-browser-key"), "same-runtime", func() error { return nil }))
+	defer local.Close()
+	request := func(client *http.Client, method, address, credential string, body any) (int, []byte) {
+		t.Helper()
+		var data []byte
+		if body != nil {
+			data, _ = json.Marshal(body)
+		}
+		req, err := http.NewRequest(method, address, bytes.NewReader(data))
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = res.Body.Close() })
-		return res
-	}
-	if res := call("POST", ""); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("opened without the runtime token: %d", res.StatusCode)
-	}
-	if p.state().Open {
-		t.Fatal("open without the token")
-	}
-	res := call("POST", "runtime-token")
-	body, _ := io.ReadAll(res.Body)
-	st := p.state()
-	if res.StatusCode != 200 || !st.Open || !strings.Contains(string(body), `"pair_url":"`+st.URL+`/pair#code=CODE-1"`) || !strings.Contains(string(body), "not encrypted") || minted != 1 {
-		t.Fatalf("open: %d %s", res.StatusCode, body)
-	}
-	lan, _ := url.Parse(st.URL)
-	get := func(path string, mod func(*http.Request)) (int, string) {
-		req, _ := http.NewRequest("GET", st.URL+path, nil)
-		if mod != nil {
-			mod(req)
+		req.Header.Set("Content-Type", "application/json")
+		if credential != "" {
+			req.Header.Set("Authorization", "Bearer "+credential)
 		}
-		res, err := http.DefaultClient.Do(req)
+		if credential == "" && method != "GET" {
+			parsed, _ := url.Parse(address)
+			req.Header.Set("Origin", parsed.Scheme+"://"+parsed.Host)
+		}
+		response, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
-		b, _ := io.ReadAll(res.Body)
-		return res.StatusCode, string(b)
+		defer response.Body.Close()
+		data, err = io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode, data
 	}
-	if code, _ := get("/api/sessions", nil); code != http.StatusUnauthorized {
-		t.Fatalf("unpaired API call: %d", code)
+	code, data := request(http.DefaultClient, "POST", local.URL+"/api/phone/wifi", token, map[string]any{})
+	if code != 200 {
+		t.Fatalf("enable: %d %s", code, data)
 	}
-	if code, _ := get("/api/sessions", func(r *http.Request) { r.Header.Set("Cookie", "lectern_device=ok") }); code != 200 {
-		t.Fatalf("paired API call: %d", code)
+	var enabled struct{ URL string }
+	if err := json.Unmarshal(data, &enabled); err != nil || enabled.URL == "" {
+		t.Fatalf("enable response: %s", data)
 	}
-	if code, _ := get("/api/sessions", func(r *http.Request) { r.Host = "evil.example:" + lan.Port() }); code != http.StatusMisdirectedRequest {
-		t.Fatalf("rebound host: %d", code)
+	again, err := wifi.enableAt("127.0.0.1")
+	if err != nil || again != enabled.URL {
+		t.Fatalf("enable changed runtime listener: %q %v", again, err)
 	}
-	if code, _ := get("/api/local/phone", func(r *http.Request) { r.Header.Set("Authorization", "Bearer runtime-token") }); code != http.StatusNotFound {
-		t.Fatalf("runtime controls reachable from the network: %d", code)
+	code, data = request(http.DefaultClient, "POST", local.URL+"/api/pair/mint", token, map[string]any{})
+	var minted struct{ Code string }
+	if json.Unmarshal(data, &minted) != nil || code != 200 || minted.Code == "" {
+		t.Fatalf("mint: %d %s", code, data)
 	}
-	if _, body := get("/?token=runtime-token", nil); strings.Contains(body, "runtime-token") {
-		t.Fatalf("runtime token accepted from the network: %s", body)
+	jar, _ := cookiejar.New(nil)
+	phone := &http.Client{Jar: jar, Timeout: 5 * time.Second}
+	code, data = request(phone, "GET", enabled.URL+"/api/sessions", "", nil)
+	if code != 401 {
+		t.Fatalf("unpaired phone read sessions: %d %s", code, data)
 	}
-	if res := call("DELETE", "runtime-token"); res.StatusCode != 200 || p.state().Open {
-		t.Fatalf("close: %d", res.StatusCode)
+	code, data = request(phone, "POST", enabled.URL+"/api/pair/exchange", "", map[string]any{"code": minted.Code, "name": "Test phone"})
+	if code != 200 {
+		t.Fatalf("pair: %d %s", code, data)
 	}
-	if _, err := http.Get(st.URL + "/"); err == nil {
-		t.Fatal("still listening after close")
+	code, data = request(phone, "GET", enabled.URL+"/api/sessions", "", nil)
+	var rows []struct {
+		ID   int64
+		Name string
+	}
+	if code != 200 || json.Unmarshal(data, &rows) != nil {
+		t.Fatalf("read: %d %s", code, data)
+	}
+	found := false
+	for _, row := range rows {
+		if row.ID == session.ID && row.Name == session.Name {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("phone is not seeing existing session: %s", data)
+	}
+	code, data = request(phone, "POST", fmt.Sprintf("%s/api/approvals/%d/decision", enabled.URL, approval), "", map[string]any{"decision": "approved"})
+	if code != 200 {
+		t.Fatalf("phone approval: %d %s", code, data)
+	}
+	stored, err := instance.DB.Approval(approval)
+	if err != nil || stored.Status != "approved" {
+		t.Fatalf("decision didn't reach same DB: %+v %v", stored, err)
+	}
+	code, _ = request(phone, "GET", enabled.URL+identityRoute, "", nil)
+	if code != 404 {
+		t.Fatalf("phone reached local runtime identity: %d", code)
+	}
+	code, data = request(http.DefaultClient, "DELETE", local.URL+"/api/phone/wifi", token, nil)
+	if code != 200 {
+		t.Fatalf("turn off: %d %s", code, data)
+	}
+	if wifi.address() != "" {
+		t.Fatal("stopped listener still advertised")
+	}
+	if _, err := phone.Get(enabled.URL + "/api/health"); err == nil {
+		t.Fatal("still reachable on the Wi-Fi address after turning it off")
+	}
+	// Closing Wi-Fi must leave the local runtime and session in place.
+	code, data = request(http.DefaultClient, "GET", local.URL+"/api/sessions", token, nil)
+	if code != 200 {
+		t.Fatalf("closing Wi-Fi stopped local runtime: %d %s", code, data)
 	}
 }

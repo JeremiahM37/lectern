@@ -70,7 +70,7 @@ def real_terminal(tmp_path, request):
                            +'touch '+shlex.quote(str(root/'launch-held'))+'\nwhile [ ! -f '+shlex.quote(str(root/'release-launch'))+' ]; do sleep .05; done\nfi\nexit "$lec_launch_rc"\n')
         wrapper.chmod(0o755);env['PATH']=str(tools)+os.pathsep+env['PATH']
     log = (tmp_path/'server.log').open('w')
-    proc = subprocess.Popen([_binary()],cwd=root,env=env,stdout=log,stderr=log)
+    proc = subprocess.Popen([_binary(), "serve"],cwd=root,env=env,stdout=log,stderr=log)
     def api(path, data=None):
         req = urllib.request.Request(url+'/api'+path, data=json.dumps(data).encode() if data is not None else None,
                                      headers={'Content-Type':'application/json'})

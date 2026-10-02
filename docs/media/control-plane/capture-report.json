@@ -1,0 +1,48 @@
+{
+  "build": {
+    "build": {
+      "version": "2.6.2+bf174ed420d3",
+      "revision": "",
+      "modified": null
+    },
+    "mock": true,
+    "ok": true,
+    "pending_approvals": 0,
+    "phone_url": "",
+    "queued": 0,
+    "review": 3,
+    "running": 0,
+    "sessions": 3,
+    "sessions_waiting": 3,
+    "tasks": {
+      "backlog": 2,
+      "review": 3
+    },
+    "version": "2.6.2+bf174ed420d3"
+  },
+  "fixture": "Scripted mock executors; simulated targets; real app/API and approval state transitions",
+  "checks": [
+    "machine probes",
+    "UI task dispatch to project-selected target",
+    "task reaches review",
+    "diff rendered",
+    "phone approval unblocks task",
+    "desktop full sidebar",
+    "no page errors"
+  ],
+  "targets": [
+    {
+      "name": "Workstation",
+      "kind": "local"
+    },
+    {
+      "name": "Build server",
+      "kind": "ssh"
+    },
+    {
+      "name": "Disposable workers",
+      "kind": "sandbox"
+    }
+  ],
+  "errors": []
+}

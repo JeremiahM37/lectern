@@ -149,6 +149,9 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 		AgentExited: row.AgentExitedAt != nil, PendingApproval: pending[row.ID],
 	})
 	v.StateLabel = vocab.Label(v.State)
+	if v.StateReason == vocab.ReasonAgentExited {
+		v.StateLabel = "Stopped"
+	}
 	if row.WorktreeJSON != "" {
 		json.Unmarshal([]byte(row.WorktreeJSON), &v.Workspace)
 		if v.Workspace != nil {

@@ -84,7 +84,7 @@ def bare(tmp_path):
            'XDG_STATE_HOME': str(tmp_path / 'state'), 'TMUX': '', 'PATH': str(nobin)}
     (tmp_path / 'scratch').mkdir()
     log = open(tmp_path / 'server.log', 'a')
-    proc = subprocess.Popen([_binary()], cwd=root, env=env, stdout=log, stderr=log)
+    proc = subprocess.Popen([_binary(), 'serve'], cwd=root, env=env, stdout=log, stderr=log)
 
     def api(path, data=None):
         req = urllib.request.Request(url + '/api' + path, data=json.dumps(data).encode() if data is not None else None,

@@ -147,10 +147,13 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
         sweep.check("folder-picker", root="#folder-picker")
         page.keyboard.press("Escape")
         page.keyboard.press("Escape")
-    # The More menu, open.
-    page.locator("#nav-overflow > summary").click()
-    sweep.check("more-menu")
-    page.locator("#nav-overflow > summary").click()
+    # Compact screens have More; desktop exposes destinations in the sidebar.
+    if page.locator("#nav-overflow").count():
+        page.locator("#nav-overflow > summary").click()
+        sweep.check("more-menu")
+        page.locator("#nav-overflow > summary").click()
+    else:
+        sweep.check("desktop-navigation")
     page.goto(server + "/#evals")
     page.wait_for_timeout(600)
     sweep.check("agent-tests")

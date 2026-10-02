@@ -1,10 +1,12 @@
 """Connect your phone on the private runtime: one click lets phones on this
 Wi-Fi in, shows the QR for a one-time pairing link with the warning, and Stop
-turns it off. /api/local/phone exists only on the runtime `lectern up` starts
-(cmd/lectern/localruntime/phone.go, tested for real in cmd/lectern
-TestPhoneOnTheSameWiFi); here it is routed in its real shape, since the
-isolated suite has no Wi-Fi address."""
+turns it off. Only the runtime `lectern up` starts can open a Wi-Fi listener
+(POST/DELETE /api/phone/wifi, cmd/lectern/localruntime/phone.go, tested for
+real in cmd/lectern TestPhoneOnTheSameWiFi); here the address list and that
+switch are routed in their real shape, since the isolated suite has no Wi-Fi
+address. The pairing code itself is minted by the real server."""
 import json
+import re
 
 import pytest
 from playwright.sync_api import expect
@@ -21,21 +23,24 @@ def test_phone_on_this_wifi_in_one_click(page, server, theme):
     state = {"open": False}
     calls = []
 
-    def local_phone(route):
-        method = route.request.method
-        calls.append(method)
-        if method == "POST":
-            state["open"] = True
-            body = {"open": True, "url": LAN, "lan_address": "192.168.1.20",
-                    "pair_url": LAN + "/pair#code=ABC123", "expires_at": 4102444800}
-        elif method == "DELETE":
-            state["open"] = False
-            body = {"open": False, "lan_address": "192.168.1.20"}
-        else:
-            body = {"open": state["open"], "lan_address": "192.168.1.20", **({"url": LAN} if state["open"] else {})}
+    def addresses(route):
+        lan = {"kind": "lan", "url": LAN, "available": True} if state["open"] else \
+            {"kind": "lan", "url": "http://192.168.1.20:9110", "available": False, "reason": "loopback_only"}
+        body = {"listening": "127.0.0.1:9110", "loopback_only": True, "can_enable_wifi": True,
+                "wifi_open": state["open"], "options": [
+                    {"kind": "tailnet", "available": False, "reason": "tailscale_off"}, lan,
+                    {"kind": "relay", "available": False, "reason": "relay_not_set_up"}]}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
-    page.route("**/api/local/phone", local_phone)
+    def wifi(route):
+        method = route.request.method
+        calls.append(method)
+        state["open"] = method == "POST"
+        body = {"url": LAN} if state["open"] else {"open": False}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route("**/api/phone/addresses", addresses)
+    page.route("**/api/phone/wifi", wifi)
     light(page, theme)
     page.goto(server + "/#sessions")
     nav(page, "targets")
@@ -52,7 +57,7 @@ def test_phone_on_this_wifi_in_one_click(page, server, theme):
 
     wizard.locator("#phone-lan-open").click()
     qr = wizard.get_by_test_id("phone-qr")
-    expect(qr).to_have_attribute("data-url", LAN + "/pair#code=ABC123")
+    expect(qr).to_have_attribute("data-url", re.compile("^" + re.escape(LAN) + "/pair#code=."))
     expect(wizard.locator("#phone-lan-warning")).to_contain_text("not encrypted")
     expect(lan).to_contain_text(LAN)
     assert calls.count("POST") == 1, calls

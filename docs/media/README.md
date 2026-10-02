@@ -1,3 +1,13 @@
+# Current product overview
+
+The [control-plane walkthrough and gallery](control-plane/README.md) are the
+current README assets, captured from build `bf174ed420d3`. They show the current
+desktop navigation, machine selection, task dispatch, review and phone approval,
+plus real file operations and the native terminal client.
+
+The feature recordings below are retained for reference. They were made against
+an older UI; use the current gallery for new announcements.
+
 # README demo GIFs
 
 All captures use the disposable demo instance (fake projects `acme-api`,

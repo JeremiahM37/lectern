@@ -12,17 +12,6 @@ interface Minted {
   expiresAt: number;
 }
 
-// The private runtime started by `lectern up` can also listen on this
-// computer's Wi-Fi address on request (cmd/lectern/localruntime/phone.go);
-// a hosted server has no such route and answers 404.
-interface LocalPhone {
-  open: boolean;
-  url?: string;
-  lan_address?: string;
-  pair_url?: string;
-  expires_at?: number;
-}
-
 // "Connect your phone" (docs/design/simple-ui.md): pick an address the phone
 // can actually reach — this address, the tailnet name, the LAN address (with a
 // warning) or the relay — each with one line saying what it means, then show
@@ -35,19 +24,14 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
   const [minted, setMinted] = useState<Minted>();
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [localPhone, setLocalPhone] = useState<LocalPhone>();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   useEffect(() => {
     void api
       .request<PhoneAddresses>("/phone/addresses")
       .then(setAddresses)
       .catch((e) => setError(String(e instanceof Error ? e.message : e)));
-    void api
-      .request<LocalPhone>("/local/phone")
-      .then(setLocalPhone)
-      .catch(() => undefined);
   }, []);
-  const choices = withLocalPhone(phoneChoices(addresses, origin), localPhone);
+  const choices = phoneChoices(addresses, origin);
   useEffect(() => {
     if (!chosen && addresses) setChosen(bestChoice(choices));
   }, [addresses]);
@@ -59,27 +43,27 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
     return () => window.clearInterval(timer);
   }, [minted]);
 
+  async function mint(choice: PhoneOption) {
+    if (choice.kind === "relay") {
+      const out = await api.request<{ fragment: string; shell_url?: string; expires_at: number }>("/relay/pair", { method: "POST" });
+      setMinted({ url: relayPairURL(out.fragment, out.shell_url, origin), expiresAt: out.expires_at });
+      return;
+    }
+    const settings = await api.request<{ enabled: boolean; env_forced: boolean }>("/pair/settings");
+    if (!settings.enabled) {
+      if (settings.env_forced) throw new Error(t("phone.pairingForcedOff"));
+      await api.request("/pair/settings", { method: "PUT", body: { enabled: true } });
+    }
+    const out = await api.request<{ code: string; expires_at: number }>("/pair/mint", { method: "POST" });
+    setMinted({ url: directPairURL(choice.url!, out.code), expiresAt: out.expires_at });
+  }
+
   async function show() {
     if (!chosen?.available) return;
     setBusy(true);
     setMinted(undefined);
     try {
-      if (chosen.kind === "lan" && localPhone) {
-        await openLocalPhone();
-        return;
-      }
-      if (chosen.kind === "relay") {
-        const out = await api.request<{ fragment: string; shell_url?: string; expires_at: number }>("/relay/pair", { method: "POST" });
-        setMinted({ url: relayPairURL(out.fragment, out.shell_url, origin), expiresAt: out.expires_at });
-      } else {
-        const settings = await api.request<{ enabled: boolean; env_forced: boolean }>("/pair/settings");
-        if (!settings.enabled) {
-          if (settings.env_forced) throw new Error(t("phone.pairingForcedOff"));
-          await api.request("/pair/settings", { method: "PUT", body: { enabled: true } });
-        }
-        const out = await api.request<{ code: string; expires_at: number }>("/pair/mint", { method: "POST" });
-        setMinted({ url: directPairURL(chosen.url!, out.code), expiresAt: out.expires_at });
-      }
+      await mint(chosen);
     } catch (e) {
       onNotice(String(e instanceof Error ? e.message : e), true);
     } finally {
@@ -87,19 +71,23 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
     }
   }
 
-  // One click: the same runtime starts listening on the Wi-Fi address, and
-  // the answer carries a one-time pairing link for the QR code.
-  async function openLocalPhone() {
-    const out = await api.request<LocalPhone>("/local/phone", { method: "POST" });
-    setLocalPhone(out);
-    setChosen({ kind: "lan", url: out.url, available: true });
-    if (out.pair_url && out.expires_at) setMinted({ url: out.pair_url, expiresAt: out.expires_at });
+  // The private runtime can also listen on this computer's Wi-Fi address
+  // (POST /api/phone/wifi, cmd/lectern/localruntime/phone.go): one click
+  // turns that on and shows the QR code for it.
+  async function reload() {
+    const next = await api.request<PhoneAddresses>("/phone/addresses");
+    setAddresses(next);
+    return next;
   }
   async function lanOpen() {
     setBusy(true);
     setMinted(undefined);
     try {
-      await openLocalPhone();
+      const out = await api.request<{ url: string }>("/phone/wifi", { method: "POST" });
+      await reload();
+      const lan: PhoneOption = { kind: "lan", url: out.url, available: true };
+      setChosen(lan);
+      await mint(lan);
     } catch (e) {
       onNotice(String(e instanceof Error ? e.message : e), true);
     } finally {
@@ -108,16 +96,22 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
   }
   async function lanStop() {
     try {
-      setLocalPhone(await api.request<LocalPhone>("/local/phone", { method: "DELETE" }));
+      await api.request("/phone/wifi", { method: "DELETE" });
       setMinted(undefined);
       setChosen(undefined);
+      const next = await reload();
+      setChosen(bestChoice(phoneChoices(next, origin)));
       onNotice(t("phone.lanStopped"));
     } catch (e) {
       onNotice(String(e instanceof Error ? e.message : e), true);
     }
   }
 
-  const noneAvailable = !!addresses && !choices.some((row) => row.available) && !localPhone?.lan_address;
+  const lanRow = addresses?.options.find((row) => row.kind === "lan");
+  // Offered only by the private runtime, and only when this computer has a
+  // network address to listen on.
+  const canOpenLan = !!addresses?.can_enable_wifi && !addresses.wifi_open && lanRow?.reason !== "no_lan_address";
+  const noneAvailable = !!addresses && !choices.some((row) => row.available) && !canOpenLan;
   return (
     <Modal className="sheet phone-wizard" id="phone-wizard" aria-label={t("phone.title")} onCancel={onClose}>
       <div className="sheet-head">
@@ -156,8 +150,8 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
                 {row.kind === "lan" && row.available && <span aria-hidden="true">⚠ </span>}
                 {t(`phone.explain.${row.kind}`)}
               </span>
-              {!row.available && row.reason && !(row.kind === "lan" && localPhone) && <span className="phone-choice-why">{t(`phone.why.${row.reason}`)}</span>}
-              {row.kind === "lan" && localPhone && !localPhone.open && localPhone.lan_address && (
+              {!row.available && row.reason && !(row.kind === "lan" && canOpenLan) && <span className="phone-choice-why">{t(`phone.why.${row.reason}`)}</span>}
+              {row.kind === "lan" && canOpenLan && (
                 <span className="phone-choice-why">
                   {t("phone.lanClosed")}{" "}
                   <button type="button" className="b ok" id="phone-lan-open" disabled={busy} onClick={() => void lanOpen()}>
@@ -165,7 +159,7 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
                   </button>
                 </span>
               )}
-              {row.kind === "lan" && localPhone?.open && (
+              {row.kind === "lan" && addresses?.wifi_open && (
                 <span className="phone-choice-why" id="phone-lan-warning">
                   {t("phone.lanWarning")}{" "}
                   <button type="button" className="b" id="phone-lan-stop" onClick={() => void lanStop()}>
@@ -212,11 +206,4 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
       {minted && left <= 0 && <p className="subhint">{t("settings.devices.expired")}</p>}
     </Modal>
   );
-}
-
-// withLocalPhone marks the Wi-Fi choice available once the private runtime is
-// listening there, at the address it actually opened.
-export function withLocalPhone(choices: PhoneOption[], local: LocalPhone | undefined): PhoneOption[] {
-  if (!local?.open || !local.url) return choices;
-  return choices.map((row) => (row.kind === "lan" ? { kind: "lan", url: local.url, available: true } : row));
 }

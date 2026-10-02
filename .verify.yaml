@@ -71,8 +71,8 @@ steps:
       - wait: 2.5
     expect:
       vision: >
-        the Lectern web app with a navigation showing Sessions, Approvals, Tasks
-        and Settings, and a list of agent sessions or a clear "Start an agent"
+        the Lectern web app with a desktop sidebar showing Sessions, Approvals, Tasks, Terminals
+        and Settings directly, with no More flyout, and a list of agent sessions or a clear "Start an agent"
         action; no error text, no blank white screen
 
   - name: tasks board renders live
@@ -93,7 +93,7 @@ steps:
       vision: >
         a list of interactive agent session cards, each showing a name, a status
         like Working, Needs you or Idle, how long it has been quiet, a preview of
-        terminal output, and an Attach button; not a blank page, not an error
+        terminal output, and Chat or Terminal buttons; not a blank page, not an error
 
   # Deterministic coverage of the sink settings (Discord/ntfy inputs, Save button,
   # Spend card) lives in the Go and Playwright suites; here we only confirm the tab

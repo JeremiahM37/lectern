@@ -9,12 +9,15 @@ export type View = (typeof VIEWS)[number];
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 
 /**
- * The main navigation: Sessions, Approvals and Settings, with everything else
- * under More (re-audit N9). Tasks — the board with Orchestrate and Race —
- * joins the main bar once there is a task, i.e. once someone uses it.
- * Terminals never takes a slot; it lives under More, with a count.
+ * The main navigation. A desktop sidebar has room for every page, so it shows
+ * them all directly and never opens a menu over the terminal. A narrow screen
+ * keeps Sessions, Approvals and Settings, with everything else under More
+ * (re-audit N9); Tasks — the board with Orchestrate and Race — joins that bar
+ * once there is a task, i.e. once someone uses it. Terminals never takes a
+ * narrow slot; it lives under More, with a count.
  */
-export function primaryViews(hasTasks: boolean): View[] {
+export function primaryViews(hasTasks: boolean, desktop = false): View[] {
+  if (desktop) return [...VIEWS];
   return hasTasks ? ["sessions", "approvals", "tasks", "settings"] : ["sessions", "approvals", "settings"];
 }
 

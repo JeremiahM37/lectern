@@ -64,8 +64,8 @@ Any agent added under Settings → Agents works the same way: lectern NAME.`,
 		Name: "doctor", Group: groupStart, Synopsis: "doctor",
 		Summary: "Check this computer and say how to fix anything missing",
 		Usage:   []string{"lectern doctor"},
-		About: `Checks what Lectern needs (tmux, git, Python 3, at least one agent), what
-it can use (the web terminal viewer, other agents, push alerts), which server
+		About: `Checks Git and installed agents, optional tools (tmux and Python 3),
+the built-in web terminal and push alerts, which server
 your commands talk to, and whether agents can reach it to report status and
 ask for approval. Every problem comes with the command that fixes it.
 
@@ -75,13 +75,18 @@ missing or broken. Optional things never fail it.`,
 	},
 	{
 		Name: "phone", Group: groupStart, Synopsis: "phone",
-		Summary: "Let your phone on this Wi-Fi use Lectern, with a QR code to pair it",
+		Summary: "Connect your phone to this Lectern, with a QR code to pair it",
 		Usage:   []string{"lectern phone [--no-qr]", "lectern phone --off"},
-		About: `Makes your private Lectern (the same sessions you already have) reachable on
-this computer's Wi-Fi address and prints a QR code. Scan it with the phone's
-camera: the link pairs the phone once and works for 5 minutes. Only paired
-devices can use Lectern from the network, but the connection is not
-encrypted, so use it on a network you trust.
+		About: `Prints a QR code that pairs your phone with this Lectern (the same sessions
+you already have). Scan it with the phone's camera: the link pairs the phone
+once and works for 5 minutes.
+
+When Lectern already has an address a phone can reach (your tailnet, or a
+server's network address) that one is used. Your private Lectern, which
+otherwise only answers this computer, is made reachable on this computer's
+Wi-Fi address instead. Only paired devices can use it from the network, but
+the connection is not encrypted, so use it on a network you trust. It stops
+when the private Lectern stops, or with --off.
 
 Away from home, use Tailscale (install it on this computer and the phone) or
 a relay (lectern relay, see docs/relay.md) instead.

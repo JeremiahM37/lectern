@@ -199,7 +199,7 @@ def _start(port: int, extra_env: dict):
         reserved = _PORT_RESERVATIONS.pop(port, None)
         if reserved is not None:
             reserved.close()
-        proc = subprocess.Popen([binary], cwd=ROOT, env=env,
+        proc = subprocess.Popen([binary, "serve"], cwd=ROOT, env=env,
                                 stdout=log, stderr=subprocess.STDOUT)
     for _ in range(100):
         if proc.poll() is not None:

@@ -2,6 +2,7 @@
 // status words, navigation, first run, Start an agent, the approval card,
 // Settings → Basics, committing on a new branch and Connect your phone.
 const catalog: Record<string, string> = {
+  "status.stopped": "已停止",
   // Session status (sessions/status.ts), identical on every surface.
   "status.working": "工作中",
   "status.needs_you": "需要你",

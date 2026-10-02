@@ -20,7 +20,7 @@ import (
 
 // nativeControlsEnv disables the client-side wrapper entirely when it is set to
 // 0/off/false. Without it the resolved attachment runs exactly as it always
-// has: keys go to the agent and Ctrl-b d detaches.
+// has: keys go to the selected backend, which owns its detach chord.
 const nativeControlsEnv = "LECTERN_NATIVE_CONTROLS"
 
 // nativeControls is the identity and endpoint one attached terminal needs to

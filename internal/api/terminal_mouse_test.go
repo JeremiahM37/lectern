@@ -25,7 +25,7 @@ func (h *harness) launchOf(sess obj) string {
 	if launched == "" {
 		h.t.Fatalf("no launch for %s", sess.str("tmux_session"))
 	}
-	return launched
+	return launched + h.launchEnv(launched)
 }
 
 func TestClaudeLaunchesLeaveTheMouseToTheTerminal(t *testing.T) {

@@ -56,6 +56,7 @@ export function reasonLabel(reason: string): string {
 
 /** "Ended · agent exited" — the words a card, a chip or a list row shows. */
 export function stateText(info: StateInfo): string {
+  if (info.state === "ended" && info.reason === "agent_exited") return t("status.stopped");
   const reason = info.reason && info.reason !== "approval" ? reasonLabel(info.reason) : "";
   return reason ? `${stateLabel(info.state)} · ${reason}` : stateLabel(info.state);
 }

@@ -130,7 +130,7 @@ func (s *Server) exchangePairingCode(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		MaxAge:   pairingDeviceCookieMaxAge,
-		Secure:   !plainHTTPFromNetwork(r),
+		Secure:   !s.plainHTTPPairing(r),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -144,15 +144,19 @@ func (s *Server) exchangePairingCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// plainHTTPFromNetwork reports a phone pairing over plain HTTP on the local
+// plainHTTPPairing reports a phone pairing over plain HTTP on the local
 // network ("Let my phone connect on this Wi-Fi"). A browser drops a Secure
 // cookie set over plain HTTP on any address but localhost, which would leave
 // the phone paired with nothing to show for it, so the cookie goes without
 // Secure there; the person was told that path is unencrypted. Everywhere
 // else (TLS, a TLS-terminating proxy or tunnel, loopback) it stays Secure.
-func plainHTTPFromNetwork(r *http.Request) bool {
+// The private runtime's own Wi-Fi listener (WiFiURL) is always such a path.
+func (s *Server) plainHTTPPairing(r *http.Request) bool {
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		return false
+	}
+	if s.WiFiURL != nil && s.WiFiURL() == "http://"+r.Host {
+		return true
 	}
 	loopback, _ := auth.ClassifyRemote(r.RemoteAddr)
 	return !loopback

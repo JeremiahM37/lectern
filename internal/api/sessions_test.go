@@ -697,6 +697,7 @@ func TestCustomAgentsAreDefinableAndLaunchable(t *testing.T) {
 		t.Fatalf("session agent: %v", sess.str("agent"))
 	}
 	cmd := h.launchCmd()
+	cmd += h.launchEnv(cmd)
 	for _, want := range []string{"aider", "--model qwen3.6:35b-a3b", "AIDER_DARK_MODE=1"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("launch missing %q: %s", want, cmd)
@@ -726,6 +727,7 @@ func TestSessionInheritsTheProjectsEnvForLocalModels(t *testing.T) {
 			"ANTHROPIC_AUTH_TOKEN": "ollama"}}, 201)
 	h.session(obj{"project_id": p.id(), "model": "qwen3.6:35b-a3b"})
 	cmd := h.launchCmd()
+	cmd += h.launchEnv(cmd)
 	for _, want := range []string{
 		"ANTHROPIC_BASE_URL=http://ollama-host:11434",
 		"ANTHROPIC_AUTH_TOKEN=ollama", "--model qwen3.6:35b-a3b"} {

@@ -45,7 +45,7 @@ var clientVerbs = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
 	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true, "account": true,
-	"browser": true, "computer": true, "plugin": true,
+	"browser": true, "computer": true, "plugin": true, "phone": true,
 	"help": true, "--help": true, "-h": true,
 }
 
@@ -56,7 +56,7 @@ var clientVerbs = map[string]bool{
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
-	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true, "phone": true,
+	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -169,6 +169,20 @@ func main() {
 	if !explicitRemote && routesToServer(os.Args[1:], interactiveTerminal()) {
 		explicitRemote = useHostedService(cfg, len(os.Args) > 1 && os.Args[1] == "mcp")
 	}
+	// Preserve legacy systemd units that explicitly supervise this binary,
+	// but a bare invocation from a pipe must never create a server/database.
+	if len(os.Args) == 1 && !interactiveTerminal() && os.Getenv("INVOCATION_ID") == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		status, err := localruntime.StatusOf(ctx)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println(describeLocalStatus(status))
+		fmt.Println("Run lectern up to open the browser, or lectern serve to run a server.")
+		return
+	}
 	if len(os.Args) == 1 && interactiveTerminal() {
 		var err error
 		if explicitRemote {
@@ -223,12 +237,6 @@ func main() {
 		case "up":
 			if err := upCommand(cfg, os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			return
-		case "phone":
-			if err := phoneCommand(cfg, os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
 				os.Exit(1)
 			}
 			return

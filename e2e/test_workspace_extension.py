@@ -114,7 +114,7 @@ def test_extension_server_restart_retains_original_session(real_terminal):
     # Kill only this private server process; persistent tmux and the target
     # worker survive, just as on a lost server connection.
     t['proc'].kill(); t['proc'].wait(timeout=10)
-    replacement=subprocess.Popen([_binary()],cwd=t['root'],env=t['env'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    replacement=subprocess.Popen([_binary(), "serve"],cwd=t['root'],env=t['env'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         deadline=time.monotonic()+15
         while time.monotonic()<deadline:

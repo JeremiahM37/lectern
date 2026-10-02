@@ -41,7 +41,7 @@ func AgentExited(row *store.Session, p AgentProbe) bool {
 		return false
 	}
 	if row.Origin == "lectern" {
-		if strings.TrimSpace(p.RootArgs) != "bash" {
+		if !shellNames[strings.TrimSpace(p.RootArgs)] {
 			return false
 		}
 		// The launch command returned, but the agent may have been started
@@ -128,7 +128,7 @@ func (m *Manager) probeAgents(ctx context.Context, ex executor.Executor, targetI
 	var rows []*store.Session
 	now := store.Now()
 	for _, s := range group {
-		if s.Agent == "shell" || s.EndedAt != nil || s.Status == StatusStarting || s.Status == StatusDead || now-s.CreatedAt < 20 {
+		if s.Agent == "shell" || s.EndedAt != nil || s.Status == StatusStarting || s.Status == StatusDead || now-s.CreatedAt < 2 {
 			continue
 		}
 		rows = append(rows, s)
@@ -196,6 +196,9 @@ func (m *Manager) probeAgents(ctx context.Context, ex executor.Executor, targetI
 			if row, err := m.DB.Session(s.ID); err == nil {
 				m.publish(row)
 				if exited {
+					if m.ExpireApprovals != nil {
+						m.ExpireApprovals(s.ID)
+					}
 					m.Log.Info("agent exited; terminal still open", "session", s.ID, "name", s.Name)
 				}
 			}

@@ -48,8 +48,9 @@ send them yet.
 | `idle` | **Idle** | at its prompt or quiet; your turn |
 | `ended` | **Ended** | ended, agent exited, setup failed, interrupted or archived |
 
-A reason follows the word when there is one: "Ended · agent exited",
-"Working · setting up". An approval the dashboard has seen more recently than
+A reason follows the word when there is one: "Ended · interrupted",
+"Working · setting up". An agent that exited while its terminal stays open
+reads **Stopped**. An approval the dashboard has seen more recently than
 the row still reads "Needs you". A machine that is not answering keeps its
 `unreachable ·` prefix.
 

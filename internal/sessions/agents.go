@@ -526,15 +526,14 @@ type Start struct {
 	// when AssignsSessionID is true.
 	SessionID string
 	Prompt    string
+	// EnvFile, when set, is a private one-use file on the target holding the
+	// agent's environment, its secrets (the hook token) included, staged by
+	// the manager (stageLaunchEnvironment). The agent's own subshell loads
+	// and deletes it, so the values are never part of a command line — not in
+	// the process list, and not in the text a shell prints when the agent dies
+	// of a signal — and the shell the pane falls back to never has them.
+	EnvFile   string
 	EnvPrefix string
-	// EnvFile, when set, is a 0600 file on the target holding the
-	// session's secrets (its hook token) as `export` lines. The pane reads
-	// and deletes it before the agent starts, so the secrets are never part
-	// of a command line — not in the process list, and not in the text a
-	// shell prints when the agent dies of a signal. EnvFileNames are unset
-	// again before the shell the pane falls back to.
-	EnvFile      string
-	EnvFileNames []string
 	// Yolo runs the agent without its approval prompts. On by default for
 	// interactive sessions: you are sitting in the terminal watching it, which
 	// is the supervision, and being asked to confirm every edit in a session you
@@ -602,9 +601,18 @@ func (s Spec) invocation(o Start) string {
 // LaunchCommand builds the tmux command that starts one interactive session.
 func (s Spec) LaunchCommand(o Start) string {
 	agentInvocation := s.invocation(o)
+	if o.EnvFile != "" {
+		// Credentials are loaded as data from a private file. A shell reporting
+		// a crashed child prints this path, never the environment assignments.
+		// Inside a sandbox the file is a read-only mount and stays until the
+		// cleanup after the agent exits.
+		file := shellq.Quote(o.EnvFile)
+		agentInvocation = "( set -a; . " + file + " || exit; set +a; rm -f " + file + " 2>/dev/null; " + agentInvocation + " )"
+	}
 	if o.Isolation.Normalized().Mode != isolation.None {
 		wrapOpts := o.IsolationOpts
 		wrapOpts.Workdir = o.Workdir
+		wrapOpts.EnvironmentFile = o.EnvFile
 		if wrapOpts.Agent == "" {
 			wrapOpts.Agent = s.Name
 		}
@@ -622,16 +630,12 @@ func (s Spec) LaunchCommand(o Start) string {
 	// bash reports an agent killed by a signal ("Quit (core dumped)" for
 	// Ctrl+\) by printing its whole command line into the pane. The agent's
 	// own stderr goes on through fd 3, the shell's report goes nowhere.
-	source, unset := "", ""
+	cleanup := ""
 	if o.EnvFile != "" {
-		file := `"` + o.EnvFile + `"`
-		source = ". " + file + " && rm -f " + file + "; "
-		if len(o.EnvFileNames) > 0 {
-			unset = "unset " + strings.Join(o.EnvFileNames, " ") + "; "
-		}
+		cleanup = "rm -f " + shellq.Quote(o.EnvFile) + "; rmdir " + shellq.Quote(strings.TrimSuffix(o.EnvFile, "/env")) + " 2>/dev/null; "
 	}
-	inner := fmt.Sprintf("cd %s && { %s%s 2>&3 3>&-; } 3>&2 2>/dev/null; %sexec bash",
-		shellq.Quote(o.Workdir), source, agentInvocation, unset)
+	inner := fmt.Sprintf("cd %s && { %s 2>&3 3>&-; } 3>&2 2>/dev/null; %sexec bash",
+		shellq.Quote(o.Workdir), agentInvocation, cleanup)
 	var setupEnv []string
 	if o.SetupToken != "" {
 		setupEnv = []string{"LECTERN_SETUP_TOKEN=" + o.SetupToken}

@@ -22,7 +22,7 @@ func gateFixture(t *testing.T) (*gate, *httptest.Server) {
 		}
 		w.WriteHeader(http.StatusCreated)
 	})
-	ts := httptest.NewServer(localHandler(app, g, "instance", nil, func() error { return nil }))
+	ts := httptest.NewServer(localHandler(app, g, "instance", func() error { return nil }))
 	t.Cleanup(ts.Close)
 	return g, ts
 }

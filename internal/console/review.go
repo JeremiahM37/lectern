@@ -298,7 +298,7 @@ func (m *dashboard) commitForm() tea.Cmd {
 				return nil
 			}
 			payload["new_branch"] = str(values["new_branch"])
-			notice += " (on a new branch, " + str(values["new_branch"]) + ")"
+			notice += " — this folder is now on " + str(values["new_branch"])
 		}
 		m.busy = true
 		c := m.client
@@ -319,6 +319,9 @@ func (m *dashboard) commitForm() tea.Cmd {
 	})
 	if m.form != nil {
 		m.form.submitVerb = "commit"
+		if onBase {
+			m.form.help = "Committing on a new branch switches this folder, including your editor and other terminals, to that branch."
+		}
 		m.form.cancel = func() tea.Cmd {
 			m.form = nil
 			m.review, m.reviewPaused = m.reviewPaused, nil

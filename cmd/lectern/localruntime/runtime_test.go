@@ -15,7 +15,7 @@ import (
 )
 
 func TestLocalHandlerRequiresIdentityAndReportsStopConflict(t *testing.T) {
-	h := localHandler(http.NotFoundHandler(), newGate("secret", "browser-key"), "instance", nil, func() error {
+	h := localHandler(http.NotFoundHandler(), newGate("secret", "browser-key"), "instance", func() error {
 		return errors.New("active task must finish first")
 	})
 	server := httptest.NewServer(h)
