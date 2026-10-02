@@ -14,11 +14,12 @@ test("old links land on the page that has the same meaning now", () => {
     assert.equal(canonicalHash(hash), hash);
 });
 
-test("the main navigation is four pages, plus Terminals while one is open", () => {
+test("the main navigation is three pages and More; Tasks joins once used", () => {
   assert.equal(HOME, "sessions");
-  assert.deepEqual(primaryViews(false), ["sessions", "approvals", "tasks", "settings"]);
-  assert.deepEqual(primaryViews(true), ["sessions", "approvals", "tasks", "terminals", "settings"]);
-  const more = (open: boolean) => moreEntries(open).map((e) => ("view" in e ? e.view : e.section));
-  assert.deepEqual(more(false), ["overview", "issues", "terminals", "media", "evals", "machines", "plugins"]);
-  assert.ok(!more(true).includes("terminals"));
+  assert.deepEqual(primaryViews(false), ["sessions", "approvals", "settings"]);
+  assert.deepEqual(primaryViews(true), ["sessions", "approvals", "tasks", "settings"]);
+  const more = (used: boolean) => moreEntries(used).map((e) => ("view" in e ? e.view : e.section));
+  assert.deepEqual(more(false), ["tasks", "terminals", "overview", "issues", "media", "evals", "machines", "plugins"]);
+  assert.ok(!more(true).includes("tasks"));
+  assert.ok(more(true).includes("terminals"));
 });

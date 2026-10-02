@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "{path} をプロジェクトとして追加できませんでした。",
   "start.sheet.notInstalled": "{name}（未インストール）",
   "start.sheet.demoAgent": "デモ（インストール不要）",
-  "start.sheet.noAgent": "このマシンにはエージェントがインストールされていません。",
-  "start.sheet.useDemo": "デモ用エージェントを使う",
   "start.sheet.ask": "危険な操作の前に確認する",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -167,6 +165,15 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "このリポジトリにはプッシュ先のリモートがありません",
   "review.why.prNeedsPush": "プルリクエストにはプッシュが必要です",
   "start.sheet.worktreeNeedsProject": "先にプロジェクトのフォルダーを選んでください",
+  "start.sheet.installHint": "本物のエージェントを使うには Claude Code か Codex をインストールしてください。それまではデモ用エージェントで Lectern の使い方を試せます。",
+  "start.sheet.notInstalledWhy": "このマシンには {name} がインストールされていません。インストール済みのエージェントかデモを選んでください。",
+  "sessions.card.renameHint": "名前を変更",
+  "sessions.list.moreLabel": "その他のセッションツール",
+  "sessions.list.openTerminals": "⌨ ターミナル（{n}）",
+  "nav.terminalsOpen": "{n} 個のターミナルが開いています",
+  "review.onMain.ownFolder": "あなたのフォルダー {dir} にブランチ {branch} を作成し、フォルダーをそのブランチに切り替えます。エディターとターミナルもそのブランチになります。",
+  "review.onMain.folderNowOn": "コミットしました。フォルダー {dir} は今ブランチ {branch} にあります。",
+  "review.git.noIdentity": "Git にまだ名前とメールアドレスが設定されていないため、コミットできません。何も変更していません。ターミナルで次の 2 つのコマンドを実行してから、もう一度コミットしてください：",
 };
 
 export default catalog;

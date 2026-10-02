@@ -2160,10 +2160,14 @@
   // src/service-worker.ts
   var worker = self;
 <<<<<<< HEAD
+<<<<<<< HEAD
   var CACHE = "lectern-react-130d2585f952";
 =======
   var CACHE = "lectern-react-9d881879eea8";
 >>>>>>> simple-tui-2
+=======
+  var CACHE = "lectern-react-2b8fb31273bc";
+>>>>>>> simple-web-2
   var API = /^\/(api|term|a2a)(\/|$)/;
   function idbGet(key) {
     return new Promise((resolve) => {
@@ -2213,10 +2217,14 @@
     const state = await relayReady;
     if (state.pinnedKey) await pinShell(cache, state.pinnedKey);
 <<<<<<< HEAD
+<<<<<<< HEAD
     else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-B6rbhOIr.js","/react/assets/Workbench-D51V6bXy.js","/react/assets/action-C0ldWb1-.js","/react/assets/app-Cnwx9Jir.css","/react/assets/app-HJ02Pyjy.js","/react/assets/es-BjvOFIqx.js","/react/assets/fr-BgU7KYtZ.js","/react/assets/ja-KZkHyd2O.js","/react/assets/jsx-runtime-DKr7__-1.js","/react/assets/ko-BANBmYm_.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-BiylDP49.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-C3cMAG2N.js","/react/assets/zh-DF7kEYYZ.js"]);
 =======
     else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-D8gj3EW6.js","/react/assets/Workbench-CdOmoDCG.js","/react/assets/action-DgoT6u-Z.js","/react/assets/app-Bmi8DgMA.js","/react/assets/app-Cnwx9Jir.css","/react/assets/es-CQ2xsPic.js","/react/assets/fr-DbwLjgwa.js","/react/assets/ja-FORQR6Ty.js","/react/assets/jsx-runtime-CTc3L-Ek.js","/react/assets/ko-DVlu-jXb.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-BBKSMpBk.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-DbSIDRBH.js","/react/assets/zh-BttOdNY4.js"]);
 >>>>>>> simple-tui-2
+=======
+    else await cache.addAll(["/","/icon.svg","/icon-192.png","/manifest.webmanifest","/fonts.css","/fonts/inter-latin.woff2","/fonts/inter-latin-ext.woff2","/react/assets/PaneViews-CGmk3RZC.js","/react/assets/Workbench-BIN2kjb-.js","/react/assets/action-DSlPwQaw.js","/react/assets/app-CSPPKg8Z.css","/react/assets/app-DkkyqBDi.js","/react/assets/es-BPYU4L0D.js","/react/assets/fr-D6u_E_zV.js","/react/assets/ja-BjpQdtHz.js","/react/assets/jsx-runtime-zL88avyV.js","/react/assets/ko-C_A5s4U2.js","/react/assets/preload-helper-CxWDS4yO.js","/react/assets/rolldown-runtime-hePW80VL.js","/react/assets/terminal-DLh1C7rX.js","/react/assets/terminal-VUPuK4u9.css","/react/assets/tokens-BxhfCosx.css","/react/assets/tokens-CGWy47m6.js","/react/assets/zh-ACTVu6OJ.js"]);
+>>>>>>> simple-web-2
     await worker.skipWaiting();
   })()));
   worker.addEventListener("activate", (event) => event.waitUntil((async () => {

@@ -159,3 +159,28 @@
 .phone-wizard .phone-choice input[type="radio"] { flex: none; width: auto; margin: 4px 0 0; }
 /* First run: no empty "Scratch terminals" section under the Start card. */
 .list.first-run .session-section-title, .list.first-run #scratch-terminals { display: none; }
+
+/* ---- session card: the title renames in place ---- */
+.scard-top button.nm {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit; font-weight: 600; font-size: 14.5px;
+  color: var(--ink); cursor: text; text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scard-top button.nm:hover { text-decoration: underline dotted; }
+.scard-top .nm-edit { flex: 1 1 auto; min-width: 0; margin: 0; padding: 4px 8px; font-size: 14px; }
+
+/* ---- Sessions: secondary tools under ⋯ while the list is short ---- */
+.sess-more > summary { min-height: 40px; min-width: 44px; display: grid; place-items: center; font-size: 18px; }
+.sess-more > .action-menu-panel { min-width: min(320px, 90vw); display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+.sess-more .session-filters { display: flex; flex-direction: column; gap: 8px; }
+.sess-more #sess-search { margin: 0; }
+@media (min-width: 1024px) {
+  #tabbar { overflow-y: auto; }
+  #nav-overflow > .action-menu-panel { max-width: 100%; box-sizing: border-box; }
+  #nav-overflow .action-menu-panel > button { width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  #nav-overflow .more-detail { display: none; }
+}
+#nav-overflow .more-title .badge { position: static; margin-left: 6px; }
+.commit-own-folder { color: var(--ink); font-weight: 600; margin: 4px 0 8px 24px; }
+.commit-no-identity { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--ink); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.commit-no-identity p { margin: 0 0 6px; }
+.commit-no-identity pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }

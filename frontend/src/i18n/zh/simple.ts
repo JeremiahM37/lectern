@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "无法将 {path} 添加为项目。",
   "start.sheet.notInstalled": "{name}（未安装）",
   "start.sheet.demoAgent": "演示（无需安装）",
-  "start.sheet.noAgent": "这台机器上没有安装代理。",
-  "start.sheet.useDemo": "使用演示代理",
   "start.sheet.ask": "有风险的操作前先询问",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -167,6 +165,15 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "此仓库没有可推送的远程仓库",
   "review.why.prNeedsPush": "拉取请求需要先推送",
   "start.sheet.worktreeNeedsProject": "请先选择项目文件夹",
+  "start.sheet.installHint": "安装 Claude Code 或 Codex 才能使用真正的代理。在此之前，演示代理会展示 Lectern 的用法。",
+  "start.sheet.notInstalledWhy": "这台机器上没有安装 {name}。请选择已安装的代理或演示代理。",
+  "sessions.card.renameHint": "重命名",
+  "sessions.list.moreLabel": "更多会话工具",
+  "sessions.list.openTerminals": "⌨ 终端（{n}）",
+  "nav.terminalsOpen": "已打开 {n} 个终端",
+  "review.onMain.ownFolder": "这会在你的文件夹 {dir} 中创建分支 {branch} 并切换到该分支。你的编辑器和终端也会在这个分支上。",
+  "review.onMain.folderNowOn": "已提交。你的文件夹 {dir} 现在在分支 {branch} 上。",
+  "review.git.noIdentity": "Git 还不知道你的姓名和邮箱，所以无法提交。没有做任何更改。请在终端里运行下面两条命令，然后再提交一次：",
 };
 
 export default catalog;

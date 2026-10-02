@@ -14,6 +14,7 @@ from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
 from test_terminal_dashboard import Dashboard
 from test_session_groups import patch
+from session_sheet import session_tool
 
 
 def request(t, method, suffix, body=None):
@@ -70,8 +71,8 @@ def test_web_can_track_again_from_untracked_records(page,real_terminal,width):
     expect(page.locator('.scard')).to_have_count(0)
     pending=[]
     page.route('**/api/sessions?all=true',lambda route:pending.append(route))
-    page.locator('#sess-scope').select_option('all')
-    page.locator('#sess-search').fill('Real terminal')
+    session_tool(page, '#sess-scope').select_option('all')
+    session_tool(page, '#sess-search').fill('Real terminal')
     assert pending
     pending[0].continue_()
     page.unroute('**/api/sessions?all=true')

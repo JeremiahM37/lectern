@@ -8,15 +8,20 @@ export type View = (typeof VIEWS)[number];
 
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 
-/** The main navigation. Terminals joins it only while a terminal tab is open. */
-export function primaryViews(terminalsOpen: boolean): View[] {
-  return terminalsOpen ? ["sessions", "approvals", "tasks", "terminals", "settings"] : ["sessions", "approvals", "tasks", "settings"];
+/**
+ * The main navigation: Sessions, Approvals and Settings, with everything else
+ * under More (re-audit N9). Tasks — the board with Orchestrate and Race —
+ * joins the main bar once there is a task, i.e. once someone uses it.
+ * Terminals never takes a slot; it lives under More, with a count.
+ */
+export function primaryViews(hasTasks: boolean): View[] {
+  return hasTasks ? ["sessions", "approvals", "tasks", "settings"] : ["sessions", "approvals", "settings"];
 }
 
 /** What More holds: every other page, then two Settings sections people look for by name. */
 export type MoreEntry = { view: View } | { section: "machines" | "plugins" };
-export function moreEntries(terminalsOpen: boolean): MoreEntry[] {
-  const views: View[] = ["overview", "issues", ...(terminalsOpen ? [] : (["terminals"] as View[])), "media", "evals"];
+export function moreEntries(hasTasks: boolean): MoreEntry[] {
+  const views: View[] = [...(hasTasks ? [] : (["tasks"] as View[])), "terminals", "overview", "issues", "media", "evals"];
   return [...views.map((view) => ({ view })), { section: "machines" }, { section: "plugins" }];
 }
 

@@ -99,7 +99,9 @@ export function GitPanel({
   // action reloads the patches, so the choice is cleared with it.
   const [chosen, setChosen] = useState<Record<string, number[]>>({});
 
-  const [message, setMessageState] = useState(defaultMessage ?? "");
+  // Starts from what the person asked for or what changed (suggested_message,
+  // once the status loads) — the session's name is not a commit message.
+  const [message, setMessageState] = useState("");
   const messageTouched = useRef(false);
   const setMessage = (m: string) => {
     messageTouched.current = true;
@@ -118,6 +120,7 @@ export function GitPanel({
   const [prBody, setPrBody] = useState("");
   const [result, setResult] = useState<CommitResult>();
   const [pushedGuard, setPushedGuard] = useState<string[]>();
+  const [noIdentity, setNoIdentity] = useState(false);
   const [forceAsk, setForceAsk] = useState(false);
 
   useEffect(() => {
@@ -134,6 +137,7 @@ export function GitPanel({
         remoteKnown.current = true;
         // Finishing a merge: git's own message, unless one was typed.
         if (s.operation && s.merge_message && !messageTouched.current) setMessageState(s.merge_message);
+        else if (!messageTouched.current && s.suggested_message) setMessageState(s.suggested_message);
       })
       .catch((e) => live && setError(String(e instanceof Error ? e.message : e)));
     return () => {
@@ -326,6 +330,7 @@ export function GitPanel({
     setBusy("commit");
     setResult(undefined);
     setPushedGuard(undefined);
+    setNoIdentity(false);
     try {
       const out = await api.request<CommitResult>(base + "/commit", {
         method: "POST",
@@ -355,7 +360,9 @@ export function GitPanel({
           : amend
             ? t("review.git.amended")
             : movedTo
-              ? t("review.onMain.committedOn", { branch: movedTo })
+              ? status?.own_checkout
+                ? t("review.onMain.folderNowOn", { branch: movedTo, dir: status.dir || "" })
+                : t("review.onMain.committedOn", { branch: movedTo })
               : t("review.git.committed"),
         Boolean(failed),
       );
@@ -365,7 +372,9 @@ export function GitPanel({
       }
       refresh();
     } catch (e) {
-      if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
+      if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "no_git_identity") {
+        setNoIdentity(true);
+      } else if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
         setPushedGuard(((e.payload as { refs?: string[] }).refs ?? []) as string[]);
       } else {
         onNotice(e instanceof Error ? e.message : String(e), true);
@@ -503,6 +512,11 @@ export function GitPanel({
                 onChange={(e) => setNewBranch(e.target.value)}
               />
             )}
+            {onMain === "branch" && status.own_checkout && (
+              <p className="sub commit-own-folder" role="note">
+                {t("review.onMain.ownFolder", { branch: newBranch.trim() || "…", dir: status.dir || "" })}
+              </p>
+            )}
             <label className="review-checkbox">
               <input type="radio" name={`on-main-${sessionId}`} checked={onMain === "main"} onChange={() => setOnMain("main")} />
               {t("review.onMain.direct", { branch: status.branch })}
@@ -631,6 +645,12 @@ export function GitPanel({
           </div>
         )}
 
+        {noIdentity && (
+          <div className="commit-no-identity" role="alert">
+            <p>{t("review.git.noIdentity")}</p>
+            <pre>{'git config --global user.name "Your Name"\ngit config --global user.email you@example.com'}</pre>
+          </div>
+        )}
         {result && (
           <ul className="review-commit-steps">
             {result.steps.map((s, i) => (

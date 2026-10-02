@@ -205,13 +205,28 @@ export function SessionCard({
     );
   }
   // Rename only the tracked label; the directory and process stay untouched.
+  // In place: the title becomes a text box (Enter saves, Esc cancels).
+  const [renaming, setRenaming] = useState(false),
+    [nameDraft, setNameDraft] = useState("");
   function rename() {
-    const next = prompt(
-      scratch ? t("sessions.card.renameScratchPrompt") : t("sessions.card.renameSessionPrompt"),
-      cardTitle,
-    );
-    if (next === null || !next.trim()) return;
-    void run(`/sessions/${s.id}`, "PATCH", { name: next.trim() }, t("sessions.card.renamed"));
+    setNameDraft(cardTitle);
+    setRenaming(true);
+  }
+  function saveName() {
+    setRenaming(false);
+    const next = nameDraft.trim();
+    if (!next || next === cardTitle) return;
+    void run(`/sessions/${s.id}`, "PATCH", { name: next }, t("sessions.card.renamed"));
+  }
+  // Run check and Memory moved into ⋯ (re-audit N8); Memory opens below.
+  const [showMemory, setShowMemory] = useState(false);
+  async function runCheck() {
+    try {
+      await api.request(`/sessions/${s.id}/checks`, { method: "POST" });
+      onNotice(t("sessions.check.started"));
+    } catch (error) {
+      onNotice(String(error), true);
+    }
   }
   async function copyPath() {
     try {
@@ -248,7 +263,27 @@ export function SessionCard({
       </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
-        <span className="nm">{cardTitle}</span>
+        {renaming ? (
+          <input
+            className="f nm-edit"
+            autoFocus
+            aria-label={scratch ? t("sessions.card.renameScratchPrompt") : t("sessions.card.renameSessionPrompt")}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveName();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setRenaming(false);
+              }
+            }}
+          />
+        ) : (
+          <button type="button" className="nm" title={t("sessions.card.renameHint")} onClick={rename}>
+            {cardTitle}
+          </button>
+        )}
         <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} />
         <span className="sidle">
           {s.status === "dead" || setup
@@ -346,7 +381,7 @@ export function SessionCard({
         )}
         {s.group_path && <span className="chip">{s.group_path}</span>}
         {live && s.agent !== "shell" && (
-          <CheckBadge session={s} api={api} onNotice={onNotice} />
+          <CheckBadge session={s} api={api} onNotice={onNotice} hideRun />
         )}
         <CIChip ci={s.ci} />
       </div>
@@ -452,10 +487,8 @@ export function SessionCard({
                 {t("sessions.card.makeProject")}
               </button>
             )}
-            {onSwitch && s.agent !== "shell" && <button className="b" disabled={s.handoff_in_flight} onClick={()=>onSwitch(s)}>{s.handoff_in_flight ? t("sessions.card.switching") : t("sessions.card.switch")}</button>}
           </>
         )}
-        <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
         {ended && !archived && s.can_restore && (
           <button
             className="b ok"
@@ -472,8 +505,22 @@ export function SessionCard({
           </button>
         )}
         <ActionMenu name={s.name}>
+          <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
           {live && (
             <>
+              {onSwitch && s.agent !== "shell" && (
+                <button className="b" disabled={s.handoff_in_flight} onClick={() => onSwitch(s)}>
+                  {s.handoff_in_flight ? t("sessions.card.switching") : t("sessions.card.switch")}
+                </button>
+              )}
+              {s.agent !== "shell" && (
+                <button className="b" onClick={() => void runCheck()}>
+                  {t("sessions.check.run")}
+                </button>
+              )}
+              <button className="b" aria-expanded={showMemory} onClick={() => setShowMemory((open) => !open)}>
+                {t("sessions.memory.summary")}
+              </button>
               <button className="b" onClick={() => onReview(s)}>
                 {t("sessions.card.reviewChanges")}
               </button>
@@ -672,7 +719,8 @@ export function SessionCard({
       {/* Below the actions, not above them: on a card with no worktree the
           actions menu is the first disclosure, and the browser suite opens it
           that way. */}
-      <SessionMemory api={api} sessionId={s.id} projectId={s.project_id ?? null} />
+      {showMemory && <SessionMemory api={api} sessionId={s.id} projectId={s.project_id ?? null} open />}
     </article>
   );
 }
+

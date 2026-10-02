@@ -7,6 +7,7 @@ import urllib.request
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
+from session_sheet import card_action
 
 
 def prepare(t, tmp_path):
@@ -96,7 +97,7 @@ def test_saved_provider_survives_reload_and_switch_errors_are_visible(page,real_
     assert t['api']('/sessions/'+str(source['id']))['ended_at'] is None
     page.goto(t['url']+'/#sessions')
     card=page.locator('.scard').filter(has_text='deepseek-test')
-    card.get_by_role('button',name='⇄ Switch',exact=True).click()
+    card_action(page,card,'⇄ Switch').click()
     expect(sheet).to_be_visible()
     sheet.get_by_role('button',name='Close switcher').click()
     card.get_by_role('button',name='Chat',exact=True).click()

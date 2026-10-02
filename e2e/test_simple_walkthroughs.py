@@ -29,6 +29,8 @@ from playwright.sync_api import expect
 from conftest import DESKTOP, PHONE
 from test_terminal_workspace import real_terminal  # noqa: F401  (fixture)
 from test_session_permission_request import STUB_AGENT as APPROVAL_AGENT
+from test_light_mode_sweep import Sweep, light
+from session_sheet import session_tool
 
 WIDTHS = [DESKTOP, PHONE]
 IDS = ["desk-1440", "phone-390"]
@@ -238,18 +240,78 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     click(review.get_by_role("tab", name="Commit"))
     # On main there is a choice, never a silently disabled button.
     expect(review.locator(".commit-on-main")).to_contain_text(f"works directly on {base}")
+    # It is the person's own folder: say so before switching it to a branch.
+    expect(review.locator(".commit-own-folder")).to_contain_text(f"creates branch lectern/fix-login in your folder {root}")
+    # The message starts from what changed, not from the session's name.
+    expect(review.locator("textarea.commit-message")).to_have_value("Update NOTES.md")
     push = review.get_by_role("checkbox", name="Push to origin")
     expect(push).to_be_disabled()
     expect(review).to_contain_text("no remote to push to")
     commit = review.get_by_role("button", name="Commit on lectern/fix-login", exact=True)
     expect(commit).to_be_enabled()
     click(commit)
-    expect(page.locator("#toasts")).to_contain_text("new branch lectern/fix-login", timeout=20000)
+    expect(page.locator("#toasts")).to_contain_text(f"Your folder {root} is now on branch lectern/fix-login", timeout=20000)
     assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == "lectern/fix-login"
     assert git(root, "log", "-1", "--format=%s", base) == "base"
     assert "NOTES.md" in git(root, "show", "--name-only", "--format=", "lectern/fix-login")
     assert click.n == 4, click.n
 
+
+
+@pytest.mark.parametrize("real_terminal", [{"agent_script": CHAT_AGENT}], indirect=True)
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_f_commit_without_a_git_identity_moves_nothing_and_says_why(page, real_terminal, size, theme):
+    """A fresh machine has no git name and email. Committing from the person's
+    own folder must say so before it switches that folder to a new branch, and
+    the round-two controls (the Sessions ⋯ menu, inline rename, the own-folder
+    note, this message) must read in light and dark."""
+    t = real_terminal
+    root = Path(t["root"])
+    git(root, "add", ".")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+    for key, value in (("user.useConfigOnly", "true"), ("user.name", ""), ("user.email", "")):
+        git(root, "config", key, value)
+    base = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    project = t["api"]("/projects", {"name": "myapp", "target_id": t["target_id"], "repo_path": str(root), "default_base_branch": base})
+    t["api"]("/sessions", {"project_id": project["id"], "agent": "claude", "name": "Fix login"})
+    (root / "NOTES.md").write_text("what the agent changed\n")
+
+    light(page, theme)
+    page.set_viewport_size(size)
+    sweep = Sweep(page, f"round2-{size['width']}", theme)
+    page.goto(t["url"] + "/#sessions")
+    card = page.locator(".scard", has_text="Fix login")
+    expect(card).to_be_visible(timeout=20000)
+    session_tool(page, "#sess-search")
+    sweep.check("sessions-more-menu")
+    page.locator("#sess-more > summary").click()
+    sid = card.get_attribute("data-session-id")
+    card = page.locator(f'.scard[data-session-id="{sid}"]')
+    card.locator("button.nm").click()
+    expect(card.locator(".nm-edit")).to_be_focused()
+    sweep.check("inline-rename")
+    card.locator(".nm-edit").press("Escape")
+
+    card.locator(".action-menu > summary").first.click()
+    page.get_by_role("button", name="Review & merge").click()
+    review = page.locator("#session-review")
+    review.get_by_role("tab", name="Commit").click()
+    expect(review.locator(".commit-own-folder")).to_contain_text("in your folder")
+    sweep.check("own-folder-note", root="#session-review")
+    review.get_by_role("button", name="Commit on lectern/fix-login", exact=True).click()
+    note = review.locator(".commit-no-identity")
+    expect(note).to_contain_text("doesn't know your name and email", timeout=20000)
+    expect(note).to_contain_text("Nothing was changed")
+    expect(note.locator("pre")).to_contain_text("git config --global user.email")
+    # Sample the resting state, not the button still under the pointer.
+    page.mouse.move(0, 0)
+    sweep.check("no-git-identity", root="#session-review")
+    # Nothing moved: the folder is on its branch, no new branch exists.
+    assert git(root, "rev-parse", "--abbrev-ref", "HEAD") == base
+    assert git(root, "branch", "--list", "lectern/fix-login") == ""
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    sweep.done()
 
 # ---- (g) -------------------------------------------------------------------
 
@@ -310,3 +372,99 @@ def test_landing_link_opens_start_an_agent_on_the_up_project(browser, server, si
             sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
             expect(sheet).to_be_visible()
             expect(sheet.locator("#ns-project")).to_have_value(str(want))
+
+
+
+# ---- round two (re-audit /mnt/bulk/ux-audit/after/reaudit.md) ----------------
+
+
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_only_installed_agents_start_and_the_demo_stands_in(page, server, size):
+    """N2: a missing agent is never preselected; with none installed the demo
+    is, with a one-line hint, and Start works."""
+    page.set_viewport_size(size)
+    page.route("**/api/targets/*/agents", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps([
+        {"name": n, "state": "missing"} for n in ("claude", "codex", "gemini")])))
+    page.goto(server + "/#sessions")
+    page.locator("#sess-new").click()
+    sheet = page.get_by_role("dialog", name="Start an agent", exact=True)
+    expect(sheet.locator("#ns-agent")).to_have_value("demo")
+    expect(sheet.locator("#ns-no-agent")).to_contain_text("Install Claude Code or Codex")
+    enabled = sheet.locator("#ns-agent option:not([disabled])").all_text_contents()
+    assert not any("not installed" in o for o in enabled), enabled
+    expect(sheet.locator("#ns-go")).to_be_enabled()
+
+
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_chat_keeps_the_last_line_in_view(page, server, size):
+    """N6: the screen's blank rows below the cursor never push the output away."""
+    created = page.request.post(server + "/api/sessions", data={"name": f"Tall screen {size['width']}", "scratch": True, "agent": "claude"}).json()
+    page.set_viewport_size(size)
+
+    def reader(route):
+        body = route.fetch().json()
+        body["text"] = "\n".join(f"line {i}" for i in range(60)) + "\nLAST REAL LINE" + "\n" * 80
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+    page.route(f"**/api/sessions/{created['id']}/reader", reader)
+    page.goto(server + "/#sessions")
+    page.locator(f'.scard[data-session-id="{created["id"]}"]').get_by_role("button", name="Chat", exact=True).click()
+    log = page.locator("#conversation-log")
+    expect(log).to_contain_text("LAST REAL LINE", timeout=15000)
+    page.wait_for_timeout(500)
+    # The output ends at its last real line, and the view sits at the bottom of it.
+    assert log.locator("pre.session-reader").evaluate("el => el.textContent.endsWith('LAST REAL LINE')")
+    assert log.evaluate("el => el.scrollHeight - el.clientHeight - el.scrollTop <= 2")
+
+
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_navigation_is_short_and_more_stays_in_its_place(page, real_terminal, size):
+    """N9: Sessions, Approvals, Settings (+ Tasks once used) and More; an open
+    terminal never takes a slot; More fits the sidebar and closes on the way out."""
+    t = real_terminal
+    page.set_viewport_size(size)
+    page.goto(t["url"] + "/#sessions")
+    tabs = page.locator("#tabbar > .tab")
+    expect(tabs).to_have_count(3)
+    page.locator(".scard", has_text="Real terminal").get_by_role("button", name="⌨ Terminal", exact=True).click()
+    expect(page.locator("#terminal-workspace")).to_be_visible()
+    if size is PHONE:
+        show = page.get_by_role("button", name="Show navigation", exact=True)
+        if show.is_visible():
+            show.click()
+    expect(tabs).to_have_count(3)
+    expect(page.locator("#more-terminal-badge")).to_have_text("1")
+    page.locator("#nav-overflow > summary").click()
+    panel = page.locator("#nav-overflow > .action-menu-panel")
+    expect(panel).to_be_visible()
+    if size is DESKTOP:
+        nav = page.locator("#tabbar").bounding_box()
+        box = panel.bounding_box()
+        assert box["x"] + box["width"] <= nav["x"] + nav["width"] + 1, (box, nav)
+    page.locator('#tabbar .tab[data-tab="settings"]').click()
+    expect(panel).not_to_be_visible()
+    # Sessions offers the way back to the open terminal.
+    page.locator('#tabbar .tab[data-tab="sessions"]').click()
+    expect(page.locator("#sess-terminals")).to_contain_text("Terminals (1)")
+
+
+@pytest.mark.parametrize("size", WIDTHS, ids=IDS)
+def test_a_short_sessions_page_is_calm(page, real_terminal, size):
+    """N8: with one or two sessions the search and filters wait under ⋯, and a
+    card shows at most three actions; its name renames in place."""
+    t = real_terminal
+    page.set_viewport_size(size)
+    page.goto(t["url"] + "/#sessions")
+    card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
+    expect(card).to_be_visible(timeout=15000)
+    for hidden in ("#sess-search", "#sess-grouping", "#sess-scope", "#sess-saved-search", "#sess-discover"):
+        expect(page.locator(hidden)).not_to_be_visible()
+    page.locator("#sess-more > summary").click()
+    expect(page.locator("#sess-scope")).to_be_visible()
+    page.locator("#sess-more > summary").click()
+    actions = card.locator(".btnrow > button:visible, .btnrow > .action-menu > summary:visible")
+    assert actions.count() <= 3, actions.all_text_contents()
+    expect(card.locator(".session-memory")).to_have_count(0)
+    card.locator("button.nm").click()
+    card.locator(".nm-edit").fill(f"My terminal {size['width']}")
+    card.locator(".nm-edit").press("Enter")
+    expect(card.locator("button.nm")).to_have_text(f"My terminal {size['width']}")

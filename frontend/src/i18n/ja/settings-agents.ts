@@ -137,7 +137,7 @@ const catalog: Record<string, string> = {
   "agentSettings.usage.tokensInOut": "入力 {input} / 出力 {output}",
   "agentSettings.usage.nothingYet": "まだありません。",
   "agentSettings.usage.byProject": "プロジェクト別",
-  "agentSettings.usage.unassigned": "未割り当て",
+  "agentSettings.usage.unassigned": "プロジェクトなし",
   "agentSettings.usage.topSessionsLabel": "コスト上位のセッション",
   "agentSettings.usage.topSessions": "上位のセッション",
   "agentSettings.usage.noneYet": "まだありません。",

@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "Impossible d’ajouter {path} comme projet.",
   "start.sheet.notInstalled": "{name} (non installé)",
   "start.sheet.demoAgent": "démo (rien à installer)",
-  "start.sheet.noAgent": "Aucun agent n’est installé sur cette machine.",
-  "start.sheet.useDemo": "Utiliser l’agent de démonstration",
   "start.sheet.ask": "Demander avant les actions risquées",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -167,6 +165,15 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "ce dépôt n’a pas de remote où pousser",
   "review.why.prNeedsPush": "une pull request nécessite Pousser",
   "start.sheet.worktreeNeedsProject": "choisissez d’abord un dossier de projet",
+  "start.sheet.installHint": "Installez Claude Code ou Codex pour utiliser un vrai agent. En attendant, l’agent de démonstration montre comment Lectern fonctionne.",
+  "start.sheet.notInstalledWhy": "{name} n’est pas installé sur cette machine. Choisissez un agent installé ou la démo.",
+  "sessions.card.renameHint": "Renommer",
+  "sessions.list.moreLabel": "Autres outils de session",
+  "sessions.list.openTerminals": "⌨ Terminaux ({n})",
+  "nav.terminalsOpen": "{n} terminaux ouverts",
+  "review.onMain.ownFolder": "Cela crée la branche {branch} dans votre dossier {dir} et y bascule le dossier. Votre éditeur et votre terminal seront aussi sur cette branche.",
+  "review.onMain.folderNowOn": "Commit fait. Votre dossier {dir} est maintenant sur la branche {branch}.",
+  "review.git.noIdentity": "Git ne connaît pas encore votre nom ni votre e-mail, il ne peut donc pas faire le commit. Rien n’a été modifié. Lancez ces deux commandes dans un terminal, puis refaites le commit :",
 };
 
 export default catalog;

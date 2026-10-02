@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from playwright.sync_api import expect
+from session_sheet import card_action
 from conftest import _start, _unused_port
 
 
@@ -47,7 +48,7 @@ def test_a_session_card_shows_what_its_agent_remembered(page,with_store):
     expect(card).to_be_visible(timeout=15000)
     # Nothing is asked of the store until someone looks.
     assert Store.asked==[]
-    card.locator('.session-memory summary').click()
+    card_action(page,card,'Memory').click()
     memory=card.locator('.session-memory')
     expect(memory).to_contain_text('Staging listens on 5433',timeout=10000)
     # A correction shows what it replaced, not only what stands.

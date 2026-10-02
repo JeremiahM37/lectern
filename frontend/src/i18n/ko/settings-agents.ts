@@ -137,7 +137,7 @@ const catalog: Record<string, string> = {
   "agentSettings.usage.tokensInOut": "입력 {input} / 출력 {output}",
   "agentSettings.usage.nothingYet": "아직 없습니다.",
   "agentSettings.usage.byProject": "프로젝트별",
-  "agentSettings.usage.unassigned": "미지정",
+  "agentSettings.usage.unassigned": "프로젝트 없음",
   "agentSettings.usage.topSessionsLabel": "비용 상위 세션",
   "agentSettings.usage.topSessions": "상위 세션",
   "agentSettings.usage.noneYet": "아직 없습니다.",

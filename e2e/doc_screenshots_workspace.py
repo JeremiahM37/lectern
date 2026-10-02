@@ -18,6 +18,7 @@ from conftest import PHONE
 from test_terminal_workspace import real_terminal  # noqa: F401
 from test_terminal_split import attach, frame, ready, second_session
 from test_workspace_layout import drag, pane, shown
+from session_sheet import nav_to
 
 
 def emit(page, name, **options):
@@ -92,7 +93,7 @@ def test_desktop_shots(page, real_terminal):
     emit(page, 'desktop-saved-layouts.png')
     page.keyboard.press('Escape')
     # Floating terminal over the board.
-    page.locator('.tab[data-tab="tasks"]').click()
+    nav_to(page, 'tasks')
     page.keyboard.press('Control+Backquote')
     float_frame = page.frame_locator('#floating-terminal .floating-frame:not([hidden]) iframe')
     expect(float_frame.locator('#connection')).to_have_text('Connected', timeout=15000)
@@ -130,10 +131,10 @@ def test_desktop_shots(page, real_terminal):
     page.locator('.tab[data-tab="sessions"]').click()
     page.wait_for_timeout(500)
     emit(page, 'desktop-light-sessions.png')
-    page.locator('.tab[data-tab="terminals"]').click()
+    nav_to(page, 'terminals')
     page.wait_for_timeout(800)
     emit(page, 'desktop-light-workspace.png')
-    page.locator('.tab[data-tab="tasks"]').click()
+    nav_to(page, 'tasks')
     page.wait_for_timeout(300)
     emit(page, 'desktop-light-board.png')
 

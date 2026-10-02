@@ -175,7 +175,7 @@ def _button_fit(button):
 def _assert_row_labels_fit(card, width):
     """Every visible action keeps its whole label, its 40px target, on screen."""
     buttons = card.locator(".btnrow button.b:visible")
-    assert buttons.count() >= 3, "the busiest card row should show three or more actions"
+    assert buttons.count() >= 2, "a card row shows its main actions"
     labels = set()
     for index in range(buttons.count()):
         fit = _button_fit(buttons.nth(index))
@@ -199,10 +199,11 @@ def test_phone_card_actions_wrap_instead_of_clipping_their_labels(page, server):
         scratch = page.locator(".scard", has_text="Shell ·")
         expect(agent).to_be_visible(timeout=20000)
         expect(scratch).to_be_visible(timeout=20000)
-        # A live agent card: Attach, Chat and Switch share one row.
-        assert {"⌨ Terminal", "Chat", "⇄ Switch"} <= _assert_row_labels_fit(agent, width)
+        # A live agent card: Terminal, Chat and ⋯ — three actions, one row.
+        labels = _assert_row_labels_fit(agent, width)
+        assert {"⌨ Terminal", "Chat"} <= labels and len(labels) <= 3, labels
         # A blank scratch shell adds the widest label a phone has to hold.
-        assert {"⌨ Terminal", "⇑ Make a project", "✎ Rename"} <= _assert_row_labels_fit(
+        assert {"⌨ Terminal", "⇑ Make a project"} <= _assert_row_labels_fit(
             scratch, width
         )
         assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
@@ -390,8 +391,8 @@ def test_named_session_can_be_renamed_without_replacing_its_terminal(page, real_
         page.goto(t['url'] + '/#sessions')
         card = page.locator(f'.scard[data-session-id="{t["id"]}"]')
         name = f'Renamed existing session {width}'
-        page.once('dialog', lambda dialog: dialog.accept(name))
-        card.get_by_role('button', name='✎ Rename', exact=True).click()
+        # The title renames in place.
+        card.locator('button.nm').click();card.locator('.nm-edit').fill(name);card.locator('.nm-edit').press('Enter')
         expect(card.locator('.nm')).to_have_text(name)
         page.reload()
         expect(card.locator('.nm')).to_have_text(name)

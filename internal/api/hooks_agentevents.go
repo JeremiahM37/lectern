@@ -171,6 +171,7 @@ func (s *Server) awarenessAdditionalContext(sess *store.Session, event string, b
 		}
 		return text
 	case agentevents.EventUserPromptSubmit:
+		s.Sessions.NameFromPrompt(sess.ID, in.Prompt)
 		s.Awareness.RecordPrompt(sess, in.Prompt)
 		if !s.awarenessSettingOn("awareness_briefing") {
 			return ""

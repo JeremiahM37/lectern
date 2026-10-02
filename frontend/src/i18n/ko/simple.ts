@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "{path}를 프로젝트로 추가하지 못했습니다.",
   "start.sheet.notInstalled": "{name} (설치되지 않음)",
   "start.sheet.demoAgent": "데모 (설치 필요 없음)",
-  "start.sheet.noAgent": "이 머신에는 설치된 에이전트가 없습니다.",
-  "start.sheet.useDemo": "데모 에이전트 사용",
   "start.sheet.ask": "위험한 동작 전에 묻기",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -167,6 +165,15 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "이 저장소에는 푸시할 원격이 없습니다",
   "review.why.prNeedsPush": "풀 리퀘스트에는 푸시가 필요합니다",
   "start.sheet.worktreeNeedsProject": "먼저 프로젝트 폴더를 고르세요",
+  "start.sheet.installHint": "실제 에이전트를 쓰려면 Claude Code나 Codex를 설치하세요. 그전까지는 데모 에이전트로 Lectern 사용법을 볼 수 있습니다.",
+  "start.sheet.notInstalledWhy": "이 머신에는 {name}이(가) 설치되어 있지 않습니다. 설치된 에이전트나 데모를 고르세요.",
+  "sessions.card.renameHint": "이름 바꾸기",
+  "sessions.list.moreLabel": "세션 도구 더 보기",
+  "sessions.list.openTerminals": "⌨ 터미널 ({n})",
+  "nav.terminalsOpen": "터미널 {n}개 열림",
+  "review.onMain.ownFolder": "폴더 {dir}에 브랜치 {branch}를 만들고 폴더를 그 브랜치로 바꿉니다. 편집기와 터미널도 그 브랜치에 있게 됩니다.",
+  "review.onMain.folderNowOn": "커밋했습니다. 폴더 {dir}은(는) 이제 브랜치 {branch}에 있습니다.",
+  "review.git.noIdentity": "Git에 아직 이름과 이메일이 설정되지 않아 커밋할 수 없습니다. 아무것도 바뀌지 않았습니다. 터미널에서 아래 두 명령을 실행한 뒤 다시 커밋하세요:",
 };
 
 export default catalog;

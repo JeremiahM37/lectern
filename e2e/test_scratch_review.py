@@ -6,6 +6,7 @@ import time
 
 import pytest
 from playwright.sync_api import expect
+from session_sheet import session_tool
 from test_terminal_workspace import real_terminal
 
 OLD=time.time()-30*86400
@@ -36,7 +37,11 @@ def test_sweep_removes_idle_empties_and_asks_about_work(page,real_terminal):
     # Reporting changes nothing.
     assert sorted(p.name for p in root.iterdir())==sorted(verdicts)
     page.goto(t['url']+'/#sessions')
-    review=page.locator('#scratch-review');review.locator('summary').click()
+    expect(page.locator('.scard').first).to_be_visible()
+    # With one session the cleanup waits under the header's ⋯ menu.
+    review=page.locator('#scratch-review')
+    if review.count():review.locator('summary').click()
+    else:session_tool(page,'#sess-scratch').click()
     expect(page.locator('#scratch-summary')).to_contain_text('2 hold work that no project claims',timeout=15000)
     expect(review.locator('.scratch-row')).to_have_count(2)
     expect(review.locator('[data-scratch="shell-talked-in"]')).to_contain_text('Claude conversation')

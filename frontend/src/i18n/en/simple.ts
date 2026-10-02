@@ -75,8 +75,6 @@ const catalog: Record<string, string> = {
   "start.sheet.registerFailed": "Could not add {path} as a project.",
   "start.sheet.notInstalled": "{name} (not installed)",
   "start.sheet.demoAgent": "demo (no install needed)",
-  "start.sheet.noAgent": "No agent is installed on this machine.",
-  "start.sheet.useDemo": "Use the demo agent",
   "start.sheet.ask": "Ask before risky actions",
 
   // Choose a folder (sessions/FolderPicker.tsx).
@@ -167,6 +165,15 @@ const catalog: Record<string, string> = {
   "review.why.noRemote": "this repository has no remote to push to",
   "review.why.prNeedsPush": "a pull request needs Push",
   "start.sheet.worktreeNeedsProject": "pick a project folder first",
+  "start.sheet.installHint": "Install Claude Code or Codex to use a real agent. Until then the demo agent shows how Lectern works.",
+  "start.sheet.notInstalledWhy": "{name} isn't installed on this machine. Pick an installed agent or the demo.",
+  "sessions.card.renameHint": "Rename",
+  "sessions.list.moreLabel": "More session tools",
+  "sessions.list.openTerminals": "⌨ Terminals ({n})",
+  "nav.terminalsOpen": "{n} terminals open",
+  "review.onMain.ownFolder": "This creates branch {branch} in your folder {dir} and switches the folder to it. Your editor and terminal will be on that branch too.",
+  "review.onMain.folderNowOn": "Committed. Your folder {dir} is now on branch {branch}.",
+  "review.git.noIdentity": "Git doesn't know your name and email yet, so it can't commit. Nothing was changed. Run these two commands in a terminal, then commit again:",
 };
 
 export default catalog;

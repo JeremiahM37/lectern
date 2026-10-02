@@ -10,6 +10,7 @@ import pytest
 from playwright.sync_api import expect
 
 from test_terminal_workspace import real_terminal
+from session_sheet import card_action
 
 
 def patch(t, path, body):
@@ -45,7 +46,7 @@ def test_session_card_check_goes_failed_then_passed(page, real_terminal, width):
     expect(card).to_be_visible(timeout=15000)
 
     # Before ok.txt exists: run now, and the badge shows failed.
-    card.get_by_role("button", name="Run check").click()
+    card_action(page, card, "Run check").click()
     expect(card.get_by_text("check failed")).to_be_visible(timeout=15000)
 
     # Tap-to-expand shows the command and the captured output.
@@ -54,7 +55,7 @@ def test_session_card_check_goes_failed_then_passed(page, real_terminal, width):
 
     # The file appears; a second run-now now passes.
     (root / "ok.txt").write_text("done\n")
-    card.get_by_role("button", name="Run check").click()
+    card_action(page, card, "Run check").click()
     expect(card.get_by_text("check passed")).to_be_visible(timeout=15000)
 
     # The check history is on the review-and-merge panel too.

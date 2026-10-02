@@ -144,6 +144,12 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	// Push starts unticked when there is nowhere to push to.
 	remotes, _ := ex.Run(r.Context(), "git remote", executor.RunOpts{Cwd: target.dir, Timeout: 15})
 	out["has_remote"] = remotes.OK() && strings.TrimSpace(remotes.Stdout) != ""
+	// own_checkout: the session works in the person's own folder (no Lectern
+	// worktree), so a new branch is checked out right there and they are told
+	// so first. dir names that folder.
+	out["own_checkout"] = row.WorktreeJSON == ""
+	out["dir"] = target.dir
+	out["suggested_message"] = suggestCommitMessage(row.LastPromptExcerpt, out["files"])
 	out["session_live"] = row.Status != sessions.StatusDead && row.EndedAt == nil
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
@@ -263,6 +269,10 @@ func activeCommitHooks(ctx context.Context, ex executor.Executor, dir string) []
 	return strings.Fields(res.Stdout)
 }
 
+// gitIdentityScript fails exactly when `git commit` would stop with "Please
+// tell me who you are".
+const gitIdentityScript = "git var GIT_AUTHOR_IDENT >/dev/null 2>&1 && git var GIT_COMMITTER_IDENT >/dev/null 2>&1"
+
 // gitCommit is POST /api/sessions/{id}/git/commit. A commit that runs and
 // fails answers 200 with the failed step, plus hook_failure when a commit
 // hook rejected it, so the client can offer "Fix with agent".
@@ -288,6 +298,13 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	if !ok || !liveSession(w, row) {
 		return
 	}
+	// A brand-new machine often has no git name and email. Say so before
+	// anything moves: otherwise "Commit on a new branch" switches the
+	// person's folder and only then fails at the commit itself.
+	if res, err := ex.Run(r.Context(), gitIdentityScript, executor.RunOpts{Cwd: target.dir, Timeout: 15}); err == nil && !res.OK() {
+		writeJSON(w, 409, map[string]any{"detail": `git does not know your name and email yet, so it cannot commit. Run git config --global user.name "Your Name" and git config --global user.email you@example.com, then try again.`, "code": "no_git_identity"})
+		return
+	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
 		switch {
 		case strings.TrimSpace(body.NewBranch) != "":
@@ -305,9 +322,20 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 				httpError(w, 409, "could not create the branch: %s", strings.TrimSpace(res.Stderr+res.Stdout))
 				return
 			}
+			previous := target.branch
 			target.branch = strings.TrimSpace(body.NewBranch)
 			if made := strings.TrimSpace(res.Stdout); made != "" {
 				target.branch = made
+			}
+			// A name that says which branch it is on ("myapp · main", as
+			// `lectern claude` names one) follows the folder to its new branch.
+			if suffix := " · " + previous; previous != "" && strings.HasSuffix(row.Name, suffix) {
+				renamed := strings.TrimSuffix(row.Name, suffix) + " · " + target.branch
+				if s.DB.Update("sessions", row.ID, map[string]any{"name": renamed, "updated_at": store.Now()}) == nil {
+					if fresh, err := s.DB.Session(row.ID); err == nil {
+						s.Bus.Publish("board", "session", s.sessionView(fresh))
+					}
+				}
 			}
 		case body.AllowBaseBranch:
 			if !s.humanPrincipal(w, r, "committing directly to the default branch") {
@@ -692,4 +720,34 @@ func (s *Server) gitBlob(w http.ResponseWriter, r *http.Request) {
 	out["mime"] = mime
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
+}
+
+// suggestCommitMessage is the commit message the form starts with: what the
+// person last asked the agent for, or else the files that changed — never the
+// session's name (re-audit N5).
+func suggestCommitMessage(lastPrompt string, files any) string {
+	if prompt := strings.TrimSpace(strings.SplitN(lastPrompt, "\n", 2)[0]); prompt != "" {
+		runes := []rune(prompt)
+		if len(runes) > 72 {
+			runes = append(runes[:71], '…')
+		}
+		return strings.ToUpper(string(runes[:1])) + string(runes[1:])
+	}
+	var names []string
+	rows, _ := files.([]any)
+	for _, raw := range rows {
+		if f, ok := raw.(map[string]any); ok {
+			if p, _ := f["path"].(string); p != "" {
+				names = append(names, path.Base(p))
+			}
+		}
+	}
+	switch {
+	case len(names) == 0:
+		return ""
+	case len(names) > 3:
+		return fmt.Sprintf("Update %s and %d more", strings.Join(names[:3], ", "), len(names)-3)
+	default:
+		return "Update " + strings.Join(names, ", ")
+	}
 }

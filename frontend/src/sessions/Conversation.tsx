@@ -26,6 +26,8 @@ import { MemoryDeliveries } from "./MemoryDeliveries";
 import { SessionClaims } from "../claims/SessionClaims";
 import { useDictation } from "../voice";
 import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "./ApprovalCard";
+import { readerText } from "./reader-text";
+import { sessionState, stateText } from "./status";
 import { ENTER_PREF, enterSends, shouldSend, touchOnly, type EnterMode } from "./enter";
 import { usePref } from "../prefs/store";
 import { FileLinksContext, Markdown, type FileLinks } from "./markdown";
@@ -340,13 +342,14 @@ export function Conversation({
         setStatus(
           t("conversation.chat.sessionStatus", {
             agent: data.session.agent,
-            // The same status word as the session card (internal/vocab).
-            state: data.ended ? t("conversation.chat.ended") : data.session.state_label || data.session.status,
+            // The same words as the card (sessions/status.ts), not the raw
+            // screen status.
+            state: data.ended ? t("status.ended") : stateText(sessionState(data.session)),
           }),
         );
         setSessionAgent(data.session.agent);
         setUnavailable(data.ended || data.session.status === "dead");
-        setSessionText(data.text || t("conversation.chat.waitingForOutput"));
+        setSessionText(readerText(data.text || "") || t("conversation.chat.waitingForOutput"));
         void refreshLive();
         // A session's own PermissionRequest approvals (session_id set,
         // no task) belong here too, not only the ones inherited from a
@@ -480,6 +483,11 @@ export function Conversation({
       busy.current = false;
     }
   }
+  // The name can change underneath an open chat (a session named from its
+  // first prompt); follow it unless a rename is being typed here.
+  useEffect(() => {
+    setCurrentName(name);
+  }, [name]);
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
@@ -497,7 +505,27 @@ export function Conversation({
       log.current.scrollTop = log.current.scrollHeight;
     // liveItems too: the structured chat cards are what most sessions show,
     // and a chat should open at its latest message, not its first.
-  }, [rows, sessionText, liveItems]);
+    // approvals too: a card appearing below the log shrinks it, which must
+    // not leave the newest line under the fold.
+  }, [rows, sessionText, liveItems, approvals.length]);
+  // Anything that resizes the log (the keyboard, an approval card, the
+  // composer growing) or changes what is in it (the reader switching between
+  // cards and screen text) keeps a following view on its newest line.
+  useEffect(() => {
+    const node = log.current;
+    if (!node) return;
+    const stick = () => {
+      if (follow.current) node.scrollTop = node.scrollHeight;
+    };
+    const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(stick);
+    resized?.observe(node);
+    const changed = new MutationObserver(stick);
+    changed.observe(node, { childList: true, subtree: true, characterData: true });
+    return () => {
+      resized?.disconnect();
+      changed.disconnect();
+    };
+  }, []);
   async function upload(selected: File[]) {
     if (
       uploadingRef.current ||
