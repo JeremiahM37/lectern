@@ -61,8 +61,8 @@ dashboard required, and it's still on your phone the moment you detach.
   **Pick this one** or **⚖ Judge**. Delegated builds (opt-in) run a cheap
   worker in its own worktree while a lead reviews, corrects and integrates its
   diff.
-- **Eval suites on your own repo.** `eval/capability` runs the real agent loop
-  against a simulated homelab — no production side effects, model-agnostic.
+- **Eval suites on your own repo.** [Agent tests](evals.md) check an agent's
+  work against your own test cases.
   [Replay evals](replay-evals.md) build a suite straight from a project's
   own merged-PR history, so "which agent/model is best for MY repo" is
   ground-truthed against what actually shipped instead of a hand-written prompt.

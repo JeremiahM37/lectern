@@ -4,9 +4,9 @@ This file is the shared contract for the work on branch `feat/agent-events`.
 Every worker implements against it; change it only by editing this file in
 the same commit as the code that needs the change.
 
-Reference payloads captured from Claude Code 2.1.281 live in
-`/mnt/bulk/lectern-events-ref/` (SessionStart, UserPromptSubmit, Stop,
-statusline). Use them as test fixtures; do not invent field names.
+Reference payloads captured from Claude Code 2.1.281 (SessionStart,
+UserPromptSubmit, Stop, statusline) are the test fixtures; do not invent
+field names.
 
 ## 1. Identity and auth (`internal/auth`)
 
@@ -88,9 +88,7 @@ Requests on this listener carry the real tailnet peer address, so whois there
 is trustworthy without `tailscale serve` and without
 `LECTERN_TRUST_SERVE_HEADERS`. An existing `tailscale serve --https=8443
 http://127.0.0.1:9110` should be replaced with `LECTERN_TLS_PORT=8443` and
-`serve` turned off — Lectern now serves that port itself. (Not done as part of
-this change: the live AIServer `serve` config stays as-is until someone
-deliberately cuts it over.)
+`serve` turned off — Lectern now serves that port itself.
 
 Everything is gated: API, SSE, `/term/*` proxy, static assets may stay open.
 `GET /api/whoami` → `{mode, kind, login, node, human}`.
@@ -99,7 +97,7 @@ Everything is gated: API, SSE, `/term/*` proxy, static assets may stay open.
 
 Each session gets a random hook secret (column `sessions.hook_token`) and the
 env `LECTERN_HOOK_TOKEN`, `LECTERN_HOOK_URL` (base, e.g.
-`http://100.96.103.31:9110/api/hook/session/<id>`). `LECTERN_HOOK_BASE`
+`http://100.64.0.10:9110/api/hook/session/<id>`). `LECTERN_HOOK_BASE`
 configures the host part for remote targets (default `LECTERN_BASE_URL`).
 
 Endpoint: `POST /api/hook/session/{id}/{event}` (inside the existing

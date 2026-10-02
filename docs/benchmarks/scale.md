@@ -5,7 +5,7 @@ from the run's `results.json`, kept in [`scale-2026-09-26/`](scale-2026-09-26/).
 
 ## Hardware and limits
 
-- AIServer: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads), 123 GB RAM, Linux 6.17.
+- Test machine: AMD Ryzen AI MAX+ 395 (16 cores / 32 threads), 123 GB RAM, Linux 6.17.
 - The whole benchmark — Lectern, the SSH fixtures, the stand-in agents, tmux,
   ttyd and the driver — ran in one bubblewrap namespace capped at **8 cores**
   (`CPUQuota=800%`) and 16 GB, on a box shared with other work. Lectern built

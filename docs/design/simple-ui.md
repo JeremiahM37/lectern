@@ -1,8 +1,8 @@
 # Simple web UI
 
 Status: built on branch `simple-web` (2026-09-28). Inputs: the new-user audit
-(`/mnt/bulk/ux-audit/audit.md`, problems 4–11 and 15) and the research notes
-next to it.
+(problems 4–11 and 15) and the research notes
+that came with it.
 
 **Goal.** Someone who has just installed Lectern opens the web app or phone app
 and is talking to an agent in under a minute, without reading docs. Every power
@@ -238,7 +238,7 @@ This session works on main.
 │ Pick how your phone reaches this computer:           │
 │ (•) Tailscale  https://box.tail1234.ts.net:8443      │
 │     Works anywhere your phone is on your tailnet.    │
-│ ( ) Same Wi-Fi  http://192.168.0.75:9110   ⚠          │
+│ ( ) Same Wi-Fi  http://192.168.1.20:9110   ⚠          │
 │     Only on this network, and not encrypted.         │
 │ ( ) Relay  (not set up)                              │
 │     Works anywhere, end-to-end encrypted; needs      │

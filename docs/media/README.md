@@ -18,7 +18,7 @@ data). The `claude` stand-in registers itself like real Claude Code
 (`~/.claude/sessions/<pid>.json`) and writes a real Claude-format JSONL
 transcript, so Lectern's own history/handoff/resume code paths run for real
 against it — that's what makes `recently-closed.gif` and `switch-agent.gif`
-possible below. Recorded on the homelab's "agent desk" (Xvfb + openbox),
+possible below. Recorded on a virtual desktop (Xvfb + openbox),
 terminal shots via `ffmpeg -f x11grab` driven by `xdotool`, web-UI shots via
 `playwright-core` headless Chromium with `recordVideo`, then converted to GIF
 with `ffmpeg` (`palettegen`/`paletteuse`) and optimized with
@@ -62,7 +62,7 @@ exits, letting the next session spawn a fresh server under the new env.
 ## Reproducing
 
 The desk's demo instance runs as `lectern-demo` (systemd) on
-`127.0.0.1:9500` inside the agent-desk LXC, DB at
+`127.0.0.1:9500` inside the recording container, DB at
 `/home/agent/demo/data/lectern.db`. Since the `claude` stand-in also writes
 into `~/.claude/sessions/` and `~/.claude/projects/` (so real history/resume
 code runs against it), a full reset needs those cleared too:

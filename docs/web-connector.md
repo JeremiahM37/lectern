@@ -115,7 +115,7 @@ Other decisions worth knowing before you turn this on:
 | `LECTERN_MCP_ADDR` | no (default `127.0.0.1:9119`) | Where the public `/mcp` + OAuth-protocol listener binds. |
 | `LECTERN_OAUTH_AUTHORIZE_ADDR` | no (default `127.0.0.1:9120`) | Where the private consent listener binds. Keep this loopback or tailnet-bound — see the security model above. |
 | `LECTERN_OAUTH_DB` | no (default `~/.lectern-mcp/oauth.db`) | sqlite file for registered clients, codes and tokens. |
-| `LECTERN_OAUTH_ALLOWED_LOGINS` | to use the Tailscale fast-path | Comma-separated logins (e.g. `jam@github`) allowed to pre-approve via Tailscale identity. Empty means every consent goes through the admin-token form. |
+| `LECTERN_OAUTH_ALLOWED_LOGINS` | to use the Tailscale fast-path | Comma-separated logins (e.g. `alex@github`) allowed to pre-approve via Tailscale identity. Empty means every consent goes through the admin-token form. |
 | `LECTERN_OAUTH_ALLOWED_REDIRECTS` | no | Comma-separated `scheme://host` patterns (supports a leading `*.`), replacing — not merging with — the default allowlist. |
 | `LECTERN_OAUTH_ADMIN_TOKEN` | no (falls back to `LECTERN_AUTH_TOKEN`) | Gates the admin-token consent fallback and the `/admin/oauth/*` client-management API, sent as `X-Lectern-Admin`. |
 | `LECTERN_IDENTITY` | no | Set to `tailscale` to pre-recognise the owner at `/oauth/authorize` via Tailscale identity (see below). Unset: every consent uses the admin-token form. |

@@ -141,8 +141,8 @@ itself requires) and why revoking a device is instant and final
   (`GET /api/pair/settings`'s `untrusted_origin_hint`) — but this cannot
   detect a tunnel that forwards to loopback (see "The loopback trap" above);
   it is a nudge for the cases it *can* see, not a complete guarantee.
-- The self-signed wildcard cert Lectern uses for its own `*.homelab.internal`
-  vhosts is irrelevant here: a public tunnel (Cloudflare, `tailscale funnel`)
+- A self-signed certificate on your own reverse proxy (for internal names such
+  as `*.example.internal`) is irrelevant here: a public tunnel (Cloudflare, `tailscale funnel`)
   terminates TLS with its own trusted certificate, so the phone never has to
   trust anything self-signed.
 

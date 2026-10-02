@@ -180,9 +180,9 @@ line and column.
   indentation or a gutter (`│`, `⎿`), as Codex did with this Markdown link:
 
   ```
-    • Cerebras résumé (PDF) (/home/admin/.formwork/
-      application-testing-20260927/
-      Jeremiah_Mackey_Cerebras.pdf) — emphasizes GPU
+    • Quarterly summary (PDF) (/home/you/reports/
+      quarterly-2026-q3/
+      summary-final.pdf) — covers the new
   ```
 
   A row joins the next one only when it ends inside a path (a fragment ending
@@ -193,7 +193,7 @@ line and column.
   the native client runs a Go port of it (`internal/filelinks`), and both run
   the same test vectors (`internal/filelinks/testdata/vectors.json`).
 - **Paths outside the workspace open read-only.** An absolute or `~/` path on
-  the session's machine (a PDF an agent wrote to `~/.formwork`, say) opens in
+  the session's machine (a PDF an agent wrote to `~/reports`, say) opens in
   the same viewers, labelled **Outside workspace · read-only**, with no Edit
   or Save. It is read on the session's own target through its executor, with
   the same 25 MiB cap. Only a person can open one: with Tailscale sign-in a

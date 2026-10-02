@@ -106,7 +106,7 @@ Behavior:
   comment on `githubCursor` in `internal/triggers/github.go` for why 304
   handling through `gh api` was not something this could verify against live
   GitHub without a real token in this environment, and a since-cursor is a
-  fully documented, reliable substitute at homelab polling volumes.
+  fully documented, reliable substitute at small-team polling volumes.
 
 ### Slack
 

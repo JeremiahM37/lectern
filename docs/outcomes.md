@@ -25,8 +25,8 @@ kept (accepted changes only), whether an eval graded it a pass, time to a
 passing check, and OTel PR/commit counts (null when not reported). The table is
 a **recomputed cache**, not its own source of truth — `outcomes.Rebuild`
 derives it fresh from `attempts`/`tasks`/`session_checks`/`eval_results`/
-`otel_attempt_usage` on every `GET /api/outcomes` call (cheap at homelab
-scale: hundreds to low thousands of rows), so a stale or missing row
+`otel_attempt_usage` on every `GET /api/outcomes` call (cheap at
+single-team scale: hundreds to low thousands of rows), so a stale or missing row
 self-heals on the next read instead of needing a migration or a backfill
 job.
 
