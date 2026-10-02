@@ -18,6 +18,7 @@ import (
 // host these tests talk to is a separate, detached process started exactly
 // as Lectern starts one (Ensure).
 func TestMain(m *testing.M) {
+	printGuardIfHelper()
 	if len(os.Args) > 2 && os.Args[1] == "ptyhost" && os.Args[2] == "serve" {
 		fs := flag.NewFlagSet("serve", flag.ExitOnError)
 		socket := fs.String("socket", "", "")
