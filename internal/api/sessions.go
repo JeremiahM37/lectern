@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/onboard"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -475,6 +476,12 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		// The manager layers project defaults before the selected launch profile.
 		Isolation: in.Isolation,
 	})
+	var missing *sessions.AgentNotInstalled
+	if errors.As(err, &missing) {
+		writeJSON(w, 422, map[string]any{"detail": err.Error(), "code": "agent_not_installed",
+			"agent": missing.Agent, "installed": missing.Installed, "hint": onboard.InstallHint(missing.Agent)})
+		return
+	}
 	if err != nil {
 		httpError(w, 409, "%s", err.Error())
 		return

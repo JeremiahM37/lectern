@@ -135,3 +135,17 @@ func CheckPython() EnvCheck {
 	return EnvCheck{Name: "python3", OK: true,
 		Detail: "not needed here: Lectern's helpers are built in (SSH machines without lectern installed, and the desktop tools, still use it)"}
 }
+
+// InstallHint says how to get an agent CLI onto a machine.
+func InstallHint(name string) string {
+	switch name {
+	case "claude":
+		return "install Claude Code (npm install -g @anthropic-ai/claude-code, see https://docs.claude.com/claude-code) and make sure `claude` is on PATH, or set LECTERN_CLAUDE_BIN"
+	case "codex":
+		return "install the Codex CLI (npm install -g @openai/codex, see https://github.com/openai/codex) and make sure `codex` is on PATH, or set LECTERN_CODEX_BIN"
+	case "gemini":
+		return "install the Gemini CLI (npm install -g @google/gemini-cli) and make sure `gemini` is on PATH, or set LECTERN_GEMINI_BIN"
+	default:
+		return "install " + name + " and make sure it's on PATH, or point its agent definition (Settings → Agents) at wherever it lives"
+	}
+}

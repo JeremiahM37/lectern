@@ -137,18 +137,7 @@ func agentChecks(cfg *config.Config, agents []onboard.AgentCheck, stat func(stri
 	return out
 }
 
-func agentInstallHint(name string) string {
-	switch name {
-	case "claude":
-		return "install Claude Code (https://docs.claude.com/claude-code) and make sure `claude` is on PATH, or set LECTERN_CLAUDE_BIN"
-	case "codex":
-		return "install the Codex CLI (https://github.com/openai/codex) and make sure `codex` is on PATH, or set LECTERN_CODEX_BIN"
-	case "gemini":
-		return "install the Gemini CLI and make sure `gemini` is on PATH, or set LECTERN_GEMINI_BIN"
-	default:
-		return fmt.Sprintf("install %s and make sure it's on PATH, or configure a custom agent (see docs/agents.md) pointing at wherever it lives", name)
-	}
-}
+func agentInstallHint(name string) string { return onboard.InstallHint(name) }
 
 func doctorCommand(cfg *config.Config, args []string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {

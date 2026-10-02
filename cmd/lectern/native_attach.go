@@ -557,6 +557,10 @@ func controlsCommand(c *console.Client, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !interactiveTerminal() {
+		return errors.New("lectern controls is an interactive menu and needs a terminal. " +
+			"From a script, use lectern api (lectern help api), for example: lectern api GET /sessions")
+	}
 	opts := console.DashboardOptions{Popup: popup, FocusKind: kind, FocusID: rid, Action: action}
 	if os.Getenv(insertSocketEnv) != "" && os.Getenv(insertTargetEnv) != "" {
 		opts.Insert = insertIntoAttachment

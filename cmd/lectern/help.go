@@ -74,6 +74,23 @@ missing or broken. Optional things never fail it.`,
 		Examples: []string{"lectern doctor"},
 	},
 	{
+		Name: "phone", Group: groupStart, Synopsis: "phone",
+		Summary: "Let your phone on this Wi-Fi use Lectern, with a QR code to pair it",
+		Usage:   []string{"lectern phone [--no-qr]", "lectern phone --off"},
+		About: `Makes your private Lectern (the same sessions you already have) reachable on
+this computer's Wi-Fi address and prints a QR code. Scan it with the phone's
+camera: the link pairs the phone once and works for 5 minutes. Only paired
+devices can use Lectern from the network, but the connection is not
+encrypted, so use it on a network you trust.
+
+Away from home, use Tailscale (install it on this computer and the phone) or
+a relay (lectern relay, see docs/relay.md) instead.
+
+  --off     Stop listening on the Wi-Fi address
+  --no-qr   Print only the link`,
+		Examples: []string{"lectern phone", "lectern phone --off"},
+	},
+	{
 		Name: "update", Group: groupStart, Synopsis: "update",
 		Summary: "Update this lectern to the latest release",
 		Usage:   []string{"lectern update [--check] [--version vX.Y.Z]"},

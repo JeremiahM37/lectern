@@ -171,6 +171,7 @@ setup at all, using fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on
 
 | | |
 |---|---|
+| [Getting started](docs/getting-started.md) | Install, start, first agent: three steps on Linux, macOS and Windows |
 | [Full guide](docs/guide.md) | Everything in depth: sessions, tasks, auth, phone alerts, delegated builds, local models |
 | [Use from claude.ai / ChatGPT](docs/use-from-chat.md) | The chat connector: setup, what a chat can do, troubleshooting |
 | [Terminal client](docs/terminal-client.md) | Dashboard keys, multi-window, `lectern claude`, send-file |
@@ -178,7 +179,7 @@ setup at all, using fake agents: `LECTERN_MOCK=1 lectern serve` (it listens on
 | [Mobile sessions](docs/mobile-sessions.md) | Chat cards, approvals, voice mode |
 | [Browser](docs/browser.md) | Browser pane, Design Mode, agent browser tools, computer use |
 | [Remote access](docs/remote-access.md) | Phone pairing and tunnels without Tailscale |
-| [Local / Docker](docs/local.md) · [Docker](docs/docker.md) | Standalone and container setups |
+| [Local runtime](docs/local.md) · [Shared server](docs/quickstart.md) · [Docker](docs/docker.md) | How the private runtime works, building from source, a server for several machines, containers |
 
 Lectern was called AgentDeck until v2.3. Old `AGENTDECK_*` settings still work.
 

@@ -165,3 +165,18 @@ func TestCredentialPathsAreOverridable(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultDBPathIsTheStateDirectory(t *testing.T) {
+	cwd, home := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_STATE_HOME", "")
+	if got, want := defaultDBPath(cwd, home), filepath.Join(home, ".local", "state", "lectern", "server", "lectern.db"); got != want {
+		t.Fatalf("default db = %q, want %q", got, want)
+	}
+	// An existing install's database in the starting folder is kept.
+	if err := os.WriteFile(filepath.Join(cwd, "lectern.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultDBPath(cwd, home); got != filepath.Join(cwd, "lectern.db") {
+		t.Fatalf("existing db not kept: %q", got)
+	}
+}

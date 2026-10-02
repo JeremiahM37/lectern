@@ -69,7 +69,7 @@ func localCommand(cfg *config.Config, args []string) error {
 		}
 		// People get a sentence; scripts and pipes keep getting the JSON
 		// they always did.
-		if !asJSON && interactiveTerminal() {
+		if !asJSON {
 			fmt.Println(describeLocalStatus(status))
 			return nil
 		}

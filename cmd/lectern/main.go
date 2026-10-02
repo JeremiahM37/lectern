@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -55,7 +56,7 @@ var clientVerbs = map[string]bool{
 var reservedVerbs = map[string]bool{
 	"autonomy-overlay": true, "autonomy-overlay-inspect": true,
 	"local": true, "up": true, "doctor": true, "serve": true, "attach": true, "split": true,
-	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true,
+	"mcp": true, "version": true, "--version": true, "-v": true, "relay": true, "update": true, "phone": true,
 	// localCommand's own subcommands (cmd/lectern/local_cli.go), a different
 	// argument position (after "local") but reserved all the same so
 	// `lectern local claude` cannot mean two different things.
@@ -225,6 +226,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "phone":
+			if err := phoneCommand(cfg, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+				os.Exit(1)
+			}
+			return
 		case "update":
 			if err := updateCommand(os.Args[2:]); err != nil {
 				fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
@@ -328,6 +335,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
 		os.Exit(2)
 	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "lectern: "+err.Error())
+		os.Exit(1)
+	}
 	a, err := app.New(cfg, log)
 	if err != nil {
 		log.Error("startup failed", "err", err)
@@ -348,7 +359,7 @@ func main() {
 		log.Info("reading settings under their old names; rename them to LECTERN_*",
 			"legacy", aliased)
 	}
-	log.Info("lectern listening", "addr", addr, "version", version.Version,
+	log.Info("lectern listening", "addr", addr, "db", cfg.DBPath, "version", version.Version,
 		"mock", cfg.Mock, "auth_mode", a.Server.Auth.Mode)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
