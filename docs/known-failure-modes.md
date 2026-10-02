@@ -43,7 +43,7 @@ future contributor actually has to work backwards from.
   `KillMode=process` drop-in so a service restart does not take the panes with
   it.
 - **Where** — `internal/sessions/poll.go`, `tools/upgrade-lectern.sh`,
-  `docs/testing/mobile-terminal.md`.
+  `docs/internal/testing/mobile-terminal.md`.
 
 ## Ctrl-C hanging in a test
 

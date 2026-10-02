@@ -11,7 +11,7 @@ Candidate coverage (isolated from operator sessions and credentials):
 | Docker | real multi-stage image build; Python, authenticated health, fresh database, local shell input and persisted scratch files |
 | Docker → SSH | disposable OpenSSH target and test key; toolchain probe, shell input, container recreation and preserved remote terminal |
 | Browser → Docker → SSH | token sign-in, phone/desktop first-machine setup, actual WebSocket terminal typing after container recreation |
-| Windows amd64 / macOS arm64 | cross-compiled successfully; no native Windows/macOS runtime acceptance in this run |
+| Windows amd64 / macOS arm64 | cross-compiled in CI, and native Windows and macOS runners run the session backend, PTY host, web terminal and server smoke tests (`.github/workflows/ci.yml`; see [Local runtime](../local.md)) |
 
 Repeat Docker acceptance on an unused Docker test host:
 
@@ -30,7 +30,8 @@ behavior without calling a paid provider. The release workflow now gates both
 binary and image publication on this acceptance job.
 
 Run the project `verify` suite for Go, frontend, isolated browser/PTY tests and
-live service/UI checks. Unit generation is not proof of macOS launchd behavior;
-macOS runtime and physical-phone keyboard behavior remain separate checks.
+live service/UI checks. Generating a launchd unit is not proof of how macOS
+runs it, and physical-phone keyboard behavior is checked separately; CI runners
+cover the runtime, not every physical desktop.
 
 v2.3.1 predates `up`; v2.4.1 is the first published release that ships it.

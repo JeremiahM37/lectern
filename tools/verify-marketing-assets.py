@@ -7,7 +7,7 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 assets = root / 'docs/media/control-plane'
-docs = [root / 'README.md', root / 'docs/media/README.md', assets / 'README.md', root / '.agents/distribution.md', root / 'docs/launch/control-plane-refresh.md']
+docs = [root / 'README.md', root / 'docs/media/README.md', assets / 'README.md', root / '.agents/distribution.md', root / 'docs/internal/launch/control-plane-refresh.md']
 for doc in docs:
     text = doc.read_text()
     links = re.findall(r'\]\(([^)]+)\)', text) + re.findall(r'src="([^"]+)"', text)

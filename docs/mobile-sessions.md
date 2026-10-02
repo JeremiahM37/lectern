@@ -184,7 +184,7 @@ silently and under the same tag, by one line saying what happened ("Approved on
 another device"). ntfy-topic and Discord messages cannot be withdrawn.
 
 Native keyboard and gesture coverage, limitations, and the nightly audit are
-in [Mobile terminal testing](testing/mobile-terminal.md). The Android fixture is
+in [Mobile terminal testing](internal/testing/mobile-terminal.md). The Android fixture is
 disposable and never types into a person's running agent.
 
 ## Chat cards and graduated approvals
@@ -296,4 +296,4 @@ low-profile item: **Report keyboard layout**, which captures the exact
 viewport/keyboard numbers this device is reporting — for pasting into a bug
 report when the phone keyboard covers the prompt in a way no emulator has
 reproduced (see the keyboard-coverage history in
-[Mobile terminal testing](testing/mobile-terminal.md)).
+[Mobile terminal testing](internal/testing/mobile-terminal.md)).
