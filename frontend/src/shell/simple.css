@@ -49,10 +49,24 @@
 #nav-overflow .more-detail { font-size: 11.5px; color: var(--ink-dim); font-weight: 400; }
 #nav-overflow > summary { position: relative; }
 @media (min-width: 1024px) {
-  /* All desktop destinations stay in the sidebar, never above the terminal. */
+  /* Every desktop destination stays in the sidebar, never above the terminal:
+     the main items, then More as a group that opens in place. */
   #tabbar { overflow-y: auto; overflow-x: hidden; }
   #tabbar .tab { flex-shrink: 0; }
   #tabbar [data-tab=settings] { order: 2; margin-top: auto; }
+  #nav-more-group { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+  #nav-more-group > summary { list-style: none; width: 100%; box-sizing: border-box; }
+  #nav-more-group > summary::-webkit-details-marker { display: none; }
+  #nav-more-group > summary::after {
+    content: "▸"; position: static; width: auto; height: auto; background: none; box-shadow: none;
+    margin-left: auto; color: var(--ink-faint); font-size: 11px; display: inline;
+  }
+  #nav-more-group[open] > summary::after { content: "▾"; }
+  #nav-more-group .tab-ic { width: 20px; font-weight: 700; letter-spacing: 1px; }
+  #nav-more-group > .nav-group-item { width: 100%; box-sizing: border-box; padding-left: 24px; min-height: 38px; font-size: 12.5px; }
+}
+@media (max-width: 1023px) {
+  #nav-more-group { display: none; }
 }
 @media (max-width: 1023px) {
   #nav-overflow > .action-menu-panel { min-width: 260px; }

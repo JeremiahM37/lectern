@@ -146,6 +146,7 @@ const NAV_SHORTCUT: Record<Tab, string> = {
   evals: "nav.evals",
   settings: "nav.targets",
 };
+const NAV_MORE_KEY = "lectern.nav.moreOpen";
 // #media/<session id> narrows the feed to one session's posts.
 const mediaSessionOf = (hash: string) => {
   const match = /^#?media\/([1-9]\d*)$/.exec(hash);
@@ -159,6 +160,15 @@ export default function App() {
     media.addEventListener("change", update);
     update();
     return () => media.removeEventListener("change", update);
+  }, []);
+  // The desktop sidebar's More group starts collapsed and remembers being
+  // opened, on this device only.
+  const [moreOpen, setMoreOpen] = useState(() => {
+    try { return localStorage.getItem(NAV_MORE_KEY) === "1"; } catch { return false; }
+  });
+  const rememberMoreOpen = useCallback((open: boolean) => {
+    setMoreOpen(open);
+    try { localStorage.setItem(NAV_MORE_KEY, open ? "1" : "0"); } catch { /* private window */ }
   }, []);
   useLocale();
   const [view, setView] = useState<Tab>(HOME),
@@ -1243,7 +1253,7 @@ export default function App() {
         <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar" aria-label={t("nav.label")}>
-        {primaryViews(tasks.length > 0, desktopNavigation).map((tab) => (
+        {primaryViews(tasks.length > 0, desktopNavigation, terminals.tabs.length > 0).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
@@ -1280,14 +1290,62 @@ export default function App() {
             )}
           </button>
         ))}
-        {desktopNavigation && (["machines", "plugins"] as const).map((name) => (
-          <button key={name} className={"tab" + (view === "settings" && section.name === name ? " on" : "")}
-            data-nav-target={name} aria-current={view === "settings" && section.name === name ? "page" : undefined}
-            onClick={() => settings(name)}>
-            <span className="tab-ic" aria-hidden="true"><Icon name={NAV_ICON.settings} /></span>
-            {t(`nav.more.${name}`)}
-          </button>
-        ))}
+        {desktopNavigation && (() => {
+          const entries = moreEntries(tasks.length > 0, true, terminals.tabs.length > 0);
+          const here = entries.some((entry) => "view" in entry && entry.view === view);
+          return (
+            <details
+              id="nav-more-group"
+              className={"nav-group" + (here ? " on" : "")}
+              // A page under More stays visible while it is the one open.
+              open={here || moreOpen}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                if (!here || open) rememberMoreOpen(open);
+              }}
+            >
+              <summary className="tab nav-group-summary" aria-label={t("app.morePages")}>
+                <span className="tab-ic" aria-hidden="true">···</span>
+                {t("nav.more")}
+                <b className="badge dim" hidden={here || moreOpen || !terminals.tabs.length}
+                  title={t("nav.terminalsOpen", { n: terminals.tabs.length })}>
+                  {terminals.tabs.length}
+                </b>
+              </summary>
+              {entries.map((entry) => {
+                if (!("view" in entry)) return null;
+                const tab = entry.view;
+                return (
+                  <button
+                    key={tab}
+                    data-tab={tab}
+                    data-nav-target={tab}
+                    aria-current={view === tab ? "page" : undefined}
+                    className={["tab", "nav-group-item", view === tab ? "on" : ""].filter(Boolean).join(" ")}
+                    onClick={() => navigate(tab === "terminals" ? terminals.hash : "#" + tab)}
+                  >
+                    <span className="tab-ic" aria-hidden="true">
+                      <Icon name={NAV_ICON[tab]} />
+                    </span>
+                    {label(tab)}
+                    {tab === "terminals" && (
+                      <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
+                        {terminals.tabs.length}
+                      </b>
+                    )}
+                    {tab === "media" && (
+                      <b id="media-badge" className={liveViews.length ? "badge" : "badge dim"}
+                        hidden={!media.length && !liveViews.length}
+                        title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : t("nav.mediaCount", { n: media.length })}>
+                        {media.length + liveViews.length}
+                      </b>
+                    )}
+                  </button>
+                );
+              })}
+            </details>
+          );
+        })()}
         {!desktopNavigation && <details
           id="nav-overflow"
           className={`action-menu ${moreEntries(tasks.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
