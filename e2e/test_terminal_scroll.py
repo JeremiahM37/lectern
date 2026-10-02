@@ -157,3 +157,47 @@ def test_middle_autoscroll_moves_normal_terminal_buffer(page,real_terminal):
     page.keyboard.press('Escape')
     expect(page.locator('.terminal-autoscroll-marker')).to_have_count(0)
     expect(page.locator('.frozen')).not_to_be_visible()
+
+
+def test_fullscreen_app_without_mouse_scrolls_with_its_page_keys(page,real_terminal):
+    """Claude Code started with its mouse off (CLAUDE_CODE_DISABLE_MOUSE=1) draws
+    on the alternate screen and keeps its own transcript, so tmux has no history
+    to give. The wheel and drags must reach it as PageUp/PageDown instead of
+    ending at "no older output"."""
+    t=real_terminal
+    (t['root']/'page-app.py').write_text('''import os,tty,sys
+tty.setraw(sys.stdin.fileno())
+os.write(1,b'\\x1b[?1049h\\x1b[2J\\x1b[HPAGE-APP-READY')
+up=down=0
+while True:
+ data=os.read(0,4096)
+ with open('page-input.log','ab') as f:f.write(data)
+ up+=data.count(b'\\x1b[5~');down+=data.count(b'\\x1b[6~')
+ os.write(1,b'\\x1b[3;1H\\x1b[2KUP=%d DOWN=%d' % (up,down))
+''')
+    open_terminal(page,t);type_command(page,'python3 page-app.py')
+    screen=page.locator('#agent-terminal .xterm-screen')
+    expect(screen).to_contain_text('PAGE-APP-READY')
+    box=page.locator('#agent-terminal').bounding_box()
+    x=box['x']+box['width']/2; y=box['y']+box['height']/2
+    page.mouse.move(x,y)
+    page.mouse.wheel(0,-350)
+    expect(screen).to_contain_text('UP=1',timeout=10000)
+    expect(page.locator('.frozen')).not_to_be_visible()
+    page.wait_for_timeout(1100)
+    page.mouse.wheel(0,-240)
+    expect(screen).to_contain_text('UP=3',timeout=3000)
+    page.mouse.wheel(0,240)
+    expect(screen).to_contain_text('DOWN=2',timeout=3000)
+    # A finger drag pages the same way.
+    client=page.context.new_cdp_session(page)
+    client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+    for delta in range(20,260,20):
+        client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+delta}]})
+        page.wait_for_timeout(20)
+    client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+    client.detach()
+    deadline=time.time()+3
+    while time.time()<deadline and (t['root']/'page-input.log').read_bytes().count(b'\x1b[5~')<=3:
+        page.wait_for_timeout(50)
+    assert (t['root']/'page-input.log').read_bytes().count(b'\x1b[5~')>3

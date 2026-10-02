@@ -129,6 +129,14 @@ func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 	if be == nil {
 		be = backend.For(ex)
 	}
+	if r.URL.Query().Get("flags_only") == "1" {
+		out := map[string]any{}
+		if flags, err := ex.Run(r.Context(), be.Display(backend.Pane(att.TmuxSession), "#{alternate_on} #{mouse_any_flag}"), executor.RunOpts{Timeout: 5}); err == nil && flags.OK() {
+			out["app_screen"] = strings.TrimSpace(flags.Stdout) == "1 0"
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	result, err := ex.Run(r.Context(), be.CapturePane(backend.Pane(att.TmuxSession), 100000, true), executor.RunOpts{Timeout: 20})
 	if err != nil || !result.OK() {
 		httpError(w, 502, "could not read terminal history")
@@ -139,7 +147,15 @@ func (s *Server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 		result.Stdout = result.Stdout[len(result.Stdout)-(8<<20):]
 		truncated = true
 	}
-	writeJSON(w, 200, map[string]any{"text": result.Stdout, "truncated": truncated, "limit_lines": 100000})
+	out := map[string]any{"text": result.Stdout, "truncated": truncated, "limit_lines": 100000}
+	// A full-screen program that has not asked for the mouse (Claude Code
+	// started with CLAUDE_CODE_DISABLE_MOUSE=1) keeps its own transcript: the
+	// pane has no history to give, and only the program's own keys scroll it.
+	// Tell the page so its wheel and drags can send those keys instead.
+	if flags, err := ex.Run(r.Context(), be.Display(backend.Pane(att.TmuxSession), "#{alternate_on} #{mouse_any_flag}"), executor.RunOpts{Timeout: 5}); err == nil && flags.OK() {
+		out["app_screen"] = strings.TrimSpace(flags.Stdout) == "1 0"
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) terminalUpload(w http.ResponseWriter, r *http.Request) {

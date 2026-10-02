@@ -32,6 +32,9 @@ export interface History {
   text: string;
   truncated: boolean;
   limit_lines: number;
+  // The pane is a full-screen program without mouse reporting (Claude Code
+  // with its mouse turned off): only its own PageUp/PageDown scroll it.
+  app_screen?: boolean;
 }
 export interface FileEntry {
   name: string;

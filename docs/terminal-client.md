@@ -462,7 +462,10 @@ tracking, so the terminal forwards every click to Claude: selection, copying,
 clicking links, and the double-click and right-click actions above all stop
 working in its sessions (tmux shows `mouse_any_flag` 1 for the pane). Lectern
 therefore starts Claude Code, and OpenClaude, with `CLAUDE_CODE_DISABLE_MOUSE=1`:
-fullscreen rendering stays, the mouse stays with the terminal. Exporting the
+fullscreen rendering stays, the mouse stays with the terminal. Claude then keeps its
+transcript to itself (tmux has no history for the pane), so the browser terminal
+turns the wheel and finger drags into Claude's own Page Up and Page Down keys
+whenever the pane is a full-screen program that has not asked for the mouse. Exporting the
 variable in `~/.bashrc` does not reach these sessions, because Lectern launches
 through a non-interactive `bash -c` that reads no rc file.
 

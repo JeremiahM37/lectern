@@ -23,6 +23,10 @@ interface ScrollOptions {
   liveIntent: () => void;
   autoscrollHost?: HTMLElement;
   historyViewport?: () => HTMLElement | null;
+  // A full-screen program that owns its transcript but did not ask for the
+  // mouse: the wheel and drags become its own page keys.
+  appKeys?: () => boolean;
+  pageKey?: (direction: 1 | -1) => void;
 }
 interface Gesture {
   id: number;
@@ -63,6 +67,8 @@ export function installTerminalScroll({
   promptPan,
   swipe,
   selection = () => false,
+  appKeys = () => false,
+  pageKey = () => {},
 }: ScrollOptions) {
   let gesture: Gesture | null = null,
     selecting: number | null = null,
@@ -73,6 +79,12 @@ export function installTerminalScroll({
   // tmux itself uses the alternate screen even for a plain shell. Only a
   // negotiated mouse protocol establishes that the application owns scrolling.
   const appScroll = () => term.modes.mouseTrackingMode !== "none";
+  // Wheel pixels or dragged lines saved up toward the next page key.
+  let pagePixels = 0,
+    pageLines = 0;
+  const WHEEL_PER_PAGE = 120,
+    LINES_PER_PAGE = 6;
+  const pageMode = () => !appScroll() && appKeys();
   const stop = () => {
     if (momentum !== undefined) cancelAnimationFrame(momentum);
     momentum = undefined;
@@ -85,6 +97,15 @@ export function installTerminalScroll({
       return;
     }
     if (lines > 0) liveIntent();
+    if (pageMode()) {
+      pageLines += lines;
+      while (Math.abs(pageLines) >= LINES_PER_PAGE) {
+        const direction = pageLines < 0 ? -1 : 1;
+        pageKey(direction);
+        pageLines -= direction * LINES_PER_PAGE;
+      }
+      return;
+    }
     if (appScroll()) {
       const viewport = host.querySelector(".xterm-viewport") || host;
       for (let i = 0; i < Math.min(30, Math.abs(lines)); i++) {
@@ -113,6 +134,19 @@ export function installTerminalScroll({
   listen(
     "wheel",
     (e) => {
+      if (enabled() && !e.ctrlKey && pageMode()) {
+        e.preventDefault();
+        e.stopPropagation();
+        const unit =
+          e.deltaMode === 1 ? linePixels() : e.deltaMode === 2 ? host.clientHeight : 1;
+        pagePixels += e.deltaY * unit;
+        while (Math.abs(pagePixels) >= WHEEL_PER_PAGE) {
+          const direction = pagePixels < 0 ? -1 : 1;
+          pageKey(direction);
+          pagePixels -= direction * WHEEL_PER_PAGE;
+        }
+        return;
+      }
       if (e.deltaY > 0 && enabled()) liveIntent();
       // Native mouse/trackpad scrolling already works inside mouse-driven apps.
       // At the top of a plain terminal, fetch history from before this attachment.

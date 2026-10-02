@@ -198,7 +198,7 @@ const catalog: Record<string, string> = {
   "settings.workspace.osc52": "프로그램의 클립보드 복사 허용",
   "settings.workspace.osc52Hint": "tmux, vim 같은 프로그램은 ssh를 통해서도 OSC 52 시퀀스로 복사합니다. 클립보드 읽기는 절대 허용되지 않습니다.",
   "settings.workspace.claudeMouse": "Claude Code에서 마우스를 터미널에 맡기기(선택, 복사, 링크 열기)",
-  "settings.workspace.claudeMouseHint": "Claude Code의 전체 화면 모드는 모든 클릭을 가져가므로 선택, 복사, 링크, Lectern의 클릭 가능한 경로가 작동하지 않습니다. 켜면 Lectern이 CLAUDE_CODE_DISABLE_MOUSE=1로 Claude Code를 시작합니다. 전체 화면은 유지되지만 Claude 안에서 휠 스크롤은 더 이상 되지 않습니다. Lectern이 시작하거나 재개하는 모든 Claude Code 세션에 모두에게 적용되며, 프로젝트별로 바꿀 수 있습니다.",
+  "settings.workspace.claudeMouseHint": "Claude Code의 전체 화면 모드는 모든 클릭을 가져가므로 선택, 복사, 링크, Lectern의 클릭 가능한 경로가 작동하지 않습니다. 켜면 Lectern이 CLAUDE_CODE_DISABLE_MOUSE=1로 Claude Code를 시작합니다. 전체 화면은 유지되고, 휠은 Page Up/Page Down 키를 보내 Claude를 계속 스크롤합니다. Lectern이 시작하거나 재개하는 모든 Claude Code 세션에 모두에게 적용되며, 프로젝트별로 바꿀 수 있습니다.",
   "settings.workspace.claudeMouseSaved": "저장했습니다. 새로 시작하거나 재개한 Claude Code 세션에 적용됩니다.",
   "settings.workspace.extendedKeys": "확장 키보드(kitty 프로토콜)",
   "settings.workspace.extendedKeysHint": "요청한 프로그램은 Shift+Enter와 Enter, Ctrl+I와 Tab을 구분하고 Ctrl+Shift·Alt 조합과 키를 뗀 것도 받을 수 있습니다. kitty 키보드 프로토콜과 xterm의 modifyOtherKeys를 사용하며 tmux를 거쳐도 동작합니다.",

@@ -210,7 +210,7 @@ const en: Record<string, string> = {
   "settings.workspace.osc52": "Let programs copy to the clipboard",
   "settings.workspace.osc52Hint": "Programs such as tmux and vim, including over ssh, copy with the OSC 52 sequence. Reading your clipboard is never allowed.",
   "settings.workspace.claudeMouse": "Let the terminal handle the mouse in Claude Code (select, copy, click links)",
-  "settings.workspace.claudeMouseHint": "Claude Code's fullscreen mode captures every click, which stops selection, copying, links and Lectern's clickable paths from working. When on, Lectern starts Claude Code with CLAUDE_CODE_DISABLE_MOUSE=1: fullscreen stays, but scrolling with the wheel inside Claude no longer works. Applies to every Claude Code session Lectern starts or resumes, for everyone; a project can override it.",
+  "settings.workspace.claudeMouseHint": "Claude Code's fullscreen mode captures every click, which stops selection, copying, links and Lectern's clickable paths from working. When on, Lectern starts Claude Code with CLAUDE_CODE_DISABLE_MOUSE=1: fullscreen stays, and the wheel still scrolls Claude by sending its Page Up and Page Down keys. Applies to every Claude Code session Lectern starts or resumes, for everyone; a project can override it.",
   "settings.workspace.claudeMouseSaved": "Saved. New and resumed Claude Code sessions will use it.",
   "settings.workspace.extendedKeys": "Extended keyboard (kitty protocol)",
   "settings.workspace.extendedKeysHint": "Programs that ask for it can tell Shift+Enter from Enter, Ctrl+I from Tab, and see Ctrl+Shift and Alt combinations and key releases. Uses the kitty keyboard protocol and xterm's modifyOtherKeys, also through tmux.",

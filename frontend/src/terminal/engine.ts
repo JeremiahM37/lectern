@@ -89,6 +89,29 @@ export class Engine {
   private resizePending = false;
   private loadingHistory = false;
   private lastHistoryRead = 0;
+  // The pane is a full-screen program without mouse reporting (see
+  // History.app_screen); rechecked while in use, since the program can exit.
+  private appScreen = false;
+  private appScreenCheckedAt = 0;
+  private appKeys() {
+    if (this.appScreen && Date.now() - this.appScreenCheckedAt > 5000)
+      void this.checkAppScreen();
+    return this.appScreen;
+  }
+  private async checkAppScreen() {
+    this.appScreenCheckedAt = Date.now();
+    try {
+      const out = await json<Partial<History>>(
+        this.options.url.replace("/term/", "/api/term/") + "/history?flags_only=1",
+      );
+      this.appScreen = out.app_screen === true;
+    } catch {
+      /* keep the last answer; the next scroll asks again */
+    }
+  }
+  private pageKey(direction: 1 | -1) {
+    this.input(direction < 0 ? "\x1b[5~" : "\x1b[6~", false, true);
+  }
   private retainedLines = 0;
   private frozenText = "";
   private status = t("terminalPage.status.connecting");
@@ -468,6 +491,8 @@ export class Engine {
       autoscrollHost: options.pane,
       historyViewport: () =>
         this.readingRetainedHistory ? options.frozen : null,
+      appKeys: () => this.appKeys(),
+      pageKey: (direction) => this.pageKey(direction),
       retainedHistory: (lines) => {
         void this.readRetainedHistory(lines);
       },
@@ -903,6 +928,14 @@ export class Engine {
       );
       if (this.stopped || this.paused || revision !== this.historyRevision)
         return;
+      if (out.app_screen) {
+        // The program keeps its own transcript: scroll it with its keys,
+        // now and for the wheel from here on.
+        this.appScreen = true;
+        this.appScreenCheckedAt = Date.now();
+        this.pageKey(-1);
+        return;
+      }
       if (out.text.trimEnd().split("\n").length <= this.term.rows) {
         this.options.notice(
           t("terminalPage.notice.noOlderOutput"),
