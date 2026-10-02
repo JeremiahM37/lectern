@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useLocale } from "../i18n";
 import type { SessionsApi } from "./Sessions";
 
@@ -36,11 +36,21 @@ const age = (days: number) =>
 export function ScratchReview({
   api,
   onNotice,
+  startOpen,
 }: {
   api: SessionsApi;
   onNotice: (text: string, error?: boolean) => void;
+  /** Asked for from the Sessions ⋯ menu: open (and inspect) straight away. */
+  startOpen?: boolean;
 }) {
   useLocale();
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (startOpen && ref.current) {
+      ref.current.open = true;
+      ref.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [startOpen]);
   const [result, setResult] = useState<ScratchResult>(),
     [loading, setLoading] = useState(false),
     [busy, setBusy] = useState("");
@@ -78,6 +88,7 @@ export function ScratchReview({
   };
   return (
     <details
+      ref={ref}
       className="scratch-review"
       id="scratch-review"
       onToggle={(event) => {

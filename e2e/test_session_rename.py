@@ -107,6 +107,8 @@ def test_rename_session_from_card_action_menu(page, server):
     card = page.locator(".scard", has_text="Original Name")
     card.wait_for()
     session_id = int(card.get_attribute("data-session-id"))
+    # The title turns into a text box while renaming, so hold on to the card by id.
+    card = page.locator(f'.scard[data-session-id="{session_id}"]')
     
     # Wait for the API call to complete
     with page.expect_response(lambda r: r.request.method == "PATCH" and f"/api/sessions/{session_id}" in r.url and r.ok):

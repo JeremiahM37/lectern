@@ -483,6 +483,11 @@ export function Conversation({
       busy.current = false;
     }
   }
+  // The name can change underneath an open chat (a session named from its
+  // first prompt); follow it unless a rename is being typed here.
+  useEffect(() => {
+    setCurrentName(name);
+  }, [name]);
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);

@@ -259,7 +259,7 @@ export function SessionCard({
           instead: the card's title is the folder, and this keeps "which host"
           readable without repeating the folder. */}
       <div className="scard-project">
-        {scratch ? scratchDefaultName(s) : s.project_name || folderName(s.workdir) || t("sessions.card.unassigned")}
+        {scratch ? scratchDefaultName(s) : s.project_name || t("sessions.card.unassigned")}
       </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
@@ -724,7 +724,3 @@ export function SessionCard({
   );
 }
 
-/** The last path segment, for a session with no project: "~/notes" → "notes". */
-function folderName(path?: string | null): string {
-  return (path || "").split("/").filter(Boolean).pop() || "";
-}

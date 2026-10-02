@@ -7,6 +7,7 @@ import urllib.request
 import pytest
 from playwright.sync_api import expect
 from test_terminal_workspace import real_terminal
+from session_sheet import card_action
 
 
 def prepare(t, tmp_path):
@@ -14,7 +15,6 @@ def prepare(t, tmp_path):
     runner.write_text(r'''#!/usr/bin/env python3
 import json,os,re,sys
 from pathlib import Path
-from session_sheet import card_action
 record=Path.cwd()/('agent-%s.json'%os.getpid())
 record.with_suffix('.partial').write_text(json.dumps({'argv':sys.argv[1:],'provider':os.environ.get('SWITCH_PROVIDER'),'cwd':os.getcwd()}))
 record.with_suffix('.partial').replace(record)

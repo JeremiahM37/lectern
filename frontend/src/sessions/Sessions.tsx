@@ -107,6 +107,7 @@ export function Sessions({
     [scope, setScope] = useState<"active" | "all" | "archived">("active"),
     [query, setQuery] = useState(""),
     [group, setGroup] = useState<GroupMode>(savedGrouping),
+    [scratchShown, setScratchShown] = useState(false),
     [collapsed, setCollapsed] = useState(savedCollapsed),
     [sheet, setSheet] = useState<"new" | "discover" | SessionView>(),
     // The project "Start an agent" opens on when asked for one (the
@@ -553,7 +554,7 @@ export function Sessions({
   const firstRun = scope === "active" && !query && rows.length === 0;
   // With only a couple of sessions there is nothing to search, group or
   // filter (re-audit N8): those tools wait under ⋯ until the list grows.
-  const few = scope === "active" && !query && rows.filter((row) => !row.ended_at && row.status !== "dead").length <= 2;
+  const few = scope === "active" && !query && group === "none" && rows.filter((row) => !row.ended_at && row.status !== "dead").length <= 2;
   const headerExtras = (
     <>
         <button
@@ -659,6 +660,16 @@ export function Sessions({
             <div className="action-menu-panel">
               {headerExtras}
               {listTools}
+              <button
+                className="b"
+                id="sess-scratch"
+                onClick={(event) => {
+                  setScratchShown(true);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                {t("sessions.scratchReview.summary")}
+              </button>
             </div>
           </details>
         )}
@@ -851,7 +862,7 @@ export function Sessions({
           key={`session-${conversation.id}`}
           kind="session"
           id={conversation.id}
-          name={conversation.name}
+          name={rows.find((row) => row.id === conversation.id)?.name || conversation.name}
           session={rows.find(row => row.id === conversation.id) || conversation}
           onOpenSession={setConversation}
           api={api}
@@ -923,7 +934,7 @@ export function Sessions({
           <pre>{archiveText.text || t("sessions.list.noOutput")}</pre>
         </Modal>
       )}
-      {!few && <ScratchReview api={api} onNotice={onNotice} />}
+      {(!few || scratchShown) && <ScratchReview api={api} onNotice={onNotice} startOpen={few} />}
     </section>
   );
 }

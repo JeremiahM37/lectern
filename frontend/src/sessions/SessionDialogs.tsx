@@ -250,7 +250,9 @@ export function NewSession({
     const first = ordered.find((name) => agents.some((row) => row.name === name) && usable(name));
     setAgent(first || "demo");
   }, [installed, agents, agentMenu, agentTouched, profileId, agent]);
-  const startBlocked = !usable(agent) ? t("start.sheet.notInstalledWhy", { name: agent }) : "";
+  // A launch profile can bring its own command, so it is left to the server
+  // to judge; only a plain agent choice is checked here.
+  const startBlocked = profileId <= 0 && !usable(agent) ? t("start.sheet.notInstalledWhy", { name: agent }) : "";
   // The collapsed sheet still has to say what pressing Start will do: the
   // permission mode above all, plus anything else hidden behind Advanced.
   const { recent: recentProjects, rest: otherProjects } = orderProjectsByRecency(
@@ -470,7 +472,8 @@ export function NewSession({
               const options = offered.some((a) => a.name === agent) || agent === "demo"
                 ? offered
                 : [...offered, ...all.filter((a) => a.name === agent)];
-              const hidden = more.length + shown.length - offered.length;
+              // More agents… holds installed agents kept out of the short list.
+              const hidden = more.filter((a) => usable(a.name)).length;
               return (
                 <>
                   {options.map((a) => (

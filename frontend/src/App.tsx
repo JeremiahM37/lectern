@@ -1368,6 +1368,9 @@ export default function App() {
         <Conversation
           key={`${conversation.kind}-${conversation.id}`}
           {...conversation}
+          // A session's name can change while its chat is open (named from
+          // its first prompt): show the current one.
+          name={(conversation.kind === "session" && sessions.find((row) => row.id === conversation.id)?.name) || conversation.name}
           session={conversation.kind === "session" ? sessions.find(row => row.id === conversation.id) : undefined}
           onOpenSession={(row) => setConversation({kind: "session", id: row.id, name: row.name})}
           onAttach={conversation.kind === "session" ? () => void attach(conversation.id) : undefined}
