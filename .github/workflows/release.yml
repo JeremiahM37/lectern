@@ -16,8 +16,13 @@ jobs:
   first-install:
     uses: ./.github/workflows/first-install.yml
 
+  # Windows and macOS run on the PTY host; nothing ships unless its native
+  # tests pass on both.
+  pty-backend:
+    uses: ./.github/workflows/pty-backend.yml
+
   binaries:
-    needs: first-install
+    needs: [first-install, pty-backend]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -90,7 +95,7 @@ jobs:
           /tmp/instcheck/lectern version | grep -q "${GITHUB_REF_NAME#v}"
 
   image:
-    needs: first-install
+    needs: [first-install, pty-backend]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
