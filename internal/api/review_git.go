@@ -243,6 +243,48 @@ type gitCommitIn struct {
 	// default branch itself, which needs a signed-in person.
 	NewBranch       string `json:"new_branch"`
 	AllowBaseBranch bool   `json:"allow_base_branch"`
+	// Identity answers a no_git_identity refusal from the commit form itself:
+	// git's user.name and user.email are saved first, for every repository
+	// on that machine (scope "global", the default) or only this one
+	// ("repo"), and the commit goes ahead.
+	Identity *gitIdentityIn `json:"identity"`
+}
+
+type gitIdentityIn struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Scope string `json:"scope"`
+}
+
+// noGitIdentityDetail is the no_git_identity refusal, written for the form
+// that asks for the two answers.
+const noGitIdentityDetail = "Git needs your name and email before it can commit."
+
+// gitIdentityCommand is the git config that saves in, or a reason it can't.
+func gitIdentityCommand(in *gitIdentityIn) (string, error) {
+	name, email := strings.TrimSpace(in.Name), strings.TrimSpace(in.Email)
+	scope := strings.TrimSpace(in.Scope)
+	if scope == "" {
+		scope = "global"
+	}
+	switch {
+	case name == "" || email == "":
+		return "", fmt.Errorf("enter both your name and your email")
+	case !strings.Contains(email, "@") || strings.ContainsAny(email, " <>"):
+		return "", fmt.Errorf("enter an email address, like you@example.com")
+	case strings.ContainsFunc(name+email, func(r rune) bool { return r < 0x20 || r == 0x7f || r == '<' || r == '>' }):
+		return "", fmt.Errorf("a name or email cannot contain < > or control characters")
+	case len(name) > 200 || len(email) > 200:
+		return "", fmt.Errorf("that name or email is too long")
+	case scope != "global" && scope != "repo":
+		return "", fmt.Errorf(`identity scope must be "global" or "repo"`)
+	}
+	flag := ""
+	if scope == "global" {
+		flag = "--global "
+	}
+	q := executor.ShellQuote
+	return "git config " + flag + "user.name " + q(name) + " && git config " + flag + "user.email " + q(email), nil
 }
 
 // newBranchScript creates and switches to a branch for "Commit on a new
@@ -290,6 +332,15 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "lease must be a commit id")
 		return
 	}
+	var identityCmd string
+	if body.Identity != nil {
+		cmd, err := gitIdentityCommand(body.Identity)
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": strings.ToUpper(err.Error()[:1]) + err.Error()[1:] + ".", "code": "invalid_git_identity"})
+			return
+		}
+		identityCmd = cmd
+	}
 	if (body.ForceWithLease || (body.Amend && body.AllowPushedAmend)) &&
 		!s.humanPrincipal(w, r, "rewriting pushed history") {
 		return
@@ -298,11 +349,23 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	if !ok || !liveSession(w, row) {
 		return
 	}
+	if identityCmd != "" {
+		res, err := ex.Run(r.Context(), identityCmd, executor.RunOpts{Cwd: target.dir, Timeout: 15})
+		if err != nil {
+			respondErr(w, err)
+			return
+		}
+		if !res.OK() {
+			httpError(w, 409, "could not save your name and email: %s", strings.TrimSpace(res.Stderr+res.Stdout))
+			return
+		}
+	}
 	// A brand-new machine often has no git name and email. Say so before
 	// anything moves: otherwise "Commit on a new branch" switches the
-	// person's folder and only then fails at the commit itself.
+	// person's folder and only then fails at the commit itself. The client
+	// asks for both and sends them back as identity.
 	if res, err := ex.Run(r.Context(), gitIdentityScript, executor.RunOpts{Cwd: target.dir, Timeout: 15}); err == nil && !res.OK() {
-		writeJSON(w, 409, map[string]any{"detail": `git does not know your name and email yet, so it cannot commit. Run git config --global user.name "Your Name" and git config --global user.email you@example.com, then try again.`, "code": "no_git_identity"})
+		writeJSON(w, 409, map[string]any{"detail": noGitIdentityDetail, "code": "no_git_identity"})
 		return
 	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {

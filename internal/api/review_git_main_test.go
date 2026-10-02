@@ -8,6 +8,7 @@ package api_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,5 +109,72 @@ func TestCommitWithoutGitIdentityLeavesTheFolderAlone(t *testing.T) {
 	}
 	if got, _ := gitCmd(repo, "branch", "--list", "lectern/fix-login"); strings.TrimSpace(got) != "" {
 		t.Fatalf("no branch may be created: %q", got)
+	}
+	// The refusal reads as a form's question, not a terminal instruction.
+	if d := refused.str("detail"); d != "Git needs your name and email before it can commit." {
+		t.Fatalf("detail: %q", d)
+	}
+
+	// The form's answers that are not a name and an email are refused, and
+	// nothing is saved.
+	var bad obj
+	h.decode("POST", base+"/commit", obj{"message": "one", "stage_all": true, "new_branch": "lectern/fix-login",
+		"identity": obj{"name": "Ada", "email": "not-an-email", "scope": "repo"}}, 422, &bad)
+	if bad.str("code") != "invalid_git_identity" {
+		t.Fatalf("invalid identity: %v", bad)
+	}
+	if got, _ := gitCmd(repo, "config", "--local", "user.email"); strings.TrimSpace(got) != "" {
+		t.Fatalf("nothing may be saved for an invalid identity: %q", got)
+	}
+
+	// Answered for this repository only: saved there, then the commit goes
+	// ahead on the new branch.
+	out := h.post(base+"/commit", obj{"message": "one", "stage_all": true, "new_branch": "lectern/fix-login",
+		"identity": obj{"name": "Ada Lovelace", "email": "ada@example.invalid", "scope": "repo"}}, 200)
+	if out.str("branch") != "lectern/fix-login" || out["failed"] != nil {
+		t.Fatalf("commit after saving the identity: %v", out)
+	}
+	if got, _ := gitCmd(repo, "config", "--local", "user.name"); strings.TrimSpace(got) != "Ada Lovelace" {
+		t.Fatalf("repo user.name: %q", got)
+	}
+	if got, _ := gitCmd(repo, "log", "-1", "--format=%an <%ae> %s"); strings.TrimSpace(got) != "Ada Lovelace <ada@example.invalid> one" {
+		t.Fatalf("commit author: %q", got)
+	}
+}
+
+// "Save for all repos" writes git's global config — here a private file, so
+// the test never touches the real one.
+func TestCommitSavesAGlobalGitIdentity(t *testing.T) {
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[user]\n\tuseConfigOnly = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	h, proj, repo := newRealSessionHarness(t)
+	var row obj
+	h.decode("POST", "/api/sessions", obj{"project_id": proj.ID, "agent": "review-real-agent", "yolo": false, "name": "work · main"}, 201, &row)
+	base := fmt.Sprintf("/api/sessions/%d/git", int64(row.num("id")))
+	writeReviewFile(t, filepath.Join(repo, "app.py"), "def main():\n    print('one')\n")
+	var refused obj
+	h.decode("POST", base+"/commit", obj{"message": "one", "stage_all": true, "allow_base_branch": true}, 409, &refused)
+	if refused.str("code") != "no_git_identity" {
+		t.Fatalf("refusal: %v", refused)
+	}
+	out := h.post(base+"/commit", obj{"message": "one", "stage_all": true, "allow_base_branch": true,
+		"identity": obj{"name": "Grace Hopper", "email": "grace@example.invalid"}}, 200)
+	if out["failed"] != nil {
+		t.Fatalf("commit: %v", out)
+	}
+	saved, err := os.ReadFile(global)
+	if err != nil || !strings.Contains(string(saved), "Grace Hopper") || !strings.Contains(string(saved), "grace@example.invalid") {
+		t.Fatalf("global config: %s %v", saved, err)
+	}
+	if got, _ := gitCmd(repo, "config", "--local", "--get", "user.name"); strings.TrimSpace(got) != "" {
+		t.Fatalf("a global answer must not be written to the repository: %q", got)
 	}
 }
