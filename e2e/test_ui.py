@@ -1008,6 +1008,9 @@ def test_clearing_a_column_lives_on_that_column(page, server):
 
 def test_the_quickbar_has_no_unstyled_buttons(page, server):
     """Two native buttons in a styled bar looked exactly as bad as that sounds."""
+    # The theme follows the device; white is a real panel colour in light mode,
+    # so check in dark where an unstyled native button stands out.
+    page.emulate_media(color_scheme="dark")
     page.goto(server + "/#tasks")
     page.wait_for_timeout(1000)
     for i in range(page.locator("#quickbar > *").count()):

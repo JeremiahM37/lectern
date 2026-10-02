@@ -245,6 +245,7 @@ def test_f_commit_from_main_on_a_new_branch(page, real_terminal, size):
     # It is the person's own folder: say so before switching it to a branch.
     expect(review.locator(".commit-own-folder")).to_contain_text(f"creates branch lectern/fix-login in your folder {root}")
     expect(review.locator(".commit-options > summary")).to_contain_text("nothing is pushed")
+    review.locator(".commit-options > summary").click()  # inspection only, not a user step
     push = review.get_by_role("checkbox", name="Push to origin")
     expect(push).to_be_disabled()
     expect(review).to_contain_text("no remote to push to")
