@@ -12,6 +12,17 @@ interface Minted {
   expiresAt: number;
 }
 
+// The private runtime started by `lectern up` can also listen on this
+// computer's Wi-Fi address on request (cmd/lectern/localruntime/phone.go);
+// a hosted server has no such route and answers 404.
+interface LocalPhone {
+  open: boolean;
+  url?: string;
+  lan_address?: string;
+  pair_url?: string;
+  expires_at?: number;
+}
+
 // "Connect your phone" (docs/design/simple-ui.md): pick an address the phone
 // can actually reach — this address, the tailnet name, the LAN address (with a
 // warning) or the relay — each with one line saying what it means, then show
@@ -24,14 +35,19 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
   const [minted, setMinted] = useState<Minted>();
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [localPhone, setLocalPhone] = useState<LocalPhone>();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   useEffect(() => {
     void api
       .request<PhoneAddresses>("/phone/addresses")
       .then(setAddresses)
       .catch((e) => setError(String(e instanceof Error ? e.message : e)));
+    void api
+      .request<LocalPhone>("/local/phone")
+      .then(setLocalPhone)
+      .catch(() => undefined);
   }, []);
-  const choices = phoneChoices(addresses, origin);
+  const choices = withLocalPhone(phoneChoices(addresses, origin), localPhone);
   useEffect(() => {
     if (!chosen && addresses) setChosen(bestChoice(choices));
   }, [addresses]);
@@ -48,6 +64,10 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
     setBusy(true);
     setMinted(undefined);
     try {
+      if (chosen.kind === "lan" && localPhone) {
+        await openLocalPhone();
+        return;
+      }
       if (chosen.kind === "relay") {
         const out = await api.request<{ fragment: string; shell_url?: string; expires_at: number }>("/relay/pair", { method: "POST" });
         setMinted({ url: relayPairURL(out.fragment, out.shell_url, origin), expiresAt: out.expires_at });
@@ -67,7 +87,37 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
     }
   }
 
-  const noneAvailable = !!addresses && !choices.some((row) => row.available);
+  // One click: the same runtime starts listening on the Wi-Fi address, and
+  // the answer carries a one-time pairing link for the QR code.
+  async function openLocalPhone() {
+    const out = await api.request<LocalPhone>("/local/phone", { method: "POST" });
+    setLocalPhone(out);
+    setChosen({ kind: "lan", url: out.url, available: true });
+    if (out.pair_url && out.expires_at) setMinted({ url: out.pair_url, expiresAt: out.expires_at });
+  }
+  async function lanOpen() {
+    setBusy(true);
+    setMinted(undefined);
+    try {
+      await openLocalPhone();
+    } catch (e) {
+      onNotice(String(e instanceof Error ? e.message : e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function lanStop() {
+    try {
+      setLocalPhone(await api.request<LocalPhone>("/local/phone", { method: "DELETE" }));
+      setMinted(undefined);
+      setChosen(undefined);
+      onNotice(t("phone.lanStopped"));
+    } catch (e) {
+      onNotice(String(e instanceof Error ? e.message : e), true);
+    }
+  }
+
+  const noneAvailable = !!addresses && !choices.some((row) => row.available) && !localPhone?.lan_address;
   return (
     <Modal className="sheet phone-wizard" id="phone-wizard" aria-label={t("phone.title")} onCancel={onClose}>
       <div className="sheet-head">
@@ -106,7 +156,23 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
                 {row.kind === "lan" && row.available && <span aria-hidden="true">⚠ </span>}
                 {t(`phone.explain.${row.kind}`)}
               </span>
-              {!row.available && row.reason && <span className="phone-choice-why">{t(`phone.why.${row.reason}`)}</span>}
+              {!row.available && row.reason && !(row.kind === "lan" && localPhone) && <span className="phone-choice-why">{t(`phone.why.${row.reason}`)}</span>}
+              {row.kind === "lan" && localPhone && !localPhone.open && localPhone.lan_address && (
+                <span className="phone-choice-why">
+                  {t("phone.lanClosed")}{" "}
+                  <button type="button" className="b ok" id="phone-lan-open" disabled={busy} onClick={() => void lanOpen()}>
+                    {t("phone.lanOpen")}
+                  </button>
+                </span>
+              )}
+              {row.kind === "lan" && localPhone?.open && (
+                <span className="phone-choice-why" id="phone-lan-warning">
+                  {t("phone.lanWarning")}{" "}
+                  <button type="button" className="b" id="phone-lan-stop" onClick={() => void lanStop()}>
+                    {t("phone.lanStop")}
+                  </button>
+                </span>
+              )}
             </span>
           </label>
         ))}
@@ -146,4 +212,11 @@ export function PhoneWizard({ api, onNotice, onClose }: { api: SettingsApi; onNo
       {minted && left <= 0 && <p className="subhint">{t("settings.devices.expired")}</p>}
     </Modal>
   );
+}
+
+// withLocalPhone marks the Wi-Fi choice available once the private runtime is
+// listening there, at the address it actually opened.
+export function withLocalPhone(choices: PhoneOption[], local: LocalPhone | undefined): PhoneOption[] {
+  if (!local?.open || !local.url) return choices;
+  return choices.map((row) => (row.kind === "lan" ? { kind: "lan", url: local.url, available: true } : row));
 }
