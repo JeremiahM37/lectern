@@ -66,14 +66,44 @@ func TestSystemdUnitRunsTheBinary(t *testing.T) {
 	}
 }
 
-// One version string, reported by the API and shown in the UI.
+// One version string, reported by the API and shown in the UI. The README
+// need not state a version at all (a rewrite that dropped its badge is what
+// turned CI red), but a version it does state must be the current one.
 func TestVersionIsDeclaredOnce(t *testing.T) {
 	h := newHarness(t)
 	if got := h.get("/api/health").str("version"); got != version.Version {
 		t.Fatalf("/api/health reports %q, the package says %q", got, version.Version)
 	}
-	if !strings.Contains(repoFile(t, "README.md"), version.Version) {
-		t.Errorf("README does not mention the current version %s", version.Version)
+	readme := repoFile(t, "README.md")
+	for _, claim := range readmeVersionClaims(readme) {
+		if claim != version.Version {
+			t.Errorf("README says version %s; the package says %s", claim, version.Version)
+		}
+	}
+}
+
+// readmeVersionClaims finds the version a README's shields.io badge states
+// as Lectern's current one. Prose about past releases ("since 2.5.0") and
+// install examples that pin one (--version v2.4.0) are not such claims.
+func readmeVersionClaims(readme string) []string {
+	var out []string
+	re := regexp.MustCompile(`badge/version-v?(\d+\.\d+\.\d+(?:--[0-9A-Za-z.]+)*)-[0-9A-Fa-f]{3,8}\b`)
+	for _, m := range re.FindAllStringSubmatch(readme, -1) {
+		// shields.io writes a literal dash as "--".
+		out = append(out, strings.ReplaceAll(m[1], "--", "-"))
+	}
+	return out
+}
+
+func TestReadmeVersionClaims(t *testing.T) {
+	got := readmeVersionClaims("![version](https://img.shields.io/badge/version-2.6.2-8b5cf6)\n" +
+		"![version](https://img.shields.io/badge/version-2.7.0--rc.1-8b5cf6)\n" +
+		"Since Lectern 2.5.0 it pairs phones.\n`lectern update --version v2.4.0`\n")
+	if strings.Join(got, ",") != "2.6.2,2.7.0-rc.1" {
+		t.Fatalf("claims: %v", got)
+	}
+	if got := readmeVersionClaims("No version here.\n"); len(got) != 0 {
+		t.Fatalf("claims: %v", got)
 	}
 }
 
