@@ -100,18 +100,36 @@ type bareClient struct {
 	links    *linkEnv
 	linkDir  string
 	pressed  bool
+	// popup runs the Ctrl+] controls in place of the session; nil is the
+	// real controls dashboard. Tests swap in their own.
+	popup func(action string)
 }
 
 // runBareAttachment shows the attachment argv with Lectern's own key bar
 // and controls until the person leaves or the session ends.
 func runBareAttachment(argv []string, controls nativeControls, replace bool) error {
-	self, err := os.Executable()
+	c, err := newBareClient(controls)
 	if err != nil {
 		return err
 	}
-	c := &bareClient{controls: controls, self: self, in: os.Stdin, out: os.Stdout, outFd: int(os.Stdout.Fd()),
+	return c.run(argv, replace)
+}
+
+func newBareClient(controls nativeControls) (*bareClient, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return &bareClient{controls: controls, self: self, in: os.Stdin, out: os.Stdout, outFd: int(os.Stdout.Fd()),
 		cache: map[*barePane][]string{}, realModes: map[int]bool{},
-		dirty: make(chan struct{}, 1), done: make(chan string, 1), dir: '|'}
+		dirty: make(chan struct{}, 1), done: make(chan string, 1), dir: '|'}, nil
+}
+
+// run attaches to argv until the person leaves or the session ends.
+func (c *bareClient) run(argv []string, replace bool) error {
+	controls := c.controls
+	self := c.self
+	var err error
 	c.cols, c.rows = 80, 24
 	if w, h, err := term.GetSize(c.outFd); err == nil && w > 0 && h > 1 {
 		c.cols, c.rows = w, h
@@ -367,7 +385,7 @@ func (c *bareClient) barText() string {
 // ---- keyboard and mouse
 
 func (c *bareClient) startInput() error {
-	r, err := cancelreader.NewReader(c.in)
+	r, err := newInputReader(c.in)
 	if err != nil {
 		return err
 	}
@@ -1160,6 +1178,10 @@ func (c *bareClient) takeover(fn func()) {
 // in this process, in place of the session until it closes. Text it types
 // (an uploaded file's path) goes straight to the agent's pane.
 func (c *bareClient) controlsPopup(action string) {
+	if c.popup != nil {
+		go c.takeover(func() { c.popup(action) })
+		return
+	}
 	go c.takeover(func() {
 		opts := console.DashboardOptions{Popup: true, FocusKind: c.controls.Kind, FocusID: c.controls.ID,
 			Action: action, Insert: c.send}
