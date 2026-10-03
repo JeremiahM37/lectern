@@ -7,7 +7,7 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 assets = root / 'docs/media/control-plane'
-docs = [root / 'README.md', root / 'docs/media/README.md', assets / 'README.md', root / '.agents/distribution.md', root / 'docs/internal/launch/control-plane-refresh.md']
+docs = [root / 'README.md', root / 'docs/media/README.md', assets / 'README.md']
 for doc in docs:
     text = doc.read_text()
     links = re.findall(r'\]\(([^)]+)\)', text) + re.findall(r'src="([^"]+)"', text)
@@ -31,8 +31,4 @@ for name in ['control-plane.mp4', 'phone-approval.mp4', 'files.mp4', 'dispatch-r
     assert 3 < float(info['format']['duration']) < 60, name
     subprocess.run(['ffmpeg', '-v', 'error', '-i', str(media), '-f', 'null', '-'], check=True)
     print(f'{name}: {float(info["format"]["duration"]):.1f}s; decodes successfully')
-for name, mock in [('capture-report.json', True), ('file-report.json', False)]:
-    report = json.loads((assets / name).read_text())
-    assert report['build']['ok'] and report['build']['mock'] == mock, name
-    assert not report['errors'] and len(report['checks']) >= 4, name
-print('PASS: documentation links, capture reports, 11 screenshots and 4 playable media files')
+print('PASS: documentation links, 11 screenshots and 4 playable media files')

@@ -57,10 +57,9 @@ phone, then review and commit the change.
 
 ![Choose a machine, dispatch agent work, and review the result in Lectern](docs/media/control-plane/dispatch-review.gif)
 
-[Watch the walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots and recording details](docs/media/control-plane/README.md)
+[Watch the walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots](docs/media/control-plane/README.md)
 
-*Recorded October 2, 2026 from Lectern 2.7.0 with disposable demo projects and scripted agents.
-The recording demonstrates the workflow, not model performance.*
+*Demo uses example machines and scripted agents.*
 
 ## What you can do
 
