@@ -55,12 +55,11 @@ phone, then review and commit the change.
 `lectern doctor` checks your setup and prints a fix for anything missing.
 `lectern update` installs a new release. `lectern help` lists every command.
 
-![Choose a machine, dispatch agent work, and review the result in Lectern](docs/media/control-plane/dispatch-review.gif)
+![Work across the Lectern terminal client and browser](docs/media/control-plane/dispatch-review.gif)
 
-[Watch the walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots and recording details](docs/media/control-plane/README.md)
+[Watch the one-minute walkthrough](docs/media/control-plane/control-plane.mp4) · [Screenshots](docs/media/control-plane/README.md)
 
-*Recorded from the current app with disposable demo projects and scripted agents.
-The recording demonstrates the workflow, not model performance.*
+*Demo projects with scripted agent responses.*
 
 ## What you can do
 

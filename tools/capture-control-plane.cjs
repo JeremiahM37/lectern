@@ -55,7 +55,7 @@ let browser;
  for(const [name,i,agent] of [['Refine the web console',0,'claude'],['Review API changes',1,'codex'],['Plan the next release',2,'gemini']])
   await api('/sessions',{name,project_id:projects[i].id,agent});
  browser=await chromium.launch({headless:true,executablePath:'/usr/bin/chromium'});
- const context=await browser.newContext({viewport:{width:1440,height:900},recordVideo:{dir:path.join(root,'raw'),size:{width:1440,height:900}}});
+ const context=await browser.newContext({colorScheme:'dark',viewport:{width:1440,height:900},recordVideo:{dir:path.join(root,'raw'),size:{width:1440,height:900}}});
  const page=await context.newPage();page.setDefaultTimeout(15000); const errors=[];page.on('pageerror',e=>errors.push(e.message));
  async function shot(name){await page.waitForTimeout(500);await page.screenshot({path:path.join(root,name+'.png')});}
  async function click(loc){await loc.scrollIntoViewIfNeeded();const b=await loc.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2,{steps:15});await delay(200);await loc.click();}
@@ -76,7 +76,7 @@ let browser;
  const end=Date.now();await context.close();
  const source=await page.video().path();
  fs.writeFileSync(path.join(root,'video-timing.json'),JSON.stringify({start,end,duration:(end-start)/1000,source}));
- const phone=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2,
+ const phone=await browser.newContext({colorScheme:'dark',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2,
  recordVideo:{dir:path.join(root,'phone-raw'),size:{width:390,height:844}}});
  const pp=await phone.newPage();pp.setDefaultTimeout(15000);await pp.goto(base+'/#approvals');await pp.getByRole('button',{name:'Allow once',exact:false}).first().waitFor();
  await pp.screenshot({path:path.join(root,'phone-approval.png')});await delay(1600);
@@ -84,7 +84,7 @@ let browser;
  await until(async()=>(await api('/tasks/'+gated.id)).status==='review');await delay(1500);
  await pp.goto(base+'/#sessions');await pp.locator('.scard').first().waitFor();await delay(800);
  await pp.screenshot({path:path.join(root,'phone-sessions.png')});await delay(1000);await phone.close();
- const desk=await browser.newPage({viewport:{width:1440,height:900}});await desk.goto(base+'/#sessions');await desk.locator('.scard').first().waitFor();
+ const desk=await browser.newPage({colorScheme:'dark',viewport:{width:1440,height:900}});await desk.goto(base+'/#sessions');await desk.locator('.scard').first().waitFor();
  await desk.screenshot({path:path.join(root,'sessions.png')});await desk.close();
  assert.equal(errors.length,0,errors.join('\n'));
  const streams=[['control-plane',source,1440],['phone-approval',await pp.video().path(),390]];
@@ -93,6 +93,6 @@ let browser;
  }
  // Compact hero excerpt; full video retains the complete observed workflow.
  execFileSync('ffmpeg',['-y','-i',source,'-vf','setpts=0.55*PTS,fps=10,scale=1000:-1:flags=lanczos,pad=iw:ih+38:0:38:color=0x0b1018,drawtext=text=Demo data - scripted agents:x=12:y=10:fontsize=16:fontcolor=white,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer','-loop','0',path.join(root,'dispatch-review.gif')],{stdio:'ignore'});
- fs.writeFileSync(path.join(root,'capture-report.json'),JSON.stringify({build:await api('/health'),fixture:'Scripted mock executors; simulated targets; real app/API and approval state transitions',checks:['machine probes','UI task dispatch to project-selected target','task reaches review','diff rendered','phone approval unblocks task','desktop full sidebar','no page errors'],targets:targets.map(t=>({name:t.name,kind:t.kind})),errors},null,2));
+ fs.writeFileSync(path.join(root,'capture-report.json'),JSON.stringify({build:await api('/health'),fixture:'Scripted mock executors; simulated targets; real app/API and approval state transitions',checks:['machine probes','UI task dispatch to project-selected target','task reaches review','diff rendered','phone approval unblocks task','current desktop navigation','no page errors'],targets:targets.map(t=>({name:t.name,kind:t.kind})),errors},null,2));
  console.log('PASS: captured machines, dispatch, review, sessions and phone approval');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(browser)await browser.close();proc?.kill('SIGTERM');});

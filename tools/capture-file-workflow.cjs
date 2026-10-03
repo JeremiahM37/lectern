@@ -33,7 +33,7 @@ let proc;let browser;const gui=[];
  const s=await api('/sessions/adopt',{target_id:t.id,tmux_session:'capture-files',workdir:work,name:'Review the release workspace',agent:'shell'});
  command('tmux',['send-keys','-t','=capture-files:',"clear; printf '\\nRelease workspace\\n\\nOpen the plan: release-plan.pdf\\n\\nDrop supporting files into this workspace.\\n'",'Enter']);
  browser=await chromium.launch({headless:true,executablePath:'/usr/bin/chromium'});
- const ctx=await browser.newContext({viewport:{width:1440,height:900},recordVideo:{dir:path.join(root,'raw'),size:{width:1440,height:900}}});
+ const ctx=await browser.newContext({colorScheme:'dark',viewport:{width:1440,height:900},recordVideo:{dir:path.join(root,'raw'),size:{width:1440,height:900}}});
  const p=await ctx.newPage();p.setDefaultTimeout(15000);const errors=[];p.on('pageerror',e=>errors.push(e.message));
  await p.goto(base+`/terminal/session/${s.id}`);await p.locator('#connection').filter({hasText:'Connected'}).waitFor();
  await p.locator('#agent-terminal .xterm-screen').filter({hasText:'release-plan.pdf'}).waitFor();await delay(700);

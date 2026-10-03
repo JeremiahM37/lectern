@@ -18,7 +18,7 @@ Choose where work runs, dispatch to your agent, and supervise from your terminal
 
 ![Dispatch and review in the current UI](media/control-plane/dispatch-review.gif)
 
-[Walkthrough and recording details](media/control-plane/README.md) — demo data and scripted agents.
+[Videos and screenshots](media/control-plane/README.md) — demo data and scripted agents.
 
 </div>
 
