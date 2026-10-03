@@ -442,21 +442,21 @@ def test_chat_keeps_the_last_line_in_view(page, server, size):
 @pytest.mark.parametrize("size", WIDTHS, ids=IDS)
 def test_navigation_is_short_and_more_stays_in_its_place(page, real_terminal, size):
     """N9: on a phone, Sessions, Approvals, Settings (+ Tasks once used) and
-    More, and an open terminal never takes a slot. A desktop sidebar has the
-    same three, Terminals while one is open, and a More group that opens in
-    place, never over the terminal."""
+    More, and an open terminal never takes a slot. A desktop sidebar lists
+    every page, with no More, and never sits over the terminal."""
     t = real_terminal
     page.set_viewport_size(size)
     page.goto(t["url"] + "/#sessions")
     tabs = page.locator("#tabbar > .tab")
-    expect(tabs).to_have_count(3)
+    count = 3 if size is PHONE else 9
+    expect(tabs).to_have_count(count)
     page.locator(".scard", has_text="Real terminal").get_by_role("button", name="⌨ Terminal", exact=True).click()
     expect(page.locator("#terminal-workspace")).to_be_visible()
     if size is PHONE:
         show = page.get_by_role("button", name="Show navigation", exact=True)
         if show.is_visible():
             show.click()
-    expect(tabs).to_have_count(3 if size is PHONE else 4)
+    expect(tabs).to_have_count(count)
     if size is PHONE:
         expect(page.locator("#more-terminal-badge")).to_have_text("1")
         page.locator("#nav-overflow > summary").click()
