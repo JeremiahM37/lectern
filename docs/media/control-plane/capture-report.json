@@ -1,7 +1,7 @@
 {
   "build": {
     "build": {
-      "version": "2.6.2+bf174ed420d3",
+      "version": "2.7.0+43d7e80",
       "revision": "",
       "modified": null
     },
@@ -18,7 +18,7 @@
       "backlog": 2,
       "review": 3
     },
-    "version": "2.6.2+bf174ed420d3"
+    "version": "2.7.0+43d7e80"
   },
   "fixture": "Scripted mock executors; simulated targets; real app/API and approval state transitions",
   "checks": [
@@ -27,7 +27,7 @@
     "task reaches review",
     "diff rendered",
     "phone approval unblocks task",
-    "desktop full sidebar",
+    "current desktop navigation",
     "no page errors"
   ],
   "targets": [

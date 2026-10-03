@@ -1,11 +1,11 @@
 # Lectern: dispatch, supervise, review
 
 These captures show the current desktop navigation and phone layout from build
-`2.6.2+bf174ed420d3`, the application code included in the next release.
+`2.7.0+43d7e80`, recorded on October 2, 2026.
 
 ## Start with the whole workflow
 
-[Watch the 14-second walkthrough](control-plane.mp4)
+[Watch the walkthrough](control-plane.mp4)
 
 ![Choose machines, dispatch and review](dispatch-review.gif)
 

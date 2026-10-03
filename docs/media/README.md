@@ -1,7 +1,7 @@
 # Current product overview
 
 The [control-plane walkthrough and gallery](control-plane/README.md) are the
-current README assets, captured from build `bf174ed420d3`. They show the current
+current README assets, captured from build `2.7.0+43d7e80` (October 2, 2026). They show the current
 desktop navigation, machine selection, task dispatch, review and phone approval,
 plus real file operations and the native terminal client.
 

@@ -93,6 +93,6 @@ let browser;
  }
  // Compact hero excerpt; full video retains the complete observed workflow.
  execFileSync('ffmpeg',['-y','-i',source,'-vf','setpts=0.55*PTS,fps=10,scale=1000:-1:flags=lanczos,pad=iw:ih+38:0:38:color=0x0b1018,drawtext=text=Demo data - scripted agents:x=12:y=10:fontsize=16:fontcolor=white,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer','-loop','0',path.join(root,'dispatch-review.gif')],{stdio:'ignore'});
- fs.writeFileSync(path.join(root,'capture-report.json'),JSON.stringify({build:await api('/health'),fixture:'Scripted mock executors; simulated targets; real app/API and approval state transitions',checks:['machine probes','UI task dispatch to project-selected target','task reaches review','diff rendered','phone approval unblocks task','desktop full sidebar','no page errors'],targets:targets.map(t=>({name:t.name,kind:t.kind})),errors},null,2));
+ fs.writeFileSync(path.join(root,'capture-report.json'),JSON.stringify({build:await api('/health'),fixture:'Scripted mock executors; simulated targets; real app/API and approval state transitions',checks:['machine probes','UI task dispatch to project-selected target','task reaches review','diff rendered','phone approval unblocks task','current desktop navigation','no page errors'],targets:targets.map(t=>({name:t.name,kind:t.kind})),errors},null,2));
  console.log('PASS: captured machines, dispatch, review, sessions and phone approval');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(browser)await browser.close();proc?.kill('SIGTERM');});

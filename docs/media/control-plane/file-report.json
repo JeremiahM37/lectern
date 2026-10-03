@@ -1,7 +1,7 @@
 {
   "build": {
     "build": {
-      "version": "2.6.2+bf174ed420d3",
+      "version": "2.7.0+43d7e80",
       "revision": "",
       "modified": null
     },
@@ -15,7 +15,7 @@
     "sessions": 1,
     "sessions_waiting": 0,
     "tasks": {},
-    "version": "2.6.2+bf174ed420d3"
+    "version": "2.7.0+43d7e80"
   },
   "mock": false,
   "fixture": "real local target on isolated capture host; HTML5 File/DataTransfer drop",
