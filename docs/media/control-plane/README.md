@@ -1,16 +1,17 @@
 # Lectern in action
 
-[Watch the walkthrough](control-plane.mp4) · [Phone approval](phone-approval.mp4) · [PDF preview and file upload](files.mp4)
+[Terminal and browser walkthrough](control-plane.mp4) · [Phone approval](phone-approval.mp4) · [Files and web previews](files.mp4)
 
-*Workflow footage uses example machines and scripted agents.*
+*Demo projects with scripted agent responses.*
 
-![Dispatch work and review changes](dispatch-review.gif)
+![Projects and agents across terminal and browser](dispatch-review.gif)
 
-![Machines](machines.png)
-![Sessions](sessions.png)
-![Review changes](review.png)
+![Terminal dashboard](native-cli.png)
+![Saved projects in the terminal](projects-cli.png)
+![Browser sessions](sessions.png)
+![Project memory from Grimoire](project-memory.png)
+![Continue with another agent](agent-handoff.png)
+![PDF preview](pdf-preview.png)
+![HTML preview](web-preview.png)
 
 <img src="phone-approval.png" alt="Approve from your phone" width="300">
-
-![PDF preview](pdf-preview.png)
-![Terminal client](native-cli.png)
