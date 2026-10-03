@@ -242,6 +242,8 @@ type dashboard struct {
 	popup        bool
 	directAction bool
 	pendingFocus *dashboardFocus
+	// mods are the plugin mods running in this console (mods.go).
+	mods *modState
 }
 
 // dashboardFocus is the row a controls popup was opened for. It is resolved
@@ -331,6 +333,7 @@ func newDashboardOpts(c *Client, opts DashboardOptions) *dashboard {
 	m.popup = opts.Popup
 	m.cwd = opts.Cwd
 	m.agentState = map[string]map[string]string{}
+	m.mods = newModState(c)
 	if kind := controlsKind(opts.FocusKind); kind != "" && opts.FocusID != "" {
 		m.section = controlsSection(kind)
 		m.pendingFocus = &dashboardFocus{section: m.section, id: opts.FocusID, attempt: kind == "attempt", action: opts.Action, openMenu: true}
@@ -361,7 +364,7 @@ func controlsSection(kind string) int {
 	return 0
 }
 func (m *dashboard) Init() tea.Cmd {
-	return tea.Batch(m.refresh(), m.references(), m.pollApprovals(), nextTick())
+	return tea.Batch(m.refresh(), m.references(), m.pollApprovals(), m.loadMods(), nextTick())
 }
 func nextTick() tea.Cmd {
 	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -502,6 +505,9 @@ func (m *dashboard) filter() {
 	}
 	m.visible = nil
 	for _, r := range m.rows {
+		if m.modHidden(r) {
+			continue
+		}
 		s := str(r["status"])
 		if m.attention && s != "waiting" && s != "review" && s != "pending" && s != "failed" && r["setup_state"] != "failed" && !agentExited(r) && m.approvalFor(r) == nil && r["state"] != "needs_you" {
 			continue
@@ -823,6 +829,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = v.Width
 		m.height = v.Height
+		m.mods.host.SetViewport(v.Width, v.Height)
 		m.layout()
 		m.renderNativeSearch()
 		if r := m.review; r != nil && !r.loading && r.failure == "" {
@@ -832,10 +839,22 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(m.refresh(), m.pollApprovals(), nextTick())
+		var reload tea.Cmd
+		if m.mods.ticks++; m.mods.ticks%modReloadTicks == 0 {
+			reload = m.loadMods()
+		}
+		return m, tea.Batch(m.refresh(), m.pollApprovals(), reload, nextTick())
+	case modsLoadedMsg:
+		return m, m.receiveMods(v)
+	case modNoticeMsg:
+		return m, m.receiveModNotice(v)
+	case modCommandMsg:
+		m.receiveModCommand(v)
+		return m, nil
 	case approvalsMsg:
 		m.approvalsLoading = false
 		if v.err == nil {
+			m.modApprovalEvents(v.rows)
 			m.approvals = v.rows
 			if sections[m.section] == "sessions" {
 				m.updatePreview()
@@ -856,6 +875,10 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.failure = ""
 		m.updated = time.Now()
 		m.rows = v.rows
+		if v.section == "sessions" {
+			m.modSessionEvents(v.rows)
+			m.renderMods()
+		}
 		m.filter()
 		if m.focusSessionID != "" && v.section == "sessions" {
 			for i, r := range m.visible {
@@ -1181,6 +1204,9 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.form != nil {
 			return m, m.updateForm(v)
 		}
+		if m.pending == nil && m.modPaneOpen() {
+			return m, m.updateModPane(v)
+		}
 		if m.pending != nil {
 			if v.String() == "y" {
 				a := *m.pending
@@ -1266,7 +1292,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nativeSearch.viewport, cmd = m.nativeSearch.viewport.Update(v)
 			return m, cmd
 		}
-		if m.form != nil || m.menu || m.help || m.pending != nil || m.review != nil || m.recentOpen {
+		if m.form != nil || m.menu || m.help || m.pending != nil || m.review != nil || m.recentOpen || m.modPaneOpen() {
 			return m, nil
 		}
 		if v.Button == tea.MouseButtonWheelUp {
@@ -1441,6 +1467,8 @@ func (m *dashboard) View() string {
 		body = m.formView()
 	case m.pending != nil:
 		body = "\n " + accent.Bold(true).Render(m.pending.Label+"?") + "\n\n " + ansi.Wrap(m.pending.Warning, max(10, m.width-2), "")
+	case m.modPaneOpen():
+		body = m.modPaneView(bodyHeight)
 	case m.help:
 		body = m.helpView(bodyHeight)
 	case m.palette:
@@ -1492,7 +1520,7 @@ func (m *dashboard) View() string {
 	if m.busy {
 		status = "Working… " + status
 	}
-	footer := renderKeyBar(m.keyBar(), m.width) + "\n" + clip(" "+status, m.width-1)
+	footer := renderKeyBar(m.keyBar(), m.width) + "\n" + m.statusLine(status)
 	return header + strings.Join(lines, "\n") + "\n" + footer
 }
 
@@ -1589,6 +1617,13 @@ func (m *dashboard) listView(height int) string {
 		if i == m.selected {
 			line = "› " + oneLine(m.rowTitle(r))
 		}
+		// What mods append to a session card goes after the title, which
+		// gives up room first.
+		extra := m.modCardInline(r)
+		lw := w
+		if extra != "" {
+			lw = max(8, w-ansi.StringWidth(extra)-1)
+		}
 		if m.batchOpen && m.section == 0 {
 			marker := "[ ] "
 			if m.batchSelected[id(r)] {
@@ -1600,12 +1635,15 @@ func (m *dashboard) listView(height int) string {
 			}
 			line = prefix + marker + oneLine(m.rowTitle(r))
 		}
-		line = clip(line, w)
+		line = clip(line, lw)
 		if m.batchOpen && m.batchSelected[id(r)] && i != m.selected {
 			line = lipgloss.NewStyle().Foreground(lipgloss.Color("114")).Bold(true).Render(line)
 		}
 		if i == m.selected {
-			line = chosen.Render(line + strings.Repeat(" ", max(0, w-ansi.StringWidth(line))))
+			line = chosen.Render(line + strings.Repeat(" ", max(0, lw-ansi.StringWidth(line))))
+		}
+		if extra != "" {
+			line += " " + extra
 		}
 		color := statusColor(s)
 		word := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(s)

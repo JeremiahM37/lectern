@@ -117,6 +117,8 @@ func (m *dashboard) keyBar() []keyHint {
 		return append(hints, keyHint{"Enter", "next"}, keyHint{"Ctrl+S", m.form.submitLabel()}, keyHint{"Esc", "cancel"})
 	case m.pending != nil:
 		return []keyHint{{"y", m.pending.confirmWord()}, {"n/Esc", "cancel"}}
+	case m.modPaneOpen():
+		return m.modPaneKeys()
 	case m.help:
 		return []keyHint{{"↑↓", "scroll"}, {"/", "filter"}, {"Esc", "close"}}
 	case m.palette:

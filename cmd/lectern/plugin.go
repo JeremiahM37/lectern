@@ -27,7 +27,7 @@ const pluginUsage = `usage:
   lectern plugin remove ID
   lectern plugin secret ID NAME            (reads the value from stdin; empty removes it)
   lectern plugin source add NAME GIT_URL [--ref REF] | source list | source remove NAME
-  lectern plugin new ID [DIR]
+  lectern plugin new ID [DIR] [--mod]      (--mod: a plugin with one mod, docs/mods.md)
   lectern plugin validate [DIR]`
 
 // pluginOffline handles the subcommands that need no server: scaffolding a
@@ -38,14 +38,23 @@ func pluginOffline(args []string, out io.Writer) (ok bool, err error) {
 	}
 	switch args[0] {
 	case "new":
-		if len(args) < 2 || len(args) > 3 {
-			return true, fmt.Errorf("usage: lectern plugin new ID [DIR]")
+		scaffold := pluginpkg.Scaffold
+		var rest []string
+		for _, a := range args[1:] {
+			if a == "--mod" {
+				scaffold = pluginpkg.ScaffoldMod
+				continue
+			}
+			rest = append(rest, a)
 		}
-		dir := args[1]
-		if len(args) == 3 {
-			dir = args[2]
+		if len(rest) < 1 || len(rest) > 2 || strings.HasPrefix(rest[0], "-") {
+			return true, fmt.Errorf("usage: lectern plugin new ID [DIR] [--mod]")
 		}
-		files, err := pluginpkg.Scaffold(args[1])
+		dir := rest[0]
+		if len(rest) == 2 {
+			dir = rest[1]
+		}
+		files, err := scaffold(rest[0])
 		if err != nil {
 			return true, err
 		}

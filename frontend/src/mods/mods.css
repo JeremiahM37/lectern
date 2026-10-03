@@ -1,0 +1,31 @@
+/* Mods (docs/mods.md): what mods draw, in the app's own tokens. */
+.mod-slot, .mod-box { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.mod-col { flex-direction: column; align-items: flex-start; }
+.mod-text { color: var(--ink); font-size: 12.5px; overflow-wrap: anywhere; }
+.mod-bold { font-weight: 600; }
+.mod-mono { font-family: var(--mono); }
+.mod-badge {
+  display: inline-block; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 999px;
+  color: var(--ink-dim); font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap;
+}
+.mod-dim { color: var(--ink-faint); }
+.mod-accent { color: var(--accent-soft); border-color: color-mix(in srgb, var(--accent-soft) 45%, var(--bg)); }
+.mod-warn { color: var(--amber); border-color: var(--amber); }
+.mod-danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, var(--bg)); }
+.mod-ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 55%, var(--bg)); }
+.mod-button { min-height: 28px; padding: 2px 10px; font-size: 12px; }
+.mod-link { color: var(--accent-soft); font-size: 12.5px; }
+.mod-status { display: inline-flex; align-items: center; gap: 10px; margin-right: 10px; min-width: 0; max-width: 40vw; overflow: hidden; }
+.mod-panes {
+  position: fixed; right: 12px; bottom: calc(var(--tabbar-h, 0px) + 12px); z-index: 40;
+  display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 24px)); max-height: 70dvh;
+}
+.mod-pane {
+  display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line-2); border-radius: 12px;
+  background: var(--panel); box-shadow: var(--shadow);
+}
+.mod-pane > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.mod-close { min-height: 28px; padding: 0 9px; }
+.mod-pane-body { padding: 12px; overflow: auto; }
+.mod-pane-body > .mod-slot { align-items: stretch; }
+@media (min-width: 1024px) { .mod-panes { bottom: 16px; right: 20px; } }

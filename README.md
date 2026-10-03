@@ -6,7 +6,7 @@
 own computer, and lets you follow them, approve what they do and review their
 changes from your terminal, browser or phone.**
 
-[![Latest release: v2.7.0](https://img.shields.io/github/v/release/JeremiahM37/lectern?label=release&color=8b5cf6)](https://github.com/JeremiahM37/lectern/releases/latest)
+[![Latest release: v2.8.0](https://img.shields.io/github/v/release/JeremiahM37/lectern?label=release&color=8b5cf6)](https://github.com/JeremiahM37/lectern/releases/latest)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![go](https://img.shields.io/badge/single%20binary-Go-00add8)
 

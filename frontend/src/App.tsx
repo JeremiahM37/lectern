@@ -33,6 +33,8 @@ import { t, useLocale } from "./i18n";
 import { SECTIONS, settingsIndex } from "./settings/search-index";
 import { loadPluginContributions, safeHref, usePluginContributions } from "./plugins/contributions";
 import { Palette, type Command } from "./shell/Palette";
+import { modHost } from "./mods/host";
+import { ModPanes, ModStatus, useModsVersion } from "./mods/react";
 import { canonicalHash, HOME, isView, moreEntries, primaryViews, VIEWS, type View } from "./shell/routes";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
@@ -161,6 +163,8 @@ export default function App() {
     return () => media.removeEventListener("change", update);
   }, []);
   useLocale();
+  // Mod commands join the palette as mods start and stop.
+  useModsVersion();
   const [view, setView] = useState<Tab>(HOME),
     [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
@@ -621,9 +625,16 @@ export default function App() {
     // What enabled plugins add to the browser (themes, quick commands,
     // palette commands); the stream says when a plugin changed.
     void loadPluginContributions().catch(() => {});
+    // Mods (docs/mods.md): code from enabled plugins, each in its own sandbox.
+    modHost.notify = notice;
+    const uninstallMods = modHost.install();
+    void modHost.refresh().catch(() => {});
     const stream = new EventSource(withToken("/api/stream"));
     stream.addEventListener("ui_prefs", () => void loadPrefs().catch(() => {}));
-    stream.addEventListener("plugins", () => void loadPluginContributions().catch(() => {}));
+    stream.addEventListener("plugins", () => {
+      void loadPluginContributions().catch(() => {});
+      void modHost.refresh().catch(() => {});
+    });
     let opened = false;
     stream.onopen = () => {
       setConnected(true);
@@ -645,7 +656,12 @@ export default function App() {
       "ci",
       "target_reach",
     ])
-      stream.addEventListener(event, update);
+      stream.addEventListener(event, (message) => {
+        update();
+        let data: unknown = null;
+        try { data = JSON.parse((message as MessageEvent<string>).data); } catch { /* not JSON */ }
+        modHost.serverEvent(event, data);
+      });
     stream.addEventListener("session_handoff", (event) => {
       try {
         const row = JSON.parse((event as MessageEvent<string>).data) as {
@@ -684,6 +700,7 @@ export default function App() {
     return () => {
       alive = false;
       refreshGeneration.current++;
+      uninstallMods();
       stream.close();
       clearInterval(interval);
       document.removeEventListener("visibilitychange", visibility);
@@ -1005,6 +1022,15 @@ export default function App() {
         },
       }];
     }),
+    // Commands mods registered with $.command.register.
+    ...modHost.commands().map((row) => ({
+      id: "mod-" + row.mod + "/" + row.id,
+      title: row.title,
+      category: t("app.commands.plugins"),
+      detail: row.name,
+      keywords: "mod plugin " + row.mod,
+      run: () => void modHost.runCommand(row.mod, row.id),
+    })),
     // Individual settings, so "accent" or "push" lands on the control itself.
     ...settingsIndex().filter((entry) => ["appearance", "workspace", "shortcuts"].includes(entry.section)).map((entry) => ({
       id: "setting-" + entry.id,
@@ -1079,6 +1105,7 @@ export default function App() {
           {chordsFor("palette.open")[0] && <kbd>{displayChord(chordsFor("palette.open")[0]!)}</kbd>}
         </button>
         <div className="top-status">
+          <ModStatus />
           <span
             id="conn-led"
             className={`led ${connected ? "led-on" : "led-err"}`}
@@ -1340,6 +1367,7 @@ export default function App() {
           </div>
         </details>}
       </nav>
+      <ModPanes />
       <div id="toasts" aria-live="polite">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.error ? "err" : ""}${toast.action ? " has-action" : ""}`}>
