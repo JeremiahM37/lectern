@@ -31,4 +31,13 @@ object Pages {
         }
         return true
     }
+
+    /** Fires "lectern-native-update" (frontend/src/native/update.ts) on the
+     * visible page, whichever Lectern it shows: the app is one for all. */
+    fun update(detail: JSONObject) {
+        val view = current?.get() ?: return
+        main.post {
+            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('lectern-native-update', {detail: $detail}))", null)
+        }
+    }
 }

@@ -26,6 +26,7 @@ func (s *Server) pluginRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/plugins", s.listPlugins)
 	mux.HandleFunc("GET /api/plugins/contributions", s.pluginContributions)
 	mux.HandleFunc("GET /api/plugins/search", s.searchPlugins)
+	mux.HandleFunc("GET /api/plugins/mods", s.pluginMods)
 	mux.HandleFunc("POST /api/plugins/preview", s.previewPlugin)
 	mux.HandleFunc("POST /api/plugins/install", s.installPlugin)
 	mux.HandleFunc("GET /api/plugins/{id}", s.getPlugin)
@@ -133,6 +134,22 @@ func (s *Server) pluginContributions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.Plugins.UI())
 }
 
+// pluginMods is the code of the mods a surface runs (docs/mods.md):
+// ?surface=web for the browser, cli for the console.
+func (s *Server) pluginMods(w http.ResponseWriter, r *http.Request) {
+	surface := r.URL.Query().Get("surface")
+	if surface != "web" && surface != "cli" {
+		httpError(w, 400, "surface must be web or cli")
+		return
+	}
+	if s.Plugins == nil {
+		writeJSON(w, 200, []plugins.UIMod{})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, s.Plugins.Mods(surface))
+}
+
 func (s *Server) getPlugin(w http.ResponseWriter, r *http.Request) {
 	if !s.pluginsReady(w) {
 		return
@@ -164,7 +181,7 @@ func (s *Server) getPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 		v["detail"] = map[string]any{"agents": agents, "mcp_servers": mcp, "skills": c.Skills, "workflows": c.Workflows,
 			"hooks": c.Hooks, "sandbox_providers": c.SandboxProviders, "quick_commands": c.QuickCommands,
-			"themes": c.Themes, "palette_commands": c.PaletteCommands}
+			"themes": c.Themes, "palette_commands": c.PaletteCommands, "mods": c.Mods}
 	}
 	runs, _ := s.DB.PluginHookRuns(p.ID, 20)
 	v["hook_runs"] = runs

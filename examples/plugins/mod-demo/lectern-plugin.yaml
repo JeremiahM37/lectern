@@ -1,0 +1,12 @@
+id: example.mod-demo
+name: Mod demo
+version: 0.1.0
+description: A status line, a badge on every session, a guard on what you send, and a pane with a counter.
+license: MIT
+min_lectern: 2.8.0
+capabilities:
+  mods: [web, cli]
+contributes:
+  mods:
+    - id: demo
+      path: mods/demo.js

@@ -41,6 +41,13 @@ export interface NativeBridge {
   openHosts?(): void;
   /** Opens an http(s) address in the phone's browser. */
   openUrl?(url: string): void;
+  // ---- added in app 2.8.0 ----
+  /** Looks for a newer app; answered with a "lectern-native-update" event (native/update.ts). */
+  checkUpdate?(): void;
+  /** Downloads, verifies and installs the newest app; Android asks to confirm. */
+  installUpdate?(): void;
+  /** The page's background, for the phone's status and navigation bars. */
+  barColors?(background: string, light: boolean): void;
 }
 
 export interface AppHost {

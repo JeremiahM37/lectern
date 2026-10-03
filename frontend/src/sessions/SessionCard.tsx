@@ -1,4 +1,5 @@
 import { OpenInEditor } from "../remote/OpenInEditor";
+import { ModElements, useModRender } from "../mods/react";
 import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
 import { useState } from "react";
@@ -63,6 +64,12 @@ interface Props {
   // and tests that predate the feature keep compiling.
   approval?: Approval;
 }
+// The part of a session a mod sees: what a card shows, not its output.
+const modSession = (s: SessionView) => ({
+  id: s.id, name: s.name, agent: s.agent, model: s.model ?? "", status: s.status,
+  project_id: s.project_id ?? null, project_name: s.project_name ?? "", idle_seconds: s.idle_seconds,
+  ended: !!s.ended_at,
+});
 export function SessionCard({
   session: s,
   approval,
@@ -88,6 +95,8 @@ export function SessionCard({
   onRevive,
   onClosed,
 }: Props) {
+  // What mods hide or add to this card (docs/mods.md).
+  const modded = useModRender("session.card", { session: modSession(s) });
   useLocale();
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
@@ -248,6 +257,7 @@ export function SessionCard({
     : s.setup_error
       ? t("sessions.card.setupFailedPreview", { error: s.setup_error })
       : s.pane_tail || "";
+  if (modded?.hidden) return null;
   return (
     <article
       className={`scard s-${failed ? "failed" : s.status}`}
@@ -258,7 +268,7 @@ export function SessionCard({
       {/* A blank shell has no project, so its location line names the machine
           instead: the card's title is the folder, and this keeps "which host"
           readable without repeating the folder. */}
-      <div className="scard-project">
+      <div className={`scard-project${!scratch && !s.project_name ? " scard-project-none" : ""}`}>
         {scratch ? scratchDefaultName(s) : s.project_name || t("sessions.card.unassigned")}
       </div>
       <div className="scard-top">
@@ -291,6 +301,7 @@ export function SessionCard({
             : t("sessions.card.quiet", { duration: duration(s.idle_seconds) })}
         </span>
       </div>
+      {modded && <ModElements elements={modded.append} className="scard-mods" />}
       {activeApproval && (
         <div className="scard-approval" data-approval-id={activeApproval.id}>
           <ApprovalCard compact approval={activeApproval} onDecide={decideApproval} />

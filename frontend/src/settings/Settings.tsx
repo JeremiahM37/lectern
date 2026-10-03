@@ -1,4 +1,4 @@
-import { AppHosts, VoiceSettings } from "./PhonePanels";
+import { AppHosts, AppUpdate, VoiceSettings } from "./PhonePanels";
 import { Fragment, useEffect, useState } from "react";
 import { Basics } from "./Basics";
 import { PhoneWizard } from "./PhoneWizard";
@@ -270,6 +270,7 @@ export function Settings({
       )}{" "}
       {tab === "notifications" && <VoiceSettings />}
       {tab === "devices" && <PhoneConnect api={api} onNotice={onNotice} />}
+      {tab === "devices" && <AppUpdate />}
       {tab === "devices" && <AppHosts />}
       {tab === "devices" && <Devices api={api} onNotice={onNotice} />}{" "}
       {tab === "about" && (

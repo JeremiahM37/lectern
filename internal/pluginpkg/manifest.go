@@ -63,6 +63,11 @@ type Capabilities struct {
 	Agents bool `json:"agents,omitempty" yaml:"agents,omitempty"`
 	// Notify: a hook's result may send a notification.
 	Notify bool `json:"notify,omitempty" yaml:"notify,omitempty"`
+	// Mods lists where the plugin's mods run code: "web" (the browser) and
+	// "cli" (the terminal console). docs/mods.md.
+	Mods []string `json:"mods,omitempty" yaml:"mods,omitempty"`
+	// API is what a mod may do through $.api: "read" or "write".
+	API string `json:"api,omitempty" yaml:"api,omitempty"`
 }
 
 // Contributions are the extension points a plugin adds to.
@@ -78,6 +83,29 @@ type Contributions struct {
 	QuickCommands    []QuickCommand            `json:"quick_commands,omitempty" yaml:"quick_commands,omitempty"`
 	Themes           []Theme                   `json:"themes,omitempty" yaml:"themes,omitempty"`
 	PaletteCommands  []PaletteCommand          `json:"palette_commands,omitempty" yaml:"palette_commands,omitempty"`
+	Mods             []Mod                     `json:"mods,omitempty" yaml:"mods,omitempty"`
+}
+
+// Mod is a JavaScript module that hooks the web app or the console
+// (docs/mods.md).
+type Mod struct {
+	ID       string   `json:"id" yaml:"id"`
+	Path     string   `json:"path" yaml:"path"`
+	Surfaces []string `json:"surfaces,omitempty" yaml:"surfaces,omitempty"`
+}
+
+// ModSurfaces are where a mod can run.
+var ModSurfaces = []string{"web", "cli"}
+
+// MaxModBytes bounds one mod's source.
+const MaxModBytes = 256 << 10
+
+// SurfacesOf is where a mod runs: its own list, or every surface.
+func (m Mod) SurfacesOf() []string {
+	if len(m.Surfaces) == 0 {
+		return append([]string(nil), ModSurfaces...)
+	}
+	return m.Surfaces
 }
 
 // Skill is a directory with SKILL.md that a project can turn on per agent.
@@ -408,6 +436,42 @@ func (m *Manifest) Validate(files map[string]File, bundled bool) error {
 			fail("palette_commands.%s: href must be a Lectern view (#…) or an https link", p.ID)
 		}
 	}
+	for _, md := range c.Mods {
+		if !partRe.MatchString(md.ID) || seen["m:"+md.ID] {
+			fail("mods: id %q must be unique lowercase letters, digits and '-'", md.ID)
+		}
+		seen["m:"+md.ID] = true
+		for _, sf := range md.Surfaces {
+			if !contains(ModSurfaces, sf) {
+				fail("mods.%s: surface %q must be web or cli", md.ID, sf)
+			}
+		}
+		clean := path.Clean(md.Path)
+		if !(strings.HasSuffix(clean, ".js") || strings.HasSuffix(clean, ".mjs")) {
+			fail("mods.%s: %s must be a .js or .mjs file", md.ID, md.Path)
+			continue
+		}
+		f, ok := files[clean]
+		if !ok {
+			fail("mods.%s: %s is not in the plugin", md.ID, md.Path)
+			continue
+		}
+		if len(f.Data) > MaxModBytes {
+			fail("mods.%s: %s is larger than 256 KB", md.ID, md.Path)
+			continue
+		}
+		if _, err := ModScript(string(f.Data)); err != nil {
+			fail("mods.%s: %v", md.ID, err)
+		}
+	}
+	if c := m.Capabilities.API; c != "" && c != "read" && c != "write" {
+		fail("capabilities.api must be read or write")
+	}
+	for _, sf := range m.Capabilities.Mods {
+		if !contains(ModSurfaces, sf) {
+			fail("capabilities.mods: %q must be web or cli", sf)
+		}
+	}
 	if missing := m.MissingCapabilities(); len(missing) > 0 {
 		for _, miss := range missing {
 			fail("%s", miss)
@@ -453,6 +517,16 @@ func (m *Manifest) MissingCapabilities() []string {
 		if h.Run == "target" && !caps.TargetExec {
 			out = append(out, fmt.Sprintf("hooks[%d] runs on a machine: it needs capabilities.target_exec", i))
 		}
+	}
+	for _, md := range c.Mods {
+		for _, sf := range md.SurfacesOf() {
+			if !contains(caps.Mods, sf) {
+				out = append(out, fmt.Sprintf("mods.%s runs in the %s: it needs %q in capabilities.mods", md.ID, surfaceName(sf), sf))
+			}
+		}
+	}
+	if caps.API != "" && len(c.Mods) == 0 {
+		out = append(out, "capabilities.api is only for mods, and this plugin has none")
 	}
 	if len(c.SandboxProviders) > 0 && !caps.HostExec {
 		out = append(out, "sandbox_providers run their hooks on the Lectern server: they need capabilities.host_exec")

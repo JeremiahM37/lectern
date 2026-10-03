@@ -4,6 +4,8 @@
 // preview of exactly what the plugin may do. The server refuses every change
 // that does not come from a signed-in person; this page only shows the
 // decision clearly enough to make it.
+import { modHost } from "../mods/host";
+import { useModsVersion } from "../mods/react";
 import { useEffect, useState } from "react";
 import type { Project } from "../types";
 import type { SettingsApi } from "./Settings";
@@ -58,6 +60,7 @@ interface PluginDetail extends PluginRow {
     quick_commands?: { id: string; label: string; text: string }[];
     themes?: { id: string; name: string }[];
     palette_commands?: { id: string; title: string }[];
+    mods?: { id: string; path: string; surfaces?: string[] }[];
   };
   agents_more?: number;
   hook_runs?: HookRun[];
@@ -108,7 +111,7 @@ interface Attachment {
 // The bundled plugin that fills Settings → Agents → Add from catalog.
 const CATALOG_PLUGIN = "lectern.agent-catalog";
 
-const KINDS = ["agents", "mcp_servers", "skills", "workflows", "hooks", "sandbox_providers", "quick_commands", "themes", "palette_commands"];
+const KINDS = ["agents", "mcp_servers", "skills", "workflows", "hooks", "sandbox_providers", "quick_commands", "themes", "palette_commands", "mods"];
 const short = (sha?: string) => (sha ? sha.slice(0, 12) : "");
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -126,13 +129,35 @@ function Contributions({ counts }: { counts?: Record<string, number> }) {
   );
 }
 
+// How this plugin's mods are doing in this browser: running, paused after
+// failures, or failed to start, with what they logged.
+function ModsHere({ plugin }: { plugin: string }) {
+  useModsVersion();
+  const rows = modHost.statuses().filter((m) => m.plugin === plugin);
+  if (!rows.length) return null;
+  return (
+    <>
+      <h4>{t("plugins.modsHere")}</h4>
+      <ul className="plugin-runs" data-mods-here>
+        {rows.map((m) => (
+          <li key={m.key} className={m.state === "running" ? "ok" : "failed"} data-mod-state={m.state}>
+            <b>{m.id}</b> {t("plugins.mod." + m.state)}
+            {m.error && <div className="plugin-run-msg">{m.error}</div>}
+            {m.log.slice(-5).map((line, i) => <div key={i} className="plugin-run-msg">{line}</div>)}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function CapabilityList({ capabilities, grown = [] }: { capabilities: Capability[]; grown?: string[] }) {
   if (!capabilities.length) return <p className="plugin-caps-none">{t("plugins.cap.none")}</p>;
   const isNew = (key: string, detail?: string) => grown.includes(detail ? `${key}: ${detail}` : key);
   return (
     <ul className="plugin-caps">
       {capabilities.map((cap) => (
-        <li key={cap.key} data-cap={cap.key} className={cap.key === "host_exec" || cap.key === "target_exec" ? "risky" : undefined}>
+        <li key={cap.key} data-cap={cap.key} className={["host_exec", "target_exec", "mods"].includes(cap.key) || (cap.key === "api" && cap.detail?.[0] === "write") ? "risky" : undefined}>
           <b>{t("plugins.cap." + cap.key)}</b>
           {isNew(cap.key) && <span className="plugin-new">{t("plugins.new")}</span>}
           {!!cap.detail?.length && (
@@ -289,6 +314,8 @@ function Detail({ api, id, projects, onChanged, onNotice }: { api: SettingsApi; 
       {list("quick_commands", (d.quick_commands || []).map((q) => q.label || q.text))}
       {list("themes", (d.themes || []).map((th) => th.name))}
       {list("palette_commands", (d.palette_commands || []).map((p) => p.title))}
+      {list("mods", (d.mods || []).map((m) => `${m.id} (${(m.surfaces?.length ? m.surfaces : ["web", "cli"]).join(", ")})`))}
+      <ModsHere plugin={detail.id} />
       {!detail.bundled && detail.source && (
         <dl className="plugin-facts">
           <dt>{t("plugins.source")}</dt>

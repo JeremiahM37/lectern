@@ -24,18 +24,6 @@ test("narrow navigation is three pages and More; Tasks joins once used", () => {
   assert.ok(more(true).includes("terminals"));
 });
 
-test("a desktop sidebar is the same three items, with the rest under More", () => {
-  assert.deepEqual(primaryViews(false, true), ["sessions", "approvals", "settings"]);
-  assert.deepEqual(primaryViews(true, true), ["sessions", "approvals", "tasks", "settings"]);
-  // An open terminal tab brings Terminals into the sidebar, not the phone bar.
-  assert.deepEqual(primaryViews(false, true, true), ["sessions", "approvals", "terminals", "settings"]);
-  assert.deepEqual(primaryViews(false, false, true), ["sessions", "approvals", "settings"]);
-  const more = (used: boolean, open = false) => moreEntries(used, true, open).map((e) => ("view" in e ? e.view : e.section));
-  // Machines and Plugins are Settings tabs; the sidebar does not repeat them.
-  assert.deepEqual(more(false), ["tasks", "terminals", "overview", "issues", "media", "evals"]);
-  assert.deepEqual(more(true, true), ["overview", "issues", "media", "evals"]);
-  // Every page is reachable from the main items or More.
-  for (const used of [false, true])
-    for (const open of [false, true])
-      assert.deepEqual([...primaryViews(used, true, open), ...more(used, open)].sort(), [...VIEWS].sort());
+test("a desktop sidebar lists every page and has no More", () => {
+  for (const used of [false, true]) assert.deepEqual(primaryViews(used, true), [...VIEWS]);
 });

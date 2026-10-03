@@ -19,6 +19,23 @@ export interface ClientOptions {
     run<T>(path: string, load: () => Promise<T>): Promise<T>;
     clear(): void;
   };
+  /** Skip request interceptors (a mod's own $.api calls). */
+  bypassInterceptors?: boolean;
+}
+
+/**
+ * Sees every request a client sends and may change or refuse it before it
+ * leaves the page. Mods use it to hook messages sent to a session and
+ * approval decisions in one place, whichever screen made them.
+ */
+export type RequestInterceptor = (
+  path: string,
+  options: RequestOptions,
+  send: (path: string, options: RequestOptions) => Promise<unknown>,
+) => Promise<unknown>;
+let interceptor: RequestInterceptor | undefined;
+export function setRequestInterceptor(next: RequestInterceptor | undefined) {
+  interceptor = next;
 }
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
@@ -39,6 +56,11 @@ export function createClient(options: ClientOptions = {}) {
   const getToken = options.token ?? authToken;
   const offline = options.offline;
   async function api<T>(path: string, optionsIn: RequestOptions = {}): Promise<T> {
+    if (interceptor && !options.bypassInterceptors)
+      return interceptor(path, optionsIn, (p, o) => direct<unknown>(p, o)) as Promise<T>;
+    return direct<T>(path, optionsIn);
+  }
+  async function direct<T>(path: string, optionsIn: RequestOptions): Promise<T> {
     if (offline?.cacheable(path, optionsIn.method) && optionsIn.body === undefined)
       return offline.run(path, () => send<T>(path, optionsIn));
     return send<T>(path, optionsIn);

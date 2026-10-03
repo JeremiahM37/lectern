@@ -177,6 +177,7 @@ func (m *dashboard) globalActions() []dashboardAction {
 // actions come first on a tie, since they are what the person is looking at.
 func (m *dashboard) paletteActions() []dashboardAction {
 	list := append(m.actionsFor(m.rowActions()), m.actionsFor(m.globalActions())...)
+	list = append(list, m.modCommandActions()...)
 	words := strings.Fields(strings.ToLower(m.paletteQuery))
 	if len(words) == 0 {
 		return list

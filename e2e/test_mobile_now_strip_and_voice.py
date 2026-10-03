@@ -39,21 +39,26 @@ def test_now_strip_shows_a_waiting_session_and_the_approval_count(page, server):
     approvals_chip = page.locator("#now-approvals")
     expect(approvals_chip).to_contain_text("1 to approve", timeout=25000)
 
+    # On a phone the strip carries only what wants a person; an idle session
+    # is already a card just below it.
     waiting_chip = strip.locator('.now-chip[data-state="idle"]', has_text="Waiting agent")
-    expect(waiting_chip).to_contain_text("Idle")
+    expect(waiting_chip).to_be_hidden()
 
     # The strip sits above the fold and never causes horizontal overflow at
     # phone width, same guarantee every other mobile surface here keeps.
     assert strip.bounding_box()["y"] < page.locator("#sesslist").bounding_box()["y"]
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
 
-    # One tap into the session it names.
-    waiting_chip.click()
-    expect(page.locator(".scard", has_text="Waiting agent")).to_be_visible()
-
     # One tap into Needs-you for the approval count.
     approvals_chip.click()
     expect(page.locator("#needs-you")).to_be_in_viewport()
+
+    # Wider, every session has its chip, and one tap opens the session it names.
+    page.set_viewport_size({"width": 1024, "height": 800})
+    page.evaluate("scrollTo(0, 0)")
+    expect(waiting_chip).to_contain_text("Idle")
+    waiting_chip.click()
+    expect(page.locator(".scard", has_text="Waiting agent")).to_be_visible()
 
 
 def test_now_strip_stays_out_of_the_way_with_nothing_to_show(page, server):

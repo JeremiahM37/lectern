@@ -15,6 +15,17 @@
 #offline-banner button { min-height: 32px; }
 body:has(#offline-banner) #view .scard { opacity: .92; }
 
+/* A newer Android app is out (mobile/UpdateBanner.tsx). */
+#update-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 10px 10px; padding: 8px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--r); color: var(--ink); font-size: 13px;
+}
+#update-banner > span { flex: 1 1 160px; min-width: 0; }
+#update-banner button { min-height: 32px; }
+
 #pull-refresh {
   position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 50%; z-index: 90;
   width: 36px; height: 36px; display: grid; place-items: center;

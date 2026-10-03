@@ -48,9 +48,10 @@ contributes:
     - {id: docs, title: "Release notes: open docs", href: "https://example.com/release-notes"}
 ```
 
-Everything is declarative. Code runs only as a declared hook, a declared MCP
-server, or a command an agent or person runs from a skill. A plugin has no
-in-process code and no UI code of its own.
+Everything else is declarative. Code runs only as a declared hook, a declared
+MCP server, a command an agent or person runs from a skill, or a
+[mod](mods.md): a JavaScript module that hooks the web app and the terminal
+console from a sandbox of its own.
 
 ### Contributions
 
@@ -65,6 +66,7 @@ in-process code and no UI code of its own.
 | `quick_commands` | commands in the terminal key row and Snippets sheet | — |
 | `themes` | presets in Settings → Appearance | — |
 | `palette_commands` | entries in the command palette that open a Lectern view or a link | — |
+| `mods` | JavaScript that hooks events and draws in the web app and `lectern console` ([mods.md](mods.md)) | `mods`, and `api` to call Lectern's API |
 
 `lectern plugin validate` refuses a manifest whose contributions need a
 capability it does not declare, so the capability list is never a summary
@@ -192,7 +194,7 @@ files stops the provider.
 
 A plugin is enabled everywhere or for chosen projects. Project scope applies to
 the contributions that belong to a project — MCP servers, skills, workflows,
-hooks and quick commands. Agents, themes and palette commands are global.
+hooks and quick commands. Agents, themes, palette commands and mods are global.
 
 Turning a plugin off stops its MCP servers, hooks, quick commands, themes and
 palette commands at once, and turns its skills and workflows off in every

@@ -276,6 +276,12 @@ func (m *Manifest) CapabilityList() []Capability {
 	add("target_exec", caps.TargetExec, target)
 	add("mcp_tools", caps.MCPTools, mcp)
 	add("agents", caps.Agents, agents)
+	var mods []string
+	for _, md := range c.Mods {
+		mods = append(mods, md.ID+" ("+md.Path+") in the "+strings.Join(md.SurfacesOf(), " and "))
+	}
+	add("mods", len(caps.Mods) > 0, mods)
+	add("api", caps.API != "", []string{caps.API})
 	add("network", len(caps.Network) > 0, append([]string(nil), caps.Network...))
 	add("secrets", len(caps.Secrets) > 0, append([]string(nil), caps.Secrets...))
 	add("notify", caps.Notify, nil)

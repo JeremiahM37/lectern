@@ -567,7 +567,7 @@ func Summary(man *pluginpkg.Manifest) map[string]int {
 	for k, n := range map[string]int{
 		"agents": len(c.Agents), "mcp_servers": len(c.MCPServers), "skills": len(c.Skills),
 		"workflows": len(c.Workflows), "hooks": len(c.Hooks), "sandbox_providers": len(c.SandboxProviders),
-		"quick_commands": len(c.QuickCommands), "themes": len(c.Themes), "palette_commands": len(c.PaletteCommands),
+		"quick_commands": len(c.QuickCommands), "themes": len(c.Themes), "palette_commands": len(c.PaletteCommands), "mods": len(c.Mods),
 	} {
 		if n > 0 {
 			out[k] = n

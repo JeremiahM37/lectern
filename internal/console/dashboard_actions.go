@@ -112,6 +112,8 @@ type dashboardAction struct {
 	// Notice replaces "<Label> completed" when the request succeeds, and
 	// Confirm is the verb the confirmation's y key is labelled with.
 	Notice, Confirm string
+	// hook, when set, is the mod event the request goes through first.
+	hook *modEvent
 }
 
 // confirmWord is what y does in a confirmation, in plain words.
@@ -149,6 +151,10 @@ func (m *dashboard) request(label, method, path string, body any, preview bool) 
 	}
 }
 func (m *dashboard) execute(a dashboardAction) tea.Cmd {
+	if a.hook != nil && m.mods.handles(a.hook.name) {
+		body := a.Body
+		return m.viaMods(a.hook.name, a.hook.e, a.Label, a.Method, a.Path, func(map[string]any) any { return body }, a.Notice)
+	}
 	cmd := m.request(a.Label, a.Method, a.Path, a.Body, false)
 	if cmd == nil || a.Notice == "" {
 		return cmd
@@ -166,6 +172,9 @@ func (m *dashboard) choose(a dashboardAction) tea.Cmd {
 	if a.Warning != "" {
 		m.pending = &a
 		return nil
+	}
+	if strings.HasPrefix(a.Operation, "mod:") || strings.HasPrefix(a.Operation, "mod-button:") {
+		return m.chooseMod(a)
 	}
 	if strings.HasPrefix(a.Operation, "pane:") {
 		n, _ := strconv.Atoi(strings.TrimPrefix(a.Operation, "pane:"))
@@ -1075,10 +1084,14 @@ func (m *dashboard) sendForm() tea.Cmd {
 	}
 	path := "/" + sections[m.section] + "/" + id(r)
 	if sections[m.section] == "sessions" {
+		// A message to a session goes through the mods' prompt.submit.
 		path += "/send"
-	} else {
-		path += "/messages"
+		sessionID := id(r)
+		return m.openForm("Send message", []field{{Key: "text", Label: "Send message", Multiline: true, Required: true}}, func(body map[string]any) tea.Cmd {
+			return m.submitPrompt(sessionID, path, body)
+		})
 	}
+	path += "/messages"
 	return m.messageAction("Send message", path, "text")
 }
 

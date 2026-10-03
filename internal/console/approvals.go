@@ -130,7 +130,7 @@ func (m *dashboard) decide(a row, decision string, forSession bool, note string)
 	case forSession:
 		notice = "Allowed for this session: " + approvalSummary(a)
 	}
-	action := dashboardAction{Label: decideLabel, Method: "POST", Path: "/approvals/" + id(a) + "/decision", Body: body, Notice: notice}
+	action := dashboardAction{Label: decideLabel, Method: "POST", Path: "/approvals/" + id(a) + "/decision", Body: body, Notice: notice, hook: approvalEvent(a, decision)}
 	if forSession {
 		action.Warning = fmt.Sprintf("Allow %q for the rest of this session?\n%s will not ask again for this tool (for Bash, for commands starting with the same word).", approvalSummary(a), approvalWho(a))
 		action.Confirm = "allow for this session"

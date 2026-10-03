@@ -31,6 +31,8 @@ class Bridge(
         fun switchHost(id: String) {}
         fun openHosts() {}
         fun haptic(kind: String) {}
+        fun barColors(background: String, light: Boolean) {}
+        fun installUpdate() {}
     }
 
     private val app = context.applicationContext
@@ -147,6 +149,29 @@ class Bridge(
         val uri = Uri.parse(url)
         if (uri.scheme != "http" && uri.scheme != "https") return
         app.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    // ---- app 2.8.0 ----
+
+    /** Looks for a newer app; answered with a "lectern-native-update" event. */
+    @JavascriptInterface
+    fun checkUpdate() {
+        host()
+        Updates.check(Pages::update)
+    }
+
+    /** Downloads and installs the newest app, after Android asks the person. */
+    @JavascriptInterface
+    fun installUpdate() {
+        host()
+        owner.installUpdate()
+    }
+
+    /** The page's background, for the status and navigation bars around it. */
+    @JavascriptInterface
+    fun barColors(background: String, light: Boolean) {
+        host()
+        owner.barColors(background, light)
     }
 
     companion object {

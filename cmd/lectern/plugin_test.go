@@ -40,6 +40,29 @@ func TestPluginNewThenValidate(t *testing.T) {
 	}
 }
 
+func TestPluginNewModThenValidate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hello")
+	var out bytes.Buffer
+	if ok, err := pluginOffline([]string{"new", "acme.hello", "--mod", dir}, &out); !ok || err != nil {
+		t.Fatalf("new --mod: %v %v", ok, err)
+	}
+	for _, f := range []string{"mods/hello.js", "mods/hello.test.mjs", "README.md"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatalf("scaffold is missing %s: %v", f, err)
+		}
+	}
+	out.Reset()
+	if ok, err := pluginOffline([]string{"validate", dir}, &out); !ok || err != nil {
+		t.Fatalf("validate: %v %v\n%s", ok, err, out.String())
+	}
+	if !strings.Contains(out.String(), "acme.hello 0.1.0 — valid") {
+		t.Fatalf("validate output:\n%s", out.String())
+	}
+	if _, err := pluginOffline([]string{"new", "--mod"}, &out); err == nil {
+		t.Fatal("new --mod without an id was accepted")
+	}
+}
+
 func TestPluginInstallAsksAndConsentsToExactlyWhatWasShown(t *testing.T) {
 	var installs []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

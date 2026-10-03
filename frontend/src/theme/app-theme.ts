@@ -3,6 +3,7 @@
 // tokens, so switching theme is a property swap, not a second stylesheet. The
 // values here are the source of truth; theme.test.ts holds every text token to
 // WCAG AA against every surface it is drawn on.
+import { nativeBridge } from "../native/bridge";
 import { alpha, ensureContrast, mix, parseColor } from "./color";
 
 export type ThemeMode = "system" | "dark" | "light";
@@ -172,5 +173,13 @@ export function applyAppearance(
   root.style.setProperty("--ui-zoom", String(appearance.zoom));
   const meta = document.querySelector('meta[name="theme-color"]');
   meta?.setAttribute("content", tokens.bg);
+  // The Android app paints the bars around the page to match.
+  if (!options.terminal) {
+    try {
+      nativeBridge()?.barColors?.(tokens.bg, mode === "light");
+    } catch {
+      // An older app, or a page the bridge refuses.
+    }
+  }
   return mode;
 }

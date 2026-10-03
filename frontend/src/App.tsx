@@ -33,6 +33,8 @@ import { t, useLocale } from "./i18n";
 import { SECTIONS, settingsIndex } from "./settings/search-index";
 import { loadPluginContributions, safeHref, usePluginContributions } from "./plugins/contributions";
 import { Palette, type Command } from "./shell/Palette";
+import { modHost } from "./mods/host";
+import { ModPanes, ModStatus, useModsVersion } from "./mods/react";
 import { canonicalHash, HOME, isView, moreEntries, primaryViews, VIEWS, type View } from "./shell/routes";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
@@ -49,6 +51,7 @@ import { applyBadge, computeBadgeCount } from "./badge";
 import { sessionState, stateText } from "./sessions/status";
 import type { NoticeAction } from "./types";
 import { offlineCache } from "./api/offline";
+import { UpdateBanner } from "./mobile/UpdateBanner";
 import { OfflineBanner } from "./mobile/OfflineBanner";
 import { PullToRefresh } from "./mobile/PullToRefresh";
 import { noteView, setViewNavigator, useBackClose } from "./mobile/back";
@@ -146,7 +149,6 @@ const NAV_SHORTCUT: Record<Tab, string> = {
   evals: "nav.evals",
   settings: "nav.targets",
 };
-const NAV_MORE_KEY = "lectern.nav.moreOpen";
 // #media/<session id> narrows the feed to one session's posts.
 const mediaSessionOf = (hash: string) => {
   const match = /^#?media\/([1-9]\d*)$/.exec(hash);
@@ -161,16 +163,9 @@ export default function App() {
     update();
     return () => media.removeEventListener("change", update);
   }, []);
-  // The desktop sidebar's More group starts collapsed and remembers being
-  // opened, on this device only.
-  const [moreOpen, setMoreOpen] = useState(() => {
-    try { return localStorage.getItem(NAV_MORE_KEY) === "1"; } catch { return false; }
-  });
-  const rememberMoreOpen = useCallback((open: boolean) => {
-    setMoreOpen(open);
-    try { localStorage.setItem(NAV_MORE_KEY, open ? "1" : "0"); } catch { /* private window */ }
-  }, []);
   useLocale();
+  // Mod commands join the palette as mods start and stop.
+  useModsVersion();
   const [view, setView] = useState<Tab>(HOME),
     [showEvals, setShowEvals] = useState(false),
     [projects, setProjects] = useState<Project[]>([]),
@@ -631,9 +626,16 @@ export default function App() {
     // What enabled plugins add to the browser (themes, quick commands,
     // palette commands); the stream says when a plugin changed.
     void loadPluginContributions().catch(() => {});
+    // Mods (docs/mods.md): code from enabled plugins, each in its own sandbox.
+    modHost.notify = notice;
+    const uninstallMods = modHost.install();
+    void modHost.refresh().catch(() => {});
     const stream = new EventSource(withToken("/api/stream"));
     stream.addEventListener("ui_prefs", () => void loadPrefs().catch(() => {}));
-    stream.addEventListener("plugins", () => void loadPluginContributions().catch(() => {}));
+    stream.addEventListener("plugins", () => {
+      void loadPluginContributions().catch(() => {});
+      void modHost.refresh().catch(() => {});
+    });
     let opened = false;
     stream.onopen = () => {
       setConnected(true);
@@ -655,7 +657,12 @@ export default function App() {
       "ci",
       "target_reach",
     ])
-      stream.addEventListener(event, update);
+      stream.addEventListener(event, (message) => {
+        update();
+        let data: unknown = null;
+        try { data = JSON.parse((message as MessageEvent<string>).data); } catch { /* not JSON */ }
+        modHost.serverEvent(event, data);
+      });
     stream.addEventListener("session_handoff", (event) => {
       try {
         const row = JSON.parse((event as MessageEvent<string>).data) as {
@@ -694,6 +701,7 @@ export default function App() {
     return () => {
       alive = false;
       refreshGeneration.current++;
+      uninstallMods();
       stream.close();
       clearInterval(interval);
       document.removeEventListener("visibilitychange", visibility);
@@ -1015,6 +1023,15 @@ export default function App() {
         },
       }];
     }),
+    // Commands mods registered with $.command.register.
+    ...modHost.commands().map((row) => ({
+      id: "mod-" + row.mod + "/" + row.id,
+      title: row.title,
+      category: t("app.commands.plugins"),
+      detail: row.name,
+      keywords: "mod plugin " + row.mod,
+      run: () => void modHost.runCommand(row.mod, row.id),
+    })),
     // Individual settings, so "accent" or "push" lands on the control itself.
     ...settingsIndex().filter((entry) => ["appearance", "workspace", "shortcuts"].includes(entry.section)).map((entry) => ({
       id: "setting-" + entry.id,
@@ -1089,6 +1106,7 @@ export default function App() {
           {chordsFor("palette.open")[0] && <kbd>{displayChord(chordsFor("palette.open")[0]!)}</kbd>}
         </button>
         <div className="top-status">
+          <ModStatus />
           <span
             id="conn-led"
             className={`led ${connected ? "led-on" : "led-err"}`}
@@ -1099,6 +1117,7 @@ export default function App() {
       </header>
       <main id="view" hidden={view === "terminals"}>
         <OfflineBanner onRetry={retryOffline} />
+        <UpdateBanner />
         <PullToRefresh target={viewElement} onRefresh={refresh} />
         {view === "tasks" && (
           <Board
@@ -1260,7 +1279,7 @@ export default function App() {
         <span>{t("board.newTask")}</span>
       </button>
       <nav id="tabbar" aria-label={t("nav.label")}>
-        {primaryViews(tasks.length > 0, desktopNavigation, terminals.tabs.length > 0).map((tab) => (
+        {primaryViews(tasks.length > 0, desktopNavigation).map((tab) => (
           <button
             key={tab}
             data-tab={tab}
@@ -1297,62 +1316,6 @@ export default function App() {
             )}
           </button>
         ))}
-        {desktopNavigation && (() => {
-          const entries = moreEntries(tasks.length > 0, true, terminals.tabs.length > 0);
-          const here = entries.some((entry) => "view" in entry && entry.view === view);
-          return (
-            <details
-              id="nav-more-group"
-              className={"nav-group" + (here ? " on" : "")}
-              // A page under More stays visible while it is the one open.
-              open={here || moreOpen}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                if (!here || open) rememberMoreOpen(open);
-              }}
-            >
-              <summary className="tab nav-group-summary" aria-label={t("app.morePages")}>
-                <span className="tab-ic" aria-hidden="true">···</span>
-                {t("nav.more")}
-                <b className="badge dim" hidden={here || moreOpen || !terminals.tabs.length || !entries.some((entry) => "view" in entry && entry.view === "terminals")}
-                  title={t("nav.terminalsOpen", { n: terminals.tabs.length })}>
-                  {terminals.tabs.length}
-                </b>
-              </summary>
-              {entries.map((entry) => {
-                if (!("view" in entry)) return null;
-                const tab = entry.view;
-                return (
-                  <button
-                    key={tab}
-                    data-tab={tab}
-                    data-nav-target={tab}
-                    aria-current={view === tab ? "page" : undefined}
-                    className={["tab", "nav-group-item", view === tab ? "on" : ""].filter(Boolean).join(" ")}
-                    onClick={() => navigate(tab === "terminals" ? terminals.hash : "#" + tab)}
-                  >
-                    <span className="tab-ic" aria-hidden="true">
-                      <Icon name={NAV_ICON[tab]} />
-                    </span>
-                    {label(tab)}
-                    {tab === "terminals" && (
-                      <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
-                        {terminals.tabs.length}
-                      </b>
-                    )}
-                    {tab === "media" && (
-                      <b id="media-badge" className={liveViews.length ? "badge" : "badge dim"}
-                        hidden={!media.length && !liveViews.length}
-                        title={liveViews.length ? t("app.liveCount", { n: liveViews.length }) : t("nav.mediaCount", { n: media.length })}>
-                        {media.length + liveViews.length}
-                      </b>
-                    )}
-                  </button>
-                );
-              })}
-            </details>
-          );
-        })()}
         {!desktopNavigation && <details
           id="nav-overflow"
           className={`action-menu ${moreEntries(tasks.length > 0).some((entry) => "view" in entry && entry.view === view) ? "on" : ""}`}
@@ -1406,6 +1369,7 @@ export default function App() {
           </div>
         </details>}
       </nav>
+      <ModPanes />
       <div id="toasts" aria-live="polite">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.error ? "err" : ""}${toast.action ? " has-action" : ""}`}>

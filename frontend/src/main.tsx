@@ -26,6 +26,7 @@ import "./remote/remote.css";
 import "./pairing/pair.css";
 import "./review/review.css";
 import "./shell/simple.css";
+import "./mods/mods.css";
 // Last, so a phone's density overrides every view's desktop sizing.
 import "./shell/mobile.css";
 import "./theme/theme.css";
