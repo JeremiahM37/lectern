@@ -91,4 +91,19 @@ class LogicTest {
         // The same approval number on two Lecterns is two notifications.
         assertFalse(Notifications.idOf(Notifications.scopedTag(host, "approval-7")) == Notifications.idOf(Notifications.scopedTag(other, "approval-7")))
     }
+
+    @Test
+    fun updateManifestOnlyNamesThisRepositorysReleases() {
+        val sum = "a".repeat(64)
+        val good = """{"version":"2.9.0","versionCode":20900,"apk":"https://github.com/JeremiahM37/lectern/releases/download/v2.9.0/lectern-android-2.9.0.apk","sha256":"$sum","size":5}"""
+        assertEquals(20900L, Updates.parse(good)?.versionCode)
+        for (apk in listOf(
+            "https://evil.example/lectern.apk",
+            "https://github.com/someone/lectern/releases/download/v2.9.0/lectern-android-2.9.0.apk",
+            "https://github.com/JeremiahM37/lectern/releases/download/../../x/lectern.apk",
+            "http://github.com/JeremiahM37/lectern/releases/download/v2.9.0/lectern-android-2.9.0.apk",
+        )) assertNull(apk, Updates.parse(good.replace(Regex("https://github.com/JeremiahM37/lectern/releases/download/v2.9.0/lectern-android-2.9.0.apk"), apk)))
+        assertNull(Updates.parse(good.replace(sum, "nothex")))
+        assertNull(Updates.parse("not json"))
+    }
 }

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { speechCtor } from "../voice";
 import { hostVoice, setVoicePreference, voicePreference, type HostVoice, type VoicePreference } from "../voice-host";
 import { appHosts, inApp, nativeBridge } from "../native/bridge";
+import { canUpdate, checkForUpdate, installUpdate, useUpdateStatus, type UpdateStatus } from "../native/update";
 
 export function VoiceSettings() {
   useLocale();
@@ -77,4 +78,47 @@ export function AppHosts() {
       <button className="b" onClick={() => bridge.openHosts?.()}>{t("appHosts.manage")}</button>
     </article>
   );
+}
+
+function updateLine(s: UpdateStatus): string {
+  switch (s.state) {
+    case "checking": return t("appUpdate.checking");
+    case "current": return t("appUpdate.current");
+    case "available": return t("appUpdate.available", { version: s.latest ?? "" });
+    case "downloading": return t("appUpdate.downloading", { progress: s.progress ?? 0 });
+    case "installing": return t("appUpdate.installing");
+    case "error": return t("appUpdate.failed", { error: s.error ?? "" });
+    default: return "";
+  }
+}
+
+/** The Android app's version, and updating it from the newest release. */
+export function AppUpdate() {
+  useLocale();
+  const status = useUpdateStatus();
+  if (!canUpdate()) return null;
+  const busy = status.state === "checking" || status.state === "downloading" || status.state === "installing";
+  const version = status.current || appVersion();
+  return (
+    <article className="devices-panel app-update" data-testid="app-update" data-state={status.state}>
+      <h3>{t("appUpdate.title")}</h3>
+      <p className="subhint">{t("appUpdate.version", { version })}</p>
+      {status.state !== "idle" && <p role="status">{updateLine(status)}</p>}
+      <div className="btnrow">
+        {status.state === "available" || (status.state === "error" && status.latest) ? (
+          <button className="b ok" disabled={busy} onClick={installUpdate}>{t("appUpdate.install", { version: status.latest ?? "" })}</button>
+        ) : (
+          <button className="b" disabled={busy} onClick={checkForUpdate}>{t("appUpdate.check")}</button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function appVersion(): string {
+  try {
+    return (JSON.parse(nativeBridge()?.version() ?? "{}") as { app?: string }).app ?? "";
+  } catch {
+    return "";
+  }
 }

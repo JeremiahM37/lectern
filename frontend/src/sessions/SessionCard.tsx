@@ -268,7 +268,7 @@ export function SessionCard({
       {/* A blank shell has no project, so its location line names the machine
           instead: the card's title is the folder, and this keeps "which host"
           readable without repeating the folder. */}
-      <div className="scard-project">
+      <div className={`scard-project${!scratch && !s.project_name ? " scard-project-none" : ""}`}>
         {scratch ? scratchDefaultName(s) : s.project_name || t("sessions.card.unassigned")}
       </div>
       <div className="scard-top">

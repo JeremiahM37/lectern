@@ -1,9 +1,11 @@
 # Android app
 
-A native Android app for Lectern. It is a prototype. The signed 0.2.1 APK is on the
-[v2.6.0 release](https://github.com/JeremiahM37/lectern/releases/download/v2.6.0/lectern-android-0.2.1.apk) (SHA-256 `11f2ee2fa4ea56a38f753c748c1abf0cf82a353c67758eb7fc241ec12a3b7925`).
-It is signed with the same key as 0.1.0, so an installed 0.1.0 upgrades in place and keeps its pairing.
-0.1.0 opened every in-app terminal as a second copy of the app; 0.2.1 fixes that, and the back key now closes overlays first.
+A native Android app for Lectern. From 2.8.0 the app carries Lectern's own
+version, and every release has its signed APK attached:
+[lectern-android-<version>.apk on the latest release](https://github.com/JeremiahM37/lectern/releases/latest).
+It is signed with the same key as every earlier build (0.1.0, 0.2.1), so it
+installs over them and keeps their pairing. After that, the app updates itself
+(see [Updates](#updates)).
 If notifications don't arrive, open ntfy once and turn off battery optimisation for it.
 See "Tested" and "Limits" below before using it.
 
@@ -149,6 +151,41 @@ only for its own Lectern's pages. Android 12+ shows the lectern mark on the
 app's dark background while it starts, and Android 13 themed icons get a
 monochrome variant.
 
+## Updates
+
+When a newer Lectern release has an app, the app says so in a bar at the top
+of the page (**Update** / **Later**), and **Settings → Phone & devices → App
+updates** shows the installed version with **Check for updates**. It checks
+when it opens, at most every six hours, and needs no Google service.
+
+- Every release carries `lectern-android.json`:
+  `{"version", "versionCode", "apk", "sha256", "size"}`. The app reads it from
+  `https://github.com/JeremiahM37/lectern/releases/latest/download/lectern-android.json`,
+  which always names the newest release, so there is no API call and no rate
+  limit.
+- **Update** downloads the APK, which must come from this repository's
+  release downloads, checks it against the manifest's SHA-256, and hands it
+  to Android's installer. Android shows **Do you want to update this app?**
+  and refuses any APK not signed with the installed app's key, so a forged
+  manifest can at most name an update that will not install.
+- The first time, Android asks to **Allow from this source** for Lectern;
+  the update carries on when you come back from that setting.
+- Pairings, keys, tokens and push registrations are kept; Android restarts
+  the app as the new version.
+
+Releasing: after `release.yml` has published a tag, check the tag out and run
+`LECTERN_ANDROID_SIGNING=… tools/publish-android.sh vX.Y.Z`. It runs the unit
+tests, builds and signs the APK, checks the signing certificate, uploads the
+APK, its `.sha256` and `lectern-android.json`, and reads back what installed
+apps will see. The app's version comes from `internal/version/version.go`
+(`versionCode` = major×10000 + minor×100 + patch).
+
+Tested on an Android 15 emulator: a signed 2.8.0 offered a locally served
+stand-in 2.8.1 (built with `LECTERN_ANDROID_VERSION=2.8.1`,
+`LECTERN_UPDATE_MANIFEST` and `LECTERN_UPDATE_APK_PREFIX` pointing at it),
+went through Allow from this source and Android's confirmation, and came
+back as 2.8.1, still paired.
+
 ## Push notifications (UnifiedPush and ntfy)
 
 The app receives push through [UnifiedPush](https://unifiedpush.org), so no
@@ -204,6 +241,10 @@ approvals, and a revoked device gets a 401.
   mode the page's origin is your Lectern's address, so API calls, SSE and
   terminals are ordinary same-origin requests, but every app file is still
   answered from the APK. The service worker is not installed in the app.
+- **The screen's edges.** Android 15 draws apps under the status bar, the
+  camera cutout and the gesture bar. The WebView sits in a frame padded by
+  those insets (and the keyboard's), whose colour follows the page's theme
+  (`LecternNative.barColors`), so nothing the page draws is under them.
 - **`window.LecternNative`** (`frontend/src/native/bridge.ts`) is how the page
   reaches the native side. It refuses calls from any origin but the connected
   one, and the WebView opens every other link in the phone's browser.
@@ -287,8 +328,8 @@ host, physical devices, and Android versions other than 14.
 ## Limits
 
 - **Web app updates arrive with the APK.** The app runs the web app it was
-  built with. A host much newer or older than the app can differ in API; build
-  the APK from the same commit as the host.
+  built with. A host much newer or older than the app can differ in API; keep
+  the app updated (it offers each release) along with the host.
 - **Media over the relay.** Images, video and downloads that the web app loads
   by URL rather than `fetch` (the browser's service worker handles those) do
   not load in relay mode yet.

@@ -11,11 +11,14 @@ import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
 
@@ -23,6 +26,7 @@ import org.json.JSONObject
  * at a time; switching reloads the view on another. */
 class MainActivity : ComponentActivity(), Bridge.Owner {
     private lateinit var web: WebView
+    private lateinit var frame: FrameLayout
     private lateinit var hosts: Hosts
     @Volatile override var pageOrigin: String? = null
     /** The Lectern the view shows. */
@@ -50,6 +54,13 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
         fileCallback = null
     }
 
+    // Android asks once whether this app may install updates; the update
+    // carries on when the person comes back from that setting.
+    private val installPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (packageManager.canRequestPackageInstalls()) Updates.install(this, Pages::update)
+        else Pages.update(Updates.blocked(getString(R.string.update_not_allowed)))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hosts = Hosts(this)
@@ -67,12 +78,27 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
         hostId = host.id
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         web = WebView(this)
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+        // Android 15 draws every app edge to edge, under the status bar, the
+        // camera cutout and the gesture bar. A WebView ignores its own
+        // padding, so the page sits in a frame that keeps clear of all of
+        // them (and of the keyboard); the frame's colour fills the bars.
+        frame = FrameLayout(this).apply {
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.lectern_bg))
+            addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        @Suppress("DEPRECATION")
+        if (Build.VERSION.SDK_INT < 35) {
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
             WindowInsetsCompat.CONSUMED
         }
-        setContentView(web)
+        setContentView(frame)
         WebShell.configure(web, Bridge(this, this) { hostId }, origin = { hosts.get(hostId)?.origin }, onOrigin = { pageOrigin = it })
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
@@ -151,6 +177,22 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
             else -> HapticFeedbackConstants.CLOCK_TICK
         }
         web.performHapticFeedback(effect)
+    }
+
+    override fun barColors(background: String, light: Boolean) = runOnUiThread {
+        val color = runCatching { android.graphics.Color.parseColor(background.trim()) }.getOrNull() ?: return@runOnUiThread
+        frame.setBackgroundColor(color)
+        WindowInsetsControllerCompat(window, frame).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
+    }
+
+    override fun installUpdate() = runOnUiThread {
+        if (packageManager.canRequestPackageInstalls()) Updates.install(this, Pages::update)
+        else installPermission.launch(
+            Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")),
+        )
     }
 
     override fun enablePush(vapidKey: String) = runOnUiThread {

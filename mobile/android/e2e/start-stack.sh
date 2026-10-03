@@ -29,5 +29,5 @@ env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=$S/home TMUX_TMPDIR=$S/tmux \
   LECTERN_BASE_URL=http://127.0.0.1:$PORT \
   LECTERN_AUTH=token LECTERN_AUTH_TOKEN=$(cat $S/owner-token 2>/dev/null || (openssl rand -hex 16 | tee $S/owner-token)) \
   LECTERN_DEVICE_PAIRING=1 ${LECTERN_E2E_ENV:-} "${RELAY_ENV[@]}" \
-  nohup $LECTERN_BIN > $S/lectern.log 2>&1 &
+  nohup $LECTERN_BIN serve > $S/lectern.log 2>&1 &
 echo $! > $S/lectern.pid

@@ -167,3 +167,23 @@
   #sheet label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
   #sheet input[type="checkbox"] { width: 18px; height: 18px; min-height: 0; margin: 0; flex: none; }
 }
+
+/* Phone clutter (2.8): every line above the first session has to earn its
+   place. The summary line repeats the count the tab badge shows, the Now
+   strip repeats the cards below it except for what needs you, the
+   list's section title labels the only list there is, and "No project" on
+   every card says nothing. The scratch-terminal section keeps its title. */
+@media (max-width: 600px) {
+  .sesshead > div p { display: none; }
+  /* With the summary gone the title is short: it, Start an agent and ⋯
+     share one row. */
+  .sesshead { flex-wrap: nowrap; }
+  .sesshead > div { flex: 1 1 auto; }
+  .sesshead > .sess-more { order: 2; }
+  /* The Now strip keeps only what wants a person: approvals and sessions
+     that need you. With neither, it goes. */
+  .now-strip .now-chip:not(.now-approvals):not([data-state="needs_you"]) { display: none; }
+  .now-strip:not(:has(.now-approvals, .now-chip[data-state="needs_you"])) { display: none; }
+  #regular-sessions > .session-section-title { display: none; }
+  .scard-project-none { display: none; }
+}

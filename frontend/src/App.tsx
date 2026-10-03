@@ -51,6 +51,7 @@ import { applyBadge, computeBadgeCount } from "./badge";
 import { sessionState, stateText } from "./sessions/status";
 import type { NoticeAction } from "./types";
 import { offlineCache } from "./api/offline";
+import { UpdateBanner } from "./mobile/UpdateBanner";
 import { OfflineBanner } from "./mobile/OfflineBanner";
 import { PullToRefresh } from "./mobile/PullToRefresh";
 import { noteView, setViewNavigator, useBackClose } from "./mobile/back";
@@ -1116,6 +1117,7 @@ export default function App() {
       </header>
       <main id="view" hidden={view === "terminals"}>
         <OfflineBanner onRetry={retryOffline} />
+        <UpdateBanner />
         <PullToRefresh target={viewElement} onRefresh={refresh} />
         {view === "tasks" && (
           <Board

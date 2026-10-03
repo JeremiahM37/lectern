@@ -1,4 +1,5 @@
 import { SwipeRow } from "../mobile/SwipeRow";
+import { usePhone } from "../mobile/usePhone";
 import { sessionSwipes } from "../mobile/sessionSwipes";
 import { ScratchReview } from "./ScratchReview";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
@@ -106,6 +107,7 @@ export function Sessions({
   const [rows, setRows] = useState<SessionView[]>([]),
     [scope, setScope] = useState<"active" | "all" | "archived">("active"),
     [query, setQuery] = useState(""),
+    phone = usePhone(),
     [group, setGroup] = useState<GroupMode>(savedGrouping),
     [scratchShown, setScratchShown] = useState(false),
     [collapsed, setCollapsed] = useState(savedCollapsed),
@@ -554,7 +556,16 @@ export function Sessions({
   const firstRun = scope === "active" && !query && rows.length === 0;
   // With only a couple of sessions there is nothing to search, group or
   // filter (re-audit N8): those tools wait under ⋯ until the list grows.
-  const few = scope === "active" && !query && group === "none" && rows.filter((row) => !row.ended_at && row.status !== "dead").length <= 2;
+  const activeCount = rows.filter((row) => !row.ended_at && row.status !== "dead").length;
+  const few = scope === "active" && !query && group === "none" && activeCount <= 2;
+  // A phone keeps one row of header: Start an agent and ⋯. Everything else
+  // the desk shows there (saved search, discovery, restore, grouping) waits
+  // under ⋯, and the search field appears only once the list is long enough
+  // to need it.
+  const compact = few || phone;
+  // Typing in ⋯'s search brings the field out under the header, still
+  // focused, and closes the menu, so the results it filters are not under it.
+  const showSearch = phone ? activeCount > 4 || !!query : !few;
   const headerExtras = (
     <>
         <button
@@ -575,8 +586,7 @@ export function Sessions({
       </button>
     </>
   );
-  const listTools = (
-    <>
+  const searchField = (
       <input
         id="sess-search"
         className="f"
@@ -586,6 +596,8 @@ export function Sessions({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
+  );
+  const listFilters = (
       <div className="session-filters">
       <label className="session-grouping">
         {t("sessions.list.groupBy")}{" "}
@@ -598,6 +610,7 @@ export function Sessions({
             const value = event.target.value as GroupMode;
             setGroup(value);
             sessionStorage.setItem("lec-session-grouping", value);
+            if (phone) event.currentTarget.closest("details")?.removeAttribute("open");
           }}
         >
           <option value="none">{t("sessions.list.groupNone")}</option>
@@ -612,7 +625,10 @@ export function Sessions({
           className="f"
           id="sess-scope"
           value={scope}
-          onChange={(event) => setScope(event.target.value as typeof scope)}
+          onChange={(event) => {
+            setScope(event.target.value as typeof scope);
+            if (phone) event.currentTarget.closest("details")?.removeAttribute("open");
+          }}
         >
           <option value="active">{t("sessions.list.scopeActive")}</option>
           <option value="all">{t("sessions.list.scopeAll")}</option>
@@ -620,7 +636,27 @@ export function Sessions({
         </select>
       </label>
       </div>
-    </>
+  );
+  useEffect(() => {
+    if (!phone || !query) return;
+    document.getElementById("sess-more")?.removeAttribute("open");
+    const field = document.getElementById("sess-search") as HTMLInputElement | null;
+    field?.focus();
+    field?.setSelectionRange(field.value.length, field.value.length);
+  }, [phone, !!query]);
+  const restoreButton = (
+        <button
+          className="b"
+          id="sess-recent"
+          aria-expanded={recentOpen}
+          aria-label={t("sessions.list.restoreClosedLabel")}
+          onClick={(event) => {
+            setRecentOpen((open) => !open);
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }}
+        >
+          {t("sessions.list.restoreButton")}
+        </button>
   );
   return (
     <section className={`list wide${firstRun ? " first-run" : ""}${few ? " few" : ""}`}>
@@ -636,16 +672,8 @@ export function Sessions({
           </p>
         </div>
         <QuotaChip api={api} />
-        {!few && headerExtras}
-        <button
-          className="b"
-          id="sess-recent"
-          aria-expanded={recentOpen}
-          aria-label={t("sessions.list.restoreClosedLabel")}
-          onClick={() => setRecentOpen((open) => !open)}
-        >
-          {t("sessions.list.restoreButton")}
-        </button>
+        {!compact && headerExtras}
+        {!phone && restoreButton}
         {openTerminals && (
           <button className="b" id="sess-terminals" onClick={openTerminals.open}>
             {t("sessions.list.openTerminals", { n: openTerminals.count })}
@@ -654,12 +682,14 @@ export function Sessions({
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
           {t("sessions.list.newSession")}
         </button>
-        {few && (
+        {compact && (
           <details className="action-menu sess-more" id="sess-more">
             <summary aria-label={t("sessions.list.moreLabel")}>⋯</summary>
             <div className="action-menu-panel">
               {headerExtras}
-              {listTools}
+              {phone && restoreButton}
+              {!showSearch && searchField}
+              {listFilters}
               <button
                 className="b"
                 id="sess-scratch"
@@ -718,7 +748,8 @@ export function Sessions({
         onShowSession={showSession}
         onShowApprovals={showApprovals}
       />
-      {!few && listTools}
+      {showSearch && searchField}
+      {!compact && listFilters}
       {recentOpen && (
         <RestorePanel
           api={api}
@@ -786,7 +817,7 @@ export function Sessions({
             )}
           </div>
         </section>
-        {(!few || scratch.length > 0) && (
+        {(!compact || scratch.length > 0) && (
         <ScratchTerminals
           items={scratch}
           mode={group}

@@ -53,6 +53,14 @@ if (appLinkHosts.isNotEmpty()) {
     )
 }
 
+val lecternSourceVersion = Regex("""Version\s*=\s*"(\d+)\.(\d+)\.(\d+)"""")
+    .find(rootProject.projectDir.resolve("../../internal/version/version.go").readText())
+    ?.let { it.groupValues.drop(1).joinToString(".") } ?: error("no version in internal/version/version.go")
+// LECTERN_ANDROID_VERSION overrides it, only to build a stand-in "next
+// release" for the update test (docs/android.md, "Updates").
+val lecternVersion = (System.getenv("LECTERN_ANDROID_VERSION") ?: lecternSourceVersion)
+val lecternVersionCode = lecternVersion.split('.').map { it.toInt() }.let { (a, b, c) -> a * 10000 + b * 100 + c }
+
 // Release signing comes from a properties file outside the repository
 // (mobile/build-android.sh points at it); without one the release APK is
 // left unsigned, which is what CI should produce before its own signing step.
@@ -67,8 +75,11 @@ android {
         applicationId = "io.github.jeremiahm37.lectern"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.2.1"
+        // The app carries Lectern's own version from 2.8.0 on, so the app
+        // and the host it was built with name the same release, and an app
+        // update is "the next Lectern release" (Updates.kt).
+        versionCode = lecternVersionCode
+        versionName = lecternVersion
     }
 
     signingConfigs {
@@ -105,6 +116,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig = true }
+    // Where the app looks for updates (Updates.kt). A published build always
+    // uses the GitHub release; the update test points a build at a local copy.
+    defaultConfig {
+        val manifest = System.getenv("LECTERN_UPDATE_MANIFEST") ?: "https://github.com/JeremiahM37/lectern/releases/latest/download/lectern-android.json"
+        val prefix = System.getenv("LECTERN_UPDATE_APK_PREFIX") ?: "https://github.com/JeremiahM37/lectern/releases/download/"
+        buildConfigField("String", "UPDATE_MANIFEST", "\"$manifest\"")
+        buildConfigField("String", "UPDATE_APK_PREFIX", "\"$prefix\"")
+    }
     packaging { resources.excludes += setOf("META-INF/*.kotlin_module", "META-INF/versions/**") }
 }
 

@@ -10,13 +10,14 @@ from test_native_history import prepare
 from test_native_resume import stopped, argv
 from test_session_restore import request
 from test_terminal_workspace import real_terminal
+from session_sheet import session_tool
 
 
 def open_recent(page, t, width=1440):
     page.set_viewport_size({"width": width, "height": 844})
     page.goto(t["url"] + "/#sessions")
-    expect(page.locator("#sess-recent")).to_be_visible(timeout=15000)
-    page.locator("#sess-recent").click()
+    expect(page.locator("#sess-new")).to_be_visible(timeout=15000)
+    session_tool(page, "#sess-recent").click()
     expect(page.locator(".recent-closed")).to_be_visible(timeout=10000)
     expect(page.locator(".recent-closed")).not_to_contain_text("Loading", timeout=10000)
 

@@ -180,7 +180,8 @@ def test_d_end_offers_undo_and_restore_finds_it(page, server, size):
     assert not dialogs, dialogs
     expect(page.locator(".scard", has_text=name)).to_have_count(0, timeout=20000)
     assert click.n == 2, click.n
-    click(page.locator("#sess-recent"))
+    # On a phone Restore waits under the header's ⋯.
+    session_tool(page, "#sess-recent").click()
     expect(page.locator(".recent-closed")).to_contain_text(name, timeout=20000)
 
 

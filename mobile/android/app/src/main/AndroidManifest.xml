@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Expedited work runs as a short foreground service before Android 12. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Updating the app from its own releases (Updates.kt); Android still
+         asks the person, and only accepts an APK signed with the same key. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -64,6 +67,7 @@
             xmlns:tools="http://schemas.android.com/tools" />
 
         <receiver android:name=".ActionReceiver" android:exported="false" />
+        <receiver android:name=".Updates$UpdateReceiver" android:exported="false" />
 
         <!-- UnifiedPush events from the distributor app (ntfy, ...). Exported
              because another app sends them; the connector checks the sender
