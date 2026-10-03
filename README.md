@@ -72,7 +72,9 @@ phone, then review and commit the change.
   comments for the agent, stage what you want and commit. On your main branch
   it offers a new branch first.
 - **Use your phone.** The phone layout is installable as an app, with
-  notifications when an agent needs you.
+  notifications when an agent needs you. On Android there is also a
+  [native app](docs/android.md) (the APK is on each release) that approves
+  from the notification and updates itself.
 
 <img src="docs/media/control-plane/phone-approval.png" alt="A pending approval in the phone layout" width="300">
 
