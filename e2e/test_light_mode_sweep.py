@@ -57,12 +57,9 @@ def nav(page, name):
     if button.is_visible():
         button.click()
     else:
-        # More: a menu on a narrow screen, a group that opens in place in the
-        # desktop sidebar.
+        # More, on a narrow screen; a desktop sidebar lists every page.
         if page.locator("#nav-overflow").count():
             page.locator("#nav-overflow > summary").click()
-        elif not page.locator("#nav-more-group").evaluate("el => el.open"):
-            page.locator("#nav-more-group > summary").click()
         page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
     if legacy == "targets":
         # The old Settings page opened on Machines.
@@ -158,7 +155,6 @@ def test_light_mode_board_settings_and_dialogs(page, server, theme):
         sweep.check("more-menu")
         page.locator("#nav-overflow > summary").click()
     else:
-        page.locator("#nav-more-group > summary").click()
         sweep.check("desktop-navigation")
     page.goto(server + "/#evals")
     page.wait_for_timeout(600)

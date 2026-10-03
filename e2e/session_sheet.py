@@ -30,12 +30,9 @@ def nav_to(page, name):
     if tab.count() and tab.is_visible():
         tab.click()
         return
-    # More: a menu on a narrow screen, a group that opens in place in the
-    # desktop sidebar.
+    # More, on a narrow screen; a desktop sidebar lists every page.
     if page.locator("#nav-overflow").count():
         page.locator("#nav-overflow > summary").click()
-    elif not page.locator("#nav-more-group").evaluate("el => el.open"):
-        page.locator("#nav-more-group > summary").click()
     page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
 
 

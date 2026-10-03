@@ -9,31 +9,29 @@ export type View = (typeof VIEWS)[number];
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 
 /**
- * The main navigation, the same on every screen size: Sessions, Approvals and
- * Settings, with everything else under More (re-audit N9, round 3 B3). Tasks —
- * the board with Orchestrate and Race — joins the main items once there is a
- * task, i.e. once someone uses it. On a desktop sidebar Terminals joins too
- * while a terminal tab is open; a narrow bar keeps it under More, with a count.
+ * The main navigation. A narrow bar has Sessions, Approvals and Settings, with
+ * everything else under More (re-audit N9, round 3 B3); Tasks — the board with
+ * Orchestrate and Race — joins once there is a task, i.e. once someone uses it.
+ * A desktop sidebar has room for every page, so it lists them all and has no
+ * More.
  */
-export function primaryViews(hasTasks: boolean, desktop = false, terminalsOpen = false): View[] {
+export function primaryViews(hasTasks: boolean, desktop = false): View[] {
+  if (desktop) return [...VIEWS];
   const views: View[] = ["sessions", "approvals"];
   if (hasTasks) views.push("tasks");
-  if (desktop && terminalsOpen) views.push("terminals");
   views.push("settings");
   return views;
 }
 
 /**
- * What More holds: every page not in the main items. A narrow screen also
- * lists two Settings sections people look for by name; a desktop sidebar does
- * not, because there they would sit beside Settings and duplicate its tabs.
+ * What the narrow bar's More holds: every page not in the main items, and two
+ * Settings sections people look for by name.
  */
 export type MoreEntry = { view: View } | { section: "machines" | "plugins" };
-export function moreEntries(hasTasks: boolean, desktop = false, terminalsOpen = false): MoreEntry[] {
-  const primary = primaryViews(hasTasks, desktop, terminalsOpen);
+export function moreEntries(hasTasks: boolean): MoreEntry[] {
+  const primary = primaryViews(hasTasks);
   const views = VIEWS.filter((view) => !primary.includes(view));
-  const entries: MoreEntry[] = views.map((view) => ({ view }));
-  return desktop ? entries : [...entries, { section: "machines" }, { section: "plugins" }];
+  return [...views.map((view) => ({ view })), { section: "machines" }, { section: "plugins" }];
 }
 
 /** Home, on every device and after every reload that names no page. */

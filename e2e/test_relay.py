@@ -93,12 +93,9 @@ def _tab(page, name):
         page.get_by_role("button", name="Show navigation", exact=True).click()
     button = page.locator(f'.tab[data-tab="{name}"]')
     if not button.is_visible():
-        # More: a menu on a narrow screen, a group that opens in place in the
-        # desktop sidebar.
+        # More, on a narrow screen; a desktop sidebar lists every page.
         if page.locator("#nav-overflow").count():
             page.locator("#nav-overflow > summary").click()
-        elif not page.locator("#nav-more-group").evaluate("el => el.open"):
-            page.locator("#nav-more-group > summary").click()
         page.locator(f'#tabbar [data-nav-target="{name}"]:visible').click()
     else:
         button.click()
