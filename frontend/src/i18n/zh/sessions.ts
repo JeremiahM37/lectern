@@ -28,6 +28,7 @@ const catalog: Record<string, string> = {
   "sessions.list.restoreIt": "恢复它",
   "sessions.list.restoreCount": "恢复 {count} 个",
   "sessions.list.searchPlaceholder": "搜索会话、分组、分支或文件夹",
+  "sessions.list.searchPlaceholderShort": "搜索会话",
   "sessions.list.searchLabel": "查找会话或项目",
   "sessions.list.groupBy": "分组方式",
   "sessions.list.groupByLabel": "会话分组方式",

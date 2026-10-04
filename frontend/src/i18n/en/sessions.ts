@@ -38,6 +38,7 @@ const catalog: Record<string, string> = {
   "sessions.list.restoreIt": "Restore it",
   "sessions.list.restoreCount": "Restore {count}",
   "sessions.list.searchPlaceholder": "Search sessions, groups, branches or folders",
+  "sessions.list.searchPlaceholderShort": "Search sessions",
   "sessions.list.searchLabel": "Find a session or project",
   "sessions.list.groupBy": "Group by",
   "sessions.list.groupByLabel": "Group sessions by",

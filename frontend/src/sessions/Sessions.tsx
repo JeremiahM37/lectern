@@ -591,7 +591,7 @@ export function Sessions({
         id="sess-search"
         className="f"
         type="search"
-        placeholder={t("sessions.list.searchPlaceholder")}
+        placeholder={t(phone ? "sessions.list.searchPlaceholderShort" : "sessions.list.searchPlaceholder")}
         aria-label={t("sessions.list.searchLabel")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}

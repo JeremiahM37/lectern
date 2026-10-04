@@ -1,0 +1,207 @@
+/* Phone polish (2.9). Loaded last.
+
+   A pass over every phone view at 360-412px, looking for words that sat on
+   top of other words, text cut through the middle, and furniture that pushed
+   the content off the first screen. What it fixes:
+
+   - The quota chip shared the header row with the title and the actions, so
+     it covered "Sessions" and pushed Routines/Claims off the right edge. On a
+     phone it is a slim line of its own under the title.
+   - A card's terminal preview showed its first lines and cut the last one in
+     half. It now shows the last three whole lines, which is what the agent
+     is doing now.
+   - Chips a phone has no room for (the machine, uptime) leave the card; the
+     ones that need attention (context, cost, checks, CI, warnings) stay.
+   - Selects and short fields kept the desk's vertical padding in a shorter
+     box, which cut their text in half horizontally. */
+
+@media (max-width: 600px) {
+  /* ---------- Headers ---------- */
+  .sesshead, .page-heading { flex-wrap: wrap; row-gap: 6px; }
+  .sesshead > div { flex: 1 1 0; min-width: 0; }
+  .sesshead h2, .page-heading h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .page-heading > h2 { flex: 1 1 0; }
+  .page-heading > .btnrow { flex: none; display: flex; gap: 6px; margin: 0; }
+  .page-heading > .btnrow button { width: auto; }
+  .sesshead > .quota-chip, .page-heading > .quota-chip, .sesshead > .budget-chip, .page-heading > .budget-chip {
+    order: 10; flex: 1 1 100%; min-width: 0;
+    display: flex; justify-content: flex-start; gap: 14px;
+    padding: 4px 10px; border-radius: 8px; font-size: 11px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .quota-window { white-space: nowrap; }
+  .quota-window small { font-size: 10px; }
+
+  /* ---------- Session cards ---------- */
+  #sesslist .scard, .scard { padding: 10px 12px 10px 14px; margin-bottom: 8px; border-radius: 12px; }
+  .scard-project {
+    font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .scard-top { flex-wrap: nowrap; gap: 7px; min-width: 0; }
+  .scard-top .nm {
+    flex: 0 1 auto; min-width: 0; padding: 0; text-align: left;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .scard-top .nm-edit { flex: 1 1 auto; min-width: 0; }
+  /* A blank shell is told apart by its folder name, so that title wraps
+     whole rather than ending in an ellipsis. */
+  .scard[data-scratch-terminal] .scard-top { flex-wrap: wrap; }
+  .scard[data-scratch-terminal] .scard-top .nm { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .scard-top .sstate, .scard-top .status-badge { flex: none; font-size: 10px; padding: 1px 7px; }
+  .scard-top .sidle { flex: none; font-size: 10.5px; }
+  .smeta { gap: 4px 6px; align-items: center; margin-top: 6px; }
+  .smeta .chip { font-size: 10.5px; padding: 1px 7px; }
+  .smeta .chip.tgt, .smeta .chip-uptime, .smeta .chip-wraps { display: none; }
+  .smeta .ctxbar { font-size: 10.5px; gap: 4px; }
+  .smeta .ctxbar i { width: 32px; }
+  .smeta .check-badge { display: inline-flex; }
+  .smeta .check-chip, .smeta .ci-chip { min-height: 0; height: auto; padding: 1px 7px; font-size: 10.5px; border-radius: 999px; }
+  /* The last three whole lines of the pane: flex-end keeps the tail in view
+     and clips the older lines above it, and the height is exactly three
+     lines so none is cut through. */
+  .scard .spane {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    --spane-lh: 14px;
+    height: auto; max-height: calc(3 * var(--spane-lh) + 12px); min-height: 0;
+    margin-top: 8px; padding: 6px 9px; overflow: hidden;
+    font-size: 10.5px; line-height: var(--spane-lh);
+    white-space: pre; word-break: normal; text-overflow: clip;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--ink) 10px);
+    mask-image: linear-gradient(to bottom, transparent 0, var(--ink) 10px);
+  }
+  .scard .spane:empty { display: none; }
+  /* The successor link is a line of text, not another row of buttons. */
+  .scard .session-lineage { margin-top: 6px; }
+  .scard .lineage-open {
+    min-height: 28px; padding: 0 8px; font-size: 11.5px; border-radius: 999px; max-width: 100%;
+  }
+  .scard .btnrow { margin-top: 8px; gap: 6px; flex-wrap: nowrap; }
+  .scard .btnrow > .b, .scard .btnrow > .action-menu { flex: 1 1 0; min-width: 0; }
+  .scard .btnrow > .action-menu { flex: 0 0 auto; }
+  .scard .btnrow > .action-menu > summary { padding: 0 12px; }
+  .scard .btnrow > .b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scard .scard-path { margin-top: 6px; gap: 6px; font-size: 11px; }
+  .scard .scard-path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---------- Menus as sheets ---------- */
+  /* The Sessions ⋯ menu opens from the bottom edge like a card's. Its own
+     button stays above the dimmed page, so a second tap closes it. (More
+     stays a flyout above the tab bar, which has to remain tappable.) */
+  #sess-more[open] > summary { position: relative; z-index: 72; }
+  #sess-more[open]::before {
+    content: ""; position: fixed; inset: 0; z-index: 70;
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    animation: sheet-fade .18s ease-out;
+  }
+  #sess-more[open] > .action-menu-panel {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 71;
+    width: auto; max-width: none; max-height: 78dvh; overflow-y: auto;
+    border-radius: 16px 16px 0 0; transform: none;
+    padding: 14px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 4px;
+    animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1);
+    overscroll-behavior: contain;
+  }
+  .sesshead:has(#sess-more[open]) { position: relative; z-index: 75; }
+  #sess-more[open] > .action-menu-panel > button,
+  #sess-more[open] > .action-menu-panel > .b { min-height: 46px; font-size: 15px; justify-content: flex-start; text-align: left; }
+  #sess-more[open] > .action-menu-panel label,
+  #sess-more[open] > .action-menu-panel .session-grouping {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    min-height: 46px; font-size: 14px; color: var(--ink-dim);
+  }
+  #sess-more[open] > .action-menu-panel select { flex: 0 1 60%; min-width: 0; height: 40px; }
+  #sess-more[open] > .action-menu-panel .session-filters { display: flex; flex-direction: column; gap: 4px; }
+  #sess-more[open] > .action-menu-panel .session-filters .session-grouping { font-size: 14px; flex: none; }
+
+  /* ---------- Fields ---------- */
+  /* One rule for every short field: no vertical padding, so its 16px text is
+     centred in the box instead of cut through. */
+  #view select:not([multiple]):not([size]), #view input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+    padding-top: 0; padding-bottom: 0; line-height: normal; min-height: 36px;
+  }
+  #view input::placeholder { text-overflow: ellipsis; }
+
+  /* ---------- Tasks ---------- */
+  #quickbar { flex-wrap: wrap; }
+  #qb-mode { display: flex; width: 100%; min-width: 0; }
+  #qb-mode > button { flex: 1 1 auto; min-width: 0; padding: 0 6px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #quickbar #qb-project, #quickbar #qb-input { grid-column: 1 / -1; width: 100%; max-width: 100%; box-sizing: border-box; }
+  .colstrip { padding: 0 10px; scrollbar-width: none; }
+  .colstrip::-webkit-scrollbar { display: none; }
+  #board { padding: 0 10px; }
+  /* One column at a time on a phone (the strip above picks it), so it
+     takes the width instead of 86% of it. */
+  #board .col.mobile-on { flex: 1 1 100%; width: 100%; max-width: 100%; box-sizing: border-box; }
+  /* The delete control sits in the corner; the title keeps clear of it. */
+  .card { position: relative; }
+  .card .t, .card h3, .card .title { padding-right: 34px; }
+  .card-x { position: absolute; top: 4px; right: 4px; }
+  .card .task-chat { margin: 6px 0 4px; }
+
+  /* ---------- Media ---------- */
+  #media .pane-head { flex-wrap: wrap; row-gap: 6px; }
+  #media .pane-head > div:first-child { flex: 1 1 100%; }
+  .media-filter { flex: 1 1 100%; display: flex; align-items: center; }
+  .media-filter select { flex: 1; max-width: none; }
+
+  /* ---------- Overview ---------- */
+  /* A pane's head is its title on one line and its state beside it; the log
+     below is three lines, like a session card, not the whole transcript. */
+  #deck { padding: 0 10px; gap: 8px; }
+  #deck .pane { min-height: 0; height: auto; }
+  #deck .pane-head {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0;
+    padding: 8px 10px; text-align: left; flex-wrap: nowrap;
+  }
+  #deck .pane-head .statpill { flex: none; }
+  #deck .pane-title { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #deck .pane-sub { flex: none; font-size: 11px; }
+  #deck .pane-log {
+    height: auto; max-height: calc(4 * 15px + 12px); overflow: hidden; padding: 6px 10px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  #deck .pane-line { flex: none; line-height: 15px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (max-width: 600px) {
+  /* ---------- Chat ---------- */
+  /* One row of controls above the transcript, not three. */
+  .conversation .reader-controls {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 6px;
+    padding: 6px 10px; overflow-x: auto; scrollbar-width: none;
+  }
+  .conversation .reader-controls::-webkit-scrollbar { display: none; }
+  .conversation .reader-controls > .conversation-session-actions {
+    display: flex; gap: 6px; margin: 0; padding: 0; border: 0; flex: none;
+  }
+  .conversation .reader-controls .b { flex: none; min-height: 34px; height: 34px; padding: 0 10px; white-space: nowrap; }
+  .conversation .reader-controls #reader-latest { margin-left: auto; min-width: 34px; padding: 0; }
+  /* The composer's field says what it is; its label is for screen readers. */
+  #conversation-compose > label[for="conversation-input"] {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  #conversation-input { height: 48px; min-height: 44px; }
+  .voice-mode > button, #voice-mode > .b { min-height: 36px; font-size: 13px; }
+  /* A tool row keeps its name ("Terminal", "Edit") whole; the command
+     after it is what gives way. */
+  .tool-card > summary { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tool-card > summary .tool-title { flex: none; white-space: nowrap; overflow: visible; max-width: none; }
+  .tool-card > summary .tool-subtitle { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool-card > summary .tool-sep { flex: none; }
+
+  /* ---------- Start an agent ---------- */
+  .session-launch-actions #ns-go { flex: 1 1 auto; }
+}
+
+@media (max-width: 600px) {
+  /* ---------- Page titles ---------- */
+  /* Every page opened with a 22px title and a sentence about itself, which
+     the tab bar and the page's own content already say; on a phone that
+     sentence pushed the first control halfway down the screen. */
+  .settings-page > header { padding: 2px 0 6px; }
+  .settings-page > header h2, #media h2, .th-heading h2 { font-size: 17px; margin: 0; }
+  .settings-page > header p, .th-heading p, #media .pane-head .sub, #media .pane-head p { display: none; }
+}

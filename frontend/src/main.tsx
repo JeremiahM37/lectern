@@ -35,6 +35,7 @@ import { bootAppearance } from "./theme/appearance";
 // Before the first render: the saved theme paints the first frame.
 bootAppearance();
 import "./mobile/phone.css";
+import "./mobile/polish.css";
 // /pair is the one page an unpaired device can reach with no credential —
 // see internal/api/server.go's withAuth exemption. It gets its own render
 // root entirely: no board fetches, no SSE, nothing that assumes an
