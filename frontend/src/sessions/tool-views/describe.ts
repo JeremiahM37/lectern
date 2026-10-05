@@ -83,7 +83,10 @@ export function describeTool(
     case "Bash":
     case "GeminiBash": {
       const cmd = commandOf(input);
-      return { title: t("conversation.describe.terminal"), subtitle: cmd ? truncate(cmd, 140) : undefined, category: "terminal" };
+      // Agents start most commands with `cd <the project> &&`; the summary
+      // shows what runs there, and the full command stays in the card.
+      const shown = cmd.replace(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/, "");
+      return { title: t("conversation.describe.terminal"), subtitle: shown ? truncate(shown, 140) : undefined, category: "terminal" };
     }
     case "exec_command":
     case "shell": {

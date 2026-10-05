@@ -28,6 +28,7 @@ const catalog: Record<string, string> = {
   "sessions.list.restoreIt": "복원하기",
   "sessions.list.restoreCount": "{count}개 복원",
   "sessions.list.searchPlaceholder": "세션, 그룹, 브랜치 또는 폴더 검색",
+  "sessions.list.searchPlaceholderShort": "세션 검색",
   "sessions.list.searchLabel": "세션 또는 프로젝트 찾기",
   "sessions.list.groupBy": "그룹 기준",
   "sessions.list.groupByLabel": "세션 그룹 기준",

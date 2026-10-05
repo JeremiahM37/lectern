@@ -64,3 +64,8 @@ test("an unknown tool falls back to its bare name and category 'other', never a 
   assert.equal(summary.category, "other");
   assert.equal(summary.subtitle, undefined);
 });
+
+test("Bash leaves the leading cd out of the subtitle", () => {
+  assert.equal(describeTool("Bash", { command: "cd /home/admin/projects/robowright && git diff --stat" }).subtitle, "git diff --stat");
+  assert.equal(describeTool("Bash", { command: "cd /tmp" }).subtitle, "cd /tmp");
+});

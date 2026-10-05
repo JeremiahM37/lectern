@@ -707,18 +707,39 @@ export default function App() {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, [api, authVersion, refresh, notice, completeSwitch, switchFailure]);
-  // More is a flyout: a click anywhere else closes it.
+  // Menus are flyouts: one is open at a time, and a tap anywhere else or
+  // Escape closes it. Without this, More and a view's ⋯ stayed open over
+  // each other, and over the next view.
   useEffect(() => {
-    const close = (event: MouseEvent) => {
-      const menu = document.getElementById("nav-overflow");
-      if (menu?.hasAttribute("open") && !menu.contains(event.target as Node)) menu.removeAttribute("open");
+    const menus = () => [...document.querySelectorAll<HTMLDetailsElement>("details.action-menu[open]")];
+    const close = (event: Event) => {
+      // A phone sheet's dimmed backdrop is the menu's own ::before.
+      for (const menu of menus()) if (!menu.contains(event.target as Node) || event.target === menu) menu.open = false;
     };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    const opened = (event: Event) => {
+      const menu = event.target;
+      if (!(menu instanceof HTMLDetailsElement) || !menu.open || !menu.classList.contains("action-menu")) return;
+      for (const other of menus()) if (other !== menu && !other.contains(menu)) other.open = false;
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const open = menus();
+      if (!open.length) return;
+      for (const menu of open) menu.open = false;
+      open[open.length - 1]?.querySelector("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("toggle", opened, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("toggle", opened, true);
+      document.removeEventListener("keydown", key);
+    };
   }, []);
   // ...and so does going anywhere.
   useEffect(() => {
-    document.getElementById("nav-overflow")?.removeAttribute("open");
+    for (const menu of document.querySelectorAll<HTMLDetailsElement>("details.action-menu[open]")) menu.open = false;
   }, [view, section.version]);
   useEffect(() => {
     document.body.classList.toggle("terminals-open", view === "terminals");

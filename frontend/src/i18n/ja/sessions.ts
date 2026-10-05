@@ -28,6 +28,7 @@ const catalog: Record<string, string> = {
   "sessions.list.restoreIt": "復元する",
   "sessions.list.restoreCount": "{count} 件を復元",
   "sessions.list.searchPlaceholder": "セッション、グループ、ブランチ、フォルダーを検索",
+  "sessions.list.searchPlaceholderShort": "セッションを検索",
   "sessions.list.searchLabel": "セッションまたはプロジェクトを検索",
   "sessions.list.groupBy": "グループ化",
   "sessions.list.groupByLabel": "セッションのグループ化",

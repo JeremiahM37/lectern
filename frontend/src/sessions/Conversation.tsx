@@ -41,6 +41,7 @@ import { ToolCardView } from "./tool-views/ToolCard";
 import { VoiceMode } from "./VoiceMode";
 import { BrowserPane } from "../browser/BrowserPane";
 import { t, useLocale } from "../i18n";
+import { usePhone } from "../mobile/usePhone";
 interface Attachment {
   name: string;
   path: string;
@@ -142,6 +143,7 @@ export function Conversation({
   quickReply?: boolean;
 }) {
   useLocale();
+  const phone = usePhone();
   const [enterMode] = usePref<EnterMode>(ENTER_PREF, "auto");
   const touch = touchOnly();
   const key = `lec-draft-${kind}-${id}`;
@@ -785,6 +787,28 @@ export function Conversation({
     };
   }, [workdir, id, onNotice]);
   const chatCards = kind === "session" ? buildChatCards(liveItems) : [];
+  const sessionActions = kind === "session" && onAttach && !unavailable && (
+    <div className="conversation-session-actions" id="conversation-session-actions">
+      <button
+        type="button"
+        className="b"
+        id="conversation-terminal"
+        aria-label={phone ? t("conversation.chat.openTerminal") : undefined}
+        onClick={openTerminal}
+      >
+        {t(phone ? "conversation.chat.openTerminalShort" : "conversation.chat.openTerminal")}
+      </button>
+      <button
+        type="button"
+        className="b"
+        id="conversation-merge-review"
+        aria-label={phone ? t("conversation.chat.reviewMerge") : undefined}
+        onClick={() => setShowMergeReview(true)}
+      >
+        {t(phone ? "conversation.chat.reviewMergeShort" : "conversation.chat.reviewMerge")}
+      </button>
+    </div>
+  );
   return (
     <FileLinksContext.Provider value={fileLinks}>
     <Modal
@@ -941,61 +965,48 @@ export function Conversation({
         </div>
       )}
       {session && onOpenSession && <SessionLineage api={api} session={session} onOpen={onOpenSession} className="conversation-lineage" />}
+      {/* A phone has one row for these: the session's actions and the view
+          controls, with short labels; the full names stay as accessible names. */}
       <div className="reader-controls">
-        <span>
-          {kind === "session"
-            ? viewMode === "cards" && !liveUnavailable
-              ? t("conversation.chat.viewChat")
-              : t("conversation.chat.viewLiveOutput")
-            : t("conversation.chat.viewTask")}
-        </span>
+        {!phone && (
+          <span>
+            {kind === "session"
+              ? viewMode === "cards" && !liveUnavailable
+                ? t("conversation.chat.viewChat")
+                : t("conversation.chat.viewLiveOutput")
+              : t("conversation.chat.viewTask")}
+          </span>
+        )}
+        {phone && sessionActions}
         {kind === "session" && !liveUnavailable && (
           <button
             type="button"
             className="b"
             id="conversation-view-toggle"
+            aria-label={phone ? (viewMode === "cards" ? t("conversation.chat.showTerminalText") : t("conversation.chat.showChatCards")) : undefined}
             onClick={() => setViewMode((old) => (old === "cards" ? "terminal" : "cards"))}
           >
-            {viewMode === "cards" ? t("conversation.chat.showTerminalText") : t("conversation.chat.showChatCards")}
+            {viewMode === "cards"
+              ? t(phone ? "conversation.chat.showTerminalTextShort" : "conversation.chat.showTerminalText")
+              : t(phone ? "conversation.chat.showChatCardsShort" : "conversation.chat.showChatCards")}
           </button>
         )}
         <button
           className="b"
           id="reader-latest"
+          aria-label={phone ? t("conversation.chat.latest") : undefined}
           onClick={() => {
             follow.current = true;
             if (log.current) log.current.scrollTop = log.current.scrollHeight;
           }}
         >
-          {t("conversation.chat.latest")}
+          {phone ? "↓" : t("conversation.chat.latest")}
         </button>
       </div>
       <div id="conversation-error" role="status" hidden={!error}>
         {error}
       </div>
-      {kind === "session" && onAttach && !unavailable && (
-        <div
-          className="conversation-session-actions"
-          id="conversation-session-actions"
-        >
-          <button
-            type="button"
-            className="b"
-            id="conversation-terminal"
-            onClick={openTerminal}
-          >
-            {t("conversation.chat.openTerminal")}
-          </button>
-          <button
-            type="button"
-            className="b"
-            id="conversation-merge-review"
-            onClick={() => setShowMergeReview(true)}
-          >
-            {t("conversation.chat.reviewMerge")}
-          </button>
-        </div>
-      )}
+      {!phone && sessionActions}
       {kind === "session" && showBrowser && (
         <BrowserPane
           api={api}
@@ -1210,7 +1221,7 @@ export function Conversation({
           ref={input}
           rows={3}
           maxLength={32000}
-          placeholder={t("conversation.chat.placeholder")}
+          placeholder={t(phone ? "conversation.chat.placeholderShort" : "conversation.chat.placeholder")}
           value={draft.text}
           onChange={(event) => {
             const text = event.target.value;

@@ -20,6 +20,8 @@ import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageB
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { LimitBanner } from "../limits/LimitBanner";
 import { t, useLocale } from "../i18n";
+import { usePhone } from "../mobile/usePhone";
+import { paneSummary } from "./paneSummary";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -98,6 +100,7 @@ export function SessionCard({
   // What mods hide or add to this card (docs/mods.md).
   const modded = useModRender("session.card", { session: modSession(s) });
   useLocale();
+  const phone = usePhone();
   const [progress, setProgress] = useState(""),
     [progressBusy, setProgressBusy] = useState(false);
   // Optimistic hide: `approval` is a prop from the parent's own poll (a
@@ -256,7 +259,9 @@ export function SessionCard({
       (progressError ? "\n" + t("sessions.card.progressUnavailable", { error: progressError }) : "")
     : s.setup_error
       ? t("sessions.card.setupFailedPreview", { error: s.setup_error })
-      : s.pane_tail || "";
+      : phone
+        ? paneSummary(s.pane_tail || "")
+        : s.pane_tail || "";
   if (modded?.hidden) return null;
   return (
     <article
@@ -335,7 +340,7 @@ export function SessionCard({
             👤 {s.account}
           </span>
         )}
-        <span className="chip">
+        <span className="chip chip-uptime">
           {setup ? t("sessions.card.setupFor", { duration: duration(s.uptime_seconds) }) : t("sessions.card.upFor", { duration: duration(s.uptime_seconds) })}
         </span>
         {mediaCount > 0 && (
@@ -373,7 +378,7 @@ export function SessionCard({
             {t("sessions.card.adopted")}
           </span>
         )}
-        {!!s.wraps && <span className="chip info">⇥ {s.wraps}</span>}
+        {!!s.wraps && <span className="chip info chip-wraps">⇥ {s.wraps}</span>}
         {s.handoff_in_flight && (
           <span className="chip warn">{t("sessions.card.writingHandoff")}</span>
         )}
