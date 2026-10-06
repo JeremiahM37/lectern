@@ -17,14 +17,16 @@ for doc in docs:
         dest = link.split('#', 1)[0]
         assert (doc.parent / dest).exists(), f'{doc.relative_to(root)}: missing {dest}'
     assert not re.search(r'\.ts\.net|\.internal|/home/admin|100\.\d+\.\d+\.\d+', text), doc
-for name in ['machines', 'tasks', 'dispatch', 'review', 'sessions', 'phone-approval', 'phone-sessions', 'pdf-preview', 'file-upload', 'native-cli', 'social-preview', 'projects-cli', 'project-memory', 'agent-handoff', 'web-preview']:
+for name in ['machines', 'tasks', 'dispatch', 'review', 'sessions', 'phone-approval', 'phone-sessions', 'pdf-preview', 'file-upload', 'native-cli', 'social-preview', 'projects-cli', 'project-memory', 'agent-handoff', 'web-preview', 'native-cli-multiselect', 'native-cli-attached', 'native-cli-social']:
     blob = (assets / (name + '.png')).read_bytes()
     assert blob[:8] == b'\x89PNG\r\n\x1a\n', name
     width, height = struct.unpack('>II', blob[16:24])
     assert width >= 390 and height >= 600, (name, width, height)
     if name == 'social-preview':
         assert (width, height) == (1200, 630)
-for name in ['control-plane.mp4', 'phone-approval.mp4', 'files.mp4', 'dispatch-review.gif']:
+    if name == 'native-cli-social':
+        assert (width, height) == (1200, 675)
+for name in ['control-plane.mp4', 'phone-approval.mp4', 'files.mp4', 'dispatch-review.gif', 'native-cli.gif']:
     media = assets / name
     info = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_format', '-show_streams', '-of', 'json', str(media)]))
     assert any(s['codec_type'] == 'video' for s in info['streams']), name
@@ -33,4 +35,4 @@ for name in ['control-plane.mp4', 'phone-approval.mp4', 'files.mp4', 'dispatch-r
         assert info['streams'][0]['avg_frame_rate'] == '30/1', 'walkthrough must retain 30 fps'
     subprocess.run(['ffmpeg', '-v', 'error', '-i', str(media), '-f', 'null', '-'], check=True)
     print(f'{name}: {float(info["format"]["duration"]):.1f}s; decodes successfully')
-print('PASS: documentation links, 15 screenshots and 4 playable media files')
+print('PASS: documentation links, 18 screenshots and 5 playable media files')

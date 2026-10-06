@@ -89,6 +89,30 @@ phone, then review and commit the change.
 
 *Demo projects with scripted agent responses.*
 
+## In your terminal
+
+Run `lectern` with no arguments for the terminal dashboard: every session on
+every machine, a live preview, and the keys for what you can do next along the
+bottom. Press **Enter** to attach to one, **Ctrl+]** then **d** to leave.
+
+<p align="center"><img src="docs/media/control-plane/native-cli.png" alt="The Lectern terminal dashboard: six agent sessions on three machines, one waiting for approval" width="900"></p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/control-plane/native-cli-attached.png" alt="Attached to a session in the terminal, with the key bar on top"></td>
+    <td width="50%"><img src="docs/media/control-plane/native-cli.gif" alt="Dashboard, attach, leave and pick another session"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Attached, with the key bar</sub></td>
+    <td align="center"><sub>Attach, leave, pick another</sub></td>
+  </tr>
+</table>
+
+The same sessions appear in the [browser dashboard](docs/media/hero.png) above and on your
+phone. More in the [terminal client guide](docs/terminal-client.md).
+
+*Demo projects with scripted agent responses.*
+
 ## What you can do
 
 - **Watch and talk to agents.** Every session has a terminal and a chat view.
