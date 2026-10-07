@@ -32,8 +32,12 @@ import "./shell/mobile.css";
 import "./theme/theme.css";
 import "./settings/personal.css";
 import { bootAppearance } from "./theme/appearance";
+import { installNativeSpeech } from "./native/speech";
 // Before the first render: the saved theme paints the first frame.
 bootAppearance();
+// In the Android app, the phone's own speech recognition and voices, where
+// dictation and voice mode look for them (native/speech.ts).
+installNativeSpeech();
 import "./mobile/phone.css";
 import "./mobile/polish.css";
 // /pair is the one page an unpaired device can reach with no credential —

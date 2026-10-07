@@ -6,6 +6,7 @@
 import { t } from "./i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inApp } from "./native/bridge";
+import { nativeSpeech } from "./native/speech";
 import { chooseEngine, hostVoice, record, transcribe, voicePreference, type Recording, type VoiceEngine } from "./voice-host";
 
 export interface RecognitionResult {
@@ -18,7 +19,7 @@ export interface Recognition {
   lang: string;
   interimResults: boolean;
   continuous?: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<RecognitionResult>> }) => void) | null;
+  onresult: ((event: { results: ArrayLike<ArrayLike<RecognitionResult> & { isFinal?: boolean }> }) => void) | null;
   onend: (() => void) | null;
   onerror: ((event?: { error?: string }) => void) | null;
   start(): void;
@@ -31,6 +32,10 @@ export type RecognitionCtor = new () => Recognition;
 // microphone permission model for it), which is what hides a mic button
 // entirely rather than showing one that only errors.
 export function speechCtor(win: Window): RecognitionCtor | undefined {
+  // The Android app's WebView defines webkitSpeechRecognition with no
+  // speech service behind it. There, only the phone's own recognizer
+  // (native/speech.ts puts it in the same place) is real.
+  if (inApp() && !nativeSpeech(win)?.recognition) return undefined;
   const w = win as unknown as {
     SpeechRecognition?: RecognitionCtor;
     webkitSpeechRecognition?: RecognitionCtor;
@@ -46,7 +51,7 @@ export function speechCtor(win: Window): RecognitionCtor | undefined {
 // module state, which is what makes this testable without a real
 // SpeechRecognition.
 export function collectTranscript(
-  results: ArrayLike<ArrayLike<RecognitionResult>>,
+  results: ArrayLike<ArrayLike<RecognitionResult> & { isFinal?: boolean }>,
   committed: number,
 ): { interim: string; finalized: string[]; committed: number } {
   let interim = "";
@@ -55,7 +60,9 @@ export function collectTranscript(
   for (let i = 0; i < results.length; i++) {
     const alt = results[i]?.[0];
     if (!alt) continue;
-    if (alt.isFinal) {
+    // A browser marks the result final (results[i].isFinal), not its
+    // alternatives; accept either.
+    if (results[i]!.isFinal ?? alt.isFinal) {
       if (i >= committed) {
         finalized.push(alt.transcript.trim());
         next = i + 1;
@@ -96,12 +103,12 @@ export function useDictation({ onChange, onNotice }: DictationHandlers) {
   const startedWith = useRef("");
   const finalText = useRef("");
   const committed = useRef(0);
-  // Android's WebView defines webkitSpeechRecognition but has no speech
-  // service behind it: in the app, only the host engine is real.
-  const Ctor = typeof window !== "undefined" && !inApp() ? speechCtor(window) : undefined;
+  // In the Android app this is the phone's own recognizer (native/speech.ts),
+  // or nothing in an app from before it had one.
+  const Ctor = typeof window !== "undefined" ? speechCtor(window) : undefined;
   // Transcription on the Lectern host (voice-host.ts) is the other engine:
-  // the only one in the Android app's WebView, which has no speech
-  // recognition, and a choice anywhere else (Settings → Notifications).
+  // a choice anywhere (Settings → Notifications), and the only one in an
+  // older Android app or a browser without speech recognition.
   const [host, setHost] = useState(false);
   const [pref, setPref] = useState(voicePreference);
   useEffect(() => {

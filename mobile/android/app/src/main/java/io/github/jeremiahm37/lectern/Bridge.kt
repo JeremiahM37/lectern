@@ -33,6 +33,10 @@ class Bridge(
         fun haptic(kind: String) {}
         fun barColors(background: String, light: Boolean) {}
         fun installUpdate() {}
+        /** The phone's speech recognition and voices (Speech.kt), if this view has them. */
+        val speech: Speech? get() = null
+        /** Asks for the microphone once; [then] gets whether it was granted. */
+        fun requestMic(then: (Boolean) -> Unit) = then(false)
     }
 
     private val app = context.applicationContext
@@ -172,6 +176,60 @@ class Bridge(
     fun barColors(background: String, light: Boolean) {
         host()
         owner.barColors(background, light)
+    }
+
+    // ---- app 2.9.0: the phone's own speech (frontend/src/native/speech.ts) ----
+
+    /** {"recognition": bool, "tts": bool}: what this phone can do. */
+    @JavascriptInterface
+    fun speechSupport(): String {
+        host()
+        val speech = owner.speech
+        speech?.warmTts()
+        return JSONObject()
+            .put("recognition", speech?.recognitionAvailable() == true)
+            .put("tts", speech?.ttsAvailable() == true)
+            .toString()
+    }
+
+    /** Listens for one utterance; answered with "lectern-native-speech" events. */
+    @JavascriptInterface
+    fun speechStart(session: Int, lang: String) {
+        host()
+        val speech = owner.speech ?: return
+        owner.requestMic { granted -> if (granted) speech.listen(session, lang) else speech.refused(session) }
+    }
+
+    @JavascriptInterface
+    fun speechStop() {
+        host()
+        owner.speech?.stop()
+    }
+
+    @JavascriptInterface
+    fun speechCancel() {
+        host()
+        owner.speech?.cancel()
+    }
+
+    /** Says [text]; answered with "lectern-native-tts" events for [id]. */
+    @JavascriptInterface
+    fun ttsSpeak(id: String, text: String, lang: String, rate: Double, voice: String) {
+        host()
+        owner.speech?.speak(id, text.take(4000), lang, rate.toFloat(), voice)
+    }
+
+    @JavascriptInterface
+    fun ttsStop() {
+        host()
+        owner.speech?.stopSpeaking()
+    }
+
+    /** JSON [{name, lang}]; empty until the engine has started. */
+    @JavascriptInterface
+    fun ttsVoices(): String {
+        host()
+        return owner.speech?.voices() ?: "[]"
     }
 
     companion object {

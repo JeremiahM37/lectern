@@ -40,4 +40,11 @@ object Pages {
             view.evaluateJavascript("window.dispatchEvent(new CustomEvent('lectern-native-update', {detail: $detail}))", null)
         }
     }
+
+    /** Fires a native event on the visible page (speech, Speech.kt). */
+    fun event(view: WebView, name: String, detail: JSONObject) {
+        main.post {
+            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('$name', {detail: $detail}))", null)
+        }
+    }
 }

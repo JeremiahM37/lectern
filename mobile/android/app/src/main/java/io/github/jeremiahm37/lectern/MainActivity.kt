@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
     private var pendingVapid: String? = null
     private var pendingMic: PermissionRequest? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val micWaiting = mutableListOf<(Boolean) -> Unit>()
+    override var speech: Speech? = null
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val key = pendingVapid ?: return@registerForActivityResult
@@ -43,10 +45,21 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
 
     // Dictation transcribed on the host records in the page (voice-host.ts);
     // the WebView asks here, and Android asks the person once.
+    // The phone's own recognizer (Speech.kt) asks here too.
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micWaiting.toList().also { micWaiting.clear() }.forEach { it(granted) }
         val request = pendingMic ?: return@registerForActivityResult
         pendingMic = null
         if (granted) request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) else request.deny()
+    }
+
+    override fun requestMic(then: (Boolean) -> Unit) = runOnUiThread {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            then(true)
+        } else {
+            micWaiting += then
+            if (micWaiting.size == 1 && pendingMic == null) micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -99,6 +112,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
             WindowInsetsCompat.CONSUMED
         }
         setContentView(frame)
+        speech = Speech(this) { name, detail -> Pages.event(web, name, detail) }
         WebShell.configure(web, Bridge(this, this) { hostId }, origin = { hosts.get(hostId)?.origin }, onOrigin = { pageOrigin = it })
         web.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
@@ -116,7 +130,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
                 } else {
                     pendingMic?.deny()
                     pendingMic = request
-                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    if (micWaiting.isEmpty()) micPermission.launch(Manifest.permission.RECORD_AUDIO)
                 }
             }
         }
@@ -130,11 +144,28 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
             override fun handleOnBackPressed() {
                 web.evaluateJavascript("typeof window.__lecternBack === 'function' && window.__lecternBack() === true") { handled ->
                     if (handled == "true") return@evaluateJavascript
-                    if (web.canGoBack()) web.goBack() else finish()
+                    if (previousIsApp()) web.goBack() else finish()
                 }
             }
         })
         web.loadUrl(start ?: (host.origin + safePath(intent.getStringExtra(EXTRA_PATH))))
+    }
+
+    /** Whether the page before this one is this Lectern's app. The pairing
+     * page the app opened on is still in the WebView's history, and going
+     * back to it shows a dead "no pairing code" screen. */
+    private fun previousIsApp(): Boolean {
+        val history = web.copyBackForwardList()
+        val previous = history.getItemAtIndex(history.currentIndex - 1) ?: return false
+        val uri = Uri.parse(previous.url)
+        return Shell.originOf(previous.url) == hosts.get(hostId)?.origin && !isPairingPath(uri.path)
+    }
+
+    override fun onStop() {
+        // Android stops a background app's microphone anyway; say so
+        // cleanly instead of leaving the page waiting for words.
+        speech?.cancel()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -147,6 +178,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
     }
 
     override fun onDestroy() {
+        speech?.destroy()
         if (::web.isInitialized) {
             Pages.detach(web)
             web.destroy()
@@ -232,6 +264,8 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
         const val EXTRA_HOST = "host"
 
         /** Only a path on this Lectern, never another origin. */
+        fun isPairingPath(path: String?): Boolean = path != null && (path.startsWith("/pair") || path.startsWith("/relay-pair"))
+
         fun safePath(path: String?): String = path?.takeIf { it.startsWith("/") && !it.startsWith("//") } ?: "/"
     }
 }
