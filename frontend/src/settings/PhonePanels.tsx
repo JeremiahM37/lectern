@@ -16,7 +16,8 @@ export function VoiceSettings() {
   useEffect(() => {
     void hostVoice(true).then(setHost);
   }, []);
-  const device = typeof window !== "undefined" && !inApp() && !!speechCtor(window);
+  // In the Android app speechCtor is the phone's own recognizer, when it has one.
+  const device = typeof window !== "undefined" && !!speechCtor(window);
   const choose = (value: VoicePreference) => {
     setPref(value);
     setVoicePreference(value);

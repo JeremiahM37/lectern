@@ -27,6 +27,8 @@ import { QuickSwitch } from "./QuickSwitch";
 import { NeedsYou, type PushPrompt } from "./NeedsYou";
 import { NowStrip } from "./NowStrip";
 import { QuotaChip } from "./QuotaChip";
+import { SheetIcon, type SheetIconName } from "./SheetIcon";
+import { Icon } from "../shell/Icon";
 import { GettingStarted } from "../shell/GettingStarted";
 import { sessionState, STATE_RANK } from "./status";
 import { t, useLocale } from "../i18n";
@@ -658,6 +660,38 @@ export function Sessions({
           {t("sessions.list.restoreButton")}
         </button>
   );
+  // The phone ⋯ sheet: whole names (it has the room the header did not),
+  // one icon column, and the tools in three groups — find, show, tidy up.
+  const sheetItem = (id: string, icon: SheetIconName, label: string, run: () => void, expanded?: boolean) => (
+    <button
+      className="b sess-sheet-item"
+      id={id}
+      aria-label={label}
+      aria-expanded={expanded}
+      onClick={(event) => {
+        event.currentTarget.closest("details")?.removeAttribute("open");
+        run();
+      }}
+    >
+      <SheetIcon name={icon} />
+      <span>{label}</span>
+    </button>
+  );
+  const phoneSheet = (
+    <div className="action-menu-panel sess-sheet">
+      <div className="sess-sheet-group">
+        {!showSearch && searchField}
+        {sheetItem("sess-saved-search", "saved", t("sessions.list.searchSavedLabel"), () => setSearch(true))}
+        {sheetItem("sess-discover", "find", t("sessions.list.findAgentsLabel"), () => setSheet("discover"))}
+      </div>
+      <div className="sess-sheet-group">{listFilters}</div>
+      <div className="sess-sheet-group">
+        {sheetItem("sess-recent", "restore", t("sessions.list.restoreClosedLabel"), () => setRecentOpen((open) => !open), recentOpen)}
+        {sheetItem("sess-scratch", "cleanup", t("sessions.scratchReview.summary"), () => setScratchShown(true))}
+      </div>
+    </div>
+  );
+  const terminalsLabel = openTerminals ? t("sessions.list.openTerminals", { n: openTerminals.count }) : "";
   return (
     <section className={`list wide${firstRun ? " first-run" : ""}${few ? " few" : ""}`}>
       <div className="sesshead">
@@ -675,8 +709,17 @@ export function Sessions({
         {!compact && headerExtras}
         {!phone && restoreButton}
         {openTerminals && (
-          <button className="b" id="sess-terminals" onClick={openTerminals.open}>
-            {t("sessions.list.openTerminals", { n: openTerminals.count })}
+          <button className="b" id="sess-terminals" onClick={openTerminals.open} aria-label={phone ? terminalsLabel : undefined}>
+            {phone ? (
+              // An icon and a count: the title beside it is never cut short.
+              <>
+                <Icon name="terminals" size={17} />
+                <span className="sess-terminals-count" aria-hidden="true">{openTerminals.count}</span>
+                <span className="sess-terminals-label">{terminalsLabel}</span>
+              </>
+            ) : (
+              terminalsLabel
+            )}
           </button>
         )}
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
@@ -685,9 +728,9 @@ export function Sessions({
         {compact && (
           <details className="action-menu sess-more" id="sess-more">
             <summary aria-label={t("sessions.list.moreLabel")}>⋯</summary>
+            {phone ? phoneSheet : (
             <div className="action-menu-panel">
               {headerExtras}
-              {phone && restoreButton}
               {!showSearch && searchField}
               {listFilters}
               <button
@@ -701,6 +744,7 @@ export function Sessions({
                 {t("sessions.scratchReview.summary")}
               </button>
             </div>
+            )}
           </details>
         )}
       </div>

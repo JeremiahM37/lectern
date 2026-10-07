@@ -48,6 +48,18 @@ export interface NativeBridge {
   installUpdate?(): void;
   /** The page's background, for the phone's status and navigation bars. */
   barColors?(background: string, light: boolean): void;
+  // ---- added in app 2.9.0: the phone's own speech (native/speech.ts) ----
+  /** {"recognition": bool, "tts": bool} */
+  speechSupport?(): string;
+  /** Listens for one utterance; answered with "lectern-native-speech" events. */
+  speechStart?(session: number, lang: string): void;
+  speechStop?(): void;
+  speechCancel?(): void;
+  /** Says text; answered with "lectern-native-tts" events for the id. */
+  ttsSpeak?(id: string, text: string, lang: string, rate: number, voice: string): void;
+  ttsStop?(): void;
+  /** JSON [{name, lang}]. */
+  ttsVoices?(): string;
 }
 
 export interface AppHost {

@@ -31,6 +31,12 @@ const catalog: Record<string, string> = {
   "terminalPage.tools.pausedToggle": "Paused · Tools",
   // Keeps its leading space; follows "Tools".
   "terminalPage.tools.hint": " · Ctrl+] then m",
+  "terminalPage.menuSheet.close": "Close menu",
+  "terminalPage.tools.group.files": "Files",
+  "terminalPage.tools.group.text": "Text & replies",
+  "terminalPage.tools.group.conversations": "Conversations",
+  "terminalPage.tools.group.session": "This session",
+  "terminalPage.tools.group.settings": "Keyboard & settings",
   // Followed by the key "Ctrl+]".
   "terminalPage.tools.helpControls": "Controls:",
   // Between two keys: "Ctrl+] then m".

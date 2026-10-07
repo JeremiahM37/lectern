@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { paneSummary } from "./paneSummary";
+import { paneLine, paneSummary, titleNamesProject } from "./paneSummary";
 
 test("drops Claude Code's prompt box and status line", () => {
   const tail = [
@@ -30,4 +30,19 @@ test("drops Codex's prompt and footer", () => {
 
 test("keeps a plain shell untouched", () => {
   assert.equal(paneSummary("$ ls\nREADME.md\n$ "), "$ ls\nREADME.md\n$");
+});
+
+test("a phone card's one line is the newest line that says something", () => {
+  assert.equal(paneLine("Welcome to the mock agent.\ncwd: /mock/demo-app\n\n❯ \n"), "cwd: /mock/demo-app");
+  assert.equal(paneLine("╭──────────╮\n│ ✻ Welcome to Claude Code │\n│   cwd: /x  │\n╰──────────╯\n"), "cwd: /x");
+  assert.equal(paneLine("──────────\n❯ \n──────────\n"), "");
+  assert.equal(paneLine(""), "");
+});
+
+test("a title that starts with its project does not repeat it", () => {
+  assert.equal(titleNamesProject("demo-app #3", "demo-app"), true);
+  assert.equal(titleNamesProject("Demo-App", "demo-app"), true);
+  assert.equal(titleNamesProject("demo-application", "demo-app"), false);
+  assert.equal(titleNamesProject("Release notes", "demo-app"), false);
+  assert.equal(titleNamesProject("anything", ""), false);
 });

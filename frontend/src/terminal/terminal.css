@@ -1027,3 +1027,184 @@ body.mobile-terminal .terminal-controls-help { display: none; }
   background: var(--panel-2);
   outline: none;
 }
+
+/* ---- Tools as a phone sheet (terminal/sheet.ts) --------------------------
+   On a phone Tools opens as a titled sheet in groups, resting on the key row
+   over a dimmed terminal. sheet.ts toggles .menu-sheet and sets the panel's
+   coordinates; the head and group labels exist only for the sheet. Desk
+   menus never get the class, so none of this reaches them. */
+.menu-sheet-head,
+.menu-sheet-group {
+  display: none;
+}
+:root body #root > nav > #terminal-tools.menu-sheet[open] {
+  z-index: 60;
+}
+#terminal-tools.menu-sheet[open]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--scrim) 45%, transparent);
+  animation: lec-menu-sheet-fade 0.16s ease-out;
+}
+/* The button that opened it stays live above the dimming: a second tap on
+   it closes the sheet, as before. */
+:root body #root > nav > #terminal-tools.menu-sheet[open] > summary {
+  position: relative;
+  z-index: 3;
+  color: var(--ink);
+  border-color: var(--accent-soft);
+  background: var(--panel-2);
+}
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 2;
+  max-width: none;
+  gap: 0;
+  padding: 0 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  border: 0;
+  border-top: 1px solid var(--line-2);
+  border-radius: 16px 16px 0 0;
+  background: var(--panel-2);
+  box-shadow: 0 -10px 30px color-mix(in srgb, var(--scrim) 35%, transparent);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 16px;
+  animation: lec-menu-sheet-fade 0.16s ease-out;
+}
+#terminal-tools.menu-sheet[open] .menu-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  order: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -8px;
+  padding: 10px 10px 8px 20px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+#terminal-tools.menu-sheet[open] .menu-sheet-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+#terminal-tools.menu-sheet[open] .menu-sheet-close {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+}
+#terminal-tools.menu-sheet[open] .menu-sheet-group {
+  display: block;
+  padding: 14px 12px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > button,
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > a.button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 46px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.25;
+  text-align: left;
+}
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > button:active:not(:disabled),
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > a.button:active {
+  background: color-mix(in srgb, var(--indigo) 22%, var(--bg));
+}
+:root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > button.tools-diagnostic {
+  color: var(--ink-faint);
+  font-size: 14px;
+}
+:root body #terminal-tools.menu-sheet[open] #compact-workspace {
+  padding: 0 12px 6px;
+  border: 0;
+  font-size: 12px;
+}
+/* With the navigation shown, these sit in the toolbar above, as before. */
+:root body:not(.compact-chrome) #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > :is(#compact-upload, #compact-files, #compact-desktop) {
+  display: none;
+}
+/* The grouped order on a phone; the desk list keeps its own order. */
+#terminal-tools.menu-sheet[open] .action-menu-panel > * { order: 90; }
+#terminal-tools.menu-sheet[open] [data-group="files"] { order: 10; }
+#terminal-tools.menu-sheet[open] #compact-workspace { order: 11; }
+#terminal-tools.menu-sheet[open] #compact-upload { order: 12; }
+#terminal-tools.menu-sheet[open] #compact-files { order: 13; }
+#terminal-tools.menu-sheet[open] #go-to-file { order: 14; }
+#terminal-tools.menu-sheet[open] #search-files { order: 15; }
+#terminal-tools.menu-sheet[open] [data-group="text"] { order: 20; }
+#terminal-tools.menu-sheet[open] #compose { order: 21; }
+#terminal-tools.menu-sheet[open] #mobile-snippets { order: 22; }
+#terminal-tools.menu-sheet[open] [data-group="conversations"] { order: 30; }
+#terminal-tools.menu-sheet[open] #search-conversations { order: 31; }
+#terminal-tools.menu-sheet[open] #saved-conversations { order: 32; }
+#terminal-tools.menu-sheet[open] #review { order: 33; }
+#terminal-tools.menu-sheet[open] #history { order: 34; }
+#terminal-tools.menu-sheet[open] [data-group="session"] { order: 40; }
+#terminal-tools.menu-sheet[open] #find { order: 41; }
+#terminal-tools.menu-sheet[open] #bottom { order: 42; }
+#terminal-tools.menu-sheet[open] #pause { order: 43; }
+#terminal-tools.menu-sheet[open] #reconnect { order: 44; }
+#terminal-tools.menu-sheet[open] #shell { order: 45; }
+#terminal-tools.menu-sheet[open] #compact-desktop { order: 46; }
+#terminal-tools.menu-sheet[open] #desktop-setup { order: 47; }
+#terminal-tools.menu-sheet[open] [data-group="settings"] { order: 50; }
+#terminal-tools.menu-sheet[open] #customize-keys { order: 51; }
+#terminal-tools.menu-sheet[open] #preferences { order: 52; }
+#terminal-tools.menu-sheet[open] #mcp-settings { order: 53; }
+#terminal-tools.menu-sheet[open] #report-keyboard { order: 54; }
+#terminal-tools.menu-sheet[open] .menu-sheet-head { order: 0; }
+@media (hover: hover) {
+  :root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > button:hover:not(:disabled),
+  :root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel > a.button:hover {
+    background: color-mix(in srgb, var(--indigo) 16%, var(--bg));
+  }
+}
+@keyframes lec-menu-sheet-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #terminal-tools.menu-sheet[open]::before,
+  :root body #root > nav > #terminal-tools.menu-sheet[open] > .action-menu-panel { animation: none; }
+}
+
+/* "Open in terminal" in the compact Tools list was drawn as a filled block
+   with its label stuck to the top: it is a link styled as a button. */
+body.compact-chrome #compact-desktop {
+  display: flex;
+  align-items: center;
+  background: transparent;
+}
+
+/* On a touch screen the history is scrolled by dragging the text; a 6px
+   scroll thumb cannot be grabbed and only shows as a stray line at the edge. */
+@media (pointer: coarse) {
+  .xterm-viewport,
+  .frozen,
+  #terminal-tools.menu-sheet[open] > .action-menu-panel {
+    scrollbar-width: none;
+  }
+  .xterm-viewport::-webkit-scrollbar,
+  .frozen::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -106,4 +106,23 @@ class LogicTest {
         assertNull(Updates.parse(good.replace(sum, "nothex")))
         assertNull(Updates.parse("not json"))
     }
+
+    @Test
+    fun recognizerErrorsUseTheWebSpeechNames() {
+        // The page's dictation and voice mode already handle these names.
+        assertEquals("no-speech", Speech.errorName(android.speech.SpeechRecognizer.ERROR_NO_MATCH))
+        assertEquals("no-speech", Speech.errorName(android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT))
+        assertEquals("not-allowed", Speech.errorName(android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS))
+        assertEquals("network", Speech.errorName(android.speech.SpeechRecognizer.ERROR_NETWORK))
+        assertEquals("language-not-supported", Speech.errorName(12))
+        assertEquals("unknown", Speech.errorName(999))
+    }
+
+    @Test
+    fun backNeverReturnsToAPairingPage() {
+        assertTrue(MainActivity.isPairingPath("/relay-pair"))
+        assertTrue(MainActivity.isPairingPath("/pair"))
+        assertFalse(MainActivity.isPairingPath("/"))
+        assertFalse(MainActivity.isPairingPath(null))
+    }
 }

@@ -716,7 +716,9 @@ export function Conversation({
   });
   function dictate() {
     toggleDictation(draft.text);
-    input.current?.focus();
+    // On a phone, focusing the box raises the keyboard over half the
+    // screen while the person is talking; they tap the box to edit.
+    if (!window.matchMedia?.("(pointer: coarse)").matches) input.current?.focus();
   }
   const hint =
     kind === "session"

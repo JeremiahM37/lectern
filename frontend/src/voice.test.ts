@@ -65,3 +65,12 @@ test("collectTranscript skips a result with no first alternative", () => {
   assert.deepEqual(got.finalized, []);
   assert.equal(got.interim, "");
 });
+
+test("collectTranscript reads isFinal from the result, where a browser puts it", () => {
+  // A browser's SpeechRecognitionResult carries isFinal; its alternatives
+  // carry only the transcript.
+  const final = Object.assign([{ transcript: "fix the bug" }], { isFinal: true });
+  const interim = Object.assign([{ transcript: "and add" }], { isFinal: false });
+  const got = collectTranscript([final, interim] as never, 0);
+  assert.deepEqual(got, { interim: "and add", finalized: ["fix the bug"], committed: 1 });
+});

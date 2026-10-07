@@ -2,7 +2,7 @@ import { OpenInEditor } from "../remote/OpenInEditor";
 import { ModElements, useModRender } from "../mods/react";
 import { SessionLineage } from "../continuity/SessionLineage";
 import { SessionMemory } from "./SessionMemory";
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Approval, InteractiveWorkspace, Project, SessionView } from "../types";
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
@@ -21,7 +21,7 @@ import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
 import { LimitBanner } from "../limits/LimitBanner";
 import { t, useLocale } from "../i18n";
 import { usePhone } from "../mobile/usePhone";
-import { paneSummary } from "./paneSummary";
+import { paneLine, paneSummary, titleNamesProject } from "./paneSummary";
 export function duration(seconds: number) {
   seconds = Math.max(0, Math.floor(seconds || 0));
   return seconds < 60
@@ -260,15 +260,32 @@ export function SessionCard({
     : s.setup_error
       ? t("sessions.card.setupFailedPreview", { error: s.setup_error })
       : phone
-        ? paneSummary(s.pane_tail || "")
+        ? paneLine(s.pane_tail || "")
         : s.pane_tail || "";
-  if (modded?.hidden) return null;
+  // A phone card's second line names the agent and where it works: the
+  // project (or, for a blank shell, the machine), unless the title already
+  // starts with it.
+  const where = scratch ? s.target_name || "" : s.project_name || "",
+    phoneWhere = phone && where && !titleNamesProject(cardTitle, where) ? where : "";
+  const quiet = s.status === "dead" || setup ? "" : t("sessions.card.quiet", { duration: duration(s.idle_seconds) });
+  // On a phone the card itself is the way in: a tap anywhere that is not one
+  // of its own controls opens the terminal, like a row in a terminal app.
+  function openFromCard(event: ReactMouseEvent<HTMLElement>) {
+    if (!phone || !live) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("button,a,input,select,textarea,summary,details,label,[role=button],.scard-approval,.scard-path,.limit-banner,.session-memory,.session-lineage")) return;
+    if (window.getSelection()?.toString()) return;
+    onAttach(s);
+  }
   return (
     <article
       className={`scard s-${failed ? "failed" : s.status}`}
       data-session-id={s.id}
       data-state={sessionState(s, approval ? !!activeApproval : undefined).state}
       data-scratch-terminal={scratch ? "true" : undefined}
+      data-live-tap={phone && live ? "" : undefined}
+      onClick={phone ? openFromCard : undefined}
     >
       {/* A blank shell has no project, so its location line names the machine
           instead: the card's title is the folder, and this keeps "which host"
@@ -300,10 +317,9 @@ export function SessionCard({
           </button>
         )}
         <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} />
-        <span className="sidle">
-          {s.status === "dead" || setup
-            ? ""
-            : t("sessions.card.quiet", { duration: duration(s.idle_seconds) })}
+        {/* A phone has room for the time alone; the words stay in its title. */}
+        <span className="sidle" title={phone && quiet ? quiet : undefined}>
+          {phone && quiet ? duration(s.idle_seconds) : quiet}
         </span>
       </div>
       {modded && <ModElements elements={modded.append} className="scard-mods" />}
@@ -323,7 +339,7 @@ export function SessionCard({
       )}
       {scratch && scratchPath && (
         <div className="scard-path">
-          <code title={scratchPath}>{scratchPath}</code>
+          <code title={scratchPath}><bdi dir="ltr">{scratchPath}</bdi></code>
           <button className="b copy-path" onClick={() => void copyPath()}>
             {t("sessions.card.copyPath")}
           </button>
@@ -334,6 +350,7 @@ export function SessionCard({
           {s.agent}
           {s.model ? " · " + s.model : ""}
         </span>
+        {phoneWhere && <span className="chip chip-where">{phoneWhere}</span>}
         <span className="chip tgt">{s.target_name}</span>
         {s.account && (
           <span className="chip account-chip" title={t("sessions.card.accountTitle")}>
@@ -401,7 +418,7 @@ export function SessionCard({
         )}
         <CIChip ci={s.ci} />
       </div>
-      <div className="spane">{preview}</div>
+      <div className={`spane${phone && (setup || s.setup_error) ? " spane-full" : ""}`}>{preview}</div>
       {workspace && (
         <details className="session-worktree">
           <summary>

@@ -21,7 +21,7 @@ bundled and signed inside the APK, and adds what a web page cannot do:
 | Installing | Browser "Add to Home screen" | Install an APK |
 | Several Lecterns | One per browser origin | A list of paired Lecterns; switch, each notification labelled |
 | Pairing links | The https link opens the pairing page | `lectern://pair?…` (and https App Links in your own build) open the app |
-| Dictation | Browser speech recognition, or your Lectern (whisper.cpp) | Your Lectern (whisper.cpp); the WebView has no speech recognition |
+| Dictation and voice mode | Browser speech recognition and voices, or your Lectern (whisper.cpp) | The phone's own speech recognition and voices (2.9.0 and later), or your Lectern (whisper.cpp) |
 
 <p>
 <img src="media/android/pairing.png" width="216" alt="Pairing over the encrypted relay">
@@ -145,8 +145,13 @@ withdrawal and the app removes that notification.
 app's own cache (docs/mobile-sessions.md, "Gestures, offline and haptics")
 keeps each Lectern's last lists and shows them with an **Offline** marker when
 it cannot be reached. Gestures that commit give a short haptic tick through the
-view (no vibration permission). The 🎙 buttons record in the page and transcribe
-on your Lectern (whisper.cpp); the app asks for the microphone the first time,
+view (no vibration permission). From 2.9.0 the 🎙 buttons and voice mode use
+the phone's own speech recognition and voices (`Speech.kt`, given to the page
+as the browser's `SpeechRecognition` and `speechSynthesis` by
+`frontend/src/native/speech.ts`), so they work with nothing installed on the
+Lectern; words appear as you speak and the keyboard stays down. Settings →
+Notifications → Voice input can switch dictation to transcription on your
+Lectern (whisper.cpp) instead. The app asks for the microphone the first time,
 only for its own Lectern's pages. Android 12+ shows the lectern mark on the
 app's dark background while it starts, and Android 13 themed icons get a
 monochrome variant.
@@ -311,10 +316,18 @@ whisper.cpp) and a local ntfy:
 - The back key closed, in turn, a card's menu, Chat, and the review
   workspace, then walked back through Settings and Board, and left the app
   from the first view.
-- Dictation asked for the microphone permission and the page received it, but
-  the emulator had no working audio input ("Could not start audio source"), so
-  recording and transcription in the app were not exercised there; the same
-  code recorded and transcribed end to end in Chromium (e2e/test_mobile_parity.py).
+- Dictation and voice mode (2.9.0) on an Android 15 emulator with Google's
+  speech services: the microphone prompt, live interim words, final results,
+  continuous listening restarting after each pause, voice mode listening, and
+  read-aloud through the phone's voice. Speech was played into the emulator's
+  microphone from a private PulseAudio pipe source (the emulator must run
+  windowed, e.g. under Xvfb, because the `-no-window` build has no PulseAudio
+  driver; `adb emu avd hostmicon` turns host input on). The emulator's audio
+  path is lossy, so it shows that words arrive, not how accurate they are.
+- Before 2.9.0, "Could not start audio source" when recording in the app was
+  not the emulator: the app lacked `MODIFY_AUDIO_SETTINGS`, without which the
+  WebView refuses the microphone, so transcription on the Lectern could not
+  record in the app either.
 
 The scripts in `mobile/android/e2e/` accept `STACK`, `LECTERN_E2E_PORT`,
 `LECTERN_E2E_RELAY_PORT`, `LECTERN_E2E_RELAY=0` and `LECTERN_E2E_ENV` for a

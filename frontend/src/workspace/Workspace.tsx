@@ -14,8 +14,9 @@ import { getPref, prefsLoaded, setPref, subscribePrefs, usePref } from "../prefs
 import { useShortcuts } from "../shortcuts/dispatch";
 import { t, useLocale } from "../i18n";
 import { visibleViewport, virtualKeyboard } from "../terminal/viewport";
+import { placeSheet } from "../terminal/sheet";
 import {
-  bindSwipe, buttonID, hashFor, NewTerminal, terminalPath,
+  bindSwipe, buttonID, hashFor, MenuSheetHead, NewTerminal, terminalPath,
   type NewTerminalChoice, type TerminalMachine, type TerminalProject, type TerminalTab,
 } from "../terminal/TerminalTabs";
 import {
@@ -190,6 +191,7 @@ function LayoutsMenu({ state, projectId, projectName, onRestore, onNotice, onPla
     <details className="ws-layouts" ref={menu} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary aria-label={t("workspace.layouts")} title={t("workspace.layouts")}>{t("workspace.layoutsButton")}</summary>
       {open && <div className="terminal-actions-panel ws-layouts-panel" role="menu">
+        <MenuSheetHead title={t("workspace.layouts")} onClose={() => { if (menu.current) menu.current.open = false; }} />
         {shown.length === 0 && <p className="ws-layouts-empty">{t("workspace.noLayouts")}</p>}
         {shown.map((row) => (
           <div className="ws-layout-row" key={row.id}>
@@ -334,8 +336,10 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
     for (const details of document.querySelectorAll<HTMLDetailsElement>("#terminal-workspace .terminal-tabbar details.terminal-actions, #terminal-workspace .terminal-tabbar details.ws-layouts")) {
       const panel = details.querySelector<HTMLElement>(".terminal-actions-panel"),
         summary = details.querySelector("summary");
-      if (!details.open || !panel || !summary) continue;
+      if (!panel || !summary) continue;
       const view = window.visualViewport, usable = visibleViewport(), edge = 8, left = view?.offsetLeft ?? 0, top = usable.top, width = view?.width ?? innerWidth, height = usable.height;
+      // A phone gets a bottom sheet within the visible viewport (terminal/sheet.ts).
+      if (placeSheet(details, panel, { top, bottom: top + height, left, width, anchor: summary.getBoundingClientRect() }) || !details.open) continue;
       panel.style.width = Math.min(details.classList.contains("ws-layouts") ? 300 : 240, Math.max(1, width - 2 * edge)) + "px";
       panel.style.maxHeight = Math.max(1, height - 2 * edge) + "px";
       const anchor = summary.getBoundingClientRect(), box = panel.getBoundingClientRect();
@@ -643,6 +647,7 @@ export function TerminalTabs({ controller, visible, machines, projects, onNew, o
         <details className="terminal-actions" ref={actions} hidden={!active} onToggle={placeActions}>
           <summary aria-label={t("workspace.actions")} title={t("workspace.actions")} onClick={(event) => { event.preventDefault(); if (actions.current) { actions.current.open = !actions.current.open; placeActions(); } }}>⋯</summary>
           <div className="terminal-actions-panel" role="menu" onClick={(event) => { if (event.target instanceof Element && event.target.closest("button,a") && actions.current) actions.current.open = false; }}>
+            <MenuSheetHead title={t("workspace.actions")} />
             {popout && <a className="terminal-menu-popout" target="_blank" rel="noopener" role="menuitem" href={popout}>{t("workspace.openInNewTab")}</a>}
             <button className="terminal-menu-close" role="menuitem" onClick={() => { if (active) controller.close(active); }}>{t("workspace.closeThisView")}</button>
             {session && activeRef?.kind !== "chat" && <button role="menuitem" onClick={() => active && controller.openPane(chatRef(session.id, session.name), { beside: active, edge: mobile ? "center" : "right" })}>{t("workspace.chatBeside")}</button>}

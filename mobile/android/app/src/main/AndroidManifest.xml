@@ -4,15 +4,30 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Dictation transcribed on the Lectern host (Settings → Notifications
-         → Voice input): the WebView has no speech recognition of its own. -->
+    <!-- Dictation and voice mode: the phone's own recognizer (Speech.kt),
+         or recording for transcription on the Lectern host. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The WebView will not open the microphone for the page (getUserMedia,
+         used to record for transcription on the host) without this one too. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Expedited work runs as a short foreground service before Android 12. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Updating the app from its own releases (Updates.kt); Android still
          asks the person, and only accepts an APK signed with the same key. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- The phone's speech recognizer and voices (Speech.kt). Android 11+
+         hides other apps' services unless the app says which it uses. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application
         android:name=".LecternApp"
