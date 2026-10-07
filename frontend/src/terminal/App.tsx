@@ -1,5 +1,6 @@
 import { subscribeLayout, subscribeViewport } from "./layout";
 import { applyVisibleHeight, localViewportSlice, virtualKeyboard } from "./viewport";
+import { placeSheet } from "./sheet";
 import { buildKeyboardReport, formatKeyboardReport, rectSnapshot } from "./keyboard-report";
 import { errorMessage } from "./model";
 import {
@@ -363,6 +364,17 @@ export function TerminalApp({
       panel = details?.querySelector<HTMLElement>(".action-menu-panel"),
       summary = details?.querySelector("summary");
     if (!details || !panel || !summary) return;
+    // A phone gets a sheet over the terminal, resting on the key row (which
+    // the fitted viewport already keeps above the on-screen keyboard).
+    const keybar = document.getElementById("terminal-keybar"),
+      fitted = parseFloat(document.documentElement.style.getPropertyValue("--lec-visible-height")),
+      visible = fitted > 0 ? Math.min(fitted, innerHeight) : innerHeight,
+      keys = keybar?.getClientRects().length ? keybar.getBoundingClientRect() : undefined,
+      bottom = keys && keys.top > 0 ? Math.min(keys.top, visible) : visible;
+    if (placeSheet(details, panel, { top: 0, bottom, left: 0, width: innerWidth, anchor: summary.getBoundingClientRect() })) {
+      details.classList.remove("menu-fixed");
+      return;
+    }
     if (!details.open || document.body.classList.contains("compact-chrome")) {
       details.classList.remove("menu-fixed");
       return;
@@ -390,11 +402,37 @@ export function TerminalApp({
     const abort = new AbortController(),
       signal = abort.signal;
     addEventListener("resize", placeTools, { signal });
+    window.visualViewport?.addEventListener("resize", placeTools, { signal });
     tools.current
       ?.closest("nav")
       ?.addEventListener("scroll", placeTools, { signal });
-    return () => abort.abort();
+    // The fitted viewport (a keyboard opening or closing) resizes the body
+    // and moves the key row the sheet rests on.
+    const observer = new ResizeObserver(() => placeTools());
+    observer.observe(document.body);
+    const keybar = document.getElementById("terminal-keybar");
+    if (keybar) observer.observe(keybar);
+    return () => {
+      observer.disconnect();
+      abort.abort();
+    };
   }, [toolsOpen, placeTools]);
+  // An embedded frame tells the page around it when Tools is a sheet, so the
+  // page dims with it; a tap on the page's dimming closes Tools here.
+  useEffect(() => {
+    if (!embedded) return;
+    const sheet = toolsOpen && !!tools.current?.classList.contains("menu-sheet");
+    parent.postMessage({ type: "lec-terminal-sheet", open: sheet }, location.origin);
+  }, [toolsOpen, embedded]);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data: unknown = event.data;
+      if (event.source !== parent || event.origin !== location.origin || !data || typeof data !== "object" || !("type" in data)) return;
+      if (data.type === "lec-terminal-close-menu" && tools.current?.open) tools.current.open = false;
+    };
+    addEventListener("message", onMessage);
+    return () => removeEventListener("message", onMessage);
+  }, []);
   const showHistory = useCallback((pane: string) => {
     setHistoryPane(pane);
     setDialog("history");
@@ -1163,6 +1201,17 @@ export function TerminalApp({
                 tools.current.open = false;
             }}
           >
+            {/* A phone shows the menu as a titled sheet in groups; on a desk
+                these are hidden and the list reads as it always has. */}
+            <div className="menu-sheet-head">
+              <h2>{t("terminalPage.tools.toggle")}</h2>
+              <button type="button" className="menu-sheet-close" data-close aria-label={t("terminalPage.menuSheet.close")}>✕</button>
+            </div>
+            <div className="menu-sheet-group" data-group="files" role="presentation">{t("terminalPage.tools.group.files")}</div>
+            <div className="menu-sheet-group" data-group="text" role="presentation">{t("terminalPage.tools.group.text")}</div>
+            <div className="menu-sheet-group" data-group="conversations" role="presentation">{t("terminalPage.tools.group.conversations")}</div>
+            <div className="menu-sheet-group" data-group="session" role="presentation">{t("terminalPage.tools.group.session")}</div>
+            <div className="menu-sheet-group" data-group="settings" role="presentation">{t("terminalPage.tools.group.settings")}</div>
             <p className="terminal-controls-help">
               {t("terminalPage.tools.helpControls")} <kbd>Ctrl+]</kbd> {t("terminalPage.tools.helpThen")} <kbd>m</kbd><br />
               {t("terminalPage.tools.helpEsc")}
@@ -1249,6 +1298,7 @@ export function TerminalApp({
               {t("terminalPage.tools.desktopSetup")}
             </button>
             <a
+              id="mcp-settings"
               className="button"
               href="/#projects"
               aria-label={t("terminalPage.tools.mcpSettingsLabel")}
