@@ -144,21 +144,30 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
             override fun handleOnBackPressed() {
                 web.evaluateJavascript("typeof window.__lecternBack === 'function' && window.__lecternBack() === true") { handled ->
                     if (handled == "true") return@evaluateJavascript
-                    if (previousIsApp()) web.goBack() else finish()
+                    val steps = stepsBackToApp()
+                    if (steps > 0) web.goBackOrForward(-steps) else finish()
                 }
             }
         })
         web.loadUrl(start ?: (host.origin + safePath(intent.getStringExtra(EXTRA_PATH))))
     }
 
-    /** Whether the page before this one is this Lectern's app. The pairing
-     * page the app opened on is still in the WebView's history, and going
-     * back to it shows a dead "no pairing code" screen. */
-    private fun previousIsApp(): Boolean {
+    /** How many steps back the previous app page is, or 0 to leave the app.
+     * The page's own back (frontend/src/mobile/back.ts) already walked its
+     * views, so entries that differ only by #view are skipped: each is a view
+     * the page has just left, and going back to it only bounces to the same
+     * screen. The pairing page the app opened on is never a place to return. */
+    private fun stepsBackToApp(): Int {
         val history = web.copyBackForwardList()
-        val previous = history.getItemAtIndex(history.currentIndex - 1) ?: return false
-        val uri = Uri.parse(previous.url)
-        return Shell.originOf(previous.url) == hosts.get(hostId)?.origin && !isPairingPath(uri.path)
+        val here = history.currentItem?.url?.substringBefore('#') ?: return 0
+        val origin = hosts.get(hostId)?.origin ?: return 0
+        for (i in history.currentIndex - 1 downTo 0) {
+            val url = history.getItemAtIndex(i)?.url ?: return 0
+            if (url.substringBefore('#') == here) continue
+            if (Shell.originOf(url) != origin || isPairingPath(Uri.parse(url).path)) return 0
+            return history.currentIndex - i
+        }
+        return 0
     }
 
     override fun onStop() {
