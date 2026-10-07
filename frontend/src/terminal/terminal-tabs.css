@@ -57,3 +57,113 @@
   overscroll-behavior: contain;
   z-index: 80;
 }
+
+/* ---- Tab-bar menus as phone sheets (terminal/sheet.ts) --------------------
+   The overflow ⋯, the new-terminal caret and saved layouts open on a phone
+   as a titled sheet resting on the bottom of the visible viewport (above the
+   on-screen keyboard), over a dimmed page. sheet.ts sets .menu-sheet and the
+   panel's coordinates; a desk dropdown never gets the class. */
+.menu-sheet-head { display: none; }
+details.menu-sheet[open]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+  background: color-mix(in srgb, var(--scrim) 45%, transparent);
+  animation: lec-menu-sheet-fade .16s ease-out;
+}
+/* The button that opened it stays above the dimming, so a second tap on it
+   still closes the sheet. */
+details.menu-sheet[open] > summary { position: relative; z-index: 81; background: var(--panel-2); }
+details.menu-sheet[open] > .terminal-actions-panel {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 80;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: none;
+  padding: 0 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  border: 0;
+  border-top: 1px solid var(--line-2);
+  border-radius: 16px 16px 0 0;
+  background: var(--panel-2);
+  box-shadow: 0 -10px 30px color-mix(in srgb, var(--scrim) 35%, transparent);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  animation: lec-menu-sheet-fade .16s ease-out;
+}
+details.menu-sheet[open] > .terminal-actions-panel > .menu-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -8px 4px;
+  padding: 10px 10px 8px 20px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.menu-sheet-title { min-width: 0; font: 650 17px var(--sans); color: var(--ink); }
+details.menu-sheet[open] .menu-sheet-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 18px;
+  cursor: pointer;
+}
+details.menu-sheet[open] > .terminal-actions-panel > a,
+details.menu-sheet[open] > .terminal-actions-panel > button,
+details.menu-sheet[open] .ws-layout-restore {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+details.menu-sheet[open] .terminal-new-picker > .terminal-new-project,
+details.menu-sheet[open] .ws-layout-restore {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding-block: 8px;
+}
+details.menu-sheet[open] .terminal-new-project-path,
+details.menu-sheet[open] .ws-layout-restore small { font-size: 13px; }
+details.menu-sheet[open] .terminal-new-group { padding: 12px 14px 4px; font-size: 12px; }
+details.menu-sheet[open] .terminal-new-search { flex: none; min-height: 44px; margin: 4px 0 6px; }
+details.menu-sheet[open] .ws-layout-delete { width: 48px; }
+@media (hover: none) {
+  details.menu-sheet[open] > .terminal-actions-panel > a:hover,
+  details.menu-sheet[open] > .terminal-actions-panel > button:hover { background: transparent; }
+  details.menu-sheet[open] > .terminal-actions-panel > a:active,
+  details.menu-sheet[open] > .terminal-actions-panel > button:active { background: var(--panel); }
+}
+@keyframes lec-menu-sheet-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  details.menu-sheet[open]::before,
+  details.menu-sheet[open] > .terminal-actions-panel { animation: none; }
+}
+/* The page around a terminal frame whose Tools sheet is open (TerminalFrame):
+   the same dimming as the frame's own, with a hole cut over the frame. */
+.terminal-frame-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: color-mix(in srgb, var(--scrim) 45%, transparent);
+  animation: lec-menu-sheet-fade .16s ease-out;
+}
+@media (prefers-reduced-motion: reduce) { .terminal-frame-scrim { animation: none; } }
