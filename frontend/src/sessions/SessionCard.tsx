@@ -339,7 +339,7 @@ export function SessionCard({
       )}
       {scratch && scratchPath && (
         <div className="scard-path">
-          <code title={scratchPath}>{scratchPath}</code>
+          <code title={scratchPath}><bdi dir="ltr">{scratchPath}</bdi></code>
           <button className="b copy-path" onClick={() => void copyPath()}>
             {t("sessions.card.copyPath")}
           </button>

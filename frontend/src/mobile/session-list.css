@@ -124,4 +124,25 @@
   }
   /* "More ···" is a ⋯ here; its label still names the session. */
   #view .scard .btnrow > .action-menu > summary::after { content: "⋯"; font-size: 20px; line-height: 20px; height: 20px; }
+
+  /* A scratch shell's folder: the path and Copy on one line, the path cut
+     from the start so its distinctive end stays visible; the full path is
+     the title and Copy copies all of it. */
+  #view .scard > .scard-path {
+    display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; margin: 0;
+  }
+  #view .scard > .scard-path > code {
+    flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none;
+    font: 400 12px/1.4 var(--mono); color: var(--ink-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    direction: rtl; text-align: left;
+  }
+  #view .scard > .scard-path > button.b.copy-path {
+    flex: none; min-height: 32px; height: 32px; padding: 0 10px; font-size: 12px; font-weight: 600;
+    background: transparent; border: 1px solid var(--line); color: var(--ink-dim); box-shadow: none;
+  }
+  /* A shell's buttons (Terminal, Make a project) leave no room beside
+     them, so "shell · aiserver-local" gets its own line above. */
+  #view .scard[data-scratch-terminal] > .smeta { flex: 1 1 100%; }
+  #view .scard .smeta > .chip.tgt::before { content: "· "; }
 }
