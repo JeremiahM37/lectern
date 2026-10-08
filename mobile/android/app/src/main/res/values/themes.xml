@@ -10,4 +10,5 @@
         <item name="android:colorAccent">@color/lectern_accent</item>
         <item name="android:colorPrimary">@color/lectern_bg</item>
     </style>
+    <style name="Theme.Lectern.Share" parent="android:Theme.Material.Dialog" />
 </resources>

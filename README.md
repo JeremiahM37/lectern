@@ -78,7 +78,7 @@ phone, then review and commit the change.
 
 <img src="docs/media/control-plane/phone-approval.png" alt="A pending approval in the phone layout" width="300">
 
-[Terminal client](docs/terminal-client.md) · [Phone supervision](docs/mobile-sessions.md) · [Review](docs/review.md)
+[Terminal client](docs/terminal-client.md) · [Phone supervision](docs/mobile-sessions.md) · [Review](docs/review.md) · [Screenshots in sessions](docs/clipboard.md)
 
 ## Going further
 

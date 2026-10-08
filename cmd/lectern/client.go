@@ -256,6 +256,8 @@ func clientCommandAt(cfg *config.Config, command string, args []string, base, to
 		return agentQuickCommand(cfg, command, args, base, token, local)
 	case "shell":
 		return shellCommandAt(cfg, args, base, token, local)
+	case "clipboard":
+		return clipboardServeCommand(args, base, token)
 	case "promote":
 		return promoteCommand(c, args)
 	case "restore":

@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val micWaiting = mutableListOf<(Boolean) -> Unit>()
     override var speech: Speech? = null
+    override var clipboard: ClipboardListener? = null
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val key = pendingVapid ?: return@registerForActivityResult
@@ -112,6 +113,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
             WindowInsetsCompat.CONSUMED
         }
         setContentView(frame)
+        clipboard = ClipboardListener(this, { hosts.get(hostId) }, { hasWindowFocus() })
         speech = Speech(this) { name, detail -> Pages.event(web, name, detail) }
         WebShell.configure(web, Bridge(this, this) { hostId }, origin = { hosts.get(hostId)?.origin }, onOrigin = { pageOrigin = it })
         web.webChromeClient = object : WebChromeClient() {
@@ -170,7 +172,25 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
         return 0
     }
 
+    override fun onStart() {
+        super.onStart()
+        clipboard?.start()
+    }
+
+    // Any touch or key in the foreground says this is the device the person
+    // is using, so a pasted-image request from the server comes here.
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        clipboard?.active()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        clipboard?.active()
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onStop() {
+        clipboard?.stop()
         // Android stops a background app's microphone anyway; say so
         // cleanly instead of leaving the page waiting for words.
         speech?.cancel()
@@ -199,6 +219,7 @@ class MainActivity : ComponentActivity(), Bridge.Owner {
     private fun show(host: Host, path: String? = null) {
         hosts.activeId = host.id
         hostId = host.id
+        clipboard?.setSession(null)
         Bridge.applyDeviceCookie(this, host)
         web.loadUrl(host.origin + safePath(path))
         // Back must not return to the previous Lectern's pages.

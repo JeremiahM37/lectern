@@ -233,6 +233,51 @@ the owner who paired it, exactly like the browser. Lectern's existing rule
 still applies: local processes and agents on the host cannot decide
 approvals, and a revoked device gets a 401.
 
+## Clipboard and screenshots
+
+Three paths put an image in front of an agent. All need a direct pairing (a
+relay pairing has no address the app can stream from; sharing says so).
+
+**Paste in the page.** `LecternNative` (the existing bridge, origin-checked)
+gained, in `Bridge.kt`:
+
+- `clipboardImageType()` -> MIME of the image on the phone clipboard, or `""`.
+- `clipboardImage()` -> `""`, or JSON `{"mime","base64"}` (PNG/JPEG/GIF/WebP/BMP
+  as held; anything else converted to PNG; never over 20 MB).
+- `clipboardActive()` -> tell Lectern this device is in use (throttled to once
+  per 2 s). The app also calls it itself on every touch or key in the activity,
+  so the page need not.
+- `clipboardSession(id)` -> the open session terminal's id (`""` for none), so
+  the listen stream carries `&session=<id>`; reconnects on change.
+
+What the page must call: in the terminal and composer paste handlers, when the
+`ClipboardEvent` has no image `File` and no text, and
+`window.LecternNative?.clipboardImageType?.()` is non-empty, decode
+`clipboardImage()` into a `File` and take the same upload-and-inject path as a
+pasted file. Call `clipboardSession` when a session terminal opens or closes.
+The Android keyboard's own image paste arrives as an ordinary `File` in the
+event and needs nothing.
+
+**Share sheet.** `ShareActivity` takes `ACTION_SEND` / `ACTION_SEND_MULTIPLE`
+`image/*` (up to 10). It lists live sessions from `GET /api/sessions`, uploads
+each image to `/api/sessions/{id}/attachments`, mirrors the first one with
+`PUT /api/clipboard/mirror?session={id}`, then sends the quoted path(s) as a
+message with `POST /api/sessions/{id}/send` (so it submits a turn).
+
+**Answering the server.** `ClipboardListener` runs only while `MainActivity` is
+started (`onStart`..`onStop`). It holds `GET /api/clipboard/listen?client=..&kind=android&can_read=1`
+open (client id: a random one kept in app preferences), reconnecting with
+backoff, and answers `list` / `read` requests from the clipboard. Android gives
+the clipboard only to the focused app, so when the window lacks focus the
+answer is `X-Clipboard-Status: unavailable`. A list with nothing on the
+clipboard answers with an empty `X-Clipboard-Types`. Auth is the device bearer
+token, as for the notification buttons; the stream is never opened for a relay
+pairing.
+
+Logic (request parsing, eligibility, reply headers, SSE framing, path quoting)
+is in `ClipboardLogic.kt` and tested by `ClipboardLogicTest`. Not exercised on
+a device or emulator.
+
 ## How it works
 
 - **A small Kotlin shell** around a WebView (`mobile/android`), not Capacitor.

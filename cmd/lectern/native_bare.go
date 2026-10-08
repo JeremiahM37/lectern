@@ -103,6 +103,8 @@ type bareClient struct {
 	// popup runs the Ctrl+] controls in place of the session; nil is the
 	// real controls dashboard. Tests swap in their own.
 	popup func(action string)
+	// clipActive tells the clipboard bridge the person is typing (nil: off).
+	clipActive func()
 }
 
 // runBareAttachment shows the attachment argv with Lectern's own key bar
@@ -159,6 +161,9 @@ func (c *bareClient) run(argv []string, replace bool) error {
 		conn.Close()
 		return err
 	}
+	var stopClip func()
+	c.clipActive, stopClip = startClipboardBridge(controls, "", "")
+	defer stopClip()
 	stopWatch := make(chan struct{})
 	go c.watchSize(stopWatch)
 	go c.renderLoop(stopWatch)
@@ -422,6 +427,9 @@ func (c *bareClient) stopInput() {
 
 // input splits what the terminal sent into keys, mouse reports and pastes.
 func (c *bareClient) input(data []byte) {
+	if c.clipActive != nil {
+		go c.clipActive()
+	}
 	buf := append(c.pending, data...)
 	c.pending = nil
 	var forward []byte

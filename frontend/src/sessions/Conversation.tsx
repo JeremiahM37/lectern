@@ -1,4 +1,5 @@
 import "./conversation-react.css";
+import { nativeClipboardImage } from "../terminal/clipboard-bridge";
 import "./session-home.css";
 import { splitRecall } from "./recall";
 import { SessionLineage } from "../continuity/SessionLineage";
@@ -1239,6 +1240,16 @@ export function Conversation({
             if (event.clipboardData.files.length) {
               event.preventDefault();
               void upload([...event.clipboardData.files]);
+              return;
+            }
+            // inside the Android app a copied screenshot may reach the page
+            // only through the system clipboard, which the app can read
+            if (!event.clipboardData.getData("text/plain")) {
+              const native = nativeClipboardImage();
+              if (native) {
+                event.preventDefault();
+                void upload([native]);
+              }
             }
           }}
         />

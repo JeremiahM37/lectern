@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/clipboard"
 	"log/slog"
 	"path"
 	"strings"
@@ -51,6 +52,10 @@ type Manager struct {
 	// means the caller (app.New) did not set config.Config.HookBase/BaseURL —
 	// production always does.
 	HookBase string
+	// ClipboardBin, when set, is the lectern binary that provisions each
+	// machine's clipboard bridge for the sessions launched on it
+	// (internal/clipboard, docs/clipboard.md). Empty turns the feature off.
+	ClipboardBin string
 	// AskPermission, when true, forces every newly launched Claude session
 	// to register the PermissionRequest hook (docs/agent-events.md section
 	// 3), regardless of LaunchOpts.PermissionMode. Never set by app.New
@@ -1078,7 +1083,7 @@ func (m *Manager) launch(ctx context.Context, o LaunchOpts) (*store.Session, err
 		m.end(sess.ID, StatusDead)
 		return nil, err
 	}
-	envFile, cleanupEnv, err := stageLaunchEnvironment(ctx, ex, secretPrefix+envPrefix+mcpEnvPrefix)
+	envFile, cleanupEnv, err := stageLaunchEnvironment(ctx, ex, secretPrefix+envPrefix+mcpEnvPrefix+m.clipboardEnvPrefix(ctx, ex))
 	if err != nil {
 		m.end(sess.ID, StatusDead)
 		return nil, err
@@ -1718,4 +1723,78 @@ func (m *Manager) NameFromPrompt(id int64, prompt string) {
 	if fresh, err := m.DB.Session(id); err == nil {
 		m.publish(fresh)
 	}
+}
+
+// clipboardEnvPrefix is the env-file assignments that give an agent session its
+// clipboard: DISPLAY/XAUTHORITY for the machine's headless X clipboard (for
+// programs that read it natively) and the wl-paste/xclip shims first on PATH
+// (for programs that shell out). Best effort: a machine that cannot provide
+// it launches the session exactly as before.
+func (m *Manager) clipboardEnvPrefix(ctx context.Context, ex executor.Executor) string {
+	if m.ClipboardBin == "" {
+		return ""
+	}
+	e, err := clipboard.Prepare(ctx, ex, m.ClipboardBin)
+	if err != nil {
+		m.Log.Info("clipboard bridge not available for this launch", "err", err)
+	}
+	return e.EnvAssignments()
+}
+
+// RetrofitClipboard gives sessions that were already running when the
+// clipboard bridge arrived what a new launch gets, as far as a running tmux
+// session allows: DISPLAY, XAUTHORITY and the shims on PATH go into the
+// session's tmux environment, so every new window or pane (a Ctrl+] split, a
+// shell) has them. The agent process already running keeps the environment it
+// started with: it needs a restart to see them, which `lectern` reports.
+func (m *Manager) RetrofitClipboard(ctx context.Context) int {
+	if m.ClipboardBin == "" {
+		return 0
+	}
+	live, err := m.DB.LiveSessions()
+	if err != nil {
+		return 0
+	}
+	prepared := map[int64]clipboard.HostEnv{}
+	failed := map[int64]bool{}
+	n := 0
+	for _, s := range live {
+		if s.TmuxSession == "" || (s.SessionBackend != "" && s.SessionBackend != "tmux") || failed[s.TargetID] {
+			continue
+		}
+		target, err := m.DB.Target(s.TargetID)
+		if err != nil || target.Kind == "sandbox" {
+			continue
+		}
+		ex, err := m.Reg.For(target)
+		if err != nil {
+			continue
+		}
+		env, ok := prepared[s.TargetID]
+		if !ok {
+			if env, err = clipboard.Prepare(ctx, ex, m.ClipboardBin); err != nil {
+				failed[s.TargetID] = true
+				continue
+			}
+			prepared[s.TargetID] = env
+		}
+		t := shellq.Quote("=" + s.TmuxSession)
+		var cmds []string
+		if env.Display != "" {
+			cmds = append(cmds, "tmux set-environment -t "+t+" DISPLAY "+shellq.Quote(env.Display),
+				"tmux set-environment -t "+t+" XAUTHORITY "+shellq.Quote(env.Xauthority))
+		}
+		if env.Shims != "" {
+			d := shellq.Quote(env.Shims)
+			cmds = append(cmds, `p=$(tmux show-environment -t `+t+` PATH 2>/dev/null | sed 's/^PATH=//'); [ -n "$p" ] || p=$PATH; `+
+				`case ":$p:" in *:`+d+`:*) ;; *) tmux set-environment -t `+t+` PATH `+d+`":$p" ;; esac`)
+		}
+		if len(cmds) == 0 {
+			continue
+		}
+		if r, err := ex.Run(ctx, strings.Join(cmds, "; "), executor.RunOpts{Timeout: 10}); err == nil && r.OK() {
+			n++
+		}
+	}
+	return n
 }
