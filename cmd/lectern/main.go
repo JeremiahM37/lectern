@@ -44,7 +44,7 @@ import (
 var clientVerbs = map[string]bool{
 	"console": true, "tui": true, "shell": true, "api": true, "agent": true,
 	"upload": true, "files": true, "download": true, "post": true, "live": true,
-	"expose": true, "skill": true, "promote": true, "controls": true, "restore": true, "account": true,
+	"expose": true, "skill": true, "clipboard": true, "promote": true, "controls": true, "restore": true, "account": true,
 	"browser": true, "computer": true, "plugin": true, "phone": true, "demo": true,
 	"help": true, "--help": true, "-h": true,
 }
@@ -112,6 +112,12 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "term-server" {
 		os.Exit(termServerCommand(os.Args[2:]))
+	}
+	// The clipboard bridge's target-side commands (docs/clipboard.md).
+	if len(os.Args) > 1 && os.Args[1] == "clipboard" && len(os.Args) > 2 && os.Args[2] != "serve" {
+		if code := clipboardCommand(os.Args[2:]); code >= 0 {
+			os.Exit(code)
+		}
 	}
 	// A target-side helper (internal/helpers): runs on an agent machine,
 	// before any configuration is read, and prints only what it was asked.

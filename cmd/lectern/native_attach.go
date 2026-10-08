@@ -135,7 +135,9 @@ func runPrivateAttachment(tmuxPath string, argv []string, controls nativeControl
 	if err := plan.start(tmuxPath); err != nil {
 		return err
 	}
+	_, stopClip := startClipboardBridge(controls, tmuxPath, socket)
 	err = plan.attach(tmuxPath)
+	stopClip()
 	if err == nil && replace && controls.Kind == "session" {
 		// tmux's own "[detached]" or "[exited]" line reads like a failure.
 		// Say plainly what happened and how to get back.
