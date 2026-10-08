@@ -175,6 +175,7 @@ type dashboard struct {
 	width, height                  int
 	generation                     int
 	loading                        bool
+	refsLoaded, shellWaiting       bool
 	updated                        time.Time
 	failure, notice                string
 	query                          textinput.Model
@@ -945,6 +946,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recentOpen = true
 		return m, nil
 	case refsMsg:
+		m.refsLoaded = true
 		m.projects = v.projects
 		m.targets = v.targets
 		m.agents = v.agents
@@ -955,6 +957,7 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if v.err != nil {
 			m.notice = "Reference lists: " + clean(v.err.Error())
+			m.shellWaiting = false
 		} else if len(v.relaunched) > 0 && !m.relaunchShown {
 			// Once per dashboard run; Dismiss in the web clears it for good.
 			m.relaunchShown = true
@@ -963,6 +966,12 @@ func (m *dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				names = append(names, name(r))
 			}
 			m.notice = fmt.Sprintf("Relaunched %d session(s) after a restart: %s", len(v.relaunched), strings.Join(names, ", "))
+		}
+		if m.shellWaiting && v.err == nil {
+			// The blank-shell action was asked for before the machine list
+			// arrived; open it now instead of reporting no machines.
+			m.shellWaiting = false
+			return m, m.newShellForm()
 		}
 		return m, nil
 	case resultMsg:

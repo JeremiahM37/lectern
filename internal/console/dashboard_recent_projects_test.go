@@ -170,6 +170,7 @@ func TestExplicitScratchNewSessionKeepsScratchDefault(t *testing.T) {
 
 func TestBlankShellOrdersProjectsByRecency(t *testing.T) {
 	m := recentTestDashboard()
+	m.refsLoaded = true
 	m.targets = []row{{"id": float64(1), "name": "AIServer", "kind": "local"}}
 	m.projects = []row{{"id": float64(7), "name": "Site"}, {"id": float64(9), "name": "API"}}
 	m.recentProjects = []int64{9}

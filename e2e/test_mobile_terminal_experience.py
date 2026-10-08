@@ -518,7 +518,12 @@ def test_a_background_resume_after_a_dropped_stream_keeps_output(page, real_term
     # back reattaches to the same session and keeps what it printed.
     f.locator("body").evaluate(FAKE_BACKGROUND)
     kill_ttyd(t)
-    page.wait_for_timeout(500)
+    # Return only once the page has really seen the stream drop; a fixed pause
+    # can come back before a loaded host has delivered the close.
+    deadline = time.monotonic() + 15
+    while _open_sockets(f) != 0 and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    assert _open_sockets(f) == 0, "the stream never reported closed while backgrounded"
     f.locator("body").evaluate("()=>window.__lecSetForeground(true)")
     expect(f.locator("#connection")).to_have_text("Connected", timeout=15000)
     expect(f.locator("#agent-terminal .xterm-screen")).to_contain_text("BACKGROUND-KEEP-9")
