@@ -1,16 +1,44 @@
-<div align="center">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lectern-dark.svg">
+    <img src="docs/brand/lectern-light.svg" alt="Lectern" width="360">
+  </picture>
+</p>
 
-# Lectern
+<h3 align="center">Mission control for AI coding agents.</h3>
 
-**Lectern runs coding agents such as Claude Code, Codex and Gemini CLI on your
-own computer, and lets you follow them, approve what they do and review their
-changes from your terminal, browser or phone.**
+<p align="center">
+  <a href="https://github.com/JeremiahM37/lectern/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/JeremiahM37/lectern?label=release&color=8b5cf6"></a>
+  <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-97ca00">
+  <img alt="single Go binary" src="https://img.shields.io/badge/single%20binary-Go-00add8">
+  <img alt="platforms Linux, macOS, Windows" src="https://img.shields.io/badge/platforms-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows-6b7280">
+  <a href="docs/android.md"><img alt="Android app" src="https://img.shields.io/badge/Android-app-3ddc84"></a>
+</p>
 
-[![Latest release: v2.8.0](https://img.shields.io/github/v/release/JeremiahM37/lectern?label=release&color=8b5cf6)](https://github.com/JeremiahM37/lectern/releases/latest)
-![license](https://img.shields.io/badge/license-MIT-blue)
-![go](https://img.shields.io/badge/single%20binary-Go-00add8)
+<p align="center">
+  <a href="#quick-start">Quickstart</a> ·
+  <a href="docs/getting-started.md">Docs</a> ·
+  <a href="docs/media/control-plane/README.md">Screenshots</a> ·
+  <a href="docs/android.md">Android</a> ·
+  <a href="https://github.com/JeremiahM37/lectern/releases">Releases</a>
+</p>
+
+<p align="center"><img src="docs/media/hero.png" alt="The Lectern sessions dashboard with demo agents" width="900"></p>
+
+<p align="center">
+Lectern runs coding agents such as Claude Code, Codex and Gemini CLI on your<br>
+own computer, and lets you follow them, approve what they do and review their<br>
+changes from your terminal, browser or phone.
+</p>
 
 </div>
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JeremiahM37/lectern/main/install.sh | sh
+lectern claude    # start an agent in this folder, then: lectern up (browser) · lectern phone (QR)
+```
+
+Other platforms and the full walkthrough are in [Quick start](#quick-start).
 
 ## Quick start
 

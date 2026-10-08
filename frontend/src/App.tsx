@@ -1108,7 +1108,7 @@ export default function App() {
       <header id="topbar" ref={root}>
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
-            <Icon name="brand" size={22} />
+            <img src="/icon.svg" alt="" width={24} height={24} />
           </span>
           <h1>
             lec<b>tern</b>

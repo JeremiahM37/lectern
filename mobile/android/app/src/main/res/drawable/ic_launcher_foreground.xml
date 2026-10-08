@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A lectern: a slanted reading desk on a stand. -->
+<!-- Lectern desk mark: a slanted desk on a stand, violet to magenta. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#7C8CFF" android:pathData="M34,40 L74,32 L76,44 L36,52 Z" />
-    <path android:fillColor="#E6E9F2" android:pathData="M51,50 L57,49 L58,74 L50,74 Z" />
-    <path android:fillColor="#E6E9F2" android:pathData="M40,74 L68,74 L68,79 L40,79 Z" />
+    <path android:pathData="M37.44,78.84 L41.04,68.04 L66.96,68.04 L70.56,78.84 Z"><aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="37.44" android:startY="78.84" android:endX="70.56" android:endY="68.04"><item android:offset="0" android:color="#4f35d8"/><item android:offset="1" android:color="#8f5bff"/></gradient></aapt:attr></path>
+    <path android:pathData="M26.64,51.48 L81.36,35.64 L81.36,52.2 L26.64,68.04 Z" android:strokeWidth="4.32" android:strokeLineJoin="round"><aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="25.2" android:startY="68.04" android:endX="81.36" android:endY="35.64"><item android:offset="0" android:color="#6d4aff"/><item android:offset="0.5" android:color="#b04dff"/><item android:offset="1" android:color="#ff4dd8"/></gradient></aapt:attr><aapt:attr name="android:strokeColor"><gradient android:type="linear" android:startX="25.2" android:startY="68.04" android:endX="81.36" android:endY="35.64"><item android:offset="0" android:color="#6d4aff"/><item android:offset="0.5" android:color="#b04dff"/><item android:offset="1" android:color="#ff4dd8"/></gradient></aapt:attr></path>
+    <path android:fillColor="#FF3FC8" android:pathData="M37.44,35.64 a6.48,6.48 0 1,0 12.96,0 a6.48,6.48 0 1,0 -12.96,0 Z" />
 </vector>

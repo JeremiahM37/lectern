@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#a78bfa"/>
-      <stop offset="1" stop-color="#6366f1"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" fill="#0d1120"/>
-  <g transform="translate(12.8 12.8) scale(.6)" fill="none" stroke="url(#g)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="12" y="14" width="40" height="13" rx="4"/>
-    <rect x="12" y="35" width="21" height="15" rx="4"/>
-    <path d="M43 35v15M50.5 42.5h-15"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="0" fill="#080b14"/><g transform="translate(9.600000000000001 9.600000000000001) scale(0.7)"><defs><linearGradient id="s" gradientUnits="userSpaceOnUse" x1="0" y1="104" x2="156" y2="14"><stop offset="0" stop-color="#6d4aff"/><stop offset=".5" stop-color="#b04dff"/><stop offset="1" stop-color="#ff4dd8"/></linearGradient><linearGradient id="p" gradientUnits="userSpaceOnUse" x1="34" y1="134" x2="126" y2="104"><stop offset="0" stop-color="#4f35d8"/><stop offset="1" stop-color="#8f5bff"/></linearGradient><linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7ae6"/><stop offset="1" stop-color="#ff3fc8"/></linearGradient></defs><g transform="translate(2 8) scale(.38)"><path d="M34 134 44 104H116L126 134Z" fill="url(#p)"/><path d="M4 58 156 14V60L4 104Z" fill="url(#s)" stroke="url(#s)" stroke-width="12" stroke-linejoin="round"/><circle cx="52" cy="14" r="18" fill="url(#d)"/></g></g></svg>
