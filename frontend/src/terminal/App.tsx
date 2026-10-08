@@ -3,6 +3,7 @@ import { applyVisibleHeight, localViewportSlice, virtualKeyboard } from "./viewp
 import { placeSheet } from "./sheet";
 import { buildKeyboardReport, formatKeyboardReport, rectSnapshot } from "./keyboard-report";
 import { errorMessage } from "./model";
+import { clientId, listenUrl, mirrorImage, nativeAnswersClipboard, nativeClipboardImage, pingActive, throttle } from "./clipboard-bridge";
 import {
   useCallback,
   useEffect,
@@ -228,6 +229,7 @@ export function TerminalApp({
   externalNotice?: string;
 }) {
   const base = `/api/term/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+  const clipboardSession = kind === "session" && /^[1-9]\d*$/.test(id) ? Number(id) : 0;
   useLocale();
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   const [info, setInfo] = useState<TerminalInfo>();
@@ -877,6 +879,7 @@ export function TerminalApp({
             method: "POST",
             body: form,
           });
+          if (clipboardSession) mirrorImage(file, clipboardSession);
           try {
             pane.paste(quote(attachment.path) + " ");
             setNotice(
@@ -891,8 +894,35 @@ export function TerminalApp({
         setUploading((old) => old - 1);
       }
     },
-    [base],
+    [base, clipboardSession],
   );
+  // Tell the server a browser is attached to this session, and when the person
+  // is typing, so it can route clipboard requests. Never blocks the terminal.
+  const clipboardLive = !!clipboardSession && !!state?.connected;
+  useEffect(() => {
+    if (!clipboardLive) return;
+    if (nativeAnswersClipboard()) {
+      // the Android app holds the stream itself and can read the real clipboard
+      window.LecternNative?.clipboardSession?.(String(clipboardSession));
+      return () => window.LecternNative?.clipboardSession?.("");
+    }
+    const client = clientId();
+    let source: EventSource | undefined;
+    try {
+      source = new EventSource(listenUrl(client, clipboardSession));
+    } catch {
+      /* the bridge is optional */
+    }
+    const due = throttle(2000);
+    const active = () => {
+      if (due()) pingActive(client);
+    };
+    document.addEventListener("keydown", active, { capture: true });
+    return () => {
+      document.removeEventListener("keydown", active, { capture: true });
+      source?.close();
+    };
+  }, [clipboardLive, clipboardSession]);
   useEffect(() => {
     const abort = new AbortController(),
       signal = abort.signal;
@@ -950,7 +980,17 @@ export function TerminalApp({
           .filter((item) => item.kind === "file")
           .map((item) => item.getAsFile())
           .filter((file): file is File => file !== null);
-        if (!files.length) return;
+        if (!files.length) {
+          // inside the Android app a copied screenshot may arrive with no file
+          // in the event; the app can read it from the system clipboard
+          const text = event.clipboardData?.getData("text/plain");
+          const native = text ? null : nativeClipboardImage();
+          if (!native) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          run([native]);
+          return;
+        }
         event.preventDefault();
         event.stopImmediatePropagation();
         run(files);
@@ -1065,7 +1105,21 @@ export function TerminalApp({
       if (event && (event.ctrlKey || event.metaKey) && event.code === "KeyV") return false;
       const engine = current();
       if (!engine || !navigator.clipboard?.readText) return false;
-      void navigator.clipboard.readText().then((text) => engine.paste(text)).catch((error) => setNotice(errorMessage(error)));
+      const text = () => navigator.clipboard.readText().then((value) => engine.paste(value));
+      const reader = navigator.clipboard.read;
+      const reading = typeof reader === "function"
+        ? reader.call(navigator.clipboard).then(async (items) => {
+            for (const item of items) {
+              const type = item.types.find((name) => name.startsWith("image/"));
+              if (!type) continue;
+              const blob = await item.getType(type);
+              await upload([new File([blob], `screenshot-${Date.now()}.${type.slice(6).split("+")[0]}`, { type })], engine);
+              return;
+            }
+            await text();
+          }, () => text())
+        : text();
+      void reading.catch((error) => setNotice(errorMessage(error)));
     },
     "terminal.selectAll": scroll((engine) => engine.term.selectAll()),
     "terminal.clear": scroll((engine) => engine.term.clear()),

@@ -28,6 +28,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/checks"
 	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
+	"github.com/JeremiahM37/lectern/v2/internal/clipboard"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
@@ -103,7 +104,12 @@ type Server struct {
 	Push            *push.Sender
 	Cfg             *config.Config
 	Auth            *auth.Resolver
-	Log             *slog.Logger
+	// Clipboard routes agent clipboard reads to the device driving a session.
+	Clipboard     *clipboard.Broker
+	clipboardInit sync.Once
+	// ClipboardBin is the lectern binary that runs the headless clipboard on this machine.
+	ClipboardBin string
+	Log           *slog.Logger
 	// Pairing is device pairing's store (internal/pairing, pairing.go in
 	// this package) — nil is safe everywhere it is read (pairingEnabled
 	// treats a nil Pairing as "off"), so a build or test harness that never
@@ -319,6 +325,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/hook/ping", s.hookPingHandler)
 	mux.HandleFunc("GET /api/diagnostics/hooks", s.hookDiagnostics)
 	mux.HandleFunc("POST /api/hook/session/{id}/statusline", s.hookSessionStatusline)
+	mux.HandleFunc("POST /api/hook/session/{id}/clipboard", s.hookSessionClipboard)
+	mux.HandleFunc("GET /api/clipboard/listen", s.clipboardListen)
+	mux.HandleFunc("POST /api/clipboard/active", s.clipboardActive)
+	mux.HandleFunc("PUT /api/clipboard/mirror", s.clipboardMirror)
+	mux.HandleFunc("DELETE /api/clipboard/mirror", s.clipboardMirrorClear)
+	mux.HandleFunc("POST /api/clipboard/respond/{req}", s.clipboardRespond)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
 	// ---- cost per outcome (docs/outcomes.md): Claude Code's own OTLP/HTTP
 	// JSON exporter, pointed here by agentevents.OTelEnv for both interactive

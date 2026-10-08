@@ -37,6 +37,8 @@ class Bridge(
         val speech: Speech? get() = null
         /** Asks for the microphone once; [then] gets whether it was granted. */
         fun requestMic(then: (Boolean) -> Unit) = then(false)
+        /** The foreground clipboard listener (ClipboardListener.kt), if this view has one. */
+        val clipboard: ClipboardListener? get() = null
     }
 
     private val app = context.applicationContext
@@ -230,6 +232,39 @@ class Bridge(
     fun ttsVoices(): String {
         host()
         return owner.speech?.voices() ?: "[]"
+    }
+
+    // ---- clipboard and screenshots (docs/android.md, "Clipboard and screenshots") ----
+
+    /** The MIME type of the image on the phone's clipboard, or "" when it holds none. */
+    @JavascriptInterface
+    fun clipboardImageType(): String {
+        host()
+        return ClipboardImage.types(app).firstOrNull { it.startsWith("image/") } ?: ""
+    }
+
+    /** The clipboard's image as {"mime","base64"} (PNG, JPEG, GIF, WebP or BMP; anything
+     * else is converted to PNG), or "" when there is none or it is over 20 MB. */
+    @JavascriptInterface
+    fun clipboardImage(): String {
+        host()
+        val image = ClipboardImage.read(app)?.let { ClipboardImage.acceptable(it) } ?: return ""
+        return JSONObject().put("mime", image.mime)
+            .put("base64", android.util.Base64.encodeToString(image.bytes, android.util.Base64.NO_WRAP)).toString()
+    }
+
+    /** The person touched or typed in the page: lets Lectern route a paste request here. */
+    @JavascriptInterface
+    fun clipboardActive() {
+        host()
+        owner.clipboard?.active()
+    }
+
+    /** The session terminal now open ("" for none), so Lectern knows which one this device is in. */
+    @JavascriptInterface
+    fun clipboardSession(id: String) {
+        host()
+        owner.clipboard?.setSession(id)
     }
 
     companion object {

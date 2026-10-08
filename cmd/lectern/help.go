@@ -179,6 +179,19 @@ primed with its last handoff or the end of its conversation.`,
 		Examples: []string{"lectern controls session 4"},
 	},
 	{
+		Name: "clipboard", Group: groupSessions, Synopsis: "clipboard serve [--session ID]",
+		Summary: "Paste screenshots from this computer into agent sessions on a server",
+		Usage: []string{
+			"lectern clipboard serve [--session ID] [--text]   Offer this computer's clipboard (for a plain ssh session)",
+			"lectern claude / lectern attach                    do this automatically while attached",
+		},
+		About: `Agents run on the Lectern host, which has no screen: their Ctrl+V finds nothing.
+While you are attached, this computer answers their clipboard reads and copies
+screenshots to the session's machine as you take them. Text is only copied with
+--text (or LECTERN_CLIPBOARD_MIRROR_TEXT=1). See docs/clipboard.md.`,
+		Examples: []string{"lectern clipboard serve --session 12"},
+	},
+	{
 		Name: "promote", Group: groupSessions, Synopsis: "promote SESSION-ID",
 		Summary:  "Attach a running conversation to a project",
 		Usage:    []string{"lectern promote SESSION-ID"},

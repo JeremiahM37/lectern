@@ -24,4 +24,10 @@
     <string name="remove_body">This phone forgets the pairing, its key and its notifications. The Lectern keeps its own record of this device until you revoke it in Settings → Devices.</string>
     <string name="shortcut_hosts">Switch Lectern</string>
     <string name="update_not_allowed">Updating needs &#8220;Allow from this source&#8221; for Lectern in Android settings.</string>
+    <string name="share_title">Send image to session</string>
+    <string name="share_no_sessions">No sessions to send to.</string>
+    <string name="share_not_paired">Pair this app with a Lectern first.</string>
+    <string name="share_relay">Sharing images needs a direct pairing, not a relay.</string>
+    <string name="share_sent">Sent to the session.</string>
+    <string name="share_failed">Could not send the image: %1$s</string>
 </resources>

@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/agents"
@@ -122,6 +125,17 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// harness that sets only BaseURL (to its own ephemeral listener) still
 	// gets a hook callback URL that actually reaches it.
 	sessMgr.HookBase = firstNonEmptyString(cfg.HookBase, cfg.BaseURL)
+	if cfg.DBPath != "" && cfg.DBPath != ":memory:" {
+		sessMgr.ClipboardBin = shimBinary()
+	}
+	if sessMgr.ClipboardBin != "" {
+		go func() {
+			time.Sleep(3 * time.Second)
+			if n := sessMgr.RetrofitClipboard(context.Background()); n > 0 {
+				log.Info("clipboard bridge added to running sessions' environments", "sessions", n)
+			}
+		}()
+	}
 	// the agent set is the operator's, read fresh so a change takes effect
 	// without a restart
 	sessMgr.Specs = func() []sessions.Spec { return sessions.WithDemo(sessions.ParseSpecs(db.Setting("agents"))) }
@@ -268,7 +282,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Sessions: sessMgr, Events: events, Memory: mem, Checks: checksRunner, Activity: activity,
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
 		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
-		Plugins: pluginMgr,
+		Plugins: pluginMgr, ClipboardBin: sessMgr.ClipboardBin,
 	}
 	if cfg.Mock {
 		// The real terminals a mock server opens (project shells) run on
@@ -447,4 +461,21 @@ func (a *App) SeedDemoData() error {
 	_, err = a.DB.InsertProject(&store.Project{
 		Name: "homelab-api", TargetID: t2.ID, RepoPath: "/mock/homelab-api"})
 	return err
+}
+
+// shimBinary is the path the clipboard shims run: the "lectern" on PATH when
+// there is one (a symlink such as /usr/local/bin/lectern follows a self-update
+// or a redeploy), else this very executable.
+func shimBinary() string {
+	if p, err := exec.LookPath("lectern"); err == nil {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+	}
+	p, _ := os.Executable()
+	// only a real lectern: a test binary must not be asked to run subcommands
+	if base := strings.TrimSuffix(filepath.Base(p), ".exe"); base != "lectern" {
+		return ""
+	}
+	return p
 }

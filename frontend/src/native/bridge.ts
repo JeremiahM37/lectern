@@ -60,6 +60,12 @@ export interface NativeBridge {
   ttsStop?(): void;
   /** JSON [{name, lang}]. */
   ttsVoices?(): string;
+  /** The image MIME type on the phone's clipboard, or "". (docs/android.md, Clipboard) */
+  clipboardImageType?(): string;
+  /** JSON {mime, base64} for that image, or "". */
+  clipboardImage?(): string;
+  /** Tells the app which session terminal is open ("" when none), so the app answers its clipboard requests. */
+  clipboardSession?(id: string): void;
 }
 
 export interface AppHost {
