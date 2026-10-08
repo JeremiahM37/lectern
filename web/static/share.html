@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share to a Lectern session</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#14161f;--mut:#5d6378;--line:#d9dce8;--acc:#6d28d9}
+@media (prefers-color-scheme:dark){:root{--bg:#080b14;--fg:#e8eaf4;--mut:#9aa1bb;--line:#252a3d;--acc:#a78bfa}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif}
+main{max-width:34rem;margin:0 auto;padding:16px}
+h1{font-size:1.2rem;margin:0 0 12px}
+img{max-width:100%;max-height:40vh;border:1px solid var(--line);border-radius:8px}
+pre{white-space:pre-wrap;border:1px solid var(--line);border-radius:8px;padding:8px}
+button{display:block;width:100%;text-align:left;margin:8px 0;padding:12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--fg);font:inherit}
+button:active,button:focus-visible{border-color:var(--acc)}
+small,.mut{color:var(--mut)}
+#msg{margin:12px 0;min-height:1.4em}
+</style>
+</head>
+<body>
+<main>
+<h1>Share to a session</h1>
+<div id="preview"></div>
+<p class="mut">Pick the session that should get it. An image is uploaded, copied to that machine's clipboard and its path is typed to the agent, like a paste.</p>
+<div id="msg" role="status" aria-live="polite"></div>
+<div id="list"></div>
+</main>
+<script>
+(function () {
+  var id = new URLSearchParams(location.search).get("id") || "";
+  var meta = null, blob = null;
+  var $ = function (s) { return document.querySelector(s); };
+  function say(t) { $("#msg").textContent = t; }
+  function quote(p) { return /^[\w@%+=:,.\/-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'"; }
+  function api(path, opts) {
+    return fetch(path, Object.assign({ credentials: "same-origin" }, opts || {})).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(r.status + " " + t.slice(0, 120)); });
+      return r;
+    });
+  }
+  function pick(s) {
+    say("Sending to " + s.name + "…");
+    var chain = Promise.resolve("");
+    if (blob) {
+      var form = new FormData();
+      form.append("file", blob, meta.name || ("screenshot." + (meta.mime.split("/")[1] || "png")));
+      chain = api("/api/sessions/" + s.id + "/attachments", { method: "POST", body: form })
+        .then(function (r) { return r.json(); })
+        .then(function (a) {
+          // best effort: also put it on the machine's clipboard for native readers
+          fetch("/api/clipboard/mirror?session=" + s.id, { method: "PUT", body: blob, headers: { "Content-Type": meta.mime }, credentials: "same-origin" }).catch(function () {});
+          return quote(a.path) + " ";
+        });
+    }
+    chain.then(function (typed) {
+      var text = (typed + (meta.text || "")).trim();
+      if (!text) throw new Error("nothing to send");
+      return api("/api/sessions/" + s.id + "/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text }) });
+    }).then(function () {
+      say("Sent to " + s.name + ". ");
+      var a = document.createElement("a");
+      a.href = "/session/" + s.id; a.textContent = "Open the session";
+      $("#msg").appendChild(a);
+    }).catch(function (e) { say("Could not send: " + e.message); });
+  }
+  function show(m) {
+    meta = m;
+    if (m.text) { var pre = document.createElement("pre"); pre.textContent = m.text; $("#preview").appendChild(pre); }
+    if (m.size > 0) {
+      return api("/api/share-stash/" + id).then(function (r) { return r.blob(); }).then(function (b) {
+        blob = b; var img = document.createElement("img"); img.alt = "Shared image"; img.src = URL.createObjectURL(b); $("#preview").prepend(img);
+      });
+    }
+  }
+  if (!id) { say("Nothing was shared."); return; }
+  api("/api/share-stash/" + id + "?meta=1").then(function (r) { return r.json(); }).then(show)
+    .then(function () { return api("/api/sessions"); }).then(function (r) { return r.json(); })
+    .then(function (rows) {
+      var live = (rows || []).filter(function (s) { return !s.ended_at && s.status !== "dead" && s.agent !== "shell"; });
+      if (!live.length) { say("No running sessions to share into."); return; }
+      live.sort(function (a, b) { return (b.last_activity_at || 0) - (a.last_activity_at || 0); });
+      live.forEach(function (s) {
+        var b = document.createElement("button");
+        b.textContent = s.name || ("Session " + s.id);
+        var sm = document.createElement("small"); sm.textContent = " · " + (s.agent || "") + " · " + (s.state_label || s.status || "");
+        b.appendChild(sm);
+        b.addEventListener("click", function () { pick(s); });
+        $("#list").appendChild(b);
+      });
+    }).catch(function (e) { say("Could not load the share: " + e.message); });
+})();
+</script>
+</body>
+</html>

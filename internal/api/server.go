@@ -109,7 +109,8 @@ type Server struct {
 	clipboardInit sync.Once
 	// ClipboardBin is the lectern binary that runs the headless clipboard on this machine.
 	ClipboardBin string
-	Log           *slog.Logger
+	shares       shareStash
+	Log          *slog.Logger
 	// Pairing is device pairing's store (internal/pairing, pairing.go in
 	// this package) — nil is safe everywhere it is read (pairingEnabled
 	// treats a nil Pairing as "off"), so a build or test harness that never
@@ -329,6 +330,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/clipboard/listen", s.clipboardListen)
 	mux.HandleFunc("POST /api/clipboard/active", s.clipboardActive)
 	mux.HandleFunc("PUT /api/clipboard/mirror", s.clipboardMirror)
+	mux.HandleFunc("POST /share-target", s.shareTarget)
+	mux.HandleFunc("GET /api/share-stash/{id}", s.shareStashGet)
 	mux.HandleFunc("DELETE /api/clipboard/mirror", s.clipboardMirrorClear)
 	mux.HandleFunc("POST /api/clipboard/respond/{req}", s.clipboardRespond)
 	mux.HandleFunc("POST /api/hook/session/{id}/{event}", s.hookSessionEvent)
@@ -609,7 +612,7 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		gated := (strings.HasPrefix(p, "/api") && !strings.HasPrefix(p, "/api/hook/") && p != "/api/pair/exchange") ||
-			strings.HasPrefix(p, "/term/") || strings.HasPrefix(p, a2a.InterfacePath)
+			strings.HasPrefix(p, "/term/") || p == "/share-target" || strings.HasPrefix(p, a2a.InterfacePath)
 		if !gated {
 			next.ServeHTTP(w, r)
 			return

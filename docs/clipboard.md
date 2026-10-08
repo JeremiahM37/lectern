@@ -56,6 +56,12 @@ There are three paths. They add up; none replaces another.
   types its quoted path into the prompt (Claude Code attaches an image path),
   and also mirrors it to the headless clipboard. As a clipboard client it
   answers "unavailable" at once, so a shim never waits for it.
+* **Installed web app (Chrome on Android or desktop):** it is a share target.
+  Share an image to "lectern" from any app; `/share.html` lists your running
+  sessions, and the one you tap gets the image uploaded, mirrored to that
+  machine's clipboard and its path typed to the agent, exactly like a paste.
+  (A shared link or text is typed as text.) The held item expires after 10
+  minutes. Pasting inside the web app works as described above.
 * **Android app:** pasting an image in the terminal or the composer, and the
   system Share sheet ("Lectern" -> choose a session), use the same
   upload-and-inject path. While the app is in the foreground it also answers

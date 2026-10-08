@@ -1,8 +1,12 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
@@ -110,5 +114,41 @@ func TestListAndTextAndRefusals(t *testing.T) {
 		if code, _ := h.rawRequest("POST", path, body, tok); code == 200 {
 			t.Fatalf("%s was served", body)
 		}
+	}
+}
+
+func TestShareTargetStashesAnImageForThePicker(t *testing.T) {
+	h := newHarness(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("text", "look at this")
+	hdr := textproto.MIMEHeader{}
+	hdr.Set("Content-Disposition", `form-data; name="image"; filename="shot.png"`)
+	hdr.Set("Content-Type", "image/png")
+	part, _ := mw.CreatePart(hdr)
+	part.Write([]byte("\x89PNG\r\n\x1a\nPIXELS"))
+	mw.Close()
+	req, _ := http.NewRequest("POST", h.URL+"/share-target", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 303 {
+		t.Fatalf("share: %v %v", err, resp)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/share.html?id=") {
+		t.Fatalf("redirect %q", loc)
+	}
+	id := strings.TrimPrefix(loc, "/share.html?id=")
+	code, out := h.request("GET", "/api/share-stash/"+id, nil, nil)
+	if code != 200 || !strings.HasSuffix(string(out), "PIXELS") {
+		t.Fatalf("stash: %d %q", code, out)
+	}
+	code, out = h.request("GET", "/api/share-stash/"+id+"?meta=1", nil, nil)
+	if code != 200 || !strings.Contains(string(out), "look at this") || !strings.Contains(string(out), "image/png") {
+		t.Fatalf("meta: %d %s", code, out)
+	}
+	if code, _ := h.request("GET", "/api/share-stash/nope", nil, nil); code != 404 {
+		t.Fatalf("unknown id: %d", code)
 	}
 }

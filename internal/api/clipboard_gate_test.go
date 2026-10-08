@@ -24,6 +24,8 @@ func TestHostProcessCannotActAsAClipboardClient(t *testing.T) {
 		"active":  {s.clipboardActive, "POST", "/api/clipboard/active?client=laptop-1234"},
 		"respond": {s.clipboardRespond, "POST", "/api/clipboard/respond/x?client=laptop-1234"},
 		"mirror":  {s.clipboardMirror, "PUT", "/api/clipboard/mirror?session=1"},
+		"share":   {s.shareTarget, "POST", "/share-target"},
+		"stash":   {s.shareStashGet, "GET", "/api/share-stash/x"},
 		"clear":   {s.clipboardMirrorClear, "DELETE", "/api/clipboard/mirror?session=1"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.target, strings.NewReader("x"))
