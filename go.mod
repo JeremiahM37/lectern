@@ -14,6 +14,7 @@ require (
 	github.com/dop251/goja v0.0.0-20261002135814-104bc28c3abd
 	github.com/flynn/noise v1.1.0
 	github.com/google/uuid v1.6.0
+	github.com/jezek/xgb v1.3.0
 	github.com/mattn/go-runewidth v0.0.23
 	github.com/muesli/cancelreader v0.2.2
 	golang.org/x/crypto v0.51.0
@@ -42,7 +43,6 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/pprof v0.0.0-20240409012703-83162a5b38cd // indirect
-	github.com/jezek/xgb v1.3.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
