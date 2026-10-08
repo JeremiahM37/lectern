@@ -828,7 +828,11 @@ var tools = []tool{
 			"(absolute local paths) only works when this MCP server shares a filesystem with the caller and is " +
 			"refused over the web connector. Set interrupt:true to press Escape first when the agent is mid-turn " +
 			"and this needs to interrupt it now rather than queue behind whatever it is doing. Refused for a " +
-			"session that has ended — start_session for a new one instead.",
+			"session that has ended — start_session for a new one instead. `message` may be a plain message or a " +
+			"slash command such as \"/compact\" or \"/clear\" (sent verbatim, without added memory context, so " +
+			"the agent runs it as a command). If the agent is mid-turn the text is NOT refused: it is queued in " +
+			"the agent's input and handled after the current turn, and the result says so (`mid_turn: true`); " +
+			"use interrupt:true to stop the current turn first. Use read_session to see the effect.",
 		Schema: obj(map[string]any{
 			"session": str("session id, or its exact/unique name"),
 			"message": str("what to say — required unless files/inline_files/notes/context are given"),
@@ -889,6 +893,13 @@ var tools = []tool{
 				return nil, err
 			}
 			out := map[string]any{"sent": true, "session_id": id, "name": sess["name"]}
+			if st, _ := sess["state"].(string); st == "working" && !argBool(args, "interrupt", false) {
+				out["mid_turn"] = true
+				out["note"] = "the agent was mid-turn: the text is queued and will be handled after the current turn"
+			}
+			if strings.HasPrefix(strings.TrimSpace(message), "/") {
+				out["slash_command"] = true
+			}
 			if len(attachedFiles) > 0 {
 				paths := make([]string, 0, len(attachedFiles))
 				for _, f := range attachedFiles {

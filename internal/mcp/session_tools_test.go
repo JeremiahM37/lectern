@@ -592,3 +592,92 @@ func TestStartSessionValidatesAgentAgainstTheRegistry(t *testing.T) {
 		t.Fatal("expected POST /api/sessions to be reached for a valid agent")
 	}
 }
+
+// ---- read_session / send_to_session extras -------------------------------
+
+func newReadFake(t *testing.T, items []any, status string) *Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	sess := map[string]any{"id": 7.0, "name": "scratch", "agent": "claude", "state": status, "status": "running", "project_id": 1.0, "workdir": "/w"}
+	mux.HandleFunc("GET /api/sessions/{id}", jsonHandler(200, sess))
+	mux.HandleFunc("GET /api/sessions/{id}/git", jsonHandler(200, map[string]any{"branch": "feat-x"}))
+	mux.HandleFunc("GET /api/sessions/{id}/reader", jsonHandler(200, map[string]any{"text": "line1\nline2\n"}))
+	mux.HandleFunc("GET /api/sessions/{id}/conversation/live", func(w http.ResponseWriter, r *http.Request) {
+		if items == nil {
+			http.Error(w, `{"error":"no"}`, 409)
+			return
+		}
+		jsonHandler(200, map[string]any{"items": items})(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return New(srv.URL, "")
+}
+
+func TestReadSessionTurnsRedactTruncatePage(t *testing.T) {
+	var items []any
+	for i := 0; i < 5; i++ {
+		items = append(items, map[string]any{"role": "assistant", "kind": "text", "text": fmt.Sprintf("msg %d", i)})
+	}
+	items = append(items,
+		map[string]any{"role": "assistant", "kind": "tool_use", "tool_name": "Bash", "input": map[string]any{"command": "echo password=hunter22222"}},
+		map[string]any{"role": "tool", "kind": "tool_result", "output": strings.Repeat("x", 5000)})
+	s := newReadFake(t, items, "working")
+	raw, err := s.call("read_session", map[string]any{"session": "7", "limit": 3.0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := raw.(map[string]any)
+	if out["status"] != "working" || out["branch"] != "feat-x" || out["source"] != "conversation" {
+		t.Fatalf("bad header: %#v", out)
+	}
+	turns := out["turns"].([]map[string]any)
+	if len(turns) != 3 || out["has_more"] != true || out["next_skip"] != 3 {
+		t.Fatalf("paging wrong: %d %#v", len(turns), out)
+	}
+	if strings.Contains(fmt.Sprint(turns), "hunter22222") {
+		t.Fatal("secret not redacted")
+	}
+	if n := len(turns[2]["text"].(string)); n > readToolChars+10 {
+		t.Fatalf("tool output not truncated: %d", n)
+	}
+	raw, _ = s.call("read_session", map[string]any{"session": "7", "limit": 3.0, "skip": 3.0})
+	if got := raw.(map[string]any)["turns"].([]map[string]any); len(got) != 3 || got[0]["text"] != "msg 1" {
+		t.Fatalf("page 2 wrong: %#v", got)
+	}
+}
+
+func TestReadSessionFallsBackToScreenAndDetectsApproval(t *testing.T) {
+	s := newReadFake(t, nil, "idle")
+	raw, err := s.call("read_session", map[string]any{"session": "7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := raw.(map[string]any)
+	if out["source"] != "screen" || !strings.Contains(out["screen"].(string), "line2") {
+		t.Fatalf("no screen fallback: %#v", out)
+	}
+	if sessionStatus(map[string]any{"state": "idle"}, false, "Do you want to proceed?\n❯ 1. Yes") != "waiting_for_approval" {
+		t.Fatal("approval prompt not detected")
+	}
+}
+
+func TestSendToSessionFlagsMidTurnAndSlashCommand(t *testing.T) {
+	var sent []map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/sessions/{id}", jsonHandler(200, map[string]any{"id": 20.0, "name": "r", "status": "running", "state": "working"}))
+	mux.HandleFunc("POST /api/sessions/{id}/send", func(w http.ResponseWriter, r *http.Request) {
+		sent = append(sent, decodeBody(t, r))
+		jsonHandler(200, map[string]any{"sent": true})(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	raw, err := New(srv.URL, "").call("send_to_session", map[string]any{"session": "20", "message": "/compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := raw.(map[string]any)
+	if out["mid_turn"] != true || out["slash_command"] != true || sent[0]["text"] != "/compact" {
+		t.Fatalf("unexpected: %#v %#v", out, sent)
+	}
+}

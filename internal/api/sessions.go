@@ -736,8 +736,15 @@ func (s *Server) sendToSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case strings.TrimSpace(in.Text) != "":
-		s.Sessions.NameFromPrompt(row.ID, in.Text)
-		if err := s.Sessions.SendText(r.Context(), row.ID, in.Text); err != nil {
+		// A slash command ("/compact") must reach the agent verbatim: SendText
+		// would prepend recalled memory context and turn it into plain text.
+		send := s.Sessions.SendText
+		if t := strings.TrimSpace(in.Text); strings.HasPrefix(t, "/") && !strings.ContainsAny(t, "\n") {
+			send = s.Sessions.SendNotice
+		} else {
+			s.Sessions.NameFromPrompt(row.ID, in.Text)
+		}
+		if err := send(r.Context(), row.ID, in.Text); err != nil {
 			httpError(w, 409, "%s", err.Error())
 			return
 		}

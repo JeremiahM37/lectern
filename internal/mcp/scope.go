@@ -18,6 +18,7 @@ var toolScope = map[string]string{
 	// Reads: the board, as it stands right now. None of these can change
 	// what's on it.
 	"list_sessions":     oauth.ScopeRead,
+	"read_session":      oauth.ScopeRead,
 	"list_projects":     oauth.ScopeRead,
 	"list_tasks":        oauth.ScopeRead,
 	"board_summary":     oauth.ScopeRead,
