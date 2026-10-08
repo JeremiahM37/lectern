@@ -241,15 +241,48 @@ func webTerminal(t *testing.T, base string, id int64, line, want string) {
 	defer ws.CloseNow()
 	hello, _ := json.Marshal(map[string]any{"AuthToken": "", "columns": 120, "rows": 30})
 	_ = ws.Write(ctx, websocket.MessageBinary, hello)
-	_ = ws.Write(ctx, websocket.MessageBinary, []byte("0"+line+"\r"))
+	// One reader owns the socket (cancelling a Read would close it).
+	type frame struct {
+		msg []byte
+		err error
+	}
+	frames := make(chan frame, 64)
+	go func() {
+		for {
+			_, msg, err := ws.Read(ctx)
+			frames <- frame{msg, err}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	var seen strings.Builder
+	take := func(f frame) {
+		if len(f.msg) > 0 && f.msg[0] == '0' {
+			seen.Write(f.msg[1:])
+		}
+	}
+	// Attaching resizes the session to the browser's size. On Windows ConPTY
+	// repaints after a resize and drops keystrokes that arrive meanwhile (the
+	// CI failure typed "cho", the leading "e" lost). A browser only types once
+	// it has painted, so wait for the attach output to go quiet first.
+	for quiet := false; !quiet; {
+		select {
+		case f := <-frames:
+			if f.err != nil {
+				t.Fatalf("web terminal ended before painting: %v\n%s", f.err, seen.String())
+			}
+			take(f)
+		case <-time.After(1500 * time.Millisecond):
+			quiet = seen.Len() > 0
+		}
+	}
+	_ = ws.Write(ctx, websocket.MessageBinary, []byte("0"+line+"\r"))
 	for !strings.Contains(seen.String(), want) {
-		_, msg, err := ws.Read(ctx)
-		if err != nil {
-			t.Fatalf("web terminal ended before %q: %v\n%s", want, err, seen.String())
+		f := <-frames
+		if f.err != nil {
+			t.Fatalf("web terminal ended before %q: %v\n%s", want, f.err, seen.String())
 		}
-		if len(msg) > 0 && msg[0] == '0' {
-			seen.Write(msg[1:])
-		}
+		take(f)
 	}
 }

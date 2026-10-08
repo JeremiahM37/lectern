@@ -35,6 +35,9 @@ def test_draft_retry_identity_and_new_text_during_send(page,server,width):
  page.route(path,hold);page.locator('#conversation-send').click()
  expect(page.locator('#conversation-receipt')).to_have_text('Sending…')
  box.fill('New text written during delivery')
+ for _ in range(300):
+  if len(ids)>=2:break
+  page.wait_for_timeout(50)
  assert held and ids[0]==ids[1]
  held[0][0].fulfill(response=held[0][1]);page.unroute(path,hold)
  expect(box).to_have_value('New text written during delivery')
