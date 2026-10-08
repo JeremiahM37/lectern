@@ -980,6 +980,13 @@ func (m *dashboard) newForm() tea.Cmd {
 }
 
 func (m *dashboard) newShellForm() tea.Cmd {
+	if !m.refsLoaded {
+		// Machines and projects load in the background after start-up; asking
+		// before they arrive is not the same as having none.
+		m.shellWaiting = true
+		m.notice = "Loading machines..."
+		return nil
+	}
 	if len(m.targets) == 0 && len(m.projects) == 0 {
 		m.notice = "No machines are configured. Add a target first."
 		return nil

@@ -25,6 +25,7 @@ func TestTargetPickerFiltersAsKeysArrive(t *testing.T) {
 
 func TestBlankShellFormOffersOneSearchableLocationField(t *testing.T) {
 	m := sampleDashboard()
+	m.refsLoaded = true
 	m.targets = []row{{"id": float64(1), "name": "AIServer", "kind": "local"}, {"id": float64(2), "name": "MediaServer", "kind": "ssh"}}
 	m.projects = []row{{"id": float64(7), "name": "Site", "repo_path": "/srv/site", "target_name": "AIServer"}}
 	m.newShellForm()
@@ -81,5 +82,17 @@ func TestBlankShell404ExplainsStaleRunningServer(t *testing.T) {
 	m.Update(resultMsg{label: "Create blank shell", err: &HTTPError{Status: 404, Detail: "404 page not found"}})
 	if !strings.Contains(m.notice, "restart or update Lectern") {
 		t.Fatalf("unhelpful stale-server notice: %q", m.notice)
+	}
+}
+
+func TestBlankShellAskedBeforeReferencesLoadOpensWhenTheyArrive(t *testing.T) {
+	m := sampleDashboard()
+	m.newShellForm()
+	if m.form != nil || strings.Contains(m.notice, "No machines") || !m.shellWaiting {
+		t.Fatalf("early request should wait, notice=%q", m.notice)
+	}
+	m.Update(refsMsg{targets: []row{{"id": float64(1), "name": "AIServer", "kind": "local"}}})
+	if m.form == nil || m.shellWaiting {
+		t.Fatal("blank shell form should open once machines arrive")
 	}
 }
