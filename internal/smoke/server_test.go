@@ -266,6 +266,9 @@ func webTerminal(t *testing.T, base string, id int64, line, want string) {
 	// repaints after a resize and drops keystrokes that arrive meanwhile (the
 	// CI failure typed "cho", the leading "e" lost). A browser only types once
 	// it has painted, so wait for the attach output to go quiet first.
+	// Nothing in the first keystroke is guaranteed to arrive on Windows: an
+	// empty line first absorbs a loss and shows it in the screen dump.
+	primed := false
 	for quiet := false; !quiet; {
 		select {
 		case f := <-frames:
@@ -274,6 +277,11 @@ func webTerminal(t *testing.T, base string, id int64, line, want string) {
 			}
 			take(f)
 		case <-time.After(1500 * time.Millisecond):
+			if seen.Len() > 0 && !primed {
+				primed = true
+				_ = ws.Write(ctx, websocket.MessageBinary, []byte("0\r"))
+				continue
+			}
 			quiet = seen.Len() > 0
 		}
 	}
