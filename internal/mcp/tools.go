@@ -715,7 +715,7 @@ var tools = []tool{
 			}, "name", "content"), "description": "pasted or chat-uploaded documents to attach by content — up to 10 files, 5 MiB each decoded; this is how the web connector hands over files"},
 			"notes":                    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Grimoire note paths to attach"},
 			"save_context_to_grimoire": flag("save `context` as a Grimoire note tagged lectern,brief (default true when context is given)"),
-			"model":                    str("model override"),
+			"model":                    str("model ID or alias to run, e.g. one named by the user; passed to the agent verbatim, never substituted (see list_agents for known IDs; an unlisted one is still passed, and a bad one shows as the agent CLI's own error in read_session)"),
 			"yolo":                     flag("run without approval prompts (default true, matching the UI default)"),
 			"brief":                    flag("prepend the project's Grimoire memory briefing (default true)"),
 		}, "prompt"),
@@ -777,7 +777,7 @@ var tools = []tool{
 					return nil, err
 				}
 				sess, _ := raw.(map[string]any)
-				return startSessionResult(sess, nil, "", ""), nil
+				return s.withModel(startSessionResult(sess, nil, "", ""), agentName, argStr(args, "model")), nil
 			}
 
 			raw, err := s.api("POST", "/sessions", body)
@@ -814,7 +814,7 @@ var tools = []tool{
 			if _, err := s.api("POST", fmt.Sprintf("/sessions/%d/send", id), map[string]any{"text": text}); err != nil {
 				return nil, fmt.Errorf("session #%d is running and context is attached, but sending the prompt failed: %w", id, err)
 			}
-			return startSessionResult(ready, attachedFiles, notePath, grimoireErr), nil
+			return s.withModel(startSessionResult(ready, attachedFiles, notePath, grimoireErr), agentName, argStr(args, "model")), nil
 		},
 	},
 	{
