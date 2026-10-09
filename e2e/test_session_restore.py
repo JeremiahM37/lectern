@@ -73,6 +73,10 @@ def test_web_can_track_again_from_untracked_records(page,real_terminal,width):
     page.route('**/api/sessions?all=true',lambda route:pending.append(route))
     session_tool(page, '#sess-scope').select_option('all')
     session_tool(page, '#sess-search').fill('Real terminal')
+    # The list is refetched from an effect after the scope change renders, so the
+    # request is not issued synchronously with select_option/fill.
+    deadline=time.monotonic()+15
+    while not pending and time.monotonic()<deadline:page.wait_for_timeout(50)
     assert pending
     pending[0].continue_()
     page.unroute('**/api/sessions?all=true')

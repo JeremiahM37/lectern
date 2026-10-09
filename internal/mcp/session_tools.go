@@ -151,7 +151,7 @@ func (s *Server) resolveProjectByName(name string) (map[string]any, error) {
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("no project named %q — have: %s", name, strings.Join(names, ", "))
+	return nil, fmt.Errorf("no project named %q — have: %s. To use a new project, call create_project first (or pass workdir)", name, strings.Join(names, ", "))
 }
 
 // pollSessionReady waits for a freshly created session to be somewhere safe

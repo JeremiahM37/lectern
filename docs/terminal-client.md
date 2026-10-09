@@ -65,6 +65,10 @@ launches with no arguments and no terminal still start the server. Either way
 it listens only on 127.0.0.1 unless a token or Tailscale identity protects it
 (see [Remote access](remote-access.md#where-lectern-listens)).
 
+![The dashboard: sessions on three machines with a live preview](media/control-plane/native-cli.png)
+
+*Demo projects with scripted agent responses.*
+
 The bottom line is the **key bar**: it shows only the keys that work for the
 pane and row you are on, most useful first, with `q quit` and `? keys` always
 at the right. `?` opens every key for the current view; it scrolls, and `/`
@@ -143,6 +147,8 @@ Selections survive searching/filtering. **Enter** opens one terminal per selecte
 session, then clears the successfully completed selection. **b** cancels selection
 mode. Ordinary Enter and left-click still attach in place outside selection mode.
 Right-click always opens just that session immediately.
+
+![Selection mode with three sessions marked](media/control-plane/native-cli-multiselect.png)
 
 A terminal launched on a server through plain SSH cannot create desktop windows
 on your laptop without a client-side launcher. When no desktop display is available,
@@ -237,6 +243,8 @@ double-click opens paths`. Below 60 columns it keeps `Ctrl+] menu · Ctrl+] d
 leave`. When the session is waiting for an approval, the bar starts with
 `⏸ Needs you · Ctrl+] y allow · Ctrl+] m more`, then what it asks; the keys
 come first so a narrow terminal cuts the request, not the way to answer it.
+
+![An attached session with the key bar at the top](media/control-plane/native-cli-attached.png)
 
 Pressing **Ctrl+]** turns the bar into the list of keys that can follow it,
 until you press one: `m actions · d leave · u send file · | shell right ·
