@@ -174,13 +174,13 @@ primed with its last handoff or the end of its conversation.`,
 	},
 	{
 		Name: "controls", Group: groupSessions, Synopsis: "controls [KIND ID]",
-		Summary:  "Lectern's session menu, without opening another terminal",
+		Summary:  "Lectern's session menu, without a new terminal",
 		Usage:    []string{"lectern controls [KIND ID] [--popup] [--action upload]"},
 		Examples: []string{"lectern controls session 4"},
 	},
 	{
-		Name: "clipboard", Group: groupSessions, Synopsis: "clipboard serve [--session ID]",
-		Summary: "Paste screenshots from this computer into agent sessions on a server",
+		Name: "clipboard", Group: groupSessions, Synopsis: "clipboard serve",
+		Summary: "Share this computer's clipboard with a server's agents",
 		Usage: []string{
 			"lectern clipboard serve [--session ID] [--text]   Offer this computer's clipboard (for a plain ssh session)",
 			"lectern claude / lectern attach                    do this automatically while attached",

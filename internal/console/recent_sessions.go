@@ -47,6 +47,22 @@ func recentClosedAge(r row) string {
 	return shortAge(age) + " ago"
 }
 
+// sessionAge is how long since a live session last did anything ("40s",
+// "12m", "3h 5m", "2d 4h"), or "" when the server sent no timestamp.
+func sessionAge(r row) string {
+	at, ok := r["last_activity_at"].(float64)
+	if !ok || at <= 0 {
+		if at, ok = r["created_at"].(float64); !ok || at <= 0 {
+			return ""
+		}
+	}
+	age := time.Since(time.Unix(int64(at), 0))
+	if age < time.Minute {
+		return "now"
+	}
+	return shortAge(age)
+}
+
 func shortAge(age time.Duration) string {
 	if age < time.Hour {
 		return fmt.Sprintf("%dm", int(age/time.Minute))
