@@ -316,7 +316,7 @@ export function SessionCard({
             {cardTitle}
           </button>
         )}
-        <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} />
+        <StatusBadge session={s} pendingApproval={approval ? !!activeApproval : undefined} brief />
         {/* A phone has room for the time alone; the words stay in its title. */}
         <span className="sidle" title={phone && quiet ? quiet : undefined}>
           {phone && quiet ? duration(s.idle_seconds) : quiet}
