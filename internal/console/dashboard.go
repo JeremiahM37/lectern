@@ -690,7 +690,7 @@ func (m *dashboard) updatePreview() {
 		case "sessions":
 			content = fmt.Sprintf("%s\n%s · %s · %s\n%s\n\n%s", name(r), str(r["agent"]), m.sessionStatus(r), str(r["target_name"]), str(r["workdir"]), str(r["pane_tail"]))
 			if a := m.approvalFor(r); a != nil {
-				content = "Needs you: " + approvalSummary(a) + "\ny allow once · a allow for this session · n deny\n\n" + content
+				content = "Needs you: " + approvalSummary(a) + "\ny allow once · a allow for this session · N deny\n\n" + content
 			} else if agentExited(r) {
 				content = "The agent exited; this terminal is at a shell prompt.\nr starts the agent again (its conversation is resumed when one was saved).\n\n" + content
 			}

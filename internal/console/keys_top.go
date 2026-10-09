@@ -11,7 +11,7 @@ func (m *dashboard) updateTopLevel(v tea.KeyMsg) tea.Cmd {
 	section := sections[m.section]
 	k := v.String()
 	switch k {
-	case "y", "a", "n":
+	case "y", "a", "n", "N":
 		if cmd, handled := m.approvalKey(k); handled {
 			return cmd
 		}

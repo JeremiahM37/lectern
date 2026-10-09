@@ -170,9 +170,9 @@ func (m *dashboard) sessionKeys() []keyHint {
 		return []keyHint{{"n", "new session"}, {"r", "restore"}, {":", "commands"}}
 	}
 	if m.approvalFor(r) != nil {
-		// n answers the request here, as on Approvals; a new session is
-		// still on : and m.
-		return []keyHint{{"y", "allow once"}, {"a", "allow for session"}, {"n", "deny"}, {"Enter", "attach"}, {"x", "end"}, {"m", "more"}}
+		// N (Shift) denies here; plain n stays "new session" so it can
+		// never deny by accident.
+		return []keyHint{{"y", "allow once"}, {"a", "allow for session"}, {"N", "deny"}, {"Enter", "attach"}, {"x", "end"}, {"m", "more"}}
 	}
 	switch {
 	case r["setup_state"] == "creating":
@@ -310,10 +310,10 @@ func (m *dashboard) helpFor(context string) []keyHint {
 			{"Enter / click", "attach here (Ctrl+] d comes back)"},
 			{"o / right-click", "open in a new terminal window"},
 			{"b, Space", "select several, Enter opens them all"},
-			{"n", "new session (deny, when the session needs you)"},
+			{"n", "new session"},
 			{"x / d / Delete", "end the session (asks first; r restores it)"},
 			{"r", "restore: start an exited agent again, or open the Restore list"},
-			{"y / a / n", "allow once / allow for this session / deny, when it needs you"},
+			{"y / a / N", "allow once / allow for this session / deny, when it needs you"},
 			{"v", "review changes"},
 			{"u", "send a file"},
 			{"e", "rename"},

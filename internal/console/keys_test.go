@@ -267,16 +267,22 @@ func TestApprovalKeysDecideInline(t *testing.T) {
 	if last["for_session"] != true || last["decision"] != "approved" {
 		t.Fatalf("allow for session sent %v", last)
 	}
-	// n denies, on the asking session as on Approvals: the same key the
-	// key bar and the session preview name.
+	// On the asking session a plain n is still "new session" (it must
+	// never deny by accident); Shift+N denies, as the key bar says.
 	m.busy = false
-	if bar := barText(m); !strings.Contains(bar, "n deny") || strings.Contains(bar, "2 deny") {
+	if bar := barText(m); !strings.Contains(bar, "N deny") || strings.Contains(bar, "2 deny") {
 		t.Fatalf("asking session bar: %q", bar)
 	}
-	_, cmd = m.Update(key("n"))
+	sent := len(rec.bodies)
+	m.Update(key("n"))
+	if len(rec.bodies) != sent {
+		t.Fatalf("plain n on the asking session sent a decision: %v", rec.bodies[len(rec.bodies)-1])
+	}
+	m.form, m.notice = nil, ""
+	_, cmd = m.Update(key("N"))
 	run(m, cmd)
 	if last = rec.bodies[len(rec.bodies)-1]; last["decision"] != "denied" || m.form != nil {
-		t.Fatalf("n on the asking session sent %v (form open: %v)", last, m.form != nil)
+		t.Fatalf("N on the asking session sent %v (form open: %v)", last, m.form != nil)
 	}
 	m.busy = false
 	m.switchSection(1)

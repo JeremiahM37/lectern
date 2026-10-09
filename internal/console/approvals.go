@@ -172,9 +172,13 @@ func (m *dashboard) approvalKey(key string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.decide(a, "approved", true, ""), true
-	case "n":
-		// The same key on Approvals, on a session that is asking, and
-		// (as Ctrl+] then m) while attached.
+	case "n", "N":
+		// On Sessions a plain n always starts a new session, so a reflexive
+		// "new" can never deny a waiting request; deny there is Shift+N.
+		// On Approvals both answer, since nothing else is new there.
+		if key == "n" && sections[m.section] == "sessions" {
+			return nil, false
+		}
 		return m.decide(a, "denied", false, ""), true
 	}
 	return nil, false
@@ -208,8 +212,8 @@ func (m *dashboard) approvalBanner(width int) string {
 	who := approvalWho(m.approvals[0])
 	summary := approvalSummary(m.approvals[0])
 	candidates := []string{
-		fmt.Sprintf(" ⏸ %s needs you: %s — y allow or n deny on the session, or 2 for Approvals", who, summary),
-		fmt.Sprintf(" ⏸ %s needs you: %s — y allow · n deny · 2 Approvals", who, summary),
+		fmt.Sprintf(" ⏸ %s needs you: %s — y allow or N deny on the session, or 2 for Approvals", who, summary),
+		fmt.Sprintf(" ⏸ %s needs you: %s — y allow · N deny · 2 Approvals", who, summary),
 		fmt.Sprintf(" ⏸ %s needs you — y allow · n deny · 2 Approvals", who),
 		" ⏸ needs you — y allow · 2 Approvals",
 		" ⏸ 1 approval needs you — press 2",
@@ -234,7 +238,7 @@ func approvalPreview(a row) string {
 	if approvalSessionID(a) != "" {
 		lines = append(lines, "a allow for this session (asks first)")
 	}
-	lines = append(lines, "n deny", "m deny with a reason")
+	lines = append(lines, "n / N deny", "m deny with a reason")
 	if approvalSessionID(a) != "" {
 		lines = append(lines, "Enter open the session")
 	}

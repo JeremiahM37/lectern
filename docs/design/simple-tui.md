@@ -239,11 +239,16 @@ Confirmation for End:
 ### Narrow terminals (UX pass, 2026-10-08)
 
 - The approval banner shortens itself to the width: the full sentence, then
-  "y allow · n deny · 2 Approvals", then "needs you — y allow · 2 Approvals".
+  "y allow · N deny · 2 Approvals", then "needs you — y allow · 2 Approvals".
   The command text is what gets dropped first; the answer keys are kept.
 - A session row ends with its age (`· 12m`, `· 3h 5m`, `· now` under a
   minute), from `last_activity_at` (or `created_at`). It is the last thing
   a narrow row drops, after the status word.
+- On Sessions, plain `n` is always "new session", even on a session that is
+  waiting for you; deny there is **Shift+N**. It used to be `n`, so the most
+  common key in the dashboard silently denied a request whenever the cursor
+  happened to sit on an asking session. The Approvals pane, where nothing
+  else is "new", answers to both `n` and `N`.
 - `lectern --help` keeps every synopsis within the 26-column name column;
   `clipboard serve [--session ID]` is shown as `clipboard serve`, with the
   flags in its own `lectern help clipboard`.
