@@ -236,6 +236,18 @@ Confirmation for End:
  y end · n / Esc keep it
 ```
 
+### Narrow terminals (UX pass, 2026-10-08)
+
+- The approval banner shortens itself to the width: the full sentence, then
+  "y allow · n deny · 2 Approvals", then "needs you — y allow · 2 Approvals".
+  The command text is what gets dropped first; the answer keys are kept.
+- A session row ends with its age (`· 12m`, `· 3h 5m`, `· now` under a
+  minute), from `last_activity_at` (or `created_at`). It is the last thing
+  a narrow row drops, after the status word.
+- `lectern --help` keeps every synopsis within the 26-column name column;
+  `clipboard serve [--session ID]` is shown as `clipboard serve`, with the
+  flags in its own `lectern help clipboard`.
+
 ## Native attach bar
 
 Before (cut off at 80 columns, so the detach key is lost):

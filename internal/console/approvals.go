@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Pending approvals are polled alongside whatever pane is open, so the count,
@@ -193,15 +194,32 @@ func (m *dashboard) attachApprovalSession() tea.Cmd {
 	return cmd
 }
 
-func (m *dashboard) approvalBanner() string {
+// approvalBanner says what is waiting and which key answers it. It shortens
+// itself to fit width, dropping the command text first, so the keys to answer
+// with (the part a narrow terminal used to cut off) are the last thing lost.
+func (m *dashboard) approvalBanner(width int) string {
 	n := len(m.approvals)
 	if n == 0 {
 		return ""
 	}
-	if n == 1 {
-		return fmt.Sprintf(" ⏸ %s needs you: %s — y allow or n deny on the session, or 2 for Approvals", approvalWho(m.approvals[0]), approvalSummary(m.approvals[0]))
+	if n > 1 {
+		return fmt.Sprintf(" ⏸ %d approvals need you — press 2", n)
 	}
-	return fmt.Sprintf(" ⏸ %d approvals need you — press 2", n)
+	who := approvalWho(m.approvals[0])
+	summary := approvalSummary(m.approvals[0])
+	candidates := []string{
+		fmt.Sprintf(" ⏸ %s needs you: %s — y allow or n deny on the session, or 2 for Approvals", who, summary),
+		fmt.Sprintf(" ⏸ %s needs you: %s — y allow · n deny · 2 Approvals", who, summary),
+		fmt.Sprintf(" ⏸ %s needs you — y allow · n deny · 2 Approvals", who),
+		" ⏸ needs you — y allow · 2 Approvals",
+		" ⏸ 1 approval needs you — press 2",
+	}
+	for _, c := range candidates {
+		if width <= 0 || ansi.StringWidth(c) <= width {
+			return c
+		}
+	}
+	return candidates[len(candidates)-1]
 }
 
 // approvalPreview is what the Approvals pane shows beside the list: what is

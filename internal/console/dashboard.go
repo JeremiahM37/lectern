@@ -1451,7 +1451,7 @@ func (m *dashboard) View() string {
 	}
 	title += strings.Repeat(" ", max(1, m.width-ansi.StringWidth(title)-len(connection)-2)) + connection
 	header := clip(title, m.width) + "\n" + clip(m.tabsView(), m.width) + "\n" + clip(m.query.View(), m.width-1) + "\n"
-	if banner := m.approvalBanner(); banner != "" {
+	if banner := m.approvalBanner(m.width - 1); banner != "" {
 		header += needsStyle.Render(clip(banner, m.width-1)) + "\n"
 	} else {
 		group := []string{"project", "machine", "none", "named group"}[m.grouping]
@@ -1660,6 +1660,12 @@ func (m *dashboard) listView(height int) string {
 			word = needsStyle.Render(s)
 		}
 		meta := muted.Render("  "+m.group(r)+" · ") + word + muted.Render(" · "+str(r["agent"]))
+		if sections[m.section] == "sessions" {
+			// Age goes last so a narrow row drops it before the status word.
+			if age := sessionAge(r); age != "" {
+				meta += muted.Render(" · " + age)
+			}
+		}
 		if line := itemMeta(sections[m.section], r); line != "" {
 			meta = muted.Render("  " + line)
 		}
