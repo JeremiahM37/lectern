@@ -74,11 +74,15 @@ it has no More menu or floating navigation panel over the terminal.
 
 Narrow screens keep Sessions, Approvals, Settings and More; Tasks joins them
 once there is a task, i.e. once someone uses it. More holds the remaining
-destinations, Terminals with a count of open tabs, and closes on navigation. Resizing an open More menu to
+destinations, Terminals with a count of open tabs, and closes on navigation. It is
+grouped under three quiet headings, **Running** (Terminals, Overview), **Work** (Tasks, Issues & PRs,
+Media, Agent tests) and **Setup** (Machines, Plugins), so it reads as a menu rather than one list. Resizing an open More menu to
 desktop removes the menu rather than leaving its panel over the workspace.
 
 - **Home is always Sessions**, unless the URL names a page.
 - **Approvals** carries the count of pending approvals.
+  On a phone the card's Allow once is the full-width tap; Deny and the remembered
+  rule share the row below it.
 - **Terminals** is always available in the desktop sidebar and under More on
   narrow screens, including when no terminal is open.
 - **Machines** and **Plugins** open their Settings sections.
