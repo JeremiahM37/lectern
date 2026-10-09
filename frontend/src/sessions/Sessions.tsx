@@ -704,10 +704,9 @@ export function Sessions({
               ).length,
             })}
           </p>
+          {!phone && <QuotaChip api={api} />}
         </div>
-        <QuotaChip api={api} />
-        {!compact && headerExtras}
-        {!phone && restoreButton}
+        {phone && <QuotaChip api={api} />}
         {openTerminals && (
           <button className="b" id="sess-terminals" onClick={openTerminals.open} aria-label={phone ? terminalsLabel : undefined}>
             {phone ? (
@@ -725,28 +724,30 @@ export function Sessions({
         <button className="b ok" id="sess-new" onClick={() => setSheet("new")}>
           {t("sessions.list.newSession")}
         </button>
-        {compact && (
-          <details className="action-menu sess-more" id="sess-more">
-            <summary aria-label={t("sessions.list.moreLabel")}>⋯</summary>
-            {phone ? phoneSheet : (
-            <div className="action-menu-panel">
-              {headerExtras}
-              {!showSearch && searchField}
-              {listFilters}
-              <button
-                className="b"
-                id="sess-scratch"
-                onClick={(event) => {
-                  setScratchShown(true);
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                }}
-              >
-                {t("sessions.scratchReview.summary")}
-              </button>
-            </div>
-            )}
-          </details>
-        )}
+        {/* One primary button in the header; every other tool waits under ⋯
+            on desktop and on the phone, so the header reads the same in both
+            states (the empty first run included). */}
+        <details className="action-menu sess-more" id="sess-more">
+          <summary aria-label={t("sessions.list.moreLabel")}>⋯</summary>
+          {phone ? phoneSheet : (
+          <div className="action-menu-panel">
+            {headerExtras}
+            {restoreButton}
+            {!showSearch && searchField}
+            {few && listFilters}
+            <button
+              className="b"
+              id="sess-scratch"
+              onClick={(event) => {
+                setScratchShown(true);
+                event.currentTarget.closest("details")?.removeAttribute("open");
+              }}
+            >
+              {t("sessions.scratchReview.summary")}
+            </button>
+          </div>
+          )}
+        </details>
       </div>
       {relaunched.length > 0 && (
         <div className="restore-banner relaunch-notice" role="status">
@@ -792,8 +793,13 @@ export function Sessions({
         onShowSession={showSession}
         onShowApprovals={showApprovals}
       />
-      {showSearch && searchField}
-      {!compact && listFilters}
+      {phone && showSearch && searchField}
+      {!phone && !few && (
+        <div className="session-toolbar">
+          {searchField}
+          {listFilters}
+        </div>
+      )}
       {recentOpen && (
         <RestorePanel
           api={api}

@@ -53,12 +53,14 @@ def test_now_strip_shows_a_waiting_session_and_the_approval_count(page, server):
     approvals_chip.click()
     expect(page.locator("#needs-you")).to_be_in_viewport()
 
-    # Wider, every session has its chip, and one tap opens the session it names.
+    # Wider, the strip steps aside: the sidebar carries the approval count and
+    # every session is already a card, so one tap on that card opens it.
     page.set_viewport_size({"width": 1024, "height": 800})
     page.evaluate("scrollTo(0, 0)")
-    expect(waiting_chip).to_contain_text("Idle")
-    waiting_chip.click()
-    expect(page.locator(".scard", has_text="Waiting agent")).to_be_visible()
+    expect(strip).to_be_hidden()
+    card = page.locator(".scard", has_text="Waiting agent")
+    expect(card).to_be_visible()
+    expect(card.locator(".sstate")).to_contain_text("Idle")
 
 
 def test_now_strip_stays_out_of_the_way_with_nothing_to_show(page, server):

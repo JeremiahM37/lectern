@@ -68,3 +68,11 @@
     max-width: 100px;
   }
 }
+
+/* Desktop (the sidebar breakpoint and up): the sidebar already carries the
+   approval count and every session has a card, so the strip only repeats them. */
+@media (min-width: 1024px) {
+  .now-strip {
+    display: none;
+  }
+}

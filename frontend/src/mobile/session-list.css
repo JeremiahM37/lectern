@@ -7,11 +7,15 @@
 
      ● demo-app #3                        Idle · 23s
      cwd: /mock/demo-app
-     claude · demo-app          Chat  ⌨ Terminal  ⋯
+     claude · claude-opus-5-5 · demo-app · ctx 34% · $1.42
+                                       Chat  ⌨ Terminal  ⋯
 
-   Tapping the card opens its terminal (SessionCard's openFromCard); its
-   buttons keep the 40px a thumb needs but no longer shout. The project moves
-   into the meta line, and only when the title does not already name it.
+   The facts line and the actions each have a row of their own: at 360px the
+   facts (agent, model, project, context, cost) wrap, and beside the buttons
+   they collided. Tapping the card opens its terminal (SessionCard's
+   openFromCard); its buttons keep the 40px a thumb needs but no longer shout.
+   The project moves into the meta line, and only when the title does not
+   already name it.
 
    The header keeps "Sessions" whole: the open-terminals way back is an icon
    with a count, and the ⋯ sheet groups its tools with one icon column. */
@@ -53,8 +57,8 @@
   #sesslist, #view .session-grid { row-gap: 8px; }
   #view .session-group-body .scard { margin-top: 8px; }
   #view .scard {
-    display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 3px;
-    padding: 8px 10px 8px 14px; margin-bottom: 0; border-radius: 12px;
+    display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 2px;
+    padding: 6px 10px 6px 14px; margin-bottom: 0; border-radius: 12px;
   }
   #view .scard > * { flex: 1 1 100%; min-width: 0; order: 2; margin-top: 0; }
   #view .scard > .scard-top { order: 1; }
@@ -72,7 +76,7 @@
   #view .scard[data-state="needs_you"] .scard-top .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
   #view .scard[data-state="idle"] .scard-top .dot { background: var(--green); opacity: .75; }
   #view .scard[data-state="ended"] .scard-top .dot { background: transparent; border: 1.5px solid var(--ink-faint); }
-  #view .scard-top .nm { flex: 0 1 auto; min-height: 28px; height: auto; font-size: 15px; font-weight: 600; line-height: 1.3; }
+  #view .scard-top .nm { flex: 0 1 auto; min-height: 26px; height: auto; font-size: 15px; font-weight: 600; line-height: 1.3; }
   #view .scard[data-scratch-terminal] .scard-top { flex-wrap: wrap; }
   #view .scard-top .status-badge { margin-left: auto; flex: none; }
   /* Idle and working are words, not pills; Needs you keeps its outline. */
@@ -96,9 +100,9 @@
   #view .scard .spane.spane-full { white-space: pre-wrap; overflow-wrap: anywhere; text-overflow: clip; }
   #view .scard .spane:empty { display: none; }
 
-  /* Row 3: agent · project as text, then the actions on the right. */
+  /* Row 3: agent · model · project · context · cost, as text on a line of its own. */
   #view .scard > .smeta {
-    flex: 1 1 56px; align-self: center; gap: 2px 6px; margin: 0;
+    flex: 1 1 100%; align-self: stretch; gap: 2px 6px; margin: 0;
     font-size: 12px; color: var(--ink-faint);
   }
   #view .scard .smeta > .chip:not(.warn):not(.info):not(.media-chip) {
@@ -106,8 +110,11 @@
     font-size: 12px; color: var(--ink-faint);
   }
   #view .scard .smeta > .chip-where::before { content: "· "; }
+  /* The context bar shrinks to its percentage so row 3 stays one line at 360px. */
+  #view .scard .smeta .ctxbar i { display: none; }
+  /* Row 4: the actions, right-aligned on their own line. */
   #view .scard > .btnrow {
-    flex: 0 0 auto; margin: 0 0 0 auto; gap: 4px; flex-wrap: wrap; justify-content: flex-end;
+    flex: 1 1 100%; margin: 2px 0 0; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
   }
   #view .scard .btnrow > .b, #view .scard .btnrow > .action-menu { flex: none; min-width: 0; }
   #view .scard .btnrow > button.b {

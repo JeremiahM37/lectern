@@ -359,3 +359,83 @@
   font-size: 11px;
   font-style: normal;
 }
+
+/* ---- Desktop card title row: dot · name · status · quiet time, one line.
+   The dot had no rule of its own on the desk, so it fell out of the flow and
+   a long name pushed the status badge onto a second line. The phone sheet
+   (mobile/session-list.css) restyles the same row under 600px. */
+.scard > .scard-top {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.scard > .scard-top .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.scard[data-state="working"] > .scard-top .dot { background: var(--accent-soft); box-shadow: 0 0 6px var(--accent-soft); }
+.scard[data-state="needs_you"] > .scard-top .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.scard[data-state="idle"] > .scard-top .dot { background: var(--green); opacity: 0.75; }
+.scard[data-state="ended"] > .scard-top .dot { background: transparent; border: 1.5px solid var(--ink-faint); }
+.scard > .scard-top .nm {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scard > .scard-top .status-badge,
+.scard > .scard-top .sidle {
+  flex: none;
+}
+.scard > .scard-top .sidle {
+  color: var(--ink-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scard > .scard-top .nm-edit {
+  flex: 1 1 auto;
+}
+
+/* ---- Desktop list toolbar: search and the two selects share one row. ---- */
+.session-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.session-toolbar #sess-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 520px;
+  height: 36px;
+  box-sizing: border-box;
+}
+.session-toolbar .session-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+.session-toolbar .session-grouping {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.session-toolbar .session-grouping select.f {
+  width: auto;
+  min-width: 0;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 8px;
+}

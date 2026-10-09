@@ -48,15 +48,16 @@ def _title_whole(page):
     assert not fit["overlaps"], fit
 
 
-def test_five_sessions_fit_on_a_phone_screen(page, server):
+def test_four_sessions_fit_on_a_phone_screen(page, server):
     _sessions(page, server, ["List row %d" % i for i in range(7)])
     page.set_viewport_size(PHONE_412)
     page.goto(server + "/#sessions")
     expect(page.locator("#sesslist .scard")).to_have_count(7, timeout=30000)
     expect(page.locator("#sesslist .scard .spane").first).not_to_be_empty(timeout=15000)
-    assert _fully_visible_cards(page) >= 5
+    # Four short lines per card (name, pane line, facts, actions on their own row
+    # so nothing shares a line with the metadata that wraps at 360px).
+    assert _fully_visible_cards(page) >= 4
     card = page.locator("#sesslist .scard").first
-    # Three short lines: name, the newest line of the pane, then agent and actions.
     assert card.bounding_box()["height"] <= 130, card.bounding_box()
     spane = card.locator(".spane")
     assert spane.evaluate("el => el.getBoundingClientRect().height") <= 20

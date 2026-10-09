@@ -187,6 +187,22 @@ sheet and the page a notification opens. Keys work while the card has focus
 this session, **N** deny with a note. A task's approval has no session, so its
 second button is **Always allow in this project** (the old ∞ Always).
 
+## Sessions home: header, toolbar and cards (2026-10-08)
+
+- **Header**: one primary button, **Start an agent**, and a **⋯** menu on
+  desktop and phone alike (Search saved conversations, Find running agents,
+  Restore, scratch cleanup). The same header shows in the empty first run. The
+  usage line sits under the title on desktop.
+- **Toolbar**: search and the Group by / Show selects share one row on desktop.
+- **Card title row** is one line on desktop: state dot, name (ellipsis), status
+  word, quiet time. Needs you sorts first and carries the amber dot.
+- **The "Now" chip strip is phone-only.** From the sidebar breakpoint (1024px)
+  up, the sidebar's Approvals count and the cards already show what the strip
+  repeated, so the strip is hidden there.
+- **Phone card** is four lines: title, pane line, facts (agent · model ·
+  project · context · cost), then the actions right-aligned on their own row.
+  Four cards fit a 412px screen above the tab bar.
+
 ## Settings
 
 ```

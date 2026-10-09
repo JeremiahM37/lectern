@@ -49,7 +49,7 @@ button, input, select, textarea { font-family: inherit; }
   background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .brand h1 {
-  margin: 0; font: 700 18px/1 var(--sans); letter-spacing: -.015em; color: var(--ink);
+  margin: 0; font: 700 18px/1 var(--sans); letter-spacing: .01em; color: var(--ink);
 }
 .brand h1 b { color: var(--accent-soft); font-weight: 700; }
 .brand-sub {
