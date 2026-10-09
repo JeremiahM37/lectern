@@ -41,3 +41,5 @@
 .live-desktop { height: auto; aspect-ratio: 16 / 10; background: var(--scrim); }
 .live-copy { border: 0; background: transparent; color: var(--accent-soft); cursor: pointer; font: inherit; padding: 0 2px; }
 .media-expose { align-self: flex-start; }
+/* A phone wraps the example commands instead of cutting them off at the edge. */
+@media (max-width: 600px) { .media-empty pre { white-space: pre-wrap; word-break: break-all; } }

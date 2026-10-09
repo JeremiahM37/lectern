@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { authToken, createDeckApi, withToken } from "./api";
 import type {
   Approval,
@@ -35,7 +35,7 @@ import { loadPluginContributions, safeHref, usePluginContributions } from "./plu
 import { Palette, type Command } from "./shell/Palette";
 import { modHost } from "./mods/host";
 import { ModPanes, ModStatus, useModsVersion } from "./mods/react";
-import { canonicalHash, HOME, isView, moreEntries, primaryViews, VIEWS, type View } from "./shell/routes";
+import { canonicalHash, HOME, isView, moreGroups, moreEntries, primaryViews, VIEWS, type View } from "./shell/routes";
 import { Deck, Approvals } from "./shell/LiveViews";
 import { Icon } from "./shell/Icon";
 import { Modal } from "./sessions/Modal";
@@ -1362,31 +1362,36 @@ export default function App() {
             </b>
           </summary>
           <div className="action-menu-panel">
-            {moreEntries(tasks.length > 0).map((entry) => {
-              const key = "view" in entry ? entry.view : entry.section;
-              return (
-                <button
-                  key={key}
-                  data-nav-target={key}
-                  aria-current={"view" in entry && view === entry.view ? "page" : undefined}
-                  onClick={(event) => {
-                    if ("view" in entry) navigate(entry.view === "terminals" ? terminals.hash : "#" + entry.view);
-                    else settings(entry.section);
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                  }}
-                >
-                  <span className="more-title">
-                    {"view" in entry ? label(entry.view) : t(`nav.more.${entry.section}`)}
-                    {key === "terminals" && (
-                      <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
-                        {terminals.tabs.length}
-                      </b>
-                    )}
-                  </span>
-                  <span className="more-detail">{t(`nav.moreDetail.${key}`)}</span>
-                </button>
-              );
-            })}
+            {moreGroups(tasks.length > 0).map((group) => (
+              <Fragment key={group.id}>
+                <div className="more-group-title" role="presentation">{t(`nav.moreGroup.${group.id}`)}</div>
+                {group.entries.map((entry) => {
+                    const key = "view" in entry ? entry.view : entry.section;
+                    return (
+                      <button
+                        key={key}
+                        data-nav-target={key}
+                        aria-current={"view" in entry && view === entry.view ? "page" : undefined}
+                        onClick={(event) => {
+                          if ("view" in entry) navigate(entry.view === "terminals" ? terminals.hash : "#" + entry.view);
+                          else settings(entry.section);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        <span className="more-title">
+                          {"view" in entry ? label(entry.view) : t(`nav.more.${entry.section}`)}
+                          {key === "terminals" && (
+                            <b id="terminal-badge" className="badge dim" hidden={!terminals.tabs.length}>
+                              {terminals.tabs.length}
+                            </b>
+                          )}
+                        </span>
+                        <span className="more-detail">{t(`nav.moreDetail.${key}`)}</span>
+                      </button>
+                    );
+                })}
+              </Fragment>
+            ))}
           </div>
         </details>}
       </nav>

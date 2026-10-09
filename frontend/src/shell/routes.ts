@@ -34,6 +34,30 @@ export function moreEntries(hasTasks: boolean): MoreEntry[] {
   return [...views.map((view) => ({ view })), { section: "machines" }, { section: "plugins" }];
 }
 
+/**
+ * The More menu, in three labelled groups (what is running, what you work on,
+ * what you set up) rather than one long list. Order within a group follows
+ * moreEntries, so the flat order is unchanged.
+ */
+export type MoreGroupId = "running" | "work" | "setup";
+const MORE_GROUP_OF: Record<string, MoreGroupId> = {
+  terminals: "running",
+  overview: "running",
+  tasks: "work",
+  issues: "work",
+  media: "work",
+  evals: "work",
+  machines: "setup",
+  plugins: "setup",
+};
+export function moreGroups(hasTasks: boolean): { id: MoreGroupId; entries: MoreEntry[] }[] {
+  const ids: MoreGroupId[] = ["running", "work", "setup"];
+  const keyOf = (entry: MoreEntry) => ("view" in entry ? entry.view : entry.section);
+  return ids
+    .map((id) => ({ id, entries: moreEntries(hasTasks).filter((entry) => MORE_GROUP_OF[keyOf(entry)] === id) }))
+    .filter((group) => group.entries.length > 0);
+}
+
 /** Home, on every device and after every reload that names no page. */
 export const HOME: View = "sessions";
 

@@ -42,6 +42,13 @@
 .approvals-page .approval-card { margin-bottom: 14px; }
 /* A touch screen has no keys to press. */
 @media (hover: none) and (pointer: coarse) { .approval-kbd { display: none; } }
+/* A phone: Allow once is the one big tap; Deny and the remembered rule share the
+   row below it at a full touch target, instead of wrapping Deny onto a line of its own. */
+@media (max-width: 600px) {
+  .approval-card .approval-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .approval-card .approval-actions > button { min-height: 44px; justify-content: center; text-align: center; }
+  .approval-card .approval-actions > .b.ok { grid-column: 1 / -1; min-height: 52px; font-size: 16px; }
+}
 
 /* ---- navigation: More ---- */
 #nav-overflow .action-menu-panel > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
@@ -189,3 +196,9 @@
 .commit-options[open] > summary { margin-bottom: 4px; }
 .commit-nothing .linkish { background: none; border: 0; padding: 0; color: var(--accent-soft); font: inherit; cursor: pointer; text-decoration: underline; }
 .commit-no-identity .identity-error { margin: 2px 0 6px; color: var(--red); font-weight: 600; }
+/* The More menu's groups: a quiet heading above each run of pages. */
+#nav-overflow .more-group-title {
+  padding: 8px 12px 2px; font: 600 10.5px/1.2 var(--sans, inherit); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+#nav-overflow .more-group-title:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }

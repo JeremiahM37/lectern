@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canonicalHash, HOME, moreEntries, primaryViews, VIEWS } from "./routes";
+import { canonicalHash, HOME, moreEntries, moreGroups, primaryViews, VIEWS } from "./routes";
 
 test("old links land on the page that has the same meaning now", () => {
   assert.equal(canonicalHash("#board"), "#tasks");
@@ -26,4 +26,15 @@ test("narrow navigation is three pages and More; Tasks joins once used", () => {
 
 test("a desktop sidebar lists every page and has no More", () => {
   for (const used of [false, true]) assert.deepEqual(primaryViews(used, true), [...VIEWS]);
+});
+
+test("More is grouped, and every entry appears once in the same order", () => {
+  for (const hasTasks of [false, true]) {
+    const key = (e: ReturnType<typeof moreEntries>[number]) => ("view" in e ? e.view : e.section);
+    const flat = moreEntries(hasTasks).map(key);
+    const grouped = moreGroups(hasTasks).flatMap((g) => g.entries.map(key));
+    assert.deepEqual(grouped.sort(), [...flat].sort());
+    assert.deepEqual(moreGroups(hasTasks).map((g) => g.id), ["running", "work", "setup"]);
+  }
+  assert.deepEqual(moreGroups(false)[0]!.entries.map((e) => ("view" in e ? e.view : e.section)), ["terminals", "overview"]);
 });
