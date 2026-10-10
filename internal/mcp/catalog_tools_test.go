@@ -75,8 +75,12 @@ func TestCreateProjectCreatesDirGitAndWorkerEnv(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(want, ".git")); err != nil {
 		t.Fatalf("git repo not created: %v", err)
 	}
-	if m := out.(map[string]any); m["model_warning"] != nil {
+	m := out.(map[string]any)
+	if m["model_warning"] != nil {
 		t.Fatalf("listed model must not warn: %v", m)
+	}
+	if doc, _ := m["document"].(string); !strings.Contains(doc, "Projects/zz-new/zz-new.md") {
+		t.Fatalf("the new project's note was not named: %v", m)
 	}
 }
 

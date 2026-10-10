@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/memory"
 )
 
 // subagentModelEnv is the Claude Code variable that picks the model its
@@ -120,7 +122,8 @@ func init() {
 			"directory is created if missing; git_init (default true) makes it a git repo with one empty commit so " +
 			"worktrees work. `worker_model` sets the model Claude Code sub-agents (the workers of an orchestrating " +
 			"session) use, via " + subagentModelEnv + "; `default_agent` picks the project's default agent. Then " +
-			"call start_session with project:<name>. Refuses a name that already exists.",
+			"call start_session with project:<name>. Refuses a name that already exists. The result names the Grimoire " +
+			"note that should document the new project; create it.",
 		Schema: obj(map[string]any{
 			"name":          str("project name (unique)"),
 			"path":          str("absolute directory under the user's home, or a bare name for ~/projects/<name>"),
@@ -210,6 +213,10 @@ func init() {
 			}
 			proj, _ := raw.(map[string]any)
 			out := map[string]any{"id": proj["id"], "name": name, "repo": p, "next": "start_session with project " + name}
+			if note := memory.ProjectNotePath(name); note != "" {
+				out["document"] = "If Grimoire is connected, create the project's note at " + note +
+					" (create_note): what the project is, where it lives, how to run and test it. Sessions on the project are pointed at it."
+			}
 			if gitNote != "" {
 				out["git"] = gitNote
 			}

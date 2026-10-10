@@ -66,10 +66,29 @@ func (g *Grimoire) Provision(ctx context.Context, project, topic string) (string
 
 func (g *Grimoire) ProjectHint(project, topic string) string {
 	mode := g.ContextScope(project).Mode
-	if mode == "manual" || mode == "off" || !managedTopic.MatchString(topic) {
+	if mode == "manual" || mode == "off" {
 		return ""
 	}
-	return "Project memory: memory/" + topic + ".md. For durable project facts, use Grimoire remember with topic=\"" + topic + "\" and scope=\"topic\".\n"
+	hint := ""
+	if managedTopic.MatchString(topic) {
+		hint = "Project memory: memory/" + topic + ".md. For durable project facts, use Grimoire remember with topic=\"" + topic + "\" and scope=\"topic\".\n"
+	}
+	return hint + ProjectNoteHint(project)
+}
+
+// ProjectNoteHint tells an agent where the project is documented and that
+// keeping it documented is part of the work. A session's conversation is not
+// kept anywhere a later session reads, so what the operator decided has to be
+// written down by the agent that heard it.
+func ProjectNoteHint(project string) string {
+	note := ProjectNotePath(project)
+	if note == "" {
+		return ""
+	}
+	return "Project note: " + note + " in Grimoire documents this project. Read it before starting. " +
+		"If it does not exist, create it with create_note: what the project is, where it lives, how to run and test it, and its current state. " +
+		"When the user decides something or gives a standing instruction about this project, add it to that note before you finish, so the next session has it. " +
+		"Other notes about this project go in " + ProjectNoteDir(project) + ". Never write secret values into a note.\n"
 }
 
 func ProjectHint(provider Provider, project, topic string) string {

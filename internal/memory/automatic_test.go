@@ -16,7 +16,7 @@ func TestAutomaticMemoryUsesExactProjectScope(t *testing.T) {
 		if request.URL.Path != "/api/memory/context" || query.Get("scope") != "scoped" || query.Get("max_bytes") != "2400" {
 			t.Errorf("unexpected lookup: %s", request.URL)
 		}
-		if !reflect.DeepEqual(query["path"], []string{"memory/kestrel.md", "memory/kestrel/", "Agent Memory/project_kestrel.md"}) {
+		if !reflect.DeepEqual(query["path"], []string{"memory/kestrel.md", "memory/kestrel/", "Agent Memory/project_kestrel.md", "Projects/kestrel/"}) {
 			t.Errorf("scope: %v", query["path"])
 		}
 		if query.Get("exclude") != "already-seen" {
@@ -81,5 +81,67 @@ func TestAutomaticMemoryRejectsOversizedResponse(t *testing.T) {
 	result := Automatic(context.Background(), NewGrimoire(server.URL, ""), "kestrel", "deployment", nil)
 	if result.Context != "" {
 		t.Fatal("budget exceeded")
+	}
+}
+
+func TestEveryScopedProjectReadsItsOwnNoteFolder(t *testing.T) {
+	g := NewGrimoire("http://unused", "")
+	if err := g.ConfigureContext("project", `{"named":{"paths":["Agent Memory/project_named.md"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ project, topic, basis, want string }{
+		{"kestrel", "", "guessed", "Projects/kestrel/"},
+		{"named", "", "configured", "Projects/named/"},
+		{"Robots", "lectern-91061b54d9fc89ffbdec7b94760d2587", "managed", "Projects/Robots/"},
+		{"interface.ai", "", "guessed", "Projects/interface.ai/"},
+	} {
+		scope, basis := g.projectScope(c.project, c.topic)
+		if basis != c.basis || scope.Paths[len(scope.Paths)-1] != c.want {
+			t.Errorf("%s: basis %q paths %v", c.project, basis, scope.Paths)
+		}
+	}
+	// The configured map is shared state: reading a scope must not grow it.
+	if got := g.ContextProjects["named"].Paths; len(got) != 1 {
+		t.Errorf("configured paths were modified: %v", got)
+	}
+	if scope, _ := g.projectScope("named", ""); len(scope.Paths) != 2 {
+		t.Errorf("the folder was added twice: %v", scope.Paths)
+	}
+}
+
+func TestAProjectNoteNameCannotLeaveTheProjectsFolder(t *testing.T) {
+	for name, want := range map[string]string{
+		"computer-use mcp": "Projects/computer-use mcp/computer-use mcp.md",
+		"../../etc":        "Projects/-..-etc/-..-etc.md",
+		"a/b":              "Projects/a-b/a-b.md",
+		"  ":               "",
+		"..":               "",
+	} {
+		if got := ProjectNotePath(name); got != want {
+			t.Errorf("%q: %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestAnAgentIsToldWhereTheProjectIsDocumented(t *testing.T) {
+	g := NewGrimoire("http://unused", "")
+	if err := g.ConfigureContext("project", `{"quiet":{"mode":"off"}}`); err != nil {
+		t.Fatal(err)
+	}
+	hint := g.ProjectHint("kestrel", "")
+	for _, want := range []string{"Projects/kestrel/kestrel.md", "create_note", "standing instruction"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("hint lacks %q: %s", want, hint)
+		}
+	}
+	if strings.Contains(hint, "Project memory:") {
+		t.Errorf("a project without a managed topic was given one: %s", hint)
+	}
+	managed := g.ProjectHint("kestrel", "lectern-91061b54d9fc89ffbdec7b94760d2587")
+	if !strings.HasPrefix(managed, "Project memory: memory/lectern-") || !strings.Contains(managed, "Projects/kestrel/kestrel.md") {
+		t.Errorf("managed hint: %s", managed)
+	}
+	if g.ProjectHint("quiet", "") != "" {
+		t.Error("a project with memory off must get no hint")
 	}
 }

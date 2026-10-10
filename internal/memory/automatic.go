@@ -123,8 +123,48 @@ func (g *Grimoire) projectScope(project, topic string) (ContextScope, string) {
 	}
 	if scope.Mode != "scoped" {
 		basis = scope.Mode
+	} else if dir := ProjectNoteDir(project); dir != "" && !contains(scope.Paths, dir) {
+		// However the rest was decided, the project's own folder is always read:
+		// it is where agents are told to document the project.
+		scope.Paths = append(append([]string(nil), scope.Paths...), dir)
 	}
 	return scope, basis
+}
+
+var unsafeNoteName = regexp.MustCompile(`[/\\\x00-\x1f]+`)
+
+// ProjectNoteDir is the folder in the notes store that documents a project,
+// named after the project so a person can find it. Empty when the name cannot
+// be a folder.
+func ProjectNoteDir(project string) string {
+	name := projectNoteName(project)
+	if name == "" {
+		return ""
+	}
+	return "Projects/" + name + "/"
+}
+
+// ProjectNotePath is the project's overview note inside ProjectNoteDir.
+func ProjectNotePath(project string) string {
+	name := projectNoteName(project)
+	if name == "" {
+		return ""
+	}
+	return "Projects/" + name + "/" + name + ".md"
+}
+
+func projectNoteName(project string) string {
+	name := strings.TrimSpace(unsafeNoteName.ReplaceAllString(project, "-"))
+	return strings.Trim(strings.TrimLeft(name, "."), " ")
+}
+
+func contains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Grimoire) AutomaticProject(ctx context.Context, project, topic, query string, excluded []string) (ContextResult, error) {

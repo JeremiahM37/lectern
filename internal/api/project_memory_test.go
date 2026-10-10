@@ -40,7 +40,8 @@ func TestProjectMemoryProvisioningIsPersistentScopedAndRetryable(t *testing.T) {
 			json.NewEncoder(writer).Encode(notes[strings.TrimPrefix(request.URL.Path, "/api/notes/")])
 		case request.URL.Path == "/api/memory/context":
 			paths := request.URL.Query()["path"]
-			if len(paths) != 1 || notes[paths[0]] == nil {
+			// The provisioned note, then the project's own folder under its current name.
+			if len(paths) != 2 || notes[paths[0]] == nil || !strings.HasPrefix(paths[1], "Projects/") {
 				t.Errorf("not scoped to the provisioned location: %v", paths)
 			}
 			json.NewEncoder(writer).Encode(obj{"context": "SCOPED_PROJECT_REFERENCE"})
