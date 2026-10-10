@@ -143,7 +143,8 @@ func (g *Grimoire) AutomaticProject(ctx context.Context, project, topic, query s
 		return ContextResult{}, nil
 	}
 	parameters := url.Values{"q": {query}, "scope": {scope.Mode}, "path": scope.Paths,
-		"max_bytes": {fmt.Sprint(budget)}, "limit": {"5"}, "exclude": {strings.Join(excluded, ",")}}
+		"max_bytes": {fmt.Sprint(budget)}, "limit": {"5"}, "exclude": {strings.Join(excluded, ",")},
+		"rank": {"hybrid"}, "min_rel": {"0.5"}}
 	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, "GET", g.BaseURL+"/api/memory/context?"+parameters.Encode(), nil)

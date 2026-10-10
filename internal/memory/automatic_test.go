@@ -22,6 +22,9 @@ func TestAutomaticMemoryUsesExactProjectScope(t *testing.T) {
 		if query.Get("exclude") != "already-seen" {
 			t.Error("lost session deduplication")
 		}
+		if query.Get("rank") != "hybrid" || query.Get("min_rel") != "0.5" {
+			t.Errorf("ranking not requested: rank=%q min_rel=%q", query.Get("rank"), query.Get("min_rel"))
+		}
 		json.NewEncoder(writer).Encode(ContextResult{Context: "bounded reference", Keys: []string{"new"}})
 	}))
 	defer server.Close()
