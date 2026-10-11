@@ -141,6 +141,9 @@ func TestAnAgentIsToldWhereTheProjectIsDocumented(t *testing.T) {
 	if !strings.HasPrefix(managed, "Project memory: memory/lectern-") || !strings.Contains(managed, "Projects/kestrel/kestrel.md") {
 		t.Errorf("managed hint: %s", managed)
 	}
+	if !strings.Contains(managed, "Say what each fact is: pass event=true for something that happened; for a claim about how things are now, pass anchors (typed checks naming the exact file, service, port or commit) and host if it is about another machine.\n") {
+		t.Errorf("managed hint lacks the fact-typing line: %s", managed)
+	}
 	if g.ProjectHint("quiet", "") != "" {
 		t.Error("a project with memory off must get no hint")
 	}

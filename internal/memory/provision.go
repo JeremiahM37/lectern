@@ -71,7 +71,8 @@ func (g *Grimoire) ProjectHint(project, topic string) string {
 	}
 	hint := ""
 	if managedTopic.MatchString(topic) {
-		hint = "Project memory: memory/" + topic + ".md. For durable project facts, use Grimoire remember with topic=\"" + topic + "\" and scope=\"topic\".\n"
+		hint = "Project memory: memory/" + topic + ".md. For durable project facts, use Grimoire remember with topic=\"" + topic + "\" and scope=\"topic\".\n" +
+			"Say what each fact is: pass event=true for something that happened; for a claim about how things are now, pass anchors (typed checks naming the exact file, service, port or commit) and host if it is about another machine.\n"
 	}
 	return hint + ProjectNoteHint(project)
 }
