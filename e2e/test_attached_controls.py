@@ -206,6 +206,9 @@ def test_native_wheel_reads_scrollback_without_changing_agent_draft(real_termina
         d.wait('WHEEL-HISTORY-001')
         wait_bytes(output,b'unchanged draft')
         for _ in range(60): d.send('\x1b[<65;30;10M')
+        # The scrollback pager stays open at the bottom until q (its title
+        # says so); q also leaves the wrapper's copy mode on the older path.
+        d.send('q')
         d.wait('AGENT_READY')
         d.send(' continued'); wait_bytes(output,b'unchanged draft continued')
         d.send('\x02d');d.wait('Detached. Session keeps running.');d.quit()
