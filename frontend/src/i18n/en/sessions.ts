@@ -510,6 +510,16 @@ const catalog: Record<string, string> = {
   "sessions.check.skipped": "check skipped",
   "sessions.check.starting": "Starting…",
   "sessions.check.run": "Run tests",
+  "sessions.effect.title": "Claims in the last message",
+  "sessions.effect.verified.one": "{count} claim verified",
+  "sessions.effect.verified.other": "{count} claims verified",
+  "sessions.effect.contradicted.one": "{count} claim contradicted",
+  "sessions.effect.contradicted.other": "{count} claims contradicted",
+  "sessions.effect.unknown.one": "{count} claim unchecked",
+  "sessions.effect.unknown.other": "{count} claims unchecked",
+  "sessions.effect.verdict.verified": "verified",
+  "sessions.effect.verdict.contradicted": "contradicted",
+  "sessions.effect.verdict.unknown": "unchecked",
   "sessions.check.noOutput": "(no output captured)",
 
   // QuotaChip — {spent}/{cap} are US dollar amounts

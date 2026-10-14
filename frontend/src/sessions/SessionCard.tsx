@@ -7,6 +7,7 @@ import type { Approval, InteractiveWorkspace, Project, SessionView } from "../ty
 import type { SessionsApi } from "./Sessions";
 import { ActionMenu } from "./ActionMenu";
 import { CheckBadge } from "./CheckBadge";
+import { EffectBadge } from "./EffectBadge";
 import { CIChip } from "../review/CIChip";
 import { ApprovalCard, decisionBody, type ApprovalDecisionOptions } from "./ApprovalCard";
 import { StatusBadge } from "./StatusBadge";
@@ -416,6 +417,7 @@ export function SessionCard({
         {live && s.agent !== "shell" && (
           <CheckBadge session={s} api={api} onNotice={onNotice} hideRun />
         )}
+        <EffectBadge session={s} />
         <CIChip ci={s.ci} />
       </div>
       <div className={`spane${phone && (setup || s.setup_error) ? " spane-full" : ""}`}>{preview}</div>

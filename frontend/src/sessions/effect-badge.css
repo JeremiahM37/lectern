@@ -1,0 +1,18 @@
+/* The completion-claim chip and its popover (EffectBadge.tsx). */
+.effect-badge { position: relative; display: inline-flex; }
+.effect-chip { cursor: pointer; }
+.effect-chip.effect-verified { border-color: var(--green); color: var(--green); }
+.effect-chip.effect-contradicted { border-color: var(--red); color: var(--red); }
+.effect-chip.effect-unknown { color: var(--muted, #888); }
+.effect-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  min-width: 260px; max-width: min(420px, 90vw); padding: 10px 12px;
+  background: var(--panel, var(--bg)); border: 1px solid var(--line, #444);
+  border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.effect-popover ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.effect-popover li { font-size: 12.5px; line-height: 1.4; }
+.effect-popover li[data-status="contradicted"] .effect-verdict { color: var(--red); }
+.effect-popover li[data-status="verified"] .effect-verdict { color: var(--green); }
+.effect-verdict { font-weight: 600; text-transform: lowercase; }
+.effect-evidence { margin-top: 2px; opacity: 0.75; font-family: var(--mono, monospace); font-size: 11.5px; word-break: break-word; }

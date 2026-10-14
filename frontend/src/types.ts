@@ -153,6 +153,34 @@ export interface SessionCheck extends SessionCheckSummary {
   reason: "stop" | "screen" | "manual" | string;
 }
 
+// EffectStatus is the verdict of one probed claim: verified, contradicted, or
+// unknown when the probe could not decide.
+export type EffectStatus = "verified" | "contradicted" | "unknown";
+
+// EffectResult is one completion claim from an agent's final message and what
+// the machine showed about it.
+export interface EffectResult {
+  kind: string;
+  target?: string;
+  sentence: string;
+  status: EffectStatus;
+  evidence: string;
+}
+
+// EffectCheck is one evaluation of a message's claims, as on a session view
+// and from GET /api/sessions/{id}/effects.
+export interface EffectCheck {
+  id: number;
+  session_id: number;
+  attempt_id: number | null;
+  created_at: number;
+  results: EffectResult[];
+  verified: number;
+  contradicted: number;
+  unknown: number;
+  enforced: number;
+}
+
 export interface SessionView extends Session {
   // One status word for every surface (internal/vocab): working, needs_you,
   // idle or ended, with the English words and an optional reason. Absent from
@@ -168,6 +196,9 @@ export interface SessionView extends Session {
   handoff_in_flight: boolean;
   wraps: number;
   last_check?: SessionCheckSummary | null;
+  // The newest completion-claim check of the agent's final message
+  // (internal/effects, docs/effect-checks.md). Absent until the first one.
+  last_effect?: EffectCheck | null;
   ci?: CIWatchView | null;
   // AwarenessOverlap is the card chip's data (docs/agent-events.md
   // "Cross-agent awareness" point 6) — see AwarenessOverlapChip.tsx.
@@ -245,6 +276,9 @@ export interface Project {
   // CI-aware PR loop opt-in and fix-request cap (docs/ci-loop.md).
   ci_loop?: number;
   ci_max_attempts?: number;
+  // Completion-claim checks: "off", "show" (default) or "enforce"
+  // (docs/effect-checks.md).
+  effect_checks?: "off" | "show" | "enforce";
   // Agents may operate this project's live desktops (docs/browser.md).
   computer_use?: number;
   // "" follows the global claude_terminal_mouse setting; "1"/"0" force it.

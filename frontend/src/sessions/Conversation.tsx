@@ -4,6 +4,7 @@ import "./session-home.css";
 import { splitRecall } from "./recall";
 import { SessionLineage } from "../continuity/SessionLineage";
 import { CheckBadge } from "./CheckBadge";
+import { EffectBadge } from "./EffectBadge";
 import { Modal } from "./Modal";
 import {
   useEffect,
@@ -916,6 +917,7 @@ export function Conversation({
           {kind === "session" && session && (
             <div className="conversation-checks">
               <CheckBadge session={session} api={api} onNotice={onNotice} />
+              <EffectBadge session={session} />
             </div>
           )}
           <div className="conversation-details-actions">

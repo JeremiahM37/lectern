@@ -703,6 +703,7 @@ function ProjectCard({
     [checkStatus, setCheckStatus] = useState(""),
     [ciLoop, setCiLoop] = useState(Boolean(p.ci_loop)),
     [ciMax, setCiMax] = useState(p.ci_max_attempts || 3),
+    [effectMode, setEffectMode] = useState<"off" | "show" | "enforce">(p.effect_checks || "show"),
     [computerUse, setComputerUse] = useState(Boolean(p.computer_use)),
     [claudeMouse, setClaudeMouse] = useState(p.claude_terminal_mouse || ""),
     [autoDetect, setAutoDetect] = useState<{ command: string; source: string }>();
@@ -760,6 +761,14 @@ function ProjectCard({
     void api
       .request(`/projects/${p.id}`, { method: "PATCH", body })
       .then(() => onNotice(t("settings.projects.ciSaved")))
+      .catch((error) => onNotice(String(error), true));
+  }
+  // The claim-check mode saves as it changes, like the CI loop settings.
+  function saveEffect(mode: "off" | "show" | "enforce") {
+    setEffectMode(mode);
+    void api
+      .request(`/projects/${p.id}`, { method: "PATCH", body: { effect_checks: mode } })
+      .then(() => onNotice(t("settings.projects.effectSaved")))
       .catch((error) => onNotice(String(error), true));
   }
   async function saveSetup() {
@@ -947,6 +956,19 @@ function ProjectCard({
           />
         </label>
       )}
+      <label>
+        {t("settings.projects.effectChecks")}
+        <select
+          aria-label={t("settings.projects.effectChecks")}
+          value={effectMode}
+          onChange={(e) => saveEffect(e.target.value as "off" | "show" | "enforce")}
+        >
+          <option value="off">{t("settings.projects.effectOff")}</option>
+          <option value="show">{t("settings.projects.effectShow")}</option>
+          <option value="enforce">{t("settings.projects.effectEnforce")}</option>
+        </select>
+      </label>
+      <p className="muted">{t("settings.projects.effectHelp")}</p>
       <label>
         <input
           type="checkbox"
