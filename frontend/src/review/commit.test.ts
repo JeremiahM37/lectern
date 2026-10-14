@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { commitRequestBody, identityProblem, shellWord, switchBackCommand, type CommitChoices } from "./commit";
+import { commitRequestBody, identityProblem, shellWord, staleDetail, switchBackCommand, type CommitChoices } from "./commit";
 
 const base: CommitChoices = {
   repo: "", message: "Update notes", stagedCount: 0, amend: false, allowPushedAmend: false,
@@ -55,4 +55,24 @@ test("a refused name or email is said under the fields, and a fallback draft is 
   const panel = readFileSync(join(import.meta.dirname, "GitPanel.tsx"), "utf8");
   assert.match(panel, /code === "invalid_git_identity"[\s\S]{0,120}setIdentityError\(/);
   assert.match(panel, /out\.fallback\s*\?\s*t\("review\.git\.messageFallback"\)/);
+});
+
+test("a commit is pinned to the state that was reviewed, and only the loaded pins are sent", () => {
+  const pinned = commitRequestBody({ ...base, reviewed: { head: "1a2b3c4", diffHash: "d1" } });
+  assert.equal(pinned.expected_head, "1a2b3c4");
+  assert.equal(pinned.expected_diff_hash, "d1");
+
+  const unpinned = commitRequestBody({ ...base, reviewed: { head: "", diffHash: undefined } });
+  assert.equal("expected_head" in unpinned, false, "a diff without a head sends no pin");
+  assert.equal("expected_diff_hash" in unpinned, false);
+  assert.equal("expected_head" in commitRequestBody(base), false, "no reviewed state at all keeps the old request");
+});
+
+test("a 409 stale refusal is recognised by its body, and nothing else is", () => {
+  assert.equal(staleDetail({ error: "stale", detail: "working tree changed" }), "working tree changed");
+  assert.equal(staleDetail({ error: "stale", detail: "" }), "the changes moved");
+  assert.equal(staleDetail({ detail: "not a git repository" }), undefined);
+  assert.equal(staleDetail({ code: "no_git_identity" }), undefined);
+  assert.equal(staleDetail(undefined), undefined);
+  assert.equal(staleDetail("stale"), undefined);
 });

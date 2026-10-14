@@ -134,6 +134,8 @@ const catalog: Record<string, string> = {
   "review.git.committed": "已提交。",
   "review.git.forceRefused": "强制推送被拒绝：自你查看后 origin 已有变动。请刷新并检查。",
   "review.git.forcePushed": "已强制推送。",
+  "review.git.movedSinceLoaded": "自你加载后，这些更改已经变化。没有提交也没有推送任何内容。",
+  "review.git.reloadChanges": "重新加载更改",
   "review.git.hookSent": "已将钩子输出发送给智能体。",
   "review.git.loading": "正在加载 git 状态…",
   "review.git.detached": "游离",

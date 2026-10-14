@@ -25,6 +25,9 @@ export interface RepoDiff {
 
 export interface DiffResponse {
   repos: RepoDiff[];
+  /** The state this diff shows; a commit or push is pinned to it. Absent for a grouped workspace with no repo chosen. */
+  head?: string;
+  diff_hash?: string;
 }
 
 /** A comment drafted against one diff line, held client-side until sent. */

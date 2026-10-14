@@ -144,6 +144,8 @@ const catalog: Record<string, string> = {
   "review.git.committed": "コミットしました。",
   "review.git.forceRefused": "フォースプッシュは拒否されました: 確認後に origin が更新されています。更新して確認してください。",
   "review.git.forcePushed": "フォースプッシュしました。",
+  "review.git.movedSinceLoaded": "読み込んだ後にこの変更は変わりました。何もコミットもプッシュもしていません。",
+  "review.git.reloadChanges": "変更を再読み込み",
   "review.git.hookSent": "フックの出力をエージェントに送信しました。",
   "review.git.loading": "git の状態を読み込み中…",
   "review.git.detached": "デタッチ",

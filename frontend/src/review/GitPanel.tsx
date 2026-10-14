@@ -6,7 +6,7 @@ import type { Hunk } from "./diffModel";
 import type { CommitResult, CommitStep, FilePatch, GitFile, GitStatus } from "./types";
 import { t, useLocale } from "../i18n";
 import { branchFor } from "./branch";
-import { commitRequestBody, identityProblem, switchBackCommand, type GitIdentity } from "./commit";
+import { commitRequestBody, identityProblem, reviewedPins, staleDetail, switchBackCommand, type GitIdentity, type ReviewedState } from "./commit";
 
 export interface ReviewApi {
   request<T>(path: string, options?: { method?: string; body?: JsonValue }): Promise<T>;
@@ -79,6 +79,7 @@ export function GitPanel({
   onNotice,
   onShowConflicts,
   onUncommitted,
+  reviewed,
 }: {
   api: ReviewApi;
   sessionId: number;
@@ -90,6 +91,8 @@ export function GitPanel({
   onShowConflicts?(): void;
   /** How many files have changes not yet committed, after every load. */
   onUncommitted?(count: number): void;
+  /** The state the diff was loaded against; commit and push are pinned to it. */
+  reviewed?: ReviewedState;
 }) {
   useLocale();
   const base = `/sessions/${sessionId}/git`;
@@ -124,6 +127,9 @@ export function GitPanel({
   const [prBody, setPrBody] = useState("");
   const [result, setResult] = useState<CommitResult>();
   const [pushedGuard, setPushedGuard] = useState<string[]>();
+  // Set when the repository moved after the diff was loaded (409 stale): the
+  // server's description of what changed. The person reloads, then decides again.
+  const [moved, setMoved] = useState<string>();
   const [noIdentity, setNoIdentity] = useState(false);
   // The server's reason a name or email was refused (422 invalid_git_identity).
   const [identityError, setIdentityError] = useState("");
@@ -175,6 +181,11 @@ export function GitPanel({
       refresh();
       return out;
     } catch (e) {
+      const stale = e instanceof ApiError ? staleDetail(e.payload) : undefined;
+      if (stale !== undefined) {
+        setMoved(stale);
+        return undefined;
+      }
       onNotice(e instanceof Error ? e.message : String(e), true);
       if (e instanceof ApiError && e.status === 409) refresh();
       return undefined;
@@ -352,6 +363,7 @@ export function GitPanel({
     setResult(undefined);
     setDone(undefined);
     setPushedGuard(undefined);
+    setMoved(undefined);
     try {
       const out = await api.request<CommitResult>(base + "/commit", {
         method: "POST",
@@ -370,6 +382,7 @@ export function GitPanel({
           prTitle,
           prBody,
           identity,
+          reviewed,
         }),
       });
       setNoIdentity(false);
@@ -410,6 +423,8 @@ export function GitPanel({
       } else if (code === "invalid_git_identity") {
         setNoIdentity(true);
         setIdentityError((e as Error).message);
+      } else if (staleDetail(e instanceof ApiError ? e.payload : undefined) !== undefined) {
+        setMoved(staleDetail(e instanceof ApiError ? e.payload : undefined));
       } else if (e instanceof ApiError && (e.payload as { code?: string } | undefined)?.code === "amend_pushed") {
         setPushedGuard(((e.payload as { refs?: string[] }).refs ?? []) as string[]);
       } else {
@@ -421,9 +436,11 @@ export function GitPanel({
   }
 
   async function forcePush() {
+    setMoved(undefined);
     const out = await act<{ steps: CommitStep[] }>("push", "/push", {
       force_with_lease: true,
       lease: status?.remote_sha ?? "",
+      ...reviewedPins(reviewed),
     });
     if (out) {
       setResult({ steps: out.steps });
@@ -683,6 +700,18 @@ export function GitPanel({
           </p>
         )}
         </>}
+
+        {moved !== undefined && (
+          <div className="git-guard" role="alert">
+            <p>{t("review.git.movedSinceLoaded")}</p>
+            <p className="sub">{moved}</p>
+            <div className="btnrow">
+              <button type="button" className="b" onClick={() => { setMoved(undefined); refresh(); }}>
+                {t("review.git.reloadChanges")}
+              </button>
+            </div>
+          </div>
+        )}
 
         {pushedGuard && (
           <div className="git-guard" role="alert">

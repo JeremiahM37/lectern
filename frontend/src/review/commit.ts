@@ -8,6 +8,28 @@ export interface GitIdentity {
   scope: "global" | "repo";
 }
 
+/** The state the person reviewed (the last diff load); commit and push are refused if it moved. */
+export interface ReviewedState {
+  head?: string;
+  diffHash?: string;
+}
+
+/** Only the pins that were actually loaded: an absent one is never checked. */
+export function reviewedPins(r?: ReviewedState): { expected_head?: string; expected_diff_hash?: string } {
+  return {
+    ...(r?.head ? { expected_head: r.head } : {}),
+    ...(r?.diffHash ? { expected_diff_hash: r.diffHash } : {}),
+  };
+}
+
+/** The detail of a 409 {error: "stale"} refusal, or undefined for any other error body. */
+export function staleDetail(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as { error?: unknown; detail?: unknown };
+  if (p.error !== "stale") return undefined;
+  return typeof p.detail === "string" && p.detail ? p.detail : "the changes moved";
+}
+
 export interface CommitChoices {
   repo: string;
   message: string;
@@ -24,6 +46,8 @@ export interface CommitChoices {
   prBody: string;
   /** Sent only after git said it has no name and email (409 no_git_identity). */
   identity?: GitIdentity;
+  /** The reviewed state, so a commit of changes that moved since is refused. */
+  reviewed?: ReviewedState;
 }
 
 export function commitRequestBody(c: CommitChoices) {
@@ -45,6 +69,7 @@ export function commitRequestBody(c: CommitChoices) {
     ...(c.identity
       ? { identity: { name: c.identity.name.trim(), email: c.identity.email.trim(), scope: c.identity.scope } }
       : {}),
+    ...reviewedPins(c.reviewed),
   };
 }
 

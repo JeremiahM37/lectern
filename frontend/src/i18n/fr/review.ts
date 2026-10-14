@@ -144,6 +144,8 @@ const catalog: Record<string, string> = {
   "review.git.committed": "Validé.",
   "review.git.forceRefused": "Push forcé refusé : origin a changé depuis votre dernier coup d’œil. Actualisez et vérifiez.",
   "review.git.forcePushed": "Push forcé effectué.",
+  "review.git.movedSinceLoaded": "Ces modifications ont changé depuis leur chargement. Rien n'a été validé ni poussé.",
+  "review.git.reloadChanges": "Recharger les modifications",
   "review.git.hookSent": "Sortie du hook envoyée à l’agent.",
   "review.git.loading": "Chargement de l’état git…",
   "review.git.detached": "détachée",

@@ -184,6 +184,8 @@ const catalog: Record<string, string> = {
   "review.git.committed": "Committed.",
   "review.git.forceRefused": "Force push refused: origin moved since you looked. Refresh and check.",
   "review.git.forcePushed": "Force pushed.",
+  "review.git.movedSinceLoaded": "These changes moved since you loaded them. Nothing was committed or pushed.",
+  "review.git.reloadChanges": "Reload changes",
   "review.git.hookSent": "Sent the hook output to the agent.",
   "review.git.loading": "Loading git status…",
   // Shown instead of a branch name when HEAD is not on a branch.

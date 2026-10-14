@@ -144,6 +144,8 @@ const catalog: Record<string, string> = {
   "review.git.committed": "커밋했습니다.",
   "review.git.forceRefused": "강제 푸시가 거부되었습니다: 확인한 뒤로 origin이 바뀌었습니다. 새로 고친 뒤 확인하세요.",
   "review.git.forcePushed": "강제 푸시했습니다.",
+  "review.git.movedSinceLoaded": "불러온 뒤 이 변경 사항이 바뀌었습니다. 아무것도 커밋하거나 푸시하지 않았습니다.",
+  "review.git.reloadChanges": "변경 사항 다시 불러오기",
   "review.git.hookSent": "훅 출력을 에이전트에게 보냈습니다.",
   "review.git.loading": "git 상태를 불러오는 중…",
   "review.git.detached": "분리됨",
