@@ -250,11 +250,15 @@ def parse_args(argv):
                     help='seconds allowed per go command')
     ap.add_argument('--since', help='only merges after this date, passed to git rev-list')
     ap.add_argument('--tmp-root', default=DEFAULT_TMP_ROOT)
+    ap.add_argument('--max-side-lines', type=int, default=MAX_SIDE_LINES,
+                    help='skip merges where either side changes more lines than this')
     return ap.parse_args(argv)
 
 
 def main(argv):
     args = parse_args(argv)
+    global MAX_SIDE_LINES
+    MAX_SIDE_LINES = args.max_side_lines
     repo = os.path.abspath(args.repo)
     os.makedirs(args.tmp_root, exist_ok=True)
 
