@@ -115,6 +115,15 @@ func TestPredict(t *testing.T) {
 			wantReason: "B changes Parse (internal/x/parse.go); A's new code uses Parse",
 		},
 		{
+			// A body edit keeps Parse's signature, so a new caller still
+			// compiles: replaying real merges, linking on body edits flagged
+			// most clean merges.
+			name:      "a body-only edit does not link to a new caller",
+			a:         goParseBodyEdit,
+			b:         goOtherParseEdit,
+			wantLevel: LevelNone,
+		},
+		{
 			name: "both sides change the same symbol",
 			a:    goParseDiff,
 			b: `diff --git a/internal/m/p.go b/internal/m/p.go
@@ -127,8 +136,17 @@ func TestPredict(t *testing.T) {
 			wantReason: "A and B both change Parse",
 		},
 		{
-			name:       "python caller uses a function defined on the other side",
-			a:          pyDiff,
+			// A brand-new function cannot break code written against the old
+			// tree, so a caller of it is not a semantic risk.
+			name:      "python caller of a function the other side only adds",
+			a:         pyDiff,
+			b:         pyCallerDiff,
+			wantLevel: LevelNone,
+		},
+		{
+			name: "python signature change reaches a caller",
+			a: "diff --git a/app/tools.py b/app/tools.py\n--- a/app/tools.py\n+++ b/app/tools.py\n" +
+				"@@ -1,2 +1,2 @@\n-def render_table(rows):\n+def render_table(rows, width):\n",
 			b:          pyCallerDiff,
 			wantLevel:  LevelSemantic,
 			wantReason: "render_table",

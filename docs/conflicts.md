@@ -33,17 +33,44 @@ merge-base) is reduced to:
   function.
 - the **identifiers its added lines use**, minus language keywords.
 
+A symbol is **reshaped** when the diff removes or rewrites its definition
+line: a signature change, a rename or a deletion. A body edit or a brand-new
+symbol is not a reshape, because code written against the old tree still
+compiles against it.
+
 Levels:
 
-- **semantic**: one side changes a symbol that the other side uses, or both
-  change the same symbol. Works across files and within one file.
-- **textual**: both sides touch the same file and no symbol links them.
+- **semantic**: one side reshapes a symbol that the other side's added code
+  uses, or that the other side also changes in a different file.
+- **textual**: both sides touch the same file and no reshape links them.
 - **none**: otherwise.
 
-To keep noise down, a bare name must be at least four characters, and common
-words such as `run`, `get`, `error` and `data` never link on their own. A
-method-qualified name such as `Store.Get` always links. Scans are cached by
-worktree fingerprint, so an idle project costs almost nothing to re-check.
+Tests and generated or vendored files (`_test.go`, `test_*.py`, `*.test.ts`,
+`e2e/`, `dist/`, bundled `assets/`, `vendor/`) carry no symbols; they still
+count for file overlap. A bare name must be at least four characters (seven
+for a method, which is matched by its bare name because `c.Close()` does not
+say which type `c` is), and common words such as `run`, `get`, `error` and
+`handler` never link. Scans are cached by worktree fingerprint, so an idle
+project costs almost nothing to re-check.
+
+### How well it works
+
+`tools/conflict_replay.py` replays a repository's own two-parent merges as
+pairs of concurrent changes, and `internal/conflicts/replay_eval_test.go`
+scores the prediction against them. On Lectern's history (47 merges with Go
+changes on both sides, 2026-10-14):
+
+| signal | flagged | real conflicts among them | clean merges flagged |
+|---|---|---|---|
+| file overlap (what awareness already warns on) | 34 | 23 of 23 | 11 of 24 |
+| **semantic** level | 14 | 13 | 1 of 24 |
+
+So the semantic level is a precise "these two will collide" warning on top of
+file overlap. None of the 47 merges broke semantically (each side passed and
+the merged tree still built and passed its touched packages' tests), so how
+well it catches semantic-only breaks is not yet measured. The first version
+linked on any edited symbol and flagged 20 of the 24 clean merges, which is
+why it now requires a reshape.
 
 It does **not** check the language. It works from text, so a name that
 collides across unrelated code can produce a false positive, and an indirect

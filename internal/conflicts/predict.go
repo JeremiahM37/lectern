@@ -21,9 +21,14 @@ type Risk struct {
 
 // minSymbolLen is the shortest bare name that counts as a symbol link. Shorter
 // names ("err", "ctx", "New", "id") appear in almost every diff, so matching on
-// them would flag every pair of sessions. A method-qualified name is exempt
-// because "Store.Get" already says what it is.
+// them would flag every pair of sessions.
 const minSymbolLen = 4
+
+// minMethodLen is the same floor for methods. A method is matched against the
+// other side's code by its bare name, because "c.Close()" does not say which
+// type c is, so "Client.Close" would otherwise link to every Close call in
+// the repository. Only longer, more distinctive method names link.
+const minMethodLen = 7
 
 // commonNames are real, longer identifiers that still show up everywhere in
 // unrelated code. Matching them would be noise, so they never link on their
@@ -35,15 +40,20 @@ var commonNames = map[string]bool{
 	"open": true, "update": true, "delete": true, "create": true, "handle": true,
 	"process": true, "execute": true, "run": true, "start": true, "stop": true,
 	"get": true, "set": true,
+	// Method names every package has; matched bare, they link unrelated types.
+	"handler": true, "request": true, "response": true, "command": true,
+	"launch": true, "health": true, "server": true, "client": true,
+	"config": true, "options": true, "context": true, "result": true, "status": true,
 }
 
 // linkable reports whether a defined symbol is specific enough to match on.
 func linkable(sym string) bool {
-	if isMethod(sym) {
-		return true
-	}
 	name := bareName(sym)
-	return len(name) >= minSymbolLen && !commonNames[strings.ToLower(name)]
+	floor := minSymbolLen
+	if isMethod(sym) {
+		floor = minMethodLen
+	}
+	return len(name) >= floor && !commonNames[strings.ToLower(name)]
 }
 
 // Predict compares two footprints with the default labels "A" and "B".
@@ -78,25 +88,43 @@ func PredictNamed(aName, bName string, a, b Footprint) Risk {
 	return Risk{Level: LevelNone}
 }
 
-// linkReasons lists the ways X's definitions reach into Y: Y's added code uses
-// a symbol X changes, or Y changes the same symbol too.
+// linkReasons lists the ways X's changes can break Y: X reshapes an existing
+// symbol (signature, rename, deletion) that Y's added code uses, or that Y
+// changes too in another file. A body edit or a new symbol is not enough.
+// Replaying the owner's merge history, linking on any edited symbol flagged 20
+// of 24 clean merges; requiring a reshape is what makes the warning rare
+// enough to act on.
 func linkReasons(xName, yName string, x, y Footprint) []string {
-	files := make([]string, 0, len(x.Defined))
-	for f := range x.Defined {
+	files := make([]string, 0, len(x.Reshaped))
+	for f := range x.Reshaped {
 		files = append(files, f)
 	}
 	sort.Strings(files)
 
-	yDefinedNames := map[string]bool{}
-	for _, syms := range y.Defined {
+	// Both sides changing one symbol counts as semantic only when they do it
+	// in different files (say, an interface and its implementation). In the
+	// same file it is a textual overlap, which the file check already reports.
+	yDefinedElsewhere := map[string]map[string]bool{}
+	for yf, syms := range y.Defined {
 		for _, s := range syms {
-			yDefinedNames[bareName(s)] = true
+			if yDefinedElsewhere[bareName(s)] == nil {
+				yDefinedElsewhere[bareName(s)] = map[string]bool{}
+			}
+			yDefinedElsewhere[bareName(s)][yf] = true
 		}
+	}
+	changedElsewhere := func(name, f string) bool {
+		for yf := range yDefinedElsewhere[name] {
+			if yf != f {
+				return true
+			}
+		}
+		return false
 	}
 
 	var out []string
 	for _, f := range files {
-		for _, sym := range x.Defined[f] {
+		for _, sym := range x.Reshaped[f] {
 			if !linkable(sym) {
 				continue
 			}
@@ -104,7 +132,7 @@ func linkReasons(xName, yName string, x, y Footprint) []string {
 			switch {
 			case y.Referenced[name]:
 				out = append(out, fmt.Sprintf("%s changes %s (%s); %s's new code uses %s", xName, sym, f, yName, name))
-			case yDefinedNames[name]:
+			case changedElsewhere(name, f):
 				out = append(out, fmt.Sprintf("%s and %s both change %s (%s)", xName, yName, sym, f))
 			}
 		}

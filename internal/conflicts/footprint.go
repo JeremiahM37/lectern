@@ -27,6 +27,11 @@ type Footprint struct {
 	// A method is qualified as "Receiver.Name" so two types' Close methods
 	// never look like one symbol; everything else is the bare name.
 	Defined map[string][]string
+	// Reshaped maps file -> existing symbols whose definition line the diff
+	// removes or rewrites: a signature change, a rename or a deletion. Unlike
+	// a body edit or a brand-new symbol, this can break code someone else
+	// writes against the old definition, so it is what a semantic link needs.
+	Reshaped map[string][]string
 	// Referenced is the set of identifiers used on added lines, minus
 	// language keywords. It is what the other side's definitions are matched
 	// against.
@@ -60,10 +65,36 @@ var (
 	}
 )
 
+// symbolSource reports whether a file's symbols mean anything for a semantic
+// link. Tests and generated or vendored code do not: a test that changes or
+// calls a function does not change what production callers get, and a
+// minified bundle "defines" whatever its minifier emitted. Replaying the
+// owner's own merge history showed those two sources produced most false
+// alarms. Such files still count for file-level (textual) overlap.
+func symbolSource(file string) bool {
+	f := strings.ToLower(file)
+	base := path.Base(f)
+	for _, dir := range []string{"vendor/", "node_modules/", "dist/", "/assets/", "e2e/", "tests/", "testdata/", "__tests__/"} {
+		if strings.HasPrefix(f, dir) || strings.Contains(f, "/"+dir) {
+			return false
+		}
+	}
+	switch {
+	case strings.HasSuffix(base, "_test.go"), strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"),
+		strings.HasSuffix(base, "_test.py"), strings.Contains(base, ".test."), strings.Contains(base, ".spec."),
+		strings.Contains(base, ".min."), strings.HasSuffix(base, ".pb.go"), strings.Contains(base, "generated"):
+		return false
+	}
+	return true
+}
+
 // rulesFor picks the definition patterns for a file by extension. An unknown
 // extension gets no symbols: guessing a language would produce symbols that
 // are noise, and file-level overlap still covers the file.
 func rulesFor(file string) []symbolRule {
+	if !symbolSource(file) {
+		return nil
+	}
 	switch strings.ToLower(path.Ext(file)) {
 	case ".go":
 		return goRules
@@ -128,6 +159,7 @@ func ParseFootprint(unifiedDiff string) Footprint {
 	fp := Footprint{
 		Files:      []string{},
 		Defined:    map[string][]string{},
+		Reshaped:   map[string][]string{},
 		Referenced: map[string]bool{},
 	}
 	seenFile := map[string]bool{}
@@ -146,6 +178,17 @@ func ParseFootprint(unifiedDiff string) Footprint {
 			seenSym[file][sym] = true
 			fp.Defined[file] = append(fp.Defined[file], sym)
 		}
+	}
+
+	// A definition line that appears removed but is re-added verbatim is a
+	// moved line, not a reshape; compare per file once the diff is read.
+	removedDef := map[string]map[string]string{} // file -> sym -> removed line
+	addedDef := map[string]map[string]string{}
+	noteDef := func(m map[string]map[string]string, file, sym, line string) {
+		if m[file] == nil {
+			m[file] = map[string]string{}
+		}
+		m[file][sym] = strings.TrimSpace(line)
 	}
 
 	var file string
@@ -184,8 +227,13 @@ func ParseFootprint(unifiedDiff string) Footprint {
 			body := line[1:]
 			for _, sym := range definitionsIn(file, body) {
 				addSym(file, sym)
+				if line[0] == '-' {
+					noteDef(removedDef, file, sym, body)
+				} else {
+					noteDef(addedDef, file, sym, body)
+				}
 			}
-			if line[0] == '+' {
+			if line[0] == '+' && symbolSource(file) {
 				for _, id := range identRe.FindAllString(body, -1) {
 					if !keywords[id] {
 						fp.Referenced[id] = true
@@ -194,8 +242,19 @@ func ParseFootprint(unifiedDiff string) Footprint {
 			}
 		}
 	}
+	for f, syms := range removedDef {
+		for sym, old := range syms {
+			if added, ok := addedDef[f][sym]; ok && added == old {
+				continue
+			}
+			fp.Reshaped[f] = append(fp.Reshaped[f], sym)
+		}
+	}
 	for f := range fp.Defined {
 		sort.Strings(fp.Defined[f])
+	}
+	for f := range fp.Reshaped {
+		sort.Strings(fp.Reshaped[f])
 	}
 	return fp
 }

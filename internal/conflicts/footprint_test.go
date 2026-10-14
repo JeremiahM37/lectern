@@ -8,8 +8,23 @@ import (
 
 // Synthetic diffs only. They are shaped like git output but contain no real
 // project code.
+// goParseDiff changes Parse's signature: the kind of change that can break a
+// caller someone else is writing at the same time.
 const goParseDiff = `diff --git a/internal/x/parse.go b/internal/x/parse.go
 index 1111111..2222222 100644
+--- a/internal/x/parse.go
++++ b/internal/x/parse.go
+@@ -8,9 +8,9 @@ import "errors"
+-func Parse(input string) (Node, error) {
++func Parse(input string, strict bool) (Node, error) {
+ 	if input == "" {
+-		return nil, errEmpty
++		return nil, ErrEmptyInput
+ 	}
+`
+
+// goParseBodyEdit only edits Parse's body, so its callers still compile.
+const goParseBodyEdit = `diff --git a/internal/x/parse.go b/internal/x/parse.go
 --- a/internal/x/parse.go
 +++ b/internal/x/parse.go
 @@ -10,7 +10,7 @@ func Parse(input string) (Node, error) {
@@ -138,5 +153,22 @@ func TestParseFootprintUnknownExtensionHasNoSymbols(t *testing.T) {
 	fp := ParseFootprint(diff)
 	if len(fp.Defined) != 0 {
 		t.Fatalf("unknown extension should define no symbols, got %v", fp.Defined)
+	}
+}
+
+func TestReshapedOnlyCountsChangedDefinitions(t *testing.T) {
+	if got := ParseFootprint(goParseDiff).Reshaped["internal/x/parse.go"]; len(got) != 1 || got[0] != "Parse" {
+		t.Fatalf("signature change: Reshaped = %v, want [Parse]", got)
+	}
+	if got := ParseFootprint(goParseBodyEdit).Reshaped; len(got) != 0 {
+		t.Fatalf("body edit: Reshaped = %v, want none", got)
+	}
+	moved := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,3 +1,3 @@\n-func Keep(x int) {\n+func Keep(x int) {\n"
+	if got := ParseFootprint(moved).Reshaped; len(got) != 0 {
+		t.Fatalf("definition line removed and re-added verbatim: Reshaped = %v, want none", got)
+	}
+	test := "diff --git a/x/parse_test.go b/x/parse_test.go\n--- a/x/parse_test.go\n+++ b/x/parse_test.go\n@@ -1,1 +1,1 @@\n-func helperParse(s string) {\n+func helperParse(s string, n int) {\n"
+	if fp := ParseFootprint(test); len(fp.Reshaped) != 0 || len(fp.Defined) != 0 {
+		t.Fatalf("test files carry no symbols: %+v", fp)
 	}
 }
