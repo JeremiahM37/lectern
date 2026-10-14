@@ -351,6 +351,11 @@ func probeAutoCommand(ctx context.Context, ex executor.Executor, dir string) boo
 
 // ---- session workdir resolution --------------------------------------------
 
+// SessionWorkdir is the directory a session's checks run in. The approval
+// witness reads the same directory, so the two always agree on what "the
+// worktree" is.
+func SessionWorkdir(row *store.Session) (string, error) { return sessionCheckWorkdir(row) }
+
 // sessionCheckWorkdir mirrors internal/api's sessionRepoDiffs (session_review.go)
 // closely enough to reuse its worktree_json shape, but simplified to the one
 // directory a check runs in: the session's own project's repository when a

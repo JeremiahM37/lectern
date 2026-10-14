@@ -68,15 +68,18 @@ func Open(path string) (*DB, error) {
 	if _, err := db.Exec(Schema); err != nil {
 		return nil, fmt.Errorf("schema: %w", err)
 	}
+	// The approvals rebuild runs before the ADD COLUMN list: it recreates the
+	// table with an explicit column list, so any column added to approvals
+	// earlier (witness_json) would be dropped by it. It needs only base-schema
+	// columns, so running it first is safe. It is not an ADD COLUMN, so it cannot
+	// live in the plain-string list below — see migrate_approvals.go for why.
+	if err := migrateApprovalsSessionColumn(db.DB); err != nil {
+		return nil, fmt.Errorf("migrate approvals: %w", err)
+	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migration %q: %w", m, err)
 		}
-	}
-	// Not an ADD COLUMN, so it cannot live in the plain-string list above —
-	// see migrate_approvals.go for why.
-	if err := migrateApprovalsSessionColumn(db.DB); err != nil {
-		return nil, fmt.Errorf("migrate approvals: %w", err)
 	}
 	return db, nil
 }

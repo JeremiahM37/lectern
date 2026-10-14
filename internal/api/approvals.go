@@ -74,7 +74,9 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	// see docs/agent-events.md section 3) has no attempt to resolve a
 	// project from, so the checkbox is simply a no-op there rather than an
 	// error.
-	if body.AlwaysAllow && body.Decision == "approved" && row.AttemptID != 0 {
+	// Only an approval that actually stood gets the follow-on rules: a stale one
+	// was refused by the witness check, whatever the person clicked.
+	if body.AlwaysAllow && row.Status == "approved" && row.AttemptID != 0 {
 		if proj, err := s.DB.ProjectForAttempt(row.AttemptID); err == nil {
 			rule := policy.PatternFor(row.ToolName, row.Input)
 			updated := policy.AddRule(policy.Parse(proj.PolicyJSON), rule)
@@ -85,7 +87,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	// approval (a task attempt's approval has no persistent session to
 	// remember the rule against) — same shape as the AlwaysAllow guard
 	// above, just keyed on SessionID instead of AttemptID.
-	if body.ForSession && body.Decision == "approved" && row.SessionID != 0 {
+	if body.ForSession && row.Status == "approved" && row.SessionID != 0 {
 		s.Broker.AllowForSession(row.SessionID, row.ToolName, row.Input)
 	}
 	writeJSON(w, 200, row)

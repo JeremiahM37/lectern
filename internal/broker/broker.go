@@ -14,6 +14,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/policy"
 	"github.com/JeremiahM37/lectern/v2/internal/sinks"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/witness"
 )
 
 // Broker owns pending approvals and the channels blocked hooks wait on.
@@ -24,6 +25,11 @@ type Broker struct {
 	// ExpireAfter is how long a pending approval lives before the system decides
 	// for the operator.
 	ExpireAfter time.Duration
+	// Witness reads the git state of the worktree an approval acts on. nil
+	// turns the feature off: no approval records a witness and none is
+	// re-checked. It is called only for effectful calls (witness.IsEffectful)
+	// that a person is asked about; a failure means no witness, never an error.
+	Witness func(a *store.Approval) (*witness.Witness, error)
 
 	mu           sync.Mutex
 	waiters      map[int64]chan struct{}
@@ -58,6 +64,11 @@ func (br *Broker) Create(attemptID int64, toolName string, toolInput map[string]
 		return 0, err
 	}
 	br.waiter(id)
+	// A quiet call is a policy auto-approval: nobody looks at it, so there is
+	// no state a person approved and nothing to re-check.
+	if !quiet {
+		br.recordWitness(id, toolName, toolInput)
+	}
 	if quiet {
 		return id, nil
 	}
@@ -70,6 +81,44 @@ func (br *Broker) Create(attemptID int64, toolName string, toolInput map[string]
 	br.Notifier.Notify("Approval needed", toolName+": "+summarize(toolName, toolInput), "/#approvals",
 		&sinks.Extra{Kind: "approval", ApprovalID: id})
 	return id, nil
+}
+
+// recordWitness stores the git state an effectful call was requested against,
+// so Decide can check it again before the call is allowed to run. A failure to
+// read the state leaves the row without a witness and never blocks the request.
+func (br *Broker) recordWitness(id int64, toolName string, toolInput map[string]any) {
+	if br.Witness == nil || !witness.IsEffectful(toolName, toolInput) {
+		return
+	}
+	row, err := br.DB.Approval(id)
+	if err != nil {
+		return
+	}
+	w, err := br.Witness(row)
+	if err != nil || w == nil {
+		return
+	}
+	raw, err := json.Marshal(w)
+	if err != nil {
+		return
+	}
+	_ = br.DB.Update("approvals", id, map[string]any{"witness_json": string(raw)})
+}
+
+// witnessDrift says how the worktree has changed since the approval was
+// requested, or "" when it has not. It fails closed: if the state cannot be
+// read again, the approval is treated as stale, because the gate cannot tell
+// that nothing changed.
+func (br *Broker) witnessDrift(row *store.Approval) string {
+	var was witness.Witness
+	if err := json.Unmarshal([]byte(row.WitnessJSON), &was); err != nil {
+		return "could not read the state it was requested against"
+	}
+	now, err := br.Witness(row)
+	if err != nil || now == nil {
+		return "could not re-check the worktree"
+	}
+	return was.Drift(*now)
 }
 
 // summarize renders a tool call's input down to the one line an operator
@@ -107,6 +156,7 @@ func (br *Broker) CreateForSession(sessionID int64, toolName string, toolInput m
 		return 0, err
 	}
 	br.waiter(id)
+	br.recordWitness(id, toolName, toolInput)
 	row, err := br.DB.Approval(id)
 	if err != nil {
 		return id, nil
@@ -197,6 +247,16 @@ func (br *Broker) Decide(id int64, decision, note, decidedBy string) *store.Appr
 	if err != nil || row.Status != "pending" {
 		return nil
 	}
+	// An approval is granted against the state the person saw. If that state
+	// has moved, the approval does not stand: the hook gets a deny that says so,
+	// and the agent re-runs the command to ask again. A deny is never blocked.
+	if decision == "approved" && row.WitnessJSON != "" {
+		if drift := br.witnessDrift(row); drift != "" {
+			decision = "stale"
+			note = "state changed since this was requested: " + drift + "; re-run the command to ask again"
+			decidedBy = "witness"
+		}
+	}
 	now := store.Now()
 	if err := br.DB.Update("approvals", id, map[string]any{
 		"status": decision, "note": note, "decided_by": decidedBy, "decided_at": now,
@@ -226,6 +286,9 @@ func (br *Broker) Decide(id int64, decision, note, decidedBy string) *store.Appr
 	if decidedBy != "policy" {
 		br.Notifier.Dismiss(sinks.ApprovalTag(id), dismissTitle(decision, decidedBy), "Nothing left to do here.")
 	}
+	if decision == "stale" {
+		br.Notifier.Notify("Approval out of date", fresh.Note, "/#approvals", nil)
+	}
 	return fresh
 }
 
@@ -233,6 +296,8 @@ func dismissTitle(decision, decidedBy string) string {
 	switch {
 	case decision == "expired":
 		return "Approval expired"
+	case decision == "stale":
+		return "Approval out of date"
 	case decidedBy == "system":
 		return "Approval no longer needed"
 	case decision == "approved":

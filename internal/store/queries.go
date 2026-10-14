@@ -433,7 +433,7 @@ func (db *DB) TaskEvents(taskID int64, afterSeq int64, attemptN *int) ([]*Event,
 // ---- approvals --------------------------------------------------------------
 
 const approvalCols = `a.id, a.attempt_id, a.session_id, a.tool_name, a.input_json, a.status,
-	a.decided_by, a.note, a.created_at, a.decided_at`
+	a.decided_by, a.note, a.created_at, a.decided_at, a.witness_json`
 
 // scanApproval reads one approvalCols(+joins) row. attempt_id/session_id and
 // everything joined through them are nullable now that an approval can be
@@ -445,7 +445,7 @@ func scanApproval(scan func(...any) error) (*Approval, error) {
 	var attemptID, sessionID, taskID, attemptN sql.NullInt64
 	var taskTitle, sessionName sql.NullString
 	err := scan(&ap.ID, &attemptID, &sessionID, &ap.ToolName, &ap.InputJSON, &ap.Status,
-		&ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt,
+		&ap.DecidedBy, &ap.Note, &ap.CreatedAt, &ap.DecidedAt, &ap.WitnessJSON,
 		&taskID, &attemptN, &taskTitle, &sessionName)
 	if err != nil {
 		return nil, err

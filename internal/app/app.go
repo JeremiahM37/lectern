@@ -95,6 +95,10 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	notifier := &sinks.Notifier{DB: db, BaseURL: cfg.BaseURL, Push: pushSender, Log: log}
 	br := broker.New(db, b, notifier, cfg.ApprovalExpire)
 	reg := executor.NewRegistry(cfg.Mock, cfg.MockAgentDelay)
+	// The approval witness re-reads the worktree an effectful approval acts on,
+	// so a decision made against state that has since moved is refused
+	// (internal/witness). Wired here because it needs the executor registry.
+	br.Witness = approvalWitness(db, reg)
 	// Which session backend each target uses, and whether it has a lectern
 	// binary for target-side helpers (docs/ptyhost.md). Mock targets script
 	// the tmux dialect, so they stay on tmux.

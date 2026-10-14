@@ -320,6 +320,11 @@ func permissionRequestResponse(row *store.Approval) map[string]any {
 		if row.Note != "" {
 			decision["message"] = row.Note
 		}
+	case "stale":
+		// The worktree moved after the person approved, so the approval does
+		// not stand. A deny (not "no opinion") stops the call, and the note says
+		// to re-run the command, which asks again against the current state.
+		decision = map[string]any{"behavior": "deny", "message": row.Note}
 	default:
 		return map[string]any{}
 	}

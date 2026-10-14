@@ -222,6 +222,9 @@ type Approval struct {
 	Note      string   `json:"note"`
 	CreatedAt float64  `json:"created_at"`
 	DecidedAt *float64 `json:"decided_at"`
+	// WitnessJSON is the git state recorded when the call was requested; it is
+	// internal to the broker's re-check, never sent to clients.
+	WitnessJSON string `json:"-"`
 
 	Input       map[string]any `json:"input"`
 	TaskID      int64          `json:"task_id,omitempty"`

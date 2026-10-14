@@ -114,7 +114,7 @@ func approvalHook(_ []string, stdin io.Reader, _, stderr io.Writer) int {
 			switch s {
 			case "approved":
 				return 0
-			case "denied", "expired":
+			case "denied", "expired", "stale":
 				note, _ := d.get("note")
 				if !pyTruthy(note) {
 					note = "operator denied this action"

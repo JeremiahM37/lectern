@@ -668,7 +668,7 @@ func (m *Mock) requestApproval(ctx context.Context, rt string) bool {
 		switch d.Status {
 		case "approved":
 			return true
-		case "denied", "expired":
+		case "denied", "expired", "stale":
 			return false
 		}
 	}

@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS approvals(
   id INTEGER PRIMARY KEY, attempt_id INTEGER REFERENCES attempts(id),
   session_id INTEGER REFERENCES sessions(id),
   tool_name TEXT NOT NULL, input_json TEXT DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'pending',      -- pending|approved|denied|expired
+  status TEXT NOT NULL DEFAULT 'pending',      -- pending|approved|denied|expired|stale
   decided_by TEXT DEFAULT '', note TEXT DEFAULT '',
   created_at REAL, decided_at REAL
 );
@@ -1080,4 +1080,9 @@ var migrations = []string{
 	// through its own backend. '' is a row from before: a poll records the
 	// backend it finds the session in (internal/sessions/poll.go).
 	"ALTER TABLE sessions ADD COLUMN session_backend TEXT NOT NULL DEFAULT ''",
+	// The git state (branch, HEAD, upstream, diff hash) the person was looking
+	// at when an effectful call was requested, as JSON. '' means no witness:
+	// the approval is not checked again before it takes effect
+	// (internal/witness, docs/approval-witness.md).
+	"ALTER TABLE approvals ADD COLUMN witness_json TEXT NOT NULL DEFAULT ''",
 }
