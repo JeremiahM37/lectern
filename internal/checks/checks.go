@@ -166,7 +166,7 @@ func (r *Runner) runOnce(ctx context.Context, sessionID int64, reason string) {
 	if err != nil {
 		return
 	}
-	dir, err := sessionCheckWorkdir(sess)
+	dir, err := SessionCheckWorkdir(sess)
 	if err != nil {
 		return
 	}
@@ -181,7 +181,7 @@ func (r *Runner) runOnce(ctx context.Context, sessionID int64, reason string) {
 		}
 		return
 	}
-	fp, err := worktreeFingerprint(ctx, ex, dir)
+	fp, err := WorktreeFingerprint(ctx, ex, dir)
 	if err != nil {
 		return
 	}
@@ -354,15 +354,15 @@ func probeAutoCommand(ctx context.Context, ex executor.Executor, dir string) boo
 // SessionWorkdir is the directory a session's checks run in. The approval
 // witness reads the same directory, so the two always agree on what "the
 // worktree" is.
-func SessionWorkdir(row *store.Session) (string, error) { return sessionCheckWorkdir(row) }
+func SessionWorkdir(row *store.Session) (string, error) { return SessionCheckWorkdir(row) }
 
-// sessionCheckWorkdir mirrors internal/api's sessionRepoDiffs (session_review.go)
+// SessionCheckWorkdir mirrors internal/api's sessionRepoDiffs (session_review.go)
 // closely enough to reuse its worktree_json shape, but simplified to the one
 // directory a check runs in: the session's own project's repository when a
 // grouped multi-repo workspace has one, otherwise the first repository with a
 // worktree, otherwise the session's single worktree/workdir. A session with
 // no worktree and no workdir has nothing to check.
-func sessionCheckWorkdir(row *store.Session) (string, error) {
+func SessionCheckWorkdir(row *store.Session) (string, error) {
 	var plan worktree.Interactive
 	hasPlan := row.WorktreeJSON != "" && json.Unmarshal([]byte(row.WorktreeJSON), &plan) == nil
 	switch {
@@ -392,11 +392,11 @@ func sessionCheckWorkdir(row *store.Session) (string, error) {
 
 // ---- worktree fingerprint ---------------------------------------------------
 
-// worktreeFingerprint hashes HEAD's sha, `git status --porcelain` and a diff
+// WorktreeFingerprint hashes HEAD's sha, `git status --porcelain` and a diff
 // against HEAD (which covers both staged and unstaged changes) — enough to
 // tell "the worktree has moved since the last check" from "nothing to see
 // here" without capturing or storing the diff itself.
-func worktreeFingerprint(ctx context.Context, ex executor.Executor, dir string) (string, error) {
+func WorktreeFingerprint(ctx context.Context, ex executor.Executor, dir string) (string, error) {
 	q := executor.ShellQuote
 	head, err := ex.Run(ctx, "git -C "+q(dir)+" rev-parse HEAD", executor.RunOpts{Timeout: 15})
 	if err != nil {
@@ -429,13 +429,6 @@ func clipBytes(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
-}
-
-// Fingerprint is worktreeFingerprint for other packages: the conflict
-// scanner uses it to decide whether a worktree moved since its last parse,
-// without capturing the diff itself.
-func Fingerprint(ctx context.Context, ex executor.Executor, dir string) (string, error) {
-	return worktreeFingerprint(ctx, ex, dir)
 }
 
 // CommandIn is resolve for a worktree the caller already has: the same

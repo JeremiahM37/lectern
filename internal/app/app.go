@@ -27,6 +27,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
+	"github.com/JeremiahM37/lectern/v2/internal/effects"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -204,9 +205,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	}
 	sessMgr.Limits = limitTracker
 	sched.Limits = limitTracker.Tick
+	// effectWatcher checks the completion claims in each turn's final message
+	// against the machine (internal/effects, docs/effect-checks.md). It only
+	// starts a goroutine per Stop, so it is safe to sit on the hook path.
+	effectWatcher := effects.New(db, reg, b, notifier, sessMgr, cfg.CheckTimeout, log)
 	events.OnHookEvent = func(sess *store.Session, event string, body []byte, state string, changed bool) {
 		limitTracker.HandleHookEvent(sess, event, body, state, changed)
 		alertWatcher.HandleHookEvent(sess, event, body, state, changed)
+		effectWatcher.HandleHookEvent(sess, event, body, state, changed)
 	}
 
 	// checksRunner is the one place a project's check command (verify_cmd, or

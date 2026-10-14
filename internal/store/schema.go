@@ -451,6 +451,26 @@ CREATE TABLE IF NOT EXISTS session_checks(
   reason TEXT NOT NULL DEFAULT ''           -- stop|screen|manual
 );
 CREATE INDEX IF NOT EXISTS idx_session_checks_session ON session_checks(session_id, id DESC);
+-- effect_checks is one evaluation of the effect claims in an agent's final
+-- message (internal/effects, docs/effect-checks.md). It is keyed by the hash
+-- of the message so a repeated Stop with the same last message is not checked
+-- twice. results_json holds one entry per claim: kind, target, sentence,
+-- status and the evidence the probe saw. enforced is 1 when the contradicted
+-- claims were sent back to the agent as a notice. attempt_id stays NULL for
+-- sessions; the column is there so a task attempt can use the same table later.
+CREATE TABLE IF NOT EXISTS effect_checks(
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  attempt_id INTEGER,
+  message_hash TEXT NOT NULL DEFAULT '',
+  created_at REAL NOT NULL,
+  results_json TEXT NOT NULL DEFAULT '[]',
+  verified INTEGER NOT NULL DEFAULT 0,
+  contradicted INTEGER NOT NULL DEFAULT 0,
+  unknown INTEGER NOT NULL DEFAULT 0,
+  enforced INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_effect_checks_session ON effect_checks(session_id, id DESC);
 -- ci_watches is one pull request the CI loop (internal/ciloop) is watching
 -- for its owner: a task or a session, never both. attempts counts the fix
 -- requests sent; asked_sha is the head commit the latest one was about, so a
@@ -1085,4 +1105,8 @@ var migrations = []string{
 	// the approval is not checked again before it takes effect
 	// (internal/witness, docs/approval-witness.md).
 	"ALTER TABLE approvals ADD COLUMN witness_json TEXT NOT NULL DEFAULT ''",
+	// effect_checks is the project's setting for checking completion claims
+	// (internal/effects): off, show (badge and human notice) or enforce (the
+	// agent is sent the contradicted claims first). Existing projects get show.
+	"ALTER TABLE projects ADD COLUMN effect_checks TEXT NOT NULL DEFAULT 'show'",
 }

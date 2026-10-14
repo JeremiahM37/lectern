@@ -654,6 +654,7 @@ export default function App() {
       "media_deleted",
       "live",
       "session.check",
+      "session.effects",
       "ci",
       "target_reach",
     ])

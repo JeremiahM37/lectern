@@ -1,5 +1,7 @@
 package store
 
+import "encoding/json"
+
 // The row structs below mirror their table columns 1:1, including the raw
 // `*_json` text columns. The API serialises them straight to the client, and the
 // UI parses the JSON blobs it needs — the same contract the Python service had,
@@ -87,8 +89,11 @@ type Project struct {
 	ComputerUse int `json:"computer_use"`
 	// ClaudeTerminalMouse overrides the global "claude_terminal_mouse"
 	// setting for this project: "" follows it, "1" or "0" force it.
-	ClaudeTerminalMouse string  `json:"claude_terminal_mouse"`
-	CreatedAt           float64 `json:"created_at"`
+	ClaudeTerminalMouse string `json:"claude_terminal_mouse"`
+	// EffectChecks is the project's completion-claim check: "off", "show" or
+	// "enforce" (internal/effects, docs/effect-checks.md).
+	EffectChecks string  `json:"effect_checks"`
+	CreatedAt    float64 `json:"created_at"`
 
 	// joined for the projects list — the UI names a project's target inline
 	TargetName string `json:"target_name,omitempty"`
@@ -412,6 +417,22 @@ type SessionCheck struct {
 	StartedAt   float64  `json:"started_at"`
 	FinishedAt  *float64 `json:"finished_at"`
 	Reason      string   `json:"reason"`
+}
+
+// EffectCheck is one evaluation of the completion claims in an agent's final
+// message (internal/effects). Results is the per-claim JSON array; the three
+// counts are the claim totals the reliability endpoint sums.
+type EffectCheck struct {
+	ID           int64           `json:"id"`
+	SessionID    int64           `json:"session_id"`
+	AttemptID    *int64          `json:"attempt_id"`
+	MessageHash  string          `json:"-"`
+	CreatedAt    float64         `json:"created_at"`
+	Results      json.RawMessage `json:"results"`
+	Verified     int             `json:"verified"`
+	Contradicted int             `json:"contradicted"`
+	Unknown      int             `json:"unknown"`
+	Enforced     int             `json:"enforced"`
 }
 
 // EvalSuite is a named set of agent test cases against one project.

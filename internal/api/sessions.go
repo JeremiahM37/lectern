@@ -62,6 +62,10 @@ type sessionView struct {
 	// LastCheck summarises the most recent session_checks row (internal/checks)
 	// for the card badge — nil until the session's first check runs.
 	LastCheck *lastCheckView `json:"last_check,omitempty"`
+	// LastEffect is the most recent evaluation of the completion claims in the
+	// agent's final message (internal/effects, docs/effect-checks.md), with its
+	// per-claim results for the badge popover. Absent until the first one.
+	LastEffect *store.EffectCheck `json:"last_effect,omitempty"`
 	// CI is the CI loop's watch of this session's pull request
 	// (docs/ci-loop.md); absent when there is none.
 	CI *ciloop.View `json:"ci,omitempty"`
@@ -187,6 +191,9 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 	}
 	if last, err := s.DB.LatestSessionCheck(row.ID); err == nil && last != nil {
 		v.LastCheck = &lastCheckView{Status: last.Status, FinishedAt: last.FinishedAt, Command: last.Command}
+	}
+	if effect, err := s.DB.LatestEffectCheck(row.ID); err == nil && effect != nil {
+		v.LastEffect = effect
 	}
 	v.CI = s.latestCI("session_id", row.ID)
 	v.AwarenessOverlap = overlap

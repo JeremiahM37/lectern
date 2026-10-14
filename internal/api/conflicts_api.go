@@ -85,7 +85,7 @@ func (s *Server) conflictSubjectForSession(row *store.Session) (conflicts.Subjec
 			}
 			h := sha256.New()
 			for _, dir := range dirs {
-				fpr, err := checks.Fingerprint(ctx, ex, dir)
+				fpr, err := checks.WorktreeFingerprint(ctx, ex, dir)
 				if err != nil {
 					return "", err
 				}
@@ -117,7 +117,7 @@ func (s *Server) conflictSubjectForAttempt(att *store.Attempt, task *store.Task,
 			if dir == "" {
 				return "", errNotGitRepo
 			}
-			return checks.Fingerprint(ctx, ex, dir)
+			return checks.WorktreeFingerprint(ctx, ex, dir)
 		},
 		Diff: func(ctx context.Context) (string, error) {
 			d, err := liveDiffRepo(ctx, ex, dir, base)
