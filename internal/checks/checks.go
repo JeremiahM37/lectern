@@ -430,3 +430,18 @@ func clipBytes(s string, n int) string {
 	}
 	return s[len(s)-n:]
 }
+
+// Fingerprint is worktreeFingerprint for other packages: the conflict
+// scanner uses it to decide whether a worktree moved since its last parse,
+// without capturing the diff itself.
+func Fingerprint(ctx context.Context, ex executor.Executor, dir string) (string, error) {
+	return worktreeFingerprint(ctx, ex, dir)
+}
+
+// CommandIn is resolve for a worktree the caller already has: the same
+// verify_cmd-or-.verify.yaml rule the check runner applies, so a pre-merge
+// validation runs exactly what the project's own checks would run.
+func (r *Runner) CommandIn(ctx context.Context, ex executor.Executor, project *store.Project, dir string) (cmd string, ok bool) {
+	cmd, _, ok = r.resolve(ctx, ex, project, dir)
+	return cmd, ok
+}

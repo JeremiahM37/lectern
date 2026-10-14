@@ -400,6 +400,16 @@ const catalog: Record<string, string> = {
 
   "sessions.overlap.title": "セッション #{id}（{name}）と最近編集したファイルが重なっています",
   "sessions.overlap.chip": "⚠ #{id} と重複",
+  "sessions.conflict.chip": "⚠ #{id} と競合のおそれ",
+  "sessions.conflict.title": "{reason}。マージ前に調整または検証してください。",
+  "sessions.conflict.check": "一緒に確認",
+  "sessions.conflict.checking": "確認中…",
+  "sessions.conflict.textual": "2つの変更は一緒に適用できません（テキストの競合）。",
+  "sessions.conflict.passed": "両方の変更を適用し、チェックは成功しました。",
+  "sessions.conflict.failed": "両方の変更を適用しましたが、チェックは失敗しました。",
+  "sessions.conflict.error": "チェックを実行できませんでした。",
+  "sessions.conflict.skipped": "両方の変更を適用しました。チェックコマンドは設定されていません。",
+  "sessions.conflict.requestFailed": "一緒に確認できませんでした: {error}",
   "sessions.overlap.detailBefore": "過去 30 分間に ",
   "sessions.overlap.detailAfter": "（セッション #{id}）も編集したファイル：",
 

@@ -18,6 +18,7 @@ import {
 } from "./scratch";
 import { CompactionWarning, ContextBadge, CostBadge, LinesBadge } from "./UsageBadges";
 import { AwarenessOverlapChip } from "./AwarenessOverlapChip";
+import { ConflictChip } from "./ConflictChip";
 import { LimitBanner } from "../limits/LimitBanner";
 import { t, useLocale } from "../i18n";
 import { usePhone } from "../mobile/usePhone";
@@ -404,6 +405,7 @@ export function SessionCard({
         <LinesBadge session={s} />
         <CompactionWarning session={s} />
         <AwarenessOverlapChip session={s} />
+        <ConflictChip session={s} api={api} />
         {s.target_reach?.unreachable && (
           <span
             className="chip warn target-unreachable"

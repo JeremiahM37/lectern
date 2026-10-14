@@ -483,6 +483,16 @@ const catalog: Record<string, string> = {
   // AwarenessOverlapChip — {id} is another session's number, {name} its name
   "sessions.overlap.title": "Shares recently-edited files with session #{id} ({name})",
   "sessions.overlap.chip": "⚠ overlaps #{id}",
+  "sessions.conflict.chip": "⚠ may conflict with #{id}",
+  "sessions.conflict.title": "{reason}. Coordinate or validate before merging.",
+  "sessions.conflict.check": "Check together",
+  "sessions.conflict.checking": "Checking…",
+  "sessions.conflict.textual": "The two changes do not apply together (a textual conflict).",
+  "sessions.conflict.passed": "Both changes applied and the check passed.",
+  "sessions.conflict.failed": "Both changes applied, but the check failed.",
+  "sessions.conflict.error": "The check could not run.",
+  "sessions.conflict.skipped": "Both changes applied. No check command is configured.",
+  "sessions.conflict.requestFailed": "Could not check together: {error}",
   // Followed by the other session's name in bold
   "sessions.overlap.detailBefore": "Also edited by ",
   "sessions.overlap.detailAfter": " (session #{id}) in the last 30 minutes:",
