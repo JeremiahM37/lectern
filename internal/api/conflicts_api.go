@@ -94,7 +94,8 @@ func (s *Server) conflictSubjectForSession(row *store.Session) (conflicts.Subjec
 			return hex.EncodeToString(h.Sum(nil)), nil
 		},
 		Diff: func(ctx context.Context) (string, error) {
-			repos, err := s.sessionRepoDiffs(ctx, ex, row)
+			// A background scan: never write the index under a live agent.
+			repos, err := s.sessionRepoDiffs(withReadOnlyDiff(ctx), ex, row)
 			if err != nil {
 				return "", err
 			}
@@ -120,7 +121,7 @@ func (s *Server) conflictSubjectForAttempt(att *store.Attempt, task *store.Task,
 			return checks.WorktreeFingerprint(ctx, ex, dir)
 		},
 		Diff: func(ctx context.Context) (string, error) {
-			d, err := liveDiffRepo(ctx, ex, dir, base)
+			d, err := liveDiffRepo(withReadOnlyDiff(ctx), ex, dir, base)
 			if err != nil {
 				return "", err
 			}
@@ -152,6 +153,11 @@ func (s *Server) collectConflictSubjects(ctx context.Context, projectID int64) (
 	}
 	for _, row := range live {
 		if row.ProjectID == nil || *row.ProjectID != projectID {
+			continue
+		}
+		// A worktree still being created is git's to own: reading it now can
+		// collide with the checkout (index.lock) and fail the session's setup.
+		if row.SetupState == "creating" {
 			continue
 		}
 		sub, err := s.conflictSubjectForSession(row)

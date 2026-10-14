@@ -397,16 +397,22 @@ func SessionCheckWorkdir(row *store.Session) (string, error) {
 // tell "the worktree has moved since the last check" from "nothing to see
 // here" without capturing or storing the diff itself.
 func WorktreeFingerprint(ctx context.Context, ex executor.Executor, dir string) (string, error) {
+	// GIT_OPTIONAL_LOCKS=0: these are pure reads, and plain `git status`
+	// refreshes the index under index.lock. Callers now include background
+	// scans (conflict prediction, effect checks) that can run while an agent
+	// or a worktree checkout is using git in the same tree; taking the lock
+	// would make that other git command fail.
 	q := executor.ShellQuote
-	head, err := ex.Run(ctx, "git -C "+q(dir)+" rev-parse HEAD", executor.RunOpts{Timeout: 15})
+	git := "GIT_OPTIONAL_LOCKS=0 git -C " + q(dir)
+	head, err := ex.Run(ctx, git+" rev-parse HEAD", executor.RunOpts{Timeout: 15})
 	if err != nil {
 		return "", err
 	}
-	status, err := ex.Run(ctx, "git -C "+q(dir)+" status --porcelain", executor.RunOpts{Timeout: 30})
+	status, err := ex.Run(ctx, git+" status --porcelain", executor.RunOpts{Timeout: 30})
 	if err != nil {
 		return "", err
 	}
-	diff, err := ex.Run(ctx, "git -C "+q(dir)+" diff HEAD", executor.RunOpts{Timeout: 60})
+	diff, err := ex.Run(ctx, git+" diff HEAD", executor.RunOpts{Timeout: 60})
 	if err != nil {
 		return "", err
 	}

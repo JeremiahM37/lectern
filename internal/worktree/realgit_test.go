@@ -126,3 +126,40 @@ func TestWorktreeBadBaseBranchFails(t *testing.T) {
 		t.Errorf("the error should say what happened: %v", err)
 	}
 }
+
+// ReadDiff must show untracked work like CaptureDiff does, without writing the
+// index: background readers run it while an agent is using git in the same
+// worktree, and an index write there can fail the agent's own command.
+func TestReadDiffShowsUntrackedWithoutWritingTheIndex(t *testing.T) {
+	repo := mkRepo(t, filepath.Join(t.TempDir(), "repo"))
+	if err := os.WriteFile(filepath.Join(repo, "app.py"), []byte("print(\"changed\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new_file.py"), []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(repo, ".git", "index")
+	before, err := os.ReadFile(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch, err := worktree.ReadDiff(context.Background(), executor.NewLocal(), repo, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"print(\"changed\")", "b/new_file.py", "+x = 1"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("patch is missing %q:\n%s", want, patch)
+		}
+	}
+	after, err := os.ReadFile(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("ReadDiff wrote the index")
+	}
+	if _, err := os.Stat(index + ".lock"); !os.IsNotExist(err) {
+		t.Fatalf("index.lock left behind: %v", err)
+	}
+}

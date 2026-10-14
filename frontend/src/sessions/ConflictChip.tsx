@@ -19,7 +19,10 @@ const cache = new Map<string, { at: number; pairs: ConflictPair[] }>();
 async function loadPairs(api: SessionsApi, path: string): Promise<ConflictPair[]> {
   const hit = cache.get(path);
   if (hit && isFresh(hit.at, Date.now())) return hit.pairs;
-  const pairs = await api.request<ConflictPair[]>(path);
+  // Anything but a list (an older server, an error body) means no pairs:
+  // a chip must never be able to take the session card down with it.
+  const got: unknown = await api.request<unknown>(path);
+  const pairs = Array.isArray(got) ? (got as ConflictPair[]) : [];
   cache.set(path, { at: Date.now(), pairs });
   return pairs;
 }

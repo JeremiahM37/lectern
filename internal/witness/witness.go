@@ -34,7 +34,9 @@ type Witness struct {
 // with a commit, so a caller that cannot snapshot simply has no witness.
 func Snapshot(ctx context.Context, ex executor.Executor, dir string) (Witness, error) {
 	q := executor.ShellQuote
-	git := "git -C " + q(dir) + " "
+	// Reads only; GIT_OPTIONAL_LOCKS=0 keeps git from taking index.lock, so a
+	// snapshot never collides with the agent's own git commands.
+	git := "GIT_OPTIONAL_LOCKS=0 git -C " + q(dir) + " "
 	head, err := ex.Run(ctx, git+"rev-parse HEAD", executor.RunOpts{Timeout: 15})
 	if err != nil {
 		return Witness{}, err

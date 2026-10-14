@@ -184,6 +184,32 @@ func CaptureDiff(ctx context.Context, ex executor.Executor, wt, baseBranch strin
 	return pr.Stdout, files, nil
 }
 
+// ReadDiff is CaptureDiff's patch without touching the index. CaptureDiff
+// stages untracked files as intent-to-add so they appear in the diff, which
+// writes the index under index.lock; that is fine when a person opens Review,
+// but a background reader (conflict prediction) must never make the agent's
+// own git command in the same worktree fail. Untracked files are diffed one by
+// one against /dev/null instead, capped at maxUntracked.
+func ReadDiff(ctx context.Context, ex executor.Executor, wt, baseBranch string) (string, error) {
+	q := executor.ShellQuote
+	const maxUntracked = 200
+	git := "GIT_OPTIONAL_LOCKS=0 git -C " + q(wt)
+	pr, err := ex.Run(ctx, fmt.Sprintf("%s diff --no-color %s", git, q(baseBranch)), executor.RunOpts{Timeout: 120})
+	if err != nil {
+		return "", err
+	}
+	// git diff --no-index exits 1 when the files differ, which is every time
+	// here, so the loop ends with true.
+	untracked, err := ex.Run(ctx, fmt.Sprintf(
+		"cd %s && GIT_OPTIONAL_LOCKS=0 git ls-files -z --others --exclude-standard | head -z -n %d | "+
+			"while IFS= read -r -d '' f; do git diff --no-color --no-index -- /dev/null \"$f\"; done; true",
+		q(wt), maxUntracked), executor.RunOpts{Timeout: 120})
+	if err != nil {
+		return "", err
+	}
+	return pr.Stdout + untracked.Stdout, nil
+}
+
 // IntentToAddUntracked is the command that marks every untracked, not
 // ignored file in dir as intent-to-add, and nothing else.
 func IntentToAddUntracked(dir string) string {

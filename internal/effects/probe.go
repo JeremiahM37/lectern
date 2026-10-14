@@ -162,7 +162,7 @@ func probePushed(ctx context.Context, ex executor.Executor, dir string) Verdict 
 // probeCommitted reports uncommitted changes to tracked files. Untracked files
 // are ignored: a new file the agent never added does not undo a commit.
 func probeCommitted(ctx context.Context, ex executor.Executor, dir string) Verdict {
-	out, err := output(ctx, ex, dir, "git status --porcelain --untracked-files=no")
+	out, err := output(ctx, ex, dir, "GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=no")
 	if err != nil {
 		return unknown("git status failed: %v", err)
 	}

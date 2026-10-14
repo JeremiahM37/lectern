@@ -50,6 +50,16 @@ var errNotGitRepo = errors.New("not a git repository")
 // baseRef, live — including uncommitted and untracked changes — the same
 // worktree.CaptureDiff/SplitPatch tasks use to capture a diff at attempt
 // completion, just run live instead of read back from a stored patch.
+// readOnlyDiffKey marks a context whose live diffs must not write the index:
+// a background reader, not a person opening Review. See worktree.ReadDiff.
+type readOnlyDiffKey struct{}
+
+func withReadOnlyDiff(ctx context.Context) context.Context {
+	return context.WithValue(ctx, readOnlyDiffKey{}, true)
+}
+
+func readOnlyDiff(ctx context.Context) bool { v, _ := ctx.Value(readOnlyDiffKey{}).(bool); return v }
+
 func liveDiffRepo(ctx context.Context, ex executor.Executor, dir, baseRef string) (repoDiff, error) {
 	if !worktree.IsGitRepo(ctx, ex, dir) {
 		return repoDiff{}, errNotGitRepo
@@ -60,7 +70,14 @@ func liveDiffRepo(ctx context.Context, ex executor.Executor, dir, baseRef string
 	} else {
 		ref = existingRef(ctx, ex, dir, baseRef)
 	}
-	patch, stats, err := worktree.CaptureDiff(ctx, ex, dir, ref)
+	var patch string
+	var stats []worktree.FileStat
+	var err error
+	if readOnlyDiff(ctx) {
+		patch, err = worktree.ReadDiff(ctx, ex, dir, ref)
+	} else {
+		patch, stats, err = worktree.CaptureDiff(ctx, ex, dir, ref)
+	}
 	if err != nil {
 		return repoDiff{}, err
 	}
