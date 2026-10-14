@@ -314,6 +314,9 @@ func TestHandoffPromptAsksForAFileNotAChatReply(t *testing.T) {
 			t.Errorf("prompt is missing the %s section", section)
 		}
 	}
+	if !strings.Contains(p, "- CHECKABLE: for anything you state as true now, give the exact file path, service unit, port or commit, and the machine it is on, so the next agent can check it instead of trusting it") {
+		t.Error("prompt is missing the CHECKABLE bullet")
+	}
 }
 
 func TestResumePromptCarriesTheWrapAndHoldsOff(t *testing.T) {

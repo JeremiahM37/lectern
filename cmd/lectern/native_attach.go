@@ -186,6 +186,7 @@ type nativeWrapPlan struct {
 	controlsScript string
 	uploadScript   string
 	linkScript     string
+	scrollScript   string
 	splitScript    string
 	statusScript   string
 	statePath      string
@@ -197,6 +198,7 @@ type nativeWrapPlan struct {
 	controlsBody   string
 	uploadBody     string
 	linkBody       string
+	scrollBody     string
 	splitBody      string
 	statusBody     string
 }
@@ -218,6 +220,7 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 		controlsScript: filepath.Join(dir, "controls.sh"),
 		uploadScript:   filepath.Join(dir, "upload.sh"),
 		linkScript:     filepath.Join(dir, "link.sh"),
+		scrollScript:   filepath.Join(dir, "scrollback.sh"),
 		splitScript:    filepath.Join(dir, "split.sh"),
 		statusScript:   filepath.Join(dir, "status.sh"),
 		statePath:      filepath.Join(attachStateDir(), strconv.Itoa(os.Getpid())+".json"),
@@ -240,6 +243,10 @@ func newNativeWrapPlan(dir, socket string, controls nativeControls, argv []strin
 	// attachment's identity, and the server's environment its credential.
 	plan.linkBody = strings.TrimSuffix(execScriptWithEnv(append(insertEnv, linkDirEnv+"="+dir),
 		[]string{self, terminalLinkFlag, controls.Kind, controls.ID, controls.Base}), "\n") + ` "$@"` + "\n"
+	// Scrolling back reads the agent pane's own history from the control
+	// plane (native_scrollback.go), not this wrapper's repainted copy of it.
+	plan.scrollBody = execScriptWithEnv(append(insertEnv, linkDirEnv+"="+dir),
+		[]string{self, terminalScrollbackFlag, controls.Kind, controls.ID, controls.Base})
 	// A new pane or window is a shell on the session's machine, in the agent
 	// pane's directory (native_split.go), not a shell here in $HOME.
 	plan.splitBody = execScript([]string{self, terminalSplitFlag, controls.Kind, controls.ID, controls.Base})
@@ -319,7 +326,7 @@ func (p *nativeWrapPlan) attachMenu() string {
 		`"Shell to the right"`, "|", "{ split-window -h }",
 		`"Shell below"`, "-", "{ split-window -v }",
 		`"Shell in a new window"`, "c", "{ new-window }",
-		`"Scroll back (q stops)"`, "[", "{ copy-mode }",
+		`"Scroll back (q stops)"`, "[", "{ " + scrollbackBinding(p.scrollScript) + " }",
 		"''",
 		tmuxDQ(leave), "d", "{ detach-client }",
 		`"Send Ctrl+] to the agent"`, "C-]", "{ send-prefix }",
@@ -347,6 +354,10 @@ func (p *nativeWrapPlan) tmuxConfig() string {
 		// Keep the inner attachment on the wrapper's normal screen so output
 		// remains available to tmux copy-mode. Shared agent tmux is untouched.
 		"set -g mouse on",
+		// Wheel and Ctrl+] [ page the agent pane's real history, not the
+		// wrapper's repainted copy of it (native_scrollback.go).
+		scrollbackWheel(p.scrollScript),
+		"bind-key -T prefix [ " + scrollbackBinding(p.scrollScript),
 		// Copies reach the system clipboard of the terminal this client runs
 		// in (OSC 52): what the attached agent's tmux sends up (Claude Code
 		// copies with load-buffer -w, which tmux passes on as OSC 52), and
@@ -408,6 +419,7 @@ func (p *nativeWrapPlan) write() error {
 		{p.uploadScript, p.uploadBody, 0o700},
 		{p.splitScript, p.splitBody, 0o700},
 		{p.linkScript, p.linkBody, 0o700},
+		{p.scrollScript, p.scrollBody, 0o700},
 	}
 	if p.statusBody != "" {
 		files = append(files, struct {
@@ -435,6 +447,9 @@ func (p *nativeWrapPlan) start(tmuxPath string) error {
 		}
 		return fmt.Errorf("start private tmux: %w", err)
 	}
+	// Mark the agent's pane: the wheel pages its history, while shells split
+	// beside it keep tmux's own scrolling.
+	_ = exec.Command(tmuxPath, "-S", p.socket, "set-option", "-p", "-t", p.session+":", agentPaneOption, "1").Run()
 	// Without the link bindings the attachment still works; clicks keep
 	// tmux's own meaning.
 	_ = p.bindLinks(tmuxPath)

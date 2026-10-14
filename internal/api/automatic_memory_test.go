@@ -31,7 +31,7 @@ func scopedMemoryServer(t *testing.T) (*httptest.Server, *atomic.Int64) {
 			t.Errorf("bad scope: %v", query)
 		}
 		paths := query["path"]
-		if len(paths) != 2 || paths[0] != "teams/kestrel/" || !strings.HasPrefix(paths[1], "memory/lectern-") {
+		if len(paths) != 3 || paths[0] != "teams/kestrel/" || !strings.HasPrefix(paths[1], "memory/lectern-") || paths[2] != "Projects/kestrel/" {
 			t.Errorf("wrong assigned project: %v", paths)
 		}
 		if query.Get("exclude") != "" {

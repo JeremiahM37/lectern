@@ -178,8 +178,8 @@ func TestAProjectsMemoryLinkIsReportedAsItIsNotAsItIsAssumed(t *testing.T) {
 	if detail.str("basis") != "managed" || link.str("status") != "unlinked" {
 		t.Fatalf("managed but unprovisioned: %v", link)
 	}
-	if paths := detail.list("paths"); len(paths) != 1 || paths[0]["exists"] != false ||
-		!strings.HasPrefix(paths[0].str("path"), "memory/lectern-") {
+	if paths := detail.list("paths"); len(paths) != 2 || paths[0]["exists"] != false ||
+		!strings.HasPrefix(paths[0].str("path"), "memory/lectern-") || !strings.HasPrefix(paths[1].str("path"), "Projects/") {
 		t.Fatalf("paths: %v", detail)
 	}
 	// Without a topic the paths are guessed from the name. One of the guesses

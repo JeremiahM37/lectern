@@ -200,10 +200,15 @@ def test_native_wheel_reads_scrollback_without_changing_agent_draft(real_termina
         import re
         modes=re.findall(r'\x1b\[\?(?:1000|1002|1003)([hl])',''.join(received))
         assert modes and modes[-1]=='h', 'Attached terminal has no mouse reporting'
-        for _ in range(20): d.send('\x1b[<64;30;10M')
+        # A notch moves three lines in the scrollback pager, so reaching the
+        # top of about 106 lines of history takes more than 36 of them.
+        for _ in range(50): d.send('\x1b[<64;30;10M')
         d.wait('WHEEL-HISTORY-001')
         wait_bytes(output,b'unchanged draft')
-        for _ in range(25): d.send('\x1b[<65;30;10M')
+        for _ in range(60): d.send('\x1b[<65;30;10M')
+        # The scrollback pager stays open at the bottom until q (its title
+        # says so); q also leaves the wrapper's copy mode on the older path.
+        d.send('q')
         d.wait('AGENT_READY')
         d.send(' continued'); wait_bytes(output,b'unchanged draft continued')
         d.send('\x02d');d.wait('Detached. Session keeps running.');d.quit()

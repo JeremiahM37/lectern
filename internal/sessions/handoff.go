@@ -135,6 +135,7 @@ Cover, briefly and concretely:
 - DECISIONS: choices made and why, so they are not re-litigated
 - GOTCHAS: anything that cost time and would cost it again
 - STATE: branches, worktrees, running processes, uncommitted work
+- CHECKABLE: for anything you state as true now, give the exact file path, service unit, port or commit, and the machine it is on, so the next agent can check it instead of trusting it
 
 Write it for someone with no memory of this conversation but full access to the
 repo. Facts over narrative.
