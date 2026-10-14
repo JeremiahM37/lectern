@@ -30,6 +30,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/clipboard"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
+	"github.com/JeremiahM37/lectern/v2/internal/conflicts"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -91,6 +92,11 @@ type Server struct {
 	// test harness that never sets it, degrades to "no awareness" rather
 	// than a panic.
 	Awareness *awareness.Tracker
+	// conflictsOnce/conflictsScan lazily build the semantic-conflict scanner
+	// (internal/conflicts, see conflicts_api.go). It is created on first use,
+	// so a Server that never shows conflicts pays nothing for it.
+	conflictsOnce sync.Once
+	conflictsScan *conflicts.Scanner
 	// Claims is the Claim board's tracker (internal/claims, docs/claims.md):
 	// create/release/extend, overlap queries, and the briefing/warning text.
 	// Nil is safe everywhere it is read, same convention as Awareness.
@@ -551,6 +557,8 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- review: live diffs, commit/push/PR and inline comments ----
 	mux.HandleFunc("GET /api/sessions/{id}/diff", s.sessionDiff)
+	mux.HandleFunc("GET /api/conflicts", s.listConflicts)
+	mux.HandleFunc("POST /api/conflicts/validate", s.validateConflict)
 	mux.HandleFunc("POST /api/sessions/{id}/commit", s.commitSession)
 	mux.HandleFunc("POST /api/sessions/{id}/pr-description", s.sessionPRDescription)
 	mux.HandleFunc("POST /api/tasks/{id}/pr-description", s.taskPRDescription)

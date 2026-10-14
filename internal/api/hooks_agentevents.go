@@ -170,6 +170,11 @@ func (s *Server) awarenessAdditionalContext(sess *store.Session, event string, b
 		if !ok {
 			return ""
 		}
+		// The semantic line is added only with a fresh briefing, so it rides the
+		// same dedupe as the peer text and is not repeated on every prompt.
+		if note := s.conflictNote(sess); note != "" {
+			text += "\n" + note
+		}
 		return text
 	case agentevents.EventUserPromptSubmit:
 		s.Sessions.NameFromPrompt(sess.ID, in.Prompt)
@@ -180,6 +185,11 @@ func (s *Server) awarenessAdditionalContext(sess *store.Session, event string, b
 		text, ok := s.Awareness.Briefing(sess)
 		if !ok {
 			return ""
+		}
+		// The semantic line is added only with a fresh briefing, so it rides the
+		// same dedupe as the peer text and is not repeated on every prompt.
+		if note := s.conflictNote(sess); note != "" {
+			text += "\n" + note
 		}
 		return text
 	case agentevents.EventPreToolUse:

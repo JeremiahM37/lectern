@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fakeSubject is a Subject whose fingerprint and diff are set by the test and
@@ -159,4 +160,35 @@ func TestLastAndForRef(t *testing.T) {
 	if got := ForRef(pairs, Ref{Kind: "session", ID: 2}); len(got) != 1 {
 		t.Fatalf("session 2 should have one pair, got %+v", got)
 	}
+}
+
+func TestWarmRefreshesOnlyWhenStale(t *testing.T) {
+	a := &fakeSubject{ref: Ref{Kind: "session", ID: 1}, fpr: "a", patch: goParseDiff}
+	s := NewScanner(collectorOf(a))
+	s.Warm(1, time.Hour)
+	waitFor(t, func() bool { return a.diffs.Load() > 0 || s.Last(1) != nil || lastAtSet(s, 1) })
+	before := a.diffs.Load()
+	s.Warm(1, time.Hour) // fresh: must not scan again
+	time.Sleep(20 * time.Millisecond)
+	if a.diffs.Load() != before {
+		t.Fatalf("fresh project rescanned: diffs %d -> %d", before, a.diffs.Load())
+	}
+}
+
+func lastAtSet(s *Scanner, id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.lastAt[id].IsZero()
+}
+
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("condition not reached in time")
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Ref names one piece of live work: a session or a running task attempt.
@@ -66,6 +67,8 @@ type Scanner struct {
 	footprint map[string]footprintEntry
 	pairs     map[string]Risk
 	last      map[int64][]Pair // project -> most recent result, for hook-path lookups
+	lastAt    map[int64]time.Time
+	running   map[int64]bool
 }
 
 // NewScanner builds a Scanner over a collector.
@@ -75,7 +78,33 @@ func NewScanner(collect Collector) *Scanner {
 		footprint: map[string]footprintEntry{},
 		pairs:     map[string]Risk{},
 		last:      map[int64][]Pair{},
+		lastAt:    map[int64]time.Time{},
+		running:   map[int64]bool{},
 	}
+}
+
+// Warm starts a background Scan for a project whose last result is older than
+// maxAge, and returns at once. A scan already in flight is not duplicated. It
+// exists for the hook path, which must never wait on a diff: the hook reads
+// Last now and gets the fresher result on a later prompt.
+func (s *Scanner) Warm(projectID int64, maxAge time.Duration) {
+	s.mu.Lock()
+	if s.running[projectID] || (!s.lastAt[projectID].IsZero() && time.Since(s.lastAt[projectID]) < maxAge) {
+		s.mu.Unlock()
+		return
+	}
+	s.running[projectID] = true
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.running, projectID)
+			s.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		_, _ = s.Scan(ctx, projectID)
+	}()
 }
 
 // Scan collects the project's live subjects and returns every pair whose
@@ -127,6 +156,7 @@ func (s *Scanner) Scan(ctx context.Context, projectID int64) ([]Pair, error) {
 
 	s.mu.Lock()
 	s.last[projectID] = out
+	s.lastAt[projectID] = time.Now()
 	s.mu.Unlock()
 	return out, nil
 }
