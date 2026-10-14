@@ -109,6 +109,21 @@ func (a Witness) Drift(b Witness) string {
 	return ""
 }
 
+// Expected reports drift for a client that pinned only some fields when it
+// loaded the diff: head and diffHash are what the person saw, and an empty one
+// means "not pinned". Branch and upstream are not pinned, so they never count
+// as drift here. A commit or push that was sent without a pin is never checked.
+func Expected(now Witness, head, diffHash string) string {
+	want := now
+	if head != "" {
+		want.Head = head
+	}
+	if diffHash != "" {
+		want.DiffHash = diffHash
+	}
+	return want.Drift(now)
+}
+
 func short(sha string) string {
 	if sha == "" {
 		return "(none)"

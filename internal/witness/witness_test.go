@@ -172,3 +172,30 @@ func TestIsEffectful(t *testing.T) {
 		t.Fatal("a call without a command is not effectful")
 	}
 }
+
+func TestExpectedComparesOnlyPinnedFields(t *testing.T) {
+	dir := newRepo(t)
+	now := snap(t, dir)
+	if d := Expected(now, "", ""); d != "" {
+		t.Fatalf("nothing pinned must never be stale, got %q", d)
+	}
+	if d := Expected(now, now.Head, now.DiffHash); d != "" {
+		t.Fatalf("matching pins must not be stale, got %q", d)
+	}
+	if d := Expected(now, "0000000000000000000000000000000000000000", ""); !strings.HasPrefix(d, "HEAD moved ") {
+		t.Fatalf("a pinned head that differs is drift, got %q", d)
+	}
+	write(t, filepath.Join(dir, "app.txt"), "edited\n")
+	if d := Expected(now, "", now.DiffHash); d != "" {
+		t.Fatalf("a pinned head alone must not see a working-tree change, got %q", d)
+	}
+	if d := Expected(now, "", now.DiffHash); d != "" {
+		t.Fatalf("unchanged pin, got %q", d)
+	}
+	if d := Expected(now, now.Head, ""); d != "" {
+		t.Fatalf("head unchanged, got %q", d)
+	}
+	if d := Expected(now, "", "stale-hash"); d != "working tree changed" {
+		t.Fatalf("a pinned diff hash that differs is drift, got %q", d)
+	}
+}

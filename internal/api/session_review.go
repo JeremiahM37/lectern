@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
+	"github.com/JeremiahM37/lectern/v2/internal/witness"
 	"github.com/JeremiahM37/lectern/v2/internal/worktree"
 )
 
@@ -204,7 +205,38 @@ func (s *Server) sessionDiff(w http.ResponseWriter, r *http.Request) {
 	if repos == nil {
 		repos = []repoDiff{}
 	}
-	writeJSON(w, 200, map[string]any{"repos": repos})
+	out := map[string]any{"repos": repos}
+	// The state this diff shows, so a commit or push can be pinned to it
+	// (expected_head / expected_diff_hash). Omitted when the repository it
+	// would name cannot be read: the client then sends no pin, as before.
+	if target, err := s.resolveSessionCommitTarget(r.Context(), ex, row, r.URL.Query().Get("repo")); err == nil {
+		if now, err := witness.Snapshot(r.Context(), ex, target.dir); err == nil {
+			out["head"] = now.Head
+			out["diff_hash"] = now.DiffHash
+		}
+	}
+	writeJSON(w, 200, out)
+}
+
+// refuseIfChanged answers 409 stale and returns false when the repository has
+// moved since the client loaded its diff (the pinned head or diff hash). A
+// pin that was not sent is never checked, so older clients keep working. If the
+// pinned state cannot be re-read, the request is refused too: the server cannot
+// show it is still the state the person reviewed.
+func refuseIfChanged(w http.ResponseWriter, r *http.Request, ex executor.Executor, dir, head, diffHash string) bool {
+	if head == "" && diffHash == "" {
+		return true
+	}
+	now, err := witness.Snapshot(r.Context(), ex, dir)
+	if err != nil {
+		writeJSON(w, 409, map[string]any{"error": "stale", "detail": "could not re-check the worktree: " + err.Error()})
+		return false
+	}
+	if drift := witness.Expected(now, head, diffHash); drift != "" {
+		writeJSON(w, 409, map[string]any{"error": "stale", "detail": drift})
+		return false
+	}
+	return true
 }
 
 // ---- commit / push / PR (shared by tasks and sessions) --------------------

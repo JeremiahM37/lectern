@@ -248,6 +248,11 @@ type gitCommitIn struct {
 	// on that machine (scope "global", the default) or only this one
 	// ("repo"), and the commit goes ahead.
 	Identity *gitIdentityIn `json:"identity"`
+	// ExpectedHead and ExpectedDiffHash are what the person reviewed (the
+	// head and diff_hash of the last diff load). If either is sent and the
+	// repository has moved since, the commit is refused before anything runs.
+	ExpectedHead     string `json:"expected_head"`
+	ExpectedDiffHash string `json:"expected_diff_hash"`
 }
 
 type gitIdentityIn struct {
@@ -347,6 +352,9 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	}
 	row, ex, target, ok := s.reviewRepo(w, r, body.Repo)
 	if !ok || !liveSession(w, row) {
+		return
+	}
+	if !refuseIfChanged(w, r, ex, target.dir, body.ExpectedHead, body.ExpectedDiffHash) {
 		return
 	}
 	if identityCmd != "" {
@@ -454,6 +462,9 @@ func (s *Server) gitPush(w http.ResponseWriter, r *http.Request) {
 		Repo           string `json:"repo"`
 		ForceWithLease bool   `json:"force_with_lease"`
 		Lease          string `json:"lease"`
+		// See gitCommitIn: a push is refused if the reviewed state has moved.
+		ExpectedHead     string `json:"expected_head"`
+		ExpectedDiffHash string `json:"expected_diff_hash"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		httpError(w, 422, "%s", err.Error())
@@ -468,6 +479,9 @@ func (s *Server) gitPush(w http.ResponseWriter, r *http.Request) {
 	}
 	row, ex, target, ok := s.reviewRepo(w, r, body.Repo)
 	if !ok || !liveSession(w, row) {
+		return
+	}
+	if !refuseIfChanged(w, r, ex, target.dir, body.ExpectedHead, body.ExpectedDiffHash) {
 		return
 	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
