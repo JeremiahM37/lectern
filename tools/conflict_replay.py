@@ -48,7 +48,7 @@ import time
 
 MAX_SIDE_LINES = 3000
 DEFAULT_TIMEOUT = 600
-DEFAULT_TMP_ROOT = '/mnt/bulk/lectern-research/replay-tmp'
+DEFAULT_TMP_ROOT = os.path.join(tempfile.gettempdir(), 'lectern-conflict-replay')
 
 
 class Skip(Exception):

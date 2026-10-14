@@ -27,7 +27,8 @@ python3 -I tools/conflict_replay.py --repo PATH --out FILE.jsonl --limit N \
 
 `--out` should sit outside the repository, because each row holds full diffs.
 Builds run in detached temporary worktrees under `--tmp-root` (default
-`/mnt/bulk/lectern-research/replay-tmp`). Each is removed when its check ends.
+`lectern-conflict-replay` in the system temp directory). Each is removed when
+its check ends.
 Tests for the tool are in `tools/test_conflict_replay.py` and run with
 `python3 -I tools/test_conflict_replay.py`.
 
