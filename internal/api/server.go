@@ -580,6 +580,8 @@ func (s *Server) Handler() http.Handler {
 	// triggered on an agent's Stop and shown on the session's card ----
 	mux.HandleFunc("GET /api/sessions/{id}/checks", s.sessionChecks)
 	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
+	mux.HandleFunc("GET /api/sessions/{id}/effects", s.sessionEffects)
+	mux.HandleFunc("GET /api/effects/reliability", s.effectReliability)
 	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
 	mux.HandleFunc("POST /api/tasks/{id}/ci", s.armTaskCI)
 	mux.HandleFunc("POST /api/sessions/{id}/ci", s.armSessionCI)

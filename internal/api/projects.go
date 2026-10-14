@@ -68,10 +68,16 @@ type projectIn struct {
 	// "" follows it, "1" leaves the mouse to the terminal, "0" gives it to
 	// Claude Code (internal/sessions/terminal_mouse.go).
 	ClaudeTerminalMouse *string `json:"claude_terminal_mouse"`
+	// EffectChecks is "off", "show" (default) or "enforce" (docs/effect-checks.md).
+	EffectChecks *string `json:"effect_checks"`
 }
 
 // validTerminalMouse accepts the three states of a project's override.
 func validTerminalMouse(v *string) bool { return v == nil || oneOf(*v, "", "0", "1") }
+
+// validEffectChecks accepts the three effect-check modes (docs/effect-checks.md).
+// nil means "leave it alone" on PATCH and "the default" on create.
+func validEffectChecks(v *string) bool { return v == nil || oneOf(*v, "off", "show", "enforce") }
 
 // validCIMaxAttempts bounds the cap: at least one fix request, and few
 // enough that a flaky suite cannot keep an agent busy all day.
@@ -136,6 +142,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, `claude_terminal_mouse must be "", "0" or "1"`)
 		return
 	}
+	if !validEffectChecks(in.EffectChecks) {
+		httpError(w, 422, `effect_checks must be "off", "show" or "enforce"`)
+		return
+	}
 	if _, err := s.DB.Target(in.TargetID); err != nil {
 		httpError(w, 400, "no such target")
 		return
@@ -170,6 +180,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ClaudeTerminalMouse != nil {
 		p.ClaudeTerminalMouse = *in.ClaudeTerminalMouse
+	}
+	if in.EffectChecks != nil {
+		p.EffectChecks = *in.EffectChecks
 	}
 	out, err := s.DB.InsertProject(p)
 	if err != nil {
@@ -206,6 +219,7 @@ type projectPatch struct {
 	CIMaxAttempts         *int              `json:"ci_max_attempts"`
 	ComputerUse           *bool             `json:"computer_use"`
 	ClaudeTerminalMouse   *string           `json:"claude_terminal_mouse"`
+	EffectChecks          *string           `json:"effect_checks"`
 }
 
 func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +270,10 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, `claude_terminal_mouse must be "", "0" or "1"`)
 		return
 	}
+	if !validEffectChecks(p.EffectChecks) {
+		httpError(w, 422, `effect_checks must be "off", "show" or "enforce"`)
+		return
+	}
 	if _, err := s.DB.Project(id); err != nil {
 		httpError(w, 404, "no such project")
 		return
@@ -280,6 +298,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 	setStr(fields, "capability_profile", p.CapabilityProfile)
 	setStr(fields, "default_permission_mode", p.DefaultPermissionMode)
 	setStr(fields, "claude_terminal_mouse", p.ClaudeTerminalMouse)
+	setStr(fields, "effect_checks", p.EffectChecks)
 	if p.Isolation != nil {
 		fields["default_isolation_json"] = isolationJSON(p.Isolation)
 	}
