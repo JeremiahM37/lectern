@@ -167,7 +167,10 @@ func TestProbeTests(t *testing.T) {
 		want Status
 	}{
 		{"no run recorded", Facts{CurrentFingerprint: "abc"}, StatusUnknown},
-		{"last run failed", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "failed", OutputTail: "ok\nFAIL foo 0.1s\n"}, CurrentFingerprint: "abc"}, StatusContradicted},
+		{"failed on this tree", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "failed", Fingerprint: "abc", OutputTail: "ok\nFAIL foo 0.1s\n"}, CurrentFingerprint: "abc"}, StatusContradicted},
+		// The Stop that triggers evaluation also queues a fresh check; until it
+		// runs, the latest row is an older tree's and must not contradict.
+		{"failed on an earlier tree", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "failed", Fingerprint: "old", OutputTail: "FAIL\n"}, CurrentFingerprint: "abc"}, StatusUnknown},
 		{"passed on this tree", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "passed", Fingerprint: "abc"}, CurrentFingerprint: "abc"}, StatusVerified},
 		{"passed then tree changed", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "passed", Fingerprint: "abc"}, CurrentFingerprint: "def"}, StatusUnknown},
 		{"passed with no fingerprint", Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "passed"}}, StatusUnknown},
@@ -313,7 +316,7 @@ func TestEvaluateDeduplicatesAndProbes(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "out.txt"), "x")
 	msg := "Wrote `out.txt`. Wrote `out.txt` again. Tests are green."
-	facts := Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "failed", OutputTail: "FAIL\n"}}
+	facts := Facts{LastCheck: &store.SessionCheck{Command: "go test ./...", Status: "failed", Fingerprint: "fp", OutputTail: "FAIL\n"}, CurrentFingerprint: "fp"}
 	res := Evaluate(bg, executor.NewLocal(), dir, msg, facts)
 	if len(res) != 2 {
 		t.Fatalf("want 2 results (file once, tests), got %d: %+v", len(res), res)

@@ -194,11 +194,20 @@ func probeTests(f Facts) Verdict {
 	if lc == nil {
 		return unknown("no test run is recorded for this session")
 	}
+	// A run only speaks for the tree it ran on. The Stop that triggered this
+	// evaluation also queues a fresh check, which may not have started yet, so
+	// the latest row can be an older run on an older tree: a failure there says
+	// nothing about the agent's final state, and calling the claim
+	// contradicted would be a false alarm.
+	current := lc.Fingerprint != "" && lc.Fingerprint == f.CurrentFingerprint
 	switch lc.Status {
 	case "failed":
-		return contradicted("%s failed: %s", lc.Command, lastLine(lc.OutputTail))
+		if current {
+			return contradicted("%s failed: %s", lc.Command, lastLine(lc.OutputTail))
+		}
+		return unknown("%s failed on an earlier tree; no run yet on the current one", lc.Command)
 	case "passed":
-		if lc.Fingerprint != "" && lc.Fingerprint == f.CurrentFingerprint {
+		if current {
 			return verified("%s passed on the current tree", lc.Command)
 		}
 		return unknown("%s passed, but the tree changed after it", lc.Command)
