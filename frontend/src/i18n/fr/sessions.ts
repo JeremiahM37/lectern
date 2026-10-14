@@ -400,6 +400,16 @@ const catalog: Record<string, string> = {
 
   "sessions.overlap.title": "Partage des fichiers récemment modifiés avec la session n° {id} ({name})",
   "sessions.overlap.chip": "⚠ recoupe n° {id}",
+  "sessions.conflict.chip": "⚠ conflit possible avec n° {id}",
+  "sessions.conflict.title": "{reason}. Coordonnez-vous ou validez avant de fusionner.",
+  "sessions.conflict.check": "Vérifier ensemble",
+  "sessions.conflict.checking": "Vérification…",
+  "sessions.conflict.textual": "Les deux modifications ne s’appliquent pas ensemble (conflit textuel).",
+  "sessions.conflict.passed": "Les deux modifications ont été appliquées et la vérification a réussi.",
+  "sessions.conflict.failed": "Les deux modifications ont été appliquées, mais la vérification a échoué.",
+  "sessions.conflict.error": "La vérification n’a pas pu s’exécuter.",
+  "sessions.conflict.skipped": "Les deux modifications ont été appliquées. Aucune commande de vérification n’est configurée.",
+  "sessions.conflict.requestFailed": "Impossible de vérifier ensemble : {error}",
   "sessions.overlap.detailBefore": "Également modifiés par ",
   "sessions.overlap.detailAfter": " (session n° {id}) au cours des 30 dernières minutes :",
 

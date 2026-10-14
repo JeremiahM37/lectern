@@ -400,6 +400,16 @@ const catalog: Record<string, string> = {
 
   "sessions.overlap.title": "Comparte archivos editados recientemente con la sesión n.º {id} ({name})",
   "sessions.overlap.chip": "⚠ coincide con n.º {id}",
+  "sessions.conflict.chip": "⚠ posible conflicto con n.º {id}",
+  "sessions.conflict.title": "{reason}. Coordinad o validad antes de fusionar.",
+  "sessions.conflict.check": "Comprobar juntas",
+  "sessions.conflict.checking": "Comprobando…",
+  "sessions.conflict.textual": "Los dos cambios no se aplican juntos (conflicto textual).",
+  "sessions.conflict.passed": "Ambos cambios se aplicaron y la comprobación pasó.",
+  "sessions.conflict.failed": "Ambos cambios se aplicaron, pero la comprobación falló.",
+  "sessions.conflict.error": "No se pudo ejecutar la comprobación.",
+  "sessions.conflict.skipped": "Ambos cambios se aplicaron. No hay comando de comprobación configurado.",
+  "sessions.conflict.requestFailed": "No se pudo comprobar juntas: {error}",
   "sessions.overlap.detailBefore": "También editado por ",
   "sessions.overlap.detailAfter": " (sesión n.º {id}) en los últimos 30 minutos:",
 

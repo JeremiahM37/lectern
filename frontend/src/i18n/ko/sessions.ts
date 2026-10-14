@@ -400,6 +400,16 @@ const catalog: Record<string, string> = {
 
   "sessions.overlap.title": "세션 #{id}({name})와(과) 최근 편집한 파일을 공유합니다",
   "sessions.overlap.chip": "⚠ #{id}와(과) 겹침",
+  "sessions.conflict.chip": "⚠ #{id}와(과) 충돌 가능성",
+  "sessions.conflict.title": "{reason}. 병합 전에 조율하거나 검증하세요.",
+  "sessions.conflict.check": "함께 확인",
+  "sessions.conflict.checking": "확인 중…",
+  "sessions.conflict.textual": "두 변경은 함께 적용되지 않습니다(텍스트 충돌).",
+  "sessions.conflict.passed": "두 변경을 모두 적용했고 검사가 통과했습니다.",
+  "sessions.conflict.failed": "두 변경을 모두 적용했지만 검사가 실패했습니다.",
+  "sessions.conflict.error": "검사를 실행할 수 없습니다.",
+  "sessions.conflict.skipped": "두 변경을 모두 적용했습니다. 검사 명령이 설정되어 있지 않습니다.",
+  "sessions.conflict.requestFailed": "함께 확인할 수 없습니다: {error}",
   "sessions.overlap.detailBefore": "최근 30분 동안 ",
   "sessions.overlap.detailAfter": "(세션 #{id})도 편집한 파일:",
 
