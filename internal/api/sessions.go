@@ -39,6 +39,8 @@ type sessionView struct {
 	StateReason   string `json:"state_reason,omitempty"`
 	LaunchProfile string `json:"launch_profile,omitempty"`
 	CanRestore    bool   `json:"can_restore"`
+	// Favorite mirrors FavoriteAt for clients that only need the flag.
+	Favorite bool `json:"favorite"`
 	// SavedConversations says Lectern can list this session's saved
 	// conversations: Claude and Codex, and catalog agents with a sessions
 	// source.
@@ -146,6 +148,7 @@ func (s *Server) sessionViewWith(row *store.Session, overlap *awarenessOverlapVi
 		IdleSeconds:     sessions.IdleFor(row).Seconds(),
 		UptimeSeconds:   store.Now() - row.CreatedAt,
 		HandoffInFlight: s.Sessions.InFlight(row.ID),
+		Favorite:        row.FavoriteAt != nil,
 	}
 	v.State, v.StateReason = vocab.SessionState(vocab.SessionFacts{
 		Status: row.Status, AgentState: row.AgentState, SetupState: row.SetupState,
@@ -280,6 +283,35 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		keep = append(keep, row)
 	}
 	writeJSON(w, 200, s.sessionViews(keep))
+}
+
+// setSessionFavorite is PUT /api/sessions/{id}/favorite with {"favorite":
+// true|false}. It is the same kind of session edit as PATCH, so it takes the
+// same route-level auth; the star lives on the row, so it survives the
+// session ending and can be brought back from the Favorites tab.
+func (s *Server) setSessionFavorite(w http.ResponseWriter, r *http.Request) {
+	row, ok := s.sessionParam(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Favorite *bool `json:"favorite"`
+	}
+	if err := decodeBody(r, &in); err != nil || in.Favorite == nil {
+		httpError(w, 422, "favorite must be true or false")
+		return
+	}
+	if err := s.DB.SetSessionFavorite(row.ID, *in.Favorite, store.Now()); err != nil {
+		respondErr(w, err)
+		return
+	}
+	fresh, err := s.DB.Session(row.ID)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	s.Bus.Publish("board", "session", fresh)
+	writeJSON(w, 200, s.sessionView(fresh))
 }
 
 func (s *Server) recentSessions(w http.ResponseWriter, r *http.Request) {

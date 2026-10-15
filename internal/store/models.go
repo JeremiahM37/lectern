@@ -256,29 +256,32 @@ type Session struct {
 	SetupError           string   `json:"setup_error,omitempty"`
 	LaunchConfigJSON     string   `json:"-"`
 	ArchivedAt           *float64 `json:"archived_at"`
-	ResumeID             string   `json:"resume_id,omitempty"`
-	NativeRecoveryCID    string   `json:"-"`
-	BootID               string   `json:"-"`
-	TrackingIdentity     string   `json:"-"`
-	GroupPath            string   `json:"group_path"`
-	WorktreeJSON         string   `json:"-"`
-	ID                   int64    `json:"id"`
-	ProjectID            *int64   `json:"project_id"`
-	TargetID             int64    `json:"target_id"`
-	Name                 string   `json:"name"`
-	Agent                string   `json:"agent"`
-	Model                string   `json:"model"`
-	Workdir              string   `json:"workdir"`
-	TmuxSession          string   `json:"tmux_session"`
-	Status               string   `json:"status"`
-	Origin               string   `json:"origin"`
-	PaneHash             string   `json:"-"`
-	PaneTail             string   `json:"pane_tail"`
-	ContextPct           *int     `json:"context_pct"`
-	LastActivityAt       *float64 `json:"last_activity_at"`
-	CreatedAt            float64  `json:"created_at"`
-	UpdatedAt            float64  `json:"updated_at"`
-	EndedAt              *float64 `json:"ended_at"`
+	// FavoriteAt is when the person starred this session; nil when it is not
+	// a favorite. It survives the session ending (docs/terminal-client.md).
+	FavoriteAt        *float64 `json:"favorite_at"`
+	ResumeID          string   `json:"resume_id,omitempty"`
+	NativeRecoveryCID string   `json:"-"`
+	BootID            string   `json:"-"`
+	TrackingIdentity  string   `json:"-"`
+	GroupPath         string   `json:"group_path"`
+	WorktreeJSON      string   `json:"-"`
+	ID                int64    `json:"id"`
+	ProjectID         *int64   `json:"project_id"`
+	TargetID          int64    `json:"target_id"`
+	Name              string   `json:"name"`
+	Agent             string   `json:"agent"`
+	Model             string   `json:"model"`
+	Workdir           string   `json:"workdir"`
+	TmuxSession       string   `json:"tmux_session"`
+	Status            string   `json:"status"`
+	Origin            string   `json:"origin"`
+	PaneHash          string   `json:"-"`
+	PaneTail          string   `json:"pane_tail"`
+	ContextPct        *int     `json:"context_pct"`
+	LastActivityAt    *float64 `json:"last_activity_at"`
+	CreatedAt         float64  `json:"created_at"`
+	UpdatedAt         float64  `json:"updated_at"`
+	EndedAt           *float64 `json:"ended_at"`
 	// EndReason says how the record ended: stopped (someone ended it),
 	// exited (its process went away on its own), released (tracking stopped,
 	// process left running), handed_off, dismissed or failed (a launch that

@@ -431,6 +431,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/worktree/operations/{operation}/cancel", s.cancelWorkspaceOperation)
 	mux.HandleFunc("POST /api/sessions/{id}/worktree/operations/{operation}/recover", s.recoverWorkspaceOperation)
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
+	mux.HandleFunc("PUT /api/sessions/{id}/favorite", s.setSessionFavorite)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/restore", s.restoreSession)
 	mux.HandleFunc("POST /api/sessions/{id}/reopen", s.reopenSession)

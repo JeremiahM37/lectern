@@ -1134,4 +1134,8 @@ var migrations = []string{
 	// (internal/effects): off, show (badge and human notice) or enforce (the
 	// agent is sent the contradicted claims first). Existing projects get show.
 	"ALTER TABLE projects ADD COLUMN effect_checks TEXT NOT NULL DEFAULT 'show'",
+	// favorite_at is when the person starred a session (the CLI's ★ and the
+	// Favorites tab). NULL means not a favorite. It is kept across the session
+	// ending so an ended favorite can be brought back from the list.
+	"ALTER TABLE sessions ADD COLUMN favorite_at REAL",
 }
