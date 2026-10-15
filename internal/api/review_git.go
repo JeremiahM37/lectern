@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
+	"github.com/JeremiahM37/lectern/v2/internal/decisionlog"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/helpers"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
@@ -175,7 +176,7 @@ func (s *Server) gitIndexAction(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 422, "%s", err.Error())
 		return
 	}
-	_, ex, target, ok := s.reviewRepo(w, r, body.Repo)
+	row, ex, target, ok := s.reviewRepo(w, r, body.Repo)
 	if !ok {
 		return
 	}
@@ -183,6 +184,12 @@ func (s *Server) gitIndexAction(w http.ResponseWriter, r *http.Request) {
 	if err := runReviewGit(r.Context(), ex, target.dir, action, map[string]any{"paths": body.Paths}, &out); err != nil {
 		respondReviewGitErr(w, err)
 		return
+	}
+	// Discarding changes throws away work, so it is the one index action the
+	// decision log keeps. Staging and unstaging are not decisions about work.
+	if action == "discard" {
+		s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewDiscard, "done",
+			map[string]any{"files": len(body.Paths)})
 	}
 	writeJSON(w, 200, out)
 }
@@ -355,6 +362,8 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !refuseIfChanged(w, r, ex, target.dir, body.ExpectedHead, body.ExpectedDiffHash) {
+		s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewCommit, "refused_stale",
+			map[string]any{"files": 0, "push": body.Push})
 		return
 	}
 	if identityCmd != "" {
@@ -452,6 +461,8 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	ci := s.armCIFromSteps(ciloop.Owner{SessionID: &sessionID, ProjectID: target.projectID,
 		TargetID: row.TargetID, Branch: target.branch}, steps)
 	s.Bus.Publish(fmt.Sprintf("session:%d", row.ID), "git", map[string]any{"steps": steps})
+	s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewCommit, "done",
+		map[string]any{"files": s.committedFiles(r.Context(), ex, target.dir), "push": body.Push})
 	writeJSON(w, 200, map[string]any{"steps": steps, "ci": ci, "branch": target.branch})
 }
 
@@ -482,6 +493,8 @@ func (s *Server) gitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !refuseIfChanged(w, r, ex, target.dir, body.ExpectedHead, body.ExpectedDiffHash) {
+		s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewPush, "refused_stale",
+			map[string]any{"files": 0, "push": true})
 		return
 	}
 	if err := refuseOnBaseBranch(target.branch, target.base); err != nil {
@@ -499,6 +512,8 @@ func (s *Server) gitPush(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewPush, "done",
+		map[string]any{"files": 0, "push": true})
 	writeJSON(w, 200, map[string]any{"steps": []map[string]any{step}})
 }
 

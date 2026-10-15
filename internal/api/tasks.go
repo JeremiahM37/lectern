@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/budget"
+	"github.com/JeremiahM37/lectern/v2/internal/decisionlog"
 	"github.com/JeremiahM37/lectern/v2/internal/delegation"
 	"github.com/JeremiahM37/lectern/v2/internal/scheduler"
 	"github.com/JeremiahM37/lectern/v2/internal/skills"
@@ -585,6 +586,11 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.DB.Update("tasks", task.ID, map[string]any{"status": "done", "updated_at": store.Now()})
+	// Completing a task from review is accepting its work.
+	if task.Status == "review" {
+		s.Decisions.RecordReview(0, "", decisionlog.KindTaskReview, "accept",
+			map[string]any{"task_id": task.ID})
+	}
 	fresh, _ := s.DB.Task(task.ID)
 	s.Bus.Publish("board", "task", fresh)
 	writeJSON(w, 200, s.view(fresh))

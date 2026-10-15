@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/ciloop"
+	"github.com/JeremiahM37/lectern/v2/internal/decisionlog"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions"
 	"github.com/JeremiahM37/lectern/v2/internal/store"
@@ -712,6 +713,8 @@ func (s *Server) reviewSession(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	s.Decisions.RecordReview(row.ID, row.Agent, decisionlog.KindReviewCommentsSent, "sent",
+		map[string]any{"count": len(body.Comments)})
 	writeJSON(w, 200, map[string]any{"sent": true, "comments": len(body.Comments), "round": round})
 }
 
@@ -733,5 +736,25 @@ func (s *Server) reviewTask(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	s.followupWithFeedback(w, r, task, formatReviewPrompt(body.Comments, body.Summary))
+	// Only a request that was actually turned into a follow-up is a decision;
+	// a refused one (no project, no target) is not.
+	capture := &statusCapture{ResponseWriter: w, code: http.StatusOK}
+	s.followupWithFeedback(capture, r, task, formatReviewPrompt(body.Comments, body.Summary))
+	if capture.code < 300 {
+		s.Decisions.RecordReview(0, "", decisionlog.KindTaskReview, "request_changes",
+			map[string]any{"task_id": task.ID, "comments": len(body.Comments)})
+	}
+}
+
+// statusCapture remembers the status a handler wrote, so a caller can tell
+// whether the work it delegated succeeded. It only observes; the response
+// itself is untouched.
+type statusCapture struct {
+	http.ResponseWriter
+	code int
+}
+
+func (c *statusCapture) WriteHeader(code int) {
+	c.code = code
+	c.ResponseWriter.WriteHeader(code)
 }

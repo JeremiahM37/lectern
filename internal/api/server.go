@@ -31,6 +31,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/clipboard"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/conflicts"
+	"github.com/JeremiahM37/lectern/v2/internal/decisionlog"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
 	"github.com/JeremiahM37/lectern/v2/internal/memory"
@@ -73,11 +74,14 @@ type Server struct {
 	Bus      *bus.Bus
 	Broker   *broker.Broker
 	Notifier *sinks.Notifier
-	Reg      *executor.Registry
-	Sched    *scheduler.Scheduler
-	Sessions *sessions.Manager
-	Events   *agentevents.Ingester
-	Checks   *checks.Runner
+	// Decisions records Review actions and hook-derived decisions
+	// (internal/decisionlog). nil records nothing; every call is nil-safe.
+	Decisions *decisionlog.Recorder
+	Reg       *executor.Registry
+	Sched     *scheduler.Scheduler
+	Sessions  *sessions.Manager
+	Events    *agentevents.Ingester
+	Checks    *checks.Runner
 	// CILoop watches the pull requests Lectern opens (internal/ciloop,
 	// docs/ci-loop.md). Nil is safe: nothing is armed.
 	CILoop *ciloop.Watcher
@@ -590,6 +594,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/checks", s.runSessionCheck)
 	mux.HandleFunc("GET /api/sessions/{id}/effects", s.sessionEffects)
 	mux.HandleFunc("GET /api/effects/reliability", s.effectReliability)
+	mux.HandleFunc("GET /api/decisions", s.listDecisions)
+	mux.HandleFunc("GET /api/decisions/summary", s.decisionSummary)
 	mux.HandleFunc("GET /api/projects/{id}/check-command", s.projectCheckCommand)
 	mux.HandleFunc("POST /api/tasks/{id}/ci", s.armTaskCI)
 	mux.HandleFunc("POST /api/sessions/{id}/ci", s.armSessionCI)

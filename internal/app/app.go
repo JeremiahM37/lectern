@@ -27,6 +27,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/claims"
 	"github.com/JeremiahM37/lectern/v2/internal/config"
 	"github.com/JeremiahM37/lectern/v2/internal/creds"
+	"github.com/JeremiahM37/lectern/v2/internal/decisionlog"
 	"github.com/JeremiahM37/lectern/v2/internal/effects"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/limits"
@@ -100,6 +101,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// so a decision made against state that has since moved is refused
 	// (internal/witness). Wired here because it needs the executor registry.
 	br.Witness = approvalWitness(db, reg)
+	// Every approval that stands is written to the decision log
+	// (internal/decisionlog, docs/decision-log.md). The broker only calls back;
+	// it never imports the package.
+	br.OnDecided = func(row *store.Approval) {
+		if err := decisionlog.RecordApproval(db, row); err != nil {
+			log.Warn("decision log write failed", "err", err)
+		}
+	}
 	// Which session backend each target uses, and whether it has a lectern
 	// binary for target-side helpers (docs/ptyhost.md). Mock targets script
 	// the tmux dialect, so they stay on tmux.
@@ -209,10 +218,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	// against the machine (internal/effects, docs/effect-checks.md). It only
 	// starts a goroutine per Stop, so it is safe to sit on the hook path.
 	effectWatcher := effects.New(db, reg, b, notifier, sessMgr, cfg.CheckTimeout, log)
+	// decisions turns the same hooks into decision-log rows: a reply's
+	// latency, an interrupt, a permission prompt's outcome.
+	decisions := decisionlog.New(db)
 	events.OnHookEvent = func(sess *store.Session, event string, body []byte, state string, changed bool) {
 		limitTracker.HandleHookEvent(sess, event, body, state, changed)
 		alertWatcher.HandleHookEvent(sess, event, body, state, changed)
 		effectWatcher.HandleHookEvent(sess, event, body, state, changed)
+		decisions.HandleHookEvent(sess, event, body, state, changed)
 	}
 
 	// checksRunner is the one place a project's check command (verify_cmd, or
@@ -293,6 +306,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		Awareness: awarenessTracker, Claims: claimsTracker, Triggers: triggersMgr,
 		Pairing: pairingStore, CILoop: ciWatcher, Limits: limitTracker, RelayStore: relayhost.NewStore(db),
 		Plugins: pluginMgr, ClipboardBin: sessMgr.ClipboardBin,
+		Decisions: decisions,
 	}
 	if cfg.Mock {
 		// The real terminals a mock server opens (project shells) run on
