@@ -147,7 +147,18 @@ func peerIsSameUser(c net.Conn) bool {
 	if !ok {
 		return false
 	}
-	want := fmt.Sprintf(":%04X", remote.Port)
+	local, ok := c.LocalAddr().(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	// The client's own socket is the row whose local end is the client's port
+	// and whose remote end is this listener's port. Matching the client port
+	// alone was not enough: under quick reconnects a stale row with the same
+	// port number (a TIME_WAIT socket, which the kernel lists as uid 0) could
+	// come first and get a same-user client dropped.
+	wantLocal := fmt.Sprintf(":%04X", remote.Port)
+	wantRemote := fmt.Sprintf(":%04X", local.Port)
+	const timeWait = "06"
 	for _, table := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
 		raw, err := os.ReadFile(table)
 		if err != nil {
@@ -155,7 +166,7 @@ func peerIsSameUser(c net.Conn) bool {
 		}
 		for _, line := range strings.Split(string(raw), "\n")[1:] {
 			f := strings.Fields(line)
-			if len(f) < 8 || !strings.HasSuffix(f[1], want) {
+			if len(f) < 8 || !strings.HasSuffix(f[1], wantLocal) || !strings.HasSuffix(f[2], wantRemote) || f[3] == timeWait {
 				continue
 			}
 			uid, err := strconv.Atoi(f[7])
