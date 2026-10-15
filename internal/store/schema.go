@@ -471,6 +471,31 @@ CREATE TABLE IF NOT EXISTS effect_checks(
   enforced INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_effect_checks_session ON effect_checks(session_id, id DESC);
+-- decisions is every decision a person (or a policy, or a witness check) made
+-- about an agent's work, with how long the thing waited for it
+-- (internal/decisionlog, docs/decision-log.md). Most decisions never reach
+-- the approvals table: a terminal permission prompt, a reply to a stopped
+-- agent, an interrupt and Review actions are all recorded here instead.
+-- detail_json holds only lengths, tool names and counts, never prompt or
+-- command text. latency_s and waited_since are NULL when nothing was waiting.
+CREATE TABLE IF NOT EXISTS decisions(
+  id INTEGER PRIMARY KEY,
+  at REAL NOT NULL,
+  kind TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  via TEXT NOT NULL DEFAULT '',
+  session_id INTEGER,
+  attempt_id INTEGER,
+  project_id INTEGER,
+  agent TEXT NOT NULL DEFAULT '',
+  waited_since REAL,
+  latency_s REAL,
+  active_sessions INTEGER NOT NULL DEFAULT 0,
+  pending INTEGER NOT NULL DEFAULT 0,
+  detail_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_at ON decisions(at);
+CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id, at);
 -- ci_watches is one pull request the CI loop (internal/ciloop) is watching
 -- for its owner: a task or a session, never both. attempts counts the fix
 -- requests sent; asked_sha is the head commit the latest one was about, so a

@@ -30,6 +30,11 @@ type Broker struct {
 	// re-checked. It is called only for effectful calls (witness.IsEffectful)
 	// that a person is asked about; a failure means no witness, never an error.
 	Witness func(a *store.Approval) (*witness.Witness, error)
+	// OnDecided, when set, is told about every decision that stood, with the
+	// approval as it now is (final status, decided_by, decided_at). It is how
+	// internal/decisionlog records approvals without this package importing
+	// it. nil is a valid configuration: no recording.
+	OnDecided func(row *store.Approval)
 
 	mu           sync.Mutex
 	waiters      map[int64]chan struct{}
@@ -288,6 +293,9 @@ func (br *Broker) Decide(id int64, decision, note, decidedBy string) *store.Appr
 	}
 	if decision == "stale" {
 		br.Notifier.Notify("Approval out of date", fresh.Note, "/#approvals", nil)
+	}
+	if br.OnDecided != nil {
+		br.OnDecided(fresh)
 	}
 	return fresh
 }
