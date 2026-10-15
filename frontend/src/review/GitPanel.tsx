@@ -130,6 +130,12 @@ export function GitPanel({
   // Set when the repository moved after the diff was loaded (409 stale): the
   // server's description of what changed. The person reloads, then decides again.
   const [moved, setMoved] = useState<string>();
+  // The notice clears only once a fresh diff load arrives. Clearing it on
+  // the Reload click let a quick Commit go out with the old pins, before the
+  // reload had landed, and be refused again.
+  useEffect(() => {
+    setMoved(undefined);
+  }, [reviewed?.loaded]);
   const [noIdentity, setNoIdentity] = useState(false);
   // The server's reason a name or email was refused (422 invalid_git_identity).
   const [identityError, setIdentityError] = useState("");
@@ -681,7 +687,7 @@ export function GitPanel({
         <button
           type="button"
           className="b ok"
-          disabled={!!busy || !!commitBlocked}
+          disabled={!!busy || !!commitBlocked || moved !== undefined}
           aria-describedby={commitBlocked ? `commit-why-${sessionId}` : undefined}
           title={commitBlocked || undefined}
           onClick={() => void commit()}
@@ -706,7 +712,7 @@ export function GitPanel({
             <p>{t("review.git.movedSinceLoaded")}</p>
             <p className="sub">{moved}</p>
             <div className="btnrow">
-              <button type="button" className="b" onClick={() => { setMoved(undefined); refresh(); }}>
+              <button type="button" className="b" onClick={() => refresh()}>
                 {t("review.git.reloadChanges")}
               </button>
             </div>

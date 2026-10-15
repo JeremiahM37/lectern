@@ -502,7 +502,7 @@ export function SessionReview({
             onNotice={onNotice}
             onShowConflicts={() => setTab("conflicts")}
             onUncommitted={setUncommitted}
-            reviewed={{ head: diff?.head, diffHash: diff?.diff_hash }}
+            reviewed={{ head: diff?.head, diffHash: diff?.diff_hash, loaded: diff }}
           />
         )
       )}

@@ -12,6 +12,10 @@ export interface GitIdentity {
 export interface ReviewedState {
   head?: string;
   diffHash?: string;
+  /** The diff response these pins came from: a new object on every load, so
+   * the panel can tell a reload has landed even when the pins are unchanged.
+   * Never sent to the server. */
+  loaded?: object;
 }
 
 /** Only the pins that were actually loaded: an absent one is never checked. */

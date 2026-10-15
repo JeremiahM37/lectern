@@ -132,6 +132,9 @@ def test_review_send_comments_and_commit_push_to_bare_remote(page, real_terminal
     # refused (docs/approval-witness.md) until the changes are reloaded.
     expect(page.get_by_role("alert")).to_contain_text("These changes moved since you loaded them", timeout=15000)
     page.get_by_role("button", name="Reload changes").click()
+    # The notice (and the disabled Commit) stays until the reload has landed,
+    # so the next commit carries the new pins.
+    expect(page.get_by_role("alert")).to_be_hidden(timeout=15000)
     page.get_by_label("Commit message", exact=True).fill("feat: extend hello")
     page.get_by_role("button", name="⎇ Commit").click()
     expect(page.locator(".commit-done")).to_contain_text("Committed to", timeout=15000)
