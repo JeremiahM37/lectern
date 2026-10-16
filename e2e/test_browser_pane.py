@@ -175,7 +175,10 @@ def test_design_mode_on_a_live_page_sends_elements_to_the_agent(page, real_termi
     expect(pane.locator('.browser-picked li')).to_have_count(2)
     pane.get_by_label('Note for the agent').fill('Make the card green and the title bigger')
     evidence(page, 'design-pane.png')
-    with page.expect_response(lambda r: r.url.endswith(f'/api/sessions/{t["id"]}/design')) as sent:
+    # Sending screenshots each picked element in a headless Chromium on the
+    # target; a cold start on a loaded CI runner can take longer than
+    # Playwright's 30 s default, which is what this wait used to inherit.
+    with page.expect_response(lambda r: r.url.endswith(f'/api/sessions/{t["id"]}/design'), timeout=120000) as sent:
         pane.get_by_role('button', name='Send 2 to agent').click()
     body = sent.value.json()
     assert sent.value.status == 200, body
