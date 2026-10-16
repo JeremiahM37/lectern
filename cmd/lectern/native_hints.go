@@ -172,7 +172,7 @@ func (e *linkEnv) showFlash(link filelinks.Link) {
 			typed <- append([]byte(nil), buf[:n]...)
 		}
 	}()
-	done := time.After(flashFor)
+	done := time.After(flashDuration())
 	for {
 		select {
 		case data := <-typed:
@@ -189,6 +189,16 @@ func (e *linkEnv) showFlash(link filelinks.Link) {
 
 // flashFor is how long a highlight shows.
 const flashFor = 400 * time.Millisecond
+
+// flashDuration is flashFor, or LECTERN_FLASH_MS when set. A test that must
+// see the highlight sets it longer: 400 ms is a moment on a person's screen,
+// but shorter than one capture-and-poll cycle on a loaded CI runner.
+func flashDuration() time.Duration {
+	if ms, err := strconv.Atoi(os.Getenv("LECTERN_FLASH_MS")); err == nil && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return flashFor
+}
 
 // selfCommand is a shell command running this binary's link entry point for
 // this attachment, with the link script's environment.

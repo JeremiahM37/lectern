@@ -761,6 +761,10 @@ func TestNativeHintsLabelAndOpenLinks(t *testing.T) {
 // A click says what happened: the path is highlighted for a moment, and the
 // status line says it is opening, or why it could not.
 func TestNativeClickFeedback(t *testing.T) {
+	// The highlight is transient by design; give it long enough that polling
+	// the outer pane cannot step over it on a slow runner. The link helper
+	// inherits this through the rig's tmux server.
+	t.Setenv("LECTERN_FLASH_MS", "4000")
 	r := newLinkRig(t, []byte("see /tmp/nowhere/gone.pdf and /tmp/also/missing.txt\r\n"), false, "missing.txt")
 	mouse := r.client()
 	x, y := r.at("/tmp/nowhere/gone.pdf", 3)
