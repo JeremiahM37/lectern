@@ -234,14 +234,14 @@ func storageCommand(m *Model, args string) tea.Cmd {
 			lines = append(lines, "    "+it.Path)
 		}
 		lines = append(lines, "", "Total "+humanBytes(total)+". Only Scribe's own data is listed; your project files are never touched.",
-			"Clean with /storage clean (cache and plans) or /storage clean sessions.")
+			"Clean with /storage clean (cache, plans and subagent reports) or /storage clean sessions.")
 		m.openInfo("Storage", "database", lines)
 		return nil
 	}
 	if strings.ToLower(f[0]) != "clean" {
 		return cmdErrText("Usage: /storage, or /storage clean [cache|plans|sessions]")
 	}
-	keys := []string{"cache", "plans"}
+	keys := []string{"cache", "plans", "reports"}
 	if len(f) > 1 {
 		keys = nil
 		for _, k := range f[1:] {

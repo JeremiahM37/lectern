@@ -95,6 +95,7 @@ func (a *App) storageDirs() []tui.StorageItem {
 		{Key: "cache", Label: "Code map and search cache", Path: filepath.Join(pd, "cache")},
 		{Key: "plans", Label: "Saved plans", Path: filepath.Join(pd, "plans")},
 		{Key: "sessions", Label: "Saved sessions (conversation history)", Path: filepath.Join(pd, "sessions")},
+		{Key: "reports", Label: "Full subagent reports (all projects)", Path: filepath.Join(config.Home(), "agent-reports")},
 	}
 }
 
