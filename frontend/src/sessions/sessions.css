@@ -442,11 +442,21 @@
 
 /* The card star. Starred sessions show the accent colour; the outline is the
    button's own, so light and dark themes both read it. */
-.b.session-star {
-  min-width: 2.25rem;
+.session-star {
+  flex: none;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
   font-size: 1.05rem;
   line-height: 1;
+  cursor: pointer;
 }
-.b.session-star.on {
+.session-star.on {
   color: var(--amber);
+}
+@media (pointer: coarse) {
+  .session-star { min-width: 2.5rem; min-height: 2.5rem; }
 }

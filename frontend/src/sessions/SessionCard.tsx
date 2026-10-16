@@ -299,6 +299,18 @@ export function SessionCard({
       </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
+        {/* The star sits with the name, not in the action row: a card keeps at
+            most three actions, and starring is a property, not an action. */}
+        <button
+          type="button"
+          className={`session-star${favorite ? " on" : ""}`}
+          aria-pressed={favorite}
+          aria-label={t(favoriteLabelKey(favorite))}
+          title={t(favoriteLabelKey(favorite))}
+          onClick={() => void run(`/sessions/${s.id}/favorite`, "PUT", { favorite: !favorite })}
+        >
+          {favorite ? "★" : "☆"}
+        </button>
         {renaming ? (
           <input
             className="f nm-edit"
@@ -488,15 +500,6 @@ export function SessionCard({
       )}
       <SessionLineage api={api} session={s} onOpen={onChat} className="session-lineage" />
       <div className="btnrow">
-        <button
-          className={`b session-star${favorite ? " on" : ""}`}
-          aria-pressed={favorite}
-          aria-label={t(favoriteLabelKey(favorite))}
-          title={t(favoriteLabelKey(favorite))}
-          onClick={() => void run(`/sessions/${s.id}/favorite`, "PUT", { favorite: !favorite })}
-        >
-          ★
-        </button>
         {setup && (
           <>
             <button className="b" disabled>
