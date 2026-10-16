@@ -440,24 +440,10 @@
   padding: 0 8px;
 }
 
-/* The card star. Starred sessions show the accent colour; the outline is the
-   button's own, so light and dark themes both read it. */
+/* The mark before a starred session's name. Starring itself is in the card's
+   More menu, so an unstarred card is unchanged. */
 .session-star {
   flex: none;
-  min-width: 1.5rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1;
-  cursor: pointer;
-}
-.session-star.on {
   color: var(--amber);
-}
-/* A full-size touch target that does not make the card taller: the negative
-   margins take back the extra room, so four cards still fit on a phone. */
-@media (pointer: coarse) {
-  .session-star { min-width: 2.5rem; min-height: 2.5rem; margin: -0.5rem -0.25rem -0.5rem -0.5rem; }
+  line-height: 1;
 }

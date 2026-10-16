@@ -299,18 +299,13 @@ export function SessionCard({
       </div>
       <div className="scard-top">
         <span className={`dot ${s.status === "running" ? "live" : ""}`} />
-        {/* The star sits with the name, not in the action row: a card keeps at
-            most three actions, and starring is a property, not an action. */}
-        <button
-          type="button"
-          className={`session-star${favorite ? " on" : ""}`}
-          aria-pressed={favorite}
-          aria-label={t(favoriteLabelKey(favorite))}
-          title={t(favoriteLabelKey(favorite))}
-          onClick={() => void run(`/sessions/${s.id}/favorite`, "PUT", { favorite: !favorite })}
-        >
-          {favorite ? "★" : "☆"}
-        </button>
+        {/* Starring lives in the More menu; a starred card only gains this mark,
+            so unstarred cards look exactly as before and the card stays calm. */}
+        {favorite && (
+          <span className="session-star" aria-label={t("sessions.card.starred")} title={t("sessions.card.starred")}>
+            ★
+          </span>
+        )}
         {renaming ? (
           <input
             className="f nm-edit"
@@ -557,6 +552,14 @@ export function SessionCard({
         )}
         <ActionMenu name={s.name}>
           <button className="b rename" onClick={rename}>{t("sessions.card.rename")}</button>
+          <button
+            className="b"
+            aria-pressed={favorite}
+            onClick={() => void run(`/sessions/${s.id}/favorite`, "PUT", { favorite: !favorite })}
+          >
+            {favorite ? "☆ " : "★ "}
+            {t(favoriteLabelKey(favorite))}
+          </button>
           {live && (
             <>
               {onSwitch && s.agent !== "shell" && (

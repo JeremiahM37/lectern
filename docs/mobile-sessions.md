@@ -300,9 +300,11 @@ reproduced (see the keyboard-coverage history in
 
 ## Favorites
 
-Each session card has a star button (**Add to favorites** / **Remove from
-favorites**). The sessions list has a **Favorites** filter, so a phone can show
-only the starred sessions. The star is the same one the terminal client sets
+A session card's **⋯** menu has **Add to favorites** / **Remove from
+favorites**, and a starred card shows **★** before its name. Starring is in the
+menu rather than a button of its own so a card keeps at most three actions. The
+sessions list has a **Favorites** filter, so a phone can show only the starred
+sessions. The star is the same one the terminal client sets
 with `*` (see [terminal-client.md](terminal-client.md#favorites)), and it
 survives the session ending. Opening several favorites at once is a terminal
 client feature; on the phone you open them one at a time.
