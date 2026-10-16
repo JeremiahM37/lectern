@@ -207,3 +207,28 @@ var (
 	_ tui.HookSwitcher     = (*App)(nil)
 	_ tui.SessionPrivacy   = (*App)(nil)
 )
+
+// The tab backend forwards the wave 9 capabilities to its current app; the
+// TUI checks for them on the backend (see backend_optional.go).
+
+func (b *scribeBackend) Claims() []tui.ClaimRow                 { return b.current().Claims() }
+func (b *scribeBackend) ForceClaim(path string) (string, error) { return b.current().ForceClaim(path) }
+func (b *scribeBackend) ReleaseClaim(path string) (bool, error) {
+	return b.current().ReleaseClaim(path)
+}
+func (b *scribeBackend) ReleaseAllClaims() int            { return b.current().ReleaseAllClaims() }
+func (b *scribeBackend) StorageReport() []tui.StorageItem { return b.current().StorageReport() }
+func (b *scribeBackend) CleanStorage(keys []string) (int64, error) {
+	return b.current().CleanStorage(keys)
+}
+func (b *scribeBackend) HookEvents() []tui.HookEvent { return b.current().HookEvents() }
+func (b *scribeBackend) SetHookEventOff(event string, off bool) error {
+	return b.current().SetHookEventOff(event, off)
+}
+func (b *scribeBackend) SessionForbidden() []string { return b.current().SessionForbidden() }
+func (b *scribeBackend) AddSessionForbidden(pat string) bool {
+	return b.current().AddSessionForbidden(pat)
+}
+func (b *scribeBackend) RemoveSessionForbidden(pat string) bool {
+	return b.current().RemoveSessionForbidden(pat)
+}

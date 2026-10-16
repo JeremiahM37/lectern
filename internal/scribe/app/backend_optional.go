@@ -1,0 +1,37 @@
+package app
+
+import "github.com/JeremiahM37/lectern/v2/internal/scribe/tui"
+
+// The TUI finds optional features by type assertion on the tab backend, so
+// every optional interface must hold for *scribeBackend itself, not only for
+// *App: an App-only method compiles fine and then reports "cannot" at runtime.
+var (
+	_ tui.ConfigMover         = (*scribeBackend)(nil)
+	_ tui.ContextClearer      = (*scribeBackend)(nil)
+	_ tui.Continuer           = (*scribeBackend)(nil)
+	_ tui.Diagnoser           = (*scribeBackend)(nil)
+	_ tui.EmergencySaver      = (*scribeBackend)(nil)
+	_ tui.FileClaimer         = (*scribeBackend)(nil)
+	_ tui.GitRepoOps          = (*scribeBackend)(nil)
+	_ tui.HistoryLoader       = (*scribeBackend)(nil)
+	_ tui.HookSwitcher        = (*scribeBackend)(nil)
+	_ tui.LSPSessioner        = (*scribeBackend)(nil)
+	_ tui.MapController       = (*scribeBackend)(nil)
+	_ tui.MarkdownExporter    = (*scribeBackend)(nil)
+	_ tui.MCPPinger           = (*scribeBackend)(nil)
+	_ tui.MemoryCleanup       = (*scribeBackend)(nil)
+	_ tui.MemoryCleanupDoner  = (*scribeBackend)(nil)
+	_ tui.MemoryHider         = (*scribeBackend)(nil)
+	_ tui.MemoryPolicyBackend = (*scribeBackend)(nil)
+	_ tui.MemoryTransfer      = (*scribeBackend)(nil)
+	_ tui.ServerToolLister    = (*scribeBackend)(nil)
+	_ tui.SessionDeleter      = (*scribeBackend)(nil)
+	_ tui.SessionPrivacy      = (*scribeBackend)(nil)
+	_ tui.SessionRenamer      = (*scribeBackend)(nil)
+	_ tui.SkillCatalog        = (*scribeBackend)(nil)
+	_ tui.SkillRegistry       = (*scribeBackend)(nil)
+	_ tui.SkillRemover        = (*scribeBackend)(nil)
+	_ tui.StagingCommitter    = (*scribeBackend)(nil)
+	_ tui.StorageInspector    = (*scribeBackend)(nil)
+	_ tui.UpdateChecker       = (*scribeBackend)(nil)
+)
