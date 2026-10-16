@@ -299,11 +299,11 @@ func TestMouseClickTogglesReasoning(t *testing.T) {
 	if strings.Contains(plain(v), "first thought") {
 		t.Errorf("collapsed thought shows its text:\n%s", plain(v))
 	}
-	v.HandleMouse(tea.MouseMsg{X: 1, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	clickCell(v, 1, row)
 	if !strings.Contains(plain(v), "▼") || !strings.Contains(plain(v), "first thought") {
 		t.Errorf("click did not expand the thought row:\n%s", plain(v))
 	}
-	v.HandleMouse(tea.MouseMsg{X: 1, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	clickCell(v, 1, row)
 	if strings.Contains(plain(v), "first thought") {
 		t.Errorf("second click did not collapse the thought row")
 	}
@@ -608,6 +608,7 @@ func TestClickOnToolRowExpandsIt(t *testing.T) {
 	if !v.HandleMouse(tea.MouseMsg{X: 4, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}) {
 		t.Fatalf("click on tool row not handled")
 	}
+	v.HandleMouse(tea.MouseMsg{X: 4, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 	if !strings.Contains(plain(v), "hi-from-shell") {
 		t.Errorf("click did not expand shell output:\n%s", plain(v))
 	}

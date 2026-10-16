@@ -41,6 +41,11 @@ const (
 	typeRatio = 0.66
 	// typeEdgeFactor scales rank flowing into type modules (spec: 0.3).
 	typeEdgeFactor = 0.3
+	// barrelEdgeFactor scales an edge into a barrel (a file that re-exports
+	// others). barrelPassFactor is the weight of the edge that passes through
+	// to each of the barrel's sources (spec 4.5: 0.3 and 0.8).
+	barrelEdgeFactor = 0.3
+	barrelPassFactor = 0.8
 )
 
 // recompute rebuilds every derived structure from the file set. Callers hold
@@ -50,6 +55,7 @@ const (
 func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) {
 	m.files = files
 	m.cochange = cochange
+	m.derived = nil // lazily built indexes are stale after any change
 	paths := make([]string, 0, len(files))
 	for p := range files {
 		paths = append(paths, p)
@@ -113,6 +119,9 @@ func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) 
 	// blast radius (who imports this file).
 	importedBy := make([][]int32, n)
 	m.imports = make(map[string][]string, n)
+	// reexpTo[b] lists the nodes a barrel b re-exports from.
+	reexpTo := make([][]int32, n)
+	m.reexports = map[string][]string{}
 	var seen []int32
 	for i, p := range paths {
 		for _, imp := range files[p].Imports {
@@ -136,8 +145,15 @@ func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) 
 				add(int32(i), int32(ti), 1)
 				importedBy[ti] = append(importedBy[ti], int32(i))
 				m.imports[p] = append(m.imports[p], t)
+				if imp.Kind == reexportKind {
+					reexpTo[i] = append(reexpTo[i], int32(ti))
+					m.reexports[p] = append(m.reexports[p], t)
+				}
 			}
 		}
+	}
+	for p, ts := range m.reexports {
+		m.reexports[p] = dedupeSorted(ts)
 	}
 	// Identifier edges: a name used here and defined in another file, weighted
 	// by specificity (1/sqrt(defining files)). A reference can only reach a
@@ -181,6 +197,38 @@ func (m *Map) recompute(files map[string]*fileInfo, cochange map[string][]Pair) 
 			}
 			add(int32(ai), int32(bi), 0.5)
 			add(int32(bi), int32(ai), 0.5)
+		}
+	}
+
+	// Barrel passthrough: an import edge into a barrel also reaches the
+	// barrel's own sources, and the barrel edge itself is cut, so an index file
+	// does not stand in for the modules it re-exports. Only the importers of a
+	// barrel are visited, which keeps this cheap on every recompute. Edges are
+	// collected first, since the passthrough writes into the maps it reads.
+	type pass struct {
+		a, b int32
+		w    float64
+	}
+	var passes []pass
+	for b := range reexpTo {
+		if len(reexpTo[b]) == 0 {
+			continue
+		}
+		var prev int32 = -1
+		for _, a := range importedBy[b] {
+			if a == prev {
+				continue // a file importing a barrel twice is listed twice
+			}
+			prev = a
+			if w, ok := out[a][int32(b)]; ok {
+				passes = append(passes, pass{a, int32(b), w})
+			}
+		}
+	}
+	for _, ps := range passes {
+		out[ps.a][ps.b] = ps.w * barrelEdgeFactor
+		for _, t := range reexpTo[ps.b] {
+			add(ps.a, t, ps.w*barrelPassFactor)
 		}
 	}
 

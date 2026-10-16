@@ -250,7 +250,7 @@ func TestRailFoldClickUnfolds(t *testing.T) {
 		t.Fatalf("rail fold text wrong:\n%s", out)
 	}
 	row := lineWith(out, "(click to expand)")
-	v.HandleMouse(tea.MouseMsg{X: 0, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	clickCell(v, 0, row)
 	if !v.msgs[len(v.msgs)-1].RailOpen && !v.msgs[0].RailOpen {
 		t.Fatalf("click did not open the rail fold")
 	}
@@ -259,7 +259,7 @@ func TestRailFoldClickUnfolds(t *testing.T) {
 		t.Errorf("unfolded rail has no collapse row:\n%s", out)
 	}
 	row = lineWith(out, "collapse +2 above")
-	v.HandleMouse(tea.MouseMsg{X: 0, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	clickCell(v, 0, row)
 	if strings.Contains(plain(v), "collapse +2 above") {
 		t.Errorf("second click did not fold the rail again")
 	}
@@ -354,7 +354,7 @@ func TestPlanBoxFoldsWhenFinishedAndOpensOnClick(t *testing.T) {
 		t.Fatalf("finished plan did not fold:\n%s", out)
 	}
 	row := lineWith(out, "Ship sessions (2 files")
-	v.HandleMouse(tea.MouseMsg{X: 0, Y: row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	clickCell(v, 0, row)
 	out = plain(v)
 	if !strings.Contains(out, "Verification") || !strings.Contains(out, "go test passes") || !strings.Contains(out, "Files (2)") {
 		t.Errorf("clicked plan did not open its sections:\n%s", out)

@@ -6,6 +6,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,15 +167,58 @@ func (b *cpBrowser) restore() {
 	}))
 }
 
-// redo reapplies the most recently undone turn.
+// redo reapplies the most recently undone turn. One redo can re-apply several
+// turns (the backend reports only the first), so the flash names every turn
+// that flipped from undone to live in the reload, and counts their files once.
 func (b *cpBrowser) redo() {
-	cp, err := b.be.Redo()
+	b.reload()
+	before := undoneTurns(b.cps)
+	_, err := b.be.Redo()
 	b.reload()
 	if err != nil {
 		b.m.setFlash("err", "Redo failed: "+err.Error())
 		return
 	}
-	b.m.setFlash("ok", fmt.Sprintf("Redid turn %d (%d files)", cp.Turn, len(cp.Files)))
+	var turns []int
+	files := map[string]bool{}
+	for _, c := range b.cps {
+		if before[c.Turn] && !c.Undone {
+			turns = append(turns, c.Turn)
+			for _, f := range c.Files {
+				files[f] = true
+			}
+		}
+	}
+	if len(turns) == 0 {
+		b.m.setFlash("info", "Nothing to redo")
+		return
+	}
+	b.m.setFlash("ok", fmt.Sprintf("Redid %s (%s)", turnList(turns), filesLabel(len(files))))
+}
+
+// undoneTurns is the set of turns currently marked undone.
+func undoneTurns(cps []CheckpointInfo) map[int]bool {
+	out := map[int]bool{}
+	for _, c := range cps {
+		if c.Undone {
+			out[c.Turn] = true
+		}
+	}
+	return out
+}
+
+// turnList names turns the way a flash reads: "turn 2", "turns 2 and 3",
+// "turns 1, 2 and 3". The list is in the order given.
+func turnList(turns []int) string {
+	if len(turns) == 1 {
+		return fmt.Sprintf("turn %d", turns[0])
+	}
+	parts := make([]string, len(turns))
+	for i, t := range turns {
+		parts[i] = strconv.Itoa(t)
+	}
+	last := parts[len(parts)-1]
+	return "turns " + strings.Join(parts[:len(parts)-1], ", ") + " and " + last
 }
 
 // Update implements Modal.

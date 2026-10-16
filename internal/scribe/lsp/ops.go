@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Location is a span in a file. Lines and columns are 1-based; columns count
@@ -20,14 +21,18 @@ type Location struct {
 	EndColumn int
 }
 
-// Symbol is one entry of a document outline.
+// Symbol is one entry of a document outline. Line and Column locate the
+// name; StartLine and EndLine give the whole definition (0 when the server
+// did not say).
 type Symbol struct {
-	Name     string
-	Kind     string
-	Detail   string
-	Line     int
-	Column   int
-	Children []Symbol
+	Name      string
+	Kind      string
+	Detail    string
+	Line      int
+	Column    int
+	StartLine int
+	EndLine   int
+	Children  []Symbol
 }
 
 // SymbolInfo is a workspace symbol search hit.
@@ -171,6 +176,11 @@ func (m *Manager) Definition(ctx context.Context, abs string, p Point) ([]Locati
 	return m.locations(ctx, abs, p, "textDocument/definition", nil)
 }
 
+// Implementations returns the implementations of the symbol at p.
+func (m *Manager) Implementations(ctx context.Context, abs string, p Point) ([]Location, error) {
+	return m.locations(ctx, abs, p, "textDocument/implementation", nil)
+}
+
 // References returns every reference to the symbol at p, including its
 // declaration.
 func (m *Manager) References(ctx context.Context, abs string, p Point) ([]Location, error) {
@@ -271,6 +281,19 @@ type locRefRaw struct {
 	Range Range  `json:"range"`
 }
 
+// fullRange is the span of the whole definition: range for a
+// DocumentSymbol, the location's range for a SymbolInformation.
+func (rs rawSymbol) fullRange() *Range {
+	if rs.Range != nil {
+		return rs.Range
+	}
+	if rs.Location != nil {
+		r := rs.Location.Range
+		return &r
+	}
+	return nil
+}
+
 // startOf is where a symbol's name sits, used as its position.
 func (rs rawSymbol) startOf() (Position, bool) {
 	switch {
@@ -315,6 +338,10 @@ func (rs rawSymbol) toSymbolLocal(c *converter, text string) Symbol {
 			p := positionToPoint(text, pos)
 			sym.Line, sym.Column = p.Line, p.Column
 		}
+	}
+	if full := rs.fullRange(); full != nil {
+		sym.StartLine = positionToPoint(text, full.Start).Line
+		sym.EndLine = positionToPoint(text, full.End).Line
 	}
 	for _, ch := range rs.Children {
 		sym.Children = append(sym.Children, ch.toSymbolLocal(c, text))
@@ -384,14 +411,25 @@ func (m *Manager) Rename(ctx context.Context, abs string, p Point, newName strin
 		s.client.waitSettled(ctx, sr.uri, sr.seq, diagQuiet, diagMax)
 		params := textDocumentPosition(sr.uri, pointToPosition(sr.text, p))
 		params["newName"] = newName
-		var raw json.RawMessage
-		if err := s.call(ctx, "textDocument/rename", params, &raw); err != nil {
-			return err
+		// A server that is still indexing answers null. Wait once and ask
+		// again before concluding that the position is not renamable.
+		for attempt := 0; attempt < 2; attempt++ {
+			var raw json.RawMessage
+			if err := s.call(ctx, "textDocument/rename", params, &raw); err != nil {
+				return err
+			}
+			if len(raw) != 0 && string(raw) != "null" {
+				return json.Unmarshal(raw, &edit)
+			}
+			if attempt == 0 {
+				select {
+				case <-time.After(diagMax):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
 		}
-		if len(raw) == 0 || string(raw) == "null" {
-			return errors.New("the server returned no rename edit; the position may not be a renamable symbol")
-		}
-		return json.Unmarshal(raw, &edit)
+		return errors.New("the server returned no rename edit, even after waiting; the position may not be a renamable symbol")
 	})
 	return edit, err
 }
@@ -433,6 +471,57 @@ func (m *Manager) Format(ctx context.Context, abs string) ([]TextEdit, error) {
 			return err
 		}
 		out = raw
+		return nil
+	})
+	return out, err
+}
+
+// FormatRange returns the server's formatting edits for the lines from start
+// to end, inclusive. Nothing is applied.
+func (m *Manager) FormatRange(ctx context.Context, abs string, start, end Point) ([]TextEdit, error) {
+	var out []TextEdit
+	err := m.run(ctx, abs, func(s *session, sr syncResult) error {
+		insertSpaces := s.spec.Language != "go"
+		var raw []TextEdit
+		if err := s.call(ctx, "textDocument/rangeFormatting", map[string]any{
+			"textDocument": map[string]any{"uri": sr.uri},
+			"range":        Range{Start: pointToPosition(sr.text, start), End: pointToPosition(sr.text, end)},
+			"options":      map[string]any{"tabSize": 4, "insertSpaces": insertSpaces},
+		}, &raw); err != nil {
+			return err
+		}
+		out = raw
+		return nil
+	})
+	return out, err
+}
+
+// OrganizeImports returns the server's organize-imports action for abs, as a
+// code action whose edit is not yet applied. It is empty when the server
+// offers none.
+func (m *Manager) OrganizeImports(ctx context.Context, abs string) ([]CodeAction, error) {
+	var out []CodeAction
+	err := m.run(ctx, abs, func(s *session, sr syncResult) error {
+		var raw []struct {
+			Title string         `json:"title"`
+			Kind  string         `json:"kind"`
+			Edit  *WorkspaceEdit `json:"edit"`
+		}
+		if err := s.call(ctx, "textDocument/codeAction", map[string]any{
+			"textDocument": map[string]any{"uri": sr.uri},
+			"range":        Range{},
+			"context": map[string]any{
+				"diagnostics": []any{},
+				"only":        []string{"source.organizeImports"},
+			},
+		}, &raw); err != nil {
+			return err
+		}
+		for _, a := range raw {
+			if strings.HasPrefix(a.Kind, "source.organizeImports") && a.Edit != nil {
+				out = append(out, CodeAction{Title: a.Title, Kind: a.Kind, Edit: a.Edit})
+			}
+		}
 		return nil
 	})
 	return out, err

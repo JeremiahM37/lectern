@@ -547,3 +547,13 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// hasUserNotice reports whether a request's user messages include text.
+func hasUserNotice(req recordedReq, text string) bool {
+	for _, m := range msgsWithRole(req, "user") {
+		if strings.Contains(m.text(), text) {
+			return true
+		}
+	}
+	return false
+}

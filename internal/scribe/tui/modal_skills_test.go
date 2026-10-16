@@ -120,7 +120,7 @@ func TestSkillsInstallFromRegistryAsksScope(t *testing.T) {
 	}
 }
 
-func TestSkillsRemoveDeletesWithoutConfirm(t *testing.T) {
+func TestSkillsRemoveAsksThenDeletes(t *testing.T) {
 	b := &removeRecBackend{recBackend: newRecBackend()}
 	m := modalModel(t, 140, 36, b)
 	gitKey(m, "ctrl+s")
@@ -130,9 +130,23 @@ func TestSkillsRemoveDeletesWithoutConfirm(t *testing.T) {
 		t.Fatalf("setup: db-migrations should be loaded")
 	}
 	gitKey(m, "ctrl+d")
-	if topTitle(m) != "Skills" {
-		t.Fatalf("ctrl+d must not open a confirm, top=%q", topTitle(m))
+	if topTitle(m) != "Remove skill" {
+		t.Fatalf("ctrl+d must open a confirm, top=%q", topTitle(m))
 	}
+	if len(b.removed) != 0 {
+		t.Fatalf("removed before the confirm: %v", b.removed)
+	}
+	gitKey(m, "esc") // cancel: nothing is removed
+	if len(b.removed) != 0 || topTitle(m) != "Skills" {
+		t.Fatalf("cancel removed %v, top=%q", b.removed, topTitle(m))
+	}
+	gitKey(m, "ctrl+d")
+	gitKey(m, "enter") // the confirm's default is Cancel, so enter removes nothing
+	if len(b.removed) != 0 {
+		t.Fatalf("default choice removed the skill: %v", b.removed)
+	}
+	gitKey(m, "ctrl+d")
+	gitKey(m, "y")
 	if !slices.Equal(b.removed, []string{"db-migrations"}) {
 		t.Fatalf("removed = %v", b.removed)
 	}

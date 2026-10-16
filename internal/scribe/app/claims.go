@@ -124,6 +124,35 @@ func (h claimHooks) PreTool(ctx context.Context, tool string, args json.RawMessa
 			return block
 		}
 	}
+	return h.claimBlock(tool, args)
+}
+
+// inputRewriter is a hook chain whose PreToolUse can replace the tool input
+// (hookSpecificOutput.updatedInput). The agent asks for it in preference to
+// PreTool, so the wrapper must offer it too or updatedInput is lost.
+type inputRewriter interface {
+	PreToolUpdate(ctx context.Context, tool string, args json.RawMessage) (json.RawMessage, string)
+}
+
+// PreToolUpdate runs the inner hooks with input rewriting, then the claim
+// check on the input the call will actually run with.
+func (h claimHooks) PreToolUpdate(ctx context.Context, tool string, args json.RawMessage) (json.RawMessage, string) {
+	if h.inner != nil {
+		if rw, ok := h.inner.(inputRewriter); ok {
+			var block string
+			if args, block = rw.PreToolUpdate(ctx, tool, args); block != "" {
+				return args, block
+			}
+		} else if block := h.inner.PreTool(ctx, tool, args); block != "" {
+			return args, block
+		}
+	}
+	return args, h.claimBlock(tool, args)
+}
+
+// claimBlock is the file-claim check: a reason when another tab or session
+// owns the file an edit tool is about to write, else "".
+func (h claimHooks) claimBlock(tool string, args json.RawMessage) string {
 	if !editTools[tool] {
 		return ""
 	}

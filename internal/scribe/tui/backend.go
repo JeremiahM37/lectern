@@ -30,6 +30,7 @@ type SessionInfo struct {
 	Updated                   time.Time
 	Turns                     int
 	CostUSD                   float64
+	SizeBytes                 int64  // messages.jsonl on disk; 0 when unknown
 	Preview                   string // first user message
 }
 
@@ -157,6 +158,16 @@ type Backend interface {
 	SetConfig(key string, value any, project bool) error
 	Theme() string
 	SetTheme(name string)
+
+	// ModelEvents is the main agent's model log: each model call's usage,
+	// and the retries, fallbacks and errors around it, oldest first.
+	ModelEvents() []agent.Event
+	// CompactionLog is the main agent's compaction history, oldest first.
+	CompactionLog() []agent.Event
+	// Subagents lists the subagents of the newest dispatch, in start order.
+	Subagents() []agent.AgentInfo
+	// CancelSubagent stops one subagent of the newest dispatch (/cancel).
+	CancelSubagent(id string) error
 
 	// Shell runs a user `!command` in the workdir and returns its output.
 	Shell(ctx context.Context, command string) (string, int, error)

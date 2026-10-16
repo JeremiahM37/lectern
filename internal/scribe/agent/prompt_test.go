@@ -17,8 +17,7 @@ func TestBuildSystemIncludesModeOverlayAndInstructions(t *testing.T) {
 
 	plan := BuildSystem(in, "plan")
 	for _, want := range []string{
-		"# Mode: plan",
-		"You are in plan mode: read-only.",
+		"- Working directory: /work/proj",
 		"- Working directory: /work/proj",
 		"- Date: 2026-10-16",
 		"# Project instructions\n\n[project:AGENTS.md]\nUse tabs.",
@@ -31,12 +30,19 @@ func TestBuildSystemIncludesModeOverlayAndInstructions(t *testing.T) {
 		t.Fatal("base prompt missing")
 	}
 
+	// The system prompt is the same bytes in every mode; the banner for a
+	// mode is ModeBanner, latched into the history by the agent.
 	def := BuildSystem(in, "default")
 	if strings.Contains(def, "# Mode:") {
-		t.Fatal("default mode should have no overlay")
+		t.Fatal("the mode banner must not be in the system prompt")
 	}
-	if !strings.Contains(BuildSystem(in, "architect"), "# Mode: architect") {
-		t.Fatal("architect overlay missing")
+	for _, m := range Modes {
+		if got := BuildSystem(in, m); got != def {
+			t.Fatalf("system prompt for mode %q differs from default; the prefix must be stable across modes", m)
+		}
+	}
+	if !strings.Contains(ModeBanner("architect"), "# Mode: architect") {
+		t.Fatal("architect banner missing")
 	}
 
 	explore := BuildSystem(PromptInput{Workdir: "/w", Subagent: "explore"}, "default")
@@ -75,5 +81,39 @@ func TestLoadInstructionsNearestLast(t *testing.T) {
 	want := []string{"home rules", "root rules", "proj rules", "scribe sub", "sub rules"}
 	if strings.Join(ours, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("instruction order = %q, want %q", ours, want)
+	}
+}
+
+// The system prompt is the same bytes whatever the mode and wherever the
+// workdir is, so a mode switch does not break the cached prefix.
+func TestSystemPromptPrefixIsStableAcrossModes(t *testing.T) {
+	in := PromptInput{Workdir: "/work/proj", Date: "2026-10-16", ModelRef: "p/m"}
+	first := BuildSystem(in, "default")
+	for _, m := range Modes {
+		if got := BuildSystem(in, m); got != first {
+			t.Errorf("mode %s changed the system prompt", m)
+		}
+	}
+}
+
+// Each mode with a banner has one, and the banners are the only mode text.
+func TestModeNoticeLatchesOncePerChange(t *testing.T) {
+	cases := []struct{ prev, mode, want string }{
+		{"", "default", ""},
+		{"default", "default", ""},
+		{"", "plan", "plan"},
+		{"plan", "plan", ""},
+		{"plan", "architect", "architect"},
+		{"architect", "default", "back in default mode"},
+		{"default", "auto", "auto"},
+	}
+	for _, c := range cases {
+		got := modeNotice(c.prev, c.mode)
+		switch {
+		case c.want == "" && got != "":
+			t.Errorf("modeNotice(%q,%q) = %q, want none", c.prev, c.mode, got)
+		case c.want != "" && !strings.Contains(got, c.want):
+			t.Errorf("modeNotice(%q,%q) = %q, want it to mention %q", c.prev, c.mode, got, c.want)
+		}
 	}
 }

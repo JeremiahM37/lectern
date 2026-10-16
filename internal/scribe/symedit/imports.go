@@ -47,7 +47,7 @@ func (e *editor) goAddImport(text, code string) (string, string, error) {
 	}
 	for _, im := range f.Imports {
 		if p, _ := strconv.Unquote(im.Path.Value); p == path {
-			return text, fmt.Sprintf("%s is already imported", path), nil
+			return text, fmt.Sprintf("already present: %s is already imported", path), nil
 		}
 	}
 	tf := fset.File(f.Pos())
@@ -79,7 +79,7 @@ func (e *editor) lineAddImport(text, want string, python bool) (string, string, 
 	idx := newLineIndex(text)
 	for ln := 1; ln <= idx.count(); ln++ {
 		if norm(idx.text(ln)) == norm(want) {
-			return text, fmt.Sprintf("%s is already imported", want), nil
+			return text, fmt.Sprintf("already present: %s is already imported", want), nil
 		}
 	}
 	masked := newLineIndex(mask(text, e.lang.lex))

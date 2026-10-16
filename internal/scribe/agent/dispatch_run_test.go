@@ -30,7 +30,8 @@ func newDispatchHarness(t *testing.T, newReg func() *tools.Registry) *dispatchHa
 	f := newFake(t)
 	h := &dispatchHarness{t: t, f: f, log: &eventLog{}, dir: t.TempDir()}
 	h.d = &Dispatcher{MaxConcurrent: 3, Sink: h.log.sink, retryWait: time.Millisecond}
-	h.d.New = func(role, id string, sink Sink) *Agent {
+	h.d.New = func(spec SubagentSpec, sink Sink) *Agent {
+		role, id := spec.Role, spec.ID
 		opts := baseOptions(f, newReg(), h.log, h.dir)
 		opts.Sink = sink
 		opts.ID = id
@@ -346,7 +347,7 @@ func TestDispatchBreakerTripsOnTransientFailureAndSkipsCodeRetry(t *testing.T) {
 	}
 
 	idx := run.board.add("code", "CODE-LAST edit")
-	res := run.runTask(context.Background(), idx, "code", "CODE-LAST edit")
+	res := run.runTask(context.Background(), idx, "code", PurposeTask, "CODE-LAST edit")
 	if res.err == nil || !providerFailure(context.Background(), res.err) {
 		t.Fatalf("err = %v, want a provider failure", res.err)
 	}

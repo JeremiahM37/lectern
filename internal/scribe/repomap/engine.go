@@ -403,7 +403,7 @@ func extractByRules(rel string, lg *language, src, masked []byte) []Symbol {
 				}
 				sig = collapse(string(src[sigStart:term]))
 			}
-			sym := Symbol{Name: name, Kind: kind, File: rel, Line: startLine, EndLine: li.lineOf(end), Signature: sig}
+			sym := Symbol{Name: name, Kind: kind, File: rel, Line: startLine, EndLine: li.lineOf(end), Signature: sig, start: sigStart, end: end}
 			if r.splitName {
 				splitQualified(&sym, name)
 			}

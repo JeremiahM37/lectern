@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -289,7 +290,7 @@ func (d *DB) Recall(query string, files []string, limit int) ([]Scored, error) {
 		pinned bool
 		why    []string
 	}
-	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding FROM memories WHERE superseded_by = ''")
+	rows, err := d.db.Query("SELECT id, pinned, uses, last_used, embedding FROM memories WHERE " + live)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +384,13 @@ type Stores struct {
 	// reads. The zero value is the default: save to the project store when
 	// there is one, and recall from every open store.
 	Policy Policy
+
+	// session, surfaced and surfacedDir are set by SetSession. surfaced is
+	// the ids Inject has already put in front of the model in this session.
+	session     string
+	surfMu      sync.Mutex // guards surfaced and surfacedDir: recall and compaction run on different goroutines
+	surfaced    map[string]bool
+	surfacedDir string
 }
 
 // Open opens the project store for root (<root>/.scribe/memory.db) and the
@@ -471,9 +479,22 @@ func (s *Stores) Inject(query string, files []string) string {
 	if err != nil || len(got) == 0 {
 		return ""
 	}
+	// A memory injected earlier in this session is still in the model's
+	// context, so it is not injected again (see SetSession).
+	fresh := got[:0:0]
+	for _, m := range got {
+		if !s.Surfaced(m.ID) {
+			fresh = append(fresh, m)
+		}
+	}
+	got = fresh
+	if len(got) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("<recalled_memories>\n")
 	byDB := map[string][]string{}
+	var surfacedNow []string
 	used := 0
 	shown := 0
 	for _, m := range got {
@@ -488,11 +509,13 @@ func (s *Stores) Inject(query string, files []string) string {
 		b.WriteString(body)
 		b.WriteString("\n")
 		byDB[m.Scope] = append(byDB[m.Scope], m.ID)
+		surfacedNow = append(surfacedNow, m.ID)
 	}
 	b.WriteString("</recalled_memories>")
 	for _, d := range s.DBs() {
 		_ = d.touch(byDB[d.Scope()])
 	}
+	s.rememberSurfaced(surfacedNow)
 	return b.String()
 }
 

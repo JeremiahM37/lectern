@@ -46,17 +46,37 @@ type postEditor struct {
 	mu sync.Mutex
 	// seen holds the error diagnostics of each file as of the last check.
 	seen map[string][]lsp.FileDiagnostic
+	// deps is the code map, for finding importers. Nil until SetDependents.
+	deps dependentSource
+	// depSeen holds the errors of each importer as of its last cross-file
+	// check (see postedit_crossfile.go).
+	depSeen map[string][]lsp.FileDiagnostic
+	// pending holds importer baselines taken by BeforeTool, keyed by the
+	// edited file's absolute path, until AfterTool consumes them.
+	pending map[string]pendingBaseline
 }
 
 func newPostEditor(workdir string, diags diagSource) *postEditor {
-	return &postEditor{workdir: workdir, diags: diags, seen: map[string][]lsp.FileDiagnostic{}}
+	return &postEditor{
+		workdir: workdir,
+		diags:   diags,
+		seen:    map[string][]lsp.FileDiagnostic{},
+		depSeen: map[string][]lsp.FileDiagnostic{},
+		pending: map[string]pendingBaseline{},
+	}
 }
 
 // AfterTool is the agent's AfterTool hook. It only acts on successful
 // results that name files, and never on undo_edit: undo has to restore the
 // exact bytes the user had before, so reformatting them would be wrong.
 func (p *postEditor) AfterTool(ctx context.Context, name string, _ json.RawMessage, res *tools.Result) {
-	if p == nil || res == nil || res.IsError || len(res.Files) == 0 || name == "undo_edit" {
+	if p == nil || res == nil {
+		return
+	}
+	// Consume any importer baseline for this call's files, even when the
+	// call failed, so it cannot leak into a later edit.
+	pre := p.takePending(res.Files)
+	if res.IsError || len(res.Files) == 0 || name == "undo_edit" {
 		return
 	}
 	files := p.existingFiles(res.Files)
@@ -74,6 +94,12 @@ func (p *postEditor) AfterTool(ctx context.Context, name string, _ json.RawMessa
 		res.Output = appendBlock(res.Output, "Formatted: "+strings.Join(formatted, ", ")+".")
 	}
 	if block := p.newDiagnostics(ctx, files, changedLines(res.Diff)); block != "" {
+		res.Output = appendBlock(res.Output, block)
+	}
+	if block := p.crossFileBlock(ctx, files, pre); block != "" {
+		res.Output = appendBlock(res.Output, block)
+	}
+	if block := p.cloneBlock(files); block != "" {
 		res.Output = appendBlock(res.Output, block)
 	}
 	if block := symbolDeltas(res.Diff); block != "" {

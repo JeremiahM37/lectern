@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
@@ -39,6 +40,37 @@ type Stopper interface {
 // it exactly.
 func SavedBanner(id string) string {
 	return "Session saved: " + id + " — resume with: lectern code -s " + id
+}
+
+// SavedBannerLines is what the caller prints for one session once the
+// terminal is restored: SavedBanner, plus a line when the newest turn never
+// finished (it was aborted, or the process stopped during it), saying how to
+// finish it. events is the session transcript, as Backend.Transcript returns it.
+func SavedBannerLines(id string, events []agent.Event) []string {
+	lines := []string{SavedBanner(id)}
+	if LastTurnInterrupted(events) {
+		lines = append(lines, "The last turn was interrupted. Finish it with: lectern code -c, "+
+			"or /session continue inside the session.")
+	}
+	return lines
+}
+
+// LastTurnInterrupted reports whether the newest turn in events did not end
+// normally: its turn_done says it was aborted, or it has a turn_start with no
+// turn_done after it (the process was stopped mid-turn). An empty transcript
+// is not interrupted.
+func LastTurnInterrupted(events []agent.Event) bool {
+	open, aborted := false, false
+	for _, e := range events {
+		switch e.Kind {
+		case agent.EvTurnStart:
+			open, aborted = true, false
+		case agent.EvTurnDone:
+			open = false
+			aborted = e.Stats != nil && e.Stats.Aborted
+		}
+	}
+	return open || aborted
 }
 
 // WithTermSignals returns a context that is cancelled when the terminal is

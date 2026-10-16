@@ -10,6 +10,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"os"
 	"strings"
 	"time"
@@ -45,10 +46,13 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 	if err != nil {
 		return err
 	}
+	applyEditorSettings(be.Workdir())
 	icons.SetNerd(icons.DetectNerd())
 	loadUserThemes()
 	m := NewModel(be, newBackend, opts)
-	popts := []tea.ProgramOption{tea.WithMouseCellMotion(), tea.WithContext(ctx)}
+	// All-motion reporting, so the chat can highlight the row under the pointer
+	// without a button held. Motion over panes and side panels is routed away.
+	popts := []tea.ProgramOption{tea.WithMouseAllMotion(), tea.WithContext(ctx)}
 	if !opts.NoAltScreen {
 		popts = append(popts, tea.WithAltScreen())
 	}
@@ -94,6 +98,8 @@ type tab struct {
 	ctxShown float64
 	ctxUsed  int
 	ctxWin   int
+	ctxEst   bool       // ctxUsed is estimated from characters, not reported by the provider
+	panels   panelState // model-log recording for this tab's session (not saved)
 	cost     float64
 	local    bool // provider runs locally: show "Local" instead of cost
 	model    string
@@ -220,6 +226,15 @@ func (m *Model) addTab(be Backend, name string) *tab {
 		Verbose:       boolCfg(cfg, "verbose"),
 		ShowReasoning: boolCfgDefault(cfg, "show_reasoning", true),
 		Workdir:       be.Workdir(),
+	}
+	// The saved diff style and collapse setting apply from the first frame,
+	// not only after they are changed in /settings.
+	if f := fields7(be); f.DiffStyle != "" || f.CollapseDiffs != nil {
+		copt.DiffStyle = chat.DiffDefault
+		if f.DiffStyle != "" {
+			copt.DiffStyle = f.DiffStyle
+		}
+		copt.CollapseDiffs = config.Bool(f.CollapseDiffs, false)
 	}
 	t := &tab{
 		id:       id,
@@ -403,7 +418,11 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		t := m.cur()
-		if m.phase == phaseLanding || m.inSidePanel(msg) {
+		if m.phase == phaseLanding {
+			return nil
+		}
+		if m.inSidePanel(msg) {
+			t.chat.ClearHover()
 			return nil
 		}
 		cm := m.chatMouse(msg)
@@ -419,6 +438,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		t.chat.HandleMouse(cm)
+		if text, ok := t.chat.ReleasedSelection(); ok && text != "" {
+			copyToTerminal(text)
+			m.setFlash("ok", "Copied "+itoa(strings.Count(text, "\n")+1)+" lines")
+		}
 		return nil
 	case tea.KeyMsg:
 		return m.onKey(msg)
@@ -564,7 +587,7 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 		t.chat.AddUser(ev.Text, 0, ev.At, true)
 		return next
 	case agent.EvContext:
-		t.ctxUsed, t.ctxWin = ev.ContextUsed, ev.ContextWindow
+		t.ctxUsed, t.ctxWin, t.ctxEst = ev.ContextUsed, ev.ContextWindow, ev.Estimated
 	case agent.EvStepFinish:
 		t.cost = ev.CostUSD
 		if ev.Total.InputTokens+ev.Total.OutputTokens > 0 {

@@ -25,10 +25,11 @@ func Register(r *tools.Registry, m *Map) {
 	}, run: runCodeMap})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
 		Name:        "find_symbol",
-		Description: "Find functions, types, classes and other symbols by name. Fuzzy: prefixes, substrings and abbreviations all match. Returns file, line and signature.",
+		Description: "Find functions, types, classes and other symbols by name. Fuzzy: prefixes, substrings and abbreviations all match. Returns file, line and signature. Set callees to also list the functions each function calls.",
 		Schema: tools.Schema(map[string]any{
-			"query": tools.Str("Symbol name or fragment"),
-			"limit": tools.Int("Maximum results (default 20)"),
+			"query":   tools.Str("Symbol name or fragment"),
+			"limit":   tools.Int("Maximum results (default 20)"),
+			"callees": tools.Bool("List the function definitions each matched function calls (default false)"),
 		}, "query"),
 	}, run: runFindSymbol})
 	r.Register(&mapTool{m: m, spec: llm.ToolSpec{
@@ -111,8 +112,9 @@ func runCodeMap(m *Map, args json.RawMessage) tools.Result {
 
 func runFindSymbol(m *Map, args json.RawMessage) tools.Result {
 	var a struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Query   string `json:"query"`
+		Limit   int    `json:"limit"`
+		Callees bool   `json:"callees"`
 	}
 	if err := tools.Decode(args, &a); err != nil {
 		return tools.Errorf("%v", err)
@@ -139,6 +141,15 @@ func runFindSymbol(m *Map, args json.RawMessage) tools.Result {
 			fmt.Fprintf(&sb, "\n    %s", h.Signature)
 		}
 		sb.WriteByte('\n')
+		if a.Callees && isFuncKind(h.Kind) {
+			cs := m.Callees(h.File, h.Line)
+			if len(cs) == 0 {
+				sb.WriteString("    calls: none found in the code map\n")
+			}
+			for _, c := range cs {
+				fmt.Fprintf(&sb, "    calls %s  %s:%d\n", c.Name, c.File, c.Line)
+			}
+		}
 	}
 	return tools.Result{Output: sb.String(), Summary: fmt.Sprintf("%d symbols", len(hits))}
 }
@@ -213,6 +224,12 @@ func runCodeImpact(m *Map, args json.RawMessage) tools.Result {
 		sb.WriteString("Changes together with this file in git history:\n")
 		for _, c := range im.CoChanged {
 			fmt.Fprintf(&sb, "  %s (%d commits)\n", c.File, c.Count)
+		}
+	}
+	if hints := m.CloneHints(im.File, 6); len(hints) > 0 {
+		sb.WriteString("Duplication:\n")
+		for _, h := range hints {
+			fmt.Fprintf(&sb, "  %s\n", h)
 		}
 	}
 	return tools.Result{Output: sb.String(), Summary: fmt.Sprintf("%d direct importers", im.Direct)}

@@ -774,3 +774,98 @@ func (f *FakeBackend) MoveConfig(key string, value any, toProject, fromProject b
 	f.cfg[key] = value
 	return nil
 }
+
+// ModelEvents implements Backend. The demo turn has one model call, so the
+// log is read back from the transcript with the agent's own filter.
+func (f *FakeBackend) ModelEvents() []agent.Event {
+	return f.transcriptWhere(func(e agent.Event) bool {
+		switch e.Kind {
+		case agent.EvStepFinish, agent.EvRetry, agent.EvFallback, agent.EvError:
+			return true
+		}
+		return false
+	})
+}
+
+// CompactionLog implements Backend.
+func (f *FakeBackend) CompactionLog() []agent.Event {
+	return f.transcriptWhere(func(e agent.Event) bool {
+		switch e.Kind {
+		case agent.EvCompactStart, agent.EvCompactDone:
+			return true
+		case agent.EvWarning:
+			return strings.HasPrefix(e.Text, "compaction failed")
+		}
+		return false
+	})
+}
+
+// transcriptWhere returns the main agent's transcript events that match keep.
+func (f *FakeBackend) transcriptWhere(keep func(agent.Event) bool) []agent.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []agent.Event
+	for _, e := range f.transcript {
+		if e.AgentID == "" && keep(e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Subagents implements Backend: the subagents of the newest dispatch, by
+// the call id of the last subagent event.
+func (f *FakeBackend) Subagents() []agent.AgentInfo {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	call := ""
+	for _, e := range f.transcript {
+		if e.Kind == agent.EvSubagent && e.Agent != nil {
+			call = e.CallID
+		}
+	}
+	var out []agent.AgentInfo
+	at := map[string]int{}
+	for _, e := range f.transcript {
+		if e.Kind != agent.EvSubagent || e.Agent == nil || e.CallID != call {
+			continue
+		}
+		if i, ok := at[e.Agent.ID]; ok {
+			out[i] = *e.Agent
+			continue
+		}
+		at[e.Agent.ID] = len(out)
+		out = append(out, *e.Agent)
+	}
+	return out
+}
+
+// CancelSubagent implements Backend. It records the cancelled state in the
+// transcript directly, not on the event channel, because the caller is the
+// TUI goroutine that drains that channel.
+func (f *FakeBackend) CancelSubagent(id string) error {
+	for _, s := range f.Subagents() {
+		if s.ID != id {
+			continue
+		}
+		if s.Status != "running" && s.Status != "pending" {
+			return fmt.Errorf("subagent %s has already %s", id, s.Status)
+		}
+		s.Status, s.Error = "cancelled", "cancelled by the user"
+		f.mu.Lock()
+		f.transcript = append(f.transcript, agent.Event{Kind: agent.EvSubagent, At: time.Now(), Agent: &s, CallID: f.lastCallID()})
+		f.mu.Unlock()
+		return nil
+	}
+	return fmt.Errorf("no subagent %s in the newest dispatch", id)
+}
+
+// lastCallID is the call id of the newest subagent event. Callers hold f.mu.
+func (f *FakeBackend) lastCallID() string {
+	for i := len(f.transcript) - 1; i >= 0; i-- {
+		if f.transcript[i].Kind == agent.EvSubagent {
+			return f.transcript[i].CallID
+		}
+	}
+	return ""
+}

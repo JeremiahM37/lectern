@@ -102,6 +102,8 @@ func serveStdio() {
 						"capabilities":    map[string]any{"tools": map[string]any{"listChanged": true}},
 						"serverInfo":      map[string]any{"name": "test-server", "version": "1"},
 					})
+				case "ping":
+					reply(map[string]any{})
 				case "tools/list":
 					var p struct {
 						Cursor string `json:"cursor"`

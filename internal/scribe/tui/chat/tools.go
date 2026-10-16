@@ -764,6 +764,9 @@ func phaseOf(calls []*Call) string {
 		}
 	}
 	switch {
+	case cur.running() && (cur.Tool == "plan" || cur.Tool == "ask_user"):
+		// The turn is blocked on the user, not reading anything.
+		return "review"
 	case cur.Tool == "dispatch":
 		return "dispatch"
 	case isEditTool(cur.Tool):

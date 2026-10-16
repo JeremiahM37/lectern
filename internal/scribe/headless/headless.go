@@ -133,7 +133,13 @@ type turnResult struct {
 	timedOut bool
 	// sigAborted is set when SIGINT aborted the turn.
 	sigAborted bool
+	// emptyAnswer is set when the turn ended with no answer text.
+	emptyAnswer bool
 }
+
+// emptyAnswerMessage is the error for a turn that ended with no answer.
+const emptyAnswerMessage = "the turn ended with an empty answer: the model produced no reply text. " +
+	"Ask again, or raise --max-tokens if the reply budget went on reasoning"
 
 func (r *runner) start(chat bool) {
 	r.out.start(r.app.Agent.CurrentModel().Ref, r.app.Agent.Mode(), chat, r.app.SessionID(), !r.o.noRepoMap)
@@ -154,6 +160,7 @@ func (r *runner) chat(stdin io.Reader, first string) int {
 	r.start(true)
 	lines := readChatLines(r.root.Done(), stdin)
 	turns := 0
+	emptyTurns := 0
 	prompt := first
 	for {
 		if prompt == "" {
@@ -163,27 +170,35 @@ func (r *runner) chat(stdin io.Reader, first string) int {
 			}
 			select {
 			case <-r.root.Done():
-				return r.chatEnd(turns)
+				return r.chatEnd(turns, emptyTurns)
 			case line, ok := <-lines:
 				if !ok {
-					return r.chatEnd(turns)
+					return r.chatEnd(turns, emptyTurns)
 				}
 				prompt = line
 			}
 		}
 		turns++
 		res := r.turn(r.withIncludes(prompt))
+		if res.emptyAnswer {
+			emptyTurns++
+		}
 		r.out.turnDone(turns, res)
 		prompt = ""
 	}
 }
 
-func (r *runner) chatEnd(turns int) int {
+// chatEnd is the exit code of a chat session. A session where any turn ended
+// with no answer exits 1, unless the user interrupted it.
+func (r *runner) chatEnd(turns, emptyTurns int) int {
 	usage, _ := r.app.Agent.Usage()
 	sid := r.app.SessionID()
 	r.out.chatDone(turns, usage, sid)
 	if r.intr.quitRequested() {
 		return 130
+	}
+	if emptyTurns > 0 {
+		return 1
 	}
 	return 0
 }
@@ -239,6 +254,12 @@ func (r *runner) turn(prompt string) turnResult {
 		}
 	case stats.Error == "" && err != nil:
 		res.stats.Error = err.Error()
+	case stats.Error == "" && strings.TrimSpace(res.final) == "":
+		// A turn that ends with no answer is not a success: a script would
+		// otherwise read nothing and exit 0. Usually the reply budget went
+		// on reasoning, so the message says what to do.
+		res.emptyAnswer = true
+		res.stats.Error = emptyAnswerMessage
 	}
 	if strings.HasPrefix(res.stats.Error, "max steps reached") {
 		res.stats.Error = fmt.Sprintf("max steps reached (%d): raise --max-steps to let the task finish", r.o.maxSteps)

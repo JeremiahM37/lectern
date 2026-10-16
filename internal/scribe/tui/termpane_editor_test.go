@@ -158,3 +158,18 @@ func TestEditorOpensNeovimAtLineAndAgentCanReachIt(t *testing.T) {
 		t.Fatal("the session was not closed")
 	}
 }
+
+func TestEditorSettingIsUsedBeforeVisualAndEditor(t *testing.T) {
+	t.Setenv("SCRIBE_EDITOR", "")
+	t.Setenv("VISUAL", "vi")
+	t.Setenv("EDITOR", "vi")
+	setEditorCommand("sh", []string{"-c", "true"})
+	defer setEditorCommand("", nil)
+	argv, err := editorCommandAt("f.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if argv[0] != "sh" || argv[len(argv)-1] != "f.txt" {
+		t.Fatalf("argv = %v, want the configured command first", argv)
+	}
+}

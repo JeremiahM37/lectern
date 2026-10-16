@@ -207,15 +207,59 @@ func (c SummaryCompactor) summarise(ctx context.Context, old []llm.Message) (str
 	return state + "\n\n## Additional Details\n" + strings.TrimSpace(extra), nil
 }
 
-// batchSummary is the V1 path: one model call over the transcript.
+// summaryDegradeLevels is how many times a summary request is retried with a
+// smaller transcript after the provider rejects it as too large. Level 0 is
+// the full transcript; each level halves the tool-result budget. Past the
+// last level the summary is the mechanical record alone (degradedSummary).
+const summaryDegradeLevels = 3
+
+// batchSummary is the V1 path: one model call over the transcript. When the
+// provider rejects the request as too large, it is retried with less of the
+// transcript (degradation levels), and then not sent at all.
 func (c SummaryCompactor) batchSummary(ctx context.Context, old []llm.Message) (string, error) {
-	req := llm.Request{
-		Model:     c.Model.ID,
-		System:    summaryPrompt,
-		Messages:  []llm.Message{llm.UserText("Session transcript to summarise:\n\n" + Transcript(old, v1ResultChars))},
-		MaxTokens: v1MaxOutput,
+	var err error
+	for level := 0; level <= summaryDegradeLevels; level++ {
+		req := llm.Request{
+			Model:     c.Model.ID,
+			System:    summaryPrompt,
+			Messages:  []llm.Message{llm.UserText("Session transcript to summarise:\n\n" + transcriptWith(old, v1MessageChars>>level, v1ResultChars>>level))},
+			MaxTokens: v1MaxOutput,
+		}
+		var out string
+		out, err = Collect(ctx, c.Model.Provider, req)
+		if err == nil || !tooLarge(err) || ctx.Err() != nil {
+			return out, err
+		}
 	}
-	return Collect(ctx, c.Model.Provider, req)
+	return degradedSummary, nil
+}
+
+// degradedSummary stands in for a summary the provider would not take at any
+// size. It says so, so the model knows the detail was lost rather than
+// absent.
+const degradedSummary = "The earlier conversation could not be summarised in detail: the model rejected every summary request as too large. " +
+	"Only the record of files and commands below survives."
+
+// tooLarge reports whether a provider error says the request was too big
+// for the model. Providers word this differently, so it checks the status
+// and the common phrases.
+func tooLarge(err error) bool {
+	var ae *llm.APIError
+	if errors.As(err, &ae) {
+		if ae.StatusCode == 413 {
+			return true
+		}
+		if ae.StatusCode != 400 && ae.StatusCode != 422 {
+			return false
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	for _, p := range []string{"too long", "too large", "context length", "context window", "maximum context", "exceeds the", "prompt is too"} {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // gapFill asks for the information the structured state lacks. It is a
@@ -272,9 +316,15 @@ func Collect(ctx context.Context, p llm.Provider, req llm.Request) (string, erro
 // Transcript renders msgs as plain text. Each text part is capped at 6000
 // characters and each tool result at max.
 func Transcript(msgs []llm.Message, max int) string {
+	return transcriptWith(msgs, v1MessageChars, max)
+}
+
+// transcriptWith renders msgs with explicit caps on text parts and tool
+// results. The summary's degradation levels shrink both.
+func transcriptWith(msgs []llm.Message, textMax, resultMax int) string {
 	var b strings.Builder
 	for _, m := range msgs {
-		b.WriteString(renderMessage(m, v1MessageChars, max))
+		b.WriteString(renderMessage(m, textMax, resultMax))
 	}
 	return b.String()
 }

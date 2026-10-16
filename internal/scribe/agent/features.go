@@ -18,8 +18,9 @@ type Features struct {
 	// TierRouting lets the app's subagent factory pick the cheap model tier
 	// for explore and code tasks. The factory reads the flag. On by default.
 	TierRouting bool
-	// DispatchCache is reserved for shared file reads between subagents
-	// (the bus is not built yet, so the flag has no effect). On by default.
+	// DispatchCache gives the subagents of one dispatch a shared AgentBus:
+	// file reads are cached between them, and their findings and edits are
+	// recorded on it. On by default.
 	DispatchCache bool
 	// TargetFileValidation checks each code task's file targets against the
 	// workdir and notes the ones that do not exist. On by default.

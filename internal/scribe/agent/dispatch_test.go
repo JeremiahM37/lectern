@@ -31,7 +31,8 @@ func TestDispatchRunsExploreAgentsWithConcurrencyLimit(t *testing.T) {
 	d := &Dispatcher{
 		MaxConcurrent: 2,
 		Sink:          log.sink,
-		New: func(role, id string, sink Sink) *Agent {
+		New: func(spec SubagentSpec, sink Sink) *Agent {
+			role, id := spec.Role, spec.ID
 			opts := baseOptions(f, reg, log, dir)
 			opts.Sink = sink
 			opts.ID = id
@@ -107,7 +108,8 @@ func TestDispatchRunsExploreAgentsWithConcurrencyLimit(t *testing.T) {
 func TestDispatchRejectsCodeAgentsInPlanMode(t *testing.T) {
 	f := newFake(t) // no script: any request would fail the test
 	tr := tools.NewRegistry()
-	d := &Dispatcher{New: func(role, id string, sink Sink) *Agent {
+	d := &Dispatcher{New: func(spec SubagentSpec, sink Sink) *Agent {
+		role := spec.Role
 		t.Errorf("subagent %s started in plan mode", role)
 		return nil
 	}}

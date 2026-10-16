@@ -225,7 +225,8 @@ func cleanupFixture() *recBackend {
 func TestMemoryCleanupTabListsReasons(t *testing.T) {
 	m := openMemory(t, 140, 36, cleanupFixture())
 	send(m, "tab")
-	send(m, "tab") // project, global, cleanup
+	send(m, "tab")
+	send(m, "tab") // project, global, hidden, cleanup
 	s := screen(m)
 	mustContain(t, s, "Cleanup 2", "file gone", "not used in", "2 to review")
 	mustContain(t, s, "Listed because: file gone: internal/old.go")
@@ -236,6 +237,7 @@ func TestMemoryCleanupEmptyState(t *testing.T) {
 	m := openMemory(t, 140, 36, memFixture())
 	send(m, "tab")
 	send(m, "tab")
+	send(m, "tab") // project, global, hidden, cleanup
 	mustContain(t, screen(m), "Nothing to clean up")
 }
 
@@ -244,6 +246,7 @@ func TestMemoryCleanupDeleteAsksFirstAndRefreshes(t *testing.T) {
 	m := openMemory(t, 140, 36, b)
 	send(m, "tab")
 	send(m, "tab")
+	send(m, "tab") // project, global, hidden, cleanup
 	send(m, "d")
 	if m.topModal() == nil || topTitle(m) != "Delete memory" {
 		t.Fatalf("d on a candidate should ask first, top=%q", topTitle(m))
@@ -263,6 +266,7 @@ func TestMemoryCleanupTabDoesNotTypeSearch(t *testing.T) {
 	m := openMemory(t, 140, 36, cleanupFixture())
 	send(m, "tab")
 	send(m, "tab")
+	send(m, "tab") // project, global, hidden, cleanup
 	send(m, "/")
 	typeText(m, "zzz")
 	mustContain(t, screen(m), "Use bubbletea")

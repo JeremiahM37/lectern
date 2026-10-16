@@ -22,6 +22,7 @@ package tui
 // The Model removes a modal only after its Update reports done.
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -226,6 +227,11 @@ type Picker struct {
 	Blurb   string
 	// Preview returns extra lines for the highlighted item (side pane when wide).
 	Preview func(PickItem) []string
+	// Collapsible lets groups fold: h or left folds the cursor's group, l or
+	// right unfolds it, Space or Enter on a folded group's row toggles it. A
+	// folded group shows as one row in place of its items. Filtering shows
+	// every match, folded or not.
+	Collapsible bool
 
 	OnSelect func(PickItem) tea.Cmd
 	OnCursor func(PickItem) tea.Cmd
@@ -238,6 +244,22 @@ type Picker struct {
 	cursor    int // index into visible
 	visible   []int
 	off       int
+	// folded holds the groups a Collapsible picker has folded.
+	folded map[string]bool
+}
+
+// SetFolded folds or unfolds one group of a Collapsible picker.
+func (p *Picker) SetFolded(group string, on bool) {
+	if p.folded == nil {
+		p.folded = map[string]bool{}
+	}
+	p.folded[group] = on
+	p.refilter()
+}
+
+// isFolded reports whether a row's group is folded in an unfiltered list.
+func (p *Picker) isFolded(it PickItem) bool {
+	return p.Collapsible && p.query == "" && it.Group != "" && p.folded[it.Group]
 }
 
 // NewPicker makes an empty picker.
@@ -298,6 +320,9 @@ func (p *Picker) Footer() string {
 	if p.searching || p.TypeToFilter {
 		return "type filter · ↑↓ move · Enter select · Esc clear"
 	}
+	if p.Collapsible {
+		return "↑↓ move · Enter select · ←→ fold · Space toggle · / filter · Tab group · Esc close"
+	}
 	return "↑↓ move · Enter select · / filter · Tab group · Esc close"
 }
 
@@ -318,11 +343,18 @@ func (p *Picker) refilter() {
 		idx, score int
 	}
 	var sc []scored
+	folded := map[string]bool{}
 	for i, it := range p.Items {
 		if it.Disabled && p.query != "" {
 			continue
 		}
 		if p.query == "" {
+			if p.isFolded(it) {
+				if folded[it.Group] {
+					continue
+				}
+				folded[it.Group] = true
+			}
 			p.visible = append(p.visible, i)
 			continue
 		}
@@ -397,6 +429,33 @@ func (p *Picker) jumpGroup(dir int) {
 	}
 }
 
+// groupRow returns the visible row of the first item in group, or -1.
+func (p *Picker) groupRow(group string) int {
+	for i, idx := range p.visible {
+		if p.Items[idx].Group == group {
+			return i
+		}
+	}
+	return -1
+}
+
+// toggleFold folds or unfolds the cursor's group and keeps the cursor on that
+// group's first row. Rows without a group do nothing.
+func (p *Picker) toggleFold(fold bool) {
+	if !p.Collapsible || p.query != "" || len(p.visible) == 0 {
+		return
+	}
+	group := p.Items[p.visible[p.cursor]].Group
+	if group == "" || p.folded[group] == fold {
+		return
+	}
+	p.SetFolded(group, fold)
+	if r := p.groupRow(group); r >= 0 {
+		p.cursor = r
+	}
+	p.clampCursor()
+}
+
 func (p *Picker) fireCursor() tea.Cmd {
 	if p.OnCursor == nil {
 		return nil
@@ -442,16 +501,31 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 			return p, nil, false
 		}
 		it, ok := p.Selected()
+		if ok && p.isFolded(it) {
+			p.toggleFold(false)
+			return p, nil, false
+		}
 		if !ok || it.Disabled || p.OnSelect == nil {
 			return p, nil, false
 		}
 		cmd := p.OnSelect(it)
 		return p, cmd, !p.KeepOpen
-	case key == "up":
+	case key == "up" || key == "ctrl+k":
 		p.move(-1)
 		return p, p.fireCursor(), false
-	case key == "down":
+	case key == "down" || key == "ctrl+j":
 		p.move(1)
+		return p, p.fireCursor(), false
+	case p.Collapsible && !p.searching && !p.TypeToFilter && (key == "left" || key == "h"):
+		p.toggleFold(true)
+		return p, p.fireCursor(), false
+	case p.Collapsible && !p.searching && !p.TypeToFilter && (key == "right" || key == "l"):
+		p.toggleFold(false)
+		return p, p.fireCursor(), false
+	case p.Collapsible && !p.searching && !p.TypeToFilter && key == " ":
+		if it, ok := p.Selected(); ok && it.Group != "" {
+			p.toggleFold(!p.folded[it.Group])
+		}
 		return p, p.fireCursor(), false
 	case key == "pgup":
 		for i := 0; i < 8; i++ {
@@ -656,7 +730,7 @@ func (p *Picker) renderRows(w int) []string {
 	labelW := p.labelColumn(w)
 	for i, idx := range p.visible {
 		it := p.Items[idx]
-		if p.query == "" && it.Group != group && it.Group != "" {
+		if p.query == "" && it.Group != group && it.Group != "" && !p.isFolded(it) {
 			rows = append(rows, fgb(th.Brand).Render("▾ "+render.Truncate(it.Group, w-2)))
 		}
 		group = it.Group
@@ -664,6 +738,11 @@ func (p *Picker) renderRows(w int) []string {
 		marker := "  "
 		if sel {
 			marker = fgb(th.BrandSecondary).Render("› ")
+		}
+		if p.isFolded(it) {
+			rows = append(rows, render.Truncate(marker+fgb(th.Brand).Render("▸ "+it.Group)+
+				fg(th.TextDim).Render(fmt.Sprintf("  %d", p.groupSize(it.Group))), w))
+			continue
 		}
 		labelStyle := fg(th.TextPrimary)
 		if it.Color != nil {
@@ -690,6 +769,17 @@ func (p *Picker) renderRows(w int) []string {
 	return rows
 }
 
+// groupSize counts the items in a group, folded or not.
+func (p *Picker) groupSize(group string) int {
+	n := 0
+	for _, it := range p.Items {
+		if it.Group == group {
+			n++
+		}
+	}
+	return n
+}
+
 // cursorRow maps the cursor (an index into visible) to a row index, counting group headers.
 func (p *Picker) cursorRow(rows []string) int {
 	if len(p.visible) == 0 {
@@ -699,7 +789,7 @@ func (p *Picker) cursorRow(rows []string) int {
 	group := "\x00"
 	for i, idx := range p.visible {
 		it := p.Items[idx]
-		if p.query == "" && it.Group != group && it.Group != "" {
+		if p.query == "" && it.Group != group && it.Group != "" && !p.isFolded(it) {
 			n++
 		}
 		group = it.Group

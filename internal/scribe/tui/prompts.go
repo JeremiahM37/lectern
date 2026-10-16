@@ -54,15 +54,38 @@ func newPromptUI(p Prompt, th theme.Theme, width int) *promptUI {
 	return ui
 }
 
+// choices are the plan review options: the ones the agent offered for this
+// plan (a light plan has no Clear), else all of them.
+func (ui *promptUI) choices() []string {
+	if q := ui.p.Question; q != nil && len(q.Options) > 0 {
+		return q.Options
+	}
+	return planChoices
+}
+
+// hasFreeRow reports whether a question list gets its own "Type an answer"
+// row. An "Other" option already opens the text row, so it is not repeated.
+func hasFreeRow(opts []string) bool {
+	for _, o := range opts {
+		if isOtherOption(o) {
+			return false
+		}
+	}
+	return true
+}
+
 // optionCount is how many rows the list has (options plus the free-text row for questions).
 func (ui *promptUI) optionCount() int {
 	switch ui.kind {
 	case "approval":
 		return 3
 	case "plan":
-		return len(planChoices)
+		return len(ui.choices())
 	}
 	n := len(ui.p.Question.Options)
+	if !hasFreeRow(ui.p.Question.Options) {
+		return n
+	}
 	return n + 1 // "Type an answer…"
 }
 
@@ -108,7 +131,7 @@ func (m *Model) handlePromptKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	n := ui.optionCount()
 	if ui.kind == "plan" {
 		switch {
-		case len(key) == 1 && key[0] >= '1' && key[0] <= '0'+byte(len(planChoices)):
+		case len(key) == 1 && key[0] >= '1' && key[0] <= '0'+byte(len(ui.choices())):
 			ui.sel = int(key[0] - '1')
 			return m.promptChoose(t), true
 		case key == "v":
@@ -163,7 +186,7 @@ func (m *Model) promptChoose(t *tab) tea.Cmd {
 		}
 		return m.resolvePrompt(t, denyFor(ui))
 	case "plan":
-		switch planChoices[ui.sel] {
+		switch ui.choices()[ui.sel] {
 		case answerExecute:
 			return m.resolvePrompt(t, PromptReply{Answer: answerExecute})
 		case answerClear:
@@ -304,11 +327,10 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 	for i, o := range q.Options {
 		body = append(body, m.optionRow(o, i == ui.sel, th.Brand))
 	}
-	free := len(q.Options)
 	if ui.typing {
 		body = append(body, m.entryRow(ui.text, "type your answer...", th.Brand))
-	} else {
-		body = append(body, m.optionRow("Type an answer…", ui.sel == free, th.Brand))
+	} else if hasFreeRow(q.Options) {
+		body = append(body, m.optionRow("Type an answer…", ui.sel == len(q.Options), th.Brand))
 	}
 	footer := "↑↓ select · Enter confirm · Esc skip"
 	if ui.typing {
@@ -410,18 +432,19 @@ func (m *Model) planLines(ui *promptUI, w int) []string {
 		}
 	}
 	body = append(body, "")
-	for i, c := range planChoices {
+	for i, c := range ui.choices() {
 		body = append(body, m.optionRow(fmt.Sprintf("%d  %s", i+1, planChoiceLabel(c)), i == ui.sel, planChoiceColor(th, c)))
 	}
 	if ui.typing {
 		body = append(body, m.entryRow(ui.text, "what should change...", th.BrandAlt))
 	}
-	footer := "1-4 choose · ↑↓ select · Enter confirm · v full plan · Esc cancel"
+	// The spec hint, plus "v full plan": the key is otherwise undiscoverable.
+	footer := "[↑↓] select · [Enter] confirm · v full plan · [Esc] cancel"
 	if ui.full {
-		footer = "1-4 choose · ↑↓ select · Enter confirm · v steps · Esc cancel"
+		footer = "[↑↓] select · [Enter] confirm · v steps · [Esc] cancel"
 	}
 	if ui.typing {
-		footer = "Enter submit · Esc back"
+		footer = "⏎ submit │ esc back"
 	}
 	return frame("", "", indentRows(body), footer, w, th.Info, th)
 }

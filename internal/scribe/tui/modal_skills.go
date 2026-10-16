@@ -460,8 +460,9 @@ func (b *skillBrowser) selectItem(it PickItem) tea.Cmd {
 	return nil
 }
 
-// removeOrUnload is Ctrl+D. On Installed it deletes the skill from disk after
-// unloading it; on Active it unloads. There is no confirm, by design.
+// removeOrUnload is Ctrl+D. On Active it unloads at once. On Installed it
+// asks first, since the skill's directory is deleted from disk; a yes unloads
+// it and then removes it.
 func (b *skillBrowser) removeOrUnload() tea.Cmd {
 	it, ok := b.Picker.Selected()
 	if !ok {
@@ -479,19 +480,32 @@ func (b *skillBrowser) removeOrUnload() tea.Cmd {
 		if b.rem == nil {
 			return flashCmd("err", "Removing skills is not available from this backend.")
 		}
+		where := "from disk"
 		if b.loaded[name] {
-			if err := b.be.SetSkillActive(name, false); err != nil {
-				return flashCmd("err", fmt.Sprintf("Failed to remove %q: %s", name, err.Error()))
-			}
+			where = "from disk. It is unloaded from the AI context first"
 		}
-		err := b.rem.RemoveSkill(name)
-		b.refresh()
-		if err != nil {
-			return flashCmd("err", fmt.Sprintf("Failed to remove %q: %s", name, err.Error()))
-		}
-		return flashCmd("ok", fmt.Sprintf("Skill %q removed.", name))
+		b.m.pushModal(NewConfirm(b.th, "Remove skill",
+			fmt.Sprintf("Remove %q %s? The skill's folder is deleted and cannot be restored here.", name, where), true,
+			func() tea.Cmd { return b.removeInstalled(name) }).WithLabels("Remove", "Cancel"))
+		return nil
 	}
 	return nil
+}
+
+// removeInstalled unloads and deletes an installed skill, once the person has
+// said yes.
+func (b *skillBrowser) removeInstalled(name string) tea.Cmd {
+	if b.loaded[name] {
+		if err := b.be.SetSkillActive(name, false); err != nil {
+			return flashCmd("err", fmt.Sprintf("Failed to remove %q: %s", name, err.Error()))
+		}
+	}
+	err := b.rem.RemoveSkill(name)
+	b.refresh()
+	if err != nil {
+		return flashCmd("err", fmt.Sprintf("Failed to remove %q: %s", name, err.Error()))
+	}
+	return flashCmd("ok", fmt.Sprintf("Skill %q removed.", name))
 }
 
 // viewInstructions shows the full SKILL.md of the highlighted skill.

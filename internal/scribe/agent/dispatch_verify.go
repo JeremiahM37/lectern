@@ -58,7 +58,7 @@ func (r *dispatchRun) verify(ctx context.Context, env *tools.Env, reg *tools.Reg
 	}
 
 	idx := r.board.add("code", "fix project check failures")
-	fix := r.launch(ctx, idx, "code", fmt.Sprintf(fixTaskFormat, strings.Join(changed, ", "), tailOf(out, 3000)))
+	fix := r.launch(ctx, idx, "code", PurposeFix, fmt.Sprintf(fixTaskFormat, strings.Join(changed, ", "), tailOf(out, 3000)))
 	if fix.err != nil {
 		return verifyOutcome{
 			status:  "failing",

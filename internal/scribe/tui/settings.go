@@ -36,11 +36,13 @@ const (
 	stRouter
 	stReasoning
 	stAppearance
+	stAgent
+	stTools
 	stPermissions
 	stTabCount
 )
 
-var stTabNames = []string{"General", "Providers", "Router", "Reasoning", "Appearance", "Permissions"}
+var stTabNames = []string{"General", "Models", "Router", "Think", "Look", "Agent", "Tools", "Access"}
 
 // setRow is one line of a settings tab. Rows are rebuilt from the backend
 // on every draw, so they always show what is saved.
@@ -247,6 +249,21 @@ func (s *settings) moveScope(toProject bool) tea.Cmd {
 		if r.key == "" || r.raw == nil || !savedIn(root, !toProject, r.key) {
 			continue
 		}
+		if is7Key(r.key) {
+			if mover7, ok := s.be.(ConfigSetter7); ok {
+				if err := mover7.MoveField7(r.key, r.raw, toProject); err != nil {
+					failed++
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
+				}
+				moved++
+				continue
+			}
+			failed++
+			continue
+		}
 		if !canMove {
 			failed++
 			continue
@@ -293,25 +310,35 @@ func savedIn(root string, project bool, key string) bool {
 	if json.Unmarshal(data, &doc) != nil {
 		return false
 	}
-	parts := strings.Split(key, ".")
-	cur := doc
-	for i, part := range parts {
-		v, ok := cur[part]
-		if !ok {
-			return false
+	return hasDottedKey(doc, key)
+}
+
+// hasDottedKey reports whether obj holds key, where key walks nested objects
+// by dots. A map entry may itself contain dots (a provider/model reference
+// such as qwen3.6), so at each level the whole rest of the key is tried as
+// one name before splitting further.
+func hasDottedKey(obj map[string]any, key string) bool {
+	if _, ok := obj[key]; ok {
+		return true
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] != '.' {
+			continue
 		}
-		if i == len(parts)-1 {
+		sub, ok := obj[key[:i]].(map[string]any)
+		if ok && hasDottedKey(sub, key[i+1:]) {
 			return true
-		}
-		if cur, ok = v.(map[string]any); !ok {
-			return false
 		}
 	}
 	return false
 }
 
 // set writes one setting to the chosen scope and applies it to the open tab.
+// Flat keys of the wave 5 options go through the flat-key setter instead.
 func (s *settings) set(key string, value any) tea.Cmd {
+	if is7Key(key) {
+		return s.setFlat7(key, value)
+	}
 	if err := s.be.SetConfig(key, value, s.project); err != nil {
 		s.say("err", err.Error())
 		return nil
@@ -366,6 +393,10 @@ func (s *settings) rows() []setRow {
 		return s.routerRows()
 	case stAppearance:
 		return s.appearanceRows()
+	case stAgent:
+		return s.agentRows()
+	case stTools:
+		return s.toolRows()
 	case stReasoning:
 		return s.reasoningRows()
 	case stPermissions:
@@ -493,8 +524,10 @@ func (s *settings) providerRows() []setRow {
 		p := p
 		rows = append(rows, setRow{label: p.Name, value: keyStatus(p), note: p.ID, act: func() tea.Cmd { return s.setKey(p) }})
 	}
-	return append(rows, setRow{label: "+ Add a custom OpenAI-compatible provider", note: "id, base URL, key variable",
+	rows = append(rows, setRow{label: "+ Add a custom OpenAI-compatible provider", note: "id, base URL, key variable",
 		act: s.addCustomProvider})
+	rows = append(rows, s.keyPriorityRow(fields7(s.be)))
+	return append(rows, s.performanceRows(fields7(s.be))...)
 }
 
 // keyStatus is the Providers tab's status column.
@@ -584,7 +617,7 @@ func (s *settings) routerRows() []setRow {
 	if fb == "" {
 		fb = "none"
 	}
-	return []setRow{
+	return append(append([]setRow{
 		slot("Explore agents (read-only)", "router.explore"),
 		slot("Code agents (editing)", "router.code"),
 		slot("Web search", "router.web_search"),
@@ -607,7 +640,7 @@ func (s *settings) routerRows() []setRow {
 					return s.set("router.max_agents", n)
 				})
 			}},
-	}
+	}, s.routerSlotRows()...), s.fallbackRows()...)
 }
 
 func maxAgents(c map[string]any) int {
@@ -635,7 +668,7 @@ func (s *settings) appearanceRows() []setRow {
 				return nil
 			}})
 	}
-	return rows
+	return append(rows, append([]setRow{{label: "Diffs", header: true}}, s.diffRows()...)...)
 }
 
 // ---------------------------------------------------------------- Permissions
@@ -727,7 +760,11 @@ func layoutCols(rows []setRow, w int) rowCols {
 	var maxL, maxV int
 	for _, r := range rows {
 		maxL = max(maxL, ansi.StringWidth(r.label))
-		maxV = max(maxV, ansi.StringWidth(r.value))
+		shown := r.value
+		if r.toggle {
+			shown = toggleText(r.on) // the switch is drawn wider than its word
+		}
+		maxV = max(maxV, ansi.StringWidth(shown))
 	}
 	avail := max(0, w-rowMark)
 	c := rowCols{label: min(maxL, avail*32/100), value: min(maxV, avail*36/100)}
@@ -994,7 +1031,8 @@ func newModelChooser(m *Model, title, only string, inherit bool, current string,
 		mc.pick = func(string) tea.Cmd { return nil }
 	}
 	mc.Picker = NewPicker(m.th, title, "model")
-	mc.Picker.Hint = "↑↓ move · Enter select · / filter · Esc close"
+	mc.Picker.Collapsible = true
+	mc.Picker.Hint = "↑↓ move · Enter select · ←→ fold · / filter · Esc close"
 	mc.Picker.Empty = "No models — add a key on the Providers tab"
 	mc.Picker.OnSelect = func(it PickItem) tea.Cmd { return mc.pick(it.Value) }
 	for _, p := range be.Providers() {

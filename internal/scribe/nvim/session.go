@@ -131,7 +131,8 @@ func Start(argv []string, dir string, w, h int) (*Session, error) {
 	if IsNvim(argv) {
 		sweepStale()
 		s.socket = socketPath()
-		run = append([]string{argv[0], "--listen", s.socket}, argv[1:]...)
+		head := append([]string{argv[0]}, configArgs()...)
+		run = append(append(head, "--listen", s.socket), argv[1:]...)
 	}
 	p, err := term.New(run, dir, w, h)
 	if err != nil {
@@ -310,7 +311,7 @@ func Follow(abs string, line int) {
 // not called when no editor is open.
 func FollowThen(abs string, line int, done func(result string)) {
 	s := Current()
-	if s == nil || s.socket == "" {
+	if s == nil || s.socket == "" || !SyncOnEdit() {
 		return
 	}
 	go func() {

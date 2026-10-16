@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -107,6 +108,10 @@ type Options struct {
 	// provider options that depend on the conversation. m is the model the
 	// request goes to (the current one, or a fallback). May be nil.
 	Tune func(m Model, r *llm.Request)
+	// RequestDump sees each model request just before it is sent, with its
+	// step number within the turn and the model ref. It must not keep or
+	// change the request. Nil is fine; DumpRequests writes them as JSON Lines.
+	RequestDump func(step int, modelRef string, req llm.Request)
 	// Redact scrubs secrets from a tool result's Output before it enters the
 	// history or the events. May be nil.
 	Redact func(string) string
@@ -116,6 +121,11 @@ type Options struct {
 
 	Compactor Compactor
 	CompactAt float64 // fraction of the context window, default 0.7; <0 disables
+	// CompactReset is the fill below which the compaction latch clears. A
+	// compaction sets the latch and nothing compacts again until the fill
+	// drops under this, so one oversized step does not compact repeatedly.
+	// Default 0.4.
+	CompactReset float64
 
 	// Deferred, when set, offers only the core tools plus those the model
 	// activated with request_tools. Nil offers every tool (subagents).
@@ -156,9 +166,13 @@ type Agent struct {
 	total    llm.Usage
 	cost     float64
 	lastIn   int // input tokens of the last step (≈ context in use)
+	// compactLatched is set by an automatic compaction and cleared when the
+	// fill falls below CompactReset (hysteresis).
+	compactLatched bool
 	// gen counts history replacements (compaction, reset, resume); it is
 	// part of tools.Env.Scope so per-context tool memory starts over.
 	gen      int
+	planExec bool // carrying out a plan approved this turn (plan_exec.go)
 	running  bool
 	stopTurn bool
 	cancel   context.CancelFunc
@@ -180,8 +194,14 @@ type Agent struct {
 	pendingText bool
 	readStreak  int
 
+	// latchedMode is the mode the conversation was last told about. A change
+	// is latched into the history once (modeNotice).
+	latchedMode string
 	// dispatching counts this agent's dispatch tool calls in flight.
 	dispatching int
+	// waits counts tool calls blocked on an approval or a question. The tool
+	// watchdog does not run its clock while any is pending.
+	waits atomic.Int32
 	// sysChars is the length of the last system prompt, for the context
 	// estimate before the first response.
 	sysChars int
@@ -251,6 +271,9 @@ func New(o Options) *Agent {
 	o.RetryBase = min(max(o.RetryBase, 250*time.Millisecond), time.Minute)
 	if o.CompactAt == 0 {
 		o.CompactAt = 0.7
+	}
+	if o.CompactReset == 0 {
+		o.CompactReset = 0.4
 	}
 	if o.Mode == "" {
 		o.Mode = "default"
@@ -494,7 +517,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
-		a.running, a.cancel = false, nil
+		a.running, a.cancel, a.planExec = false, nil, false
 		a.mu.Unlock()
 	}()
 
@@ -521,6 +544,10 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 	}
 	user := llm.Message{Role: llm.RoleUser, Parts: append([]llm.Part{{Type: llm.PartText, Text: text}}, images...)}
 	a.mu.Lock()
+	if notice := modeNotice(a.latchedMode, mode); notice != "" {
+		a.msgs = append(a.msgs, llm.UserText(notice))
+	}
+	a.latchedMode = mode
 	a.msgs = append(a.msgs, user)
 	a.mu.Unlock()
 	a.persist(false)
@@ -986,12 +1013,21 @@ var errContentFilter = errors.New("the provider's content filter stopped the rep
 // resume is set, the model is asked to continue that text, and the returned
 // message starts with it.
 func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message, llm.FinishReason, error) {
+	if resume == "" {
+		// A mode change made during the turn (plan approved, for example) is
+		// latched before the model sees the next request.
+		a.latchMode()
+	}
 	var extra []llm.Message
 	if resume != "" {
 		extra = []llm.Message{llm.AssistantText(resume), llm.UserText(resumeText)}
 	}
+	started := time.Now()
 	req := a.request(extra...)
 	m := a.CurrentModel()
+	if a.opts.RequestDump != nil {
+		a.opts.RequestDump(step, m.Ref, req)
+	}
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch, err := m.Provider.Stream(sctx, req)
@@ -1164,7 +1200,8 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	total, cost, used, window := a.total, a.cost, a.lastIn, a.model.Info.ContextWindow
 	a.badArgs = bad
 	a.mu.Unlock()
-	a.emit(Event{Kind: EvStepFinish, Step: step, Usage: usage, Total: total, CostUSD: cost})
+	a.emit(Event{Kind: EvStepFinish, Step: step, Usage: usage, Total: total, CostUSD: cost,
+		Model: m.Ref, Duration: time.Since(started)})
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: window})
 	if finish == llm.FinishFilter {
 		return llm.Message{}, "", errContentFilter
@@ -1362,6 +1399,9 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 	if pol := a.currentPolicy(); !pol.allows(call.ToolName) {
 		return tools.Errorf("%s is not available for this step. The budget for this agent is nearly used up, so reply in text with what you have.", call.ToolName)
 	}
+	if a.executingPlan() && !PlanExecutionAllowed(call.ToolName) {
+		return tools.Errorf("%s is not used while carrying out the approved plan: the plan already says what to change. Continue with its steps (read, edit, run checks); if the plan turns out to be wrong, say so and ask with ask_user.", call.ToolName)
+	}
 	mode := a.turnModeNow()
 	if RestrictedModes[mode] && !tools.IsReadOnlyCall(t, call.Args) {
 		return tools.Errorf("mode_restricted: %s mode is read-only, so %s cannot run. %s", mode, call.ToolName, restrictedNext(mode))
@@ -1382,6 +1422,9 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 	env.Mode = mode
 	env.Scope = a.scope()
 	env.Services = withService(env.Services, "dispatch", a)
+	if env.Host != nil {
+		env.Host = waitHost{Host: env.Host, waits: &a.waits}
+	}
 	res = a.runWithTimeout(ctx, call.ToolName, t, &env, args)
 	if a.opts.Hooks != nil {
 		if extra := a.opts.Hooks.PostTool(ctx, call.ToolName, args, res); extra != "" {
@@ -1393,7 +1436,9 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 
 // runWithTimeout runs one tool under the tool timeout. A tool that ignores
 // its context and never returns is abandoned after the timeout, so the turn
-// can go on; the model gets an error in its place.
+// can go on; the model gets an error in its place. Time the tool spends
+// waiting on a person (an approval or a question) does not count toward the
+// timeout, because the watchdog cannot tell a slow tool from a patient user.
 func (a *Agent) runWithTimeout(ctx context.Context, name string, t tools.Tool, env *tools.Env, args json.RawMessage) tools.Result {
 	limit := a.opts.ToolTimeout
 	if limit < 0 || unbounded(name) {
@@ -1402,8 +1447,8 @@ func (a *Agent) runWithTimeout(ctx context.Context, name string, t tools.Tool, e
 	if limit == 0 {
 		limit = defaultToolTimeout
 	}
-	tctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
+	tctx, cancelTool := context.WithCancel(ctx)
+	defer cancelTool()
 	done := make(chan tools.Result, 1)
 	go func() {
 		defer func() {
@@ -1413,11 +1458,15 @@ func (a *Agent) runWithTimeout(ctx context.Context, name string, t tools.Tool, e
 		}()
 		done <- t.Run(tctx, env, args)
 	}()
+	expired, stopClock := watchClock(limit, &a.waits)
+	defer stopClock()
 	select {
 	case res := <-done:
 		return res
-	case <-tctx.Done():
+	case <-expired:
+	case <-ctx.Done():
 	}
+	cancelTool()
 	if ctx.Err() != nil {
 		return tools.Errorf("%s was stopped before it finished.", name)
 	}
@@ -1491,10 +1540,18 @@ func (a *Agent) toolNames() []string {
 func (a *Agent) maybeCompact(ctx context.Context) error {
 	a.mu.Lock()
 	used, window, at, n := a.lastIn, a.model.Info.ContextWindow, a.opts.CompactAt, len(a.msgs)
+	reset := a.opts.CompactReset
+	if window > 0 && float64(used) < reset*float64(window) {
+		a.compactLatched = false
+	}
+	latched := a.compactLatched
 	a.mu.Unlock()
-	if a.opts.Compactor == nil || at < 0 || window <= 0 || float64(used) < at*float64(window) || n < minCompactMessages {
+	if a.opts.Compactor == nil || at < 0 || window <= 0 || float64(used) < at*float64(window) || n < minCompactMessages || latched {
 		return nil
 	}
+	a.mu.Lock()
+	a.compactLatched = true
+	a.mu.Unlock()
 	return a.Compact(ctx, fmt.Sprintf("context %d%% full", used*100/window))
 }
 

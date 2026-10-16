@@ -519,3 +519,39 @@ func TestStreamedSecretIsMasked(t *testing.T) {
 		}
 	}
 }
+
+// A turn whose model reply has no text must not exit 0: a script would read
+// nothing and treat it as a success.
+func TestEmptyAnswerExitsOneWithMessage(t *testing.T) {
+	srv := newFakeServer(t, func(n int, w http.ResponseWriter, r *http.Request, body string) {
+		sse(w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+	})
+	repo := setup(t, srv.srv.URL)
+	res := invoke(t, []string{"--cwd", repo, "say nothing"}, "")
+	if res.code != 1 {
+		t.Fatalf("exit %d, want 1; stdout %q stderr %q", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "empty answer") {
+		t.Errorf("stderr does not say why: %q", res.stderr)
+	}
+}
+
+// The same turn in --json reports the error in its object, and the object is
+// the only thing on stdout.
+func TestEmptyAnswerJSONCarriesError(t *testing.T) {
+	srv := newFakeServer(t, func(n int, w http.ResponseWriter, r *http.Request, body string) {
+		sse(w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+	})
+	repo := setup(t, srv.srv.URL)
+	res := invoke(t, []string{"--json", "--cwd", repo, "say nothing"}, "")
+	if res.code != 1 {
+		t.Fatalf("exit %d, want 1", res.code)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(res.stdout), &obj); err != nil {
+		t.Fatalf("stdout is not one JSON object: %q (%v)", res.stdout, err)
+	}
+	if !strings.Contains(fmt.Sprint(obj["error"]), "empty answer") {
+		t.Errorf("error = %v", obj["error"])
+	}
+}

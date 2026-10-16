@@ -12,7 +12,7 @@ import (
 // caller parses the file again, so a damaged cache costs time, not data.
 
 // codecVersion is the first byte of every row. Bump it with schemaVersion.
-const codecVersion = 1
+const codecVersion = 2
 
 var errCorruptRow = errors.New("repomap: corrupt cache row")
 
@@ -58,6 +58,8 @@ func encodeInfo(fi *fileInfo) ([]byte, error) {
 		e.str(s.Parent)
 		e.str(s.BodyHash)
 		e.str(s.calls)
+		e.str(s.ShapeHash)
+		e.str(s.Summary)
 	}
 	e.uv(uint64(len(fi.Imports)))
 	for _, im := range fi.Imports {
@@ -69,6 +71,17 @@ func encodeInfo(fi *fileInfo) ([]byte, error) {
 	for name, n := range fi.Idents {
 		e.str(name)
 		e.uv(uint64(n))
+	}
+	e.flag(fi.Barrel)
+	e.flag(fi.Clone != nil)
+	if fi.Clone != nil {
+		for _, v := range fi.Clone {
+			e.b = binary.LittleEndian.AppendUint32(e.b, v)
+		}
+	}
+	e.uv(uint64(len(fi.Frags)))
+	for _, h := range fi.Frags {
+		e.b = binary.LittleEndian.AppendUint32(e.b, h)
 	}
 	return e.b, nil
 }
@@ -135,6 +148,9 @@ func (d *decoder) str() string {
 	if d.err != nil {
 		return ""
 	}
+	if n == 0 {
+		return ""
+	}
 	if n > uint64(len(d.b)) {
 		d.fail()
 		return ""
@@ -150,6 +166,17 @@ func (d *decoder) str() string {
 	s := string(raw)
 	d.intern[s] = s
 	return s
+}
+
+// fixed32 reads a little-endian word written with AppendUint32.
+func (d *decoder) fixed32() uint32 {
+	if d.err != nil || len(d.b) < 4 {
+		d.fail()
+		return 0
+	}
+	x := binary.LittleEndian.Uint32(d.b)
+	d.b = d.b[4:]
+	return x
 }
 
 func (d *decoder) flag() bool {
@@ -202,6 +229,8 @@ func decodeInfo(b []byte) (*fileInfo, error) {
 			s.Parent = d.str()
 			s.BodyHash = d.str()
 			s.calls = d.str()
+			s.ShapeHash = d.str()
+			s.Summary = d.str()
 		}
 	}
 	if n := d.count(); n > 0 && d.err == nil {
@@ -215,6 +244,30 @@ func decodeInfo(b []byte) (*fileInfo, error) {
 	for i := 0; i < n && d.err == nil; i++ {
 		name := d.str()
 		fi.Idents[name] = int(d.uv())
+	}
+	fi.Barrel = d.flag()
+	if d.flag() && d.err == nil {
+		if len(d.b) < 4*cloneBins {
+			d.fail()
+		} else {
+			var sig cloneSig
+			for i := range sig {
+				sig[i] = binary.LittleEndian.Uint32(d.b[4*i:])
+			}
+			d.b = d.b[4*cloneBins:]
+			fi.Clone = &sig
+		}
+	}
+	if n := d.count(); n > 0 && d.err == nil {
+		if len(d.b) < 4*n {
+			d.fail()
+		} else {
+			fi.Frags = make([]uint32, n)
+			for i := range fi.Frags {
+				fi.Frags[i] = binary.LittleEndian.Uint32(d.b[4*i:])
+			}
+			d.b = d.b[4*n:]
+		}
 	}
 	if d.err != nil {
 		return nil, d.err

@@ -213,6 +213,8 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	if config.Bool(cfg.Memory, true) {
 		if a.Memory, err = memory.Open(a.Workdir); err != nil {
 			a.Memory = nil // memory is optional; never block a session on it
+		} else {
+			a.bindMemorySession()
 		}
 	}
 	if set, err := skills.Discover(a.Workdir); err == nil {
@@ -414,9 +416,12 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Redact:    redact.Default().Redact,
 		Sink:      a.emit,
 		MaxSteps:  a.opts.MaxSteps,
-		Hooks:     a.claimHooks(a.ext.hooks),
-		Headers:   map[string]string{"X-Session-Id": a.Meta.ID},
-		Deferred:  a.deferred,
+		// Zero keeps the agent's defaults (config.Retry).
+		MaxRetries:      a.Cfg.Retry.Transient,
+		MaxStallRetries: a.Cfg.Retry.Stall,
+		Hooks:           a.claimHooks(a.ext.hooks),
+		Headers:         map[string]string{"X-Session-Id": a.Meta.ID},
+		Deferred:        a.deferred,
 		// The dispatcher is the guard: while subagents run, the shell and git
 		// tools refuse repository changes (agent publishes it to Services).
 		Guard: a.Dispatch,
@@ -494,6 +499,11 @@ func (a *App) subagentTools(role string) *tools.Registry {
 		}
 		reg.Register(t)
 	}
+	if role == "explore" && a.ext.jobs != nil {
+		// Read-only checks for explore and review agents: the project's own
+		// check, with no fix and no write path.
+		reg.Register(readOnlyProjectTool(a.ext.jobs))
+	}
 	return reg
 }
 
@@ -548,24 +558,20 @@ func (t capReadLines) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 	return t.Tool.Run(ctx, env, raw)
 }
 
-// newSubagent builds an explore, code or web subagent.
-func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
-	ref := a.Cfg.Router.Explore
-	switch role {
-	case "code":
-		ref = a.Cfg.Router.Code
-	case "web":
-		ref = a.Cfg.Router.WebSearch
-	}
+// newSubagent builds the subagent a spec describes: its role sets the tools,
+// steps and budget, its purpose and role together pick the model slot.
+func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent {
+	role, id := spec.Role, spec.ID
 	model := a.Agent.CurrentModel()
-	// tier_routing off sends subagents to the parent model, whatever the
-	// explore and code slots name.
-	if ref != "" && a.Cfg.AgentFeatures.Enabled("tier_routing") {
+	if ref := subagentRef(a.Cfg.Router, spec, a.Cfg.AgentFeatures.Enabled("tier_routing")); ref != "" {
 		if m, err := a.resolve(ref); err == nil {
 			model = m
 		}
 	}
 	reg := a.subagentTools(role)
+	if spec.Bus != nil {
+		reg = withReadCache(reg, spec.Bus)
+	}
 	steps := agent.ExploreMaxSteps
 	switch role {
 	case "code":
@@ -604,11 +610,13 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 			sink(e)
 			a.emit(e)
 		},
-		MaxSteps:  steps,
-		CompactAt: -1,
-		RetryBase: 2 * time.Second, // subagents back off from 2 s (spec 03 §10)
-		Budget:    budget,
-		Hooks:     a.claimHooks(a.ext.hooks),
+		MaxSteps:        steps,
+		MaxRetries:      spec.MaxRetries,
+		MaxStallRetries: spec.MaxStallRetries,
+		CompactAt:       -1,
+		RetryBase:       2 * time.Second, // subagents back off from 2 s (spec 03 §10)
+		Budget:          budget,
+		Hooks:           a.claimHooks(a.ext.hooks),
 	})
 }
 
@@ -652,6 +660,13 @@ func (a *App) emit(e agent.Event) {
 		l(e)
 	}
 	a.record(e)
+	// Compaction drops the turns that carried recalled memories, so they may
+	// be recalled again (a skipped compaction replaced nothing).
+	if e.Kind == agent.EvCompactDone && e.AgentID == "" && a.Memory != nil {
+		if skipped, _ := e.Meta["skipped"].(bool); !skipped {
+			_ = a.Memory.ResetSurfaced()
+		}
+	}
 	if e.Kind == agent.EvPlan && e.Plan != nil && !a.opts.Ephemeral {
 		if b, err := json.Marshal(e.Plan); err == nil {
 			_ = a.Store.SavePlan(a.Meta.ID, b)

@@ -49,6 +49,79 @@ type board struct {
 	sink   Sink
 	callID string
 	newID  func() string
+
+	// cancels stops one running subagent (CancelAgent); stopped records the
+	// ids the user cancelled, so a subagent that has not started yet is not run.
+	cancels map[string]context.CancelFunc
+	stopped map[string]bool
+}
+
+// errCancelledByUser is the error of a subagent stopped with /cancel.
+var errCancelledByUser = errors.New("cancelled by the user")
+
+// register records the cancel function of a subagent that is about to run.
+// It reports false when the user already cancelled it.
+func (b *board) register(id string, cancel context.CancelFunc) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.stopped[id] {
+		return false
+	}
+	if b.cancels == nil {
+		b.cancels = map[string]context.CancelFunc{}
+	}
+	b.cancels[id] = cancel
+	return true
+}
+
+// unregister forgets a subagent that has finished.
+func (b *board) unregister(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.cancels, id)
+}
+
+// wasStopped reports whether the user cancelled subagent id.
+func (b *board) wasStopped(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.stopped[id]
+}
+
+// cancelAgent stops subagent id of this dispatch. A running one is cancelled
+// through its context and marks itself cancelled when it returns; a pending one
+// is marked cancelled now and is skipped when it would start.
+func (b *board) cancelAgent(id string) error {
+	b.mu.Lock()
+	idx := -1
+	for i, info := range b.infos {
+		if info.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		b.mu.Unlock()
+		return fmt.Errorf("no subagent %s in the newest dispatch", id)
+	}
+	status := b.infos[idx].Status
+	if status != "running" && status != "pending" {
+		b.mu.Unlock()
+		return fmt.Errorf("subagent %s has already %s", id, status)
+	}
+	if b.stopped == nil {
+		b.stopped = map[string]bool{}
+	}
+	b.stopped[id] = true
+	cancel := b.cancels[id]
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if status == "pending" {
+		b.update(idx, func(a *AgentInfo) { a.Status, a.Error = "cancelled", errCancelledByUser.Error() })
+	}
+	return nil
 }
 
 // add registers a new subagent and announces it.
@@ -91,6 +164,9 @@ type dispatchRun struct {
 	env       *tools.Env
 	board     *board
 	retryWait time.Duration
+	// bus is shared by the subagents of this dispatch (nil when the dispatch
+	// cache is off).
+	bus *AgentBus
 
 	// cancel aborts every subagent of the dispatch when the breaker opens.
 	cancel context.CancelFunc
@@ -108,10 +184,15 @@ func newDispatchRun(d *Dispatcher, env *tools.Env) *dispatchRun {
 	if wait == 0 {
 		wait = defaultRetryWait
 	}
+	var bus *AgentBus
+	if d.features().DispatchCache {
+		bus = NewAgentBus()
+	}
 	return &dispatchRun{
 		d:         d,
 		env:       env,
 		retryWait: wait,
+		bus:       bus,
 		board: &board{
 			sink:   d.Sink,
 			callID: env.CallID,
@@ -204,10 +285,22 @@ type attempt struct {
 
 // attempt runs one fresh subagent on task and reports how it ended. Its
 // status and progress go to the board under index idx.
-func (r *dispatchRun) attempt(ctx context.Context, idx int, role, task string) attempt {
+func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose Purpose, task string) attempt {
 	b := r.board
 	id := b.id(idx)
-	sub := r.d.New(role, id, func(e Event) {
+	sctx, scancel := context.WithCancel(ctx)
+	defer scancel()
+	if !b.register(id, scancel) {
+		b.update(idx, func(a *AgentInfo) { a.Status, a.Error = "cancelled", errCancelledByUser.Error() })
+		return attempt{err: errCancelledByUser}
+	}
+	defer b.unregister(id)
+	spec := SubagentSpec{
+		Role: role, Purpose: purpose, ID: id,
+		MaxRetries: r.d.MaxRetries, MaxStallRetries: r.d.MaxStallRetries,
+		Bus: r.bus,
+	}
+	sub := r.d.New(spec, func(e Event) {
 		switch e.Kind {
 		case EvStepFinish:
 			b.update(idx, func(a *AgentInfo) { a.Step = e.Step; a.Tokens = e.Total })
@@ -224,16 +317,23 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role, task string) a
 		return attempt{err: fmt.Errorf("could not start a %s agent", role)}
 	}
 	b.update(idx, func(a *AgentInfo) { a.Status, a.Error, a.Model = "running", "", sub.CurrentModel().Ref })
-	stats, err := sub.Run(ctx, task, nil)
+	stats, err := sub.Run(sctx, task, nil)
+	stopped := b.wasStopped(id)
 	b.update(idx, func(a *AgentInfo) {
 		a.Tokens = stats.Tokens
 		a.Step = stats.Steps
-		if err != nil {
+		switch {
+		case stopped:
+			a.Status, a.Error = "cancelled", errCancelledByUser.Error()
+		case err != nil:
 			a.Status, a.Error = "error", err.Error()
-		} else {
+		default:
 			a.Status = "done"
 		}
 	})
+	if stopped {
+		err = errCancelledByUser
+	}
 	return attempt{
 		report: lastAssistantText(sub.Messages()),
 		err:    err,
@@ -247,12 +347,12 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role, task string) a
 
 // launch runs one attempt unless the circuit breaker is open, and counts
 // its provider failure toward the breaker.
-func (r *dispatchRun) launch(ctx context.Context, idx int, role, task string) attempt {
+func (r *dispatchRun) launch(ctx context.Context, idx int, role string, purpose Purpose, task string) attempt {
 	if r.tripped() {
 		r.board.update(idx, func(a *AgentInfo) { a.Status, a.Error = "error", errBreakerOpen.Error() })
 		return attempt{err: errBreakerOpen}
 	}
-	res := r.attempt(ctx, idx, role, task)
+	res := r.attempt(ctx, idx, role, purpose, task)
 	r.mu.Lock()
 	r.total.Add(res.usage)
 	r.cost += res.cost
@@ -265,8 +365,8 @@ func (r *dispatchRun) launch(ctx context.Context, idx int, role, task string) at
 
 // runTask runs one task and marks a code task that edited nothing as
 // no-done.
-func (r *dispatchRun) runTask(ctx context.Context, idx int, role, task string) taskResult {
-	res := r.runTaskOnce(ctx, idx, role, task)
+func (r *dispatchRun) runTask(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
+	res := r.runTaskOnce(ctx, idx, role, purpose, task)
 	if role == "code" && res.err == nil && len(res.edited) == 0 {
 		res.noDone = true
 	}
@@ -277,8 +377,8 @@ func (r *dispatchRun) runTask(ctx context.Context, idx int, role, task string) t
 // when it finished without editing any file or stopped on a retryable
 // provider error. Explore and web tasks are not retried. A code task that
 // still edited nothing is marked no-done.
-func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role, task string) taskResult {
-	first := r.launch(ctx, idx, role, task)
+func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, purpose Purpose, task string) taskResult {
+	first := r.launch(ctx, idx, role, purpose, task)
 	res := taskResult{report: first.report, err: first.err, edited: first.edited, read: first.read, reg: first.reg}
 	res.attempts = startedAttempts(first.err)
 	if r.tripped() && errors.Is(res.err, context.Canceled) {
@@ -305,7 +405,7 @@ func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role, task strin
 	if len(first.read) > 0 {
 		note += "\nYou already read these files, so do not read them again: " + strings.Join(first.read, ", ") + "."
 	}
-	second := r.launch(ctx, idx, role, note)
+	second := r.launch(ctx, idx, role, purpose, note)
 	if errors.Is(second.err, errBreakerOpen) {
 		res.notes = append(res.notes, "retry skipped: "+errBreakerOpen.Error())
 		return res

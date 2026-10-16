@@ -90,3 +90,57 @@ func TestParsePlanVerificationStopsAtBody(t *testing.T) {
 		t.Fatalf("plan without a checklist gave %q", v)
 	}
 }
+
+// qwen3.6 sends step files in the top-level {path, action} shape. That used
+// to fail the whole call, and the model then wrote the plan as prose with no
+// review card. Both shapes are accepted, and an action fills the file list.
+func TestPlanAcceptsStepFilesAsObjects(t *testing.T) {
+	const args = `{"title":"Fix add","steps":[
+	  {"text":"Fix the operator","files":[{"action":"modify","path":"main.go"}]},
+	  {"text":"Add a test","files":[{"action":"create","path":"main_test.go"}, "go.mod"]}],
+	  "verification":["go test ./..."]}`
+	var got []Event
+	p := &Planner{Sink: func(e Event) { got = append(got, e) }}
+	var env tools.Env
+	res := planTool{p}.Run(context.Background(), &env, json.RawMessage(args))
+	if res.IsError {
+		t.Fatalf("plan failed: %s", res.Output)
+	}
+	pl := got[0].Plan
+	if strings.Join(pl.Steps[1].Files, ",") != "main_test.go,go.mod" {
+		t.Fatalf("step 2 files = %q", pl.Steps[1].Files)
+	}
+	want := []PlanFile{{Path: "main.go", Action: "modify"}, {Path: "main_test.go", Action: "create"}}
+	if len(pl.Files) != 2 || pl.Files[0] != want[0] || pl.Files[1] != want[1] {
+		t.Fatalf("files = %+v", pl.Files)
+	}
+}
+
+func TestBadPlanArgumentsSayToCallAgain(t *testing.T) {
+	p := &Planner{Sink: func(Event) {}}
+	var env tools.Env
+	res := planTool{p}.Run(context.Background(), &env, json.RawMessage(`{"title":"x","steps":[{"files":[7]}]}`))
+	if !res.IsError || !strings.Contains(res.Output, "call it again") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestSettleClosesTheStepATurnLeftActive(t *testing.T) {
+	var got []Event
+	p := &Planner{Sink: func(e Event) { got = append(got, e) }}
+	p.SetPlan(&Plan{Title: "x", Steps: []PlanStep{{ID: "1", Status: "done"}, {ID: "2", Status: "active"}, {ID: "3", Status: "pending"}}})
+	p.settle(true)
+	if s := p.Plan().Steps; s[1].Status != "done" || s[2].Status != "pending" || len(got) != 1 {
+		t.Fatalf("after a clean turn: %+v, %d events", s, len(got))
+	}
+	p.SetPlan(&Plan{Title: "x", Steps: []PlanStep{{ID: "1", Status: "active"}}})
+	p.settle(false)
+	if s := p.Plan().Steps; s[0].Status != "pending" {
+		t.Fatalf("after a stopped turn: %+v", s)
+	}
+	got = nil
+	p.settle(true)
+	if len(got) != 0 {
+		t.Fatalf("nothing to settle should emit nothing, got %d", len(got))
+	}
+}

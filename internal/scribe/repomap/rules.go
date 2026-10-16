@@ -40,7 +40,11 @@ var tsRules = []defRule{
 }
 
 var jsImports = []importRule{
-	{re: rx(`(?m)(?:^|[^\w$.])(?:import|export)\b[^;'"]*?\bfrom\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1, must: "from"},
+	{re: rx(`(?m)(?:^|[^\w$.])import\b[^;'"]*?\bfrom\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1, must: "from"},
+	// Re-exports are kept apart from imports: a barrel's sources are what it
+	// passes through (barrel.go). Matching "export ... from" only here keeps
+	// each module from being recorded twice.
+	{re: rx(`(?m)(?:^|[^\w$.])export\b\s*(?:type\b\s*)?(?:\*(?:\s*as\s+\w+)?|\{[^}]*\})\s*from\s*['"]([^'"\n]+)['"]`), kind: reexportKind, group: 1, must: "from"},
 	{re: rx(`(?m)(?:^|[^\w$.])import\s*['"]([^'"\n]+)['"]`), kind: "js", group: 1, must: "import"},
 	{re: rx(`\brequire\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1, must: "require"},
 	{re: rx(`\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)`), kind: "js", group: 1, must: "import"},

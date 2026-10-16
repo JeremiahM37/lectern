@@ -75,6 +75,12 @@ type Record struct {
 	// SupersededBy is the id of the record that replaced this one. A
 	// superseded record is kept but never recalled, searched or listed.
 	SupersededBy string `json:"superseded_by,omitempty"`
+	// Hidden is the soft-delete state: a hidden record is kept on disk but
+	// never recalled, searched, listed or deduplicated against. Restore
+	// clears it. The memory tool's delete is still a hard delete.
+	Hidden bool `json:"hidden,omitempty"`
+	// SessionID is the session that saved the record ("" when unknown).
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // Scored is a recalled record with its relevance score and the signals
@@ -87,11 +93,16 @@ type Scored struct {
 
 // DB is one memory database.
 type DB struct {
-	db    *sql.DB
-	scope string
-	path  string
-	now   func() time.Time
+	db      *sql.DB
+	scope   string
+	path    string
+	now     func() time.Time
+	session string // stamped on records saved while set; see SetSession
 }
+
+// live is the SQL filter for records that recall, search, list and dedupe
+// may see: not superseded and not hidden.
+const live = "superseded_by = '' AND hidden = 0"
 
 const schema = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -133,6 +144,10 @@ var migrations = []string{
 	// which the unicode61 word index cannot see.
 	"CREATE VIRTUAL TABLE IF NOT EXISTS memories_tri USING fts5(id UNINDEXED, title, body, tags, tokenize = 'trigram')",
 	"INSERT INTO memories_tri (id, title, body, tags) SELECT id, title, body, tags FROM memories_fts",
+	// Soft delete: a hidden record stays on disk until restored or cleared.
+	"ALTER TABLE memories ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+	// Provenance: the session that saved the record.
+	"ALTER TABLE memories ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
 }
 
 // Sources a record may carry.
@@ -248,7 +263,7 @@ type execer interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-const cols = "id, category, title, body, tags, created, updated, uses, last_used, pinned, source, superseded_by"
+const cols = "id, category, title, body, tags, created, updated, uses, last_used, pinned, source, superseded_by, hidden, session_id"
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -257,10 +272,11 @@ type scanner interface {
 func scanRecord(sc scanner) (Record, error) {
 	var r Record
 	var tags, created, updated, lastUsed string
-	var pinned int
-	if err := sc.Scan(&r.ID, &r.Category, &r.Title, &r.Body, &tags, &created, &updated, &r.Uses, &lastUsed, &pinned, &r.Source, &r.SupersededBy); err != nil {
+	var pinned, hidden int
+	if err := sc.Scan(&r.ID, &r.Category, &r.Title, &r.Body, &tags, &created, &updated, &r.Uses, &lastUsed, &pinned, &r.Source, &r.SupersededBy, &hidden, &r.SessionID); err != nil {
 		return Record{}, err
 	}
+	r.Hidden = hidden != 0
 	_ = json.Unmarshal([]byte(tags), &r.Tags)
 	r.Created = parseTime(created)
 	r.Updated = parseTime(updated)
@@ -357,16 +373,17 @@ func writeRecord(q execer, r Record) error {
 		source = SourceUser
 	}
 	if _, err := q.Exec(`INSERT INTO memories
-		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding, source, superseded_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(id, category, title, body, norm_title, tags, created, updated, uses, last_used, pinned, embedding, source, superseded_by, hidden, session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		category = excluded.category, title = excluded.title, body = excluded.body,
 		norm_title = excluded.norm_title, tags = excluded.tags, updated = excluded.updated,
 		uses = excluded.uses, last_used = excluded.last_used, pinned = excluded.pinned,
-		embedding = excluded.embedding, superseded_by = excluded.superseded_by`,
+		embedding = excluded.embedding, superseded_by = excluded.superseded_by,
+		hidden = excluded.hidden, session_id = excluded.session_id`,
 		r.ID, r.Category, r.Title, r.Body, normTitle(r.Title), string(tags),
 		fmtTime(r.Created), fmtTime(r.Updated), r.Uses, fmtTime(r.LastUsed), boolInt(r.Pinned), emb,
-		source, r.SupersededBy); err != nil {
+		source, r.SupersededBy, boolInt(r.Hidden), r.SessionID); err != nil {
 		return err
 	}
 	if _, err := q.Exec("DELETE FROM memory_files WHERE memory_id = ?", r.ID); err != nil {
@@ -562,6 +579,10 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 
 	r.ID = uuid.NewString()
 	r.Scope = d.scope
+	if r.SessionID == "" {
+		r.SessionID = d.session
+	}
+	r.Hidden = false
 	r.Created, r.Updated, r.LastUsed = now, now, now
 	r.Uses = 0
 	if err := writeRecord(tx, r); err != nil {
@@ -578,7 +599,7 @@ func (d *DB) Add(r Record) (rec Record, deduped bool, err error) {
 func findDuplicate(q execer, title, body string) (string, error) {
 	nt := normTitle(title)
 	bt := tokenSet(body)
-	rows, err := q.Query("SELECT id, norm_title, body FROM memories WHERE superseded_by = ''")
+	rows, err := q.Query("SELECT id, norm_title, body FROM memories WHERE " + live)
 	if err != nil {
 		return "", err
 	}
@@ -707,7 +728,7 @@ func (d *DB) List(o ListOptions) ([]Record, error) {
 	if o.Limit <= 0 {
 		o.Limit = 100
 	}
-	q := "SELECT " + cols + " FROM memories WHERE superseded_by = ''"
+	q := "SELECT " + cols + " FROM memories WHERE " + live
 	var args []any
 	if o.Category != "" {
 		q += " AND category = ?"
@@ -772,7 +793,7 @@ func (d *DB) Search(query string, limit int) ([]Scored, error) {
 		if err != nil {
 			return nil, err
 		}
-		if r.SupersededBy != "" {
+		if r.SupersededBy != "" || r.Hidden {
 			continue
 		}
 		r.Scope = d.scope
@@ -803,7 +824,7 @@ func (d *DB) Similar(idOrPrefix string, min float64, limit int) ([]Scored, error
 	if base == nil {
 		return nil, nil
 	}
-	rows, err := d.db.Query("SELECT id, embedding FROM memories WHERE id <> ? AND superseded_by = ''", id)
+	rows, err := d.db.Query("SELECT id, embedding FROM memories WHERE id <> ? AND "+live, id)
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +905,7 @@ func (d *DB) StaleCandidates(maxAge time.Duration, minUses, limit int) ([]Record
 		limit = 20
 	}
 	cutoff := fmtTime(d.now().Add(-maxAge))
-	return d.queryRecords("SELECT "+cols+" FROM memories WHERE pinned = 0 AND superseded_by = '' AND last_used < ? AND uses < ? ORDER BY last_used ASC, id LIMIT ?",
+	return d.queryRecords("SELECT "+cols+" FROM memories WHERE pinned = 0 AND "+live+" AND last_used < ? AND uses < ? ORDER BY last_used ASC, id LIMIT ?",
 		cutoff, minUses, limit)
 }
 

@@ -19,6 +19,11 @@ func stripLines(lines []string) []string {
 // descColumn is the display column where a command's description starts in
 // a plain popup row, or -1 if the description is not in the row.
 func descColumn(row, desc string) int {
+	// Long descriptions are cut with "…" to fit, so match their start: the
+	// test is about where the column begins, not how much of it fits.
+	if r := []rune(desc); len(r) > 16 {
+		desc = string(r[:16])
+	}
 	i := strings.Index(row, desc)
 	if i < 0 {
 		return -1

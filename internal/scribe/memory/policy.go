@@ -3,6 +3,7 @@ package memory
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -110,3 +111,46 @@ func (s *Stores) readDBs() []*DB {
 	}
 	return s.DBs()
 }
+
+// PolicyPath is the memory-config.json a save writes to: the Scribe home
+// file for the global scope, or <root>/.scribe for the project scope.
+func PolicyPath(scope, root string) (string, error) {
+	switch scope {
+	case ScopeGlobal:
+		return filepath.Join(config.Home(), PolicyFile), nil
+	case ScopeProject:
+		if root == "" {
+			return "", errors.New("no project is open, so there is no project memory settings file")
+		}
+		return filepath.Join(config.ProjectDir(root), PolicyFile), nil
+	}
+	return "", fmt.Errorf("unknown scope %q; use project or global", scope)
+}
+
+// SavePolicy writes p to path, replacing the file. Values that are not
+// recognised are refused rather than written, so a saved file always loads
+// back as it was saved. Empty fields are left out, which means default.
+func SavePolicy(path string, p Policy) error {
+	if p.WriteScope != "" && !validWriteScope(p.WriteScope) {
+		return fmt.Errorf("unknown writeScope %q; use project, global or none", p.WriteScope)
+	}
+	if p.ReadScope != "" && !validReadScope(p.ReadScope) {
+		return fmt.Errorf("unknown readScope %q; use project, global, all or none", p.ReadScope)
+	}
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// SetPolicy replaces the policy the open stores apply. Callers save the file
+// with SavePolicy first, or the next session reloads the old one.
+func (s *Stores) SetPolicy(p Policy) { s.Policy = p }

@@ -96,6 +96,23 @@ type Plan struct {
 	Path string `json:"path,omitempty"`
 	// Verification is the checklist that proves the change works, in order.
 	Verification []string `json:"verification,omitempty"`
+	// Files are the files the plan creates, modifies or deletes, each with its
+	// action. A step's Files name the same paths.
+	Files []PlanFile `json:"files,omitempty"`
+	// Depth is "light" (checklist, at or under half the context) or "full".
+	Depth string `json:"depth,omitempty"`
+	// Outcome is set on a snapshot the user answered: "approved" (implement
+	// or clear and implement), "cancelled" or "revision". Feedback carries
+	// the requested changes.
+	Outcome  string `json:"outcome,omitempty"`
+	Feedback string `json:"feedback,omitempty"`
+}
+
+// PlanFile is one file a plan touches and what happens to it.
+type PlanFile struct {
+	Path        string `json:"path"`
+	Action      string `json:"action"` // create | modify | delete
+	Description string `json:"description,omitempty"`
 }
 
 // PlanStep is one step of a Plan.
@@ -113,6 +130,9 @@ type Task struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
 	Status string `json:"status"` // pending | in_progress | done | cancelled
+	// StepID links the task to a step of the current plan, so it is shown
+	// under that step while the step is active.
+	StepID string `json:"step_id,omitempty"`
 }
 
 // AgentInfo describes a subagent for the multi-agent display.

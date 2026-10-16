@@ -55,6 +55,8 @@ func collectFiles(ctx context.Context, root string, opts Options) ([]fileEntry, 
 	note := ""
 	if rels == nil {
 		rels, note = walkFiles(root)
+	} else {
+		rels = dropScribeIgnored(root, rels)
 	}
 	var out []fileEntry
 	for _, rel := range rels {
@@ -159,8 +161,10 @@ func walkFiles(root string) (out []string, note string) {
 		if err != nil {
 			return
 		}
-		if data, err := os.ReadFile(filepath.Join(abs, ".gitignore")); err == nil {
-			rules = append(append([]ignoreRule(nil), rules...), parseIgnore(dirRel, data)...)
+		for _, name := range []string{".gitignore", scribeIgnoreFile} {
+			if data, err := os.ReadFile(filepath.Join(abs, name)); err == nil {
+				rules = append(append([]ignoreRule(nil), rules...), parseIgnore(dirRel, data)...)
+			}
 		}
 		for _, e := range entries {
 			name := e.Name()

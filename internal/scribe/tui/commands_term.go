@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 )
 
@@ -26,7 +27,7 @@ func init() {
 				m.setFlash("err", "Usage: /terminal [new]")
 				return nil
 			}},
-		&command{Name: "terminals", Args: "[list|new|show|hide|close [n]]", Desc: "List the floating terminals, or show, hide, start or close one", Group: "Tabs",
+		&command{Name: "terminals", Args: "[list|new|show|hide|close [n]|rename [n] <name>]", Desc: "List the floating terminals, or show, hide, start, close or rename one", Group: "Tabs",
 			Run: func(m *Model, args string) tea.Cmd {
 				switch strings.TrimSpace(args) {
 				case "", "list":
@@ -44,10 +45,14 @@ func init() {
 					m.closeFloatCmd(rest)
 					return nil
 				}
-				return flashCmd("err", "Usage: /terminals [list|new|show|hide|close [n]]")
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(args), "rename"); ok {
+					m.renameFloatCmd(rest)
+					return nil
+				}
+				return flashCmd("err", "Usage: /terminals [list|new|show|hide|close [n]|rename [n] <name>]")
 			}},
-		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|access [on|when-open|off]]",
-			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; access sets what the agent may do in it", Group: "Tabs",
+		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|access [on|when-open|off]|sync [on|off]]",
+			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; access sets what the agent may do in it; sync sets whether its edits follow into the buffer", Group: "Tabs",
 			Run: func(m *Model, args string) tea.Cmd {
 				args = strings.TrimSpace(args)
 				switch args {
@@ -65,6 +70,21 @@ func init() {
 				case "access":
 					m.setFlash("info", "Agent editor access: "+nvim.GetAccess().Label()+" (on, when-open or off)")
 					return nil
+				case "sync":
+					m.setFlash("info", syncLabel(nvim.SyncOnEdit()))
+					return nil
+				}
+				if val, ok := strings.CutPrefix(args, "sync "); ok {
+					on, err := parseOnOff(val)
+					if err != nil {
+						return flashCmd("err", "Usage: /editor sync [on|off]")
+					}
+					nvim.SetSyncOnEdit(on)
+					m.setFlash("info", syncLabel(on)+" (saved)")
+					if err := saveEditorSetting(func(c *config.Config) { c.EditorSync = &on }); err != nil {
+						m.setFlash("err", "Could not save the editor setting: "+err.Error())
+					}
+					return nil
 				}
 				if val, ok := strings.CutPrefix(args, "access "); ok {
 					a, err := nvim.ParseAccess(val)
@@ -72,7 +92,10 @@ func init() {
 						return flashCmd("err", "Usage: /editor access [on|when-open|off]")
 					}
 					nvim.SetAccess(a)
-					m.setFlash("info", "Agent editor access: "+a.Label())
+					m.setFlash("info", "Agent editor access: "+a.Label()+" (saved)")
+					if err := saveEditorSetting(func(c *config.Config) { c.EditorAccess = a.String() }); err != nil {
+						m.setFlash("err", "Could not save the editor setting: "+err.Error())
+					}
 					return nil
 				}
 				if file, ok := strings.CutPrefix(args, "open "); ok {

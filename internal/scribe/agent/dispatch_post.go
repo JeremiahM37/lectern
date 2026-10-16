@@ -31,12 +31,12 @@ End with one line, exactly "VERDICT: PASS" or "VERDICT: FAIL", then the reasons 
 
 // sideTask runs one post-dispatch subagent and counts its spend toward the
 // dispatch. It does not run once the circuit breaker has opened.
-func (r *dispatchRun) sideTask(ctx context.Context, role, label, task string) attempt {
+func (r *dispatchRun) sideTask(ctx context.Context, role string, purpose Purpose, label, task string) attempt {
 	if r.tripped() {
 		return attempt{err: errBreakerOpen}
 	}
 	idx := r.board.add(role, label)
-	res := r.attempt(ctx, idx, role, task)
+	res := r.attempt(ctx, idx, role, purpose, task)
 	r.mu.Lock()
 	r.total.Add(res.usage)
 	r.cost += res.cost
@@ -47,7 +47,7 @@ func (r *dispatchRun) sideTask(ctx context.Context, role, label, task string) at
 // desloppify runs the cleanup pass over the edited files. It returns the
 // report for the Cleanup section and the files the pass changed.
 func (r *dispatchRun) desloppify(ctx context.Context, changed []string) (string, []string) {
-	res := r.sideTask(ctx, "code", "cleanup of edited files",
+	res := r.sideTask(ctx, "code", PurposeCleanup, "cleanup of edited files",
 		fmt.Sprintf(desloppifyTask, strings.Join(changed, ", ")))
 	if res.err != nil {
 		return "not run: " + res.err.Error(), nil
@@ -63,7 +63,7 @@ func (r *dispatchRun) desloppify(ctx context.Context, changed []string) (string,
 // check. It returns the report and a verdict: "pass", "fail" or "unknown".
 func (r *dispatchRun) review(ctx context.Context, changed []string, check string) (string, string) {
 	task := fmt.Sprintf(reviewTask, strings.Join(changed, ", "), check)
-	res := r.sideTask(ctx, "explore", "review of the changed files", task)
+	res := r.sideTask(ctx, "explore", PurposeReview, "review of the changed files", task)
 	if res.err != nil {
 		return "not run: " + res.err.Error(), "unknown"
 	}

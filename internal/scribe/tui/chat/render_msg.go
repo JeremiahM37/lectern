@@ -155,6 +155,15 @@ func userSuffix(v *View, rec *Record) string {
 	return s
 }
 
+// statusTag is the HTTP status of a provider error or retry, as " [429]",
+// or nothing when the provider gave none.
+func statusTag(col lipgloss.TerminalColor, status int) string {
+	if status <= 0 {
+		return ""
+	}
+	return " " + bold(col, fmt.Sprintf("[%d]", status))
+}
+
 func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 	var b builder
 	th := v.th
@@ -164,7 +173,7 @@ func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 	switch rec.Kind {
 	case "error":
 		railCol = th.Error
-		head = bold(th.Error, "✗ "+rec.Category) + fg(th.TextMuted, " — "+flavour(rec.Category))
+		head = bold(th.Error, "✗ "+rec.Category) + statusTag(th.Error, rec.Status) + fg(th.TextMuted, " — "+flavour(rec.Category))
 		body = cleanBody(rec.Text)
 	case "retry":
 		railCol = th.Warning
@@ -172,7 +181,7 @@ func (v *View) renderSystem(i int, rec *Record, w int, now time.Time) builder {
 		if rec.Max > 0 {
 			h = fmt.Sprintf("↻ Retry %d/%d", rec.Attempt, rec.Max)
 		}
-		head = bold(th.Warning, h)
+		head = bold(th.Warning, h) + statusTag(th.Warning, rec.Status)
 		if rec.Category != "" {
 			head += fg(th.TextMuted, " — "+rec.Category)
 		}
@@ -238,6 +247,11 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 		cw = 1
 	}
 	rail := fg(th.Brand, "▌") + " "
+	// An unfinished row with nothing in it (not the one streaming now) has no
+	// header either: a bare "Scribe" heading with no body is noise.
+	if !rec.Done && rec != v.live && !rec.hasContent() {
+		return b
+	}
 	b.add(rail + bold(th.AccentAssistant, "✒ Scribe") + fg(th.TextDim, " · "+clockText(rec.At)))
 	body := v.renderBody(rec, cw, now)
 	if len(body.lines) == 0 {
@@ -280,7 +294,7 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 				prev = s.Kind
 				continue
 			}
-			out.block(v.renderSeg(s, cw, now, prev == "tools"))
+			out.block(v.renderLinkedSeg(rec, s, cw, now, prev == "tools"))
 			prev = s.Kind
 		}
 		return out
@@ -305,7 +319,7 @@ func (v *View) renderBody(rec *Record, cw int, now time.Time) builder {
 			}
 			post.block(v.renderSeg(s, cw, now, i > 0 && rec.Segments[i-1].Kind == "tools"))
 		default: // plan and tasks keep their place
-			blk := v.renderSeg(s, cw, now, false)
+			blk := v.renderLinkedSeg(rec, s, cw, now, false)
 			if i < lastTools {
 				pre.block(blk)
 			} else {

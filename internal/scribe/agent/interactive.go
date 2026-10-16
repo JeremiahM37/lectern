@@ -98,6 +98,32 @@ func (p *Planner) emitPlan() {
 	}
 }
 
+// settle closes the steps a finished turn left active, so none keeps a
+// spinner after the work stopped. A turn that completed cleanly finished the
+// step it was on even when the model forgot to mark it done; a failed or
+// stopped turn did not, so that step goes back to pending.
+func (p *Planner) settle(ok bool) {
+	p.mu.Lock()
+	changed := false
+	if p.plan != nil {
+		for i := range p.plan.Steps {
+			if p.plan.Steps[i].Status != "active" {
+				continue
+			}
+			if ok {
+				p.plan.Steps[i].Status = "done"
+			} else {
+				p.plan.Steps[i].Status = "pending"
+			}
+			changed = true
+		}
+	}
+	p.mu.Unlock()
+	if changed {
+		p.emitPlan()
+	}
+}
+
 // takeCleared returns the plan the user chose to implement with a cleared
 // context, once. It is nil when there is none.
 func (p *Planner) takeCleared() *pendingClear {
@@ -116,11 +142,21 @@ func (planTool) Spec() llm.ToolSpec {
 		Name: "plan",
 		Description: "Propose an implementation plan for the user to approve. Use it in plan mode after investigating. " +
 			"The user can approve (you then implement it in this same turn), approve and clear the planning context first, " +
-			"ask for revisions, or cancel. Steps must be concrete and ordered; list the files and symbols each step touches " +
-			"and say how the change is verified.",
+			"ask for revisions, or cancel. Steps must be concrete and ordered. Every step names the files it touches and the " +
+			"code symbols it adds, modifies, removes or renames. Also list every file in the top-level files array with its " +
+			"action (create, modify or delete), and say how the change is verified.",
 		Schema: tools.Schema(map[string]any{
 			"title":   tools.Str("Short title of the change"),
-			"summary": tools.Str("Two or three sentences: what changes and why"),
+			"summary": tools.Str("Context: two or three sentences on what changes and why"),
+			"files": tools.Arr("Every file the plan touches, with what happens to it", map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path":        tools.Str("File path"),
+					"action":      tools.Enum("What happens to the file", "create", "modify", "delete"),
+					"description": tools.Str("One line: what changes in it"),
+				},
+				"required": []string{"path", "action"},
+			}),
 			"steps": tools.Arr("Ordered steps", map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -148,11 +184,12 @@ var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
 
 func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
 	var in struct {
-		Title   string `json:"title"`
-		Summary string `json:"summary"`
+		Title   string     `json:"title"`
+		Summary string     `json:"summary"`
+		Files   []PlanFile `json:"files"`
 		Steps   []struct {
 			Text    string       `json:"text"`
-			Files   []string     `json:"files"`
+			Files   []stepFile   `json:"files"`
 			Symbols []PlanSymbol `json:"symbols"`
 		} `json:"steps"`
 		Verification []string `json:"verification"`
@@ -165,10 +202,31 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 		return tools.Errorf("plan needs a title and at least one step")
 	}
 	pl := &Plan{Title: in.Title, Summary: in.Summary, Body: in.Body, Verification: in.Verification}
+	pl.Files = cleanPlanFiles(in.Files)
+	pl.Depth = t.depth()
 	ex := planExtras{symbols: map[string][]PlanSymbol{}, verification: in.Verification}
+	listed := map[string]bool{}
+	for _, f := range pl.Files {
+		listed[f.Path] = true
+	}
 	for i, s := range in.Steps {
 		id := fmt.Sprint(i + 1)
-		pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: s.Text, Files: s.Files, Symbols: s.Symbols, Status: "pending"})
+		var paths []string
+		for _, f := range s.Files {
+			if f.Path == "" {
+				continue
+			}
+			paths = append(paths, f.Path)
+			// A step that says what happens to its file fills the file list
+			// when the model left that list out.
+			if !listed[f.Path] {
+				if c := cleanPlanFiles([]PlanFile{f.PlanFile}); len(c) == 1 {
+					pl.Files = append(pl.Files, c[0])
+					listed[f.Path] = true
+				}
+			}
+		}
+		pl.Steps = append(pl.Steps, PlanStep{ID: id, Text: s.Text, Files: paths, Symbols: s.Symbols, Status: "pending"})
 		if len(s.Symbols) > 0 {
 			ex.symbols[id] = s.Symbols
 		}
@@ -204,7 +262,7 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 		Kind:          "plan_review",
 		Question:      in.Title,
 		Body:          review,
-		Options:       PlanOptions(),
+		Options:       PlanOptionsFor(pl.Depth),
 		AllowFreeText: true,
 	})
 	if err != nil {
@@ -215,7 +273,9 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 	case strings.EqualFold(ans, AnswerExecute) || strings.HasPrefix(lower, "execute"):
 		if t.p.Agent != nil {
 			t.p.Agent.SetMode("default")
+			t.p.Agent.BeginPlanExecution()
 		}
+		t.p.emitOutcome(pl, "approved", "")
 		return tools.Result{Output: "The user approved the plan. Restrictions are lifted: implement it now, step by step. " +
 			"Call update_plan_step with status active when you start a step and done when it is finished. Verify with tests or builds at the end.",
 			Summary: "approved"}
@@ -225,6 +285,7 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 		t.p.mu.Lock()
 		t.p.cleared = &pendingClear{plan: pl, md: md}
 		t.p.mu.Unlock()
+		t.p.emitOutcome(pl, "approved", "")
 		if t.p.Agent != nil {
 			t.p.Agent.EndTurn()
 		}
@@ -238,16 +299,76 @@ func (t planTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage)
 		t.p.plan = nil
 		t.p.extras = planExtras{}
 		t.p.mu.Unlock()
-		t.p.emitPlan()
+		t.p.emitOutcome(pl, "cancelled", "")
 		return tools.Result{Output: "The user cancelled the plan. Stop and wait for their next message.", Summary: "cancelled"}
 	default:
 		fb := strings.TrimSpace(strings.TrimPrefix(ans, AnswerRevise))
 		if fb == "" {
 			fb = "(no details given)"
 		}
+		t.p.emitOutcome(pl, "revision", fb)
 		return tools.Result{Output: "The user wants changes to the plan before approving it. Their feedback:\n\n" + fb +
 			"\n\nInvestigate as needed, then call plan again with the revised plan.", Summary: "revise"}
 	}
+}
+
+// depth is the depth of a plan written now, from the context in use.
+func (t planTool) depth() string {
+	if t.p.Agent == nil {
+		return PlanFull
+	}
+	used, window := t.p.Agent.ContextUsed()
+	return PlanDepth(used, window)
+}
+
+// stepFile is one entry of a step's files. The schema asks for a path, but
+// models often send the top-level file shape ({path, action}) instead; both
+// are accepted so a correct plan is not rejected over its shape.
+type stepFile struct{ PlanFile }
+
+func (f *stepFile) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		f.Path = strings.TrimSpace(s)
+		return nil
+	}
+	if err := json.Unmarshal(b, &f.PlanFile); err != nil {
+		return fmt.Errorf("each step file is a path string, or an object with a path")
+	}
+	f.Path = strings.TrimSpace(f.Path)
+	return nil
+}
+
+// cleanPlanFiles keeps the files with a path and a known action. Anything
+// else is a model slip and is dropped rather than shown as a wrong glyph.
+func cleanPlanFiles(in []PlanFile) []PlanFile {
+	var out []PlanFile
+	for _, f := range in {
+		f.Path = strings.TrimSpace(f.Path)
+		f.Action = strings.ToLower(strings.TrimSpace(f.Action))
+		switch f.Action {
+		case "create", "modify", "delete":
+		default:
+			continue
+		}
+		if f.Path != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// emitOutcome reports that the user did not approve pl. The planner keeps no
+// plan afterwards; the event is a snapshot the transcript shows as rejected.
+func (p *Planner) emitOutcome(pl *Plan, outcome, feedback string) {
+	if p.Sink == nil {
+		return
+	}
+	snap := *pl
+	snap.Steps = append([]PlanStep(nil), pl.Steps...)
+	snap.Outcome = outcome
+	snap.Feedback = feedback
+	p.Sink(Event{Kind: EvPlan, Plan: &snap})
 }
 
 // PlanMarkdown renders a plan as markdown, without symbols or verification.
@@ -272,6 +393,16 @@ func renderPlan(pl *Plan, ex planExtras) string {
 			fmt.Fprintf(&b, "   - %s `%s`", sym.Action, sym.Name)
 			if sym.Kind != "" {
 				fmt.Fprintf(&b, " (%s)", sym.Kind)
+			}
+			b.WriteString("\n")
+		}
+	}
+	if len(pl.Files) > 0 {
+		b.WriteString("\n## Files\n\n")
+		for _, f := range pl.Files {
+			fmt.Fprintf(&b, "- %s `%s`", f.Action, f.Path)
+			if f.Description != "" {
+				fmt.Fprintf(&b, " — %s", f.Description)
 			}
 			b.WriteString("\n")
 		}
@@ -445,20 +576,22 @@ func (taskTool) Spec() llm.ToolSpec {
 		Description: "Keep a visible checklist for multi-step work. Replace the whole list with action=set, " +
 			"or change one item's status with action=update.",
 		Schema: tools.Schema(map[string]any{
-			"action": tools.Enum("set replaces the list; update changes one item; clear empties it", "set", "update", "clear"),
-			"tasks":  tools.Arr("For set: the task texts in order", map[string]any{"type": "string"}),
-			"id":     tools.Str("For update: task id"),
-			"status": tools.Enum("For update: new status", "pending", "in_progress", "done", "cancelled"),
+			"action":   tools.Enum("set replaces the list; update changes one item; clear empties it", "set", "update", "clear"),
+			"tasks":    tools.Arr("For set: the task texts in order", map[string]any{"type": "string"}),
+			"step_ids": tools.Arr("For set: the plan step id each task belongs to, in the same order as tasks (empty string for none)", map[string]any{"type": "string"}),
+			"id":       tools.Str("For update: task id"),
+			"status":   tools.Enum("For update: new status", "pending", "in_progress", "done", "cancelled"),
 		}, "action"),
 	}
 }
 
 func (t taskTool) Run(_ context.Context, _ *tools.Env, args json.RawMessage) tools.Result {
 	var in struct {
-		Action string   `json:"action"`
-		Tasks  []string `json:"tasks"`
-		ID     string   `json:"id"`
-		Status string   `json:"status"`
+		Action  string   `json:"action"`
+		Tasks   []string `json:"tasks"`
+		StepIDs []string `json:"step_ids"`
+		ID      string   `json:"id"`
+		Status  string   `json:"status"`
 	}
 	if err := tools.Decode(args, &in); err != nil {
 		return tools.Errorf("%v", err)
@@ -468,7 +601,11 @@ func (t taskTool) Run(_ context.Context, _ *tools.Env, args json.RawMessage) too
 	case "set":
 		t.p.tasks = nil
 		for i, s := range in.Tasks {
-			t.p.tasks = append(t.p.tasks, Task{ID: fmt.Sprint(i + 1), Text: s, Status: "pending"})
+			task := Task{ID: fmt.Sprint(i + 1), Text: s, Status: "pending"}
+			if i < len(in.StepIDs) {
+				task.StepID = strings.TrimSpace(in.StepIDs[i])
+			}
+			t.p.tasks = append(t.p.tasks, task)
 		}
 	case "update":
 		ok := false

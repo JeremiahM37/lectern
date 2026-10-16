@@ -109,6 +109,17 @@ A.select = function()
   return ret(true, string.format("Selected lines %d-%d (the user can reselect with gv)", s, e))
 end
 
+A.highlight = function()
+  local n = nlines(0)
+  local s, e = p.startLine or 1, p.endLine or p.startLine or 1
+  s, e = clamp(s, 1, n), clamp(e, 1, n)
+  local ns = vim.api.nvim_create_namespace("scribe_agent_highlight")
+  vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+  vim.api.nvim_buf_set_extmark(0, ns, s - 1, 0, { end_row = e, end_col = 0, hl_group = "Visual", hl_eol = true })
+  vim.api.nvim_win_set_cursor(0, { s, 0 })
+  return ret(true, string.format("Highlighted lines %d-%d (the next highlight replaces it)", s, e))
+end
+
 A.yank = function()
   if not p.text then return ret(false, "yank needs text") end
   local reg = p.register or "+"

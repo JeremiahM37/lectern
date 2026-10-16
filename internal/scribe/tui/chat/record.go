@@ -35,6 +35,7 @@ type Record struct {
 	Delay    time.Duration `json:"delay,omitempty"`
 	Before   int           `json:"before,omitempty"`
 	After    int           `json:"after,omitempty"`
+	Status   int           `json:"status,omitempty"` // HTTP status of a provider error or retry, when it had one
 
 	// Assistant turns.
 	Done        bool          `json:"done,omitempty"`

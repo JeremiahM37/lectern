@@ -62,6 +62,13 @@ type Map struct {
 	callers    map[string][]callRef // callee name -> functions whose body calls it
 	summarizer Summarizer
 	summaries  map[string]summaryEntry // model summaries, keyed by path
+	// reexports lists, for each barrel, the files it re-exports from.
+	reexports map[string][]string
+	// derived holds indexes built on first use from the file set (symbol
+	// trigrams, clone candidates). It is dropped by recompute and rebuilt
+	// under derivedMu by whichever query needs it first.
+	derivedMu sync.Mutex
+	derived   *derivedIndex
 }
 
 // summaryEntry is a model-written summary and the content hash it describes.

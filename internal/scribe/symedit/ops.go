@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -73,12 +72,15 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 	case "rename_local":
 		out, msg, err = renameLocal(text, masked, s, o.OldName, o.NewName)
 	case "replace_in_body":
-		out, msg, err = replaceInBody(idx, s, o.OldString, o.NewString)
+		out, msg, err = replaceInBody(idx, s, o.OldString, o.EndString, o.NewString)
 	default:
 		err = fmt.Errorf("unknown action %q", o.Action)
 	}
 	if err != nil {
 		return "", "", "", err
+	}
+	if out == text {
+		msg = "already present: " + s.qual() + " already has this content"
 	}
 	if e.lang.fam == famPy && (o.Action == "replace_body" || o.Action == "replace_in_body" || o.Action == "rename_local") {
 		after, err := e.symbols(out)
@@ -254,25 +256,9 @@ func renameLocal(text, masked string, s symbol, oldName, newName string) (string
 	return out, fmt.Sprintf("renamed %q to %q in %s (%d places)", oldName, newName, s.qual(), len(offs)), nil
 }
 
-// replaceInBody replaces one exact occurrence of old inside a symbol.
-func replaceInBody(idx lineIndex, s symbol, old, nw string) (string, string, error) {
-	region := idx.src[s.start:s.end]
-	hits := allIndexes(region, old)
-	switch {
-	case len(hits) == 0:
-		return "", "", fmt.Errorf("old_string not found in %s (lines %d-%d). Copy it exactly from a fresh read. Closest lines:%s",
-			s.qual(), s.startLine, s.endLine, closestLines(idx, s, old))
-	case len(hits) > 1:
-		var lines []string
-		for _, h := range hits {
-			lines = append(lines, strconv.Itoa(idx.lineOf(s.start+h)))
-		}
-		return "", "", fmt.Errorf("old_string matches %d places inside %s (lines %s). Add surrounding lines so it matches once",
-			len(hits), s.qual(), strings.Join(lines, ", "))
-	}
-	p := s.start + hits[0]
-	return idx.src[:p] + nw + idx.src[p+len(old):],
-		fmt.Sprintf("replaced 1 match at line %d in %s", idx.lineOf(p), s.qual()), nil
+// replaceInBody replaces old inside a symbol (see replaceInBodyAnchored).
+func replaceInBody(idx lineIndex, s symbol, old, end, nw string) (string, string, error) {
+	return replaceInBodyAnchored(idx, s, old, end, nw)
 }
 
 // closestLines shows the lines of a symbol most similar to the first line of old.

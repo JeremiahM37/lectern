@@ -37,8 +37,10 @@ const description = "Edit one definition by name instead of matching text. symbo
 	"a method as Server.Start, or a kind-qualified name such as \"class Foo\". Actions: replace (new_code is the full " +
 	"definition, doc comment included), replace_body (new_code is the body only, without braces), insert_before, " +
 	"insert_after, delete, rename_local (old_name to new_name inside the symbol), replace_in_body (old_string to " +
-	"new_string, must match once inside the symbol), add_import (new_code is the import; no symbol). " +
-	"Several changes to one file can go in edits, applied atomically. The file must be read first. " +
+	"new_string, must match once inside the symbol; with end_string, the span from old_string through end_string " +
+	"is replaced), add_import (new_code is the import; no symbol). " +
+	"Several changes to one file can go in edits, applied atomically. Set apply to false to preview the diff without " +
+	"writing. The file must be read first. " +
 	"Go, TypeScript/JavaScript, Python, Rust, Java, Kotlin, C#, Swift, C/C++, Ruby, PHP, Lua, Zig and Elixir are supported."
 
 // op is one operation. Top-level arguments and each entry of edits share it.
@@ -47,6 +49,7 @@ type op struct {
 	Symbol    string `json:"symbol"`
 	NewCode   string `json:"new_code"`
 	OldString string `json:"old_string"`
+	EndString string `json:"end_string"`
 	NewString string `json:"new_string"`
 	OldName   string `json:"old_name"`
 	NewName   string `json:"new_name"`
@@ -55,6 +58,9 @@ type op struct {
 type args struct {
 	Path  string          `json:"path"`
 	Edits json.RawMessage `json:"edits"`
+	// Apply false checks the edit and returns its diff without writing.
+	// Nil means true, so existing calls still write.
+	Apply *bool `json:"apply"`
 	op
 }
 
@@ -67,7 +73,8 @@ func (t *astEdit) Spec() llm.ToolSpec {
 			"action":     tools.Enum("Operation.", actionNames...),
 			"symbol":     tools.Str("Definition to edit, e.g. ParseList, Server.Start or class Foo."),
 			"new_code":   tools.Str("New code for replace, replace_body, insert_before, insert_after and add_import."),
-			"old_string": tools.Str("replace_in_body: exact text to find inside the symbol."),
+			"old_string": tools.Str("replace_in_body: text to find inside the symbol (the start anchor when end_string is given)."),
+			"end_string": tools.Str("replace_in_body: end anchor. With it, the span from old_string through end_string is replaced by new_string. Both must be unique inside the symbol."),
 			"new_string": tools.Str("replace_in_body: replacement text."),
 			"old_name":   tools.Str("rename_local: identifier to rename."),
 			"new_name":   tools.Str("rename_local: new identifier."),
@@ -82,10 +89,12 @@ func (t *astEdit) Spec() llm.ToolSpec {
 			"symbol":     tools.Str("Definition to edit (single-operation form)."),
 			"action":     tools.Enum("Operation (single-operation form).", actionNames...),
 			"new_code":   tools.Str("New code (single-operation form)."),
-			"old_string": tools.Str("replace_in_body: exact text to find inside the symbol."),
+			"old_string": tools.Str("replace_in_body: exact text to find inside the symbol (the start anchor when end_string is given)."),
+			"end_string": tools.Str("replace_in_body: end anchor for a range replace (see edits)."),
 			"new_string": tools.Str("replace_in_body: replacement text."),
 			"old_name":   tools.Str("rename_local: identifier to rename."),
 			"new_name":   tools.Str("rename_local: new identifier."),
+			"apply":      tools.Bool("Set false to preview: the diff is returned and nothing is written. Default true."),
 			"edits":      tools.Arr("Several operations on this file, applied in order. All or nothing.", item),
 		}, "path"),
 	}
@@ -150,6 +159,7 @@ func (t *astEdit) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 	defer ed.close()
 	cur := orig
 	var msgs, names []string
+	allNoop := true
 	for i, o := range ops {
 		next, msg, name, err := ed.apply(cur, o)
 		if err != nil {
@@ -157,6 +167,14 @@ func (t *astEdit) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 				return tools.Errorf("%s: edit %d of %d (%s): %v\nNO edits were applied (atomic rollback).", rel, i+1, len(ops), o.Action, err)
 			}
 			return tools.Errorf("%s: %v. No changes were written.", rel, err)
+		}
+		if next == cur {
+			// The operation changed nothing. It is a success only when it
+			// says so explicitly (add_import: "already present").
+			if !explicitNoop(msg) {
+				allNoop = false
+			}
+			msg = "no-op: " + msg
 		}
 		cur = next
 		msgs = append(msgs, msg)
@@ -172,7 +190,21 @@ func (t *astEdit) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		return tools.Errorf("%s: %v No changes were written.", rel, err)
 	}
 	if final == orig {
-		return tools.Result{Output: fmt.Sprintf("No changes to %s: %s.", rel, strings.Join(msgs, "; ")), Summary: "no changes"}
+		if allNoop {
+			return tools.Result{Output: fmt.Sprintf("No changes to %s: %s.", rel, strings.Join(msgs, "; ")), Summary: "no changes"}
+		}
+		return tools.Result{
+			Output:  fmt.Sprintf("No changes produced by the operations on %s: %s. The new code is identical to what is there. Check the action and new_code, or read the file again.", rel, strings.Join(msgs, "; ")),
+			Summary: "no changes", IsError: true,
+		}
+	}
+	if apply := a.Apply == nil || *a.Apply; !apply {
+		diff, added, removed := fs.UnifiedDiff(rel, orig, final)
+		return tools.Result{
+			Output:  fmt.Sprintf("Preview, not written (apply is false): %s in %s. Pass apply: true, or leave it out, to write it.", strings.Join(msgs, "; "), rel),
+			Summary: fmt.Sprintf("preview +%d -%d in %s", added, removed, strings.Join(names, ", ")),
+			Diff:    diff,
+		}
 	}
 	out := final
 	if crlf {
@@ -194,6 +226,14 @@ func (t *astEdit) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		Diff:    diff,
 		Files:   []string{rel},
 	}
+}
+
+// explicitNoop reports whether an operation that left the text unchanged said
+// so in the words "already present". That is success: the file already has the
+// requested state. An unchanged result without those words means the edit did
+// nothing, and the batch is reported as an error so the model reads again.
+func explicitNoop(msg string) bool {
+	return strings.Contains(msg, "already present")
 }
 
 // plan validates the arguments and returns the operations in order.

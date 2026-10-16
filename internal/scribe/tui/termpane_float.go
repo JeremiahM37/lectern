@@ -22,6 +22,15 @@ const maxFloats = 5
 // floatTerm is one shell. It stays in the list after its shell exits.
 type floatTerm struct {
 	pane *term.Pane
+	name string // set by /terminals rename; "" shows the number only
+}
+
+// label is the terminal's name as the list and the box title show it.
+func (f *floatTerm) label(i int) string {
+	if f.name == "" {
+		return "Terminal " + strconv.Itoa(i+1)
+	}
+	return "Terminal " + strconv.Itoa(i+1) + " · " + f.name
 }
 
 // shellCommand is the user's shell: $SHELL, else a platform default.
@@ -133,6 +142,46 @@ func (m *Model) closeFloatCmd(arg string) {
 	m.closeFloat(i)
 }
 
+// renameFloatCmd is "/terminals rename [n] <name>": with a number it renames
+// that terminal, else the one on screen, else the last one used. A name is
+// trimmed and capped at 40 characters; "rename" with no name clears it.
+func (m *Model) renameFloatCmd(arg string) {
+	ps := m.ps()
+	if len(ps.floats) == 0 {
+		m.setFlash("info", "No terminals open.")
+		return
+	}
+	i := ps.shown
+	if i < 0 {
+		i = ps.last
+	}
+	fields := strings.Fields(arg)
+	if len(fields) > 0 {
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			if n < 1 || n > len(ps.floats) {
+				m.setFlash("err", "Usage: /terminals rename [1-"+itoa(len(ps.floats))+"] <name>")
+				return
+			}
+			i = n - 1
+			fields = fields[1:]
+		}
+	}
+	if i < 0 || i >= len(ps.floats) {
+		m.setFlash("err", "Name the terminal to rename: /terminals rename [1-"+itoa(len(ps.floats))+"] <name>")
+		return
+	}
+	name := strings.TrimSpace(strings.Join(fields, " "))
+	if r := []rune(name); len(r) > 40 {
+		name = string(r[:40])
+	}
+	ps.floats[i].name = name
+	if name == "" {
+		m.setFlash("info", "Terminal "+itoa(i+1)+" has no name now")
+		return
+	}
+	m.setFlash("info", "Renamed terminal "+itoa(i+1)+" to "+name)
+}
+
 // showFloatOrNew shows the terminal used last, or starts one when none exists.
 func (m *Model) showFloatOrNew() tea.Cmd {
 	ps := m.ps()
@@ -201,7 +250,7 @@ func (m *Model) openTerminalList() {
 		}
 		p.Items = append(p.Items, PickItem{
 			Value: strconv.Itoa(i),
-			Label: fmt.Sprintf("%s Terminal %d", dot, i+1),
+			Label: fmt.Sprintf("%s %s", dot, f.label(i)),
 			Desc:  desc,
 		})
 	}
@@ -229,7 +278,7 @@ func (m *Model) overlayFloat(base []string) []string {
 	for i := range body {
 		body[i] = " " + body[i] + " "
 	}
-	title := fmt.Sprintf("Terminal %d · %s", ps.shown+1, f.pane.Title())
+	title := fmt.Sprintf("%s · %s", f.label(ps.shown), f.pane.Title())
 	footer := "Esc hide · /terminals list"
 	border := m.th.BorderFocused
 	if exited, code := f.pane.Exited(); exited {

@@ -244,8 +244,9 @@ func (r *Runner) warn(format string, a ...any) {
 
 // outcome is what one hook said.
 type outcome struct {
-	block   string // non-empty: refuse
-	context string // extra text
+	block   string          // non-empty: refuse
+	context string          // extra text
+	input   json.RawMessage // PreToolUse: replacement tool input (updatedInput)
 }
 
 // result of running a hook process.
@@ -273,6 +274,43 @@ func (r *Runner) PreTool(ctx context.Context, tool string, args json.RawMessage)
 		}
 	}
 	return ""
+}
+
+// PreToolUpdate implements the agent's toolInputRewriter. It runs the same
+// PreToolUse hooks as PreTool, in order, and a hook's
+// hookSpecificOutput.updatedInput replaces the tool input for the hooks after
+// it and for the call. The first block wins, and the input returned is the
+// one the call runs with. An updatedInput that is not a JSON object is
+// ignored with a warning, since a tool takes an object of named arguments.
+func (r *Runner) PreToolUpdate(ctx context.Context, tool string, args json.RawMessage) (json.RawMessage, string) {
+	names := toolNames(tool)
+	for _, e := range r.entries {
+		if e.event != evPreTool || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
+			continue
+		}
+		in := r.input(evPreTool)
+		in["tool_name"] = displayName(tool)
+		in["tool_input"] = rawObject(args)
+		o := r.exec(ctx, e, in)
+		if o.block != "" {
+			return args, o.block
+		}
+		if len(o.input) == 0 {
+			continue
+		}
+		if !isJSONObject(o.input) {
+			r.warn("hook %q from %s returned an updatedInput that is not a JSON object; the input was kept", e.command, e.source)
+			continue
+		}
+		args = o.input
+	}
+	return args, ""
+}
+
+// isJSONObject reports whether b is a single JSON object.
+func isJSONObject(b []byte) bool {
+	t := bytes.TrimSpace(b)
+	return len(t) > 0 && t[0] == '{' && json.Valid(t)
 }
 
 // PostTool implements agent.Hooks. Every matching hook runs; their extra
@@ -457,9 +495,10 @@ type hookJSON struct {
 	Continue     *bool  `json:"continue"`
 	StopReason   string `json:"stopReason"`
 	HookSpecific *struct {
-		PermissionDecision       string `json:"permissionDecision"`
-		PermissionDecisionReason string `json:"permissionDecisionReason"`
-		AdditionalContext        string `json:"additionalContext"`
+		PermissionDecision       string          `json:"permissionDecision"`
+		PermissionDecisionReason string          `json:"permissionDecisionReason"`
+		AdditionalContext        string          `json:"additionalContext"`
+		UpdatedInput             json.RawMessage `json:"updatedInput"`
 	} `json:"hookSpecificOutput"`
 }
 
@@ -490,6 +529,7 @@ func parseStdout(e entry, out []byte, event string) outcome {
 		}
 		if j.HookSpecific != nil {
 			o.context = j.HookSpecific.AdditionalContext
+			o.input = j.HookSpecific.UpdatedInput
 		}
 		return o
 	}

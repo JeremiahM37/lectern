@@ -16,10 +16,39 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
-// SubagentFactory builds a subagent for role ("explore", "code" or "web")
-// whose events go to sink. The app wiring layer supplies it, because it knows
-// which tools and models each role gets.
-type SubagentFactory func(role, id string, sink Sink) *Agent
+// Purpose says why a subagent runs. The factory uses it, with the role, to
+// choose the subagent's model slot.
+type Purpose string
+
+const (
+	// PurposeTask is a dispatch task. Its role says which kind of agent.
+	PurposeTask Purpose = "task"
+	// PurposeCleanup is the desloppify pass over the files code tasks edited.
+	PurposeCleanup Purpose = "cleanup"
+	// PurposeReview is the verifyEdits reviewer, run after the project check.
+	PurposeReview Purpose = "review"
+	// PurposeFix is the one follow-up agent that repairs a failing check.
+	PurposeFix Purpose = "fix"
+)
+
+// SubagentSpec describes the subagent the dispatcher wants built.
+type SubagentSpec struct {
+	Role    string  // "explore", "code" or "web"
+	Purpose Purpose // why it runs
+	ID      string  // its id in events
+	// MaxRetries and MaxStallRetries are the Options of the same names, from
+	// the dispatcher's Retries. Zero takes the agent default.
+	MaxRetries      int
+	MaxStallRetries int
+	// Bus is the state this subagent shares with the others of its dispatch.
+	// Nil when the dispatch cache is off.
+	Bus *AgentBus
+}
+
+// SubagentFactory builds the subagent a spec describes, whose events go to
+// sink. The app wiring layer supplies it, because it knows which tools and
+// models each role and purpose get.
+type SubagentFactory func(spec SubagentSpec, sink Sink) *Agent
 
 // Dispatcher provides the dispatch tool: parallel subagents.
 type Dispatcher struct {
@@ -37,6 +66,11 @@ type Dispatcher struct {
 
 	// Features are the agentFeatures switches. Nil takes DefaultFeatures.
 	Features *Features
+
+	// MaxRetries and MaxStallRetries are passed to every subagent (see
+	// SubagentSpec). Zero takes the agent default.
+	MaxRetries      int
+	MaxStallRetries int
 
 	// active counts dispatch calls in flight. It is the guard that keeps
 	// git mutations out while subagents may be editing (DispatchActive).
@@ -71,6 +105,17 @@ func (d *Dispatcher) Status() []AgentInfo {
 		out = append(out, *info)
 	}
 	return out
+}
+
+// CancelAgent stops one subagent of the newest dispatch (the /cancel command).
+// A running subagent is cancelled and reports "cancelled"; a pending one is
+// marked cancelled and never starts. Other subagents keep running.
+func (d *Dispatcher) CancelAgent(id string) error {
+	b := d.lastBoard.Load()
+	if b == nil {
+		return fmt.Errorf("no dispatch has run in this session")
+	}
+	return b.cancelAgent(id)
 }
 
 // Register adds the dispatch tool.
@@ -266,7 +311,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 				}
 			}
 			task := withDependencyReports(taskText(st), plan, i, results)
-			results[i] = run.runTask(ctx, i, st.Role, task)
+			results[i] = run.runTask(ctx, i, st.Role, PurposeTask, task)
 		}(i, st)
 	}
 	wg.Wait()

@@ -29,7 +29,7 @@ const (
 var actions = []string{
 	"read", "edit", "navigate", "diagnostics", "symbols", "hover", "references",
 	"definition", "rename", "format", "select", "goto_cursor", "yank",
-	"cursor_context", "buffers", "quickfix", "terminal_output",
+	"cursor_context", "buffers", "quickfix", "terminal_output", "highlight",
 }
 
 // readOnlyActions never change a file. They may move the cursor or copy to
@@ -38,7 +38,7 @@ var readOnlyActions = map[string]bool{
 	"read": true, "diagnostics": true, "symbols": true, "hover": true,
 	"references": true, "definition": true, "navigate": true, "goto_cursor": true,
 	"select": true, "yank": true, "cursor_context": true, "buffers": true,
-	"quickfix": true, "terminal_output": true,
+	"quickfix": true, "terminal_output": true, "highlight": true,
 }
 
 // Args is the editor tool's input.
@@ -64,7 +64,11 @@ type tool struct{}
 func Tool() tools.Tool { return tool{} }
 
 // Register adds the editor tool to r.
-func Register(r *tools.Registry) { r.Register(Tool()) }
+func Register(r *tools.Registry) {
+	r.Register(Tool())
+	// The agent's reads see unsaved editor text (tools/fs checks this hook).
+	fs.SetUnsavedReader(UnsavedContent)
+}
 
 func (tool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
@@ -72,12 +76,12 @@ func (tool) Spec() llm.ToolSpec {
 		Description: "Work in the editor the user has open beside the chat (Neovim): read the buffer, edit lines " +
 			"(the edit is saved), navigate, read diagnostics, symbols, hover, definitions and references through the " +
 			"language server, rename, format, select, copy to the clipboard, list buffers, the quickfix list and the " +
-			"terminal's output. file switches the editor to that file first. Fails with \"no editor is open\" when the " +
+			"terminal's output, and highlight a range of lines in the buffer for the user to see. file switches the editor to that file first. Fails with \"no editor is open\" when the " +
 			"user has not opened one. Prefer edit_file for plain edits when the editor is not needed.",
 		Schema: tools.Schema(map[string]any{
 			"action":      tools.Enum("What to do.", actions...),
 			"file":        tools.Str("Switch the editor to this file first (relative to the project root)."),
-			"startLine":   tools.Int("First line, 1-based. For read, edit, select and the range of read."),
+			"startLine":   tools.Int("First line, 1-based. For read, edit, select, highlight and the range of read."),
 			"endLine":     tools.Int("Last line, 1-based, inclusive. Defaults to startLine."),
 			"replacement": tools.Str("edit: the new text for lines startLine-endLine. Empty deletes them."),
 			"line":        tools.Int("navigate, goto_cursor: line, 1-based."),

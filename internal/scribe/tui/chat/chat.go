@@ -68,7 +68,21 @@ type View struct {
 	railViewed int // checkpoint being browsed, -1 = live
 	railSel    int // rail cursor
 	railFocus  bool
+
+	// Pointer state (scroll.go). hoverLine is the absolute line under the
+	// pointer, -1 for none. A press starts a selection; sel is set once it has
+	// moved. copyText and copyPending carry a finished drag to the caller.
+	hoverLine   int
+	selecting   bool
+	sel         bool
+	anchor      cellPos
+	cursor      cellPos
+	copyText    string
+	copyPending bool
 }
+
+// cellPos is a transcript cell: an absolute line and a column in the body.
+type cellPos struct{ line, col int }
 
 type hitTarget struct {
 	rec     *Record
@@ -97,6 +111,7 @@ func New(o Options) *View {
 		agents:     map[string]*agent.AgentInfo{},
 		hits:       map[int]hitTarget{},
 		railViewed: -1,
+		hoverLine:  -1,
 	}
 }
 
@@ -233,6 +248,17 @@ func (v *View) Apply(e agent.Event) {
 	switch e.Kind {
 	case agent.EvTurnStart:
 		v.closeLive()
+		if e.Prompt == "" {
+			// A continuation (/session continue, --continue) has no prompt of
+			// its own. It extends the interrupted turn's row rather than
+			// starting a second, empty one under its own header.
+			if rec := v.reopenTurn(); rec != nil {
+				v.live = rec
+				v.busy = true
+				v.errShown = false
+				break
+			}
+		}
 		if e.Prompt != "" && !v.takeLocal(e.Prompt) {
 			// A turn this view did not start: a phone message, or any other
 			// prompt the backend ran. It has no row yet, so it gets one here.
@@ -296,7 +322,9 @@ func (v *View) Apply(e agent.Event) {
 		if e.Plan != nil {
 			rec := v.ensureLive(e.At)
 			s := lastSeg(rec, "plan")
-			if s == nil {
+			// A plan the user rejected keeps its own segment, so the revised
+			// plan that follows it gets a new one.
+			if s == nil || (s.Plan != nil && rejectedPlan(s.Plan)) {
 				closeSegs(rec)
 				s = &Segment{Kind: "plan"}
 				rec.Segments = append(rec.Segments, s)
@@ -321,7 +349,7 @@ func (v *View) Apply(e agent.Event) {
 		}
 	case agent.EvRetry:
 		v.addRecord(&Record{Role: roleSystem, Kind: "retry", Category: string(e.Category), Attempt: e.Attempt,
-			Max: e.MaxAttempts, Delay: e.Delay, Text: e.Text, At: e.At})
+			Max: e.MaxAttempts, Delay: e.Delay, Text: e.Text, Status: e.Status, At: e.At})
 	case agent.EvFallback:
 		v.addRecord(&Record{Role: roleSystem, Kind: "switch", Model: e.Model, Text: e.Text, At: e.At})
 	case agent.EvWarning:
@@ -331,7 +359,7 @@ func (v *View) Apply(e agent.Event) {
 		if cat == "" {
 			cat = "Error"
 		}
-		v.addRecord(&Record{Role: roleSystem, Kind: "error", Category: cat, Text: e.Text, At: e.At})
+		v.addRecord(&Record{Role: roleSystem, Kind: "error", Category: cat, Text: e.Text, Status: e.Status, At: e.At})
 		v.errShown = true
 	case agent.EvCompactStart:
 		r := &Record{Role: roleSystem, Kind: "compact", Text: e.Text, At: e.At}
@@ -416,6 +444,17 @@ func (v *View) ensureLive(at time.Time) *Record {
 func (v *View) addRecord(r *Record) {
 	r.At = v.when(r.At)
 	v.msgs = append(v.msgs, r)
+}
+
+// reopenTurn returns the newest assistant row when its turn never finished,
+// which is what a continuation picks up. It returns nil otherwise.
+func (v *View) reopenTurn() *Record {
+	if n := len(v.msgs); n > 0 {
+		if r := v.msgs[n-1]; r.Role == roleAssistant && !r.Done {
+			return r
+		}
+	}
+	return nil
 }
 
 func (v *View) closeLive() {

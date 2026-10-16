@@ -75,15 +75,17 @@ func (t *navigateTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "navigate",
 		Description: "Code navigation through the project's language server. " +
-			"action: definition, references, hover, symbols (outline of a file), or workspace_symbols (search by name). " +
+			"action: definition, references, implementation, hover, symbols (outline of a file), " +
+			"workspace_symbols (search by name), or read_symbol (the source of one definition in path). " +
 			"Give path with line and column (1-based; column counts characters), or give symbol instead and it is located for you. " +
-			"For workspace_symbols, symbol is the query and path (optional) picks the language.",
+			"For workspace_symbols, symbol is the query and path (optional) picks the language. " +
+			"When no language server answers, definition, symbols and read_symbol fall back to a text-based search and say so.",
 		Schema: tools.Schema(map[string]any{
-			"action": tools.Enum("What to look up.", "definition", "references", "hover", "symbols", "workspace_symbols"),
+			"action": tools.Enum("What to look up.", "definition", "references", "implementation", "hover", "symbols", "workspace_symbols", "read_symbol"),
 			"path":   tools.Str("File path, relative to the project root."),
 			"line":   tools.Int("1-based line of the position."),
 			"column": tools.Int("1-based column of the position, counted in characters."),
-			"symbol": tools.Str("Symbol name. With no line/column it is located first; for workspace_symbols it is the search query."),
+			"symbol": tools.Str("Symbol name. With no line/column it is located first; for workspace_symbols it is the search query; for read_symbol it is the definition to read."),
 		}, "action"),
 	}
 }
@@ -112,19 +114,22 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		return symbolHitsResult(t.m, hits)
 	}
 	switch a.Action {
-	case "definition", "references", "hover", "symbols":
+	case "definition", "references", "implementation", "hover", "symbols", "read_symbol":
 	default:
-		return tools.Errorf("unknown action %q: use definition, references, hover, symbols or workspace_symbols", a.Action)
+		return tools.Errorf("unknown action %q: use definition, references, implementation, hover, symbols, workspace_symbols or read_symbol", a.Action)
 	}
 	if a.Action == "symbols" {
 		if abs == "" {
 			return tools.Errorf("symbols needs path: the file to outline")
 		}
 		syms, err := t.m.DocumentSymbols(ctx, abs)
-		if err != nil {
-			return missingServer(err)
+		if err == nil && len(syms) > 0 {
+			return outlineResult(t.m, abs, syms)
 		}
-		return outlineResult(t.m, abs, syms)
+		return outlineFallback(t.m, abs, err)
+	}
+	if a.Action == "read_symbol" {
+		return readSymbolResult(ctx, t.m, workdir, abs, a.Symbol)
 	}
 
 	var p Point
@@ -147,13 +152,19 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 	where := fmt.Sprintf("%s:%d:%d", t.m.RelPath(abs), p.Line, p.Column)
 
 	switch a.Action {
-	case "definition", "references":
+	case "definition":
+		locs, err := t.m.Definition(ctx, abs, p)
+		if err == nil && len(locs) > 0 {
+			return locationsResult(t.m, a.Action, locs)
+		}
+		return definitionFallback(workdir, abs, p, a.Symbol, err, t.m)
+	case "references", "implementation":
 		var locs []Location
 		var err error
-		if a.Action == "definition" {
-			locs, err = t.m.Definition(ctx, abs, p)
-		} else {
+		if a.Action == "references" {
 			locs, err = t.m.References(ctx, abs, p)
+		} else {
+			locs, err = t.m.Implementations(ctx, abs, p)
 		}
 		if err != nil {
 			return missingServer(err)
@@ -176,6 +187,160 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		return tools.Result{Output: strings.TrimSpace(text), Summary: "hover at " + where}
 	}
 	return tools.Errorf("unreachable action %q", a.Action)
+}
+
+// fallbackNote says why a lookup came from the text tier. It is empty when
+// the language server simply found nothing.
+func fallbackNote(err error) string {
+	if err == nil {
+		return "The language server found nothing, so this comes from a text search of the project."
+	}
+	var ni *NotInstalledError
+	if errors.As(err, &ni) {
+		return "No language server is installed for this language, so this comes from a text search of the project."
+	}
+	return "The language server did not answer (" + firstLine(err.Error()) + "), so this comes from a text search of the project."
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// definitionFallback is the text tier for definition: the declaration of the
+// name, found by searching the project. It replaces an empty answer or an
+// error from the language server.
+func definitionFallback(workdir, abs string, p Point, symbol string, lspErr error, m *Manager) tools.Result {
+	name := symbol
+	if name == "" && abs != "" {
+		if data, err := os.ReadFile(abs); err == nil {
+			name = identAt(string(data), p)
+		}
+	}
+	if name == "" {
+		if lspErr != nil {
+			return missingServer(lspErr)
+		}
+		return tools.Result{Output: fmt.Sprintf("No definition found for the symbol at %s:%d:%d.", m.RelPath(abs), p.Line, p.Column), Summary: "none"}
+	}
+	file, at, ok := findTextSymbol(workdir, "", name)
+	if !ok {
+		if lspErr != nil {
+			return missingServer(lspErr)
+		}
+		return tools.Result{Output: fmt.Sprintf("No definition found for %q.", name), Summary: "none"}
+	}
+	where := fmt.Sprintf("%s:%d:%d", m.RelPath(file), at.Line, at.Column)
+	return tools.Result{
+		Output:  fmt.Sprintf("%s  %s\n%s", where, sourceLine(file, at.Line), fallbackNote(lspErr)),
+		Summary: "1 definition (text search)",
+	}
+}
+
+// outlineFallback outlines a file without a language server, from the
+// definitions symedit finds. lspErr is what the server said, if anything.
+func outlineFallback(m *Manager, abs string, lspErr error) tools.Result {
+	defs, err := symedit.Outline(abs, readText(abs))
+	if err != nil {
+		if lspErr != nil {
+			return missingServer(lspErr)
+		}
+		return tools.Result{Output: "No symbols in " + m.RelPath(abs) + ".", Summary: "none"}
+	}
+	syms := nestDefinitions(defs)
+	res := outlineResult(m, abs, syms)
+	if res.Summary != "none" && !res.IsError {
+		res.Output = res.Output + "\n" + fallbackNote(lspErr)
+	}
+	return res
+}
+
+// nestDefinitions turns the flat definitions of symedit into an outline,
+// putting each member under its enclosing type.
+func nestDefinitions(defs []symedit.Definition) []Symbol {
+	var top []Symbol
+	at := map[string]int{}
+	for _, d := range defs {
+		if d.Parent == "" {
+			at[d.Name] = len(top)
+			top = append(top, Symbol{Name: d.Name, Kind: d.Kind, Line: d.Line, Column: d.Column, StartLine: d.StartLine, EndLine: d.EndLine})
+		}
+	}
+	for _, d := range defs {
+		if d.Parent == "" {
+			continue
+		}
+		child := Symbol{Name: d.Name, Kind: d.Kind, Line: d.Line, Column: d.Column, StartLine: d.StartLine, EndLine: d.EndLine}
+		if i, ok := at[d.Parent]; ok {
+			top[i].Children = append(top[i].Children, child)
+		} else {
+			top = append(top, child)
+		}
+	}
+	return top
+}
+
+// readSymbolResult prints the source of one definition, from the language
+// server's ranges when it has them, else from the text tier.
+func readSymbolResult(ctx context.Context, m *Manager, workdir, abs, name string) tools.Result {
+	if name == "" {
+		return tools.Errorf("read_symbol needs symbol: the definition to read")
+	}
+	file := abs
+	if file == "" {
+		var err error
+		file, _, err = locateSymbol(ctx, m, workdir, "", name)
+		if err != nil {
+			return tools.Errorf("%v", err)
+		}
+	}
+	var start, end int
+	var source string
+	if syms, err := m.DocumentSymbols(ctx, file); err == nil {
+		if s, ok := findSymbol(syms, name); ok && s.EndLine >= s.StartLine && s.StartLine > 0 {
+			start, end, source = s.StartLine, s.EndLine, "language server"
+		}
+	}
+	if start == 0 {
+		defs, err := symedit.Outline(file, readText(file))
+		if err != nil {
+			return tools.Errorf("cannot read %s: %v", m.RelPath(file), err)
+		}
+		for _, d := range defs {
+			if d.Name == name || d.Parent+"."+d.Name == name {
+				start, end, source = d.StartLine, d.EndLine, "text search"
+				break
+			}
+		}
+		if start == 0 {
+			return tools.Errorf("could not find the definition %q in %s. Check the spelling, or use navigate symbols to list the file.", name, m.RelPath(file))
+		}
+	}
+	lines := strings.Split(readText(file), "\n")
+	const maxLines = 400
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s:%d-%d (%s)\n", m.RelPath(file), start, end, source)
+	shown := 0
+	for ln := start; ln <= end && ln <= len(lines); ln++ {
+		if shown == maxLines {
+			fmt.Fprintf(&b, "... %d more lines not shown\n", end-ln+1)
+			break
+		}
+		fmt.Fprintf(&b, "%6d  %s\n", ln, strings.TrimRight(lines[ln-1], "\r"))
+		shown++
+	}
+	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%s lines %d-%d", name, start, end), Files: []string{m.RelPath(file)}}
+}
+
+// readText returns the file's text, or "" when it cannot be read.
+func readText(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func locationsResult(m *Manager, verb string, locs []Location) tools.Result {
@@ -575,10 +740,14 @@ type formatTool struct{ m *Manager }
 
 func (t *formatTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
-		Name:        "format_file",
-		Description: "Format a file with its language server's formatter and write the result.",
+		Name: "format_file",
+		Description: "Format a file with its language server's formatter and write the result. " +
+			"Give start_line and end_line to format only those lines. organize_imports sorts and removes unused imports first.",
 		Schema: tools.Schema(map[string]any{
-			"path": tools.Str("File to format, relative to the project root."),
+			"path":             tools.Str("File to format, relative to the project root."),
+			"start_line":       tools.Int("First line (1-based) to format. Give it with end_line to format a range."),
+			"end_line":         tools.Int("Last line (1-based, inclusive) to format."),
+			"organize_imports": tools.Bool("Also run the server's organize-imports action before formatting. Default false."),
 		}, "path"),
 	}
 }
@@ -587,7 +756,10 @@ func (t *formatTool) ReadOnly() bool { return false }
 
 func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
 	var a struct {
-		Path string `json:"path"`
+		Path            string `json:"path"`
+		StartLine       int    `json:"start_line"`
+		EndLine         int    `json:"end_line"`
+		OrganizeImports bool   `json:"organize_imports"`
 	}
 	if err := tools.Decode(args, &a); err != nil {
 		return tools.Errorf("%v", err)
@@ -595,35 +767,67 @@ func (t *formatTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	if a.Path == "" {
 		return tools.Errorf("format_file needs path")
 	}
+	ranged := a.StartLine > 0 || a.EndLine > 0
+	if ranged && (a.StartLine < 1 || a.EndLine < a.StartLine) {
+		return tools.Errorf("format_file range needs 1 <= start_line <= end_line; got %d to %d", a.StartLine, a.EndLine)
+	}
 	workdir := t.m.Workdir()
 	if env != nil && env.Workdir != "" {
 		workdir = env.Workdir
 	}
 	abs := resolvePath(workdir, a.Path)
 	rel := t.m.RelPath(abs)
-	edits, err := t.m.Format(ctx, abs)
-	if err != nil {
-		return missingServer(err)
-	}
-	if len(edits) == 0 {
-		return tools.Result{Output: "Already formatted: " + rel, Summary: "no change"}
-	}
-	edit := WorkspaceEdit{Changes: map[string][]TextEdit{pathToURI(abs): edits}}
-	applied, err := ApplyWorkspaceEditWith(edit, func(path string) {
+	before := func(path string) {
 		if env != nil && env.Files != nil {
 			env.Files.BeforeWrite(path)
 		}
-	})
-	if err != nil {
-		return tools.Errorf("formatting was not applied, and no file was changed: %v", err)
 	}
-	if len(applied.Changes) == 0 {
+	var steps []string
+	var changed []FileChange
+	if a.OrganizeImports {
+		actions, err := t.m.OrganizeImports(ctx, abs)
+		if err != nil {
+			return missingServer(err)
+		}
+		if len(actions) > 0 {
+			applied, err := ApplyWorkspaceEditWith(*actions[0].Edit, before)
+			if err != nil {
+				return tools.Errorf("organizing imports was not applied, and no file was changed: %v", err)
+			}
+			changed = append(changed, applied.Changes...)
+			steps = append(steps, "organized imports")
+		}
+	}
+	var edits []TextEdit
+	var err error
+	if ranged {
+		edits, err = t.m.FormatRange(ctx, abs, Point{Line: a.StartLine, Column: 1}, Point{Line: a.EndLine, Column: 1 << 20})
+	} else {
+		edits, err = t.m.Format(ctx, abs)
+	}
+	if err != nil {
+		return missingServer(err)
+	}
+	if len(edits) > 0 {
+		edit := WorkspaceEdit{Changes: map[string][]TextEdit{pathToURI(abs): edits}}
+		applied, err := ApplyWorkspaceEditWith(edit, before)
+		if err != nil {
+			return tools.Errorf("formatting was not applied, and no file was changed: %v", err)
+		}
+		changed = append(changed, applied.Changes...)
+		steps = append(steps, fmt.Sprintf("formatted %d edit(s)", len(edits)))
+	}
+	if len(changed) == 0 {
 		return tools.Result{Output: "Already formatted: " + rel, Summary: "no change"}
 	}
 	t.m.FileChanged(abs)
-	diff := diffSummary(applied.Changes, t.m.RelPath)
+	diff := diffSummary(changed, t.m.RelPath)
+	where := rel
+	if ranged {
+		where = fmt.Sprintf("%s lines %d-%d", rel, a.StartLine, a.EndLine)
+	}
 	return tools.Result{
-		Output:  fmt.Sprintf("Formatted %s (%d edit(s))", rel, len(edits)),
+		Output:  fmt.Sprintf("%s in %s", strings.Join(steps, "; "), where),
 		Summary: fmt.Sprintf("formatted %s", rel),
 		Diff:    diff,
 		Files:   []string{rel},

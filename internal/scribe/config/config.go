@@ -118,6 +118,15 @@ type Config struct {
 	// reports new language-server errors after the edit (default on).
 	FormatOnEdit *bool `json:"format_on_edit,omitempty"`
 
+	// The editor (Neovim, Ctrl+E). EditorConfig is the Neovim config it starts
+	// with: "user" (default, the user's own config) or "none" (-u NONE).
+	// EditorSync makes the agent's edits follow into the open buffer (default
+	// on). EditorAccess is the agent's access to the editor: "on" (default),
+	// "when-open" or "off". The /editor commands write the last two.
+	EditorConfig string `json:"editor_config,omitempty"`
+	EditorSync   *bool  `json:"editor_sync,omitempty"`
+	EditorAccess string `json:"editor_access,omitempty"`
+
 	// Instructions lists instruction files loaded into the system prompt,
 	// relative to the project root or ~ (default: SCRIBE.md, AGENTS.md,
 	// CLAUDE.md).
@@ -301,6 +310,9 @@ func Merge(base, o Config) Config {
 	bp(&r.DeferredTools, o.DeferredTools)
 	bp(&r.AutoCheck, o.AutoCheck)
 	bp(&r.FormatOnEdit, o.FormatOnEdit)
+	str(&r.EditorConfig, o.EditorConfig)
+	str(&r.EditorAccess, o.EditorAccess)
+	bp(&r.EditorSync, o.EditorSync)
 	if o.Instructions != nil {
 		r.Instructions = o.Instructions
 	}

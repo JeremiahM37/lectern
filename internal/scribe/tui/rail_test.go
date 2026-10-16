@@ -96,6 +96,7 @@ func TestRailOtherKeysGoToInput(t *testing.T) {
 // clickRail sends a left press at column x, row y of the chat view.
 func clickRail(m *Model, x, y int) {
 	m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m.Update(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
 }
 
 // screenOf is the screen cell of a point given in transcript coordinates. The

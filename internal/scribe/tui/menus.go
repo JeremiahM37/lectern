@@ -64,7 +64,7 @@ func (m *Model) openModelPicker() tea.Cmd {
 	t := m.cur()
 	mp := &modelPicker{m: m, tab: t, models: map[string][]llm.ModelInfo{}, errs: map[string]error{}, loads: map[string]bool{}}
 	mp.Picker = NewPicker(m.th, "Select Model", "model")
-	mp.Picker.Hint = "↑↓ move · Enter select · k add key · / filter · Esc close"
+	mp.Picker.Hint = "↑↓ move · Enter select · ←→ fold · k add key · / filter · Esc close"
 	mp.Picker.Empty = "No models — check your provider keys with /keys"
 	mp.Picker.OnKey = func(key string) (tea.Cmd, bool) {
 		if key != "k" {
@@ -83,6 +83,8 @@ func (m *Model) openModelPicker() tea.Cmd {
 		_ = session.RecordPick(session.PickModel, it.Value)
 		return m.setModel(it.Value)
 	}
+	// Provider groups fold with ←→ and Space; they start open.
+	mp.Picker.Collapsible = true
 	mp.rebuild()
 	var cmds []tea.Cmd
 	for _, p := range t.be.Providers() {
@@ -267,6 +269,9 @@ func (m *Model) sessionItems() []PickItem {
 			title = short(s.ID)
 		}
 		desc := fmt.Sprintf("%d turns · $%.2f · %s", s.Turns, s.CostUSD, render.RelTime(s.Updated, now))
+		if s.SizeBytes > 0 {
+			desc += " · " + sessionSize(s.SizeBytes)
+		}
 		items = append(items, PickItem{Value: s.ID, Label: title, Desc: desc, Current: s.ID == t.be.SessionID()})
 	}
 	return items
@@ -449,4 +454,16 @@ func (m *Model) openSettings() {
 		return nil
 	}
 	m.pushModal(p)
+}
+
+// sessionSize is the size column of the session list: the session's message
+// log on disk, in the largest unit that keeps one decimal or fewer.
+func sessionSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }

@@ -262,7 +262,9 @@ func Decode(args json.RawMessage, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(args, v); err != nil {
-		return fmt.Errorf("invalid arguments: %w", err)
+		// Say what to do next: a model that only hears "invalid" tends to
+		// give up on the tool and write its output as prose instead.
+		return fmt.Errorf("invalid arguments: %w. Match the tool's schema and call it again", err)
 	}
 	return nil
 }

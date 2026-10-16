@@ -86,13 +86,23 @@ func TestPlanExecuteLiftsRestrictionsAndSavesPlan(t *testing.T) {
 		t.Fatalf("mode after Execute = %q", h.agent.Mode())
 	}
 	if len(h.host.asked) != 1 || h.host.asked[0].Kind != "plan_review" ||
-		strings.Join(h.host.asked[0].Options, ",") != "Execute,Clear context and execute,Revise,Cancel" {
+		// The fixture's context is small, so the plan is light and has no
+		// "Clear context and execute" choice (see PlanOptionsFor).
+		strings.Join(h.host.asked[0].Options, ",") != "Execute,Revise,Cancel" {
 		t.Fatalf("plan review question = %+v", h.host.asked)
 	}
 
+	// The mode is not in the system prompt: the plan banner went into the
+	// history once, and Execute latched the default-mode note after it.
 	reqs := h.fake.requests()
-	if !strings.Contains(systemText(reqs[0]), "# Mode: plan") || strings.Contains(systemText(reqs[1]), "# Mode: plan") {
-		t.Fatal("system prompt did not switch out of plan mode after Execute")
+	if systemText(reqs[0]) != systemText(reqs[1]) {
+		t.Fatal("system prompt changed when the mode changed; it must stay byte-identical")
+	}
+	if !hasUserNotice(reqs[0], "# Mode: plan") || hasUserNotice(reqs[0], "back in default mode") {
+		t.Fatal("plan banner not latched into the first request")
+	}
+	if !hasUserNotice(reqs[1], "back in default mode") {
+		t.Fatal("default-mode note not latched after Execute")
 	}
 	if got := toolMsg(t, reqs[1], "call_p").text(); !strings.Contains(got, "The user approved the plan") {
 		t.Fatalf("plan result sent to the model = %q", got)

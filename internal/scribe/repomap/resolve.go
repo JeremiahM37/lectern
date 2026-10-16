@@ -99,7 +99,7 @@ func (ix *fileIndex) resolve(from string, imp rawImport) []string {
 			}
 			return ix.goDirs[d]
 		}
-	case "js":
+	case "js", reexportKind:
 		if strings.HasPrefix(imp.Spec, ".") {
 			return one(ix.tsFile(path.Join(dir, imp.Spec)))
 		}

@@ -548,14 +548,15 @@ func (b *scribeBackend) Sessions() []tui.SessionInfo {
 	out := make([]tui.SessionInfo, 0, len(metas))
 	for _, m := range metas {
 		out = append(out, tui.SessionInfo{
-			ID:      m.ID,
-			Title:   m.Title,
-			Model:   m.Model,
-			Workdir: m.Workdir,
-			Updated: m.Updated,
-			Turns:   m.Turns,
-			CostUSD: m.CostUSD,
-			Preview: firstUserText(a.Store, m.ID),
+			ID:        m.ID,
+			Title:     m.Title,
+			Model:     m.Model,
+			Workdir:   m.Workdir,
+			Updated:   m.Updated,
+			Turns:     m.Turns,
+			CostUSD:   m.CostUSD,
+			SizeBytes: m.SizeBytes,
+			Preview:   firstUserText(a.Store, m.ID),
 		})
 	}
 	return out

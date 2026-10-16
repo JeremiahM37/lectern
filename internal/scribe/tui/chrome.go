@@ -278,13 +278,19 @@ func (m *Model) contextParts(t *tab) (string, string) {
 	if pct*8%100 >= 50 {
 		filled++
 	}
-	bar := fg(th.Success).Render("●") + " " +
+	// An estimate (the provider reported no usage yet) is marked with a
+	// dim dot and a "~" before the percentage and the token count.
+	dot, approx := th.Success, ""
+	if t.ctxEst {
+		dot, approx = th.TextDim, "~"
+	}
+	bar := fg(dot).Render("●") + " " +
 		fg(th.TextFaint).Render("[") +
 		fg(filledCol).Render(strings.Repeat("▰", filled)) +
 		fg(th.TextSubtle).Render(strings.Repeat("▱", 8-filled)) +
 		fg(th.TextFaint).Render("]") + " " +
-		fg(col).Render(itoa(pct)+"%")
-	nums := fg(col).Render(render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin))
+		fg(col).Render(approx+itoa(pct)+"%")
+	nums := fg(col).Render(approx + render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin))
 	return bar, nums
 }
 

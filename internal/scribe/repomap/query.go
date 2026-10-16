@@ -149,17 +149,44 @@ func (m *Map) SearchSymbols(query string, limit int) []SymbolHit {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var hits []SymbolHit
+	hitFor := func(s Symbol, score float64) SymbolHit {
+		if s.Exported {
+			score += 2
+		}
+		rank := m.fileRank(s.File) * (1 + math.Log1p(float64(m.refCount[s.Name])))
+		return SymbolHit{Symbol: s, Score: score, Rank: rank}
+	}
+	// Fast path: a single word of three or more bytes. Every symbol whose name
+	// contains q scores at least 60; a subsequence match scores at most 32
+	// (before the export bonus). So when the trigram index already yields
+	// limit substring hits, the subsequence tier cannot reach the top results
+	// and the full scan is skipped. The result is the same as the scan's.
+	if len(strings.Fields(q)) == 1 && len(q) >= 3 {
+		d := m.derivedFor(true, false)
+		for _, i := range symbolCandidates(d.tri, m.syms, q) {
+			s := m.syms[i]
+			if score, ok := nameScore(s.Name, query, q); ok {
+				hits = append(hits, hitFor(s, score))
+			}
+		}
+		if len(hits) >= limit {
+			return sortHits(hits, limit)
+		}
+		hits = hits[:0]
+	}
 	for _, s := range m.syms {
 		score, ok := nameScore(s.Name, query, q)
 		if !ok {
 			continue
 		}
-		if s.Exported {
-			score += 2
-		}
-		rank := m.fileRank(s.File) * (1 + math.Log1p(float64(m.refCount[s.Name])))
-		hits = append(hits, SymbolHit{Symbol: s, Score: score, Rank: rank})
+		hits = append(hits, hitFor(s, score))
 	}
+	return sortHits(hits, limit)
+}
+
+// sortHits orders search hits by score, then rank, then location, and keeps
+// the first limit.
+func sortHits(hits []SymbolHit, limit int) []SymbolHit {
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Score != hits[j].Score {
 			return hits[i].Score > hits[j].Score
@@ -459,7 +486,9 @@ func (m *Map) Render(budgetTokens int, focus []string) string {
 	}
 	var order []cand
 	for i, p := range m.paths {
-		if len(m.fileSyms[p]) == 0 && !inFocus[p] {
+		// A barrel has no symbols of its own, but its source list is the thing
+		// a reader needs, so it stays eligible.
+		if len(m.fileSyms[p]) == 0 && !inFocus[p] && !(m.files[p] != nil && m.files[p].Barrel) {
 			continue
 		}
 		s := rank[i] * 1000
@@ -469,6 +498,11 @@ func (m *Map) Render(budgetTokens int, focus []string) string {
 		s += boost[p]
 		if !inFocus[p] && len(m.fileSyms[p]) >= 5 && typeHeavyFile(m.fileSyms[p]) {
 			s *= 0.5
+		}
+		// Barrels with few definitions of their own are index files: spec 4.6
+		// scales them down unless the focus is on them.
+		if fi := m.files[p]; !inFocus[p] && fi != nil && fi.Barrel && len(m.fileSyms[p]) < 10 {
+			s *= barrelRankFactor
 		}
 		order = append(order, cand{i, s})
 	}
@@ -540,6 +574,9 @@ func (m *Map) Render(budgetTokens int, focus []string) string {
 // dirCap is how many blocks one directory may take in the first render pass.
 const dirCap = 4
 
+// barrelRankFactor scales the display rank of a barrel (spec 4.6: 0.6).
+const barrelRankFactor = 0.6
+
 // typeHeavyFile reports whether a file is a type module: most of its symbols
 // are structural (spec 4.6).
 func typeHeavyFile(syms []Symbol) bool {
@@ -609,6 +646,18 @@ func (m *Map) renderBlock(p string) string {
 	if h := m.headerFor(p, m.files[p]); h != "" {
 		fmt.Fprintf(&sb, "  ~ %s\n", h)
 	}
+	if srcs := m.reexports[p]; len(srcs) > 0 {
+		const maxSrcs = 6
+		shown := srcs
+		if len(shown) > maxSrcs {
+			shown = shown[:maxSrcs]
+		}
+		fmt.Fprintf(&sb, "  ← %s", strings.Join(shown, ", "))
+		if len(srcs) > maxSrcs {
+			fmt.Fprintf(&sb, " +%d more", len(srcs)-maxSrcs)
+		}
+		sb.WriteByte('\n')
+	}
 	syms := append([]Symbol(nil), m.fileSyms[p]...)
 	sort.SliceStable(syms, func(i, j int) bool { return syms[i].Line < syms[j].Line })
 	var shown []Symbol
@@ -647,7 +696,11 @@ func (m *Map) renderBlock(p string) string {
 		if n := len(m.callers[s.Name]); n > 0 && s.Exported {
 			badge = fmt.Sprintf(" <-%d", n)
 		}
-		fmt.Fprintf(&sb, "  %s%s :%d%s\n", mark, sig, s.Line, badge)
+		summary := ""
+		if s.Summary != "" {
+			summary = " - " + s.Summary
+		}
+		fmt.Fprintf(&sb, "  %s%s :%d%s%s\n", mark, sig, s.Line, badge, summary)
 	}
 	if more > 0 {
 		fmt.Fprintf(&sb, "  ... +%d more\n", more)

@@ -1,7 +1,11 @@
 package repomap
 
 import (
+	"os"
+	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -112,4 +116,61 @@ func ignored(rules []ignoreRule, rel string, isDir bool) bool {
 		}
 	}
 	return result
+}
+
+// scribeIgnoreFile is Scribe's own ignore file. It takes gitignore syntax and
+// is read on top of .gitignore, in both the git listing and the fallback walk.
+// No other tool's ignore file (such as .soulforgeignore) is read.
+const scribeIgnoreFile = ".scribeignore"
+
+// dropScribeIgnored removes the paths that a .scribeignore file excludes from
+// a git listing. git already applies .gitignore, so only the Scribe rules are
+// applied here. A file is excluded when any directory above it is excluded.
+func dropScribeIgnored(root string, rels []string) []string {
+	var files []string
+	for _, rel := range rels {
+		if path.Base(rel) == scribeIgnoreFile {
+			files = append(files, rel)
+		}
+	}
+	if len(files) == 0 {
+		return rels
+	}
+	// Shallow files first, so a deeper .scribeignore can override them, as
+	// nested .gitignore files do.
+	sort.SliceStable(files, func(i, j int) bool {
+		return strings.Count(files[i], "/") < strings.Count(files[j], "/")
+	})
+	var rules []ignoreRule
+	for _, rel := range files {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		base := path.Dir(rel)
+		if base == "." {
+			base = "" // the root's rules apply to every path
+		}
+		rules = append(rules, parseIgnore(base, data)...)
+	}
+	if len(rules) == 0 {
+		return rels
+	}
+	out := rels[:0:0]
+	for _, rel := range rels {
+		if !pathIgnored(rules, rel) {
+			out = append(out, rel)
+		}
+	}
+	return out
+}
+
+// pathIgnored reports whether rel, or a directory above it, is excluded.
+func pathIgnored(rules []ignoreRule, rel string) bool {
+	for d := path.Dir(rel); d != "." && d != "/"; d = path.Dir(d) {
+		if ignored(rules, d, true) {
+			return true
+		}
+	}
+	return ignored(rules, rel, false)
 }

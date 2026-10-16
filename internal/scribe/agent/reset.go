@@ -13,6 +13,9 @@ func (a *Agent) ResetHistory(msgs []llm.Message, mode string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.msgs = append([]llm.Message(nil), msgs...)
+	// The new history has no mode notices in it, so the next turn latches
+	// its mode afresh.
+	a.latchedMode = ""
 	a.gen++
 	if mode != "" {
 		a.mode = mode
@@ -34,6 +37,9 @@ func RunClearing(ctx context.Context, a *Agent, p *Planner, prompt string, image
 		}
 		a.ResetHistory(nil, "default")
 		stats, err = a.Run(ctx, clearedPlanMessage(c), nil)
+	}
+	if p != nil {
+		p.settle(err == nil && ctx.Err() == nil)
 	}
 	return stats, err
 }

@@ -252,12 +252,17 @@ func editExisting(env *tools.Env, undo *UndoStack, t target, edits []editSpec, m
 		res.Tag = tagOf(err)
 		return res
 	}
-	res := commit(env, undo, t, before, true, fromLF(newText, crlf))
+	after := fromLF(newText, crlf)
+	res := commit(env, undo, t, before, true, after)
 	if res.IsError {
 		return res
 	}
 	if multi {
 		res.Output = fmt.Sprintf("Applied %d edits to %s: %s.", len(edits), t.rel, strings.Join(msgs, "; "))
+		// The whole file before and after the batch, exactly as on disk, so the
+		// UI can show the joined change. Only a successful batch gets here: an
+		// atomic rollback returns above and carries no Meta.
+		res.Meta = map[string]any{"before": string(before), "after": after}
 	} else {
 		res.Output = fmt.Sprintf("Edited %s: %s.", t.rel, msgs[0])
 	}

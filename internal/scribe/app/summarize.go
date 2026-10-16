@@ -54,11 +54,12 @@ func (s modelSummarizer) Summarize(ctx context.Context, files []repomap.SummaryR
 	return res, nil
 }
 
-// summarizerModel is the model used for code map summaries: the compact
-// slot, else the explore slot. It returns false when neither is configured,
+// summarizerModel is the model used for code map summaries: the semantic
+// slot, else the compact slot, else the explore slot. It returns false when
+// none is configured,
 // and then the map gets no model summaries.
 func (a *App) summarizerModel() (agent.Model, bool) {
-	for _, ref := range []string{a.Cfg.Router.Compact, a.Cfg.Router.Explore} {
+	for _, ref := range []string{a.Cfg.Router.Semantic, a.Cfg.Router.Compact, a.Cfg.Router.Explore} {
 		if ref == "" {
 			continue
 		}

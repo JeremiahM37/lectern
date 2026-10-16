@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -246,7 +245,7 @@ func readOne(ctx context.Context, env *tools.Env, st *readState, p string, sel r
 		if fi.Size() > maxSymbolBytes {
 			return readOut{}, fmt.Errorf("%s is too large for symbol lookup (%s). Read it with lines= instead.", t.rel, humanSize(fi.Size()))
 		}
-		src, err := os.ReadFile(t.abs)
+		src, err := readFileForRead(t.abs)
 		if err != nil {
 			return readOut{}, err
 		}
@@ -261,7 +260,7 @@ func readOne(ctx context.Context, env *tools.Env, st *readState, p string, sel r
 		header = fmt.Sprintf("%s (%s), lines %d-%d:\n", sp.Name, sp.Kind, sp.Start, sp.End)
 	}
 
-	f, err := os.Open(t.abs)
+	f, err := openForRead(t.abs)
 	if err != nil {
 		return readOut{}, err
 	}

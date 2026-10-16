@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // build renders every record (finished ones from cache), records where each
@@ -44,6 +45,7 @@ func (v *View) build() {
 	if len(v.msgs) == 0 {
 		lines = append(lines, "  "+fg(v.th.TextMuted, styledItalic("No messages yet. Type below to start.")))
 	}
+	v.markLines(lines, hits, w)
 	v.placeRail()
 	v.lines, v.hits, v.lastTotal = lines, hits, len(lines)
 }
@@ -230,9 +232,13 @@ func (v *View) wheelStep() int {
 	return step
 }
 
-// HandleMouse handles the wheel (scroll) and a left click (toggle the tool
-// row or reasoning block under the pointer). Y is relative to the top of the
-// view. It reports whether the event was used.
+// HandleMouse handles the wheel (scroll), pointer motion (hover highlight and
+// drag selection) and the left button. A press starts a selection. A release
+// that did not drag is a click: it toggles the tool row, reasoning block or
+// rail fold under the pointer, or toggles every row when the click lands on
+// empty space. A release after a drag keeps the selection for ReleasedSelection
+// to copy. Y is relative to the top of the view. It reports whether the event
+// was used.
 func (v *View) HandleMouse(m tea.MouseMsg) bool {
 	switch {
 	case m.Button == tea.MouseButtonWheelUp:
@@ -241,32 +247,189 @@ func (v *View) HandleMouse(m tea.MouseMsg) bool {
 	case m.Button == tea.MouseButtonWheelDown:
 		v.ScrollDown(v.wheelStep())
 		return true
+	case m.Action == tea.MouseActionMotion:
+		v.pointerMoved(m)
+		return true
 	case m.Action == tea.MouseActionPress && m.Button == tea.MouseButtonLeft:
 		if v.railOn() && m.X < railW {
 			return true // the rail takes clicks in its own columns
 		}
 		v.build()
-		abs := v.windowTop(len(v.lines)) + m.Y
-		t, ok := v.hits[abs]
-		if !ok {
+		v.selecting, v.sel = true, false
+		v.anchor = v.cellAt(m)
+		v.cursor = v.anchor
+		return true
+	case m.Action == tea.MouseActionRelease && m.Button == tea.MouseButtonLeft:
+		if !v.selecting {
 			return false
 		}
-		if t.summary {
-			t.rec.ReasonOpen = !t.rec.ReasonOpen
+		v.selecting = false
+		if v.sel {
+			v.copyText = v.selectedText()
+			v.copyPending = true
+			v.gen++
+			return true
 		}
-		if t.rail {
-			t.rec.RailOpen = !t.rec.RailOpen
-		}
-		if t.call != nil {
-			t.call.Toggled = !t.call.Toggled
-		}
-		if t.seg != nil {
-			t.seg.Toggled = !t.seg.Toggled
-		}
-		t.rec.cache = nil
+		v.click(v.anchor.line)
 		return true
 	}
 	return false
+}
+
+// pointerMoved extends a drag selection, or moves the hover highlight to the
+// tool, reasoning or rail row under the pointer.
+func (v *View) pointerMoved(m tea.MouseMsg) {
+	if v.selecting && m.Button == tea.MouseButtonLeft {
+		v.build()
+		v.cursor = v.cellAt(m)
+		if v.cursor != v.anchor {
+			v.sel = true
+		}
+		return
+	}
+	if m.Button != tea.MouseButtonNone {
+		return
+	}
+	v.build()
+	v.hoverLine = -1
+	if v.railOn() && m.X < railW {
+		return
+	}
+	abs := v.windowTop(len(v.lines)) + m.Y
+	if _, ok := v.hits[abs]; ok {
+		v.hoverLine = abs
+	}
+}
+
+// ClearHover drops the hover highlight, for when the pointer leaves the
+// transcript.
+func (v *View) ClearHover() { v.hoverLine = -1 }
+
+// click acts on a release at absolute line abs: a row that has a fold toggles
+// it, and any other row toggles every row (Ctrl+O).
+func (v *View) click(abs int) {
+	t, ok := v.hits[abs]
+	if !ok {
+		v.ToggleExpand()
+		return
+	}
+	if t.summary {
+		t.rec.ReasonOpen = !t.rec.ReasonOpen
+	}
+	if t.rail {
+		t.rec.RailOpen = !t.rec.RailOpen
+	}
+	if t.call != nil {
+		t.call.Toggled = !t.call.Toggled
+	}
+	if t.seg != nil {
+		t.seg.Toggled = !t.seg.Toggled
+	}
+	t.rec.cache = nil
+	v.gen++
+}
+
+// cellAt maps a mouse position to a transcript cell: absolute line and the
+// column inside the message body (the rail columns are not part of it).
+func (v *View) cellAt(m tea.MouseMsg) cellPos {
+	v.build()
+	col := m.X
+	if v.railOn() {
+		col -= railW
+	}
+	if col < 0 {
+		col = 0
+	}
+	line := v.windowTop(len(v.lines)) + m.Y
+	if line >= len(v.lines) {
+		line = len(v.lines) - 1
+	}
+	if line < 0 {
+		line = 0
+	}
+	return cellPos{line: line, col: col}
+}
+
+// ReleasedSelection returns the text of a drag selection that has just ended,
+// once: the caller copies it. ok is false when no drag ended since the last call.
+func (v *View) ReleasedSelection() (string, bool) {
+	if !v.copyPending {
+		return "", false
+	}
+	v.copyPending = false
+	return v.copyText, true
+}
+
+// selectedText is the plain text between the anchor and the cursor, inclusive.
+// Each line is cut to its columns and trailing spaces are dropped.
+func (v *View) selectedText() string {
+	a, b := v.selectionBounds()
+	var out []string
+	for l := a.line; l <= b.line && l < len(v.lines); l++ {
+		s := ansi.Strip(v.lines[l])
+		from, to := 0, ansi.StringWidth(s)
+		if l == a.line {
+			from = a.col
+		}
+		if l == b.line && b.col+1 < to {
+			to = b.col + 1
+		}
+		if from > to {
+			from = to
+		}
+		out = append(out, strings.TrimRight(ansi.Cut(s, from, to), " "))
+	}
+	return strings.Join(out, "\n")
+}
+
+// selectionBounds returns the selection ordered from its start to its end.
+func (v *View) selectionBounds() (cellPos, cellPos) {
+	a, b := v.anchor, v.cursor
+	if b.line < a.line || (b.line == a.line && b.col < a.col) {
+		a, b = b, a
+	}
+	return a, b
+}
+
+// markLines decorates the built lines: the hovered tool row gets the elevated
+// background, and a drag selection is shown in reverse video.
+func (v *View) markLines(lines []string, hits map[int]hitTarget, w int) {
+	if _, ok := hits[v.hoverLine]; ok && v.hoverLine >= 0 && v.hoverLine < len(lines) && !v.sel {
+		lines[v.hoverLine] = bgLine(lines[v.hoverLine], w, v.th.BgElevated)
+	}
+	if !v.sel {
+		return
+	}
+	a, b := v.selectionBounds()
+	for l := a.line; l <= b.line && l < len(lines); l++ {
+		from, to := 0, -1
+		if l == a.line {
+			from = a.col
+		}
+		if l == b.line {
+			to = b.col + 1
+		}
+		lines[l] = reverseCells(lines[l], w, from, to)
+	}
+}
+
+// reverseCells shows the cells [from, to) of s in reverse video; to < 0 means
+// to the end of the line. Resets inside the selection are followed by reverse
+// again, as bgLine does for backgrounds.
+func reverseCells(s string, w, from, to int) string {
+	s = fit(s, w)
+	if to < 0 || to > w {
+		to = w
+	}
+	if from > to {
+		from = to
+	}
+	left := ansi.Cut(s, 0, from)
+	mid := ansi.Cut(s, from, to)
+	right := ansi.Cut(s, to, w)
+	mid = strings.ReplaceAll(mid, "\x1b[0m", "\x1b[0m\x1b[7m")
+	mid = strings.ReplaceAll(mid, "\x1b[m", "\x1b[m\x1b[7m")
+	return left + "\x1b[7m" + mid + "\x1b[27m" + right
 }
 
 func maxInt(a, b int) int {

@@ -36,6 +36,7 @@ type serversView struct {
 	be       Backend
 	kind     string // "" lists both kinds
 	lsp      map[string]LSPSession
+	pings    map[string]mcpPingResult
 	cursor   int
 	off      int
 	note     string
@@ -61,6 +62,27 @@ type LSPSession struct {
 // language servers. The servers view shows them alongside the MCP servers.
 type LSPSessioner interface {
 	LSPSessions() []LSPSession
+}
+
+// MCPPinger is optionally implemented by a Backend that can ping an MCP
+// server. p in the servers view pings the highlighted one; the details show
+// the last answer.
+type MCPPinger interface {
+	PingMCP(name string) (time.Duration, error)
+}
+
+// mcpPingDone is the result of one ping, returned to the view in the background.
+type mcpPingDone struct {
+	name string
+	took time.Duration
+	err  error
+}
+
+// mcpPingResult is the last answer the view saw for a server.
+type mcpPingResult struct {
+	at   time.Time
+	took time.Duration
+	err  error
 }
 
 // lspName is the row name of a language server: its language, plus the
@@ -135,12 +157,26 @@ func (v *serversView) Size(cols, rows int) (int, int) {
 
 // Update implements Modal.
 func (v *serversView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
+	if done, ok := msg.(mcpPingDone); ok {
+		if v.pings == nil {
+			v.pings = map[string]mcpPingResult{}
+		}
+		v.pings[done.name] = mcpPingResult{at: time.Now(), took: done.took, err: done.err}
+		if done.err != nil {
+			v.say("err", done.name+" did not answer: "+done.err.Error())
+		} else {
+			v.say("ok", fmt.Sprintf("%s answered in %s", done.name, done.took.Round(time.Millisecond)))
+		}
+		return v, nil, false
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return v, nil, false
 	}
 	n := len(v.servers())
 	switch km.String() {
+	case "p":
+		return v, v.ping(), false
 	case "esc", "q":
 		return v, nil, true
 	case "up", "k":
@@ -207,6 +243,26 @@ func (v *serversView) showDetails() {
 	v.m.pushModal(p)
 }
 
+// ping asks the highlighted MCP server to answer a ping, in the background.
+func (v *serversView) ping() tea.Cmd {
+	list := v.servers()
+	if v.cursor < 0 || v.cursor >= len(list) || list[v.cursor].Kind != "mcp" {
+		v.say("info", "Select an MCP server first.")
+		return nil
+	}
+	pg, ok := v.be.(MCPPinger)
+	if !ok {
+		v.say("info", "This build cannot ping MCP servers.")
+		return nil
+	}
+	name := list[v.cursor].Name
+	v.say("info", "Pinging "+name+"…")
+	return func() tea.Msg {
+		took, err := pg.PingMCP(name)
+		return mcpPingDone{name: name, took: took, err: err}
+	}
+}
+
 // showMCPDetails shows what the config says about an MCP server and what
 // the running state is. Nothing here changes anything; Esc closes it.
 func (v *serversView) showMCPDetails(st ServerStatus) {
@@ -228,6 +284,9 @@ func (v *serversView) showMCPDetails(st ServerStatus) {
 		}
 	}
 	items = append(items, PickItem{Value: "tools", Label: "Tools", Desc: fmt.Sprint(st.Tools)})
+	if _, ok := v.be.(MCPPinger); ok {
+		items = append(items, PickItem{Value: "ping", Label: "Last ping", Desc: v.pingText(st.Name)})
+	}
 	if st.Error != "" {
 		items = append(items, PickItem{Value: "error", Label: "Last error", Desc: oneLine(st.Error)})
 	}
@@ -465,4 +524,18 @@ func (v *serversView) lspDetail(name string) string {
 		return fmt.Sprintf("pid %d · %d open", ls.PID, ls.OpenDocs)
 	}
 	return fmt.Sprintf("%d open", ls.OpenDocs)
+}
+
+// pingText is the Last ping row: the last answer and how long ago it came,
+// or a hint when this view has not pinged the server yet.
+func (v *serversView) pingText(name string) string {
+	r, ok := v.pings[name]
+	if !ok {
+		return "not pinged yet; press p on the server in the list"
+	}
+	ago := relAge(r.at, time.Now())
+	if r.err != nil {
+		return "no answer " + ago + " ago: " + oneLine(r.err.Error())
+	}
+	return fmt.Sprintf("%s, %s ago", r.took.Round(time.Millisecond), ago)
 }

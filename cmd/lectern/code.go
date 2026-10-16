@@ -161,7 +161,9 @@ func endSessions(list []tui.Backend) {
 func printSavedBanners(list []tui.Backend) {
 	for _, be := range list {
 		if id := be.SessionID(); id != "" {
-			fmt.Fprintln(os.Stdout, tui.SavedBanner(id))
+			for _, line := range tui.SavedBannerLines(id, be.Transcript()) {
+				fmt.Fprintln(os.Stdout, line)
+			}
 		}
 	}
 }

@@ -232,11 +232,12 @@ var phrases = map[string][]string{
 	"explore":  {"Reading the code", "Following references", "Searching", "Mapping dependencies"},
 	"edit":     {"Writing changes", "Editing", "Revising"},
 	"dispatch": {"Sending out helpers", "Working in parallel"},
+	"review":   {"Waiting for your answer"},
 }
 
 var (
-	phaseTone = map[string]string{"explore": "brand", "edit": "warning", "dispatch": "info"}
-	phaseSpin = map[string]render.Spinner{"explore": render.Explore, "edit": render.Edit, "dispatch": render.Dispatch}
+	phaseTone = map[string]string{"explore": "brand", "edit": "warning", "dispatch": "info", "review": "warning"}
+	phaseSpin = map[string]render.Spinner{"explore": render.Explore, "edit": render.Edit, "dispatch": render.Dispatch, "review": {"◎"}}
 )
 
 const (
@@ -364,17 +365,42 @@ func (v *View) LivePhrase(now time.Time) string {
 	return "Thinking"
 }
 
-// renderPlan draws the plan as a box: the title with done/total, the steps (a
-// window of seven around the active one once the list is long) and, when every
-// step is finished, the files and the verification checklist. A finished plan
-// folds to one line until it is clicked.
+// renderPlan draws a plan segment with no task links. See renderPlanTasks.
 func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
+	return v.renderPlanTasks(s, nil, cw, now)
+}
+
+// renderPlanTasks draws a plan segment in the state it is in. A plan the user
+// cancelled or sent back is a rejected artifact. A plan no step has started
+// is the structured artifact: context, files, steps and verification. While
+// it runs, it is the progress box, with the tasks linked to the active step
+// nested under it. Once every step is finished it folds to one line until it
+// is clicked. tasks are the task-list entries of the turn.
+func (v *View) renderPlanTasks(s *Segment, tasks []agent.Task, cw int, now time.Time) builder {
 	var b builder
-	th := v.th
 	p := s.Plan
 	if p == nil {
 		return b
 	}
+	if rejectedPlan(p) {
+		return v.renderRejectedPlan(p, cw)
+	}
+	if p.Outcome == "approved" && !s.Toggled && !v.expanded && planProposed(p) {
+		// Approved, and no step has reported yet: the approved summary.
+		files := planFileList(p)
+		line := fg(v.th.Success, icons.Icon("success")) + " " + bold(v.th.TextPrimary, p.Title) +
+			fg(v.th.TextMuted, fmt.Sprintf(" (%d files, %d steps)", len(files), len(p.Steps)))
+		if p.Path != "" {
+			line += fg(v.th.TextFaint, " ─ ") + fg(v.th.TextMuted, p.Path)
+		}
+		b.mark(nil, s)
+		b.add(line)
+		return b
+	}
+	if planProposed(p) {
+		return v.renderStructuredPlan(p, cw)
+	}
+	th := v.th
 	total, done, finished, active := len(p.Steps), 0, 0, -1
 	for i, st := range p.Steps {
 		switch st.Status {
@@ -390,7 +416,7 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 		}
 	}
 	allDone := total > 0 && finished == total
-	files := planFiles(p)
+	files := planFileList(p)
 	if allDone && !s.Toggled && !v.expanded {
 		line := fg(th.Success, icons.Icon("success")) + " " + bold(th.TextPrimary, p.Title) +
 			fg(th.TextMuted, fmt.Sprintf(" (%d files, %d steps)", len(files), total))
@@ -440,6 +466,7 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 		body = append(body, glyph+" "+clip(text, cw-6))
 		if st.Status == "active" {
 			body = append(body, planSymbolRows("", st.Symbols, cw-4, th)...)
+			body = append(body, prefixRows(planTaskRows(linkedTo(tasks, st.ID), cw-4, th, now), "  ")...)
 		}
 	}
 	if end < total {
@@ -458,15 +485,101 @@ func (v *View) renderPlan(s *Segment, cw int, now time.Time) builder {
 	return b
 }
 
-// planFiles lists the files the plan's steps name, each once, in order.
-func planFiles(p *agent.Plan) []string {
-	var out []string
+// rejectedPlan reports whether the user sent the plan back or cancelled it.
+func rejectedPlan(p *agent.Plan) bool {
+	return p.Outcome == "cancelled" || p.Outcome == "revision"
+}
+
+// planProposed reports whether a plan has steps and none has started: it is
+// still the proposal the user is reviewing.
+func planProposed(p *agent.Plan) bool {
+	if len(p.Steps) == 0 {
+		return false
+	}
+	for _, st := range p.Steps {
+		if st.Status != "" && st.Status != "pending" {
+			return false
+		}
+	}
+	return true
+}
+
+// renderStructuredPlan is the plan as an artifact in the transcript: a box
+// titled with the plan, then Context, Files (with what happens to each),
+// Steps and Verification. Five rows per list, then "+N more".
+func (v *View) renderStructuredPlan(p *agent.Plan, cw int) builder {
+	var b builder
+	th := v.th
+	title := fg(th.Info, icons.Icon("plan")) + " " + bold(th.Info, clip(p.Title, maxInt(cw-24, 8)))
+	if p.Path != "" {
+		title += fg(th.TextFaint, " ─ ") + fg(th.TextMuted, clip(p.Path, maxInt(cw-24-len(p.Title), 8)))
+	}
+	var body []string
+	if ctx := strings.TrimSpace(p.Summary); ctx != "" {
+		body = append(body, bold(th.BrandAlt, "Context"))
+		for _, line := range strings.Split(render.Wrap(ctx, maxInt(cw-6, 10)), "\n") {
+			body = append(body, fg(th.TextSecondary, line))
+		}
+		body = append(body, "")
+	}
+	if files := planFileList(p); len(files) > 0 {
+		body = append(body, bold(th.BrandAlt, fmt.Sprintf("Files (%d)", len(files))))
+		for i, f := range files {
+			if i == 5 {
+				body = append(body, fg(th.TextMuted, fmt.Sprintf("+%d more", len(files)-5)))
+				break
+			}
+			g, col := planFileMark(f.Action, th)
+			body = append(body, fg(col, g)+" "+fg(th.TextPrimary, clip(f.Path, cw-8)))
+			if f.Description != "" {
+				body = append(body, "   "+fg(th.TextMuted, clip(f.Description, cw-8)))
+			}
+		}
+		body = append(body, "")
+	}
+	body = append(body, bold(th.BrandAlt, fmt.Sprintf("Steps (%d)", len(p.Steps))))
+	for i, st := range p.Steps {
+		if i == 5 {
+			body = append(body, fg(th.TextMuted, fmt.Sprintf("+%d more", len(p.Steps)-5)))
+			break
+		}
+		body = append(body, fg(th.BrandAlt, fmt.Sprintf("%d.", i+1))+" "+fg(th.TextSecondary, clip(st.Text, cw-8)))
+	}
+	body = append(body, planVerifySection(p.Verification, th)...)
+	b.add(boxed(title, body, cw, 1, th.TextFaint, nil)...)
+	return b
+}
+
+// renderRejectedPlan is a plan the user did not approve. It keeps its title
+// in a muted, subtle box and says what happened: cancelled, or the changes the
+// user asked for.
+func (v *View) renderRejectedPlan(p *agent.Plan, cw int) builder {
+	var b builder
+	th := v.th
+	title := fg(th.TextMuted, icons.Icon("plan")) + " " + fg(th.TextMuted, clip(p.Title, maxInt(cw-12, 8)))
+	var line string
+	if p.Outcome == "revision" {
+		line = fg(th.Warning, "↻ Revision requested: ") + fg(th.TextSecondary, clip(p.Feedback, maxInt(cw-30, 8)))
+	} else {
+		line = fg(th.Error, icons.Icon("fail")+" Plan cancelled")
+	}
+	b.add(boxed(title, []string{line}, cw, 1, th.TextSubtle, nil)...)
+	return b
+}
+
+// planFileList is the plan's files with their actions. A plan that gave no
+// file list falls back to the paths its steps name, with no action.
+func planFileList(p *agent.Plan) []agent.PlanFile {
+	if len(p.Files) > 0 {
+		return p.Files
+	}
+	var out []agent.PlanFile
 	seen := map[string]bool{}
 	for _, st := range p.Steps {
 		for _, f := range st.Files {
 			if f != "" && !seen[f] {
 				seen[f] = true
-				out = append(out, f)
+				out = append(out, agent.PlanFile{Path: f})
 			}
 		}
 	}
@@ -474,7 +587,7 @@ func planFiles(p *agent.Plan) []string {
 }
 
 // planFilesSection is the files part of a finished plan, at most five rows.
-func planFilesSection(files []string, th theme.Theme) []string {
+func planFilesSection(files []agent.PlanFile, th theme.Theme) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -484,7 +597,11 @@ func planFilesSection(files []string, th theme.Theme) []string {
 			out = append(out, fg(th.TextMuted, fmt.Sprintf("+%d more", len(files)-5)))
 			break
 		}
-		out = append(out, "  "+fg(th.TextPrimary, f))
+		g, col := planFileMark(f.Action, th)
+		out = append(out, fg(col, g)+" "+fg(th.TextPrimary, f.Path))
+		if f.Description != "" {
+			out = append(out, "   "+fg(th.TextMuted, f.Description))
+		}
 	}
 	return out
 }
@@ -503,6 +620,70 @@ func planVerifySection(items []string, th theme.Theme) []string {
 		out = append(out, fg(th.Success, "✓ ")+fg(th.TextSecondary, it))
 	}
 	return out
+}
+
+// planStepIDs are the step ids of the record's live plans (not rejected ones).
+func planStepIDs(rec *Record) map[string]bool {
+	ids := map[string]bool{}
+	for _, s := range rec.Segments {
+		if s.Kind == "plan" && s.Plan != nil && s.Plan.Outcome == "" {
+			for _, st := range s.Plan.Steps {
+				ids[st.ID] = true
+			}
+		}
+	}
+	return ids
+}
+
+// recordTasks is every task-list entry of the record, in order.
+func recordTasks(rec *Record) []agent.Task {
+	var out []agent.Task
+	for _, s := range rec.Segments {
+		if s.Kind == "tasks" {
+			out = append(out, s.Tasks...)
+		}
+	}
+	return out
+}
+
+// linkedTo is the tasks linked to one plan step.
+func linkedTo(tasks []agent.Task, stepID string) []agent.Task {
+	var out []agent.Task
+	for _, t := range tasks {
+		if t.StepID == stepID {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// unlinkedTasks is a copy of a task segment without the tasks nested under a
+// step of the record's plan. Those are shown under the step instead.
+func unlinkedTasks(rec *Record, s *Segment) *Segment {
+	ids := planStepIDs(rec)
+	if len(ids) == 0 {
+		return s
+	}
+	cp := *s
+	cp.Tasks = nil
+	for _, t := range s.Tasks {
+		if t.StepID == "" || !ids[t.StepID] {
+			cp.Tasks = append(cp.Tasks, t)
+		}
+	}
+	return &cp
+}
+
+// renderLinkedSeg draws a plan or task-list segment of rec with the task links
+// applied, and any other segment as renderSeg does.
+func (v *View) renderLinkedSeg(rec *Record, s *Segment, cw int, now time.Time, afterTools bool) builder {
+	switch s.Kind {
+	case "plan":
+		return v.renderPlanTasks(s, recordTasks(rec), cw, now)
+	case "tasks":
+		return v.renderTasks(unlinkedTasks(rec, s), cw, now)
+	}
+	return v.renderSeg(s, cw, now, afterTools)
 }
 
 // tasksLinger is how long a task list stays up after every task is done.
@@ -551,18 +732,7 @@ func (v *View) renderTasks(s *Segment, cw int, now time.Time) builder {
 			body = append(body, fg(th.TextMuted, fmt.Sprintf("+%d more", len(open)-6)))
 			break
 		}
-		var glyph, text string
-		switch t.Status {
-		case "in_progress":
-			glyph, text = fg(th.Brand, render.Frame(render.Braille, frameAt(now))), bold(th.TextPrimary, clip(t.Text, cw-8))
-		case "blocked":
-			glyph, text = fg(th.Error, icons.Icon("fail")), fg(th.Error, clip(t.Text, cw-8))
-		case "cancelled":
-			glyph, text = fg(th.TextDim, icons.Icon("skip")), fg(th.TextDim, clip(t.Text, cw-8))
-		default:
-			glyph, text = fg(th.TextMuted, "○"), fg(th.TextMuted, clip(t.Text, cw-8))
-		}
-		body = append(body, glyph+" "+text)
+		body = append(body, taskRow(t, cw, th, now))
 	}
 	title := bold(th.Brand, icons.Icon("plan")+" Tasks") + "  " + fg(th.TextSecondary, fmt.Sprintf("%d/%d", done, len(s.Tasks)))
 	b.add(boxed(title, body, cw, 1, th.BrandDim, nil)...)

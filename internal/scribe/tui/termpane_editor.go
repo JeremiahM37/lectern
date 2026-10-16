@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/nvim"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/term"
 )
@@ -45,8 +47,18 @@ func editorCommand(file string) ([]string, error) { return editorCommandAt(file,
 // for the start). "+N file" opens at a line in Neovim, Vim, nano and vi.
 func editorCommandAt(file string, line int) ([]string, error) {
 	var argv []string
-	for _, name := range []string{"SCRIBE_EDITOR", "VISUAL", "EDITOR"} {
-		v := strings.TrimSpace(os.Getenv(name))
+	// SCRIBE_EDITOR, then the editor setting (editor.command and args), then
+	// VISUAL and EDITOR, then the first installed of nvim, vim, nano, vi.
+	for _, name := range []string{"SCRIBE_EDITOR", "setting", "VISUAL", "EDITOR"} {
+		v := ""
+		if name == "setting" {
+			editorSettingMu.Lock()
+			v = editorSetting
+			editorSettingMu.Unlock()
+			name = "the editor setting"
+		} else {
+			v = strings.TrimSpace(os.Getenv(name))
+		}
 		if v == "" {
 			continue
 		}
@@ -209,6 +221,8 @@ func (m *Model) openEditorAt(file string, line int) tea.Cmd {
 	}
 	t := m.cur()
 	ed := &editorPane{name: displayName(file, t.be.Workdir())}
+	// Read the editor settings again: they may have changed in /settings.
+	applyEditorSettings(t.be.Workdir())
 	argv, err := editorCommandAt(file, line)
 	if err != nil {
 		ed.noEditor = errors.Is(err, errNoEditor)
@@ -357,4 +371,70 @@ func (m *Model) editorErrorLines() []string {
 		out = append(out, fgb(th.Error).Render("Editor did not start"), "", ed.errMsg)
 	}
 	return append(out, "", fg(th.TextDim).Render("Esc closes this pane"))
+}
+
+// applyEditorSettings sets the editor's start config, agent sync and agent
+// access from the config for root. A missing or unreadable config keeps the
+// defaults.
+func applyEditorSettings(root string) {
+	c, err := config.Load(root)
+	if err != nil {
+		return
+	}
+	nvim.SetStartConfig(c.EditorConfig)
+	setEditorCommand(c.Editor.Command, c.Editor.Args)
+	nvim.SetSyncOnEdit(c.EditorSync == nil || *c.EditorSync)
+	if c.EditorAccess != "" {
+		if a, err := nvim.ParseAccess(c.EditorAccess); err == nil {
+			nvim.SetAccess(a)
+		}
+	}
+}
+
+// saveEditorSetting writes one editor setting to the global config, keeping the
+// rest of the file as it is. The change applies now and is read again at the
+// next start.
+func saveEditorSetting(change func(c *config.Config)) error {
+	c, err := config.LoadFile(config.GlobalPath())
+	if err != nil {
+		return err
+	}
+	change(&c)
+	return config.SaveGlobal(c)
+}
+
+// parseOnOff reads an on/off setting.
+func parseOnOff(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on", "yes", "true":
+		return true, nil
+	case "off", "no", "false":
+		return false, nil
+	}
+	return false, fmt.Errorf("want on or off, got %q", s)
+}
+
+// syncLabel is the sync setting as the flash names it.
+func syncLabel(on bool) string {
+	if on {
+		return "Editor sync: agent edits follow into the open buffer"
+	}
+	return "Editor sync: off; agent edits do not move the editor"
+}
+
+// editorSetting is the editor command line from the config (editor.command
+// plus editor.args), or "" when unset.
+var (
+	editorSettingMu sync.Mutex
+	editorSetting   string
+)
+
+func setEditorCommand(cmd string, args []string) {
+	v := ""
+	if c := strings.TrimSpace(cmd); c != "" {
+		v = strings.Join(append([]string{c}, args...), " ")
+	}
+	editorSettingMu.Lock()
+	editorSetting = v
+	editorSettingMu.Unlock()
 }

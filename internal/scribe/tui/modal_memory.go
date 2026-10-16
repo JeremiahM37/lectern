@@ -26,19 +26,47 @@ func init() {
 // memCategories are the categories the memory tool accepts.
 var memCategories = []string{"fact", "decision", "convention", "bug", "preference", "todo"}
 
-// memScopes are the scope tabs, in order. The cleanup tab follows them.
+// memScopes are the scope tabs, in order. The hidden and cleanup tabs follow them.
 var memScopes = []string{"project", "global"}
 
-// memTabCleanup is the index of the cleanup tab.
-const memTabCleanup = 2
+// memTabHidden is the index of the hidden (soft-deleted) tab.
+const memTabHidden = 2
 
-// memTabCount is the number of tabs: project, global and cleanup.
-const memTabCount = 3
+// memTabCleanup is the index of the cleanup tab.
+const memTabCleanup = 3
+
+// memTabCount is the number of tabs: project, global, hidden and cleanup.
+const memTabCount = 4
 
 // MemoryCleanup is optionally implemented by a Backend that can name memories
 // worth a second look. Nothing is removed by the tab; the person decides.
 type MemoryCleanup interface {
 	MemoryCleanupCandidates() []CleanupCandidate
+}
+
+// MemoryHider is optionally implemented by a Backend that soft-deletes
+// memories. A hidden memory is kept, is not recalled, and can be restored from
+// the Hidden tab. Without it, d deletes outright, after a confirm.
+type MemoryHider interface {
+	HiddenMemories() []MemoryItem
+	HideMemory(id string) error
+	RestoreMemory(id string) error
+}
+
+// MemoryPolicy is the memory settings the settings sub-modal edits. The
+// values are the effective ones; "" means the default.
+type MemoryPolicy struct {
+	WriteScope  string // project, global or none
+	ReadScope   string // all, project, global or none
+	ProjectOpen bool   // a project store is open, so the project file can be saved
+}
+
+// MemoryPolicyBackend is optionally implemented by a Backend whose memory
+// settings can be read and saved. saveTo is "project" or "global": the
+// settings file the values are written to.
+type MemoryPolicyBackend interface {
+	MemoryPolicy() MemoryPolicy
+	SaveMemoryPolicy(p MemoryPolicy, saveTo string) error
 }
 
 // CleanupCandidate is one memory the cleanup tab lists, and why it is listed.
@@ -64,6 +92,7 @@ type memoryBrowser struct {
 	wide      bool
 	visible   []MemoryItem
 	cands     []CleanupCandidate // the cleanup tab's rows
+	hidden    []MemoryItem       // the hidden tab's rows, both scopes
 	note      string
 	noteKind  string
 }
@@ -94,6 +123,15 @@ func (b *memoryBrowser) scope() string {
 // inCleanup reports whether the cleanup tab is showing.
 func (b *memoryBrowser) inCleanup() bool { return b.tab == memTabCleanup }
 
+// inHidden reports whether the hidden tab is showing.
+func (b *memoryBrowser) inHidden() bool { return b.tab == memTabHidden }
+
+// canHide reports whether the backend can soft-delete.
+func (b *memoryBrowser) canHide() bool {
+	_, ok := b.be.(MemoryHider)
+	return ok
+}
+
 func (b *memoryBrowser) count(scope string) int {
 	n := 0
 	for _, it := range b.all {
@@ -107,19 +145,27 @@ func (b *memoryBrowser) count(scope string) int {
 // reload fetches every memory from the backend and re-applies the filter.
 func (b *memoryBrowser) reload() {
 	b.all = b.be.Memories("")
-	b.cands = nil
+	b.cands, b.hidden = nil, nil
 	if cl, ok := b.be.(MemoryCleanup); ok {
 		b.cands = cl.MemoryCleanupCandidates()
+	}
+	if h, ok := b.be.(MemoryHider); ok {
+		b.hidden = h.HiddenMemories()
 	}
 	b.apply()
 }
 
 // apply rebuilds the visible list: this tab's scope, the query, pinned first then newest.
+// The hidden tab lists hidden memories from both scopes.
 func (b *memoryBrowser) apply() {
 	q := strings.ToLower(strings.TrimSpace(b.query))
+	src := b.all
+	if b.inHidden() {
+		src = b.hidden
+	}
 	var out []MemoryItem
-	for _, it := range b.all {
-		if memScopeOf(it) != b.scope() {
+	for _, it := range src {
+		if !b.inHidden() && memScopeOf(it) != b.scope() {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(it.Title+" "+it.Category+" "+it.Body), q) {
@@ -196,9 +242,12 @@ func (b *memoryBrowser) Footer() string {
 		return "type to search · Enter keep · Esc clear"
 	}
 	if b.inCleanup() {
-		return "↑↓ move · Enter edit · d delete · p pin · r refresh · Tab switches · Esc close"
+		return "↑↓ move · Enter edit · d hide · p pin · r refresh · Tab · Esc close"
 	}
-	return "↑↓ move · Enter edit · n new · d delete · p pin · / search · Esc close"
+	if b.inHidden() {
+		return "↑↓ · r restore · d delete for good · Tab · Esc close"
+	}
+	return "↑↓ · Enter edit · n new · d hide · p pin · / search · s settings · Esc"
 }
 
 // Size implements Sized. It also records whether the preview goes beside the list.
@@ -289,6 +338,8 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		if b.inCleanup() {
 			b.reload()
 			b.say("ok", "Refreshed")
+		} else if it, ok := b.current(); ok && b.inHidden() {
+			b.restore(it)
 		}
 	case "enter":
 		if it, ok := b.current(); ok {
@@ -298,7 +349,17 @@ func (b *memoryBrowser) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		b.m.pushModal(b.editor(nil))
 	case "d":
 		if it, ok := b.current(); ok {
-			b.m.pushModal(b.confirmDelete(it))
+			if b.canHide() && !b.inHidden() {
+				b.hide(it)
+			} else {
+				b.m.pushModal(b.confirmDelete(it))
+			}
+		}
+	case "s":
+		if p, ok := b.be.(MemoryPolicyBackend); ok {
+			b.m.pushModal(newMemPolicyForm(b.th, p, b.reloadNow))
+		} else {
+			b.say("info", "This build cannot change memory settings.")
 		}
 	case "p":
 		b.togglePin()
@@ -341,9 +402,45 @@ func (b *memoryBrowser) togglePin() {
 	b.say("ok", verb+" "+shorten(it.Title, 40))
 }
 
+// hide soft-deletes it. The memory stays in the Hidden tab until restored.
+func (b *memoryBrowser) hide(it MemoryItem) {
+	h := b.be.(MemoryHider)
+	if err := h.HideMemory(it.ID); err != nil {
+		b.say("err", err.Error())
+		return
+	}
+	b.reload()
+	b.say("ok", "Hidden "+shorten(it.Title, 40)+". Restore it from the Hidden tab.")
+}
+
+// restore brings a hidden memory back.
+func (b *memoryBrowser) restore(it MemoryItem) {
+	h, ok := b.be.(MemoryHider)
+	if !ok {
+		return
+	}
+	if err := h.RestoreMemory(it.ID); err != nil {
+		b.say("err", err.Error())
+		return
+	}
+	b.reload()
+	b.say("ok", "Restored "+shorten(it.Title, 40))
+}
+
+// reloadNow is the settings sub-modal's save callback: it re-reads the list
+// and reports what was saved.
+func (b *memoryBrowser) reloadNow(note string) {
+	b.reload()
+	b.say("ok", note)
+}
+
 func (b *memoryBrowser) confirmDelete(it MemoryItem) Modal {
 	id, title := it.ID, shorten(it.Title, 60)
-	c := NewConfirm(b.th, "Delete memory", fmt.Sprintf("Delete %q? This cannot be undone.", title), true, func() tea.Cmd {
+	question := fmt.Sprintf("Delete %q? This cannot be undone.", title)
+	if b.inHidden() {
+		question = fmt.Sprintf("Delete %q for good? It is no longer kept anywhere, and this cannot be undone.", title)
+	}
+	c := NewConfirm(b.th, "Delete memory", question, true, func() tea.Cmd {
 		if err := b.be.DeleteMemory(id); err != nil {
 			b.say("err", err.Error())
 		} else {
@@ -400,6 +497,7 @@ func (b *memoryBrowser) View(w, h int) string {
 	counts := []string{
 		fmt.Sprintf("Project %d", b.count("project")),
 		fmt.Sprintf("Global %d", b.count("global")),
+		fmt.Sprintf("Hidden %d", len(b.hidden)),
 		fmt.Sprintf("Cleanup %d", len(b.cands)),
 	}
 	caret := fg(th.Brand).Render("▌")
@@ -418,6 +516,8 @@ func (b *memoryBrowser) View(w, h int) string {
 		if n := len(b.cands); n > 0 {
 			count = fmt.Sprintf("%d to review", n)
 		}
+	case b.query != "" && b.inHidden():
+		count = fmt.Sprintf("%d / %d", len(b.visible), len(b.hidden))
 	case b.query != "":
 		count = fmt.Sprintf("%d / %d", len(b.visible), b.count(b.scope()))
 	default:
@@ -483,6 +583,8 @@ func (b *memoryBrowser) listRows(w, h int) []string {
 		switch {
 		case b.query != "":
 			msg = "No memories match “" + b.query + "”."
+		case b.inHidden():
+			msg = "Nothing is hidden. Hidden memories are kept here until restored or deleted for good."
 		case b.tab == 1:
 			msg = "No global memories yet. Press n to add one."
 		case b.tab == 0:

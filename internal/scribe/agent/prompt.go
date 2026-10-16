@@ -183,7 +183,8 @@ func subagentRole(kind string) string {
 }
 
 // ModeBanner is the overlay text for a mode, or "" for default and unknown
-// modes.
+// modes. The agent sends it as a latched user message, not in the system
+// prompt.
 func ModeBanner(mode string) string { return modeOverlays[mode] }
 
 var modeOverlays = map[string]string{
@@ -275,10 +276,9 @@ func buildSystem(in PromptInput, mode string) string {
 			b.WriteString(role)
 		}
 	}
-	if o := ModeBanner(mode); o != "" {
-		b.WriteString("\n\n")
-		b.WriteString(o)
-	}
+	// The mode banner is not part of the system prompt: it is latched into
+	// the conversation as a user message when the mode changes (see
+	// modeNotice), so the system prompt stays byte-identical across modes.
 	b.WriteString("\n\n# Environment\n")
 	fmt.Fprintf(&b, "- Working directory: %s (shell commands already run here; do not prepend cd)\n", in.Workdir)
 	fmt.Fprintf(&b, "- Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)

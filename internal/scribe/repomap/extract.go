@@ -23,6 +23,13 @@ type Symbol struct {
 	// BodyHash identifies a function body with whitespace removed, for
 	// clone detection. Empty for short bodies and non-functions.
 	BodyHash string `json:"body_hash,omitempty"`
+	// ShapeHash identifies a function body with identifiers and literals
+	// collapsed to placeholders, so renamed copies match. Empty when the body
+	// is shorter than shapeMinTokens.
+	ShapeHash string `json:"shape_hash,omitempty"`
+	// Summary is the first sentence of the doc comment above an exported
+	// symbol, for languages other than Go (see docs.go).
+	Summary string `json:"summary,omitempty"`
 	// calls are the identifiers a function or method body mentions, space
 	// separated, distinct and capped. One string rather than a slice: the
 	// garbage collector scans a pointer per element, and there are many.
@@ -55,6 +62,13 @@ type fileInfo struct {
 	Mtime int64 `json:"-"`
 	// Hash is the SHA-256 of the file's content, set alongside Mtime.
 	Hash string `json:"-"`
+	// Barrel marks a JS/TS module that mostly re-exports other modules (see
+	// barrel.go).
+	Barrel bool `json:"barrel,omitempty"`
+	// Clone is the file's near-duplicate signature, nil for files too small
+	// to compare. Frags are its sampled fragment hashes. See clone.go.
+	Clone *cloneSig `json:"-"`
+	Frags []uint32  `json:"-"`
 }
 
 // parseSource extracts symbols, imports and identifiers from one file.
@@ -71,12 +85,20 @@ func parseSource(rel string, src []byte) *fileInfo {
 		fi.Symbols = extractByRules(rel, lg, src, masked)
 		fi.Imports = extractImports(lg, src)
 	}
+	fi.Clone, fi.Frags = fileSignatures(masked)
+	seen := map[string]bool{} // reused by every body in the file
 	for i := range fi.Symbols {
 		s := &fi.Symbols[i]
 		if s.Kind == "function" || s.Kind == "method" {
-			s.calls = bodyCalls(masked, s.start, s.end, s.Name)
+			clear(seen)
+			s.calls = bodyCalls(masked, s.start, s.end, s.Name, seen)
+			s.ShapeHash = shapeHash(masked, s.start, s.end)
 		}
 	}
+	if lg.name != "go" {
+		attachDocSummaries(lg.name, src, fi)
+	}
+	fi.Barrel = isBarrel(fi)
 	fi.Idents = countIdents(masked)
 	return fi
 }
@@ -182,7 +204,7 @@ const maxCallsPerSymbol = 200
 // bodyCalls lists the distinct identifiers in masked[start:end], other than
 // the function's own name and stopwords, space separated. Callers filter them
 // to names that are defined as functions, so variables and types drop out.
-func bodyCalls(m []byte, start, end int, self string) string {
+func bodyCalls(m []byte, start, end int, self string, seen map[string]bool) string {
 	if start < 0 {
 		start = 0
 	}
@@ -190,7 +212,6 @@ func bodyCalls(m []byte, start, end int, self string) string {
 		end = len(m)
 	}
 	var sb strings.Builder
-	seen := map[string]bool{}
 	n := 0
 	for i := start; i < end; {
 		if !isIdentStart(m[i]) {
