@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"path/filepath"
@@ -41,8 +42,10 @@ type SubagentSpec struct {
 	MaxRetries      int
 	MaxStallRetries int
 	// Bus is the state this subagent shares with the others of its dispatch.
-	// Nil when the dispatch cache is off.
 	Bus *AgentBus
+	// ReadCache says whether its reads go through the bus cache (the
+	// dispatch_cache feature). Findings are shared either way.
+	ReadCache bool
 }
 
 // SubagentFactory builds the subagent a spec describes, whose events go to
@@ -71,6 +74,11 @@ type Dispatcher struct {
 	// SubagentSpec). Zero takes the agent default.
 	MaxRetries      int
 	MaxStallRetries int
+
+	// WaitTimeout bounds how long a task waits for the tasks it depends on.
+	// Zero takes defaultDependencyWait. A task that gives up is skipped with
+	// the reason, and so are its dependents.
+	WaitTimeout time.Duration
 
 	// active counts dispatch calls in flight. It is the guard that keeps
 	// git mutations out while subagents may be editing (DispatchActive).
@@ -108,8 +116,9 @@ func (d *Dispatcher) Status() []AgentInfo {
 }
 
 // CancelAgent stops one subagent of the newest dispatch (the /cancel command).
-// A running subagent is cancelled and reports "cancelled"; a pending one is
-// marked cancelled and never starts. Other subagents keep running.
+// A running subagent is cancelled and reports "cancelled"; a pending one,
+// including one waiting on its depends_on tasks, is marked cancelled and
+// never starts. Other subagents keep running.
 func (d *Dispatcher) CancelAgent(id string) error {
 	b := d.lastBoard.Load()
 	if b == nil {
@@ -162,6 +171,10 @@ type subTask struct {
 
 // maxTasksPerDispatch is the most tasks one dispatch call runs (spec 03 §3.1).
 const maxTasksPerDispatch = 8
+
+// defaultDependencyWait is how long a task waits for its depends_on tasks
+// (spec 03 §3.7: the agent wait, 300 s at the default tool timeout).
+const defaultDependencyWait = 300 * time.Second
 
 // staggerStep and staggerJitter space out the starts of tasks that have no
 // dependencies, so they do not all hit the provider in the same instant
@@ -263,8 +276,17 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	results := make([]taskResult, n)
 	skip := func(i int, err error) {
 		results[i] = taskResult{err: err}
-		run.board.update(i, func(a *AgentInfo) { a.Status, a.Error = "error", err.Error() })
+		status := "error"
+		if errors.Is(err, errCancelledByUser) {
+			status = "cancelled"
+		}
+		run.board.update(i, func(a *AgentInfo) { a.Status, a.Error = status, err.Error() })
 	}
+	waitFor := d.WaitTimeout
+	if waitFor <= 0 {
+		waitFor = defaultDependencyWait
+	}
+	ids := plan.ids
 
 	var wg sync.WaitGroup
 	for i, st := range in.Tasks {
@@ -285,17 +307,9 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 			}
 			// Wait for dependencies before taking a slot, so a waiting task
 			// never holds one that its dependency needs.
-			for _, dep := range plan.deps[i] {
-				select {
-				case <-done[dep]:
-				case <-ctx.Done():
-					skip(i, run.stopErr(ctx))
-					return
-				}
-				if results[dep].err != nil {
-					skip(i, fmt.Errorf("dependency %s failed", plan.ids[dep]))
-					return
-				}
+			if err := run.awaitDeps(ctx, i, plan.deps[i], done, results, ids, waitFor); err != nil {
+				skip(i, err)
+				return
 			}
 			select {
 			case sem <- struct{}{}:
@@ -361,6 +375,13 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		b.WriteString("\n")
 	}
 	b.WriteString(renderTaskReports(in.Tasks, plan, results))
+	if fs := run.bus.Findings(); len(fs) > 0 {
+		b.WriteString("## Findings\n")
+		for _, f := range fs {
+			fmt.Fprintf(&b, "%s\n", formatFinding(f))
+		}
+		b.WriteString("\n")
+	}
 	if conflicts := editConflicts(results); len(conflicts) > 0 {
 		b.WriteString("## Files edited by more than one agent\n")
 		for _, c := range conflicts {

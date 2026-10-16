@@ -25,6 +25,8 @@ func Register(r *tools.Registry, m *Manager) {
 	r.Register(&diagnosticsTool{m: m})
 	r.Register(&renameTool{m: m})
 	r.Register(&formatTool{m: m})
+	r.Register(&codeActionTool{m: m})
+	r.Register(&refactorTool{m: m})
 }
 
 const maxListed = 200
@@ -77,11 +79,14 @@ func (t *navigateTool) Spec() llm.ToolSpec {
 		Description: "Code navigation through the project's language server. " +
 			"action: definition, references, implementation, hover, symbols (outline of a file), " +
 			"workspace_symbols (search by name), or read_symbol (the source of one definition in path). " +
+			"Hierarchies, from a function, method or type name: incoming_calls (callers), outgoing_calls (what it calls), " +
+			"supertypes and subtypes. " +
 			"Give path with line and column (1-based; column counts characters), or give symbol instead and it is located for you. " +
 			"For workspace_symbols, symbol is the query and path (optional) picks the language. " +
 			"When no language server answers, definition, symbols and read_symbol fall back to a text-based search and say so.",
 		Schema: tools.Schema(map[string]any{
-			"action": tools.Enum("What to look up.", "definition", "references", "implementation", "hover", "symbols", "workspace_symbols", "read_symbol"),
+			"action": tools.Enum("What to look up.", "definition", "references", "implementation", "hover", "symbols", "workspace_symbols", "read_symbol",
+				"incoming_calls", "outgoing_calls", "supertypes", "subtypes"),
 			"path":   tools.Str("File path, relative to the project root."),
 			"line":   tools.Int("1-based line of the position."),
 			"column": tools.Int("1-based column of the position, counted in characters."),
@@ -102,6 +107,7 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		workdir = env.Workdir
 	}
 	abs := resolvePath(workdir, a.Path)
+	a.Action = normalizeNavAction(a.Action)
 
 	if a.Action == "workspace_symbols" {
 		if a.Symbol == "" {
@@ -114,9 +120,10 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		return symbolHitsResult(t.m, hits)
 	}
 	switch a.Action {
-	case "definition", "references", "implementation", "hover", "symbols", "read_symbol":
+	case "definition", "references", "implementation", "hover", "symbols", "read_symbol",
+		hierIncoming, hierOutgoing, hierSuper, hierSub:
 	default:
-		return tools.Errorf("unknown action %q: use definition, references, implementation, hover, symbols, workspace_symbols or read_symbol", a.Action)
+		return tools.Errorf("unknown action %q: use definition, references, implementation, hover, symbols, workspace_symbols, read_symbol, incoming_calls, outgoing_calls, supertypes or subtypes", a.Action)
 	}
 	if a.Action == "symbols" {
 		if abs == "" {
@@ -185,8 +192,27 @@ func (t *navigateTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 			text = text[:6000] + "\n[truncated]"
 		}
 		return tools.Result{Output: strings.TrimSpace(text), Summary: "hover at " + where}
+	case hierIncoming, hierOutgoing, hierSuper, hierSub:
+		target, edges, err := t.m.Hierarchy(ctx, abs, p, a.Action)
+		if err != nil {
+			return missingServer(err)
+		}
+		if target.Name == "" {
+			return tools.Result{Output: "No symbol at " + where + " to show a hierarchy for. Put the position on a function, method or type name.", Summary: "none"}
+		}
+		return hierarchyResult(t.m, a.Action, target, edges)
 	}
 	return tools.Errorf("unreachable action %q", a.Action)
+}
+
+// normalizeNavAction maps the spellings a model uses for an action onto the
+// action names (callers -> incoming_calls, super -> supertypes, and so on).
+func normalizeNavAction(a string) string {
+	a = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(a)), "-", "_")
+	if mapped, ok := hierarchyAliases[a]; ok {
+		return mapped
+	}
+	return a
 }
 
 // fallbackNote says why a lookup came from the text tier. It is empty when

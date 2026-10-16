@@ -58,11 +58,15 @@ type FileDiagnostic struct {
 	Message  string
 }
 
-// CodeAction is a quick fix or refactor offered by the server.
+// CodeAction is a quick fix or refactor offered by the server. Edit is nil
+// for an action that only runs a server command (Command) or is unavailable
+// (Disabled holds the reason).
 type CodeAction struct {
-	Title string
-	Kind  string
-	Edit  *WorkspaceEdit
+	Title    string
+	Kind     string
+	Edit     *WorkspaceEdit
+	Command  bool
+	Disabled string
 }
 
 // ErrNoServer is returned by workspace-wide operations when no server is

@@ -143,16 +143,28 @@ func runGrep(ctx context.Context, env *tools.Env, args json.RawMessage, forceGo 
 		return stopped
 	}
 
+	// The code map's trigram index can rule out files that cannot contain a
+	// literal run of the pattern. Ruling out is only ever a skip of a file
+	// that would not match, so the answer is the same as without it.
+	skip := trigramSkip(env, a.Pattern)
 	var searchErr error
 	usedRg := false
 	if !forceGo {
 		if rg, err := exec.LookPath("rg"); err == nil {
 			usedRg = true
-			searchErr = rgSearch(runCtx, rg, env.Workdir, t.abs, pat, ctxN, a.Glob, sink)
+			targets := []string{t.abs}
+			if skip != nil {
+				if rels, ok := narrowedFiles(runCtx, env.Workdir, t.abs, gf, skip); ok {
+					targets = rels
+				}
+			}
+			if len(targets) > 0 {
+				searchErr = rgSearch(runCtx, rg, env.Workdir, targets, pat, ctxN, a.Glob, sink)
+			}
 		}
 	}
 	if !usedRg {
-		goSearch(runCtx, env.Workdir, t.abs, re, gf, ctxN, sink)
+		goSearch(runCtx, env.Workdir, t.abs, re, gf, ctxN, skip, sink)
 	}
 	if searchErr != nil {
 		return tools.Errorf("grep failed: %v", searchErr)
@@ -244,22 +256,16 @@ func formatGrep(files []fileResult, mode string, ctxN, max int, stopped, timedOu
 
 // goSearch walks target and calls sink per file with matches. It skips what
 // rg skips by default: hidden entries, binary files and files over 256KB.
-func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf globFilter, ctxN int, sink func(fileResult) bool) {
+func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf globFilter, ctxN int, skip trigramFilter, sink func(fileResult) bool) {
 	fi, err := os.Stat(target)
 	if err != nil {
 		return
 	}
 	consider := func(abs, rel string, fi fs.FileInfo, base string) bool {
-		if !fi.Mode().IsRegular() || fi.Size() > maxGrepFileBytes {
+		if !grepWanted(fi, rel, base, gf) {
 			return true
 		}
-		inBase := strings.TrimPrefix(rel, base)
-		for _, part := range strings.Split(inBase, "/") {
-			if strings.HasPrefix(part, ".") && part != "." && part != "" {
-				return true
-			}
-		}
-		if isSecretName(fi.Name()) || !gf.match(inBase) {
+		if skip != nil && skip(rel, fi.ModTime().UnixNano(), fi.Size()) {
 			return true
 		}
 		fr, ok := scanFile(abs, rel, re, ctxN)
@@ -284,6 +290,23 @@ func goSearch(ctx context.Context, wd, target string, re *regexp.Regexp, gf glob
 		}
 		return consider(abs, rel, fi, base)
 	})
+}
+
+// grepWanted reports whether a file takes part in a grep at all: a regular
+// file under the size cap, not hidden, not secret-looking, and matching the
+// glob. base is the search directory relative to the project root, so hidden
+// means a dot-prefixed part below it.
+func grepWanted(fi fs.FileInfo, rel, base string, gf globFilter) bool {
+	if !fi.Mode().IsRegular() || fi.Size() > maxGrepFileBytes {
+		return false
+	}
+	inBase := strings.TrimPrefix(rel, base)
+	for _, part := range strings.Split(inBase, "/") {
+		if strings.HasPrefix(part, ".") && part != "." && part != "" {
+			return false
+		}
+	}
+	return !isSecretName(fi.Name()) && gf.match(inBase)
 }
 
 // scanFile searches one file. ok is false when it has no matches or is binary.
@@ -336,7 +359,7 @@ func secretGlobArgs() []string {
 
 // rgSearch runs ripgrep with JSON output and feeds sink one file at a time.
 // It stops the process as soon as sink asks it to.
-func rgSearch(ctx context.Context, rg, wd, target, pattern string, ctxN int, glob string, sink func(fileResult) bool) error {
+func rgSearch(ctx context.Context, rg, wd string, targets []string, pattern string, ctxN int, glob string, sink func(fileResult) bool) error {
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	args := []string{"--json", "--no-config", "--no-require-git",
@@ -349,7 +372,8 @@ func rgSearch(ctx context.Context, rg, wd, target, pattern string, ctxN int, glo
 	if glob != "" {
 		args = append(args, "--glob", glob)
 	}
-	args = append(args, "-e", pattern, "--", target)
+	args = append(args, "-e", pattern, "--")
+	args = append(args, targets...)
 
 	cmd := exec.CommandContext(cctx, rg, args...)
 	cmd.Dir = wd

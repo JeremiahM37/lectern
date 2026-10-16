@@ -406,15 +406,21 @@ func (m *Model) clearAllSessions(t *tab, p *Picker) tea.Cmd {
 
 // ---------------------------------------------------------------- error log
 
-// errorItems lists the session's errors, newest first.
+// errorItems lists the session's errors, newest first. A row shows the time,
+// the source and the text; a repeated fault shows how many times it happened.
 func (m *Model) errorItems() []PickItem {
 	var items []PickItem
 	for i := len(m.errLog) - 1; i >= 0; i-- {
 		e := m.errLog[i]
+		label := e.At.Format("15:04:05") + "  " + fmt.Sprintf("%-10s", e.Source) + " " + oneLine(e.Text)
+		desc := e.Tab
+		if e.Count > 1 {
+			desc += " ×" + strconv.Itoa(e.Count)
+		}
 		items = append(items, PickItem{
 			Value: strconv.Itoa(i),
-			Label: e.At.Format("15:04:05") + "  " + oneLine(e.Text),
-			Desc:  e.Tab,
+			Label: label,
+			Desc:  desc,
 			Icon:  icons.Icon("error"),
 		})
 	}
@@ -441,7 +447,11 @@ func (m *Model) openErrorLog() {
 		if !ok {
 			return nil
 		}
-		lines := []string{"When   " + e.At.Format("15:04:05"), "Tab    " + e.Tab, ""}
+		lines := []string{"When   " + e.At.Format("15:04:05"), "Source " + e.Source, "Tab    " + e.Tab}
+		if e.Count > 1 {
+			lines = append(lines, fmt.Sprintf("Repeat %d times, the same fault, shown once", e.Count))
+		}
+		lines = append(lines, "")
 		return append(lines, strings.Split(render.Wrap(e.Text, 40), "\n")...)
 	}
 	p.OnKey = func(key string) (tea.Cmd, bool) {

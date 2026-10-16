@@ -200,6 +200,8 @@ type Agent struct {
 	// latchedMode is the mode the conversation was last told about. A change
 	// is latched into the history once (modeNotice).
 	latchedMode string
+	// skills is the loaded-skills block for the next turn (SetSkills).
+	skills string
 	// dispatching counts this agent's dispatch tool calls in flight.
 	dispatching int
 	// waits counts tool calls blocked on an approval or a question. The tool
@@ -551,6 +553,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 		a.msgs = append(a.msgs, llm.UserText(notice))
 	}
 	a.latchedMode = mode
+	a.latchSkillsLocked()
 	a.msgs = append(a.msgs, user)
 	a.mu.Unlock()
 	a.persist(false)

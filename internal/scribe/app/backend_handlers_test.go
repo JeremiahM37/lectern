@@ -187,8 +187,10 @@ func TestClearContextSkillsAndMemory(t *testing.T) {
 	if err := b.ClearContext(""); err != nil {
 		t.Errorf("clear all with nothing loaded: %v", err)
 	}
-	if err := b.ClearContext("memory"); err == nil {
-		t.Error("memory is not held in context; clearing it should say so, not succeed")
+	// Memory clear resets the surfaced-memory set (spec 02 /context clear
+	// memory). It succeeds and does not touch the skills or the transcript.
+	if err := b.ClearContext("memory"); err != nil {
+		t.Errorf("clear memory: %v", err)
 	}
 	if err := b.ClearContext("nonsense"); err == nil {
 		t.Error("an unknown target should be an error")

@@ -36,7 +36,9 @@ type extensions struct {
 	hookR    *hooks.Runner
 	mcp      *mcp.Manager
 	cmap     *repomap.Map
-	mapOK    chan struct{} // closed when the first code map build finishes
+	// stopWatch ends the code map's file watcher; nil until it starts.
+	stopWatch context.CancelFunc
+	mapOK     chan struct{} // closed when the first code map build finishes
 }
 
 // wire registers every tool and starts optional subsystems.
@@ -62,7 +64,8 @@ func (a *App) wire(ctx context.Context) error {
 	if config.Bool(a.Cfg.FormatOnEdit, true) {
 		a.ext.postEdit = newPostEditor(a.Workdir, a.ext.lsp)
 	}
-	web.Register(a.Tools, web.Options{SearchURL: a.Cfg.SearchURL, BraveAPIKey: a.braveKey()})
+	web.Register(a.Tools, web.Options{SearchURL: a.Cfg.SearchURL, BraveAPIKey: a.braveKey(),
+		JinaAPIKey: a.jinaKey(), JinaReader: a.Cfg.Search.UseJinaReader()})
 	if a.Memory != nil {
 		memory.Register(a.Tools, a.Memory)
 	}
@@ -95,6 +98,11 @@ func (a *App) wire(ctx context.Context) error {
 					// The post-edit pass checks an edited file's importers and
 					// gives clone hints from the built map.
 					a.ext.postEdit.SetDependents(m)
+					// Files changed outside the agent (editor, formatter, build)
+					// keep the map current; see repomap.Watch.
+					wctx, stop := context.WithCancel(context.WithoutCancel(ctx))
+					a.ext.stopWatch = stop
+					go m.Watch(wctx, 2*time.Second, 0)
 				}
 				if w := m.Warning(); w != "" {
 					a.emit(agent.Event{Kind: agent.EvNotice, Text: w})
@@ -127,6 +135,17 @@ func (a *App) braveKey() string {
 		return ""
 	}
 	v, _ := a.Registry.Secret(registry.BraveKeyID, a.Cfg.Search.BraveEnv())
+	return v
+}
+
+// jinaKey returns the Jina Reader key: the variable named by
+// search.jina_key_env (default JINA_API_KEY), or a key stored in the registry.
+// Like the Brave key, it goes to the web tool only and is never shown.
+func (a *App) jinaKey() string {
+	if a.Registry == nil {
+		return ""
+	}
+	v, _ := a.Registry.Secret(registry.JinaKeyID, a.Cfg.Search.JinaEnv())
 	return v
 }
 
@@ -210,7 +229,9 @@ func (e *extensions) sessionStart(ctx context.Context, a *App) {
 	}
 }
 
-func (e *extensions) afterTurn(a *App, s agent.TurnStats) {}
+func (e *extensions) afterTurn(a *App, s agent.TurnStats) {
+	a.noteTurnContext()
+}
 
 func (e *extensions) close(a *App) {
 	if e.hookR != nil {
@@ -221,6 +242,10 @@ func (e *extensions) close(a *App) {
 	}
 	if e.cmap != nil {
 		<-e.mapOK
+		// mapOK closes after the watcher starts, so stopWatch is set by now.
+		if e.stopWatch != nil {
+			e.stopWatch()
+		}
 		_ = e.cmap.Close()
 	}
 	if e.jobs != nil {

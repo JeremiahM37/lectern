@@ -35,6 +35,7 @@ type Map struct {
 
 	buildMu sync.Mutex
 	mu      sync.RWMutex
+	tri     triIndex // file-content trigrams for grep (trigram.go)
 
 	files      map[string]*fileInfo
 	paths      []string
@@ -128,7 +129,18 @@ func (m *Map) Warning() string {
 // report, such as a shell command that rewrote files. It returns how many
 // files it re-indexed.
 func (m *Map) Recheck() (int, error) {
+	stale := m.staleFiles()
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	return len(stale), m.Update(stale)
+}
+
+// staleFiles returns the indexed files whose modification time on disk no
+// longer matches the map, including files that were deleted.
+func (m *Map) staleFiles() []string {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var stale []string
 	for _, p := range m.paths {
 		fi := m.files[p]
@@ -137,15 +149,17 @@ func (m *Map) Recheck() (int, error) {
 			stale = append(stale, p)
 		}
 	}
-	m.mu.RUnlock()
-	if len(stale) == 0 {
-		return 0, nil
-	}
-	return len(stale), m.Update(stale)
+	return stale
 }
 
 // Close releases the cache database.
-func (m *Map) Close() error { return m.db.Close() }
+// It waits for a running Build or Update (the file watcher's included) so the
+// database is never closed under one.
+func (m *Map) Close() error {
+	m.buildMu.Lock()
+	defer m.buildMu.Unlock()
+	return m.db.Close()
+}
 
 // Root returns the absolute repository root.
 func (m *Map) Root() string { return m.root }
@@ -252,6 +266,7 @@ func (m *Map) Build(ctx context.Context, progress func(done, total int)) error {
 		return err
 	}
 	m.dropSummaries(dels)
+	m.indexTrigrams(ctx, collectTextFiles(ctx, m.root), nil, true)
 	co := gitCoChanges(ctx, m.root)
 
 	m.mu.Lock()
@@ -350,6 +365,7 @@ func (m *Map) Update(paths []string) error {
 		return err
 	}
 	m.dropSummaries(dels)
+	m.updateTrigrams(context.Background(), touched)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastParsed = parsed

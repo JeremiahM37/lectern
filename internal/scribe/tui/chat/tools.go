@@ -440,6 +440,9 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 			glyph = fg(th.Success, icons.Icon("success"))
 		case "error":
 			glyph = fg(th.Error, icons.Icon("fail"))
+		case "cancelled":
+			// Cancelled is not pending: a distinct glyph, and muted text.
+			glyph = fg(th.TextMuted, "⊘")
 		default:
 			glyph = fg(th.TextMuted, "○")
 		}
@@ -456,7 +459,11 @@ func (v *View) agentLines(c *Call, now time.Time) []string {
 		if t := a.Tokens.InputTokens + a.Tokens.OutputTokens; t > 0 {
 			meta += " · " + render.HumanTokens(t)
 		}
-		line := fg(th.TextFaint, "  "+conn) + glyph + " " + fg(th.TextPrimary, meta) + "  " + fg(th.TextMuted, clip(a.Task, 40))
+		metaCol := th.TextPrimary
+		if a.Status == "cancelled" {
+			metaCol = th.TextMuted
+		}
+		line := fg(th.TextFaint, "  "+conn) + glyph + " " + fg(metaCol, meta) + "  " + fg(th.TextMuted, clip(a.Task, 40))
 		if a.Status == "error" && a.Error != "" {
 			line += fg(th.Error, " → "+clip(a.Error, 50))
 		}

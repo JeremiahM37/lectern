@@ -188,7 +188,8 @@ type scribeBackend struct {
 	opts   Options // options of the first App, reused for new sessions
 	root   string
 
-	gen atomic.Uint64 // bumped on every App swap; stale listeners drop events
+	gen  atomic.Uint64 // bumped on every App swap; stale listeners drop events
+	errs errorSink     // faults outside a turn, for the error log (backend_data8.go)
 
 	mu        sync.Mutex
 	app       *App
@@ -691,7 +692,8 @@ func (b *scribeBackend) Checkpoints() []tui.CheckpointInfo {
 func checkpointInfos(cps []session.Checkpoint) []tui.CheckpointInfo {
 	out := make([]tui.CheckpointInfo, 0, len(cps))
 	for _, c := range cps {
-		out = append(out, tui.CheckpointInfo{Turn: c.Turn, Prompt: c.Prompt, Files: c.Files, Created: c.Created, Undone: c.Undone})
+		out = append(out, tui.CheckpointInfo{Turn: c.Turn, Prompt: c.Prompt, Files: c.Files, Created: c.Created, Undone: c.Undone,
+			CtxUsed: c.CtxUsed, CtxWindow: c.CtxWindow})
 	}
 	return out
 }

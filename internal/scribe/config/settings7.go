@@ -148,6 +148,18 @@ func (c *Config) setScalar(key string, v any) (bool, error) {
 			return true, fmt.Errorf("compact_strategy must be v2, v1 or disabled")
 		}
 		c.CompactStrategy = s
+	case "compact_keep_recent":
+		n, err := toInt(v)
+		if err != nil || n < 0 {
+			return true, fmt.Errorf("compact_keep_recent must be a whole number of messages, 0 for the default")
+		}
+		c.CompactKeepRecent = n
+	case "daily_token_budget":
+		n, err := toInt(v)
+		if err != nil || n < 0 {
+			return true, fmt.Errorf("daily_token_budget must be a whole number of tokens, 0 for no limit")
+		}
+		c.DailyTokenBudget = &n
 	case "tool_timeout":
 		s := toString(v)
 		if s == "" || s == "default" {

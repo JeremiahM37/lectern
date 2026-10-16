@@ -357,7 +357,13 @@ func initializeParams(root string) map[string]any {
 					"codeActionLiteralSupport": map[string]any{
 						"codeActionKind": map[string]any{"valueSet": []string{"", "quickfix", "refactor", "source"}},
 					},
+					"isPreferredSupport": true,
+					"disabledSupport":    true,
+					"dataSupport":        true,
+					"resolveSupport":     map[string]any{"properties": []string{"edit"}},
 				},
+				"callHierarchy":      map[string]any{"dynamicRegistration": false},
+				"typeHierarchy":      map[string]any{"dynamicRegistration": false},
 				"formatting":         map[string]any{},
 				"rangeFormatting":    map[string]any{},
 				"publishDiagnostics": map[string]any{"relatedInformation": true},

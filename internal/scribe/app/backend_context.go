@@ -5,20 +5,35 @@ import (
 	"strings"
 )
 
-// ClearContext implements the backend half of `/context clear [memory|skills]`.
-// target "skills" unloads every skill loaded into context for the project; the
-// empty target means everything. Memory is not held in context: Scribe recalls
-// it again for each prompt, so there is no persistent memory to clear and that
-// target is refused with an explanation rather than reported as done.
+// ClearContext implements the backend half of `/context clear|reset
+// [memory|skills]`. "skills" unloads every skill loaded into context for the
+// project. "memory" forgets which memories were already injected this session,
+// so the next matching prompt may inject them again (the same reset compaction
+// makes). The empty target means both. The conversation is never touched.
 func (b *scribeBackend) ClearContext(target string) error {
+	a := b.current()
 	switch strings.ToLower(strings.TrimSpace(target)) {
-	case "", "all", "skills":
+	case "skills":
 		return b.clearSkills()
 	case "memory":
-		return fmt.Errorf("memory is not kept in context: it is recalled again for every prompt, so there is nothing to clear")
+		return resetMemoryRecall(a)
+	case "", "all":
+		if err := b.clearSkills(); err != nil {
+			return err
+		}
+		return resetMemoryRecall(a)
 	default:
 		return fmt.Errorf("unknown context target %q (use memory or skills)", target)
 	}
+}
+
+// resetMemoryRecall forgets the memories injected this session. Without a
+// memory store there is nothing to reset, which is not an error.
+func resetMemoryRecall(a *App) error {
+	if a.Memory == nil {
+		return nil
+	}
+	return a.Memory.ResetSurfaced()
 }
 
 // clearSkills unloads all active skills and rebuilds the system prompt.

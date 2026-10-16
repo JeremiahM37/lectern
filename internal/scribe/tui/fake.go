@@ -56,6 +56,10 @@ type FakeBackend struct {
 	sessions    []SessionInfo
 	checkpoints []CheckpointInfo
 	files       []string
+	// staleMem is the stale-memory count the context bar hints at; bg is the
+	// background faults the next BackgroundErrors call hands over (demo only).
+	staleMem int
+	bg       []BackgroundError
 
 	// mcp and skill state for the server and skill editors (fake_servers.go).
 	mcpSpecs     []MCPServerSpec
@@ -98,10 +102,12 @@ func NewFakeBackend() *FakeBackend {
 			{ID: "a0b1c2d3e4f56789", Title: "Add Redis caching", Model: "openai/gpt-6", Turns: 4, CostUSD: 0.09, Updated: time.Now().Add(-26 * time.Hour), Preview: "add a cache in front of the user lookup"},
 		},
 		checkpoints: []CheckpointInfo{
-			{Turn: 1, Prompt: "explain the lexer", Created: time.Now().Add(-time.Hour)},
-			{Turn: 2, Prompt: "fix trailing commas", Files: []string{"internal/parser/parse.go"}, Created: time.Now().Add(-50 * time.Minute)},
-			{Turn: 3, Prompt: "add tests", Files: []string{"internal/parser/parse_test.go"}, Created: time.Now().Add(-40 * time.Minute)},
+			{Turn: 1, Prompt: "explain the lexer", Created: time.Now().Add(-time.Hour), CtxUsed: 31000, CtxWindow: 200000},
+			{Turn: 2, Prompt: "fix trailing commas", Files: []string{"internal/parser/parse.go"}, Created: time.Now().Add(-50 * time.Minute), CtxUsed: 92000, CtxWindow: 200000},
+			{Turn: 3, Prompt: "add tests", Files: []string{"internal/parser/parse_test.go"}, Created: time.Now().Add(-40 * time.Minute), CtxUsed: 118000, CtxWindow: 200000},
 		},
+		staleMem: 3,
+		bg:       []BackgroundError{{Source: "mcp", Text: "docs did not start: connection refused", At: time.Now().Add(-2 * time.Minute)}},
 	}
 	return f
 }
@@ -534,6 +540,22 @@ func (f *FakeBackend) RestoreTo(turn int) error { return nil }
 // TurnDiff implements Backend.
 func (f *FakeBackend) TurnDiff(turn int) string {
 	return fmt.Sprintf("turn %d changed %d files", turn, len(f.Checkpoints()))
+}
+
+// StaleMemories implements Backend.
+func (f *FakeBackend) StaleMemories() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.staleMem
+}
+
+// BackgroundErrors implements Backend. It hands over the queued demo faults once.
+func (f *FakeBackend) BackgroundErrors() []BackgroundError {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.bg
+	f.bg = nil
+	return out
 }
 
 // Memories implements Backend.

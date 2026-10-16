@@ -46,12 +46,19 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 		out, msg, err := e.addImport(text, o.NewCode)
 		return out, msg, "imports", err
 	}
+	if o.Action == "insert_text" {
+		out, msg, err := insertText(text, o)
+		return out, msg, "file", err
+	}
 	syms, err := e.symbols(text)
 	if err != nil {
 		return "", "", "", err
 	}
 	s, err := findSymbol(syms, parseSpec(o.Symbol), e.rel, o.Symbol)
 	if err != nil {
+		return "", "", "", err
+	}
+	if err := checkTarget(o.Action, s); err != nil {
 		return "", "", "", err
 	}
 	idx := newLineIndex(text)
@@ -73,6 +80,26 @@ func (e *editor) apply(text string, o op) (string, string, string, error) {
 		out, msg, err = renameLocal(text, masked, s, o.OldName, o.NewName)
 	case "replace_in_body":
 		out, msg, err = replaceInBody(idx, s, o.OldString, o.EndString, o.NewString)
+	case "set_return_type":
+		out, msg, err = e.setReturnType(text, idx, masked, s, o.NewCode)
+	case "set_async":
+		out, msg, err = e.setAsync(text, idx, masked, s)
+	case "add_parameter":
+		out, msg, err = e.addParameter(text, idx, masked, s, o.NewCode)
+	case "remove_parameter":
+		out, msg, err = e.removeParameter(text, idx, masked, s, o.NewCode)
+	case "set_type":
+		out, msg, err = e.setType(text, idx, masked, s, o.NewCode)
+	case "set_initializer":
+		out, msg, err = e.setInitializer(text, idx, masked, s, o.NewCode, false)
+	case "remove_initializer":
+		out, msg, err = e.setInitializer(text, idx, masked, s, "", true)
+	case "rename":
+		out, msg, err = e.renameDecl(text, idx, masked, s, o.NewName)
+	case "add_method", "add_property":
+		out, msg, err = e.addMember(idx, masked, s, o.NewCode)
+	case "remove_member":
+		out, msg, err = e.removeMember(idx, s)
 	default:
 		err = fmt.Errorf("unknown action %q", o.Action)
 	}

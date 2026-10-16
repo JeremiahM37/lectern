@@ -12,6 +12,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
 // Flavour lines shown after an error's category, in the order of the spec.
@@ -262,7 +263,7 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 				msg = "Thinking… (reasoning hidden)"
 			}
 			body.add(italic(th.TextMuted, msg))
-		case rec.Done && !rec.Interrupted:
+		case rec.Done && !rec.Interrupted && len(allCalls(rec)) == 0:
 			body.add(italic(th.TextMuted, "Empty response — model returned no content."))
 		}
 	}
@@ -274,11 +275,40 @@ func (v *View) renderAssistant(rec *Record, w int, now time.Time) builder {
 		h.line += off
 		b.hits = append(b.hits, h)
 	}
-	if rec.Done && rec.Duration > 0 && !rec.Interrupted {
-		b.add(rail)
-		b.add(rail + fg(th.TextFaint, "✓ Completed in "+render.HumanDuration(rec.Duration)))
+	if rec.Done && !rec.Interrupted {
+		if line := finishedFooter(rec, th); line != "" {
+			b.add(rail)
+			b.add(rail + line)
+		}
 	}
 	return b
+}
+
+// finishedFooter is the last line of a finished turn. A turn that ended on
+// tool results with no final text reads "Done" rather than an empty answer.
+// Retries that resolved along the way are noted quietly.
+func finishedFooter(rec *Record, th theme.Theme) string {
+	text := ""
+	switch {
+	case answerText(rec) == "" && len(allCalls(rec)) > 0:
+		text = "✓ Done"
+	case rec.Duration > 0:
+		text = "✓ Completed in " + render.HumanDuration(rec.Duration)
+	}
+	if rec.Retries > 0 {
+		note := fmt.Sprintf("%d retries", rec.Retries)
+		if rec.Retries == 1 {
+			note = "1 retry"
+		}
+		if text == "" {
+			text = "✓ Done"
+		}
+		text += " · " + note
+	}
+	if text == "" {
+		return ""
+	}
+	return fg(th.TextFaint, text)
 }
 
 // renderBody lays out an assistant turn's segments. Verbose keeps them in

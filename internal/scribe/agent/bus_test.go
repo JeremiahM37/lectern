@@ -13,7 +13,7 @@ func TestAgentBusFindingsKeepOrderAndSkipBlank(t *testing.T) {
 	b.Post("a2", "   ")
 	b.Post("a3", "config is read twice")
 	got := b.Findings()
-	want := []Finding{{"a1", "the parser drops empty lines"}, {"a3", "config is read twice"}}
+	want := []Finding{{Agent: "a1", Text: "the parser drops empty lines"}, {Agent: "a3", Text: "config is read twice"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("findings = %+v, want %+v", got, want)
 	}

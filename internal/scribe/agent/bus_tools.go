@@ -1,0 +1,140 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
+)
+
+// BusTools are the tools every subagent of a dispatch gets for the shared
+// bus: report_finding posts a finding for the others and for the parent, and
+// check_findings reads what the others have posted. Both are read-only: they
+// change the bus, not the repository, so explore agents can use them.
+func BusTools(id string, bus *AgentBus) []tools.Tool {
+	return []tools.Tool{reportFindingTool{id: id, bus: bus}, checkFindingsTool{id: id, bus: bus}}
+}
+
+type reportFindingTool struct {
+	id  string
+	bus *AgentBus
+}
+
+func (reportFindingTool) ReadOnly() bool { return true }
+
+func (reportFindingTool) Spec() llm.ToolSpec {
+	return llm.ToolSpec{
+		Name: "report_finding",
+		Description: "Post one finding for the other subagents of this dispatch and for the parent agent: a short, concrete fact " +
+			"they should know (a bug, a convention, the place something is defined). Give the file and line when you have them. " +
+			"One finding per call; keep each under 2 KB. Post only what matters; the parent reads every finding.",
+		Schema: tools.Schema(map[string]any{
+			"content": tools.Str("The finding, in one to three sentences"),
+			"file":    tools.Str("Optional: the file it is about, relative to the project root"),
+			"line":    tools.Str("Optional: the line number in that file"),
+		}, "content"),
+	}
+}
+
+// findingArgs accepts the near-miss argument names a model tends to use.
+type findingArgs struct {
+	Text string
+	File string
+	Line int
+}
+
+func parseFindingArgs(raw json.RawMessage) (findingArgs, error) {
+	var m map[string]any
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return findingArgs{}, fmt.Errorf("arguments must be a JSON object with content, file and line")
+		}
+	}
+	var a findingArgs
+	a.Text = firstString(m, "content", "text", "finding", "message", "summary", "label")
+	a.File = firstString(m, "file", "path", "file_path")
+	a.Line = lineNumber(m)
+	return a, nil
+}
+
+func firstString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// lineNumber reads line as a number or a numeric string; anything else is 0.
+func lineNumber(m map[string]any) int {
+	for _, k := range []string{"line", "line_number", "lineNumber"} {
+		switch v := m[k].(type) {
+		case float64:
+			return int(v)
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.Split(v, "-")[0])); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func (t reportFindingTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) tools.Result {
+	a, err := parseFindingArgs(raw)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	f := Finding{Agent: t.id, File: a.File, Line: a.Line, Text: a.Text}
+	if err := t.bus.PostFinding(f); err != nil {
+		return tools.Errorf("%v", err)
+	}
+	n := len(t.bus.Findings())
+	return tools.Result{Output: fmt.Sprintf("Finding %d recorded. Other subagents see it at their next check_findings call, and the parent gets it in the report.", n), Summary: "finding posted"}
+}
+
+type checkFindingsTool struct {
+	id  string
+	bus *AgentBus
+}
+
+func (checkFindingsTool) ReadOnly() bool { return true }
+
+func (checkFindingsTool) Spec() llm.ToolSpec {
+	return llm.ToolSpec{
+		Name:        "check_findings",
+		Description: "List the findings the other subagents of this dispatch have posted with report_finding. Call it before you repeat work a peer may already have done.",
+		Schema:      tools.Schema(map[string]any{}),
+	}
+}
+
+func (t checkFindingsTool) Run(_ context.Context, _ *tools.Env, _ json.RawMessage) tools.Result {
+	fs := t.bus.FindingsExcept(t.id)
+	if len(fs) == 0 {
+		return tools.Result{Output: "No findings from other subagents yet.", Summary: "no findings"}
+	}
+	var b strings.Builder
+	for _, f := range fs {
+		b.WriteString(formatFinding(f))
+		b.WriteString("\n")
+	}
+	return tools.Result{Output: strings.TrimRight(b.String(), "\n"), Summary: fmt.Sprintf("%d finding(s)", len(fs))}
+}
+
+// formatFinding is one finding as a line: "- [a2] file:line: text".
+func formatFinding(f Finding) string {
+	anchor := ""
+	if f.File != "" {
+		anchor = f.File
+		if f.Line > 0 {
+			anchor += ":" + strconv.Itoa(f.Line)
+		}
+		anchor += ": "
+	}
+	return fmt.Sprintf("- [%s] %s%s", f.Agent, anchor, f.Text)
+}

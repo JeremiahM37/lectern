@@ -246,6 +246,13 @@ func (v *View) Apply(e agent.Event) {
 		return
 	}
 	switch e.Kind {
+	case agent.EvStepStart, agent.EvText, agent.EvReasoning, agent.EvToolStart,
+		agent.EvToolRun, agent.EvPlan, agent.EvTasks:
+		// A retried attempt that makes progress has succeeded: its notice
+		// collapses into the turn.
+		v.resolveRetries()
+	}
+	switch e.Kind {
 	case agent.EvTurnStart:
 		v.closeLive()
 		if e.Prompt == "" {
@@ -348,8 +355,12 @@ func (v *View) Apply(e agent.Event) {
 			s.DoneAt = time.Time{}
 		}
 	case agent.EvRetry:
+		// Only the newest notice stays up while the turn waits; an earlier
+		// one that never made progress is folded into the turn's count.
+		v.ensureLive(e.At)
+		v.resolveRetries()
 		v.addRecord(&Record{Role: roleSystem, Kind: "retry", Category: string(e.Category), Attempt: e.Attempt,
-			Max: e.MaxAttempts, Delay: e.Delay, Text: e.Text, Status: e.Status, At: e.At})
+			Max: e.MaxAttempts, Delay: e.Delay, Text: e.Text, Status: e.Status, At: e.At, Pending: true})
 	case agent.EvFallback:
 		v.addRecord(&Record{Role: roleSystem, Kind: "switch", Model: e.Model, Text: e.Text, At: e.At})
 	case agent.EvWarning:
@@ -511,6 +522,7 @@ func (v *View) finishTurn(e agent.Event) {
 	if aborted {
 		v.addRecord(&Record{Role: roleSystem, Kind: "interrupted", At: e.At})
 	}
+	v.resolveRetries()
 	closeSegs(rec)
 	for _, s := range rec.Segments {
 		for _, c := range s.Calls {
@@ -540,6 +552,22 @@ func (v *View) finishTurn(e agent.Event) {
 	v.live = nil
 	v.busy = false
 	v.errShown = false
+}
+
+// resolveRetries removes the pending retry notices of the live turn and
+// counts them on it. Their finished form is the footer's retry note.
+func (v *View) resolveRetries() {
+	if v.live == nil {
+		return
+	}
+	for i := 0; i < len(v.msgs); {
+		if r := v.msgs[i]; r.Kind == "retry" && r.Pending {
+			v.msgs = append(v.msgs[:i], v.msgs[i+1:]...)
+			v.live.Retries++
+			continue
+		}
+		i++
+	}
 }
 
 func (v *View) removeRecord(r *Record) {
@@ -582,6 +610,15 @@ func (v *View) Restore(recs []Record) {
 	b, _ := json.Marshal(recs)
 	var cp []*Record
 	_ = json.Unmarshal(b, &cp)
+	// A retry notice saved mid-wait belongs to a turn that never finished.
+	kept := cp[:0]
+	for _, r := range cp {
+		if r.Kind == "retry" && r.Pending {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	cp = kept
 	for _, r := range cp {
 		if r.Role == roleAssistant {
 			r.Done = true

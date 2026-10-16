@@ -91,7 +91,7 @@ func (m *Model) viewHeader() string {
 	}
 	right := joinNonEmpty(sep, cost, brand)
 
-	var branch, mode, bar, nums, compact string
+	var branch, mode, bar, nums, compact, stale string
 	if t.git.Branch != "" {
 		branch = m.branchSegment(t)
 	}
@@ -99,8 +99,11 @@ func (m *Model) viewHeader() string {
 		mi := modeStyle(t.mode, th)
 		mode = fgb(mi.color).Render("[" + mi.label + "]")
 	}
-	if t.ctxWin > 0 {
+	if t.ctxWin > 0 || browsedCheckpoint(t) != nil {
 		bar, nums = m.contextParts(t)
+	}
+	if t.stale > 0 {
+		stale = fg(th.Warning).Render(staleHint(t.stale))
 	}
 	if t.compacting && len(m.tabs) <= 1 {
 		compact = fg(th.Info).Render(render.Frame(compactSpinner, m.frame) + " compacting")
@@ -121,6 +124,9 @@ func (m *Model) viewHeader() string {
 				c += " " + nums
 			}
 			parts = append(parts, c)
+		}
+		if withNums && stale != "" {
+			parts = append(parts, stale)
 		}
 		if compact != "" {
 			parts = append(parts, compact)
@@ -252,10 +258,38 @@ func (m *Model) branchSegment(t *tab) string {
 	return fg(th.Success).Render(icons.Icon("git") + " " + name)
 }
 
+// browsedCheckpoint is the checkpoint the user is browsing (Ctrl+B and Ctrl+F),
+// or nil when the view is live.
+func browsedCheckpoint(t *tab) *CheckpointInfo {
+	if t.browse < 0 || t.browse >= len(t.cps) {
+		return nil
+	}
+	return &t.cps[t.browse]
+}
+
+// staleHint is the memory hint on the context bar. It names the cleanup, so
+// the user knows where to act.
+func staleHint(n int) string {
+	word := "memories"
+	if n == 1 {
+		word = "memory"
+	}
+	return "♻ " + itoa(n) + " stale " + word + " — /memory cleanup"
+}
+
 // contextParts returns the context bar ("● [▰▰▰▱▱▱▱▱] 42%") and the numbers
-// ("84k/200k"), separately so the header can drop the numbers first.
+// ("84k/200k"), separately so the header can drop the numbers first. While a
+// checkpoint is browsed it shows that checkpoint's fill instead:
+// "◀ [▰▰▱▱▱▱▱▱]~N% ~used/window", or a note when the turn has none recorded.
 func (m *Model) contextParts(t *tab) (string, string) {
 	th := m.th
+	if cp := browsedCheckpoint(t); cp != nil {
+		if cp.CtxWindow <= 0 {
+			return fg(th.Warning).Render("◀ ") + fg(th.TextFaint).Render("context not recorded for this turn"), ""
+		}
+		pct := cp.CtxUsed * 100 / cp.CtxWindow
+		return browsedBar(th, pct), fg(th.TextFaint).Render("~" + render.HumanTokens(cp.CtxUsed) + "/" + render.HumanTokens(cp.CtxWindow))
+	}
 	pct := int(t.ctxShown + 0.5)
 	if pct < 0 {
 		pct = 0
@@ -292,6 +326,27 @@ func (m *Model) contextParts(t *tab) (string, string) {
 		fg(col).Render(approx+itoa(pct)+"%")
 	nums := fg(col).Render(approx + render.HumanTokens(t.ctxUsed) + "/" + render.HumanTokens(t.ctxWin))
 	return bar, nums
+}
+
+// browsedBar draws the checkpoint's context bar with a back arrow. The filled
+// cells take the warning colour: a browsed value is not the live one.
+func browsedBar(th theme.Theme, pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := pct * 8 / 100
+	if pct*8%100 >= 50 {
+		filled++
+	}
+	return fg(th.Warning).Render("◀ ") +
+		fg(th.TextFaint).Render("[") +
+		fg(th.Warning).Render(strings.Repeat("▰", filled)) +
+		fg(th.TextSubtle).Render(strings.Repeat("▱", 8-filled)) +
+		fg(th.TextFaint).Render("]") + " " +
+		fg(th.Warning).Render("~"+itoa(pct)+"%")
 }
 
 // costSegment shows "Local", "FREE", "$0", "$0.123" or "$1.23". FREE means

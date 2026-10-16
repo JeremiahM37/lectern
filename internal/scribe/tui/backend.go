@@ -41,6 +41,9 @@ type CheckpointInfo struct {
 	Files   []string
 	Created time.Time
 	Undone  bool
+	// CtxUsed and CtxWindow are the context fill when the turn ended; zero
+	// when it was not recorded.
+	CtxUsed, CtxWindow int
 }
 
 // MemoryItem is one stored memory.
@@ -122,6 +125,12 @@ type Backend interface {
 	TurnDiff(turn int) string
 
 	Memories(query string) []MemoryItem
+	// StaleMemories counts memories the cleanup would review (not used in 90
+	// days, not pinned). The context bar shows the count as a hint.
+	StaleMemories() int
+	// BackgroundErrors returns faults outside a turn (an MCP or language server
+	// that failed, a hook) queued since the last call, oldest first.
+	BackgroundErrors() []BackgroundError
 	SaveMemory(m MemoryItem) error
 	DeleteMemory(id string) error
 

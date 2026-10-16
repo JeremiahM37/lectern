@@ -54,6 +54,10 @@ type Checkpoint struct {
 	// lineDeltaMaxLines count as zero.
 	Added   int
 	Removed int
+	// CtxUsed and CtxWindow are the context fill when the turn ended; zero
+	// when it was not recorded (checkpoints from older sessions).
+	CtxUsed   int
+	CtxWindow int
 }
 
 // lineDeltaMaxLines bounds the diff List runs per file; a larger file is
@@ -103,6 +107,10 @@ type cpRecord struct {
 	Created time.Time          `json:"created"`
 	Undone  bool               `json:"undone,omitempty"`
 	Files   map[string]*cpFile `json:"files"`
+	// CtxUsed and CtxWindow are the context fill when the turn ended, for
+	// the context bar's checkpoint browsing. Zero when not recorded.
+	CtxUsed   int `json:"ctx_used,omitempty"`
+	CtxWindow int `json:"ctx_window,omitempty"`
 }
 
 // redoOp undoes one undo operation. Pre is what the files held when Undo ran;
@@ -467,7 +475,8 @@ func viewOf(r *cpRecord) Checkpoint {
 		files = append(files, k)
 	}
 	sort.Strings(files)
-	return Checkpoint{Turn: r.Turn, Prompt: r.Prompt, Files: files, Created: r.Created, Undone: r.Undone}
+	return Checkpoint{Turn: r.Turn, Prompt: r.Prompt, Files: files, Created: r.Created, Undone: r.Undone,
+		CtxUsed: r.CtxUsed, CtxWindow: r.CtxWindow}
 }
 
 // Undo reverts the files of the latest turn that is not undone. It returns

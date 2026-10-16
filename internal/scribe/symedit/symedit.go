@@ -15,6 +15,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
@@ -31,14 +32,23 @@ func Register(r *tools.Registry) {
 
 const toolName = "ast_edit"
 
-var actionNames = []string{"replace", "replace_body", "insert_before", "insert_after", "delete", "rename_local", "replace_in_body", "add_import"}
+var actionNames = []string{
+	"replace", "replace_body", "insert_before", "insert_after", "delete", "rename_local", "replace_in_body", "add_import",
+	"insert_text",
+	"set_return_type", "set_async", "add_parameter", "remove_parameter", "set_type", "set_initializer", "remove_initializer", "rename",
+	"add_method", "add_property", "remove_member",
+}
 
 const description = "Edit one definition by name instead of matching text. symbol is a name such as ParseList, " +
 	"a method as Server.Start, or a kind-qualified name such as \"class Foo\". Actions: replace (new_code is the full " +
 	"definition, doc comment included), replace_body (new_code is the body only, without braces), insert_before, " +
 	"insert_after, delete, rename_local (old_name to new_name inside the symbol), replace_in_body (old_string to " +
 	"new_string, must match once inside the symbol; with end_string, the span from old_string through end_string " +
-	"is replaced), add_import (new_code is the import; no symbol). " +
+	"is replaced), add_import (new_code is the import; no symbol), insert_text (new_code at a file anchor: index 0 " +
+	"for the top, -1 for the bottom, or a line; or value after-imports / before-exports; no symbol). Micro edits: " +
+	"set_return_type, set_async, add_parameter and remove_parameter (new_code is the parameter name), set_type, " +
+	"set_initializer, remove_initializer, and rename (declaration name only; new_name). Member edits on a class: " +
+	"add_method and add_property (new_code is the member), remove_member (symbol Owner.member). " +
 	"Several changes to one file can go in edits, applied atomically. Set apply to false to preview the diff without " +
 	"writing. The file must be read first. " +
 	"Go, TypeScript/JavaScript, Python, Rust, Java, Kotlin, C#, Swift, C/C++, Ruby, PHP, Lua, Zig and Elixir are supported."
@@ -53,6 +63,10 @@ type op struct {
 	NewString string `json:"new_string"`
 	OldName   string `json:"old_name"`
 	NewName   string `json:"new_name"`
+	// Index is the insert_text anchor: a line number, 0 (top) or -1 (bottom).
+	// Raw so that a numeric string is accepted too.
+	Index json.RawMessage `json:"index"`
+	Value string          `json:"value"`
 }
 
 type args struct {
@@ -77,7 +91,9 @@ func (t *astEdit) Spec() llm.ToolSpec {
 			"end_string": tools.Str("replace_in_body: end anchor. With it, the span from old_string through end_string is replaced by new_string. Both must be unique inside the symbol."),
 			"new_string": tools.Str("replace_in_body: replacement text."),
 			"old_name":   tools.Str("rename_local: identifier to rename."),
-			"new_name":   tools.Str("rename_local: new identifier."),
+			"new_name":   tools.Str("rename_local and rename: new identifier."),
+			"index":      tools.Int("insert_text: 0 for the top of the file, -1 for the bottom, or a 1-based line to insert before."),
+			"value":      tools.Str("insert_text: after-imports or before-exports (instead of index)."),
 		},
 		"required": []string{"action"},
 	}
@@ -93,7 +109,9 @@ func (t *astEdit) Spec() llm.ToolSpec {
 			"end_string": tools.Str("replace_in_body: end anchor for a range replace (see edits)."),
 			"new_string": tools.Str("replace_in_body: replacement text."),
 			"old_name":   tools.Str("rename_local: identifier to rename."),
-			"new_name":   tools.Str("rename_local: new identifier."),
+			"new_name":   tools.Str("rename_local and rename: new identifier."),
+			"index":      tools.Int("insert_text: 0 for the top of the file, -1 for the bottom, or a 1-based line to insert before."),
+			"value":      tools.Str("insert_text: after-imports or before-exports (instead of index)."),
 			"apply":      tools.Bool("Set false to preview: the diff is returned and nothing is written. Default true."),
 			"edits":      tools.Arr("Several operations on this file, applied in order. All or nothing.", item),
 		}, "path"),
@@ -241,7 +259,7 @@ func (a args) plan() ([]op, error) {
 	var list []op
 	batch := len(bytes.TrimSpace(a.Edits)) > 0 && string(bytes.TrimSpace(a.Edits)) != "null"
 	if batch {
-		if a.op != (op{}) {
+		if !a.op.isZero() {
 			return nil, fmt.Errorf("pass either the single-operation fields or edits, not both")
 		}
 		var err error
@@ -257,6 +275,18 @@ func (a args) plan() ([]op, error) {
 	for i := range list {
 		o := &list[i]
 		o.NewCode, o.OldString, o.NewString = toLF(o.NewCode), toLF(o.OldString), toLF(o.NewString)
+		// Models often put the new name or parameter name in new_code or
+		// old_name; accept those for the operations that take one name.
+		switch o.Action {
+		case "rename":
+			if strings.TrimSpace(o.NewName) == "" {
+				o.NewName = strings.TrimSpace(o.NewCode)
+			}
+		case "remove_parameter":
+			if strings.TrimSpace(o.NewCode) == "" {
+				o.NewCode = o.OldName
+			}
+		}
 		if err := o.check(); err != nil {
 			if len(list) > 1 {
 				return nil, fmt.Errorf("edit %d: %v", i+1, err)
@@ -267,6 +297,11 @@ func (a args) plan() ([]op, error) {
 	return list, nil
 }
 
+// isZero reports whether no field of o was set.
+func (o op) isZero() bool {
+	return reflect.ValueOf(o).IsZero()
+}
+
 func (o op) check() error {
 	known := false
 	for _, n := range actionNames {
@@ -275,13 +310,22 @@ func (o op) check() error {
 	if !known {
 		return fmt.Errorf("unknown action %q. Use one of: %s", o.Action, strings.Join(actionNames, ", "))
 	}
-	if o.Action != "add_import" && strings.TrimSpace(o.Symbol) == "" {
+	if o.Action != "add_import" && o.Action != "insert_text" && strings.TrimSpace(o.Symbol) == "" {
 		return fmt.Errorf("symbol is required for %s", o.Action)
 	}
 	switch o.Action {
-	case "replace", "insert_before", "insert_after", "add_import":
+	case "replace", "insert_before", "insert_after", "add_import", "add_method", "add_property", "add_parameter",
+		"set_return_type", "set_type", "set_initializer", "insert_text":
 		if isBlank(o.NewCode) {
 			return fmt.Errorf("new_code is required for %s", o.Action)
+		}
+	case "rename":
+		if strings.TrimSpace(o.NewName) == "" {
+			return fmt.Errorf("rename needs new_name, the new name for the declaration")
+		}
+	case "remove_parameter":
+		if strings.TrimSpace(o.NewCode) == "" {
+			return fmt.Errorf("remove_parameter needs new_code: the name of the parameter to remove")
 		}
 	case "rename_local":
 		if o.OldName == "" || o.NewName == "" {

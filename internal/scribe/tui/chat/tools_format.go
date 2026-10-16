@@ -10,13 +10,20 @@ import (
 // tool that set none shows its first output line.
 func (v *View) resultSuffix(c *Call) string {
 	if c.Tool == "dispatch" && len(c.Agents) > 0 {
-		done := 0
+		done, cancelled := 0, 0
 		for _, a := range c.Agents {
-			if a.Status == "done" {
+			switch a.Status {
+			case "done":
 				done++
+			case "cancelled":
+				cancelled++
 			}
 		}
-		return fmt.Sprintf("%d/%d agents", done, len(c.Agents))
+		out := fmt.Sprintf("%d/%d agents", done, len(c.Agents))
+		if cancelled > 0 {
+			out += fmt.Sprintf(" · %d cancelled", cancelled)
+		}
+		return out
 	}
 	if c.Result == nil {
 		return ""

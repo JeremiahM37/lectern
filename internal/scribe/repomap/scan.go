@@ -50,14 +50,38 @@ type fileEntry struct {
 // `git ls-files` (tracked plus untracked-but-not-ignored); anything else walks
 // the tree and applies .gitignore files itself. The returned note explains a
 // truncated walk, and is empty otherwise.
-func collectFiles(ctx context.Context, root string, opts Options) ([]fileEntry, string, error) {
-	rels := gitListFiles(ctx, root)
-	note := ""
+// listFiles returns the repo-relative files of root: git's view when root is a
+// git work tree, else a walk. note explains a truncated walk.
+func listFiles(ctx context.Context, root string) (rels []string, note string) {
+	rels = gitListFiles(ctx, root)
 	if rels == nil {
-		rels, note = walkFiles(root)
-	} else {
-		rels = dropScribeIgnored(root, rels)
+		return walkFiles(root)
 	}
+	return dropScribeIgnored(root, rels), ""
+}
+
+// collectTextFiles returns every regular file of root that the trigram index
+// may cover: all languages, not only code, up to triMaxFileBytes. Files left
+// out are simply searched by grep.
+func collectTextFiles(ctx context.Context, root string) []fileEntry {
+	rels, _ := listFiles(ctx, root)
+	var out []fileEntry
+	for _, rel := range rels {
+		if skipPath(rel) {
+			continue
+		}
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		st, err := os.Lstat(abs)
+		if err != nil || !st.Mode().IsRegular() || st.Size() > triMaxFileBytes {
+			continue
+		}
+		out = append(out, fileEntry{rel: rel, abs: abs, size: st.Size(), mtime: st.ModTime().UnixNano()})
+	}
+	return out
+}
+
+func collectFiles(ctx context.Context, root string, opts Options) ([]fileEntry, string, error) {
+	rels, note := listFiles(ctx, root)
 	var out []fileEntry
 	for _, rel := range rels {
 		if skipPath(rel) || langFor(rel) == nil {

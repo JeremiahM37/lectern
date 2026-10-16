@@ -35,7 +35,8 @@ type Record struct {
 	Delay    time.Duration `json:"delay,omitempty"`
 	Before   int           `json:"before,omitempty"`
 	After    int           `json:"after,omitempty"`
-	Status   int           `json:"status,omitempty"` // HTTP status of a provider error or retry, when it had one
+	Status   int           `json:"status,omitempty"`  // HTTP status of a provider error or retry, when it had one
+	Pending  bool          `json:"pending,omitempty"` // a retry notice whose attempt has not yet made progress
 
 	// Assistant turns.
 	Done        bool          `json:"done,omitempty"`
@@ -43,6 +44,7 @@ type Record struct {
 	Duration    time.Duration `json:"duration,omitempty"`
 	Reasoned    bool          `json:"reasoned,omitempty"`
 	Steps       int           `json:"steps,omitempty"`       // highest step number seen this turn
+	Retries     int           `json:"retries,omitempty"`     // retry notices this turn needed; they collapse into the finished row
 	ReasonOpen  bool          `json:"reason_open,omitempty"` // thought summary expanded by a click
 	RailOpen    bool          `json:"rail_open,omitempty"`   // final rail unfolded by a click
 	Segments    []*Segment    `json:"segments,omitempty"`

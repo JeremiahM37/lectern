@@ -61,6 +61,7 @@ func openStore(dsn string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	dropTrigramTables(db)
 	return db, nil
 }
 

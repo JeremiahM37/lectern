@@ -408,6 +408,12 @@ func (c Config) Validate() error {
 	check("performance.thinking", c.Performance.Thinking, thinkingModes)
 	check("performance.cache_ttl", c.Performance.CacheTTL, cacheTTLs)
 	check("performance.effort", c.Performance.Effort, reasoningEfforts)
+	if c.CompactKeepRecent < 0 {
+		bad = append(bad, "compact_keep_recent cannot be negative; use 0 for the default")
+	}
+	if c.DailyTokenBudget != nil && *c.DailyTokenBudget < 0 {
+		bad = append(bad, "daily_token_budget cannot be negative; use 0 for no limit")
+	}
 	if c.Retry.Transient < 0 || c.Retry.Stall < 0 {
 		bad = append(bad, "retry counts cannot be negative")
 	}

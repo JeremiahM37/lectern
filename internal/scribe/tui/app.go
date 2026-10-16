@@ -112,13 +112,17 @@ type tab struct {
 	compacting bool    // a compaction is running
 	tokens     int     // input and output tokens used so far
 	cacheHit   float64 // share of input tokens served from the prompt cache
+	stale      int     // memories the cleanup would review (context bar hint)
 }
 
-// errEntry is one row of the error log (Alt+R).
+// errEntry is one row of the error log (Alt+R). Source says where the fault
+// came from (see errlog8.go); Count is how many times it repeated.
 type errEntry struct {
-	At   time.Time
-	Tab  string
-	Text string
+	At     time.Time
+	Tab    string
+	Source string
+	Text   string
+	Count  int
 }
 
 // Messages.
@@ -172,6 +176,8 @@ type Model struct {
 	themesAt   time.Time // last time the theme files were checked
 	quitAt     time.Time
 	errLog     []errEntry
+	lastBG     time.Time // last background-fault poll
+	lastStale  time.Time // last stale-memory refresh
 	flash      string
 	flashKind  string
 	flashTill  time.Time
@@ -293,12 +299,10 @@ func (m *Model) setFlash(kind, text string) {
 	m.flashTill = time.Now().Add(2500 * time.Millisecond)
 }
 
-// logError records an error for the error log and marks the tab.
+// logError records an error for the error log and marks the tab. The source
+// is Scribe itself; turn, tool and compaction faults use logErrorFrom.
 func (m *Model) logError(t *tab, text string) {
-	m.errLog = append(m.errLog, errEntry{At: time.Now(), Tab: t.name, Text: text})
-	if t != m.cur() {
-		t.errFlag = true
-	}
+	m.logErrorFrom(t, srcScribe, text)
 }
 
 // Init starts the tick, the event and prompt pumps and the git poll.
@@ -518,6 +522,7 @@ func (m *Model) onTick(now time.Time) tea.Cmd {
 	if m.frame%40 == 0 {
 		cmds = append(cmds, gitCmd(m.cur().id, m.cur().be))
 	}
+	m.pollBackground(now)
 	cmds = append(cmds, m.syncTitle())
 	return tea.Batch(cmds...)
 }
@@ -602,7 +607,16 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	case agent.EvCompactDone:
 		t.compacting = false
 	case agent.EvError:
-		m.logError(t, ev.Text)
+		m.logErrorFrom(t, srcTurn, ev.Text)
+	case agent.EvToolResult:
+		if r := ev.Result; r != nil && r.IsError {
+			src, text := toolErrorEntry(ev)
+			m.logErrorFrom(t, src, text)
+		}
+	case agent.EvWarning:
+		if strings.HasPrefix(ev.Text, "compaction failed") {
+			m.logErrorFrom(t, srcCompaction, ev.Text)
+		}
 	case agent.EvTurnDone:
 		t.busy = false
 		t.cps = t.be.Checkpoints()
@@ -617,7 +631,7 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 			t.unread = true
 		}
 		if ev.Stats != nil && ev.Stats.Error != "" {
-			m.logError(t, ev.Stats.Error)
+			m.logErrorFrom(t, srcTurn, ev.Stats.Error)
 		}
 		t.chat.Apply(ev)
 		return tea.Batch(next, gitCmd(t.id, t.be))

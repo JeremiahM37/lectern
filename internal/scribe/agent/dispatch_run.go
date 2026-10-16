@@ -54,6 +54,26 @@ type board struct {
 	// ids the user cancelled, so a subagent that has not started yet is not run.
 	cancels map[string]context.CancelFunc
 	stopped map[string]bool
+	// waits cancels the wait of a task blocked on its depends_on tasks, so
+	// /cancel frees it without waiting for those tasks to finish.
+	waits map[string]context.CancelFunc
+}
+
+// setWait records the cancel of task id's dependency wait.
+func (b *board) setWait(id string, cancel context.CancelFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.waits == nil {
+		b.waits = map[string]context.CancelFunc{}
+	}
+	b.waits[id] = cancel
+}
+
+// clearWait forgets task id's dependency wait once it has ended.
+func (b *board) clearWait(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.waits, id)
 }
 
 // errCancelledByUser is the error of a subagent stopped with /cancel.
@@ -114,6 +134,9 @@ func (b *board) cancelAgent(id string) error {
 	}
 	b.stopped[id] = true
 	cancel := b.cancels[id]
+	if cancel == nil {
+		cancel = b.waits[id]
+	}
 	b.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -164,8 +187,8 @@ type dispatchRun struct {
 	env       *tools.Env
 	board     *board
 	retryWait time.Duration
-	// bus is shared by the subagents of this dispatch (nil when the dispatch
-	// cache is off).
+	// bus is shared by the subagents of this dispatch: their findings and,
+	// when the dispatch_cache feature is on, their reads.
 	bus *AgentBus
 
 	// cancel aborts every subagent of the dispatch when the breaker opens.
@@ -184,15 +207,11 @@ func newDispatchRun(d *Dispatcher, env *tools.Env) *dispatchRun {
 	if wait == 0 {
 		wait = defaultRetryWait
 	}
-	var bus *AgentBus
-	if d.features().DispatchCache {
-		bus = NewAgentBus()
-	}
 	return &dispatchRun{
 		d:         d,
 		env:       env,
 		retryWait: wait,
-		bus:       bus,
+		bus:       NewAgentBus(),
 		board: &board{
 			sink:   d.Sink,
 			callID: env.CallID,
@@ -298,7 +317,7 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	spec := SubagentSpec{
 		Role: role, Purpose: purpose, ID: id,
 		MaxRetries: r.d.MaxRetries, MaxStallRetries: r.d.MaxStallRetries,
-		Bus: r.bus,
+		Bus: r.bus, ReadCache: r.d.features().DispatchCache,
 	}
 	sub := r.d.New(spec, func(e Event) {
 		switch e.Kind {
@@ -466,4 +485,37 @@ func lastAssistantText(msgs []llm.Message) string {
 		}
 	}
 	return ""
+}
+
+// awaitDeps blocks task idx until its dependencies deps have finished. It
+// returns nil when they all succeeded. Otherwise it returns why the task
+// will not run: a failed dependency, a /cancel of this task, the caller's
+// or the breaker's stop, or a wait longer than wait.
+func (r *dispatchRun) awaitDeps(ctx context.Context, idx int, deps []int, done []chan struct{}, results []taskResult, ids []string, wait time.Duration) error {
+	if len(deps) == 0 {
+		return nil
+	}
+	id := r.board.id(idx)
+	wctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	r.board.setWait(id, cancel)
+	defer r.board.clearWait(id)
+	for _, dep := range deps {
+		select {
+		case <-done[dep]:
+		case <-wctx.Done():
+			switch {
+			case ctx.Err() != nil:
+				return r.stopErr(ctx)
+			case r.board.wasStopped(id):
+				return errCancelledByUser
+			default:
+				return fmt.Errorf("gave up after %s waiting for %s", wait.Round(time.Second), ids[dep])
+			}
+		}
+		if results[dep].err != nil {
+			return fmt.Errorf("dependency %s failed", ids[dep])
+		}
+	}
+	return nil
 }

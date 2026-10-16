@@ -180,6 +180,13 @@ type Config struct {
 	// CompactStrategy picks how context is compacted: v2 (default), v1 or
 	// disabled.
 	CompactStrategy string `json:"compact_strategy,omitempty"`
+	// CompactKeepRecent is how many of the newest messages compaction keeps
+	// verbatim. Zero keeps the token-sized tail (about 20 000 tokens).
+	CompactKeepRecent int `json:"compact_keep_recent,omitempty"`
+	// DailyTokenBudget caps the tokens Scribe may spend in one local day.
+	// Nil or zero means no limit. A pointer so a project file can switch
+	// off a global budget with an explicit 0. See DailyBudget.
+	DailyTokenBudget *int `json:"daily_token_budget,omitempty"`
 	// Performance holds per-provider request options that change the wire
 	// format. Unset fields keep the adapter's default.
 	Performance Performance `json:"performance,omitempty"`
@@ -298,6 +305,12 @@ func Merge(base, o Config) Config {
 	}
 	if o.CompactAt != 0 {
 		r.CompactAt = o.CompactAt
+	}
+	if o.CompactKeepRecent != 0 {
+		r.CompactKeepRecent = o.CompactKeepRecent
+	}
+	if o.DailyTokenBudget != nil {
+		r.DailyTokenBudget = o.DailyTokenBudget
 	}
 	bp(&r.NerdFont, o.NerdFont)
 	bp(&r.ShowReasoning, o.ShowReasoning)
@@ -547,4 +560,12 @@ func (c *Config) SetReasoningField(key string, v any) (bool, error) {
 		c.ReasoningByProvider[provider] = r
 	}
 	return true, nil
+}
+
+// DailyBudget is the daily token limit, or 0 when there is none.
+func (c Config) DailyBudget() int {
+	if c.DailyTokenBudget == nil || *c.DailyTokenBudget < 0 {
+		return 0
+	}
+	return *c.DailyTokenBudget
 }

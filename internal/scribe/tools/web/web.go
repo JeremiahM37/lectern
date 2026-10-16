@@ -34,6 +34,14 @@ type Options struct {
 	// AllowPrivate lets fetch_page reach loopback, private, link-local and
 	// CGNAT addresses. Off by default. Tests use it with httptest.
 	AllowPrivate bool
+	// JinaAPIKey is sent as a bearer token to the Jina Reader. It is never
+	// logged, never shown to the model and never placed in an error message.
+	// Empty uses the Jina Reader's free tier.
+	JinaAPIKey string
+	// JinaReader, when true, reads pages through the Jina Reader
+	// (r.jina.ai) before a local fetch. It sends each URL to a third party,
+	// so it is off unless the user turned it on in settings.
+	JinaReader bool
 }
 
 const (
@@ -48,6 +56,8 @@ const (
 	maxFetchChars        = 120000
 	defaultSearchResults = 8
 	maxSearchResults     = 20
+	defaultJinaURL       = "https://r.jina.ai/"
+	jinaTimeout          = 15 * time.Second
 )
 
 // webTools is the state shared by both tools: one approval cache and one
@@ -58,7 +68,11 @@ type webTools struct {
 	braveURL  string
 	searchCli *http.Client
 	fetchCli  *http.Client
-	approval  approvalCache
+	// jinaCli reaches the Jina Reader. Its address is a fixed public host, so
+	// it does not go through the SSRF guard that fetch_page's own client uses.
+	jinaCli  *http.Client
+	jinaURL  string
+	approval approvalCache
 	// searches and pages hold results for resultTTL, so a repeated query or
 	// URL in one session does not hit the network again.
 	searches *ttlCache[[]searchResult]
@@ -80,6 +94,7 @@ func newWebTools(opts Options) *webTools {
 		opts:     opts,
 		ddgURL:   defaultDDGURL,
 		braveURL: defaultBraveURL,
+		jinaURL:  defaultJinaURL,
 		searches: newTTLCache[[]searchResult](resultTTL, resultCacheSize),
 		pages:    newTTLCache[*page](resultTTL, resultCacheSize),
 	}
@@ -93,6 +108,11 @@ func newWebTools(opts Options) *webTools {
 		w.fetchCli = &http.Client{Transport: w.guardedTransport()}
 	}
 	w.fetchCli.CheckRedirect = w.checkRedirect
+	if opts.HTTPClient != nil {
+		w.jinaCli = w.searchCli
+	} else {
+		w.jinaCli = &http.Client{Timeout: jinaTimeout}
+	}
 	return w
 }
 

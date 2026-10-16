@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -13,13 +15,23 @@ import (
 type AgentBus struct {
 	mu       sync.Mutex
 	findings []Finding
+	bytes    int                 // total text bytes of findings, capped at maxFindingsBytes
 	owners   map[string][]string // file -> agents that edited it, first claimant first
 	reads    map[string]cachedRead
 }
 
-// Finding is one thing a subagent reported to the others.
+// Limits on findings (spec 03 section 3.7): 2 KB each, 128 KB per bus.
+const (
+	maxFindingBytes  = 2 << 10
+	maxFindingsBytes = 128 << 10
+)
+
+// Finding is one thing a subagent reported to the others. File and Line are
+// optional; when set they anchor the text in the code.
 type Finding struct {
 	Agent string
+	File  string
+	Line  int
 	Text  string
 }
 
@@ -34,15 +46,45 @@ func NewAgentBus() *AgentBus {
 	return &AgentBus{owners: map[string][]string{}, reads: map[string]cachedRead{}}
 }
 
-// Post records a finding from agent id. Blank text is ignored.
+// Post records a finding from agent id. Blank text is ignored. A finding
+// over the limits is dropped; PostFinding says why.
 func (b *AgentBus) Post(id, text string) {
-	text = strings.TrimSpace(text)
-	if b == nil || text == "" {
-		return
+	_ = b.PostFinding(Finding{Agent: id, Text: text})
+}
+
+// PostFinding records f. Its text is trimmed; blank text is refused. It
+// refuses a finding over maxFindingBytes, and one that would take the bus
+// past maxFindingsBytes, with an error that says what to do instead.
+func (b *AgentBus) PostFinding(f Finding) error {
+	f.Text = strings.TrimSpace(f.Text)
+	if b == nil {
+		return errors.New("findings are not shared in this session")
+	}
+	if f.Text == "" {
+		return errors.New("the finding is empty: say what you found, with file and line if you have them")
+	}
+	if len(f.Text) > maxFindingBytes {
+		return fmt.Errorf("the finding is %d bytes, over the %d byte limit: shorten it to the point, and post the rest as a second finding", len(f.Text), maxFindingBytes)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.findings = append(b.findings, Finding{Agent: id, Text: text})
+	if b.bytes+len(f.Text) > maxFindingsBytes {
+		return fmt.Errorf("the findings for this dispatch are full (%d bytes): post only what the parent must act on", maxFindingsBytes)
+	}
+	b.bytes += len(f.Text)
+	b.findings = append(b.findings, f)
+	return nil
+}
+
+// FindingsExcept returns the findings not posted by agent id, oldest first.
+func (b *AgentBus) FindingsExcept(id string) []Finding {
+	var out []Finding
+	for _, f := range b.Findings() {
+		if f.Agent != id {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // Findings returns the findings posted so far, oldest first.

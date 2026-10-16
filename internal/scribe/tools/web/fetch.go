@@ -102,7 +102,7 @@ func (t *fetchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessag
 	return tools.Result{
 		Output:  b.String(),
 		Summary: fmt.Sprintf("%d characters", total),
-		Meta:    map[string]any{"content_type": pg.contentType, "url": pg.finalURL},
+		Meta:    map[string]any{"content_type": pg.contentType, "url": pg.finalURL, "backend": pg.backend},
 	}
 }
 
@@ -114,11 +114,26 @@ type page struct {
 	text           string
 	note           string // set instead of text for formats we do not read (PDF)
 	truncatedBytes bool
+	// backend names where the text came from: "jina", "jina-api" or "local".
+	backend string
 }
 
-// fetch downloads u and converts it to readable text. Every redirect hop
-// and every connection goes through the guard.
+// fetch reads u. With the Jina Reader on, it tries the reader first and falls
+// back to a local fetch on any reader failure, so a reader outage or a bad key
+// only changes where the text came from. The caller has already run the SSRF
+// check on u.
 func (w *webTools) fetch(ctx context.Context, u *url.URL) (*page, error) {
+	if w.opts.JinaReader {
+		if pg, err := w.fetchJina(ctx, u); err == nil {
+			return pg, nil
+		}
+	}
+	return w.fetchLocal(ctx, u)
+}
+
+// fetchLocal downloads u and converts it to readable text. Every redirect hop
+// and every connection goes through the guard.
+func (w *webTools) fetchLocal(ctx context.Context, u *url.URL) (*page, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
@@ -150,6 +165,7 @@ func (w *webTools) fetch(ctx context.Context, u *url.URL) (*page, error) {
 		finalURL:       resp.Request.URL.String(),
 		contentType:    ct,
 		truncatedBytes: truncated,
+		backend:        "local",
 	}
 	base := resp.Request.URL
 	switch {

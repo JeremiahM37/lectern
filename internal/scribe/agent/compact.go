@@ -26,6 +26,10 @@ type SummaryCompactor struct {
 	KeepTokens int
 	// Strategy is "v2" (default when empty) or "v1".
 	Strategy string
+	// KeepRecent, when above zero, keeps that many newest messages verbatim
+	// instead of the KeepTokens budget (spec 03 section 8.3). The cut moves
+	// back so a tool result never separates from its call.
+	KeepRecent int
 }
 
 // ErrNotEnoughHistory is returned when fewer than two messages are older
@@ -154,13 +158,41 @@ func sanitizeTail(tail []llm.Message) []llm.Message {
 	return out
 }
 
-// Compact implements Compactor.
-func (c SummaryCompactor) Compact(ctx context.Context, msgs []llm.Message) ([]llm.Message, string, error) {
+// SplitRecent returns the first index of the kept tail when the newest keep
+// messages are kept verbatim. The cut moves back to the nearest user prompt,
+// so a tool result is never separated from its call and the tail starts a
+// clean exchange (spec 03 section 8.3). It keeps at least keep messages and
+// may keep more; when no user prompt lies before the cut it returns 0.
+func SplitRecent(msgs []llm.Message, keep int) int {
+	if keep <= 0 {
+		return len(msgs)
+	}
+	split := len(msgs) - keep
+	if split <= 0 {
+		return 0
+	}
+	for split > 0 && msgs[split].Role != llm.RoleUser {
+		split--
+	}
+	return split
+}
+
+// splitFor is the cut for one compaction: the message-count split when
+// KeepRecent is set, else the token-budget split.
+func (c SummaryCompactor) splitFor(msgs []llm.Message) int {
+	if c.KeepRecent > 0 {
+		return SplitRecent(msgs, c.KeepRecent)
+	}
 	keep := c.KeepTokens
 	if keep == 0 {
 		keep = defaultKeepTokens
 	}
-	split := SplitPoint(msgs, keep)
+	return SplitPoint(msgs, keep)
+}
+
+// Compact implements Compactor.
+func (c SummaryCompactor) Compact(ctx context.Context, msgs []llm.Message) ([]llm.Message, string, error) {
+	split := c.splitFor(msgs)
 	if split <= 1 {
 		return nil, "", ErrNotEnoughHistory
 	}

@@ -68,19 +68,24 @@ func TestActiveSkillReachesTheNextSystemPrompt(t *testing.T) {
 	if err := b.SetSkillActive("release-notes", true); err != nil {
 		t.Fatal(err)
 	}
-	prompt := a.systemPrompt("")("default")
-	if !strings.Contains(prompt, "# Loaded skills") || !strings.Contains(prompt, "MARKER-RELEASE-BODY") {
-		t.Fatalf("active skill missing from the next prompt:\n%s", prompt)
+	// The lead's prompt stays the same bytes; the skill is latched into the
+	// history by the next turn (agent.SetSkills), not put in the prompt.
+	if strings.Contains(a.systemPrompt("")("default"), "MARKER-RELEASE-BODY") {
+		t.Fatal("the lead's system prompt must not change when a skill loads")
 	}
-	if sub := a.systemPrompt("explore")("default"); !strings.Contains(sub, "MARKER-RELEASE-BODY") {
+	block := a.loadedSkillsBlock()
+	if !strings.HasPrefix(block, "<loaded_skills>") || !strings.Contains(block, "MARKER-RELEASE-BODY") {
+		t.Fatalf("active skill missing from the block the next turn latches:\n%s", block)
+	}
+	if sub := a.systemPrompt("explore")("default"); !strings.Contains(sub, "# Loaded skills") || !strings.Contains(sub, "MARKER-RELEASE-BODY") {
 		t.Fatal("active skill missing from a subagent's prompt")
 	}
 
 	if err := b.SetSkillActive("release-notes", false); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(a.systemPrompt("")("default"), "MARKER-RELEASE-BODY") {
-		t.Fatal("unloaded skill is still in the prompt")
+	if block := a.loadedSkillsBlock(); block != "" {
+		t.Fatalf("unloaded skill is still latched: %s", block)
 	}
 }
 
@@ -96,15 +101,15 @@ func TestActiveSkillsPersistPerProject(t *testing.T) {
 	}
 
 	_, fresh := newTestBackend(t, root)
-	if !strings.Contains(fresh.systemPrompt("")("default"), "MARKER-DB") {
+	if !strings.Contains(fresh.loadedSkillsBlock(), "MARKER-DB") {
 		t.Fatal("a new session on the same project did not load the saved skill")
 	}
 	other, otherApp := newTestBackend(t, t.TempDir())
 	if got := other.ActiveSkills(); len(got) != 0 {
 		t.Fatalf("another project inherited the skill: %v", got)
 	}
-	if strings.Contains(otherApp.systemPrompt("")("default"), "MARKER-DB") {
-		t.Fatal("another project's prompt has the skill")
+	if strings.Contains(otherApp.loadedSkillsBlock(), "MARKER-DB") {
+		t.Fatal("another project's loaded skills have the skill")
 	}
 }
 
@@ -138,8 +143,8 @@ func TestInstallSkillThenLoadIt(t *testing.T) {
 	if err := b.SetSkillActive(name, true); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(a.systemPrompt("")("default"), "MARKER-REVIEW") {
-		t.Fatal("freshly installed and loaded skill is not in the prompt")
+	if !strings.Contains(a.loadedSkillsBlock(), "MARKER-REVIEW") {
+		t.Fatal("freshly installed and loaded skill is not in the block the next turn latches")
 	}
 }
 

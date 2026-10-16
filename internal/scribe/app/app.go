@@ -59,6 +59,10 @@ type App struct {
 	Planner  *agent.Planner
 	Dispatch *agent.Dispatcher
 
+	// dump writes the lead agent's model requests to the session dir when
+	// SCRIBE_REQUEST_DUMP=1 (see requestdump.go).
+	dump requestDump
+
 	Store  *session.Store
 	Meta   session.Meta
 	Checks *session.Checkpoints
@@ -370,8 +374,13 @@ func (a *App) systemPrompt(sub string) func(string) string {
 		if a.deferred != nil && sub == "" {
 			in.Deferred = agent.DeferredCatalog(a.Tools, a.deferred.IsCore)
 		}
-		// Skills the user loaded into context (see backend_skills.go).
-		return agent.BuildSystem(in, mode) + a.activeSkillsSection()
+		// The lead's loaded skills are latched into the history instead
+		// (skills_latch.go), so its system prompt does not change when they
+		// do. Subagents have no history to latch into, so they get them here.
+		if sub != "" {
+			return agent.BuildSystem(in, mode) + a.activeSkillsSection()
+		}
+		return agent.BuildSystem(in, mode)
 	}
 }
 
@@ -426,6 +435,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		// tools refuse repository changes (agent publishes it to Services).
 		Guard: a.Dispatch,
 	}
+	o.RequestDump = a.requestDump()
 	if config.Bool(a.Cfg.AutoCheck, true) {
 		o.Verify = autoVerify(a.Workdir)
 	}
@@ -571,7 +581,12 @@ func (a *App) newSubagent(spec agent.SubagentSpec, sink agent.Sink) *agent.Agent
 	}
 	reg := a.subagentTools(role)
 	if spec.Bus != nil {
-		reg = withReadCache(reg, spec.Bus)
+		if spec.ReadCache {
+			reg = withReadCache(reg, spec.Bus)
+		}
+		for _, t := range agent.BusTools(id, spec.Bus) {
+			reg.Register(t)
+		}
 	}
 	steps := agent.ExploreMaxSteps
 	switch role {
@@ -752,7 +767,8 @@ func (a *App) Run(ctx context.Context, prompt string, images []llm.Part) (agent.
 	if !a.opts.Ephemeral {
 		_ = session.AppendHistory(prompt, a.Workdir)
 	}
-	stats, err := agent.RunClearing(ctx, a.Agent, a.Planner, prompt, images)
+	a.Agent.SetSkills(a.loadedSkillsBlock())
+	stats, err := a.runTurnBudgeted(ctx, prompt, images)
 	if a.Checks != nil {
 		_ = a.Checks.End()
 	}
