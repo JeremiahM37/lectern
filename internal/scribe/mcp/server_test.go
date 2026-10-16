@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The test binary doubles as a minimal MCP server when SCRIBE_MCP_TEST_SERVER
@@ -150,6 +151,10 @@ func serveStdio() {
 						}})
 					case "read_only_info":
 						reply(text("info"))
+					case "slow":
+						// Outlives a short per-server timeout; the reply is never read then.
+						time.Sleep(3 * time.Second)
+						reply(text("slow done"))
 					case "add_tool":
 						added = true
 						reply(text("added"))

@@ -294,12 +294,33 @@ type result struct {
 	err      error
 }
 
+// toolUseIDKey carries the id of the tool call being run.
+type toolUseIDKey struct{}
+
+// WithToolUseID returns ctx carrying the provider's id for the tool call about
+// to run. The tool hooks put it in their stdin as tool_use_id, so a hook can
+// tie its record to one call. The agent sets it before it calls the hooks;
+// without it the field is an empty string.
+func WithToolUseID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, toolUseIDKey{}, id)
+}
+
+// toolUseID is the call id WithToolUseID stored in ctx, else the one the
+// agent set for the call it is running (agent.WithCallID), or "".
+func toolUseID(ctx context.Context) string {
+	if id, _ := ctx.Value(toolUseIDKey{}).(string); id != "" {
+		return id
+	}
+	return agent.CallID(ctx)
+}
+
 // PreTool implements agent.Hooks. Sequential; the first block wins.
 func (r *Runner) PreTool(ctx context.Context, tool string, args json.RawMessage) string {
 	names := toolNames(tool)
 	in := r.input(evPreTool)
 	in["tool_name"] = displayName(tool)
 	in["tool_input"] = rawObject(args)
+	in["tool_use_id"] = toolUseID(ctx)
 	for _, e := range r.entries {
 		if e.event != evPreTool || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
 			continue
@@ -327,6 +348,7 @@ func (r *Runner) PreToolUpdate(ctx context.Context, tool string, args json.RawMe
 		in := r.input(evPreTool)
 		in["tool_name"] = displayName(tool)
 		in["tool_input"] = rawObject(args)
+		in["tool_use_id"] = toolUseID(ctx)
 		o := r.exec(ctx, e, in)
 		if o.block != "" {
 			return args, o.block
@@ -357,6 +379,7 @@ func (r *Runner) PostTool(ctx context.Context, tool string, args json.RawMessage
 	in["tool_name"] = displayName(tool)
 	in["tool_input"] = rawObject(args)
 	in["tool_response"] = map[string]any{"output": res.Output, "is_error": res.IsError}
+	in["tool_use_id"] = toolUseID(ctx)
 	var extra []string
 	for _, e := range r.entries {
 		if e.event != evPostTool || !e.matches(names) || !r.take(e) || !e.cond.ok(displayName(tool), args) {
@@ -384,7 +407,7 @@ func (r *Runner) PostToolFailure(ctx context.Context, tool string, args json.Raw
 	fin := r.input(evPostToolFailure)
 	fin["tool_name"] = displayName(tool)
 	fin["tool_input"] = rawObject(args)
-	fin["tool_use_id"] = ""
+	fin["tool_use_id"] = toolUseID(ctx)
 	fin["error"] = res.Output
 	var extra []string
 	for _, e := range r.entries {

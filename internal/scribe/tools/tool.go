@@ -117,6 +117,15 @@ type Env struct {
 	// replaced. Tools that remember what the model has already seen (the read
 	// tool's "unchanged" notices) key that memory by Scope.
 	Scope string
+	// Claims reports the files other tabs in this process have claimed. Nil
+	// when the tab has no cross-tab registry (tests, headless runs).
+	Claims ClaimSource
+}
+
+// ClaimSource lists live file claims held by other tabs. Paths are absolute.
+type ClaimSource interface {
+	// OtherClaims maps each file another tab claimed to that tab's label.
+	OtherClaims() map[string]string
 }
 
 // Service returns Services[key] as T.

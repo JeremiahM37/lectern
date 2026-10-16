@@ -356,8 +356,17 @@ func (b *scribeBackend) runTurns(a *App, prompt string, images []llm.Part) {
 }
 
 // Steer queues a message for the running turn.
-func (b *scribeBackend) Steer(msg string) bool {
-	return b.current().Agent.Steer(msg)
+func (b *scribeBackend) Steer(msg string) bool { return b.SteerWithImages(msg, nil) }
+
+// SteerWithImages queues a message, with any pasted images, for the running
+// turn.
+func (b *scribeBackend) SteerWithImages(msg string, images []llm.Part) bool {
+	a := b.current()
+	ok := a.Agent.SteerWithImages(msg, images)
+	if ok && a.Checks != nil {
+		a.Checks.Fold(msg) // the running turn's checkpoint covers the steering text too
+	}
+	return ok
 }
 
 // Abort stops the running turn and drops prompts queued behind it.
@@ -773,6 +782,21 @@ func (b *scribeBackend) RestoreTo(turn int) error {
 	}
 	_, err := a.Checks.RestoreTo(turn, false)
 	return conflictError(err)
+}
+
+// BranchFrom implements tui.CheckpointBrancher: the conversation ends at turn,
+// and the turns after it are dropped (their files reverted, undoable until the
+// next turn starts). It settles a running turn first, as undo does.
+func (b *scribeBackend) BranchFrom(turn int) (int, error) {
+	if err := b.settle(); err != nil {
+		return 0, err
+	}
+	a := b.current()
+	if a.Checks == nil {
+		return 0, errors.New("checkpoints are off for this session")
+	}
+	n, err := a.Checks.TruncateAfter(turn, false)
+	return n, conflictError(err)
 }
 
 // TurnDiff returns the diff a turn made, or a one-line reason it cannot.

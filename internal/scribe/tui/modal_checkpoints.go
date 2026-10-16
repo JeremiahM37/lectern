@@ -159,6 +159,7 @@ func (b *cpBrowser) restore() {
 	b.m.pushModal(checkpointConfirm(b.th, fmt.Sprintf("Restore to turn %d?", cp.Turn), intro, later, "Yes, restore", func() tea.Cmd {
 		if err := b.be.RestoreTo(cp.Turn); err != nil {
 			b.m.setFlash("err", "Restore failed: "+err.Error())
+			b.m.showAlert("Restore failed", "Files were not restored to turn "+itoa(cp.Turn)+".\n\n"+err.Error())
 			return nil
 		}
 		b.reload()
@@ -177,6 +178,7 @@ func (b *cpBrowser) redo() {
 	b.reload()
 	if err != nil {
 		b.m.setFlash("err", "Redo failed: "+err.Error())
+		b.m.showAlert("Redo failed", err.Error())
 		return
 	}
 	var turns []int

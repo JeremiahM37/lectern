@@ -16,7 +16,50 @@ import (
 // check_findings reads what the others have posted. Both are read-only: they
 // change the bus, not the repository, so explore agents can use them.
 func BusTools(id string, bus *AgentBus) []tools.Tool {
-	return []tools.Tool{reportFindingTool{id: id, bus: bus}, checkFindingsTool{id: id, bus: bus}}
+	return []tools.Tool{
+		reportFindingTool{id: id, bus: bus},
+		checkFindingsTool{id: id, bus: bus},
+		cancelDispatchTool{id: id, bus: bus},
+	}
+}
+
+// cancelDispatchTool stops the whole dispatch: every running subagent is
+// cancelled and the pending ones never start (spec 03 section 3.2).
+type cancelDispatchTool struct {
+	id  string
+	bus *AgentBus
+}
+
+func (cancelDispatchTool) ReadOnly() bool { return true }
+
+func (cancelDispatchTool) Spec() llm.ToolSpec {
+	return llm.ToolSpec{
+		Name: "cancel_dispatch",
+		Description: "Stop every subagent of this dispatch, including yourself, when the work cannot succeed: the task is impossible, " +
+			"a provider keeps failing, or continuing would only waste the run. Other agents' unfinished work is discarded. " +
+			"Prefer finishing your own task; use this only when the whole dispatch should stop.",
+		Schema: tools.Schema(map[string]any{
+			"reason": tools.Str("Why the dispatch should stop, in one sentence"),
+		}),
+	}
+}
+
+func (t cancelDispatchTool) Run(_ context.Context, _ *tools.Env, raw json.RawMessage) tools.Result {
+	var in struct {
+		Reason string `json:"reason"`
+	}
+	_ = tools.Decode(raw, &in) // the reason is optional
+	if t.bus == nil {
+		return tools.Errorf("cancel_dispatch is not available here: this agent is not part of a dispatch")
+	}
+	if !t.bus.Abort() {
+		return tools.Result{Output: "The dispatch is already cancelled.", Summary: "already cancelled"}
+	}
+	msg := "Cancelled the dispatch: running agents are stopping and pending agents will not start."
+	if r := strings.TrimSpace(in.Reason); r != "" {
+		msg += " Reason: " + r
+	}
+	return tools.Result{Output: msg, Summary: "dispatch cancelled"}
 }
 
 type reportFindingTool struct {

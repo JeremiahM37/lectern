@@ -540,7 +540,7 @@ func readOne(ctx context.Context, env *tools.Env, st *readState, p string, rq re
 		if rq.ranged {
 			return readOut{}, fmt.Errorf("lines and symbol read a file, and %s is a directory. Use list_dir instead.", t.rel)
 		}
-		body, n, capped := renderTreeAnnotated(ctx, env.Workdir, t.abs, 1, maxListEntries, fileAnnotator(env))
+		body, n, capped := renderTreeAnnotated(ctx, env.Workdir, t.abs, 1, maxListEntries, fileAnnotator(env), mapRank(env))
 		if capped {
 			body += fmt.Sprintf("\n(Listing capped at %d entries. Use list_dir with a deeper path.)", maxListEntries)
 		}

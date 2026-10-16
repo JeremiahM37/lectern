@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,7 +169,20 @@ type cpState struct {
 	Checkpoints []*cpRecord        `json:"checkpoints"`
 	Redo        []*redoOp          `json:"redo,omitempty"`
 	Reads       map[string]readRec `json:"reads,omitempty"`
+	// Anchors records, for every turn, how many messages existed when it
+	// began. Unlike a checkpoint it is kept for turns that changed no files,
+	// so sending from an earlier turn can cut the conversation there.
+	Anchors []turnAnchor `json:"anchors,omitempty"`
 }
+
+// turnAnchor is the message count at the start of one turn.
+type turnAnchor struct {
+	Turn   int `json:"turn"`
+	MsgLen int `json:"msg_len"`
+}
+
+// maxAnchors bounds the anchor list; older turns can no longer be cut to.
+const maxAnchors = 2000
 
 const cpStateVersion = 1
 
@@ -313,7 +327,30 @@ func (c *Checkpoints) Begin(turn int, prompt string) {
 	if c.hist != nil {
 		n := len(c.hist.Messages())
 		c.open.MsgLen = &n
+		c.st.Anchors = append(c.st.Anchors, turnAnchor{Turn: turn, MsgLen: n})
+		if over := len(c.st.Anchors) - maxAnchors; over > 0 {
+			c.st.Anchors = append([]turnAnchor(nil), c.st.Anchors[over:]...)
+		}
+		c.recordErrLocked(c.saveLocked())
 	}
+}
+
+// Fold adds a steering message, sent while the turn runs, to that turn's
+// checkpoint, so the checkpoint's prompt covers everything the turn was asked
+// to do. Steering never starts a checkpoint of its own. Outside a turn it does
+// nothing.
+func (c *Checkpoints) Fold(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.open == nil {
+		return
+	}
+	c.open.Prompt += "\n" + text
+	c.recordErrLocked(c.saveOpenLocked())
 }
 
 // BeforeWrite snapshots abs before the agent changes it. The first call in a
@@ -661,6 +698,69 @@ func (c *Checkpoints) truncateHistoryLocked(targets []*cpRecord, op *redoOp) {
 	c.hist.SetMessages(cur[:*anchor])
 	kept := *anchor
 	op.MsgAt = &kept
+}
+
+// ErrNoAnchor means a later turn has no recorded message anchor (a session
+// from before anchors were kept), so the conversation cannot be cut there.
+var ErrNoAnchor = errors.New("this session has no message anchor for the turns after that one, so the conversation cannot be cut there")
+
+// TruncateAfter makes turn the last turn of the conversation, for sending from
+// an earlier checkpoint. The files of the later turns are reverted as Undo
+// reverts them (conflict-checked unless force), and the messages from the
+// first later turn on are dropped. Messages dropped this way are not kept for
+// redo, and the redo stack is cleared, because the future it held no longer
+// follows from the conversation. It returns how many later turns were dropped.
+func (c *Checkpoints) TruncateAfter(turn int, force bool) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.open != nil {
+		return 0, ErrTurnRunning
+	}
+	var later []*cpRecord
+	for i := len(c.st.Checkpoints) - 1; i >= 0; i-- {
+		if r := c.st.Checkpoints[i]; !r.Undone && r.Turn > turn {
+			later = append(later, r)
+		}
+	}
+	anchor, first, found := -1, 0, false
+	hasLater := false
+	for _, a := range c.st.Anchors {
+		if a.Turn > turn {
+			hasLater = true
+			if !found || a.Turn < first {
+				first, anchor, found = a.Turn, a.MsgLen, true
+			}
+		}
+	}
+	if !hasLater {
+		return 0, nil // nothing after turn
+	}
+	if !found {
+		return 0, ErrNoAnchor
+	}
+	if c.hist != nil && anchor > len(c.hist.Messages()) {
+		return 0, fmt.Errorf("the conversation is shorter than turn %d's start, so it cannot be cut there; nothing was changed", first)
+	}
+	if len(later) > 0 {
+		if _, err := c.applyLocked(later, force); err != nil {
+			return 0, err
+		}
+	}
+	if c.hist != nil {
+		if cur := c.hist.Messages(); anchor < len(cur) {
+			c.hist.SetMessages(cur[:anchor])
+		}
+	}
+	kept := c.st.Anchors[:0]
+	for _, a := range c.st.Anchors {
+		if a.Turn <= turn {
+			kept = append(kept, a)
+		}
+	}
+	c.st.Anchors = kept
+	c.st.Redo = nil
+	c.recordErrLocked(c.saveLocked())
+	return len(later), nil
 }
 
 // Redo re-applies the most recent undo operation. The files must still hold

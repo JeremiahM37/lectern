@@ -3,6 +3,7 @@ package fs
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -47,7 +48,39 @@ func Patterns(env *tools.Env) ([]string, error) {
 			pats = append(pats, s...)
 		}
 	}
+	if root != "" {
+		pats = append(pats, aiignorePatterns(root)...)
+	}
 	return pats, nil
+}
+
+// aiignoreFile is the project's forbidden-path list in gitignore style (spec
+// 9.1). Its patterns act as forbidden patterns.
+const aiignoreFile = ".aiignore"
+
+// aiignorePatterns reads <root>/.aiignore. Blank lines and comments are
+// skipped. A trailing slash (a directory in gitignore) is dropped, so the
+// pattern matches the directory's name anywhere, and a leading slash is
+// dropped too. Negations (!pattern) cannot be expressed as forbidden patterns
+// and are skipped, so they never re-open a path. A missing or unreadable file
+// adds nothing.
+func aiignorePatterns(root string) []string {
+	data, err := os.ReadFile(filepath.Join(root, aiignoreFile))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+			continue
+		}
+		line = strings.TrimPrefix(strings.TrimSuffix(line, "/"), "/")
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // loadForbidden returns every active rule for env.

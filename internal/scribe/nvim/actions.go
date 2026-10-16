@@ -208,6 +208,20 @@ A.rename = function()
   local res, why, enc = lsp("textDocument/rename", params)
   if not res then return ret(false, why) end
   if #res == 0 then return ret(false, "the language server returned no edits") end
+  if p.preview then
+    -- The tool checks these files against the write rules before applying.
+    local paths, seen = {}, {}
+    local function add(uri)
+      if uri and not seen[uri] then seen[uri] = true; table.insert(paths, vim.uri_to_fname(uri)) end
+    end
+    for _, edit in ipairs(res) do
+      for uri, _ in pairs(edit.changes or {}) do add(uri) end
+      for _, dc in ipairs(edit.documentChanges or {}) do
+        if dc.textDocument then add(dc.textDocument.uri) end
+      end
+    end
+    return ret(true, vim.json.encode({ title = "rename to " .. p.newName, files = paths }))
+  end
   local files = {}
   for _, edit in ipairs(res) do
     for uri, _ in pairs(edit.changes or {}) do files[uri] = true end
@@ -219,6 +233,94 @@ A.rename = function()
   local count = 0
   for _ in pairs(files) do count = count + 1 end
   return ret(true, string.format("Renamed to %s in %d file(s) (unsaved until written)", p.newName, count))
+end
+
+-- code actions: the server's quick fixes and refactorings for the lines
+-- startLine..endLine (the cursor line by default). Only listed here; apply
+-- chooses one and returns its files first so the tool can check them.
+local function code_action_items()
+  local s = p.startLine or vim.api.nvim_win_get_cursor(0)[1]
+  local e = p.endLine or s
+  local diags = {}
+  for lnum = s - 1, e - 1 do
+    for _, d in ipairs(vim.diagnostic.get(0, { lnum = lnum })) do
+      table.insert(diags, {
+        range = { start = { line = d.lnum, character = d.col }, ["end"] = { line = d.end_lnum or d.lnum, character = d.end_col or d.col } },
+        message = d.message, severity = d.severity, source = d.source, code = d.code,
+      })
+    end
+  end
+  local params = {
+    textDocument = vim.lsp.util.make_text_document_params(0),
+    range = { start = { line = s - 1, character = 0 }, ["end"] = { line = e - 1, character = #(vim.fn.getline(e)) } },
+    context = { diagnostics = diags, triggerKind = 1 },
+  }
+  local res, why, enc = lsp("textDocument/codeAction", params)
+  if not res then return nil, why end
+  local items = {}
+  for _, batch in ipairs(res) do
+    for _, a in ipairs(batch) do
+      if not a.disabled then table.insert(items, a) end
+    end
+  end
+  return items, nil, enc
+end
+
+local function edit_files(edit)
+  local files, seen = {}, {}
+  local function add(uri)
+    if uri and not seen[uri] then seen[uri] = true; table.insert(files, vim.uri_to_fname(uri)) end
+  end
+  for uri, _ in pairs(edit.changes or {}) do add(uri) end
+  for _, dc in ipairs(edit.documentChanges or {}) do
+    if dc.textDocument then add(dc.textDocument.uri) end
+    if dc.uri then add(dc.uri) end
+  end
+  return files
+end
+
+local function pick_code_action(items)
+  if p.index and p.index > 0 then return items[p.index] end
+  if p.title and p.title ~= "" then
+    local want = p.title:lower()
+    for _, a in ipairs(items) do
+      if a.title and a.title:lower():find(want, 1, true) then return a end
+    end
+  end
+  return nil
+end
+
+A.code_actions = function()
+  local items, why = code_action_items()
+  if not items then return ret(false, why) end
+  if #items == 0 then return ret(true, "No code actions for these lines") end
+  local out = {}
+  for i, a in ipairs(items) do
+    table.insert(out, string.format("%d. %s%s", i, a.title or "?", a.kind and (" [" .. a.kind .. "]") or ""))
+  end
+  return ret(true, table.concat(out, "\n"))
+end
+
+A.apply_code_action = function()
+  local items, why, enc = code_action_items()
+  if not items then return ret(false, why) end
+  local a = pick_code_action(items)
+  if not a then
+    return ret(false, "no code action matches. Ask for code_actions to list them, then pass index or title.")
+  end
+  if p.preview then
+    return ret(true, vim.json.encode({ title = a.title, files = a.edit and edit_files(a.edit) or {} }))
+  end
+  if a.edit then
+    vim.lsp.util.apply_workspace_edit(a.edit, enc or "utf-16")
+    return ret(true, string.format("Applied '%s' (unsaved until written)", a.title or "code action"))
+  end
+  if a.command then
+    local ok = pcall(vim.lsp.buf.execute_command, a.command)
+    if ok then return ret(true, string.format("Ran '%s'; check the buffer for its changes", a.title or "code action")) end
+    return ret(false, "the server's command for '" .. (a.title or "code action") .. "' failed")
+  end
+  return ret(false, "'" .. (a.title or "code action") .. "' has no edit to apply")
 end
 
 A.format = function()

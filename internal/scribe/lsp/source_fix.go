@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
 // sourceFixKinds are the file-wide fixes run after a compound edit, in order.
@@ -42,6 +44,12 @@ func (m *Manager) SourceFix(ctx context.Context, abs string) ([]string, error) {
 				if a.Edit == nil || (len(a.Edit.Changes) == 0 && len(a.Edit.DocumentChanges) == 0) {
 					continue
 				}
+				// Auto-fixes run without a tab, so they are checked against the
+				// project's write rules with no host: sensitive files and CI or
+				// container definitions are refused, not asked about.
+				if err := CheckEditRules(ctx, m.writeEnv(), *a.Edit); err != nil {
+					return err
+				}
 				applied, err := ApplyWorkspaceEdit(*a.Edit)
 				if err != nil {
 					return err
@@ -55,6 +63,13 @@ func (m *Manager) SourceFix(ctx context.Context, abs string) ([]string, error) {
 		return nil
 	})
 	return dedupe(changed), err
+}
+
+// writeEnv is the environment auto-fix writes are checked against. It carries
+// the workspace root, so forbidden paths load, and no host, so anything that
+// would need approval is denied.
+func (m *Manager) writeEnv() *tools.Env {
+	return &tools.Env{Workdir: m.workdir}
 }
 
 func dedupe(in []string) []string {

@@ -82,6 +82,16 @@ func enclosingAt(syms []repomap.Symbol, line int) string {
 	return best.Kind + " " + symbolLabel(*best)
 }
 
+// mapRank returns the code map's rank for a file, or nil when there is no map
+// in this session. Listings order files by it, most important first.
+func mapRank(env *tools.Env) func(abs string) float64 {
+	m, ok := tools.Service[*repomap.Map](env, "repomap")
+	if !ok || m == nil {
+		return nil
+	}
+	return m.FileRank
+}
+
 // fileAnnotator returns the note listings add after a file: its symbol count
 // when the code map knows it, or "" when there is nothing to say.
 func fileAnnotator(env *tools.Env) func(abs string) string {

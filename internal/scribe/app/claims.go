@@ -404,3 +404,18 @@ func claimLabelFor(sessionID string) string {
 	}
 	return "another Scribe tab"
 }
+
+// tabClaims gives the tools the files other tabs in this process have
+// claimed, so git can warn before touching them (tools.ClaimSource).
+type tabClaims struct{ a *App }
+
+// OtherClaims maps each file another tab holds to that tab's label.
+func (c tabClaims) OtherClaims() map[string]string {
+	out := map[string]string{}
+	for _, r := range fileClaims.snapshot(c.a.claimOwner) {
+		if !r.Mine {
+			out[r.Path] = r.Label
+		}
+	}
+	return out
+}

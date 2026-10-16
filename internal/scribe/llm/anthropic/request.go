@@ -145,9 +145,17 @@ func buildBody(req llm.Request) ([]byte, error) {
 	}
 
 	// Temperature is rejected alongside any thinking, and by adaptive models
-	// even without it.
-	if req.Temperature != nil && body.Thinking == nil && style != llm.ReasoningAdaptive {
-		body.Temperature = req.Temperature
+	// even without it. Where it is accepted and the caller left it unset, the
+	// wire gets 0 (spec 4.8: temperature 0 when the model supports it).
+	if body.Thinking == nil && style != llm.ReasoningAdaptive {
+		if req.Temperature != nil {
+			body.Temperature = req.Temperature
+		} else if knownTemperatureModel(req.Model) {
+			// Only for ids known to accept it: an unknown (newer) model may
+			// reject temperature, and an unset value is safe to leave out.
+			zero := 0.0
+			body.Temperature = &zero
+		}
 	}
 	body.ServiceTier = req.ServiceTier
 	body.MaxTokens = maxTokens

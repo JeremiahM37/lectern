@@ -123,6 +123,7 @@ func (m *Model) newSession() tea.Cmd {
 	if err := t.be.NewSession(); err != nil {
 		m.logError(t, err.Error())
 		m.setFlash("err", "Could not start a session: "+err.Error())
+		m.showAlert("Could not start a session", err.Error())
 		return nil
 	}
 	m.resetTranscript(t)
@@ -258,6 +259,7 @@ func (m *Model) openNewTab() {
 		be, err := m.newBackend()
 		if err != nil {
 			m.setFlash("err", "Could not open a tab: "+err.Error())
+			m.showAlert("Could not open a tab", err.Error())
 			return nil
 		}
 		if strings.TrimSpace(v) == "" {

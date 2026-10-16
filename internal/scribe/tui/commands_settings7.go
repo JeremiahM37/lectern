@@ -8,6 +8,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -381,6 +382,35 @@ func (m *Model) privacyCommand(args string) tea.Cmd {
 	return cmdErrText("Usage: /privacy, /privacy add <pattern>, /privacy remove <pattern>")
 }
 
+// compactThreshold is one trigger point of the compaction picker.
+type compactThreshold struct {
+	at    float64
+	label string
+	desc  string
+}
+
+// compactThresholds are the trigger points /compact settings offers, as a
+// fraction of the context window (compact_at). 0.8 is the default.
+var compactThresholds = []compactThreshold{
+	{0.6, "60%", "compact early; keeps more headroom"},
+	{0.7, "70%", "compact a little early"},
+	{0.8, "80%", "the default threshold"},
+	{0.9, "90%", "compact late; the window fills further first"},
+}
+
+// thresholdValue is the picker value for a threshold.
+func thresholdValue(at float64) string { return fmt.Sprintf("at:%.2f", at) }
+
+// thresholdFor returns the threshold a picker value names, if it names one.
+func thresholdFor(value string) (compactThreshold, bool) {
+	for _, th := range compactThresholds {
+		if thresholdValue(th.at) == value {
+			return th, true
+		}
+	}
+	return compactThreshold{}, false
+}
+
 // openCompactStrategy is the picker behind `/compact settings`.
 func (m *Model) openCompactStrategy() {
 	p := NewPicker(m.th, "Compaction", "compact")
@@ -396,9 +426,26 @@ func (m *Model) openCompactStrategy() {
 			{Value: "v1", Label: "v1", Desc: "the earlier single-summary strategy", Current: cur == "v1"},
 			{Value: "disabled", Label: "Disabled", Desc: "never compact; the context fills", Current: cur == "disabled"},
 		}
+		// The threshold is the share of the context window that triggers a
+		// compaction. Each choice is saved as compact_at.
+		at := c.CompactAt
+		if at == 0 {
+			at = 0.8
+		}
+		for _, th := range compactThresholds {
+			p.Items = append(p.Items, PickItem{Value: thresholdValue(th.at), Label: th.label, Desc: th.desc,
+				Current: math.Abs(at-th.at) < 1e-9})
+		}
 		p.SetItems(p.Items)
 	}
 	p.OnSelect = func(it PickItem) tea.Cmd {
+		if th, ok := thresholdFor(it.Value); ok {
+			if err := m.saveGlobalFlat("compact_at", th.at); err != nil {
+				return cmdErr(err)
+			}
+			rebuild()
+			return flashCmd("ok", "Compaction starts at "+th.label+" of the window; applies to the next session")
+		}
 		v := it.Value
 		if v == "v2" {
 			v = ""

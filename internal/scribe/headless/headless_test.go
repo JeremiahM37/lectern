@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 )
 
@@ -248,6 +250,16 @@ func TestEventsRun(t *testing.T) {
 	last := evs[len(evs)-1]
 	if last["output"] != "ok" || last["error"] != nil {
 		t.Errorf("done = %v", last)
+	}
+}
+
+func TestStepCacheHitRatioFollowsSpec(t *testing.T) {
+	if got := stepCacheHit(llm.Usage{}); got != nil {
+		t.Fatalf("no input must be null, got %v", got)
+	}
+	got := stepCacheHit(llm.Usage{InputTokens: 100, CacheReadTokens: 300, CacheWriteTokens: 100})
+	if r, ok := got.(float64); !ok || r != 0.6 {
+		t.Fatalf("ratio = %v, want 300/(300+100+100)=0.6", got)
 	}
 }
 

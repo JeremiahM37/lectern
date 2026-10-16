@@ -107,6 +107,25 @@ func findCycle(ids []string, deps [][]int) []string {
 	return nil
 }
 
+// withPeerObjectives tells task i what the other tasks of its dispatch are
+// doing, so it does not repeat their work. A single-task dispatch adds
+// nothing.
+func withPeerObjectives(task string, tasks []subTask, p dispatchPlan, i int) string {
+	if len(tasks) < 2 {
+		return task
+	}
+	var b strings.Builder
+	b.WriteString(task)
+	b.WriteString("\n\nOther agents in this dispatch, and their objectives (do not repeat their work):\n")
+	for j, st := range tasks {
+		if j == i {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s (%s): %s\n", p.ids[j], st.Role, firstLine(clip(st.Task, 160)))
+	}
+	return b.String()
+}
+
 // withDependencyReports appends the reports of task i's dependencies to its
 // task text, so the subagent builds on what they found or changed. The
 // dependencies must have finished (their done channels closed).
@@ -119,7 +138,9 @@ func withDependencyReports(task string, p dispatchPlan, i int, results []taskRes
 	b.WriteString("\n\nReports from the tasks this one depends on (complete; build on them):\n")
 	for _, j := range p.deps[i] {
 		rep := strings.TrimSpace(results[j].report)
-		if rep == "" {
+		if rep == "" && results[j].err != nil {
+			rep = "(no report: this task failed: " + results[j].err.Error() + ")"
+		} else if rep == "" {
 			rep = "(no report)"
 		}
 		fmt.Fprintf(&b, "\n### %s\n%s\n", p.ids[j], rep)

@@ -18,6 +18,10 @@ type AgentBus struct {
 	bytes    int                 // total text bytes of findings, capped at maxFindingsBytes
 	owners   map[string][]string // file -> agents that edited it, first claimant first
 	reads    map[string]cachedRead
+	// abortFn cancels the dispatch's subagents; aborted records that a
+	// cancel_dispatch call (or the caller) asked for it.
+	abortFn func()
+	aborted bool
 }
 
 // Limits on findings (spec 03 section 3.7): 2 KB each, 128 KB per bus.
@@ -171,4 +175,44 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// SetAbort gives the bus the function that cancels the dispatch's subagents.
+func (b *AgentBus) SetAbort(f func()) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.abortFn = f
+	b.mu.Unlock()
+}
+
+// Abort cancels every subagent of the dispatch. It reports false when the
+// dispatch was already cancelled, so the second call says so instead.
+func (b *AgentBus) Abort() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	if b.aborted {
+		b.mu.Unlock()
+		return false
+	}
+	b.aborted = true
+	f := b.abortFn
+	b.mu.Unlock()
+	if f != nil {
+		f()
+	}
+	return true
+}
+
+// Aborted reports whether the dispatch was cancelled through the bus.
+func (b *AgentBus) Aborted() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.aborted
 }

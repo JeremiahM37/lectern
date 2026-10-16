@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -18,6 +19,9 @@ func (v *View) build() {
 	v.advanceAll(now)
 	lines := []string{}
 	hits := map[int]hitTarget{}
+	if v.earlier > 0 {
+		lines = append(lines, earlierDivider(v.earlier, w, v.th.TextFaint), "")
+	}
 	v.recStart = make([]int, len(v.msgs))
 	for i, rec := range v.msgs {
 		if i > 0 {
@@ -48,6 +52,17 @@ func (v *View) build() {
 	v.markLines(lines, hits, w)
 	v.placeRail()
 	v.lines, v.hits, v.lastTotal = lines, hits, len(lines)
+}
+
+// earlierDivider is the rule drawn at the top of a transcript that starts
+// after earlier messages: `── N earlier messages ──`, centred in w cells.
+func earlierDivider(n, w int, col lipgloss.TerminalColor) string {
+	noun := "messages"
+	if n == 1 {
+		noun = "message"
+	}
+	label := fmt.Sprintf(" %d earlier %s ", n, noun)
+	return fg(col, clip("──"+label+"──", maxInt(w, 1)))
 }
 
 // dynamic reports whether a record can still change, so it must not be cached.

@@ -56,6 +56,7 @@ type Manager struct {
 	workdir  string
 	mu       sync.Mutex
 	sessions map[string]*session
+	disabled map[string]bool // language keys turned off in settings
 	failed   map[string]startFailure
 	closed   bool
 	status   sessionStatus // read by Sessions without waiting for starts
@@ -220,7 +221,51 @@ func (m *Manager) sessionFor(ctx context.Context, abs string) (*session, error) 
 		return nil, fmt.Errorf("no language server is catalogued for %s", filepath.Base(abs))
 	}
 	spec := serverSpecs[info.key]
-	root := m.rootFor(spec, abs)
+	if m.isDisabled(info.key) {
+		return nil, fmt.Errorf("the %s language server is turned off in settings (disabled_lsp_servers in config.json). Remove it there to use it", spec.Language)
+	}
+	return m.sessionForSpec(ctx, spec, m.rootFor(spec, abs))
+}
+
+// SetDisabled turns off the language servers named by their language keys
+// (such as "go" or "typescript"). A disabled server is never started; asking
+// for one says it is turned off. Passing nothing re-enables every server.
+func (m *Manager) SetDisabled(keys []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.disabled = map[string]bool{}
+	for _, k := range keys {
+		if k = strings.ToLower(strings.TrimSpace(k)); k != "" {
+			m.disabled[k] = true
+		}
+	}
+}
+
+// isDisabled reports whether the server for language key is turned off.
+func (m *Manager) isDisabled(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.disabled[key]
+}
+
+// Warm starts the servers for the given languages at the workspace root, so
+// the first symbol or diagnostic request does not wait for a cold start. Only
+// languages that have a server spec and are not disabled are started. Errors
+// are not reported: a server that cannot start is reported when it is used.
+// Call it from a goroutine; it returns when every start has been tried.
+func (m *Manager) Warm(ctx context.Context, languages []string) {
+	for _, lang := range languages {
+		spec, ok := serverSpecs[lang]
+		if !ok || m.isDisabled(lang) || ctx.Err() != nil {
+			continue
+		}
+		_, _ = m.sessionForSpec(ctx, spec, m.workdir)
+	}
+}
+
+// sessionForSpec returns the running server for spec at root, starting it when
+// needed.
+func (m *Manager) sessionForSpec(ctx context.Context, spec *serverSpec, root string) (*session, error) {
 	key := spec.Language + "\x00" + root
 
 	m.mu.Lock()

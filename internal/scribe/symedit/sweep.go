@@ -27,62 +27,9 @@ func TextRename(env *tools.Env, workdir, oldName, newName string) tools.Result {
 	if oldName == "" || oldName == newName {
 		return tools.Errorf("rename needs the current name, and it must differ from new_name")
 	}
-	type site struct {
-		rel  string
-		line int
-		text string
-	}
-	var (
-		writes  []fileWrite
-		before  []string
-		sites   []site
-		skipped []string
-		clashes []string
-		hidden  int
-		files   []string
-	)
-	for _, rel := range candidateFiles(env, workdir, oldName) {
-		src, ok := readProjectText(workdir, rel)
-		if !ok || !strings.Contains(src, oldName) {
-			continue
-		}
-		lang, ok := languages[extOf(rel)]
-		if !ok {
-			if len(wordHits(src, oldName)) > 0 {
-				skipped = append(skipped, rel+" (no comment and string rules for this file type, not edited)")
-			}
-			continue
-		}
-		if isSecretName(path.Base(rel)) {
-			if len(wordHits(src, oldName)) > 0 {
-				skipped = append(skipped, rel+" (sensitive file name, not edited)")
-			}
-			continue
-		}
-		masked := mask(src, lang.lex)
-		hits := wordHits(masked, oldName)
-		hidden += len(wordHits(src, oldName)) - len(hits)
-		if len(hits) == 0 {
-			continue
-		}
-		if len(wordHits(masked, newName)) > 0 {
-			clashes = append(clashes, rel)
-		}
-		idx := newLineIndex(src)
-		var b strings.Builder
-		prev := 0
-		for _, off := range hits {
-			b.WriteString(src[prev:off])
-			b.WriteString(newName)
-			prev = off + len(oldName)
-			ln := idx.lineOf(off)
-			sites = append(sites, site{rel, ln, clip(strings.TrimSpace(idx.text(ln)), 160)})
-		}
-		b.WriteString(src[prev:])
-		writes = append(writes, fileWrite{rel: rel, content: b.String()})
-		before = append(before, src)
-		files = append(files, rel)
-	}
+	sw := runSweep(env, workdir, oldName, newName, nil)
+	writes, before, sites, files := sw.writes, sw.before, sw.sites, sw.files
+	skipped, clashes, hidden := sw.skipped, sw.clashes, sw.hidden
 	if len(writes) == 0 {
 		msg := fmt.Sprintf("Could not rename '%s': no code references were found in any source file. Comments and strings are never renamed.", oldName)
 		if hidden > 0 {
@@ -108,7 +55,7 @@ func TextRename(env *tools.Env, workdir, oldName, newName string) tools.Result {
 			fmt.Fprintf(&b, "  ... %d more not shown\n", len(sites)-maxSweepLines)
 			break
 		}
-		fmt.Fprintf(&b, "  %s:%d: %s\n", s.rel, s.line, s.text)
+		fmt.Fprintf(&b, "  %s\n", s)
 	}
 	b.WriteString("\nA different symbol that shares the name would have changed too. Run project test to check.\n")
 	if hidden > 0 {
@@ -131,6 +78,99 @@ func TextRename(env *tools.Env, workdir, oldName, newName string) tools.Result {
 		Diff:    diff.String(),
 		Files:   files,
 	}
+}
+
+// sweepState is what one text sweep found and would write.
+type sweepState struct {
+	writes  []fileWrite
+	before  []string
+	sites   []string // "rel:line: text", clipped
+	files   []string
+	skipped []string
+	clashes []string
+	hidden  int
+}
+
+// runSweep finds the whole-word code references to oldName outside skip (a set
+// of project-relative paths) and builds the writes that rename them. It writes
+// nothing; the caller commits.
+func runSweep(env *tools.Env, workdir, oldName, newName string, skip map[string]bool) sweepState {
+	var sw sweepState
+	var sites []sweepSite
+	for _, rel := range candidateFiles(env, workdir, oldName) {
+		if skip[rel] {
+			continue
+		}
+		src, ok := readProjectText(workdir, rel)
+		if !ok || !strings.Contains(src, oldName) {
+			continue
+		}
+		lang, ok := languages[extOf(rel)]
+		if !ok {
+			if len(wordHits(src, oldName)) > 0 {
+				sw.skipped = append(sw.skipped, rel+" (no comment and string rules for this file type, not edited)")
+			}
+			continue
+		}
+		if isSecretName(path.Base(rel)) {
+			if len(wordHits(src, oldName)) > 0 {
+				sw.skipped = append(sw.skipped, rel+" (sensitive file name, not edited)")
+			}
+			continue
+		}
+		masked := mask(src, lang.lex)
+		hits := wordHits(masked, oldName)
+		sw.hidden += len(wordHits(src, oldName)) - len(hits)
+		if len(hits) == 0 {
+			continue
+		}
+		if len(wordHits(masked, newName)) > 0 {
+			sw.clashes = append(sw.clashes, rel)
+		}
+		idx := newLineIndex(src)
+		var b strings.Builder
+		prev := 0
+		for _, off := range hits {
+			b.WriteString(src[prev:off])
+			b.WriteString(newName)
+			prev = off + len(oldName)
+			ln := idx.lineOf(off)
+			sites = append(sites, sweepSite{rel, ln, clip(strings.TrimSpace(idx.text(ln)), 160)})
+		}
+		b.WriteString(src[prev:])
+		sw.writes = append(sw.writes, fileWrite{rel: rel, content: b.String()})
+		sw.before = append(sw.before, src)
+		sw.files = append(sw.files, rel)
+	}
+	for _, st := range sites {
+		sw.sites = append(sw.sites, fmt.Sprintf("%s:%d: %s", st.rel, st.line, st.text))
+	}
+	return sw
+}
+
+type sweepSite struct {
+	rel  string
+	line int
+	text string
+}
+
+// SweepRemaining runs the text sweep after a language server's rename, over
+// the files the server did not change (skip holds their project-relative
+// paths). It writes what it finds and returns the sites it changed, so the
+// result can say what the server left behind. An empty result means no code
+// references remained.
+func SweepRemaining(env *tools.Env, workdir, oldName, newName string, skip map[string]bool) ([]string, []string, error) {
+	if env == nil {
+		return nil, nil, fmt.Errorf("rename: no environment")
+	}
+	sw := runSweep(env, workdir, oldName, newName, skip)
+	if len(sw.writes) == 0 {
+		return nil, nil, nil
+	}
+	if err := commitWrites(env, workdir, sw.writes); err != nil {
+		return nil, nil, err
+	}
+	return sw.files, sw.sites, nil
 }
 
 // relOf makes a project path relative to dir, slash-separated.

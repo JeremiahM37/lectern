@@ -603,22 +603,27 @@ func (m *Manager) allowSession(name string) {
 	m.allowed[name] = true
 }
 
-// call runs one tool on a ready server, bounded by CallTimeout.
+// call runs one tool on a ready server, bounded by the server's timeout or CallTimeout.
 func (m *Manager) call(ctx context.Context, server, tool string, args json.RawMessage) tools.Result {
 	m.mu.Lock()
 	var c *Client
 	state := StateStopped
+	callTimeout := m.opts.CallTimeout
 	if s := m.servers[server]; s != nil {
 		state = s.state
 		if s.state == StateReady {
 			c = s.client
+		}
+		// A per-server timeout (config "timeout", in seconds) overrides the default.
+		if s.spec.Timeout > 0 {
+			callTimeout = time.Duration(s.spec.Timeout) * time.Second
 		}
 	}
 	m.mu.Unlock()
 	if c == nil {
 		return tools.Errorf("MCP server %q is not connected (%s). Use the tool only after it is ready.", server, state)
 	}
-	cctx, cancel := context.WithTimeout(ctx, m.opts.CallTimeout)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	res, err := c.callTool(cctx, tool, args)
 	if err != nil {

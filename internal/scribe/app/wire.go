@@ -51,7 +51,16 @@ func (a *App) wire(ctx context.Context) error {
 	a.ext.jobs = exec.NewJobs(exec.Options{Allow: a.Cfg.Allow, Deny: a.Cfg.Deny, ToolTimeout: a.toolTimeout()})
 	exec.Register(a.Tools, a.ext.jobs)
 	a.ext.lsp = lsp.NewManager(a.Workdir)
+	a.ext.lsp.SetDisabled(a.Cfg.DisabledLSPServers)
 	lsp.Register(a.Tools, a.ext.lsp)
+	// Start the language servers for the project's languages in the background,
+	// each bounded, so the first symbol or diagnostic request does not wait for a
+	// cold start. Startup itself does not wait on them.
+	go func(m *lsp.Manager, root string) {
+		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		m.Warm(wctx, lsp.DetectLanguages(root)) // the walk stays off the startup path
+	}(a.ext.lsp, a.Workdir)
 	a.ext.reindex = newReindexer(reindexDelay, a.reindexCodeMap)
 	// The editor tool answers from the editor the user has open; the write
 	// hook tells the code map and language server about the user's saves.

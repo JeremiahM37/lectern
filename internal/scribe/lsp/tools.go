@@ -740,17 +740,35 @@ func (t *renameTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 		t.m.FileChanged(c.Path)
 	}
 	rels := make([]string, 0, len(applied.Changes))
+	done := map[string]bool{}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Renamed '%s' to '%s' in %d file(s):\n", oldName, a.NewName, len(applied.Changes))
 	for _, c := range applied.Changes {
 		rel := t.m.RelPath(c.Path)
 		rels = append(rels, rel)
+		done[filepath.ToSlash(rel)] = true
 		fmt.Fprintf(&b, "  %s\n", rel)
 	}
 	diff := diffSummary(applied.Changes, t.m.RelPath)
 	if diff != "" {
 		b.WriteString("\n")
 		b.WriteString(diff)
+	}
+	// The text sweep always runs after the server's rename, over the files the
+	// server did not change, so names left in other code are not missed.
+	if oldName != "" && oldName != a.NewName {
+		swept, sites, err := symedit.SweepRemaining(env, workdir, oldName, a.NewName, done)
+		if err != nil {
+			fmt.Fprintf(&b, "\nThe text sweep for remaining references failed, and nothing else was changed by it: %v\n", err)
+		} else if len(swept) > 0 {
+			fmt.Fprintf(&b, "\nText sweep also renamed '%s' by name in %d more file(s) (comment-aware, not resolved by a server; a different symbol with the same name would change too):\n", oldName, len(swept))
+			for _, s := range sites {
+				fmt.Fprintf(&b, "  %s\n", s)
+			}
+			rels = append(rels, swept...)
+		} else {
+			fmt.Fprintf(&b, "\nNo other code references to '%s' remain (text sweep). This does not run a type check; run project test.\n", oldName)
+		}
 	}
 	return tools.Result{
 		Output:  strings.TrimRight(b.String(), "\n"),

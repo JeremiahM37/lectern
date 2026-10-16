@@ -537,9 +537,10 @@ func keyStatus(p ProviderStatus) string {
 	case p.Local:
 		return "no key needed"
 	case p.HasKey && strings.HasPrefix(p.KeySource, "env:"):
-		return "✓ " + p.KeySource
+		// The badge names the source; the variable name follows it.
+		return "✓ " + keySourceBadge(p.KeySource) + " " + strings.TrimPrefix(p.KeySource, "env:")
 	case p.HasKey && p.KeySource == "store":
-		return "✓ stored"
+		return "✓ " + keySourceBadge(p.KeySource)
 	case p.HasKey:
 		return "✓ set"
 	}

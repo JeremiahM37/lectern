@@ -279,20 +279,30 @@ func (m *Model) sessionItems() []PickItem {
 
 // ---------------------------------------------------------------- theme
 
-// openThemePicker previews each theme as the cursor moves.
+// openThemePicker previews each theme as the cursor moves. Every palette it
+// shows carries the saved style (transparency, opacity, border), so a pick
+// keeps what the user set in the settings screen. Tab, M, D and B change the
+// style from here; see themePickerKey.
 func (m *Model) openThemePicker() {
 	original := m.themeName
 	p := NewPicker(m.th, "Theme", "lightning")
-	p.Hint = "↑↓ preview · Enter keep · Esc revert"
+	p.Hint = themePickerKeys
 	for _, name := range theme.Names() {
-		p.Items = append(p.Items, PickItem{Value: name, Label: name, Current: name == original})
+		item := PickItem{Value: name, Label: name, Current: name == original}
+		if th, ok := theme.Lookup(name); ok {
+			item.Desc = th.VariantIcon() + " " + themeVariantWord(th)
+		}
+		p.Items = append(p.Items, item)
 	}
 	p.refilter()
 	p.SelectValue(original)
+	p.Blurb = m.themeStyleLine()
+	p.OnKey = func(key string) (tea.Cmd, bool) { return m.themePickerKey(p, key) }
 	p.OnCursor = func(it PickItem) tea.Cmd {
 		if th, ok := theme.Lookup(it.Value); ok {
-			m.setTheme(it.Value, th)
-			p.SetTheme(th)
+			styled := m.styledTheme(th)
+			m.setTheme(it.Value, styled)
+			p.SetTheme(styled)
 		}
 		return nil
 	}
@@ -302,7 +312,7 @@ func (m *Model) openThemePicker() {
 	}
 	p.OnCancel = func() {
 		if th, ok := theme.Lookup(original); ok {
-			m.setTheme(original, th)
+			m.setTheme(original, m.styledTheme(th))
 		}
 	}
 	m.pushModal(p)

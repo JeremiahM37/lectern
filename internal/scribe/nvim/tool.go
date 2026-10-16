@@ -3,6 +3,7 @@ package nvim
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ var actions = []string{
 	"read", "edit", "navigate", "diagnostics", "symbols", "hover", "references",
 	"definition", "rename", "format", "select", "goto_cursor", "yank",
 	"cursor_context", "buffers", "quickfix", "terminal_output", "highlight",
+	"code_actions", "apply_code_action",
 }
 
 // readOnlyActions never change a file. They may move the cursor or copy to
@@ -39,6 +41,7 @@ var readOnlyActions = map[string]bool{
 	"references": true, "definition": true, "navigate": true, "goto_cursor": true,
 	"select": true, "yank": true, "cursor_context": true, "buffers": true,
 	"quickfix": true, "terminal_output": true, "highlight": true,
+	"code_actions": true,
 }
 
 // Args is the editor tool's input.
@@ -56,6 +59,8 @@ type Args struct {
 	Text        *string `json:"text"`
 	Register    string  `json:"register"`
 	Count       int     `json:"count"`
+	Index       int     `json:"index"`
+	Title       string  `json:"title"`
 }
 
 type tool struct{}
@@ -76,7 +81,8 @@ func (tool) Spec() llm.ToolSpec {
 		Description: "Work in the editor the user has open beside the chat (Neovim): read the buffer, edit lines " +
 			"(the edit is saved), navigate, read diagnostics, symbols, hover, definitions and references through the " +
 			"language server, rename, format, select, copy to the clipboard, list buffers, the quickfix list and the " +
-			"terminal's output, and highlight a range of lines in the buffer for the user to see. file switches the editor to that file first. Fails with \"no editor is open\" when the " +
+			"terminal's output, highlight a range of lines in the buffer for the user to see, and the server's code actions for " +
+			"lines (code_actions lists them; apply_code_action applies one by index or title, after the write rules check the files it changes). file switches the editor to that file first. Fails with \"no editor is open\" when the " +
 			"user has not opened one. Prefer edit_file for plain edits when the editor is not needed.",
 		Schema: tools.Schema(map[string]any{
 			"action":      tools.Enum("What to do.", actions...),
@@ -92,6 +98,8 @@ func (tool) Spec() llm.ToolSpec {
 			"text":        tools.Str("yank: the text to copy."),
 			"register":    tools.Str("yank: the register. Default + (the system clipboard)."),
 			"count":       tools.Int("terminal_output: how many lines. Default 100."),
+			"index":       tools.Int("apply_code_action: the number of the action from code_actions."),
+			"title":       tools.Str("apply_code_action: part of the action's title, when index is not given."),
 		}, "action"),
 	}
 }
@@ -208,6 +216,31 @@ func (tool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools
 				env.Files.BeforeWrite(abs)
 			}
 			s.markToolWrite(abs)
+		}
+	}
+	if a.Action == "apply_code_action" || a.Action == "rename" {
+		// Look first: the files the edit would change must pass the write
+		// rules (secret files, .git, CI and container definitions) before any
+		// of them is edited. A preview that fails is left to the real call,
+		// which reports the error in its usual words.
+		params["preview"] = true
+		prev, err := s.runAction(cctx, a.Action, params)
+		delete(params, "preview")
+		if err == nil {
+			var pv struct {
+				Title string   `json:"title"`
+				Files []string `json:"files"`
+			}
+			if json.Unmarshal([]byte(prev), &pv) == nil {
+				for _, f := range pv.Files {
+					if env == nil {
+						return tools.Errorf("%s needs a project environment to check its files", a.Action)
+					}
+					if err := fs.CheckWrite(ctx, env, ToolName, f); err != nil {
+						return tools.Result{Output: fmt.Sprintf("%v\nNo change was made. '%s' changes this file, so it was not applied.", err, pv.Title), IsError: true, Tag: "forbidden"}
+					}
+				}
+			}
 		}
 	}
 	text, err := s.runAction(cctx, a.Action, params)

@@ -185,6 +185,11 @@ func ReasoningStyle(model string) string {
 		return llm.ReasoningEffort
 	case strings.HasPrefix(m, "grok-3-mini"):
 		// xAI: reasoning_effort low or high on grok-3-mini only (grok-4 rejects it).
+		// UNVERIFIED OFFLINE: this is xAI's documented behaviour as recalled by the
+		// author (prov10, wave 10). No xAI model list, spec table or fixture in the
+		// repo says which grok ids take the field, and the model list response
+		// carries no reasoning metadata to test against. Other grok ids get no row
+		// and no field until someone checks xAI's current docs, then widens this.
 		return llm.ReasoningEffort
 	}
 	return llm.ReasoningNone

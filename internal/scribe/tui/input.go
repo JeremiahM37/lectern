@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"strings"
 	"time"
 	"unicode"
@@ -777,7 +778,9 @@ func (m *Model) submit(raw string) tea.Cmd {
 		}
 	}
 	text := strings.TrimSpace(s.expand(raw))
-	s.pushHistory(raw)
+	if !secretLine(text) {
+		s.pushHistory(raw)
+	}
 	s.clear()
 	s.dismissed = ""
 	if strings.HasPrefix(text, "/") {
@@ -789,6 +792,11 @@ func (m *Model) submit(raw string) tea.Cmd {
 	if strings.HasPrefix(text, "!") {
 		return m.runShell(t, strings.TrimSpace(text[1:]))
 	}
+	if !t.busy && t.browse >= 0 && t.browse < len(t.cps)-1 {
+		if br, ok := t.be.(CheckpointBrancher); ok {
+			return m.confirmBranch(t, br, raw, text)
+		}
+	}
 	if t.busy {
 		m.enterChat()
 		if len(t.steerQ) >= maxSteerQueue {
@@ -796,11 +804,17 @@ func (m *Model) submit(raw string) tea.Cmd {
 			s.setValue(raw)
 			return nil
 		}
-		if t.be.Steer(text) {
-			t.steerQ = append(t.steerQ, text)
-			if s.hasImages() {
+		steered := false
+		if is, ok := t.be.(ImageSteerer); ok && s.hasImages() {
+			steered = is.SteerWithImages(text, s.takeImages())
+		} else {
+			steered = t.be.Steer(text)
+			if steered && s.hasImages() {
 				m.setFlash("info", "Attached images go with your next message, after this turn")
 			}
+		}
+		if steered {
+			t.steerQ = append(t.steerQ, text)
 			return nil
 		}
 		// the turn ended while we were typing: send it as a new turn
@@ -909,3 +923,50 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 
 // shellCtx is the context for "!command" runs.
 func shellCtx() context.Context { return context.Background() }
+
+// secretLine reports whether a submitted line carries a secret, such as
+// "/remote token set <token>" or "/keys <provider> <key>". Such lines are
+// kept out of the Up-arrow history so a token cannot be recalled or shown
+// again later.
+func secretLine(text string) bool {
+	f := strings.Fields(strings.ToLower(text))
+	if len(f) >= 3 && (f[0] == "/remote" || f[0] == "/hearth") && f[1] == "token" && f[2] == "set" {
+		return true
+	}
+	if len(f) >= 2 && (f[0] == "/keys" || f[0] == "/api-keys") {
+		return true
+	}
+	return redact.Default().Redact(text) != text
+}
+
+// ImageSteerer is a backend whose running turn can take images with a
+// steering message, so a pasted screenshot reaches the model mid-turn.
+type ImageSteerer interface {
+	SteerWithImages(msg string, images []llm.Part) bool
+}
+
+// confirmBranch handles a message sent while an earlier checkpoint is shown:
+// sending from there drops the later turns, so it asks first. Yes reverts the
+// later turns' files, drops their messages and sends; No puts the text back.
+func (m *Model) confirmBranch(t *tab, br CheckpointBrancher, raw, text string) tea.Cmd {
+	cp := t.cps[t.browse]
+	later := len(t.cps) - 1 - t.browse
+	images := t.in.takeImages()
+	msg := fmt.Sprintf("You are viewing turn %d. Sending from here drops the %d later turn(s): their file changes are reverted and their messages are removed for good.", cp.Turn, later)
+	c := NewConfirm(m.th, "Send from an earlier turn?", msg, false, func() tea.Cmd {
+		if _, err := br.BranchFrom(cp.Turn); err != nil {
+			t.in.setValue(raw)
+			return cmdErrText("could not go back to turn " + itoa(cp.Turn) + ": " + err.Error())
+		}
+		m.replayTranscript(t)
+		t.browse = -1
+		m.syncRail(t)
+		if text == "" {
+			text = imageOnlyPrompt
+		}
+		return m.startTurnWith(t, text, images)
+	}).WithLabels("Send and drop later turns", "Cancel")
+	c.onNo = func() { t.in.setValue(raw) }
+	m.pushModal(c)
+	return nil
+}

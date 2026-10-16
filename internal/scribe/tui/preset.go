@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	overrideCommands(&command{Name: "preset", Args: "[name]", Desc: "List presets, or apply one", Group: "Settings",
+	overrideCommands(&command{Name: "preset", Args: "[name...] | remove <name...>", Desc: "List presets, apply one or more, or remove presets", Group: "Settings",
 		Run: func(m *Model, args string) tea.Cmd { return runPreset(m, strings.TrimSpace(args)) }})
 }
 
@@ -26,18 +26,72 @@ type presetWrite struct {
 	value any
 }
 
-func runPreset(m *Model, name string) tea.Cmd {
+func runPreset(m *Model, args string) tea.Cmd {
 	t := m.cur()
 	m.enterChat()
 	root := t.be.Workdir()
-	if name == "" {
+	names := presetNames(args)
+	if len(names) == 0 {
 		listPresets(t.chat.AddSystem, root)
 		return nil
 	}
+	if rm, ok := presetRemoveArgs(args); ok {
+		removePresets(t, root, rm)
+		return nil
+	}
+	// Several names apply in the order given; a bad name is reported and the
+	// others still apply.
+	for _, name := range names {
+		applyOnePreset(t, root, name)
+	}
+	return nil
+}
+
+// presetNames splits the /preset argument into preset names. Commas and
+// spaces both separate names, so "a, b" and "a b" mean the same thing.
+func presetNames(args string) []string {
+	return strings.FieldsFunc(args, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+}
+
+// presetRemoveArgs reports whether args is "remove NAME..." (or rm, delete)
+// and returns the names to remove. A bare "remove" is not a removal.
+func presetRemoveArgs(args string) ([]string, bool) {
+	words := presetNames(args)
+	if len(words) < 2 {
+		return nil, false
+	}
+	switch strings.ToLower(words[0]) {
+	case "remove", "rm", "delete":
+		return words[1:], true
+	}
+	return nil, false
+}
+
+// removePresets deletes the named preset files in the scope each one is
+// defined in. A global copy of a name that is also a project preset stays.
+func removePresets(t *tab, root string, names []string) {
+	for _, name := range names {
+		p, err := config.FindPreset(root, name)
+		if err != nil {
+			t.chat.AddSystem("error", err.Error())
+			continue
+		}
+		if err := config.RemovePreset(root, p); err != nil {
+			t.chat.AddSystem("error", "preset "+name+" was not removed: "+err.Error())
+			continue
+		}
+		msg := fmt.Sprintf("Removed preset %s (%s file %s)", name, p.Scope(), p.Path)
+		t.chat.AddSystem("info", msg)
+	}
+}
+
+// applyOnePreset applies one named preset through the backend, one key at a
+// time, and reports what it did and what it could not set.
+func applyOnePreset(t *tab, root, name string) {
 	p, err := config.FindPreset(root, name)
 	if err != nil {
 		t.chat.AddSystem("info", err.Error())
-		return nil
+		return
 	}
 	writes, skipped := presetWrites(p.Config, t.be.Config())
 	var failed []string
@@ -55,7 +109,6 @@ func runPreset(m *Model, name string) tea.Cmd {
 	if len(skipped) > 0 {
 		t.chat.AddSystem("info", fmt.Sprintf("Not applied here: %s. Edit %s to change them.", strings.Join(skipped, ", "), p.Path))
 	}
-	return nil
 }
 
 // listPresets prints the presets visible from root, and any file that cannot

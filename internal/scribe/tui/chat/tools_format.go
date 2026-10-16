@@ -28,11 +28,75 @@ func (v *View) resultSuffix(c *Call) string {
 	if c.Result == nil {
 		return ""
 	}
-	// The tool's own summary wins; the first output line is the fallback.
+	// The tool's own summary wins. Without one, a tool with a known shape
+	// gets its count (spec 01, formatResult); the first output line is the
+	// last fallback.
 	if c.Result.Summary != "" {
 		return clip(c.Result.Summary, 60)
 	}
+	if s, ok := countSuffix(c); ok {
+		return s
+	}
 	return clip(firstLine(c.Result.Output), 40)
+}
+
+// countSuffix is the count a finished row shows for tools whose result has a
+// fixed shape: `N lines` for a read, `N hit(s) in M file(s)` or `0 hits` for a
+// grep, `N file(s)` for a glob and `N result(s)` for soul_find. A failed read
+// or web search shows its first line cut short. It reports false for other
+// tools and for failures it does not shape.
+func countSuffix(c *Call) (string, bool) {
+	out := c.Result.Output
+	if c.Result.IsError {
+		switch c.Tool {
+		case "read":
+			return clip(firstLine(out), 27), true
+		case "web_search":
+			return clip(firstLine(out), 50), true
+		}
+		return "", false
+	}
+	lines := outputLines(out)
+	switch c.Tool {
+	case "read":
+		return fmt.Sprintf("%d %s", len(lines), plural(len(lines), "line", "lines")), true
+	case "grep":
+		if len(lines) == 0 {
+			return "0 hits", true
+		}
+		files := map[string]bool{}
+		for _, l := range lines {
+			if i := strings.Index(l, ":"); i > 0 {
+				files[l[:i]] = true
+			}
+		}
+		return fmt.Sprintf("%d %s in %d %s", len(lines), plural(len(lines), "hit", "hits"),
+			len(files), plural(len(files), "file", "files")), true
+	case "glob":
+		return fmt.Sprintf("%d %s", len(lines), plural(len(lines), "file", "files")), true
+	case "soul_find":
+		return fmt.Sprintf("%d %s", len(lines), plural(len(lines), "result", "results")), true
+	}
+	return "", false
+}
+
+// outputLines is the non-empty lines of a tool's output.
+func outputLines(out string) []string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// plural picks the singular or plural noun for n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // isEditResultRow reports a finished, successful edit whose row shows the

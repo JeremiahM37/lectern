@@ -171,6 +171,14 @@ func Open(ctx context.Context, o Options) (*App, error) {
 	excludeScribeDir(root)
 	a.Registry = registry.New(cfg)
 	a.Store = session.NewStore(root)
+	// Model lists are cached per provider and prewarmed in parallel at boot,
+	// so the first model picker opens with its lists ready. It runs in the
+	// background and is bounded, so startup does not wait on the network.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		a.Registry.Prewarm(ctx)
+	}()
 
 	modelRef := firstNonEmpty(o.Model, cfg.Model)
 	mode := firstNonEmpty(o.Mode, cfg.Mode, "default")
@@ -404,7 +412,7 @@ func (a *App) systemPrompt(sub string) func(string) string {
 }
 
 func (a *App) env() tools.Env {
-	e := tools.Env{Workdir: a.Workdir, Host: a.host, Services: a.services}
+	e := tools.Env{Workdir: a.Workdir, Host: a.host, Services: a.services, Claims: tabClaims{a}}
 	if a.Checks != nil {
 		e.Files = a.Checks
 	} else {

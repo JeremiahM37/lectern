@@ -170,7 +170,7 @@ func TestSettingsKeyEntryIsMasked(t *testing.T) {
 	if got := screen(m); strings.Contains(got, secret) {
 		t.Fatalf("the key must not appear after saving:\n%s", got)
 	}
-	if !strings.Contains(screen(m), "✓ stored") {
+	if !strings.Contains(screen(m), "✓ [config]") {
 		t.Fatal("the provider row should now show a stored key")
 	}
 }

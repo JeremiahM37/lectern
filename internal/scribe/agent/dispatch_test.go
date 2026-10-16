@@ -14,7 +14,7 @@ func TestDispatchRunsExploreAgentsWithConcurrencyLimit(t *testing.T) {
 	gate := make(chan struct{})
 	f := newFake(t)
 	f.setPick(func(_ int, req recordedReq) reply {
-		task := lastUserText(req)
+		task := openingOf(req)
 		for _, m := range []string{"TASK-1", "TASK-2", "TASK-3"} {
 			if strings.Contains(task, m) {
 				// Hold every answer until the test has checked the limit.

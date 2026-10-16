@@ -259,6 +259,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	run.cancel = cancel
+	run.bus.SetAbort(cancel)
 	sem := make(chan struct{}, limit)
 	// Code tasks that touch the same file run one after another.
 	locks := map[string]*sync.Mutex{}
@@ -279,7 +280,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	skip := func(i int, err error) {
 		results[i] = taskResult{err: err}
 		status := "error"
-		if errors.Is(err, errCancelledByUser) {
+		if errors.Is(err, errCancelledByUser) || errors.Is(err, errDispatchCancelled) {
 			status = "cancelled"
 		}
 		run.board.update(i, func(a *AgentInfo) { a.Status, a.Error = status, err.Error() })
@@ -326,7 +327,7 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 					defer locks[f].Unlock()
 				}
 			}
-			task := withDependencyReports(taskText(st), plan, i, results)
+			task := withPeerObjectives(withDependencyReports(taskText(st), plan, i, results), in.Tasks, plan, i)
 			results[i] = run.runTask(ctx, i, st.Role, PurposeTask, task)
 		}(i, st)
 	}
@@ -397,6 +398,9 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		}
 		b.WriteString("\n")
 	}
+	if run.bus.Aborted() {
+		b.WriteString("## Cancelled\nAn agent of this dispatch called cancel_dispatch. Agents that had not finished were stopped.\n\n")
+	}
 	if run.tripped() {
 		fmt.Fprintf(&b, "## Circuit breaker\nOpened after %d provider failures; tasks that had not started were not run.\n\n", run.failureCount())
 	}
@@ -413,6 +417,9 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 		fmt.Fprintf(&b, "## Review\n%s\n\n", review)
 	}
 	summary := fmt.Sprintf("%d/%d agents finished", ok, n)
+	if run.bus.Aborted() {
+		summary += ", cancelled"
+	}
 	if check.failing {
 		summary += ", check failing"
 	}

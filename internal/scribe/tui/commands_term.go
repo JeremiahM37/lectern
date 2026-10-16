@@ -51,8 +51,8 @@ func init() {
 				}
 				return cmdErrText("Usage: /terminals [list|new|show|hide|close [n]|rename [n] <name>]")
 			}},
-		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|access [on|when-open|off]|sync [on|off]]",
-			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; access sets what the agent may do in it; sync sets whether its edits follow into the buffer", Group: "Tabs",
+		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|settings|access [on|when-open|off]|sync [on|off]]",
+			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; settings opens the integration toggles; access sets what the agent may do in it; sync sets whether its edits follow into the buffer", Group: "Tabs",
 			Run: func(m *Model, args string) tea.Cmd {
 				args = strings.TrimSpace(args)
 				switch args {
@@ -67,6 +67,10 @@ func init() {
 					return nil
 				case "open":
 					return cmdErrText("Usage: /editor open <file[:line]>")
+				case "settings":
+					// The integration toggles live on the Tools tab, under
+					// "Editor integrations".
+					return m.openSettingsTab(stTools)
 				case "access":
 					m.setFlash("info", "Agent editor access: "+nvim.GetAccess().Label()+" (on, when-open or off)")
 					return nil

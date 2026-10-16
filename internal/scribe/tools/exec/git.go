@@ -116,6 +116,18 @@ func (t *gitTool) ReadOnlyCall(raw json.RawMessage) bool {
 }
 
 func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) tools.Result {
+	warn := ""
+	if env != nil && !t.ReadOnlyCall(raw) {
+		warn = claimWarning(env, raw)
+	}
+	res := t.run(ctx, env, raw)
+	if warn != "" {
+		res.Output = warn + "\n" + res.Output
+	}
+	return res
+}
+
+func (t *gitTool) run(ctx context.Context, env *tools.Env, raw json.RawMessage) tools.Result {
 	var a gitArgs
 	if err := tools.Decode(raw, &a); err != nil {
 		return tools.Errorf("%v", err)

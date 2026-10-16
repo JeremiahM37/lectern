@@ -642,7 +642,11 @@ func (m *Model) viewFooter() string {
 	left := m.footerLeft()
 	room := m.width - ansi.StringWidth(left) - 4
 	tip := ""
-	if room > 12 {
+	if cp := browsedCheckpoint(m.cur()); cp != nil && room > 12 {
+		// While a checkpoint is browsed, the footer names it and the keys that
+		// leave it, in place of a tip the user cannot act on from here.
+		tip = checkpointLegend(th, cp.Turn, room)
+	} else if room > 12 {
 		order, pos := m.tipSlot()
 		text := fitTipAt(order, pos, room-2)
 		if off := m.frame % tipTicks; off < 4 {
@@ -652,4 +656,12 @@ func (m *Model) viewFooter() string {
 		}
 	}
 	return spaceBetween(" "+left, tip+" ", m.width)
+}
+
+// checkpointLegend is the footer while a checkpoint is browsed: the turn and
+// how to leave the browsing. It is cut to room cells, never wrapped.
+func checkpointLegend(th theme.Theme, turn, room int) string {
+	text := fgb(th.Warning).Render("◀ turn "+itoa(turn)) +
+		fg(th.TextFaint).Render(" · Ctrl+F forward · /checkpoint live returns")
+	return ansi.Truncate(text, room, "…")
 }

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -52,6 +53,13 @@ type View struct {
 	wheelScore float64   // burst score of recent wheel ticks
 	expanded   bool      // Ctrl+O: tool details and reasoning
 	gen        int       // bumped whenever the global expansion changes
+
+	// earlier is how many messages came before this transcript and are not
+	// in it; the top of the message area then shows a divider (scroll.go).
+	earlier int
+	// streamChars counts the text and reasoning characters streamed this
+	// turn, for the rough token estimate (streamTokens).
+	streamChars int
 
 	// Scrolling. top is the first visible line; sticky follows the bottom.
 	top       int
@@ -116,6 +124,29 @@ func New(o Options) *View {
 		hoverLine:  -1,
 	}
 }
+
+// SetEarlier records how many messages came before this transcript and are
+// not in it. The message area then opens with a divider showing the count.
+func (v *View) SetEarlier(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if n != v.earlier {
+		v.earlier = n
+		v.gen++
+	}
+}
+
+// streamTokens is the rough token count of the text and reasoning streamed
+// this turn, at 3.5 characters per token (spec 2.13). It is an estimate for
+// the footer while a reply streams; the provider's count replaces it at the
+// end of the turn.
+func (v *View) streamTokens() int {
+	return int(float64(v.streamChars)/3.5 + 0.5)
+}
+
+// StreamTokenEstimate is streamTokens, for the status line.
+func (v *View) StreamTokenEstimate() int { return v.streamTokens() }
 
 // SetSize sets the cell size of the view.
 func (v *View) SetSize(w, h int) {
@@ -257,6 +288,7 @@ func (v *View) Apply(e agent.Event) {
 	switch e.Kind {
 	case agent.EvTurnStart:
 		v.closeLive()
+		v.streamChars = 0
 		if e.Prompt == "" {
 			// A continuation (/session continue, --continue) has no prompt of
 			// its own. It extends the interrupted turn's row rather than
@@ -283,8 +315,10 @@ func (v *View) Apply(e agent.Event) {
 			rec.Steps++
 		}
 	case agent.EvText:
+		v.streamChars += utf8.RuneCountInString(e.Text)
 		v.openSeg("text", e.At).Text += e.Text
 	case agent.EvReasoning:
+		v.streamChars += utf8.RuneCountInString(e.Text)
 		rec := v.ensureLive(e.At)
 		rec.Reasoned = true
 		if v.opt.ShowReasoning {
@@ -584,6 +618,8 @@ func (v *View) removeRecord(r *Record) {
 // Clear empties the transcript.
 func (v *View) Clear() {
 	v.msgs = nil
+	v.earlier = 0
+	v.streamChars = 0
 	v.live = nil
 	v.busy = false
 	v.compacting = nil

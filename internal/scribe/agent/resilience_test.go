@@ -601,3 +601,22 @@ func TestBeforeToolRunsBeforeTheTool(t *testing.T) {
 		t.Fatalf("order = %q", order)
 	}
 }
+
+// The tool hooks learn the call's id from the context the agent passes.
+func TestToolCallIDReachesBeforeTool(t *testing.T) {
+	runs := 0
+	p := &scriptProv{scripts: []streamScript{
+		callScript("call-42", "echo", `{"id":"a"}`),
+		streamOf(textEv("done"), finishEv(llm.FinishStop)),
+	}}
+	var seen string
+	a, _ := rsAgent(t, p, echoRegistry(&runs, "ok", nil), func(o *Options) {
+		o.AfterTool = func(ctx context.Context, _ string, _ json.RawMessage, _ *tools.Result) { seen = CallID(ctx) }
+	})
+	if _, err := a.Run(context.Background(), "go", nil); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "call-42" {
+		t.Fatalf("call id in the tool context = %q", seen)
+	}
+}

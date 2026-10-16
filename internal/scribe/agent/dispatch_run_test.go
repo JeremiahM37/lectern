@@ -69,11 +69,22 @@ func plainRegistry() *tools.Registry {
 	return r
 }
 
-// requestsMentioning counts model requests whose last user message contains s.
+// openingOf is the task a request is for: its last user message up to the
+// first blank line. Later paragraphs (dependency reports, the peer list) name
+// other tasks, so routing must not match them.
+func openingOf(req recordedReq) string {
+	text := lastUserText(req)
+	if i := strings.Index(text, "\n\n"); i >= 0 {
+		return text[:i]
+	}
+	return text
+}
+
+// requestsMentioning counts the requests whose task (see openingOf) contains s.
 func requestsMentioning(f *fakeLLM, s string) int {
 	n := 0
 	for _, req := range f.requests() {
-		if strings.Contains(lastUserText(req), s) {
+		if strings.Contains(openingOf(req), s) {
 			n++
 		}
 	}
@@ -124,7 +135,7 @@ func TestDispatchDependentStartsAfterDependencyAndReceivesItsReport(t *testing.T
 	h := newDispatchHarness(t, plainRegistry)
 	gate := make(chan struct{})
 	h.f.setPick(func(_ int, req recordedReq) reply {
-		task := lastUserText(req)
+		task := openingOf(req)
 		switch {
 		case strings.Contains(task, "ALPHA-TASK"):
 			return h.f.gated(gate, turn(sseTurn{text: []string{"alpha-report-ok"}}))
@@ -159,7 +170,13 @@ func TestDispatchDependentStartsAfterDependencyAndReceivesItsReport(t *testing.T
 	if res.IsError || res.Summary != "2/2 agents finished" {
 		t.Fatalf("result = %+v", res)
 	}
-	req := requestMentioning(t, h.f, "BETA-TASK")
+	var req recordedReq
+	for _, r := range h.f.requests() {
+		if strings.Contains(openingOf(r), "BETA-TASK") {
+			req = r
+			break
+		}
+	}
 	if !strings.Contains(lastUserText(req), "### alpha\nalpha-report-ok") {
 		t.Fatalf("beta's task does not carry alpha's report:\n%s", lastUserText(req))
 	}
@@ -168,7 +185,7 @@ func TestDispatchDependentStartsAfterDependencyAndReceivesItsReport(t *testing.T
 func TestDispatchSkipsTaskWhoseDependencyFailed(t *testing.T) {
 	h := newDispatchHarness(t, plainRegistry)
 	h.f.setPick(func(_ int, req recordedReq) reply {
-		if strings.Contains(lastUserText(req), "ALPHA-TASK") {
+		if strings.Contains(openingOf(req), "ALPHA-TASK") {
 			return providerError(400) // not retryable: fails at once
 		}
 		return turn(sseTurn{text: []string{"should not run"}})

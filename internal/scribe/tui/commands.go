@@ -222,9 +222,12 @@ func init() {
 				}
 				return m.renameCurrent(args)
 			}},
-		&command{Name: "export", Args: "[md|json|all|clipboard]", Desc: "Export the session as markdown or JSON; all writes a diagnostic dump", Group: "Session",
+		&command{Name: "export", Args: "[md|json|all|clipboard|api]", Desc: "Export the session as markdown or JSON; all writes a diagnostic dump; api toggles the per-request API dump", Group: "Session",
 			Run: func(m *Model, args string) tea.Cmd {
 				args = strings.ToLower(strings.TrimSpace(args))
+				if args == "api" || strings.HasPrefix(args, "api ") {
+					return m.exportAPI(strings.TrimPrefix(args, "api"))
+				}
 				if args == "clipboard" || args == "clip" {
 					return m.copyExport()
 				}
@@ -550,6 +553,7 @@ func (m *Model) applyTheme(name string) tea.Cmd {
 		return cmdErrText("No theme named " + name)
 	}
 	m.setTheme(name, th)
+	m.applyThemeStyle() // keep the saved transparency and borders
 	m.cur().be.SetTheme(name)
 	return flashCmd("ok", "Theme: "+name)
 }

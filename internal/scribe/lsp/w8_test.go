@@ -354,9 +354,48 @@ func TestRefactorWithoutAnyLanguageServerIsNotSupported(t *testing.T) {
 
 func TestRefactorRejectsUnknownAction(t *testing.T) {
 	dir := goProject(t)
-	res := runTool(t, dir, nil, "refactor", map[string]any{"action": "inline", "path": "a.go", "start_line": 4})
-	if !res.IsError || !strings.Contains(res.Output, "extract_function or extract_variable") {
-		t.Fatalf("unknown refactor action: %s", res.Output)
+	res := runTool(t, dir, nil, "refactor", map[string]any{"action": "explode", "path": "a.go", "start_line": 4})
+	if !res.IsError || !strings.Contains(res.Output, "extract_function, extract_variable, extract_constant, inline, rewrite") {
+		t.Fatalf("unknown refactor action should list the valid ones: %s", res.Output)
+	}
+}
+
+// inline asks the server for refactor.inline and applies what it returns; the
+// kind match is by prefix, so a server's refactor.inline.call also counts.
+func TestRefactorInlineAsksForInlineKind(t *testing.T) {
+	dir := goProject(t)
+	abs := filepath.Join(dir, "a.go")
+	m := NewManager(dir)
+	edit := map[string]any{"changes": map[string]any{pathToURI(abs): []any{map[string]any{
+		"range":   map[string]any{"start": map[string]any{"line": 0, "character": 0}, "end": map[string]any{"line": 0, "character": 0}},
+		"newText": "// inlined\n",
+	}}}}
+	var asked []string
+	startFakeLSP(t, m, abs, map[string]func(json.RawMessage) any{
+		"textDocument/codeAction": func(params json.RawMessage) any {
+			var got struct {
+				Context struct {
+					Only []string `json:"only"`
+				} `json:"context"`
+			}
+			_ = json.Unmarshal(params, &got)
+			asked = got.Context.Only
+			if len(got.Context.Only) == 1 && got.Context.Only[0] == "refactor.inline" {
+				return []any{map[string]any{"title": "Inline call", "kind": "refactor.inline.call", "edit": edit}}
+			}
+			return []any{}
+		},
+	})
+	trk := newReadTracker()
+	trk.MarkRead(abs)
+	tool, _ := newRegistry(m).Get("refactor")
+	b, _ := json.Marshal(map[string]any{"action": "inline", "path": "a.go", "start_line": 5})
+	res := tool.Run(context.Background(), &tools.Env{Workdir: dir, Files: trk}, b)
+	if res.IsError {
+		t.Fatalf("inline failed (asked %v): %s", asked, res.Output)
+	}
+	if !strings.Contains(mustRead(t, abs), "// inlined") {
+		t.Fatalf("inline edit not applied:\n%s", mustRead(t, abs))
 	}
 }
 

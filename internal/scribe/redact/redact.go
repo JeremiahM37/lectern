@@ -84,6 +84,8 @@ var shapes = []shape{
 	prefixed(`\bAIza[0-9A-Za-z_\-]{35}`, nil),
 	prefixed(`\bglpat-[A-Za-z0-9_\-]{20,}`, nil),
 	prefixed(`\bnpm_[A-Za-z0-9]{30,}`, nil),
+	// Telegram bot tokens: the bot's numeric id, a colon, 35 more characters.
+	prefixed(`\b[0-9]{8,10}:[A-Za-z0-9_\-]{30,}`, nil),
 	// Stripe secret, restricted and webhook keys. Publishable keys (pk_)
 	// are not secret and are left alone. hasDigit keeps prose such as
 	// "sk_test_placeholder" out.

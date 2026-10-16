@@ -276,3 +276,25 @@ func TestToolRejectsUnknownAction(t *testing.T) {
 		t.Fatalf("unknown action: %+v", res)
 	}
 }
+
+// Code actions need a server: listing and applying without one say so, and
+// listing is read-only (plan mode allows it), applying is not.
+func TestToolCodeActionsWithoutServerAndClassification(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "c.txt")
+	os.WriteFile(file, []byte("x\n"), 0o644)
+	startNvim(t, file)
+	env := envFor(dir)
+
+	res := run(t, env, map[string]any{"action": "code_actions"})
+	if !res.IsError || res.Output != "no LSP client attached for this buffer" {
+		t.Fatalf("code_actions without a server: %+v", res)
+	}
+	res = run(t, env, map[string]any{"action": "apply_code_action", "index": 1})
+	if !res.IsError {
+		t.Fatalf("apply_code_action without a server must fail: %+v", res)
+	}
+	if !readOnlyActions["code_actions"] || readOnlyActions["apply_code_action"] {
+		t.Fatal("code_actions must be read-only and apply_code_action must not be")
+	}
+}

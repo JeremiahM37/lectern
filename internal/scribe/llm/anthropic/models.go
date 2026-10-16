@@ -247,3 +247,13 @@ func (p *Provider) listRemote(ctx context.Context) ([]remoteModel, error) {
 	}
 	return all, nil
 }
+
+// knownTemperatureModel reports whether model is a recognised Claude model
+// before the generation that rejects temperature, so a default of 0 is safe.
+func knownTemperatureModel(model string) bool {
+	id := dateSuffix.ReplaceAllString(model, "")
+	if familyFirst.MatchString(id) || familyLast.MatchString(id) {
+		return ReasoningStyle(model) != llm.ReasoningAdaptive
+	}
+	return false
+}

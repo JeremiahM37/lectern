@@ -51,6 +51,7 @@ type Surface struct {
 	cancel context.CancelFunc
 	sink   Sink
 	wait   time.Duration
+	logs   logRing
 }
 
 // Default is the surface the Scribe TUI and `lectern code --telegram` use.
@@ -86,7 +87,7 @@ func (s *Surface) Enable(opts EnableOptions) error {
 	}
 	bot, err := NewBot(Options{
 		Token: opts.Token, APIBase: opts.APIBase, HTTP: opts.HTTP,
-		Allow: allow, Logf: opts.Logf, Deliver: s.deliver, Stop: s.stop,
+		Allow: allow, Logf: s.logs.wrap(opts.Logf), Deliver: s.deliver, Stop: s.stop,
 	})
 	if err != nil {
 		return err

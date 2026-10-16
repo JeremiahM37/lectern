@@ -9,9 +9,10 @@ import (
 )
 
 // Images in a user message are drawn at most this many cells wide and rows
-// high, so a screenshot takes a fixed, modest share of the transcript.
+// high, so a screenshot takes a fixed, modest share of the transcript. Spec
+// 01 section 2.2 draws pasted-image thumbnails at 60 columns.
 const (
-	imageCols = 48
+	imageCols = 60
 	imageRows = 8
 )
 

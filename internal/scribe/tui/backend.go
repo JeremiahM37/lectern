@@ -248,6 +248,15 @@ type ContextClearer interface {
 	ClearContext(target string) error
 }
 
+// CheckpointBrancher is implemented by backends that can cut the conversation
+// after a checkpoint. The TUI calls it when the person sends from an earlier
+// checkpoint, after asking them to confirm. It reverts the files of the later
+// turns (they can be undone again until the next turn starts) and drops their
+// messages, which cannot be recovered. dropped is the number of later turns.
+type CheckpointBrancher interface {
+	BranchFrom(turn int) (dropped int, err error)
+}
+
 // ConfigMover saves a setting into one scope and removes it from the other,
 // so it lives in exactly one place after the move.
 type ConfigMover interface {

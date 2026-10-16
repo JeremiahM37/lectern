@@ -161,6 +161,32 @@ func FindPreset(root, name string) (Preset, error) {
 	return Preset{}, fmt.Errorf("no preset %q (have: %s)", name, strings.Join(names, ", "))
 }
 
+// RemovePreset deletes the file a preset was read from. It only removes a
+// regular file that sits directly in the presets directory of its scope (the
+// global one, or the project's when p.Project is set), so a preset value
+// cannot point a removal anywhere else. Other presets of the same name, in
+// the other scope, are left alone.
+func RemovePreset(root string, p Preset) error {
+	dir := PresetDir()
+	if p.Project {
+		if root == "" {
+			return fmt.Errorf("preset %s is in a project, and no project is open", p.Name)
+		}
+		dir = ProjectPresetDir(root)
+	}
+	if !presetName.MatchString(p.Name) || filepath.Dir(p.Path) != dir || filepath.Base(p.Path) != p.Name+".json" {
+		return fmt.Errorf("preset %s is not a preset file this command may remove", p.Name)
+	}
+	info, err := os.Lstat(p.Path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("preset %s: not a regular file", p.Path)
+	}
+	return os.Remove(p.Path)
+}
+
 // ApplyPreset merges p over base. Preset values win where set; everything
 // else is kept, with the same rules as the global-over-project merge.
 func ApplyPreset(base Config, p Preset) Config { return Merge(base, p.Config) }

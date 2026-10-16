@@ -73,6 +73,14 @@ func (a *Allowlist) Add(chat string) error {
 	return a.saveLocked()
 }
 
+// IsStatic reports whether chat is listed in the config (and so cannot be
+// removed from a phone or the TUI).
+func (a *Allowlist) IsStatic(chat string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.static[chat]
+}
+
 // Members returns every allowed chat id, sorted.
 func (a *Allowlist) Members() []string {
 	a.mu.Lock()

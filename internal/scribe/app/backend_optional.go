@@ -6,6 +6,8 @@ import "github.com/JeremiahM37/lectern/v2/internal/scribe/tui"
 // every optional interface must hold for *scribeBackend itself, not only for
 // *App: an App-only method compiles fine and then reports "cannot" at runtime.
 var (
+	_ tui.APIDumper           = (*scribeBackend)(nil)
+	_ tui.CheckpointBrancher  = (*scribeBackend)(nil)
 	_ tui.CheckpointSaver     = (*scribeBackend)(nil)
 	_ tui.ConfigMover         = (*scribeBackend)(nil)
 	_ tui.ContextWindower     = (*scribeBackend)(nil)
@@ -16,6 +18,7 @@ var (
 	_ tui.FileClaimer         = (*scribeBackend)(nil)
 	_ tui.GitRepoOps          = (*scribeBackend)(nil)
 	_ tui.HistoryLoader       = (*scribeBackend)(nil)
+	_ tui.ImageSteerer        = (*scribeBackend)(nil)
 	_ tui.HookSwitcher        = (*scribeBackend)(nil)
 	_ tui.LSPSessioner        = (*scribeBackend)(nil)
 	_ tui.MapController       = (*scribeBackend)(nil)

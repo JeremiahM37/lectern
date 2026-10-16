@@ -355,24 +355,35 @@ func workdirOf(m *Manager, env *tools.Env) string {
 
 // --- refactor ---------------------------------------------------------------
 
-// extractKinds are the server code-action kinds each extract operation uses.
+// extractKinds are the server code-action kinds each refactor action uses.
+// Kinds match by prefix (kindWanted), so refactor.inline also covers
+// refactor.inline.call and friends.
 var extractKinds = map[string][]string{
 	"extract_function": {"refactor.extract.function"},
 	"extract_variable": {"refactor.extract.variable", "refactor.extract.constant"},
+	"extract_constant": {"refactor.extract.constant"},
+	"inline":           {"refactor.inline"},
+	"rewrite":          {"refactor.rewrite"},
 }
+
+// refactorActionNames are the action names the refactor tool accepts, in the
+// order its schema lists them.
+var refactorActionNames = []string{"extract_function", "extract_variable", "extract_constant", "inline", "rewrite"}
 
 type refactorTool struct{ m *Manager }
 
 func (t *refactorTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "refactor",
-		Description: "Extract code with the language server's refactoring. extract_function moves the given complete " +
-			"statements into a new function; extract_variable moves a complete expression into a new variable. " +
-			"Give path, start_line and end_line (end_line defaults to start_line). The server chooses the new name; " +
-			"rename it afterwards with rename_symbol if the default does not fit. Set apply to false to preview. " +
-			"Read the file first. Languages whose server does not offer the refactoring get an error and no edit.",
+		Description: "Refactor with the language server. extract_function moves the given complete statements into a new " +
+			"function; extract_variable moves a complete expression into a new variable; extract_constant does the same " +
+			"for a constant; inline inlines the symbol or call at the lines given; rewrite applies the server's rewrite " +
+			"at the lines (for example converting between equivalent forms). Give path, start_line and end_line " +
+			"(end_line defaults to start_line). The server chooses any new name; rename it afterwards with rename_symbol " +
+			"if the default does not fit. Set apply to false to preview. Read the file first. Languages whose server " +
+			"does not offer the refactoring get an error and no edit.",
 		Schema: tools.Schema(map[string]any{
-			"action":     tools.Enum("extract_function or extract_variable.", "extract_function", "extract_variable"),
+			"action":     tools.Enum("The refactoring to run.", refactorActionNames...),
 			"path":       tools.Str("File, relative to the project root."),
 			"start_line": tools.Int("First line (1-based) of the code to extract."),
 			"end_line":   tools.Int("Last line (1-based, inclusive). Defaults to start_line."),
@@ -401,7 +412,7 @@ func (t *refactorTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		kinds, ok = extractKinds[action]
 	}
 	if !ok {
-		return tools.Errorf("refactor action must be extract_function or extract_variable; got %q", a.Action)
+		return tools.Errorf("refactor action must be one of %s; got %q", strings.Join(refactorActionNames, ", "), a.Action)
 	}
 	if a.Path == "" {
 		return tools.Errorf("%s needs path", action)
@@ -438,7 +449,7 @@ func (t *refactorTool) Run(ctx context.Context, env *tools.Env, args json.RawMes
 		}
 	}
 	if chosen == nil {
-		return tools.Errorf("%s is not supported for %s at %s: the language server offers no %s there, so no edit was made. extract_function needs complete statements; extract_variable needs one complete expression. Check the lines, or extract by hand with edit_file.", action, lang, where, action)
+		return tools.Errorf("%s is not supported for %s at %s: the language server offers no %s there, so no edit was made. extract_function needs complete statements; extract_variable and extract_constant need one complete expression; inline needs a symbol or call on those lines. Check the lines, or make the change by hand with edit_file.", action, lang, where, action)
 	}
 	apply := a.Apply == nil || *a.Apply
 	changes, err := applyGuarded(ctx, t.m, env, *chosen.Edit, apply)

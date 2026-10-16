@@ -981,6 +981,10 @@ func (m *Model) busyLine(t *tab) string {
 	phrase := fg(theme.Breath(m.th.TextMuted, m.th.Brand, m.frame, 60)).Render(t.chat.LivePhrase(now))
 	left := fgb(m.th.Brand).Render(spin) + " " + phrase +
 		" " + fg(m.th.TextDim).Render(elapsed)
+	// While text streams, an estimate of the tokens received so far.
+	if n := t.chat.StreamTokenEstimate(); n > 0 {
+		left += fg(m.th.TextDim).Render(" · ~" + render.HumanTokens(n) + " tokens")
+	}
 	right := fgb(m.th.Error).Render("■ Esc to stop")
 	if m.flash != "" {
 		left += "  " + fg(m.th.TextDim).Render(m.flash)

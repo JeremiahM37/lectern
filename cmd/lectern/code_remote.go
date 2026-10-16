@@ -6,10 +6,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/app"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote/discord"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote/telegram"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui"
 )
@@ -31,6 +33,9 @@ func telegramInConfig() bool { return telegram.TelegramEnabledInConfig() }
 func attachRemote(a *app.App, be tui.Backend, bind bool) {
 	a.SetHost(telegram.Default.HostFor(be, a.Host()))
 	a.Subscribe(func(e agent.Event) { telegram.Default.Notify(be, e) })
+	if n := discordNotifier(); n != nil {
+		a.Subscribe(func(e agent.Event) { n.OnEvent(e) })
+	}
 	if !bind {
 		return
 	}
@@ -39,4 +44,35 @@ func attachRemote(a *app.App, be tui.Backend, bind bool) {
 		return
 	}
 	telegram.Default.Bind(be)
+}
+
+var (
+	discordOnce sync.Once
+	discordNote *discord.Notifier
+)
+
+// discordNotifier returns the process-wide Discord webhook notifier when the
+// config enables it and a webhook URL is set. It is built once, so every tab
+// shares one notifier. Notify-only: Discord cannot answer approvals here.
+func discordNotifier() *discord.Notifier {
+	discordOnce.Do(func() {
+		rc, err := config.LoadRemote()
+		if err != nil || rc.Discord == nil || !rc.Discord.Enabled {
+			return
+		}
+		url := config.Secret(discord.WebhookEnv, discord.WebhookKey)
+		if url == "" {
+			fmt.Fprintf(os.Stderr, "lectern code: discord: enabled in config, but no webhook; set %s\n", discord.WebhookEnv)
+			return
+		}
+		n, err := discord.New(url, 0, func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "lectern code: "+format+"\n", args...)
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lectern code: discord: %v\n", err)
+			return
+		}
+		discordNote = n
+	})
+	return discordNote
 }

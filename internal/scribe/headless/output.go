@@ -126,6 +126,17 @@ func nonNil(s []string) []string {
 	return s
 }
 
+// stepCacheHit is the per-step cache hit ratio from spec 03: cache read over
+// (cache read + cache write + no-cache input), so it is 0 to 1. It is null
+// when the step read no input at all, rather than a division by zero.
+func stepCacheHit(u llm.Usage) any {
+	den := u.CacheReadTokens + u.CacheWriteTokens + u.InputTokens
+	if den <= 0 {
+		return nil
+	}
+	return float64(u.CacheReadTokens) / float64(den)
+}
+
 // start announces the run: an event in events mode, a line on stderr otherwise.
 //
 // repoMap reports whether the code map is built for this run. workers stays
@@ -235,7 +246,7 @@ func (o *output) handle(e agent.Event) {
 				"lastStepInput":     e.Usage.InputTokens,
 				"lastStepOutput":    e.Usage.OutputTokens,
 				"lastStepCacheRead": e.Usage.CacheReadTokens,
-			}})
+			}, "cacheHitRatio": stepCacheHit(e.Usage)})
 		}
 	case agent.EvRetry:
 		o.progressL("retrying (%d/%d): %s", e.Attempt, e.MaxAttempts, e.Text)

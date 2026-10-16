@@ -177,7 +177,7 @@ type Agent struct {
 
 	mu       sync.Mutex
 	msgs     []llm.Message
-	steering []string
+	steering []steerItem
 	mode     string
 	model    Model
 	total    llm.Usage
@@ -471,23 +471,56 @@ func (a *Agent) offeredNames() map[string]bool {
 	return a.opts.Deferred.offered(base)
 }
 
+// steerItem is one queued steering message and the images sent with it.
+type steerItem struct {
+	text   string
+	images []llm.Part
+}
+
+// maxSteering is how many steering messages may wait for a step boundary.
+const maxSteering = 5
+
 // Steer queues a message for the running turn; it is delivered at the
 // next step boundary. Returns false when the queue is full (5).
 func (a *Agent) Steer(msg string) bool {
+	return a.SteerWithImages(msg, nil)
+}
+
+// SteerWithImages queues a message with images (PartImage parts; other parts
+// are dropped). The images are delivered with the message, in the same user
+// turn, at the next step boundary.
+func (a *Agent) SteerWithImages(msg string, images []llm.Part) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.steering) >= 5 {
+	if len(a.steering) >= maxSteering {
 		return false
 	}
-	a.steering = append(a.steering, msg)
+	var imgs []llm.Part
+	for _, p := range images {
+		if p.Type == llm.PartImage && len(p.Data) > 0 {
+			imgs = append(imgs, p)
+		}
+	}
+	a.steering = append(a.steering, steerItem{text: msg, images: imgs})
 	return true
+}
+
+// generation reports how many times the history has been replaced.
+func (a *Agent) generation() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.gen
 }
 
 // Queued returns pending steering messages.
 func (a *Agent) Queued() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]string(nil), a.steering...)
+	out := make([]string, 0, len(a.steering))
+	for _, s := range a.steering {
+		out = append(out, s.text)
+	}
+	return out
 }
 
 // Abort cancels the running turn and clears queued steering.
@@ -611,8 +644,16 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			a.emit(Event{Kind: EvError, Category: llm.CatOther, Text: err.Error()})
 			return final, err
 		}
+		gen := a.generation()
 		if err := a.maybeCompact(ctx); err != nil && ctx.Err() != nil {
 			return final, ctx.Err()
+		}
+		// Steering that arrived while the history was being compacted goes in
+		// now, after the summary, rather than waiting for the next tool step.
+		if step > 1 && a.generation() != gen {
+			if q, imgs := a.drainSteering(); q != "" {
+				a.appendSteering(q, imgs)
+			}
 		}
 		a.setPolicy(step)
 		a.emit(Event{Kind: EvStepStart, Step: step})
@@ -644,8 +685,8 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 				a.appendUser("<system-reminder>Your last response was cut off by the output limit. Continue exactly where you stopped.</system-reminder>")
 				continue
 			}
-			if q := a.drainSteering(); q != "" {
-				a.appendUser(q)
+			if q, imgs := a.drainSteering(); q != "" {
+				a.appendSteering(q, imgs)
 				continue
 			}
 			// Some models stop with an empty reply right after tool results,
@@ -674,11 +715,12 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 		if budgetHint != "" {
 			hints = append(hints, budgetHint)
 		}
-		if q := a.drainSteering(); q != "" {
+		q, imgs := a.drainSteering()
+		if q != "" {
 			hints = append(hints, q)
 		}
 		if len(hints) > 0 {
-			a.appendUser(strings.Join(hints, "\n\n"))
+			a.appendSteering(strings.Join(hints, "\n\n"), imgs)
 		} else {
 			a.persist(false)
 		}
@@ -815,19 +857,41 @@ func (a *Agent) appendUser(text string) {
 	a.persist(false)
 }
 
-func (a *Agent) drainSteering() string {
+// drainSteering takes every queued steering message as one <steering> block,
+// with the images sent along with them. It returns "" when nothing is queued.
+func (a *Agent) drainSteering() (string, []llm.Part) {
 	a.mu.Lock()
 	q := a.steering
 	a.steering = nil
 	a.mu.Unlock()
 	if len(q) == 0 {
-		return ""
+		return "", nil
 	}
+	texts := make([]string, 0, len(q))
+	var images []llm.Part
 	for _, s := range q {
-		a.emit(Event{Kind: EvSteering, Text: s})
+		a.emit(Event{Kind: EvSteering, Text: s.text, Meta: map[string]any{"images": len(s.images)}})
+		texts = append(texts, s.text)
+		images = append(images, s.images...)
 	}
-	return "<steering>\nThe user sent this while you were working. Finish the tool call you are in, then act on it:\n\n" +
-		strings.Join(q, "\n\n") + "\n</steering>"
+	block := "<steering>\nThe user sent this while you were working. Finish the tool call you are in, then act on it:\n\n" +
+		strings.Join(texts, "\n\n") + "\n</steering>"
+	return block, images
+}
+
+// appendSteering puts a drained steering block, and its images, into the
+// history. It joins a user message that is already last, so two user turns
+// are not left in a row.
+func (a *Agent) appendSteering(text string, images []llm.Part) {
+	a.mu.Lock()
+	parts := append([]llm.Part{{Type: llm.PartText, Text: text}}, images...)
+	if n := len(a.msgs); n > 0 && a.msgs[n-1].Role == llm.RoleUser {
+		a.msgs[n-1].Parts = append(a.msgs[n-1].Parts, parts...)
+	} else {
+		a.msgs = append(a.msgs, llm.Message{Role: llm.RoleUser, Parts: parts})
+	}
+	a.mu.Unlock()
+	a.persist(false)
 }
 
 // loopHint detects the model repeating the same tool call.
@@ -1383,6 +1447,7 @@ func (a *Agent) readOnly(call llm.Part) bool {
 var RestrictedModes = map[string]bool{"plan": true, "architect": true, "socratic": true, "challenge": true}
 
 func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
+	ctx = WithCallID(ctx, call.ToolCallID)
 	start := time.Now()
 	a.emit(Event{Kind: EvToolRun, CallID: call.ToolCallID, Tool: call.ToolName, Args: call.Args})
 	if call.ToolName == "dispatch" {
@@ -1449,6 +1514,21 @@ func (a *Agent) runToolCall(ctx context.Context, call llm.Part) tools.Result {
 		res.Output = n + "\n" + res.Output
 	}
 	return res
+}
+
+// callIDKey carries the provider's id for the tool call being run.
+type callIDKey struct{}
+
+// WithCallID returns ctx carrying the id of the tool call about to run, so the
+// tool hooks can report which call they are about (tool_use_id).
+func WithCallID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, callIDKey{}, id)
+}
+
+// CallID is the tool call id in ctx, or "".
+func CallID(ctx context.Context) string {
+	id, _ := ctx.Value(callIDKey{}).(string)
+	return id
 }
 
 // execTool runs the call's checks and the tool, with its hooks.

@@ -118,13 +118,15 @@ type treeWriter struct {
 	capped bool
 	// annot adds a note after a file's size, or "" for none. Nil adds none.
 	annot func(abs string) string
+	// rank orders files within a directory, highest first, when it is set.
+	rank func(abs string) float64
 }
 
 // renderTreeAnnotated lists root to depth levels (1 = its children) with an
 // entry budget of limit. Directories come first, then files, each sorted by
 // name. Files show their size, then the note annot gives them (nil for none).
-func renderTreeAnnotated(ctx context.Context, wd, root string, depth, limit int, annot func(abs string) string) (string, int, bool) {
-	w := &treeWriter{ctx: ctx, wd: wd, limit: limit, annot: annot}
+func renderTreeAnnotated(ctx context.Context, wd, root string, depth, limit int, annot func(abs string) string, rank func(abs string) float64) (string, int, bool) {
+	w := &treeWriter{ctx: ctx, wd: wd, limit: limit, annot: annot, rank: rank}
 	w.sb.WriteString(relSlash(wd, root) + "/\n")
 	w.dir(root, chainIgnore(wd, root), "  ", 1, depth)
 	return strings.TrimRight(w.sb.String(), "\n"), w.count, w.capped
@@ -135,10 +137,25 @@ func (w *treeWriter) dir(abs string, ig *Ignore, indent string, level, depth int
 	if err != nil {
 		return
 	}
+	// Directories first, as before. Files then go by the code map's rank when
+	// there is one (most important first), and by name otherwise.
+	ranks := make(map[string]float64, len(entries))
+	if w.rank != nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				ranks[e.Name()] = w.rank(filepath.Join(abs, e.Name()))
+			}
+		}
+	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		di, dj := entries[i].IsDir(), entries[j].IsDir()
 		if di != dj {
 			return di
+		}
+		if !di {
+			if ri, rj := ranks[entries[i].Name()], ranks[entries[j].Name()]; ri != rj {
+				return ri > rj
+			}
 		}
 		return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
 	})
@@ -257,7 +274,7 @@ func listOne(ctx context.Context, env *tools.Env, p string, depth, limit int) to
 	if !fi.IsDir() {
 		return tools.Errorf("%s is not a directory. Use read to view a file.", t.rel)
 	}
-	out, n, capped := renderTreeAnnotated(ctx, env.Workdir, t.abs, depth, limit, fileAnnotator(env))
+	out, n, capped := renderTreeAnnotated(ctx, env.Workdir, t.abs, depth, limit, fileAnnotator(env), mapRank(env))
 	if capped {
 		out += fmt.Sprintf("\n(Output capped at %d entries. Narrow the path or reduce depth.)", limit)
 	}
@@ -371,7 +388,19 @@ func NewGlob() tools.Tool {
 			if len(hits) == 0 {
 				return tools.Result{Output: "No files found.", Summary: "0 files"}
 			}
+			// The code map's rank comes first when it knows the files; the
+			// modification time breaks ties, as it always did.
+			rank := mapRank(env)
+			rankOf := func(h hit) float64 {
+				if rank == nil {
+					return 0
+				}
+				return rank(filepath.Join(env.Workdir, filepath.FromSlash(h.rel)))
+			}
 			sort.SliceStable(hits, func(i, j int) bool {
+				if ri, rj := rankOf(hits[i]), rankOf(hits[j]); ri != rj {
+					return ri > rj
+				}
 				if !hits[i].mod.Equal(hits[j].mod) {
 					return hits[i].mod.After(hits[j].mod)
 				}

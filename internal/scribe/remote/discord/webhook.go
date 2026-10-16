@@ -24,6 +24,13 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/remote"
 )
 
+// WebhookEnv and WebhookKey name the webhook URL: the environment variable
+// first, then the key store entry (config.Secret). The URL is the secret.
+const (
+	WebhookEnv = "SCRIBE_DISCORD_WEBHOOK"
+	WebhookKey = "discord_webhook"
+)
+
 // maxContent is Discord's limit on webhook message content.
 const maxContent = 2000
 

@@ -79,6 +79,10 @@ func (b *board) clearWait(id string) {
 // errCancelledByUser is the error of a subagent stopped with /cancel.
 var errCancelledByUser = errors.New("cancelled by the user")
 
+// errDispatchCancelled marks a subagent stopped because an agent of the same
+// dispatch called cancel_dispatch.
+var errDispatchCancelled = errors.New("cancelled: an agent of this dispatch called cancel_dispatch")
+
 // register records the cancel function of a subagent that is about to run.
 // It reports false when the user already cancelled it.
 func (b *board) register(id string, cancel context.CancelFunc) bool {
@@ -257,7 +261,25 @@ func (r *dispatchRun) stopErr(ctx context.Context) error {
 	if r.tripped() {
 		return errBreakerOpen
 	}
+	if r.bus.Aborted() {
+		return errDispatchCancelled
+	}
 	return ctx.Err()
+}
+
+// mapStop turns a context cancellation into the reason the dispatch stopped:
+// the breaker, or a cancel_dispatch call. Other errors pass through.
+func (r *dispatchRun) mapStop(err error) error {
+	if !errors.Is(err, context.Canceled) {
+		return err
+	}
+	if r.tripped() {
+		return errBreakerTripped
+	}
+	if r.bus.Aborted() {
+		return errDispatchCancelled
+	}
+	return err
 }
 
 func (r *dispatchRun) failureCount() int {
@@ -338,12 +360,17 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	b.update(idx, func(a *AgentInfo) { a.Status, a.Error, a.Model = "running", "", sub.CurrentModel().Ref })
 	stats, err := sub.Run(sctx, task, nil)
 	stopped := b.wasStopped(id)
+	// A dispatch cancelled through the bus stops every agent, and the one
+	// that asked for it is not an error.
+	dispatchStop := !stopped && err != nil && r.bus.Aborted()
 	b.update(idx, func(a *AgentInfo) {
 		a.Tokens = stats.Tokens
 		a.Step = stats.Steps
 		switch {
 		case stopped:
 			a.Status, a.Error = "cancelled", errCancelledByUser.Error()
+		case dispatchStop:
+			a.Status, a.Error = "cancelled", errDispatchCancelled.Error()
 		case err != nil:
 			a.Status, a.Error = "error", err.Error()
 		default:
@@ -352,6 +379,9 @@ func (r *dispatchRun) attempt(ctx context.Context, idx int, role string, purpose
 	})
 	if stopped {
 		err = errCancelledByUser
+	}
+	if dispatchStop {
+		err = errDispatchCancelled
 	}
 	return attempt{
 		report: lastAssistantText(sub.Messages()),
@@ -411,10 +441,8 @@ func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, pur
 	first := r.launch(ctx, idx, role, purpose, task)
 	res := taskResult{report: first.report, err: first.err, edited: first.edited, read: first.read, reg: first.reg}
 	res.attempts = startedAttempts(first.err)
-	if r.tripped() && errors.Is(res.err, context.Canceled) {
-		res.err = errBreakerTripped
-	}
-	if role != "code" || ctx.Err() != nil || r.tripped() {
+	res.err = r.mapStop(res.err)
+	if role != "code" || ctx.Err() != nil || r.tripped() || r.bus.Aborted() {
 		return res
 	}
 	var why string
@@ -448,9 +476,7 @@ func (r *dispatchRun) runTaskOnce(ctx context.Context, idx int, role string, pur
 	if second.reg != nil {
 		res.reg = second.reg
 	}
-	if r.tripped() && errors.Is(res.err, context.Canceled) {
-		res.err = errBreakerTripped
-	}
+	res.err = r.mapStop(res.err)
 	return res
 }
 

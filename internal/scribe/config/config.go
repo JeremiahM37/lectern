@@ -142,6 +142,9 @@ type Config struct {
 	Deny  []string `json:"deny,omitempty"`
 
 	DisabledTools []string `json:"disabled_tools,omitempty"`
+	// DisabledLSPServers names language servers (by language key, such as
+	// "go" or "typescript") that Scribe never starts.
+	DisabledLSPServers []string `json:"disabled_lsp_servers,omitempty"`
 	// SearchURL is a SearXNG instance for web_search (else DuckDuckGo HTML).
 	SearchURL string `json:"search_url,omitempty"`
 
@@ -359,6 +362,7 @@ func Merge(base, o Config) Config {
 	r.Allow = append(append([]string(nil), base.Allow...), o.Allow...)
 	r.Deny = append(append([]string(nil), base.Deny...), o.Deny...)
 	r.DisabledTools = append(append([]string(nil), base.DisabledTools...), o.DisabledTools...)
+	r.DisabledLSPServers = append(append([]string(nil), base.DisabledLSPServers...), o.DisabledLSPServers...)
 	rt := base.Router
 	str(&rt.Explore, o.Router.Explore)
 	str(&rt.Code, o.Router.Code)

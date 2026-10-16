@@ -33,3 +33,20 @@ func TestInfoPanelFitsItsText(t *testing.T) {
 		t.Fatalf("a long panel should stop at 30 rows, got %d", h)
 	}
 }
+
+func TestSecretLinesStayOutOfHistory(t *testing.T) {
+	for _, line := range []string{
+		"/remote token set 1234567890:AAH9xYzAbCdEfGhIjKlMnOpQrStUvWxYz012",
+		"/keys anthropic sk-ant-abcdefghijklmnopqrstu",
+		"please use 1234567890:AAH9xYzAbCdEfGhIjKlMnOpQrStUvWxYz012 for the bot",
+	} {
+		if !secretLine(line) {
+			t.Errorf("%q should be kept out of history", line)
+		}
+	}
+	for _, line := range []string{"/remote token status", "fix the bug in main.go", "/keys"} {
+		if secretLine(line) {
+			t.Errorf("%q is not a secret", line)
+		}
+	}
+}

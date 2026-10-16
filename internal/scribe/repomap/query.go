@@ -431,6 +431,15 @@ func (m *Map) Duplicates() []DupGroup {
 	return out
 }
 
+// FileRank returns the PageRank of file in the code map's base graph, or 0
+// when the map does not know it. Listings use it to put the files that matter
+// most first.
+func (m *Map) FileRank(file string) float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.fileRank(m.relPath(file))
+}
+
 // fileRank returns the PageRank of a file in the base graph (0 if unknown).
 // Callers hold m.mu.
 func (m *Map) fileRank(p string) float64 {

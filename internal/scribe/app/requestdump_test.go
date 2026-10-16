@@ -18,8 +18,12 @@ func TestRequestDumpIsOffUnlessSwitchedOn(t *testing.T) {
 	a := &App{Workdir: root, Store: session.NewStore(root), Meta: session.Meta{ID: "s1"}}
 
 	t.Setenv(requestDumpEnv, "")
-	if a.requestDump() != nil {
-		t.Fatal("the dump must be off without the switch")
+	if err := os.MkdirAll(a.Store.Dir("s1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	a.requestDump()(1, "ollama/m", llm.Request{})
+	if _, err := os.Stat(filepath.Join(a.Store.Dir("s1"), "requests.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("the dump must write nothing without the switch: %v", err)
 	}
 	t.Setenv(requestDumpEnv, "1")
 	a.opts.Ephemeral = true
@@ -54,5 +58,31 @@ func TestRequestDumpWritesJSONLinesIntoTheSessionDir(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], `"step":1`) || !strings.Contains(lines[1], `"step":2`) {
 		t.Fatalf("dump lines = %q", lines)
+	}
+}
+
+// /session export api switches the dump on and off at runtime.
+func TestRequestDumpFollowsTheRuntimeSwitch(t *testing.T) {
+	isolatedHome(t)
+	root := t.TempDir()
+	a := &App{Workdir: root, Store: session.NewStore(root), Meta: session.Meta{ID: "s1"}}
+	if err := os.MkdirAll(a.Store.Dir("s1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(requestDumpEnv, "")
+	b := &scribeBackend{app: a}
+	hook := a.requestDump()
+	path, err := b.SetAPIDump(true)
+	if err != nil || !b.APIDump() {
+		t.Fatalf("switch on: %q %v", path, err)
+	}
+	hook(1, "m", llm.Request{})
+	if _, err := b.SetAPIDump(false); err != nil {
+		t.Fatal(err)
+	}
+	hook(2, "m", llm.Request{})
+	raw, _ := os.ReadFile(path)
+	if n := strings.Count(string(raw), "\n"); n != 1 {
+		t.Fatalf("one request was sent while on, file has %d lines", n)
 	}
 }

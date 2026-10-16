@@ -350,3 +350,19 @@ func TestBackoffDoublesAndCaps(t *testing.T) {
 		}
 	}
 }
+
+// A per-server timeout from config bounds that server's calls instead of the
+// manager-wide CallTimeout.
+func TestPerServerTimeoutBoundsCalls(t *testing.T) {
+	slow := selfServer(t, "slow", nil)
+	slow.Timeout = 1
+	m := New(Options{Global: []config.MCPServer{slow}, StartTimeout: 10 * time.Second, CallTimeout: time.Minute})
+	m.Start(context.Background())
+	defer m.Close()
+	waitFor(t, func() bool { return statusOf(m, "slow").State == StateReady })
+	start := time.Now()
+	res := m.call(context.Background(), "slow", "slow", json.RawMessage(`{}`))
+	if !res.IsError || time.Since(start) > 2500*time.Millisecond {
+		t.Fatalf("call should stop at the 1s server timeout, got %+v after %v", res, time.Since(start))
+	}
+}
