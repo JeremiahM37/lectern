@@ -92,6 +92,9 @@ func (a *App) wire(ctx context.Context) error {
 					a.mu.Lock()
 					a.codeMap = m.Render(repomap.Budget(0), nil)
 					a.mu.Unlock()
+					// The post-edit pass checks an edited file's importers and
+					// gives clone hints from the built map.
+					a.ext.postEdit.SetDependents(m)
 				}
 				if w := m.Warning(); w != "" {
 					a.emit(agent.Event{Kind: agent.EvNotice, Text: w})

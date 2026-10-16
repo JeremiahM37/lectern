@@ -431,6 +431,7 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 	}
 	if a.ext.postEdit != nil {
 		o.AfterTool = a.ext.postEdit.AfterTool
+		o.BeforeTool = a.ext.postEdit.BeforeTool
 	}
 	for _, ref := range a.Cfg.Router.Fallback {
 		if m, err := a.resolve(ref); err == nil {

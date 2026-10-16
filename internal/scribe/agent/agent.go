@@ -115,6 +115,9 @@ type Options struct {
 	// Redact scrubs secrets from a tool result's Output before it enters the
 	// history or the events. May be nil.
 	Redact func(string) string
+	// BeforeTool sees each tool call just before it runs. It must not change
+	// the arguments. May be nil.
+	BeforeTool func(ctx context.Context, name string, args json.RawMessage)
 	// AfterTool sees each tool call's result after it runs and before Redact,
 	// and may change it. May be nil.
 	AfterTool func(ctx context.Context, name string, args json.RawMessage, res *tools.Result)
@@ -1353,6 +1356,9 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 			a.dispatching--
 			a.mu.Unlock()
 		}()
+	}
+	if a.opts.BeforeTool != nil {
+		a.opts.BeforeTool(ctx, call.ToolName, call.Args)
 	}
 	res := a.execTool(ctx, call)
 	if a.opts.AfterTool != nil {

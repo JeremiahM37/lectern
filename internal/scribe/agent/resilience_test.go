@@ -576,3 +576,28 @@ func TestStallWithNoTextRetriesTheOriginalRequest(t *testing.T) {
 		t.Fatalf("stall message %q is not classified as a stream error", msg)
 	}
 }
+
+// BeforeTool runs once per call, with its name and arguments, before the
+// tool itself runs (the cross-file check takes its baseline there).
+func TestBeforeToolRunsBeforeTheTool(t *testing.T) {
+	runs := 0
+	p := &scriptProv{scripts: []streamScript{
+		callScript("c1", "echo", `{"id":"a"}`),
+		streamOf(textEv("done"), finishEv(llm.FinishStop)),
+	}}
+	var order []string
+	a, _ := rsAgent(t, p, echoRegistry(&runs, "ok", nil), func(o *Options) {
+		o.BeforeTool = func(_ context.Context, name string, args json.RawMessage) {
+			order = append(order, fmt.Sprintf("before %s %s runs=%d", name, args, runs))
+		}
+		o.AfterTool = func(_ context.Context, name string, _ json.RawMessage, _ *tools.Result) {
+			order = append(order, fmt.Sprintf("after runs=%d", runs))
+		}
+	})
+	if _, err := a.Run(context.Background(), "go", nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(order, "|") != `before echo {"id":"a"} runs=0|after runs=1` {
+		t.Fatalf("order = %q", order)
+	}
+}
