@@ -444,8 +444,7 @@
    button's own, so light and dark themes both read it. */
 .session-star {
   flex: none;
-  min-width: 1.75rem;
-  min-height: 1.75rem;
+  min-width: 1.5rem;
   padding: 0;
   border: 0;
   background: none;
@@ -457,6 +456,8 @@
 .session-star.on {
   color: var(--amber);
 }
+/* A full-size touch target that does not make the card taller: the negative
+   margins take back the extra room, so four cards still fit on a phone. */
 @media (pointer: coarse) {
-  .session-star { min-width: 2.5rem; min-height: 2.5rem; }
+  .session-star { min-width: 2.5rem; min-height: 2.5rem; margin: -0.5rem -0.25rem -0.5rem -0.5rem; }
 }
