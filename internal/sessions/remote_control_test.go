@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/isolation"
+	"github.com/JeremiahM37/lectern/v2/internal/store"
 )
 
 func builtin(name string) Spec {
@@ -99,5 +101,33 @@ func TestRemoteControlNameAndURL(t *testing.T) {
 	consent := " Remote Control\n   ❯ 1. Enable Remote Control  Opens a secure connection to claude.ai.\n     2. Never mind"
 	if !remoteControlConsentShown(consent) || remoteControlActive(consent) {
 		t.Fatal("consent screen misread")
+	}
+}
+
+// Live on 2026-10-16: an idle claude whose hook said idle read "running" on
+// the screen, and the enable was refused. A fresh hook report decides.
+func TestRemoteControlBusyTrustsAFreshHook(t *testing.T) {
+	now := 10_000.0
+	recent, stale := now-30, now-2*agentStateFallbackWindow
+	hook := func(status, state string, seen float64) *store.Session {
+		return &store.Session{Status: status, AgentState: state, StateSource: agentevents.SourceHook, HookSeenAt: &seen}
+	}
+	cases := []struct {
+		s    *store.Session
+		want bool
+		why  string
+	}{
+		{hook(StatusRunning, "idle", recent), false, "hook idle beats a moving pane"},
+		{hook(StatusWaiting, "working", recent), true, "hook working"},
+		{hook(StatusWaiting, "waiting_permission", recent), true, "hook waiting on a prompt"},
+		{hook(StatusRunning, "idle", stale), true, "a stale hook falls back to the screen"},
+		{&store.Session{Status: StatusRunning}, true, "no hook: the screen says working"},
+		{&store.Session{Status: StatusWaiting}, false, "no hook: the screen says waiting"},
+		{&store.Session{Status: StatusStarting}, true, "still starting"},
+	}
+	for _, c := range cases {
+		if got := remoteControlBusy(c.s, now); got != c.want {
+			t.Errorf("%s: got %v", c.why, got)
+		}
 	}
 }

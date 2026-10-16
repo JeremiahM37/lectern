@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/lectern/v2/internal/agentevents"
 	"github.com/JeremiahM37/lectern/v2/internal/executor"
 	"github.com/JeremiahM37/lectern/v2/internal/sessions/backend"
 	"github.com/JeremiahM37/lectern/v2/internal/shellq"
@@ -50,7 +51,7 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	if why := RemoteControlUnavailable(config.Spec, config.Spec.Env, config.Isolation); why != "" {
 		return nil, errors.New(why)
 	}
-	if sess.Status == StatusRunning || sess.Status == StatusStarting || sess.AgentState == "waiting_permission" {
+	if remoteControlBusy(sess, store.Now()) {
 		return nil, ErrRemoteControlBusy
 	}
 	if err := m.SendNudge(ctx, id, "/remote-control "+RemoteControlName(sess.Name)); err != nil {
@@ -73,6 +74,19 @@ func (m *Manager) EnableRemoteControl(ctx context.Context, id int64) (*store.Ses
 	}
 	m.publish(fresh)
 	return fresh, nil
+}
+
+// remoteControlBusy says the agent is mid-turn or waiting on a prompt. A
+// recent hook report is the agent's own word and wins over the screen, whose
+// status reads "running" whenever the pane changed since the last poll.
+func remoteControlBusy(s *store.Session, now float64) bool {
+	if s.Status == StatusStarting {
+		return true
+	}
+	if s.StateSource == agentevents.SourceHook && s.HookSeenAt != nil && now-*s.HookSeenAt < agentStateFallbackWindow {
+		return s.AgentState == "working" || s.AgentState == "waiting_permission"
+	}
+	return s.Status == StatusRunning || s.AgentState == "waiting_permission"
 }
 
 // awaitRemoteControl watches the screen after /remote-control until claude
