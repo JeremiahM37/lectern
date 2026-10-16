@@ -62,7 +62,7 @@ func (m *Model) floatRect() (x, y, w, h int) {
 func (m *Model) newFloat() tea.Cmd {
 	ps := m.ps()
 	if len(ps.floats) >= maxFloats {
-		m.setFlash("err", "Up to "+itoa(maxFloats)+" terminals")
+		m.setFlash("err", "Up to "+itoa(maxFloats)+" terminals; close one with /terminals close")
 		return nil
 	}
 	w, h := m.floatInner()
@@ -73,6 +73,64 @@ func (m *Model) newFloat() tea.Cmd {
 	}
 	ps.floats = append(ps.floats, &floatTerm{pane: p})
 	return m.showFloat(len(ps.floats) - 1)
+}
+
+// closeFloat ends terminal i: a shell still running is killed, and the
+// terminal leaves the list. An exited one stays listed (so its last output can
+// be read) until it is closed here, and it counts toward the cap until then.
+func (m *Model) closeFloat(i int) {
+	ps := m.ps()
+	if i < 0 || i >= len(ps.floats) {
+		return
+	}
+	f := ps.floats[i]
+	_ = f.pane.Close()
+	delete(ps.armed, f.pane)
+	ps.floats = append(ps.floats[:i], ps.floats[i+1:]...)
+	switch {
+	case ps.shown == i:
+		ps.shown = -1
+		if ps.focus == focusFloat {
+			ps.focus = focusChat
+		}
+	case ps.shown > i:
+		ps.shown--
+	}
+	switch {
+	case ps.last == i:
+		ps.last = -1
+	case ps.last > i:
+		ps.last--
+	}
+	m.syncFocus()
+	m.setFlash("info", "Closed terminal "+itoa(i+1))
+}
+
+// closeFloatCmd is "/terminals close [n]": n is the terminal's number as the
+// list shows it; with no number it closes the one on screen, else the last one used.
+func (m *Model) closeFloatCmd(arg string) {
+	ps := m.ps()
+	if len(ps.floats) == 0 {
+		m.setFlash("info", "No terminals open.")
+		return
+	}
+	i := ps.shown
+	if i < 0 {
+		i = ps.last
+	}
+	if arg = strings.TrimSpace(arg); arg != "" {
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > len(ps.floats) {
+			m.setFlash("err", "Usage: /terminals close [1-"+itoa(len(ps.floats))+"]")
+			return
+		}
+		i = n - 1
+	}
+	if i < 0 || i >= len(ps.floats) {
+		m.setFlash("err", "Name the terminal to close: /terminals close [1-"+itoa(len(ps.floats))+"]")
+		return
+	}
+	m.closeFloat(i)
 }
 
 // showFloatOrNew shows the terminal used last, or starts one when none exists.

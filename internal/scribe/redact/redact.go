@@ -62,7 +62,15 @@ func looksSecret(s string) bool {
 }
 
 // prefixed wraps a pattern so its whole match is the secret.
+//
+// A leading \b is spelled out as a boundary. In JSON text a newline is the
+// two characters \n, and n is a word character, so \b fails before a key
+// that follows an escape and the key leaked into session files. The boundary
+// therefore also accepts a backslash escape (\n, \r, \t) before the secret.
 func prefixed(p string, ok func(string) bool) shape {
+	if rest, found := strings.CutPrefix(p, `\b`); found {
+		return shape{re: `(^|[^A-Za-z0-9_]|\\[nrt])(` + rest + `)`, ok: ok}
+	}
 	return shape{re: `()(` + p + `)`, ok: ok}
 }
 

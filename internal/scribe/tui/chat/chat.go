@@ -339,6 +339,15 @@ func (v *View) Apply(e agent.Event) {
 		v.compacting = r
 	case agent.EvCompactDone:
 		r := v.compacting
+		if skipped, _ := e.Meta["skipped"].(bool); skipped {
+			// Nothing was replaced: drop the spinner row; a notice or
+			// warning event says why.
+			if r != nil {
+				v.removeRecord(r)
+			}
+			v.compacting = nil
+			break
+		}
 		if r == nil {
 			r = &Record{Role: roleSystem, Kind: "compact", At: e.At}
 			v.addRecord(r)
@@ -559,8 +568,23 @@ func (v *View) Restore(recs []Record) {
 // ChangedFiles lists the files the turns changed: created (new files) and
 // modified, each in first-seen order and each path once.
 func (v *View) ChangedFiles() (created, modified []string) {
+	// Turns whose checkpoint was undone or restored past no longer count:
+	// their files are back as they were.
+	undone := map[int]bool{}
+	for _, cp := range v.cps {
+		if cp.Undone {
+			undone[cp.Turn] = true
+		}
+	}
 	seen := map[string]bool{}
+	turn := 0
 	for _, r := range v.msgs {
+		if r.Role == roleUser && !r.Steering {
+			turn++
+		}
+		if undone[turn] {
+			continue
+		}
 		for _, s := range r.Segments {
 			for _, c := range s.Calls {
 				if c.Status != "done" || c.Result == nil || c.Result.IsError {

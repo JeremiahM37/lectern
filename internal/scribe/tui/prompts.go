@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -82,6 +83,12 @@ func (m *Model) resolvePrompt(t *tab, r PromptReply) tea.Cmd {
 		return nil
 	}
 	p := t.pui.p
+	if t.pui.kind == "plan" && (r.Answer == answerExecute || r.Answer == answerClear) {
+		// Approving a plan lifts plan mode in the agent (SetMode / ResetHistory
+		// run after this reply). The tab caches its mode, so update it now or
+		// the status bar keeps saying PLAN while edits are allowed.
+		t.mode = "default"
+	}
 	t.pui = nil
 	m.openNextPrompt(t)
 	return func() tea.Msg {
@@ -169,12 +176,24 @@ func (m *Model) promptChoose(t *tab) tea.Cmd {
 		return m.resolvePrompt(t, PromptReply{Answer: answerCancel})
 	}
 	opts := ui.p.Question.Options
-	if ui.sel < len(opts) {
+	if ui.sel < len(opts) && !isOtherOption(opts[ui.sel]) {
 		return m.resolvePrompt(t, PromptReply{Answer: opts[ui.sel]})
 	}
 	ui.typing = true
 	ui.text = nil
 	return nil
+}
+
+// isOtherOption reports whether a question option is the "Other" escape the
+// model offers, such as "Other" or "Other (I'll type my choice)". Choosing it
+// must open the text row, not send its label back as the answer.
+func isOtherOption(opt string) bool {
+	lower := strings.ToLower(strings.TrimSpace(opt))
+	if !strings.HasPrefix(lower, "other") {
+		return false
+	}
+	rest := lower[len("other"):]
+	return rest == "" || !unicode.IsLetter(rune(rest[0]))
 }
 
 // promptTyping handles the free-text row (question answer or plan revision).

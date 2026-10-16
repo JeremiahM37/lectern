@@ -48,9 +48,10 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 		fmt.Fprintln(stdout, version.Version)
 		return 0
 	}
+	out := newOutput(stdout, stderr, o)
 	cwd, err := absDir(o.cwd)
 	if err != nil {
-		fmt.Fprintf(stderr, "scribe: %v\n", err)
+		out.fail(err.Error())
 		return 1
 	}
 	if o.listProviders || o.listModels || o.setKey {
@@ -70,7 +71,7 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		prompt = strings.TrimSpace(string(b))
 		if prompt == "" {
-			fmt.Fprintln(stderr, "scribe: the prompt on stdin is empty")
+			out.fail("no prompt: the prompt was empty and stdin had nothing in it. Pass the prompt as an argument, or pipe it in.")
 			return 1
 		}
 	}
@@ -82,7 +83,6 @@ func run(parent context.Context, args []string, stdin io.Reader, stdout, stderr 
 	intr := &interrupts{cancelRoot: cancelRoot}
 	go intr.watch(sigs, done)
 
-	out := newOutput(stdout, stderr, o)
 	a, err := app.Open(root, app.Options{
 		Workdir:   cwd,
 		Model:     o.model,
@@ -240,9 +240,14 @@ func (r *runner) turn(prompt string) turnResult {
 	case stats.Error == "" && err != nil:
 		res.stats.Error = err.Error()
 	}
+	if strings.HasPrefix(res.stats.Error, "max steps reached") {
+		res.stats.Error = fmt.Sprintf("max steps reached (%d): raise --max-steps to let the task finish", r.o.maxSteps)
+	}
+	res.stats.Error = scrub(res.stats.Error)
 	if res.stats.Error != "" {
 		r.out.turnError(res.stats.Error)
 	}
+	r.out.flushStream()
 	r.out.endText(res.stats)
 	return res
 }
@@ -378,6 +383,9 @@ func absDir(dir string) (string, error) {
 	}
 	st, err := os.Stat(abs)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("--cwd: %s does not exist", dir)
+		}
 		return "", fmt.Errorf("--cwd: %w", err)
 	}
 	if !st.IsDir() {

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,5 +130,28 @@ func waitIdle(t *testing.T, be tui.Backend) {
 			t.Fatal("backend still running")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A turn stopped on purpose is Interrupted in the transcript; it must not also
+// be reported as an error.
+func TestTurnFailedIgnoresDeliberateStops(t *testing.T) {
+	cases := []struct {
+		name  string
+		stats agent.TurnStats
+		err   error
+		want  bool
+	}{
+		{"no error", agent.TurnStats{}, nil, false},
+		{"esc abort", agent.TurnStats{Aborted: true}, context.Canceled, false},
+		{"cancel without stats flag", agent.TurnStats{}, context.Canceled, false},
+		{"wrapped cancel", agent.TurnStats{}, errors.Join(errors.New("x"), context.Canceled), false},
+		{"model error", agent.TurnStats{Error: "boom"}, errors.New("boom"), false},
+		{"unrecorded failure", agent.TurnStats{}, errors.New("disk full"), true},
+	}
+	for _, c := range cases {
+		if got := turnFailed(c.stats, c.err); got != c.want {
+			t.Errorf("%s: turnFailed = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

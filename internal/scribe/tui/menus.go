@@ -239,7 +239,7 @@ func (m *Model) openKeyPicker() {
 
 // ---------------------------------------------------------------- mode
 
-// openModePicker lists the forge modes.
+// openModePicker lists the modes.
 func (m *Model) openModePicker() {
 	p := NewPicker(m.th, "Mode", "cog")
 	cur := m.cur().mode

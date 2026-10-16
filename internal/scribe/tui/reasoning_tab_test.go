@@ -137,7 +137,7 @@ func TestReasoningTabStartsLookupWhenOpened(t *testing.T) {
 	s := openSettings(t, m)
 	// Until the lookup returns, the tab says so instead of showing controls.
 	s.tab = stReasoning
-	if _, ok := rowByLabel(s, "Reading the model's reasoning controls…"); !ok {
+	if _, ok := rowByLabel(s, "Reading controls…"); !ok {
 		t.Fatalf("while the lookup runs the tab should say so, rows: %v", rowLabels(s))
 	}
 	waitStyle(t, m, s)

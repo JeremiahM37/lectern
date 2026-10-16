@@ -127,6 +127,7 @@ Headless (any of these switches it on):
   --save-session        keep the session so --resume can continue it
   -s, --session ID      continue a saved session (also --resume ID)
   --render, --no-render render the final Markdown (default: on for a terminal)
+  -v, --version         print the version and exit
 
 Providers and models:
   --list-providers      each provider with its key status and default model

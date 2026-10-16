@@ -52,6 +52,11 @@ const summaryHeadPrefix = "<conversation_summary>"
 
 var sentenceEnd = regexp.MustCompile(`[.!?](\s+|$)`)
 
+// systemReminder is the context the harness appends to a user message (memory
+// hints and the like). It is not something the user asked for, so it is not
+// recorded as a requirement. An unclosed block runs to the end of the text.
+var systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?(?:</system-reminder>|\z)`)
+
 // BuildWorkingState extracts the working state from msgs in one pass.
 func BuildWorkingState(msgs []llm.Message) WorkingState {
 	var ws WorkingState
@@ -83,7 +88,7 @@ func BuildWorkingState(msgs []llm.Message) WorkingState {
 		for _, p := range m.Parts {
 			switch p.Type {
 			case llm.PartText:
-				text := strings.TrimSpace(p.Text)
+				text := strings.TrimSpace(systemReminder.ReplaceAllString(p.Text, ""))
 				switch m.Role {
 				case llm.RoleUser:
 					if strings.HasPrefix(text, summaryHeadPrefix) {

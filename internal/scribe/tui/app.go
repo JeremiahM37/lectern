@@ -539,10 +539,20 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	}
 	next := waitEvent(t.id, t.be)
 	ev := msg.ev
+	// A subagent's events describe that subagent: its turn start and end,
+	// steps, context and cost must not change the tab's busy state, header
+	// or context bar. The transcript draws them in the dispatch rows.
+	if ev.AgentID != "" {
+		t.chat.Apply(ev)
+		return next
+	}
 	switch ev.Kind {
 	case agent.EvTurnStart:
 		t.busy = true
 		t.since = ev.At
+		if ev.Mode != "" {
+			t.mode = ev.Mode
+		}
 		if ev.Model != "" {
 			t.model = ev.Model
 			t.local = isLocalModel(ev.Model)
@@ -573,6 +583,12 @@ func (m *Model) onEvent(msg eventMsg) tea.Cmd {
 	case agent.EvTurnDone:
 		t.busy = false
 		t.cps = t.be.Checkpoints()
+		// The agent can change its own mode during a turn (a plan approved
+		// with Execute leaves plan mode), so read it back instead of trusting
+		// the tab's copy.
+		if md := t.be.Mode(); md != "" {
+			t.mode = md
+		}
 		t.cost = costOf(ev, t.cost)
 		if t != m.cur() {
 			t.unread = true

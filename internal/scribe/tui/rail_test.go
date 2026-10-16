@@ -45,6 +45,31 @@ func TestRailKeysFocusMoveAndRestore(t *testing.T) {
 	}
 }
 
+func TestRestoreConfirmNamesRestoreNotDelete(t *testing.T) {
+	m, _ := newTestModel(t, 100, 30)
+	settle(m)
+	m.Update(altKey('c'))
+	m.Update(key("up"))
+	m.Update(key("enter"))
+	top, ok := m.topModal().(*listConfirm)
+	if !ok {
+		t.Fatalf("restore should push a confirm, top is %T", m.topModal())
+	}
+	if top.yes {
+		t.Error("restore confirm should default to No")
+	}
+	if top.Danger() {
+		t.Error("restore is reversible (/redo), so it should not be a danger confirm")
+	}
+	view := plain(top.View(70, 12))
+	if !strings.Contains(view, "Yes, restore") || strings.Contains(view, "delete") {
+		t.Errorf("restore buttons should say restore:\n%s", view)
+	}
+	if strings.Contains(top.Footer(), "delete") {
+		t.Errorf("restore footer = %q", top.Footer())
+	}
+}
+
 func TestRailEscReturnsKeyboard(t *testing.T) {
 	m, _ := newTestModel(t, 100, 30)
 	settle(m)

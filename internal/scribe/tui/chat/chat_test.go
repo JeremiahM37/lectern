@@ -718,3 +718,23 @@ func TestAnswerShownWhenAutoCheckRunsAfterIt(t *testing.T) {
 	}
 	checkShape(t, v)
 }
+
+// TestChangedFilesSkipsUndoneTurns: after a restore or undo the files of the
+// undone turn are back as they were, so the changes panel must drop them.
+func TestChangedFilesSkipsUndoneTurns(t *testing.T) {
+	v, c := newView(t, Options{})
+	edit := func(prompt, id, path string) {
+		v.AddUser(prompt, 0, at(c), false)
+		v.Apply(agent.Event{Kind: agent.EvTurnStart, Prompt: prompt, At: at(c)})
+		tool(v, id, "edit_file", map[string]any{"path": path}, c)
+		result(v, id, "edit_file", tools.Result{Output: "ok", Files: []string{path}}, 0, c)
+		finish(v, c, time.Second)
+	}
+	edit("one", "e1", "a.go")
+	edit("two", "e2", "b.go")
+	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2, Undone: true}}, -1)
+	_, mo := v.ChangedFiles()
+	if fmt.Sprint(mo) != "[a.go]" {
+		t.Fatalf("after undoing turn 2 the changes are %v, want [a.go]", mo)
+	}
+}

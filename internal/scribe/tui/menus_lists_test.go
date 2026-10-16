@@ -209,14 +209,14 @@ func TestRankModelsPutsFrecentFirstAndKeepsOrder(t *testing.T) {
 	}
 }
 
-func TestHelpListsForgeModes(t *testing.T) {
+func TestHelpListsModes(t *testing.T) {
 	m, _ := newTestModel(t, 100, 40)
 	m.openHelp()
 	v, ok := m.topModal().(*InfoView)
 	if !ok {
 		t.Fatalf("help top modal is %T", m.topModal())
 	}
-	if !strings.Contains(strings.Join(v.lines, "\n"), "Forge modes") {
-		t.Fatal("help should list the forge modes")
+	if !strings.Contains(strings.Join(v.lines, "\n"), "Modes (switch with") {
+		t.Fatal("help should list the modes")
 	}
 }

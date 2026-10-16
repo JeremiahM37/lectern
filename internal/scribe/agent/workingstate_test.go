@@ -112,3 +112,19 @@ func TestWorkingStateCapsAndSerializationOrder(t *testing.T) {
 		t.Fatal("empty sections must be omitted")
 	}
 }
+
+// The harness appends a system-reminder block to a user message. It is not
+// the user's requirement, so the working state must not record it.
+func TestWorkingStateSkipsSystemReminder(t *testing.T) {
+	msgs := []llm.Message{
+		llm.UserText("read notes1.txt <system-reminder> Memories from earlier sessions that may apply"),
+		llm.UserText("<system-reminder> Memories again </system-reminder> now fix the parser"),
+	}
+	ws := BuildWorkingState(msgs)
+	if len(ws.UserRequirements) != 2 {
+		t.Fatalf("requirements = %q", ws.UserRequirements)
+	}
+	if ws.UserRequirements[0] != "read notes1.txt" || ws.UserRequirements[1] != "now fix the parser" {
+		t.Fatalf("reminder text leaked into requirements: %q", ws.UserRequirements)
+	}
+}

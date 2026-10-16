@@ -101,3 +101,47 @@ func TestAskUserWithoutQuestionIsIgnored(t *testing.T) {
 		t.Fatal("an empty AskUser should not be held")
 	}
 }
+
+// A plan review is an AskUser item too: the plan travels as the body, the four
+// plan answers as options, and the web's Revise answer ("Revise <feedback>")
+// comes back as the hook answer Scribe matches on.
+func TestAskUserPlanReviewRoundTripsRevision(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.SessionApprovalHold = 5 * time.Second })
+	sess, tok := askSession(t, h, "ask-user-plan")
+	plan := obj{
+		"kind":            "plan_review",
+		"question":        "Add retries",
+		"options":         []string{"Execute", "Clear context and execute", "Revise", "Cancel"},
+		"body":            "# Add retries\n\n1. wrap the call",
+		"allow_free_text": true,
+	}
+	results := postAskUser(h, sess.id(), tok, plan)
+
+	appr := waitPendingSessionApproval(t, h, sess.id())
+	in, _ := appr["input"].(map[string]any)
+	if in["kind"] != "plan_review" || in["body"] != "# Add retries\n\n1. wrap the call" {
+		t.Fatalf("pending plan review does not carry the plan: %v", appr)
+	}
+	if opts, _ := in["options"].([]any); len(opts) != 4 {
+		t.Fatalf("pending plan review options = %v, want the four plan answers", in["options"])
+	}
+	h.post(fmt.Sprintf("/api/approvals/%d/decision", appr.id()),
+		obj{"decision": "approved", "note": "Revise add backoff"}, 200)
+
+	select {
+	case r := <-results:
+		var out struct {
+			HookSpecificOutput struct {
+				Answer string `json:"answer"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(r.body, &out); err != nil {
+			t.Fatalf("response not JSON: %s", r.body)
+		}
+		if out.HookSpecificOutput.Answer != "Revise add backoff" {
+			t.Fatalf("plan revision answer = %q, want %q", out.HookSpecificOutput.Answer, "Revise add backoff")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the held plan review never returned after being answered")
+	}
+}

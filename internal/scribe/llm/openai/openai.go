@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -396,7 +397,7 @@ func (p *Provider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Even
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", p.opts.ID, err)
+		return nil, p.unreachable(ctx, err)
 	}
 	if resp.StatusCode/100 != 2 {
 		defer resp.Body.Close()
@@ -431,7 +432,31 @@ func (p *Provider) httpError(resp *http.Response) error {
 			ae.RetryAfterSet = true
 		}
 	}
+	// A missing model is the usual 404 here. Say what to do about it. A
+	// wrong base URL gives a different 404 and gets no model advice.
+	if lower := strings.ToLower(ae.Message); resp.StatusCode == http.StatusNotFound && strings.Contains(lower, "model") && strings.Contains(lower, "not found") {
+		ae.Message += ". Pick a model the server has: lectern code --list-models " + p.opts.ID
+	}
 	return ae
+}
+
+// unreachable names the server that did not answer and why, in place of the
+// raw URL error. A cancelled or timed-out request keeps its own error, so an
+// aborted turn is not reported as an unreachable server.
+func (p *Provider) unreachable(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s: %w", p.opts.ID, err)
+	}
+	cause := err
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		cause = ue.Err
+	}
+	hint := "check that the server is running and that its address is right"
+	if p.opts.ID == "ollama" {
+		hint = "check that ollama is running and that OLLAMA_HOST points at it"
+	}
+	return fmt.Errorf("%s: cannot reach %s (%v); %s", p.opts.ID, p.opts.BaseURL, cause, hint)
 }
 
 // parseErrorObject reads either {"message","type","code"} or a bare string.

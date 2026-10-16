@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 )
 
 // SummaryCompactor replaces older history with a summary plus a mechanical
@@ -33,7 +34,7 @@ var ErrNotEnoughHistory = errors.New("not enough older messages to compact yet")
 
 // errSummaryTooShort aborts compaction so a bad summary cannot replace the
 // history. The conversation is left unchanged.
-var errSummaryTooShort = errors.New("Compaction produced an empty or too-short summary — aborting to preserve context")
+var errSummaryTooShort = errors.New("the model returned an empty or too-short summary; the conversation was left unchanged, so try /compact again")
 
 // minSummaryChars is the shortest summary compaction accepts.
 const minSummaryChars = 50
@@ -176,6 +177,9 @@ func (c SummaryCompactor) Compact(ctx context.Context, msgs []llm.Message) ([]ll
 	if ledger != "" {
 		summary += "\n\n" + ledger
 	}
+	// The working state quotes shell commands and prompts. The summary goes
+	// back to the model and to the transcript, so a secret in it is masked.
+	summary = redact.Default().Redact(summary)
 	head := []llm.Message{
 		llm.UserText("<conversation_summary>\nEarlier parts of this session were compacted. Summary:\n\n" + summary + "\n</conversation_summary>"),
 		llm.AssistantText("Continuing."),

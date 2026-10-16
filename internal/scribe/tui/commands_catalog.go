@@ -21,7 +21,7 @@ import (
 
 func init() {
 	registerCommands(
-		&command{Name: "mode", Args: "[name]", Desc: "Pick a forge mode, or switch to a named one", Group: "Settings",
+		&command{Name: "mode", Args: "[name]", Desc: "Pick a mode, or switch to a named one", Group: "Settings",
 			Run: func(m *Model, args string) tea.Cmd {
 				args = strings.TrimSpace(args)
 				if args == "" {

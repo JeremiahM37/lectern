@@ -202,3 +202,17 @@
   text-transform: uppercase; color: var(--ink-faint);
 }
 #nav-overflow .more-group-title:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
+/* The Scribe question card (sessions/AskUserCard.tsx): the approval card's
+   sibling for AskUser items, so it takes the same spacing and button styles. */
+.ask-user { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.ask-user-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.ask-user-question { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-user-body { margin: 0; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.9em; }
+.ask-user-actions, .ask-user-form-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-user-form { display: grid; gap: 6px; }
+.ask-user-form textarea { width: 100%; box-sizing: border-box; }
+.ask-user-form label { font-size: 0.9em; }
+.ask-user-answered { margin: 0; font-size: 0.9em; }
+@media (max-width: 600px) {
+  .ask-user-actions .b, .ask-user-form-actions .b { flex: 1 1 110px; }
+}

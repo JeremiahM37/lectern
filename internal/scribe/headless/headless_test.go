@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 )
 
 // fakeServer speaks the OpenAI streaming wire format. reply is called for
@@ -493,5 +495,27 @@ func TestUnknownPresetExitsOne(t *testing.T) {
 	res := invoke(t, []string{"--preset", "nope", "--cwd", repo, "x"}, "")
 	if res.code != 1 || !strings.Contains(res.stderr, "no preset") {
 		t.Fatalf("unknown preset: exit %d stderr %q", res.code, res.stderr)
+	}
+}
+
+// A key that the model streams in pieces must not reach stdout or the events
+// stream, whole or in part. Text is held back and redacted as a block.
+func TestStreamedSecretIsMasked(t *testing.T) {
+	key := "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef"
+	chunks := []string{strings.Repeat("filler ", 120), "token is " + key[:20], key[20:] + " end.\n"}
+	for _, format := range []options{{}, {events: true}} {
+		var stdout, stderr bytes.Buffer
+		o := newOutput(&stdout, &stderr, format)
+		o.beginTurn()
+		for _, c := range chunks {
+			o.handle(agent.Event{Kind: agent.EvText, Text: c})
+		}
+		o.flushStream()
+		if strings.Contains(stdout.String(), key[:20]) || strings.Contains(stdout.String(), key[20:]) {
+			t.Fatalf("streamed key reached output (events=%v): %q", format.events, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "[redacted]") {
+			t.Fatalf("nothing masked (events=%v): %q", format.events, stdout.String())
+		}
 	}
 }

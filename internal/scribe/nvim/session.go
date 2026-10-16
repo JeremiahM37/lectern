@@ -302,11 +302,23 @@ func (s *Session) Follow(abs string, line int) string {
 // editor is open, and runs the RPC work off the caller's goroutine, so the
 // agent loop does not wait for the screen.
 func Follow(abs string, line int) {
+	FollowThen(abs, line, nil)
+}
+
+// FollowThen is Follow, then done(result) with what Session.Follow reported
+// ("followed", "modified" or "busy"). done runs on another goroutine and is
+// not called when no editor is open.
+func FollowThen(abs string, line int, done func(result string)) {
 	s := Current()
 	if s == nil || s.socket == "" {
 		return
 	}
-	go s.Follow(abs, line)
+	go func() {
+		res := s.Follow(abs, line)
+		if done != nil {
+			done(res)
+		}
+	}()
 }
 
 // Close ends the editor: the process is killed, the connection and socket are

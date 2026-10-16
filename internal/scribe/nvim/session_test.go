@@ -191,3 +191,25 @@ func TestSweepRemovesOnlyDeadOwnersSockets(t *testing.T) {
 		t.Fatal("a socket of a live process was removed")
 	}
 }
+
+// TestFollowThenReportsUnsavedEdits: the app warns the user when the agent
+// changed a file they are editing, so FollowThen must hand back "modified".
+func TestFollowThenReportsUnsavedEdits(t *testing.T) {
+	file := writeFile(t, "w.txt", "disk")
+	s := startNvim(t, file)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := s.Lua(ctx, `vim.api.nvim_buf_set_lines(0, 0, -1, false, {"typed"})`); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan string, 1)
+	FollowThen(file, 0, func(res string) { got <- res })
+	select {
+	case res := <-got:
+		if res != "modified" {
+			t.Fatalf("FollowThen reported %q, want modified", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("FollowThen never reported")
+	}
+}

@@ -551,6 +551,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, images []llm.Part) (Turn
 // loop runs model steps until done. It returns the final answer text.
 func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 	continues := 0
+	silent := 0 // reminders sent for a reply that ended silently after tools
 	var final string
 	for step := 1; ; step++ {
 		if err := ctx.Err(); err != nil {
@@ -596,6 +597,14 @@ func (a *Agent) loop(ctx context.Context, stats *TurnStats) (string, error) {
 			}
 			if q := a.drainSteering(); q != "" {
 				a.appendUser(q)
+				continue
+			}
+			// Some models stop with an empty reply right after tool results,
+			// leaving the work half done and the user with no answer. Ask
+			// once to carry on or to answer.
+			if strings.TrimSpace(final) == "" && silent < 1 && ctx.Err() == nil && a.afterToolResults() {
+				silent++
+				a.appendUser("<system-reminder>You ended your turn with no reply after the tool results. If the task is not finished, continue it now. If it is finished, give the user your final answer.</system-reminder>")
 				continue
 			}
 			if a.autoCheck(ctx) {
@@ -1146,7 +1155,12 @@ func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message,
 	a.total.Add(usage)
 	stepCost := m.Info.Cost(usage)
 	a.cost += stepCost
-	a.lastIn = usage.InputTokens + usage.CacheReadTokens + usage.CacheWriteTokens + usage.OutputTokens
+	// Some providers (Ollama) report only the prompt tokens they had to
+	// evaluate, not those served from their cache, so the reported count can
+	// be a small part of what was sent. Take the larger of it and an estimate
+	// of the history, so the context bar and auto-compaction stay honest.
+	reported := usage.InputTokens + usage.CacheReadTokens + usage.CacheWriteTokens + usage.OutputTokens
+	a.lastIn = max(reported, a.sysChars/4+estimateHistoryTokens(a.msgs)+usage.OutputTokens)
 	total, cost, used, window := a.total, a.cost, a.lastIn, a.model.Info.ContextWindow
 	a.badArgs = bad
 	a.mu.Unlock()
@@ -1350,7 +1364,7 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 	}
 	mode := a.turnModeNow()
 	if RestrictedModes[mode] && !tools.IsReadOnlyCall(t, call.Args) {
-		return tools.Errorf("mode_restricted: %s mode is read-only, so %s cannot run. Investigate with read-only tools, then present your findings (in plan mode, call the plan tool).", mode, call.ToolName)
+		return tools.Errorf("mode_restricted: %s mode is read-only, so %s cannot run. %s", mode, call.ToolName, restrictedNext(mode))
 	}
 	args := call.Args
 	if a.opts.Hooks != nil {
@@ -1496,11 +1510,16 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	before := a.Messages()
 	kept, summary, err := a.opts.Compactor.Compact(ctx, before)
 	if err != nil {
+		// compact_start must always be closed, or the UI keeps its
+		// "compacting" spinner; skipped tells it nothing was replaced.
+		done := Event{Kind: EvCompactDone, Meta: map[string]any{"skipped": true, "messages_before": len(before), "messages_after": len(before)}}
 		if errors.Is(err, ErrNotEnoughHistory) {
 			// Nothing is wrong: there is simply too little to summarise yet.
+			a.emit(done)
 			a.emit(Event{Kind: EvNotice, Text: "Nothing to compact yet: the history is too short."})
 			return err
 		}
+		a.emit(done)
 		a.emit(Event{Kind: EvWarning, Text: "compaction failed: " + err.Error()})
 		return err
 	}
@@ -1511,6 +1530,9 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	a.mu.Unlock()
 	a.persist(true)
 	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"messages_before": len(before), "messages_after": len(kept)}})
+	// The context bar should drop now, not at the next model call.
+	used, _ := a.ContextEstimate()
+	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: a.CurrentModel().Info.ContextWindow, Estimated: true})
 	return nil
 }
 
@@ -1525,4 +1547,30 @@ func (a *Agent) OfferedForTest() map[string]bool {
 		}
 	}
 	return names
+}
+
+// restrictedNext is what a refused call in a read-only mode should do next.
+// Only plan mode ends in the plan tool; telling an architect or socratic
+// session to "call the plan tool" sent users to the wrong mode.
+func restrictedNext(mode string) string {
+	switch mode {
+	case "plan":
+		return "Investigate with read-only tools, then call the plan tool with your plan."
+	case "architect":
+		return "Investigate with read-only tools, then answer with the design: boundaries, the recommendation, alternatives and risks."
+	case "socratic":
+		return "Investigate with read-only tools, then present the decisions that matter as options and let the user choose."
+	case "challenge":
+		return "Investigate with read-only tools, then give your strongest objections and better alternatives."
+	}
+	return "Investigate with read-only tools, then present your findings."
+}
+
+// afterToolResults reports whether the message before the newest assistant
+// message holds tool results, i.e. the model replied to tool output.
+func (a *Agent) afterToolResults() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := len(a.msgs)
+	return n >= 2 && a.msgs[n-2].Role == llm.RoleTool
 }

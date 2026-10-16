@@ -270,10 +270,10 @@ func (m *Model) openPalette() {
 
 // ---------------------------------------------------------------- help
 
-// openHelp shows keys, forge modes and commands.
+// openHelp shows keys, modes and commands.
 func (m *Model) openHelp() {
 	lines := keyHelpLines() // the key reference lives in keyhelp.go
-	lines = append(lines, "", "Forge modes (switch with /mode <name>, or Shift+Tab to cycle):")
+	lines = append(lines, "", "Modes (switch with /mode <name>, or Shift+Tab to cycle):")
 	for _, id := range modeOrder {
 		mi := modeStyle(id, m.th)
 		lines = append(lines, fmt.Sprintf("  %-28s %s", strings.ToLower(mi.label), mi.desc))

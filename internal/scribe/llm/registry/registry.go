@@ -287,7 +287,7 @@ func envKey(d Definition) (string, string, bool) {
 func (r *Registry) Provider(id string) (llm.Provider, error) {
 	i, ok := r.byID[id]
 	if !ok {
-		return nil, fmt.Errorf("unknown provider %q", id)
+		return nil, fmt.Errorf("unknown provider %q (lectern code --list-providers shows the ids)", id)
 	}
 	d := r.defs[i]
 	key, _, err := r.key(d)
@@ -296,9 +296,9 @@ func (r *Registry) Provider(id string) (llm.Provider, error) {
 	}
 	if key == "" && !d.KeyOptional {
 		if len(d.EnvVars) > 0 {
-			return nil, fmt.Errorf("%s: no API key; set %s or store one with SetKey", id, strings.Join(d.EnvVars, " or "))
+			return nil, fmt.Errorf("%s: no API key; set %s, or store one with: lectern code --set-key %s KEY", id, strings.Join(d.EnvVars, " or "), id)
 		}
-		return nil, fmt.Errorf("%s: no API key stored; use SetKey", id)
+		return nil, fmt.Errorf("%s: no API key stored; store one with: lectern code --set-key %s KEY", id, id)
 	}
 	base := r.baseURL(d)
 	switch {
@@ -359,7 +359,7 @@ func (r *Registry) SetKey(id, key string) error {
 		return fmt.Errorf("empty key for %s; use RemoveKey to delete one", id)
 	}
 	if _, ok := r.byID[id]; !ok {
-		return fmt.Errorf("unknown provider %q", id)
+		return fmt.Errorf("unknown provider %q (lectern code --list-providers shows the ids)", id)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

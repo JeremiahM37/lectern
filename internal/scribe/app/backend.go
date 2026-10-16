@@ -335,7 +335,7 @@ func (b *scribeBackend) Submit(prompt string, images []llm.Part) {
 func (b *scribeBackend) runTurns(a *App, prompt string, images []llm.Part) {
 	for {
 		stats, err := a.Run(context.Background(), prompt, images)
-		if err != nil && stats.Error == "" {
+		if turnFailed(stats, err) {
 			a.emit(agent.Event{Kind: agent.EvError, Text: err.Error()})
 		}
 		b.mu.Lock()
@@ -426,6 +426,15 @@ func (b *scribeBackend) Providers() []tui.ProviderStatus {
 // NeedsSetup reports whether the first-run wizard should open: no provider has
 // a key and no Ollama server answers on its usual address.
 func (b *scribeBackend) NeedsSetup() bool {
+	// A model the user chose for a local server (ollama/...) is a choice, not
+	// a missing setup: if that server is down, the first request says so
+	// plainly, which is more useful than a wizard that does not say why it
+	// opened.
+	if a := b.current(); a.chosenModel() {
+		if prov, _ := llm.SplitModelRef(b.Model()); prov == "ollama" {
+			return false
+		}
+	}
 	reg := b.current().Registry
 	for _, p := range reg.List() {
 		if p.HasKey {

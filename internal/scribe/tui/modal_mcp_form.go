@@ -37,6 +37,10 @@ const (
 	mcpFScope
 )
 
+// mcpLabelW is the width of a field label column. "Environment" is the
+// longest label, so the column leaves a gap after it.
+const mcpLabelW = 13
+
 // mcpForm edits one server. save writes it (see Backend.SaveMCPServer).
 type mcpForm struct {
 	th   theme.Theme
@@ -321,9 +325,9 @@ func (f *mcpForm) rows(id, w int) []string {
 	focused := id == f.focus
 	label := func(s string) string {
 		if focused {
-			return fgb(th.Brand).Render(padRight(s, 11))
+			return fgb(th.Brand).Render(padRight(s, mcpLabelW))
 		}
-		return fg(th.TextDim).Render(padRight(s, 11))
+		return fg(th.TextDim).Render(padRight(s, mcpLabelW))
 	}
 	caret := ""
 	if focused {
@@ -334,7 +338,8 @@ func (f *mcpForm) rows(id, w int) []string {
 			return fg(th.TextFaint).Render(placeholder)
 		}
 		if text == "" {
-			return fg(th.TextFaint).Render(placeholder) + caret
+			// the caret sits where typing starts, before the hint
+			return caret + fg(th.TextFaint).Render(placeholder)
 		}
 		return fg(th.TextPrimary).Render(render.Truncate(text, w-13)) + caret
 	}
@@ -364,16 +369,16 @@ func (f *mcpForm) rows(id, w int) []string {
 func (f *mcpForm) multi(label, text, placeholder string, focused bool, caret string) []string {
 	th := f.th
 	if text == "" {
-		line := label + fg(th.TextFaint).Render(placeholder)
+		line := label
 		if focused {
 			line += caret
 		}
-		return []string{line}
+		return []string{line + fg(th.TextFaint).Render(placeholder)}
 	}
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
 	for i, l := range lines {
-		prefix := strings.Repeat(" ", 11)
+		prefix := strings.Repeat(" ", mcpLabelW)
 		if i == 0 {
 			prefix = label
 		}

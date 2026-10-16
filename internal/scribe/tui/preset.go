@@ -66,9 +66,14 @@ func listPresets(add func(kind, text string), root string) {
 		add("info", "No presets. Add one as JSON in "+config.PresetDir()+" (or .scribe/presets/ in this project).")
 		return
 	}
-	add("info", "Presets. /preset NAME applies one.")
-	for _, p := range ps {
-		add("info", fmt.Sprintf("  %s  (%s)  %s", p.Name, p.Scope(), p.Path))
+	// One row for the whole list: a row per preset would repeat the
+	// "System" heading above every line.
+	if len(ps) > 0 {
+		lines := []string{"Presets. /preset NAME applies one."}
+		for _, p := range ps {
+			lines = append(lines, fmt.Sprintf("  %s  (%s)  %s", p.Name, p.Scope(), p.Path))
+		}
+		add("info", strings.Join(lines, "\n"))
 	}
 	for _, e := range errs {
 		add("error", e.Error())

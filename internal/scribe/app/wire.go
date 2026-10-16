@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -186,7 +187,17 @@ func (a *App) onFilesChanged(e agent.Event) {
 		if a.ext.lsp != nil {
 			a.ext.lsp.FileChanged(abs)
 		}
-		nvim.Follow(abs, 0) // the open editor shows what the agent changed
+		// The open editor shows what the agent changed. When the user has
+		// unsaved edits in that file the buffer keeps them, so it no longer
+		// matches the disk: say so rather than let it pass silently.
+		rel := f
+		nvim.FollowThen(abs, 0, func(res string) {
+			if res == "modified" {
+				a.emit(agent.Event{Kind: agent.EvWarning, At: time.Now(), Text: fmt.Sprintf(
+					"%s changed on disk, but your editor has unsaved edits in it and still shows your version. "+
+						"Saving there overwrites the agent's change; :e! loads it instead.", rel)})
+			}
+		})
 	}
 }
 

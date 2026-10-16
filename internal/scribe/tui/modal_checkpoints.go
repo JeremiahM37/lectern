@@ -38,9 +38,9 @@ func (m *Model) openUndoConfirm(after func()) {
 		m.setFlash("info", "Nothing to undo")
 		return
 	}
-	m.pushModal(newListConfirm(m.th, fmt.Sprintf("Undo turn %d?", cp.Turn),
+	m.pushModal(checkpointConfirm(m.th, fmt.Sprintf("Undo turn %d?", cp.Turn),
 		"Restores the files this turn changed to their state before it. /redo brings them back.",
-		cp.Files, true, func() tea.Cmd {
+		cp.Files, "Yes, undo", func() tea.Cmd {
 			undone, err := t.be.Undo()
 			if after != nil {
 				after()
@@ -52,6 +52,16 @@ func (m *Model) openUndoConfirm(after func()) {
 			t.chat.AddSystem("info", fmt.Sprintf("Undid turn %d: %d files restored.", undone.Turn, len(undone.Files)))
 			return nil
 		}))
+}
+
+// checkpointConfirm asks before reverting files for undo or restore. Both are
+// reversible (/redo brings them back), so the frame is not red and the
+// buttons say what happens, not "delete". No stays the default answer.
+func checkpointConfirm(th theme.Theme, title, intro string, items []string, yesLabel string, onYes func() tea.Cmd) *listConfirm {
+	lc := newListConfirm(th, title, intro, items, false, onYes)
+	lc.yes = false
+	lc.WithLabels(yesLabel, "No")
+	return lc
 }
 
 // laterFiles lists the files that active turns after turn changed, sorted.
@@ -145,7 +155,7 @@ func (b *cpBrowser) restore() {
 	} else {
 		intro += " These files are reverted:"
 	}
-	b.m.pushModal(newListConfirm(b.th, fmt.Sprintf("Restore to turn %d?", cp.Turn), intro, later, true, func() tea.Cmd {
+	b.m.pushModal(checkpointConfirm(b.th, fmt.Sprintf("Restore to turn %d?", cp.Turn), intro, later, "Yes, restore", func() tea.Cmd {
 		if err := b.be.RestoreTo(cp.Turn); err != nil {
 			b.m.setFlash("err", "Restore failed: "+err.Error())
 			return nil

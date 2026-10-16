@@ -106,24 +106,24 @@ func TestRailUndoMarksLastUndone(t *testing.T) {
 	}
 }
 
-func TestRailHiddenBelowEightyColumns(t *testing.T) {
+func TestRailHiddenBelowSeventyColumns(t *testing.T) {
 	useASCIIIcons(t)
-	v, _ := threeTurns(t, 79, 40, 3)
+	v, _ := threeTurns(t, 69, 40, 3)
 	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3}}, -1)
-	if v.railOn() || v.bodyW() != 79 {
-		t.Fatalf("rail shown at 79 columns (railOn=%v bodyW=%d)", v.railOn(), v.bodyW())
+	if v.railOn() || v.bodyW() != 69 {
+		t.Fatalf("rail shown at 69 columns (railOn=%v bodyW=%d)", v.railOn(), v.bodyW())
 	}
 	checkShape(t, v)
 	if got := markerRows(railCells(v), icons.Dot, icons.Icon("checkpoint")); len(got) != 0 {
-		t.Errorf("rail glyphs drawn at 79 columns: %v", got)
+		t.Errorf("rail glyphs drawn at 69 columns: %v", got)
 	}
 	if v.FocusRail() {
-		t.Error("rail took focus at 79 columns")
+		t.Error("rail took focus at 69 columns")
 	}
 
-	v.SetSize(80, 40)
-	if !v.railOn() || v.bodyW() != 80-railW {
-		t.Fatalf("rail hidden at 80 columns (railOn=%v bodyW=%d)", v.railOn(), v.bodyW())
+	v.SetSize(70, 40)
+	if !v.railOn() || v.bodyW() != 70-railW {
+		t.Fatalf("rail hidden at 70 columns (railOn=%v bodyW=%d)", v.railOn(), v.bodyW())
 	}
 	checkShape(t, v)
 }
@@ -240,11 +240,11 @@ func TestRailHitFindsMarkerRow(t *testing.T) {
 
 func TestRailHitNeedsRailOnScreen(t *testing.T) {
 	useASCIIIcons(t)
-	v, _ := threeTurns(t, 79, 40, 3)
+	v, _ := threeTurns(t, 69, 40, 3)
 	v.SetCheckpoints([]Checkpoint{{Turn: 1}, {Turn: 2}, {Turn: 3}}, -1)
 	row := rowOf(plain(v), "question 1") - 2
 	if _, _, ok := v.RailHit(1, row); ok {
-		t.Error("rail hit reported at 79 columns, where the rail is hidden")
+		t.Error("rail hit reported at 69 columns, where the rail is hidden")
 	}
 }
 

@@ -164,7 +164,7 @@ func parseArgs(args []string) (options, error) {
 			return o, err
 		}
 	}
-	if o.chat && o.events && o.json {
+	if o.events && o.json {
 		return o, errors.New("--json and --events cannot be combined")
 	}
 	return o, nil

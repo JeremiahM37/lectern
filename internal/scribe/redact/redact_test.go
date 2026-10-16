@@ -237,3 +237,29 @@ func TestDynamicMissingKeysFile(t *testing.T) {
 func diff(a, b string) string {
 	return "want:\n" + a + "\ngot:\n" + b
 }
+
+// A key that follows a JSON escape (\n in the file is backslash-n) must be
+// masked: \b fails there because n is a word character. Session files hold
+// text in exactly that form.
+func TestKeyAfterJSONEscapeIsMasked(t *testing.T) {
+	r := New()
+	for _, in := range []string{
+		`{"text":"output:\n` + fakeAnthropic + `\nend"}`,
+		`{"text":"tab\t` + fakeGitHub + `"}`,
+		`{"text":"cr\r` + fakeOpenAI + `"}`,
+	} {
+		got := r.Redact(in)
+		for _, key := range []string{fakeAnthropic, fakeGitHub, fakeOpenAI} {
+			if strings.Contains(got, key) {
+				t.Fatalf("raw key survived after an escape: %s", got)
+			}
+		}
+		if !strings.Contains(got, Mask) {
+			t.Fatalf("nothing masked: %s", got)
+		}
+	}
+	// A key glued to a preceding word is not a separate secret, as before.
+	if got := r.Redact("xs" + fakeAnthropic); got != "xs"+fakeAnthropic {
+		t.Fatalf("glued prefix changed: %q", got)
+	}
+}

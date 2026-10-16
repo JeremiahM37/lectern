@@ -193,3 +193,37 @@ func TestEditorSplitCycles(t *testing.T) {
 		}
 	}
 }
+
+func TestTerminalsCloseRemovesTheTerminalAndFreesTheCap(t *testing.T) {
+	skipWithoutPTY(t)
+	t.Setenv("SHELL", "/bin/sh")
+	m, fb := newTestModel(t, 120, 40)
+	defer m.closePanes()
+	fb.workdir = t.TempDir()
+
+	for range maxFloats {
+		m.runCommand("/terminal new")
+	}
+	m.runCommand("/terminal new")
+	if len(m.ps().floats) != maxFloats {
+		t.Fatalf("cap not enforced: %d terminals", len(m.ps().floats))
+	}
+	// Exited shells used to stay listed, so the cap could never be freed.
+	m.runCommand("/terminals close 1")
+	if len(m.ps().floats) != maxFloats-1 {
+		t.Fatalf("close 1 left %d terminals", len(m.ps().floats))
+	}
+	m.runCommand("/terminal new")
+	if len(m.ps().floats) != maxFloats {
+		t.Fatalf("a closed slot was not reused: %d terminals", len(m.ps().floats))
+	}
+	// Closing the shown terminal hides it and leaves none shown.
+	m.runCommand("/terminals close")
+	if m.ps().shown != -1 {
+		t.Fatalf("closing the shown terminal left shown=%d", m.ps().shown)
+	}
+	m.runCommand("/terminals close 99")
+	if len(m.ps().floats) != maxFloats-1 {
+		t.Fatalf("an out-of-range close removed a terminal")
+	}
+}

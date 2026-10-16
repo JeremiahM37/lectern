@@ -113,6 +113,12 @@ func FindRoot(dir string) string {
 	}
 }
 
+// chosenModel reports whether the model came from a flag, the config or a
+// resumed session, rather than from DefaultModel's fallback.
+func (a *App) chosenModel() bool {
+	return a.opts.Model != "" || a.Cfg.Model != "" || a.opts.Resume != ""
+}
+
 // DefaultModel picks a model when config and flags name none: the first
 // provider with a key, else a local Ollama.
 func DefaultModel(reg *registry.Registry) string {

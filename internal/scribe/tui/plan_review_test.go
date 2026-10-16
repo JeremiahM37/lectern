@@ -173,3 +173,25 @@ func TestPlanReviewVTogglesFullMarkdown(t *testing.T) {
 		t.Fatalf("second v did not return to the step list:\n%s", screen(m))
 	}
 }
+
+func TestPlanApprovalLeavesPlanModeInTheStatusBar(t *testing.T) {
+	m, reply := openPlanReview(t)
+	m.cur().mode = "plan"
+	runCmd(m, send(m, "1"))
+	<-reply
+	if got := m.cur().mode; got != "default" {
+		t.Fatalf("after Implement the tab mode is %q, want default", got)
+	}
+}
+
+func TestPlanRevisionKeepsPlanMode(t *testing.T) {
+	m, reply := openPlanReview(t)
+	m.cur().mode = "plan"
+	runCmd(m, send(m, "3"))
+	runCmd(m, send(m, "x"))
+	runCmd(m, send(m, "enter"))
+	<-reply
+	if got := m.cur().mode; got != "plan" {
+		t.Fatalf("revision changed the mode to %q, want plan", got)
+	}
+}

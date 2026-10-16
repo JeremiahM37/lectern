@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -214,22 +215,96 @@ func (s *inputState) inputHeight(rows int) int {
 	return clamp(s.visualLines(), 1, max(4, rows*2/5))
 }
 
-// visualLines counts the rows the text takes after wrapping. Each logical line
-// costs ceil(width / box width) rows, and an empty line costs one.
+// fitViewport rewinds the textarea to its first row when the whole text fits
+// in h rows. bubbles only scrolls to keep the cursor visible and never scrolls
+// back, so a box that grew from one row to two while the cursor sat on the
+// second row kept showing rows 2 and 3 and hid the first line. Reset rewinds
+// the viewport and leaves the cursor at the end, so this only runs when the
+// cursor is already there (the case while typing).
+func (s *inputState) fitViewport(h int) {
+	if s.search != nil || s.visualLines() > h || !s.cursorAtEnd() {
+		return
+	}
+	v := s.ta.Value()
+	s.ta.Reset()
+	s.ta.InsertString(v)
+}
+
+// cursorAtEnd reports whether the cursor is after the last character of the text.
+func (s *inputState) cursorAtEnd() bool {
+	lines := strings.Split(s.ta.Value(), "\n")
+	last := len(lines) - 1
+	if s.ta.Line() != last {
+		return false
+	}
+	li := s.ta.LineInfo()
+	return li.StartColumn+li.ColumnOffset >= len([]rune(lines[last]))
+}
+
+// visualLines counts the rows the text takes after wrapping, at the width the
+// textarea wraps to. The textarea wraps on word boundaries, so a plain
+// ceil(width / box) under-counts long text and the last row is cut off.
 func (s *inputState) visualLines() int {
-	w := s.width
+	w := s.ta.Width()
 	if w <= 0 {
-		w = s.ta.Width()
+		w = s.width
 	}
 	if w <= 0 {
 		return max(1, s.ta.LineCount())
 	}
 	n := 0
 	for _, line := range strings.Split(s.ta.Value(), "\n") {
-		cells := ansi.StringWidth(line)
-		n += max(1, (cells+w-1)/w)
+		n += len(taWrap([]rune(line), w))
 	}
 	return n
+}
+
+// taWrap splits one logical line the way bubbles' textarea does, so the box
+// is sized to the rows the textarea draws. It is a copy of that package's
+// unexported wrap: words stay whole, and a word wider than the row starts on
+// its own row. Keep it in step with the bubbles version in go.mod.
+func taWrap(runes []rune, width int) [][]rune {
+	var (
+		lines  = [][]rune{{}}
+		word   = []rune{}
+		row    int
+		spaces int
+	)
+	cells := func(rs []rune) int { return lipgloss.Width(string(rs)) }
+	for _, r := range runes {
+		if unicode.IsSpace(r) {
+			spaces++
+		} else {
+			word = append(word, r)
+		}
+		if spaces > 0 {
+			if cells(lines[row])+cells(word)+spaces > width {
+				row++
+				lines = append(lines, append([]rune{}, word...))
+			} else {
+				lines[row] = append(lines[row], word...)
+			}
+			lines[row] = append(lines[row], []rune(strings.Repeat(" ", spaces))...)
+			spaces = 0
+			word = nil
+		} else {
+			lastLen := lipgloss.Width(string(word[len(word)-1]))
+			if cells(word)+lastLen > width {
+				if len(lines[row]) > 0 {
+					row++
+					lines = append(lines, []rune{})
+				}
+				lines[row] = append(lines[row], word...)
+				word = nil
+			}
+		}
+	}
+	if cells(lines[row])+cells(word)+spaces >= width {
+		lines = append(lines, append([]rune{}, word...))
+	} else {
+		lines[row] = append(lines[row], word...)
+	}
+	return lines
 }
 
 // ---------------------------------------------------------------- popups
@@ -447,12 +522,18 @@ func (s *inputState) refreshSearch() {
 func (s *inputState) collapsePaste(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	if strings.Count(text, "\n")+1 <= pasteCollapseAt {
+	if pasteLineCount(text) <= pasteCollapseAt {
 		return text
 	}
 	ph := pastePlaceholder(text)
 	s.pastes[ph] = text
 	return ph
+}
+
+// pasteLineCount counts the lines a paste occupies. A single trailing newline
+// ends the last line rather than starting an empty one, so "a\nb\n" is 2 lines.
+func pasteLineCount(text string) int {
+	return strings.Count(strings.TrimSuffix(text, "\n"), "\n") + 1
 }
 
 // pastePlaceholder is the inline token for a long paste: the first line,
@@ -462,7 +543,7 @@ func pastePlaceholder(text string) string {
 	if r := []rune(first); len(r) > 30 {
 		first = string(r[:30]) + "..."
 	}
-	return fmt.Sprintf("<pasted (%s +%d lines)>", first, strings.Count(text, "\n")+1)
+	return fmt.Sprintf("<pasted (%s +%d lines)>", first, pasteLineCount(text))
 }
 
 // expand replaces paste placeholders with the text they stand for. A token the
@@ -523,7 +604,11 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 					break
 				}
 				pick := c[clamp(s.acSel, 0, len(c)-1)]
-				if pick.Args != "" && !strings.Contains(s.value(), " ") {
+				// Required arguments (<...>) are filled in and wait for the user;
+				// optional ones ([...]) do not hold the command back, so Enter on
+				// /mode runs it at once. Tab still completes the name for typing
+				// an argument.
+				if strings.HasPrefix(pick.Args, "<") && !strings.Contains(s.value(), " ") {
 					s.setValue("/" + pick.Name + " ")
 					return nil
 				}
@@ -775,8 +860,16 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 	th := m.th
 	s := t.in
 	s.ta.FocusedStyle.Prompt = lipgloss.NewStyle().Bold(true).Foreground(modeCol)
-	s.ta.Placeholder, s.ta.FocusedStyle.Placeholder = inputPlaceholder(t, th)
-	s.ta.SetHeight(s.inputHeight(m.height))
+	ph, phStyle := inputPlaceholder(t, th)
+	// The textarea cuts a long placeholder at its width without a mark; cut
+	// it here with an ellipsis instead (one cell is kept for the cursor).
+	if room := s.ta.Width() - 1; room > 1 && ansi.StringWidth(ph) > room {
+		ph = ansi.Truncate(ph, room, "…")
+	}
+	s.ta.Placeholder, s.ta.FocusedStyle.Placeholder = ph, phStyle
+	h := s.inputHeight(m.height)
+	s.ta.SetHeight(h)
+	s.fitViewport(h)
 	var body []string
 	border := th.Border
 	footer := ""

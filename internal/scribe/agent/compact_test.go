@@ -219,8 +219,10 @@ func TestCompactionTriggersWhenContextCrossesThreshold(t *testing.T) {
 			opts.CompactAt = 0.5
 			opts.Compactor = SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 60, Strategy: "v1"}
 			a := New(opts)
+			// About 300 tokens of history: under the 500-token threshold on
+			// its own, so only the reported count decides.
 			a.SetMessages([]llm.Message{
-				userMsg(strings.Repeat("old ", 1000)),
+				userMsg(strings.Repeat("old ", 300)),
 				asstMsg("ok"),
 				userMsg("next"),
 			})
@@ -258,4 +260,76 @@ func allTexts(req recordedReq) []string {
 		out = append(out, m.text())
 	}
 	return out
+}
+
+// A secret in the conversation must not come back in the compaction summary:
+// the summary goes to the model and to the transcript.
+func TestCompactSummaryMasksSecrets(t *testing.T) {
+	key := "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef"
+	var msgs []llm.Message
+	for i := 0; i < 12; i++ {
+		text := strings.Repeat("keep going with the refactor ", 40)
+		if i == 0 {
+			text = "deploy with token " + key + " and keep the tests green"
+		}
+		msgs = append(msgs, llm.UserText(text), llm.AssistantText("working on it, reading the files now. "+strings.Repeat("more work ", 40)))
+	}
+	c := SummaryCompactor{KeepTokens: 200}
+	_, summary, err := c.Compact(context.Background(), msgs)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if strings.Contains(summary, key) {
+		t.Fatalf("secret survived in the summary: %q", summary)
+	}
+	if !strings.Contains(summary, "[redacted]") {
+		t.Fatalf("summary does not show the masked secret: %q", summary)
+	}
+}
+
+// TestUnderReportedUsageStillTriggersCompaction: a provider that reports only
+// uncached prompt tokens (Ollama) must not keep a full window from compacting.
+func TestUnderReportedUsageStillTriggersCompaction(t *testing.T) {
+	dir := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(dir, "parser.go"), []byte("package parser"), 0o644))
+	reg := tools.NewRegistry()
+	reg.Register(readTool{})
+	first := turn(sseTurn{
+		calls: []sseCall{{id: "call_1", name: "read", args: `{"path":"parser.go"}`}},
+		usage: &sseUsage{prompt: 20, completion: 10}, // far below what was sent
+	})
+	f := newFake(t)
+	f.setPick(scripted(t, first,
+		turn(sseTurn{text: []string{"SUMMARY-TEXT: work in progress."}}),
+		turn(sseTurn{text: []string{"all done"}})))
+	log := &eventLog{}
+	opts := baseOptions(f, reg, log, dir)
+	opts.Model.Info.ContextWindow = 1000
+	opts.CompactAt = 0.5
+	opts.Compactor = SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 60, Strategy: "v1"}
+	a := New(opts)
+	a.SetMessages([]llm.Message{userMsg(strings.Repeat("old ", 1000)), asstMsg("ok"), userMsg("next")})
+	_, err := a.Run(context.Background(), "read the parser", nil)
+	must(t, err)
+	if len(log.of(EvCompactStart)) == 0 {
+		t.Fatal("a ~1000-token history in a 1000-token window did not compact because usage was under-reported")
+	}
+}
+
+// TestSkippedCompactionStillClosesTheSpinner: compact_start must be followed
+// by compact_done even when there is nothing to compact.
+func TestSkippedCompactionStillClosesTheSpinner(t *testing.T) {
+	f := newFake(t)
+	log := &eventLog{}
+	opts := baseOptions(f, tools.NewRegistry(), log, t.TempDir())
+	opts.Compactor = SummaryCompactor{Model: fakeModel(f.srv.URL, "fake/summarizer", priced), KeepTokens: 60, Strategy: "v1"}
+	a := New(opts)
+	a.SetMessages([]llm.Message{userMsg("hi")})
+	_ = a.Compact(context.Background(), "manual")
+	if len(log.of(EvCompactStart)) != 1 || len(log.of(EvCompactDone)) != 1 {
+		t.Fatalf("start=%d done=%d, want 1 and 1", len(log.of(EvCompactStart)), len(log.of(EvCompactDone)))
+	}
+	if skipped, _ := log.of(EvCompactDone)[0].Meta["skipped"].(bool); !skipped {
+		t.Fatal("a compaction that replaced nothing should say skipped")
+	}
 }

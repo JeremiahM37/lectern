@@ -297,3 +297,47 @@ func TestSecondCtrlVDuringReadStartsNothing(t *testing.T) {
 		t.Fatalf("clipboard read %d times, want 1", fc.reads)
 	}
 }
+
+func TestPastePlaceholderIgnoresTrailingNewline(t *testing.T) {
+	s := newInputState()
+	// Copying lines usually ends with a newline; that is still four lines, not five.
+	got := s.collapsePaste("alpha\nbeta\ngamma\ndelta\n")
+	want := "<pasted (alpha +4 lines)>"
+	if got != want {
+		t.Fatalf("placeholder = %q, want %q", got, want)
+	}
+	if got := s.collapsePaste("a\nb\nc\n"); got != "a\nb\nc\n" {
+		t.Fatalf("three lines with a trailing newline = %q, want it inserted as typed", got)
+	}
+}
+
+func TestLongLineTypedOneKeyAtATimeShowsFirstRow(t *testing.T) {
+	s := newInputState()
+	s.resize(116)
+	for _, r := range strings.Repeat("abcdefghij ", 12) + "END" {
+		// Update is what repositions the viewport on each key press.
+		s.ta, _ = s.ta.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		h := s.inputHeight(36)
+		s.ta.SetHeight(h)
+		s.fitViewport(h)
+	}
+	lines := strings.Split(s.ta.View(), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "› abcdefghij abcdefghij abcdefghij") {
+		t.Fatalf("first row hidden after growing the box:\n%s", s.ta.View())
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[1], " "), "END") {
+		t.Fatalf("last row missing the end of the text:\n%s", s.ta.View())
+	}
+}
+
+// TestEnterRunsAnOptionalArgCommandAtOnce: /mode takes an optional argument,
+// so Enter on the popup runs it instead of only closing the popup.
+func TestEnterRunsAnOptionalArgCommandAtOnce(t *testing.T) {
+	m, _ := newTestModel(t, 120, 36)
+	m.phase = phaseChat
+	typeText(m, "/mode")
+	m.Update(key("enter"))
+	if v := m.cur().in.value(); v != "" {
+		t.Fatalf("Enter left %q in the input; the command should have run", v)
+	}
+}

@@ -467,6 +467,7 @@ type commitModal struct {
 	suggesting bool
 	err        string
 	cols, rows int
+	width      int // the frame width Size chose; the footer follows it
 	// stageAll is the Ctrl+A toggle. On by default, which is what a commit
 	// has always done (git add -A). Off commits only what is already staged,
 	// unless nothing is staged, in which case everything is staged anyway.
@@ -766,16 +767,28 @@ func (c *commitModal) Icon() string { return "git" }
 
 // Footer implements Footered.
 func (c *commitModal) Footer() string {
-	if c.canToggleStage() {
-		return "Enter new line · Tab body · Ctrl+A stage all · Ctrl+S commit · Ctrl+G suggest · Esc cancel"
+	// A wide frame shows every hint. A narrow one keeps the commands and Esc
+	// and drops the newline and body hints (Enter and Tab are the usual keys),
+	// so the cancel hint is never cut off.
+	if c.width >= 96 {
+		parts := []string{"Enter new line", "Tab body", "Ctrl+S commit", "Ctrl+G suggest", "Esc cancel"}
+		if c.canToggleStage() {
+			parts = append(parts[:2], append([]string{"Ctrl+A stage all"}, parts[2:]...)...)
+		}
+		return strings.Join(parts, " · ")
 	}
-	return "Enter new line · Tab body · Ctrl+S commit · Ctrl+G suggest · Esc cancel"
+	parts := []string{"Ctrl+S commit", "Ctrl+G suggest", "Esc cancel"}
+	if c.canToggleStage() {
+		parts = append(parts[:1], append([]string{"Ctrl+A stage"}, parts[1:]...)...)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // Size implements Sized.
 func (c *commitModal) Size(cols, rows int) (int, int) {
 	c.cols, c.rows = cols, rows
-	return min(72, max(56, cols*6/10)), min(rows-4, 22)
+	c.width = min(96, max(56, cols*8/10))
+	return c.width, min(rows-4, 22)
 }
 
 // summary is the first line: what the commit will contain.

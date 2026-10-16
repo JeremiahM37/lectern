@@ -147,21 +147,39 @@ func overlay(base []string, box []string, w, h int) []string {
 	if y < 0 {
 		y = 0
 	}
+	// The rows beside the box keep the screen behind, except a one-column
+	// gutter next to each border. A side strip of overlayMinMargin columns or
+	// less is blanked entirely: a sliver of the frame behind reads as a broken
+	// border, not as background.
+	lb, rb := 1, 1 // blank columns left and right of the box
+	if x <= overlayMinMargin {
+		lb = x
+	}
+	if rm := w - x - bw; rm <= overlayMinMargin {
+		rb = max(rm, 0)
+	}
 	for i, bl := range box {
 		row := y + i
 		if row >= h {
 			break
 		}
-		left := ansi.Truncate(out[row], x, "")
-		if ansi.StringWidth(left) < x {
-			left += strings.Repeat(" ", x-ansi.StringWidth(left))
+		lx := max(x-lb, 0)
+		left := ansi.Truncate(out[row], lx, "")
+		if ansi.StringWidth(left) < lx {
+			left += strings.Repeat(" ", lx-ansi.StringWidth(left))
 		}
-		right := ansi.TruncateLeft(out[row], x+bw, "")
-		out[row] = left + bl + right
-		out[row] = fitWidth(out[row], w)
+		left += strings.Repeat(" ", x-lx)
+		if bwl := ansi.StringWidth(bl); bwl < bw {
+			bl += strings.Repeat(" ", bw-bwl)
+		}
+		right := strings.Repeat(" ", rb) + ansi.TruncateLeft(out[row], x+bw+rb, "")
+		out[row] = fitWidth(left+bl+right, w)
 	}
 	return out
 }
+
+// overlayMinMargin is the widest side strip that is blanked rather than shown.
+const overlayMinMargin = 3
 
 // frame draws a rounded box with the title in the top border and footer hints
 // in the bottom border. body must already be w-4 wide per line.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
@@ -38,6 +39,7 @@ type output struct {
 	render bool
 	diff   bool
 
+	held     string          // streamed text not yet written, see stream
 	streamed strings.Builder // this turn's text, kept only for --render
 	lastByte byte            // last byte written to stdout this turn
 	final    string          // the turn's final answer (EvTurnDone)
@@ -83,16 +85,21 @@ type turnReport struct {
 	Error       string      `json:"error,omitempty"`
 }
 
+// scrub masks secrets in text that leaves this process: the final answer,
+// errors, tool calls and events. Tool results are already redacted where
+// they are produced; this covers what the agent and the model repeat back.
+func scrub(s string) string { return redact.Default().Redact(s) }
+
 func reportOf(res turnResult, final string) turnReport {
 	s := res.stats
 	return turnReport{
-		Output:      final,
+		Output:      scrub(final),
 		Steps:       s.Steps,
 		Tokens:      tokensOf(s.Tokens),
 		ToolCalls:   nonNil(s.ToolCalls),
 		FilesEdited: nonNil(s.FilesEdited),
 		Duration:    s.Duration.Milliseconds(),
-		Error:       s.Error,
+		Error:       scrub(s.Error),
 	}
 }
 
@@ -159,6 +166,7 @@ func (o *output) beginTurn() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.streamed.Reset()
+	o.held = ""
 	o.lastByte = 0
 	o.final = ""
 	o.errSeen = false
@@ -174,16 +182,22 @@ func (o *output) finalText() string {
 func (o *output) handle(e agent.Event) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	// Events keep their order. Text is gathered and written, redacted as one
+	// block, just before the next non-text event, so a secret split across
+	// chunks is masked too.
+	if o.format == fmtEvents && e.Kind != agent.EvText {
+		o.flushStreamL()
+	}
 	switch e.Kind {
 	case agent.EvText:
 		if o.format == fmtEvents {
-			o.emitL(map[string]any{"type": "text", "content": e.Text})
+			o.held += e.Text
 		}
 		if o.format == fmtText {
 			if o.render {
 				o.streamed.WriteString(e.Text)
 			} else {
-				o.writeStdoutL(e.Text)
+				o.writeStdoutL(o.stream(e.Text))
 			}
 		}
 	case agent.EvToolRun:
@@ -193,7 +207,7 @@ func (o *output) handle(e agent.Event) {
 			if e.CallID != "" {
 				ev["toolCallId"] = e.CallID
 			}
-			if input := jsonObject(e.Args); input != nil {
+			if input := jsonObject(json.RawMessage(scrub(string(e.Args)))); input != nil {
 				ev["input"] = input
 			}
 			o.emitL(ev)
@@ -207,7 +221,7 @@ func (o *output) handle(e agent.Event) {
 					text = e.Result.Summary
 				}
 			}
-			ev := map[string]any{"type": "tool-result", "tool": e.Tool, "summary": clip(text, 200)}
+			ev := map[string]any{"type": "tool-result", "tool": e.Tool, "summary": clip(scrub(text), 200)}
 			if e.CallID != "" {
 				ev["toolCallId"] = e.CallID
 			}
@@ -242,12 +256,61 @@ func (o *output) handle(e agent.Event) {
 	case agent.EvError:
 		o.errSeen = true
 		if o.format == fmtEvents {
-			o.emitL(map[string]any{"type": "error", "error": e.Text})
+			o.emitL(map[string]any{"type": "error", "error": scrub(e.Text)})
 		} else if o.format == fmtText {
 			fmt.Fprintf(o.stderr, "scribe: %s\n", e.Text)
 		}
 	case agent.EvTurnDone:
 		o.final = e.Text
+	}
+}
+
+// holdBack is how much streamed text stays unwritten, so that a secret split
+// across two chunks is masked once it is whole. No secret shape holds a space.
+const holdBack = 512
+
+// stream takes one chunk of model text and returns the part now safe to
+// write, redacted. The cut sits after whitespace where there is any. Callers
+// hold the lock.
+func (o *output) stream(text string) string {
+	o.held += text
+	if len(o.held) <= holdBack {
+		return ""
+	}
+	cut := len(o.held) - holdBack
+	if i := strings.LastIndexAny(o.held[:cut], " \t\r\n"); i >= 0 {
+		cut = i + 1
+	} else {
+		for cut > 0 && !utf8.RuneStart(o.held[cut]) {
+			cut--
+		}
+	}
+	out := scrub(o.held[:cut])
+	o.held = o.held[cut:]
+	return out
+}
+
+// flushStream writes the text still held back at the end of a turn.
+func (o *output) flushStream() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.flushStreamL()
+}
+
+// flushStreamL is flushStream for callers that hold the lock.
+func (o *output) flushStreamL() {
+	tail := scrub(o.held)
+	o.held = ""
+	if tail == "" {
+		return
+	}
+	switch o.format {
+	case fmtEvents:
+		o.emitL(map[string]any{"type": "text", "content": tail})
+	case fmtText:
+		if !o.render {
+			o.writeStdoutL(tail)
+		}
 	}
 }
 
@@ -260,7 +323,7 @@ func (o *output) endText(s agent.TurnStats) {
 		return
 	}
 	if o.render {
-		body := o.streamed.String()
+		body := scrub(o.streamed.String())
 		if strings.TrimSpace(body) != "" {
 			fmt.Fprintln(o.stdout, render.Markdown(body, renderWidth, theme.Default(), false))
 		}
@@ -287,7 +350,7 @@ func (o *output) finishRun(model, mode, prompt string, res turnResult, sessionID
 	switch o.format {
 	case fmtJSON:
 		obj := runObject{
-			Model: model, Mode: mode, Prompt: prompt, Output: rep.Output, Steps: rep.Steps,
+			Model: model, Mode: mode, Prompt: scrub(prompt), Output: rep.Output, Steps: rep.Steps,
 			Tokens: rep.Tokens, CostUSD: res.stats.CostUSD, ToolCalls: rep.ToolCalls,
 			FilesEdited: rep.FilesEdited, Duration: rep.Duration, SessionID: sessionID, Error: rep.Error,
 		}
@@ -356,11 +419,26 @@ func (o *output) turnError(msg string) {
 }
 
 // fail reports an error before any run started.
+// fail reports a run that never started. In json mode it still writes one
+// object to stdout, so a caller parsing stdout gets the error and not nothing.
 func (o *output) fail(msg string) {
+	if o.format == fmtJSON {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		o.writeJSONL(map[string]any{"error": scrub(msg)}, false)
+		return
+	}
+	o.failText(msg)
+}
+
+func (o *output) failText(msg string) {
+	msg = scrub(msg)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.format == fmtEvents {
+		// The stream always ends with a done record, as after a run that ran.
 		o.emitL(map[string]any{"type": "error", "error": msg})
+		o.emitL(doneEvent{Type: "done", turnReport: reportOf(turnResult{stats: agent.TurnStats{Error: msg}}, "")})
 		return
 	}
 	fmt.Fprintf(o.stderr, "scribe: %s\n", msg)
@@ -455,7 +533,7 @@ func toolLine(tool string, args json.RawMessage) string {
 	}
 	for _, k := range []string{"command", "path", "file_path", "pattern", "query", "url", "task", "name"} {
 		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
-			return tool + " " + clip(strings.Join(strings.Fields(s), " "), 100)
+			return tool + " " + clip(scrub(strings.Join(strings.Fields(s), " ")), 100)
 		}
 	}
 	return tool

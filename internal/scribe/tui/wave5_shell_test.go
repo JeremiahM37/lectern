@@ -393,3 +393,39 @@ func TestSidePanelsHiddenWhileEmpty(t *testing.T) {
 		t.Fatalf("after an edit the side panels appear at a fifth of 120 columns, got %d", got)
 	}
 }
+
+// TestSubagentTurnDoneKeepsTheTabBusy: a subagent finishing must not end the
+// main turn's busy state (the busy line and "Esc to stop" disappeared while
+// dispatch ran).
+func TestSubagentTurnDoneKeepsTheTabBusy(t *testing.T) {
+	m, _ := newTestModel(t, 120, 30)
+	m.phase = phaseChat
+	tb := m.cur()
+	m.onEvent(eventMsg{tab: tb.id, ev: agent.Event{Kind: agent.EvTurnStart, Prompt: "go", At: time.Now()}})
+	m.onEvent(eventMsg{tab: tb.id, ev: agent.Event{Kind: agent.EvStepFinish, CostUSD: 0.5, At: time.Now()}})
+	m.onEvent(eventMsg{tab: tb.id, ev: agent.Event{Kind: agent.EvTurnDone, AgentID: "a1", CostUSD: 0.01, At: time.Now()}})
+	m.onEvent(eventMsg{tab: tb.id, ev: agent.Event{Kind: agent.EvContext, AgentID: "a1", ContextUsed: 5, ContextWindow: 10}})
+	if !tb.busy {
+		t.Fatal("a subagent's turn_done ended the main turn")
+	}
+	if tb.cost != 0.5 {
+		t.Fatalf("a subagent's cost replaced the session cost: %v", tb.cost)
+	}
+	if tb.ctxWin == 10 {
+		t.Fatal("a subagent's context replaced the main context bar")
+	}
+}
+
+// TestTurnDoneReadsTheModeBack: the agent may leave plan mode on its own
+// (plan approved with Execute); the header must follow, not keep PLAN.
+func TestTurnDoneReadsTheModeBack(t *testing.T) {
+	m, fb := newTestModel(t, 120, 30)
+	m.phase = phaseChat
+	tb := m.cur()
+	tb.mode = "plan"
+	fb.SetMode("default")
+	m.onEvent(eventMsg{tab: tb.id, ev: agent.Event{Kind: agent.EvTurnDone, At: time.Now()}})
+	if tb.mode != "default" {
+		t.Fatalf("tab mode = %q after the agent switched to default", tb.mode)
+	}
+}

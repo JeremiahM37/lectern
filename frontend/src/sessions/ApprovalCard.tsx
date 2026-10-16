@@ -16,6 +16,8 @@ import type { ToolCard } from "./tool-views/chatCards";
 import { approvalSummary } from "./approval-summary";
 import { t, useLocale } from "../i18n";
 import { useDictation } from "../voice";
+import { AskUserCard } from "./AskUserCard";
+import { isAskUser } from "./ask-user";
 
 export interface ApprovalDecisionOptions {
   forSession?: boolean;
@@ -132,7 +134,7 @@ export function ApprovalCard({
   const deny = () => void act("deny", "denied", { note: note.trim() || undefined });
 
   function keys(event: KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent) {
-    if (decided || busy || denying || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (decided || busy || denying || isAskUser(approval) || event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement | null;
     const tag = target?.tagName;
     if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || target?.isContentEditable) return;
@@ -155,6 +157,20 @@ export function ApprovalCard({
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, [globalKeys]);
+
+  // A Scribe question or plan review has its own card: its answer is text, not
+  // Allow / Deny, so the Y / A / N keys and the decision buttons do not apply.
+  if (isAskUser(approval)) {
+    return (
+      <AskUserCard
+        approval={approval}
+        onDecide={onDecide}
+        onOpenSession={onOpenSession}
+        compact={compact}
+        showContext={showContext}
+      />
+    );
+  }
 
   const context = approval.session_id
     ? approval.session_name || t("approval.sessionFallback", { id: approval.session_id })

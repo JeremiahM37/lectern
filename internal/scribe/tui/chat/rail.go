@@ -14,8 +14,12 @@ type Checkpoint struct {
 }
 
 const (
-	railW        = 3  // caret, marker, gap
-	railMinWidth = 80 // narrower transcripts hide the rail
+	railW = 3 // caret, marker, gap
+	// railMinWidth is the transcript width below which the rail is hidden. It
+	// is the width inside the frame and beside the side panels, not the
+	// terminal width: at an 80-column terminal the transcript is already
+	// narrower than 80, so a threshold of 80 hid the rail there.
+	railMinWidth = 70
 )
 
 // SetCheckpoints replaces the rail's markers. viewed is the index of the

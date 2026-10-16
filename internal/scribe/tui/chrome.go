@@ -12,7 +12,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
 
-// modeInfo describes one forge mode.
+// modeInfo describes one mode.
 type modeInfo struct {
 	id, label, desc string
 	color           lipgloss.TerminalColor

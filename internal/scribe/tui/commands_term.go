@@ -26,7 +26,7 @@ func init() {
 				m.setFlash("err", "Usage: /terminal [new]")
 				return nil
 			}},
-		&command{Name: "terminals", Args: "[list|new|show|hide]", Desc: "List the floating terminals, or show, hide or start one", Group: "Tabs",
+		&command{Name: "terminals", Args: "[list|new|show|hide|close [n]]", Desc: "List the floating terminals, or show, hide, start or close one", Group: "Tabs",
 			Run: func(m *Model, args string) tea.Cmd {
 				switch strings.TrimSpace(args) {
 				case "", "list":
@@ -40,7 +40,11 @@ func init() {
 					m.hideFloat()
 					return nil
 				}
-				return flashCmd("err", "Usage: /terminals [list|new|show|hide]")
+				if rest, ok := strings.CutPrefix(strings.TrimSpace(args), "close"); ok {
+					m.closeFloatCmd(rest)
+					return nil
+				}
+				return flashCmd("err", "Usage: /terminals [list|new|show|hide|close [n]]")
 			}},
 		&command{Name: "editor", Args: "[file[:line]|open <file[:line]>|split|close|access [on|when-open|off]]",
 			Desc: "Open the editor beside the chat (Ctrl+E) at a file and line; split changes its width; access sets what the agent may do in it", Group: "Tabs",

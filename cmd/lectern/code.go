@@ -175,6 +175,13 @@ func restoreTerminal(fd int, old *term.State) {
 	fmt.Fprint(os.Stdout, "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l")
 }
 
+// valueFlags take the next word as their value.
+var valueFlags = map[string]bool{
+	"--model": true, "-m": true, "--mode": true, "--cwd": true, "--preset": true,
+	"--system": true, "--include": true, "--session": true, "--resume": true, "-s": true,
+	"--max-steps": true, "--timeout": true,
+}
+
 // headlessFlags make `lectern code` run without the terminal UI.
 var headlessFlags = map[string]bool{
 	"--headless": true, "-p": true, "--print": true, "--json": true, "--events": true,
@@ -216,7 +223,14 @@ func wantsHeadless(args []string, stdin io.Reader) bool {
 // "-p PROMPT" keeps PROMPT as a positional argument.
 func stripHeadlessWords(args []string) []string {
 	out := make([]string, 0, len(args))
-	for _, a := range args {
+	for i, a := range args {
+		// A "-p" that is the value of a flag before it (--model -p hi) is
+		// kept, so the headless parser reports the missing value instead of
+		// reading "hi" as the model.
+		if i > 0 && valueFlags[args[i-1]] {
+			out = append(out, a)
+			continue
+		}
 		if a == "--headless" || a == "-p" || a == "--print" {
 			continue
 		}

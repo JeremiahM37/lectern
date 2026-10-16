@@ -196,9 +196,9 @@ func (b *memoryBrowser) Footer() string {
 		return "type to search · Enter keep · Esc clear"
 	}
 	if b.inCleanup() {
-		return "↑↓ move · Enter edit · d delete · p pin · r refresh · Tab switches · Esc"
+		return "↑↓ move · Enter edit · d delete · p pin · r refresh · Tab switches · Esc close"
 	}
-	return "↑↓ move · Enter edit · n new · d delete · p pin · / search · Esc"
+	return "↑↓ move · Enter edit · n new · d delete · p pin · / search · Esc close"
 }
 
 // Size implements Sized. It also records whether the preview goes beside the list.
@@ -385,6 +385,16 @@ func (b *memoryBrowser) editor(it *MemoryItem) *memoryEditor {
 }
 
 // View implements Modal.
+// memUpdated words a memory's age. relAge gives "—" when the time is unknown,
+// and that must not read as "— ago".
+func memUpdated(t, now time.Time) string {
+	age := relAge(t, now)
+	if age == "—" {
+		return "updated unknown"
+	}
+	return "updated " + age + " ago"
+}
+
 func (b *memoryBrowser) View(w, h int) string {
 	th := b.th
 	counts := []string{
@@ -563,7 +573,7 @@ func (b *memoryBrowser) preview(w int) []string {
 	if !ok {
 		return []string{fg(th.TextFaint).Render("Nothing selected.")}
 	}
-	meta := []string{memBadge(th, it.Category), fg(th.TextDim).Render(memScopeOf(it)), fg(th.TextDim).Render("updated " + relAge(it.Updated, time.Now()) + " ago")}
+	meta := []string{memBadge(th, it.Category), fg(th.TextDim).Render(memScopeOf(it)), fg(th.TextDim).Render(memUpdated(it.Updated, time.Now()))}
 	if it.Pinned {
 		meta = append(meta, fg(th.Warning).Render("★ pinned"))
 	}

@@ -113,7 +113,18 @@ func (s *settings) Icon() string { return "gear" }
 
 // Footer implements Footered.
 func (s *settings) Footer() string {
-	return "Tab tabs · ↑↓ move · Enter change · ←→ scope · a add · d del · Esc"
+	// a and d only work on rows that have them, so the hint follows the row
+	parts := []string{"Tab tabs", "↑↓ move", "Enter change", "←→ scope"}
+	rows := s.rows()
+	if cur := s.cur[s.tab]; cur >= 0 && cur < len(rows) {
+		if rows[cur].add != nil {
+			parts = append(parts, "a add")
+		}
+		if rows[cur].del != nil {
+			parts = append(parts, "d del")
+		}
+	}
+	return strings.Join(append(parts, "Esc close"), " · ")
 }
 
 // Size implements Sized.
@@ -893,7 +904,7 @@ func (s *settings) reasoningRows() []setRow {
 	st, known := s.styles[ref]
 	switch {
 	case !known:
-		return append(rows, setRow{label: "Reading the model's reasoning controls…"})
+		return append(rows, setRow{label: "Reading controls…"})
 	case st.err != nil:
 		return append(rows, setRow{label: "Model details unavailable", value: "", note: st.err.Error()})
 	}
@@ -907,7 +918,7 @@ func (s *settings) reasoningRows() []setRow {
 	case llm.ReasoningBudget:
 		rows = append(rows, s.budgetRow(key+"budget", rs.Budget, provider))
 	default:
-		rows = append(rows, setRow{label: "No reasoning controls for this model", note: "the global Reasoning setting still applies"})
+		rows = append(rows, setRow{label: "No reasoning controls", note: "for this model; the global Reasoning setting still applies"})
 	}
 	if tiers, ok := serviceTiers[provider]; ok {
 		rows = append(rows, s.cycleRow("Service tier", key+"service_tier", rs.ServiceTier, tiers, provider))

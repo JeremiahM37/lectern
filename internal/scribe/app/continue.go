@@ -80,7 +80,7 @@ func (b *scribeBackend) Continue() (bool, error) {
 // while it ran, using the same queue Submit uses.
 func (b *scribeBackend) runContinue(a *App) {
 	stats, err := a.ContinueTurn(context.Background())
-	if err != nil && stats.Error == "" {
+	if turnFailed(stats, err) {
 		a.emit(agent.Event{Kind: agent.EvError, Text: err.Error()})
 	}
 	b.mu.Lock()
@@ -112,4 +112,12 @@ func (b *scribeBackend) Shutdown(timeout time.Duration) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	_ = b.Close()
+}
+
+// turnFailed reports whether a turn that returned err should show it as an
+// error. A turn stopped on purpose (Esc, or the process ending) returns
+// context.Canceled: the transcript already marks it Interrupted, so it must
+// not also say "Something went wrong".
+func turnFailed(stats agent.TurnStats, err error) bool {
+	return err != nil && stats.Error == "" && !stats.Aborted && !errors.Is(err, context.Canceled)
 }

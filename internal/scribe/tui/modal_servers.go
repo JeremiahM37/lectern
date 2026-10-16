@@ -40,6 +40,7 @@ type serversView struct {
 	off      int
 	note     string
 	noteKind string
+	width    int // the frame width Size chose; the footer follows it
 }
 
 // ServerToolLister is optionally implemented by a Backend that can list the
@@ -118,12 +119,18 @@ func (v *serversView) Footer() string {
 	if v.kind == "lsp" {
 		return "↑↓ move · Enter details · r restart · v tools · Esc close"
 	}
-	return "↑↓ move · a add · e edit · t on/off · v tools · Enter details · d remove · r restart · Esc close"
+	if v.width < 100 {
+		// a narrow frame drops the restart and details hints, which the
+		// wide one lists, so the close hint is not cut off
+		return "↑↓ · a add · e edit · t on/off · d remove · v tools · Esc close"
+	}
+	return "↑↓ · a add · e edit · t on/off · v tools · ⏎ details · d remove · r restart · Esc close"
 }
 
 // Size implements Sized.
 func (v *serversView) Size(cols, rows int) (int, int) {
-	return min(cols-4, 100), min(rows-4, 26)
+	v.width = min(cols-4, 100)
+	return v.width, min(rows-4, 26)
 }
 
 // Update implements Modal.
@@ -166,6 +173,10 @@ func (v *serversView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 // state, process and open documents, and the last error. Read only.
 func (v *serversView) showDetails() {
 	list := v.servers()
+	if v.cursor >= 0 && v.cursor < len(list) && list[v.cursor].Kind == "mcp" {
+		v.showMCPDetails(list[v.cursor])
+		return
+	}
 	if v.cursor < 0 || v.cursor >= len(list) || list[v.cursor].Kind != "lsp" {
 		return
 	}
@@ -194,6 +205,45 @@ func (v *serversView) showDetails() {
 	p := NewPicker(v.th, "Language server · "+s.Language, "lsp")
 	p.SetItems(items)
 	v.m.pushModal(p)
+}
+
+// showMCPDetails shows what the config says about an MCP server and what
+// the running state is. Nothing here changes anything; Esc closes it.
+func (v *serversView) showMCPDetails(st ServerStatus) {
+	items := []PickItem{{Value: "state", Label: "State", Desc: st.State}}
+	if sp, ok := mcpSpecNamed(v.be.MCPServers(), st.Name); ok {
+		where := sp.Command
+		if sp.Transport == "http" {
+			where = sp.URL
+		} else if len(sp.Args) > 0 {
+			where += " " + strings.Join(sp.Args, " ")
+		}
+		items = append(items,
+			PickItem{Value: "scope", Label: "Scope", Desc: sp.Scope},
+			PickItem{Value: "transport", Label: "Transport", Desc: sp.Transport},
+			PickItem{Value: "run", Label: "Runs", Desc: where},
+		)
+		if sp.Disabled {
+			items = append(items, PickItem{Value: "off", Label: "Turned off", Desc: "press t to turn it on"})
+		}
+	}
+	items = append(items, PickItem{Value: "tools", Label: "Tools", Desc: fmt.Sprint(st.Tools)})
+	if st.Error != "" {
+		items = append(items, PickItem{Value: "error", Label: "Last error", Desc: oneLine(st.Error)})
+	}
+	p := NewPicker(v.th, "MCP · "+st.Name, "plug")
+	p.SetItems(items)
+	v.m.pushModal(p)
+}
+
+// mcpSpecNamed finds the configured spec for an MCP server by name.
+func mcpSpecNamed(specs []MCPServerSpec, name string) (MCPServerSpec, bool) {
+	for _, sp := range specs {
+		if sp.Name == name {
+			return sp, true
+		}
+	}
+	return MCPServerSpec{}, false
 }
 
 // showTools lists the tools the highlighted MCP server registered. Nothing
