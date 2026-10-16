@@ -106,6 +106,9 @@ def test_tools_is_a_grouped_sheet_that_closes_every_way(phone):
     # So does a tap on the page's dimming outside the frame (the tab names).
     summary.tap()
     expect(tools).to_have_attribute('open', '')
+    # The page draws its dimming after the frame tells it the sheet opened.
+    # Tapping before it exists lands on a tab, which does not close the sheet.
+    expect(page.locator('.terminal-frame-scrim')).to_be_visible()
     tabs = page.locator('.terminal-tablist').bounding_box()
     page.touchscreen.tap(tabs['x'] + tabs['width'] - 20, tabs['y'] + tabs['height'] / 2)
     expect(tools).not_to_have_attribute('open', '')
