@@ -131,11 +131,25 @@ type Backend interface {
 
 	Servers() []ServerStatus
 	RestartServer(name string) error
+	// MCPServers lists every configured MCP server with the definition the
+	// editor shows, including disabled and untrusted ones.
+	MCPServers() []MCPServerSpec
+	// SaveMCPServer writes spec to its scope's config and applies it live.
+	// was is the definition being edited, or nil for a new server.
+	SaveMCPServer(spec MCPServerSpec, was *MCPServerSpec) error
+	RemoveMCPServer(name, scope string) error
 	MapStats() MapStats
 	RebuildMap()
 	Jobs() []Job
 	KillJob(id string) error
 	Skills() []string
+	// InstallSkill installs from a local directory or git URL (optionally
+	// "#subdir") into scope "project" or "global". It returns the skill name.
+	InstallSkill(src, scope string) (string, error)
+	// ActiveSkills lists the skills loaded into context for this project.
+	ActiveSkills() []string
+	// SetSkillActive loads a skill into context, or unloads it, from the next request.
+	SetSkillActive(name string, on bool) error
 	Tools() []ToolInfo
 	SetToolEnabled(name string, on bool)
 

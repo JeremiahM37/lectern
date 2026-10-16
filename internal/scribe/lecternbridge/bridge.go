@@ -2,8 +2,10 @@
 // session to Lectern. It reports what the agent does through the same
 // per-session hook endpoints Claude Code's hooks use
 // (docs/agent-events.md section 2), and it asks Lectern to decide approvals
-// (section 3) so the phone and the web can answer them. The local host and
-// Lectern race: the first answer wins and the other side is cancelled.
+// (section 3) and to answer ask_user questions and plan reviews (the AskUser
+// event, see askQuestion) so the phone and the web can answer them. The local
+// host and Lectern race: the first answer wins and the other side is
+// cancelled.
 //
 // Lectern injects LECTERN_HOOK_URL (the session's hook base, ending in
 // /api/hook/session/<id>) and LECTERN_HOOK_TOKEN into every session it
@@ -61,6 +63,10 @@ func FromEnv() (Config, bool) {
 // the request for its own approval window (120s by default) and then answers
 // with no opinion, so this only guards against a server that never answers.
 const maxApprovalWait = 15 * time.Minute
+
+// maxQuestionWait caps how long a question or plan review waits for Lectern
+// to answer. After it the local host decides.
+const maxQuestionWait = 15 * time.Minute
 
 // queueSize bounds fire-and-forget posts. Ordering is kept by one worker.
 const queueSize = 512
@@ -286,6 +292,39 @@ func (b *bridge) askRemote(ctx context.Context, ap tools.Approval) answer {
 	return answer{}
 }
 
+// askQuestion posts a question or plan review as an AskUser hook event and
+// waits for Lectern's answer. The reply is
+// {"hookSpecificOutput":{"hookEventName":"AskUser","answer":"<text>"}}.
+// An empty string means no answer: Lectern is unreachable, has no opinion,
+// does not implement AskUser yet (it then answers {} and the local host
+// decides), or maxQuestionWait passed.
+func (b *bridge) askQuestion(ctx context.Context, q tools.Question) string {
+	ctx, cancel := context.WithTimeout(ctx, maxQuestionWait)
+	defer cancel()
+	kind := "question"
+	if q.Kind == "plan_review" {
+		kind = "plan_review"
+	}
+	options := q.Options
+	if options == nil {
+		options = []string{}
+	}
+	out, err := b.send(ctx, "AskUser", map[string]any{
+		"hook_event_name": "AskUser",
+		"kind":            kind,
+		"question":        clip(q.Question, 1000),
+		"options":         options,
+		"body":            clip(q.Body, 8000),
+		"allow_free_text": q.AllowFreeText,
+	}, true)
+	if err != nil {
+		return ""
+	}
+	hso, _ := out["hookSpecificOutput"].(map[string]any)
+	ans, _ := hso["answer"].(string)
+	return ans
+}
+
 // approvalHost is the host Scribe uses once attached. It races the local host
 // against Lectern.
 type approvalHost struct {
@@ -333,9 +372,48 @@ func (h *approvalHost) Approve(ctx context.Context, ap tools.Approval) tools.Dec
 	}
 }
 
-// Ask is the local host's question. Lectern does not answer questions yet.
+// Ask puts a question (ask_user) or a plan review (Kind "plan_review") to the
+// local host and to Lectern at once. The first real answer wins, the same
+// race as Approve. With no answer from Lectern, the local host decides alone.
+// A headless local host waits for Lectern first.
 func (h *approvalHost) Ask(ctx context.Context, q tools.Question) (string, error) {
-	return h.inner.Ask(ctx, q)
+	remoteCtx, cancelRemote := context.WithCancel(ctx)
+	defer cancelRemote()
+	remote := make(chan string, 1)
+	go func() { remote <- h.b.askQuestion(remoteCtx, q) }()
+
+	if !localAnswers(h.inner) {
+		if ans := <-remote; ans != "" {
+			return ans, nil
+		}
+		return h.inner.Ask(ctx, q)
+	}
+
+	type localResult struct {
+		ans string
+		err error
+	}
+	localCtx, cancelLocal := context.WithCancel(ctx)
+	defer cancelLocal()
+	local := make(chan localResult, 1)
+	go func() {
+		ans, err := h.inner.Ask(localCtx, q)
+		local <- localResult{ans, err}
+	}()
+
+	select {
+	case r := <-local:
+		cancelRemote()
+		return r.ans, r.err
+	case ans := <-remote:
+		if ans != "" {
+			cancelLocal()
+			return ans, nil
+		}
+		// Lectern had no answer: the local host decides alone.
+		r := <-local
+		return r.ans, r.err
+	}
 }
 
 // Progress is the local host's progress line.

@@ -13,8 +13,8 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
-// SubagentFactory builds a subagent for role ("explore" or "code") whose
-// events go to sink. The app wiring layer supplies it, because it knows
+// SubagentFactory builds a subagent for role ("explore", "code" or "web")
+// whose events go to sink. The app wiring layer supplies it, because it knows
 // which tools and models each role gets.
 type SubagentFactory func(role, id string, sink Sink) *Agent
 
@@ -23,6 +23,10 @@ type Dispatcher struct {
 	New           SubagentFactory
 	MaxConcurrent int // default 3, clamped to 1..8
 	Sink          Sink
+
+	// retryWait is the pause before a code task's retry. Zero means the
+	// default (2 s).
+	retryWait time.Duration
 
 	seq atomic.Int64
 }
@@ -41,14 +45,17 @@ func (dispatchTool) Spec() llm.ToolSpec {
 		Name: "dispatch",
 		Description: "Run up to 8 subagents in parallel and get their reports. Use explore agents for independent investigations " +
 			"(each answers one question), code agents for independent, fully specified edits in different files, web agents for research outside the repository. " +
-			"Each task must be self-contained: the subagent sees only the task text, not this conversation.",
+			"Each task must be self-contained: the subagent sees only the task text, not this conversation. " +
+			"A task can name an id and list depends_on ids: it starts only after those tasks finish, and their reports are added to its text.",
 		Schema: tools.Schema(map[string]any{
 			"tasks": tools.Arr("Tasks to run in parallel", map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"task":  tools.Str("Complete instructions for the subagent"),
-					"role":  tools.Enum("explore = read-only investigation of the code, code = make edits, web = research on the internet (web search and page fetch only)", "explore", "code", "web"),
-					"files": tools.Arr("Files the task is about (code tasks: files it may edit)", map[string]any{"type": "string"}),
+					"id":         tools.Str("Optional name for this task, used in other tasks' depends_on"),
+					"task":       tools.Str("Complete instructions for the subagent"),
+					"role":       tools.Enum("explore = read-only investigation of the code, code = make edits, web = research on the internet (web search and page fetch only)", "explore", "code", "web"),
+					"files":      tools.Arr("Files the task is about (code tasks: files it may edit)", map[string]any{"type": "string"}),
+					"depends_on": tools.Arr("Ids of tasks that must finish before this one starts", map[string]any{"type": "string"}),
 				},
 				"required": []string{"task", "role"},
 			}),
@@ -57,9 +64,11 @@ func (dispatchTool) Spec() llm.ToolSpec {
 }
 
 type subTask struct {
-	Task  string   `json:"task"`
-	Role  string   `json:"role"`
-	Files []string `json:"files"`
+	ID        string   `json:"id"`
+	Task      string   `json:"task"`
+	Role      string   `json:"role"`
+	Files     []string `json:"files"`
+	DependsOn []string `json:"depends_on"`
 }
 
 func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
@@ -86,6 +95,10 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 			return tools.Errorf("task %d is empty", i+1)
 		}
 	}
+	plan, err := planDispatch(in.Tasks)
+	if err != nil {
+		return tools.Errorf("dispatch: %v", err)
+	}
 	d := t.d
 	if d.New == nil {
 		return tools.Errorf("subagents are not available in this session")
@@ -96,6 +109,12 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 	}
 	if limit > 8 {
 		limit = 8
+	}
+
+	n := len(in.Tasks)
+	run := newDispatchRun(d, env)
+	for _, st := range in.Tasks {
+		run.board.add(st.Role, st.Task)
 	}
 	sem := make(chan struct{}, limit)
 	// Code tasks that touch the same file run one after another.
@@ -109,37 +128,40 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 			}
 		}
 	}
-	type outcome struct {
-		report string
-		err    error
-		usage  llm.Usage
-		dur    time.Duration
+	done := make([]chan struct{}, n)
+	for i := range done {
+		done[i] = make(chan struct{})
 	}
-	results := make([]outcome, len(in.Tasks))
-	infos := make([]*AgentInfo, len(in.Tasks))
-	var mu sync.Mutex
-	publish := func(i int, f func(*AgentInfo)) {
-		mu.Lock()
-		f(infos[i])
-		c := *infos[i]
-		mu.Unlock()
-		if d.Sink != nil {
-			d.Sink(Event{Kind: EvSubagent, At: time.Now(), Agent: &c, CallID: env.CallID})
-		}
+	results := make([]taskResult, n)
+	skip := func(i int, err error) {
+		results[i] = taskResult{err: err}
+		run.board.update(i, func(a *AgentInfo) { a.Status, a.Error = "error", err.Error() })
 	}
-	for i, st := range in.Tasks {
-		infos[i] = &AgentInfo{ID: fmt.Sprintf("a%d", d.seq.Add(1)), Task: st.Task, Role: st.Role, Status: "pending"}
-		publish(i, func(*AgentInfo) {})
-	}
+
 	var wg sync.WaitGroup
 	for i, st := range in.Tasks {
 		wg.Add(1)
 		go func(i int, st subTask) {
 			defer wg.Done()
+			defer close(done[i])
+			// Wait for dependencies before taking a slot, so a waiting task
+			// never holds one that its dependency needs.
+			for _, dep := range plan.deps[i] {
+				select {
+				case <-done[dep]:
+				case <-ctx.Done():
+					skip(i, ctx.Err())
+					return
+				}
+				if results[dep].err != nil {
+					skip(i, fmt.Errorf("dependency %s failed", plan.ids[dep]))
+					return
+				}
+			}
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				results[i].err = ctx.Err()
+				skip(i, ctx.Err())
 				return
 			}
 			defer func() { <-sem }()
@@ -149,78 +171,87 @@ func (t dispatchTool) Run(ctx context.Context, env *tools.Env, args json.RawMess
 					defer locks[f].Unlock()
 				}
 			}
-			id := infos[i].ID
-			sub := d.New(st.Role, id, func(e Event) {
-				switch e.Kind {
-				case EvStepFinish:
-					publish(i, func(a *AgentInfo) { a.Step = e.Step; a.Tokens = e.Total })
-				case EvToolRun:
-					publish(i, func(a *AgentInfo) { a.Last = e.Tool + " " + argHint(e.Args) })
-				case EvFallback:
-					publish(i, func(a *AgentInfo) { a.Model = e.Model })
-				}
-				if env.Host != nil && e.Kind == EvToolRun {
-					env.Host.Progress(env.CallID, fmt.Sprintf("[%s] %s %s", id, e.Tool, argHint(e.Args)))
-				}
-			})
-			if sub == nil {
-				results[i].err = fmt.Errorf("could not start a %s agent", st.Role)
-				return
-			}
-			publish(i, func(a *AgentInfo) { a.Status = "running"; a.Model = sub.CurrentModel().Ref })
 			task := st.Task
 			if len(st.Files) > 0 {
 				task += "\n\nRelevant files: " + strings.Join(st.Files, ", ")
 			}
-			start := time.Now()
-			stats, err := sub.Run(ctx, task, nil)
-			out := ""
-			msgs := sub.Messages()
-			for k := len(msgs) - 1; k >= 0; k-- {
-				if msgs[k].Role == llm.RoleAssistant && strings.TrimSpace(msgs[k].Text()) != "" {
-					out = msgs[k].Text()
-					break
-				}
-			}
-			results[i] = outcome{report: out, err: err, usage: stats.Tokens, dur: time.Since(start)}
-			publish(i, func(a *AgentInfo) {
-				a.Tokens = stats.Tokens
-				a.Step = stats.Steps
-				if err != nil {
-					a.Status, a.Error = "error", err.Error()
-				} else {
-					a.Status = "done"
-				}
-			})
+			task = withDependencyReports(task, plan, i, results)
+			results[i] = run.runTask(ctx, i, st.Role, task)
 		}(i, st)
 	}
 	wg.Wait()
 
-	var b strings.Builder
-	var files []string
+	// Files that code tasks changed, and the project check that follows them.
+	var changed []string
+	var reg *tools.Registry
+	for _, r := range results {
+		changed = append(changed, r.edited...)
+		if r.reg != nil {
+			reg = r.reg
+		}
+	}
+	changed = sortedUnique(changed)
+	var check verifyOutcome
+	if len(changed) > 0 {
+		check = run.verify(ctx, env, reg, changed)
+		changed = sortedUnique(append(changed, check.edited...))
+	}
+
 	ok := 0
-	for i, st := range in.Tasks {
+	for _, r := range results {
+		if r.err == nil {
+			ok++
+		}
+	}
+	var b strings.Builder
+	b.WriteString(renderTaskReports(in.Tasks, plan, results))
+	if run.failureCount() >= breakerThreshold {
+		fmt.Fprintf(&b, "## Circuit breaker\nOpened after %d provider failures; tasks that had not started were not run.\n\n", run.failureCount())
+	}
+	if len(changed) > 0 {
+		fmt.Fprintf(&b, "## Verification\n%s\n\n", check.text)
+	}
+	summary := fmt.Sprintf("%d/%d agents finished", ok, n)
+	if check.failing {
+		summary += ", check failing"
+	}
+	res := tools.Result{
+		Output:  strings.TrimSpace(b.String()),
+		Summary: summary,
+		Files:   changed,
+		IsError: ok == 0,
+		Meta:    map[string]any{"subagent_usage": run.usage(), "subagent_cost_usd": run.costUSD()},
+	}
+	if len(changed) > 0 {
+		res.Meta["verification"] = check.status
+	}
+	return res
+}
+
+// renderTaskReports writes one section per task: its report, or why it
+// failed, and any retry notes.
+func renderTaskReports(tasks []subTask, plan dispatchPlan, results []taskResult) string {
+	var b strings.Builder
+	for i, st := range tasks {
 		r := results[i]
-		fmt.Fprintf(&b, "## Agent %d (%s): %s\n", i+1, st.Role, firstLine(clip(st.Task, 120)))
+		idPart := ""
+		if given := strings.TrimSpace(st.ID); given != "" {
+			idPart = " id=" + given
+		}
+		fmt.Fprintf(&b, "## Agent %d (%s%s): %s\n", i+1, st.Role, idPart, firstLine(clip(st.Task, 120)))
+		for _, note := range r.notes {
+			fmt.Fprintf(&b, "(%s)\n", note)
+		}
 		switch {
 		case r.err != nil && r.report == "":
 			fmt.Fprintf(&b, "FAILED: %v\n\n", r.err)
 		case r.err != nil:
 			fmt.Fprintf(&b, "(stopped early: %v)\n%s\n\n", r.err, r.report)
 		default:
-			ok++
 			fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.report))
 		}
-		if st.Role == "code" {
-			files = append(files, st.Files...)
-		}
 	}
-	return tools.Result{
-		Output:  strings.TrimSpace(b.String()),
-		Summary: fmt.Sprintf("%d/%d agents finished", ok, len(in.Tasks)),
-		Files:   sortedUnique(files),
-		IsError: ok == 0,
-	}
+	return b.String()
 }
 
 func sortedUnique(s []string) []string {

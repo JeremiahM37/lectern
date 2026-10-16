@@ -5,10 +5,15 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
 )
 
 // defaultContext is the window for models the table does not know.
 const defaultContext = 128000
+
+// defaultPrice is the Sonnet-class tier (USD per million tokens) used for a
+// model id the table does not know. The result is marked Estimated.
+var defaultPrice = priceEntry{in: 3, out: 15, cacheRd: 0.3, cacheWr: 3.75}
 
 // priceEntry holds USD per million tokens and the context window. Keys are
 // matched as a prefix of the model id or of any "/"- or ":"-separated segment,
@@ -74,13 +79,15 @@ var priceTable = []priceEntry{
 }
 
 // lookupModel returns the table entry for a provider/model pair. Local
-// providers are free. A model outside the table gets zero prices and the
-// default window.
+// providers are free. A model the table does not know is priced at the
+// Sonnet-class default and marked Estimated, except ":free" and "-free"
+// variants, which are free.
 func lookupModel(provider, model string) llm.ModelInfo {
 	info := llm.ModelInfo{ID: model, Name: model, ContextWindow: defaultContext}
 	if provider == "ollama" || provider == "lmstudio" {
 		return info
 	}
+	info.ReasoningStyle = reasoningStyle(model)
 	if provider == "anthropic" || strings.HasPrefix(model, "claude-") {
 		for _, k := range anthropic.KnownModels() {
 			if k.ID == model {
@@ -89,16 +96,37 @@ func lookupModel(provider, model string) llm.ModelInfo {
 			}
 		}
 	}
-	if e, ok := matchPrice(model); ok {
-		info.InputPerMTok = e.in
-		info.OutputPerMTok = e.out
-		info.CacheReadPerMTok = e.cacheRd
-		info.CacheWritePerMTok = e.cacheWr
-		if e.ctx > 0 {
-			info.ContextWindow = e.ctx
+	e, ok := matchPrice(model)
+	if !ok {
+		if isFree(model) {
+			return info
 		}
+		e = defaultPrice
+		info.Estimated = true
+	}
+	info.InputPerMTok = e.in
+	info.OutputPerMTok = e.out
+	info.CacheReadPerMTok = e.cacheRd
+	info.CacheWritePerMTok = e.cacheWr
+	if e.ctx > 0 {
+		info.ContextWindow = e.ctx
 	}
 	return info
+}
+
+// reasoningStyle is the model's reasoning control style. The family rules
+// live with the adapters that send the controls.
+func reasoningStyle(model string) string {
+	if strings.HasPrefix(model, "claude-") {
+		return anthropic.ReasoningStyle(model)
+	}
+	return openai.ReasoningStyle(model)
+}
+
+// isFree reports the ":free" and "-free" model variants of gateways.
+func isFree(model string) bool {
+	m := strings.ToLower(model)
+	return strings.HasSuffix(m, ":free") || strings.HasSuffix(m, "-free")
 }
 
 // matchPrice finds the longest table key that starts a segment of model.

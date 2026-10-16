@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
@@ -24,19 +25,20 @@ import (
 
 func init() {
 	overrideCommands(&command{Name: "settings", Desc: "View and change settings", Group: "Settings",
-		Run: func(m *Model, _ string) tea.Cmd { m.openSettingsScreen(); return nil }})
+		Run: func(m *Model, _ string) tea.Cmd { return m.openSettingsScreen() }})
 }
 
 const (
 	stGeneral = iota
 	stProviders
 	stRouter
+	stReasoning
 	stAppearance
 	stPermissions
 	stTabCount
 )
 
-var stTabNames = []string{"General", "Providers", "Router", "Appearance", "Permissions"}
+var stTabNames = []string{"General", "Providers", "Router", "Reasoning", "Appearance", "Permissions"}
 
 // setRow is one line of a settings tab. Rows are rebuilt from the backend
 // on every draw, so they always show what is saved.
@@ -63,17 +65,34 @@ type settings struct {
 	saved    string // theme kept; Esc reverts the live preview to it
 	note     string
 	noteKind string // ok | err | info
+
+	// rsGlobal and rsProject are the raw files, for the Reasoning tab. A write
+	// is applied to the copy of its scope as well, so the tab shows it at once.
+	// styles caches each model's reasoning style by ref.
+	rsGlobal, rsProject config.Config
+	styles              map[string]modelStyle
+	loading             map[string]bool
+}
+
+// modelStyle is what the Reasoning tab needs to know about one model.
+type modelStyle struct {
+	style string // llm.ReasoningNone, ReasoningBudget, ReasoningAdaptive or ReasoningEffort
+	err   error  // the lookup failed (often: no key for the provider yet)
 }
 
 // openSettingsScreen opens the settings modal on the current tab's backend.
-func (m *Model) openSettingsScreen() {
-	s := &settings{m: m, be: m.cur().be, saved: m.themeName}
+// It returns the command that looks up the current model's reasoning style.
+func (m *Model) openSettingsScreen() tea.Cmd {
+	s := &settings{m: m, be: m.cur().be, saved: m.themeName,
+		styles: map[string]modelStyle{}, loading: map[string]bool{}}
 	for i, n := range theme.Names() {
 		if n == m.themeName {
 			s.cur[stAppearance] = i
 		}
 	}
+	s.reloadReasoning()
 	m.pushModal(s)
+	return s.ensureStyle()
 }
 
 // Title implements Modal.
@@ -103,9 +122,9 @@ func (s *settings) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		s.revertTheme()
 		return s, nil, true
 	case "tab":
-		s.switchTab(1)
+		return s, s.switchTab(1), false
 	case "shift+tab":
-		s.switchTab(-1)
+		return s, s.switchTab(-1), false
 	case "up", "k":
 		s.moveCursor(-1, len(rows))
 		s.previewTheme()
@@ -134,10 +153,14 @@ func (s *settings) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 	return s, nil, false
 }
 
-func (s *settings) switchTab(d int) {
+func (s *settings) switchTab(d int) tea.Cmd {
 	s.tab = (s.tab + d + stTabCount) % stTabCount
 	s.off = 0
 	s.previewTheme()
+	if s.tab == stReasoning {
+		return s.ensureStyle()
+	}
+	return nil
 }
 
 func (s *settings) moveCursor(d, n int) {
@@ -185,17 +208,22 @@ func (s *settings) set(key string, value any) tea.Cmd {
 		s.say("err", err.Error())
 		return nil
 	}
-	s.afterSet(key, value)
+	cmd := s.afterSet(key, value)
 	s.say("ok", fmt.Sprintf("%s saved to %s config", key, s.scope()))
-	return nil
+	return cmd
 }
 
-// afterSet applies the settings that the open tab shows straight away.
-func (s *settings) afterSet(key string, value any) {
+// afterSet applies the settings that the open tab shows straight away. It
+// returns a command when the change needs a background lookup.
+func (s *settings) afterSet(key string, value any) tea.Cmd {
 	t := s.m.cur()
+	if strings.HasPrefix(key, reasoningKeyPrefix) {
+		s.noteReasoningWrite(key, value)
+	}
 	switch key {
 	case "model":
 		s.m.syncModel()
+		return s.ensureStyle()
 	case "mode":
 		t.mode = t.be.Mode()
 	case "verbose", "show_reasoning":
@@ -211,6 +239,7 @@ func (s *settings) afterSet(key string, value any) {
 			icons.SetNerd(b)
 		}
 	}
+	return nil
 }
 
 // syncModel refreshes the open tab after the model changed.
@@ -229,6 +258,8 @@ func (s *settings) rows() []setRow {
 		return s.routerRows()
 	case stAppearance:
 		return s.appearanceRows()
+	case stReasoning:
+		return s.reasoningRows()
 	case stPermissions:
 		return s.permissionRows()
 	}
@@ -545,9 +576,10 @@ func (s *settings) View(w, h int) string {
 	out = append(out, ansi.Truncate(modalTabs(th, stTabNames, s.tab), w, ""))
 	out = append(out, s.scopeLine(th))
 	out = append(out, "")
+	cols := layoutCols(rows, w)
 	end := min(len(rows), s.off+avail)
 	for i := s.off; i < end; i++ {
-		out = append(out, s.rowLine(rows[i], i == cur, w))
+		out = append(out, s.rowLine(rows[i], i == cur, cols))
 	}
 	if len(rows) == 0 {
 		out = append(out, fg(th.TextFaint).Render("Nothing here yet."))
@@ -568,24 +600,65 @@ func (s *settings) scopeLine(th theme.Theme) string {
 		fg(th.TextFaint).Render("   g / p to switch")
 }
 
-// rowLine draws one row: marker, label, and value right-aligned.
-func (s *settings) rowLine(r setRow, sel bool, w int) string {
+// Column layout for the settings rows. Every row on a tab uses the same three
+// columns, so labels, values and hints each start at one screen column.
+const (
+	rowMark = 2 // the cursor mark, "› " or two spaces
+	colGap  = 2 // blank cells between columns
+	minHint = 4 // a hint narrower than this is not worth a column
+)
+
+// rowCols are the widths of the label, value and hint columns for one tab.
+type rowCols struct{ label, value, hint int }
+
+// layoutCols sizes the columns for rows drawn in w cells. Labels and values
+// take up to their share of the width; the hint takes what is left and is cut
+// with an ellipsis. When the hint would be too narrow it is dropped.
+func layoutCols(rows []setRow, w int) rowCols {
+	var maxL, maxV int
+	for _, r := range rows {
+		maxL = max(maxL, ansi.StringWidth(r.label))
+		maxV = max(maxV, ansi.StringWidth(r.value))
+	}
+	avail := max(0, w-rowMark)
+	c := rowCols{label: min(maxL, avail*32/100), value: min(maxV, avail*36/100)}
+	for c.label+c.value+2*colGap > avail && c.value > 0 {
+		c.value--
+	}
+	for c.label+c.value+2*colGap > avail && c.label > 0 {
+		c.label--
+	}
+	c.hint = avail - c.label - c.value - 2*colGap
+	if c.hint < minHint {
+		c.hint = 0
+	}
+	return c
+}
+
+// rowLine draws one row: marker, label, value and dim hint, each in its column.
+func (s *settings) rowLine(r setRow, sel bool, c rowCols) string {
 	th := s.m.th
 	mark := "  "
 	if sel {
 		mark = fg(th.Brand).Render("› ")
 	}
-	var label string
+	label := ansi.Truncate(r.label, c.label, "…")
+	var labelStyled string
 	switch {
 	case r.header:
-		label = lipgloss.NewStyle().Bold(true).Foreground(th.TextMuted).Render(r.label)
+		labelStyled = lipgloss.NewStyle().Bold(true).Foreground(th.TextMuted).Render(label)
 	case sel:
-		label = fgb(th.TextPrimary).Render(r.label)
+		labelStyled = fgb(th.TextPrimary).Render(label)
 	default:
-		label = fg(th.TextSecondary).Render(r.label)
+		labelStyled = fg(th.TextSecondary).Render(label)
 	}
-	val := ""
-	if r.value != "" {
+	var b strings.Builder
+	b.WriteString(mark)
+	b.WriteString(labelStyled)
+	b.WriteString(strings.Repeat(" ", c.label-ansi.StringWidth(label)+colGap))
+
+	if c.value > 0 {
+		value := ansi.Truncate(r.value, c.value, "…")
 		color := th.TextPrimary
 		switch {
 		case strings.HasPrefix(r.value, "✗"):
@@ -593,12 +666,16 @@ func (s *settings) rowLine(r setRow, sel bool, w int) string {
 		case strings.HasPrefix(r.value, "✓"):
 			color = th.Success
 		}
-		val = fg(color).Render(r.value)
+		if value != "" {
+			b.WriteString(fg(color).Render(value))
+		}
+		b.WriteString(strings.Repeat(" ", c.value-ansi.StringWidth(value)))
 	}
-	if r.note != "" {
-		val += fg(th.TextFaint).Render("  " + r.note)
+	if c.hint > 0 && r.note != "" {
+		b.WriteString(strings.Repeat(" ", colGap))
+		b.WriteString(fg(th.TextFaint).Render(ansi.Truncate(r.note, c.hint, "…")))
 	}
-	return spaceBetween(mark+label, val, w)
+	return b.String()
 }
 
 // noteLine is the last line: the last result, or a scroll position.
@@ -618,6 +695,149 @@ func (s *settings) noteLine(w, n, avail int) string {
 		return fitWidth(fg(th.TextFaint).Render(fmt.Sprintf("%d–%d of %d", s.off+1, min(n, s.off+avail), n)), w)
 	}
 	return fitWidth("", w)
+}
+
+// ---------------------------------------------------------------- Reasoning
+
+// reasoningKeyPrefix starts the SetConfig keys of the per-provider reasoning
+// controls: reasoning_by_provider.<provider>.<effort|budget|service_tier>.
+const reasoningKeyPrefix = "reasoning_by_provider."
+
+var (
+	// budgetOptions are token budgets; 0 is the provider default.
+	budgetOptions = []int{0, 1024, 2048, 5000, 8000, 10000, 20000}
+	// effortOptions are the effort levels for "effort"-style models.
+	effortOptions = []string{"", "low", "medium", "high"}
+	// adaptiveEffortOptions adds the levels that adaptive thinking takes.
+	adaptiveEffortOptions = []string{"", "low", "medium", "high", "xhigh", "max"}
+	// serviceTiers lists the service tiers each provider accepts. A provider
+	// not listed has no tier control.
+	serviceTiers = map[string][]string{
+		"anthropic": {"", "auto", "standard_only"},
+		"openai":    {"", "auto", "default", "flex", "priority"},
+	}
+)
+
+// reloadReasoning reads the global and project files for the Reasoning tab.
+func (s *settings) reloadReasoning() {
+	s.rsGlobal, _ = config.LoadFile(config.GlobalPath())
+	if root := s.be.Workdir(); root != "" {
+		s.rsProject, _ = config.LoadFile(config.ProjectPath(root))
+	}
+}
+
+// noteReasoningWrite records a saved reasoning write in the copy of its scope.
+func (s *settings) noteReasoningWrite(key string, value any) {
+	c := &s.rsGlobal
+	if s.project {
+		c = &s.rsProject
+	}
+	c.SetReasoningField(key, value)
+}
+
+// reasoningEffective is the saved reasoning config: project over global.
+func (s *settings) reasoningEffective() map[string]config.Reasoning {
+	return config.Merge(s.rsGlobal, s.rsProject).ReasoningByProvider
+}
+
+// ensureStyle starts the lookup of the current model's reasoning style, unless
+// it is already known or on its way. The result is delivered to this modal.
+func (s *settings) ensureStyle() tea.Cmd {
+	ref := s.be.Model()
+	if ref == "" || s.loading[ref] {
+		return nil
+	}
+	if _, ok := s.styles[ref]; ok {
+		return nil
+	}
+	s.loading[ref] = true
+	provider, id := llm.SplitModelRef(ref)
+	be := s.be
+	return asyncModal(s, func() func() (tea.Cmd, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		ms, err := be.Models(ctx, provider)
+		var st modelStyle
+		if err != nil {
+			st.err = err
+		}
+		for _, mi := range ms {
+			if mi.ID == id {
+				st.style = mi.ReasoningStyle
+			}
+		}
+		return func() (tea.Cmd, bool) {
+			delete(s.loading, ref)
+			s.styles[ref] = st
+			return nil, false
+		}
+	})
+}
+
+// reasoningRows shows the controls the current model's reasoning style takes,
+// for the current model's provider. Effort is for "effort" and "adaptive"
+// models, the budget for "budget" models. The service tier is shown for every
+// provider that has one.
+func (s *settings) reasoningRows() []setRow {
+	ref := s.be.Model()
+	if ref == "" {
+		return []setRow{{label: "No model selected", note: "pick one on the General tab"}}
+	}
+	provider, _ := llm.SplitModelRef(ref)
+	rows := []setRow{{label: "Model", value: ref, note: "change it on the General tab"}}
+	st, known := s.styles[ref]
+	switch {
+	case !known:
+		return append(rows, setRow{label: "Reading the model's reasoning controls…"})
+	case st.err != nil:
+		return append(rows, setRow{label: "Model details unavailable", value: "", note: st.err.Error()})
+	}
+	rs := s.reasoningEffective()[provider]
+	key := reasoningKeyPrefix + provider + "."
+	switch st.style {
+	case llm.ReasoningEffort:
+		rows = append(rows, s.cycleRow("Effort", key+"effort", rs.Effort, effortOptions, provider))
+	case llm.ReasoningAdaptive:
+		rows = append(rows, s.cycleRow("Effort", key+"effort", rs.Effort, adaptiveEffortOptions, provider))
+	case llm.ReasoningBudget:
+		rows = append(rows, s.budgetRow(key+"budget", rs.Budget, provider))
+	default:
+		rows = append(rows, setRow{label: "No reasoning controls for this model", note: "the global Reasoning setting still applies"})
+	}
+	if tiers, ok := serviceTiers[provider]; ok {
+		rows = append(rows, s.cycleRow("Service tier", key+"service_tier", rs.ServiceTier, tiers, provider))
+	}
+	return rows
+}
+
+// cycleRow is a Reasoning-tab row that steps through opts on Enter. The empty
+// option means the provider default and is stored as "".
+func (s *settings) cycleRow(label, key, cur string, opts []string, note string) setRow {
+	shown := cur
+	if shown == "" {
+		shown = "default"
+	}
+	return setRow{label: label, value: shown, note: note, act: func() tea.Cmd {
+		next := opts[(listIndex(opts, cur)+1+len(opts))%len(opts)]
+		return s.set(key, next)
+	}}
+}
+
+// budgetRow steps the thinking budget through budgetOptions.
+func (s *settings) budgetRow(key string, cur int, note string) setRow {
+	shown := "default"
+	if cur > 0 {
+		shown = strconv.Itoa(cur)
+	}
+	return setRow{label: "Budget", value: shown, note: note, act: func() tea.Cmd {
+		idx := 0
+		for i, v := range budgetOptions {
+			if v == cur {
+				idx = i
+			}
+		}
+		return s.set(key, budgetOptions[(idx+1)%len(budgetOptions)])
+	}}
 }
 
 // ---------------------------------------------------------------- model chooser

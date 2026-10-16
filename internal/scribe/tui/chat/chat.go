@@ -53,6 +53,15 @@ type View struct {
 	recStart  []int
 	lines     []string
 	hits      map[int]hitTarget
+
+	// Checkpoint rail (rail.go). railAt is the absolute line of each marker's
+	// user turn, -1 when the turn is not in the transcript.
+	cps        []Checkpoint
+	railAt     []int
+	railUser   int // user turns in the transcript
+	railViewed int // checkpoint being browsed, -1 = live
+	railSel    int // rail cursor
+	railFocus  bool
 }
 
 type hitTarget struct {
@@ -74,12 +83,13 @@ func New(o Options) *View {
 		o.Now = time.Now
 	}
 	return &View{
-		opt:    o,
-		th:     o.Theme,
-		sticky: true,
-		calls:  map[string]*Call{},
-		agents: map[string]*agent.AgentInfo{},
-		hits:   map[int]hitTarget{},
+		opt:        o,
+		th:         o.Theme,
+		sticky:     true,
+		calls:      map[string]*Call{},
+		agents:     map[string]*agent.AgentInfo{},
+		hits:       map[int]hitTarget{},
+		railViewed: -1,
 	}
 }
 
@@ -432,6 +442,7 @@ func (v *View) Clear() {
 	v.top = 0
 	v.sticky = true
 	v.detachAt = 0
+	v.railFocus = false
 	v.gen++
 }
 

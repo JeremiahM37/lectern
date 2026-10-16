@@ -183,14 +183,25 @@ func TestGitStashAndBranch(t *testing.T) {
 func TestGitReadOnlyClassification(t *testing.T) {
 	tool := &gitTool{}
 	cases := map[string]bool{
-		`{"action":"status"}`:                       true,
-		`{"action":"log"}`:                          true,
-		`{"action":"diff","staged":true}`:           true,
-		`{"action":"branch"}`:                       true,
-		`{"action":"branch","sub_action":"create"}`: false,
-		`{"action":"commit","message":"x"}`:         false,
-		`{"action":"add","files":["a"]}`:            false,
-		`{"action":"stash","sub_action":"list"}`:    false,
+		`{"action":"status"}`:                                true,
+		`{"action":"log"}`:                                   true,
+		`{"action":"diff","staged":true}`:                    true,
+		`{"action":"branch"}`:                                true,
+		`{"action":"branch","sub_action":"create"}`:          false,
+		`{"action":"commit","message":"x"}`:                  false,
+		`{"action":"add","files":["a"]}`:                     false,
+		`{"action":"stash","sub_action":"list"}`:             false,
+		`{"action":"tag"}`:                                   true,
+		`{"action":"tag","sub_action":"list"}`:               true,
+		`{"action":"tag","sub_action":"create","name":"v1"}`: false,
+		`{"action":"push"}`:                                  false,
+		`{"action":"pull"}`:                                  false,
+		`{"action":"reset","mode":"soft"}`:                   false,
+		`{"action":"reset","mode":"hard"}`:                   false,
+		`{"action":"restore","files":["a"]}`:                 false,
+		`{"action":"unstage","files":["a"]}`:                 false,
+		`{"action":"cherry_pick","ref":"abc"}`:               false,
+		`{"action":"rebase","ref":"main"}`:                   false,
 	}
 	for raw, want := range cases {
 		if got := tool.ReadOnlyCall(json.RawMessage(raw)); got != want {
@@ -204,9 +215,9 @@ func TestGitReadOnlyClassification(t *testing.T) {
 
 func TestGitToolRejectsUnknownAction(t *testing.T) {
 	r, _ := newTestRegistry(t, Options{})
-	res := runTool(t, r, "git", newTestEnv(t.TempDir(), nil), map[string]any{"action": "push"})
+	res := runTool(t, r, "git", newTestEnv(t.TempDir(), nil), map[string]any{"action": "frobnicate"})
 	if !res.IsError || !strings.Contains(res.Output, "unknown git action") {
-		t.Fatalf("push is not an accepted action: %+v", res)
+		t.Fatalf("frobnicate is not an accepted action: %+v", res)
 	}
 }
 

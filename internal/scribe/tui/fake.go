@@ -56,6 +56,11 @@ type FakeBackend struct {
 	sessions    []SessionInfo
 	checkpoints []CheckpointInfo
 	files       []string
+
+	// mcp and skill state for the server and skill editors (fake_servers.go).
+	mcpSpecs     []MCPServerSpec
+	activeSkills []string
+	installed    []string
 }
 
 var _ Backend = (*FakeBackend)(nil)

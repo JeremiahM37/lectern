@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,10 +10,16 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/theme"
 )
+
+// imageOnlyPrompt is sent when an image is submitted with no text. The API
+// rejects an empty text block, so the turn needs some words to go with it.
+const imageOnlyPrompt = "Look at the attached image."
 
 // Input limits from the spec.
 const (
@@ -38,6 +45,16 @@ type inputState struct {
 	// dismissed hides the popup until the text changes again (Esc).
 	dismissed string
 	popupOn   bool
+	// images are attached to the next message; each shows as an [image N] chip.
+	images []inputImage
+	imageN int // last chip label handed out; back to 0 when the chips are gone
+	clip   clipboardReader
+}
+
+// inputImage is one attached image.
+type inputImage struct {
+	n    int
+	part llm.Part
 }
 
 // histSearch is the Ctrl+R overlay.
@@ -56,7 +73,79 @@ func newInputState() *inputState {
 	ta.SetHeight(1)
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.Focus()
-	return &inputState{ta: ta, hidx: -1, pastes: map[int]string{}}
+	return &inputState{ta: ta, hidx: -1, pastes: map[int]string{}, clip: systemClipboardImage}
+}
+
+// ---------------------------------------------------------------- images
+
+// hasImages reports whether any image is attached.
+func (s *inputState) hasImages() bool { return len(s.images) > 0 }
+
+// attach adds an image as the next chip and returns its label number.
+func (s *inputState) attach(data []byte, mediaType string) int {
+	s.imageN++
+	part := llm.Part{Type: llm.PartImage, MediaType: mediaType, Data: data}
+	s.images = append(s.images, inputImage{n: s.imageN, part: part})
+	return s.imageN
+}
+
+// popImage removes the last chip. It reports false when there is none.
+func (s *inputState) popImage() bool {
+	n := len(s.images)
+	if n == 0 {
+		return false
+	}
+	s.images = s.images[:n-1]
+	if n == 1 {
+		s.imageN = 0
+	}
+	return true
+}
+
+// takeImages hands the attached images to a turn and clears the chips.
+func (s *inputState) takeImages() []llm.Part {
+	var parts []llm.Part
+	for _, im := range s.images {
+		parts = append(parts, im.part)
+	}
+	s.images = nil
+	s.imageN = 0
+	return parts
+}
+
+// chips is the chip row shown in the box's top border, e.g. "[image 1] [image 2]".
+func (s *inputState) chips() string {
+	out := make([]string, 0, len(s.images))
+	for _, im := range s.images {
+		out = append(out, fmt.Sprintf("[image %d]", im.n))
+	}
+	return strings.Join(out, " ")
+}
+
+// pasteImage attaches the image on the clipboard, or says why it cannot.
+func (m *Model) pasteImage(t *tab) {
+	data, mt, err := t.in.clip()
+	if err != nil {
+		kind := "err"
+		if errors.Is(err, errNoClipboardImage) || errors.Is(err, errNoClipboardTool) {
+			kind = "info"
+		}
+		m.setFlash(kind, err.Error())
+		return
+	}
+	n := t.in.attach(data, mt)
+	m.setFlash("ok", fmt.Sprintf("Attached image %d from the clipboard", n))
+}
+
+// attachImageFile attaches an image named by a pasted file path.
+func (m *Model) attachImageFile(t *tab, path string) {
+	data, mt, err := loadImageFile(path)
+	if err != nil {
+		m.setFlash("err", "Can't attach "+path+": "+err.Error())
+		return
+	}
+	n := t.in.attach(data, mt)
+	m.setFlash("ok", fmt.Sprintf("Attached image %d", n))
 }
 
 func (s *inputState) value() string { return s.ta.Value() }
@@ -147,17 +236,18 @@ func (s *inputState) popupLines(m *Model, w int) []string {
 		if s.acSel >= maxRows {
 			start = s.acSel - maxRows + 1
 		}
-		for i := start; i < len(cmds) && i < start+maxRows; i++ {
-			c := cmds[i]
-			mark := fg(th.TextDim).Render("  ")
-			name := fg(th.BorderSlash).Render("/" + c.Name)
-			desc := fg(th.TextDim).Render(c.Desc)
-			if i == s.acSel {
-				mark = fgb(th.BorderSlash).Render("› ")
-				name = fgb(th.Info).Render("/" + c.Name)
-				desc = fg(th.TextSecondary).Render(c.Desc)
-			}
-			rows = append(rows, render.Truncate(mark+name+"  "+desc, w-6))
+		end := min(len(cmds), start+maxRows)
+		// Names are padded to the widest visible one, so every description
+		// starts in the same column.
+		nameW := 0
+		for _, c := range cmds[start:end] {
+			nameW = max(nameW, ansi.StringWidth("/"+c.Name))
+		}
+		// popupBox adds one column of gutter and the frame takes two more, so
+		// this is the full inner width.
+		rowW := w - 3
+		for i := start; i < end; i++ {
+			rows = append(rows, s.slashRow(th, cmds[i], i == s.acSel, nameW, rowW))
 		}
 		if len(cmds) > maxRows {
 			rows = append(rows, fg(th.TextDim).Render(itoa(s.acSel+1)+"/"+itoa(len(cmds))))
@@ -182,6 +272,34 @@ func (s *inputState) popupLines(m *Model, w int) []string {
 		footer = "↑↓ select · Tab/Enter insert · Esc dismiss"
 	}
 	return popupBox(rows, w, th.BorderSlash, footer, th)
+}
+
+// slashRow draws one autocomplete row: marker, the name padded to nameW, then
+// the description cut with an ellipsis to fit rowW. The selected row paints
+// its highlight background across the whole of rowW.
+func (s *inputState) slashRow(th theme.Theme, c *command, sel bool, nameW, rowW int) string {
+	bg := lipgloss.NewStyle()
+	mark := "  "
+	nameCol := fg(th.BorderSlash)
+	descCol := fg(th.TextDim)
+	if sel {
+		bg = lipgloss.NewStyle().Background(th.BgPopupHighlight)
+		mark = bg.Foreground(th.BorderSlash).Bold(true).Render("› ")
+		nameCol = bg.Foreground(th.Info).Bold(true)
+		descCol = bg.Foreground(th.TextSecondary)
+	}
+	name := "/" + c.Name
+	var b strings.Builder
+	b.WriteString(mark)
+	b.WriteString(nameCol.Render(name))
+	b.WriteString(bg.Render(strings.Repeat(" ", nameW-ansi.StringWidth(name)+2)))
+	if descW := rowW - (2 + nameW + 2); descW > 0 && c.Desc != "" {
+		b.WriteString(descCol.Render(render.Truncate(c.Desc, descW)))
+	}
+	if used := ansi.StringWidth(b.String()); sel && used < rowW {
+		b.WriteString(bg.Render(strings.Repeat(" ", rowW-used)))
+	}
+	return b.String()
 }
 
 // popupBox frames popup rows above the input.
@@ -371,6 +489,14 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 	case "ctrl+r":
 		s.openSearch()
 		return nil
+	case "ctrl+v", "alt+v":
+		m.pasteImage(t)
+		return nil
+	case "backspace":
+		// on an empty input, Backspace takes off the last image chip first
+		if s.empty() && s.popImage() {
+			return nil
+		}
 	case "?":
 		if s.empty() {
 			m.openHelp()
@@ -400,6 +526,10 @@ func (m *Model) handleInputKey(km tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	if km.Paste {
+		if path, ok := imagePathFromPaste(string(km.Runes)); ok {
+			m.attachImageFile(t, path)
+			return nil
+		}
 		text := s.collapsePaste(string(km.Runes))
 		s.ta.InsertString(text)
 		s.hidx = -1
@@ -480,7 +610,14 @@ func (m *Model) submit(raw string) tea.Cmd {
 	t := m.cur()
 	s := t.in
 	if strings.TrimSpace(raw) == "" {
-		return nil
+		// an image on its own is a message; it waits for the turn to end
+		if !s.hasImages() {
+			return nil
+		}
+		if t.busy {
+			m.setFlash("info", "Type a message to send the image with it")
+			return nil
+		}
 	}
 	text := strings.TrimSpace(s.expand(raw))
 	s.pushHistory(raw)
@@ -501,21 +638,32 @@ func (m *Model) submit(raw string) tea.Cmd {
 		}
 		if t.be.Steer(text) {
 			t.steerQ = append(t.steerQ, text)
+			if s.hasImages() {
+				m.setFlash("info", "Attached images go with your next message, after this turn")
+			}
 			return nil
 		}
 		// the turn ended while we were typing: send it as a new turn
 	}
-	return m.startTurn(t, text)
+	if text == "" {
+		text = imageOnlyPrompt
+	}
+	return m.startTurnWith(t, text, s.takeImages())
 }
 
 // startTurn sends a prompt as a new turn.
 func (m *Model) startTurn(t *tab, text string) tea.Cmd {
+	return m.startTurnWith(t, text, nil)
+}
+
+// startTurnWith sends a prompt and its images as a new turn.
+func (m *Model) startTurnWith(t *tab, text string, images []llm.Part) tea.Cmd {
 	now := time.Now()
 	m.enterChat()
-	t.chat.AddUser(text, 0, now, false)
+	t.chat.AddUser(text, len(images), now, false)
 	t.busy = true
 	t.since = now
-	t.be.Submit(text, nil)
+	t.be.Submit(text, images)
 	return nil
 }
 
@@ -561,6 +709,8 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 	var body []string
 	border := th.Border
 	footer := ""
+	// chips sit in the top border, so the box keeps its height
+	title := ""
 	switch {
 	case s.search != nil:
 		border = th.Warning
@@ -582,8 +732,9 @@ func (m *Model) boxLines(t *tab, w int, modeCol lipgloss.TerminalColor) []string
 		if strings.Contains(s.value(), "\n") {
 			footer = "Shift+⏎ newline · ^U del line"
 		}
+		title = s.chips()
 	}
-	return frame("", "", body, footer, w, border, th)
+	return frame(title, "", body, footer, w, border, th)
 }
 
 // shellCtx is the context for "!command" runs.

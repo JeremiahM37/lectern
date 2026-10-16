@@ -107,6 +107,11 @@ type Env struct {
 	// Mode is the agent mode ("default", "plan", "auto", ...). Tools that
 	// self-approve in auto mode read it.
 	Mode string
+	// Scope identifies the conversation context the call belongs to: one
+	// agent's history, renewed whenever that history is compacted, reset or
+	// replaced. Tools that remember what the model has already seen (the read
+	// tool's "unchanged" notices) key that memory by Scope.
+	Scope string
 }
 
 // Service returns Services[key] as T.
@@ -165,6 +170,25 @@ func (r *Registry) Register(t Tool) {
 		r.order = append(r.order, name)
 	}
 	r.tools[name] = t
+}
+
+// Unregister removes the tool called name. It reports whether one was
+// registered. Specs and Names no longer include it, so the next model
+// request does not offer it.
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.tools[name]; !ok {
+		return false
+	}
+	delete(r.tools, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+	return true
 }
 
 // Get returns the tool named name.

@@ -18,6 +18,12 @@ type editSpec struct {
 	Old        string
 	New        string
 	ReplaceAll bool
+	// LineStart and LineEnd (1-based, inclusive; 0 = not given) restrict the
+	// match to that line range of the content as it is when this edit runs.
+	LineStart, LineEnd int
+	// IfHash, when set, must be the short hash of the exact text the edit
+	// replaces. See shortHash and the read tool's lines/symbol footer.
+	IfHash string
 }
 
 // NewWriteFile returns write_file, which creates or overwrites a file.
@@ -91,13 +97,19 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 	return &tool{
 		spec: newSpec("edit_file",
 			"Replace old_string with new_string in a file. The file must be read first. old_string must match exactly once "+
-				"unless replace_all is true; add surrounding lines to make it unique. If old_string is empty and the file does not exist, "+
-				"the file is created with new_string as its content.",
+				"unless replace_all is true; add surrounding lines to make it unique, or give lineStart (and lineEnd) from the read output "+
+				"to pick one of several matches: old_string is then only matched inside that line range. Matching ignores indentation "+
+				"differences and re-indents new_string to fit. ifHash is optional: pass the hash a lines= or symbol= read printed for the exact "+
+				"text you are replacing, and the edit is refused if that text has changed since. If old_string is empty and the file does not "+
+				"exist, the file is created with new_string as its content.",
 			tools.Schema(map[string]any{
 				"path":        tools.Str("File to edit, relative to the project root."),
 				"old_string":  tools.Str("Exact text to replace, copied from the file including indentation."),
 				"new_string":  tools.Str("Replacement text."),
 				"replace_all": tools.Bool("Replace every occurrence instead of requiring a unique match. Default false."),
+				"lineStart":   tools.Int("First line of the range to match in, 1-based, from the read output. Optional."),
+				"lineEnd":     tools.Int("Last line of the range, inclusive. Default: lineStart plus the lines in old_string, minus one."),
+				"ifHash":      tools.Str("Optional short hash (12 hex digits) of the exact text being replaced, as printed by a lines= or symbol= read. Refused on mismatch."),
 			}, "path", "old_string", "new_string")),
 		run: func(ctx context.Context, env *tools.Env, args json.RawMessage) tools.Result {
 			var a struct {
@@ -105,6 +117,9 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 				OldString  string   `json:"old_string"`
 				NewString  string   `json:"new_string"`
 				ReplaceAll flexBool `json:"replace_all"`
+				LineStart  flexInt  `json:"lineStart"`
+				LineEnd    flexInt  `json:"lineEnd"`
+				IfHash     string   `json:"ifHash"`
 			}
 			if err := tools.Decode(args, &a); err != nil {
 				return fail(err)
@@ -123,7 +138,10 @@ func NewEditFile(undo *UndoStack) tools.Tool {
 				}
 				return res
 			}
-			return editExisting(env, undo, t, []editSpec{{Old: a.OldString, New: a.NewString, ReplaceAll: bool(a.ReplaceAll)}}, false)
+			return editExisting(env, undo, t, []editSpec{{
+				Old: a.OldString, New: a.NewString, ReplaceAll: bool(a.ReplaceAll),
+				LineStart: int(a.LineStart), LineEnd: int(a.LineEnd), IfHash: strings.TrimSpace(a.IfHash),
+			}}, false)
 		},
 	}
 }
@@ -137,6 +155,8 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 	return &tool{
 		spec: newSpec("multi_edit",
 			"Apply several replacements to one file in order. Each old_string is matched against the result of the previous edits. "+
+				"Each edit takes the same options as edit_file: lineStart/lineEnd restrict its match to that range of the file as it is at that point "+
+				"in the batch (an earlier edit that adds or removes lines moves later line numbers), and ifHash must match the text it replaces. "+
 				"Atomic: if any edit fails, nothing is written. The file must be read first.",
 			tools.Schema(map[string]any{
 				"path": tools.Str("File to edit, relative to the project root."),
@@ -146,6 +166,9 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 						"old_string":  tools.Str("Exact text to replace."),
 						"new_string":  tools.Str("Replacement text."),
 						"replace_all": tools.Bool("Replace every occurrence. Default false."),
+						"lineStart":   tools.Int("First line of the range to match in, 1-based. Optional."),
+						"lineEnd":     tools.Int("Last line of the range, inclusive. Optional."),
+						"ifHash":      tools.Str("Optional short hash of the exact text being replaced, as printed by a lines= or symbol= read."),
 					},
 					"required": []string{"old_string", "new_string"},
 				}),
@@ -162,6 +185,9 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 				OldString  string   `json:"old_string"`
 				NewString  string   `json:"new_string"`
 				ReplaceAll flexBool `json:"replace_all"`
+				LineStart  flexInt  `json:"lineStart"`
+				LineEnd    flexInt  `json:"lineEnd"`
+				IfHash     string   `json:"ifHash"`
 			}
 			if err := decodeList(a.Edits, &list); err != nil {
 				return fail(err)
@@ -175,7 +201,10 @@ func NewMultiEdit(undo *UndoStack) tools.Tool {
 			}
 			specs := make([]editSpec, len(list))
 			for i, e := range list {
-				specs[i] = editSpec{Old: e.OldString, New: e.NewString, ReplaceAll: bool(e.ReplaceAll)}
+				specs[i] = editSpec{
+					Old: e.OldString, New: e.NewString, ReplaceAll: bool(e.ReplaceAll),
+					LineStart: int(e.LineStart), LineEnd: int(e.LineEnd), IfHash: strings.TrimSpace(e.IfHash),
+				}
 			}
 			return editExisting(env, undo, t, specs, true)
 		},
@@ -298,21 +327,60 @@ func applyOne(content string, e editSpec) (string, string, error) {
 		return "", "", errors.New("old_string and new_string are identical, so there is nothing to change")
 	}
 
+	lo, hi, ranged, err := e.window(content, old)
+	if err != nil {
+		return "", "", err
+	}
+	inWindow := func(first, last int) bool { return !ranged || (first >= lo && last <= hi) }
+	var outside []int // matches found outside the window, for the error
+
 	if idx := allIndexes(content, old); len(idx) > 0 {
-		lines := lineNumbers(content, idx)
-		if len(idx) > 1 && !e.ReplaceAll {
-			return "", "", ambiguous(len(idx), lines)
+		var keep, keepLines []int
+		for _, off := range idx {
+			first, last := lineAt(content, off), lineAt(content, off+len(old)-1)
+			if inWindow(first, last) {
+				keep = append(keep, off)
+				keepLines = append(keepLines, first)
+			} else {
+				outside = append(outside, first)
+			}
 		}
-		if e.ReplaceAll {
-			return strings.ReplaceAll(content, old, nw),
-				fmt.Sprintf("%d replacements (lines %s)", len(idx), joinInts(lines, 10)), nil
+		if len(keep) > 0 {
+			if e.IfHash != "" && shortHash(old) != e.IfHash {
+				return "", "", ifHashMismatch(keepLines[0], keepLines[len(keepLines)-1])
+			}
+			if len(keep) > 1 && !e.ReplaceAll {
+				return "", "", ambiguous(len(keep), keepLines)
+			}
+			var sb strings.Builder
+			prev := 0
+			for _, off := range keep {
+				sb.WriteString(content[prev:off])
+				sb.WriteString(nw)
+				prev = off + len(old)
+			}
+			sb.WriteString(content[prev:])
+			if e.ReplaceAll || len(keep) > 1 {
+				return sb.String(), fmt.Sprintf("%d replacements (lines %s)", len(keep), joinInts(keepLines, 10)), nil
+			}
+			return sb.String(), fmt.Sprintf("1 replacement at line %d", keepLines[0]), nil
 		}
-		return content[:idx[0]] + nw + content[idx[0]+len(old):],
-			fmt.Sprintf("1 replacement at line %d", lines[0]), nil
 	}
 
 	spans := fuzzySpans(content, old)
+	var inSpans []fuzzySpan
+	for _, s := range spans {
+		if inWindow(s.line, s.line+s.n-1) {
+			inSpans = append(inSpans, s)
+		} else {
+			outside = append(outside, s.line)
+		}
+	}
+	spans = inSpans
 	if len(spans) == 0 {
+		if ranged && len(outside) > 0 {
+			return "", "", outsideWindow(outside, lo, hi)
+		}
 		return "", "", notFound(content, old)
 	}
 	if len(spans) > 1 && !e.ReplaceAll {
@@ -321,6 +389,13 @@ func applyOne(content string, e editSpec) (string, string, error) {
 			lines[i] = s.line
 		}
 		return "", "", ambiguous(len(spans), lines)
+	}
+	if e.IfHash != "" {
+		for _, s := range spans {
+			if shortHash(content[s.start:s.end]) != e.IfHash {
+				return "", "", ifHashMismatch(s.line, s.line+s.n-1)
+			}
+		}
 	}
 	newBody := strings.TrimSuffix(nw, "\n")
 	var sb strings.Builder
@@ -390,7 +465,61 @@ func notFound(content, old string) error {
 type fuzzySpan struct {
 	start, end int    // byte offsets into content, end excludes the newline
 	line       int    // 1-based first line
+	n          int    // number of lines matched
 	ci, oi     string // leading whitespace of the matched first non-blank line and of old's
+}
+
+// window returns the line range a match must lie inside, from lineStart and
+// lineEnd. ranged is false when neither was given. A missing lineEnd defaults
+// to the lines old spans, starting at lineStart. The range is clipped to the
+// file.
+func (e editSpec) window(content, old string) (lo, hi int, ranged bool, err error) {
+	if e.LineStart == 0 && e.LineEnd == 0 {
+		return 0, 0, false, nil
+	}
+	if e.LineStart < 0 || e.LineEnd < 0 {
+		return 0, 0, true, errors.New("lineStart and lineEnd count lines from 1.")
+	}
+	total := countLines(content)
+	lo = e.LineStart
+	if lo == 0 {
+		lo = 1
+	}
+	hi = e.LineEnd
+	if hi == 0 {
+		hi = lo + countLines(old) - 1
+	}
+	if lo > total {
+		return 0, 0, true, fmt.Errorf("Invalid line range: lineStart %d (file has %d lines).", lo, total)
+	}
+	if hi < lo {
+		return 0, 0, true, fmt.Errorf("lineEnd %d is before lineStart %d.", hi, lo)
+	}
+	if hi > total {
+		hi = total
+	}
+	return lo, hi, true, nil
+}
+
+// lineAt is the 1-based line that byte offset off falls on.
+func lineAt(s string, off int) int { return strings.Count(s[:off], "\n") + 1 }
+
+func outsideWindow(lines []int, lo, hi int) error {
+	var uniq []int
+	seen := map[int]bool{}
+	for _, l := range lines {
+		if !seen[l] {
+			seen[l] = true
+			uniq = append(uniq, l)
+		}
+	}
+	return fmt.Errorf("old_string matches at line(s) %s, outside lines %d-%d (lineStart/lineEnd). Fix the range from the read output, or leave lineStart and lineEnd out.",
+		joinInts(uniq, 10), lo, hi)
+}
+
+func ifHashMismatch(first, last int) error {
+	return fmt.Errorf("ifHash does not match the text at lines %d-%d: the file changed since you read it. Re-read lines %d-%d and retry the edit with fresh content.",
+		first, last, first, last)
 }
 
 // fuzzySpans finds whole-line matches of old that agree after trimming each
@@ -433,6 +562,7 @@ func fuzzySpans(content, old string) []fuzzySpan {
 			start: starts[i],
 			end:   starts[last] + len(lines[last]),
 			line:  i + 1,
+			n:     len(want),
 			ci:    leadingSpace(lines[i+first]),
 			oi:    leadingSpace(oldLines[first]),
 		})
@@ -474,15 +604,6 @@ func allIndexes(s, sub string) []int {
 		out = append(out, i+j)
 		i += j + len(sub)
 	}
-}
-
-// lineNumbers converts byte offsets into 1-based line numbers.
-func lineNumbers(s string, offsets []int) []int {
-	out := make([]int, len(offsets))
-	for i, off := range offsets {
-		out[i] = strings.Count(s[:off], "\n") + 1
-	}
-	return out
 }
 
 func joinInts(v []int, max int) string {

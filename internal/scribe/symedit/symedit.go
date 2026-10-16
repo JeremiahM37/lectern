@@ -22,8 +22,12 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools/fs"
 )
 
-// Register adds ast_edit to r.
-func Register(r *tools.Registry) { r.Register(&astEdit{}) }
+// Register adds ast_edit, move_symbol and rename_file to r.
+func Register(r *tools.Registry) {
+	r.Register(&astEdit{})
+	r.Register(&moveSymbolTool{})
+	r.Register(&renameFileTool{})
+}
 
 const toolName = "ast_edit"
 

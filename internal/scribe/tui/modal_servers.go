@@ -65,7 +65,12 @@ func (v *serversView) Title() string {
 func (v *serversView) Icon() string { return "plug" }
 
 // Footer implements Footered.
-func (v *serversView) Footer() string { return "↑↓ move · r restart · Esc close" }
+func (v *serversView) Footer() string {
+	if v.kind == "lsp" {
+		return "↑↓ move · r restart · Esc close"
+	}
+	return "↑↓ move · a add · e edit · t on/off · d remove · r restart · Esc close"
+}
 
 // Size implements Sized.
 func (v *serversView) Size(cols, rows int) (int, int) {
@@ -88,8 +93,72 @@ func (v *serversView) Update(msg tea.Msg) (Modal, tea.Cmd, bool) {
 		v.cursor = clamp(v.cursor+1, 0, max(0, n-1))
 	case "r":
 		return v, v.restart(), false
+	case "a":
+		if v.kind != "lsp" {
+			v.m.pushModal(newMCPForm(v.th, nil, v.be.SaveMCPServer))
+		}
+	case "e":
+		if sp, ok := v.selectedMCP(); ok {
+			v.m.pushModal(newMCPForm(v.th, &sp, v.be.SaveMCPServer))
+		}
+	case "t":
+		return v, v.toggle(), false
+	case "d":
+		v.confirmRemove()
 	}
 	return v, nil, false
+}
+
+// selectedMCP returns the definition of the highlighted MCP server.
+func (v *serversView) selectedMCP() (MCPServerSpec, bool) {
+	list := v.servers()
+	if v.cursor < 0 || v.cursor >= len(list) || list[v.cursor].Kind != "mcp" {
+		v.say("info", "Select an MCP server first.")
+		return MCPServerSpec{}, false
+	}
+	name := list[v.cursor].Name
+	for _, sp := range v.be.MCPServers() {
+		if sp.Name == name {
+			return sp, true
+		}
+	}
+	v.say("err", name+" is not in any MCP config.")
+	return MCPServerSpec{}, false
+}
+
+// toggle turns the highlighted MCP server on or off and saves it. The
+// change applies to the next request.
+func (v *serversView) toggle() tea.Cmd {
+	sp, ok := v.selectedMCP()
+	if !ok {
+		return nil
+	}
+	was := sp
+	sp.Disabled = !sp.Disabled
+	if err := v.be.SaveMCPServer(sp, &was); err != nil {
+		return flashCmd("err", "Could not change "+sp.Name+": "+err.Error())
+	}
+	if sp.Disabled {
+		return flashCmd("ok", sp.Name+" disabled. Its tools leave the next request.")
+	}
+	return flashCmd("ok", sp.Name+" enabled. It is connecting.")
+}
+
+// confirmRemove asks before removing the highlighted server from its config.
+func (v *serversView) confirmRemove() {
+	sp, ok := v.selectedMCP()
+	if !ok {
+		return
+	}
+	be := v.be
+	v.m.pushModal(NewConfirm(v.th, "Remove MCP server",
+		fmt.Sprintf("Remove %s from the %s config? Its tools leave the next request.", sp.Name, sp.Scope), true,
+		func() tea.Cmd {
+			if err := be.RemoveMCPServer(sp.Name, sp.Scope); err != nil {
+				return flashCmd("err", "Could not remove "+sp.Name+": "+err.Error())
+			}
+			return flashCmd("ok", "Removed "+sp.Name+".")
+		}).WithLabels("Remove", "Cancel"))
 }
 
 // restart runs RestartServer for the selected MCP server in the background.

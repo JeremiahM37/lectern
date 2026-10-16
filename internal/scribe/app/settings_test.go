@@ -14,17 +14,17 @@ import (
 
 func TestSetConfigProviderAddIsUsableWithoutRestart(t *testing.T) {
 	be, _ := testBackend(t)
-	if err := be.SetConfig("provider.add", map[string]any{"id": "proxy", "base_url": "http://127.0.0.1:9/v1", "api_key_env": ""}, false); err != nil {
+	if err := be.SetConfig("provider.add", map[string]any{"id": "myproxy", "base_url": "http://127.0.0.1:9/v1", "api_key_env": ""}, false); err != nil {
 		t.Fatalf("provider.add: %v", err)
 	}
 	found := false
 	for _, p := range be.Providers() {
-		found = found || p.ID == "proxy"
+		found = found || p.ID == "myproxy"
 	}
 	if !found {
 		t.Fatal("the new provider should appear without restarting")
 	}
-	if err := be.SetKey("proxy", "k"); err != nil {
+	if err := be.SetKey("myproxy", "k"); err != nil {
 		t.Fatalf("SetKey on the new provider: %v", err)
 	}
 }
@@ -33,7 +33,7 @@ func TestSetConfigProviderAddRefusesBadInput(t *testing.T) {
 	be, _ := testBackend(t)
 	cases := map[string]map[string]any{
 		"built-in id": {"id": "anthropic", "base_url": "https://example.test/v1"},
-		"no scheme":   {"id": "proxy", "base_url": "example.test/v1"},
+		"no scheme":   {"id": "myproxy", "base_url": "example.test/v1"},
 		"slash in id": {"id": "a/b", "base_url": "https://example.test/v1"},
 		"missing id":  {"base_url": "https://example.test/v1"},
 	}
@@ -118,5 +118,19 @@ func TestNeedsSetupOnlyWithoutKeysOrOllama(t *testing.T) {
 	be2, _ := testBackend(t)
 	if needsSetup(be2) {
 		t.Fatal("a running Ollama should satisfy setup")
+	}
+}
+
+func TestSetConfigReasoningByProviderIsSaved(t *testing.T) {
+	be, _ := testBackend(t)
+	if err := be.SetConfig("reasoning_by_provider.anthropic.effort", "high", false); err != nil {
+		t.Fatalf("set effort: %v", err)
+	}
+	c, err := config.LoadFile(config.GlobalPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.ReasoningByProvider["anthropic"].Effort; got != "high" {
+		t.Fatalf("saved effort = %q, want high", got)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/registry"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/memory"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/session"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/skills"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -41,6 +42,8 @@ type Options struct {
 	// Ephemeral sessions are not saved (headless without --save-session).
 	Ephemeral bool
 	MaxSteps  int
+	// Preset names a preset (config.LoadWithPreset) merged over the config.
+	Preset string
 }
 
 // App is one Scribe session.
@@ -136,7 +139,7 @@ func Open(ctx context.Context, o Options) (*App, error) {
 		o.Workdir = wd
 	}
 	root := FindRoot(o.Workdir)
-	cfg, err := config.Load(root)
+	cfg, err := config.LoadWithPreset(root, o.Preset)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
@@ -344,7 +347,8 @@ func (a *App) systemPrompt(sub string) func(string) string {
 		if a.deferred != nil && sub == "" {
 			in.Deferred = agent.DeferredCatalog(a.Tools, a.deferred.IsCore)
 		}
-		return agent.BuildSystem(in, mode)
+		// Skills the user loaded into context (see backend_skills.go).
+		return agent.BuildSystem(in, mode) + a.activeSkillsSection()
 	}
 }
 
@@ -385,6 +389,8 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 		Mode:      mode,
 		MaxTokens: a.Cfg.MaxTokens,
 		Reasoning: a.Cfg.Reasoning,
+		Tune:      a.tune,
+		Redact:    redact.Default().Redact,
 		Sink:      a.emit,
 		MaxSteps:  a.opts.MaxSteps,
 		Hooks:     a.claimHooks(a.ext.hooks),
@@ -393,6 +399,9 @@ func (a *App) agentOptions(model agent.Model, mode string) agent.Options {
 	}
 	if config.Bool(a.Cfg.AutoCheck, true) {
 		o.Verify = autoVerify(a.Workdir)
+	}
+	if a.ext.postEdit != nil {
+		o.AfterTool = a.ext.postEdit.AfterTool
 	}
 	for _, ref := range a.Cfg.Router.Fallback {
 		if m, err := a.resolve(ref); err == nil {
@@ -458,9 +467,12 @@ func (a *App) newSubagent(role, id string, sink agent.Sink) *agent.Agent {
 		}
 	}
 	reg := a.subagentTools(role)
-	steps := 30
-	if role == "code" {
-		steps = 50
+	steps := agent.ExploreMaxSteps
+	switch role {
+	case "code":
+		steps = agent.CodeMaxSteps
+	case "web":
+		steps = agent.WebMaxSteps
 	}
 	mode := "default"
 	if role == "explore" {
@@ -587,7 +599,7 @@ func (a *App) Run(ctx context.Context, prompt string, images []llm.Part) (agent.
 	if !a.opts.Ephemeral {
 		_ = session.AppendHistory(prompt, a.Workdir)
 	}
-	stats, err := a.Agent.Run(ctx, prompt, images)
+	stats, err := agent.RunClearing(ctx, a.Agent, a.Planner, prompt, images)
 	if a.Checks != nil {
 		_ = a.Checks.End()
 	}

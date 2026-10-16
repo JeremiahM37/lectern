@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
@@ -63,9 +65,33 @@ type Options struct {
 	Reasoning string
 	Sink      Sink
 
-	MaxSteps     int           // 0 = unlimited (main agent)
-	MaxRetries   int           // transient retries per step, default 3
-	StallTimeout time.Duration // no stream event for this long = stall, default 120s
+	MaxSteps   int // 0 = unlimited (main agent)
+	MaxRetries int // transient retries per step, default 3
+
+	// Stream watchdog (spec 03 §5.3). FirstTokenTimeout applies until the
+	// first text or tool call, InterTokenTimeout after that, and StepTimeout
+	// caps one whole model call. Zero takes the default (180s, 120s, 900s).
+	// StallTimeout, when set, stands in for the first-token and inter-token
+	// thresholds that are not set, as it did before those existed.
+	StallTimeout      time.Duration
+	FirstTokenTimeout time.Duration
+	InterTokenTimeout time.Duration
+	StepTimeout       time.Duration
+	// MaxStallRetries is how many times a stalled model call is resumed from
+	// the text it had produced. Default 3; negative means never resume. Stall
+	// retries are immediate and do not use MaxRetries.
+	MaxStallRetries int
+
+	// Tune edits every model request after it is built, for example to set
+	// provider options that depend on the conversation. m is the model the
+	// request goes to (the current one, or a fallback). May be nil.
+	Tune func(m Model, r *llm.Request)
+	// Redact scrubs secrets from a tool result's Output before it enters the
+	// history or the events. May be nil.
+	Redact func(string) string
+	// AfterTool sees each tool call's result after it runs and before Redact,
+	// and may change it. May be nil.
+	AfterTool func(ctx context.Context, name string, args json.RawMessage, res *tools.Result)
 
 	Compactor Compactor
 	CompactAt float64 // fraction of the context window, default 0.8; <0 disables
@@ -109,6 +135,9 @@ type Agent struct {
 	total    llm.Usage
 	cost     float64
 	lastIn   int // input tokens of the last step (≈ context in use)
+	// gen counts history replacements (compaction, reset, resume); it is
+	// part of tools.Env.Scope so per-context tool memory starts over.
+	gen      int
 	running  bool
 	stopTurn bool
 	cancel   context.CancelFunc
@@ -116,19 +145,61 @@ type Agent struct {
 	editedSinceCheck bool // files changed since the last project/test-like call
 	checkRounds      int  // auto-fix rounds used this turn
 	autoSeq          int
+
+	// badArgs holds the tool calls of the last successful step whose
+	// arguments were not valid JSON, keyed by call id. Their history parts
+	// carry "{}" so the transcript stays valid; runTool refuses to run them.
+	badArgs map[string]badArg
+}
+
+// badArg is a tool call whose arguments the provider sent as invalid JSON.
+type badArg struct {
+	raw    string // the arguments as the provider sent them
+	reason string // the JSON parser's complaint
 }
 
 // maxAutoFixRounds bounds how many times a failed automatic check is fed
 // back to the model in one turn.
 const maxAutoFixRounds = 2
 
+// Defaults for the stream watchdog and resume (spec 03 §5.3, §10).
+const (
+	defaultFirstTokenTimeout = 180 * time.Second
+	defaultInterTokenTimeout = 120 * time.Second
+	defaultStepTimeout       = 900 * time.Second
+	defaultMaxStallRetries   = 3
+	// forceResolveTimeout bounds how long a stalled stream is drained after
+	// it was cancelled, in case the provider does not close its channel.
+	forceResolveTimeout = 5 * time.Second
+	// resumeText is sent after a stalled answer's partial text, so the model
+	// continues it instead of starting over.
+	resumeText = "Continue exactly where you stopped."
+)
+
 // New creates an agent.
 func New(o Options) *Agent {
 	if o.MaxRetries == 0 {
 		o.MaxRetries = 3
 	}
-	if o.StallTimeout == 0 {
-		o.StallTimeout = 120 * time.Second
+	if o.MaxStallRetries == 0 {
+		o.MaxStallRetries = defaultMaxStallRetries
+	}
+	if o.StallTimeout > 0 {
+		if o.FirstTokenTimeout == 0 {
+			o.FirstTokenTimeout = o.StallTimeout
+		}
+		if o.InterTokenTimeout == 0 {
+			o.InterTokenTimeout = o.StallTimeout
+		}
+	}
+	if o.FirstTokenTimeout == 0 {
+		o.FirstTokenTimeout = defaultFirstTokenTimeout
+	}
+	if o.InterTokenTimeout == 0 {
+		o.InterTokenTimeout = defaultInterTokenTimeout
+	}
+	if o.StepTimeout == 0 {
+		o.StepTimeout = defaultStepTimeout
 	}
 	if o.CompactAt == 0 {
 		o.CompactAt = 0.8
@@ -146,7 +217,15 @@ func New(o Options) *Agent {
 func (a *Agent) SetMessages(m []llm.Message) {
 	a.mu.Lock()
 	a.msgs = append([]llm.Message(nil), m...)
+	a.gen++
 	a.mu.Unlock()
+}
+
+// scope is the tools.Env.Scope for calls made now.
+func (a *Agent) scope() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return fmt.Sprintf("%p#%d", a, a.gen)
 }
 
 // Messages returns a copy of the history.
@@ -507,7 +586,9 @@ func (a *Agent) loopHint() string {
 	return ""
 }
 
-func (a *Agent) request() llm.Request {
+// request builds the next model call. extra messages are appended to the
+// history for this call only.
+func (a *Agent) request(extra ...llm.Message) llm.Request {
 	// System may call back into the agent (CurrentModel), so it must run
 	// without the lock held.
 	sys := ""
@@ -516,17 +597,23 @@ func (a *Agent) request() llm.Request {
 	}
 	offered := a.offeredNames() // takes the lock itself, so call it first
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return llm.Request{
+	msgs := append(append([]llm.Message(nil), a.msgs...), extra...)
+	req := llm.Request{
 		Model:       a.model.ID,
 		System:      sys,
-		Messages:    append([]llm.Message(nil), a.msgs...),
+		Messages:    msgs,
 		Tools:       a.opts.Tools.Specs(offered),
 		MaxTokens:   a.opts.MaxTokens,
 		Reasoning:   a.opts.Reasoning,
 		CacheSystem: true,
 		Headers:     a.opts.Headers,
 	}
+	m := a.model
+	a.mu.Unlock()
+	if a.opts.Tune != nil {
+		a.opts.Tune(m, &req)
+	}
+	return req
 }
 
 // stepWithRetry runs one model call, retrying transient failures and then
@@ -542,8 +629,12 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 			a.emit(Event{Kind: EvFallback, Model: m.Ref, Text: errText(lastErr)})
 			a.SetModel(m)
 		}
-		for attempt := 0; attempt <= a.opts.MaxRetries; attempt++ {
-			msg, finish, err := a.step(ctx, step)
+		// resume is the text a stalled attempt produced. Later attempts
+		// continue it. Stall resumes are immediate and have their own budget.
+		var resume string
+		stalls, attempt := 0, 0
+		for {
+			msg, finish, err := a.step(ctx, step, resume)
 			if err == nil {
 				return msg, finish, nil
 			}
@@ -551,6 +642,19 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				return llm.Message{}, "", ctx.Err()
 			}
 			lastErr = err
+			var st *stallError
+			if errors.As(err, &st) {
+				resume = st.partial
+				stalls++
+				limit := max(a.opts.MaxStallRetries, 0)
+				if stalls > limit {
+					lastErr = fmt.Errorf("%s after %d retries; giving up, you can resend your message", st.describe(), limit)
+					break
+				}
+				a.emit(Event{Kind: EvRetry, Attempt: stalls, MaxAttempts: limit, Category: llm.CatStream,
+					Text: fmt.Sprintf("%s. Retrying (%d/%d) from the partial answer.", st.describe(), stalls, limit)})
+				continue
+			}
 			cat, retry := llm.Classify(err)
 			if !retry {
 				a.emit(Event{Kind: EvError, Category: cat, Text: err.Error()})
@@ -560,7 +664,8 @@ func (a *Agent) stepWithRetry(ctx context.Context, step int) (llm.Message, llm.F
 				break
 			}
 			d := backoff(attempt, err)
-			a.emit(Event{Kind: EvRetry, Attempt: attempt + 1, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d})
+			attempt++
+			a.emit(Event{Kind: EvRetry, Attempt: attempt, MaxAttempts: a.opts.MaxRetries, Category: cat, Text: err.Error(), Delay: d})
 			select {
 			case <-time.After(d):
 			case <-ctx.Done():
@@ -590,11 +695,38 @@ func backoff(attempt int, err error) time.Duration {
 	return base + time.Duration(rand.Int64N(int64(base/2)))
 }
 
-var errStall = errors.New("stream stalled: no data from the model")
+// stallError is a model call that went silent. partial is the answer text
+// it had produced, which the next attempt continues. It is empty when the
+// attempt had already completed a tool call, since that cannot be resumed
+// as text alone.
+type stallError struct {
+	partial string
+	after   time.Duration // the threshold that tripped
+	total   bool          // true when StepTimeout tripped, not the idle timer
+}
 
-// step streams one model response and returns the assistant message.
-func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReason, error) {
-	req := a.request()
+func (e *stallError) describe() string {
+	if e.total {
+		return fmt.Sprintf("stream stalled: the model call ran past %s", e.after.Round(time.Millisecond))
+	}
+	return fmt.Sprintf("stream stalled: no activity for %s", e.after.Round(time.Millisecond))
+}
+
+func (e *stallError) Error() string { return e.describe() }
+
+// errContentFilter ends a step whose reply the provider's safety filter cut
+// short. It is not retried and the partial reply is not kept.
+var errContentFilter = errors.New("the provider's content filter stopped the reply, so it was not used")
+
+// step streams one model response and returns the assistant message. When
+// resume is set, the model is asked to continue that text, and the returned
+// message starts with it.
+func (a *Agent) step(ctx context.Context, step int, resume string) (llm.Message, llm.FinishReason, error) {
+	var extra []llm.Message
+	if resume != "" {
+		extra = []llm.Message{llm.AssistantText(resume), llm.UserText(resumeText)}
+	}
+	req := a.request(extra...)
 	m := a.CurrentModel()
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -603,15 +735,19 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 		return llm.Message{}, "", err
 	}
 	var (
-		parts   []llm.Part
-		text    strings.Builder
-		reason  strings.Builder
-		sig     string
-		finish  llm.FinishReason
-		usage   llm.Usage
-		calls   = map[string]int{} // call id → index in parts
-		stalled bool
+		parts      []llm.Part
+		text       strings.Builder
+		reason     strings.Builder
+		sig        string
+		finish     llm.FinishReason
+		usage      llm.Usage
+		calls      = map[string]int{} // call id → index in parts
+		bad        = map[string]badArg{}
+		stalled    bool
+		hasContent bool // text or a tool call has arrived
+		stall      *stallError
 	)
+	text.WriteString(resume)
 	flushText := func() {
 		if text.Len() > 0 {
 			parts = append(parts, llm.Part{Type: llm.PartText, Text: text.String()})
@@ -625,31 +761,40 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 			sig = ""
 		}
 	}
-	timer := time.NewTimer(a.opts.StallTimeout)
+	// idle is the threshold for the next event: first-token until there is
+	// content, inter-token after that. Every stream part resets it.
+	idle := func() time.Duration {
+		if hasContent {
+			return a.opts.InterTokenTimeout
+		}
+		return a.opts.FirstTokenTimeout
+	}
+	timer := time.NewTimer(idle())
 	defer timer.Stop()
+	capTimer := time.NewTimer(a.opts.StepTimeout)
+	defer capTimer.Stop()
 	for done := false; !done; {
 		select {
 		case <-timer.C:
 			stalled = true
+			stall = &stallError{after: idle()}
 			cancel()
-			// drain until the provider closes
-			for range ch {
-			}
+			drainAfterStall(ch)
+			done = true
+		case <-capTimer.C:
+			stalled = true
+			stall = &stallError{after: a.opts.StepTimeout, total: true}
+			cancel()
+			drainAfterStall(ch)
 			done = true
 		case ev, ok := <-ch:
 			if !ok {
 				done = true
 				break
 			}
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			timer.Reset(a.opts.StallTimeout)
 			switch ev.Type {
 			case llm.EvText:
+				hasContent = true
 				flushReason()
 				text.WriteString(ev.Text)
 				a.emit(Event{Kind: EvText, Text: ev.Text, Step: step})
@@ -660,6 +805,7 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 			case llm.EvReasoningSig:
 				sig += ev.Text
 			case llm.EvToolCallStart:
+				hasContent = true
 				flushText()
 				flushReason()
 				a.emit(Event{Kind: EvToolStart, CallID: ev.ToolCallID, Tool: ev.ToolName})
@@ -668,16 +814,28 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 			case llm.EvToolCallEnd:
 				flushText()
 				flushReason()
-				args := ev.Args
-				if !json.Valid(args) || len(args) == 0 {
-					args = json.RawMessage("{}")
-				}
 				id := ev.ToolCallID
 				if id == "" {
 					id = fmt.Sprintf("call_%d_%d", step, len(parts))
 				}
+				// Empty arguments mean "no arguments". Arguments that are
+				// not JSON are kept aside, and the call is answered with an
+				// error instead of being run.
+				args := json.RawMessage("{}")
+				if raw, malformed := llm.UnparsedArgs(ev.Args); malformed {
+					// The adapter could not parse the arguments and passed
+					// the raw text as a JSON string (see llm.ToolArgs).
+					bad[id] = badArg{raw: raw, reason: argsProblem(raw)}
+				} else if raw := bytes.TrimSpace(ev.Args); len(raw) > 0 {
+					if json.Valid(raw) {
+						args = raw
+					} else {
+						bad[id] = badArg{raw: string(raw), reason: argsProblem(string(raw))}
+					}
+				}
 				calls[id] = len(parts)
 				parts = append(parts, llm.Part{Type: llm.PartToolCall, ToolCallID: id, ToolName: ev.ToolName, Args: args})
+				hasContent = true
 			case llm.EvFinish:
 				finish, usage = ev.FinishReason, ev.Usage
 			case llm.EvError:
@@ -688,13 +846,36 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 				}
 				return llm.Message{}, "", ev.Err
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(idle())
 		}
 	}
 	if stalled {
 		if ctx.Err() != nil {
 			return llm.Message{}, "", ctx.Err()
 		}
-		return llm.Message{}, "", errStall
+		flushText()
+		// A finished tool call cannot be resumed as text alone, so an
+		// attempt that already produced one restarts instead.
+		var partial strings.Builder
+		hasCall := false
+		for _, p := range parts {
+			switch p.Type {
+			case llm.PartText:
+				partial.WriteString(p.Text)
+			case llm.PartToolCall:
+				hasCall = true
+			}
+		}
+		if !hasCall {
+			stall.partial = partial.String()
+		}
+		return llm.Message{}, "", stall
 	}
 	if ctx.Err() != nil {
 		return llm.Message{}, "", ctx.Err()
@@ -710,10 +891,51 @@ func (a *Agent) step(ctx context.Context, step int) (llm.Message, llm.FinishReas
 	a.cost += stepCost
 	a.lastIn = usage.InputTokens + usage.CacheReadTokens + usage.CacheWriteTokens + usage.OutputTokens
 	total, cost, used, window := a.total, a.cost, a.lastIn, a.model.Info.ContextWindow
+	a.badArgs = bad
 	a.mu.Unlock()
 	a.emit(Event{Kind: EvStepFinish, Step: step, Usage: usage, Total: total, CostUSD: cost})
 	a.emit(Event{Kind: EvContext, ContextUsed: used, ContextWindow: window})
+	if finish == llm.FinishFilter {
+		return llm.Message{}, "", errContentFilter
+	}
 	return llm.Message{Role: llm.RoleAssistant, Parts: parts}, finish, nil
+}
+
+// argsProblem says why raw tool arguments cannot be used, in the parser's
+// words when there is one.
+func argsProblem(raw string) string {
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return err.Error()
+	}
+	return "the arguments are not a JSON object"
+}
+
+// drainAfterStall empties a cancelled stream so the provider can finish,
+// but gives up after forceResolveTimeout in case it never closes.
+func drainAfterStall(ch <-chan llm.Event) {
+	done := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(forceResolveTimeout):
+	}
+}
+
+// fragment returns the first n bytes of s, cut back to a whole rune.
+func fragment(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // runTools executes tool calls: consecutive read-only calls run in
@@ -797,6 +1019,13 @@ func (a *Agent) runTool(ctx context.Context, call llm.Part) llm.Part {
 	start := time.Now()
 	a.emit(Event{Kind: EvToolRun, CallID: call.ToolCallID, Tool: call.ToolName, Args: call.Args})
 	res := a.execTool(ctx, call)
+	if a.opts.AfterTool != nil {
+		a.opts.AfterTool(ctx, call.ToolName, call.Args, &res)
+	}
+	a.addSubagentUsage(res.Meta)
+	if a.opts.Redact != nil {
+		res.Output = a.opts.Redact(res.Output)
+	}
 	if len(res.Files) > 0 {
 		filesByCall.Store(a.opts.ID+"/"+call.ToolCallID, res.Files)
 	}
@@ -827,6 +1056,10 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		}
 		return tools.Errorf("unknown tool %q. Available tools: %s", call.ToolName, strings.Join(a.toolNames(), ", "))
 	}
+	if bad, ok := a.takeBadArg(call.ToolCallID); ok {
+		return tools.Errorf("the arguments for %s are not valid JSON (%s). The raw input starts with %q. The call was not run. Resend it with valid JSON arguments.",
+			call.ToolName, bad.reason, fragment(bad.raw, 200))
+	}
 	mode := a.Mode()
 	if RestrictedModes[mode] && !tools.IsReadOnlyCall(t, call.Args) {
 		return tools.Errorf("mode_restricted: %s mode is read-only, so %s cannot run. Investigate with read-only tools, then present your findings (in plan mode, call the plan tool).", mode, call.ToolName)
@@ -839,6 +1072,7 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 	env := a.opts.Env
 	env.CallID = call.ToolCallID
 	env.Mode = mode
+	env.Scope = a.scope()
 	res = t.Run(ctx, &env, call.Args)
 	if a.opts.Hooks != nil {
 		if extra := a.opts.Hooks.PostTool(ctx, call.ToolName, call.Args, res); extra != "" {
@@ -846,6 +1080,50 @@ func (a *Agent) execTool(ctx context.Context, call llm.Part) (res tools.Result) 
 		}
 	}
 	return res
+}
+
+// takeBadArg reports whether a call's arguments were invalid JSON, and
+// forgets it so it is refused once.
+func (a *Agent) takeBadArg(id string) (badArg, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	b, ok := a.badArgs[id]
+	delete(a.badArgs, id)
+	return b, ok
+}
+
+// subagentUsage reads the tokens a subagent spent, as dispatch reports them
+// in a tool result's Meta.
+func subagentUsage(meta map[string]any) (llm.Usage, bool) {
+	switch u := meta["subagent_usage"].(type) {
+	case llm.Usage:
+		return u, true
+	case *llm.Usage:
+		if u != nil {
+			return *u, true
+		}
+	}
+	return llm.Usage{}, false
+}
+
+// addSubagentUsage adds a subagent's tokens to the turn and session totals.
+// Its cost comes from Meta["subagent_cost_usd"] when the dispatcher reports
+// one. Otherwise it is estimated at the main model's prices, because a
+// subagent may run a different model.
+func (a *Agent) addSubagentUsage(meta map[string]any) {
+	u, ok := subagentUsage(meta)
+	if !ok {
+		return
+	}
+	cost, known := meta["subagent_cost_usd"].(float64)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.total.Add(u)
+	if known {
+		a.cost += cost
+	} else {
+		a.cost += a.model.Info.Cost(u)
+	}
 }
 
 func (a *Agent) toolNames() []string {
@@ -887,6 +1165,7 @@ func (a *Agent) Compact(ctx context.Context, reason string) error {
 	a.mu.Lock()
 	a.msgs = kept
 	a.lastIn = 0
+	a.gen++
 	a.mu.Unlock()
 	a.persist(true)
 	a.emit(Event{Kind: EvCompactDone, Text: summary, Meta: map[string]any{"messages_before": len(before), "messages_after": len(kept)}})

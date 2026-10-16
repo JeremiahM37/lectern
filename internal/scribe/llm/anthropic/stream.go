@@ -189,7 +189,9 @@ func (s *streamState) apply(data []byte) (evs []llm.Event, done bool, err error)
 				Type:       llm.EvToolCallEnd,
 				ToolCallID: b.id,
 				ToolName:   b.name,
-				Args:       toolInput(json.RawMessage(b.args.String())),
+				// Malformed argument JSON is kept as raw text (llm.ToolArgs),
+				// never replaced with {}, so the agent can report it.
+				Args: llm.ToolArgs(b.args.String()),
 			})
 		}
 

@@ -430,7 +430,9 @@ func TestHeaderFitsWithoutCuttingWords(t *testing.T) {
 	}
 }
 
-func TestCheckpointLegendOnlyWhileBrowsing(t *testing.T) {
+// The checkpoint text legend was replaced by the rail, so browsing takes no
+// extra row above the transcript.
+func TestBrowsingCheckpointsTakesNoTabBarRow(t *testing.T) {
 	m, _ := newTestModel(t, 100, 30)
 	tb := m.cur()
 	tb.cps = []CheckpointInfo{{Turn: 1}, {Turn: 2}}
@@ -439,12 +441,8 @@ func TestCheckpointLegendOnlyWhileBrowsing(t *testing.T) {
 		t.Errorf("two checkpoints, not browsing: %d rows, want 0", got)
 	}
 	tb.browse = 0
-	if got := m.tabBarRows(); got != 1 {
-		t.Errorf("browsing two checkpoints: %d rows, want 1", got)
-	}
-	tb.cps = tb.cps[:1]
 	if got := m.tabBarRows(); got != 0 {
-		t.Errorf("one checkpoint: %d rows, want 0", got)
+		t.Errorf("browsing two checkpoints: %d rows, want 0 (the rail shows it)", got)
 	}
 }
 

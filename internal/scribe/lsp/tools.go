@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/symedit"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 )
 
@@ -37,6 +38,13 @@ func resolvePath(workdir, p string) string {
 		p = filepath.Join(workdir, p)
 	}
 	return filepath.Clean(p)
+}
+
+// noLanguageServer reports whether err means no language server can serve
+// the file at all, as opposed to a server that is installed and failed.
+func noLanguageServer(err error) bool {
+	var ni *NotInstalledError
+	return errors.As(err, &ni) || errors.Is(err, ErrNoServer)
 }
 
 // missingServer turns a Manager error into a tool result that says what to do.
@@ -520,6 +528,10 @@ func (t *renameTool) Run(ctx context.Context, env *tools.Env, args json.RawMessa
 	}
 	edit, err := t.m.Rename(ctx, abs, p, a.NewName)
 	if err != nil {
+		if noLanguageServer(err) {
+			// Without a server the rename is a comment- and string-aware text sweep.
+			return symedit.TextRename(env, workdir, oldName, a.NewName)
+		}
 		return missingServer(err)
 	}
 	applied, err := ApplyWorkspaceEditWith(edit, func(path string) {

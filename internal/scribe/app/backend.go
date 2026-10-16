@@ -1604,6 +1604,9 @@ func setConfigField(c *config.Config, key string, v any) error {
 		}
 		c.Router.MaxAgents = n
 	default:
+		if ok, err := c.SetReasoningField(key, v); ok {
+			return err
+		}
 		ptr := boolField(c, key)
 		if ptr == nil {
 			return fmt.Errorf("unknown setting %q", key)

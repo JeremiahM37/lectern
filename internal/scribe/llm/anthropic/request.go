@@ -16,6 +16,9 @@ var thinkingBudgets = map[string]int{
 	"high":   24576,
 }
 
+// minThinkingBudget is the smallest budget_tokens the API accepts.
+const minThinkingBudget = 1024
+
 // content blocks are built as maps so that optional fields are omitted
 // exactly when unset, without omitempty tripping on legitimately empty
 // values (an empty thinking string, for example).
@@ -26,21 +29,30 @@ type wireMessage struct {
 	Content []block `json:"content"`
 }
 
+// wireThinking is either {"type":"enabled","budget_tokens":N} (budget
+// models) or {"type":"adaptive"} (adaptive models, which take no budget).
 type wireThinking struct {
 	Type         string `json:"type"`
-	BudgetTokens int    `json:"budget_tokens"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+// wireOutputConfig carries the effort level for adaptive thinking.
+type wireOutputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type wireRequest struct {
-	Model       string        `json:"model"`
-	MaxTokens   int           `json:"max_tokens"`
-	System      []block       `json:"system,omitempty"`
-	Messages    []wireMessage `json:"messages"`
-	Tools       []block       `json:"tools,omitempty"`
-	ToolChoice  block         `json:"tool_choice,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
-	Thinking    *wireThinking `json:"thinking,omitempty"`
-	Stream      bool          `json:"stream"`
+	Model        string            `json:"model"`
+	MaxTokens    int               `json:"max_tokens"`
+	System       []block           `json:"system,omitempty"`
+	Messages     []wireMessage     `json:"messages"`
+	Tools        []block           `json:"tools,omitempty"`
+	ToolChoice   block             `json:"tool_choice,omitempty"`
+	Temperature  *float64          `json:"temperature,omitempty"`
+	Thinking     *wireThinking     `json:"thinking,omitempty"`
+	OutputConfig *wireOutputConfig `json:"output_config,omitempty"`
+	ServiceTier  string            `json:"service_tier,omitempty"`
+	Stream       bool              `json:"stream"`
 }
 
 func ephemeral() block { return block{"type": "ephemeral"} }
@@ -92,19 +104,65 @@ func buildBody(req llm.Request) ([]byte, error) {
 		}
 	}
 
-	if budget, ok := thinkingBudgets[req.Reasoning]; ok {
-		// max_tokens must exceed the thinking budget, and the API rejects
-		// temperature alongside extended thinking.
-		if maxTokens <= budget {
-			maxTokens = budget + defaultMaxTokens
+	style := ReasoningStyle(req.Model)
+	effort := effortLevel(req.Reasoning)
+	switch style {
+	case llm.ReasoningAdaptive:
+		// Adaptive models reject budget_tokens. A budget with no effort
+		// picks the nearest effort level.
+		if effort == "" && req.ThinkingBudget > 0 {
+			effort = effortForBudget(req.ThinkingBudget)
 		}
-		body.Thinking = &wireThinking{Type: "enabled", BudgetTokens: budget}
-	} else if req.Temperature != nil {
+		if effort != "" {
+			body.Thinking = &wireThinking{Type: "adaptive"}
+			body.OutputConfig = &wireOutputConfig{Effort: effort}
+		}
+	case llm.ReasoningBudget:
+		budget := req.ThinkingBudget
+		if budget <= 0 {
+			budget = thinkingBudgets[effort]
+		}
+		if budget > 0 {
+			if budget < minThinkingBudget {
+				budget = minThinkingBudget
+			}
+			// max_tokens must exceed the thinking budget.
+			if maxTokens <= budget {
+				maxTokens = budget + defaultMaxTokens
+			}
+			body.Thinking = &wireThinking{Type: "enabled", BudgetTokens: budget}
+		}
+	}
+
+	// Temperature is rejected alongside any thinking, and by adaptive models
+	// even without it.
+	if req.Temperature != nil && body.Thinking == nil && style != llm.ReasoningAdaptive {
 		body.Temperature = req.Temperature
 	}
+	body.ServiceTier = req.ServiceTier
 	body.MaxTokens = maxTokens
 
 	return json.Marshal(body)
+}
+
+// effortLevel returns r when it is a level the request type defines, else "".
+func effortLevel(r string) string {
+	switch r {
+	case "low", "medium", "high":
+		return r
+	}
+	return ""
+}
+
+// effortForBudget maps a thinking budget onto the nearest effort level.
+func effortForBudget(budget int) string {
+	switch {
+	case budget <= thinkingBudgets["low"]:
+		return "low"
+	case budget <= thinkingBudgets["medium"]:
+		return "medium"
+	}
+	return "high"
 }
 
 // convertMessages maps llm messages onto the API's user/assistant
@@ -180,8 +238,10 @@ func convertParts(parts []llm.Part) []block {
 	return out
 }
 
-// toolInput returns args as a JSON object. The API requires tool_use input
-// to be an object, so empty or non-object args become {}.
+// toolInput returns args as a JSON object for the request history. The API
+// requires tool_use input to be an object, so empty, malformed or non-object
+// args become {}. Malformed calls never reach history as runnable input: the
+// agent has already rejected them with an error the model saw.
 func toolInput(args json.RawMessage) json.RawMessage {
 	trimmed := bytes.TrimSpace(args)
 	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {

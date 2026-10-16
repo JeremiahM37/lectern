@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,7 @@ type wireRequest struct {
 	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+	ServiceTier         string          `json:"service_tier,omitempty"`
 	Stream              bool            `json:"stream"`
 	StreamOptions       *wireStreamOpts `json:"stream_options,omitempty"`
 }
@@ -126,6 +128,32 @@ type wireImageURL struct {
 	URL string `json:"url"`
 }
 
+// ReasoningStyle says how an OpenAI model takes reasoning controls: "effort"
+// for reasoning_effort on o1, o3, o4-mini and GPT-5 chat models, "" for the
+// rest (GPT-4.1 and GPT-5 chat reject the parameter). Gateway ids are matched
+// on their last path segment.
+func ReasoningStyle(model string) string {
+	m := strings.ToLower(path.Base(model))
+	switch {
+	case m == "o1", m == "o3", strings.HasPrefix(m, "o3-"), strings.HasPrefix(m, "o4-mini"):
+		return llm.ReasoningEffort
+	case strings.HasPrefix(m, "gpt-5") && !strings.HasPrefix(m, "gpt-5-chat"):
+		return llm.ReasoningEffort
+	}
+	return llm.ReasoningNone
+}
+
+// sendsReasoningEffort decides whether reasoning_effort goes on the wire. On
+// api.openai.com it is sent only to effort-style models, because the others
+// reject it. Other OpenAI-compatible endpoints host model families this table
+// does not list, so they keep the send-when-set behaviour.
+func sendsReasoningEffort(provider, model string) bool {
+	if ReasoningStyle(model) == llm.ReasoningEffort {
+		return true
+	}
+	return provider != "openai"
+}
+
 // buildBody translates a provider-neutral request into the wire body.
 func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	w := wireRequest{
@@ -155,7 +183,10 @@ func (p *Provider) buildBody(req llm.Request) ([]byte, error) {
 	if len(w.Tools) > 0 && (req.ToolChoice == "none" || req.ToolChoice == "required") {
 		w.ToolChoice = req.ToolChoice
 	}
-	w.ReasoningEffort = req.Reasoning
+	if req.Reasoning != "" && sendsReasoningEffort(p.opts.ID, req.Model) {
+		w.ReasoningEffort = req.Reasoning
+	}
+	w.ServiceTier = req.ServiceTier
 	if !p.opts.NoStreamUsage {
 		w.StreamOptions = &wireStreamOpts{IncludeUsage: true}
 	}
@@ -192,7 +223,11 @@ func (p *Provider) assistantMessage(m llm.Message) wireMessage {
 			reasoning.WriteString(part.Text)
 		case llm.PartToolCall:
 			args := "{}"
-			if len(part.Args) > 0 && string(part.Args) != "null" {
+			if raw, bad := llm.UnparsedArgs(part.Args); bad {
+				// A malformed call from an earlier turn goes back as the
+				// text the model actually wrote.
+				args = raw
+			} else if len(part.Args) > 0 && string(part.Args) != "null" {
 				args = string(part.Args)
 			}
 			calls = append(calls, wireToolCall{
@@ -642,7 +677,8 @@ func (s *streamer) finish() {
 				return
 			}
 		}
-		ev := llm.Event{Type: llm.EvToolCallEnd, ToolCallID: a.id, ToolName: a.name, Args: argsJSON(a.args.String())}
+		// Malformed argument text is kept raw (llm.ToolArgs), never {}.
+		ev := llm.Event{Type: llm.EvToolCallEnd, ToolCallID: a.id, ToolName: a.name, Args: llm.ToolArgs(a.args.String())}
 		if !s.emit(ev) {
 			return
 		}
@@ -660,7 +696,7 @@ func mapFinish(raw string) llm.FinishReason {
 		return llm.FinishToolCalls
 	case "length":
 		return llm.FinishLength
-	case "content_filter":
+	case "content_filter", "refusal":
 		return llm.FinishFilter
 	case "error":
 		return llm.FinishError
@@ -699,21 +735,6 @@ func argsText(raw json.RawMessage) string {
 		return ""
 	}
 	return string(raw)
-}
-
-// argsJSON returns the accumulated arguments as valid JSON. Empty arguments
-// become {}. Text that is not JSON is passed as a JSON string, so the tool
-// reports a type error to the model instead of the adapter corrupting data.
-func argsJSON(s string) json.RawMessage {
-	t := strings.TrimSpace(s)
-	if t == "" {
-		return json.RawMessage(`{}`)
-	}
-	if json.Valid([]byte(t)) {
-		return json.RawMessage(t)
-	}
-	b, _ := json.Marshal(s)
-	return b
 }
 
 func rawString(raw json.RawMessage) string {

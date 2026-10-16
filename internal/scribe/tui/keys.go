@@ -11,6 +11,9 @@ import (
 // set). It reports handled=false for keys the input box should see.
 func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 	t := m.cur()
+	if t.chat.RailFocused() {
+		return m.railKey(km)
+	}
 	switch km.String() {
 	case "ctrl+k":
 		m.openPalette()
@@ -54,6 +57,8 @@ func (m *Model) handleGlobalKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		m.switchTab((m.active + 1) % len(m.tabs))
 	case "alt+r":
 		m.openErrorLog()
+	case "alt+c":
+		return m.toggleRail(), true
 	case "ctrl+b":
 		return m.browseCheckpoint(-1), true
 	case "ctrl+f":

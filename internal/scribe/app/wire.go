@@ -26,10 +26,13 @@ type extensions struct {
 	undo  *fs.UndoStack
 	jobs  *exec.Jobs
 	lsp   *lsp.Manager
-	hookR *hooks.Runner
-	mcp   *mcp.Manager
-	cmap  *repomap.Map
-	mapOK chan struct{} // closed when the first code map build finishes
+	// postEdit formats edited files and reports new diagnostics; nil when
+	// format_on_edit is off.
+	postEdit *postEditor
+	hookR    *hooks.Runner
+	mcp      *mcp.Manager
+	cmap     *repomap.Map
+	mapOK    chan struct{} // closed when the first code map build finishes
 }
 
 // wire registers every tool and starts optional subsystems.
@@ -41,6 +44,9 @@ func (a *App) wire(ctx context.Context) error {
 	exec.Register(a.Tools, a.ext.jobs)
 	a.ext.lsp = lsp.NewManager(a.Workdir)
 	lsp.Register(a.Tools, a.ext.lsp)
+	if config.Bool(a.Cfg.FormatOnEdit, true) {
+		a.ext.postEdit = newPostEditor(a.Workdir, a.ext.lsp)
+	}
 	web.Register(a.Tools, web.Options{SearchURL: a.Cfg.SearchURL})
 	if a.Memory != nil {
 		memory.Register(a.Tools, a.Memory)
@@ -63,6 +69,7 @@ func (a *App) wire(ctx context.Context) error {
 	if config.Bool(a.Cfg.RepoMap, true) && !a.opts.NoRepoMap {
 		if m, err := repomap.Open(a.Workdir, repomap.Options{}); err == nil {
 			a.ext.cmap = m
+			a.services["repomap"] = m
 			repomap.Register(a.Tools, m)
 			go func() {
 				defer close(a.ext.mapOK)

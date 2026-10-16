@@ -26,7 +26,8 @@ const (
 )
 
 // gitActions are the actions the git tool accepts.
-var gitActions = []string{"status", "diff", "log", "commit", "branch", "stash", "show", "blame", "add"}
+var gitActions = []string{"status", "diff", "log", "commit", "branch", "stash", "show", "blame", "add",
+	"push", "pull", "reset", "restore", "unstage", "tag", "cherry_pick", "rebase"}
 
 // sensitiveNames are file names the git tool will not stage on the model's
 // behalf. Staging is not a secret leak until push, but these almost never
@@ -52,26 +53,37 @@ type gitArgs struct {
 	Name      string   `json:"name"`
 	Staged    bool     `json:"staged"`
 	Count     int      `json:"count"`
+	Remote    string   `json:"remote"`
+	Mode      string   `json:"mode"`
+	Force     bool     `json:"force"`
+	Worktree  bool     `json:"worktree"`
 }
 
 func (t *gitTool) Spec() llm.ToolSpec {
 	return llm.ToolSpec{
 		Name: "git",
-		Description: "Work with the project's git repository. Read actions: status, diff, log, show, blame, branch (list). " +
+		Description: "Work with the project's git repository. Read actions: status, diff, log, show, blame, branch (list), tag (list). " +
 			"Changing actions: add (stages files), commit (the message is written exactly as given; pre-commit hooks run unless no_verify is true; no trailer is added), " +
-			"branch (create, switch, delete), stash (push, pop, list, show, drop). " +
+			"branch (create, switch, delete), stash (push, pop, list, show, drop), unstage (takes paths out of the index), " +
+			"tag (create, delete), push and pull (remote and name), cherry_pick and rebase (non-interactive; sub_action abort, continue or skip resumes one in progress), " +
+			"reset (soft, mixed or hard, or paths), restore (files, from the index or ref). " +
+			"Destructive forms ask the user first: hard reset, force push, pull or rebase that rewrites history, rebase, and restore of files with uncommitted edits. " +
 			"Hooks run on commit unless no_verify is true, which needs the user's explicit request.",
 		Schema: tools.Schema(map[string]any{
 			"action":     tools.Enum("What to do.", gitActions...),
-			"sub_action": tools.Str("branch: list, create, switch, delete. stash: push (default), pop, list, show, drop."),
+			"sub_action": tools.Str("branch: list, create, switch, delete. stash: push (default), pop, list, show, drop. tag: list, create, delete. cherry_pick and rebase: start (default), abort, continue, skip."),
 			"args":       tools.Arr("Extra arguments passed to git after the action, e.g. paths or flags.", map[string]any{"type": "string"}),
-			"message":    tools.Str("Commit message (commit) or stash message (stash push). Written exactly as given."),
-			"files":      tools.Arr("Paths to stage (add) or to stash (stash push).", map[string]any{"type": "string"}),
-			"all":        tools.Bool("add: stage every change (git add -A). Use only when the user asked for everything."),
+			"message":    tools.Str("Commit message (commit) or stash message (stash push). tag create: annotation message (makes an annotated tag). Written exactly as given."),
+			"files":      tools.Arr("Paths to stage (add), stash (stash push), unstage, restore, or reset (path form).", map[string]any{"type": "string"}),
+			"all":        tools.Bool("add: stage every change (git add -A). unstage: unstage everything. Use only when the user asked for everything."),
 			"no_verify":  tools.Bool("commit: skip pre-commit hooks (--no-verify). Only when the user explicitly asks."),
-			"ref":        tools.Str("diff, show, blame: the commit or ref to use."),
-			"name":       tools.Str("branch: the branch name for create, switch and delete."),
-			"staged":     tools.Bool("diff: show staged changes (--cached)."),
+			"ref":        tools.Str("diff, show, blame: the commit or ref to use. reset: target commit. restore: source ref (default the index). tag create: commit to tag. cherry_pick: commit to apply. rebase: branch or commit to rebase onto."),
+			"name":       tools.Str("branch and tag: the name for create, switch and delete. push and pull: the branch (needs remote)."),
+			"remote":     tools.Str("push and pull: the remote, e.g. origin."),
+			"staged":     tools.Bool("diff: show staged changes (--cached). restore: restore the index (unstage)."),
+			"worktree":   tools.Bool("restore: also restore the working tree (the default when staged is not set)."),
+			"mode":       tools.Enum("reset: soft (keep changes staged), mixed (default, keep changes unstaged), hard (discards uncommitted changes; asks the user).", "soft", "mixed", "hard"),
+			"force":      tools.Bool("push: force, using --force-with-lease (asks the user). Only when the user asked to overwrite the remote."),
 			"count":      tools.Int("log: number of commits (default 20, max 200)."),
 		}, "action"),
 	}
@@ -90,7 +102,7 @@ func (t *gitTool) ReadOnlyCall(raw json.RawMessage) bool {
 	switch a.Action {
 	case "status", "diff", "log", "show", "blame":
 		return true
-	case "branch":
+	case "branch", "tag":
 		sub := strings.ToLower(a.SubAction)
 		return sub == "" || sub == "list"
 	}
@@ -110,6 +122,8 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 
 	var argv []string
 	var timeout time.Duration
+	var danger string // set by restore, which can see the working tree
+	var err error
 	switch action {
 	case "status":
 		argv, timeout = []string{"status", "-sb"}, gitQuickTimeout
@@ -189,10 +203,46 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 		}
 		argv = append(argv, a.Args...)
 		timeout = gitCommitTimeout
+	case "push":
+		argv, err = pushArgv(a)
+		timeout = gitWriteTimeout
+	case "pull":
+		argv, err = pullArgv(a)
+		timeout = gitWriteTimeout
+	case "reset":
+		argv, err = resetArgv(a)
+		timeout = gitWriteTimeout
+	case "restore":
+		argv, danger, err = restoreArgv(ctx, env.Workdir, a)
+		timeout = gitWriteTimeout
+	case "unstage":
+		argv, err = unstageArgv(a)
+		timeout = gitWriteTimeout
+	case "tag":
+		argv, err = tagArgv(sub, a)
+		timeout = gitQuickTimeout
+	case "cherry_pick":
+		argv, err = cherryPickArgv(sub, a)
+		timeout = gitCommitTimeout
+	case "rebase":
+		argv, err = rebaseArgv(sub, a)
+		timeout = gitCommitTimeout
 	case "":
 		return tools.Errorf("action is required. One of: %s.", strings.Join(gitActions, ", "))
 	default:
 		return tools.Errorf("unknown git action %q. One of: %s.", a.Action, strings.Join(gitActions, ", "))
+	}
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+
+	if danger == "" {
+		danger = gitDanger(action, sub, argv)
+	}
+	if danger != "" {
+		if res, blocked := approveGit(ctx, env, danger, argv); blocked {
+			return res
+		}
 	}
 
 	if err := requireGit(); err != nil {
@@ -203,7 +253,7 @@ func (t *gitTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) 
 	res := runProcess(tctx, procSpec{
 		argv:         append([]string{"git"}, argv...),
 		dir:          env.Workdir,
-		env:          ScrubEnv(os.Environ()),
+		env:          append(ScrubEnv(os.Environ()), gitEnvOverrides...),
 		collectBytes: collectLimit,
 	})
 	body, omitted := truncateOutput(res.output)

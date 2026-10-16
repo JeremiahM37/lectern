@@ -86,7 +86,7 @@ func TestPlanExecuteLiftsRestrictionsAndSavesPlan(t *testing.T) {
 		t.Fatalf("mode after Execute = %q", h.agent.Mode())
 	}
 	if len(h.host.asked) != 1 || h.host.asked[0].Kind != "plan_review" ||
-		strings.Join(h.host.asked[0].Options, ",") != "Execute,Revise,Cancel" {
+		strings.Join(h.host.asked[0].Options, ",") != "Execute,Clear context and execute,Revise,Cancel" {
 		t.Fatalf("plan review question = %+v", h.host.asked)
 	}
 

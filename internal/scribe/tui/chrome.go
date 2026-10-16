@@ -304,12 +304,9 @@ func formatUSD(v float64, places int) string {
 
 // ---------------------------------------------------------------- tab bar
 
-// viewTabBar draws the tabs, or the checkpoint legend when there is one tab.
+// viewTabBar draws the tabs.
 func (m *Model) viewTabBar() string {
 	th := m.th
-	if len(m.tabs) <= 1 {
-		return m.checkpointLegend()
-	}
 	var parts []string
 	for i, t := range m.tabs {
 		active := i == m.active
@@ -350,21 +347,6 @@ func (m *Model) viewTabBar() string {
 	}
 	bar := strings.Join(parts, fg(th.TextFaint).Render("│"))
 	return render.Truncate(bar, m.width)
-}
-
-// checkpointLegend is the one-row legend shown while browsing checkpoints
-// (Ctrl+B / Ctrl+F). It takes no row when there is one checkpoint or when the
-// user is not browsing.
-func (m *Model) checkpointLegend() string {
-	th := m.th
-	t := m.cur()
-	if len(t.cps) <= 1 || t.browse < 0 || t.browse >= len(t.cps) {
-		return ""
-	}
-	cp := t.cps[t.browse]
-	left := fg(th.Warning).Render("◀ viewing checkpoint #" + itoa(cp.Turn))
-	right := fg(th.TextDim).Render("send a message to rewind here · ^F forward")
-	return spaceBetween(left, right, m.width)
 }
 
 // ---------------------------------------------------------------- footer

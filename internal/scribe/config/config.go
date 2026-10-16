@@ -7,8 +7,11 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Provider is a user-defined OpenAI-compatible provider.
@@ -78,6 +81,9 @@ type Config struct {
 	// (default on).
 	DeferredTools *bool `json:"deferred_tools,omitempty"`
 	AutoCheck     *bool `json:"auto_check,omitempty"`
+	// FormatOnEdit runs the project formatter on files an edit changed and
+	// reports new language-server errors after the edit (default on).
+	FormatOnEdit *bool `json:"format_on_edit,omitempty"`
 
 	// Instructions lists instruction files loaded into the system prompt,
 	// relative to the project root or ~ (default: SCRIBE.md, AGENTS.md,
@@ -96,7 +102,25 @@ type Config struct {
 	DisabledTools []string `json:"disabled_tools,omitempty"`
 	// SearchURL is a SearXNG instance for web_search (else DuckDuckGo HTML).
 	SearchURL string `json:"search_url,omitempty"`
+
+	// ReasoningByProvider overrides the reasoning controls for one provider
+	// id, e.g. {"anthropic": {"effort": "medium", "budget": 8000}}. Empty
+	// fields leave the provider's own default in place.
+	ReasoningByProvider map[string]Reasoning `json:"reasoning_by_provider,omitempty"`
 }
+
+// Reasoning is one provider's reasoning controls. Which fields apply depends
+// on the model's reasoning style (llm.ModelInfo.ReasoningStyle): Effort for
+// "effort" and "adaptive", Budget for "budget". ServiceTier is sent wherever
+// the provider accepts it.
+type Reasoning struct {
+	Effort      string `json:"effort,omitempty"`       // low | medium | high | ...
+	Budget      int    `json:"budget,omitempty"`       // thinking tokens; 0 = provider default
+	ServiceTier string `json:"service_tier,omitempty"` // e.g. auto, priority, flex
+}
+
+// IsZero reports whether no reasoning control is set.
+func (r Reasoning) IsZero() bool { return r == Reasoning{} }
 
 // Bool returns *p or def when unset.
 func Bool(p *bool, def bool) bool {
@@ -142,6 +166,16 @@ func Load(root string) (Config, error) {
 		}
 	}
 	return Merge(g, p), nil
+}
+
+// LoadFile reads one config file without merging. A missing file gives the
+// zero Config. Settings edits the raw file so it never writes defaults back.
+func LoadFile(path string) (Config, error) {
+	var c Config
+	if err := readJSON(path, &c); err != nil {
+		return Config{}, err
+	}
+	return c, nil
 }
 
 func readJSON(path string, v any) error {
@@ -193,6 +227,7 @@ func Merge(base, o Config) Config {
 	bp(&r.Checkpoints, o.Checkpoints)
 	bp(&r.DeferredTools, o.DeferredTools)
 	bp(&r.AutoCheck, o.AutoCheck)
+	bp(&r.FormatOnEdit, o.FormatOnEdit)
 	if o.Instructions != nil {
 		r.Instructions = o.Instructions
 	}
@@ -216,7 +251,34 @@ func Merge(base, o Config) Config {
 		rt.MaxAgents = o.Router.MaxAgents
 	}
 	r.Router = rt
+	r.ReasoningByProvider = mergeReasoning(base.ReasoningByProvider, o.ReasoningByProvider)
 	return r
+}
+
+// mergeReasoning overlays o onto base one provider at a time. A field set in
+// o wins; a field o leaves empty keeps the base value.
+func mergeReasoning(base, o map[string]Reasoning) map[string]Reasoning {
+	if len(base) == 0 && len(o) == 0 {
+		return nil
+	}
+	out := make(map[string]Reasoning, len(base)+len(o))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range o {
+		m := out[k]
+		if v.Effort != "" {
+			m.Effort = v.Effort
+		}
+		if v.Budget != 0 {
+			m.Budget = v.Budget
+		}
+		if v.ServiceTier != "" {
+			m.ServiceTier = v.ServiceTier
+		}
+		out[k] = m
+	}
+	return out
 }
 
 func mergeBy[T any](a, b []T, key func(T) string) []T {
@@ -255,4 +317,44 @@ func save(path string, c Config) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// SetReasoningField sets one field of ReasoningByProvider from a flat settings
+// key, "reasoning_by_provider.<provider>.<effort|budget|service_tier>". It
+// reports false, and changes nothing, when key is not one of those keys. An
+// empty value clears the field.
+func (c *Config) SetReasoningField(key string, v any) (bool, error) {
+	rest, ok := strings.CutPrefix(key, "reasoning_by_provider.")
+	if !ok {
+		return false, nil
+	}
+	i := strings.LastIndexByte(rest, '.')
+	if i <= 0 {
+		return true, fmt.Errorf("setting %q needs a provider and a field", key)
+	}
+	provider, field := rest[:i], rest[i+1:]
+	r := c.ReasoningByProvider[provider]
+	switch field {
+	case "effort":
+		r.Effort = strings.TrimSpace(fmt.Sprint(v))
+	case "service_tier":
+		r.ServiceTier = strings.TrimSpace(fmt.Sprint(v))
+	case "budget":
+		n, err := strconv.Atoi(strings.TrimSpace(fmt.Sprint(v)))
+		if err != nil || n < 0 {
+			return true, fmt.Errorf("%s must be a whole number of tokens, 0 for the default", key)
+		}
+		r.Budget = n
+	default:
+		return true, fmt.Errorf("unknown reasoning field %q (use effort, budget or service_tier)", field)
+	}
+	if c.ReasoningByProvider == nil {
+		c.ReasoningByProvider = map[string]Reasoning{}
+	}
+	if r.IsZero() {
+		delete(c.ReasoningByProvider, provider)
+	} else {
+		c.ReasoningByProvider[provider] = r
+	}
+	return true, nil
 }

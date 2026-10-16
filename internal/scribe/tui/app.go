@@ -52,10 +52,9 @@ func Run(ctx context.Context, newBackend func() (Backend, error), opts Options) 
 	}
 	final, err := tea.NewProgram(m, popts...).Run()
 	if fm, ok := final.(*Model); ok {
+		// The caller prints SavedBanner for each session once the terminal is
+		// back, so the quit screen's resume hint is not repeated here.
 		fm.closePanes()
-		if fm.resumeLine != "" {
-			fmt.Fprintln(os.Stdout, fm.resumeLine)
-		}
 	}
 	return err
 }
@@ -641,12 +640,9 @@ func (m *Model) chatRows() int {
 	return max(rows, 1)
 }
 
-// tabBarRows is 1 when the tab bar or the checkpoint legend is shown.
+// tabBarRows is 1 when the tab bar is shown (more than one tab).
 func (m *Model) tabBarRows() int {
 	if len(m.tabs) > 1 {
-		return 1
-	}
-	if t := m.cur(); t.browse >= 0 && len(t.cps) > 1 {
 		return 1
 	}
 	return 0
@@ -719,6 +715,7 @@ func (m *Model) viewChatBody(rows int) []string {
 	var out []string
 	if m.phase != phaseLanding {
 		// the transcript fills what the bottom panel leaves
+		m.syncRail(t)
 		out = append(out, fitLines(strings.Split(t.chat.View(), "\n"), m.width, rows)...)
 	}
 	out = append(out, m.viewBottom()...)

@@ -32,7 +32,19 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 )
+
+// scrub masks secrets in the bytes of a session file. Transcripts, UI records
+// and plans hold tool output and prompts verbatim, so each of their writes
+// goes through here. Checkpoint blobs do not: undo must restore exact bytes.
+func scrub(b []byte) []byte {
+	s := string(b)
+	if out := redact.Default().Redact(s); out != s {
+		return []byte(out)
+	}
+	return b
+}
 
 // ErrNotFound means no session matches the id or prefix.
 var ErrNotFound = errors.New("session not found")
@@ -220,7 +232,7 @@ func writeMeta(dir string, m *Meta) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(dir, "meta.json"), append(b, '\n'), 0o600)
+	return atomicWrite(filepath.Join(dir, "meta.json"), scrub(append(b, '\n')), 0o600)
 }
 
 // touch rewrites meta.json with Updated=now and, when the session has no
@@ -270,7 +282,7 @@ func (s *Store) AppendMessages(id string, msgs []llm.Message) error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(buf.Bytes()); err != nil {
+	if _, err := f.Write(scrub(buf.Bytes())); err != nil {
 		f.Close()
 		return err
 	}
@@ -326,7 +338,7 @@ func (s *Store) ReplaceMessages(id string, msgs []llm.Message) error {
 	if _, err := s.readMeta(id); err != nil {
 		return err
 	}
-	if err := atomicWrite(filepath.Join(s.Dir(id), "messages.jsonl"), buf.Bytes(), 0o600); err != nil {
+	if err := atomicWrite(filepath.Join(s.Dir(id), "messages.jsonl"), scrub(buf.Bytes()), 0o600); err != nil {
 		return err
 	}
 	return s.touch(id, msgs)
@@ -373,7 +385,7 @@ func (s *Store) AppendUI(id string, recs ...json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(buf.Bytes()); err != nil {
+	if _, err := f.Write(scrub(buf.Bytes())); err != nil {
 		f.Close()
 		return err
 	}
@@ -401,7 +413,7 @@ func (s *Store) SavePlan(id string, plan json.RawMessage) error {
 	if !json.Valid(plan) {
 		return errors.New("plan is not valid JSON")
 	}
-	return atomicWrite(filepath.Join(s.Dir(id), "plan.json"), append([]byte(plan), '\n'), 0o600)
+	return atomicWrite(filepath.Join(s.Dir(id), "plan.json"), scrub(append([]byte(plan), '\n')), 0o600)
 }
 
 // LoadPlan returns plan.json, or an error wrapping os.ErrNotExist.

@@ -264,7 +264,13 @@ func TestRestartAndClose(t *testing.T) {
 	if s := statusOf(m, "ok"); s.State != StateStopped {
 		t.Fatalf("after Close: %+v", s)
 	}
-	res := runTool(t, reg, "mcp__ok__echo", env, `{"text":"x"}`)
+	// Close unregisters the tools, so a new request no longer offers them.
+	if _, ok := reg.Get("mcp__ok__echo"); ok {
+		t.Fatal("tool still registered after Close")
+	}
+	// A call already in flight with the old tool value gets a clear error.
+	stale := &remoteTool{m: m, server: "ok", remote: "echo", name: "mcp__ok__echo"}
+	res := stale.Run(context.Background(), env, json.RawMessage(`{"text":"x"}`))
 	if !res.IsError || !strings.Contains(res.Output, "not connected") {
 		t.Fatalf("call after Close: %+v", res)
 	}

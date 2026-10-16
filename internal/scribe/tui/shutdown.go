@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"context"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,6 +12,30 @@ import (
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
 )
+
+// Stopper is implemented by backends that end their session when the process
+// is leaving, whether the user quit or a signal arrived. app.scribeBackend
+// implements it.
+type Stopper interface {
+	// Shutdown aborts a running turn, waits up to timeout for it to save, and
+	// closes the session.
+	Shutdown(timeout time.Duration)
+}
+
+// SavedBanner is the line printed once the terminal is restored, so the user
+// can find the session again. The id is the full session id, so `-s` matches
+// it exactly.
+func SavedBanner(id string) string {
+	return "Session saved: " + id + " — resume with: lectern code -s " + id
+}
+
+// WithTermSignals returns a context that is cancelled when the terminal is
+// asked to stop (SIGTERM) or goes away (SIGHUP). Cancelling it makes bubbletea
+// kill the program, which restores the terminal before Run returns; the caller
+// then ends the sessions and prints SavedBanner.
+func WithTermSignals(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGHUP)
+}
 
 // shutdownState drives the quit screen: saving, closing servers, done, resume hint.
 type shutdownState struct {

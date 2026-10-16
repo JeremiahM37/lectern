@@ -21,9 +21,11 @@ const testToken = "hook-secret"
 // Its PermissionRequest handler answers from decide; when decide returns nil
 // the request is held until the client goes away, and cancelled reports that.
 type fakeLectern struct {
-	srv       *httptest.Server
-	seen      chan recorded
-	decide    func(body map[string]any) map[string]any
+	srv    *httptest.Server
+	seen   chan recorded
+	decide func(body map[string]any) map[string]any
+	// ask answers AskUser events. Nil means Lectern has no answer ({}).
+	ask       func(body map[string]any) map[string]any
 	cancelled chan struct{}
 }
 
@@ -60,6 +62,17 @@ func (f *fakeLectern) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	event := strings.TrimPrefix(r.URL.Path, "/api/hook/session/42/")
 	f.seen <- recorded{Path: event, Body: body}
+	if event == "AskUser" {
+		var reply map[string]any
+		if f.ask != nil {
+			reply = f.ask(body)
+		}
+		if reply == nil {
+			reply = map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(reply)
+		return
+	}
 	if event != "PermissionRequest" {
 		_, _ = w.Write([]byte(`{}`))
 		return

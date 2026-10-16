@@ -117,6 +117,15 @@ type Request struct {
 	Temperature *float64
 	// Reasoning effort: "" (provider default/off), "low", "medium", "high".
 	Reasoning string
+	// ThinkingBudget is an explicit reasoning token budget for providers that
+	// take one (Anthropic budget-style models). 0 means the provider default,
+	// which is the budget for Reasoning. Adapters ignore it where a budget is
+	// not part of the wire format.
+	ThinkingBudget int
+	// ServiceTier selects a provider processing tier (Anthropic service_tier,
+	// OpenAI service_tier). "" leaves the provider default; the value is sent
+	// verbatim when set.
+	ServiceTier string
 	// CacheSystem asks adapters that support prompt caching (Anthropic) to
 	// mark the system prompt and the last message as cache breakpoints.
 	CacheSystem bool
@@ -204,9 +213,31 @@ type ModelInfo struct {
 	CacheReadPerMTok  float64 `json:"cache_read_per_mtok,omitempty"`
 	CacheWritePerMTok float64 `json:"cache_write_per_mtok,omitempty"`
 	Reasoning         bool    `json:"reasoning,omitempty"`
-	Vision            bool    `json:"vision,omitempty"`
-	Tools             bool    `json:"tools,omitempty"`
+	// ReasoningStyle says how the model takes reasoning controls. See the
+	// ReasoningStyle constants. "" means none (or not known to take any).
+	ReasoningStyle string `json:"reasoning_style,omitempty"`
+	// Estimated is true when the prices are a default for an unknown model
+	// id, not a known price. The UI should show the cost as an estimate.
+	Estimated bool `json:"estimated,omitempty"`
+	Vision    bool `json:"vision,omitempty"`
+	Tools     bool `json:"tools,omitempty"`
 }
+
+// Reasoning styles for ModelInfo.ReasoningStyle.
+const (
+	// ReasoningNone: no reasoning controls, or none known.
+	ReasoningNone = ""
+	// ReasoningBudget: thinking with an explicit token budget
+	// ({"type":"enabled","budget_tokens":N} on Anthropic).
+	ReasoningBudget = "budget"
+	// ReasoningAdaptive: the model decides how much to think; only the effort
+	// level is chosen (Anthropic thinking.type "adaptive" plus output_config).
+	// Budget-style thinking is rejected by these models.
+	ReasoningAdaptive = "adaptive"
+	// ReasoningEffort: a reasoning_effort level on chat completions
+	// (OpenAI-compatible o-series and GPT-5 models).
+	ReasoningEffort = "effort"
+)
 
 // Cost returns the USD cost of u at m's prices.
 func (m ModelInfo) Cost(u Usage) float64 {
@@ -214,6 +245,37 @@ func (m ModelInfo) Cost(u Usage) float64 {
 		float64(u.OutputTokens)*m.OutputPerMTok +
 		float64(u.CacheReadTokens)*m.CacheReadPerMTok +
 		float64(u.CacheWriteTokens)*m.CacheWritePerMTok) / 1e6
+}
+
+// ToolArgs turns the accumulated argument text of one tool call into the
+// Args of its EvToolCallEnd. Empty text (and "null") is {}. Text that is a
+// JSON object is returned as-is. Anything else is malformed: it is returned
+// as a JSON string holding the raw text, so the bytes are kept and the value
+// stays valid JSON. Use UnparsedArgs to detect that case. The agent rejects
+// malformed calls with an error the model can read; it never runs them.
+func ToolArgs(raw string) json.RawMessage {
+	t := strings.TrimSpace(raw)
+	if t == "" || t == "null" {
+		return json.RawMessage(`{}`)
+	}
+	if t[0] == '{' && json.Valid([]byte(t)) {
+		return json.RawMessage(t)
+	}
+	b, _ := json.Marshal(raw)
+	return b
+}
+
+// UnparsedArgs reports whether args came from ToolArgs with text that did not
+// parse as a JSON object, and returns that raw text.
+func UnparsedArgs(args json.RawMessage) (string, bool) {
+	if len(args) == 0 || args[0] != '"' {
+		return "", false
+	}
+	var s string
+	if err := json.Unmarshal(args, &s); err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // SplitModelRef splits "provider/model" into its parts. A ref with no slash

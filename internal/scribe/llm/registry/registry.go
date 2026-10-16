@@ -363,6 +363,10 @@ func (r *Registry) enrich(provider string, m llm.ModelInfo) llm.ModelInfo {
 	if m.InputPerMTok == 0 && m.OutputPerMTok == 0 {
 		m.InputPerMTok, m.OutputPerMTok = known.InputPerMTok, known.OutputPerMTok
 		m.CacheReadPerMTok, m.CacheWritePerMTok = known.CacheReadPerMTok, known.CacheWritePerMTok
+		m.Estimated = known.Estimated
+	}
+	if m.ReasoningStyle == "" {
+		m.ReasoningStyle = known.ReasoningStyle
 	}
 	if m.Name == "" {
 		m.Name = m.ID

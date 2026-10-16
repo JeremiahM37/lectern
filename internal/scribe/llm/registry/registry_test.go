@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/anthropic"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/llm/openai"
 )
@@ -388,13 +389,60 @@ func TestModelInfoPricingAndContext(t *testing.T) {
 		t.Fatalf("claude from KnownModels = %+v", claude)
 	}
 
+	// An unknown id is priced at the Sonnet-class default and flagged.
 	unknown := r.ModelInfo("lab/whatever-1")
-	if unknown.InputPerMTok != 0 || unknown.OutputPerMTok != 0 || unknown.ContextWindow != 128000 {
+	if unknown.InputPerMTok != 3 || unknown.OutputPerMTok != 15 || unknown.ContextWindow != 128000 {
 		t.Fatalf("unknown = %+v", unknown)
 	}
+	if !unknown.Estimated {
+		t.Fatal("unknown model must be marked Estimated")
+	}
+	if claude.Estimated {
+		t.Fatal("a known model must not be marked Estimated")
+	}
 	local := r.ModelInfo("ollama/gpt-5-mini")
-	if local.InputPerMTok != 0 {
-		t.Fatalf("local provider should be free: %+v", local)
+	if local.InputPerMTok != 0 || local.Estimated {
+		t.Fatalf("local provider should be free and not estimated: %+v", local)
+	}
+	if free := r.ModelInfo("openrouter/some-model:free"); free.InputPerMTok != 0 || free.Estimated {
+		t.Fatalf(":free variant should be free: %+v", free)
+	}
+}
+
+func TestEnrichKeepsProviderPricesAndFlagsEstimates(t *testing.T) {
+	isolate(t)
+	r := New(config.Config{})
+	// A provider that reports its own price is not estimated.
+	own := r.enrich("lab", llm.ModelInfo{ID: "whatever-1", InputPerMTok: 0.5, OutputPerMTok: 1})
+	if own.Estimated || own.InputPerMTok != 0.5 {
+		t.Fatalf("provider price overwritten: %+v", own)
+	}
+	// One with no price from the provider gets the default and the flag.
+	est := r.enrich("lab", llm.ModelInfo{ID: "whatever-1"})
+	if !est.Estimated || est.InputPerMTok != 3 {
+		t.Fatalf("default not applied: %+v", est)
+	}
+}
+
+func TestReasoningStyleInTable(t *testing.T) {
+	isolate(t)
+	r := New(config.Config{})
+	cases := map[string]string{
+		"anthropic/claude-opus-5-5":   llm.ReasoningAdaptive,
+		"anthropic/claude-haiku-5-5":  llm.ReasoningAdaptive,
+		"anthropic/claude-opus-4-7":   llm.ReasoningAdaptive,
+		"anthropic/claude-sonnet-4-5": llm.ReasoningBudget,
+		"anthropic/claude-opus-4-5":   llm.ReasoningBudget,
+		"openai/gpt-5-mini":           llm.ReasoningEffort,
+		"openai/o3-mini":              llm.ReasoningEffort,
+		"openai/o1-mini":              llm.ReasoningNone,
+		"openai/gpt-4.1":              llm.ReasoningNone,
+		"deepseek/deepseek-chat":      llm.ReasoningNone,
+	}
+	for ref, want := range cases {
+		if got := r.ModelInfo(ref).ReasoningStyle; got != want {
+			t.Errorf("%s ReasoningStyle = %q, want %q", ref, got, want)
+		}
 	}
 }
 

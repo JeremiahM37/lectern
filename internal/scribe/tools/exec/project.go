@@ -22,6 +22,7 @@ type projectArgs struct {
 	Action    string `json:"action"`
 	Target    string `json:"target"`
 	Args      string `json:"args"`
+	Fix       bool   `json:"fix"`
 	TimeoutMS int    `json:"timeout_ms"`
 }
 
@@ -31,17 +32,30 @@ func (t *projectTool) Spec() llm.ToolSpec {
 		Description: "Run this project's own test, lint, typecheck, build, format or run command. " +
 			"The toolchain is detected from the files in the project root (Go, Rust, Node with npm/pnpm/yarn/bun, Python, .NET, PHP, Swift, Xcode, Dart/Flutter, Elixir, Ruby, Gradle, Maven, CMake, Make, Zig, Haskell, Scala, Clojure, Deno). " +
 			"Use action list to see the detected commands. Failing tests and error locations are reported. " +
+			"Action check runs typecheck, then lint, then test and gives one summary; lint warnings fail it. " +
+			"fix: true applies the linter's auto-fix (lint, or the lint stage of check) where the toolchain has one. " +
 			"Prefer this to shell for checks: it knows the right command for the project.",
 		Schema: tools.Schema(map[string]any{
-			"action":     tools.Enum("What to run.", "test", "lint", "typecheck", "build", "format", "run", "list"),
+			"action":     tools.Enum("What to run. check runs typecheck, lint and test in order.", "check", "test", "lint", "typecheck", "build", "format", "run", "list"),
 			"target":     tools.Str("Optional file, package or test filter (test, lint), or script/target name (run)."),
 			"args":       tools.Str("Optional extra arguments appended to the command, e.g. \"-run TestFoo -v\"."),
-			"timeout_ms": tools.Int("Timeout in milliseconds (default 600000, max 600000)."),
+			"fix":        tools.Bool("lint: apply the linter's auto-fix (e.g. eslint --fix, ruff check --fix). check: apply it to the lint stage. Changes files."),
+			"timeout_ms": tools.Int("Timeout in milliseconds (default 600000, max 600000; per stage for check)."),
 		}, "action"),
 	}
 }
 
 func (t *projectTool) ReadOnly() bool { return false }
+
+// ReadOnlyCall reports whether a call only reads the project. check is
+// read-only unless fix is set; fix changes files, so it is not.
+func (t *projectTool) ReadOnlyCall(raw json.RawMessage) bool {
+	var a projectArgs
+	if tools.Decode(raw, &a) != nil {
+		return false
+	}
+	return strings.ToLower(strings.TrimSpace(a.Action)) == "check" && !a.Fix
+}
 
 func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessage) tools.Result {
 	var a projectArgs
@@ -57,11 +71,15 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 	if action == "list" {
 		return listResult(profile, env.Workdir)
 	}
+	if action == "check" {
+		return t.runCheck(ctx, env, a, profile)
+	}
 	if !isAction(action) {
-		return tools.Errorf("unknown action %q. Use one of: test, lint, typecheck, build, format, run, list.", a.Action)
+		return tools.Errorf("unknown action %q. Use one of: check, test, lint, typecheck, build, format, run, list.", a.Action)
 	}
 
-	cmd := commandFor(profile, action, strings.TrimSpace(a.Target))
+	target := strings.TrimSpace(a.Target)
+	cmd := commandFor(profile, action, target)
 	if cmd == "" {
 		return tools.Result{
 			Output:  fmt.Sprintf("No %s command detected for this project. Use shell to run it manually.", action),
@@ -69,6 +87,16 @@ func (t *projectTool) Run(ctx context.Context, env *tools.Env, raw json.RawMessa
 			Summary: "no " + action + " command",
 			Meta:    map[string]any{"error": "no command", "ecosystem": profile.Ecosystem},
 		}
+	}
+	if a.Fix {
+		if action != "lint" {
+			return tools.Errorf("fix applies to lint and check only. Use the format action to rewrite files.")
+		}
+		fixed, ok := fixCommand(profile.Commands[action])
+		if !ok {
+			return tools.Errorf("no auto-fix is known for %q. Run lint without fix to see the findings, then fix them by hand.", profile.Commands[action])
+		}
+		cmd = commandFor(Profile{Ecosystem: profile.Ecosystem, Manager: profile.Manager, Commands: map[string]string{action: fixed}}, action, target)
 	}
 	if extra := strings.TrimSpace(a.Args); extra != "" {
 		cmd += " " + extra

@@ -11,10 +11,7 @@ import (
 // build renders every record (finished ones from cache), records where each
 // record starts, and collects the clickable rows.
 func (v *View) build() {
-	w := v.w
-	if w < 1 {
-		w = 1
-	}
+	w := v.bodyW()
 	now := v.clock()
 	v.advanceAll(now)
 	lines := []string{}
@@ -46,6 +43,7 @@ func (v *View) build() {
 	if len(v.msgs) == 0 {
 		lines = append(lines, "  "+fg(v.th.TextMuted, styledItalic("No messages yet. Type below to start.")))
 	}
+	v.placeRail()
 	v.lines, v.hits, v.lastTotal = lines, hits, len(lines)
 }
 
@@ -94,17 +92,24 @@ func (v *View) View() string {
 	}
 	v.build()
 	top := v.windowTop(len(v.lines))
+	bw := v.bodyW()
 	rows := make([]string, v.h)
 	for r := range rows {
 		s := ""
 		if i := top + r; i < len(v.lines) {
 			s = v.lines[i]
 		}
-		rows[r] = fit(s, v.w)
+		rows[r] = fit(s, bw)
 	}
 	if !v.sticky && top+v.h < len(v.lines) {
 		if n := len(v.lines) - v.detachAt; n > 0 {
-			rows[v.h-1] = fit(fg(v.th.Brand, fmt.Sprintf("↓ %d new lines — End to jump", n)), v.w)
+			rows[v.h-1] = fit(fg(v.th.Brand, fmt.Sprintf("↓ %d new lines — End to jump", n)), bw)
+		}
+	}
+	if v.railOn() {
+		rail := v.railColumn(top)
+		for r := range rows {
+			rows[r] = rail[r] + rows[r]
 		}
 	}
 	return strings.Join(rows, "\n")
@@ -189,6 +194,9 @@ func (v *View) HandleMouse(m tea.MouseMsg) bool {
 		v.ScrollDown(3)
 		return true
 	case m.Action == tea.MouseActionPress && m.Button == tea.MouseButtonLeft:
+		if v.railOn() && m.X < railW {
+			return true // the rail takes clicks in its own columns
+		}
 		v.build()
 		abs := v.windowTop(len(v.lines)) + m.Y
 		t, ok := v.hits[abs]

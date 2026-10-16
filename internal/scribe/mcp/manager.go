@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type ServerStatus struct {
 	State     State
 	Error     string
 	ToolNames []string // registered tool names (mcp__server__tool)
+	Spec      config.MCPServer
 }
 
 // Options configures a Manager. Use NewFromDisk for the normal case.
@@ -73,6 +75,9 @@ type Manager struct {
 	servers map[string]*server
 	reg     *tools.Registry
 	allowed map[string]bool // tools the user allowed for this session
+	// published is the set of tool names currently in reg, so a tool that
+	// goes away can be unregistered.
+	published map[string]bool
 }
 
 // New builds a Manager. Nothing connects until Start.
@@ -86,20 +91,32 @@ func New(o Options) *Manager {
 	if o.CallTimeout == 0 {
 		o.CallTimeout = 60 * time.Second
 	}
-	m := &Manager{opts: o, servers: map[string]*server{}, allowed: map[string]bool{}}
+	m := &Manager{opts: o, servers: map[string]*server{}, allowed: map[string]bool{}, published: map[string]bool{}}
+	for _, s := range m.plan(o) {
+		m.servers[s.spec.Name] = s
+		m.order = append(m.order, s.spec.Name)
+	}
+	return m
+}
 
+// plan turns the server lists in o into fresh, unconnected servers in config
+// order. A name appears once: a trusted project server replaces a global one
+// of the same name, and an untrusted project server never shadows a global.
+func (m *Manager) plan(o Options) []*server {
+	var out []*server
+	seen := map[string]bool{}
+	add := func(s config.MCPServer, source string, state State) {
+		if seen[s.Name] || s.Name == "" {
+			return
+		}
+		seen[s.Name] = true
+		out = append(out, &server{spec: s, source: source, state: state})
+	}
 	projectNames := map[string]bool{}
 	for _, s := range o.Project {
 		if s.Name != "" {
 			projectNames[s.Name] = true
 		}
-	}
-	add := func(s config.MCPServer, source string, state State) {
-		if _, dup := m.servers[s.Name]; dup || s.Name == "" {
-			return
-		}
-		m.servers[s.Name] = &server{spec: s, source: source, state: state}
-		m.order = append(m.order, s.Name)
 	}
 	for _, s := range o.Global {
 		if o.ProjectTrusted && projectNames[s.Name] {
@@ -110,11 +127,73 @@ func New(o Options) *Manager {
 	for _, s := range o.Project {
 		if o.ProjectTrusted {
 			add(s, "project", initialState(s, true))
-		} else if _, exists := m.servers[s.Name]; !exists {
+		} else if !seen[s.Name] {
 			add(s, "project", StateUntrusted)
 		}
 	}
-	return m
+	return out
+}
+
+// Reload applies new server lists to a running Manager, typically after the
+// config files changed. Servers that disappeared disconnect and lose their
+// tools. Servers whose definition or trust changed reconnect. New enabled
+// servers start. Unchanged servers keep their connection. Connections run in
+// the background, and the registry follows as each one finishes.
+func (m *Manager) Reload(o Options) {
+	fresh := m.plan(o)
+
+	m.mu.Lock()
+	var closing []*Client
+	var starts []string
+	keep := make(map[string]*server, len(fresh))
+	order := make([]string, 0, len(fresh))
+	for _, f := range fresh {
+		name := f.spec.Name
+		order = append(order, name)
+		old, had := m.servers[name]
+		if had && old.source == f.source && reflect.DeepEqual(old.spec, f.spec) &&
+			(old.state == StateUntrusted) == (f.state == StateUntrusted) {
+			keep[name] = old
+			continue
+		}
+		if had {
+			old.gen++
+			if old.client != nil {
+				closing = append(closing, old.client)
+				old.client = nil
+			}
+			old.tools = nil
+		}
+		keep[name] = f
+		if f.state == StateConnecting {
+			starts = append(starts, name)
+		}
+	}
+	for name, old := range m.servers {
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		old.gen++
+		if old.client != nil {
+			closing = append(closing, old.client)
+			old.client = nil
+		}
+		old.tools = nil
+	}
+	m.servers = keep
+	m.order = order
+	m.syncRegistryLocked()
+	m.mu.Unlock()
+
+	for _, c := range closing {
+		c.Close()
+	}
+	for _, name := range starts {
+		go func(name string) {
+			m.connect(context.Background(), name)
+			m.syncRegistry()
+		}(name)
+	}
 }
 
 func initialState(s config.MCPServer, trusted bool) State {
@@ -249,6 +328,11 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) connect(parent context.Context, name string) {
 	m.mu.Lock()
 	s := m.servers[name]
+	if s == nil {
+		// Removed by Reload after the attempt was queued.
+		m.mu.Unlock()
+		return
+	}
 	s.gen++
 	gen := s.gen
 	s.state = StateConnecting
@@ -366,7 +450,7 @@ func (m *Manager) Status() []ServerStatus {
 	out := make([]ServerStatus, 0, len(m.order))
 	for _, n := range m.order {
 		s := m.servers[n]
-		st := ServerStatus{Name: n, Transport: "stdio", Source: s.source, State: s.state, Error: s.err}
+		st := ServerStatus{Name: n, Transport: "stdio", Source: s.source, State: s.state, Error: s.err, Spec: s.spec}
 		if s.spec.URL != "" {
 			st.Transport = "http"
 		}
@@ -381,9 +465,8 @@ func (m *Manager) Status() []ServerStatus {
 }
 
 // RegisterTools publishes the tools of ready servers to r now and whenever
-// the set changes. Tools a server removes stay in r until the process
-// restarts, because tools.Registry has no Unregister; calling one returns
-// an error from the server.
+// the set changes. A tool whose server stops, is disabled or is removed is
+// unregistered, so the next model request no longer offers it.
 func (m *Manager) RegisterTools(r *tools.Registry) {
 	m.mu.Lock()
 	m.reg = r
@@ -391,30 +474,43 @@ func (m *Manager) RegisterTools(r *tools.Registry) {
 	m.syncRegistry()
 }
 
+// syncRegistry makes the registry hold exactly the tools of ready servers.
 func (m *Manager) syncRegistry() {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.syncRegistryLocked()
+}
+
+// syncRegistryLocked is syncRegistry with m.mu already held. Registry changes
+// happen under the lock so two syncs cannot interleave and leave a stale tool.
+func (m *Manager) syncRegistryLocked() {
 	reg := m.reg
-	var list []tools.Tool
-	if reg != nil {
-		for _, n := range m.order {
-			s := m.servers[n]
-			if s.state != StateReady {
-				continue
+	if reg == nil {
+		return
+	}
+	now := map[string]bool{}
+	for _, n := range m.order {
+		s := m.servers[n]
+		if s == nil || s.state != StateReady {
+			continue
+		}
+		for _, t := range s.tools {
+			rt := &remoteTool{
+				m: m, server: n, remote: t.Name, name: toolName(n, t.Name),
+				desc:     fmt.Sprintf("[mcp:%s] %s", n, t.Description),
+				schema:   schemaOrEmpty(t.Schema),
+				readOnly: t.ReadOnly,
 			}
-			for _, t := range s.tools {
-				list = append(list, &remoteTool{
-					m: m, server: n, remote: t.Name, name: toolName(n, t.Name),
-					desc:     fmt.Sprintf("[mcp:%s] %s", n, t.Description),
-					schema:   schemaOrEmpty(t.Schema),
-					readOnly: t.ReadOnly,
-				})
-			}
+			now[rt.name] = true
+			reg.Register(rt)
 		}
 	}
-	m.mu.Unlock()
-	for _, t := range list {
-		reg.Register(t)
+	for name := range m.published {
+		if !now[name] {
+			reg.Unregister(name)
+		}
 	}
+	m.published = now
 }
 
 func schemaOrEmpty(s json.RawMessage) json.RawMessage {

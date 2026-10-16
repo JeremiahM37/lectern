@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/agent"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tools"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/icons"
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/tui/render"
@@ -14,9 +16,10 @@ import (
 
 // Plan review answers. The agent parses these exact strings (agent/interactive.go).
 const (
-	answerExecute = "Execute"
-	answerCancel  = "Cancel"
-	answerRevise  = "Revise" // followed by a space and the feedback
+	answerExecute = agent.AnswerExecute
+	answerClear   = agent.AnswerClear
+	answerRevise  = agent.AnswerRevise // followed by a space and the feedback
+	answerCancel  = agent.AnswerCancel
 )
 
 // promptUI is the inline panel that replaces the input while a tool waits
@@ -29,6 +32,7 @@ type promptUI struct {
 	text   []rune // free-text answer or revision feedback
 	typing bool   // free-text entry is open
 	scroll int    // plan body scroll
+	full   bool   // plan review shows the full markdown instead of the step list
 }
 
 func newPromptUI(p Prompt, th theme.Theme, width int) *promptUI {
@@ -54,7 +58,7 @@ func (ui *promptUI) optionCount() int {
 	case "approval":
 		return 3
 	case "plan":
-		return 3
+		return len(planChoices)
 	}
 	n := len(ui.p.Question.Options)
 	return n + 1 // "Type an answer…"
@@ -94,6 +98,17 @@ func (m *Model) handlePromptKey(km tea.KeyMsg) (tea.Cmd, bool) {
 		return m.promptTyping(t, km), true
 	}
 	n := ui.optionCount()
+	if ui.kind == "plan" {
+		switch {
+		case len(key) == 1 && key[0] >= '1' && key[0] <= '0'+byte(len(planChoices)):
+			ui.sel = int(key[0] - '1')
+			return m.promptChoose(t), true
+		case key == "v":
+			ui.full = !ui.full
+			ui.scroll = 0
+			return nil, true
+		}
+	}
 	switch key {
 	case "esc":
 		return m.resolvePrompt(t, denyFor(ui)), true
@@ -140,10 +155,12 @@ func (m *Model) promptChoose(t *tab) tea.Cmd {
 		}
 		return m.resolvePrompt(t, denyFor(ui))
 	case "plan":
-		switch ui.sel {
-		case 0:
+		switch planChoices[ui.sel] {
+		case answerExecute:
 			return m.resolvePrompt(t, PromptReply{Answer: answerExecute})
-		case 1:
+		case answerClear:
+			return m.resolvePrompt(t, PromptReply{Answer: answerClear})
+		case answerRevise:
 			ui.typing = true
 			ui.text = nil
 			return nil
@@ -281,35 +298,83 @@ func (m *Model) questionLines(ui *promptUI, w int) []string {
 	return frame("Question", icons.Icon("question"), indentRows(body), footer, w, th.Brand, th)
 }
 
+// planChoices are the plan review options in key order (keys 1-4).
+var planChoices = agent.PlanOptions()
+
+// planChoiceColor is the accent of one plan review option.
+func planChoiceColor(th theme.Theme, choice string) lipgloss.TerminalColor {
+	switch choice {
+	case answerExecute:
+		return th.Info
+	case answerClear:
+		return th.Warning
+	case answerRevise:
+		return th.BrandAlt
+	}
+	return th.BrandSecondary
+}
+
+// planPath reads the saved-file path the review body starts with ("Saved to `path`").
+func planPath(body string) string {
+	first, _, _ := strings.Cut(body, "\n")
+	p, ok := strings.CutPrefix(first, "Saved to `")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSuffix(p, "`")
+}
+
+// planLines draws the plan review: title, numbered steps with their files
+// dimmed underneath, then the options. v swaps the step list for the full
+// markdown plan.
 func (m *Model) planLines(ui *promptUI, w int) []string {
 	th := m.th
 	q := ui.p.Question
-	maxBody := max(4, m.height/3)
-	md := render.Markdown(q.Body, w-6, th, false)
-	all := strings.Split(md, "\n")
-	ui.scroll = clamp(ui.scroll, 0, max(0, len(all)-maxBody))
-	end := min(len(all), ui.scroll+maxBody)
-	body := append([]string{}, all[ui.scroll:end]...)
-	if len(all) > maxBody {
-		body = append(body, fg(th.TextFaint).Render("PgUp/PgDn scroll the plan"))
+	steps := agent.ParsePlanSteps(q.Body)
+	var body []string
+	if ui.full || len(steps) == 0 {
+		maxBody := max(4, m.height/3)
+		all := strings.Split(render.Markdown(q.Body, w-6, th, false), "\n")
+		ui.scroll = clamp(ui.scroll, 0, max(0, len(all)-maxBody))
+		end := min(len(all), ui.scroll+maxBody)
+		body = append(body, all[ui.scroll:end]...)
+		if len(all) > maxBody {
+			body = append(body, fg(th.TextFaint).Render("PgUp/PgDn scroll the plan"))
+		}
+	} else {
+		head := fmt.Sprintf("%d steps", len(steps))
+		if p := planPath(q.Body); p != "" {
+			head += "  ·  " + p
+		}
+		body = append(body, fg(th.TextDim).Render(head), "")
+		maxRows := max(5, m.height/2)
+		for i, s := range steps {
+			if i == maxRows {
+				body = append(body, fg(th.TextDim).Render(fmt.Sprintf("  +%d more", len(steps)-i)))
+				break
+			}
+			num := fmt.Sprintf("%2d. ", i+1)
+			body = append(body, fg(th.BrandAlt).Render(num)+fg(th.TextSecondary).Render(fitWidth(s.Text, w-12)))
+			if len(s.Files) > 0 {
+				body = append(body, fg(th.TextDim).Render("    "+strings.Join(s.Files, ", ")))
+			}
+		}
 	}
 	body = append(body, "")
-	labels := []string{"Execute", "Revise", "Cancel"}
-	var btns []string
-	for i, l := range labels {
-		btns = append(btns, m.optionRow(l, i == ui.sel, th.Info))
+	for i, c := range planChoices {
+		body = append(body, m.optionRow(fmt.Sprintf("%d  %s", i+1, c), i == ui.sel, planChoiceColor(th, c)))
 	}
 	if ui.typing {
 		body = append(body, fg(th.BrandAlt).Render(" revise › ")+fg(th.TextPrimary).Render(string(ui.text))+fg(th.BrandAlt).Render("▌"))
-	} else {
-		body = append(body, strings.Join(btns, "    "))
 	}
-	footer := "[↑↓] select · [Enter] confirm · [Esc] cancel"
+	footer := "1-4 choose · ↑↓ select · Enter confirm · v full plan · Esc cancel"
+	if ui.full {
+		footer = "1-4 choose · ↑↓ select · Enter confirm · v steps · Esc cancel"
+	}
 	if ui.typing {
 		footer = "Enter submit · Esc back"
 	}
-	title := q.Question
-	return frame(title, icons.Icon("plan"), indentRows(body), footer, w, th.Info, th)
+	return frame(q.Question, icons.Icon("plan"), indentRows(body), footer, w, th.Info, th)
 }
 
 // optionRow renders one choice; the selected row gets a marker and bold text.

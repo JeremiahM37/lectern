@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/JeremiahM37/lectern/v2/internal/scribe/config"
+	"github.com/JeremiahM37/lectern/v2/internal/scribe/redact"
 )
 
 // HistoryCap is the most prompts kept in history.jsonl.
@@ -47,6 +48,8 @@ func AppendHistory(text, cwd string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
+	// A pasted key must not be kept for up-arrow recall or for search.
+	text = redact.Default().Redact(text)
 	historyMu.Lock()
 	defer historyMu.Unlock()
 	entries, err := readHistory()
