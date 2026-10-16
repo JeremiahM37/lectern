@@ -210,6 +210,8 @@ type Agent struct {
 	// sysChars is the length of the last system prompt, for the context
 	// estimate before the first response.
 	sysChars int
+	// toolChars is the size of the tool definitions in that request.
+	toolChars int
 	// modelLog and compactLog are the bounded histories behind /model-events
 	// and the compaction log.
 	modelLog   []Event
@@ -857,12 +859,31 @@ func (a *Agent) request(extra ...llm.Message) llm.Request {
 		CacheSystem: true,
 		Headers:     a.opts.Headers,
 	}
+	a.toolChars = 0
+	for _, t := range req.Tools {
+		a.toolChars += len(t.Name) + len(t.Description) + len(t.Schema)
+	}
 	m := a.model
 	a.mu.Unlock()
 	if a.opts.Tune != nil {
 		a.opts.Tune(m, &req)
 	}
 	return req
+}
+
+// ContextParts estimates what fills the context, in tokens, from the last
+// request: the system prompt, the tool definitions and the conversation.
+// They are character estimates (about four per token), so they need not add
+// up to the count the provider reports.
+type ContextParts struct {
+	System, Tools, Conversation int
+}
+
+// ContextParts returns the estimate. It is zero before the first request.
+func (a *Agent) ContextParts() ContextParts {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return ContextParts{System: a.sysChars / 4, Tools: a.toolChars / 4, Conversation: estimateHistoryTokens(a.msgs)}
 }
 
 // stepWithRetry runs one model call, retrying transient failures and then

@@ -61,6 +61,8 @@ type stdioTransport struct {
 	stdin  io.WriteCloser
 	wmu    sync.Mutex
 	stderr *tailBuf
+	// exitErr is why the server exited; set before exited is closed.
+	exitErr error
 	exited chan struct{}
 	once   sync.Once
 }
@@ -97,7 +99,8 @@ func newStdioTransport(c *Client, spec config.MCPServer) (*stdioTransport, error
 		if tail := t.stderr.String(); tail != "" {
 			reason += ": " + tail
 		}
-		c.fail(fmt.Errorf("%s", reason))
+		t.exitErr = fmt.Errorf("%s", reason)
+		c.fail(t.exitErr)
 		close(t.exited)
 	}()
 	return t, nil
@@ -120,6 +123,16 @@ func (t *stdioTransport) send(_ context.Context, msg []byte, _ string) error {
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	_, err := t.stdin.Write(append(msg, '\n'))
+	if err != nil {
+		// A failed write means the server is going away. Its exit reason
+		// carries its stderr ("missing API token"), which says far more than
+		// "broken pipe", so wait briefly for it.
+		select {
+		case <-t.exited:
+			return t.exitErr
+		case <-time.After(time.Second):
+		}
+	}
 	return err
 }
 

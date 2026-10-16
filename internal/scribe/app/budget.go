@@ -123,13 +123,15 @@ func (a *App) refuseTurn(err error) (agent.TurnStats, error) {
 func (a *App) recordDailyTokens(stats agent.TurnStats) {
 	limit := a.liveConfig().DailyBudget()
 	n := turnTokens(stats)
-	if limit <= 0 || n <= 0 {
+	// Spend is counted even without a budget, so /context can show today's
+	// total and a budget set later starts from the real figure.
+	if n <= 0 {
 		return
 	}
 	budgetMu.Lock()
 	u := loadDailyUse(budgetNow())
 	u.Tokens += n
-	warn := !u.Warned && float64(u.Tokens) >= budgetWarnAt*float64(limit)
+	warn := limit > 0 && !u.Warned && float64(u.Tokens) >= budgetWarnAt*float64(limit)
 	if warn {
 		u.Warned = true
 	}

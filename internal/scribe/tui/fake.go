@@ -385,6 +385,10 @@ func (f *FakeBackend) SetReasoning(level string) {
 }
 
 // Usage implements Backend.
+func (f *FakeBackend) ContextDetail() ContextDetail {
+	return ContextDetail{System: 3200, Tools: 5100, Conversation: 2700, Today: 184000, DailyBudget: 1000000}
+}
+
 func (f *FakeBackend) Usage() (llm.Usage, float64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

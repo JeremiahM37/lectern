@@ -109,6 +109,9 @@ type Backend interface {
 
 	Usage() (llm.Usage, float64) // cumulative tokens, USD
 	Context() (used, window int) // tokens in the last request, model window
+	// ContextDetail is what fills the context (estimates) and today's token
+	// spend against the daily budget, for /context.
+	ContextDetail() ContextDetail
 	Compact(ctx context.Context) error
 
 	NewSession() error
@@ -249,4 +252,12 @@ type ContextClearer interface {
 // so it lives in exactly one place after the move.
 type ConfigMover interface {
 	MoveConfig(key string, value any, toProject, fromProject bool) error
+}
+
+// ContextDetail is the /context breakdown. System, Tools and Conversation are
+// estimates in tokens; Today is the tokens spent today across sessions and
+// DailyBudget the configured cap (0 means none).
+type ContextDetail struct {
+	System, Tools, Conversation int
+	Today, DailyBudget          int
 }

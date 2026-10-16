@@ -296,17 +296,7 @@ func init() {
 					return m.contextCommand(args)
 				}
 				t := m.cur()
-				used, win := t.be.Context()
-				u, cost := t.be.Usage()
-				lines := []string{
-					fmt.Sprintf("Model          %s", t.be.Model()),
-					fmt.Sprintf("Context        %s of %s (%d%%)", render.HumanTokens(used), render.HumanTokens(win), pct(used, win)),
-					fmt.Sprintf("Input tokens   %s", render.HumanTokens(u.InputTokens)),
-					fmt.Sprintf("Output tokens  %s", render.HumanTokens(u.OutputTokens)),
-					fmt.Sprintf("Cache read     %s", render.HumanTokens(u.CacheReadTokens)),
-					fmt.Sprintf("Cost           $%.4f", cost),
-				}
-				m.openInfo("Context", "gauge", lines)
+				m.openInfo("Context", "gauge", contextLines(t))
 				return nil
 			}},
 		&command{Name: "cost", Desc: "Token use and cost for this session", Group: "Intelligence",

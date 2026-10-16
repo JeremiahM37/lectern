@@ -513,6 +513,15 @@ func (b *scribeBackend) SetReasoning(level string) {
 // Usage implements tui.Backend.
 func (b *scribeBackend) Usage() (llm.Usage, float64) { return b.current().Agent.Usage() }
 
+func (b *scribeBackend) ContextDetail() tui.ContextDetail {
+	a := b.current()
+	p := a.Agent.ContextParts()
+	return tui.ContextDetail{
+		System: p.System, Tools: p.Tools, Conversation: p.Conversation,
+		Today: loadDailyUse(time.Now()).Tokens, DailyBudget: a.liveConfig().DailyBudget(),
+	}
+}
+
 // Context implements tui.Backend.
 func (b *scribeBackend) Context() (used, window int) { return b.current().Agent.ContextUsed() }
 
